@@ -26,6 +26,16 @@
       "sourceType": "github",
       "computedHash": "92a5c170cf238f45f08439d9d5d7947af490b880ee8f15306183240483cbed02"
     },
+    "frontend-design": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "computedHash": "063a0e6448123cd359ad0044cc46b0e490cc7964d45ef4bb9fd842bd2ffbca67"
+    },
+    "shadcn": {
+      "source": "shadcn/ui",
+      "sourceType": "github",
+      "computedHash": "507f011a70e8b3ae242bdc0bb5b39fd91a1d4049a0f3c281991ccf84973d591c"
+    },
     "vercel-composition-patterns": {
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",
@@ -45,6 +55,16 @@
       "source": "vercel-labs/agent-skills",
       "sourceType": "github",
       "computedHash": "a6a44d5498f7e8f68289902f3dedfc6f38ae0cee1e96527c80724cf27f727c2a"
+    },
+    "workos": {
+      "source": "workos/skills",
+      "sourceType": "github",
+      "computedHash": "7b01eb2522abcb4133c18f3a038d3cf33d302f2352463737c6ea186951105d6d"
+    },
+    "workos-widgets": {
+      "source": "workos/skills",
+      "sourceType": "github",
+      "computedHash": "e03e6e10333974bbb4255f7f9f57932330dd8e9a4e777bfdaad2e5a9d589dd15"
     }
   }
 }

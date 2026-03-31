@@ -1,17 +1,60 @@
 "use client";
 
-import { ConvexProvider, ConvexReactClient } from "convex/react";
-import type { ReactNode } from "react";
+import { ConvexReactClient, ConvexProviderWithAuth } from "convex/react";
+import { AuthKitProvider, useAccessToken, useAuth } from "@workos-inc/authkit-nextjs/components";
+import { type ReactNode, useCallback, useState } from "react";
 
-const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
-if (!convexUrl) {
-  throw new Error(
-    "Missing NEXT_PUBLIC_CONVEX_URL. Run `pnpm convex:dev` and copy the deployment URL into .env.local.",
+function getConvexUrl(): string {
+  const url = process.env.NEXT_PUBLIC_CONVEX_URL;
+  if (!url) {
+    throw new Error(
+      "Missing NEXT_PUBLIC_CONVEX_URL. Run `pnpm convex:dev` and copy the deployment URL into .env.local.",
+    );
+  }
+  return url;
+}
+
+export function ConvexClientProvider({ children }: { children: ReactNode }) {
+  const [convex] = useState(() => new ConvexReactClient(getConvexUrl()));
+
+  return (
+    <AuthKitProvider>
+      <ConvexProviderWithAuth client={convex} useAuth={useAuthFromAuthKit}>
+        {children}
+      </ConvexProviderWithAuth>
+    </AuthKitProvider>
   );
 }
 
-const convex = new ConvexReactClient(convexUrl);
+function useAuthFromAuthKit() {
+  const { user, loading: isLoading } = useAuth();
+  const { getAccessToken, refresh } = useAccessToken();
 
-export function ConvexClientProvider({ children }: { children: ReactNode }) {
-  return <ConvexProvider client={convex}>{children}</ConvexProvider>;
+  const isAuthenticated = !!user;
+
+  const fetchAccessToken = useCallback(
+    async ({ forceRefreshToken }: { forceRefreshToken?: boolean } = {}): Promise<string | null> => {
+      if (!user) {
+        return null;
+      }
+
+      try {
+        if (forceRefreshToken) {
+          return (await refresh()) ?? null;
+        }
+
+        return (await getAccessToken()) ?? null;
+      } catch (error) {
+        console.error("Failed to get access token:", error);
+        return null;
+      }
+    },
+    [user, refresh, getAccessToken],
+  );
+
+  return {
+    isLoading,
+    isAuthenticated,
+    fetchAccessToken,
+  };
 }

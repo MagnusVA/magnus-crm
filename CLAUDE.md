@@ -1,9 +1,11 @@
-@AGENTS.md
+# Claude Code Instructions for ptdom-crm
 
-<!-- convex-ai-start -->
-This project uses [Convex](https://convex.dev) as its backend.
+This file references project-specific instructions and guidelines.
 
-When working on Convex code, **always read `convex/_generated/ai/guidelines.md` first** for important guidelines on how to correctly use Convex APIs and patterns. The file contains rules that override what you may have learned about Convex from training data.
-
-Convex agent skills for common tasks can be installed by running `npx convex ai-files install`.
-<!-- convex-ai-end -->
+See **AGENTS.md** for:
+- Package manager & pnpm requirements
+- Plan structure and organization
+- Calendly integration docs
+- Next.js version-specific guidance
+- Convex-specific rules and guidelines
+- **Skills index** — comprehensive list of when to invoke each available skill
