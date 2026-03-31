@@ -9,12 +9,15 @@
  */
 
 import type * as admin_tenants from "../admin/tenants.js";
+import type * as admin_tenantsMutations from "../admin/tenantsMutations.js";
+import type * as admin_tenantsQueries from "../admin/tenantsQueries.js";
 import type * as auth from "../auth.js";
 import type * as calendly_oauth from "../calendly/oauth.js";
 import type * as calendly_orgMembers from "../calendly/orgMembers.js";
 import type * as calendly_tokens from "../calendly/tokens.js";
 import type * as calendly_webhookSetup from "../calendly/webhookSetup.js";
 import type * as http from "../http.js";
+import type * as lib_inviteToken from "../lib/inviteToken.js";
 import type * as onboarding_complete from "../onboarding/complete.js";
 import type * as onboarding_invite from "../onboarding/invite.js";
 import type * as requireSystemAdmin from "../requireSystemAdmin.js";
@@ -29,12 +32,15 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   "admin/tenants": typeof admin_tenants;
+  "admin/tenantsMutations": typeof admin_tenantsMutations;
+  "admin/tenantsQueries": typeof admin_tenantsQueries;
   auth: typeof auth;
   "calendly/oauth": typeof calendly_oauth;
   "calendly/orgMembers": typeof calendly_orgMembers;
   "calendly/tokens": typeof calendly_tokens;
   "calendly/webhookSetup": typeof calendly_webhookSetup;
   http: typeof http;
+  "lib/inviteToken": typeof lib_inviteToken;
   "onboarding/complete": typeof onboarding_complete;
   "onboarding/invite": typeof onboarding_invite;
   requireSystemAdmin: typeof requireSystemAdmin;
