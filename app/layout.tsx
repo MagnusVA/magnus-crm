@@ -22,8 +22,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-	title: "Todos",
-	description: "Simple Convex-backed todo list",
+	title: "MAGNUS CRM",
+	description: "Tenant onboarding and appointment operations control plane.",
 };
 
 export default function RootLayout({
@@ -45,7 +45,11 @@ export default function RootLayout({
 			)}
 		>
 			<body className="min-h-full flex flex-col">
-				<ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+				<ThemeProvider
+					attribute="class"
+					defaultTheme="dark"
+					enableSystem={false}
+				>
 					<TooltipProvider>
 						<ConvexClientProvider>{children}</ConvexClientProvider>
 					</TooltipProvider>
