@@ -4,6 +4,7 @@ import { ConvexClientProvider } from "./ConvexClientProvider";
 import "./globals.css";
 import { cn } from "@/lib/utils";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 const jetbrainsMono = JetBrains_Mono({
@@ -53,6 +54,7 @@ export default function RootLayout({
 					<TooltipProvider>
 						<ConvexClientProvider>{children}</ConvexClientProvider>
 					</TooltipProvider>
+					<Toaster />
 				</ThemeProvider>
 			</body>
 		</html>

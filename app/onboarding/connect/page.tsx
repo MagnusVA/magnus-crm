@@ -3,16 +3,16 @@
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import {
-  ArrowRight,
-  Calendar,
-  CheckCircle2,
-  CircleAlert,
-  Radio,
-  Settings2,
+  ArrowRightIcon,
+  CalendarIcon,
+  CheckCircle2Icon,
+  CircleAlertIcon,
+  RadioIcon,
+  Settings2Icon,
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -38,6 +38,20 @@ type RedeemState =
 // ---------------------------------------------------------------------------
 
 export default function ConnectCalendlyPage() {
+  return (
+    <Suspense
+      fallback={
+        <OnboardingShell>
+          <LoadingCard />
+        </OnboardingShell>
+      }
+    >
+      <ConnectCalendlyPageContent />
+    </Suspense>
+  );
+}
+
+function ConnectCalendlyPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, isLoading: convexLoading } = useConvexAuth();
@@ -138,9 +152,9 @@ function LoadingCard() {
       className="w-full max-w-sm motion-safe:animate-in motion-safe:fade-in motion-safe:duration-500"
       role="status"
     >
-      <div className="space-y-6 rounded-lg border border-border bg-card p-8 text-center shadow-sm">
+      <div className="flex flex-col gap-6 rounded-lg border border-border bg-card p-8 text-center shadow-sm">
         <PulsingDots />
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <h1 className="text-lg font-semibold tracking-tight text-card-foreground">
             Finishing Account Setup
           </h1>
@@ -162,8 +176,8 @@ function ErrorCard({ message }: { message: string }) {
     <div className="w-full max-w-sm motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-500">
       <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
         <div className="h-0.5 bg-destructive" />
-        <div className="space-y-5 p-8">
-          <div className="space-y-2">
+        <div className="flex flex-col gap-5 p-8">
+          <div className="flex flex-col gap-2">
             <p className="text-[11px] font-medium uppercase tracking-[0.2em] text-destructive">
               Onboarding Blocked
             </p>
@@ -194,15 +208,15 @@ function ErrorCard({ message }: { message: string }) {
 
 const PERMISSIONS = [
   {
-    icon: Calendar,
+    icon: CalendarIcon,
     label: "Scheduled events & attendee information",
   },
   {
-    icon: Settings2,
+    icon: Settings2Icon,
     label: "Event type configurations & availability rules",
   },
   {
-    icon: Radio,
+    icon: RadioIcon,
     label: "Real-time webhooks for live data synchronization",
   },
 ] as const;
@@ -249,10 +263,10 @@ function ConnectCard({
         </div>
 
         {/* Body */}
-        <div className="space-y-6 px-8 py-8">
+        <div className="flex flex-col gap-6 px-8 py-8">
           {calendlyConnected ? (
             <div className="flex items-start gap-3 rounded-md border border-primary/20 bg-primary/10 p-3.5">
-              <CheckCircle2
+              <CheckCircle2Icon
                 className="mt-0.5 size-4 shrink-0 text-primary"
                 aria-hidden="true"
               />
@@ -269,7 +283,7 @@ function ConnectCard({
 
           {errorMessage ? (
             <div className="flex items-start gap-3 rounded-md border border-destructive/20 bg-destructive/5 p-3.5">
-              <CircleAlert
+              <CircleAlertIcon
                 className="mt-0.5 size-4 shrink-0 text-destructive"
                 aria-hidden="true"
               />
@@ -287,7 +301,7 @@ function ConnectCard({
           {/* Already-redeemed notice */}
           {alreadyRedeemed ? (
             <div className="flex items-start gap-3 rounded-md border border-border bg-muted/30 p-3.5">
-              <CheckCircle2
+              <CheckCircle2Icon
                 className="mt-0.5 size-4 shrink-0 text-primary"
                 aria-hidden="true"
               />
@@ -303,11 +317,11 @@ function ConnectCard({
           ) : null}
 
           {/* Permissions */}
-          <div className="space-y-3">
+          <div className="flex flex-col gap-3">
             <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
               Calendly Access Required
             </p>
-            <ul className="space-y-2" role="list">
+            <ul className="flex flex-col gap-2" role="list">
               {PERMISSIONS.map(({ icon: Icon, label }, idx) => (
                 <li
                   key={label}
@@ -326,17 +340,17 @@ function ConnectCard({
 
           {/* CTA */}
           {calendlyConnected ? (
-            <Button asChild size="lg" className="w-full gap-2">
+            <Button asChild size="lg" className="w-full">
               <Link href="/">
                 Enter Workspace
-                <ArrowRight className="size-4" aria-hidden="true" />
+                <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
               </Link>
             </Button>
           ) : (
-            <Button asChild size="lg" className="w-full gap-2">
+            <Button asChild size="lg" className="w-full">
               <Link href={connectHref}>
                 Connect Calendly
-                <ArrowRight className="size-4" aria-hidden="true" />
+                <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
               </Link>
             </Button>
           )}

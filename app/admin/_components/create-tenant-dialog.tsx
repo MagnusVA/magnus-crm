@@ -1,6 +1,5 @@
 "use client";
 
-import { Loader2 } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -12,7 +11,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 
 // ---------------------------------------------------------------------------
@@ -80,15 +81,12 @@ export function CreateTenantDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <label
-                htmlFor="create-company-name"
-                className="text-sm font-medium text-foreground"
-              >
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor="create-company-name">
                 Company Name
-              </label>
+              </FieldLabel>
               <Input
                 ref={companyRef}
                 id="create-company-name"
@@ -101,15 +99,12 @@ export function CreateTenantDialog({
                 }
                 placeholder="Acme Sales Co&hellip;"
               />
-            </div>
+            </Field>
 
-            <div className="space-y-2">
-              <label
-                htmlFor="create-contact-email"
-                className="text-sm font-medium text-foreground"
-              >
+            <Field>
+              <FieldLabel htmlFor="create-contact-email">
                 Contact Email
-              </label>
+              </FieldLabel>
               <Input
                 id="create-contact-email"
                 name="contactEmail"
@@ -123,18 +118,15 @@ export function CreateTenantDialog({
                 }
                 placeholder="owner@example.com"
               />
-            </div>
+            </Field>
 
-            <div className="space-y-2">
-              <label
-                htmlFor="create-notes"
-                className="text-sm font-medium text-foreground"
-              >
+            <Field>
+              <FieldLabel htmlFor="create-notes">
                 Notes{" "}
                 <span className="font-normal text-muted-foreground">
                   (optional)
                 </span>
-              </label>
+              </FieldLabel>
               <Textarea
                 id="create-notes"
                 name="notes"
@@ -145,17 +137,14 @@ export function CreateTenantDialog({
                 placeholder="Pilot tenant, high-priority onboarding&hellip;"
                 rows={3}
               />
-            </div>
-          </div>
+            </Field>
+          </FieldGroup>
 
           <DialogFooter>
             <Button type="submit" disabled={!canSubmit}>
               {isSubmitting ? (
                 <>
-                  <Loader2
-                    className="size-4 animate-spin"
-                    aria-hidden="true"
-                  />
+                  <Spinner data-icon="inline-start" />
                   Creating&hellip;
                 </>
               ) : (

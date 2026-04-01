@@ -3,6 +3,7 @@
 import { ConvexReactClient, ConvexProviderWithAuth } from "convex/react";
 import { AuthKitProvider, useAccessToken, useAuth } from "@workos-inc/authkit-nextjs/components";
 import { type ReactNode, useCallback, useState } from "react";
+import { CalendlyConnectionGuard } from "@/components/calendly-connection-guard";
 
 function getConvexUrl(): string {
   const url = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -20,7 +21,9 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
   return (
     <AuthKitProvider>
       <ConvexProviderWithAuth client={convex} useAuth={useAuthFromAuthKit}>
-        {children}
+        <CalendlyConnectionGuard>
+          {children}
+        </CalendlyConnectionGuard>
       </ConvexProviderWithAuth>
     </AuthKitProvider>
   );

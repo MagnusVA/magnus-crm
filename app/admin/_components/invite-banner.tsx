@@ -1,7 +1,7 @@
 "use client";
 
-import { Check, Copy, Link2 } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { Check, Copy, Link2, XIcon } from "lucide-react";
+import { useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 
@@ -17,6 +17,15 @@ export type InviteResult = {
 };
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+// ---------------------------------------------------------------------------
 // Banner
 // ---------------------------------------------------------------------------
 
@@ -30,12 +39,12 @@ export function InviteBanner({
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const copyUrl = useCallback(async () => {
+  const copyUrl = async () => {
     await navigator.clipboard.writeText(result.inviteUrl);
     setCopied(true);
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => setCopied(false), 2000);
-  }, [result.inviteUrl]);
+  };
 
   return (
     <div
@@ -45,7 +54,7 @@ export function InviteBanner({
     >
       <div className="flex items-start gap-3">
         <Link2 className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" />
-        <div className="min-w-0 flex-1 space-y-3">
+        <div className="min-w-0 flex-1 flex flex-col gap-3">
           <div>
             <p className="text-sm font-semibold text-foreground">
               Invite Generated
@@ -57,10 +66,7 @@ export function InviteBanner({
               </code>{" "}
               is ready. Expires{" "}
               <time dateTime={new Date(result.expiresAt).toISOString()}>
-                {new Intl.DateTimeFormat(undefined, {
-                  dateStyle: "medium",
-                  timeStyle: "short",
-                }).format(result.expiresAt)}
+                {dateTimeFormatter.format(result.expiresAt)}
               </time>
               .
             </p>
@@ -73,18 +79,18 @@ export function InviteBanner({
             <Button
               variant="outline"
               size="sm"
-              className="shrink-0 gap-2"
+              className="shrink-0"
               aria-label={copied ? "Link copied" : "Copy invite link"}
               onClick={copyUrl}
             >
               {copied ? (
                 <>
-                  <Check className="size-3.5" aria-hidden="true" />
+                  <Check data-icon="inline-start" aria-hidden="true" />
                   Copied
                 </>
               ) : (
                 <>
-                  <Copy className="size-3.5" aria-hidden="true" />
+                  <Copy data-icon="inline-start" aria-hidden="true" />
                   Copy Link
                 </>
               )}
@@ -92,16 +98,9 @@ export function InviteBanner({
           </div>
         </div>
 
-        <button
-          type="button"
-          className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          aria-label="Dismiss invite banner"
-          onClick={onDismiss}
-        >
-          <span aria-hidden="true" className="text-xs">
-            &times;
-          </span>
-        </button>
+        <Button size="icon-xs" variant="ghost" aria-label="Dismiss invite banner" onClick={onDismiss}>
+          <XIcon aria-hidden="true" />
+        </Button>
       </div>
     </div>
   );

@@ -2,11 +2,11 @@
 
 import { useAction } from "convex/react";
 import {
-  AlertCircle,
-  ArrowRight,
-  Clock,
-  KeyRound,
-  Link2Off,
+  AlertCircleIcon,
+  ArrowRightIcon,
+  ClockIcon,
+  KeyRoundIcon,
+  Link2OffIcon,
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
@@ -65,15 +65,15 @@ function OnboardingPageContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get("token");
   const validateInvite = useAction(api.onboarding.invite.validateInvite);
-  const [state, setState] = useState<ValidationState>({ status: "loading" });
+  // Derive initial state from token presence — avoids synchronous setState in effect
+  const [state, setState] = useState<ValidationState>(() =>
+    token ? { status: "loading" } : { status: "error", error: "no_token" },
+  );
 
   useEffect(() => {
-    let active = true;
+    if (!token) return;
 
-    if (!token) {
-      setState({ status: "error", error: "no_token" });
-      return;
-    }
+    let active = true;
 
     void validateInvite({ token })
       .then((result) => {
@@ -147,9 +147,9 @@ function LoadingCard({ label }: { label: string }) {
       className="w-full max-w-sm motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-500"
       role="status"
     >
-      <div className="space-y-6 rounded-lg border border-border bg-card p-8 text-center shadow-sm">
+      <div className="flex flex-col gap-6 rounded-lg border border-border bg-card p-8 text-center shadow-sm">
         <PulsingDots />
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <h1 className="text-lg font-semibold tracking-tight text-card-foreground">
             {label}
           </h1>
@@ -188,7 +188,7 @@ function ErrorCard({
         {/* Accent top border */}
         <div className="h-0.5 bg-destructive" />
 
-        <div className="space-y-5 p-8">
+        <div className="flex flex-col gap-5 p-8">
           {/* Header */}
           <div className="flex items-start gap-4">
             <div
@@ -227,10 +227,10 @@ function ErrorCard({
           {/* Actions */}
           <div className="flex flex-col gap-2.5 pt-1">
             {error === "already_redeemed" ? (
-              <Button asChild size="lg" className="w-full gap-2">
+              <Button asChild size="lg" className="w-full">
                 <Link href={signInHref}>
                   Sign In to Continue
-                  <ArrowRight className="size-4" aria-hidden="true" />
+                  <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
                 </Link>
               </Button>
             ) : (
@@ -257,35 +257,35 @@ const ERROR_MAP: Record<
   { icon: LucideIcon; title: string; detail: string; description: string }
 > = {
   no_token: {
-    icon: Link2Off,
+    icon: Link2OffIcon,
     title: "No Invite Token",
     detail: "Missing parameter",
     description:
       "No invite token was found in the URL. Use the onboarding link sent by your administrator.",
   },
   invalid_signature: {
-    icon: KeyRound,
+    icon: KeyRoundIcon,
     title: "Invalid Invite",
     detail: "Signature check failed",
     description:
       "The invite signature could not be verified. Contact your administrator for a new onboarding link.",
   },
   not_found: {
-    icon: AlertCircle,
+    icon: AlertCircleIcon,
     title: "Invite Not Recognized",
     detail: "No matching record",
     description:
       "This invite is not associated with any active tenant. Ask your administrator to generate a new invite.",
   },
   already_redeemed: {
-    icon: KeyRound,
+    icon: KeyRoundIcon,
     title: "Invite Already Used",
     detail: "Previously redeemed",
     description:
       "Your account setup was already completed. Sign in to continue into onboarding.",
   },
   expired: {
-    icon: Clock,
+    icon: ClockIcon,
     title: "Invite Expired",
     detail: "Link no longer active",
     description:

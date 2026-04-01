@@ -2,7 +2,7 @@
 
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
 import { useConvexAuth, useQuery } from "convex/react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRightIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -101,8 +101,8 @@ export default function Home() {
 
       {/* Hero */}
       <main className="flex flex-1 flex-col items-center justify-center px-4 py-16">
-        <div className="w-full max-w-lg space-y-10 text-center motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:duration-600">
-          <div className="space-y-4">
+        <div className="flex w-full max-w-lg flex-col gap-10 text-center motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:duration-600">
+          <div className="flex flex-col gap-4">
             <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl text-balance">
               Onboard Operators Fast. Keep&nbsp;Tenant Setup Under&nbsp;Control.
             </h1>
@@ -114,7 +114,7 @@ export default function Home() {
           </div>
 
           {/* Steps */}
-          <ol className="space-y-2 text-left" role="list">
+          <ol className="flex flex-col gap-2 text-left" role="list">
             {STEPS.map((step, idx) => (
               <li
                 key={step}
@@ -134,10 +134,10 @@ export default function Home() {
 
           {/* CTA */}
           <div className="flex flex-col items-center gap-3">
-            <Button asChild size="lg" className="gap-2">
+            <Button asChild size="lg">
               <Link href="/admin">
                 Open Admin Console
-                <ArrowRight className="size-4" aria-hidden="true" />
+                <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
               </Link>
             </Button>
             <p className="text-xs text-muted-foreground">

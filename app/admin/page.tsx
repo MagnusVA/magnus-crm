@@ -3,13 +3,14 @@
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
 import { useAction, useConvexAuth, useQuery } from "convex/react";
 import type { Doc } from "@/convex/_generated/dataModel";
-import { Copy, LogOut, Plus, ShieldAlert } from "lucide-react";
-import { useCallback, useState } from "react";
+import { CopyIcon, LogOutIcon, PlusIcon, ShieldAlertIcon } from "lucide-react";
+import { useState } from "react";
 
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { cn } from "@/lib/utils";
 import {
   Table,
   TableBody,
@@ -58,28 +59,22 @@ export default function AdminPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [inviteResult, setInviteResult] = useState<InviteResult | null>(null);
 
-  // ---- Handlers (stable refs) ----
+  // ---- Handlers (React Compiler auto-memoises) ----
 
-  const handleCreate = useCallback(
-    async (payload: CreateTenantPayload) => {
-      const result = await createTenantInvite(payload);
-      setInviteResult(result);
-    },
-    [createTenantInvite],
-  );
+  const handleCreate = async (payload: CreateTenantPayload) => {
+    const result = await createTenantInvite(payload);
+    setInviteResult(result);
+  };
 
-  const handleRegenerate = useCallback(
-    async (tenant: Doc<"tenants">) => {
-      const result = await regenerateInvite({ tenantId: tenant._id });
-      setInviteResult({
-        tenantId: tenant._id,
-        workosOrgId: tenant.workosOrgId,
-        inviteUrl: result.inviteUrl,
-        expiresAt: result.expiresAt,
-      });
-    },
-    [regenerateInvite],
-  );
+  const handleRegenerate = async (tenant: Doc<"tenants">) => {
+    const result = await regenerateInvite({ tenantId: tenant._id });
+    setInviteResult({
+      tenantId: tenant._id,
+      workosOrgId: tenant.workosOrgId,
+      inviteUrl: result.inviteUrl,
+      expiresAt: result.expiresAt,
+    });
+  };
 
   // ---- Gate states ----
 
@@ -121,7 +116,7 @@ export default function AdminPage() {
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         {/* Header */}
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-          <div className="space-y-1.5">
+          <div className="flex flex-col gap-1.5">
             <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-muted-foreground">
               System Admin
             </p>
@@ -137,14 +132,13 @@ export default function AdminPage() {
             <Button
               variant="outline"
               aria-label="Sign out"
-              className="gap-2"
               onClick={() => signOut()}
             >
-              <LogOut className="size-4" aria-hidden="true" />
+              <LogOutIcon data-icon="inline-start" aria-hidden="true" />
               Sign Out
             </Button>
-            <Button className="gap-2" onClick={() => setDialogOpen(true)}>
-              <Plus className="size-4" aria-hidden="true" />
+            <Button onClick={() => setDialogOpen(true)}>
+              <PlusIcon data-icon="inline-start" aria-hidden="true" />
               Create Tenant Invite
             </Button>
           </div>
@@ -161,7 +155,7 @@ export default function AdminPage() {
                 {label}
               </p>
               <p
-                className={`mt-2 text-2xl font-semibold tabular-nums ${accentClass}`}
+                className={cn("mt-2 text-2xl font-semibold tabular-nums", accentClass)}
               >
                 {value}
               </p>
@@ -262,9 +256,7 @@ function TenantRow({
         <StatusBadge status={tenant.status} />
       </TableCell>
       <TableCell className="tabular-nums text-muted-foreground">
-        {new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(
-          tenant._creationTime,
-        )}
+        {dateFormatter.format(tenant._creationTime)}
       </TableCell>
       <TableCell className="tabular-nums">
         <InviteExpiry expiresAt={tenant.inviteExpiresAt} status={tenant.status} />
@@ -274,7 +266,6 @@ function TenantRow({
           <Button
             variant="outline"
             size="sm"
-            className="gap-2"
             disabled={regenerating}
             aria-label={`Regenerate invite for ${tenant.companyName}`}
             onClick={async () => {
@@ -287,11 +278,16 @@ function TenantRow({
             }}
           >
             {regenerating ? (
-              <Spinner className="size-3.5" />
+              <>
+                <Spinner data-icon="inline-start" />
+                Regenerating&hellip;
+              </>
             ) : (
-              <Copy className="size-3.5" aria-hidden="true" />
+              <>
+                <CopyIcon data-icon="inline-start" aria-hidden="true" />
+                Regenerate
+              </>
             )}
-            Regenerate
           </Button>
         ) : (
           <span className="text-xs text-muted-foreground">&mdash;</span>
@@ -328,6 +324,10 @@ function StatusBadge({ status }: { status: TenantStatus }) {
 // Invite Expiry
 // ---------------------------------------------------------------------------
 
+const dateFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+});
+
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
@@ -340,12 +340,15 @@ function InviteExpiry({
   expiresAt: number;
   status: TenantStatus;
 }) {
+  // Capture a stable "now" snapshot — avoids impure Date.now() during render
+  const [now] = useState(Date.now);
+
   // Once redeemed or active, the invite expiry is no longer relevant
   if (status !== "pending_signup") {
     return <span className="text-xs text-muted-foreground">&mdash;</span>;
   }
 
-  const isExpired = expiresAt < Date.now();
+  const isExpired = expiresAt < now;
 
   return (
     <time
@@ -443,9 +446,9 @@ function GateScreen({
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-sm overflow-hidden rounded-lg border border-border bg-card shadow-sm">
         <div className="h-0.5 bg-destructive" />
-        <div className="space-y-4 p-8">
+        <div className="flex flex-col gap-4 p-8">
           <div className="flex items-start gap-3">
-            <ShieldAlert
+            <ShieldAlertIcon
               className="mt-0.5 size-5 shrink-0 text-destructive"
               aria-hidden="true"
             />
