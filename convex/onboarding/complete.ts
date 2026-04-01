@@ -67,6 +67,7 @@ export const redeemInviteAndCreateUser = mutation({
       tenantId: tenant._id,
       companyName: tenant.companyName,
       alreadyRedeemed: tenant.status !== "pending_signup",
+      status: tenant.status,
     };
   },
 });

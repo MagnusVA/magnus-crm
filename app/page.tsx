@@ -1,12 +1,13 @@
 "use client";
 
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
-import { useConvexAuth } from "convex/react";
+import { useConvexAuth, useQuery } from "convex/react";
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 
+import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { SYSTEM_ADMIN_ORG_ID } from "@/lib/system-admin-org";
@@ -32,6 +33,10 @@ export default function Home() {
   const router = useRouter();
   const { isAuthenticated, isLoading } = useConvexAuth();
   const { user, organizationId } = useAuth();
+  const tenant = useQuery(
+    api.tenants.getCurrentTenant,
+    isAuthenticated && organizationId !== SYSTEM_ADMIN_ORG_ID ? {} : "skip",
+  );
 
   useEffect(() => {
     if (isLoading || !isAuthenticated || !user) return;
@@ -41,11 +46,25 @@ export default function Home() {
       return;
     }
 
+    if (tenant === undefined) {
+      return;
+    }
+
+    if (tenant?.status === "active") {
+      router.replace("/workspace");
+      return;
+    }
+
     router.replace("/onboarding/connect");
-  }, [isAuthenticated, isLoading, organizationId, router, user]);
+  }, [isAuthenticated, isLoading, organizationId, router, tenant, user]);
 
   // Authenticated users are being redirected — show a loading pill
-  if (isLoading || (isAuthenticated && user)) {
+  if (
+    isLoading ||
+    (isAuthenticated &&
+      user &&
+      (organizationId === SYSTEM_ADMIN_ORG_ID || tenant === undefined))
+  ) {
     return (
       <div
         className="flex min-h-screen items-center justify-center bg-background"

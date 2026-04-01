@@ -1,5 +1,20 @@
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "./_generated/server";
+import type { UserIdentity } from "convex/server";
+import { internalMutation, internalQuery, query } from "./_generated/server";
+
+function getIdentityOrgId(identity: UserIdentity) {
+  const rawIdentity = identity as Record<string, unknown>;
+
+  return (
+    (typeof rawIdentity.organization_id === "string"
+      ? rawIdentity.organization_id
+      : undefined) ??
+    (typeof rawIdentity.organizationId === "string"
+      ? rawIdentity.organizationId
+      : undefined) ??
+    (typeof rawIdentity.org_id === "string" ? rawIdentity.org_id : undefined)
+  );
+}
 
 export const getByWorkosOrgId = internalQuery({
   args: { workosOrgId: v.string() },
@@ -38,6 +53,57 @@ export const getCalendlyTokens = internalQuery({
       calendlyRefreshLockUntil: tenant.calendlyRefreshLockUntil,
       calendlyOrgUri: tenant.calendlyOrgUri,
       status: tenant.status,
+    };
+  },
+});
+
+export const getCalendlyTenant = internalQuery({
+  args: { tenantId: v.id("tenants") },
+  handler: async (ctx, { tenantId }) => {
+    const tenant = await ctx.db.get(tenantId);
+    if (!tenant) {
+      return null;
+    }
+
+    return {
+      _id: tenant._id,
+      workosOrgId: tenant.workosOrgId,
+      status: tenant.status,
+      companyName: tenant.companyName,
+      calendlyWebhookUri: tenant.calendlyWebhookUri,
+    };
+  },
+});
+
+export const getCurrentTenant = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      return null;
+    }
+
+    const workosOrgId = getIdentityOrgId(identity);
+    if (!workosOrgId) {
+      return null;
+    }
+
+    const tenant = await ctx.db
+      .query("tenants")
+      .withIndex("by_workosOrgId", (q) => q.eq("workosOrgId", workosOrgId))
+      .unique();
+
+    if (!tenant) {
+      return null;
+    }
+
+    return {
+      tenantId: tenant._id,
+      companyName: tenant.companyName,
+      workosOrgId: tenant.workosOrgId,
+      status: tenant.status,
+      calendlyWebhookUri: tenant.calendlyWebhookUri,
+      onboardingCompletedAt: tenant.onboardingCompletedAt,
     };
   },
 });

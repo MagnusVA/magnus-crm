@@ -4,6 +4,74 @@
 
 **Prerequisite:** Phase 3 complete (tenant master has signed up, tenant is in `pending_calendly` status, onboarding UI exists).
 
+---
+
+## How Calendly Authorization Works (Read This First)
+
+**The tenant does not need to install anything manually, and there is no Calendly App Marketplace involved.**
+
+This is standard OAuth 2.0. Here is exactly what happens from the tenant's perspective:
+
+```
+Tenant clicks "Connect Calendly"
+        │
+        ▼
+Browser redirects to auth.calendly.com/oauth/authorize
+(Calendly's own authorization page — we built nothing here)
+        │
+        ▼
+Calendly shows the tenant a permission consent screen:
+"ptdom-crm wants access to your Calendly account.
+ It will be able to: read your scheduled events,
+ manage webhook subscriptions, etc."
+        │
+Tenant clicks "Allow"
+        │
+        ▼
+Calendly redirects back to our app with a one-time auth code
+        │
+        ▼
+Our backend exchanges the code for tokens (server-side, invisible to tenant)
+        │
+        ▼
+Tenant lands on "Connected!" success screen
+```
+
+**There is no manual step, app marketplace, or Calendly admin configuration required from the tenant.** The OAuth authorization screen Calendly shows is generated automatically from our registered OAuth app (Phase 1B). The tenant just needs to be logged into their Calendly account when they click through.
+
+### What the tenant DOES need
+
+| Requirement | Detail |
+|---|---|
+| **A Calendly account** | Any account works for signing in, but... |
+| **Standard plan or higher** | Free-plan Calendly accounts cannot have org-scoped webhook subscriptions. If a free-plan user connects, the OAuth flow succeeds but the webhook provisioning step will fail with HTTP 403 from Calendly. We handle this gracefully (see error handling). |
+| **Admin role in their Calendly org** | The person who clicks "Allow" must have admin-level access in their Calendly organization so that org-scoped webhooks can be created on their behalf. |
+
+### What happens in Calendly's system after authorization
+
+Once the tenant clicks "Allow," Calendly:
+1. Issues an access token + refresh token bound to **our OAuth app** and the **tenant's Calendly organization**.
+2. Our app (running as a background Convex action, invisible to the tenant) uses that token to call `POST /webhook_subscriptions` and register a webhook at the organization scope.
+3. From this point, every Calendly event in the tenant's org (bookings, cancellations, no-shows) will trigger a POST to our webhook ingestion endpoint.
+
+The tenant never touches Calendly again after clicking "Allow." No manual webhook setup, no API keys, no configuration in the Calendly dashboard.
+
+### How our single OAuth app serves all tenants
+
+We register **one** Calendly OAuth app (Phase 1B). Every tenant authorizes this same app. Calendly issues separate, independent tokens for each authorization. This is the standard Calendly multi-tenant model — we are acting as a Calendly platform partner, not a per-tenant integration.
+
+```
+Our Single OAuth App (registered once by us)
+    │
+    ├── Tenant A authorizes → Token set A + Webhook subscription A
+    ├── Tenant B authorizes → Token set B + Webhook subscription B
+    └── Tenant C authorizes → Token set C + Webhook subscription C
+```
+
+Each token set is stored on its respective `tenants` document in Convex. Webhook subscriptions use different callback URLs (`?tenantId=A`, `?tenantId=B`) to route inbound events correctly.
+
+---
+
 **Acceptance Criteria:**
 1. Clicking "Connect Calendly" redirects to `auth.calendly.com/oauth/authorize` with correct `client_id`, `redirect_uri`, PKCE `code_challenge`, and scopes.
 2. After granting access, Calendly redirects to `/callback/calendly?code=...`, and the system exchanges the code for tokens server-side.

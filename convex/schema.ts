@@ -22,6 +22,7 @@ export default defineSchema({
     inviteRedeemedAt: v.optional(v.number()),
 
     // Calendly OAuth
+    codeVerifier: v.optional(v.string()), // Temporary: PKCE code verifier during OAuth
     calendlyAccessToken: v.optional(v.string()),
     calendlyRefreshToken: v.optional(v.string()),
     calendlyTokenExpiresAt: v.optional(v.number()),

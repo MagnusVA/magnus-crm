@@ -1,15 +1,17 @@
 "use client";
 
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
-import { useConvexAuth, useMutation } from "convex/react";
+import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import {
   ArrowRight,
   Calendar,
   CheckCircle2,
+  CircleAlert,
   Radio,
   Settings2,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { api } from "@/convex/_generated/api";
@@ -23,7 +25,12 @@ import { OnboardingShell, PulsingDots } from "../_components/onboarding-shell";
 
 type RedeemState =
   | { status: "loading" }
-  | { status: "ready"; companyName: string; alreadyRedeemed: boolean }
+  | {
+      status: "ready";
+      companyName: string;
+      alreadyRedeemed: boolean;
+      tenantId: string;
+    }
   | { status: "error"; message: string };
 
 // ---------------------------------------------------------------------------
@@ -31,37 +38,35 @@ type RedeemState =
 // ---------------------------------------------------------------------------
 
 export default function ConnectCalendlyPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { isAuthenticated, isLoading: convexLoading } = useConvexAuth();
   const { user, organizationId } = useAuth();
+  const tenant = useQuery(api.tenants.getCurrentTenant, isAuthenticated ? {} : "skip");
   const redeemInvite = useMutation(
     api.onboarding.complete.redeemInviteAndCreateUser,
   );
   const [state, setState] = useState<RedeemState>({ status: "loading" });
+  const orgId = organizationId ?? undefined;
+
+  const immediateErrorMessage = convexLoading
+    ? null
+    : !isAuthenticated || !user
+      ? "You need to sign in before completing onboarding."
+      : !orgId
+        ? "No onboarding organization was found in your session. Restart onboarding from your invite link."
+        : null;
+
+  useEffect(() => {
+    if (tenant?.status === "active") {
+      router.replace("/workspace");
+    }
+  }, [router, tenant?.status]);
 
   useEffect(() => {
     let active = true;
 
-    if (convexLoading) return;
-
-    if (!isAuthenticated || !user) {
-      setState({
-        status: "error",
-        message: "You need to sign in before completing onboarding.",
-      });
-      return;
-    }
-
-    const orgId =
-      organizationId ??
-      sessionStorage.getItem("onboarding_orgId") ??
-      undefined;
-
-    if (!orgId) {
-      setState({
-        status: "error",
-        message:
-          "No onboarding organization was found in your session. Restart onboarding from your invite link.",
-      });
+    if (convexLoading || immediateErrorMessage || !orgId) {
       return;
     }
 
@@ -71,12 +76,12 @@ export default function ConnectCalendlyPage() {
 
         sessionStorage.removeItem("onboarding_orgId");
         sessionStorage.removeItem("onboarding_companyName");
-        sessionStorage.removeItem("onboarding_tenantId");
 
         setState({
           status: "ready",
           companyName: result.companyName,
           alreadyRedeemed: result.alreadyRedeemed,
+          tenantId: result.tenantId,
         });
       })
       .catch((error: unknown) => {
@@ -94,7 +99,15 @@ export default function ConnectCalendlyPage() {
     return () => {
       active = false;
     };
-  }, [convexLoading, isAuthenticated, organizationId, redeemInvite, user]);
+  }, [convexLoading, immediateErrorMessage, orgId, redeemInvite]);
+
+  if (immediateErrorMessage) {
+    return (
+      <OnboardingShell>
+        <ErrorCard message={immediateErrorMessage} />
+      </OnboardingShell>
+    );
+  }
 
   return (
     <OnboardingShell>
@@ -106,6 +119,9 @@ export default function ConnectCalendlyPage() {
         <ConnectCard
           companyName={state.companyName}
           alreadyRedeemed={state.alreadyRedeemed}
+          tenantId={state.tenantId}
+          calendlyStatus={searchParams.get("calendly")}
+          calendlyError={searchParams.get("error")}
         />
       )}
     </OnboardingShell>
@@ -194,11 +210,20 @@ const PERMISSIONS = [
 function ConnectCard({
   companyName,
   alreadyRedeemed,
+  tenantId,
+  calendlyStatus,
+  calendlyError,
 }: {
   companyName: string;
   alreadyRedeemed: boolean;
+  tenantId: string;
+  calendlyStatus: string | null;
+  calendlyError: string | null;
 }) {
   const initial = companyName.charAt(0).toUpperCase() || "C";
+  const calendlyConnected = calendlyStatus === "connected";
+  const errorMessage = CALENDLY_ERROR_MESSAGES[calendlyError ?? ""] ?? null;
+  const connectHref = `/api/calendly/start?tenantId=${encodeURIComponent(tenantId)}`;
 
   return (
     <div className="w-full max-w-md motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:duration-600">
@@ -225,6 +250,40 @@ function ConnectCard({
 
         {/* Body */}
         <div className="space-y-6 px-8 py-8">
+          {calendlyConnected ? (
+            <div className="flex items-start gap-3 rounded-md border border-primary/20 bg-primary/10 p-3.5">
+              <CheckCircle2
+                className="mt-0.5 size-4 shrink-0 text-primary"
+                aria-hidden="true"
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-card-foreground">
+                  Calendly Connected
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Workspace activation is complete. Continue into the app.
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {errorMessage ? (
+            <div className="flex items-start gap-3 rounded-md border border-destructive/20 bg-destructive/5 p-3.5">
+              <CircleAlert
+                className="mt-0.5 size-4 shrink-0 text-destructive"
+                aria-hidden="true"
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-card-foreground">
+                  Calendly Connection Failed
+                </p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {errorMessage}
+                </p>
+              </div>
+            </div>
+          ) : null}
+
           {/* Already-redeemed notice */}
           {alreadyRedeemed ? (
             <div className="flex items-start gap-3 rounded-md border border-border bg-muted/30 p-3.5">
@@ -266,17 +325,21 @@ function ConnectCard({
           </div>
 
           {/* CTA */}
-          <Button
-            size="lg"
-            className="w-full gap-2"
-            onClick={() => {
-              // Phase 4 will wire this to the Calendly OAuth authorize URL.
-              console.info("Calendly OAuth flow will be wired in Phase 4.");
-            }}
-          >
-            Connect Calendly
-            <ArrowRight className="size-4" aria-hidden="true" />
-          </Button>
+          {calendlyConnected ? (
+            <Button asChild size="lg" className="w-full gap-2">
+              <Link href="/">
+                Enter Workspace
+                <ArrowRight className="size-4" aria-hidden="true" />
+              </Link>
+            </Button>
+          ) : (
+            <Button asChild size="lg" className="w-full gap-2">
+              <Link href={connectHref}>
+                Connect Calendly
+                <ArrowRight className="size-4" aria-hidden="true" />
+              </Link>
+            </Button>
+          )}
 
           <p className="text-center text-xs text-muted-foreground">
             Calendly connection is required to activate the workspace.
@@ -286,3 +349,15 @@ function ConnectCard({
     </div>
   );
 }
+
+const CALENDLY_ERROR_MESSAGES: Record<string, string> = {
+  calendly_denied: "Calendly authorization was cancelled before access was granted.",
+  exchange_failed:
+    "The Calendly authorization code could not be exchanged or webhook setup failed.",
+  missing_context:
+    "The onboarding session expired before Calendly finished connecting. Start the connection again.",
+  not_authenticated:
+    "Your session expired before Calendly finished connecting. Sign in again and retry.",
+  oauth_start_failed:
+    "The Calendly authorization flow could not be started for this tenant.",
+};
