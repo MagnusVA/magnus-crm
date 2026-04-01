@@ -210,6 +210,7 @@ export default function AdminPage() {
                     <TableHead>Contact</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Created</TableHead>
+                    <TableHead>Invite Expires</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -265,6 +266,9 @@ function TenantRow({
           tenant._creationTime,
         )}
       </TableCell>
+      <TableCell className="tabular-nums">
+        <InviteExpiry expiresAt={tenant.inviteExpiresAt} status={tenant.status} />
+      </TableCell>
       <TableCell className="text-right">
         {tenant.status === "pending_signup" ? (
           <Button
@@ -318,6 +322,47 @@ const STATUS_CONFIG: Record<
 function StatusBadge({ status }: { status: TenantStatus }) {
   const config = STATUS_CONFIG[status];
   return <Badge variant={config.variant}>{config.label}</Badge>;
+}
+
+// ---------------------------------------------------------------------------
+// Invite Expiry
+// ---------------------------------------------------------------------------
+
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "short",
+});
+
+function InviteExpiry({
+  expiresAt,
+  status,
+}: {
+  expiresAt: number;
+  status: TenantStatus;
+}) {
+  // Once redeemed or active, the invite expiry is no longer relevant
+  if (status !== "pending_signup") {
+    return <span className="text-xs text-muted-foreground">&mdash;</span>;
+  }
+
+  const isExpired = expiresAt < Date.now();
+
+  return (
+    <time
+      dateTime={new Date(expiresAt).toISOString()}
+      className={isExpired ? "text-destructive" : "text-muted-foreground"}
+      title={dateTimeFormatter.format(expiresAt)}
+    >
+      <span className="text-sm">
+        {dateTimeFormatter.format(expiresAt)}
+      </span>
+      {isExpired ? (
+        <span className="ml-1.5 text-[11px] font-medium uppercase tracking-wider text-destructive">
+          Expired
+        </span>
+      ) : null}
+    </time>
+  );
 }
 
 // ---------------------------------------------------------------------------

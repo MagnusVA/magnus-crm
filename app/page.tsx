@@ -68,7 +68,7 @@ export default function Home() {
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-5">
         <span className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-          PTDOM CRM
+          Magnus CRM
         </span>
         <div className="flex gap-2">
           <Button asChild variant="outline" size="sm">
@@ -132,7 +132,7 @@ export default function Home() {
       {/* Footer */}
       <footer className="px-6 pb-5">
         <p className="text-[11px] text-muted-foreground/60">
-          PTDOM CRM &middot; Tenant onboarding control plane
+          Magnus CRM &middot; Tenant onboarding control plane
         </p>
       </footer>
     </div>

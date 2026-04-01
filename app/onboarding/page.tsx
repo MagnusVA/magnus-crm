@@ -86,8 +86,12 @@ function OnboardingPageContent() {
 
           setState({ status: "redirecting", companyName: result.companyName });
 
+          const authState = JSON.stringify({
+            onboardingOrgId: result.workosOrgId,
+          });
+
           window.location.assign(
-            `/sign-up?organization_id=${encodeURIComponent(result.workosOrgId)}&returnTo=${encodeURIComponent("/onboarding/connect")}`,
+            `/sign-up?organization_id=${encodeURIComponent(result.workosOrgId)}&returnTo=${encodeURIComponent("/onboarding/connect")}&state=${encodeURIComponent(authState)}`,
           );
           return;
         }
@@ -101,6 +105,7 @@ function OnboardingPageContent() {
       })
       .catch(() => {
         if (!active) return;
+
         setState({ status: "error", error: "invalid_signature" });
       });
 

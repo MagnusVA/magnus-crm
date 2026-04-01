@@ -8,10 +8,13 @@ export async function GET(request: NextRequest) {
     request.nextUrl.searchParams.get("organization_id") ?? SYSTEM_ADMIN_ORG_ID;
   const returnTo =
     request.nextUrl.searchParams.get("returnTo") ?? undefined;
+  const state = request.nextUrl.searchParams.get("state") ?? undefined;
 
   const authorizationUrl = await getSignUpUrl({
     organizationId,
     returnTo,
+    state,
   });
+
   redirect(authorizationUrl);
 }

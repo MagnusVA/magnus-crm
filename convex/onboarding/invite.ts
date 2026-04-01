@@ -36,45 +36,39 @@ export const validateInvite = action({
     }
 
     const payload = validateInviteToken(token, signingSecret);
-    if (!payload) {
-      return { valid: false as const, error: "invalid_signature" as const };
-    }
+    const tenant: Doc<"tenants"> | null = payload
+      ? await ctx.runQuery(internal.tenants.getByInviteTokenHash, {
+          inviteTokenHash: hashInviteToken(token),
+        })
+      : null;
 
-    const tenant: Doc<"tenants"> | null = await ctx.runQuery(
-      internal.tenants.getByInviteTokenHash,
-      {
-        inviteTokenHash: hashInviteToken(token),
-      },
-    );
+    const result =
+      !payload
+        ? { valid: false as const, error: "invalid_signature" as const }
+        : !tenant
+          ? { valid: false as const, error: "not_found" as const }
+          : tenant.inviteRedeemedAt !== undefined
+            ? {
+                valid: false as const,
+                error: "already_redeemed" as const,
+                workosOrgId: tenant.workosOrgId,
+                companyName: tenant.companyName,
+              }
+            : Date.now() > tenant.inviteExpiresAt
+              ? {
+                  valid: false as const,
+                  error: "expired" as const,
+                  workosOrgId: tenant.workosOrgId,
+                  companyName: tenant.companyName,
+                }
+              : {
+                  valid: true as const,
+                  tenantId: tenant._id,
+                  companyName: tenant.companyName,
+                  workosOrgId: tenant.workosOrgId,
+                  contactEmail: tenant.contactEmail,
+                };
 
-    if (!tenant) {
-      return { valid: false as const, error: "not_found" as const };
-    }
-
-    if (tenant.inviteRedeemedAt !== undefined) {
-      return {
-        valid: false as const,
-        error: "already_redeemed" as const,
-        workosOrgId: tenant.workosOrgId,
-        companyName: tenant.companyName,
-      };
-    }
-
-    if (Date.now() > tenant.inviteExpiresAt) {
-      return {
-        valid: false as const,
-        error: "expired" as const,
-        workosOrgId: tenant.workosOrgId,
-        companyName: tenant.companyName,
-      };
-    }
-
-    return {
-      valid: true as const,
-      tenantId: tenant._id,
-      companyName: tenant.companyName,
-      workosOrgId: tenant.workosOrgId,
-      contactEmail: tenant.contactEmail,
-    };
+    return result;
   },
 });

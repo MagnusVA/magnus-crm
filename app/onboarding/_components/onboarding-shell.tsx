@@ -27,7 +27,7 @@ export function OnboardingShell({ children }: { children: React.ReactNode }) {
           href="/"
           className="inline-block text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
-          PTDOM
+          Magnus
         </Link>
       </header>
 
