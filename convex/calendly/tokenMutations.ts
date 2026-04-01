@@ -1,22 +1,27 @@
 import { v } from "convex/values";
-import { internalMutation } from "../_generated/server";
+import { internalMutation, internalQuery } from "../_generated/server";
 
-export const storeCalendlyTokens = internalMutation({
-  args: {
-    tenantId: v.id("tenants"),
-    calendlyAccessToken: v.string(),
-    calendlyRefreshToken: v.string(),
-    calendlyTokenExpiresAt: v.number(),
-    calendlyOrgUri: v.string(),
-    calendlyOwnerUri: v.string(),
+export const acquireRefreshLock = internalMutation({
+  args: { tenantId: v.id("tenants"), lockUntil: v.number() },
+  handler: async (ctx, { tenantId, lockUntil }) => {
+    await ctx.db.patch(tenantId, { calendlyRefreshLockUntil: lockUntil });
   },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.tenantId, {
-      calendlyAccessToken: args.calendlyAccessToken,
-      calendlyRefreshToken: args.calendlyRefreshToken,
-      calendlyTokenExpiresAt: args.calendlyTokenExpiresAt,
-      calendlyOrgUri: args.calendlyOrgUri,
-      calendlyOwnerUri: args.calendlyOwnerUri,
-    });
+});
+
+export const releaseRefreshLock = internalMutation({
+  args: { tenantId: v.id("tenants") },
+  handler: async (ctx, { tenantId }) => {
+    await ctx.db.patch(tenantId, { calendlyRefreshLockUntil: undefined });
+  },
+});
+
+export const listActiveTenantIds = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const tenants = await ctx.db
+      .query("tenants")
+      .withIndex("by_status", (q) => q.eq("status", "active"))
+      .take(500);
+    return tenants.map((t) => t._id);
   },
 });

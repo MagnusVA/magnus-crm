@@ -225,6 +225,12 @@ export const exchangeCodeAndProvision = action({
         organizationUri: calendlyOrgUri,
         convexSiteUrl,
       });
+
+      // Schedule org member sync (non-blocking, runs after onboarding completes)
+      ctx.scheduler.runAfter(0, internal.calendly.orgMembers.syncForTenant, {
+        tenantId,
+      });
+
       await ctx.runMutation(internal.calendly.oauthMutations.clearCodeVerifier, {
         tenantId,
       });

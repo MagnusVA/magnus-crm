@@ -12,6 +12,7 @@ import type * as admin_tenants from "../admin/tenants.js";
 import type * as admin_tenantsMutations from "../admin/tenantsMutations.js";
 import type * as admin_tenantsQueries from "../admin/tenantsQueries.js";
 import type * as auth from "../auth.js";
+import type * as calendly_healthCheck from "../calendly/healthCheck.js";
 import type * as calendly_oauth from "../calendly/oauth.js";
 import type * as calendly_oauthMutations from "../calendly/oauthMutations.js";
 import type * as calendly_orgMembers from "../calendly/orgMembers.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   "admin/tenantsMutations": typeof admin_tenantsMutations;
   "admin/tenantsQueries": typeof admin_tenantsQueries;
   auth: typeof auth;
+  "calendly/healthCheck": typeof calendly_healthCheck;
   "calendly/oauth": typeof calendly_oauth;
   "calendly/oauthMutations": typeof calendly_oauthMutations;
   "calendly/orgMembers": typeof calendly_orgMembers;
