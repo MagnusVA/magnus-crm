@@ -3,8 +3,15 @@
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
 import { useAction, useConvexAuth, useQuery } from "convex/react";
 import type { Doc } from "@/convex/_generated/dataModel";
-import { CopyIcon, LogOutIcon, PlusIcon, ShieldAlertIcon } from "lucide-react";
+import {
+  CopyIcon,
+  LogOutIcon,
+  PlusIcon,
+  RotateCcwIcon,
+  ShieldAlertIcon,
+} from "lucide-react";
 import { useState } from "react";
+import { toast } from "sonner";
 
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +36,10 @@ import {
   InviteBanner,
   type InviteResult,
 } from "./_components/invite-banner";
+import {
+  ResetTenantDialog,
+  type ResetTenantResult,
+} from "./_components/reset-tenant-dialog";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -55,9 +66,13 @@ export default function AdminPage() {
 
   const createTenantInvite = useAction(api.admin.tenants.createTenantInvite);
   const regenerateInvite = useAction(api.admin.tenants.regenerateInvite);
+  const resetTenant = useAction(api.admin.tenants.resetTenantForReonboarding);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [inviteResult, setInviteResult] = useState<InviteResult | null>(null);
+  const [tenantToReset, setTenantToReset] = useState<Doc<"tenants"> | null>(
+    null,
+  );
 
   // ---- Handlers (React Compiler auto-memoises) ----
 
@@ -73,6 +88,21 @@ export default function AdminPage() {
       workosOrgId: tenant.workosOrgId,
       inviteUrl: result.inviteUrl,
       expiresAt: result.expiresAt,
+    });
+  };
+
+  const handleReset = async (tenant: Doc<"tenants">) => {
+    const result = await resetTenant({ tenantId: tenant._id });
+
+    setInviteResult({
+      tenantId: tenant._id,
+      workosOrgId: tenant.workosOrgId,
+      inviteUrl: result.inviteUrl,
+      expiresAt: result.expiresAt,
+    });
+
+    toast.success(getResetToastTitle(result), {
+      description: getResetToastDescription(result),
     });
   };
 
@@ -214,6 +244,7 @@ export default function AdminPage() {
                       key={tenant._id}
                       tenant={tenant}
                       onRegenerate={handleRegenerate}
+                      onResetRequest={setTenantToReset}
                     />
                   ))}
                 </TableBody>
@@ -229,6 +260,16 @@ export default function AdminPage() {
         onOpenChange={setDialogOpen}
         onSubmit={handleCreate}
       />
+      <ResetTenantDialog
+        open={tenantToReset !== null}
+        tenant={tenantToReset}
+        onOpenChange={(open) => {
+          if (!open) {
+            setTenantToReset(null);
+          }
+        }}
+        onSubmit={handleReset}
+      />
     </div>
   );
 }
@@ -240,9 +281,11 @@ export default function AdminPage() {
 function TenantRow({
   tenant,
   onRegenerate,
+  onResetRequest,
 }: {
   tenant: Doc<"tenants">;
   onRegenerate: (tenant: Doc<"tenants">) => Promise<void>;
+  onResetRequest: (tenant: Doc<"tenants">) => void;
 }) {
   const [regenerating, setRegenerating] = useState(false);
 
@@ -262,36 +305,45 @@ function TenantRow({
         <InviteExpiry expiresAt={tenant.inviteExpiresAt} status={tenant.status} />
       </TableCell>
       <TableCell className="text-right">
-        {tenant.status === "pending_signup" ? (
+        <div className="flex justify-end gap-2">
+          {tenant.status === "pending_signup" ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={regenerating}
+              aria-label={`Regenerate invite for ${tenant.companyName}`}
+              onClick={async () => {
+                setRegenerating(true);
+                try {
+                  await onRegenerate(tenant);
+                } finally {
+                  setRegenerating(false);
+                }
+              }}
+            >
+              {regenerating ? (
+                <>
+                  <Spinner data-icon="inline-start" />
+                  Regenerating&hellip;
+                </>
+              ) : (
+                <>
+                  <CopyIcon data-icon="inline-start" aria-hidden="true" />
+                  Regenerate
+                </>
+              )}
+            </Button>
+          ) : null}
           <Button
-            variant="outline"
+            variant="destructive"
             size="sm"
-            disabled={regenerating}
-            aria-label={`Regenerate invite for ${tenant.companyName}`}
-            onClick={async () => {
-              setRegenerating(true);
-              try {
-                await onRegenerate(tenant);
-              } finally {
-                setRegenerating(false);
-              }
-            }}
+            aria-label={`Reset ${tenant.companyName} for re-onboarding`}
+            onClick={() => onResetRequest(tenant)}
           >
-            {regenerating ? (
-              <>
-                <Spinner data-icon="inline-start" />
-                Regenerating&hellip;
-              </>
-            ) : (
-              <>
-                <CopyIcon data-icon="inline-start" aria-hidden="true" />
-                Regenerate
-              </>
-            )}
+            <RotateCcwIcon data-icon="inline-start" aria-hidden="true" />
+            Reset
           </Button>
-        ) : (
-          <span className="text-xs text-muted-foreground">&mdash;</span>
-        )}
+        </div>
       </TableCell>
     </TableRow>
   );
@@ -411,6 +463,34 @@ function computeStats(tenants: Doc<"tenants">[] | undefined) {
       accentClass: "text-primary",
     },
   ];
+}
+
+function getResetToastTitle(result: ResetTenantResult) {
+  if (result.webhookCleanup.status === "deleted") {
+    return "Tenant reset. Calendly webhook deleted.";
+  }
+
+  if (result.webhookCleanup.status === "not_configured") {
+    return "Tenant reset. No Calendly webhook was configured.";
+  }
+
+  return "Tenant reset. Review Calendly cleanup status.";
+}
+
+function getResetToastDescription(result: ResetTenantResult) {
+  const base = [
+    `${result.deletedRawWebhookEvents} webhook events removed`,
+    `${result.deletedCalendlyOrgMembers} Calendly members removed`,
+  ].join(" • ");
+
+  if (
+    result.webhookCleanup.status === "skipped_missing_access_token" ||
+    result.webhookCleanup.status === "failed"
+  ) {
+    return `${base} • ${result.webhookCleanup.message}`;
+  }
+
+  return `${base} • Fresh invite generated.`;
 }
 
 // ---------------------------------------------------------------------------

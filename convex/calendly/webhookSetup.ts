@@ -84,7 +84,7 @@ async function findExistingWebhook({
   );
 }
 
-async function deleteWebhookSubscription({
+export async function deleteWebhookSubscription({
   accessToken,
   webhookUri,
 }: {
@@ -107,7 +107,7 @@ async function deleteWebhookSubscription({
   );
 
   if (response.status === 404) {
-    return;
+    return "not_found" as const;
   }
 
   if (!response.ok && response.status !== 204) {
@@ -115,6 +115,8 @@ async function deleteWebhookSubscription({
       `Unable to delete Calendly webhook subscription: ${response.status} ${await readCalendlyError(response)}`,
     );
   }
+
+  return "deleted" as const;
 }
 
 async function createWebhookSubscription({
