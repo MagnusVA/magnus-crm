@@ -8,11 +8,16 @@ export const storeWebhookAndActivate = internalMutation({
     webhookSigningKey: v.string(),
   },
   handler: async (ctx, { tenantId, calendlyWebhookUri, webhookSigningKey }) => {
+    const tenant = await ctx.db.get(tenantId);
+    if (!tenant) {
+      throw new Error("Tenant not found");
+    }
+
     await ctx.db.patch(tenantId, {
       calendlyWebhookUri,
       webhookSigningKey,
       status: "active" as const,
-      onboardingCompletedAt: Date.now(),
+      onboardingCompletedAt: tenant.onboardingCompletedAt ?? Date.now(),
     });
   },
 });

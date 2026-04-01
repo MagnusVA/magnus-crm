@@ -5,6 +5,7 @@ import type { UserIdentity } from "convex/server";
 import { v } from "convex/values";
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { provisionWebhookSubscription } from "./webhookSetup";
 
 function getIdentityOrgId(identity: UserIdentity) {
   const rawIdentity = identity as Record<string, unknown>;
@@ -205,7 +206,7 @@ export const exchangeCodeAndProvision = action({
       }
 
       const expiresAt = Date.now() + tokens.expires_in * 1000;
-      await ctx.runMutation(internal.calendly.tokenMutations.storeCalendlyTokens, {
+      await ctx.runMutation(internal.tenants.storeCalendlyTokens, {
         tenantId,
         calendlyAccessToken: tokens.access_token,
         calendlyRefreshToken: tokens.refresh_token,
@@ -219,15 +220,32 @@ export const exchangeCodeAndProvision = action({
         status: "provisioning_webhooks",
       });
 
-      await ctx.runAction(internal.calendly.webhookSetup.provisionWebhooks, {
+      const tenantAfterTokenStore = await ctx.runQuery(
+        internal.tenants.getCalendlyTokens,
+        { tenantId },
+      );
+      if (!tenantAfterTokenStore?.calendlyOrgUri) {
+        throw new Error("Calendly organization URI was not stored");
+      }
+
+      const { webhookUri, webhookSigningKey } = await provisionWebhookSubscription(
+        {
+          tenantId,
+          accessToken: tokens.access_token,
+          organizationUri: calendlyOrgUri,
+          convexSiteUrl,
+          signingKey: tenantAfterTokenStore.webhookSigningKey ?? undefined,
+        },
+      );
+
+      await ctx.runMutation(internal.calendly.webhookSetupMutations.storeWebhookAndActivate, {
         tenantId,
-        accessToken: tokens.access_token,
-        organizationUri: calendlyOrgUri,
-        convexSiteUrl,
+        calendlyWebhookUri: webhookUri,
+        webhookSigningKey,
       });
 
       // Schedule org member sync (non-blocking, runs after onboarding completes)
-      ctx.scheduler.runAfter(0, internal.calendly.orgMembers.syncForTenant, {
+      await ctx.scheduler.runAfter(0, internal.calendly.orgMembers.syncForTenant, {
         tenantId,
       });
 

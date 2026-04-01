@@ -1,9 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 
-/**
- * Upsert a Calendly org member, with email matching to CRM users.
- */
 export const upsertMember = internalMutation({
   args: {
     tenantId: v.id("tenants"),
@@ -13,7 +10,6 @@ export const upsertMember = internalMutation({
     calendlyRole: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Check if this member already exists
     const existing = await ctx.db
       .query("calendlyOrgMembers")
       .withIndex("by_tenantId_and_calendlyUserUri", (q) =>
@@ -21,7 +17,6 @@ export const upsertMember = internalMutation({
       )
       .unique();
 
-    // Attempt email match with CRM users
     const matchedUser = await ctx.db
       .query("users")
       .withIndex("by_tenantId_and_email", (q) =>
@@ -37,16 +32,17 @@ export const upsertMember = internalMutation({
         matchedUserId: matchedUser?._id ?? existing.matchedUserId,
         lastSyncedAt: Date.now(),
       });
-    } else {
-      await ctx.db.insert("calendlyOrgMembers", {
-        tenantId: args.tenantId,
-        calendlyUserUri: args.calendlyUserUri,
-        email: args.email,
-        name: args.name,
-        calendlyRole: args.calendlyRole,
-        matchedUserId: matchedUser?._id,
-        lastSyncedAt: Date.now(),
-      });
+      return;
     }
+
+    await ctx.db.insert("calendlyOrgMembers", {
+      tenantId: args.tenantId,
+      calendlyUserUri: args.calendlyUserUri,
+      email: args.email,
+      name: args.name,
+      calendlyRole: args.calendlyRole,
+      matchedUserId: matchedUser?._id,
+      lastSyncedAt: Date.now(),
+    });
   },
 });

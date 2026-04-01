@@ -52,6 +52,10 @@ export const getCalendlyTokens = internalQuery({
       calendlyTokenExpiresAt: tenant.calendlyTokenExpiresAt,
       calendlyRefreshLockUntil: tenant.calendlyRefreshLockUntil,
       calendlyOrgUri: tenant.calendlyOrgUri,
+      calendlyOwnerUri: tenant.calendlyOwnerUri,
+      calendlyWebhookUri: tenant.calendlyWebhookUri,
+      webhookSigningKey: tenant.webhookSigningKey,
+      workosOrgId: tenant.workosOrgId,
       status: tenant.status,
     };
   },
@@ -136,7 +140,14 @@ export const storeCalendlyTokens = internalMutation({
     calendlyRefreshLockUntil: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const { tenantId, ...fields } = args;
-    await ctx.db.patch(tenantId, fields);
+    const {
+      tenantId,
+      calendlyRefreshLockUntil,
+      ...fields
+    } = args;
+    await ctx.db.patch(tenantId, {
+      ...fields,
+      calendlyRefreshLockUntil: calendlyRefreshLockUntil ?? undefined,
+    });
   },
 });
