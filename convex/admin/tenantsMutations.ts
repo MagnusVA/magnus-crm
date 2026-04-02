@@ -32,34 +32,17 @@ export const patchInviteToken = internalMutation({
   },
 });
 
-export const resetTenantForReonboarding = internalMutation({
+export const deleteTenant = internalMutation({
   args: {
     tenantId: v.id("tenants"),
-    inviteTokenHash: v.string(),
-    inviteExpiresAt: v.number(),
   },
-  handler: async (ctx, { tenantId, inviteTokenHash, inviteExpiresAt }) => {
+  handler: async (ctx, { tenantId }) => {
     const tenant = await ctx.db.get(tenantId);
     if (!tenant) {
       throw new Error("Tenant not found");
     }
 
-    await ctx.db.patch(tenantId, {
-      status: "pending_signup" as const,
-      inviteTokenHash,
-      inviteExpiresAt,
-      inviteRedeemedAt: undefined,
-      codeVerifier: undefined,
-      calendlyAccessToken: undefined,
-      calendlyRefreshToken: undefined,
-      calendlyTokenExpiresAt: undefined,
-      calendlyOrgUri: undefined,
-      calendlyOwnerUri: undefined,
-      calendlyRefreshLockUntil: undefined,
-      calendlyWebhookUri: undefined,
-      webhookSigningKey: undefined,
-      onboardingCompletedAt: undefined,
-    });
+    await ctx.db.delete(tenantId);
   },
 });
 
@@ -86,12 +69,23 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
       await ctx.db.delete(member._id);
     }
 
+    const users = await ctx.db
+      .query("users")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .take(CLEANUP_BATCH_SIZE);
+
+    for (const user of users) {
+      await ctx.db.delete(user._id);
+    }
+
     return {
       deletedRawWebhookEvents: rawWebhookEvents.length,
       deletedCalendlyOrgMembers: calendlyOrgMembers.length,
+      deletedUsers: users.length,
       hasMore:
         rawWebhookEvents.length === CLEANUP_BATCH_SIZE ||
-        calendlyOrgMembers.length === CLEANUP_BATCH_SIZE,
+        calendlyOrgMembers.length === CLEANUP_BATCH_SIZE ||
+        users.length === CLEANUP_BATCH_SIZE,
     };
   },
 });

@@ -32,12 +32,19 @@ type WebhookCleanupStatus =
 
 export type ResetTenantResult = {
   tenantId: string;
-  workosOrgId: string;
-  inviteUrl: string;
-  expiresAt: number;
+  deletedTenant: true;
   webhookCleanup: WebhookCleanupStatus;
+  tokenCleanup: {
+    accessToken: "revoked" | "not_present" | "already_invalid";
+    refreshToken: "revoked" | "not_present" | "already_invalid";
+  };
+  workosCleanup: {
+    deletedUsers: number;
+    deletedOrganization: boolean;
+  };
   deletedRawWebhookEvents: number;
   deletedCalendlyOrgMembers: number;
+  deletedUsers: number;
 };
 
 export function ResetTenantDialog({
@@ -85,10 +92,11 @@ export function ResetTenantDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl" showCloseButton={!isSubmitting}>
         <DialogHeader>
-          <DialogTitle>Reset Tenant for Re-onboarding</DialogTitle>
+          <DialogTitle>Delete Tenant Completely</DialogTitle>
           <DialogDescription>
-            This clears the tenant back to the pre-signup state and issues a
-            fresh invite link for a full onboarding retest.
+            This fully deprovisions the tenant and removes the tenant record
+            from Convex so onboarding can later start again from zero with a
+            brand-new invite.
           </DialogDescription>
         </DialogHeader>
 
@@ -121,18 +129,27 @@ export function ResetTenantDialog({
               </div>
               <div className="space-y-2 text-sm">
                 <p className="font-medium text-foreground">
-                  Reset will perform these steps:
+                  Delete will perform these steps:
                 </p>
                 <ul className="list-disc space-y-1 pl-4 text-muted-foreground">
-                  <li>Delete the Calendly webhook subscription when a valid token is available.</li>
-                  <li>Clear stored Calendly OAuth tokens, webhook state, and onboarding timestamps.</li>
-                  <li>Delete synced Calendly org members and raw webhook events for this tenant.</li>
-                  <li>Keep the WorkOS organization and tenant record, then issue a fresh invite.</li>
+                  <li>
+                    Delete the Calendly webhook subscription before any token
+                    revocation occurs.
+                  </li>
+                  <li>Revoke stored Calendly OAuth tokens when they still exist.</li>
+                  <li>
+                    Delete the tenant&apos;s WorkOS users and remove the old
+                    WorkOS organization.
+                  </li>
+                  <li>
+                    Delete tenant-scoped Convex data, including synced Calendly
+                    members, webhook events, and app `users` records.
+                  </li>
+                  <li>
+                    Delete the tenant record itself. If you want to onboard the
+                    company again, create a new tenant invite afterward.
+                  </li>
                 </ul>
-                <p className="text-destructive">
-                  WorkOS users and Convex `users` records are not deleted by this action.
-                  Remove those manually before re-testing onboarding.
-                </p>
               </div>
             </div>
           </div>
@@ -152,7 +169,11 @@ export function ResetTenantDialog({
                 autoComplete="off"
               />
               <FieldDescription>
-                Enter <span className="font-medium text-foreground">{currentTenant.companyName}</span> exactly to enable the reset action.
+                Enter{" "}
+                <span className="font-medium text-foreground">
+                  {currentTenant.companyName}
+                </span>{" "}
+                exactly to enable the delete action.
               </FieldDescription>
             </Field>
           </FieldGroup>
@@ -170,12 +191,12 @@ export function ResetTenantDialog({
               {isSubmitting ? (
                 <>
                   <Spinner data-icon="inline-start" />
-                  Resetting&hellip;
+                  Deleting&hellip;
                 </>
               ) : (
                 <>
                   <Trash2Icon data-icon="inline-start" aria-hidden="true" />
-                  Reset Tenant
+                  Delete Tenant
                 </>
               )}
             </Button>

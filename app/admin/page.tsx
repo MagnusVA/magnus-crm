@@ -66,7 +66,7 @@ export default function AdminPage() {
 
   const createTenantInvite = useAction(api.admin.tenants.createTenantInvite);
   const regenerateInvite = useAction(api.admin.tenants.regenerateInvite);
-  const resetTenant = useAction(api.admin.tenants.resetTenantForReonboarding);
+  const deleteTenant = useAction(api.admin.tenants.resetTenantForReonboarding);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [inviteResult, setInviteResult] = useState<InviteResult | null>(null);
@@ -92,18 +92,21 @@ export default function AdminPage() {
   };
 
   const handleReset = async (tenant: Doc<"tenants">) => {
-    const result = await resetTenant({ tenantId: tenant._id });
+    try {
+      const result = await deleteTenant({ tenantId: tenant._id });
 
-    setInviteResult({
-      tenantId: tenant._id,
-      workosOrgId: tenant.workosOrgId,
-      inviteUrl: result.inviteUrl,
-      expiresAt: result.expiresAt,
-    });
-
-    toast.success(getResetToastTitle(result), {
-      description: getResetToastDescription(result),
-    });
+      toast.success(getResetToastTitle(result), {
+        description: getResetToastDescription(result),
+      });
+    } catch (error) {
+      toast.error("Tenant deletion failed.", {
+        description:
+          error instanceof Error
+            ? error.message
+            : "The tenant could not be deleted.",
+      });
+      throw error;
+    }
   };
 
   // ---- Gate states ----
@@ -209,7 +212,7 @@ export default function AdminPage() {
             </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
               Live tenant state from Convex. Pending invites can be regenerated
-              from the actions column.
+              and tenants can be fully deleted from the actions column.
             </p>
           </div>
 
@@ -337,11 +340,11 @@ function TenantRow({
           <Button
             variant="destructive"
             size="sm"
-            aria-label={`Reset ${tenant.companyName} for re-onboarding`}
+            aria-label={`Delete ${tenant.companyName} completely`}
             onClick={() => onResetRequest(tenant)}
           >
             <RotateCcwIcon data-icon="inline-start" aria-hidden="true" />
-            Reset
+            Delete
           </Button>
         </div>
       </TableCell>
@@ -466,31 +469,48 @@ function computeStats(tenants: Doc<"tenants">[] | undefined) {
 }
 
 function getResetToastTitle(result: ResetTenantResult) {
-  if (result.webhookCleanup.status === "deleted") {
-    return "Tenant reset. Calendly webhook deleted.";
+  if (
+    result.webhookCleanup.status === "deleted" &&
+    result.workosCleanup.deletedOrganization
+  ) {
+    return "Tenant deleted. External systems were deprovisioned.";
   }
 
   if (result.webhookCleanup.status === "not_configured") {
-    return "Tenant reset. No Calendly webhook was configured.";
+    return "Tenant deleted. No Calendly webhook was configured.";
   }
 
-  return "Tenant reset. Review Calendly cleanup status.";
+  return "Tenant deleted. Review external cleanup status.";
 }
 
 function getResetToastDescription(result: ResetTenantResult) {
   const base = [
+    `${result.workosCleanup.deletedUsers} WorkOS users removed`,
     `${result.deletedRawWebhookEvents} webhook events removed`,
     `${result.deletedCalendlyOrgMembers} Calendly members removed`,
+    `${result.deletedUsers} app users removed`,
   ].join(" • ");
 
-  if (
-    result.webhookCleanup.status === "skipped_missing_access_token" ||
-    result.webhookCleanup.status === "failed"
-  ) {
-    return `${base} • ${result.webhookCleanup.message}`;
+  const tokenSummary = [
+    `Calendly access token: ${formatTokenCleanupStatus(result.tokenCleanup.accessToken)}`,
+    `refresh token: ${formatTokenCleanupStatus(result.tokenCleanup.refreshToken)}`,
+  ].join(" • ");
+
+  return `${base} • ${tokenSummary} • Tenant row deleted. Create a new invite to start over.`;
+}
+
+function formatTokenCleanupStatus(
+  status: ResetTenantResult["tokenCleanup"]["accessToken"],
+) {
+  if (status === "revoked") {
+    return "revoked";
   }
 
-  return `${base} • Fresh invite generated.`;
+  if (status === "already_invalid") {
+    return "already invalid";
+  }
+
+  return "not present";
 }
 
 // ---------------------------------------------------------------------------

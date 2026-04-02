@@ -1,6 +1,6 @@
 "use node";
 
-import { WorkOS } from "@workos-inc/node";
+import { NotFoundException, WorkOS } from "@workos-inc/node";
 import { v } from "convex/values";
 import type { ActionCtx } from "../_generated/server";
 import { action, internalAction } from "../_generated/server";
@@ -38,6 +38,21 @@ type WebhookCleanupResult =
       message: string;
     };
 
+type CalendlyTokenRevocationStatus =
+  | "revoked"
+  | "not_present"
+  | "already_invalid";
+
+type CalendlyTokenCleanupResult = {
+  accessToken: CalendlyTokenRevocationStatus;
+  refreshToken: CalendlyTokenRevocationStatus;
+};
+
+type WorkOSCleanupResult = {
+  deletedUsers: number;
+  deletedOrganization: boolean;
+};
+
 function getAppUrl() {
   return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 }
@@ -49,6 +64,16 @@ function getInviteSigningSecret() {
   }
 
   return signingSecret;
+}
+
+function getCalendlyClientId() {
+  return (
+    process.env.CALENDLY_CLIENT_ID ?? process.env.NEXT_PUBLIC_CALENDLY_CLIENT_ID
+  );
+}
+
+function getCalendlyClientSecret() {
+  return process.env.CALENDLY_CLIENT_SECRET;
 }
 
 function buildInviteLinkForTenant(
@@ -95,7 +120,7 @@ async function resolveCalendlyAccessToken(
     return await getValidAccessToken(ctx, tenantId);
   } catch (error) {
     console.error(
-      `Unable to refresh Calendly token before tenant reset for ${tenantId}:`,
+      `Unable to refresh Calendly token before tenant deletion for ${tenantId}:`,
       error,
     );
     return null;
@@ -106,12 +131,27 @@ async function cleanupCalendlyWebhook(
   ctx: ActionCtx,
   tenant: Doc<"tenants">,
 ): Promise<WebhookCleanupResult> {
+  console.log("[tenant-offboarding] Calendly webhook cleanup starting", {
+    tenantId: tenant._id,
+    workosOrgId: tenant.workosOrgId,
+    hasWebhook: Boolean(tenant.calendlyWebhookUri),
+    status: tenant.status,
+  });
+
   if (!tenant.calendlyWebhookUri) {
+    console.log("[tenant-offboarding] Calendly webhook cleanup skipped", {
+      tenantId: tenant._id,
+      reason: "not_configured",
+    });
     return { status: "not_configured" };
   }
 
   const accessToken = await resolveCalendlyAccessToken(ctx, tenant._id, tenant);
   if (!accessToken) {
+    console.warn("[tenant-offboarding] Calendly webhook cleanup skipped", {
+      tenantId: tenant._id,
+      reason: "missing_access_token",
+    });
     return {
       status: "skipped_missing_access_token",
       message:
@@ -124,8 +164,16 @@ async function cleanupCalendlyWebhook(
       accessToken,
       webhookUri: tenant.calendlyWebhookUri,
     });
+    console.log("[tenant-offboarding] Calendly webhook cleanup finished", {
+      tenantId: tenant._id,
+      result: "deleted",
+    });
     return { status: "deleted" };
   } catch (error) {
+    console.error("[tenant-offboarding] Calendly webhook cleanup failed", {
+      tenantId: tenant._id,
+      message: error instanceof Error ? error.message : String(error),
+    });
     return {
       status: "failed",
       message:
@@ -133,6 +181,165 @@ async function cleanupCalendlyWebhook(
           ? error.message
           : "Calendly webhook deletion failed.",
     };
+  }
+}
+
+async function revokeCalendlyToken(
+  token: string | undefined,
+): Promise<CalendlyTokenRevocationStatus> {
+  if (!token) {
+    return "not_present";
+  }
+
+  const clientId = getCalendlyClientId();
+  const clientSecret = getCalendlyClientSecret();
+  if (!clientId || !clientSecret) {
+    throw new Error("Missing Calendly OAuth configuration");
+  }
+
+  const response = await fetch("https://auth.calendly.com/oauth/revoke", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
+      token,
+    }).toString(),
+  });
+
+  if (response.ok) {
+    return "revoked";
+  }
+
+  if (response.status === 400 || response.status === 403) {
+    return "already_invalid";
+  }
+
+  throw new Error(
+    `Calendly token revocation failed: ${response.status} ${await response.text()}`,
+  );
+}
+
+async function cleanupCalendlyTokens(
+  tenant: Doc<"tenants">,
+): Promise<CalendlyTokenCleanupResult> {
+  console.log("[tenant-offboarding] Calendly token cleanup starting", {
+    tenantId: tenant._id,
+    hasAccessToken: Boolean(tenant.calendlyAccessToken),
+    hasRefreshToken: Boolean(tenant.calendlyRefreshToken),
+  });
+
+  const accessToken = await revokeCalendlyToken(tenant.calendlyAccessToken);
+  const refreshToken = await revokeCalendlyToken(tenant.calendlyRefreshToken);
+
+  console.log("[tenant-offboarding] Calendly token cleanup finished", {
+    tenantId: tenant._id,
+    accessToken,
+    refreshToken,
+  });
+
+  return {
+    accessToken,
+    refreshToken,
+  };
+}
+
+async function cleanupWorkOSOrganization(
+  tenant: Doc<"tenants">,
+): Promise<WorkOSCleanupResult> {
+  console.log("[tenant-offboarding] WorkOS cleanup starting", {
+    tenantId: tenant._id,
+    workosOrgId: tenant.workosOrgId,
+  });
+
+  let memberships;
+
+  try {
+    memberships = await workos.userManagement.listOrganizationMemberships({
+      organizationId: tenant.workosOrgId,
+      limit: 100,
+    });
+  } catch (error) {
+    if (error instanceof NotFoundException) {
+      return {
+        deletedUsers: 0,
+        deletedOrganization: false,
+      };
+    }
+    throw error;
+  }
+
+  const allMemberships = await memberships.autoPagination();
+  const userIds = [...new Set(allMemberships.map((membership) => membership.userId))];
+
+  console.log("[tenant-offboarding] WorkOS memberships resolved", {
+    tenantId: tenant._id,
+    workosOrgId: tenant.workosOrgId,
+    membershipCount: allMemberships.length,
+    uniqueUserCount: userIds.length,
+  });
+
+  let deletedUsers = 0;
+  for (const userId of userIds) {
+    try {
+      await workos.userManagement.deleteUser(userId);
+      deletedUsers += 1;
+      console.log("[tenant-offboarding] WorkOS user deleted", {
+        tenantId: tenant._id,
+        workosOrgId: tenant.workosOrgId,
+        userId,
+      });
+    } catch (error) {
+      if (error instanceof NotFoundException) {
+        console.warn("[tenant-offboarding] WorkOS user already absent", {
+          tenantId: tenant._id,
+          workosOrgId: tenant.workosOrgId,
+          userId,
+        });
+        continue;
+      }
+      console.error("[tenant-offboarding] WorkOS user deletion failed", {
+        tenantId: tenant._id,
+        workosOrgId: tenant.workosOrgId,
+        userId,
+        message: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  try {
+    await workos.organizations.deleteOrganization(tenant.workosOrgId);
+    console.log("[tenant-offboarding] WorkOS organization deleted", {
+      tenantId: tenant._id,
+      workosOrgId: tenant.workosOrgId,
+      deletedUsers,
+    });
+    return {
+      deletedUsers,
+      deletedOrganization: true,
+    };
+  } catch (error) {
+    if (error instanceof NotFoundException) {
+      console.warn("[tenant-offboarding] WorkOS organization already absent", {
+        tenantId: tenant._id,
+        workosOrgId: tenant.workosOrgId,
+        deletedUsers,
+      });
+      return {
+        deletedUsers,
+        deletedOrganization: false,
+      };
+    }
+    console.error("[tenant-offboarding] WorkOS organization deletion failed", {
+      tenantId: tenant._id,
+      workosOrgId: tenant.workosOrgId,
+      deletedUsers,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    throw error;
   }
 }
 
@@ -257,15 +464,23 @@ export const resetTenantForReonboarding = action({
   handler: async (
     ctx,
     { tenantId },
-  ): Promise<
-    InviteLinkResult & {
-      webhookCleanup: WebhookCleanupResult;
-      deletedRawWebhookEvents: number;
-      deletedCalendlyOrgMembers: number;
-    }
-  > => {
+  ): Promise<{
+    tenantId: Id<"tenants">;
+    deletedTenant: true;
+    webhookCleanup: WebhookCleanupResult;
+    tokenCleanup: CalendlyTokenCleanupResult;
+    workosCleanup: WorkOSCleanupResult;
+    deletedRawWebhookEvents: number;
+    deletedCalendlyOrgMembers: number;
+    deletedUsers: number;
+  }> => {
     const identity = await ctx.auth.getUserIdentity();
     requireSystemAdminSession(identity);
+
+    console.log("[tenant-offboarding] Tenant deletion requested", {
+      tenantId,
+      requestedBy: identity.tokenIdentifier,
+    });
 
     const tenant = await ctx.runQuery(
       internal.admin.tenantsQueries.getTenantInternal,
@@ -275,10 +490,47 @@ export const resetTenantForReonboarding = action({
       throw new Error("Tenant not found");
     }
 
+    console.log("[tenant-offboarding] Tenant loaded", {
+      tenantId: tenant._id,
+      workosOrgId: tenant.workosOrgId,
+      status: tenant.status,
+      hasCalendlyWebhook: Boolean(tenant.calendlyWebhookUri),
+      hasCalendlyAccessToken: Boolean(tenant.calendlyAccessToken),
+      hasCalendlyRefreshToken: Boolean(tenant.calendlyRefreshToken),
+    });
+
     const webhookCleanup = await cleanupCalendlyWebhook(ctx, tenant);
+    if (
+      webhookCleanup.status === "skipped_missing_access_token" ||
+      webhookCleanup.status === "failed"
+    ) {
+      console.error("[tenant-offboarding] Tenant deletion aborted during webhook cleanup", {
+        tenantId,
+        webhookCleanup,
+      });
+      throw new Error(webhookCleanup.message);
+    }
+
+    const refreshedTenant = await ctx.runQuery(
+      internal.admin.tenantsQueries.getTenantInternal,
+      { tenantId },
+    );
+    if (!refreshedTenant) {
+      throw new Error("Tenant not found after Calendly webhook cleanup");
+    }
+
+    console.log("[tenant-offboarding] Tenant reloaded after webhook cleanup", {
+      tenantId: refreshedTenant._id,
+      workosOrgId: refreshedTenant.workosOrgId,
+      status: refreshedTenant.status,
+    });
+
+    const tokenCleanup = await cleanupCalendlyTokens(refreshedTenant);
+    const workosCleanup = await cleanupWorkOSOrganization(refreshedTenant);
 
     let deletedRawWebhookEvents = 0;
     let deletedCalendlyOrgMembers = 0;
+    let deletedUsers = 0;
 
     while (true) {
       const batch = await ctx.runMutation(
@@ -288,33 +540,51 @@ export const resetTenantForReonboarding = action({
 
       deletedRawWebhookEvents += batch.deletedRawWebhookEvents;
       deletedCalendlyOrgMembers += batch.deletedCalendlyOrgMembers;
+      deletedUsers += batch.deletedUsers;
+
+      console.log("[tenant-offboarding] Tenant data batch deleted", {
+        tenantId,
+        batch,
+        totals: {
+          deletedRawWebhookEvents,
+          deletedCalendlyOrgMembers,
+          deletedUsers,
+        },
+      });
 
       if (!batch.hasMore) {
         break;
       }
     }
 
-    const { tokenHash, expiresAt, inviteUrl } = await buildInviteLinkForTenant(
-      tenant,
-    );
-
     await ctx.runMutation(
-      internal.admin.tenantsMutations.resetTenantForReonboarding,
+      internal.admin.tenantsMutations.deleteTenant,
       {
         tenantId,
-        inviteTokenHash: tokenHash,
-        inviteExpiresAt: expiresAt,
       },
     );
 
-    return {
+    console.log("[tenant-offboarding] Tenant deletion completed", {
       tenantId,
-      workosOrgId: tenant.workosOrgId,
-      inviteUrl,
-      expiresAt,
+      deletedTenant: true,
+      previousWorkosOrgId: tenant.workosOrgId,
       webhookCleanup,
+      tokenCleanup,
+      workosCleanup,
       deletedRawWebhookEvents,
       deletedCalendlyOrgMembers,
+      deletedUsers,
+    });
+
+    return {
+      tenantId,
+      deletedTenant: true,
+      webhookCleanup,
+      tokenCleanup,
+      workosCleanup,
+      deletedRawWebhookEvents,
+      deletedCalendlyOrgMembers,
+      deletedUsers,
     };
   },
 });
