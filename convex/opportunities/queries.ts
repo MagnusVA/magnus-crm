@@ -1,0 +1,187 @@
+import { v } from "convex/values";
+import type { Doc, Id } from "../_generated/dataModel";
+import { query } from "../_generated/server";
+import { requireTenantUser } from "../requireTenantUser";
+
+const opportunityStatusValidator = v.union(
+  v.literal("scheduled"),
+  v.literal("in_progress"),
+  v.literal("payment_received"),
+  v.literal("follow_up_scheduled"),
+  v.literal("lost"),
+  v.literal("canceled"),
+  v.literal("no_show"),
+);
+
+type LeadSummary = {
+  fullName?: string;
+  email?: string;
+};
+
+type UserSummary = {
+  fullName?: string;
+  email: string;
+};
+
+type MeetingSummary = {
+  _id: Id<"meetings">;
+  scheduledAt: number;
+  status: Doc<"meetings">["status"];
+};
+
+/**
+ * List opportunities for tenant owner/admin with optional filters.
+ * Includes lead, closer, event type, and latest meeting metadata.
+ */
+export const listOpportunitiesForAdmin = query({
+  args: {
+    statusFilter: v.optional(opportunityStatusValidator),
+    assignedCloserId: v.optional(v.id("users")),
+  },
+  handler: async (ctx, { statusFilter, assignedCloserId }) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    if (assignedCloserId) {
+      const closer = await ctx.db.get(assignedCloserId);
+      if (
+        !closer ||
+        closer.tenantId !== tenantId ||
+        closer.role !== "closer"
+      ) {
+        throw new Error("Invalid closer filter");
+      }
+    }
+
+    const opportunities: Array<Doc<"opportunities">> = [];
+    if (statusFilter) {
+      for await (const opportunity of ctx.db
+        .query("opportunities")
+        .withIndex("by_tenantId_and_status", (q) =>
+          q.eq("tenantId", tenantId).eq("status", statusFilter),
+        )) {
+        if (
+          assignedCloserId !== undefined &&
+          opportunity.assignedCloserId !== assignedCloserId
+        ) {
+          continue;
+        }
+        opportunities.push(opportunity);
+      }
+    } else if (assignedCloserId) {
+      for await (const opportunity of ctx.db
+        .query("opportunities")
+        .withIndex("by_tenantId_and_assignedCloserId", (q) =>
+          q.eq("tenantId", tenantId).eq("assignedCloserId", assignedCloserId),
+        )) {
+        opportunities.push(opportunity);
+      }
+    } else {
+      for await (const opportunity of ctx.db
+        .query("opportunities")
+        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))) {
+        opportunities.push(opportunity);
+      }
+    }
+
+    const leadIds = new Set<Id<"leads">>();
+    const closerIds = new Set<Id<"users">>();
+    const eventTypeConfigIds = new Set<Id<"eventTypeConfigs">>();
+
+    for (const opportunity of opportunities) {
+      leadIds.add(opportunity.leadId);
+      if (opportunity.assignedCloserId) {
+        closerIds.add(opportunity.assignedCloserId);
+      }
+      if (opportunity.eventTypeConfigId) {
+        eventTypeConfigIds.add(opportunity.eventTypeConfigId);
+      }
+    }
+
+    const leadById = new Map<Id<"leads">, LeadSummary>();
+    for (const leadId of leadIds) {
+      const lead = await ctx.db.get(leadId);
+      if (lead) {
+        leadById.set(leadId, {
+          fullName: lead.fullName,
+          email: lead.email,
+        });
+      }
+    }
+
+    const closerById = new Map<Id<"users">, UserSummary>();
+    for (const closerId of closerIds) {
+      const closer = await ctx.db.get(closerId);
+      if (closer) {
+        closerById.set(closerId, {
+          fullName: closer.fullName,
+          email: closer.email,
+        });
+      }
+    }
+
+    const eventTypeById = new Map<Id<"eventTypeConfigs">, string>();
+    for (const eventTypeConfigId of eventTypeConfigIds) {
+      const eventTypeConfig = await ctx.db.get(eventTypeConfigId);
+      if (eventTypeConfig) {
+        eventTypeById.set(eventTypeConfigId, eventTypeConfig.displayName);
+      }
+    }
+
+    const now = Date.now();
+    const enriched = await Promise.all(
+      opportunities.map(async (opportunity) => {
+        const lead = leadById.get(opportunity.leadId);
+        const closer = opportunity.assignedCloserId
+          ? closerById.get(opportunity.assignedCloserId)
+          : undefined;
+        const eventTypeName = opportunity.eventTypeConfigId
+          ? eventTypeById.get(opportunity.eventTypeConfigId)
+          : undefined;
+
+        let latestMeeting: MeetingSummary | null = null;
+        let nextMeeting: MeetingSummary | null = null;
+
+        for await (const meeting of ctx.db
+          .query("meetings")
+          .withIndex("by_opportunityId", (q) =>
+            q.eq("opportunityId", opportunity._id),
+          )) {
+          if (
+            latestMeeting === null ||
+            meeting.scheduledAt > latestMeeting.scheduledAt
+          ) {
+            latestMeeting = meeting;
+          }
+
+          if (
+            meeting.scheduledAt >= now &&
+            (nextMeeting === null || meeting.scheduledAt < nextMeeting.scheduledAt)
+          ) {
+            nextMeeting = meeting;
+          }
+        }
+
+        return {
+          ...opportunity,
+          leadName: lead?.fullName ?? lead?.email ?? "Unknown",
+          leadEmail: lead?.email,
+          closerName: closer?.fullName ?? closer?.email ?? "Unassigned",
+          closerEmail: closer?.email,
+          eventTypeName: eventTypeName ?? null,
+          latestMeetingId: latestMeeting?._id ?? null,
+          latestMeetingAt: latestMeeting?.scheduledAt ?? null,
+          latestMeetingStatus: latestMeeting?.status ?? null,
+          nextMeetingId: nextMeeting?._id ?? null,
+          nextMeetingAt: nextMeeting?.scheduledAt ?? null,
+          nextMeetingStatus: nextMeeting?.status ?? null,
+          meetingStatus: nextMeeting?.status ?? latestMeeting?.status ?? null,
+        };
+      }),
+    );
+
+    return enriched.sort((a, b) => b.updatedAt - a.updatedAt);
+  },
+});

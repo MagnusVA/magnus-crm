@@ -1,5 +1,5 @@
 import { query } from "../_generated/server";
-import { getIdentityOrgId } from "../lib/identity";
+import { requireTenantUser } from "../requireTenantUser";
 
 /**
  * Check if the current user's tenant needs Calendly reconnection.
@@ -8,20 +8,12 @@ import { getIdentityOrgId } from "../lib/identity";
 export const getConnectionStatus = query({
   args: {},
   handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      return null;
-    }
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
 
-    const workosOrgId = getIdentityOrgId(identity);
-    if (!workosOrgId) {
-      return null;
-    }
-
-    const tenant = await ctx.db
-      .query("tenants")
-      .withIndex("by_workosOrgId", (q) => q.eq("workosOrgId", workosOrgId))
-      .unique();
+    const tenant = await ctx.db.get(tenantId);
 
     if (!tenant) {
       return null;
@@ -32,6 +24,11 @@ export const getConnectionStatus = query({
       status: tenant.status,
       needsReconnect: tenant.status === "calendly_disconnected",
       lastTokenRefresh: tenant.lastTokenRefreshAt ?? null,
+      tokenExpiresAt: tenant.calendlyTokenExpiresAt ?? null,
+      calendlyWebhookUri: tenant.calendlyWebhookUri ?? null,
+      hasWebhookSigningKey: Boolean(tenant.webhookSigningKey),
+      hasAccessToken: Boolean(tenant.calendlyAccessToken),
+      hasRefreshToken: Boolean(tenant.calendlyRefreshToken),
     };
   },
 });

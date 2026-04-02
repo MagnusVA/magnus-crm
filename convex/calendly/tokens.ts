@@ -2,9 +2,11 @@
 
 import { v } from "convex/values";
 import type { ActionCtx } from "../_generated/server";
-import { internalAction } from "../_generated/server";
+import { action, internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
+import { getIdentityOrgId } from "../lib/identity";
+import { ADMIN_ROLES } from "../lib/roleMapping";
 
 type TenantTokenState = {
   calendlyAccessToken?: string;
@@ -276,6 +278,47 @@ export const refreshTenantToken = internalAction({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
     return await refreshTenantTokenCore(ctx, tenantId);
+  },
+});
+
+/**
+ * Manually refresh Calendly token for the current tenant.
+ * Only tenant owner/admin can call this action.
+ */
+export const refreshMyTenantToken = action({
+  args: {},
+  handler: async (ctx): Promise<RefreshOutcome> => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const workosUserId = identity.tokenIdentifier ?? identity.subject;
+    if (!workosUserId) {
+      throw new Error("Missing WorkOS user ID");
+    }
+
+    const currentUser: Doc<"users"> | null = await ctx.runQuery(
+      internal.users.queries.getCurrentUserInternal,
+      { workosUserId },
+    );
+    if (!currentUser || !ADMIN_ROLES.includes(currentUser.role)) {
+      throw new Error("Insufficient permissions");
+    }
+
+    const tenant = await ctx.runQuery(internal.tenants.getCalendlyTenant, {
+      tenantId: currentUser.tenantId,
+    });
+    if (!tenant) {
+      throw new Error("Tenant not found");
+    }
+
+    const identityOrgId = getIdentityOrgId(identity);
+    if (!identityOrgId || identityOrgId !== tenant.workosOrgId) {
+      throw new Error("Organization mismatch");
+    }
+
+    return await refreshTenantTokenCore(ctx, currentUser.tenantId);
   },
 });
 
