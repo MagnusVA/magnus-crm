@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
+import { internal } from "../_generated/api";
 
 export const persistRawEvent = internalMutation({
   args: {
@@ -9,23 +10,35 @@ export const persistRawEvent = internalMutation({
     payload: v.string(),
   },
   handler: async (ctx, args) => {
-    // Idempotency check: skip if we already have this event
-    const existing = await ctx.db
+    const existingEvents = ctx.db
       .query("rawWebhookEvents")
-      .withIndex("by_calendlyEventUri", (q) =>
-        q.eq("calendlyEventUri", args.calendlyEventUri),
+      .withIndex("by_tenantId_and_eventType", (q) =>
+        q.eq("tenantId", args.tenantId).eq("eventType", args.eventType),
       )
-      .unique();
+      .order("desc");
 
-    if (existing) {
-      console.log(`Duplicate webhook event ${args.calendlyEventUri}, skipping`);
-      return;
+    for await (const existing of existingEvents) {
+      if (existing.calendlyEventUri === args.calendlyEventUri) {
+        console.log(
+          `Duplicate webhook event ${args.eventType} ${args.calendlyEventUri}, skipping`,
+        );
+        return null;
+      }
     }
 
-    await ctx.db.insert("rawWebhookEvents", {
+    const rawEventId = await ctx.db.insert("rawWebhookEvents", {
       ...args,
       processed: false,
       receivedAt: Date.now(),
     });
+
+    // ==== NEW: Trigger pipeline processing ====
+    await ctx.scheduler.runAfter(
+      0,
+      internal.pipeline.processor.processRawEvent,
+      { rawEventId },
+    );
+
+    return rawEventId;
   },
 });

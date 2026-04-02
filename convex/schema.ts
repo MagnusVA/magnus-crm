@@ -41,6 +41,7 @@ export default defineSchema({
     notes: v.optional(v.string()),
     createdBy: v.string(),
     onboardingCompletedAt: v.optional(v.number()),
+    tenantOwnerId: v.optional(v.id("users")),
   })
     .index("by_contactEmail", ["contactEmail"])
     .index("by_workosOrgId", ["workosOrgId"])
@@ -89,5 +90,132 @@ export default defineSchema({
   })
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_calendlyUserUri", ["tenantId", "calendlyUserUri"])
+    .index("by_tenantId_and_matchedUserId", ["tenantId", "matchedUserId"])
     .index("by_tenantId_and_lastSyncedAt", ["tenantId", "lastSyncedAt"]),
+
+  leads: defineTable({
+    tenantId: v.id("tenants"),
+    email: v.string(),
+    fullName: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    customFields: v.optional(v.any()),
+    firstSeenAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_tenantId_and_email", ["tenantId", "email"]),
+
+  opportunities: defineTable({
+    tenantId: v.id("tenants"),
+    leadId: v.id("leads"),
+    assignedCloserId: v.optional(v.id("users")),
+    eventTypeConfigId: v.optional(v.id("eventTypeConfigs")),
+    status: v.union(
+      v.literal("scheduled"),
+      v.literal("in_progress"),
+      v.literal("payment_received"),
+      v.literal("follow_up_scheduled"),
+      v.literal("lost"),
+      v.literal("canceled"),
+      v.literal("no_show"),
+    ),
+    calendlyEventUri: v.optional(v.string()),
+    cancellationReason: v.optional(v.string()),
+    canceledBy: v.optional(v.string()),
+    lostReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
+    .index("by_tenantId_and_assignedCloserId", ["tenantId", "assignedCloserId"])
+    .index("by_tenantId_and_status", ["tenantId", "status"]),
+
+  meetings: defineTable({
+    tenantId: v.id("tenants"),
+    opportunityId: v.id("opportunities"),
+    calendlyEventUri: v.string(),
+    calendlyInviteeUri: v.string(),
+    zoomJoinUrl: v.optional(v.string()),
+    scheduledAt: v.number(),
+    durationMinutes: v.number(),
+    status: v.union(
+      v.literal("scheduled"),
+      v.literal("in_progress"),
+      v.literal("completed"),
+      v.literal("canceled"),
+      v.literal("no_show"),
+    ),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index("by_opportunityId", ["opportunityId"])
+    .index("by_tenantId_and_scheduledAt", ["tenantId", "scheduledAt"])
+    .index("by_tenantId_and_calendlyEventUri", ["tenantId", "calendlyEventUri"]),
+
+  eventTypeConfigs: defineTable({
+    tenantId: v.id("tenants"),
+    calendlyEventTypeUri: v.string(),
+    displayName: v.string(),
+    paymentLinks: v.optional(
+      v.array(
+        v.object({
+          provider: v.string(),
+          label: v.string(),
+          url: v.string(),
+        }),
+      ),
+    ),
+    roundRobinEnabled: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index(
+      "by_tenantId_and_calendlyEventTypeUri",
+      ["tenantId", "calendlyEventTypeUri"],
+    ),
+
+  paymentRecords: defineTable({
+    tenantId: v.id("tenants"),
+    opportunityId: v.id("opportunities"),
+    meetingId: v.id("meetings"),
+    closerId: v.id("users"),
+    amount: v.number(),
+    currency: v.string(),
+    provider: v.string(),
+    referenceCode: v.optional(v.string()),
+    proofFileId: v.optional(v.id("_storage")),
+    status: v.union(
+      v.literal("recorded"),
+      v.literal("verified"),
+      v.literal("disputed"),
+    ),
+    recordedAt: v.number(),
+  })
+    .index("by_opportunityId", ["opportunityId"])
+    .index("by_tenantId", ["tenantId"])
+    .index("by_tenantId_and_closerId", ["tenantId", "closerId"]),
+
+  followUps: defineTable({
+    tenantId: v.id("tenants"),
+    opportunityId: v.id("opportunities"),
+    leadId: v.id("leads"),
+    closerId: v.id("users"),
+    schedulingLinkUrl: v.optional(v.string()),
+    calendlyEventUri: v.optional(v.string()),
+    reason: v.union(
+      v.literal("closer_initiated"),
+      v.literal("cancellation_follow_up"),
+      v.literal("no_show_follow_up"),
+    ),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("booked"),
+      v.literal("expired"),
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_opportunityId", ["opportunityId"])
+    .index("by_tenantId_and_closerId", ["tenantId", "closerId"]),
 });

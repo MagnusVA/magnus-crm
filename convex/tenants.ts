@@ -61,6 +61,7 @@ export const getCalendlyTenant = internalQuery({
       status: tenant.status,
       companyName: tenant.companyName,
       calendlyWebhookUri: tenant.calendlyWebhookUri,
+      tenantOwnerId: tenant.tenantOwnerId,
     };
   },
 });

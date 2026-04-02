@@ -1,0 +1,116 @@
+import { v } from "convex/values";
+import { internalQuery } from "../_generated/server";
+
+/**
+ * Get a raw webhook event by ID.
+ * Used by the pipeline processor to load the event payload.
+ */
+export const getRawEvent = internalQuery({
+  args: { rawEventId: v.id("rawWebhookEvents") },
+  handler: async (ctx, { rawEventId }) => {
+    return await ctx.db.get(rawEventId);
+  },
+});
+
+/**
+ * Find a lead by email within a tenant.
+ * Used by invitee.created to check if a returning lead already exists.
+ */
+export const getLeadByEmail = internalQuery({
+  args: {
+    tenantId: v.id("tenants"),
+    email: v.string(),
+  },
+  handler: async (ctx, { tenantId, email }) => {
+    return await ctx.db
+      .query("leads")
+      .withIndex("by_tenantId_and_email", (q) =>
+        q.eq("tenantId", tenantId).eq("email", email)
+      )
+      .unique();
+  },
+});
+
+/**
+ * Find a meeting by Calendly event URI within a tenant.
+ * Used by invitee.canceled and invitee_no_show to find the affected meeting.
+ */
+export const getMeetingByCalendlyEventUri = internalQuery({
+  args: {
+    tenantId: v.id("tenants"),
+    calendlyEventUri: v.string(),
+  },
+  handler: async (ctx, { tenantId, calendlyEventUri }) => {
+    return await ctx.db
+      .query("meetings")
+      .withIndex("by_tenantId_and_calendlyEventUri", (q) =>
+        q.eq("tenantId", tenantId).eq("calendlyEventUri", calendlyEventUri)
+      )
+      .first();
+  },
+});
+
+/**
+ * Find the CRM user (Closer) by their Calendly user URI within a tenant.
+ * Used by invitee.created to resolve the assigned host to a CRM Closer.
+ */
+export const getUserByCalendlyUri = internalQuery({
+  args: {
+    tenantId: v.id("tenants"),
+    calendlyUserUri: v.string(),
+  },
+  handler: async (ctx, { tenantId, calendlyUserUri }) => {
+    return await ctx.db
+      .query("users")
+      .withIndex("by_tenantId_and_calendlyUserUri", (q) =>
+        q.eq("tenantId", tenantId).eq("calendlyUserUri", calendlyUserUri)
+      )
+      .unique();
+  },
+});
+
+/**
+ * Find an existing follow-up opportunity for a lead.
+ * Used by invitee.created to detect if this is a follow-up booking.
+ */
+export const getFollowUpOpportunity = internalQuery({
+  args: {
+    tenantId: v.id("tenants"),
+    leadId: v.id("leads"),
+  },
+  handler: async (ctx, { tenantId, leadId }) => {
+    const opportunities = ctx.db
+      .query("opportunities")
+      .withIndex("by_tenantId_and_leadId", (q) =>
+        q.eq("tenantId", tenantId).eq("leadId", leadId),
+      )
+      .order("desc");
+
+    for await (const opportunity of opportunities) {
+      if (opportunity.status === "follow_up_scheduled") {
+        return opportunity;
+      }
+    }
+
+    return null;
+  },
+});
+
+/**
+ * Find event type config by Calendly event type URI.
+ * Used by invitee.created to link opportunities to event type configurations.
+ */
+export const getEventTypeConfig = internalQuery({
+  args: {
+    tenantId: v.id("tenants"),
+    calendlyEventTypeUri: v.string(),
+  },
+  handler: async (ctx, { tenantId, calendlyEventTypeUri }) => {
+    return await ctx.db
+      .query("eventTypeConfigs")
+      .withIndex("by_tenantId_and_calendlyEventTypeUri", (q) =>
+        q.eq("tenantId", tenantId).eq("calendlyEventTypeUri", calendlyEventTypeUri)
+      )
+      .unique();
+  },
+});

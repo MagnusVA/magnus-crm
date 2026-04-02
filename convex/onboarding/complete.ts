@@ -1,7 +1,9 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
+import { Id } from "../_generated/dataModel";
 import { getIdentityOrgId } from "../lib/identity";
 import { validateRequiredString } from "../lib/validation";
+import { internal } from "../_generated/api";
 
 export const redeemInviteAndCreateUser = mutation({
   args: {
@@ -49,31 +51,58 @@ export const redeemInviteAndCreateUser = mutation({
       .withIndex("by_workosUserId", (q) => q.eq("workosUserId", workosUserId))
       .unique();
 
-    if (tenant.status === "pending_signup") {
-      await ctx.db.patch(tenant._id, {
-        inviteRedeemedAt: Date.now(),
-        status: "pending_calendly",
-      });
-    }
+    let userId: Id<"users">;
 
     if (!existingUser) {
-      await ctx.db.insert("users", {
+      userId = await ctx.db.insert("users", {
         tenantId: tenant._id,
         workosUserId,
         email: identity.email ?? tenant.contactEmail,
         fullName: identity.name ?? undefined,
         role: "tenant_master",
       });
-    } else if (existingUser.tenantId !== tenant._id) {
-      // User exists in a different tenant — update to current tenant
-      await ctx.db.patch(existingUser._id, { tenantId: tenant._id });
+    } else {
+      userId = existingUser._id;
+      if (existingUser.tenantId !== tenant._id) {
+        // User exists in a different tenant — update to current tenant
+        await ctx.db.patch(existingUser._id, { tenantId: tenant._id });
+      }
+    }
+
+    let nextTenantStatus = tenant.status;
+    const tenantPatch: {
+      tenantOwnerId?: Id<"users">;
+      inviteRedeemedAt?: number;
+      status?: typeof tenant.status;
+    } = {};
+
+    if (tenant.tenantOwnerId !== userId) {
+      tenantPatch.tenantOwnerId = userId;
+    }
+
+    if (tenant.status === "pending_signup") {
+      tenantPatch.inviteRedeemedAt = Date.now();
+      tenantPatch.status = "pending_calendly";
+      nextTenantStatus = "pending_calendly";
+    }
+
+    if (Object.keys(tenantPatch).length > 0) {
+      await ctx.db.patch(tenant._id, tenantPatch);
+    }
+
+    if (tenant.status === "pending_signup" || tenant.tenantOwnerId !== userId) {
+      await ctx.scheduler.runAfter(0, internal.workos.roles.assignRoleToMembership, {
+        workosUserId,
+        organizationId: tenant.workosOrgId,
+        roleSlug: "owner",
+      });
     }
 
     return {
       tenantId: tenant._id,
       companyName: tenant.companyName,
       alreadyRedeemed: tenant.status !== "pending_signup",
-      status: tenant.status,
+      status: nextTenantStatus,
     };
   },
 });
