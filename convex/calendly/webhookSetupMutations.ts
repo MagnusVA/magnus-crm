@@ -18,6 +18,7 @@ export const storeWebhookAndActivate = internalMutation({
       webhookSigningKey,
       status: "active" as const,
       onboardingCompletedAt: tenant.onboardingCompletedAt ?? Date.now(),
+      webhookProvisioningStartedAt: undefined,
     });
   },
 });

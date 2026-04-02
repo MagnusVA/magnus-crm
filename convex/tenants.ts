@@ -108,10 +108,15 @@ export const updateStatus = internalMutation({
       v.literal("active"),
       v.literal("calendly_disconnected"),
       v.literal("suspended"),
+      v.literal("invite_expired"),
     ),
   },
   handler: async (ctx, { tenantId, status }) => {
-    await ctx.db.patch(tenantId, { status });
+    await ctx.db.patch(tenantId, {
+      status,
+      webhookProvisioningStartedAt:
+        status === "provisioning_webhooks" ? Date.now() : undefined,
+    });
   },
 });
 
@@ -134,6 +139,7 @@ export const storeCalendlyTokens = internalMutation({
     await ctx.db.patch(tenantId, {
       ...fields,
       calendlyRefreshLockUntil: calendlyRefreshLockUntil ?? undefined,
+      lastTokenRefreshAt: Date.now(),
     });
   },
 });

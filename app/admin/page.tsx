@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
-import { useAction, useConvexAuth, useQuery } from "convex/react";
+import { useAction, useConvexAuth, usePaginatedQuery } from "convex/react";
 import type { Doc } from "@/convex/_generated/dataModel";
 import {
   CopyIcon,
@@ -27,6 +27,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { SYSTEM_ADMIN_ORG_ID } from "@/lib/system-admin-org";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 import {
   CreateTenantDialog,
@@ -41,6 +48,8 @@ import {
   type ResetTenantResult,
 } from "./_components/reset-tenant-dialog";
 
+type TenantStatus = Doc<"tenants">["status"];
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -48,6 +57,8 @@ import {
 const DOT_GRID = [
   "radial-gradient(circle, oklch(1 0 0 / 0.03) 1px, transparent 1px)",
 ].join(", ");
+
+const PAGE_SIZE = 25;
 
 // ---------------------------------------------------------------------------
 // Page
@@ -59,20 +70,28 @@ export default function AdminPage() {
   const isSystemAdmin = organizationId === SYSTEM_ADMIN_ORG_ID;
   const canQuery = isAuthenticated && isSystemAdmin;
 
-  const tenants = useQuery(
-    api.admin.tenantsQueries.listTenants,
-    canQuery ? {} : "skip",
+  const [statusFilter, setStatusFilter] = useState<TenantStatus | undefined>(
+    undefined,
   );
-
-  const createTenantInvite = useAction(api.admin.tenants.createTenantInvite);
-  const regenerateInvite = useAction(api.admin.tenants.regenerateInvite);
-  const deleteTenant = useAction(api.admin.tenants.resetTenantForReonboarding);
-
   const [dialogOpen, setDialogOpen] = useState(false);
   const [inviteResult, setInviteResult] = useState<InviteResult | null>(null);
   const [tenantToReset, setTenantToReset] = useState<Doc<"tenants"> | null>(
     null,
   );
+
+  const {
+    results: tenants,
+    status: paginationStatus,
+    loadMore,
+  } = usePaginatedQuery(
+    api.admin.tenantsQueries.listTenants,
+    canQuery ? { statusFilter } : "skip",
+    { initialNumItems: PAGE_SIZE },
+  );
+
+  const createTenantInvite = useAction(api.admin.tenants.createTenantInvite);
+  const regenerateInvite = useAction(api.admin.tenants.regenerateInvite);
+  const deleteTenant = useAction(api.admin.tenants.resetTenantForReonboarding);
 
   // ---- Handlers (React Compiler auto-memoises) ----
 
@@ -206,17 +225,45 @@ export default function AdminPage() {
 
         {/* Tenant table */}
         <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-          <div className="border-b border-border px-6 py-4">
-            <h2 className="text-sm font-semibold text-card-foreground">
-              Tenants
-            </h2>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              Live tenant state from Convex. Pending invites can be regenerated
-              and tenants can be fully deleted from the actions column.
-            </p>
+          <div className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold text-card-foreground">
+                Tenants
+              </h2>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                Live tenant state from Convex. Pending invites can be regenerated
+                and tenants can be fully deleted from the actions column.
+              </p>
+            </div>
+            <Select
+              value={statusFilter ?? "all"}
+              onValueChange={(value) =>
+                setStatusFilter(
+                  value === "all" ? undefined : (value as TenantStatus),
+                )
+              }
+            >
+              <SelectTrigger
+                className="w-[180px] shrink-0"
+                size="sm"
+                aria-label="Filter tenants by status"
+              >
+                <SelectValue placeholder="All statuses" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="pending_signup">Pending Signup</SelectItem>
+                <SelectItem value="pending_calendly">Pending Calendly</SelectItem>
+                <SelectItem value="provisioning_webhooks">Provisioning</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="calendly_disconnected">Disconnected</SelectItem>
+                <SelectItem value="suspended">Suspended</SelectItem>
+                <SelectItem value="invite_expired">Invite Expired</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
-          {tenants === undefined ? (
+          {paginationStatus === "LoadingFirstPage" ? (
             <div
               className="flex items-center gap-3 px-6 py-10 text-sm text-muted-foreground"
               role="status"
@@ -226,33 +273,61 @@ export default function AdminPage() {
             </div>
           ) : tenants.length === 0 ? (
             <div className="px-6 py-10 text-center text-sm text-muted-foreground">
-              No tenants yet. Create the first invite above.
+              {statusFilter ? "No tenants match this filter." : "No tenants yet. Create the first invite above."}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Company</TableHead>
-                    <TableHead>Contact</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Invite Expires</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {tenants.map((tenant) => (
-                    <TenantRow
-                      key={tenant._id}
-                      tenant={tenant}
-                      onRegenerate={handleRegenerate}
-                      onResetRequest={setTenantToReset}
-                    />
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Company</TableHead>
+                      <TableHead>Contact</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead>Invite Expires</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {tenants.map((tenant) => (
+                      <TenantRow
+                        key={tenant._id}
+                        tenant={tenant}
+                        onRegenerate={handleRegenerate}
+                        onResetRequest={setTenantToReset}
+                      />
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Pagination controls */}
+              <div className="border-t border-border bg-muted/30 px-6 py-3.5">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="text-xs text-muted-foreground">
+                    Showing {tenants.length} tenant{tenants.length !== 1 ? "s" : ""}
+                    {paginationStatus === "Exhausted" && " (all loaded)"}
+                  </div>
+                  {paginationStatus === "CanLoadMore" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => loadMore(PAGE_SIZE)}
+                      className="whitespace-nowrap"
+                    >
+                      Load More
+                    </Button>
+                  )}
+                  {paginationStatus === "LoadingMore" && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Spinner className="size-3" />
+                      Loading more&hellip;
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -309,7 +384,8 @@ function TenantRow({
       </TableCell>
       <TableCell className="text-right">
         <div className="flex justify-end gap-2">
-          {tenant.status === "pending_signup" ? (
+          {tenant.status === "pending_signup" ||
+          tenant.status === "invite_expired" ? (
             <Button
               variant="outline"
               size="sm"
@@ -356,8 +432,6 @@ function TenantRow({
 // Status Badge
 // ---------------------------------------------------------------------------
 
-type TenantStatus = Doc<"tenants">["status"];
-
 const STATUS_CONFIG: Record<
   TenantStatus,
   { label: string; variant: "default" | "secondary" | "destructive" | "outline" | "ghost" }
@@ -368,6 +442,7 @@ const STATUS_CONFIG: Record<
   active: { label: "Active", variant: "default" },
   calendly_disconnected: { label: "Disconnected", variant: "destructive" },
   suspended: { label: "Suspended", variant: "ghost" },
+  invite_expired: { label: "Invite Expired", variant: "destructive" },
 };
 
 function StatusBadge({ status }: { status: TenantStatus }) {
@@ -399,7 +474,7 @@ function InviteExpiry({
   const [now] = useState(Date.now);
 
   // Once redeemed or active, the invite expiry is no longer relevant
-  if (status !== "pending_signup") {
+  if (status !== "pending_signup" && status !== "invite_expired") {
     return <span className="text-xs text-muted-foreground">&mdash;</span>;
   }
 
@@ -430,6 +505,7 @@ function InviteExpiry({
 function computeStats(tenants: Doc<"tenants">[] | undefined) {
   const counts = {
     pending_signup: 0,
+    invite_expired: 0,
     pending_calendly: 0,
     active: 0,
     total: 0,
@@ -439,6 +515,7 @@ function computeStats(tenants: Doc<"tenants">[] | undefined) {
     counts.total = tenants.length;
     for (const t of tenants) {
       if (t.status === "pending_signup") counts.pending_signup++;
+      else if (t.status === "invite_expired") counts.invite_expired++;
       else if (t.status === "pending_calendly") counts.pending_calendly++;
       else if (t.status === "active") counts.active++;
     }
@@ -456,9 +533,9 @@ function computeStats(tenants: Doc<"tenants">[] | undefined) {
       accentClass: "text-chart-1",
     },
     {
-      label: "Pending Calendly",
-      value: String(counts.pending_calendly),
-      accentClass: "text-chart-2",
+      label: "Expired Invites",
+      value: String(counts.invite_expired),
+      accentClass: "text-destructive",
     },
     {
       label: "Active",

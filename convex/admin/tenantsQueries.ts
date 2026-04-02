@@ -1,14 +1,40 @@
 import { v } from "convex/values";
 import { internalQuery, query } from "../_generated/server";
+import { paginationOptsValidator } from "convex/server";
 import { requireSystemAdminSession } from "../requireSystemAdmin";
 
 export const listTenants = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    paginationOpts: paginationOptsValidator,
+    statusFilter: v.optional(
+      v.union(
+        v.literal("pending_signup"),
+        v.literal("pending_calendly"),
+        v.literal("provisioning_webhooks"),
+        v.literal("active"),
+        v.literal("calendly_disconnected"),
+        v.literal("suspended"),
+        v.literal("invite_expired"),
+      ),
+    ),
+  },
+  handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     requireSystemAdminSession(identity);
+    const statusFilter = args.statusFilter;
 
-    return await ctx.db.query("tenants").order("desc").take(100);
+    if (statusFilter !== undefined) {
+      return await ctx.db
+        .query("tenants")
+        .withIndex("by_status", (q) => q.eq("status", statusFilter))
+        .order("desc")
+        .paginate(args.paginationOpts);
+    }
+
+    return await ctx.db
+      .query("tenants")
+      .order("desc")
+      .paginate(args.paginationOpts);
   },
 });
 

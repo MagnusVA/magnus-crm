@@ -30,9 +30,12 @@ type RefreshOutcome =
         | "missing_refresh_token"
         | "lock_held"
         | "token_revoked"
-        | "api_error";
+        | "api_error"
+        | "rate_limited_retry_scheduled";
       accessToken?: string;
     };
+
+const TOKEN_REFRESH_STAGGER_MS = 100;
 
 function getCalendlyClientId() {
   return (
@@ -163,6 +166,27 @@ export async function refreshTenantTokenCore(
       };
     }
 
+    if (response.status === 429) {
+      // Rate limited by Calendly API
+      const retryAfter = parseInt(
+        response.headers.get("Retry-After") ?? "60",
+        10,
+      );
+      console.warn(
+        `[token-refresh] Tenant ${tenantId}: rate limited, scheduling retry in ${retryAfter}s`,
+      );
+      await ctx.scheduler.runAfter(
+        retryAfter * 1000,
+        internal.calendly.tokens.refreshTenantToken,
+        { tenantId },
+      );
+      await releaseRefreshLock(ctx, tenantId);
+      return {
+        refreshed: false,
+        reason: "rate_limited_retry_scheduled",
+      };
+    }
+
     if (!response.ok) {
       await releaseRefreshLock(ctx, tenantId);
       return {
@@ -256,7 +280,11 @@ export const refreshTenantToken = internalAction({
 });
 
 /**
- * Cron job: refresh tokens for all active tenants.
+ * Cron job: fan out token refresh for all active tenants.
+ *
+ * Instead of processing tenants sequentially (which risks timeout at ~1200 tenants),
+ * schedule each refresh as a separate action. Convex will process them in parallel,
+ * respecting platform concurrency limits.
  */
 export const refreshAllTokens = internalAction({
   args: {},
@@ -266,17 +294,24 @@ export const refreshAllTokens = internalAction({
       {},
     );
 
-    for (const tenantId of tenantIds) {
-      try {
-        const result = await refreshTenantTokenCore(ctx, tenantId);
-        if (result.refreshed) {
-          console.log(`Refreshed Calendly token for tenant ${tenantId}`);
-        } else {
-          console.log(`Skipped Calendly token refresh for tenant ${tenantId}: ${result.reason}`);
-        }
-      } catch (error) {
-        console.error(`Failed to refresh Calendly token for tenant ${tenantId}:`, error);
-      }
+    console.log(
+      `[token-refresh] Scheduling refresh for ${tenantIds.length} tenants`,
+    );
+
+    // Fan out: each tenant gets its own action invocation, slightly staggered
+    // so large refresh waves do not all hit Calendly at once.
+    for (let i = 0; i < tenantIds.length; i++) {
+      // Calendly enforces OAuth token limits per user. Keep the stagger short
+      // enough for scalability while still smoothing request bursts.
+      await ctx.scheduler.runAfter(
+        i * TOKEN_REFRESH_STAGGER_MS,
+        internal.calendly.tokens.refreshTenantToken,
+        { tenantId: tenantIds[i] },
+      );
     }
+
+    // The cron completes immediately after scheduling.
+    // Individual refresh actions run asynchronously and independently.
+    // Failures in one tenant do not affect others.
   },
 });

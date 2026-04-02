@@ -393,7 +393,10 @@ export const createTenantInvite = action({
     );
 
     if (existingTenant) {
-      if (existingTenant.status !== "pending_signup") {
+      if (
+        existingTenant.status !== "pending_signup" &&
+        existingTenant.status !== "invite_expired"
+      ) {
         throw new Error("Tenant already exists for this contact email");
       }
 
@@ -409,6 +412,13 @@ export const createTenantInvite = action({
           inviteExpiresAt: expiresAt,
         },
       );
+
+      if (existingTenant.status === "invite_expired") {
+        await ctx.runMutation(internal.tenants.updateStatus, {
+          tenantId: existingTenant._id,
+          status: "pending_signup",
+        });
+      }
 
       return {
         tenantId: existingTenant._id,
@@ -493,8 +503,13 @@ export const regenerateInvite = action({
     if (!tenant) {
       throw new Error("Tenant not found");
     }
-    if (tenant.status !== "pending_signup") {
-      throw new Error("Can only regenerate invite for pending_signup tenants");
+    if (
+      tenant.status !== "pending_signup" &&
+      tenant.status !== "invite_expired"
+    ) {
+      throw new Error(
+        "Can only regenerate invite for pending_signup or invite_expired tenants",
+      );
     }
 
     const { tokenHash, expiresAt, inviteUrl } = await buildInviteLinkForTenant(
@@ -509,6 +524,14 @@ export const regenerateInvite = action({
         inviteExpiresAt: expiresAt,
       },
     );
+
+    // If the invite had expired, reset status back to pending_signup
+    if (tenant.status === "invite_expired") {
+      await ctx.runMutation(internal.tenants.updateStatus, {
+        tenantId,
+        status: "pending_signup",
+      });
+    }
 
     return {
       tenantId,

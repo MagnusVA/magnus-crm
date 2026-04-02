@@ -8,11 +8,14 @@
  * @module
  */
 
+import type * as admin_inviteCleanup from "../admin/inviteCleanup.js";
+import type * as admin_inviteCleanupMutations from "../admin/inviteCleanupMutations.js";
 import type * as admin_tenants from "../admin/tenants.js";
 import type * as admin_tenantsMutations from "../admin/tenantsMutations.js";
 import type * as admin_tenantsQueries from "../admin/tenantsQueries.js";
 import type * as auth from "../auth.js";
 import type * as calendly_healthCheck from "../calendly/healthCheck.js";
+import type * as calendly_healthCheckMutations from "../calendly/healthCheckMutations.js";
 import type * as calendly_oauth from "../calendly/oauth.js";
 import type * as calendly_oauthMutations from "../calendly/oauthMutations.js";
 import type * as calendly_oauthQueries from "../calendly/oauthQueries.js";
@@ -35,6 +38,8 @@ import type * as tenants from "../tenants.js";
 import type * as webhooks_calendly from "../webhooks/calendly.js";
 import type * as webhooks_calendlyMutations from "../webhooks/calendlyMutations.js";
 import type * as webhooks_calendlyQueries from "../webhooks/calendlyQueries.js";
+import type * as webhooks_cleanup from "../webhooks/cleanup.js";
+import type * as webhooks_cleanupMutations from "../webhooks/cleanupMutations.js";
 
 import type {
   ApiFromModules,
@@ -43,11 +48,14 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  "admin/inviteCleanup": typeof admin_inviteCleanup;
+  "admin/inviteCleanupMutations": typeof admin_inviteCleanupMutations;
   "admin/tenants": typeof admin_tenants;
   "admin/tenantsMutations": typeof admin_tenantsMutations;
   "admin/tenantsQueries": typeof admin_tenantsQueries;
   auth: typeof auth;
   "calendly/healthCheck": typeof calendly_healthCheck;
+  "calendly/healthCheckMutations": typeof calendly_healthCheckMutations;
   "calendly/oauth": typeof calendly_oauth;
   "calendly/oauthMutations": typeof calendly_oauthMutations;
   "calendly/oauthQueries": typeof calendly_oauthQueries;
@@ -70,6 +78,8 @@ declare const fullApi: ApiFromModules<{
   "webhooks/calendly": typeof webhooks_calendly;
   "webhooks/calendlyMutations": typeof webhooks_calendlyMutations;
   "webhooks/calendlyQueries": typeof webhooks_calendlyQueries;
+  "webhooks/cleanup": typeof webhooks_cleanup;
+  "webhooks/cleanupMutations": typeof webhooks_cleanupMutations;
 }>;
 
 /**

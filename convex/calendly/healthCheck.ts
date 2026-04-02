@@ -1,5 +1,6 @@
 "use node";
 
+import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
@@ -149,23 +150,63 @@ async function runTenantHealthCheck(
 }
 
 /**
+ * Health check for a single tenant. Extracted from the old inline loop body.
+ */
+export const checkSingleTenant = internalAction({
+  args: { tenantId: v.id("tenants") },
+  handler: async (ctx, { tenantId }) => {
+    try {
+      return await runTenantHealthCheck(ctx, tenantId);
+    } catch (error) {
+      console.error(`Health check failed for tenant ${tenantId}:`, error);
+      return {
+        status: "error" as const,
+        reason: "health_check_exception" as const,
+        message: error instanceof Error ? error.message : "Unknown error",
+      };
+    }
+  },
+});
+
+/**
  * Daily health check cron for Calendly tenants.
+ * Fans out per-tenant checks for parallel processing.
  */
 export const runHealthCheck = internalAction({
   args: {},
   handler: async (ctx) => {
+    // Step 1: Handle stuck provisioning tenants (from Phase 9B.5) — still sequential, fast
+    const stuckTenants = await ctx.runQuery(
+      internal.calendly.healthCheckMutations.listStuckProvisioningTenants,
+    );
+
+    for (const { tenantId, companyName } of stuckTenants) {
+      await ctx.runMutation(internal.tenants.updateStatus, {
+        tenantId,
+        status: "pending_calendly",
+      });
+      console.warn(
+        `[health-check] Reverted stuck tenant "${companyName}" (${tenantId}) ` +
+        `from provisioning_webhooks → pending_calendly`,
+      );
+    }
+
+    // Step 2: Fan out per-tenant health checks
     const tenantIds: Array<Id<"tenants">> = await ctx.runQuery(
       internal.calendly.tokenMutations.listActiveTenantIds,
       {},
     );
 
+    console.log(
+      `[health-check] Scheduling health check for ${tenantIds.length} tenants`,
+    );
+
     for (const tenantId of tenantIds) {
-      try {
-        const result = await runTenantHealthCheck(ctx, tenantId);
-        console.log(`Calendly health check for tenant ${tenantId}: ${result.status}`);
-      } catch (error) {
-        console.error(`Calendly health check failed for tenant ${tenantId}:`, error);
-      }
+      await ctx.scheduler.runAfter(
+        0,
+        internal.calendly.healthCheck.checkSingleTenant,
+        { tenantId },
+      );
     }
   },
 });

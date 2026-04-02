@@ -24,4 +24,18 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "cleanup-expired-webhook-events",
+  { hours: 24 },
+  internal.webhooks.cleanup.cleanupExpiredEvents,
+  {},
+);
+
+crons.interval(
+  "cleanup-expired-invites",
+  { hours: 24 },
+  internal.admin.inviteCleanup.cleanupExpiredInvites,
+  {},
+);
+
 export default crons;

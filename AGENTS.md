@@ -1,3 +1,4 @@
+IMPORTANT, THIS APP IS CURRENTLY UNDER DEVELOPMENT, IT DOES NOT NEED MIGRATIONS FOR CHANGES AS THEY HAPPEN.
 Always use pnpm for installing packages and running scripts from package.json.
 
 Plans are to be setup and or read or referenced in plans/\*/\*\*

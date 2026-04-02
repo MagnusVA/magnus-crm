@@ -14,10 +14,11 @@ export default defineSchema({
       v.literal("active"),
       v.literal("calendly_disconnected"),
       v.literal("suspended"),
+      v.literal("invite_expired"),
     ),
 
     // Invite
-    inviteTokenHash: v.string(),
+    inviteTokenHash: v.optional(v.string()),
     inviteExpiresAt: v.number(),
     inviteRedeemedAt: v.optional(v.number()),
 
@@ -29,6 +30,8 @@ export default defineSchema({
     calendlyOrgUri: v.optional(v.string()),
     calendlyOwnerUri: v.optional(v.string()),
     calendlyRefreshLockUntil: v.optional(v.number()),
+    lastTokenRefreshAt: v.optional(v.number()),
+    webhookProvisioningStartedAt: v.optional(v.number()),
 
     // Webhooks
     calendlyWebhookUri: v.optional(v.string()),
@@ -42,7 +45,8 @@ export default defineSchema({
     .index("by_contactEmail", ["contactEmail"])
     .index("by_workosOrgId", ["workosOrgId"])
     .index("by_status", ["status"])
-    .index("by_inviteTokenHash", ["inviteTokenHash"]),
+    .index("by_inviteTokenHash", ["inviteTokenHash"])
+    .index("by_status_and_inviteExpiresAt", ["status", "inviteExpiresAt"]),
 
   users: defineTable({
     tenantId: v.id("tenants"),
@@ -71,7 +75,8 @@ export default defineSchema({
   })
     .index("by_tenantId_and_eventType", ["tenantId", "eventType"])
     .index("by_calendlyEventUri", ["calendlyEventUri"])
-    .index("by_processed", ["processed"]),
+    .index("by_processed", ["processed"])
+    .index("by_processed_and_receivedAt", ["processed", "receivedAt"]),
 
   calendlyOrgMembers: defineTable({
     tenantId: v.id("tenants"),
@@ -83,5 +88,6 @@ export default defineSchema({
     lastSyncedAt: v.number(),
   })
     .index("by_tenantId", ["tenantId"])
-    .index("by_tenantId_and_calendlyUserUri", ["tenantId", "calendlyUserUri"]),
+    .index("by_tenantId_and_calendlyUserUri", ["tenantId", "calendlyUserUri"])
+    .index("by_tenantId_and_lastSyncedAt", ["tenantId", "lastSyncedAt"]),
 });

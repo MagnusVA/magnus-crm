@@ -28,10 +28,19 @@ type CalendlyOrganizationMembershipPage = {
   };
 };
 
+type SyncTenantOrgMembersResult =
+  | { synced: number }
+  | {
+      synced: number;
+      reason: "missing_org_uri" | "tenant_not_ready" | "missing_access_token";
+    };
+
+type SyncForTenantResult = SyncTenantOrgMembersResult & { deleted: number };
+
 async function syncTenantOrgMembers(
   ctx: Parameters<typeof getValidAccessToken>[0],
   tenantId: Id<"tenants">,
-) {
+): Promise<SyncTenantOrgMembersResult> {
   const tenant = (await ctx.runQuery(internal.tenants.getCalendlyTokens, {
     tenantId,
   })) as TenantMemberState | null;
@@ -97,13 +106,37 @@ async function syncTenantOrgMembers(
  */
 export const syncForTenant = internalAction({
   args: { tenantId: v.id("tenants") },
-  handler: async (ctx, { tenantId }) => {
-    return await syncTenantOrgMembers(ctx, tenantId);
+  handler: async (ctx, { tenantId }): Promise<SyncForTenantResult> => {
+    const syncStartTimestamp = Date.now();
+
+    const result = await syncTenantOrgMembers(ctx, tenantId);
+
+    if ("reason" in result) {
+      console.log(
+        `Skipped Calendly org member sync for tenant ${tenantId}: ${result.reason}`,
+      );
+      return { ...result, deleted: 0 };
+    }
+
+    // Clean up stale members not seen in the latest sync
+    const cleanupResult: { deleted: number } = await ctx.runMutation(
+      internal.calendly.orgMembersMutations.deleteStaleMembers,
+      { tenantId, syncStartTimestamp },
+    );
+
+    console.log(
+      `Synced ${result.synced} members for tenant ${tenantId}, ` +
+      `cleaned up ${cleanupResult.deleted} stale records`,
+    );
+
+    return { ...result, deleted: cleanupResult.deleted };
   },
 });
 
 /**
- * Cron: sync org members for all active tenants.
+ * Cron: fan out org member sync for all active tenants.
+ * Each tenant is processed as an independent action invocation,
+ * allowing Convex to parallelize them.
  */
 export const syncAllTenants = internalAction({
   args: {},
@@ -113,13 +146,21 @@ export const syncAllTenants = internalAction({
       {},
     );
 
+    console.log(
+      `[org-sync] Scheduling sync for ${tenantIds.length} tenants`,
+    );
+
+    // Fan out: each tenant gets its own action invocation
     for (const tenantId of tenantIds) {
-      try {
-        const result = await syncTenantOrgMembers(ctx, tenantId);
-        console.log(`Synced ${result.synced} Calendly org members for tenant ${tenantId}`);
-      } catch (error) {
-        console.error(`Calendly org member sync failed for tenant ${tenantId}:`, error);
-      }
+      await ctx.scheduler.runAfter(
+        0,
+        internal.calendly.orgMembers.syncForTenant,
+        { tenantId },
+      );
     }
+
+    // The cron completes immediately after scheduling.
+    // Individual sync actions run asynchronously and independently.
+    // Failures in one tenant do not affect others.
   },
 });

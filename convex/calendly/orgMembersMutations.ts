@@ -46,3 +46,32 @@ export const upsertMember = internalMutation({
     });
   },
 });
+
+export const deleteStaleMembers = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    syncStartTimestamp: v.number(),
+  },
+  handler: async (ctx, { tenantId, syncStartTimestamp }) => {
+    let deleted = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const staleMembers = await ctx.db
+        .query("calendlyOrgMembers")
+        .withIndex("by_tenantId_and_lastSyncedAt", (q) =>
+          q.eq("tenantId", tenantId).lt("lastSyncedAt", syncStartTimestamp),
+        )
+        .take(128);
+
+      for (const member of staleMembers) {
+        await ctx.db.delete(member._id);
+        deleted++;
+      }
+
+      hasMore = staleMembers.length === 128;
+    }
+
+    return { deleted };
+  },
+});

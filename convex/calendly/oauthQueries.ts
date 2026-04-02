@@ -31,9 +31,7 @@ export const getConnectionStatus = query({
       tenantId: tenant._id,
       status: tenant.status,
       needsReconnect: tenant.status === "calendly_disconnected",
-      lastTokenRefresh: tenant.calendlyTokenExpiresAt
-        ? tenant.calendlyTokenExpiresAt - 7_200_000
-        : null,
+      lastTokenRefresh: tenant.lastTokenRefreshAt ?? null,
     };
   },
 });
