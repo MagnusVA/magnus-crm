@@ -255,6 +255,9 @@ export const exchangeCodeAndProvision = action({
 
       return { success: true };
     } catch (error) {
+      await ctx.runMutation(internal.calendly.oauthMutations.clearCodeVerifier, {
+        tenantId,
+      });
       await ctx.runMutation(internal.tenants.updateStatus, {
         tenantId,
         status: "pending_calendly",

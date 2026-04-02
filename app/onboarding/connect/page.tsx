@@ -7,6 +7,7 @@ import {
   CalendarIcon,
   CheckCircle2Icon,
   CircleAlertIcon,
+  ExternalLinkIcon,
   RadioIcon,
   Settings2Icon,
 } from "lucide-react";
@@ -236,8 +237,11 @@ function ConnectCard({
 }) {
   const initial = companyName.charAt(0).toUpperCase() || "C";
   const calendlyConnected = calendlyStatus === "connected";
-  const errorMessage = CALENDLY_ERROR_MESSAGES[calendlyError ?? ""] ?? null;
+  const errorCode = calendlyError ?? "";
+  const errorMessage = CALENDLY_ERROR_MESSAGES[errorCode] ?? null;
   const connectHref = `/api/calendly/start?tenantId=${encodeURIComponent(tenantId)}`;
+  const needsUpgrade = UPGRADE_REQUIRED_ERRORS.has(errorCode);
+  const isRetryable = RETRYABLE_ERRORS.has(errorCode);
 
   return (
     <div className="w-full max-w-md motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:duration-600">
@@ -282,19 +286,51 @@ function ConnectCard({
           ) : null}
 
           {errorMessage ? (
-            <div className="flex items-start gap-3 rounded-md border border-destructive/20 bg-destructive/5 p-3.5">
-              <CircleAlertIcon
-                className="mt-0.5 size-4 shrink-0 text-destructive"
-                aria-hidden="true"
-              />
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-card-foreground">
-                  Calendly Connection Failed
-                </p>
-                <p className="mt-0.5 text-xs text-muted-foreground">
-                  {errorMessage}
-                </p>
+            <div
+              className="flex flex-col gap-3 rounded-md border border-destructive/20 bg-destructive/5 p-3.5"
+              role="alert"
+            >
+              <div className="flex items-start gap-3">
+                <CircleAlertIcon
+                  className="mt-0.5 size-4 shrink-0 text-destructive"
+                  aria-hidden="true"
+                />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-card-foreground">
+                    {needsUpgrade
+                      ? "Calendly Plan Upgrade Required"
+                      : "Calendly Connection Failed"}
+                  </p>
+                  <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
+                    {errorMessage}
+                  </p>
+                </div>
               </div>
+
+              {/* Actionable CTAs based on error type */}
+              {needsUpgrade ? (
+                <div className="flex items-center gap-2 pl-7">
+                  <Button asChild size="sm" variant="outline" className="text-xs">
+                    <a
+                      href="https://calendly.com/pricing"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      View Calendly Plans
+                      <ExternalLinkIcon
+                        className="ml-1.5 size-3"
+                        aria-hidden="true"
+                      />
+                    </a>
+                  </Button>
+                </div>
+              ) : isRetryable ? (
+                <div className="flex items-center gap-2 pl-7">
+                  <Button asChild size="sm" variant="outline" className="text-xs">
+                    <Link href={connectHref}>Retry Connection</Link>
+                  </Button>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -364,8 +400,16 @@ function ConnectCard({
   );
 }
 
+/**
+ * Error codes are propagated from the Calendly callback route
+ * (`app/callback/calendly/route.ts`). Codes that surface specific next-steps
+ * (upgrade or retry) are classified below the map.
+ */
 const CALENDLY_ERROR_MESSAGES: Record<string, string> = {
-  calendly_denied: "Calendly authorization was cancelled before access was granted.",
+  calendly_denied:
+    "Calendly authorization was cancelled before access was granted.",
+  calendly_free_plan_unsupported:
+    "This Calendly account is on a free plan. Organization-scoped webhooks require a Professional plan or higher.",
   exchange_failed:
     "The Calendly authorization code could not be exchanged or webhook setup failed.",
   missing_context:
@@ -374,4 +418,16 @@ const CALENDLY_ERROR_MESSAGES: Record<string, string> = {
     "Your session expired before Calendly finished connecting. Sign in again and retry.",
   oauth_start_failed:
     "The Calendly authorization flow could not be started for this tenant.",
+  webhook_creation_failed:
+    "We connected to Calendly but couldn\u2019t set up the real-time webhook. This is usually a transient issue\u2009\u2014\u2009try connecting again.",
 };
+
+/** Errors that need a Calendly plan upgrade — retry won't help. */
+const UPGRADE_REQUIRED_ERRORS = new Set(["calendly_free_plan_unsupported"]);
+
+/** Transient failures where retrying is likely to succeed. */
+const RETRYABLE_ERRORS = new Set([
+  "exchange_failed",
+  "missing_context",
+  "webhook_creation_failed",
+]);

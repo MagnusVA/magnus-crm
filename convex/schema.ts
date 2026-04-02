@@ -39,6 +39,7 @@ export default defineSchema({
     createdBy: v.string(),
     onboardingCompletedAt: v.optional(v.number()),
   })
+    .index("by_contactEmail", ["contactEmail"])
     .index("by_workosOrgId", ["workosOrgId"])
     .index("by_status", ["status"])
     .index("by_inviteTokenHash", ["inviteTokenHash"]),

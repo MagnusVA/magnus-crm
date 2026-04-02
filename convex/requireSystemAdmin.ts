@@ -17,7 +17,7 @@ export function requireSystemAdminSession(
     (identity.organization_id as string | undefined) ??
     (identity.organizationId as string | undefined) ??
     (identity.org_id as string | undefined);
-  if (orgId !== undefined && orgId !== SYSTEM_ADMIN_ORG_ID) {
+  if (orgId !== SYSTEM_ADMIN_ORG_ID) {
     throw new Error("Not authorized");
   }
 }

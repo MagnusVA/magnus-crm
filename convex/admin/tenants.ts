@@ -76,6 +76,10 @@ function getCalendlyClientSecret() {
   return process.env.CALENDLY_CLIENT_SECRET;
 }
 
+function buildPendingOrganizationExternalId(contactEmail: string) {
+  return `system_admin_invite:${contactEmail}`;
+}
+
 function buildInviteLinkForTenant(
   tenant: Pick<Doc<"tenants">, "_id" | "contactEmail" | "workosOrgId">,
 ): {
@@ -369,14 +373,60 @@ export const createTenantInvite = action({
     const companyName = args.companyName.trim();
     const contactEmail = args.contactEmail.trim().toLowerCase();
     const notes = args.notes?.trim() || undefined;
+    const pendingOrganizationExternalId =
+      buildPendingOrganizationExternalId(contactEmail);
 
-    const org = await workos.organizations.createOrganization({
-      name: companyName,
-      metadata: {
-        source: "system_admin_onboarding",
-        contactEmail,
-      },
-    });
+    // Check if a tenant already exists for this email to avoid duplicate WorkOS orgs
+    const existingTenant = await ctx.runQuery(
+      internal.admin.tenantsQueries.getTenantByContactEmail,
+      { contactEmail },
+    );
+
+    if (existingTenant) {
+      if (existingTenant.status !== "pending_signup") {
+        throw new Error("Tenant already exists for this contact email");
+      }
+
+      // Return the existing tenant's invite
+      const { tokenHash, expiresAt, inviteUrl } =
+        await buildInviteLinkForTenant(existingTenant);
+
+      await ctx.runMutation(
+        internal.admin.tenantsMutations.patchInviteToken,
+        {
+          tenantId: existingTenant._id,
+          inviteTokenHash: tokenHash,
+          inviteExpiresAt: expiresAt,
+        },
+      );
+
+      return {
+        tenantId: existingTenant._id,
+        workosOrgId: existingTenant.workosOrgId,
+        inviteUrl,
+        expiresAt,
+      };
+    }
+
+    let org;
+    try {
+      org = await workos.organizations.getOrganizationByExternalId(
+        pendingOrganizationExternalId,
+      );
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) {
+        throw error;
+      }
+
+      org = await workos.organizations.createOrganization({
+        name: companyName,
+        externalId: pendingOrganizationExternalId,
+        metadata: {
+          source: "system_admin_onboarding",
+          contactEmail,
+        },
+      });
+    }
 
     const tenantId: Id<"tenants"> = await ctx.runMutation(
       internal.admin.tenantsMutations.insertTenant,

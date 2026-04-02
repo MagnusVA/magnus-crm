@@ -155,6 +155,10 @@ async function createWebhookSubscription({
       );
     }
 
+    if (response.status === 403) {
+      throw new Error("calendly_free_plan_unsupported");
+    }
+
     throw new Error(
       `Webhook provisioning failed: ${response.status} ${await readCalendlyError(response)}`,
     );
@@ -201,13 +205,7 @@ export async function provisionWebhookSubscription(
       );
     }
 
-    if (existingWebhook.state === "active" && args.signingKey) {
-      return {
-        webhookUri: existingWebhook.uri,
-        webhookSigningKey: signingKey,
-      };
-    }
-
+    // Delete existing webhook to ensure signing key consistency
     await deleteWebhookSubscription({
       accessToken: args.accessToken,
       webhookUri: existingWebhook.uri,

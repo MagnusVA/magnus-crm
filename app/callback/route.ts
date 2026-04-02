@@ -38,10 +38,15 @@ export const GET = handleAuth({
 
       const existingMembership = memberships.data[0];
       if (!existingMembership) {
-        await workos.userManagement.createOrganizationMembership({
-          organizationId: onboardingOrgId,
-          userId: user.id,
-        });
+        try {
+          await workos.userManagement.createOrganizationMembership({
+            organizationId: onboardingOrgId,
+            userId: user.id,
+          });
+        } catch (error) {
+          console.error("[callback] Failed to create org membership:", error);
+          // Don't fail the auth callback; the user can retry login
+        }
       }
 
       const refreshedSession =

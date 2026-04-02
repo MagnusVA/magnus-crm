@@ -33,3 +33,21 @@ export const getTenantInternal = internalQuery({
     return await ctx.db.get(tenantId);
   },
 });
+
+export const getTenantByContactEmail = internalQuery({
+  args: { contactEmail: v.string() },
+  handler: async (ctx, { contactEmail }) => {
+    const matches = await ctx.db
+      .query("tenants")
+      .withIndex("by_contactEmail", (q) => q.eq("contactEmail", contactEmail))
+      .take(2);
+
+    if (matches.length > 1) {
+      throw new Error(
+        `Multiple tenants found for contact email ${contactEmail}`,
+      );
+    }
+
+    return matches[0] ?? null;
+  },
+});

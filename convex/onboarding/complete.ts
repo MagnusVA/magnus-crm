@@ -61,6 +61,9 @@ export const redeemInviteAndCreateUser = mutation({
         fullName: identity.name ?? undefined,
         role: "tenant_master",
       });
+    } else if (existingUser.tenantId !== tenant._id) {
+      // User exists in a different tenant — update to current tenant
+      await ctx.db.patch(existingUser._id, { tenantId: tenant._id });
     }
 
     return {

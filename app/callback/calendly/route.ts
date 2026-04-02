@@ -71,7 +71,15 @@ export async function GET(request: NextRequest) {
     });
 
     return redirectToConnect(request, { calendly: "connected" });
-  } catch {
-    return redirectToConnect(request, { error: "exchange_failed" });
+  } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message : "exchange_failed";
+    const errorCode =
+      errorMessage === "calendly_free_plan_unsupported"
+        ? "calendly_free_plan_unsupported"
+        : errorMessage.startsWith("webhook_creation_failed")
+          ? "webhook_creation_failed"
+          : "exchange_failed";
+    return redirectToConnect(request, { error: errorCode });
   }
 }

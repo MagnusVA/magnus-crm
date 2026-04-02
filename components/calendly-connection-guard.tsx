@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useAction } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -102,7 +102,6 @@ export function CalendlyConnectionGuard({
   const connectionStatus = useQuery(
     api.calendly.oauthQueries.getConnectionStatus,
   );
-  const startOAuth = useAction(api.calendly.oauth.startOAuth);
 
   // Dismissal persists until page reload — banner reappears next session
   const [isDismissed, setIsDismissed] = useState(false);
@@ -118,11 +117,8 @@ export function CalendlyConnectionGuard({
 
     setIsReconnecting(true);
     try {
-      const { authorizeUrl } = await startOAuth({
-        tenantId: connectionStatus.tenantId,
-      });
-      // Redirect happens after the action completes — intentionally not in an effect
-      window.location.href = authorizeUrl;
+      // Use server route to ensure onboarding_tenantId cookie is set before OAuth redirect
+      window.location.href = `/api/calendly/start?tenantId=${encodeURIComponent(connectionStatus.tenantId)}`;
     } catch (error) {
       console.error("CalendlyConnectionGuard: Failed to start OAuth:", error);
       toast.error("Failed to reconnect Calendly. Please try again.");
