@@ -1,33 +1,37 @@
 import { v } from "convex/values";
-import type { UserIdentity } from "convex/server";
 import { mutation } from "../_generated/server";
-
-function getIdentityOrgId(identity: UserIdentity) {
-  const rawIdentity = identity as Record<string, unknown>;
-
-  return (
-    (typeof rawIdentity.organization_id === "string"
-      ? rawIdentity.organization_id
-      : undefined) ??
-    (typeof rawIdentity.organizationId === "string"
-      ? rawIdentity.organizationId
-      : undefined) ??
-    (typeof rawIdentity.org_id === "string" ? rawIdentity.org_id : undefined)
-  );
-}
+import { getIdentityOrgId } from "../lib/identity";
+import { validateRequiredString } from "../lib/validation";
 
 export const redeemInviteAndCreateUser = mutation({
   args: {
     workosOrgId: v.string(),
   },
   handler: async (ctx, { workosOrgId }) => {
+    const orgIdValidation = validateRequiredString(workosOrgId, {
+      fieldName: "WorkOS organization ID",
+    });
+    if (!orgIdValidation.valid) {
+      throw new Error(orgIdValidation.error);
+    }
+
+    const normalizedWorkosOrgId = workosOrgId.trim();
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
       throw new Error("Not authenticated");
     }
 
+    const workosUserId =
+      identity.tokenIdentifier ?? identity.subject ?? "";
+    const userIdValidation = validateRequiredString(workosUserId, {
+      fieldName: "WorkOS user ID",
+    });
+    if (!userIdValidation.valid) {
+      throw new Error(userIdValidation.error);
+    }
+
     const identityOrgId = getIdentityOrgId(identity);
-    if (!identityOrgId || identityOrgId !== workosOrgId) {
+    if (!identityOrgId || identityOrgId !== normalizedWorkosOrgId) {
       throw new Error("Not authorized");
     }
 
@@ -40,7 +44,6 @@ export const redeemInviteAndCreateUser = mutation({
       throw new Error("No tenant found for this organization");
     }
 
-    const workosUserId = identity.subject ?? identity.tokenIdentifier;
     const existingUser = await ctx.db
       .query("users")
       .withIndex("by_workosUserId", (q) => q.eq("workosUserId", workosUserId))

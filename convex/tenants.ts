@@ -1,20 +1,6 @@
 import { v } from "convex/values";
-import type { UserIdentity } from "convex/server";
 import { internalMutation, internalQuery, query } from "./_generated/server";
-
-function getIdentityOrgId(identity: UserIdentity) {
-  const rawIdentity = identity as Record<string, unknown>;
-
-  return (
-    (typeof rawIdentity.organization_id === "string"
-      ? rawIdentity.organization_id
-      : undefined) ??
-    (typeof rawIdentity.organizationId === "string"
-      ? rawIdentity.organizationId
-      : undefined) ??
-    (typeof rawIdentity.org_id === "string" ? rawIdentity.org_id : undefined)
-  );
-}
+import { getIdentityOrgId } from "./lib/identity";
 
 export const getByWorkosOrgId = internalQuery({
   args: { workosOrgId: v.string() },

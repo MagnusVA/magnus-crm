@@ -11,10 +11,37 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+
+// ---------------------------------------------------------------------------
+// Validation Rules (must match backend convex/lib/validation.ts)
+// ---------------------------------------------------------------------------
+
+const MIN_COMPANY_NAME_LENGTH = 2;
+const MAX_COMPANY_NAME_LENGTH = 256;
+const MAX_EMAIL_LENGTH = 254;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function validateCompanyName(name: string): string | null {
+  const trimmed = name.trim();
+  if (trimmed.length < MIN_COMPANY_NAME_LENGTH)
+    return `Company name must be at least ${MIN_COMPANY_NAME_LENGTH} characters.`;
+  if (trimmed.length > MAX_COMPANY_NAME_LENGTH)
+    return `Company name must not exceed ${MAX_COMPANY_NAME_LENGTH} characters.`;
+  return null;
+}
+
+function validateEmail(email: string): string | null {
+  const trimmed = email.trim().toLowerCase();
+  if (trimmed.length === 0) return "Email is required.";
+  if (trimmed.length > MAX_EMAIL_LENGTH)
+    return `Email must not exceed ${MAX_EMAIL_LENGTH} characters.`;
+  if (!EMAIL_REGEX.test(trimmed)) return "Invalid email format.";
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,16 +72,28 @@ export function CreateTenantDialog({
     contactEmail: "",
     notes: "",
   });
+  const [errors, setErrors] = useState({
+    companyName: null as string | null,
+    contactEmail: null as string | null,
+  });
   const companyRef = useRef<HTMLInputElement>(null);
 
   const canSubmit =
     !isSubmitting &&
     form.companyName.trim() !== "" &&
-    form.contactEmail.trim() !== "";
+    form.contactEmail.trim() !== "" &&
+    !errors.companyName &&
+    !errors.contactEmail;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!canSubmit) return;
+
+    // Validate before submission
+    const companyError = validateCompanyName(form.companyName);
+    const emailError = validateEmail(form.contactEmail);
+    setErrors({ companyName: companyError, contactEmail: emailError });
+
+    if (companyError || emailError) return;
 
     setIsSubmitting(true);
     try {
@@ -64,9 +103,26 @@ export function CreateTenantDialog({
         notes: form.notes.trim() || undefined,
       });
       setForm({ companyName: "", contactEmail: "", notes: "" });
+      setErrors({ companyName: null, contactEmail: null });
       onOpenChange(false);
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  function handleCompanyChange(value: string) {
+    setForm((c) => ({ ...c, companyName: value }));
+    // Clear error when user starts typing
+    if (errors.companyName) {
+      setErrors((e) => ({ ...e, companyName: null }));
+    }
+  }
+
+  function handleEmailChange(value: string) {
+    setForm((c) => ({ ...c, contactEmail: value }));
+    // Clear error when user starts typing
+    if (errors.contactEmail) {
+      setErrors((e) => ({ ...e, contactEmail: null }));
     }
   }
 
@@ -83,7 +139,7 @@ export function CreateTenantDialog({
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-5">
           <FieldGroup>
-            <Field>
+            <Field data-invalid={errors.companyName ? true : undefined}>
               <FieldLabel htmlFor="create-company-name">
                 Company Name
               </FieldLabel>
@@ -94,14 +150,21 @@ export function CreateTenantDialog({
                 autoComplete="organization"
                 spellCheck={false}
                 value={form.companyName}
-                onChange={(e) =>
-                  setForm((c) => ({ ...c, companyName: e.target.value }))
-                }
+                onChange={(e) => handleCompanyChange(e.target.value)}
                 placeholder="Acme Sales Co&hellip;"
+                aria-invalid={errors.companyName ? true : undefined}
+                aria-describedby={
+                  errors.companyName
+                    ? "create-company-name-error"
+                    : undefined
+                }
               />
+              <FieldError id="create-company-name-error">
+                {errors.companyName}
+              </FieldError>
             </Field>
 
-            <Field>
+            <Field data-invalid={errors.contactEmail ? true : undefined}>
               <FieldLabel htmlFor="create-contact-email">
                 Contact Email
               </FieldLabel>
@@ -113,11 +176,18 @@ export function CreateTenantDialog({
                 autoComplete="email"
                 spellCheck={false}
                 value={form.contactEmail}
-                onChange={(e) =>
-                  setForm((c) => ({ ...c, contactEmail: e.target.value }))
-                }
+                onChange={(e) => handleEmailChange(e.target.value)}
                 placeholder="owner@example.com"
+                aria-invalid={errors.contactEmail ? true : undefined}
+                aria-describedby={
+                  errors.contactEmail
+                    ? "create-contact-email-error"
+                    : undefined
+                }
               />
+              <FieldError id="create-contact-email-error">
+                {errors.contactEmail}
+              </FieldError>
             </Field>
 
             <Field>

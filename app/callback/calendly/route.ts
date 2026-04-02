@@ -74,12 +74,20 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "exchange_failed";
-    const errorCode =
-      errorMessage === "calendly_free_plan_unsupported"
-        ? "calendly_free_plan_unsupported"
-        : errorMessage.startsWith("webhook_creation_failed")
-          ? "webhook_creation_failed"
-          : "exchange_failed";
+
+    // Map specific error messages to user-friendly error codes
+    let errorCode: string;
+    if (errorMessage.includes("code verifier")) {
+      // Concurrent OAuth flow: session expired or started in another tab
+      errorCode = "stale_session";
+    } else if (errorMessage === "calendly_free_plan_unsupported") {
+      errorCode = "calendly_free_plan_unsupported";
+    } else if (errorMessage.startsWith("webhook_creation_failed")) {
+      errorCode = "webhook_creation_failed";
+    } else {
+      errorCode = "exchange_failed";
+    }
+
     return redirectToConnect(request, { error: errorCode });
   }
 }

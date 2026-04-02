@@ -1,4 +1,3 @@
-import type { Id } from "../_generated/dataModel";
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 
@@ -48,34 +47,41 @@ async function createSignature(secret: string, signedPayload: string) {
     .join("");
 }
 
-function getCalendlyEventUri(payload: Record<string, unknown>) {
-  const payloadBody =
-    payload.payload && typeof payload.payload === "object"
-      ? (payload.payload as Record<string, unknown>)
-      : undefined;
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
-  const uriCandidates = [
-    payloadBody?.uri,
-    payloadBody?.event &&
-    typeof payloadBody.event === "object" &&
-    payloadBody.event !== null
-      ? (payloadBody.event as Record<string, unknown>).uri
-      : undefined,
-    payloadBody?.invitee &&
-    typeof payloadBody.invitee === "object" &&
-    payloadBody.invitee !== null
-      ? (payloadBody.invitee as Record<string, unknown>).uri
-      : undefined,
-    payloadBody?.scheduled_event &&
-    typeof payloadBody.scheduled_event === "object" &&
-    payloadBody.scheduled_event !== null
-      ? (payloadBody.scheduled_event as Record<string, unknown>).uri
-      : undefined,
-  ];
+function getNonEmptyString(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key];
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
 
-  return uriCandidates.find((candidate): candidate is string => {
-    return typeof candidate === "string" && candidate.length > 0;
-  });
+function getCalendlyEventUri(payload: unknown) {
+  if (!isRecord(payload)) {
+    return undefined;
+  }
+
+  const payloadBody = isRecord(payload.payload) ? payload.payload : undefined;
+  if (!payloadBody) {
+    return undefined;
+  }
+
+  return (
+    getNonEmptyString(payloadBody, "uri") ??
+    getNonEmptyString(payloadBody, "event") ??
+    (isRecord(payloadBody.event)
+      ? getNonEmptyString(payloadBody.event, "uri")
+      : undefined) ??
+    (isRecord(payloadBody.invitee)
+      ? getNonEmptyString(payloadBody.invitee, "uri")
+      : undefined) ??
+    (isRecord(payloadBody.scheduled_event)
+      ? getNonEmptyString(payloadBody.scheduled_event, "uri")
+      : undefined)
+  );
 }
 
 /**
@@ -130,21 +136,23 @@ export const handleCalendlyWebhook = httpAction(async (ctx, req) => {
     return new Response("Stale webhook", { status: 401 });
   }
 
-  let payload: Record<string, unknown>;
+  let payload: unknown;
   try {
-    payload = JSON.parse(rawBody) as Record<string, unknown>;
+    payload = JSON.parse(rawBody) as unknown;
   } catch {
     return new Response("Invalid JSON payload", { status: 400 });
   }
 
   const eventType =
-    typeof payload.event === "string" ? payload.event : "unknown";
+    isRecord(payload) && typeof payload.event === "string"
+      ? payload.event
+      : "unknown";
   const calendlyEventUri =
     getCalendlyEventUri(payload) ??
-    `${eventType}:${typeof payload.created_at === "string" ? payload.created_at : Date.now().toString()}`;
+    `${eventType}:${isRecord(payload) && typeof payload.created_at === "string" ? payload.created_at : Date.now().toString()}`;
 
   await ctx.runMutation(internal.webhooks.calendlyMutations.persistRawEvent, {
-    tenantId: tenant.tenantId as Id<"tenants">,
+    tenantId: tenant.tenantId,
     calendlyEventUri,
     eventType,
     payload: rawBody,

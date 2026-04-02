@@ -10,6 +10,7 @@ import { getValidAccessToken } from "../calendly/tokens";
 import { deleteWebhookSubscription } from "../calendly/webhookSetup";
 import { generateInviteToken } from "../lib/inviteToken";
 import { requireSystemAdminSession } from "../requireSystemAdmin";
+import { validateCompanyName, validateEmail } from "../lib/validation";
 
 const workos = new WorkOS(process.env.WORKOS_API_KEY!, {
   clientId: process.env.WORKOS_CLIENT_ID!,
@@ -369,6 +370,15 @@ export const createTenantInvite = action({
   handler: async (ctx, args): Promise<InviteLinkResult> => {
     const identity = await ctx.auth.getUserIdentity();
     requireSystemAdminSession(identity);
+
+    const companyNameValidation = validateCompanyName(args.companyName);
+    if (!companyNameValidation.valid) {
+      throw new Error(companyNameValidation.error);
+    }
+    const emailValidation = validateEmail(args.contactEmail);
+    if (!emailValidation.valid) {
+      throw new Error(emailValidation.error);
+    }
 
     const companyName = args.companyName.trim();
     const contactEmail = args.contactEmail.trim().toLowerCase();

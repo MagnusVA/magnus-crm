@@ -418,6 +418,8 @@ const CALENDLY_ERROR_MESSAGES: Record<string, string> = {
     "Your session expired before Calendly finished connecting. Sign in again and retry.",
   oauth_start_failed:
     "The Calendly authorization flow could not be started for this tenant.",
+  stale_session:
+    "Your Calendly connection session expired or was started in another tab. Please try again.",
   webhook_creation_failed:
     "We connected to Calendly but couldn\u2019t set up the real-time webhook. This is usually a transient issue\u2009\u2014\u2009try connecting again.",
 };
@@ -429,5 +431,6 @@ const UPGRADE_REQUIRED_ERRORS = new Set(["calendly_free_plan_unsupported"]);
 const RETRYABLE_ERRORS = new Set([
   "exchange_failed",
   "missing_context",
+  "stale_session",
   "webhook_creation_failed",
 ]);

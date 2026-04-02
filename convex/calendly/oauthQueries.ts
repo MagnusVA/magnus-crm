@@ -1,19 +1,5 @@
-import type { UserIdentity } from "convex/server";
 import { query } from "../_generated/server";
-
-function getIdentityOrgId(identity: UserIdentity) {
-  const rawIdentity = identity as Record<string, unknown>;
-
-  return (
-    (typeof rawIdentity.organization_id === "string"
-      ? rawIdentity.organization_id
-      : undefined) ??
-    (typeof rawIdentity.organizationId === "string"
-      ? rawIdentity.organizationId
-      : undefined) ??
-    (typeof rawIdentity.org_id === "string" ? rawIdentity.org_id : undefined)
-  );
-}
+import { getIdentityOrgId } from "../lib/identity";
 
 /**
  * Check if the current user's tenant needs Calendly reconnection.

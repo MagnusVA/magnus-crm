@@ -1,25 +1,11 @@
 "use node";
 
 import { randomBytes, createHash } from "crypto";
-import type { UserIdentity } from "convex/server";
 import { v } from "convex/values";
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { getIdentityOrgId } from "../lib/identity";
 import { provisionWebhookSubscription } from "./webhookSetup";
-
-function getIdentityOrgId(identity: UserIdentity) {
-  const rawIdentity = identity as Record<string, unknown>;
-
-  return (
-    (typeof rawIdentity.organization_id === "string"
-      ? rawIdentity.organization_id
-      : undefined) ??
-    (typeof rawIdentity.organizationId === "string"
-      ? rawIdentity.organizationId
-      : undefined) ??
-    (typeof rawIdentity.org_id === "string" ? rawIdentity.org_id : undefined)
-  );
-}
 
 function getCalendlyClientId() {
   return (
