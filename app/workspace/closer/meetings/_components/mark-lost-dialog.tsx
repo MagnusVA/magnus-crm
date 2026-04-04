@@ -22,6 +22,7 @@ import { toast } from "sonner";
 
 type MarkLostDialogProps = {
   opportunityId: Id<"opportunities">;
+  onSuccess?: () => Promise<void>;
 };
 
 /**
@@ -33,7 +34,10 @@ type MarkLostDialogProps = {
  *   the async mutation completes — the dialog closes only on success
  * - Loading state + error toast during mutation
  */
-export function MarkLostDialog({ opportunityId }: MarkLostDialogProps) {
+export function MarkLostDialog({
+  opportunityId,
+  onSuccess,
+}: MarkLostDialogProps) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -46,6 +50,7 @@ export function MarkLostDialog({ opportunityId }: MarkLostDialogProps) {
         opportunityId,
         reason: reason.trim() || undefined,
       });
+      await onSuccess?.();
       toast.success("Opportunity marked as lost");
       setOpen(false);
       setReason("");

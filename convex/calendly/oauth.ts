@@ -27,8 +27,11 @@ function getCalendlyRedirectUri() {
 export const startOAuth = action({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
+    console.log(`[Calendly:OAuth] startOAuth called for tenant ${tenantId}`);
+
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
+      console.error(`[Calendly:OAuth] startOAuth: not authenticated`);
       throw new Error("Not authenticated");
     }
 
@@ -36,18 +39,23 @@ export const startOAuth = action({
       tenantId,
     });
     if (!tenant) {
+      console.error(`[Calendly:OAuth] startOAuth: tenant ${tenantId} not found`);
       throw new Error("Tenant not found");
     }
+    console.log(`[Calendly:OAuth] startOAuth: tenant found, status=${tenant.status}`);
 
     const identityOrgId = getIdentityOrgId(identity);
     if (!identityOrgId || identityOrgId !== tenant.workosOrgId) {
+      console.error(`[Calendly:OAuth] startOAuth: authorization failed, identityOrgId=${identityOrgId}, tenantOrgId=${tenant.workosOrgId}`);
       throw new Error("Not authorized");
     }
+    console.log(`[Calendly:OAuth] startOAuth: authorization check passed`);
 
     if (
       tenant.status !== "pending_calendly" &&
       tenant.status !== "calendly_disconnected"
     ) {
+      console.error(`[Calendly:OAuth] startOAuth: tenant not ready, status=${tenant.status}`);
       throw new Error("Tenant is not ready to connect Calendly");
     }
 
@@ -55,14 +63,17 @@ export const startOAuth = action({
     const codeChallenge = createHash("sha256")
       .update(codeVerifier)
       .digest("base64url");
+    console.log(`[Calendly:OAuth] startOAuth: PKCE challenge generated`);
 
     await ctx.runMutation(internal.calendly.oauthMutations.storeCodeVerifier, {
       tenantId,
       codeVerifier,
     });
+    console.log(`[Calendly:OAuth] startOAuth: code verifier stored`);
 
     const clientId = getCalendlyClientId();
     if (!clientId) {
+      console.error(`[Calendly:OAuth] startOAuth: missing CALENDLY_CLIENT_ID`);
       throw new Error("Missing CALENDLY_CLIENT_ID");
     }
 
@@ -85,6 +96,8 @@ export const startOAuth = action({
       scope: scopes,
     });
 
+    console.log(`[Calendly:OAuth] startOAuth: authorize URL built, redirectUri=${getCalendlyRedirectUri()}`);
+
     return {
       authorizeUrl: `https://auth.calendly.com/oauth/authorize?${params.toString()}`,
     };
@@ -105,21 +118,28 @@ export const exchangeCodeAndProvision = action({
     convexSiteUrl: v.string(),
   },
   handler: async (ctx, { tenantId, code, convexSiteUrl }) => {
+    console.log(`[Calendly:OAuth] exchangeCodeAndProvision called for tenant ${tenantId}`);
+
     try {
       const identity = await ctx.auth.getUserIdentity();
       if (!identity) {
+        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: not authenticated`);
         throw new Error("Not authenticated");
       }
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: auth check passed`);
 
       const tenant = await ctx.runQuery(internal.tenants.getCalendlyTenant, {
         tenantId,
       });
       if (!tenant) {
+        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: tenant ${tenantId} not found`);
         throw new Error("Tenant not found");
       }
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: tenant found, status=${tenant.status}`);
 
       const identityOrgId = getIdentityOrgId(identity);
       if (!identityOrgId || identityOrgId !== tenant.workosOrgId) {
+        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: org mismatch`);
         throw new Error("Not authorized");
       }
 
@@ -128,15 +148,19 @@ export const exchangeCodeAndProvision = action({
         { tenantId },
       );
       if (!tenantData?.codeVerifier) {
+        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: no code verifier found`);
         throw new Error("No code verifier found — OAuth flow may have expired");
       }
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: code verifier retrieved`);
 
       const clientId = getCalendlyClientId();
       const clientSecret = process.env.CALENDLY_CLIENT_SECRET;
       if (!clientId || !clientSecret) {
+        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: missing OAuth config, hasClientId=${Boolean(clientId)}, hasClientSecret=${Boolean(clientSecret)}`);
         throw new Error("Missing Calendly OAuth configuration");
       }
 
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: sending token exchange request`);
       const tokenResponse = await fetch(
         "https://auth.calendly.com/oauth/token",
         {
@@ -156,10 +180,12 @@ export const exchangeCodeAndProvision = action({
 
       if (!tokenResponse.ok) {
         const error = await tokenResponse.text();
+        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: token exchange failed, status=${tokenResponse.status}`);
         throw new Error(
           `Calendly token exchange failed: ${tokenResponse.status} ${error}`,
         );
       }
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: token exchange response OK`);
 
       const tokens = (await tokenResponse.json()) as {
         access_token: string;
@@ -169,12 +195,15 @@ export const exchangeCodeAndProvision = action({
         organization: string;
       };
 
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: verifying token via /users/me`);
       const meResponse = await fetch("https://api.calendly.com/users/me", {
         headers: { Authorization: `Bearer ${tokens.access_token}` },
       });
       if (!meResponse.ok) {
+        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: /users/me verification failed, status=${meResponse.status}`);
         throw new Error("Failed to verify Calendly token via /users/me");
       }
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: /users/me verification passed`);
 
       const meData = (await meResponse.json()) as {
         resource?: {
@@ -186,6 +215,7 @@ export const exchangeCodeAndProvision = action({
         tokens.organization ?? meData.resource?.current_organization;
       const calendlyOwnerUri = tokens.owner ?? meData.resource?.uri;
       if (!calendlyOrgUri || !calendlyOwnerUri) {
+        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: missing org/owner URI, hasOrgUri=${Boolean(calendlyOrgUri)}, hasOwnerUri=${Boolean(calendlyOwnerUri)}`);
         throw new Error(
           "Calendly token response did not include owner or organization",
         );
@@ -200,20 +230,24 @@ export const exchangeCodeAndProvision = action({
         calendlyOrgUri,
         calendlyOwnerUri,
       });
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: tokens stored, expiresAt=${new Date(expiresAt).toISOString()}`);
 
       await ctx.runMutation(internal.tenants.updateStatus, {
         tenantId,
         status: "provisioning_webhooks",
       });
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: status transitioned to provisioning_webhooks`);
 
       const tenantAfterTokenStore = await ctx.runQuery(
         internal.tenants.getCalendlyTokens,
         { tenantId },
       );
       if (!tenantAfterTokenStore?.calendlyOrgUri) {
+        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: org URI not stored after token save`);
         throw new Error("Calendly organization URI was not stored");
       }
 
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: provisioning webhook subscription`);
       const { webhookUri, webhookSigningKey } = await provisionWebhookSubscription(
         {
           tenantId,
@@ -223,24 +257,29 @@ export const exchangeCodeAndProvision = action({
           signingKey: tenantAfterTokenStore.webhookSigningKey ?? undefined,
         },
       );
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: webhook provisioned, webhookUri=${webhookUri}`);
 
       await ctx.runMutation(internal.calendly.webhookSetupMutations.storeWebhookAndActivate, {
         tenantId,
         calendlyWebhookUri: webhookUri,
         webhookSigningKey,
       });
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: webhook stored and tenant activated`);
 
       // Schedule org member sync (non-blocking, runs after onboarding completes)
       await ctx.scheduler.runAfter(0, internal.calendly.orgMembers.syncForTenant, {
         tenantId,
       });
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: org member sync scheduled`);
 
       await ctx.runMutation(internal.calendly.oauthMutations.clearCodeVerifier, {
         tenantId,
       });
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: code verifier cleared, flow complete`);
 
       return { success: true };
     } catch (error) {
+      console.error(`[Calendly:OAuth] exchangeCodeAndProvision: error for tenant ${tenantId}, rolling back status`, error instanceof Error ? error.message : error);
       await ctx.runMutation(internal.calendly.oauthMutations.clearCodeVerifier, {
         tenantId,
       });
@@ -248,6 +287,7 @@ export const exchangeCodeAndProvision = action({
         tenantId,
         status: "pending_calendly",
       });
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: status rolled back to pending_calendly`);
       throw error;
     }
   },

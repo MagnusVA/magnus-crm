@@ -3,6 +3,7 @@
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
 import { useAction, useConvexAuth, usePaginatedQuery } from "convex/react";
 import type { Doc } from "@/convex/_generated/dataModel";
+import { usePageTitle } from "@/hooks/use-page-title";
 import {
   CopyIcon,
   LogOutIcon,
@@ -18,6 +19,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
+import {
+  tenantStatusConfig,
+  type TenantStatus as SharedTenantStatus,
+} from "@/lib/status-config";
 import {
   Table,
   TableBody,
@@ -35,18 +40,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-import {
-  CreateTenantDialog,
-  type CreateTenantPayload,
-} from "./_components/create-tenant-dialog";
+import dynamic from "next/dynamic";
+import type { CreateTenantPayload } from "./_components/create-tenant-dialog";
+import type { ResetTenantResult } from "./_components/reset-tenant-dialog";
 import {
   InviteBanner,
   type InviteResult,
 } from "./_components/invite-banner";
-import {
-  ResetTenantDialog,
-  type ResetTenantResult,
-} from "./_components/reset-tenant-dialog";
+
+const CreateTenantDialog = dynamic(() =>
+  import("./_components/create-tenant-dialog").then((m) => ({ default: m.CreateTenantDialog })),
+);
+const ResetTenantDialog = dynamic(() =>
+  import("./_components/reset-tenant-dialog").then((m) => ({ default: m.ResetTenantDialog })),
+);
 
 type TenantStatus = Doc<"tenants">["status"];
 
@@ -65,6 +72,7 @@ const PAGE_SIZE = 25;
 // ---------------------------------------------------------------------------
 
 export default function AdminPage() {
+  usePageTitle("Admin Console");
   const { isAuthenticated, isLoading } = useConvexAuth();
   const { organizationId, signOut } = useAuth();
   const isSystemAdmin = organizationId === SYSTEM_ADMIN_ORG_ID;
@@ -429,25 +437,15 @@ function TenantRow({
 }
 
 // ---------------------------------------------------------------------------
-// Status Badge
+// Status Badge — uses centralised config from lib/status-config.ts
 // ---------------------------------------------------------------------------
 
-const STATUS_CONFIG: Record<
-  TenantStatus,
-  { label: string; variant: "default" | "secondary" | "destructive" | "outline" | "ghost" }
-> = {
-  pending_signup: { label: "Pending Signup", variant: "outline" },
-  pending_calendly: { label: "Pending Calendly", variant: "secondary" },
-  provisioning_webhooks: { label: "Provisioning", variant: "secondary" },
-  active: { label: "Active", variant: "default" },
-  calendly_disconnected: { label: "Disconnected", variant: "destructive" },
-  suspended: { label: "Suspended", variant: "ghost" },
-  invite_expired: { label: "Invite Expired", variant: "destructive" },
-};
-
 function StatusBadge({ status }: { status: TenantStatus }) {
-  const config = STATUS_CONFIG[status];
-  return <Badge variant={config.variant}>{config.label}</Badge>;
+  const config = tenantStatusConfig[status as SharedTenantStatus];
+  if (!config) {
+    return <Badge variant="secondary">{status}</Badge>;
+  }
+  return <Badge variant={config.badgeVariant}>{config.label}</Badge>;
 }
 
 // ---------------------------------------------------------------------------

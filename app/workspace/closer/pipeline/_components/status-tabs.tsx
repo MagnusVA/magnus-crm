@@ -6,7 +6,7 @@ import {
   PIPELINE_DISPLAY_ORDER,
   opportunityStatusConfig,
   type OpportunityStatus,
-} from "../../_components/status-config";
+} from "@/lib/status-config";
 
 type StatusTabsProps = {
   activeStatus: OpportunityStatus | undefined;

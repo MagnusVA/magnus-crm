@@ -1,0 +1,106 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  CommandDialog,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+  CommandShortcut,
+} from "@/components/ui/command";
+import { Kbd } from "@/components/ui/kbd";
+import {
+  LayoutDashboardIcon,
+  UsersIcon,
+  KanbanIcon,
+  SettingsIcon,
+  CalendarIcon,
+} from "lucide-react";
+
+interface CommandPaletteProps {
+  isAdmin: boolean;
+}
+
+// Hoisted static page definitions (vercel-react-best-practices: rendering-hoist-jsx)
+const adminPages = [
+  { label: "Overview", href: "/workspace", icon: LayoutDashboardIcon, shortcut: "1" },
+  { label: "Team", href: "/workspace/team", icon: UsersIcon, shortcut: "2" },
+  { label: "Pipeline", href: "/workspace/pipeline", icon: KanbanIcon, shortcut: "3" },
+  { label: "Settings", href: "/workspace/settings", icon: SettingsIcon, shortcut: "4" },
+];
+
+const closerPages = [
+  { label: "Dashboard", href: "/workspace/closer", icon: LayoutDashboardIcon, shortcut: "1" },
+  { label: "My Pipeline", href: "/workspace/closer/pipeline", icon: KanbanIcon, shortcut: "2" },
+  { label: "My Schedule", href: "/workspace/closer", icon: CalendarIcon, shortcut: "3" },
+];
+
+export function CommandPalette({ isAdmin }: CommandPaletteProps) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+
+  // Global keyboard shortcut: Cmd+K or Ctrl+K
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setOpen((prev) => !prev);
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  const navigate = useCallback(
+    (href: string) => {
+      router.push(href);
+      setOpen(false);
+    },
+    [router],
+  );
+
+  const pages = isAdmin ? adminPages : closerPages;
+
+  return (
+    <CommandDialog
+      open={open}
+      onOpenChange={setOpen}
+      title="Command Palette"
+      description="Search pages and actions..."
+    >
+      <CommandInput placeholder="Search pages, actions..." />
+      <CommandList>
+        <CommandEmpty>No results found.</CommandEmpty>
+        <CommandGroup heading="Pages">
+          {pages.map((page) => (
+            <CommandItem
+              key={page.label}
+              onSelect={() => navigate(page.href)}
+            >
+              <page.icon />
+              <span>{page.label}</span>
+              <CommandShortcut>
+                <Kbd className="text-[10px]">⌘{page.shortcut}</Kbd>
+              </CommandShortcut>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+        {isAdmin && (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Quick Actions">
+              <CommandItem onSelect={() => navigate("/workspace/team")}>
+                <UsersIcon />
+                <span>Invite team member</span>
+              </CommandItem>
+            </CommandGroup>
+          </>
+        )}
+      </CommandList>
+    </CommandDialog>
+  );
+}

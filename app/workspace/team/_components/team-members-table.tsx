@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   Table,
   TableBody,
@@ -25,6 +26,7 @@ import {
   EmptyTitle,
   EmptyDescription,
 } from "@/components/ui/empty";
+import { SortableHeader } from "@/components/sortable-header";
 import {
   EllipsisVerticalIcon,
   AlertCircleIcon,
@@ -34,6 +36,7 @@ import {
   UsersIcon,
 } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useTableSort } from "@/hooks/use-table-sort";
 
 interface TeamMember {
   _id: Id<"users">;
@@ -47,6 +50,7 @@ interface TeamMember {
 
 interface TeamMembersTableProps {
   members: TeamMember[];
+  currentUserId?: Id<"users">;
   onEditRole?: (memberId: Id<"users">, currentRole: string) => void;
   onRemoveUser?: (memberId: Id<"users">) => void;
   onRelinkCalendly?: (memberId: Id<"users">) => void;
@@ -60,10 +64,19 @@ const roleLabels: Record<string, { label: string; variant: "default" | "secondar
 
 export function TeamMembersTable({
   members,
+  currentUserId,
   onEditRole,
   onRemoveUser,
   onRelinkCalendly,
 }: TeamMembersTableProps) {
+  const comparators = useMemo(() => ({
+    name: (a: TeamMember, b: TeamMember) => (a.fullName ?? a.email).localeCompare(b.fullName ?? b.email),
+    email: (a: TeamMember, b: TeamMember) => a.email.localeCompare(b.email),
+    role: (a: TeamMember, b: TeamMember) => a.role.localeCompare(b.role),
+    calendly: (a: TeamMember, b: TeamMember) => (a.calendlyMemberName ?? "").localeCompare(b.calendlyMemberName ?? ""),
+  }), []);
+
+  const { sorted, sort, toggle } = useTableSort(members, comparators);
   if (members.length === 0) {
     return (
       <Empty>
@@ -73,7 +86,7 @@ export function TeamMembersTable({
           </EmptyMedia>
           <EmptyTitle>No team members yet</EmptyTitle>
           <EmptyDescription>
-            Invite your first team member to get started
+            Use the &ldquo;Invite User&rdquo; button above to invite your first team member and get started.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -85,21 +98,49 @@ export function TeamMembersTable({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="font-semibold">Name</TableHead>
-            <TableHead className="font-semibold">Email</TableHead>
-            <TableHead className="font-semibold">Role</TableHead>
-            <TableHead className="font-semibold">Calendly Status</TableHead>
+            <SortableHeader
+              label="Name"
+              sortKey="name"
+              sort={sort}
+              onToggle={toggle}
+            />
+            <SortableHeader
+              label="Email"
+              sortKey="email"
+              sort={sort}
+              onToggle={toggle}
+            />
+            <SortableHeader
+              label="Role"
+              sortKey="role"
+              sort={sort}
+              onToggle={toggle}
+            />
+            <SortableHeader
+              label="Calendly Status"
+              sortKey="calendly"
+              sort={sort}
+              onToggle={toggle}
+            />
             <TableHead className="text-right font-semibold">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {members.map((member) => {
+          {sorted.map((member) => {
             const role = roleLabels[member.role] ?? {
               label: member.role,
               variant: "secondary" as const,
             };
             const isCloserWithoutCalendly =
               member.role === "closer" && !member.calendlyUserUri;
+
+            const isSelf = currentUserId === member._id;
+            const isOwner = member.role === "tenant_master";
+            const canEditRole = onEditRole && !isSelf && !isOwner;
+            const canRemove = onRemoveUser && !isSelf && !isOwner;
+            const canRelinkCalendly =
+              member.role === "closer" && onRelinkCalendly;
+            const hasAnyAction = canEditRole || canRemove || canRelinkCalendly;
 
             return (
               <TableRow key={member._id}>
@@ -131,54 +172,56 @@ export function TeamMembersTable({
                   </div>
                 </TableCell>
                 <TableCell className="text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="size-8 p-0"
-                        aria-label={`Actions for ${member.fullName || member.email}`}
-                      >
-                        <EllipsisVerticalIcon />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-48">
-                      <DropdownMenuGroup>
-                        {member.role === "closer" && onRelinkCalendly && (
-                          <DropdownMenuItem
-                            onClick={() => onRelinkCalendly(member._id)}
-                          >
-                            <Link2Icon data-icon="inline-start" />
-                            {isCloserWithoutCalendly
-                              ? "Link Calendly"
-                              : "Re-link Calendly"}
-                          </DropdownMenuItem>
-                        )}
-                        {onEditRole && (
-                          <DropdownMenuItem
-                            onClick={() => onEditRole(member._id, member.role)}
-                          >
-                            <ShieldIcon data-icon="inline-start" />
-                            Edit Role
-                          </DropdownMenuItem>
-                        )}
-                      </DropdownMenuGroup>
-                      {onRemoveUser && (
-                        <>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuGroup>
+                  {hasAnyAction ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="size-8 p-0"
+                          aria-label={`Actions for ${member.fullName || member.email}`}
+                        >
+                          <EllipsisVerticalIcon />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuGroup>
+                          {canRelinkCalendly && (
                             <DropdownMenuItem
-                              onClick={() => onRemoveUser(member._id)}
-                              variant="destructive"
+                              onClick={() => onRelinkCalendly(member._id)}
                             >
-                              <Trash2Icon data-icon="inline-start" />
-                              Remove User
+                              <Link2Icon data-icon="inline-start" />
+                              {isCloserWithoutCalendly
+                                ? "Link Calendly"
+                                : "Re-link Calendly"}
                             </DropdownMenuItem>
-                          </DropdownMenuGroup>
-                        </>
-                      )}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                          )}
+                          {canEditRole && (
+                            <DropdownMenuItem
+                              onClick={() => onEditRole(member._id, member.role)}
+                            >
+                              <ShieldIcon data-icon="inline-start" />
+                              Edit Role
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuGroup>
+                        {canRemove && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuGroup>
+                              <DropdownMenuItem
+                                onClick={() => onRemoveUser(member._id)}
+                                variant="destructive"
+                              >
+                                <Trash2Icon data-icon="inline-start" />
+                                Remove User
+                              </DropdownMenuItem>
+                            </DropdownMenuGroup>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : null}
                 </TableCell>
               </TableRow>
             );

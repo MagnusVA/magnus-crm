@@ -8,7 +8,7 @@ import { EyeIcon } from "lucide-react";
 import {
   opportunityStatusConfig,
   type OpportunityStatus,
-} from "../../_components/status-config";
+} from "@/lib/status-config";
 
 type OpportunityRowProps = {
   leadName: string;

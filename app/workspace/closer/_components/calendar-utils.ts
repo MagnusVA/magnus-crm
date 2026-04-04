@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect, useState } from "react";
+
 /**
  * Shared types, constants, and helpers for calendar view components.
  *
@@ -57,4 +61,28 @@ export function formatHour(hour: number): string {
   const period = hour >= 12 ? "PM" : "AM";
   const h = hour % 12 || 12;
   return `${h} ${period}`;
+}
+
+// ─── Current time hook ──────────────────────────────────────────────────
+
+/**
+ * Returns current time and re-renders every `intervalMs`.
+ * Used for the "now" indicator line in day/week views.
+ *
+ * @param intervalMs Polling interval in milliseconds (default: 60_000 = 1 minute)
+ * @returns Current Date object
+ *
+ * @example
+ * const now = useCurrentTime();
+ * // Re-renders every 60 seconds
+ */
+export function useCurrentTime(intervalMs = 60_000): Date {
+  const [now, setNow] = useState(() => new Date());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+
+  return now;
 }

@@ -31,7 +31,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { PlusIcon } from "lucide-react";
 
-type CrmRole = "closer" | "tenant_admin" | "tenant_master";
+type CrmRole = "closer" | "tenant_admin";
 
 interface InviteUserDialogProps {
   onSuccess?: () => void;
@@ -169,7 +169,6 @@ export function InviteUserDialog({ onSuccess }: InviteUserDialogProps) {
                 <SelectContent>
                   <SelectItem value="closer">Closer</SelectItem>
                   <SelectItem value="tenant_admin">Admin</SelectItem>
-                  <SelectItem value="tenant_master">Owner</SelectItem>
                 </SelectContent>
               </Select>
             </Field>

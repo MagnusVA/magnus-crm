@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import {
   meetingStatusConfig,
   type MeetingStatus,
-} from "./status-config";
+} from "@/lib/status-config";
 
 type MeetingBlockProps = {
   meetingId: string;

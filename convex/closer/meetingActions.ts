@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
+import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateTransition } from "../lib/statusTransitions";
 
@@ -37,11 +38,13 @@ export const updateMeetingNotes = mutation({
     notes: v.string(),
   },
   handler: async (ctx, { meetingId, notes }) => {
+    console.log("[Closer:Meeting] updateMeetingNotes called", { meetingId });
     const { userId, tenantId, role } = await requireTenantUser(ctx, [
       "closer",
       "tenant_master",
       "tenant_admin",
     ]);
+    console.log("[Closer:Meeting] updateMeetingNotes auth check passed", { userId, role });
     const { opportunity } = await loadMeetingContext(ctx, meetingId, tenantId);
 
     // Closer authorization: only own meetings
@@ -50,6 +53,7 @@ export const updateMeetingNotes = mutation({
     }
 
     await ctx.db.patch(meetingId, { notes });
+    console.log("[Closer:Meeting] updateMeetingNotes completed", { meetingId });
   },
 });
 
@@ -64,7 +68,9 @@ export const updateMeetingNotes = mutation({
 export const startMeeting = mutation({
   args: { meetingId: v.id("meetings") },
   handler: async (ctx, { meetingId }) => {
+    console.log("[Closer:Meeting] startMeeting called", { meetingId });
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
+    console.log("[Closer:Meeting] startMeeting auth check passed", { userId });
     const { meeting, opportunity } = await loadMeetingContext(ctx, meetingId, tenantId);
 
     // Verify this is the closer's meeting
@@ -73,6 +79,7 @@ export const startMeeting = mutation({
     }
 
     // Validate status transitions
+    console.log("[Closer:Meeting] startMeeting status checks", { meetingStatus: meeting.status, opportunityStatus: opportunity.status });
     if (meeting.status !== "scheduled") {
       throw new Error(`Cannot start a meeting with status "${meeting.status}"`);
     }
@@ -83,13 +90,16 @@ export const startMeeting = mutation({
       );
     }
 
+    console.log("[Closer:Meeting] startMeeting transitioning to in_progress", { meetingId, opportunityId: opportunity._id });
     await ctx.db.patch(opportunity._id, {
       status: "in_progress",
       updatedAt: Date.now(),
     });
 
     await ctx.db.patch(meetingId, { status: "in_progress" });
+    await updateOpportunityMeetingRefs(ctx, opportunity._id);
 
+    console.log("[Closer:Meeting] startMeeting completed", { hasZoomUrl: !!meeting.zoomJoinUrl });
     return { zoomJoinUrl: meeting.zoomJoinUrl ?? null };
   },
 });
@@ -108,7 +118,9 @@ export const markAsLost = mutation({
     reason: v.optional(v.string()),
   },
   handler: async (ctx, { opportunityId, reason }) => {
+    console.log("[Closer:Meeting] markAsLost called", { opportunityId });
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
+    console.log("[Closer:Meeting] markAsLost auth check passed", { userId });
 
     const opportunity = await ctx.db.get(opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
@@ -120,6 +132,7 @@ export const markAsLost = mutation({
     }
 
     // Validate the transition
+    console.log("[Closer:Meeting] markAsLost current status", { currentStatus: opportunity.status });
     if (!validateTransition(opportunity.status, "lost")) {
       throw new Error(
         `Cannot mark as lost from status "${opportunity.status}". ` +
@@ -137,5 +150,6 @@ export const markAsLost = mutation({
     }
 
     await ctx.db.patch(opportunityId, patch);
+    console.log("[Closer:Meeting] markAsLost patch applied", { opportunityId, newStatus: "lost", hasReason: !!normalizedReason });
   },
 });

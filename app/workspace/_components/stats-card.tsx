@@ -14,12 +14,9 @@ interface StatsCardProps {
 
 const variantClasses = {
   default: "",
-  success:
-    "border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/50",
-  warning:
-    "border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/50",
-  destructive:
-    "border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/50",
+  success: "border-emerald-500/20 bg-emerald-500/5",
+  warning: "border-amber-500/20 bg-amber-500/5",
+  destructive: "border-destructive/20 bg-destructive/5",
 } as const;
 
 export function StatsCard({
@@ -40,7 +37,7 @@ export function StatsCard({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="text-3xl font-bold tracking-tight">{value}</div>
+        <div className="text-3xl font-bold font-mono tabular-nums tracking-tight">{value}</div>
         {subtext && (
           <p className="mt-1 text-xs text-muted-foreground">{subtext}</p>
         )}

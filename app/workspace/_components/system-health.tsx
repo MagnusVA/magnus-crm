@@ -4,6 +4,12 @@ import { useQuery } from "convex/react";
 import { useAction } from "convex/react";
 import { useState } from "react";
 import { api } from "@/convex/_generated/api";
+import {
+  formatCalendlyLastRefresh,
+  formatCalendlyTokenExpiry,
+  getCalendlyTokenTiming,
+} from "@/lib/calendly-connection-status";
+import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,26 +22,7 @@ import {
   LinkIcon,
 } from "lucide-react";
 import { toast } from "sonner";
-
-function formatRelativeTime(timestamp: number) {
-  const hours = Math.floor((Date.now() - timestamp) / (60 * 60 * 1000));
-  if (hours < 1) return "Just now";
-  if (hours === 1) return "1 hour ago";
-  if (hours < 24) return `${hours} hours ago`;
-
-  const days = Math.floor(hours / 24);
-  if (days === 1) return "1 day ago";
-  return `${days} days ago`;
-}
-
-function formatExpiry(timestamp: number) {
-  const days = Math.floor((timestamp - Date.now()) / (24 * 60 * 60 * 1000));
-  if (days < 0) return "Expired";
-  if (days === 0) return "Today";
-  if (days === 1) return "Tomorrow";
-  if (days < 7) return `In ${days} days`;
-  return new Date(timestamp).toLocaleDateString();
-}
+import { connectionStatusConfig } from "@/lib/status-config";
 
 export function SystemHealth() {
   const connectionStatus = useQuery(
@@ -63,13 +50,11 @@ export function SystemHealth() {
 
   const isConnected =
     connectionStatus.hasAccessToken && !connectionStatus.needsReconnect;
-  const isExpired =
-    connectionStatus.tokenExpiresAt !== null &&
-    connectionStatus.tokenExpiresAt < Date.now();
-  const isExpiringSoon =
-    !isExpired &&
-    connectionStatus.tokenExpiresAt !== null &&
-    connectionStatus.tokenExpiresAt - Date.now() < 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const { isExpired, isExpiringSoon } = getCalendlyTokenTiming(
+    connectionStatus.tokenExpiresAt,
+    now,
+  );
 
   const handleRefreshToken = async () => {
     setIsRefreshing(true);
@@ -104,9 +89,9 @@ export function SystemHealth() {
           <div className="flex items-center justify-between rounded-lg border p-4">
             <div className="flex items-start gap-3">
               {isConnected ? (
-                <CheckCircle2Icon className="mt-0.5 size-5 text-emerald-600 dark:text-emerald-400" />
+                <CheckCircle2Icon className={cn("mt-0.5 size-5", connectionStatusConfig.connected.iconClass)} />
               ) : (
-                <AlertCircleIcon className="mt-0.5 size-5 text-red-600 dark:text-red-400" />
+                <AlertCircleIcon className={cn("mt-0.5 size-5", connectionStatusConfig.disconnected.iconClass)} />
               )}
               <div className="flex flex-col gap-1">
                 <p className="text-sm font-medium">Calendly Connection</p>
@@ -115,37 +100,50 @@ export function SystemHealth() {
                 </p>
                 {connectionStatus.tokenExpiresAt !== null && (
                   <p className="text-xs text-muted-foreground">
-                    Token expires: {formatExpiry(connectionStatus.tokenExpiresAt)}
+                    Token expires:{" "}
+                    {formatCalendlyTokenExpiry(
+                      connectionStatus.tokenExpiresAt,
+                      now,
+                    )}
                   </p>
                 )}
                 {connectionStatus.lastTokenRefresh !== null && (
                   <p className="text-xs text-muted-foreground">
                     Last refresh:{" "}
-                    {formatRelativeTime(connectionStatus.lastTokenRefresh)}
+                    {formatCalendlyLastRefresh(
+                      connectionStatus.lastTokenRefresh,
+                      now,
+                    )}
                   </p>
                 )}
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {isExpired && <Badge variant="destructive">Token Expired</Badge>}
+              {isExpired && (
+                <Badge variant={connectionStatusConfig.expired.badgeVariant}>
+                  {connectionStatusConfig.expired.label}
+                </Badge>
+              )}
               {isExpiringSoon && (
                 <Badge
-                  variant="outline"
-                  className="bg-amber-50 dark:bg-amber-950"
+                  variant={connectionStatusConfig.expiring.badgeVariant}
+                  className={connectionStatusConfig.expiring.badgeClass}
                 >
-                  Expiring Soon
+                  {connectionStatusConfig.expiring.label}
                 </Badge>
               )}
               {isConnected && !isExpired && !isExpiringSoon && (
                 <Badge
-                  variant="outline"
-                  className="bg-emerald-50 dark:bg-emerald-950"
+                  variant={connectionStatusConfig.connected.badgeVariant}
+                  className={connectionStatusConfig.connected.badgeClass}
                 >
-                  Active
+                  {connectionStatusConfig.connected.label}
                 </Badge>
               )}
               {!isConnected && (
-                <Badge variant="destructive">Disconnected</Badge>
+                <Badge variant={connectionStatusConfig.disconnected.badgeVariant}>
+                  {connectionStatusConfig.disconnected.label}
+                </Badge>
               )}
             </div>
           </div>

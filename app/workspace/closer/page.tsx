@@ -2,6 +2,9 @@
 
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Doc } from "@/convex/_generated/dataModel";
+import { usePageTitle } from "@/hooks/use-page-title";
+import { usePollingQuery } from "@/hooks/use-polling-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { UnmatchedBanner } from "./_components/unmatched-banner";
@@ -9,6 +12,15 @@ import { FeaturedMeetingCard } from "./_components/featured-meeting-card";
 import { PipelineStrip } from "./_components/pipeline-strip";
 import { CloserEmptyState } from "./_components/closer-empty-state";
 import { CalendarView } from "./_components/calendar-view";
+
+type NextMeetingData =
+  | {
+      meeting: Doc<"meetings">;
+      opportunity: Doc<"opportunities"> | null | undefined;
+      lead: Doc<"leads"> | null | undefined;
+      eventTypeName: string | null;
+    }
+  | null;
 
 /**
  * Closer Dashboard — `/workspace/closer`
@@ -23,13 +35,25 @@ import { CalendarView } from "./_components/calendar-view";
  *    filtered pipeline page.
  * 4. **Calendar** — self‑contained week/day/month view of upcoming meetings.
  *
- * Each query is a separate Convex subscription so only the affected section
- * re‑renders when data changes (vercel-react-best-practices: rerender-memo).
+ * Notes on caching:
+ * - `getNextMeeting` uses one-shot polling (60s) to avoid stale results when
+ *   meetings pass. See @plans/caching/caching.md for context.
+ * - `getCloserProfile` & `getPipelineSummary` use reactive subscriptions as
+ *   their data is deterministic (depends only on document state, not time).
  */
 export default function CloserDashboardPage() {
+  usePageTitle("My Dashboard");
+
   const profile = useQuery(api.closer.dashboard.getCloserProfile);
-  const nextMeeting = useQuery(api.closer.dashboard.getNextMeeting);
   const pipelineSummary = useQuery(api.closer.dashboard.getPipelineSummary);
+
+  // One-shot fetch with 60s polling for nextMeeting to avoid stale results
+  // when the meeting's scheduledAt time passes (Date.now() is not cached by Convex)
+  const nextMeeting = usePollingQuery(
+    api.closer.dashboard.getNextMeeting,
+    {},
+    { intervalMs: 60_000 },
+  );
 
   // ── Loading state ───────────────────────────────────────────────────────
   if (
@@ -58,7 +82,7 @@ export default function CloserDashboardPage() {
       {nextMeeting ? (
         <FeaturedMeetingCard
           meeting={nextMeeting.meeting}
-          lead={nextMeeting.lead}
+          lead={nextMeeting.lead ?? null}
           eventTypeName={nextMeeting.eventTypeName}
         />
       ) : (

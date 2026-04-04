@@ -13,7 +13,7 @@ import {
 } from "date-fns";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { meetingStatusConfig, type MeetingStatus } from "./status-config";
+import { meetingStatusConfig, type MeetingStatus } from "@/lib/status-config";
 
 import type { EnrichedMeeting } from "./calendar-utils";
 
@@ -91,6 +91,7 @@ export function MonthView({ meetings, month }: MonthViewProps) {
                 !inMonth && "bg-muted/20",
                 today && "bg-primary/5",
               )}
+              aria-label={`${format(day, "EEEE, MMMM d")}${dayMeetings.length > 0 ? `, ${dayMeetings.length} meeting${dayMeetings.length > 1 ? "s" : ""}` : ""}`}
             >
               {/* Day number */}
               <span

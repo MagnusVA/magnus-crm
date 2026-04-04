@@ -13,6 +13,7 @@ import { requireTenantUser } from "../requireTenantUser";
 export const getNextMeeting = query({
   args: {},
   handler: async (ctx) => {
+    console.log("[Closer:Dashboard] getNextMeeting called");
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
     const now = Date.now();
 
@@ -24,6 +25,7 @@ export const getNextMeeting = query({
       )
       .collect();
     const scheduledOpps = myOpps.filter((opportunity) => opportunity.status === "scheduled");
+    console.log("[Closer:Dashboard] getNextMeeting opp count", { total: myOpps.length, scheduled: scheduledOpps.length });
 
     if (scheduledOpps.length === 0) return null;
 
@@ -52,7 +54,11 @@ export const getNextMeeting = query({
       break;
     }
 
-    if (!nextMeeting) return null;
+    if (!nextMeeting) {
+      console.log("[Closer:Dashboard] getNextMeeting: no upcoming meeting found");
+      return null;
+    }
+    console.log("[Closer:Dashboard] getNextMeeting: next meeting found", { meetingId: nextMeeting._id, scheduledAt: nextMeeting.scheduledAt });
 
     const opportunity = opportunityById.get(nextMeeting.opportunityId);
     const lead = opportunity ? await ctx.db.get(opportunity.leadId) : null;
@@ -79,6 +85,7 @@ export const getNextMeeting = query({
 export const getPipelineSummary = query({
   args: {},
   handler: async (ctx) => {
+    console.log("[Closer:Dashboard] getPipelineSummary called");
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
 
     const myOpps = await ctx.db
@@ -104,6 +111,7 @@ export const getPipelineSummary = query({
       }
     }
 
+    console.log("[Closer:Dashboard] getPipelineSummary counts", { total: myOpps.length, counts });
     return {
       counts,
       total: myOpps.length,
@@ -120,11 +128,13 @@ export const getPipelineSummary = query({
 export const getCloserProfile = query({
   args: {},
   handler: async (ctx) => {
+    console.log("[Closer:Dashboard] getCloserProfile called");
     const { userId } = await requireTenantUser(ctx, ["closer"]);
 
     const user = await ctx.db.get(userId);
     if (!user) throw new Error("User not found");
 
+    console.log("[Closer:Dashboard] getCloserProfile", { userId, isCalendlyLinked: !!user.calendlyUserUri });
     return {
       fullName: user.fullName,
       email: user.email,

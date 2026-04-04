@@ -1,6 +1,7 @@
 "use client";
 
 import { useQuery } from "convex/react";
+import { usePathname } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -99,8 +100,19 @@ export function CalendlyConnectionGuard({
 }: {
   children: React.ReactNode;
 }) {
+  const pathname = usePathname();
+  const currentUser = useQuery(
+    api.users.queries.getCurrentUser,
+    pathname.startsWith("/workspace") ? {} : "skip",
+  );
+  const canCheckConnection =
+    pathname.startsWith("/workspace") &&
+    currentUser !== undefined &&
+    currentUser !== null &&
+    (currentUser.role === "tenant_master" || currentUser.role === "tenant_admin");
   const connectionStatus = useQuery(
     api.calendly.oauthQueries.getConnectionStatus,
+    canCheckConnection ? {} : "skip",
   );
 
   // Dismissal persists until page reload — banner reappears next session

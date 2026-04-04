@@ -4,15 +4,17 @@ import { useCallback, useState } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { usePageTitle } from "@/hooks/use-page-title";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusTabs } from "./_components/status-tabs";
 import { OpportunityTable } from "./_components/opportunity-table";
 import { CloserEmptyState } from "../_components/closer-empty-state";
+import { Button } from "@/components/ui/button";
 import { KanbanIcon } from "lucide-react";
 import {
   isValidOpportunityStatus,
   type OpportunityStatus,
-} from "../_components/status-config";
+} from "@/lib/status-config";
 
 /**
  * Closer Pipeline page — `/workspace/closer/pipeline`
@@ -31,6 +33,7 @@ import {
  * both the counts and the list react in real time.
  */
 export default function CloserPipelinePage() {
+  usePageTitle("My Pipeline");
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
@@ -106,7 +109,13 @@ export default function CloserPipelinePage() {
               : "Opportunities will appear here when leads book meetings through Calendly."
           }
           icon={KanbanIcon}
-        />
+        >
+          {statusFilter && (
+            <Button variant="outline" size="sm" onClick={() => handleStatusChange(undefined)}>
+              Show all opportunities
+            </Button>
+          )}
+        </CloserEmptyState>
       ) : (
         <OpportunityTable opportunities={opportunities} />
       )}

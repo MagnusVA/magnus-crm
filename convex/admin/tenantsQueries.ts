@@ -19,36 +19,52 @@ export const listTenants = query({
     ),
   },
   handler: async (ctx, args) => {
+    console.log("[Admin] listTenants called", {
+      statusFilter: args.statusFilter ?? "none",
+    });
     const identity = await ctx.auth.getUserIdentity();
     requireSystemAdminSession(identity);
     const statusFilter = args.statusFilter;
 
+    let result;
     if (statusFilter !== undefined) {
-      return await ctx.db
+      result = await ctx.db
         .query("tenants")
         .withIndex("by_status", (q) => q.eq("status", statusFilter))
         .order("desc")
         .paginate(args.paginationOpts);
+    } else {
+      result = await ctx.db
+        .query("tenants")
+        .order("desc")
+        .paginate(args.paginationOpts);
     }
 
-    return await ctx.db
-      .query("tenants")
-      .order("desc")
-      .paginate(args.paginationOpts);
+    console.log("[Admin] listTenants completed", {
+      resultCount: result.page.length,
+      isDone: result.isDone,
+    });
+    return result;
   },
 });
 
 export const getTenant = query({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
+    console.log("[Admin] getTenant called", { tenantId });
     const identity = await ctx.auth.getUserIdentity();
     requireSystemAdminSession(identity);
 
     const tenant = await ctx.db.get(tenantId);
     if (!tenant) {
+      console.warn("[Admin] getTenant: tenant not found", { tenantId });
       throw new Error("Tenant not found");
     }
 
+    console.log("[Admin] getTenant: tenant found", {
+      tenantId,
+      status: tenant.status,
+    });
     return tenant;
   },
 });
@@ -56,19 +72,39 @@ export const getTenant = query({
 export const getTenantInternal = internalQuery({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
-    return await ctx.db.get(tenantId);
+    console.log("[Admin] getTenantInternal called", { tenantId });
+    const tenant = await ctx.db.get(tenantId);
+    if (!tenant) {
+      console.warn("[Admin] getTenantInternal: tenant not found", { tenantId });
+    } else {
+      console.log("[Admin] getTenantInternal: tenant found", {
+        tenantId,
+        status: tenant.status,
+      });
+    }
+    return tenant;
   },
 });
 
 export const getTenantByContactEmail = internalQuery({
   args: { contactEmail: v.string() },
   handler: async (ctx, { contactEmail }) => {
+    console.log("[Admin] getTenantByContactEmail called", { contactEmail });
     const matches = await ctx.db
       .query("tenants")
       .withIndex("by_contactEmail", (q) => q.eq("contactEmail", contactEmail))
       .take(2);
 
+    console.log("[Admin] getTenantByContactEmail: match count", {
+      contactEmail,
+      matchCount: matches.length,
+    });
+
     if (matches.length > 1) {
+      console.error("[Admin] getTenantByContactEmail: multiple tenants found", {
+        contactEmail,
+        matchCount: matches.length,
+      });
       throw new Error(
         `Multiple tenants found for contact email ${contactEmail}`,
       );

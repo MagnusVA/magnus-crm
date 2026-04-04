@@ -2,6 +2,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { opportunityStatusConfig } from "@/lib/status-config";
 
 interface Stats {
   totalClosers: number;
@@ -22,17 +23,17 @@ export function PipelineSummary({ stats }: PipelineSummaryProps) {
     {
       label: "Active",
       value: stats.activeOpportunities,
-      color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+      badgeClass: opportunityStatusConfig.scheduled.badgeClass,
     },
     {
       label: "Won",
       value: stats.wonDeals,
-      color: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200",
+      badgeClass: opportunityStatusConfig.payment_received.badgeClass,
     },
     {
       label: "Total",
       value: stats.totalOpportunities,
-      color: "bg-slate-100 text-slate-800 dark:bg-slate-900 dark:text-slate-200",
+      badgeClass: "bg-muted text-muted-foreground border-border",
     },
   ];
 
@@ -48,7 +49,7 @@ export function PipelineSummary({ stats }: PipelineSummaryProps) {
               <span className="text-sm text-muted-foreground">{status.label}</span>
               <div className="flex items-baseline gap-2">
                 <span className="text-2xl font-bold">{status.value}</span>
-                <Badge className={status.color} variant="secondary">
+                <Badge className={status.badgeClass} variant="secondary">
                   {status.label}
                 </Badge>
               </div>

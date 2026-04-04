@@ -38,7 +38,7 @@ export function CalendarHeader({
             variant="outline"
             size="icon-sm"
             onClick={onPrev}
-            aria-label="Previous"
+            aria-label="Previous period"
           >
             <ChevronLeftIcon />
           </Button>
@@ -46,7 +46,7 @@ export function CalendarHeader({
             variant="outline"
             size="icon-sm"
             onClick={onNext}
-            aria-label="Next"
+            aria-label="Next period"
           >
             <ChevronRightIcon />
           </Button>
@@ -63,6 +63,7 @@ export function CalendarHeader({
       <Tabs
         value={viewMode}
         onValueChange={(v) => onViewModeChange(v as ViewMode)}
+        aria-label="Calendar view mode"
       >
         <TabsList>
           <TabsTrigger value="day">Day</TabsTrigger>

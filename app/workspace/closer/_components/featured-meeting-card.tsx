@@ -70,6 +70,7 @@ export function FeaturedMeetingCard({
     <Card
       className={cn(
         "border-l-[3px]",
+        // Intentional raw colors — urgency signals (started/soon/normal)
         hasStarted
           ? "border-l-emerald-500"
           : isStartingSoon
@@ -98,6 +99,8 @@ export function FeaturedMeetingCard({
             variant={isStartingSoon || hasStarted ? "default" : "secondary"}
             aria-live="polite"
             className={cn(
+              "font-mono tabular-nums",
+              // Intentional raw color — urgency signal, not theme-dependent
               isStartingSoon &&
                 "bg-amber-500/15 text-amber-700 dark:text-amber-400",
               hasStarted &&

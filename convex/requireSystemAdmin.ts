@@ -7,10 +7,19 @@ export function requireSystemAdminSession(
   identity: UserIdentity | null,
 ): asserts identity is UserIdentity {
   if (identity === null) {
+    console.error("[Auth:SystemAdmin] Rejected: no identity (not authenticated)");
     throw new Error("Not authenticated");
   }
   const orgId = getIdentityOrgId(identity);
   if (orgId !== SYSTEM_ADMIN_ORG_ID) {
+    console.error("[Auth:SystemAdmin] Rejected: orgId mismatch", {
+      provided: orgId,
+      expected: SYSTEM_ADMIN_ORG_ID,
+    });
     throw new Error("Not authorized");
   }
+  console.log("[Auth:SystemAdmin] Authorized system admin session", {
+    orgId,
+    subject: identity.subject,
+  });
 }

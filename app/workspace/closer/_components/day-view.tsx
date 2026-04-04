@@ -8,9 +8,12 @@ import {
   type EnrichedMeeting,
   HOURS,
   HOUR_HEIGHT,
+  START_HOUR,
+  END_HOUR,
   getTopPx,
   getHeightPx,
   formatHour,
+  useCurrentTime,
 } from "./calendar-utils";
 
 type DayViewProps = {
@@ -24,6 +27,29 @@ type DayViewProps = {
  * Single‑day calendar view with an hourly time gutter on the left and meeting
  * blocks positioned absolutely.
  */
+// ─── Now indicator component ────────────────────────────────────────────
+
+function NowIndicator({ now }: { now: Date }) {
+  const hour = now.getHours();
+  const minutes = now.getMinutes();
+
+  // Only show if within the visible grid range
+  if (hour < START_HOUR || hour >= END_HOUR) return null;
+
+  const topPx = (hour - START_HOUR) * HOUR_HEIGHT + (minutes / 60) * HOUR_HEIGHT;
+
+  return (
+    <div
+      className="pointer-events-none absolute left-0 right-0 z-10 flex items-center"
+      style={{ top: `${topPx}px` }}
+      aria-hidden="true"
+    >
+      <div className="size-2 rounded-full bg-red-500" />
+      <div className="h-px flex-1 bg-red-500" />
+    </div>
+  );
+}
+
 export function DayView({ meetings, date }: DayViewProps) {
   const dayMeetings = useMemo(
     () =>
@@ -32,12 +58,13 @@ export function DayView({ meetings, date }: DayViewProps) {
   );
 
   const totalHeight = HOURS.length * HOUR_HEIGHT;
+  const now = useCurrentTime();
 
   return (
-    <ScrollArea className="h-[600px] rounded-lg border">
+    <ScrollArea className="h-[calc(100dvh-20rem)] min-h-[400px] rounded-lg border">
       <div className="flex" style={{ height: totalHeight }}>
         {/* Time gutter */}
-        <div className="w-16 shrink-0 border-r">
+        <div className="w-16 shrink-0 border-r" aria-hidden="true">
           {HOURS.map((hour) => (
             <div
               key={hour}
@@ -71,6 +98,9 @@ export function DayView({ meetings, date }: DayViewProps) {
               }}
             />
           ))}
+
+          {/* Current time indicator */}
+          {isSameDay(now, date) && <NowIndicator now={now} />}
         </div>
       </div>
     </ScrollArea>

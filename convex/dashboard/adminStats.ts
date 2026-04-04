@@ -27,6 +27,7 @@ export const getAdminDashboardStats = query({
       "tenant_master",
       "tenant_admin",
     ]);
+    console.log("[Dashboard] getAdminDashboardStats called", { tenantId });
 
     let totalTeamMembers = 0;
     let totalClosers = 0;
@@ -85,6 +86,16 @@ export const getAdminDashboardStats = query({
       paymentRecordsLogged += 1;
     }
 
+    console.log("[Dashboard] getAdminDashboardStats completed", {
+      tenantId,
+      totalTeamMembers,
+      totalClosers,
+      totalOpportunities,
+      activeOpportunities,
+      meetingsToday,
+      wonDeals,
+      revenueLogged,
+    });
     return {
       totalTeamMembers,
       totalClosers,

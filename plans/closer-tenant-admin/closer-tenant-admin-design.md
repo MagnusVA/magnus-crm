@@ -2,7 +2,7 @@
 
 **Version:** 0.1 (MVP)
 **Status:** Draft
-**Scope:** Tenant owner identification & role provisioning → User management (WorkOS Widgets) → Webhook-driven user provisioning via AuthKit events → Calendly member matching → Tenant owner/admin dashboard → Closer pipeline dashboard → Webhook event routing & processing → Lead/Opportunity/Meeting lifecycle.
+**Scope:** Tenant owner identification & role provisioning → Programmatic user management via custom form + WorkOS Node SDK → Calendly member matching at invite time (dropdown selection) → Tenant owner/admin dashboard → Closer pipeline dashboard → Webhook event routing & processing → Lead/Opportunity/Meeting lifecycle.
 **Prerequisite:** Phases 1–6 of the System Admin & Tenant Onboarding flow are complete.
 
 ---
@@ -13,8 +13,8 @@
 2. [Actors & Roles](#2-actors--roles)
 3. [End-to-End Flow Overview](#3-end-to-end-flow-overview)
 4. [Phase 1: Tenant Owner Identification & WorkOS Role Setup](#4-phase-1-tenant-owner-identification--workos-role-setup)
-5. [Phase 2: User Management — WorkOS Widgets Integration](#5-phase-2-user-management--workos-widgets-integration)
-6. [Phase 3: Webhook-Driven User Provisioning & Calendly Matching](#6-phase-3-webhook-driven-user-provisioning--calendly-matching)
+5. [Phase 2: Programmatic User Management — WorkOS Node SDK](#5-phase-2-programmatic-user-management--workos-node-sdk)
+6. [Phase 3: User Invite Form & Calendly Member Linking](#6-phase-3-user-invite-form--calendly-member-linking)
 7. [Phase 4: Tenant Owner / Admin Dashboard](#7-phase-4-tenant-owner--admin-dashboard)
 8. [Phase 5: Webhook Event Processing Pipeline (Calendly)](#8-phase-5-webhook-event-processing-pipeline-calendly)
 9. [Phase 6: Closer Dashboard — Pipeline & Calendar](#9-phase-6-closer-dashboard--pipeline--calendar)
@@ -37,11 +37,16 @@
 ### Goals
 
 - The user who completed Calendly OAuth during onboarding is clearly identified as the **Tenant Owner** in both Convex and WorkOS.
-- WorkOS RBAC roles (`owner`, `tenant-admin`, `closer`) **already exist** at the environment level with the correct permissions — particularly `widgets:users-table:manage` for the `owner` and `tenant-admin` roles. No setup step is needed.
-- The Tenant Owner can manage users (invite, edit roles, remove) via the **WorkOS User Management Widget** embedded in the CRM.
-- Tenant Admins have near-identical capabilities to the Tenant Owner, including Calendly token refresh.
-- When a Tenant Owner/Admin invites a new user via the WorkOS User Management Widget, the CRM **immediately provisions** the user record in Convex via the `user.created` WorkOS webhook event — **before the user ever signs up or logs in**. Role mapping, org membership resolution, and Calendly member matching all happen at invite time, not at first login.
-- Closer users **must be matched** to a Calendly organization member before their pipeline becomes operational. Email matching is attempted automatically at provisioning time but will not always succeed — manual matching via the admin UI is the fallback.
+- WorkOS RBAC roles (`owner`, `tenant-admin`, `closer`) **already exist** at the environment level with the correct permissions. No environment setup needed.
+- **User invites are fully programmatic and synchronous** — no WorkOS Widgets or widget tokens:
+  - Admin fills a **custom CRM form** with email, name, role, and (for Closers) a Calendly member dropdown
+  - A single Convex action executes all steps: create WorkOS user, create membership with role, send invite, **and** create the fully-provisioned CRM `users` record
+  - **The CRM record exists before the user signs up or logs in** — no post-signup provisioning needed
+- Calendly member **matching happens at invite time** (not post-hoc):
+  - For Closer roles: admin selects from a dropdown of unmatched Calendly org members
+  - The selected member is linked in the CRM record and marked as matched
+  - When the Closer logs in, their Calendly linkage is already configured
+- Tenant Admins have near-identical user management capabilities to the Tenant Owner, including Calendly token refresh.
 - The Tenant Owner and Tenant Admin share an **identical dashboard** (to be separated in a future phase).
 - The Closer receives a **comprehensive operational dashboard**: calendar view, pipeline summary, featured next meeting, meeting detail page, payment logging, follow-up scheduling, and outcome actions.
 - Raw webhook events (`invitee.created`, `invitee.canceled`, `invitee_no_show`) are processed through a pipeline that creates/updates Leads, Opportunities, and Meetings — with correct Closer assignment via Calendly `event_memberships`.
@@ -64,19 +69,19 @@
 | Actor | Identity | WorkOS Role Slug | Key Permissions | How they authenticate |
 |---|---|---|---|---|
 | **System Admin** | Us (developers / operators) | N/A (system admin org) | Full system access | WorkOS AuthKit, member of system admin org `org_01KN2GSWBZAQWJ2CBRAZ6CSVBP` |
-| **Tenant Owner** | The customer who onboarded (completed Calendly OAuth) | `owner` | Full tenant access, user management (`widgets:users-table:manage`), Calendly re-auth | WorkOS AuthKit, member of their tenant's WorkOS org |
-| **Tenant Admin** | Operational administrator added by the Owner | `tenant-admin` | Near-full tenant access, Calendly token refresh, user management | WorkOS AuthKit, same tenant org |
+| **Tenant Owner** | The customer who onboarded (completed Calendly OAuth) | `owner` | Full tenant access, programmatic user management via CRM, Calendly re-auth | WorkOS AuthKit, member of their tenant's WorkOS org |
+| **Tenant Admin** | Operational administrator added by the Owner | `tenant-admin` | Near-full tenant access, Calendly token refresh, programmatic user management via CRM | WorkOS AuthKit, same tenant org |
 | **Closer** | Frontline sales operator added by Owner/Admin | `closer` | Own pipeline view, calendar, meeting execution, outcome logging, payment capture | WorkOS AuthKit, same tenant org |
 
 ### CRM Role ↔ WorkOS Role Slug Mapping
 
-| CRM `users.role` value | WorkOS Role Slug | WorkOS Permissions |
+| CRM `users.role` value | WorkOS Role Slug | Notes |
 |---|---|---|
-| `tenant_master` | `owner` | `widgets:users-table:manage` |
-| `tenant_admin` | `tenant-admin` | `widgets:users-table:manage` |
-| `closer` | `closer` | _(none — no widget access)_ |
+| `tenant_master` | `owner` | Full tenant access, can invite users, manage Calendly tokens |
+| `tenant_admin` | `tenant-admin` | Near-full tenant access, can invite users, manage Calendly tokens |
+| `closer` | `closer` | Limited to own pipeline, calendar, and meeting operations |
 
-> **Important:** We check **permissions** (e.g., `role.permissions.includes('widgets:users-table:manage')`) rather than role slugs for authorization decisions per WorkOS RBAC best practices. Role slugs are used only for assignment.
+> **Important:** In our code, we check the CRM `users.role` field for authorization decisions (e.g., `if (user.role !== "tenant_master" && user.role !== "tenant_admin")`). WorkOS roles ensure consistency at the auth boundary, but CRM roles drive application logic.
 
 ---
 
@@ -86,45 +91,41 @@
 sequenceDiagram
     participant SA as System Admin
     participant CVX as Convex Backend
-    participant WOS as WorkOS API
+    participant WOS as WorkOS API / Webhooks
     participant TO as Tenant Owner (Browser)
-    participant TA as Tenant Admin (Browser)
     participant CL as Closer (Browser)
     participant CAL as Calendly API
 
-    Note over SA,CVX: Pre-existing: Phases 1–6 Complete
+    Note over SA,CVX: Pre-existing: Phases 1–6 Complete<br/>WorkOS roles (owner, tenant-admin, closer) already exist
+
     Note over TO,CVX: Phase 1 — Owner Identification
     CVX->>CVX: Mark onboarding user as tenant owner<br/>(tenantOwnerId on tenant record)
     CVX->>WOS: Assign "owner" role to membership
 
-    Note over TO,WOS: Phase 2 — RBAC Setup (one-time)
-    SA->>WOS: Create environment roles:<br/>owner, tenant-admin, closer
-    SA->>WOS: Create permission:<br/>widgets:users-table:manage
-    SA->>WOS: Assign permission to<br/>owner & tenant-admin roles
+    Note over TO,CVX: Phases 2–3 — Programmatic User Management
+    TO->>CVX: Fill user invite form<br/>(email, name, role, Calendly member)
+    CVX->>WOS: workos.userManagement.createUser()
+    WOS-->>CVX: WorkOS user created
+    CVX->>WOS: workos.userManagement.createOrganizationMembership()<br/>(with roleSlug)
+    WOS-->>CVX: Membership created
+    CVX->>WOS: workos.userManagement.sendInvitation()
+    WOS-->>CL: Invite email sent
+    CVX->>CVX: Insert CRM users record<br/>(role, calendlyUserUri from selected member)
+    Note over CL: CRM record exists before<br/>user ever signs up
 
-    Note over TO,CVX: Phase 3 — User Management
-    TO->>CVX: Request widget token<br/>(scope: widgets:users-table:manage)
-    CVX->>WOS: workos.widgets.getToken(...)
-    WOS-->>CVX: Widget access token
-    CVX-->>TO: Token for User Management Widget
-    TO->>WOS: Widget renders members table<br/>Invite user, assign role, remove
+    Note over CL,CVX: Later — Closer First Login
+    CL->>WOS: Accepts invite, completes signup
+    CL->>CVX: First auth — CRM user record<br/>already exists, no provisioning needed
+    CVX-->>CL: Redirect to closer dashboard
 
-    Note over TO,CVX: Phase 4 — Closer Creation & Matching
-    TO->>WOS: Invite new user with role "closer"
-    WOS-->>CL: Signup email
-    CL->>WOS: Completes signup
-    CL->>CVX: First auth → create user record<br/>(role: closer)
-    CVX->>CVX: Match by email against<br/>calendlyOrgMembers
-    CVX->>CVX: Set calendlyUserUri on user<br/>if match found
-
-    Note over CVX,CAL: Phase 6 — Event Processing Pipeline
+    Note over CVX,CAL: Phase 5 — Calendly Event Processing
     CAL-->>CVX: invitee.created webhook
     CVX->>CVX: Upsert Lead (by email)
     CVX->>CVX: Create Opportunity (status: Scheduled)
     CVX->>CVX: Resolve Closer from<br/>event_memberships[].user URI
     CVX->>CVX: Create Meeting record
 
-    Note over CL,CVX: Phases 7–10 — Closer Dashboard
+    Note over CL,CVX: Phases 6–9 — Closer Dashboard
     CL->>CVX: Load dashboard (real-time)
     CVX-->>CL: Calendar, pipeline, featured event
     CL->>CVX: Open meeting detail
@@ -135,7 +136,7 @@ sequenceDiagram
 
 ---
 
-## 4. Phase 1: Tenant Owner Identification & WorkOS Role Setup
+## 4. Phase 1: Tenant Owner Identification & WorkOS Role Setup (Programmatic, No Widgets)
 
 ### 4.1 Identifying the Tenant Owner
 
@@ -232,252 +233,87 @@ export const assignRoleToMembership = internalAction({
 });
 ```
 
-> **Timing:** Role assignment happens asynchronously after `redeemInviteAndCreateUser` completes. Since the user is already authenticated and won't need widget access until they navigate to the user management page, this slight delay is acceptable. The role takes effect on the user's **next session** — which is typically a page refresh or re-login.
+> **Timing:** Role assignment happens asynchronously after `redeemInviteAndCreateUser` completes. The role takes effect on the user's **next session** — which is typically a page refresh or re-login. This is acceptable because the tenant owner's first login is usually shortly after onboarding completion.
 
-### 4.5 Retroactive Fix for Existing Tenants
+### 4.5 No Migration Needed
 
-For tenants onboarded before this change:
-
-1. A one-time migration script queries all tenants with `status: "active"` and no `tenantOwnerId`.
-2. For each, it finds the `users` record with `role: "tenant_master"` and `tenantId` matching.
-3. Sets `tenantOwnerId` on the tenant.
-4. Assigns the `owner` WorkOS role via the same action.
-
-This is a **Convex migration** following the widen-migrate-narrow pattern (see **Skills: `convex-migration-helper`**).
+> **This app is not in production.** There are no existing tenants/users that need retroactive fixes. Any test data can be wiped and reprovisioned. Schema changes take effect immediately — no widen-migrate-narrow workflow required.
 
 ---
 
-## 5. Phase 2: WorkOS RBAC — Role & Permission Provisioning
+### WorkOS RBAC — Pre-Existing Configuration
 
-### 5.1 Environment-Level Roles (One-Time Setup)
+> **The following WorkOS roles already exist** at the environment level. No setup step is needed during implementation. This section documents the configuration for reference only.
+>
+> | Role Name | Slug | Permissions | Purpose |
+> |---|---|---|---|
+> | Owner | `owner` | `users:manage` | Full tenant access, can invite/manage users programmatically |
+> | Tenant Admin | `tenant-admin` | `users:manage` | Near-full tenant access, can invite/manage users programmatically |
+> | Closer | `closer` | _(none)_ | Limited to own pipeline, calendar, and meeting operations |
+>
+> **Note:** The `users:manage` permission is used as a server-side authorization check to verify the caller has user-management privileges. It does **not** grant access to any WorkOS Widget — all user management is handled programmatically via the WorkOS Node SDK and our custom CRM form.
+>
+> **Important reminder from WorkOS RBAC gotchas:**
+> - We check **permissions** (e.g., `role.permissions.includes('users:manage')`) or CRM `users.role` for authorization decisions — never role slugs directly.
+> - Role assignment requires the **membership ID** — fetch via `listOrganizationMemberships()` first, then call `updateOrganizationMembership(membershipId, { roleSlug })`.
+> - Org-level roles must **never** be created — the first one permanently isolates that org from inheriting environment-level role changes.
+> - Role changes take effect on the user's **next session** — stale sessions won't reflect the new role.
 
-WorkOS roles are created at the **environment level** (not per-organization) so they apply across all tenants. This is a one-time setup done via the WorkOS Dashboard or API.
+---
 
-> **Warning from WorkOS RBAC gotchas:** Creating the first **org-level** role permanently isolates that org from inheriting environment-level role changes. We **must not** create org-level roles. All roles are environment-level.
+## 5. Phase 2: Programmatic User Management — WorkOS Node SDK
 
-#### Roles to Create
+### 5.1 Overview: Programmatic User Invite with Calendly Linking
 
-| Role Name | Slug | Description |
+We manage users **programmatically** via the **WorkOS Node SDK** (`@workos-inc/node`), using a custom CRM form (no WorkOS User Management Widget).
+
+The Tenant Owner (and Tenant Admin) fills a form with:
+- Email, first name, last name
+- Role (Closer, Admin, Owner)
+- **Calendly member link** (required for Closers; optional/hidden for Admins/Owner)
+
+A single Convex action handles the entire synchronous flow:
+
+1. Validates email uniqueness and Calendly member eligibility
+2. Creates the user in WorkOS via SDK
+3. Creates the organization membership with the correct role slug
+4. Creates the CRM `users` record with **all tenant and Calendly data pre-populated**
+5. Marks the selected Calendly member as matched (if applicable)
+6. Sends the WorkOS invite email
+
+**Critical:** The CRM `users` record exists **before the user ever signs up or logs in**. When they accept the invite and authenticate, their data, role, org assignment, and Calendly linkage are already there. No post-hoc provisioning.
+
+Everything is synchronous, single-request, no webhooks or widget tokens.
+
+### 5.2 Why Programmatic Form Instead of WorkOS User Management Widget?
+
+| Aspect | Widget Approach | Programmatic Form (chosen) |
 |---|---|---|
-| Owner | `owner` | Tenant owner — full access including user management and Calendly re-auth |
-| Tenant Admin | `tenant-admin` | Operational admin — near-full access, user management, Calendly token refresh |
-| Closer | `closer` | Sales operator — own pipeline, meetings, payment logging |
+| **Widget tokens** | Requires token generation + refresh logic | Not needed |
+| **User provisioning** | Webhook-driven; race condition if user signs up before webhook fires | Synchronous; CRM record guaranteed to exist before invite sent |
+| **Calendly linking** | Post-hoc manual matching; admin must re-configure after user signs up | **At creation time** via form dropdown; admin selects member during invite |
+| **Data completeness** | User record created only after signup completion | **CRM record fully populated at invite time** (role, org, Calendly URI) |
+| **Setup completeness** | Setup continues after user signs up (role assignment, Calendly match) | **All setup complete at invite time**; no further action needed |
+| **First login UX** | User signs in → system provisions record → redirect to dashboard | User signs in → system finds pre-provisioned record → immediate redirect to dashboard |
+| **Complexity** | Widget lifecycle, token auth layer, webhook handlers | One form, one Convex action, one Calendly dropdown |
+| **Control** | WorkOS controls UI and behavior | We control UI, validation, Calendly member selection, and all branding |
 
-#### Permission to Create
+### 5.3 WorkOS Node SDK — User Management Methods
 
-| Permission Name | Slug | Description |
-|---|---|---|
-| Manage Users Table Widget | `widgets:users-table:manage` | Required by WorkOS to generate User Management widget tokens |
-
-#### Role-Permission Assignments
-
-| Role | Permissions |
+| Operation | SDK Call |
 |---|---|
-| `owner` | `widgets:users-table:manage` |
-| `tenant-admin` | `widgets:users-table:manage` |
-| `closer` | _(none)_ |
+| Create user | `workos.userManagement.createUser({ email, firstName, lastName })` |
+| Create org membership | `workos.userManagement.createOrganizationMembership({ userId, organizationId, roleSlug })` |
+| Send invitation | `workos.userManagement.sendInvitation({ email, organizationId })` |
+| List org memberships | `workos.userManagement.listOrganizationMemberships({ organizationId })` |
+| Update membership role | `workos.userManagement.updateOrganizationMembership(membershipId, { roleSlug })` |
+| Delete membership | `workos.userManagement.deleteOrganizationMembership(membershipId)` |
+| Delete user | `workos.userManagement.deleteUser(userId)` |
 
-### 5.2 Provisioning via WorkOS Node SDK
-
-This can be done from a one-time setup script or via the WorkOS Dashboard:
-
-```typescript
-// One-time setup script (run once, not part of the CRM runtime)
-import { WorkOS } from "@workos-inc/node";
-
-const workos = new WorkOS(process.env.WORKOS_API_KEY!, {
-  clientId: process.env.WORKOS_CLIENT_ID!,
-});
-
-// Create the permission
-const permission = await workos.roles.createPermission({
-  slug: "widgets:users-table:manage",
-  name: "Manage Users Table Widget",
-  description: "Allows the user to manage org members via the User Management widget",
-});
-
-// Create the roles
-const ownerRole = await workos.roles.createRole({
-  slug: "owner",
-  name: "Owner",
-  description: "Tenant owner with full access",
-});
-
-const adminRole = await workos.roles.createRole({
-  slug: "tenant-admin",
-  name: "Tenant Admin",
-  description: "Tenant admin with near-full access",
-});
-
-const closerRole = await workos.roles.createRole({
-  slug: "closer",
-  name: "Closer",
-  description: "Sales operator with pipeline access",
-});
-
-// Assign permissions to roles
-await workos.roles.addPermissionToRole(ownerRole.id, permission.id);
-await workos.roles.addPermissionToRole(adminRole.id, permission.id);
-```
-
-### 5.3 Verifying Role Assignment on Login
-
-When a user authenticates via WorkOS AuthKit, their JWT contains role and permission claims. The Next.js middleware or Convex auth layer can inspect these to determine the user's effective permissions.
-
-For the MVP, we also maintain the `role` field on the Convex `users` table as the source of truth for CRM-level authorization. The WorkOS role is the source of truth for widget access and WorkOS-managed features.
-
-### 5.4 Syncing WorkOS Role with CRM Role
-
-When a user's role is changed via the User Management Widget:
-
-1. WorkOS updates the membership role.
-2. A **WorkOS webhook** (`organization_membership.updated`) fires.
-3. Our webhook handler maps the new WorkOS role slug to the CRM role and updates the `users.role` field.
-
-Alternatively, on each authenticated request, we resolve the user's current WorkOS role and update the CRM `users` record if it has drifted. The webhook approach is preferred for real-time consistency.
-
----
-
-## 6. Phase 3: User Management — WorkOS Widgets Integration
-
-### 6.1 Overview
-
-The Tenant Owner (and Tenant Admin) can manage users within their organization via the **WorkOS User Management Widget**. This widget provides:
-
-- Paginated members table (avatar, name, email, role, last active, status)
-- Server-side search and role filtering
-- Per-user actions: edit role, remove user
-- Invite flow for adding new users
-
-### 6.2 Widget Token Generation
-
-The User Management Widget requires an `accessToken` generated via the WorkOS SDK with scope `widgets:users-table:manage`. The token is generated **server-side** in a Convex action (Node.js runtime):
+### 5.4 Role Slug Mapping
 
 ```typescript
-// convex/workos/widgetTokens.ts
-"use node";
-
-import { WorkOS } from "@workos-inc/node";
-import { action } from "../_generated/server";
-import { v } from "convex/values";
-
-const workos = new WorkOS(process.env.WORKOS_API_KEY!, {
-  clientId: process.env.WORKOS_CLIENT_ID!,
-});
-
-export const getUserManagementToken = action({
-  args: {},
-  handler: async (ctx) => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Not authenticated");
-    }
-
-    const orgId = getIdentityOrgId(identity);
-    if (!orgId) {
-      throw new Error("No organization context");
-    }
-
-    // Resolve CRM user to verify they have the right role
-    const user = await ctx.runQuery(internal.users.getByWorkosUserId, {
-      workosUserId: identity.subject,
-    });
-
-    if (!user || (user.role !== "tenant_master" && user.role !== "tenant_admin")) {
-      throw new Error("Insufficient permissions for user management");
-    }
-
-    // Generate widget token
-    const tokenResult = await workos.widgets.getToken({
-      userId: identity.subject,
-      organizationId: orgId,
-      scopes: ["widgets:users-table:manage"],
-    });
-
-    return tokenResult;
-  },
-});
-```
-
-> **Token lifetime:** Widget tokens expire after **1 hour**. The frontend must refresh the token before expiry. The widget component should handle this via a callback or polling mechanism.
-
-### 6.3 Next.js Page: User Management
-
-```
-app/workspace/team/page.tsx
-```
-
-This page:
-1. Checks that the current user has `role: "tenant_master"` or `role: "tenant_admin"` (via Convex query).
-2. Fetches a widget token from the Convex action.
-3. Renders the User Management Widget using WorkOS Widget APIs (direct `fetch` calls to `/_widgets/UserManagement/*` endpoints).
-4. Provides invite flow with role selection (Owner, Tenant Admin, Closer).
-
-### 6.4 Widget API Endpoints Used
-
-Per the WorkOS Widgets fetching-apis reference:
-
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/_widgets/UserManagement/members` | List org members (paginated, searchable) |
-| `POST` | `/_widgets/UserManagement/members/{userId}` | Update member (role change) |
-| `DELETE` | `/_widgets/UserManagement/members/{userId}` | Remove member from org |
-| `GET` | `/_widgets/UserManagement/roles` | List available roles |
-| `GET` | `/_widgets/UserManagement/roles-and-config` | Get roles with widget config |
-| `POST` | `/_widgets/UserManagement/invite-user` | Invite a new user to the org |
-| `POST` | `/_widgets/UserManagement/invites/{userId}/resend` | Resend invite |
-| `DELETE` | `/_widgets/UserManagement/invites/{userId}` | Revoke pending invite |
-
-All calls are made from the **frontend** using the widget token as a Bearer token. The base URL is `process.env.WORKOS_BASE_API_URL` (fallback: `https://api.workos.com`).
-
-### 6.5 Custom Role Selection on Invite
-
-When inviting a new user, the Owner/Admin selects one of the three roles:
-
-| Display Name | WorkOS Role Slug | CRM Behavior |
-|---|---|---|
-| Owner | `owner` | Same permissions as current owner (co-owner) |
-| Admin | `tenant-admin` | Admin access, user management |
-| Closer | `closer` | Pipeline-only access; must be matched to Calendly member |
-
-The invite request body includes the `roleSlug`:
-
-```typescript
-POST /_widgets/UserManagement/invite-user
-{
-  "email": "closer@example.com",
-  "roleSlug": "closer"
-}
-```
-
-### 6.6 CRM User Record Creation on First Login
-
-When an invited user first authenticates (via WorkOS AuthKit), they won't have a CRM `users` record yet. We need an **auto-provisioning** flow:
-
-```mermaid
-sequenceDiagram
-    participant U as New User (Browser)
-    participant NX as Next.js App
-    participant CVX as Convex
-    participant WOS as WorkOS
-
-    U->>NX: First login after invite acceptance
-    NX->>CVX: Query getCurrentUser()
-    CVX-->>NX: null (no user record)
-    NX->>CVX: Mutation: provisionUser()
-    CVX->>CVX: Resolve tenantId from org_id
-    CVX->>CVX: Check if user exists by workosUserId
-    CVX->>CVX: Determine role from WorkOS membership
-    Note over CVX: Must call WorkOS API to get<br/>membership role (action required)
-    CVX->>CVX: Insert user record with<br/>correct role mapping
-    CVX->>CVX: Attempt Calendly member<br/>email matching
-    CVX-->>NX: User record created
-    NX-->>U: Redirect to role-appropriate dashboard
-```
-
-**WorkOS role slug → CRM role mapping:**
-
-```typescript
+// WorkOS role slug → CRM role
 function mapWorkosRoleToCrmRole(roleSlug: string): "tenant_master" | "tenant_admin" | "closer" {
   switch (roleSlug) {
     case "owner": return "tenant_master";
@@ -486,77 +322,414 @@ function mapWorkosRoleToCrmRole(roleSlug: string): "tenant_master" | "tenant_adm
     default: return "closer"; // Default to least privilege
   }
 }
+
+// CRM role → WorkOS role slug
+function mapCrmRoleToWorkosSlug(role: string): string {
+  switch (role) {
+    case "tenant_master": return "owner";
+    case "tenant_admin": return "tenant-admin";
+    case "closer": return "closer";
+    default: return "closer";
+  }
+}
 ```
 
 ---
 
-## 7. Phase 4: Closer User Creation & Calendly Member Matching
+## 6. Phase 3: User Invite Form & Calendly Member Linking
 
-### 7.1 The Matching Requirement
+### 6.1 Invite User Flow — Synchronous Pre-Provisioning
 
-Closer users **must** be matched to a Calendly organization member. Without this match, the system cannot:
-- Route webhook events (meetings) to the correct Closer.
-- Display the Closer's own meetings on their dashboard.
-- Track round-robin assignments.
+Admin submits the invite form → a single Convex action executes these steps **synchronously** in order:
 
-### 7.2 Matching Strategy
+1. **Validate** the caller (must be tenant_master or tenant_admin) and resolve tenant
+2. **Validate** Calendly member selection (if provided) — confirm it exists, is unmatched, and belongs to this tenant
+3. **Create WorkOS user** via SDK
+4. **Create organization membership** with the selected role slug
+5. **Send WorkOS invitation** email
+6. **Create CRM `users` record** in the database with all fields:
+   - `tenantId`, `workosUserId`, `email`, `fullName`, `role`, `calendlyUserUri`
+7. **Mark Calendly member as matched** (if applicable)
+8. **Return success** to the UI
 
-Matching happens at two points:
+```mermaid
+sequenceDiagram
+    participant TO as Tenant Owner/Admin
+    participant UI as CRM Team Page
+    participant CVX as Convex Action (Node.js)
+    participant WOS as WorkOS API
+    participant DB as Convex DB
 
-**Point 1: Automatic email match on user creation.**
+    TO->>UI: Fill & submit invite form<br/>(email, name, role, optional Calendly member)
+    UI->>CVX: Call inviteUser action
+    CVX->>CVX: 1️⃣ Validate caller is admin/owner
+    CVX->>CVX: 2️⃣ Resolve & validate Calendly member<br/>(if provided)
+    
+    CVX->>WOS: 3️⃣ workos.userManagement.createUser()<br/>{ email, firstName, lastName }
+    WOS-->>CVX: { id: "user_xxx", ... }
 
-When a new `users` record is created (via `provisionUser`), the system attempts to match by email against the `calendlyOrgMembers` table:
+    CVX->>WOS: 4️⃣ workos.userManagement.createOrganizationMembership()<br/>{ userId, organizationId, roleSlug }
+    WOS-->>CVX: Membership created
 
-```typescript
-// In provisionUser mutation:
-const calendlyMember = await ctx.db
-  .query("calendlyOrgMembers")
-  .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-  .filter((q) => q.eq(q.field("email"), userEmail))
-  .unique();
+    CVX->>WOS: 5️⃣ workos.userManagement.sendInvitation()<br/>{ email, organizationId }
+    WOS-->>CVX: Invite email queued
 
-if (calendlyMember) {
-  // Auto-match: set calendlyUserUri on the user
-  await ctx.db.patch(userId, {
-    calendlyUserUri: calendlyMember.calendlyUserUri,
-  });
-  // Also update the calendlyOrgMembers record
-  await ctx.db.patch(calendlyMember._id, {
-    matchedUserId: userId,
-  });
-}
+    CVX->>DB: 6️⃣ Insert CRM users record<br/>(full provisioning)
+    CVX->>DB: 7️⃣ Patch calendlyOrgMembers.matchedUserId
+    
+    CVX-->>UI: ✅ Success: user invited + provisioned
+    
+    Note over TO,CVX: ⭐ KEY: At this moment, the user's CRM<br/>record is 100% complete with role, org,<br/>and Calendly linkage. User just needs<br/>to accept invite and sign in.
+
+    Note over TO: Later: User accepts invite<br/>& signs up
 ```
 
-**Point 2: Manual mapping via Admin UI.**
+**Critical:** The CRM `users` record is created **before the user even signs up**. No post-signup provisioning needed.
 
-If automatic matching fails (e.g., different emails in Calendly and WorkOS), the Tenant Owner/Admin can manually map a CRM user to a Calendly org member from the team management page:
+### 6.2 The `inviteUser` Convex Action (Node.js)
+
+**Purpose:** Single synchronous operation that:
+1. Validates admin authorization and tenant context
+2. Validates and resolves Calendly member (if applicable)
+3. Creates WorkOS user + membership + invitation
+4. Creates fully-provisioned CRM `users` record
+5. Links Calendly member to CRM user
+
+All steps execute sequentially in one request. **The CRM record exists before the function returns.**
+
+```typescript
+// convex/workos/userManagement.ts
+"use node";
+
+import { WorkOS } from "@workos-inc/node";
+import { action } from "../_generated/server";
+import { internal } from "../_generated/api";
+import { v } from "convex/values";
+
+const workos = new WorkOS(process.env.WORKOS_API_KEY!, {
+  clientId: process.env.WORKOS_CLIENT_ID!,
+});
+
+export const inviteUser = action({
+  args: {
+    email: v.string(),
+    firstName: v.string(),
+    lastName: v.optional(v.string()),
+    role: v.union(
+      v.literal("tenant_master"),
+      v.literal("tenant_admin"),
+      v.literal("closer"),
+    ),
+    calendlyMemberId: v.optional(v.id("calendlyOrgMembers")),
+  },
+  handler: async (ctx, { email, firstName, lastName, role, calendlyMemberId }) => {
+    // ==== Step 1: Authorization ====
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const caller = await ctx.runQuery(internal.users.queries.getCurrentUserInternal, {
+      workosUserId: identity.subject ?? identity.tokenIdentifier,
+    });
+    if (!caller || (caller.role !== "tenant_master" && caller.role !== "tenant_admin")) {
+      throw new Error("Insufficient permissions: only owners and admins can invite users");
+    }
+
+    const tenant = await ctx.runQuery(internal.tenants.getCalendlyTenant, {
+      tenantId: caller.tenantId,
+    });
+    if (!tenant) throw new Error("Tenant not found");
+
+    // ==== Step 2: Validate & Resolve Calendly Member ====
+    let calendlyUserUri: string | undefined;
+    if (calendlyMemberId) {
+      const member = await ctx.runQuery(internal.calendly.orgMembersQueries.getMember, {
+        memberId: calendlyMemberId,
+      });
+      if (!member || member.tenantId !== caller.tenantId) {
+        throw new Error("Invalid Calendly member");
+      }
+      if (member.matchedUserId) {
+        throw new Error("This Calendly member is already linked to another user");
+      }
+      calendlyUserUri = member.calendlyUserUri;
+    }
+
+    // ==== Step 3: Create WorkOS User ====
+    const workosUser = await workos.userManagement.createUser({
+      email,
+      firstName,
+      lastName: lastName ?? undefined,
+    });
+
+    // ==== Step 4: Create Organization Membership with Role ====
+    const roleSlug = mapCrmRoleToWorkosSlug(role);
+    await workos.userManagement.createOrganizationMembership({
+      userId: workosUser.id,
+      organizationId: tenant.workosOrgId,
+      roleSlug,
+    });
+
+    // ==== Step 5: Send WorkOS Invitation Email ====
+    await workos.userManagement.sendInvitation({
+      email,
+      organizationId: tenant.workosOrgId,
+    });
+
+    // ==== Step 6: Create CRM User Record with Full Provisioning ====
+    // This is where the magic happens: the CRM record is created with:
+    // - tenantId, workosUserId, email, fullName, role
+    // - calendlyUserUri (if a Calendly member was selected)
+    // - AND the Calendly member is marked as matched
+    //
+    // When the user signs up and logs in later, their record already exists
+    // with role, org, and Calendly linkage. No post-signup provisioning needed.
+    const userId = await ctx.runMutation(internal.workos.userMutations.createUserWithCalendlyLink, {
+      tenantId: caller.tenantId,
+      workosUserId: workosUser.id,
+      email,
+      fullName: [firstName, lastName].filter(Boolean).join(" "),
+      role,
+      calendlyUserUri,
+      calendlyMemberId,
+    });
+
+    return { userId, workosUserId: workosUser.id };
+  },
+});
+```
+
+### 6.3 The CRM User Creation Mutation (Internal)
+
+**Purpose:** Creates the fully-provisioned CRM `users` record and links the Calendly member.
+
+This is an **internal** mutation (called only from the `inviteUser` action) to ensure atomicity and prevent accidental direct calls.
+
+The mutation:
+1. Checks idempotency (if user already exists, return the existing ID)
+2. Inserts the `users` record with all fields: `tenantId`, `workosUserId`, `email`, `fullName`, `role`, `calendlyUserUri`
+3. Patches the Calendly org member to mark it as matched (if provided)
+
+```typescript
+// convex/workos/userMutations.ts
+
+export const createUserWithCalendlyLink = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    workosUserId: v.string(),
+    email: v.string(),
+    fullName: v.optional(v.string()),
+    role: v.union(
+      v.literal("tenant_master"),
+      v.literal("tenant_admin"),
+      v.literal("closer"),
+    ),
+    calendlyUserUri: v.optional(v.string()),
+    calendlyMemberId: v.optional(v.id("calendlyOrgMembers")),
+  },
+  handler: async (ctx, args) => {
+    const { tenantId, workosUserId, email, fullName, role, calendlyUserUri, calendlyMemberId } = args;
+
+    // Idempotency: if the user was already created, don't create again
+    const existing = await ctx.db
+      .query("users")
+      .withIndex("by_workosUserId", (q) => q.eq("workosUserId", workosUserId))
+      .unique();
+    if (existing) return existing._id;
+
+    // Insert CRM user
+    const userId = await ctx.db.insert("users", {
+      tenantId,
+      workosUserId,
+      email,
+      fullName,
+      role,
+      calendlyUserUri,
+    });
+
+    // Link the Calendly org member (if selected)
+    if (calendlyMemberId) {
+      await ctx.db.patch(calendlyMemberId, {
+        matchedUserId: userId,
+      });
+    }
+
+    return userId;
+  },
+});
+```
+
+### 6.4 The Custom Invite Form UI
+
+**Route:** `app/workspace/team/page.tsx`
+
+The Team page displays:
+1. A **members table** listing all CRM users for this tenant (queried from Convex, not WorkOS).
+2. An **"Invite User" button** that opens a modal form.
+3. Per-user actions: edit role, remove user, re-link Calendly member.
+
+#### Invite Form Fields & Submission
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| Email | text | Yes | Must be unique within the tenant |
+| First Name | text | Yes | Used for WorkOS user creation |
+| Last Name | text | No | Optional; used for full name display |
+| Role | select | Yes | Options: `closer`, `tenant_admin`, `tenant_master` |
+| Calendly Member | select | **Conditional** | **Required for Closers only.** Shows dropdown of unmatched `calendlyOrgMembers` records. Hidden for Admin/Owner roles. |
+
+**Form Submission:**
+- When submitted, calls the `inviteUser` Convex action with all fields
+- The action validates inputs, creates the WorkOS user, membership, CRM record, and sends invite in one synchronous operation
+- User receives a WorkOS invite email; CRM record is already fully provisioned (role, org, Calendly link)
+
+#### Invite Form Flow
 
 ```mermaid
 flowchart TD
-    A[Team Management Page] --> B{Closer has<br/>calendlyUserUri?}
-    B -->|Yes| C[✅ Matched<br/>Show Calendly name]
-    B -->|No| D[⚠️ Unmatched<br/>Show warning + dropdown]
-    D --> E[Admin selects from<br/>unmatched Calendly members]
-    E --> F[Mutation: linkCloserToCalendlyMember]
-    F --> G[Update user.calendlyUserUri<br/>Update calendlyOrgMembers.matchedUserId]
+    A["Custom Invite Form<br/>(Modal/Dialog)"]
+    A --> B["Fill fields:<br/>Email, First Name,<br/>Last Name, Role"]
+    B --> C{Role selected?}
+    C -->|Closer| D["Show Calendly Member dropdown<br/>(Unmatched org members)"]
+    C -->|Admin or Owner| E["Calendly Member field hidden<br/>(Not needed for admin roles)"]
+    D --> F{Calendly Member<br/>selected?}
+    F -->|Yes| G["Enable Submit button"]
+    F -->|No| H["Warn: Closer must<br/>be linked to an<br/>org member<br/>before invite"]
+    E --> G
+    H --> G
+    G --> I["Click Submit"]
+    I --> J["inviteUser action<br/>(Convex)"]
+    J --> K["Validate email<br/>Resolve Calendly member<br/>Create WorkOS user<br/>Create membership+role<br/>Create CRM user record<br/>Link Calendly member<br/>Send WorkOS invite"]
+    K --> L["✓ CRM record fully<br/>provisioned"]
+    L --> M["✓ Invite email sent<br/>to user"]
 ```
 
-### 7.3 Unmatched Closer Behavior
+**Key point:** At the moment of form submission, all system setup is complete. The user's CRM record exists with role, org, and Calendly linkage. They just need to accept the invite and sign in.
 
-An unmatched Closer can still log in, but their dashboard will show:
+### 6.5 Listing Team Members (Convex Query, Not Widget)
 
-- A prominent banner: "Your account is not linked to a Calendly member. Please contact your admin."
-- No meetings, no pipeline data.
-- The admin's team page shows a warning badge next to unmatched Closers.
+```typescript
+// convex/users/queries.ts
+export const listTeamMembers = query({
+  args: {},
+  handler: async (ctx) => {
+    const { tenantId } = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
 
-### 7.4 Calendly Member Sync Enhancement
+    const users = await ctx.db
+      .query("users")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .collect();
 
-The existing daily cron (`sync-calendly-org-members`) already syncs Calendly org members. We enhance it to:
+    // Enrich with Calendly member info
+    const enriched = await Promise.all(
+      users.map(async (user) => {
+        let calendlyMemberName: string | undefined;
+        if (user.calendlyUserUri) {
+          const member = await ctx.db
+            .query("calendlyOrgMembers")
+            .withIndex("by_tenantId_and_calendlyUserUri", (q) =>
+              q.eq("tenantId", tenantId).eq("calendlyUserUri", user.calendlyUserUri!)
+            )
+            .unique();
+          calendlyMemberName = member?.name;
+        }
+        return { ...user, calendlyMemberName };
+      })
+    );
 
-1. After syncing members, re-attempt matching for any unmatched CRM users (closers with no `calendlyUserUri`).
-2. Detect when a previously matched Calendly member is removed from the Calendly org and flag the CRM user.
+    return enriched;
+  },
+});
 
-### 7.5 Convex Functions for Matching
+// List unmatched Calendly org members (for the invite form dropdown)
+export const listUnmatchedCalendlyMembers = query({
+  args: {},
+  handler: async (ctx) => {
+    const { tenantId } = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
+
+    const members = await ctx.db
+      .query("calendlyOrgMembers")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .filter((q) => q.eq(q.field("matchedUserId"), undefined))
+      .collect();
+
+    return members;
+  },
+});
+```
+
+### 6.6 Updating a User's Role
+
+```typescript
+// convex/workos/userManagement.ts (continued)
+
+export const updateUserRole = action({
+  args: {
+    userId: v.id("users"),
+    newRole: v.union(
+      v.literal("tenant_master"),
+      v.literal("tenant_admin"),
+      v.literal("closer"),
+    ),
+  },
+  handler: async (ctx, { userId, newRole }) => {
+    const caller = await requireCallerIsAdmin(ctx);
+    const user = await ctx.runQuery(internal.users.queries.getById, { userId });
+    if (!user || user.tenantId !== caller.tenantId) throw new Error("User not found");
+
+    const tenant = await ctx.runQuery(internal.tenants.getCalendlyTenant, { tenantId: caller.tenantId });
+    if (!tenant) throw new Error("Tenant not found");
+
+    // Update WorkOS membership role
+    const memberships = await workos.userManagement.listOrganizationMemberships({
+      userId: user.workosUserId,
+      organizationId: tenant.workosOrgId,
+    });
+    const membership = memberships.data[0];
+    if (membership) {
+      await workos.userManagement.updateOrganizationMembership(membership.id, {
+        roleSlug: mapCrmRoleToWorkosSlug(newRole),
+      });
+    }
+
+    // Update CRM user
+    await ctx.runMutation(internal.users.mutations.updateRole, { userId, role: newRole });
+  },
+});
+```
+
+### 6.7 Removing a User
+
+```typescript
+export const removeUser = action({
+  args: { userId: v.id("users") },
+  handler: async (ctx, { userId }) => {
+    const caller = await requireCallerIsAdmin(ctx);
+    const user = await ctx.runQuery(internal.users.queries.getById, { userId });
+    if (!user || user.tenantId !== caller.tenantId) throw new Error("User not found");
+    if (user._id === caller.userId) throw new Error("Cannot remove yourself");
+
+    const tenant = await ctx.runQuery(internal.tenants.getCalendlyTenant, { tenantId: caller.tenantId });
+    if (!tenant) throw new Error("Tenant not found");
+
+    // Remove from WorkOS org
+    const memberships = await workos.userManagement.listOrganizationMemberships({
+      userId: user.workosUserId,
+      organizationId: tenant.workosOrgId,
+    });
+    const membership = memberships.data[0];
+    if (membership) {
+      await workos.userManagement.deleteOrganizationMembership(membership.id);
+    }
+
+    // Clean up CRM: unlink Calendly member, delete user record
+    await ctx.runMutation(internal.users.mutations.removeUser, { userId });
+  },
+});
+```
+
+### 6.8 Re-linking Calendly Member (Admin Action)
+
+If a Closer's Calendly link needs to change (wrong member selected, or not selected at creation time), the admin can re-link:
 
 ```typescript
 // convex/users/linkCalendlyMember.ts
@@ -566,30 +739,78 @@ export const linkCloserToCalendlyMember = mutation({
     calendlyMemberId: v.id("calendlyOrgMembers"),
   },
   handler: async (ctx, { userId, calendlyMemberId }) => {
-    // Auth check: caller must be tenant_master or tenant_admin
-    // Tenant scoping: verify both records belong to the same tenant
+    const { tenantId } = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
+
     const user = await ctx.db.get(userId);
     const member = await ctx.db.get(calendlyMemberId);
 
-    if (!user || !member || user.tenantId !== member.tenantId) {
+    if (!user || !member || user.tenantId !== tenantId || member.tenantId !== tenantId) {
       throw new Error("Invalid user or member");
     }
 
-    await ctx.db.patch(userId, {
-      calendlyUserUri: member.calendlyUserUri,
-    });
-    await ctx.db.patch(calendlyMemberId, {
-      matchedUserId: userId,
-    });
+    if (member.matchedUserId && member.matchedUserId !== userId) {
+      throw new Error("This Calendly member is already linked to another user");
+    }
+
+    // Unlink previous Calendly member (if any)
+    if (user.calendlyUserUri) {
+      const prevMember = await ctx.db
+        .query("calendlyOrgMembers")
+        .withIndex("by_tenantId_and_calendlyUserUri", (q) =>
+          q.eq("tenantId", tenantId).eq("calendlyUserUri", user.calendlyUserUri!)
+        )
+        .unique();
+      if (prevMember) {
+        await ctx.db.patch(prevMember._id, { matchedUserId: undefined });
+      }
+    }
+
+    // Link new member
+    await ctx.db.patch(userId, { calendlyUserUri: member.calendlyUserUri });
+    await ctx.db.patch(calendlyMemberId, { matchedUserId: userId });
+  },
+});
+```
+
+### 6.9 Unmatched Closer Behavior
+
+An unmatched Closer can still log in, but their dashboard will show:
+
+- A prominent banner: "Your account is not linked to a Calendly member. Please contact your admin."
+- No meetings, no pipeline data.
+- The admin's team page shows a warning badge next to unmatched Closers.
+
+### 6.10 What Happens When the User Eventually Signs Up
+
+When the invited user accepts the invite and signs up via WorkOS AuthKit:
+
+1. They authenticate and receive a JWT with their `org_id` and `subject` (WorkOS user ID).
+2. The frontend calls `getCurrentUser()` which looks up the user by `workosUserId`.
+3. **The CRM user record already exists** — created by the `inviteUser` action at invite time.
+4. The user is immediately routed to their role-appropriate dashboard. No provisioning delay, no race conditions.
+
+```typescript
+// This query will find the pre-provisioned user:
+export const getCurrentUser = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+
+    const workosUserId = identity.subject ?? identity.tokenIdentifier;
+    return await ctx.db
+      .query("users")
+      .withIndex("by_workosUserId", (q) => q.eq("workosUserId", workosUserId))
+      .unique();
   },
 });
 ```
 
 ---
 
-## 8. Phase 5: Tenant Owner / Admin Dashboard
+## 7. Phase 4: Tenant Owner / Admin Dashboard
 
-### 8.1 Dashboard Layout
+### 7.1 Dashboard Layout
 
 The Tenant Owner and Tenant Admin share an **identical dashboard** for MVP. It serves as the operational command center.
 
@@ -611,22 +832,22 @@ graph TD
     C1 --> D[Pipeline Summary Cards<br/>Scheduled · In Progress · Follow-up · Won · Lost]
     C1 --> E[Recent Activity Feed<br/>Last 10 pipeline events]
     C1 --> F[System Health<br/>Calendly · Webhooks · Token status]
-    C2 --> G[User Management Widget<br/>+ Calendly Matching Status]
+    C2 --> G[Custom Invite Form<br/>+ Team Member List<br/>+ Calendly Matching Status]
     C3 --> H[All Opportunities Table<br/>Filterable by Closer, Status, Date]
     C4 --> I[Calendly Connection Status<br/>Reconnect button · Token health]
     C4 --> J[Event Type Configuration<br/>Payment links · Round robin settings]
 ```
 
-### 8.2 Navigation Structure
+### 7.2 Navigation Structure
 
 | Route | Tab | Content |
 |---|---|---|
 | `/workspace` | Overview | Quick stats, pipeline summary, activity feed, system health |
-| `/workspace/team` | Team | WorkOS User Management Widget + Calendly matching |
+| `/workspace/team` | Team | Custom invite form + Calendly member selection |
 | `/workspace/pipeline` | Pipeline | All opportunities across all closers, filterable |
 | `/workspace/settings` | Settings | Calendly connection, event type config |
 
-### 8.3 Quick Stats Queries
+### 7.3 Quick Stats Queries
 
 ```typescript
 // convex/dashboard/adminStats.ts
@@ -671,7 +892,7 @@ export const getAdminDashboardStats = query({
 });
 ```
 
-### 8.4 Calendly Re-Authentication (Tenant Admin Capability)
+### 7.4 Calendly Re-Authentication (Tenant Admin Capability)
 
 Tenant Admins can trigger a Calendly token refresh from the Settings page. If the Calendly connection is lost (`status: "calendly_disconnected"`), both Owners and Admins can initiate re-authentication:
 
@@ -682,13 +903,22 @@ flowchart TD
     B -->|Disconnected| D[Show: Disconnected ⚠️<br/>Reconnect button]
     D --> E[Click Reconnect]
     E --> F[Initiate Calendly OAuth flow<br/>Same as onboarding Phase 4]
-    F --> G[New tokens stored<br/>Webhooks re-provisioned]
-    G --> H[Status → active]
-    C --> I[Refresh Token button<br/>Manual proactive refresh]
-    I --> J[Call refreshTenantToken action]
+    F --> G[New tokens stored<br/>Status → active]
+    G --> H[Verify webhook subscription<br/>still active via API]
+    H -->|Active| I[No action needed —<br/>signing key unchanged]
+    H -->|Missing/Disabled| J[Reprovision webhook<br/>with existing signing key]
+    G --> K[Trigger retry of any<br/>unprocessed raw events<br/>processed: false]
+    C --> L[Refresh Token button<br/>Manual proactive refresh]
+    L --> M[Call refreshTenantToken action<br/>Webhooks NOT touched]
 ```
 
-### 8.5 Event Type Configuration
+> **Webhook subscriptions are independent of OAuth tokens.** They are scoped to the Calendly organization and verified using the per-tenant signing key stored in Convex. Token refresh (`refreshTenantTokenCore`) does **not** touch webhooks — only the tokens are updated.
+>
+> **On full reconnect (OAuth re-auth):** Webhooks should be *verified* but not blindly reprovisioned. The existing subscription is almost certainly still active — reprovisioning would cause a brief gap where in-flight events could arrive against a deleted subscription. Only reprovision if the subscription is confirmed missing or disabled. The existing `provisionWebhookSubscription` implementation already preserves the signing key (passing `tenant.webhookSigningKey`) so verification is safe.
+>
+> **Events received during token invalidity:** Webhooks continue to arrive and are persisted as `processed: false` regardless of token state — signature verification uses the signing key, not the access token. The pipeline processes from the raw payload and Convex DB (no Calendly API calls needed for the core Lead/Opportunity/Meeting creation flow). After reconnect, any accumulated `processed: false` events should be retried. If a pipeline step *does* require a live API call to enrich missing data and the token is invalid at that moment, the event stays unprocessed and will be retried automatically once the token is restored.
+
+### 7.5 Event Type Configuration
 
 The Settings tab includes an **Event Type Configuration** panel where Owners/Admins can:
 
@@ -701,9 +931,9 @@ This data is stored in the `eventTypeConfigs` table (see [Data Model](#14-data-m
 
 ---
 
-## 9. Phase 6: Webhook Event Processing Pipeline
+## 8. Phase 5: Webhook Event Processing Pipeline (Calendly)
 
-### 9.1 Overview
+### 8.1 Overview
 
 Currently, raw webhook events are persisted to `rawWebhookEvents` with `processed: false`. This phase implements the **processing pipeline** that transforms raw events into domain entities (Leads, Opportunities, Meetings).
 
@@ -739,7 +969,7 @@ flowchart TD
     G1 --> G2[Revert no_show status<br/>back to scheduled]
 ```
 
-### 9.2 Pipeline Trigger
+### 8.2 Pipeline Trigger
 
 The pipeline processor is triggered via `ctx.scheduler.runAfter(0, ...)` immediately after persisting the raw event (already implemented in the webhook handler). The processor:
 
@@ -786,7 +1016,7 @@ export const processRawEvent = internalAction({
 });
 ```
 
-### 9.3 `invitee.created` Flow — Core Pipeline
+### 8.3 `invitee.created` Flow — Core Pipeline
 
 This is the primary pipeline entry point. It creates the full chain: Lead → Opportunity → Meeting.
 
@@ -926,7 +1156,7 @@ await ctx.db.insert("meetings", {
 await ctx.db.patch(rawEventId, { processed: true });
 ```
 
-### 9.4 `invitee.canceled` Flow
+### 8.4 `invitee.canceled` Flow
 
 ```typescript
 // Find the meeting by calendlyEventUri (from payload.scheduled_event.uri)
@@ -959,7 +1189,7 @@ if (meeting) {
 await ctx.db.patch(rawEventId, { processed: true });
 ```
 
-### 9.5 `invitee_no_show.created` Flow
+### 8.5 `invitee_no_show.created` Flow
 
 ```typescript
 const calendlyEventUri = payload.scheduled_event?.uri ?? payload.event;
@@ -986,7 +1216,7 @@ if (meeting) {
 await ctx.db.patch(rawEventId, { processed: true });
 ```
 
-### 9.6 Closer Assignment — Round Robin Resolution
+### 8.6 Closer Assignment — Round Robin Resolution
 
 When an `invitee.created` event arrives for a round-robin event type, the Calendly payload includes only the **assigned** host in `event_memberships`. The CRM resolves this host to a CRM user:
 
@@ -1007,9 +1237,9 @@ flowchart TD
 
 ---
 
-## 10. Phase 7: Closer Dashboard — Pipeline & Calendar
+## 9. Phase 6: Closer Dashboard — Pipeline & Calendar
 
-### 10.1 Overview
+### 9.1 Overview
 
 The Closer Dashboard is the primary operational interface. It is scoped to show **only the Closer's own data** — their assigned meetings, opportunities, and pipeline.
 
@@ -1017,7 +1247,7 @@ The Closer Dashboard is the primary operational interface. It is scoped to show 
 app/workspace/closer/page.tsx
 ```
 
-### 10.2 Dashboard Layout
+### 9.2 Dashboard Layout
 
 ```mermaid
 graph TD
@@ -1032,7 +1262,7 @@ graph TD
     D --> F["Click → Filtered Opportunity List"]
 ```
 
-### 10.3 Featured Event Card
+### 9.3 Featured Event Card
 
 Displays the **next upcoming meeting** (soonest `scheduledAt` in the future with `status: "scheduled"`):
 
@@ -1095,7 +1325,7 @@ export const getNextMeeting = query({
 - Event type name
 - Quick-access: "View Details" button → Meeting Detail Page
 
-### 10.4 Calendar View
+### 9.4 Calendar View
 
 A calendar component showing the Closer's meetings across Today / Week / Month views.
 
@@ -1157,7 +1387,7 @@ export const getMeetingsForRange = query({
   - 🟪 Follow-up Scheduled
 - Clicking a meeting slot navigates to the Meeting Detail Page.
 
-### 10.5 Pipeline Summary Strip
+### 9.5 Pipeline Summary Strip
 
 A horizontal strip of pipeline stage cards showing counts:
 
@@ -1196,7 +1426,7 @@ export const getPipelineSummary = query({
 });
 ```
 
-### 10.6 Opportunity List (Pipeline View)
+### 9.6 Opportunity List (Pipeline View)
 
 Clicking a pipeline stage card opens a filtered list of opportunities in that stage:
 
@@ -1213,15 +1443,15 @@ This page shows a paginated table of opportunities with:
 
 ---
 
-## 11. Phase 8: Meeting Detail Page & Outcome Actions
+## 10. Phase 7: Meeting Detail Page & Outcome Actions
 
-### 11.1 Route
+### 10.1 Route
 
 ```
 app/workspace/closer/meetings/[meetingId]/page.tsx
 ```
 
-### 11.2 Layout
+### 10.2 Layout
 
 ```mermaid
 flowchart TD
@@ -1236,7 +1466,7 @@ flowchart TD
     F --> F4[▶️ Start Meeting<br/>Opens Zoom + sets status: in_progress]
 ```
 
-### 11.3 Lead Info Panel
+### 10.3 Lead Info Panel
 
 Shows the lead's profile and history with this tenant:
 
@@ -1306,7 +1536,7 @@ export const getMeetingDetail = query({
 });
 ```
 
-### 11.4 Meeting Notes (Real-Time)
+### 10.4 Meeting Notes (Real-Time)
 
 The notes field is a text area that auto-saves via debounced Convex mutations. Since Convex provides real-time subscriptions, changes are immediately reflected if the same meeting is viewed from another device.
 
@@ -1330,7 +1560,7 @@ export const updateMeetingNotes = mutation({
 });
 ```
 
-### 11.5 "Start Meeting" Action
+### 10.5 "Start Meeting" Action
 
 When the Closer clicks "Start Meeting" (or "Join Zoom"):
 
@@ -1364,7 +1594,7 @@ export const startMeeting = mutation({
 });
 ```
 
-### 11.6 "Mark as Lost" Action
+### 10.6 "Mark as Lost" Action
 
 ```typescript
 export const markAsLost = mutation({
@@ -1391,9 +1621,9 @@ export const markAsLost = mutation({
 
 ---
 
-## 12. Phase 9: Payment Logging
+## 11. Phase 8: Payment Logging
 
-### 12.1 Payment Flow
+### 11.1 Payment Flow
 
 When a sale closes during a meeting, the Closer:
 
@@ -1412,7 +1642,7 @@ flowchart TD
     D -->|Invalid| H[Show validation errors]
 ```
 
-### 12.2 Payment Form Fields
+### 11.2 Payment Form Fields
 
 | Field | Type | Required | Notes |
 |---|---|---|---|
@@ -1422,7 +1652,7 @@ flowchart TD
 | `referenceCode` | string | No | Transaction ID from payment provider |
 | `proofFileId` | Convex file ID | No | Uploaded screenshot/receipt |
 
-### 12.3 Proof File Upload
+### 11.3 Proof File Upload
 
 Payment proof files are uploaded to **Convex file storage**:
 
@@ -1478,7 +1708,7 @@ export const logPayment = mutation({
 });
 ```
 
-### 12.4 Proof File Access (Tenant-Scoped)
+### 11.4 Proof File Access (Tenant-Scoped)
 
 Payment proof files must be accessible only within the tenant. The serving URL is generated on-demand:
 
@@ -1500,9 +1730,9 @@ export const getPaymentProofUrl = query({
 
 ---
 
-## 13. Phase 10: Follow-Up Scheduling
+## 12. Phase 9: Follow-Up Scheduling
 
-### 13.1 Follow-Up Flow
+### 12.1 Follow-Up Flow
 
 When a meeting outcome is "follow-up needed," the Closer schedules a new meeting:
 
@@ -1527,7 +1757,7 @@ sequenceDiagram
     CVX-->>CL: Real-time dashboard update
 ```
 
-### 13.2 Scheduling Link Creation
+### 12.2 Scheduling Link Creation
 
 Calendly supports **single-use scheduling links** via the API. This requires `scheduling_links:write` scope (which we may need to add — see [Open Questions](#19-open-questions)).
 
@@ -1595,7 +1825,7 @@ export const createFollowUp = action({
 });
 ```
 
-### 13.3 Follow-Up Detection in Pipeline
+### 12.3 Follow-Up Detection in Pipeline
 
 When an `invitee.created` webhook arrives and the lead already has an opportunity with `status: "follow_up_scheduled"`, the pipeline processor:
 
@@ -1607,9 +1837,9 @@ This is handled in the `invitee.created` flow (see [Phase 6, Section 9.3](#93-in
 
 ---
 
-## 14. Data Model — New & Modified Tables
+## 13. Data Model — New & Modified Tables
 
-### 14.1 Modified: `tenants` Table
+### 13.1 Modified: `tenants` Table
 
 ```typescript
 tenants: defineTable({
@@ -1621,7 +1851,7 @@ tenants: defineTable({
   // ... existing indexes ...
 ```
 
-### 14.2 New: `leads` Table
+### 13.2 New: `leads` Table
 
 ```typescript
 leads: defineTable({
@@ -1637,7 +1867,7 @@ leads: defineTable({
   .index("by_tenantId_and_email", ["tenantId", "email"]),
 ```
 
-### 14.3 New: `opportunities` Table
+### 13.3 New: `opportunities` Table
 
 ```typescript
 opportunities: defineTable({
@@ -1667,7 +1897,7 @@ opportunities: defineTable({
   .index("by_tenantId_and_status", ["tenantId", "status"]),
 ```
 
-### 14.4 New: `meetings` Table
+### 13.4 New: `meetings` Table
 
 ```typescript
 meetings: defineTable({
@@ -1693,7 +1923,7 @@ meetings: defineTable({
   .index("by_tenantId_and_calendlyEventUri", ["tenantId", "calendlyEventUri"]),
 ```
 
-### 14.5 New: `eventTypeConfigs` Table
+### 13.5 New: `eventTypeConfigs` Table
 
 ```typescript
 eventTypeConfigs: defineTable({
@@ -1712,7 +1942,7 @@ eventTypeConfigs: defineTable({
   .index("by_tenantId_and_calendlyEventTypeUri", ["tenantId", "calendlyEventTypeUri"]),
 ```
 
-### 14.6 New: `paymentRecords` Table
+### 13.6 New: `paymentRecords` Table
 
 ```typescript
 paymentRecords: defineTable({
@@ -1737,7 +1967,7 @@ paymentRecords: defineTable({
   .index("by_tenantId_and_closerId", ["tenantId", "closerId"]),
 ```
 
-### 14.7 New: `followUps` Table
+### 13.7 New: `followUps` Table
 
 ```typescript
 followUps: defineTable({
@@ -1764,7 +1994,7 @@ followUps: defineTable({
   .index("by_tenantId_and_closerId", ["tenantId", "closerId"]),
 ```
 
-### 14.8 Opportunity Status State Machine
+### 13.8 Opportunity Status State Machine
 
 ```mermaid
 stateDiagram-v2
@@ -1784,9 +2014,9 @@ stateDiagram-v2
 
 ---
 
-## 15. Convex Function Architecture
+## 14. Convex Function Architecture
 
-### 15.1 File Organization
+### 14.1 File Organization
 
 ```
 convex/
@@ -1811,9 +2041,10 @@ convex/
 ├── webhooks/                       # Webhook ingestion (existing)
 │   ├── calendly.ts                # MODIFIED: schedule pipeline processing
 │   └── calendlyMutations.ts
-├── workos/                         # NEW: WorkOS integration
-│   ├── roles.ts                   # Role assignment actions
-│   └── widgetTokens.ts            # Widget token generation
+├── workos/                         # NEW: WorkOS integration (programmatic, Node SDK)
+│   ├── roles.ts                   # Role assignment actions (assignRoleToMembership)
+│   ├── userManagement.ts          # inviteUser, updateUserRole, removeUser (actions)
+│   └── userMutations.ts           # createUserWithCalendlyLink (internal mutation)
 ├── pipeline/                       # NEW: Event processing pipeline
 │   ├── processor.ts               # Main pipeline dispatcher
 │   ├── inviteeCreated.ts          # invitee.created handler
@@ -1849,7 +2080,7 @@ convex/
 └── schema.ts                       # MODIFIED: new tables added
 ```
 
-### 15.2 New Auth Guard: `requireTenantUser`
+### 14.2 New Auth Guard: `requireTenantUser`
 
 A shared helper that validates the caller is an authenticated tenant user with one of the specified roles:
 
@@ -1912,9 +2143,9 @@ export async function requireTenantUser(
 
 ---
 
-## 16. Routing & Authorization — Next.js App Router
+## 15. Routing & Authorization — Next.js App Router
 
-### 16.1 Route Structure
+### 15.1 Route Structure
 
 ```
 app/
@@ -1924,7 +2155,7 @@ app/
 │   ├── layout.tsx                 # Shared layout: sidebar nav, role detection
 │   ├── page.tsx                   # MODIFIED: role-based redirect
 │   ├── team/                      # Owner/Admin only
-│   │   └── page.tsx               # User Management Widget
+│   │   └── page.tsx               # Custom invite form + team member list
 │   ├── pipeline/                  # Owner/Admin: all opportunities
 │   │   └── page.tsx
 │   ├── settings/                  # Owner/Admin only
@@ -1949,7 +2180,7 @@ app/
     └── page.tsx
 ```
 
-### 16.2 Role-Based Routing Logic
+### 15.2 Role-Based Routing Logic
 
 The workspace layout detects the user's role and controls navigation:
 
@@ -1980,7 +2211,7 @@ export default function WorkspaceLayout({ children }) {
 }
 ```
 
-### 16.3 Workspace Root Redirect
+### 15.3 Workspace Root Redirect
 
 ```typescript
 // app/workspace/page.tsx — redirects based on role
@@ -2000,37 +2231,28 @@ export default function WorkspaceRoot() {
 }
 ```
 
-### 16.4 Auto-Provisioning Middleware
+### 15.4 No Client-Side Provisioning Needed
 
-When a user logs in for the first time after being invited, they don't have a CRM `users` record yet. The workspace layout handles this:
+**The CRM user record already exists** when the user first authenticates — it was created synchronously by the `inviteUser` Convex action when the admin submitted the invite form (see [Phase 3](#6-phase-3-user-invite-form--calendly-member-linking)).
+
+The workspace layout simply queries for the current user. If the record is found, the user is routed to their dashboard.
 
 ```typescript
-// In workspace layout or a provider component:
+// In workspace layout:
 const user = useQuery(api.users.queries.getCurrentUser);
-const provisionUser = useMutation(api.users.mutations.provisionFromWorkos);
 
-useEffect(() => {
-  if (user === null && isAuthenticated) {
-    // Auto-provision: create CRM user record from WorkOS identity
-    provisionUser({}).catch(console.error);
-  }
-}, [user, isAuthenticated]);
+if (user === undefined) return <LoadingScreen />; // Query still loading
+if (user === null) return <NotProvisionedScreen />; // User signed up outside normal flow
+// user exists → proceed to role-based routing
 ```
 
-The `provisionFromWorkos` mutation:
-
-1. Reads the caller's WorkOS identity (org_id, subject, email, name).
-2. Resolves the tenant from org_id.
-3. Calls a WorkOS action to get the user's membership role slug.
-4. Maps the WorkOS role slug to CRM role.
-5. Creates the user record.
-6. Attempts Calendly email matching (for closers).
+> **Why no client-side provisioning?** The user record is created by the admin's `inviteUser` action before the user ever accepts the invite. By the time they sign up and authenticate, their CRM record is already in Convex. No webhooks, no race conditions, no async delay.
 
 ---
 
-## 17. Security Considerations
+## 16. Security Considerations
 
-### 17.1 Role-Based Data Access
+### 16.1 Role-Based Data Access
 
 | Data | Owner | Admin | Closer |
 |---|---|---|---|
@@ -2042,31 +2264,30 @@ The `provisionFromWorkos` mutation:
 | Payment records | ✅ All | ✅ All | ✅ Own only |
 | Meeting notes | ✅ All | ✅ All | ✅ Own only |
 
-### 17.2 Tenant Isolation in New Tables
+### 16.2 Tenant Isolation in New Tables
 
 Every new table (`leads`, `opportunities`, `meetings`, `eventTypeConfigs`, `paymentRecords`, `followUps`) carries a `tenantId` field. Every query uses a `tenantId`-scoped index. The `requireTenantUser` helper resolves `tenantId` from the authenticated user's WorkOS org — never from client input.
 
-### 17.3 Closer Isolation
+### 16.3 Closer Isolation
 
 Closers can only access opportunities assigned to them. The `requireTenantUser` helper returns the caller's `userId`, and all Closer queries filter by `assignedCloserId = userId`.
 
-### 17.4 Payment Proof Files
+### 16.4 Payment Proof Files
 
 Convex file storage URLs are short-lived and unguessable. However, we still validate tenant ownership before generating URLs via `getPaymentProofUrl`.
 
-### 17.5 Widget Token Security
+### 16.5 WorkOS API Key Security
 
-Widget tokens are generated server-side in Convex actions. They are:
-- Scoped to a specific user + organization.
-- Valid for 1 hour.
-- Never stored — generated on-demand and passed to the frontend.
-- Only generated for users with the correct CRM role (`tenant_master` or `tenant_admin`).
+The `WORKOS_API_KEY` is a Convex environment variable used only in server-side Convex actions (`"use node"`). It is:
+- Never exposed to the client or frontend.
+- Used only in the `convex/workos/` directory actions for user management.
+- All user management actions validate the caller's CRM role (`tenant_master` or `tenant_admin`) before making any WorkOS API call.
 
 ---
 
-## 18. Error Handling & Edge Cases
+## 17. Error Handling & Edge Cases
 
-### 18.1 Unmatched Closer Receives a Meeting
+### 17.1 Unmatched Closer Receives a Meeting
 
 If a webhook arrives with an `event_memberships` host URI that doesn't match any CRM user:
 
@@ -2074,36 +2295,39 @@ If a webhook arrives with an `event_memberships` host URI that doesn't match any
 2. A warning is logged (future: alert the admin).
 3. The admin can reassign the opportunity manually from the pipeline view.
 
-### 18.2 Lead Books Multiple Overlapping Meetings
+### 17.2 Lead Books Multiple Overlapping Meetings
 
 If the same lead books multiple meetings (different event types or with different closers):
 
 - Each booking creates a **separate opportunity** (they may be independent sales processes).
 - The follow-up detection only links to an opportunity with `status: "follow_up_scheduled"` — not any arbitrary existing opportunity.
 
-### 18.3 Closer Removed from Calendly Org
+### 17.3 Closer Removed from Calendly Org
 
 During the daily Calendly org member sync:
 1. If a previously synced member is no longer in the Calendly org, their `calendlyOrgMembers` record is flagged.
 2. The CRM user's `calendlyUserUri` is **not** automatically cleared (they may still have in-flight meetings).
 3. An admin notification is generated (future: in-app alert).
 
-### 18.4 Widget Token Generation Fails
+### 17.4 WorkOS User Creation Fails
 
-If `workos.widgets.getToken()` fails (e.g., user doesn't have the required permission):
-- Show a clear error: "Unable to load user management. Please ensure your role has the required permissions."
-- Log the error for admin debugging.
-- Suggest contacting the system admin if the issue persists.
+If the `inviteUser` action fails at any step (WorkOS API error, duplicate email, etc.):
+- The action is atomic from the CRM's perspective — if the WorkOS call fails, no CRM record is created.
+- If the WorkOS user is created but the CRM mutation fails, the action should attempt cleanup (delete the WorkOS user). This is a best-effort rollback; the admin can retry.
+- Show a clear error with the failure reason (e.g., "A user with this email already exists in the organization").
+- The form retains the entered values so the admin can correct and retry.
 
-### 18.5 Race Condition: Webhook Arrives Before User Provisioning
+### 17.5 Calendly Webhook Arrives for Unmatched Host
 
-If a Calendly webhook arrives for a tenant whose Closer hasn't logged in yet (no CRM `users` record):
-- The Closer assignment falls through to the email match in `calendlyOrgMembers`.
-- If matched, the `matchedUserId` on `calendlyOrgMembers` is used for assignment.
-- If no match, the fallback to the tenant owner applies.
-- When the Closer eventually logs in and their user record is created, existing opportunities are **not** retroactively reassigned. The admin can manually reassign from the pipeline view.
+If a Calendly webhook (e.g., `invitee.created`) arrives for a Calendly host whose `calendlyUserUri` is not linked to any CRM user:
+- The pipeline first checks the `users` table by `calendlyUserUri`.
+- If no match, it checks `calendlyOrgMembers.matchedUserId` as a secondary lookup.
+- If still no match, the fallback to the tenant owner applies.
+- Existing opportunities are **not** retroactively reassigned when a user is later linked. The admin can manually reassign from the pipeline view.
 
-### 18.6 Opportunity Status Transition Validation
+> **Note:** Since the admin selects the Calendly member at user creation time (see Phase 3), this situation only occurs if the admin hasn't yet invited the Closer, or if a new Calendly host is added to the org without a corresponding CRM user.
+
+### 17.6 Opportunity Status Transition Validation
 
 The pipeline enforces valid state transitions. Invalid transitions (e.g., `lost` → `in_progress`) are rejected:
 
@@ -2123,29 +2347,30 @@ function validateTransition(from: string, to: string): boolean {
 }
 ```
 
-### 18.7 Duplicate Webhook Processing
+### 17.7 Duplicate Webhook Processing
 
 The existing idempotency check on `calendlyEventUri` in `rawWebhookEvents` prevents duplicate raw event storage. The pipeline processor additionally checks `processed: true` before operating, ensuring exactly-once processing even if the scheduler retries.
 
 ---
 
-## 19. Open Questions
+## 18. Open Questions
 
 | # | Question | Current Thinking |
 |---|---|---|
-| 1 | Should WorkOS roles be created via a setup script or the WorkOS Dashboard? | **Dashboard for MVP.** A script is fragile if run multiple times. The three roles and one permission are a one-time setup. Document the steps for reproducibility. |
-| 2 | How do we sync WorkOS role changes back to CRM `users.role`? | **Option A (preferred):** WorkOS webhook `organization_membership.updated` → update CRM user. **Option B:** On each auth, compare and update. MVP: Option B (simpler, no additional webhook). |
-| 3 | Does Calendly API support creating scheduling links for follow-ups? | Yes, via `POST /scheduling_links` with `max_event_count: 1`. This requires `scheduling_links:write` scope, which is **not** in our current MVP scope set. We need to add it or defer follow-up scheduling to Phase 2. |
+| 1 | ~~Should WorkOS roles be created via a setup script or the WorkOS Dashboard?~~ | **Resolved.** Roles already exist in WorkOS. No setup needed. |
+| 2 | ~~How do we sync WorkOS role changes back to CRM `users.role`?~~ | **Resolved.** Role changes are made programmatically via `updateUserRole` action, which updates both WorkOS and CRM in one operation. No webhook sync needed. |
+| 3 | Does Calendly API support creating scheduling links for follow-ups? | Yes, via `POST /scheduling_links` with `max_event_count: 1`. This requires `scheduling_links:write` scope, which is **not** in our current MVP scope set. We need to add it or defer follow-up scheduling. |
 | 4 | Should the admin be able to reassign opportunities between closers? | Yes, but defer to a later phase. For MVP, assignments are automatic via round-robin or manual by creating a new opportunity. |
 | 5 | How should we handle the case where a Closer has meetings from before they were added to the CRM? | Don't backfill. Only new webhook events create opportunities. Past meetings are not imported. |
 | 6 | Should the Tenant Owner be able to transfer ownership to another user? | Defer. For MVP, the onboarding user remains the owner. A future mutation can update `tenantOwnerId` and swap WorkOS roles. |
 | 7 | How should we handle event type syncing from Calendly? | Sync event types when processing webhooks (lazy creation of `eventTypeConfigs`). A manual sync action can also be triggered from the Settings page. Full sync via cron is a Phase 2 enhancement. |
 | 8 | What calendar component should we use for the Closer dashboard? | Build a custom calendar grid with shadcn/ui primitives (Table, Card). Avoid heavy third-party calendar libraries for MVP. A week view with time slots is the minimum. |
 | 9 | Should the pipeline processor run as a mutation or action? | **Mutation** for the core processing (Lead upsert, Opportunity create, Meeting create) — these are all database writes and benefit from Convex's transactional guarantees. An **action** wrapper is used only if supplemental Calendly API calls are needed. |
+| 10 | Should we add a "resend invite" action for pending users? | Yes — wrap `workos.userManagement.sendInvitation()` in a Convex action. The CRM user record already exists, so no other changes needed. |
 
 ---
 
-## 20. Dependencies
+## 19. Dependencies
 
 ### New Packages Required
 
@@ -2161,48 +2386,49 @@ All environment variables from the system admin flow remain in use. No new envir
 
 | Variable | Already Set? | Used By |
 |---|---|---|
-| `WORKOS_API_KEY` | ✅ Convex env | Widget token generation, role assignment |
-| `WORKOS_CLIENT_ID` | ✅ Convex env + `.env.local` | Widget token generation, AuthKit |
+| `WORKOS_API_KEY` | ✅ Convex env | Programmatic user management, role assignment |
+| `WORKOS_CLIENT_ID` | ✅ Convex env + `.env.local` | WorkOS SDK initialization, AuthKit |
 | `CALENDLY_CLIENT_ID` | ✅ Convex env | Follow-up scheduling (Calendly API calls) |
 | `CALENDLY_CLIENT_SECRET` | ✅ Convex env | Token refresh |
 | `INVITE_SIGNING_SECRET` | ✅ Convex env | Invite tokens (existing) |
 
-### WorkOS Dashboard Configuration (One-Time)
+### WorkOS Dashboard Configuration
 
-| Action | Where | Details |
-|---|---|---|
-| Create permission `widgets:users-table:manage` | WorkOS Dashboard → Roles → Permissions | Required for User Management Widget |
-| Create role `owner` with permission | WorkOS Dashboard → Roles | Slug: `owner` |
-| Create role `tenant-admin` with permission | WorkOS Dashboard → Roles | Slug: `tenant-admin` |
-| Create role `closer` (no permissions) | WorkOS Dashboard → Roles | Slug: `closer` |
+> **Already complete.** The following WorkOS roles and permissions are already provisioned at the environment level:
+> - Role `owner` with `users:manage` permission — full tenant access, programmatic user management
+> - Role `tenant-admin` with `users:manage` permission — near-full tenant access, programmatic user management
+> - Role `closer` with no permissions — limited to own pipeline/calendar/meeting operations
+>
+> **No WorkOS Widgets are used.** All user management is handled via the WorkOS Node SDK (`@workos-inc/node`) through our custom CRM invite form and Convex actions. No widget tokens, widget endpoints, or widget UI components are needed.
+
+No additional environment variables are needed. The existing `WORKOS_API_KEY` and `WORKOS_CLIENT_ID` are used by the `convex/workos/userManagement.ts` action for programmatic user creation, membership management, and invitation sending.
 
 ### Calendly Scope Addition (If Follow-Up Scheduling Included)
 
-If Phase 10 (follow-up scheduling) is included in MVP:
+If Phase 9 (follow-up scheduling) is included in MVP:
 
 | Scope | Why |
 |---|---|
 | `scheduling_links:write` | Create single-use scheduling links for follow-ups |
 
-This requires updating the OAuth authorize URL in `convex/calendly/oauth.ts` and prompting existing tenants to re-authorize. **Consider deferring to Phase 2** to avoid re-auth friction.
+This requires updating the OAuth authorize URL in `convex/calendly/oauth.ts`. Since the app is not in production, there are no existing tenants to re-authorize — any test tenants can simply be reprovisioned with the new scopes.
 
 ---
 
-## 21. Applicable Skills
+## 20. Applicable Skills
 
 The following skills from the project's skills index should be invoked during implementation:
 
 | Skill | When to Invoke | Phase |
 |---|---|---|
-| **`workos`** | Setting up RBAC roles, role assignment, understanding WorkOS membership API | Phase 1, 2 |
-| **`workos-widgets`** | Implementing the User Management Widget (token generation, API calls, component) | Phase 3 |
-| **`convex-migration-helper`** | Adding `tenantOwnerId` to existing tenants (widen-migrate-narrow) | Phase 1 |
-| **`shadcn`** | Building dashboard UI components (cards, tables, calendar, badges) | Phases 5, 7, 8, 9 |
-| **`frontend-design`** | Creating production-grade dashboard interfaces | Phases 5, 7, 8 |
+| **`workos`** | Role assignment via membership API, programmatic user management via Node SDK | Phase 1, 2, 3 |
+| ~~`convex-migration-helper`~~ | _Not needed — app is not in production, no data to migrate_ | — |
+| **`shadcn`** | Building dashboard UI components (cards, tables, calendar, badges) | Phases 4, 6, 7, 8 |
+| **`frontend-design`** | Creating production-grade dashboard interfaces | Phases 4, 6, 7 |
 | **`convex-setup-auth`** | If auth configuration needs updates for role-based access | Phase 1 |
-| **`vercel-react-best-practices`** | Optimizing React/Next.js performance in dashboard views | Phases 5, 7 |
-| **`vercel-composition-patterns`** | Designing reusable dashboard component patterns | Phases 5, 7 |
-| **`convex-performance-audit`** | If dashboard queries become expensive (many opportunities, meetings) | Phase 7 |
+| **`vercel-react-best-practices`** | Optimizing React/Next.js performance in dashboard views | Phases 4, 6 |
+| **`vercel-composition-patterns`** | Designing reusable dashboard component patterns | Phases 4, 6 |
+| **`convex-performance-audit`** | If dashboard queries become expensive (many opportunities, meetings) | Phase 6 |
 | **`web-design-guidelines`** | Reviewing UI accessibility and design best practices | All UI phases |
 
 ---

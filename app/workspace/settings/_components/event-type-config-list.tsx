@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { EventTypeConfigDialog } from "./event-type-config-dialog";
 import {
   Empty,
   EmptyHeader,
@@ -13,6 +13,13 @@ import {
   EmptyDescription,
 } from "@/components/ui/empty";
 import { Edit2Icon, CalendarIcon } from "lucide-react";
+
+// Lazy-load dialog component that is only shown on user interaction
+const EventTypeConfigDialog = dynamic(() =>
+  import("./event-type-config-dialog").then((m) => ({
+    default: m.EventTypeConfigDialog,
+  })),
+);
 
 interface PaymentLink {
   provider: string;
@@ -61,8 +68,7 @@ export function EventTypeConfigList({
           </EmptyMedia>
           <EmptyTitle>No event types configured</EmptyTitle>
           <EmptyDescription>
-            Event types will appear here once your Calendly integration is
-            connected and events are synced
+            Connect Calendly and your event types will appear here automatically.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>

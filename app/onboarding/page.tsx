@@ -1,6 +1,7 @@
 "use client";
 
 import { useAction } from "convex/react";
+import { usePageTitle } from "@/hooks/use-page-title";
 import {
   AlertCircleIcon,
   ArrowRightIcon,
@@ -44,6 +45,7 @@ type InviteError =
 // ---------------------------------------------------------------------------
 
 export default function OnboardingPage() {
+  usePageTitle("Onboarding");
   return (
     <Suspense
       fallback={

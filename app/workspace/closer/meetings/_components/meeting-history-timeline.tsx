@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import {
   opportunityStatusConfig,
   type OpportunityStatus,
-} from "../../_components/status-config";
+} from "@/lib/status-config";
 import type { Doc } from "@/convex/_generated/dataModel";
 
 type MeetingHistoryEntry = Doc<"meetings"> & {

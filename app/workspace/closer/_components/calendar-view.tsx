@@ -98,7 +98,7 @@ export function CalendarView() {
 
   // ── Render ──────────────────────────────────────────────────────────────
   return (
-    <section aria-label="Calendar" className="flex flex-col gap-4">
+    <section aria-label={`Calendar — ${rangeLabel}`} className="flex flex-col gap-4">
       <CalendarHeader
         viewMode={viewMode}
         rangeLabel={rangeLabel}

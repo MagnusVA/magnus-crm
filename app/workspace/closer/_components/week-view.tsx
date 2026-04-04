@@ -9,9 +9,12 @@ import {
   type EnrichedMeeting,
   HOURS,
   HOUR_HEIGHT,
+  START_HOUR,
+  END_HOUR,
   getTopPx,
   getHeightPx,
   formatHour,
+  useCurrentTime,
 } from "./calendar-utils";
 
 type WeekViewProps = {
@@ -31,6 +34,33 @@ type WeekViewProps = {
  *
  * Today's column gets a subtle highlight for quick orientation.
  */
+// ─── Now indicator component ────────────────────────────────────────────
+
+function NowIndicator({ now, todayColumnIndex }: { now: Date; todayColumnIndex: number }) {
+  const hour = now.getHours();
+  const minutes = now.getMinutes();
+
+  // Only show if within the visible grid range
+  if (hour < START_HOUR || hour >= END_HOUR) return null;
+
+  const topPx = (hour - START_HOUR) * HOUR_HEIGHT + (minutes / 60) * HOUR_HEIGHT;
+  const leftOffset = `calc(4rem + ${todayColumnIndex} * (1fr))`;
+
+  return (
+    <div
+      className="pointer-events-none absolute left-0 right-0 z-10 flex items-center"
+      style={{
+        top: `${topPx}px`,
+        gridColumn: todayColumnIndex + 2, // +2 for time gutter + day offset
+      }}
+      aria-hidden="true"
+    >
+      <div className="size-2 rounded-full bg-red-500" />
+      <div className="h-px flex-1 bg-red-500" />
+    </div>
+  );
+}
+
 export function WeekView({ meetings, startDate }: WeekViewProps) {
   const days = useMemo(
     () => Array.from({ length: 7 }, (_, i) => addDays(startDate, i)),
@@ -53,9 +83,11 @@ export function WeekView({ meetings, startDate }: WeekViewProps) {
   }, [meetings, days]);
 
   const totalHeight = HOURS.length * HOUR_HEIGHT;
+  const now = useCurrentTime();
+  const todayColumnIndex = days.findIndex((d) => isToday(d));
 
   return (
-    <ScrollArea className="h-[600px] rounded-lg border">
+    <ScrollArea className="h-[calc(100dvh-20rem)] min-h-[400px] rounded-lg border">
       <div className="min-w-[700px]">
         {/* ── Day headers ── */}
         <div className="sticky top-0 z-10 grid grid-cols-[4rem_repeat(7,1fr)] border-b bg-background">
@@ -89,10 +121,10 @@ export function WeekView({ meetings, startDate }: WeekViewProps) {
         {/* ── Time grid ── */}
         <div
           className="grid grid-cols-[4rem_repeat(7,1fr)]"
-          style={{ height: totalHeight }}
+          style={{ height: totalHeight, position: "relative" }}
         >
           {/* Time gutter */}
-          <div className="border-r border-border/40">
+          <div className="border-r border-border/40" aria-hidden="true">
             {HOURS.map((hour) => (
               <div
                 key={hour}
@@ -140,6 +172,9 @@ export function WeekView({ meetings, startDate }: WeekViewProps) {
                     }}
                   />
                 ))}
+
+                {/* Current time indicator for today's column */}
+                {today && <NowIndicator now={now} todayColumnIndex={dayIdx} />}
               </div>
             );
           })}

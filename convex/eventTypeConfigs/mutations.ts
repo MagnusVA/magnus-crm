@@ -74,6 +74,7 @@ export const upsertEventTypeConfig = mutation({
     ctx,
     { calendlyEventTypeUri, displayName, paymentLinks, roundRobinEnabled },
   ) => {
+    console.log("[EventTypeConfig] upsertEventTypeConfig called", { displayName, hasPaymentLinks: !!paymentLinks, roundRobinEnabled });
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -94,6 +95,7 @@ export const upsertEventTypeConfig = mutation({
     if (!displayNameValidation.valid) {
       throw new Error(displayNameValidation.error);
     }
+    console.log("[EventTypeConfig] upsertEventTypeConfig validation passed", { tenantId });
 
     const normalizedEventTypeUri = calendlyEventTypeUri.trim();
     const normalizedDisplayName = displayName.trim();
@@ -108,6 +110,7 @@ export const upsertEventTypeConfig = mutation({
       )
       .unique();
 
+    console.log("[EventTypeConfig] upsertEventTypeConfig existing check", { exists: !!existing, existingId: existing?._id });
     if (existing) {
       await ctx.db.patch(existing._id, {
         displayName: normalizedDisplayName,
@@ -121,6 +124,7 @@ export const upsertEventTypeConfig = mutation({
             : roundRobinEnabled,
       });
 
+      console.log("[EventTypeConfig] upsertEventTypeConfig updated", { configId: existing._id });
       return existing._id;
     }
 
@@ -133,6 +137,7 @@ export const upsertEventTypeConfig = mutation({
       createdAt: Date.now(),
     });
 
+    console.log("[EventTypeConfig] upsertEventTypeConfig created", { configId });
     return configId;
   },
 });

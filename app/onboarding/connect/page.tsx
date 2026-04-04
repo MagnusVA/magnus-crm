@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
+import { usePageTitle } from "@/hooks/use-page-title";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import {
   ArrowRightIcon,
@@ -39,6 +40,7 @@ type RedeemState =
 // ---------------------------------------------------------------------------
 
 export default function ConnectCalendlyPage() {
+  usePageTitle("Connect Calendly");
   return (
     <Suspense
       fallback={

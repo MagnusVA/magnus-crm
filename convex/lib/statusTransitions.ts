@@ -37,5 +37,11 @@ export function validateTransition(
   from: OpportunityStatus,
   to: OpportunityStatus,
 ): boolean {
-  return VALID_TRANSITIONS[from].includes(to);
+  const valid = VALID_TRANSITIONS[from].includes(to);
+  if (!valid) {
+    console.warn("[StatusTransition] Invalid transition rejected", { from, to, allowedTargets: VALID_TRANSITIONS[from] });
+  } else {
+    console.log("[StatusTransition] Transition validated", { from, to });
+  }
+  return valid;
 }

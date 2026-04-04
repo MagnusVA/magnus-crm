@@ -3,6 +3,10 @@ import { mutation } from "../_generated/server";
 import { Id } from "../_generated/dataModel";
 import { getIdentityOrgId } from "../lib/identity";
 import { validateRequiredString } from "../lib/validation";
+import {
+  getCanonicalIdentityWorkosUserId,
+  getWorkosUserIdCandidates,
+} from "../lib/workosUserId";
 import { internal } from "../_generated/api";
 
 export const redeemInviteAndCreateUser = mutation({
@@ -10,6 +14,7 @@ export const redeemInviteAndCreateUser = mutation({
     workosOrgId: v.string(),
   },
   handler: async (ctx, { workosOrgId }) => {
+    console.log("[Onboarding] redeemInviteAndCreateUser called", { workosOrgId });
     const orgIdValidation = validateRequiredString(workosOrgId, {
       fieldName: "WorkOS organization ID",
     });
@@ -19,12 +24,12 @@ export const redeemInviteAndCreateUser = mutation({
 
     const normalizedWorkosOrgId = workosOrgId.trim();
     const identity = await ctx.auth.getUserIdentity();
+    console.log("[Onboarding] identity check", { hasIdentity: !!identity });
     if (!identity) {
       throw new Error("Not authenticated");
     }
 
-    const workosUserId =
-      identity.tokenIdentifier ?? identity.subject ?? "";
+    const workosUserId = getCanonicalIdentityWorkosUserId(identity) ?? "";
     const userIdValidation = validateRequiredString(workosUserId, {
       fieldName: "WorkOS user ID",
     });
@@ -42,15 +47,23 @@ export const redeemInviteAndCreateUser = mutation({
       .withIndex("by_workosOrgId", (q) => q.eq("workosOrgId", identityOrgId))
       .unique();
 
+    console.log("[Onboarding] tenant lookup", { found: !!tenant, tenantId: tenant?._id });
     if (!tenant) {
       throw new Error("No tenant found for this organization");
     }
 
-    const existingUser = await ctx.db
-      .query("users")
-      .withIndex("by_workosUserId", (q) => q.eq("workosUserId", workosUserId))
-      .unique();
+    let existingUser = null;
+    for (const candidateWorkosUserId of getWorkosUserIdCandidates(workosUserId)) {
+      existingUser = await ctx.db
+        .query("users")
+        .withIndex("by_workosUserId", (q) => q.eq("workosUserId", candidateWorkosUserId))
+        .unique();
+      if (existingUser) {
+        break;
+      }
+    }
 
+    console.log("[Onboarding] existing user check", { exists: !!existingUser, existingUserId: existingUser?._id });
     let userId: Id<"users">;
 
     if (!existingUser) {
@@ -61,11 +74,23 @@ export const redeemInviteAndCreateUser = mutation({
         fullName: identity.name ?? undefined,
         role: "tenant_master",
       });
+      console.log("[Onboarding] user created", { userId });
     } else {
       userId = existingUser._id;
+      console.log("[Onboarding] using existing user", { userId });
+      const userPatch: {
+        tenantId?: Id<"tenants">;
+        workosUserId?: string;
+      } = {};
       if (existingUser.tenantId !== tenant._id) {
         // User exists in a different tenant — update to current tenant
-        await ctx.db.patch(existingUser._id, { tenantId: tenant._id });
+        userPatch.tenantId = tenant._id;
+      }
+      if (existingUser.workosUserId !== workosUserId) {
+        userPatch.workosUserId = workosUserId;
+      }
+      if (Object.keys(userPatch).length > 0) {
+        await ctx.db.patch(existingUser._id, userPatch);
       }
     }
 
@@ -87,10 +112,12 @@ export const redeemInviteAndCreateUser = mutation({
     }
 
     if (Object.keys(tenantPatch).length > 0) {
+      console.log("[Onboarding] patching tenant", { tenantId: tenant._id, patchKeys: Object.keys(tenantPatch) });
       await ctx.db.patch(tenant._id, tenantPatch);
     }
 
     if (tenant.status === "pending_signup" || tenant.tenantOwnerId !== userId) {
+      console.log("[Onboarding] scheduling role assignment", { workosUserId, organizationId: tenant.workosOrgId });
       await ctx.scheduler.runAfter(0, internal.workos.roles.assignRoleToMembership, {
         workosUserId,
         organizationId: tenant.workosOrgId,
@@ -98,6 +125,11 @@ export const redeemInviteAndCreateUser = mutation({
       });
     }
 
+    console.log("[Onboarding] redeemInviteAndCreateUser completed", {
+      tenantId: tenant._id,
+      alreadyRedeemed: tenant.status !== "pending_signup",
+      status: nextTenantStatus,
+    });
     return {
       tenantId: tenant._id,
       companyName: tenant.companyName,

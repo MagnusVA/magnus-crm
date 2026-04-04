@@ -73,7 +73,7 @@ export function InviteBanner({
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row">
-            <code className="flex-1 overflow-x-auto rounded-md border border-border bg-muted/30 px-3 py-2 text-xs">
+            <code className="flex-1 overflow-x-auto rounded-md border border-border bg-muted/30 px-3 py-2 text-xs font-mono">
               {result.inviteUrl}
             </code>
             <Button

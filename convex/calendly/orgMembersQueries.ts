@@ -8,6 +8,9 @@ import { internalQuery } from "../_generated/server";
 export const getMember = internalQuery({
   args: { memberId: v.id("calendlyOrgMembers") },
   handler: async (ctx, { memberId }) => {
-    return await ctx.db.get(memberId);
+    console.log(`[org-sync] getMember: looking up memberId=${memberId}`);
+    const member = await ctx.db.get(memberId);
+    console.log(`[org-sync] getMember: memberId=${memberId}, found=${Boolean(member)}`);
+    return member;
   },
 });

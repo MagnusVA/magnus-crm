@@ -14,10 +14,17 @@ export const insertTenant = internalMutation({
     inviteExpiresAt: v.number(),
   },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("tenants", {
+    console.log("[Admin] insertTenant called", {
+      companyName: args.companyName,
+      contactEmail: args.contactEmail,
+      workosOrgId: args.workosOrgId,
+    });
+    const id = await ctx.db.insert("tenants", {
       ...args,
       status: "pending_signup",
     });
+    console.log("[Admin] insertTenant completed", { insertedId: id });
+    return id;
   },
 });
 
@@ -28,6 +35,7 @@ export const patchInviteToken = internalMutation({
     inviteExpiresAt: v.number(),
   },
   handler: async (ctx, { tenantId, ...fields }) => {
+    console.log("[Admin] patchInviteToken called", { tenantId });
     await ctx.db.patch(tenantId, fields);
   },
 });
@@ -37,12 +45,20 @@ export const deleteTenant = internalMutation({
     tenantId: v.id("tenants"),
   },
   handler: async (ctx, { tenantId }) => {
+    console.log("[Admin] deleteTenant called", { tenantId });
     const tenant = await ctx.db.get(tenantId);
     if (!tenant) {
+      console.error("[Admin] deleteTenant: tenant not found", { tenantId });
       throw new Error("Tenant not found");
     }
+    console.log("[Admin] deleteTenant: tenant found, deleting", {
+      tenantId,
+      companyName: tenant.companyName,
+      status: tenant.status,
+    });
 
     await ctx.db.delete(tenantId);
+    console.log("[Admin] deleteTenant completed", { tenantId });
   },
 });
 
@@ -51,6 +67,8 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
     tenantId: v.id("tenants"),
   },
   handler: async (ctx, { tenantId }) => {
+    console.log("[Admin] deleteTenantRuntimeDataBatch called", { tenantId });
+
     const rawWebhookEvents = await ctx.db
       .query("rawWebhookEvents")
       .withIndex("by_tenantId_and_eventType", (q) => q.eq("tenantId", tenantId))
@@ -59,6 +77,10 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
     for (const event of rawWebhookEvents) {
       await ctx.db.delete(event._id);
     }
+    console.log("[Admin] deleteTenantRuntimeDataBatch: rawWebhookEvents deleted", {
+      tenantId,
+      count: rawWebhookEvents.length,
+    });
 
     const calendlyOrgMembers = await ctx.db
       .query("calendlyOrgMembers")
@@ -68,6 +90,10 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
     for (const member of calendlyOrgMembers) {
       await ctx.db.delete(member._id);
     }
+    console.log("[Admin] deleteTenantRuntimeDataBatch: calendlyOrgMembers deleted", {
+      tenantId,
+      count: calendlyOrgMembers.length,
+    });
 
     const users = await ctx.db
       .query("users")
@@ -77,15 +103,26 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
     for (const user of users) {
       await ctx.db.delete(user._id);
     }
+    console.log("[Admin] deleteTenantRuntimeDataBatch: users deleted", {
+      tenantId,
+      count: users.length,
+    });
+
+    const hasMore =
+      rawWebhookEvents.length === CLEANUP_BATCH_SIZE ||
+      calendlyOrgMembers.length === CLEANUP_BATCH_SIZE ||
+      users.length === CLEANUP_BATCH_SIZE;
+
+    console.log("[Admin] deleteTenantRuntimeDataBatch completed", {
+      tenantId,
+      hasMore,
+    });
 
     return {
       deletedRawWebhookEvents: rawWebhookEvents.length,
       deletedCalendlyOrgMembers: calendlyOrgMembers.length,
       deletedUsers: users.length,
-      hasMore:
-        rawWebhookEvents.length === CLEANUP_BATCH_SIZE ||
-        calendlyOrgMembers.length === CLEANUP_BATCH_SIZE ||
-        users.length === CLEANUP_BATCH_SIZE,
+      hasMore,
     };
   },
 });

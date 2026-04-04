@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { query } from "../_generated/server";
+import { internalQuery, query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 
 const opportunityStatusValidator = v.union(
@@ -29,6 +29,14 @@ type MeetingSummary = {
   status: Doc<"meetings">["status"];
 };
 
+export const getById = internalQuery({
+  args: { opportunityId: v.id("opportunities") },
+  handler: async (ctx, { opportunityId }) => {
+    console.log("[Opportunities] getById called", { opportunityId });
+    return await ctx.db.get(opportunityId);
+  },
+});
+
 /**
  * List opportunities for tenant owner/admin with optional filters.
  * Includes lead, closer, event type, and latest meeting metadata.
@@ -39,6 +47,7 @@ export const listOpportunitiesForAdmin = query({
     assignedCloserId: v.optional(v.id("users")),
   },
   handler: async (ctx, { statusFilter, assignedCloserId }) => {
+    console.log("[Opportunities] listOpportunitiesForAdmin called", { statusFilter: statusFilter ?? "all", assignedCloserId: assignedCloserId ?? "none" });
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -130,7 +139,38 @@ export const listOpportunitiesForAdmin = query({
       }
     }
 
-    const now = Date.now();
+    // Fetch the denormalized latest/next meeting references for each opportunity
+    // (see @plans/caching/caching.md: these are maintained by the mutation that creates/updates meetings)
+    const meetingDataByOppId = new Map<string, { latestMeeting: MeetingSummary | null; nextMeeting: MeetingSummary | null }>();
+    const meetingIdsToFetch = new Set<string>();
+
+    for (const opp of opportunities) {
+      if (opp.latestMeetingId) {
+        meetingIdsToFetch.add(opp.latestMeetingId.toString());
+      }
+      if (opp.nextMeetingId) {
+        meetingIdsToFetch.add(opp.nextMeetingId.toString());
+      }
+    }
+
+    const meetingById = new Map<string, MeetingSummary>();
+    for (const meetingId of meetingIdsToFetch) {
+      const meeting = await ctx.db.get(meetingId as Id<"meetings">);
+      if (meeting) {
+        meetingById.set(meetingId, {
+          _id: meeting._id,
+          scheduledAt: meeting.scheduledAt,
+          status: meeting.status,
+        });
+      }
+    }
+
+    for (const opp of opportunities) {
+      const latestMeeting = opp.latestMeetingId ? meetingById.get(opp.latestMeetingId.toString()) ?? null : null;
+      const nextMeeting = opp.nextMeetingId ? meetingById.get(opp.nextMeetingId.toString()) ?? null : null;
+      meetingDataByOppId.set(opp._id.toString(), { latestMeeting, nextMeeting });
+    }
+
     const enriched = await Promise.all(
       opportunities.map(async (opportunity) => {
         const lead = leadById.get(opportunity.leadId);
@@ -141,28 +181,10 @@ export const listOpportunitiesForAdmin = query({
           ? eventTypeById.get(opportunity.eventTypeConfigId)
           : undefined;
 
-        let latestMeeting: MeetingSummary | null = null;
-        let nextMeeting: MeetingSummary | null = null;
-
-        for await (const meeting of ctx.db
-          .query("meetings")
-          .withIndex("by_opportunityId", (q) =>
-            q.eq("opportunityId", opportunity._id),
-          )) {
-          if (
-            latestMeeting === null ||
-            meeting.scheduledAt > latestMeeting.scheduledAt
-          ) {
-            latestMeeting = meeting;
-          }
-
-          if (
-            meeting.scheduledAt >= now &&
-            (nextMeeting === null || meeting.scheduledAt < nextMeeting.scheduledAt)
-          ) {
-            nextMeeting = meeting;
-          }
-        }
+        const { latestMeeting, nextMeeting } = meetingDataByOppId.get(opportunity._id.toString()) ?? {
+          latestMeeting: null,
+          nextMeeting: null,
+        };
 
         return {
           ...opportunity,
@@ -182,6 +204,7 @@ export const listOpportunitiesForAdmin = query({
       }),
     );
 
+    console.log("[Opportunities] listOpportunitiesForAdmin result", { count: enriched.length });
     return enriched.sort((a, b) => b.updatedAt - a.updatedAt);
   },
 });

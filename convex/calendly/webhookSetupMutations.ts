@@ -8,11 +8,15 @@ export const storeWebhookAndActivate = internalMutation({
     webhookSigningKey: v.string(),
   },
   handler: async (ctx, { tenantId, calendlyWebhookUri, webhookSigningKey }) => {
+    console.log(`[Webhook:Setup] storeWebhookAndActivate: tenant ${tenantId}, webhookUri=${calendlyWebhookUri}`);
+
     const tenant = await ctx.db.get(tenantId);
     if (!tenant) {
+      console.error(`[Webhook:Setup] storeWebhookAndActivate: tenant ${tenantId} not found`);
       throw new Error("Tenant not found");
     }
 
+    const isFirstOnboarding = !tenant.onboardingCompletedAt;
     await ctx.db.patch(tenantId, {
       calendlyWebhookUri,
       webhookSigningKey,
@@ -20,5 +24,7 @@ export const storeWebhookAndActivate = internalMutation({
       onboardingCompletedAt: tenant.onboardingCompletedAt ?? Date.now(),
       webhookProvisioningStartedAt: undefined,
     });
+
+    console.log(`[Webhook:Setup] storeWebhookAndActivate: tenant ${tenantId} activated, previousStatus=${tenant.status}, isFirstOnboarding=${isFirstOnboarding}`);
   },
 });

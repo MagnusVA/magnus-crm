@@ -24,7 +24,7 @@ import { cn } from "@/lib/utils";
 import {
   meetingStatusConfig,
   type MeetingStatus,
-} from "../../_components/status-config";
+} from "@/lib/status-config";
 import type { Doc } from "@/convex/_generated/dataModel";
 
 /**
@@ -154,7 +154,7 @@ export function MeetingInfoPanel({
             </div>
           </div>
         ) : (
-          <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 p-3 dark:bg-amber-950">
+          <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 p-3">
             <LinkIcon className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
             <p className="text-sm text-amber-700 dark:text-amber-400">
               No Zoom link available

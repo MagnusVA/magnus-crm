@@ -23,12 +23,11 @@ import { FieldGroup, Field, FieldLabel } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 
-type CrmRole = "tenant_master" | "tenant_admin" | "closer";
+type CrmRole = "tenant_admin" | "closer";
 
 const roleOptions: Array<{ value: CrmRole; label: string }> = [
   { value: "closer", label: "Closer" },
   { value: "tenant_admin", label: "Admin" },
-  { value: "tenant_master", label: "Owner" },
 ];
 
 interface RoleEditDialogProps {

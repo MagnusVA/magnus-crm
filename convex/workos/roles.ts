@@ -3,6 +3,7 @@
 import { WorkOS } from "@workos-inc/node";
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
+import { getRawWorkosUserId } from "../lib/workosUserId";
 
 const workos = new WorkOS(process.env.WORKOS_API_KEY!, {
   clientId: process.env.WORKOS_CLIENT_ID!,
@@ -27,18 +28,23 @@ export const assignRoleToMembership = internalAction({
     ),
   },
   handler: async (_ctx, { workosUserId, organizationId, roleSlug }) => {
+    console.log("[WorkOS:Roles] assignRoleToMembership called", { workosUserId, organizationId, roleSlug });
+    const rawWorkosUserId = getRawWorkosUserId(workosUserId);
+
     // Step 1: Find the user's membership in this organization
     const memberships = await workos.userManagement.listOrganizationMemberships({
-      userId: workosUserId,
+      userId: rawWorkosUserId,
       organizationId,
     });
 
     const membership = memberships.data[0];
     if (!membership) {
+      console.error("[WorkOS:Roles] No membership found", { workosUserId, rawWorkosUserId, organizationId });
       throw new Error(
         `No membership found for user ${workosUserId} in org ${organizationId}`
       );
     }
+    console.log("[WorkOS:Roles] Found membership", { membershipId: membership.id, workosUserId, rawWorkosUserId, organizationId });
 
     // Step 2: Update the membership with the new role slug
     const updated = await workos.userManagement.updateOrganizationMembership(
@@ -46,9 +52,7 @@ export const assignRoleToMembership = internalAction({
       { roleSlug }
     );
 
-    console.log(
-      `[WorkOS] Assigned role "${roleSlug}" to user ${workosUserId} in org ${organizationId}`
-    );
+    console.log("[WorkOS:Roles] Role assigned", { roleSlug, membershipId: membership.id });
 
     return updated;
   },

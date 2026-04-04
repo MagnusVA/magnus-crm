@@ -18,6 +18,7 @@ export const getMeetingsForRange = query({
     endDate: v.number(),
   },
   handler: async (ctx, { startDate, endDate }) => {
+    console.log("[Closer:Calendar] getMeetingsForRange called", { startDate, endDate });
     if (startDate >= endDate) {
       throw new Error("startDate must be earlier than endDate");
     }
@@ -35,7 +36,9 @@ export const getMeetingsForRange = query({
     const oppIds = new Set(myOpps.map((o) => o._id));
     const oppMap = new Map(myOpps.map((o) => [o._id.toString(), o]));
 
+    console.log("[Closer:Calendar] opportunity count", { count: oppIds.size });
     if (oppIds.size === 0) {
+      console.log("[Closer:Calendar] no opportunities found, returning empty");
       return [];
     }
 
@@ -57,24 +60,26 @@ export const getMeetingsForRange = query({
       }
     }
 
-    // Enrich with lead and opportunity data
+    console.log("[Closer:Calendar] meetings found in range", { count: myMeetings.length });
+
+    // Enrich with opportunity and event type data.
+    // leadName is now denormalized onto the meeting document (see @plans/caching/caching.md).
     const enriched = await Promise.all(
       myMeetings.map(async (meeting) => {
         const opp = oppMap.get(meeting.opportunityId.toString());
-        const lead = opp ? await ctx.db.get(opp.leadId) : null;
         const eventTypeConfig =
           opp?.eventTypeConfigId ? await ctx.db.get(opp.eventTypeConfigId) : null;
 
         return {
           meeting,
-          leadName: lead?.fullName ?? lead?.email ?? "Unknown",
-          leadEmail: lead?.email,
+          leadName: meeting.leadName ?? "Unknown",
           opportunityStatus: opp?.status,
           eventTypeName: eventTypeConfig?.displayName ?? null,
         };
       })
     );
 
+    console.log("[Closer:Calendar] enriched count", { count: enriched.length });
     return enriched;
   },
 });

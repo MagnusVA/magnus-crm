@@ -56,40 +56,52 @@ export const processRawEvent = internalAction({
       return;
     }
 
+    console.log(
+      `[Pipeline] Dispatching event ${rawEventId} | type=${rawEvent.eventType} tenantId=${rawEvent.tenantId}`,
+    );
+
     // Dispatch to the appropriate handler
     try {
       switch (rawEvent.eventType) {
         case "invitee.created":
+          console.log(`[Pipeline] Handler selected: inviteeCreated.process`);
           await ctx.runMutation(internal.pipeline.inviteeCreated.process, {
             tenantId: rawEvent.tenantId,
             payload,
             rawEventId,
           });
+          console.log(`[Pipeline] Handler inviteeCreated.process completed successfully`);
           break;
 
         case "invitee.canceled":
+          console.log(`[Pipeline] Handler selected: inviteeCanceled.process`);
           await ctx.runMutation(internal.pipeline.inviteeCanceled.process, {
             tenantId: rawEvent.tenantId,
             payload,
             rawEventId,
           });
+          console.log(`[Pipeline] Handler inviteeCanceled.process completed successfully`);
           break;
 
         case "invitee_no_show.created":
+          console.log(`[Pipeline] Handler selected: inviteeNoShow.process`);
           await ctx.runMutation(internal.pipeline.inviteeNoShow.process, {
             tenantId: rawEvent.tenantId,
             payload,
             rawEventId,
           });
+          console.log(`[Pipeline] Handler inviteeNoShow.process completed successfully`);
           break;
 
         case "invitee_no_show.deleted":
           // No-show reversal: revert meeting/opportunity back to scheduled
+          console.log(`[Pipeline] Handler selected: inviteeNoShow.revert`);
           await ctx.runMutation(internal.pipeline.inviteeNoShow.revert, {
             tenantId: rawEvent.tenantId,
             payload,
             rawEventId,
           });
+          console.log(`[Pipeline] Handler inviteeNoShow.revert completed successfully`);
           break;
 
         default:

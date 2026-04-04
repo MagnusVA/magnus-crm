@@ -1,25 +1,32 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
-import { MarkLostDialog } from "./mark-lost-dialog";
-import {
-  PlayIcon,
-  BanknoteIcon,
-  CalendarPlusIcon,
-  InfoIcon,
-} from "lucide-react";
+import { PlayIcon, InfoIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { Doc } from "@/convex/_generated/dataModel";
+
+// Lazy-load dialog components that are only shown on user interaction
+const MarkLostDialog = dynamic(() =>
+  import("./mark-lost-dialog").then((m) => ({ default: m.MarkLostDialog })),
+);
+const PaymentFormDialog = dynamic(() =>
+  import("./payment-form-dialog").then((m) => ({ default: m.PaymentFormDialog })),
+);
+const FollowUpDialog = dynamic(() =>
+  import("./follow-up-dialog").then((m) => ({ default: m.FollowUpDialog })),
+);
 
 type OutcomeActionBarProps = {
   meeting: Doc<"meetings">;
   opportunity: Doc<"opportunities">;
   payments: Doc<"paymentRecords">[];
+  onStatusChanged?: () => Promise<void>;
 };
 
 /**
@@ -27,15 +34,17 @@ type OutcomeActionBarProps = {
  *
  * Renders buttons based on meeting/opportunity status:
  * - "Start Meeting" — when scheduled (opens Zoom, transitions to in_progress)
- * - "Log Payment" — when in_progress (Phase 7 placeholder)
- * - "Schedule Follow-up" — when in_progress (Phase 7 placeholder)
+ * - "Log Payment" — when in_progress (opens payment form dialog)
+ * - "Schedule Follow-up" — when in_progress, canceled, or no_show
  * - "Mark as Lost" — when in_progress (opens confirmation dialog)
  *
- * Returns null for terminal statuses where no actions are available.
+ * Returns null for terminal statuses where no actions are available
+ * (payment_received, lost, follow_up_scheduled).
  */
 export function OutcomeActionBar({
   meeting,
   opportunity,
+  onStatusChanged,
 }: OutcomeActionBarProps) {
   const startMeeting = useMutation(api.closer.meetingActions.startMeeting);
   const [isStarting, setIsStarting] = useState(false);
@@ -50,6 +59,7 @@ export function OutcomeActionBar({
       if (result.zoomJoinUrl) {
         window.open(result.zoomJoinUrl, "_blank", "noopener,noreferrer");
       }
+      await onStatusChanged?.();
       toast.success("Meeting started");
     } catch (error) {
       toast.error(
@@ -60,8 +70,11 @@ export function OutcomeActionBar({
     }
   };
 
-  // No actions for terminal statuses
-  if (!isScheduled && !isInProgress) return null;
+  const isCanceledOrNoShow =
+    opportunity.status === "canceled" || opportunity.status === "no_show";
+
+  // No actions for terminal statuses (payment_received, lost, follow_up_scheduled)
+  if (!isScheduled && !isInProgress && !isCanceledOrNoShow) return null;
 
   return (
     <div className="flex flex-col gap-3 border-t pt-4">
@@ -87,34 +100,38 @@ export function OutcomeActionBar({
           </Button>
         )}
 
-        {/* Log Payment — Phase 7 placeholder */}
+        {/* Log Payment — Phase 7D */}
         {isInProgress && (
-          <Button
-            variant="outline"
-            size="lg"
-            disabled
-            title="Coming in Phase 7"
-          >
-            <BanknoteIcon data-icon="inline-start" />
-            Log Payment
-          </Button>
+          <PaymentFormDialog
+            opportunityId={opportunity._id}
+            meetingId={meeting._id}
+            onSuccess={onStatusChanged}
+          />
         )}
 
-        {/* Schedule Follow-up — Phase 7 placeholder */}
+        {/* Schedule Follow-up — Phase 7E */}
         {isInProgress && (
-          <Button
-            variant="outline"
-            size="lg"
-            disabled
-            title="Coming in Phase 7"
-          >
-            <CalendarPlusIcon data-icon="inline-start" />
-            Schedule Follow-up
-          </Button>
+          <FollowUpDialog
+            opportunityId={opportunity._id}
+            onSuccess={onStatusChanged}
+          />
+        )}
+
+        {/* Schedule Follow-up for canceled/no-show opportunities */}
+        {isCanceledOrNoShow && (
+          <FollowUpDialog
+            opportunityId={opportunity._id}
+            onSuccess={onStatusChanged}
+          />
         )}
 
         {/* Mark as Lost — when in_progress */}
-        {isInProgress && <MarkLostDialog opportunityId={opportunity._id} />}
+        {isInProgress && (
+          <MarkLostDialog
+            opportunityId={opportunity._id}
+            onSuccess={onStatusChanged}
+          />
+        )}
       </div>
 
       {/* Contextual help */}

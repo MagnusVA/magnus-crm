@@ -50,13 +50,13 @@ export function LeadInfoPanel({ lead, meetingHistory }: LeadInfoPanelProps) {
 
           <ContactRow
             icon={<MailIcon />}
-            bgClass="bg-blue-500/10 dark:bg-blue-950"
-            iconClass="text-blue-600 dark:text-blue-400"
+            bgClass="bg-primary/10"
+            iconClass="text-primary"
             label="Email"
           >
             <a
               href={`mailto:${lead.email}`}
-              className="truncate text-sm text-blue-600 hover:underline dark:text-blue-400"
+              className="truncate text-sm text-primary hover:underline"
             >
               {lead.email}
             </a>
@@ -65,13 +65,13 @@ export function LeadInfoPanel({ lead, meetingHistory }: LeadInfoPanelProps) {
           {lead.phone && (
             <ContactRow
               icon={<PhoneIcon />}
-              bgClass="bg-emerald-500/10 dark:bg-emerald-950"
-              iconClass="text-emerald-600 dark:text-emerald-400"
+              bgClass="bg-primary/10"
+              iconClass="text-primary"
               label="Phone"
             >
               <a
                 href={`tel:${lead.phone}`}
-                className="truncate text-sm text-emerald-600 hover:underline dark:text-emerald-400"
+                className="truncate text-sm text-primary hover:underline"
               >
                 {lead.phone}
               </a>

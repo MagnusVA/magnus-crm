@@ -21,7 +21,7 @@ type MeetingNotesProps = {
  *
  * - Debounced saves (800 ms) to avoid excessive mutations
  * - "Saving…" / "✓ Saved" visual feedback with auto-clear
- * - Syncs from server when user is idle (handles cross-device updates)
+ * - Syncs from the latest parent-provided value when the user is idle
  * - Textarea is **never** disabled — the closer can always keep typing
  */
 export function MeetingNotes({ meetingId, initialNotes }: MeetingNotesProps) {
@@ -78,9 +78,7 @@ export function MeetingNotes({ meetingId, initialNotes }: MeetingNotesProps) {
     [meetingId, updateNotes],
   );
 
-  // Sync from server when not actively editing.
-  // Handles cross-device updates: if another device saves notes while this
-  // user is idle, the Convex subscription pushes the new value here.
+  // Sync from the latest parent-provided value when not actively editing.
   useEffect(() => {
     if (!isEditingRef.current) {
       setNotes(initialNotes);

@@ -25,6 +25,7 @@ export const listMyOpportunities = query({
     statusFilter: v.optional(opportunityStatusValidator),
   },
   handler: async (ctx, { statusFilter }) => {
+    console.log("[Closer:Pipeline] listMyOpportunities called", { statusFilter: statusFilter ?? "all" });
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
 
     // Get this closer's opportunities
@@ -44,13 +45,9 @@ export const listMyOpportunities = query({
     const enriched = await Promise.all(
       filtered.map(async (opp) => {
         const lead = await ctx.db.get(opp.leadId);
-
-        // Get the latest meeting for this opportunity
-        const latestMeeting = await ctx.db
-          .query("meetings")
-          .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opp._id))
-          .order("desc")
-          .first();
+        const latestMeeting = opp.latestMeetingId
+          ? await ctx.db.get(opp.latestMeetingId)
+          : null;
 
         return {
           ...opp,
@@ -66,6 +63,7 @@ export const listMyOpportunities = query({
     );
 
     // Sort by most recent update first
+    console.log("[Closer:Pipeline] listMyOpportunities result", { totalOpps: myOpps.length, filteredCount: filtered.length, enrichedCount: enriched.length });
     return enriched.sort((a, b) => b.updatedAt - a.updatedAt);
   },
 });

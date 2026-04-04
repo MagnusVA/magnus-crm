@@ -60,6 +60,17 @@ export default defineSchema({
       v.literal("closer"),
     ),
     calendlyUserUri: v.optional(v.string()),
+    calendlyMemberName: v.optional(v.string()), // Denormalized from calendlyOrgMembers for query efficiency
+
+    // Team-member invitation tracking.
+    // Set when a tenant admin invites a closer or admin via WorkOS sendInvitation.
+    // "pending" = invited but not yet signed up; "accepted" = sign-up complete.
+    // Undefined for users created through other flows (e.g. tenant-owner onboarding).
+    invitationStatus: v.optional(
+      v.union(v.literal("pending"), v.literal("accepted")),
+    ),
+    // WorkOS invitation ID — used to revoke invitation if user is removed before sign-up.
+    workosInvitationId: v.optional(v.string()),
   })
     .index("by_tenantId", ["tenantId"])
     .index("by_workosUserId", ["workosUserId"])
@@ -120,6 +131,11 @@ export default defineSchema({
       v.literal("no_show"),
     ),
     calendlyEventUri: v.optional(v.string()),
+    // Denormalized meeting references for query efficiency (see @plans/caching/caching.md)
+    latestMeetingId: v.optional(v.id("meetings")),
+    latestMeetingAt: v.optional(v.number()),
+    nextMeetingId: v.optional(v.id("meetings")), // Soonest "scheduled" meeting by scheduledAt
+    nextMeetingAt: v.optional(v.number()),
     cancellationReason: v.optional(v.string()),
     canceledBy: v.optional(v.string()),
     lostReason: v.optional(v.string()),
@@ -147,6 +163,7 @@ export default defineSchema({
       v.literal("no_show"),
     ),
     notes: v.optional(v.string()),
+    leadName: v.optional(v.string()), // Denormalized from lead for query efficiency
     createdAt: v.number(),
   })
     .index("by_opportunityId", ["opportunityId"])

@@ -20,9 +20,9 @@ const DOT_GRID =
   "radial-gradient(circle, oklch(1 0 0 / 0.03) 1px, transparent 1px)";
 
 const STEPS = [
-  "Admin provisions a tenant org and invite",
-  "Tenant master redeems invite and signs up",
-  "Calendly connection completes workspace setup",
+  "Leads book meetings through your Calendly link",
+  "Closers manage meetings, notes, and payments in one dashboard",
+  "Admins track pipeline, team performance, and revenue",
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -104,12 +104,12 @@ export default function Home() {
         <div className="flex w-full max-w-lg flex-col gap-10 text-center motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:duration-600">
           <div className="flex flex-col gap-4">
             <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl text-balance">
-              Onboard Operators Fast. Keep&nbsp;Tenant Setup Under&nbsp;Control.
+              Sales Meetings. Pipeline Tracking. Deal Closing. All in One Place.
             </h1>
             <p className="mx-auto max-w-md text-sm leading-relaxed text-muted-foreground text-pretty">
-              WorkOS handles identity, Convex handles tenant state, and Calendly
-              onboarding is staged so each account starts with a clean audit
-              trail.
+              Magnus CRM turns your Calendly meetings into a structured sales
+              pipeline — from booking to payment, with real-time visibility
+              for closers and admins.
             </p>
           </div>
 
@@ -135,24 +135,27 @@ export default function Home() {
           {/* CTA */}
           <div className="flex flex-col items-center gap-3">
             <Button asChild size="lg">
-              <Link href="/admin">
-                Open Admin Console
+              <Link href="/sign-in">
+                Get Started
                 <ArrowRightIcon data-icon="inline-end" aria-hidden="true" />
               </Link>
             </Button>
             <p className="text-xs text-muted-foreground">
-              System admins manage tenants. Tenant users are routed into
-              onboarding.
+              Sign in to access your workspace, or contact your admin for an invite.
             </p>
           </div>
         </div>
       </main>
 
       {/* Footer */}
-      <footer className="px-6 pb-5">
+      <footer className="flex items-center justify-between px-6 pb-5">
         <p className="text-[11px] text-muted-foreground/60">
-          Magnus CRM &middot; Tenant onboarding control plane
+          Magnus CRM
         </p>
+        <div className="flex gap-4 text-[11px] text-muted-foreground/40">
+          <span>Privacy</span>
+          <span>Terms</span>
+        </div>
       </footer>
     </div>
   );

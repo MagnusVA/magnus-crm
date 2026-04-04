@@ -4,6 +4,11 @@ import { useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
+  formatCalendlyLastRefresh,
+  formatCalendlyTokenExpiry,
+  getCalendlyTokenTiming,
+} from "@/lib/calendly-connection-status";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -20,6 +25,8 @@ import {
   LinkIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import { connectionStatusConfig } from "@/lib/status-config";
 
 interface ConnectionStatus {
   tenantId: string;
@@ -37,26 +44,6 @@ interface CalendlyConnectionProps {
   connectionStatus: ConnectionStatus | null;
 }
 
-function formatRelativeTime(timestamp: number) {
-  const hours = Math.floor((Date.now() - timestamp) / (60 * 60 * 1000));
-  if (hours < 1) return "Just now";
-  if (hours === 1) return "1 hour ago";
-  if (hours < 24) return `${hours} hours ago`;
-
-  const days = Math.floor(hours / 24);
-  if (days === 1) return "1 day ago";
-  return `${days} days ago`;
-}
-
-function formatExpiry(timestamp: number) {
-  const days = Math.floor((timestamp - Date.now()) / (24 * 60 * 60 * 1000));
-  if (days < 0) return "Expired";
-  if (days === 0) return "Today";
-  if (days === 1) return "Tomorrow";
-  if (days < 7) return `In ${days} days`;
-  return new Date(timestamp).toLocaleDateString();
-}
-
 export function CalendlyConnection({
   connectionStatus,
 }: CalendlyConnectionProps) {
@@ -69,13 +56,11 @@ export function CalendlyConnection({
 
   const isConnected =
     connectionStatus.hasAccessToken && !connectionStatus.needsReconnect;
-  const isExpired =
-    connectionStatus.tokenExpiresAt !== null &&
-    connectionStatus.tokenExpiresAt < Date.now();
-  const isExpiringSoon =
-    !isExpired &&
-    connectionStatus.tokenExpiresAt !== null &&
-    connectionStatus.tokenExpiresAt - Date.now() < 7 * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const { isExpired, isExpiringSoon } = getCalendlyTokenTiming(
+    connectionStatus.tokenExpiresAt,
+    now,
+  );
 
   const handleRefreshToken = async () => {
     setIsRefreshing(true);
@@ -108,9 +93,9 @@ export function CalendlyConnection({
       <CardContent className="flex flex-col gap-4">
         <div className="flex items-start gap-3">
           {isConnected ? (
-            <CheckCircle2Icon className="mt-1 size-5 flex-shrink-0 text-emerald-600 dark:text-emerald-400" />
+            <CheckCircle2Icon className={cn("mt-1 size-5 shrink-0", connectionStatusConfig.connected.iconClass)} />
           ) : (
-            <AlertCircleIcon className="mt-1 size-5 flex-shrink-0 text-red-600 dark:text-red-400" />
+            <AlertCircleIcon className={cn("mt-1 size-5 shrink-0", connectionStatusConfig.disconnected.iconClass)} />
           )}
           <div className="flex-1">
             <p className="font-medium">
@@ -123,14 +108,10 @@ export function CalendlyConnection({
             </p>
           </div>
           <Badge
-            variant={isConnected ? "secondary" : "destructive"}
-            className={
-              isConnected
-                ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200"
-                : ""
-            }
+            variant={isConnected ? connectionStatusConfig.connected.badgeVariant : connectionStatusConfig.disconnected.badgeVariant}
+            className={isConnected ? connectionStatusConfig.connected.badgeClass : ""}
           >
-            {isConnected ? "Active" : "Inactive"}
+            {isConnected ? connectionStatusConfig.connected.label : "Inactive"}
           </Badge>
         </div>
 
@@ -140,14 +121,20 @@ export function CalendlyConnection({
               <div>
                 <p className="text-xs text-muted-foreground">Token Expires</p>
                 <p className="mt-1 text-sm font-medium">
-                  {formatExpiry(connectionStatus.tokenExpiresAt)}
+                  {formatCalendlyTokenExpiry(
+                    connectionStatus.tokenExpiresAt,
+                    now,
+                  )}
                 </p>
               </div>
               {connectionStatus.lastTokenRefresh !== null && (
                 <div>
                   <p className="text-xs text-muted-foreground">Last Refresh</p>
                   <p className="mt-1 text-sm font-medium">
-                    {formatRelativeTime(connectionStatus.lastTokenRefresh)}
+                    {formatCalendlyLastRefresh(
+                      connectionStatus.lastTokenRefresh,
+                      now,
+                    )}
                   </p>
                 </div>
               )}
@@ -157,10 +144,10 @@ export function CalendlyConnection({
                 )}
                 {isExpiringSoon && (
                   <Badge
-                    variant="outline"
-                    className="bg-amber-50 dark:bg-amber-950"
+                    variant={connectionStatusConfig.expiring.badgeVariant}
+                    className={connectionStatusConfig.expiring.badgeClass}
                   >
-                    Expiring Soon
+                    {connectionStatusConfig.expiring.label}
                   </Badge>
                 )}
               </div>

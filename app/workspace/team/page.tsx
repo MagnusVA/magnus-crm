@@ -1,16 +1,41 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { redirect } from "next/navigation";
+import { usePageTitle } from "@/hooks/use-page-title";
 import { TeamMembersTable } from "./_components/team-members-table";
-import { InviteUserDialog } from "./_components/invite-user-dialog";
-import { RemoveUserDialog } from "./_components/remove-user-dialog";
-import { CalendlyLinkDialog } from "./_components/calendly-link-dialog";
-import { RoleEditDialog } from "./_components/role-edit-dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { DownloadIcon } from "lucide-react";
+import { downloadCSV } from "@/lib/export-csv";
+import { format } from "date-fns";
 import type { Id } from "@/convex/_generated/dataModel";
+
+// Lazy-load dialog components that are only shown on user interaction
+const InviteUserDialog = dynamic(() =>
+  import("./_components/invite-user-dialog").then((m) => ({
+    default: m.InviteUserDialog,
+  })),
+);
+const RemoveUserDialog = dynamic(() =>
+  import("./_components/remove-user-dialog").then((m) => ({
+    default: m.RemoveUserDialog,
+  })),
+);
+const CalendlyLinkDialog = dynamic(() =>
+  import("./_components/calendly-link-dialog").then((m) => ({
+    default: m.CalendlyLinkDialog,
+  })),
+);
+const RoleEditDialog = dynamic(() =>
+  import("./_components/role-edit-dialog").then((m) => ({
+    default: m.RoleEditDialog,
+  })),
+);
 
 function TableSkeleton() {
   return (
@@ -26,106 +51,154 @@ function TableSkeleton() {
   );
 }
 
+// ─── Discriminated union for dialog state ────────────────────────────
+
+type DialogState =
+  | { type: null }
+  | { type: "remove"; userId: Id<"users">; userName: string }
+  | { type: "calendly"; userId: Id<"users">; userName: string }
+  | { type: "role"; userId: Id<"users">; userName: string; currentRole: string };
+
 export default function TeamPage() {
-  const members = useQuery(api.users.queries.listTeamMembers);
-
-  // Remove user dialog state
-  const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
-  const [removeUserId, setRemoveUserId] = useState<Id<"users"> | null>(null);
-  const [removeUserName, setRemoveUserName] = useState("");
-
-  // Calendly link dialog state
-  const [calendlyDialogOpen, setCalendlyDialogOpen] = useState(false);
-  const [calendlyUserId, setCalendlyUserId] = useState<Id<"users"> | null>(
-    null,
+  usePageTitle("Team");
+  const currentUser = useQuery(api.users.queries.getCurrentUser);
+  const isAdmin =
+    currentUser?.role === "tenant_master" || currentUser?.role === "tenant_admin";
+  const members = useQuery(
+    api.users.queries.listTeamMembers,
+    isAdmin ? {} : "skip",
   );
-  const [calendlyUserName, setCalendlyUserName] = useState("");
 
-  // Role edit dialog state
-  const [roleDialogOpen, setRoleDialogOpen] = useState(false);
-  const [roleUserId, setRoleUserId] = useState<Id<"users"> | null>(null);
-  const [roleUserName, setRoleUserName] = useState("");
-  const [roleCurrentRole, setRoleCurrentRole] = useState<string>("");
+  // Single state replaces 12 useState calls
+  const [dialog, setDialog] = useState<DialogState>({ type: null });
+
+  const closeDialog = () => setDialog({ type: null });
 
   const handleEditRole = (memberId: Id<"users">, currentRole: string) => {
     const member = members?.find((m) => m._id === memberId);
-    if (member) {
-      setRoleUserId(memberId);
-      setRoleUserName(member.fullName || member.email);
-      setRoleCurrentRole(currentRole);
-      setRoleDialogOpen(true);
+    if (member && currentUser && currentUser._id !== memberId && member.role !== "tenant_master") {
+      setDialog({
+        type: "role",
+        userId: memberId,
+        userName: member.fullName || member.email,
+        currentRole,
+      });
     }
   };
 
   const handleRemoveUser = (memberId: Id<"users">) => {
     const member = members?.find((m) => m._id === memberId);
-    if (member) {
-      setRemoveUserId(memberId);
-      setRemoveUserName(member.fullName || member.email);
-      setRemoveDialogOpen(true);
+    if (member && currentUser && currentUser._id !== memberId && member.role !== "tenant_master") {
+      setDialog({
+        type: "remove",
+        userId: memberId,
+        userName: member.fullName || member.email,
+      });
     }
   };
 
   const handleRelinkCalendly = (memberId: Id<"users">) => {
     const member = members?.find((m) => m._id === memberId);
     if (member) {
-      setCalendlyUserId(memberId);
-      setCalendlyUserName(member.fullName || member.email);
-      setCalendlyDialogOpen(true);
+      setDialog({
+        type: "calendly",
+        userId: memberId,
+        userName: member.fullName || member.email,
+      });
     }
   };
 
+  if (currentUser === undefined) {
+    return <TableSkeleton />;
+  }
+
+  if (currentUser === null) {
+    return null;
+  }
+
+  if (currentUser.role === "closer") {
+    redirect("/workspace/closer");
+  }
+
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Team</h1>
           <p className="mt-2 text-muted-foreground">
             Manage your team members and invite new users
           </p>
         </div>
-        <InviteUserDialog />
+        <div className="flex gap-2">
+          {members && members.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                downloadCSV(
+                  `team-${format(new Date(), "yyyy-MM-dd")}`,
+                  ["Name", "Email", "Role", "Calendly Status"],
+                  members.map((m) => [
+                    m.fullName ?? "",
+                    m.email,
+                    m.role.replace(/_/g, " "),
+                    m.calendlyMemberName ?? "Not linked",
+                  ]),
+                );
+              }}
+            >
+              <DownloadIcon data-icon="inline-start" />
+              Export CSV
+            </Button>
+          )}
+          <InviteUserDialog />
+        </div>
       </div>
 
-      {members === undefined ? (
+      {members === undefined || currentUser === undefined ? (
         <TableSkeleton />
       ) : (
         <TeamMembersTable
           members={members}
+          currentUserId={currentUser?._id}
           onEditRole={handleEditRole}
           onRemoveUser={handleRemoveUser}
           onRelinkCalendly={handleRelinkCalendly}
         />
       )}
 
-      {/* Remove User Dialog */}
-      {removeUserId && (
+      {/* Dialogs — render based on discriminated union */}
+      {dialog.type === "remove" && (
         <RemoveUserDialog
-          open={removeDialogOpen}
-          onOpenChange={setRemoveDialogOpen}
-          userId={removeUserId}
-          userName={removeUserName}
+          open
+          onOpenChange={(open) => {
+            if (!open) closeDialog();
+          }}
+          userId={dialog.userId}
+          userName={dialog.userName}
         />
       )}
 
-      {/* Calendly Link Dialog */}
-      {calendlyUserId && (
+      {dialog.type === "calendly" && (
         <CalendlyLinkDialog
-          open={calendlyDialogOpen}
-          onOpenChange={setCalendlyDialogOpen}
-          userId={calendlyUserId}
-          userName={calendlyUserName}
+          open
+          onOpenChange={(open) => {
+            if (!open) closeDialog();
+          }}
+          userId={dialog.userId}
+          userName={dialog.userName}
         />
       )}
 
-      {/* Role Edit Dialog */}
-      {roleUserId && (
+      {dialog.type === "role" && (
         <RoleEditDialog
-          open={roleDialogOpen}
-          onOpenChange={setRoleDialogOpen}
-          userId={roleUserId}
-          userName={roleUserName}
-          currentRole={roleCurrentRole}
+          open
+          onOpenChange={(open) => {
+            if (!open) closeDialog();
+          }}
+          userId={dialog.userId}
+          userName={dialog.userName}
+          currentRole={dialog.currentRole}
         />
       )}
     </div>

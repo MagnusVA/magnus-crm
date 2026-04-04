@@ -368,17 +368,30 @@ export const createTenantInvite = action({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<InviteLinkResult> => {
+    console.log("[Admin:Invite] createTenantInvite called", {
+      companyName: args.companyName,
+      contactEmail: args.contactEmail,
+      hasNotes: Boolean(args.notes),
+    });
+
     const identity = await ctx.auth.getUserIdentity();
     requireSystemAdminSession(identity);
 
     const companyNameValidation = validateCompanyName(args.companyName);
     if (!companyNameValidation.valid) {
+      console.error("[Admin:Invite] Company name validation failed", {
+        error: companyNameValidation.error,
+      });
       throw new Error(companyNameValidation.error);
     }
     const emailValidation = validateEmail(args.contactEmail);
     if (!emailValidation.valid) {
+      console.error("[Admin:Invite] Email validation failed", {
+        error: emailValidation.error,
+      });
       throw new Error(emailValidation.error);
     }
+    console.log("[Admin:Invite] Validation passed");
 
     const companyName = args.companyName.trim();
     const contactEmail = args.contactEmail.trim().toLowerCase();
@@ -393,16 +406,30 @@ export const createTenantInvite = action({
     );
 
     if (existingTenant) {
+      console.log("[Admin:Invite] Existing tenant found for email", {
+        tenantId: existingTenant._id,
+        status: existingTenant.status,
+      });
+
       if (
         existingTenant.status !== "pending_signup" &&
         existingTenant.status !== "invite_expired"
       ) {
+        console.error("[Admin:Invite] Tenant already exists with non-reinvitable status", {
+          tenantId: existingTenant._id,
+          status: existingTenant.status,
+        });
         throw new Error("Tenant already exists for this contact email");
       }
 
       // Return the existing tenant's invite
       const { tokenHash, expiresAt, inviteUrl } =
         await buildInviteLinkForTenant(existingTenant);
+
+      console.log("[Admin:Invite] Invite token generated for existing tenant", {
+        tenantId: existingTenant._id,
+        expiresAt,
+      });
 
       await ctx.runMutation(
         internal.admin.tenantsMutations.patchInviteToken,
@@ -414,11 +441,19 @@ export const createTenantInvite = action({
       );
 
       if (existingTenant.status === "invite_expired") {
+        console.log("[Admin:Invite] Resetting expired invite status to pending_signup", {
+          tenantId: existingTenant._id,
+        });
         await ctx.runMutation(internal.tenants.updateStatus, {
           tenantId: existingTenant._id,
           status: "pending_signup",
         });
       }
+
+      console.log("[Admin:Invite] createTenantInvite completed (existing tenant)", {
+        tenantId: existingTenant._id,
+        workosOrgId: existingTenant.workosOrgId,
+      });
 
       return {
         tenantId: existingTenant._id,
@@ -428,16 +463,26 @@ export const createTenantInvite = action({
       };
     }
 
+    console.log("[Admin:Invite] No existing tenant found, looking up WorkOS org", {
+      contactEmail,
+    });
+
     let org;
     try {
       org = await workos.organizations.getOrganizationByExternalId(
         pendingOrganizationExternalId,
       );
+      console.log("[Admin:Invite] Found existing WorkOS org", {
+        orgId: org.id,
+      });
     } catch (error) {
       if (!(error instanceof NotFoundException)) {
         throw error;
       }
 
+      console.log("[Admin:Invite] WorkOS org not found, creating new org", {
+        companyName,
+      });
       org = await workos.organizations.createOrganization({
         name: companyName,
         externalId: pendingOrganizationExternalId,
@@ -445,6 +490,9 @@ export const createTenantInvite = action({
           source: "system_admin_onboarding",
           contactEmail,
         },
+      });
+      console.log("[Admin:Invite] WorkOS org created", {
+        orgId: org.id,
       });
     }
 
@@ -460,11 +508,16 @@ export const createTenantInvite = action({
         inviteExpiresAt: 0,
       },
     );
+    console.log("[Admin:Invite] Tenant inserted", { tenantId });
 
     const { tokenHash, expiresAt, inviteUrl } = await buildInviteLinkForTenant({
       _id: tenantId,
       workosOrgId: org.id,
       contactEmail,
+    });
+    console.log("[Admin:Invite] Invite token generated for new tenant", {
+      tenantId,
+      expiresAt,
     });
 
     await ctx.runMutation(
@@ -480,6 +533,15 @@ export const createTenantInvite = action({
       organization: org.id,
       externalId: tenantId,
     });
+    console.log("[Admin:Invite] WorkOS org externalId updated to tenantId", {
+      orgId: org.id,
+      tenantId,
+    });
+
+    console.log("[Admin:Invite] createTenantInvite completed (new tenant)", {
+      tenantId,
+      workosOrgId: org.id,
+    });
 
     return {
       tenantId,
@@ -493,6 +555,8 @@ export const createTenantInvite = action({
 export const regenerateInvite = action({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }): Promise<InviteLinkResult> => {
+    console.log("[Admin:Invite] regenerateInvite called", { tenantId });
+
     const identity = await ctx.auth.getUserIdentity();
     requireSystemAdminSession(identity);
 
@@ -501,12 +565,22 @@ export const regenerateInvite = action({
       { tenantId },
     );
     if (!tenant) {
+      console.error("[Admin:Invite] Tenant not found for regeneration", { tenantId });
       throw new Error("Tenant not found");
     }
+    console.log("[Admin:Invite] Tenant loaded for regeneration", {
+      tenantId,
+      status: tenant.status,
+    });
+
     if (
       tenant.status !== "pending_signup" &&
       tenant.status !== "invite_expired"
     ) {
+      console.error("[Admin:Invite] Invalid status for invite regeneration", {
+        tenantId,
+        status: tenant.status,
+      });
       throw new Error(
         "Can only regenerate invite for pending_signup or invite_expired tenants",
       );
@@ -515,6 +589,10 @@ export const regenerateInvite = action({
     const { tokenHash, expiresAt, inviteUrl } = await buildInviteLinkForTenant(
       tenant,
     );
+    console.log("[Admin:Invite] Invite token regenerated", {
+      tenantId,
+      expiresAt,
+    });
 
     await ctx.runMutation(
       internal.admin.tenantsMutations.patchInviteToken,
@@ -527,11 +605,19 @@ export const regenerateInvite = action({
 
     // If the invite had expired, reset status back to pending_signup
     if (tenant.status === "invite_expired") {
+      console.log("[Admin:Invite] Resetting expired invite status to pending_signup", {
+        tenantId,
+      });
       await ctx.runMutation(internal.tenants.updateStatus, {
         tenantId,
         status: "pending_signup",
       });
     }
+
+    console.log("[Admin:Invite] regenerateInvite completed", {
+      tenantId,
+      workosOrgId: tenant.workosOrgId,
+    });
 
     return {
       tenantId,

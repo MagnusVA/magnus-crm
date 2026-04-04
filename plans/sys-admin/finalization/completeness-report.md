@@ -23,20 +23,26 @@ All acceptance criteria are met. Schema is deployed, `@workos-inc/node` is insta
 
 | Requirement | Status | Notes |
 |---|---|---|
-| `tenants` table with all fields from spec | ✅ | Includes extra fields beyond spec: `codeVerifier`, `calendlyRefreshLockUntil` |
+| `tenants` table with all fields from spec | ✅ | Extra fields: `lastTokenRefreshAt`, `webhookProvisioningStartedAt`, `tenantOwnerId`, `invite_expired` status |
 | `users` table with roles | ✅ | |
-| `rawWebhookEvents` table | ✅ | |
-| `calendlyOrgMembers` table | ✅ | |
-| Indexes on all queried patterns | ✅ | |
+| `rawWebhookEvents` table | ✅ | Added `by_processed_and_receivedAt` index for cleanup cron |
+| `calendlyOrgMembers` table | ✅ | Added `by_tenantId_and_matchedUserId` and `by_tenantId_and_lastSyncedAt` indexes for stale member cleanup |
+| `leads` table | ✅ | Full PRODUCT.md entity |
+| `opportunities` table | ✅ | Full state machine from PRODUCT.md Section 8 |
+| `meetings` table | ✅ | With Calendly URI, Zoom URL, notes |
+| `eventTypeConfigs` table | ✅ | With payment links array and round-robin flag |
+| `paymentRecords` table | ✅ | With `proofFileId: v.id("_storage")` for Convex file storage |
+| `followUps` table | ✅ | With reason and status tracking |
+| Indexes on all queried patterns | ✅ | Comprehensive coverage |
 | `todos` table removed | ✅ | |
+
+The schema now covers **ALL** core domain entities from PRODUCT.md Section 8, not just the system-admin subset. This was not required by Phases 1–6 but was evidently implemented in parallel.
 
 ### Observations
 
-1. **Missing tables from PRODUCT.md:** The schema omits `leads`, `opportunities`, `meetings`, `eventTypeConfigs`, `paymentRecords`, and `followUps`. These are out of scope for the system-admin module (they belong to the closer/pipeline module) but are worth noting as future schema additions.
+1. **`inviteTokenHash` evolved to `v.optional(v.string())`** — The invite cleanup cron sets it to `undefined` when marking invites expired. This is a schema evolution from the original Phase 1 spec (which defined it as `v.string()`).
 
-2. **No index for `users` by `tenantId + role`** — Any tenant-admin query listing closers within a tenant would need a full table scan filtered by `tenantId`. Not blocking for current scope but will matter for Phase 2 of the product.
-
-3. **`rawWebhookEvents.by_calendlyEventUri` index is not tenant-scoped** — The idempotency check in `persistRawEvent` uses this index to find duplicates. If two different tenants somehow generate events with the same Calendly URI (unlikely but theoretically possible with shared Calendly orgs), the dedup would create a false positive, silently dropping one tenant's event.
+2. **`rawWebhookEvents.by_calendlyEventUri` index is not tenant-scoped** — The idempotency check in `persistRawEvent` uses this index. If two tenants share a Calendly org (unlikely), dedup could produce a false positive.
 
 ---
 
@@ -339,25 +345,14 @@ The existing draft report incorrectly flagged the token refresh lock as an "opti
 
 ---
 
-**FINDING 5.2 — Sequential tenant processing in cron jobs (SCALABILITY)**
+**~~FINDING 5.2~~ — Sequential tenant processing in cron jobs — ✅ ALREADY FIXED**
 
-File: `convex/calendly/tokens.ts`, lines 262–280
+The cron jobs have been refactored to use **fan-out scheduling**:
 
-```typescript
-for (const tenantId of tenantIds) {
-  try {
-    const result = await refreshTenantTokenCore(ctx, tenantId);
-    // ...
-  }
-}
-```
+- `refreshAllTokens` (tokens.ts line 332–360): Uses `ctx.scheduler.runAfter(i * TOKEN_REFRESH_STAGGER_MS, ...)` to schedule each tenant refresh as an independent action with staggered delays to smooth Calendly API bursts.
+- `syncAllTenants` (orgMembers.ts line 141–166): Uses `ctx.scheduler.runAfter(0, ...)` for parallel fan-out.
 
-Each tenant refresh involves at least 3 Convex round-trips (read tokens, acquire lock, store tokens) plus 1 external API call to Calendly. At ~500ms per tenant, 200 tenants would take ~100 seconds. Convex actions have a **10-minute timeout**. At ~1200 tenants, the cron would time out.
-
-The same pattern applies to `healthCheck.runHealthCheck` and `orgMembers.syncAllTenants`.
-
-**Severity:** LOW for MVP (few tenants expected); HIGH at scale
-**Fix:** Use `ctx.scheduler.runAfter(0, ...)` to fan out individual tenant refreshes as separate actions, with rate limiting.
+The cron completes immediately after scheduling; individual per-tenant actions run asynchronously. Failures in one tenant do not affect others. This is the correct scalable pattern.
 
 ---
 
@@ -382,16 +377,9 @@ After refreshing, `accessToken` is updated. But between the refresh and the subs
 
 ---
 
-**FINDING 5.4 — Stale `calendlyOrgMembers` records never cleaned up**
+**~~FINDING 5.4~~ — Stale `calendlyOrgMembers` records — ✅ ALREADY FIXED**
 
-File: `convex/calendly/orgMembersMutations.ts`
-
-The `upsertMember` mutation creates or updates records, but **never deletes** members who have been removed from the Calendly organization. The `lastSyncedAt` timestamp is updated on each sync, but no code compares it against a sync generation to detect orphans.
-
-Over time, the `calendlyOrgMembers` table accumulates stale records for departed team members. This affects round-robin resolution — a departed Calendly member could be matched to a CRM user who shouldn't receive assignments.
-
-**Severity:** MEDIUM — data quality degrades over time
-**Fix:** After each full sync, delete `calendlyOrgMembers` records where `lastSyncedAt < syncStartTimestamp`.
+The `syncForTenant` action (orgMembers.ts line 107–134) now tracks `syncStartTimestamp` and calls `deleteStaleMembers` after each full sync. The mutation `orgMembersMutations.deleteStaleMembers` uses the `by_tenantId_and_lastSyncedAt` index to find and delete members where `lastSyncedAt < syncStartTimestamp`. Confirmed working in logs: `"cleaned up 0 stale records"` (no stale members existed at the time).
 
 ---
 
@@ -426,7 +414,7 @@ Only tenants with `status: "active"` are processed by cron jobs. A tenant stuck 
 
 ### Code-Level Findings
 
-**FINDING 6.1 — `getConnectionStatus` approximates last refresh time incorrectly**
+**FINDING 6.1 — `getConnectionStatus` approximates last refresh time**
 
 File: `convex/calendly/oauthQueries.ts`, lines 48–50
 
@@ -436,10 +424,10 @@ lastTokenRefresh: tenant.calendlyTokenExpiresAt
   : null,
 ```
 
-This assumes Calendly tokens always expire in exactly 2 hours (7,200,000ms). If Calendly changes their token lifetime (currently 2 hours, but not guaranteed by spec), this calculation silently produces wrong values. The admin dashboard would show incorrect refresh times.
+This assumes 2-hour token lifetime. **Note:** The schema now includes `lastTokenRefreshAt: v.optional(v.number())` on the `tenants` table, but `getConnectionStatus` still uses the approximation instead of reading it. A minor wiring issue.
 
-**Severity:** LOW — informational display only
-**Fix:** Store `lastTokenRefreshAt` as an explicit field on the tenant record, set it during each refresh.
+**Severity:** LOW — the field exists but isn't used here yet
+**Fix:** Replace the approximation with `tenant.lastTokenRefreshAt ?? null`.
 
 ---
 
@@ -510,6 +498,20 @@ Two tenant deletions were executed at 7:35 PM and 7:52 PM, both completing succe
 
 The `getCurrentTenant` and `getConnectionStatus` queries are firing on ~5-minute intervals (Convex subscription keep-alive), confirming real-time subscriptions are active for at least one logged-in user.
 
+### Data Lifecycle Crons Running
+
+- **Webhook event cleanup** (`cleanupExpiredEvents`): Ran at 11:28 PM, deleted 0 expired events (30-day retention window, only deletes `processed: true`).
+- **Org member sync** with stale cleanup: `"Synced 3 members for tenant ..., cleaned up 0 stale records"` — confirming the stale member cleanup is active.
+- **Invite cleanup** (`cleanupExpiredInvites`): Registered in crons.ts, runs daily.
+
+### Token Refresh Uses Fan-Out Scheduling
+
+Later logs show: `"[token-refresh] Scheduling refresh for 1 tenants"` — confirming the cron was refactored from sequential processing to fan-out via `ctx.scheduler.runAfter()` with staggered delays.
+
+### `refreshMyTenantToken` Action Exists
+
+A user-facing manual refresh action was added (tokens.ts line 288–323) with proper role-based access control (`ADMIN_ROLES` check) and org-scoping verification. This addresses Phase 6D's spec for a force-refresh capability.
+
 ### No Error Logs Observed
 
 Zero error-level log entries in the 16-hour window. All function executions returned success.
@@ -531,14 +533,14 @@ Zero error-level log entries in the 16-hour window. All function executions retu
 | 3.2 | Auth callback membership creation unhandled error | MEDIUM | `app/callback/route.ts` | 31–41 |
 | 4.5 | Free-plan Calendly accounts not detected | MEDIUM | `convex/calendly/webhookSetup.ts` | 151–159 |
 
-### Data Lifecycle Gaps
+### Data Lifecycle
 
-| Issue | Impact | Current Behavior |
+| Issue | Status | Implementation |
 |---|---|---|
-| Stale `calendlyOrgMembers` | Departed members accumulate | Never deleted |
-| Stale `rawWebhookEvents` | Processed events accumulate | Never deleted (only during tenant reset) |
-| Expired invite tokens | Tenant records with `pending_signup` accumulate | Never cleaned up |
-| PKCE `codeVerifier` on error | Stale verifier persists | Only cleared on success |
+| Stale `calendlyOrgMembers` | ✅ HANDLED | `deleteStaleMembers` runs after each sync, using `syncStartTimestamp` comparison |
+| Stale `rawWebhookEvents` | ✅ HANDLED | `cleanupExpiredEvents` cron runs daily, 30-day retention, only deletes `processed: true` events. Alerts on stale unprocessed events. |
+| Expired invite tokens | ✅ HANDLED | `cleanupExpiredInvites` cron runs daily with 14-day grace period past expiry, sets status to `invite_expired` and clears `inviteTokenHash` |
+| PKCE `codeVerifier` on error | ⚠️ NOT HANDLED | Only cleared on success path (Finding 4.1) |
 
 ### Antipatterns
 
@@ -632,12 +634,12 @@ The following patterns demonstrate solid engineering:
 
 | # | Fix | Est. Hours | Finding |
 |---|---|---|---|
-| 11 | Fan-out cron jobs for parallel tenant processing | 3h | 5.2 |
+| 11 | ~~Fan-out cron jobs~~ | ~~3h~~ | ~~5.2~~ Already implemented |
 | 12 | Add `provisioning_webhooks` to cron tenant queries | 0.5h | 5.5 |
 | 13 | Implement cursor-based pagination for `listTenants` | 2h | 2.5 |
 | 14 | Add force-refresh button to admin dashboard | 1h | 6.3 |
 | 15 | Set up test framework and write critical-path tests | 8h | 6.4 |
-| 16 | Store explicit `lastTokenRefreshAt` timestamp | 1h | 6.1 |
+| 16 | Wire `lastTokenRefreshAt` into `getConnectionStatus` (field already in schema) | 0.25h | 6.1 |
 
 ---
 
@@ -669,7 +671,11 @@ Every file touched by Phases 1–6, verified to exist and contain working code:
 | `convex/calendly/healthCheck.ts` | 5 | 172 | Daily health check |
 | `convex/calendly/orgMembers.ts` | 5 | 126 | Org member sync |
 | `convex/calendly/orgMembersMutations.ts` | 5 | 49 | Org member upsert |
-| `convex/crons.ts` | 5 | 28 | Cron job registration |
+| `convex/crons.ts` | 5 | 42 | Cron job registration (5 jobs: token refresh, health check, org sync, webhook cleanup, invite cleanup) |
+| `convex/webhooks/cleanup.ts` | 5+ | 42 | Expired webhook event cleanup (30-day retention) |
+| `convex/webhooks/cleanupMutations.ts` | 5+ | 52 | Batch deletion of processed events + stale alert query |
+| `convex/admin/inviteCleanup.ts` | 5+ | 30 | Expired invite cleanup (14-day grace) |
+| `convex/admin/inviteCleanupMutations.ts` | 5+ | 42 | Expired invite listing + status transition to `invite_expired` |
 | `convex/http.ts` | 4 | 15 | HTTP router |
 | `app/onboarding/page.tsx` | 3 | — | Invite validation UI |
 | `app/onboarding/connect/page.tsx` | 3 | — | Calendly connect UI |

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
+import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { validateTransition } from "../lib/statusTransitions";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -18,8 +19,11 @@ export const process = internalMutation({
     rawEventId: v.id("rawWebhookEvents"),
   },
   handler: async (ctx, { tenantId, payload, rawEventId }) => {
+    console.log(`[Pipeline:invitee.canceled] Entry | tenantId=${tenantId} rawEventId=${rawEventId}`);
+
     const rawEvent = await ctx.db.get(rawEventId);
     if (!rawEvent || rawEvent.processed) {
+      console.log(`[Pipeline:invitee.canceled] Skipping: event already processed or not found`);
       return;
     }
 
@@ -31,8 +35,10 @@ export const process = internalMutation({
       (scheduledEvent ? getString(scheduledEvent, "uri") : undefined) ??
       (isRecord(payload) ? getString(payload, "event") : undefined);
 
+    console.log(`[Pipeline:invitee.canceled] Extracted eventUri=${calendlyEventUri ?? "none"}`);
+
     if (!calendlyEventUri) {
-      console.error("[Pipeline] Missing event URI in invitee.canceled payload");
+      console.error("[Pipeline:invitee.canceled] Missing event URI in payload");
       await ctx.db.patch(rawEventId, { processed: true });
       return;
     }
@@ -46,34 +52,56 @@ export const process = internalMutation({
 
     if (!meeting) {
       console.warn(
-        `[Pipeline] No meeting found for canceled event URI: ${calendlyEventUri}`,
+        `[Pipeline:invitee.canceled] No meeting found for eventUri=${calendlyEventUri}`,
       );
       await ctx.db.patch(rawEventId, { processed: true });
       return;
     }
 
+    console.log(
+      `[Pipeline:invitee.canceled] Meeting found | meetingId=${meeting._id} currentStatus=${meeting.status}`,
+    );
+
     if (meeting.status !== "canceled") {
       await ctx.db.patch(meeting._id, { status: "canceled" });
+      await updateOpportunityMeetingRefs(ctx, meeting.opportunityId);
+      console.log(
+        `[Pipeline:invitee.canceled] Meeting status changed | ${meeting.status} -> canceled`,
+      );
+    } else {
+      console.log(`[Pipeline:invitee.canceled] Meeting already canceled, no change`);
     }
 
     const opportunity = await ctx.db.get(meeting.opportunityId);
     if (opportunity) {
       const cancellation =
         isRecord(payload) && isRecord(payload.cancellation) ? payload.cancellation : null;
+      const cancellationReason = cancellation ? getString(cancellation, "reason") : undefined;
+      const canceledBy =
+        (cancellation ? getString(cancellation, "canceled_by") : undefined) ??
+        (cancellation ? getString(cancellation, "canceler_type") : undefined);
       const shouldMarkCanceled =
         opportunity.status === "canceled" ||
         validateTransition(opportunity.status, "canceled");
 
+      const newStatus = shouldMarkCanceled ? "canceled" : opportunity.status;
+      console.log(
+        `[Pipeline:invitee.canceled] Opportunity update | opportunityId=${opportunity._id} statusTransition=${opportunity.status}->${newStatus} reason=${cancellationReason ?? "none"} canceledBy=${canceledBy ?? "unknown"}`,
+      );
+
       await ctx.db.patch(opportunity._id, {
-        status: shouldMarkCanceled ? "canceled" : opportunity.status,
-        cancellationReason: cancellation ? getString(cancellation, "reason") : undefined,
-        canceledBy:
-          (cancellation ? getString(cancellation, "canceled_by") : undefined) ??
-          (cancellation ? getString(cancellation, "canceler_type") : undefined),
+        status: newStatus,
+        cancellationReason,
+        canceledBy,
         updatedAt: Date.now(),
       });
+    } else {
+      console.warn(
+        `[Pipeline:invitee.canceled] Opportunity not found for meeting ${meeting._id}`,
+      );
     }
 
     await ctx.db.patch(rawEventId, { processed: true });
+    console.log(`[Pipeline:invitee.canceled] Marked processed | rawEventId=${rawEventId}`);
   },
 });

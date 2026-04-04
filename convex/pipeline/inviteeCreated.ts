@@ -1,7 +1,9 @@
 import { v } from "convex/values";
+import { internal } from "../_generated/api";
 import { internalMutation } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { validateTransition } from "../lib/statusTransitions";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -65,7 +67,10 @@ async function resolveAssignedCloserId(
 ): Promise<Id<"users"> | undefined> {
   const tenant = await ctx.db.get(tenantId);
 
+  console.log(`[Pipeline:invitee.created] Resolving closer | hostUserUri=${hostUserUri ?? "none"}`);
+
   if (!hostUserUri) {
+    console.log(`[Pipeline:invitee.created] No host URI, using tenant owner: ${tenant?.tenantOwnerId}`);
     return tenant?.tenantOwnerId;
   }
 
@@ -76,6 +81,7 @@ async function resolveAssignedCloserId(
     )
     .unique();
   if (directUser?.role === "closer") {
+    console.log(`[Pipeline:invitee.created] Direct user match: userId=${directUser._id}`);
     return directUser._id;
   }
 
@@ -88,12 +94,13 @@ async function resolveAssignedCloserId(
   if (orgMember?.matchedUserId) {
     const matchedUser = await ctx.db.get(orgMember.matchedUserId);
     if (matchedUser?.role === "closer") {
+      console.log(`[Pipeline:invitee.created] Org member match: userId=${matchedUser._id} via orgMemberId=${orgMember._id}`);
       return matchedUser._id;
     }
   }
 
   console.warn(
-    `[Pipeline] Unmatched Calendly host URI: ${hostUserUri}. Falling back to tenant owner.`,
+    `[Pipeline:invitee.created] Unmatched Calendly host URI: ${hostUserUri}. Falling back to tenant owner: ${tenant?.tenantOwnerId}`,
   );
   return tenant?.tenantOwnerId;
 }
@@ -105,8 +112,11 @@ export const process = internalMutation({
     rawEventId: v.id("rawWebhookEvents"),
   },
   handler: async (ctx, { tenantId, payload, rawEventId }) => {
+    console.log(`[Pipeline:invitee.created] Entry | tenantId=${tenantId} rawEventId=${rawEventId}`);
+
     const rawEvent = await ctx.db.get(rawEventId);
     if (!rawEvent || rawEvent.processed) {
+      console.log(`[Pipeline:invitee.created] Skipping: event already processed or not found`);
       return;
     }
 
@@ -123,6 +133,10 @@ export const process = internalMutation({
     const eventTypeUri = getString(scheduledEvent, "event_type");
     const scheduledAt = parseTimestamp(scheduledEvent.start_time);
     const endTime = parseTimestamp(scheduledEvent.end_time);
+
+    console.log(
+      `[Pipeline:invitee.created] Extracted fields | email=${inviteeEmail} name=${inviteeName} phone=${inviteePhone ? "provided" : "none"} calendlyEventUri=${calendlyEventUri} eventTypeUri=${eventTypeUri} scheduledAt=${scheduledAt} endTime=${endTime}`,
+    );
 
     if (
       !inviteeEmail ||
@@ -141,9 +155,13 @@ export const process = internalMutation({
       )
       .unique();
     if (existingMeeting) {
+      console.log(
+        `[Pipeline:invitee.created] Duplicate detected: meeting ${existingMeeting._id} already exists for eventUri=${calendlyEventUri}`,
+      );
       await ctx.db.patch(rawEventId, { processed: true });
       return;
     }
+    console.log(`[Pipeline:invitee.created] No duplicate meeting found, proceeding`);
 
     const now = Date.now();
     const durationMinutes = Math.max(1, Math.round((endTime - scheduledAt) / 60000));
@@ -167,7 +185,9 @@ export const process = internalMutation({
         updatedAt: now,
       });
       lead = (await ctx.db.get(leadId))!;
+      console.log(`[Pipeline:invitee.created] Lead created | leadId=${leadId}`);
     } else {
+      console.log(`[Pipeline:invitee.created] Lead updated | leadId=${lead._id}`);
       await ctx.db.patch(lead._id, {
         fullName: inviteeName || lead.fullName,
         phone: inviteePhone || lead.phone,
@@ -182,6 +202,7 @@ export const process = internalMutation({
     const primaryMembership = eventMemberships.find(isRecord);
     const hostUserUri = primaryMembership ? getString(primaryMembership, "user") : undefined;
     const assignedCloserId = await resolveAssignedCloserId(ctx, tenantId, hostUserUri);
+    console.log(`[Pipeline:invitee.created] Assigned closer resolved | closerId=${assignedCloserId ?? "none"}`);
 
     let eventTypeConfigId: Id<"eventTypeConfigs"> | undefined;
     if (eventTypeUri) {
@@ -192,6 +213,9 @@ export const process = internalMutation({
         )
         .unique();
       eventTypeConfigId = config?._id;
+      console.log(
+        `[Pipeline:invitee.created] Event type config lookup | configId=${eventTypeConfigId ?? "not found"}`,
+      );
     }
 
     let existingFollowUp: Doc<"opportunities"> | null = null;
@@ -206,6 +230,14 @@ export const process = internalMutation({
         existingFollowUp = opportunity;
         break;
       }
+    }
+
+    if (existingFollowUp) {
+      console.log(
+        `[Pipeline:invitee.created] Follow-up opportunity detected | opportunityId=${existingFollowUp._id}`,
+      );
+    } else {
+      console.log(`[Pipeline:invitee.created] No follow-up opportunity found, creating new`);
     }
 
     let opportunityId: Id<"opportunities">;
@@ -224,6 +256,17 @@ export const process = internalMutation({
           eventTypeConfigId ?? existingFollowUp.eventTypeConfigId ?? undefined,
         updatedAt: now,
       });
+      console.log(
+        `[Pipeline:invitee.created] Follow-up opportunity reused | opportunityId=${opportunityId} status=follow_up_scheduled->scheduled`,
+      );
+
+      await ctx.runMutation(
+        internal.closer.followUpMutations.markFollowUpBooked,
+        {
+          opportunityId,
+          calendlyEventUri,
+        },
+      );
     } else {
       opportunityId = await ctx.db.insert("opportunities", {
         tenantId,
@@ -235,6 +278,9 @@ export const process = internalMutation({
         createdAt: now,
         updatedAt: now,
       });
+      console.log(
+        `[Pipeline:invitee.created] New opportunity created | opportunityId=${opportunityId}`,
+      );
     }
 
     const zoomJoinUrl =
@@ -243,7 +289,7 @@ export const process = internalMutation({
         : undefined;
     const meetingNotes = getString(scheduledEvent, "meeting_notes_plain");
 
-    await ctx.db.insert("meetings", {
+    const meetingId = await ctx.db.insert("meetings", {
       tenantId,
       opportunityId,
       calendlyEventUri,
@@ -253,9 +299,19 @@ export const process = internalMutation({
       durationMinutes,
       status: "scheduled",
       notes: meetingNotes,
+      leadName: lead.fullName ?? lead.email, // Denormalize for query efficiency
       createdAt: now,
     });
+    console.log(
+      `[Pipeline:invitee.created] Meeting created | meetingId=${meetingId} durationMinutes=${durationMinutes}`,
+    );
+
+    // Update denormalized meeting refs on opportunity for efficient queries
+    // (see @plans/caching/caching.md)
+    await updateOpportunityMeetingRefs(ctx, opportunityId);
+    console.log(`[Pipeline:invitee.created] Updated opportunity meeting refs | opportunityId=${opportunityId}`);
 
     await ctx.db.patch(rawEventId, { processed: true });
+    console.log(`[Pipeline:invitee.created] Marked processed | rawEventId=${rawEventId}`);
   },
 });

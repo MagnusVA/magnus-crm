@@ -12,13 +12,16 @@ export const cleanupExpiredEvents = internalAction({
     let totalDeleted = 0;
     let hasMore = true;
 
+    let iteration = 0;
     while (hasMore) {
+      iteration += 1;
       const result = await ctx.runMutation(
         internal.webhooks.cleanupMutations.deleteExpiredEvents,
         { cutoffTimestamp: cutoff },
       );
       totalDeleted += result.deleted;
       hasMore = result.hasMore;
+      console.log(`[webhook-cleanup] Iteration ${iteration}: deleted ${result.deleted} events (hasMore=${result.hasMore})`);
     }
 
     // Alert on stale unprocessed events (never auto-delete these)
@@ -33,6 +36,6 @@ export const cleanupExpiredEvents = internalAction({
       );
     }
 
-    console.log(`[webhook-cleanup] Deleted ${totalDeleted} expired events.`);
+    console.log(`[webhook-cleanup] Complete: deleted ${totalDeleted} expired events across ${iteration} iteration(s).`);
   },
 });

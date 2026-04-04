@@ -6,6 +6,7 @@ const PROVISIONING_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 export const listStuckProvisioningTenants = internalQuery({
   args: {},
   handler: async (ctx) => {
+    console.log(`[health-check] listStuckProvisioningTenants: querying, timeout=${PROVISIONING_TIMEOUT_MS}ms`);
     const cutoff = Date.now() - PROVISIONING_TIMEOUT_MS;
     const stuck: Array<{ tenantId: Id<"tenants">; companyName: string }> = [];
 
@@ -24,10 +25,12 @@ export const listStuckProvisioningTenants = internalQuery({
       });
 
       if (stuck.length >= 100) {
+        console.warn(`[health-check] listStuckProvisioningTenants: hit 100 stuck tenant limit`);
         break;
       }
     }
 
+    console.log(`[health-check] listStuckProvisioningTenants: found ${stuck.length} stuck tenants`);
     return stuck;
   },
 });

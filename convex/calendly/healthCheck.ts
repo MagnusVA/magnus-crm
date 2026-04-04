@@ -92,36 +92,49 @@ async function runTenantHealthCheck(
   ctx: Parameters<typeof refreshTenantTokenCore>[0],
   tenantId: Id<"tenants">,
 ) {
+  console.log(`[health-check] runTenantHealthCheck: entry for tenant ${tenantId}`);
+
   const tenant = (await ctx.runQuery(internal.tenants.getCalendlyTokens, {
     tenantId,
   })) as TenantHealthState | null;
 
   if (!tenant?.calendlyAccessToken || !tenant.calendlyOrgUri) {
+    console.warn(`[health-check] runTenantHealthCheck: tenant ${tenantId} skipped, hasAccessToken=${Boolean(tenant?.calendlyAccessToken)}, hasOrgUri=${Boolean(tenant?.calendlyOrgUri)}`);
     return { status: "skipped" as const, reason: "missing_tokens_or_org" };
   }
 
   if (tenant.status !== "active" && tenant.status !== "provisioning_webhooks") {
+    console.warn(`[health-check] runTenantHealthCheck: tenant ${tenantId} skipped, status=${tenant.status}`);
     return { status: "skipped" as const, reason: "tenant_not_ready" };
   }
 
+  console.log(`[health-check] runTenantHealthCheck: tenant ${tenantId} introspecting access token`);
   let accessToken = tenant.calendlyAccessToken;
   const tokenStatus = await introspectAccessToken(accessToken);
+  console.log(`[health-check] runTenantHealthCheck: tenant ${tenantId} token introspection result: active=${tokenStatus.active}`);
+
   if (!tokenStatus.active) {
+    console.log(`[health-check] runTenantHealthCheck: tenant ${tenantId} token inactive, attempting refresh`);
     const refreshed = await refreshTenantTokenCore(ctx, tenantId);
     if (!refreshed.refreshed) {
+      console.warn(`[health-check] runTenantHealthCheck: tenant ${tenantId} refresh failed, reason=${refreshed.reason}`);
       return {
         status: "skipped" as const,
         reason: refreshed.reason,
       };
     }
     accessToken = refreshed.accessToken;
+    console.log(`[health-check] runTenantHealthCheck: tenant ${tenantId} token refreshed successfully`);
   }
 
+  console.log(`[health-check] runTenantHealthCheck: tenant ${tenantId} checking webhook state, hasWebhookUri=${Boolean(tenant.calendlyWebhookUri)}`);
   const webhookState = tenant.calendlyWebhookUri
     ? await getWebhookSubscriptionState(accessToken, tenant.calendlyWebhookUri)
     : "missing";
+  console.log(`[health-check] runTenantHealthCheck: tenant ${tenantId} webhookState=${webhookState}`);
 
   if (webhookState !== "active") {
+    console.log(`[health-check] runTenantHealthCheck: tenant ${tenantId} reprovisioning webhook (state=${webhookState})`);
     const { webhookUri, webhookSigningKey } = await provisionWebhookSubscription(
       {
         tenantId,
@@ -140,8 +153,10 @@ async function runTenantHealthCheck(
         webhookSigningKey,
       },
     );
+    console.log(`[health-check] runTenantHealthCheck: tenant ${tenantId} webhook reprovisioned, newUri=${webhookUri}`);
   }
 
+  console.log(`[health-check] runTenantHealthCheck: tenant ${tenantId} check complete, tokenActive=true, webhookState=${webhookState}`);
   return {
     status: "checked" as const,
     tokenActive: true,
@@ -155,10 +170,13 @@ async function runTenantHealthCheck(
 export const checkSingleTenant = internalAction({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
+    console.log(`[health-check] checkSingleTenant: entry for tenant ${tenantId}`);
     try {
-      return await runTenantHealthCheck(ctx, tenantId);
+      const result = await runTenantHealthCheck(ctx, tenantId);
+      console.log(`[health-check] checkSingleTenant: tenant ${tenantId} completed, status=${result.status}`);
+      return result;
     } catch (error) {
-      console.error(`Health check failed for tenant ${tenantId}:`, error);
+      console.error(`[health-check] checkSingleTenant: tenant ${tenantId} failed:`, error instanceof Error ? error.message : error);
       return {
         status: "error" as const,
         reason: "health_check_exception" as const,
@@ -175,10 +193,13 @@ export const checkSingleTenant = internalAction({
 export const runHealthCheck = internalAction({
   args: {},
   handler: async (ctx) => {
+    console.log(`[health-check] runHealthCheck: entry`);
+
     // Step 1: Handle stuck provisioning tenants (from Phase 9B.5) — still sequential, fast
     const stuckTenants = await ctx.runQuery(
       internal.calendly.healthCheckMutations.listStuckProvisioningTenants,
     );
+    console.log(`[health-check] runHealthCheck: found ${stuckTenants.length} stuck provisioning tenants`);
 
     for (const { tenantId, companyName } of stuckTenants) {
       await ctx.runMutation(internal.tenants.updateStatus, {
@@ -186,7 +207,7 @@ export const runHealthCheck = internalAction({
         status: "pending_calendly",
       });
       console.warn(
-        `[health-check] Reverted stuck tenant "${companyName}" (${tenantId}) ` +
+        `[health-check] runHealthCheck: reverted stuck tenant "${companyName}" (${tenantId}) ` +
         `from provisioning_webhooks → pending_calendly`,
       );
     }
@@ -198,7 +219,7 @@ export const runHealthCheck = internalAction({
     );
 
     console.log(
-      `[health-check] Scheduling health check for ${tenantIds.length} tenants`,
+      `[health-check] runHealthCheck: scheduling health check for ${tenantIds.length} active tenants`,
     );
 
     for (const tenantId of tenantIds) {
@@ -208,5 +229,7 @@ export const runHealthCheck = internalAction({
         { tenantId },
       );
     }
+
+    console.log(`[health-check] runHealthCheck: all ${tenantIds.length} checks scheduled`);
   },
 });

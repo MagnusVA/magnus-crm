@@ -6,9 +6,15 @@ import { internal } from "../_generated/api";
 export const cleanupExpiredInvites = internalAction({
   args: {},
   handler: async (ctx) => {
+    console.log("[invite-cleanup] cleanupExpiredInvites started");
+
     const expired = await ctx.runQuery(
       internal.admin.inviteCleanupMutations.listExpiredInvites,
     );
+
+    console.log("[invite-cleanup] Expired invites found", {
+      totalCount: expired.length,
+    });
 
     for (const { tenantId, companyName } of expired) {
       await ctx.runMutation(

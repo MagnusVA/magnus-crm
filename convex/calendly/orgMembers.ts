@@ -41,27 +41,37 @@ async function syncTenantOrgMembers(
   ctx: Parameters<typeof getValidAccessToken>[0],
   tenantId: Id<"tenants">,
 ): Promise<SyncTenantOrgMembersResult> {
+  console.log(`[org-sync] syncTenantOrgMembers: entry for tenant ${tenantId}`);
+
   const tenant = (await ctx.runQuery(internal.tenants.getCalendlyTokens, {
     tenantId,
   })) as TenantMemberState | null;
 
   if (!tenant?.calendlyOrgUri) {
+    console.warn(`[org-sync] syncTenantOrgMembers: tenant ${tenantId} missing org URI`);
     return { synced: 0, reason: "missing_org_uri" as const };
   }
 
   if (tenant.status !== "active" && tenant.status !== "provisioning_webhooks") {
+    console.warn(`[org-sync] syncTenantOrgMembers: tenant ${tenantId} not ready, status=${tenant.status}`);
     return { synced: 0, reason: "tenant_not_ready" as const };
   }
 
+  console.log(`[org-sync] syncTenantOrgMembers: tenant ${tenantId} obtaining access token`);
   const accessToken = await getValidAccessToken(ctx, tenantId);
   if (!accessToken) {
+    console.warn(`[org-sync] syncTenantOrgMembers: tenant ${tenantId} no valid access token`);
     return { synced: 0, reason: "missing_access_token" as const };
   }
 
   let nextPage: string | null = `https://api.calendly.com/organization_memberships?organization=${encodeURIComponent(tenant.calendlyOrgUri)}&count=100`;
   let synced = 0;
+  let pageNum = 0;
 
   while (nextPage) {
+    pageNum++;
+    console.log(`[org-sync] syncTenantOrgMembers: tenant ${tenantId} fetching page ${pageNum}`);
+
     const response = await fetch(nextPage, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -75,12 +85,15 @@ async function syncTenantOrgMembers(
     }
 
     const data = (await response.json()) as CalendlyOrganizationMembershipPage;
+    const pageSize = data.collection?.length ?? 0;
+    console.log(`[org-sync] syncTenantOrgMembers: tenant ${tenantId} page ${pageNum} has ${pageSize} members`);
+
     for (const membership of data.collection ?? []) {
       const calendlyUserUri = membership.user?.uri;
       const email = membership.user?.email;
       if (!calendlyUserUri || !email) {
         console.warn(
-          `Skipping malformed Calendly organization membership for tenant ${tenantId}`,
+          `[org-sync] syncTenantOrgMembers: skipping malformed membership for tenant ${tenantId}, hasUri=${Boolean(calendlyUserUri)}, hasEmail=${Boolean(email)}`,
         );
         continue;
       }
@@ -98,6 +111,7 @@ async function syncTenantOrgMembers(
     nextPage = data.pagination?.next_page ?? null;
   }
 
+  console.log(`[org-sync] syncTenantOrgMembers: tenant ${tenantId} complete, synced=${synced} members across ${pageNum} pages`);
   return { synced };
 }
 
@@ -107,13 +121,14 @@ async function syncTenantOrgMembers(
 export const syncForTenant = internalAction({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }): Promise<SyncForTenantResult> => {
+    console.log(`[org-sync] syncForTenant: entry for tenant ${tenantId}`);
     const syncStartTimestamp = Date.now();
 
     const result = await syncTenantOrgMembers(ctx, tenantId);
 
     if ("reason" in result) {
       console.log(
-        `Skipped Calendly org member sync for tenant ${tenantId}: ${result.reason}`,
+        `[org-sync] syncForTenant: skipped for tenant ${tenantId}, reason=${result.reason}`,
       );
       return { ...result, deleted: 0 };
     }
@@ -125,8 +140,7 @@ export const syncForTenant = internalAction({
     );
 
     console.log(
-      `Synced ${result.synced} members for tenant ${tenantId}, ` +
-      `cleaned up ${cleanupResult.deleted} stale records`,
+      `[org-sync] syncForTenant: tenant ${tenantId} complete, synced=${result.synced}, deleted=${cleanupResult.deleted} stale records`,
     );
 
     return { ...result, deleted: cleanupResult.deleted };
@@ -141,13 +155,15 @@ export const syncForTenant = internalAction({
 export const syncAllTenants = internalAction({
   args: {},
   handler: async (ctx) => {
+    console.log(`[org-sync] syncAllTenants: entry`);
+
     const tenantIds: Array<Id<"tenants">> = await ctx.runQuery(
       internal.calendly.tokenMutations.listActiveTenantIds,
       {},
     );
 
     console.log(
-      `[org-sync] Scheduling sync for ${tenantIds.length} tenants`,
+      `[org-sync] syncAllTenants: scheduling sync for ${tenantIds.length} tenants`,
     );
 
     // Fan out: each tenant gets its own action invocation
@@ -159,6 +175,7 @@ export const syncAllTenants = internalAction({
       );
     }
 
+    console.log(`[org-sync] syncAllTenants: all ${tenantIds.length} tenants scheduled`);
     // The cron completes immediately after scheduling.
     // Individual sync actions run asynchronously and independently.
     // Failures in one tenant do not affect others.

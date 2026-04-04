@@ -26,6 +26,7 @@ type MeetingHistoryEntry = Doc<"meetings"> & {
 export const getMeetingDetail = query({
   args: { meetingId: v.id("meetings") },
   handler: async (ctx, { meetingId }) => {
+    console.log("[Closer:MeetingDetail] getMeetingDetail called", { meetingId });
     const { userId, tenantId, role } = await requireTenantUser(ctx, [
       "closer",
       "tenant_master",
@@ -34,12 +35,14 @@ export const getMeetingDetail = query({
 
     // Load the meeting
     const meeting = await ctx.db.get(meetingId);
+    console.log("[Closer:MeetingDetail] meeting lookup", { found: !!meeting });
     if (!meeting || meeting.tenantId !== tenantId) {
       throw new Error("Meeting not found");
     }
 
     // Load the parent opportunity
     const opportunity = await ctx.db.get(meeting.opportunityId);
+    console.log("[Closer:MeetingDetail] opportunity lookup", { found: !!opportunity, opportunityId: meeting.opportunityId });
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
@@ -51,6 +54,7 @@ export const getMeetingDetail = query({
 
     // Load the lead
     const lead = await ctx.db.get(opportunity.leadId);
+    console.log("[Closer:MeetingDetail] lead lookup", { found: !!lead, leadId: opportunity.leadId });
     if (!lead || lead.tenantId !== tenantId) {
       throw new Error("Lead not found");
     }
@@ -111,6 +115,13 @@ export const getMeetingDetail = query({
           : { email: assignedCloser.email }
         : null;
 
+    console.log("[Closer:MeetingDetail] getMeetingDetail completed", {
+      meetingId,
+      meetingHistoryCount: meetingHistory.length,
+      paymentCount: payments.length,
+      hasEventType: !!eventTypeName,
+      hasPaymentLinks: !!paymentLinks,
+    });
     return {
       meeting,
       opportunity,

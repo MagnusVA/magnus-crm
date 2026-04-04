@@ -30,17 +30,20 @@ export const validateInvite = action({
         companyName?: string;
       }
   > => {
+    console.log("[Onboarding:Invite] validateInvite called", { tokenExists: !!token });
     const signingSecret = process.env.INVITE_SIGNING_SECRET;
     if (!signingSecret) {
       throw new Error("Missing INVITE_SIGNING_SECRET");
     }
 
     const payload = validateInviteToken(token, signingSecret);
+    console.log("[Onboarding:Invite] signature validation result", { valid: !!payload });
     const tenant: Doc<"tenants"> | null = payload
       ? await ctx.runQuery(internal.tenants.getByInviteTokenHash, {
           inviteTokenHash: hashInviteToken(token),
         })
       : null;
+    console.log("[Onboarding:Invite] tenant lookup result", { found: !!tenant, tenantId: tenant?._id });
 
     const result =
       !payload
@@ -69,6 +72,11 @@ export const validateInvite = action({
                   contactEmail: tenant.contactEmail,
                 };
 
+    if (!result.valid) {
+      console.warn("[Onboarding:Invite] validation failed", { error: result.error });
+    } else {
+      console.log("[Onboarding:Invite] validation succeeded", { tenantId: result.tenantId });
+    }
     return result;
   },
 });

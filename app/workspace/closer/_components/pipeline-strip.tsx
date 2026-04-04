@@ -4,7 +4,7 @@ import {
   PIPELINE_DISPLAY_ORDER,
   opportunityStatusConfig,
   type OpportunityStatus,
-} from "./status-config";
+} from "@/lib/status-config";
 
 type PipelineStripProps = {
   counts: Record<string, number>;
@@ -24,7 +24,7 @@ export function PipelineStrip({ counts, total }: PipelineStripProps) {
     <section aria-label="Pipeline summary">
       <div className="mb-3 flex items-baseline justify-between">
         <h2 className="text-sm font-medium text-muted-foreground">Pipeline</h2>
-        <span className="text-xs tabular-nums text-muted-foreground">
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">
           {total}&nbsp;{total === 1 ? "opportunity" : "opportunities"}
         </span>
       </div>
@@ -81,7 +81,7 @@ function PipelineCard({
           {label}
         </span>
       </div>
-      <span className="text-2xl font-bold tabular-nums">{count}</span>
+      <span className="text-2xl font-bold font-mono tabular-nums">{count}</span>
     </Link>
   );
 }

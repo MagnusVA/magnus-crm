@@ -8,7 +8,10 @@ import { internalQuery } from "../_generated/server";
 export const getRawEvent = internalQuery({
   args: { rawEventId: v.id("rawWebhookEvents") },
   handler: async (ctx, { rawEventId }) => {
-    return await ctx.db.get(rawEventId);
+    console.log(`[Pipeline] getRawEvent | rawEventId=${rawEventId}`);
+    const event = await ctx.db.get(rawEventId);
+    console.log(`[Pipeline] getRawEvent | ${event ? `found, type=${event.eventType} processed=${event.processed}` : "not found"}`);
+    return event;
   },
 });
 
@@ -22,12 +25,15 @@ export const getLeadByEmail = internalQuery({
     email: v.string(),
   },
   handler: async (ctx, { tenantId, email }) => {
-    return await ctx.db
+    console.log(`[Pipeline] getLeadByEmail | tenantId=${tenantId}`);
+    const lead = await ctx.db
       .query("leads")
       .withIndex("by_tenantId_and_email", (q) =>
         q.eq("tenantId", tenantId).eq("email", email)
       )
       .unique();
+    console.log(`[Pipeline] getLeadByEmail | ${lead ? `found, leadId=${lead._id}` : "not found"}`);
+    return lead;
   },
 });
 
@@ -41,12 +47,15 @@ export const getMeetingByCalendlyEventUri = internalQuery({
     calendlyEventUri: v.string(),
   },
   handler: async (ctx, { tenantId, calendlyEventUri }) => {
-    return await ctx.db
+    console.log(`[Pipeline] getMeetingByCalendlyEventUri | tenantId=${tenantId} eventUri=${calendlyEventUri}`);
+    const meeting = await ctx.db
       .query("meetings")
       .withIndex("by_tenantId_and_calendlyEventUri", (q) =>
         q.eq("tenantId", tenantId).eq("calendlyEventUri", calendlyEventUri)
       )
       .first();
+    console.log(`[Pipeline] getMeetingByCalendlyEventUri | ${meeting ? `found, meetingId=${meeting._id}` : "not found"}`);
+    return meeting;
   },
 });
 
@@ -60,12 +69,15 @@ export const getUserByCalendlyUri = internalQuery({
     calendlyUserUri: v.string(),
   },
   handler: async (ctx, { tenantId, calendlyUserUri }) => {
-    return await ctx.db
+    console.log(`[Pipeline] getUserByCalendlyUri | tenantId=${tenantId} userUri=${calendlyUserUri}`);
+    const user = await ctx.db
       .query("users")
       .withIndex("by_tenantId_and_calendlyUserUri", (q) =>
         q.eq("tenantId", tenantId).eq("calendlyUserUri", calendlyUserUri)
       )
       .unique();
+    console.log(`[Pipeline] getUserByCalendlyUri | ${user ? `found, userId=${user._id} role=${user.role}` : "not found"}`);
+    return user;
   },
 });
 
@@ -79,6 +91,7 @@ export const getFollowUpOpportunity = internalQuery({
     leadId: v.id("leads"),
   },
   handler: async (ctx, { tenantId, leadId }) => {
+    console.log(`[Pipeline] getFollowUpOpportunity | tenantId=${tenantId} leadId=${leadId}`);
     const opportunities = ctx.db
       .query("opportunities")
       .withIndex("by_tenantId_and_leadId", (q) =>
@@ -88,10 +101,12 @@ export const getFollowUpOpportunity = internalQuery({
 
     for await (const opportunity of opportunities) {
       if (opportunity.status === "follow_up_scheduled") {
+        console.log(`[Pipeline] getFollowUpOpportunity | found, opportunityId=${opportunity._id}`);
         return opportunity;
       }
     }
 
+    console.log(`[Pipeline] getFollowUpOpportunity | not found`);
     return null;
   },
 });
@@ -106,11 +121,14 @@ export const getEventTypeConfig = internalQuery({
     calendlyEventTypeUri: v.string(),
   },
   handler: async (ctx, { tenantId, calendlyEventTypeUri }) => {
-    return await ctx.db
+    console.log(`[Pipeline] getEventTypeConfig | tenantId=${tenantId} eventTypeUri=${calendlyEventTypeUri}`);
+    const config = await ctx.db
       .query("eventTypeConfigs")
       .withIndex("by_tenantId_and_calendlyEventTypeUri", (q) =>
         q.eq("tenantId", tenantId).eq("calendlyEventTypeUri", calendlyEventTypeUri)
       )
       .unique();
+    console.log(`[Pipeline] getEventTypeConfig | ${config ? `found, configId=${config._id}` : "not found"}`);
+    return config;
   },
 });

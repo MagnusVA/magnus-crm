@@ -1,11 +1,12 @@
 /**
- * Shared status configuration for closer dashboard components.
+ * Centralised status configuration for the entire application.
  *
- * Centralises labels, badge classes, calendar‑block classes, and pipeline‑strip
- * colors so every surface that renders status uses the same visual language.
+ * Every surface that renders a status (badges, dots, calendar blocks,
+ * pipeline strips, admin tables) MUST use this config to ensure
+ * visual consistency.
  */
 
-// ─── Opportunity statuses ────────────────────────────────────────────────────
+// ─── Opportunity statuses ────────────────────────────────────────────
 
 export const OPPORTUNITY_STATUSES = [
   "scheduled",
@@ -25,7 +26,7 @@ export function isValidOpportunityStatus(
   return (OPPORTUNITY_STATUSES as readonly string[]).includes(value);
 }
 
-// ─── Meeting statuses ────────────────────────────────────────────────────────
+// ─── Meeting statuses ────────────────────────────────────────────────
 
 export const MEETING_STATUSES = [
   "scheduled",
@@ -37,21 +38,35 @@ export const MEETING_STATUSES = [
 
 export type MeetingStatus = (typeof MEETING_STATUSES)[number];
 
-// ─── Opportunity display config ──────────────────────────────────────────────
+// ─── Tenant statuses ────────────────────────────────────────────────
 
-type OpportunityStatusConfig = {
+export const TENANT_STATUSES = [
+  "pending_signup",
+  "pending_calendly",
+  "provisioning_webhooks",
+  "active",
+  "calendly_disconnected",
+  "suspended",
+  "invite_expired",
+] as const;
+
+export type TenantStatus = (typeof TENANT_STATUSES)[number];
+
+// ─── Opportunity display config ──────────────────────────────────────
+
+type StatusVisualConfig = {
   label: string;
   /** Badge background + text classes. */
   badgeClass: string;
-  /** Small status‑dot fill. */
+  /** Small status dot fill. */
   dotClass: string;
-  /** Pipeline‑strip card background. */
+  /** Pipeline strip card background. */
   stripBg: string;
 };
 
 export const opportunityStatusConfig: Record<
   OpportunityStatus,
-  OpportunityStatusConfig
+  StatusVisualConfig
 > = {
   scheduled: {
     label: "Scheduled",
@@ -109,17 +124,15 @@ export const opportunityStatusConfig: Record<
   },
 };
 
-// ─── Meeting block config (calendar) ─────────────────────────────────────────
+// ─── Meeting block config (calendar) ─────────────────────────────────
 
-type MeetingStatusConfig = {
+type MeetingBlockConfig = {
   label: string;
-  /** Calendar block: background + left‑border accent. */
   blockClass: string;
-  /** Calendar block text colour. */
   textClass: string;
 };
 
-export const meetingStatusConfig: Record<MeetingStatus, MeetingStatusConfig> = {
+export const meetingStatusConfig: Record<MeetingStatus, MeetingBlockConfig> = {
   scheduled: {
     label: "Scheduled",
     blockClass: "bg-blue-500/10 border-l-blue-500",
@@ -147,7 +160,63 @@ export const meetingStatusConfig: Record<MeetingStatus, MeetingStatusConfig> = {
   },
 };
 
-// ─── Pipeline strip display order ────────────────────────────────────────────
+// ─── Tenant status config ────────────────────────────────────────────
+
+type TenantStatusConfig = {
+  label: string;
+  badgeVariant: "default" | "secondary" | "destructive" | "outline" | "ghost";
+};
+
+export const tenantStatusConfig: Record<TenantStatus, TenantStatusConfig> = {
+  pending_signup: { label: "Pending Signup", badgeVariant: "outline" },
+  pending_calendly: { label: "Pending Calendly", badgeVariant: "secondary" },
+  provisioning_webhooks: { label: "Provisioning", badgeVariant: "secondary" },
+  active: { label: "Active", badgeVariant: "default" },
+  calendly_disconnected: {
+    label: "Disconnected",
+    badgeVariant: "destructive",
+  },
+  suspended: { label: "Suspended", badgeVariant: "ghost" },
+  invite_expired: { label: "Invite Expired", badgeVariant: "destructive" },
+};
+
+// ─── Connection health config ────────────────────────────────────────
+
+type ConnectionStatusConfig = {
+  label: string;
+  iconClass: string;
+  badgeVariant: "default" | "secondary" | "destructive" | "outline";
+  badgeClass: string;
+};
+
+export const connectionStatusConfig = {
+  connected: {
+    label: "Active",
+    iconClass: "text-emerald-600 dark:text-emerald-400",
+    badgeVariant: "outline" as const,
+    badgeClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+  },
+  expiring: {
+    label: "Expiring Soon",
+    iconClass: "text-amber-600 dark:text-amber-400",
+    badgeVariant: "outline" as const,
+    badgeClass: "bg-amber-500/10 text-amber-700 dark:text-amber-400",
+  },
+  expired: {
+    label: "Token Expired",
+    iconClass: "text-destructive",
+    badgeVariant: "destructive" as const,
+    badgeClass: "",
+  },
+  disconnected: {
+    label: "Disconnected",
+    iconClass: "text-destructive",
+    badgeVariant: "destructive" as const,
+    badgeClass: "",
+  },
+} satisfies Record<string, ConnectionStatusConfig>;
+
+// ─── Pipeline display order ──────────────────────────────────────────
 
 export const PIPELINE_DISPLAY_ORDER: OpportunityStatus[] = [
   "scheduled",

@@ -14,13 +14,14 @@ import { AlertTriangleIcon } from "lucide-react";
  */
 export function UnmatchedBanner() {
   return (
-    <Alert className="border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+    <Alert variant="destructive">
       <AlertTriangleIcon />
       <AlertTitle>Calendly Account Not Linked</AlertTitle>
-      <AlertDescription className="text-amber-800 dark:text-amber-300">
-        Your account is not linked to a Calendly member. Meetings won&apos;t
-        appear on your dashboard until an admin connects your profile. Contact
-        your team administrator to resolve this.
+      <AlertDescription>
+        Your account is not linked to a Calendly team member.
+        Meetings cannot be assigned to you until this is resolved.{" "}
+        <strong>Ask your team admin to link your account</strong> in the{" "}
+        Team settings page.
       </AlertDescription>
     </Alert>
   );
