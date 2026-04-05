@@ -10,14 +10,9 @@ import { useEffect } from "react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { SYSTEM_ADMIN_ORG_ID } from "@/lib/system-admin-org";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const DOT_GRID =
-  "radial-gradient(circle, oklch(1 0 0 / 0.03) 1px, transparent 1px)";
+import { DOT_GRID_STYLE } from "@/lib/dot-grid";
 
 const STEPS = [
   "Leads book meetings through your Calendly link",
@@ -99,14 +94,15 @@ export default function Home() {
   return (
     <div
       className="flex min-h-screen flex-col bg-background"
-      style={{ backgroundImage: DOT_GRID, backgroundSize: "24px 24px" }}
+      style={DOT_GRID_STYLE}
     >
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-5">
         <span className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
           Magnus CRM
         </span>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
           <Button asChild variant="outline" size="sm">
             <Link href="/sign-in">Sign In</Link>
           </Button>

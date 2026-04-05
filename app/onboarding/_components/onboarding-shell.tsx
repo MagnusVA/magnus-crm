@@ -1,10 +1,8 @@
 "use client";
 
 import Link from "next/link";
-
-const DOT_GRID = [
-  "radial-gradient(circle, oklch(1 0 0 / 0.03) 1px, transparent 1px)",
-].join(", ");
+import { ThemeToggle } from "@/components/theme-toggle";
+import { DOT_GRID_STYLE } from "@/lib/dot-grid";
 
 /**
  * Shared centered layout for onboarding pages.
@@ -16,19 +14,17 @@ export function OnboardingShell({ children }: { children: React.ReactNode }) {
   return (
     <div
       className="relative flex min-h-screen w-full flex-col items-center bg-background"
-      style={{
-        backgroundImage: DOT_GRID,
-        backgroundSize: "24px 24px",
-      }}
+      style={DOT_GRID_STYLE}
     >
       {/* Wordmark */}
-      <header className="w-full px-6 pt-6">
+      <header className="flex w-full items-center justify-between px-6 pt-6">
         <Link
           href="/"
           className="inline-block text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           Magnus
         </Link>
+        <ThemeToggle />
       </header>
 
       {/* Centered content */}

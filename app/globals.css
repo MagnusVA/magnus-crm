@@ -81,6 +81,8 @@
   --sidebar-accent-foreground: oklch(0.218 0.008 223.9);
   --sidebar-border: oklch(0.925 0.005 214.3);
   --sidebar-ring: oklch(0.723 0.014 214.4);
+  /* Dot-grid overlay — theme-aware so the pattern is visible in both modes */
+  --dot-grid: oklch(0 0 0 / 0.06);
   /* Status colors — used by lib/status-config.ts */
   --status-scheduled: oklch(0.623 0.214 259.1);
   --status-in-progress: oklch(0.769 0.188 70.08);
@@ -92,6 +94,7 @@
 }
 
 .dark {
+  --dot-grid: oklch(1 0 0 / 0.03);
   --background: oklch(0.148 0.004 228.8);
   --foreground: oklch(0.987 0.002 197.1);
   --card: oklch(0.218 0.008 223.9);

@@ -35,6 +35,7 @@ import {
 import { WorkspaceBreadcrumbs } from "@/components/workspace-breadcrumbs";
 import { CommandPaletteTrigger } from "@/components/command-palette-trigger";
 import { NotificationCenter } from "@/components/notification-center";
+import { ThemeToggle } from "@/components/theme-toggle";
 import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
 
 // Dynamic import for command palette (vercel-react-best-practices: bundle-dynamic-imports)
@@ -241,6 +242,7 @@ function WorkspaceShellInner({
           <WorkspaceBreadcrumbs />
           <div className="ml-auto flex items-center gap-2">
             <CommandPaletteTrigger />
+            <ThemeToggle />
             <NotificationCenter />
           </div>
         </header>

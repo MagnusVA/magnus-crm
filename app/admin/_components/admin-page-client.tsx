@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/badge";
@@ -38,6 +39,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+import { DOT_GRID_STYLE } from "@/lib/dot-grid";
 import dynamic from "next/dynamic";
 import type { CreateTenantPayload } from "./create-tenant-dialog";
 import type { ResetTenantResult } from "./reset-tenant-dialog";
@@ -54,10 +56,6 @@ const ResetTenantDialog = dynamic(() =>
 );
 
 type TenantStatus = Doc<"tenants">["status"];
-
-const DOT_GRID = [
-  "radial-gradient(circle, oklch(1 0 0 / 0.03) 1px, transparent 1px)",
-].join(", ");
 
 const PAGE_SIZE = 25;
 
@@ -122,7 +120,7 @@ export function AdminPageClient() {
   return (
     <div
       className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8"
-      style={{ backgroundImage: DOT_GRID, backgroundSize: "24px 24px" }}
+      style={DOT_GRID_STYLE}
     >
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -138,7 +136,8 @@ export function AdminPageClient() {
               monitor tenant setup progress.
             </p>
           </div>
-          <div className="flex shrink-0 gap-2">
+          <div className="flex shrink-0 items-center gap-2">
+            <ThemeToggle />
             <Button
               variant="outline"
               aria-label="Sign out"
