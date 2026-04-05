@@ -4,4 +4,4 @@
  * All consumers — Convex functions AND Next.js routes — must
  * import from here (directly or via re-export).
  */
-export const SYSTEM_ADMIN_ORG_ID = "org_01KN2GSWBZAQWJ2CBRAZ6CSVBP";
+export const SYSTEM_ADMIN_ORG_ID = process.env.SYSTEM_ADMIN_ORG_ID!;
