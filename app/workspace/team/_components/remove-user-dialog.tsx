@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -31,6 +32,7 @@ export function RemoveUserDialog({
   userName,
   onSuccess,
 }: RemoveUserDialogProps) {
+  const router = useRouter();
   const [isRemoving, setIsRemoving] = useState(false);
   const removeUser = useAction(api.workos.userManagement.removeUser);
 
@@ -41,6 +43,8 @@ export function RemoveUserDialog({
       toast.success(`${userName} has been removed from the team`);
       onOpenChange(false);
       onSuccess?.();
+      // Re-run server components so the team list and nav reflect the removal
+      router.refresh();
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Failed to remove user",

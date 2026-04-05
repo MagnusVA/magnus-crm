@@ -9,6 +9,7 @@ import {
   CheckCircle2Icon,
   CircleAlertIcon,
   ExternalLinkIcon,
+  LogOutIcon,
   RadioIcon,
   Settings2Icon,
 } from "lucide-react";
@@ -204,6 +205,9 @@ function LoadingCard() {
 // ---------------------------------------------------------------------------
 
 function ErrorCard({ message }: { message: string }) {
+  const { user, signOut } = useAuth();
+  const isAuthed = !!user;
+
   return (
     <div className="w-full max-w-sm motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-safe:duration-500">
       <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
@@ -221,9 +225,19 @@ function ErrorCard({ message }: { message: string }) {
             </p>
           </div>
           <div className="flex flex-col gap-2.5 pt-1">
-            <Button asChild size="lg" className="w-full">
-              <Link href="/sign-in">Sign In</Link>
-            </Button>
+            {isAuthed ? (
+              <Button
+                size="lg"
+                className="w-full"
+                onClick={() => signOut()}
+              >
+                Sign Out
+              </Button>
+            ) : (
+              <Button asChild size="lg" className="w-full">
+                <Link href="/sign-in">Sign In</Link>
+              </Button>
+            )}
             <Button asChild variant="outline" className="w-full">
               <Link href="/">Return Home</Link>
             </Button>
@@ -266,6 +280,7 @@ function ConnectCard({
   calendlyStatus: string | null;
   calendlyError: string | null;
 }) {
+  const { signOut } = useAuth();
   const initial = companyName.charAt(0).toUpperCase() || "C";
   const calendlyConnected = calendlyStatus === "connected";
   const errorCode = calendlyError ?? "";
@@ -425,6 +440,21 @@ function ConnectCard({
           <p className="text-center text-xs text-muted-foreground">
             Calendly connection is required to activate the workspace.
           </p>
+
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full text-muted-foreground"
+            onClick={() => signOut()}
+          >
+            <LogOutIcon
+              className="size-4 shrink-0"
+              data-icon="inline-start"
+              aria-hidden="true"
+            />
+            Sign out
+          </Button>
         </div>
       </div>
     </div>

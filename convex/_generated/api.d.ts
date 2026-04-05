@@ -43,6 +43,7 @@ import type * as lib_constants from "../lib/constants.js";
 import type * as lib_identity from "../lib/identity.js";
 import type * as lib_inviteToken from "../lib/inviteToken.js";
 import type * as lib_opportunityMeetingRefs from "../lib/opportunityMeetingRefs.js";
+import type * as lib_permissions from "../lib/permissions.js";
 import type * as lib_roleMapping from "../lib/roleMapping.js";
 import type * as lib_statusTransitions from "../lib/statusTransitions.js";
 import type * as lib_validation from "../lib/validation.js";
@@ -113,6 +114,7 @@ declare const fullApi: ApiFromModules<{
   "lib/identity": typeof lib_identity;
   "lib/inviteToken": typeof lib_inviteToken;
   "lib/opportunityMeetingRefs": typeof lib_opportunityMeetingRefs;
+  "lib/permissions": typeof lib_permissions;
   "lib/roleMapping": typeof lib_roleMapping;
   "lib/statusTransitions": typeof lib_statusTransitions;
   "lib/validation": typeof lib_validation;

@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import { withAuth } from "@workos-inc/authkit-nextjs";
-import { fetchMutation, fetchQuery } from "convex/nextjs";
+import { fetchAction, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { SYSTEM_ADMIN_ORG_ID } from "@/lib/system-admin-org";
 import type { Doc } from "@/convex/_generated/dataModel";
@@ -80,8 +80,8 @@ const resolveCrmUser = cache(async (session: VerifiedSession) => {
   );
 
   if (!crmUser) {
-    await fetchMutation(
-      api.workos.userMutations.claimInvitedAccount,
+    await fetchAction(
+      api.workos.userActions.claimInvitedAccount,
       {},
       { token: session.accessToken }
     );
@@ -164,10 +164,10 @@ export async function requireWorkspaceUser() {
  */
 export async function requireRole(allowedRoles: CrmRole[]) {
   const access = await requireWorkspaceUser();
+  const fallback =
+    access.crmUser.role === "closer" ? "/workspace/closer" : "/workspace";
 
   if (!allowedRoles.includes(access.crmUser.role)) {
-    const fallback =
-      access.crmUser.role === "closer" ? "/workspace/closer" : "/workspace";
     redirect(fallback);
   }
 
@@ -187,3 +187,31 @@ export async function requireSystemAdmin() {
 
   return session;
 }
+
+// ---------------------------------------------------------------------------
+// Phase 6 — WorkOS Session Refresh Integration Points
+// ---------------------------------------------------------------------------
+//
+// When WorkOS permissions become the authoritative source for authorization
+// (replacing CRM role lookups in this layer), the following changes are needed:
+//
+// 1. After role-changing mutations in Server Actions, call:
+//
+//    import { refreshSession } from "@workos-inc/authkit-nextjs";
+//    await refreshSession();
+//
+//    This updates the session cookie with the latest WorkOS membership role
+//    and permissions so that subsequent requests to getWorkspaceAccess()
+//    can read permissions directly from the session instead of querying CRM.
+//
+// 2. Update getWorkspaceAccess() to read permissions from session claims:
+//
+//    const { permissions } = session;
+//    // Use permissions instead of (or in addition to) crmUser.role
+//
+// 3. Update requireRole() to accept permission slugs as an alternative to
+//    CRM role arrays, allowing a gradual migration path.
+//
+// Until Phase 6 is implemented, CRM role data remains the authoritative
+// source and session claims are not trusted for authorization decisions.
+// ---------------------------------------------------------------------------

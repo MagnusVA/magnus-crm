@@ -20,10 +20,7 @@ import {
   SettingsIcon,
   CalendarIcon,
 } from "lucide-react";
-
-interface CommandPaletteProps {
-  isAdmin: boolean;
-}
+import { useRole } from "@/components/auth/role-context";
 
 // Hoisted static page definitions (vercel-react-best-practices: rendering-hoist-jsx)
 const adminPages = [
@@ -39,8 +36,9 @@ const closerPages = [
   { label: "My Schedule", href: "/workspace/closer", icon: CalendarIcon, shortcut: "3" },
 ];
 
-export function CommandPalette({ isAdmin }: CommandPaletteProps) {
+export function CommandPalette() {
   const router = useRouter();
+  const { isAdmin } = useRole();
   const [open, setOpen] = useState(false);
 
   // Global keyboard shortcut: Cmd+K or Ctrl+K

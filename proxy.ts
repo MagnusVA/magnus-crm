@@ -23,6 +23,14 @@ export default async function proxy(request: NextRequest) {
   const { session, headers, authorizationUrl } = await authkit(request);
   const { pathname } = request.nextUrl;
 
+  if (pathname === "/" && session.user && session.organizationId) {
+    if (session.organizationId === SYSTEM_ADMIN_ORG_ID) {
+      return handleAuthkitHeaders(request, headers, {
+        redirect: "/admin",
+      });
+    }
+  }
+
   // Public paths bypass auth entirely
   if (isPublicPath(pathname)) {
     return handleAuthkitHeaders(request, headers);

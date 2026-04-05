@@ -1,3 +1,4 @@
+import { type ReactNode } from "react";
 import { getWorkspaceAccess } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { WorkspaceShell } from "./_components/workspace-shell";
@@ -6,7 +7,7 @@ import { NotProvisionedScreen } from "./_components/not-provisioned-screen";
 export default async function WorkspaceLayout({
   children,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   const access = await getWorkspaceAccess();
 

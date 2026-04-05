@@ -101,6 +101,9 @@ export function CalendlyConnectionGuard({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  // This component is mounted in ConvexClientProvider (app root), OUTSIDE the
+  // workspace RoleProvider tree. It cannot use useRole(). Instead it queries
+  // getCurrentUser directly and skips the query on non-workspace routes.
   const currentUser = useQuery(
     api.users.queries.getCurrentUser,
     pathname.startsWith("/workspace") ? {} : "skip",
@@ -109,7 +112,8 @@ export function CalendlyConnectionGuard({
     pathname.startsWith("/workspace") &&
     currentUser !== undefined &&
     currentUser !== null &&
-    (currentUser.role === "tenant_master" || currentUser.role === "tenant_admin");
+    (currentUser.role === "tenant_master" ||
+      currentUser.role === "tenant_admin");
   const connectionStatus = useQuery(
     api.calendly.oauthQueries.getConnectionStatus,
     canCheckConnection ? {} : "skip",

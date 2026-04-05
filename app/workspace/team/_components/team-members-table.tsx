@@ -27,6 +27,7 @@ import {
   EmptyDescription,
 } from "@/components/ui/empty";
 import { SortableHeader } from "@/components/sortable-header";
+import { RequirePermission } from "@/components/auth/require-permission";
 import {
   EllipsisVerticalIcon,
   AlertCircleIcon,
@@ -196,29 +197,33 @@ export function TeamMembersTable({
                                 : "Re-link Calendly"}
                             </DropdownMenuItem>
                           )}
-                          {canEditRole && (
-                            <DropdownMenuItem
-                              onClick={() => onEditRole(member._id, member.role)}
-                            >
-                              <ShieldIcon data-icon="inline-start" />
-                              Edit Role
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuGroup>
-                        {canRemove && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuGroup>
+                          <RequirePermission permission="team:update-role">
+                            {canEditRole && (
                               <DropdownMenuItem
-                                onClick={() => onRemoveUser(member._id)}
-                                variant="destructive"
+                                onClick={() => onEditRole(member._id, member.role)}
                               >
-                                <Trash2Icon data-icon="inline-start" />
-                                Remove User
+                                <ShieldIcon data-icon="inline-start" />
+                                Edit Role
                               </DropdownMenuItem>
-                            </DropdownMenuGroup>
-                          </>
-                        )}
+                            )}
+                          </RequirePermission>
+                        </DropdownMenuGroup>
+                        <RequirePermission permission="team:remove">
+                          {canRemove && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuGroup>
+                                <DropdownMenuItem
+                                  onClick={() => onRemoveUser(member._id)}
+                                  variant="destructive"
+                                >
+                                  <Trash2Icon data-icon="inline-start" />
+                                  Remove User
+                                </DropdownMenuItem>
+                              </DropdownMenuGroup>
+                            </>
+                          )}
+                        </RequirePermission>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   ) : null}

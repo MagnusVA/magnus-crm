@@ -166,6 +166,30 @@ const standardAuthHandler = handleAuth({
     state,
   }) => {
     const onboardingOrgId = getOnboardingOrgId(state);
+    // #region agent log
+    fetch("http://127.0.0.1:7558/ingest/9b7221bc-3886-480d-9572-12346f2530bc", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Debug-Session-Id": "78a0ba",
+      },
+      body: JSON.stringify({
+        sessionId: "78a0ba",
+        runId: "initial",
+        hypothesisId: "H2",
+        location: "app/callback/route.ts:169",
+        message: "callback onSuccess received auth context",
+        data: {
+          hasRefreshToken: Boolean(refreshToken),
+          hasState: Boolean(state),
+          organizationId: organizationId ?? null,
+          onboardingOrgId: onboardingOrgId ?? null,
+          hasUser: Boolean(user),
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
     console.log("[AuthDebug:Callback] onSuccess", {
       userId: user.id,
       email: user.email,

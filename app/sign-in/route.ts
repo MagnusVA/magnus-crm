@@ -13,5 +13,6 @@ export async function GET(request: NextRequest) {
     organizationId,
     returnTo,
   });
+
   redirect(authorizationUrl);
 }

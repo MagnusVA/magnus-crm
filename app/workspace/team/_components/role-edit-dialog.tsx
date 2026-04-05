@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -47,6 +48,7 @@ export function RoleEditDialog({
   currentRole,
   onSuccess,
 }: RoleEditDialogProps) {
+  const router = useRouter();
   const [selectedRole, setSelectedRole] = useState<CrmRole>(
     currentRole as CrmRole,
   );
@@ -65,6 +67,8 @@ export function RoleEditDialog({
       toast.success(`${userName}'s role updated to ${roleOptions.find((r) => r.value === selectedRole)?.label}`);
       onOpenChange(false);
       onSuccess?.();
+      // Re-run server components so getWorkspaceAccess() picks up fresh CRM data
+      router.refresh();
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Failed to update role",

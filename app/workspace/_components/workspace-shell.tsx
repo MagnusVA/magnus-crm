@@ -6,6 +6,7 @@ import { useAuth } from "@workos-inc/authkit-nextjs/components";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import type { CrmRole } from "@/convex/lib/roleMapping";
+import { RoleProvider, useRole } from "@/components/auth/role-context";
 import {
   Sidebar,
   SidebarContent,
@@ -27,6 +28,7 @@ import {
   LayoutDashboardIcon,
   LogOutIcon,
   SettingsIcon,
+  type LucideIcon,
   UserCircleIcon,
   UsersIcon,
 } from "lucide-react";
@@ -52,7 +54,7 @@ const CommandPalette = dynamic(
 type NavItem = {
   href: string;
   label: string;
-  icon: React.ComponentType;
+  icon: LucideIcon;
   exact?: boolean;
 };
 
@@ -85,13 +87,54 @@ export function WorkspaceShell({
   initialEmail,
   children,
 }: WorkspaceShellProps) {
+  return (
+    <RoleProvider initialRole={initialRole}>
+      <WorkspaceShellInner
+        initialDisplayName={initialDisplayName}
+        initialEmail={initialEmail}
+      >
+        {children}
+      </WorkspaceShellInner>
+    </RoleProvider>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inner shell — consumes RoleProvider so nav and UI update reactively
+// when the user's CRM role changes mid-session.
+// (vercel-composition-patterns: state-lift-state)
+// ---------------------------------------------------------------------------
+
+function WorkspaceShellInner({
+  initialDisplayName,
+  initialEmail,
+  children,
+}: {
+  initialDisplayName: string;
+  initialEmail: string;
+  children: ReactNode;
+}) {
+  const { isAdmin, role } = useRole();
   const { signOut } = useAuth();
   const pathname = usePathname();
   const router = useRouter();
+  const displayName = initialDisplayName || initialEmail;
 
-  const isAdmin =
-    initialRole === "tenant_master" || initialRole === "tenant_admin";
   const navItems = isAdmin ? adminNavItems : closerNavItems;
+
+  // TODO [Phase 6]: When WorkOS permissions become authoritative, call
+  // refreshAuth() (from useAuth) after role-changing flows complete. This
+  // updates the client-side session state to match the latest WorkOS
+  // membership.
+  //
+  // Example:
+  //   const { refreshAuth } = useAuth();
+  //   // Pass refreshAuth to dialogs or call it from an event handler
+  //   // after role mutations succeed.
+  //
+  // This is not needed in Phase 5 because authorization reads fresh CRM
+  // role data on every server request, and the RoleProvider subscription
+  // handles client-side updates via useQuery(getCurrentUser).
 
   // Navigation shortcuts: Cmd+1 through Cmd+4
   useKeyboardShortcut({
@@ -116,8 +159,6 @@ export function WorkspaceShell({
   });
 
   return (
-    // Phase 4: RoleProvider will wrap this entire return block.
-    // For now, initialRole is used directly for nav/UI decisions.
     <SidebarProvider>
       <a
         href="#main-content"
@@ -127,7 +168,6 @@ export function WorkspaceShell({
       </a>
       <Sidebar>
         <SidebarHeader>
-          {/* Brand wordmark — links to role-appropriate home */}
           <Link
             href={isAdmin ? "/workspace" : "/workspace/closer"}
             className="flex items-center gap-2 px-2 py-1.5"
@@ -137,13 +177,10 @@ export function WorkspaceShell({
             </span>
           </Link>
           <Separator className="mx-2" />
-          {/* User info */}
           <div className="flex flex-col gap-1 px-2 py-1.5">
-            <p className="truncate text-sm font-medium">
-              {initialDisplayName}
-            </p>
+            <p className="truncate text-sm font-medium">{displayName}</p>
             <p className="text-xs capitalize text-sidebar-foreground/70">
-              {initialRole.replace(/_/g, " ")}
+              {role.replace(/_/g, " ")}
             </p>
           </div>
         </SidebarHeader>
@@ -207,12 +244,15 @@ export function WorkspaceShell({
             <NotificationCenter />
           </div>
         </header>
-        <div id="main-content" className="flex-1 overflow-auto p-6" tabIndex={-1}>
+        <div
+          id="main-content"
+          className="flex-1 overflow-auto p-6"
+          tabIndex={-1}
+        >
           {children}
         </div>
       </SidebarInset>
-      {/* Command palette — lazy loaded, rendered outside the sidebar */}
-      <CommandPalette isAdmin={isAdmin} />
+      <CommandPalette />
     </SidebarProvider>
   );
 }

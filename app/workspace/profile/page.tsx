@@ -1,120 +1,16 @@
-"use client";
-
-import { useQuery } from "convex/react";
+import { requireWorkspaceUser } from "@/lib/auth";
+import { preloadQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
-import { usePageTitle } from "@/hooks/use-page-title";
-import {
-  UserIcon,
-  MailIcon,
-  ShieldIcon,
-  CalendarIcon,
-} from "lucide-react";
+import { ProfilePageClient } from "./_components/profile-page-client";
 
-export default function ProfilePage() {
-  usePageTitle("Profile");
-  const user = useQuery(api.users.queries.getCurrentUser);
+export default async function ProfilePage() {
+  const { session } = await requireWorkspaceUser();
 
-  if (user === undefined) {
-    return <ProfileSkeleton />;
-  }
-
-  if (user === null) {
-    return null;
-  }
-
-  return (
-    <div className="mx-auto max-w-2xl flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">My Profile</h1>
-        <p className="text-sm text-muted-foreground">
-          Your account information and settings
-        </p>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Account</CardTitle>
-          <CardDescription>
-            Your profile is managed through your organization&apos;s identity
-            provider.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex flex-col gap-4">
-            <InfoRow
-              icon={UserIcon}
-              label="Name"
-              value={user.fullName ?? "Not set"}
-            />
-            <Separator />
-            <InfoRow icon={MailIcon} label="Email" value={user.email} />
-            <Separator />
-            <InfoRow
-              icon={ShieldIcon}
-              label="Role"
-              value={
-                <Badge variant="secondary" className="capitalize">
-                  {user.role.replace(/_/g, " ")}
-                </Badge>
-              }
-            />
-            <Separator />
-            <InfoRow
-              icon={CalendarIcon}
-              label="Calendly"
-              value={
-                user.calendlyUserUri ? (
-                  <Badge variant="default">Linked</Badge>
-                ) : (
-                  <Badge variant="outline">Not linked</Badge>
-                )
-              }
-            />
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+  const preloadedProfile = await preloadQuery(
+    api.users.queries.getCurrentUser,
+    {},
+    { token: session.accessToken },
   );
-}
 
-function InfoRow({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: React.ComponentType;
-  label: string;
-  value: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-3 text-sm">
-        <Icon />
-        <span className="text-muted-foreground">{label}</span>
-      </div>
-      <div className="text-sm font-medium">{value}</div>
-    </div>
-  );
-}
-
-function ProfileSkeleton() {
-  return (
-    <div className="mx-auto max-w-2xl flex flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <Skeleton className="h-8 w-32" />
-        <Skeleton className="h-4 w-64" />
-      </div>
-      <Skeleton className="h-64 rounded-xl" />
-    </div>
-  );
+  return <ProfilePageClient preloadedProfile={preloadedProfile} />;
 }

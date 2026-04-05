@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery, useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -38,6 +39,7 @@ interface InviteUserDialogProps {
 }
 
 export function InviteUserDialog({ onSuccess }: InviteUserDialogProps) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [role, setRole] = useState<CrmRole>("closer");
 
@@ -94,6 +96,8 @@ export function InviteUserDialog({ onSuccess }: InviteUserDialogProps) {
       setOpen(false);
       resetForm();
       onSuccess?.();
+      // Re-run server components so the team list reflects the new invite
+      router.refresh();
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Failed to invite user",
