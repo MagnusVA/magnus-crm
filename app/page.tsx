@@ -32,17 +32,24 @@ const STEPS = [
 export default function Home() {
   const router = useRouter();
   const { isAuthenticated, isLoading } = useConvexAuth();
-  const { user, organizationId } = useAuth();
+  const { user, organizationId, loading: authLoading } = useAuth();
+  const isSystemAdmin = organizationId === SYSTEM_ADMIN_ORG_ID;
   const tenant = useQuery(
     api.tenants.getCurrentTenant,
-    isAuthenticated && organizationId !== SYSTEM_ADMIN_ORG_ID ? {} : "skip",
+    isAuthenticated && !authLoading && !!user && !!organizationId && !isSystemAdmin
+      ? {}
+      : "skip",
   );
 
   useEffect(() => {
-    if (isLoading || !isAuthenticated || !user) return;
+    if (isLoading || authLoading || !isAuthenticated || !user) return;
 
-    if (organizationId === SYSTEM_ADMIN_ORG_ID) {
+    if (isSystemAdmin) {
       router.replace("/admin");
+      return;
+    }
+
+    if (!organizationId) {
       return;
     }
 
@@ -56,14 +63,24 @@ export default function Home() {
     }
 
     router.replace("/onboarding/connect");
-  }, [isAuthenticated, isLoading, organizationId, router, tenant, user]);
+  }, [
+    authLoading,
+    isAuthenticated,
+    isLoading,
+    isSystemAdmin,
+    organizationId,
+    router,
+    tenant,
+    user,
+  ]);
 
   // Authenticated users are being redirected — show a loading pill
   if (
     isLoading ||
+    authLoading ||
     (isAuthenticated &&
       user &&
-      (organizationId === SYSTEM_ADMIN_ORG_ID || tenant === undefined))
+      (!organizationId || isSystemAdmin || tenant === undefined))
   ) {
     return (
       <div

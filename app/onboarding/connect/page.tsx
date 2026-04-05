@@ -18,6 +18,7 @@ import { Suspense, useEffect, useState } from "react";
 
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
+import { SYSTEM_ADMIN_ORG_ID } from "@/lib/system-admin-org";
 
 import { OnboardingShell, PulsingDots } from "../_components/onboarding-shell";
 
@@ -58,15 +59,19 @@ function ConnectCalendlyPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, isLoading: convexLoading } = useConvexAuth();
-  const { user, organizationId } = useAuth();
-  const tenant = useQuery(api.tenants.getCurrentTenant, isAuthenticated ? {} : "skip");
+  const { user, organizationId, loading: authLoading } = useAuth();
+  const orgId = organizationId ?? undefined;
+  const isSystemAdmin = orgId === SYSTEM_ADMIN_ORG_ID;
+  const tenant = useQuery(
+    api.tenants.getCurrentTenant,
+    isAuthenticated && !authLoading && !isSystemAdmin ? {} : "skip",
+  );
   const redeemInvite = useMutation(
     api.onboarding.complete.redeemInviteAndCreateUser,
   );
   const [state, setState] = useState<RedeemState>({ status: "loading" });
-  const orgId = organizationId ?? undefined;
 
-  const immediateErrorMessage = convexLoading
+  const immediateErrorMessage = convexLoading || authLoading
     ? null
     : !isAuthenticated || !user
       ? "You need to sign in before completing onboarding."
@@ -75,15 +80,32 @@ function ConnectCalendlyPageContent() {
         : null;
 
   useEffect(() => {
+    if (authLoading || convexLoading || !isAuthenticated || !user) {
+      return;
+    }
+
+    if (isSystemAdmin) {
+      router.replace("/admin");
+      return;
+    }
+
     if (tenant?.status === "active") {
       router.replace("/workspace");
     }
-  }, [router, tenant?.status]);
+  }, [
+    authLoading,
+    convexLoading,
+    isAuthenticated,
+    isSystemAdmin,
+    router,
+    tenant?.status,
+    user,
+  ]);
 
   useEffect(() => {
     let active = true;
 
-    if (convexLoading || immediateErrorMessage || !orgId) {
+    if (authLoading || convexLoading || isSystemAdmin || immediateErrorMessage || !orgId) {
       return;
     }
 
@@ -116,7 +138,14 @@ function ConnectCalendlyPageContent() {
     return () => {
       active = false;
     };
-  }, [convexLoading, immediateErrorMessage, orgId, redeemInvite]);
+  }, [
+    authLoading,
+    convexLoading,
+    immediateErrorMessage,
+    isSystemAdmin,
+    orgId,
+    redeemInvite,
+  ]);
 
   if (immediateErrorMessage) {
     return (

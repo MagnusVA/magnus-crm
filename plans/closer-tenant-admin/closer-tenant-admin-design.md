@@ -68,7 +68,7 @@
 
 | Actor | Identity | WorkOS Role Slug | Key Permissions | How they authenticate |
 |---|---|---|---|---|
-| **System Admin** | Us (developers / operators) | N/A (system admin org) | Full system access | WorkOS AuthKit, member of system admin org `org_01KN2GSWBZAQWJ2CBRAZ6CSVBP` |
+| **System Admin** | Us (developers / operators) | N/A (system admin org) | Full system access | WorkOS AuthKit, member of system admin org (ID set via `SYSTEM_ADMIN_ORG_ID` env var) |
 | **Tenant Owner** | The customer who onboarded (completed Calendly OAuth) | `owner` | Full tenant access, programmatic user management via CRM, Calendly re-auth | WorkOS AuthKit, member of their tenant's WorkOS org |
 | **Tenant Admin** | Operational administrator added by the Owner | `tenant-admin` | Near-full tenant access, Calendly token refresh, programmatic user management via CRM | WorkOS AuthKit, same tenant org |
 | **Closer** | Frontline sales operator added by Owner/Admin | `closer` | Own pipeline view, calendar, meeting execution, outcome logging, payment capture | WorkOS AuthKit, same tenant org |

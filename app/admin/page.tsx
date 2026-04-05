@@ -74,9 +74,9 @@ const PAGE_SIZE = 25;
 export default function AdminPage() {
   usePageTitle("Admin Console");
   const { isAuthenticated, isLoading } = useConvexAuth();
-  const { organizationId, signOut } = useAuth();
+  const { organizationId, signOut, loading: authLoading } = useAuth();
   const isSystemAdmin = organizationId === SYSTEM_ADMIN_ORG_ID;
-  const canQuery = isAuthenticated && isSystemAdmin;
+  const canQuery = isAuthenticated && !authLoading && isSystemAdmin;
 
   const [statusFilter, setStatusFilter] = useState<TenantStatus | undefined>(
     undefined,
@@ -138,7 +138,7 @@ export default function AdminPage() {
 
   // ---- Gate states ----
 
-  if (isLoading) {
+  if (isLoading || authLoading) {
     return <GateScreen label="Loading admin workspace" />;
   }
 

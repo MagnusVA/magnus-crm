@@ -292,7 +292,7 @@ export const createTenantInvite = action({
     const orgId = (identity as any).organization_id
       ?? (identity as any).organizationId
       ?? (identity as any).org_id;
-    const SYSTEM_ADMIN_ORG_ID = "org_01KN2GSWBZAQWJ2CBRAZ6CSVBP";
+    const SYSTEM_ADMIN_ORG_ID = process.env.SYSTEM_ADMIN_ORG_ID!;
     if (orgId !== undefined && orgId !== SYSTEM_ADMIN_ORG_ID) {
       throw new Error("Not authorized for this organization.");
     }

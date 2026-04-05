@@ -108,27 +108,13 @@ The challenge: Convex backend code runs in a different environment than Next.js 
  * All consumers — Convex functions AND Next.js routes — must
  * import from here (directly or via re-export).
  */
-export const SYSTEM_ADMIN_ORG_ID = "org_01KN2GSWBZAQWJ2CBRAZ6CSVBP";
+export const SYSTEM_ADMIN_ORG_ID = process.env.SYSTEM_ADMIN_ORG_ID!;
 ```
 
-Update the Convex consumer:
-
-```typescript
-// convex/requireSystemAdmin.ts
-import { SYSTEM_ADMIN_ORG_ID } from "./lib/constants";
-// Remove the local const declaration.
-```
-
-Update the Next.js re-export:
-
-```typescript
-// lib/system-admin-org.ts
-// Re-export from the single source of truth in the Convex directory.
-export { SYSTEM_ADMIN_ORG_ID } from "../convex/lib/constants";
-```
+The value is now read from the `SYSTEM_ADMIN_ORG_ID` Convex deployment environment variable. All consumers import from `convex/lib/constants.ts`.
 
 **Verification:**
-- `grep -rn "org_01KN2GSWBZAQWJ2CBRAZ6CSVBP"` returns only `convex/lib/constants.ts`.
+- `grep -rn "org_01"` returns no matches in source code (only plan docs with redacted placeholders).
 - Next.js build succeeds (`pnpm build`).
 - `npx convex dev` compiles without errors.
 - Admin login still works (constant value unchanged).

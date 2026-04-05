@@ -3,20 +3,30 @@ Always use pnpm for installing packages and running scripts from package.json.
 
 Plans are to be setup and or read or referenced in plans/\*/\*\*
 
-Thats where we will have
+That's where we will have
 plans/featureset/design.md
 as well as
 plans/featureset/phases/phase1.md
 plans/featureset/phases/phase2.md
 so on and so forth.
 
-For **Calendly** (OAuth, API v2, webhooks, scopes, rate limits), start from `.docs/calendly/index.md`. It indexes the local mirror under `.docs/calendly/` so agents can open the right file without guessing paths.
+## Local documentation (`.docs/`)
+
+Use these indexes and mirrors before guessing paths or relying only on training data:
+
+| Area                 | Start here                                                         | Notes                                                                                                    |
+| -------------------- | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| **Calendly**         | `.docs/calendly/index.md`                                          | OAuth, API v2, webhooks, scopes, rate limits; indexes the local mirror under `.docs/calendly/`           |
+| **Convex + Next.js** | `.docs/convex/nextjs.md`, `.docs/convex/module-nextjs.md`          | App Router overview, SSR, `convex/nextjs` (`preloadQuery`, `fetchQuery`, `fetchMutation`, `fetchAction`) |
+| **PostHog**          | `.docs/posthog/nextjs-setup.md`, `.docs/posthog/posthog-convex.md` | Next.js analytics setup; `@posthog/convex` (events, flags from Convex)                                   |
 
 <!-- BEGIN:nextjs-agent-rules -->
 
 # This is NOT the Next.js you know
 
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
+
+For **Convex-specific** Next.js usage (SSR, preloading, server components), also read `.docs/convex/nextjs.md` and `.docs/convex/module-nextjs.md`.
 
 <!-- END:nextjs-agent-rules -->
 
@@ -30,14 +40,11 @@ Convex agent skills for common tasks can be installed by running `npx convex ai-
 
 <!-- convex-ai-end -->
 
-## Available Skills Index
+## Available skills (this repository)
 
-Invoke skills using the Skill tool when their trigger conditions are met. This ensures the model has specialized context and guidance for the task.
+Repo-local skills live under **`.agents/skills/<skill-name>/SKILL.md`**. When a task matches a skill’s purpose, read that file and follow it (in Cursor, use the Read tool; in Claude Code, use the Skill tool when available).
 
-| Skill                | When to Invoke                                           | Key Trigger Words                                                    |
-| -------------------- | -------------------------------------------------------- | -------------------------------------------------------------------- |
-| **update-config**    | Configure Claude Code harness behavior via settings.json | "configure Claude Code", "set up hooks", "automated behavior"        |
-| **keybindings-help** | Customize keyboard shortcuts or rebind keys              | "rebind", "keybinding", "keyboard shortcut", "change the submit key" |
+Editor- or harness-specific skills may also exist outside this repo (for example Cursor user skills); the table below lists only skills **checked into** `.agents/skills/`.
 
 ### Code Quality & Performance
 
@@ -63,6 +70,7 @@ Invoke skills using the Skill tool when their trigger conditions are met. This e
 | --------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------- |
 | **convex-quickstart**       | Initialize Convex project or add Convex to existing app | "new Convex project", "add Convex", "convex init", "setup Convex"               |
 | **convex-setup-auth**       | Setup Convex authentication with user management        | "add login", "setup auth", "Convex Auth", "Clerk", "Auth0", "WorkOS AuthKit"    |
+| **convex-workos-auth**      | WorkOS AuthKit events/actions and auth sync in Convex   | "@convex-dev/workos-authkit", "AuthKit webhooks", "sync WorkOS users to Convex" |
 | **convex-migration-helper** | Plan and execute Convex schema and data migrations      | "schema migration", "deployment fails", "widen-migrate-narrow", "backfill data" |
 | **convex-create-component** | Design and build isolated Convex components             | "create Convex component", "extract backend logic", "component with boundaries" |
 
@@ -71,9 +79,3 @@ Invoke skills using the Skill tool when their trigger conditions are met. This e
 | Skill      | When to Invoke                                          | Key Trigger Words                                                                 |
 | ---------- | ------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | **workos** | Implement or debug WorkOS (auth, SSO, SAML, SCIM, RBAC) | "WorkOS", "SSO", "SAML", "Directory Sync", "organization", "roles", "permissions" |
-
-### Discovery & Help
-
-| Skill           | When to Invoke                                         | Key Trigger Words                                                              |
-| --------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------ |
-| **find-skills** | Discover and install agent skills for new capabilities | "how do I do X", "is there a skill for", "find a skill", "extend capabilities" |

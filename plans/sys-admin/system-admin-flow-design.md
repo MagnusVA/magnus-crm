@@ -50,7 +50,7 @@
 
 | Actor | Identity | How they authenticate |
 |---|---|---|
-| **System Admin** | Us (the developers / operators) | WorkOS AuthKit, member of the system admin org `org_01KN2GSWBZAQWJ2CBRAZ6CSVBP` |
+| **System Admin** | Us (the developers / operators) | WorkOS AuthKit, member of the system admin org (ID set via `SYSTEM_ADMIN_ORG_ID` env var) |
 | **Tenant Master** | The customer / business owner | WorkOS AuthKit, member of their own WorkOS organization (created during onboarding) |
 
 The system admin org is hardcoded in `convex/requireSystemAdmin.ts` and `lib/system-admin-org.ts`. All admin mutations validate membership via `ctx.auth.getUserIdentity()` against this org ID.

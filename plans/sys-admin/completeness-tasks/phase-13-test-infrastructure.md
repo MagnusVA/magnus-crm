@@ -131,7 +131,7 @@ export function createMockIdentity(overrides?: {
 
 export function createSystemAdminIdentity() {
   return createMockIdentity({
-    organization_id: "org_01KN2GSWBZAQWJ2CBRAZ6CSVBP",
+    organization_id: process.env.SYSTEM_ADMIN_ORG_ID!,
   });
 }
 
