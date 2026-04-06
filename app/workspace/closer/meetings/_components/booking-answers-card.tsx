@@ -11,7 +11,6 @@ import {
   Collapsible,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Separator } from "@/components/ui/separator";
 import { ChevronDownIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +29,7 @@ type BookingAnswersCardProps = {
  * - Uses <dl>/<dt>/<dd> for semantic correctness (question → answer pairs).
  * - Hides entirely when customFields is absent / empty / malformed.
  * - Long answers (>120 chars) collapse behind a Collapsible toggle.
+ * - Uses a responsive 2-column grid to stay compact in wide containers.
  */
 export function BookingAnswersCard({ customFields }: BookingAnswersCardProps) {
   if (!isStringRecord(customFields)) return null;
@@ -45,9 +45,9 @@ export function BookingAnswersCard({ customFields }: BookingAnswersCardProps) {
         <CardTitle className="text-base">Booking Answers</CardTitle>
       </CardHeader>
       <CardContent>
-        <dl className="flex flex-col gap-3">
-          {entries.map(([question, answer], index) => (
-            <div key={question}>
+        <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+          {entries.map(([question, answer]) => (
+            <div key={question} className="min-w-0">
               <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {question}
               </dt>
@@ -57,9 +57,6 @@ export function BookingAnswersCard({ customFields }: BookingAnswersCardProps) {
                 <dd className={cn("mt-1", answerTextClasses)}>
                   {answer}
                 </dd>
-              )}
-              {index < entries.length - 1 && (
-                <Separator className="mt-3" />
               )}
             </div>
           ))}

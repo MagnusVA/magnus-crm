@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
-import { PlayIcon, InfoIcon } from "lucide-react";
+import { PlayIcon, InfoIcon, ClockIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { Doc } from "@/convex/_generated/dataModel";
 
@@ -29,6 +29,49 @@ type OutcomeActionBarProps = {
   onStatusChanged?: () => Promise<void>;
 };
 
+const EARLY_JOIN_MINUTES = 5;
+const TICK_INTERVAL_MS = 15_000; // re-check every 15 seconds
+
+/**
+ * Returns whether the current time falls within the meeting's start window:
+ * from 5 minutes before `scheduledAt` until `scheduledAt + durationMinutes`.
+ */
+function useMeetingStartWindow(meeting: Doc<"meetings">) {
+  const computeState = useCallback(() => {
+    const now = Date.now();
+    const windowOpen = meeting.scheduledAt - EARLY_JOIN_MINUTES * 60 * 1000;
+    const windowClose =
+      meeting.scheduledAt + meeting.durationMinutes * 60 * 1000;
+
+    if (now < windowOpen) {
+      return { canStart: false, reason: "too_early" as const, windowOpen };
+    }
+    if (now > windowClose) {
+      return { canStart: false, reason: "too_late" as const, windowClose };
+    }
+    return { canStart: true, reason: null, windowOpen };
+  }, [meeting.scheduledAt, meeting.durationMinutes]);
+
+  const [state, setState] = useState(computeState);
+
+  useEffect(() => {
+    // Recalculate immediately in case deps changed
+    setState(computeState());
+
+    const interval = setInterval(() => setState(computeState()), TICK_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [computeState]);
+
+  return state;
+}
+
+function formatTime(timestamp: number) {
+  return new Date(timestamp).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
 /**
  * Outcome Action Bar — contextual action buttons on the meeting detail page.
  *
@@ -48,6 +91,7 @@ export function OutcomeActionBar({
 }: OutcomeActionBarProps) {
   const startMeeting = useMutation(api.closer.meetingActions.startMeeting);
   const [isStarting, setIsStarting] = useState(false);
+  const { canStart, reason, windowOpen } = useMeetingStartWindow(meeting);
 
   const isScheduled = meeting.status === "scheduled";
   const isInProgress = opportunity.status === "in_progress";
@@ -79,11 +123,11 @@ export function OutcomeActionBar({
   return (
     <div className="flex flex-col gap-3 border-t pt-4">
       <div className="flex flex-wrap items-center gap-3">
-        {/* Start Meeting — only when scheduled */}
+        {/* Start Meeting — only when scheduled & within the start window */}
         {isScheduled && (
           <Button
             onClick={handleStartMeeting}
-            disabled={isStarting}
+            disabled={isStarting || !canStart}
             size="lg"
           >
             {isStarting ? (
@@ -135,12 +179,32 @@ export function OutcomeActionBar({
       </div>
 
       {/* Contextual help */}
-      {isScheduled && (
+      {isScheduled && canStart && (
         <Alert>
           <InfoIcon />
           <AlertDescription>
             Click &ldquo;Start Meeting&rdquo; to open Zoom and mark the call as
             in progress.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {isScheduled && reason === "too_early" && (
+        <Alert>
+          <ClockIcon />
+          <AlertDescription>
+            This meeting can be started at {formatTime(windowOpen!)}, 5 minutes
+            before the scheduled time. The button will enable automatically.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {isScheduled && reason === "too_late" && (
+        <Alert variant="destructive">
+          <ClockIcon />
+          <AlertDescription>
+            The scheduled time for this meeting has passed. The meeting can no
+            longer be started.
           </AlertDescription>
         </Alert>
       )}

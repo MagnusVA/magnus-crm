@@ -27,6 +27,7 @@ import { MeetingInfoPanel } from "../../_components/meeting-info-panel";
 import { MeetingNotes } from "../../_components/meeting-notes";
 import { PaymentLinksPanel } from "../../_components/payment-links-panel";
 import { OutcomeActionBar } from "../../_components/outcome-action-bar";
+import { BookingAnswersCard } from "../../_components/booking-answers-card";
 
 type MeetingDetailData = {
   meeting: Doc<"meetings">;
@@ -106,6 +107,7 @@ export function MeetingDetailPageClient({
             eventTypeName={eventTypeName}
             assignedCloser={assignedCloser}
           />
+          <BookingAnswersCard customFields={lead.customFields} />
           <MeetingNotes
             meetingId={meeting._id}
             initialNotes={meeting.notes ?? ""}
