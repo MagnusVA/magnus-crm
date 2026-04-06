@@ -9,6 +9,7 @@ import {
 import { cn } from "@/lib/utils";
 import { UserIcon, MailIcon, PhoneIcon } from "lucide-react";
 import { MeetingHistoryTimeline } from "./meeting-history-timeline";
+import { BookingAnswersCard } from "./booking-answers-card";
 import type { Doc } from "@/convex/_generated/dataModel";
 
 type LeadInfoPanelProps = {
@@ -79,6 +80,9 @@ export function LeadInfoPanel({ lead, meetingHistory }: LeadInfoPanelProps) {
           )}
         </CardContent>
       </Card>
+
+      {/* Booking Answers */}
+      <BookingAnswersCard customFields={lead.customFields} />
 
       {/* Meeting History */}
       {meetingHistory.length > 0 && (
