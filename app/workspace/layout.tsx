@@ -1,43 +1,18 @@
-import { type ReactNode } from "react";
-import { getWorkspaceAccess } from "@/lib/auth";
-import { redirect } from "next/navigation";
-import { WorkspaceShell } from "./_components/workspace-shell";
-import { NotProvisionedScreen } from "./_components/not-provisioned-screen";
+import { type ReactNode, Suspense } from "react";
+import { WorkspaceShellFrame } from "./_components/workspace-shell-frame";
+import { WorkspaceAuth } from "./_components/workspace-auth";
+import { WorkspaceShellSkeleton } from "./_components/workspace-shell-skeleton";
 
-export default async function WorkspaceLayout({
+export default function WorkspaceLayout({
   children,
 }: {
   children: ReactNode;
 }) {
-  const access = await getWorkspaceAccess();
-
-  switch (access.kind) {
-    // System admins should use the admin panel, not the workspace
-    case "system_admin":
-      redirect("/admin");
-
-    // Pending tenants should complete onboarding first
-    case "pending_onboarding":
-      redirect("/onboarding/connect");
-
-    // No tenant or not provisioned: show a friendly message
-    case "no_tenant":
-    case "not_provisioned":
-      return <NotProvisionedScreen />;
-
-    // Tenant is active and user is provisioned: render the workspace shell
-    case "ready":
-      return (
-        <WorkspaceShell
-          initialRole={access.crmUser.role}
-          initialDisplayName={access.crmUser.fullName ?? access.crmUser.email}
-          initialEmail={access.crmUser.email}
-          workosUserId={access.crmUser.workosUserId}
-          workosOrgId={access.tenant.workosOrgId}
-          tenantName={access.tenant.companyName}
-        >
-          {children}
-        </WorkspaceShell>
-      );
-  }
+  return (
+    <WorkspaceShellFrame>
+      <Suspense fallback={<WorkspaceShellSkeleton />}>
+        <WorkspaceAuth>{children}</WorkspaceAuth>
+      </Suspense>
+    </WorkspaceShellFrame>
+  );
 }

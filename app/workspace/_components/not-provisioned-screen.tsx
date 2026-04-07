@@ -18,7 +18,7 @@ import { SignOutButton } from "./sign-out-button";
  */
 export function NotProvisionedScreen() {
   return (
-    <div className="flex h-screen items-center justify-center">
+    <div className="flex flex-1 h-screen items-center justify-center">
       <Empty>
         <EmptyHeader>
           <EmptyMedia variant="icon">

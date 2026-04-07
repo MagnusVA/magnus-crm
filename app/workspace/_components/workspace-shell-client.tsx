@@ -1,13 +1,3 @@
-/**
- * @deprecated This component has been split into three parts:
- * - WorkspaceShellFrame (static server shell)
- * - WorkspaceAuth (Suspense-wrapped auth resolver)
- * - WorkspaceShellClient (auth-dependent client shell)
- *
- * See app/workspace/layout.tsx for the new composition.
- * This file can be deleted once all imports are updated.
- */
-
 "use client";
 
 import { type ReactNode } from "react";
@@ -29,7 +19,6 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
@@ -84,10 +73,10 @@ const closerNavItems: NavItem[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// WorkspaceShell
+// WorkspaceShellClient
 // ---------------------------------------------------------------------------
 
-interface WorkspaceShellProps {
+interface WorkspaceShellClientProps {
   initialRole: CrmRole;
   initialDisplayName: string;
   initialEmail: string;
@@ -97,7 +86,22 @@ interface WorkspaceShellProps {
   children: ReactNode;
 }
 
-export function WorkspaceShell({
+/**
+ * Auth-dependent client shell that streams in after auth resolves.
+ *
+ * Renders the full sidebar structure (Sidebar + SidebarInset) inside
+ * the SidebarProvider context from WorkspaceShellFrame. This replaces
+ * the WorkspaceShellSkeleton when the Suspense boundary resolves.
+ *
+ * SidebarProvider is intentionally NOT rendered here — it lives in
+ * WorkspaceShellFrame above the Suspense boundary so sidebar open/close
+ * state is preserved during streaming and Activity transitions.
+ *
+ * @see vercel-composition-patterns: state-lift-state, architecture-compound-components
+ * @see vercel-react-best-practices: rendering-activity (state preservation via Activity)
+ * @see next-best-practices: rsc-boundaries (serializable props from server)
+ */
+export function WorkspaceShellClient({
   initialRole,
   initialDisplayName,
   initialEmail,
@@ -105,10 +109,10 @@ export function WorkspaceShell({
   workosOrgId,
   tenantName,
   children,
-}: WorkspaceShellProps) {
+}: WorkspaceShellClientProps) {
   return (
     <RoleProvider initialRole={initialRole}>
-      <WorkspaceShellInner
+      <WorkspaceShellClientInner
         initialDisplayName={initialDisplayName}
         initialEmail={initialEmail}
         initialRole={initialRole}
@@ -117,7 +121,7 @@ export function WorkspaceShell({
         tenantName={tenantName}
       >
         {children}
-      </WorkspaceShellInner>
+      </WorkspaceShellClientInner>
     </RoleProvider>
   );
 }
@@ -128,7 +132,7 @@ export function WorkspaceShell({
 // (vercel-composition-patterns: state-lift-state)
 // ---------------------------------------------------------------------------
 
-function WorkspaceShellInner({
+function WorkspaceShellClientInner({
   initialDisplayName,
   initialEmail,
   initialRole,
@@ -136,15 +140,7 @@ function WorkspaceShellInner({
   workosOrgId,
   tenantName,
   children,
-}: {
-  initialDisplayName: string;
-  initialEmail: string;
-  initialRole: CrmRole;
-  workosUserId: string;
-  workosOrgId: string;
-  tenantName: string;
-  children: ReactNode;
-}) {
+}: Omit<WorkspaceShellClientProps, "initialRole"> & { initialRole: CrmRole }) {
   const { isAdmin, role } = useRole();
   const { signOut } = useAuth();
   const pathname = usePathname();
@@ -206,13 +202,7 @@ function WorkspaceShellInner({
   });
 
   return (
-    <SidebarProvider>
-      <a
-        href="#main-content"
-        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-background focus:px-4 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground focus:shadow-lg focus:ring-2 focus:ring-ring"
-      >
-        Skip to content
-      </a>
+    <>
       <Sidebar>
         <SidebarHeader>
           <Link
@@ -232,6 +222,7 @@ function WorkspaceShellInner({
           </div>
         </SidebarHeader>
         <SidebarContent>
+          {/* Sidebar nav items */}
           <SidebarGroup>
             <SidebarGroupLabel>Navigation</SidebarGroupLabel>
             <SidebarGroupContent>
@@ -259,6 +250,8 @@ function WorkspaceShellInner({
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
+
+        {/* Sidebar footer — user info and sign out */}
         <SidebarFooter>
           <SidebarMenu>
             <SidebarMenuItem>
@@ -281,6 +274,7 @@ function WorkspaceShellInner({
           </SidebarMenu>
         </SidebarFooter>
       </Sidebar>
+
       <SidebarInset>
         <header className="flex h-12 items-center gap-2 border-b px-4">
           <SidebarTrigger aria-label="Toggle sidebar" />
@@ -300,7 +294,9 @@ function WorkspaceShellInner({
           {children}
         </div>
       </SidebarInset>
+
+      {/* Command palette — global overlay */}
       <CommandPalette />
-    </SidebarProvider>
+    </>
   );
 }
