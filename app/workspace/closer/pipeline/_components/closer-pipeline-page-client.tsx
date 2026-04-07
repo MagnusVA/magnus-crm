@@ -15,6 +15,7 @@ import {
   isValidOpportunityStatus,
   type OpportunityStatus,
 } from "@/lib/status-config";
+import posthog from "posthog-js";
 
 export function CloserPipelinePageClient() {
   return (
@@ -43,6 +44,9 @@ function CloserPipelineContent() {
   const handleStatusChange = useCallback(
     (status: OpportunityStatus | undefined) => {
       setStatusFilter(status);
+      posthog.capture("pipeline_status_filter_changed", {
+        status: status ?? "all",
+      });
       const params = new URLSearchParams(searchParams.toString());
       if (status) {
         params.set("status", status);

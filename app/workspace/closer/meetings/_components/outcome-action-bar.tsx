@@ -10,6 +10,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { PlayIcon, InfoIcon, ClockIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { Doc } from "@/convex/_generated/dataModel";
+import posthog from "posthog-js";
 
 // Lazy-load dialog components that are only shown on user interaction
 const MarkLostDialog = dynamic(() =>
@@ -105,7 +106,15 @@ export function OutcomeActionBar({
       }
       await onStatusChanged?.();
       toast.success("Meeting started");
+      posthog.capture("meeting_started", {
+        meeting_id: meeting._id,
+        opportunity_id: opportunity._id,
+        has_zoom_url: Boolean(result.zoomJoinUrl),
+        scheduled_at: meeting.scheduledAt,
+        duration_minutes: meeting.durationMinutes,
+      });
     } catch (error) {
+      posthog.captureException(error);
       toast.error(
         error instanceof Error ? error.message : "Failed to start meeting",
       );

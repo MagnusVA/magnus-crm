@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
+import posthog from "posthog-js";
 
 interface RemoveUserDialogProps {
   open: boolean;
@@ -40,12 +41,16 @@ export function RemoveUserDialog({
     setIsRemoving(true);
     try {
       await removeUser({ userId });
+      posthog.capture("team_member_removed", {
+        removed_user_id: userId,
+      });
       toast.success(`${userName} has been removed from the team`);
       onOpenChange(false);
       onSuccess?.();
       // Re-run server components so the team list and nav reflect the removal
       router.refresh();
     } catch (error) {
+      posthog.captureException(error);
       toast.error(
         error instanceof Error ? error.message : "Failed to remove user",
       );

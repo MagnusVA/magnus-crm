@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import posthog from "posthog-js";
 import { connectionStatusConfig } from "@/lib/status-config";
 
 interface ConnectionStatus {
@@ -81,6 +82,10 @@ export function CalendlyConnection({
   };
 
   const handleReconnect = () => {
+    posthog.capture("calendly_reconnected", {
+      was_connected: isConnected,
+      needs_reconnect: connectionStatus.needsReconnect,
+    });
     window.location.href = "/api/calendly/start";
   };
 

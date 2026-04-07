@@ -26,6 +26,7 @@ import {
   CopyIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+import posthog from "posthog-js";
 
 type FollowUpDialogProps = {
   opportunityId: Id<"opportunities">;
@@ -71,8 +72,12 @@ export function FollowUpDialog({
       const result = await createFollowUp({ opportunityId });
       setBookingUrl(result.bookingUrl);
       await onSuccess?.();
+      posthog.capture("follow_up_link_generated", {
+        opportunity_id: opportunityId,
+      });
       setState("success");
     } catch (err: unknown) {
+      posthog.captureException(err);
       const message =
         err instanceof Error
           ? err.message
@@ -88,6 +93,9 @@ export function FollowUpDialog({
       try {
         await navigator.clipboard.writeText(bookingUrl);
         setCopied(true);
+        posthog.capture("follow_up_link_copied", {
+          opportunity_id: opportunityId,
+        });
         toast.success("Scheduling link copied to clipboard");
         setTimeout(() => setCopied(false), 2000);
       } catch {

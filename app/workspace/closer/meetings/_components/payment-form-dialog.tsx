@@ -33,6 +33,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { BanknoteIcon, AlertCircleIcon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
+import posthog from "posthog-js";
 
 const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY"];
 const PROVIDERS = [
@@ -163,10 +164,20 @@ export function PaymentFormDialog({
       await onSuccess?.();
 
       // Success
+      posthog.capture("payment_logged", {
+        opportunity_id: opportunityId,
+        meeting_id: meetingId,
+        amount: parsedAmount,
+        currency,
+        provider,
+        has_reference_code: Boolean(referenceCode),
+        has_proof_file: Boolean(proofFileId),
+      });
       toast.success("Payment logged successfully");
       setOpen(false);
       resetForm();
     } catch (err: unknown) {
+      posthog.captureException(err);
       const message =
         err instanceof Error
           ? err.message

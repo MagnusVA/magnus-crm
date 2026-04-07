@@ -19,6 +19,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { AlertTriangleIcon, XCircleIcon } from "lucide-react";
 import { toast } from "sonner";
+import posthog from "posthog-js";
 
 type MarkLostDialogProps = {
   opportunityId: Id<"opportunities">;
@@ -51,10 +52,15 @@ export function MarkLostDialog({
         reason: reason.trim() || undefined,
       });
       await onSuccess?.();
+      posthog.capture("opportunity_marked_lost", {
+        opportunity_id: opportunityId,
+        has_reason: Boolean(reason.trim()),
+      });
       toast.success("Opportunity marked as lost");
       setOpen(false);
       setReason("");
     } catch (error) {
+      posthog.captureException(error);
       toast.error(
         error instanceof Error ? error.message : "Failed to mark as lost",
       );

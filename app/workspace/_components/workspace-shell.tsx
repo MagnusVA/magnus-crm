@@ -37,6 +37,8 @@ import { CommandPaletteTrigger } from "@/components/command-palette-trigger";
 import { NotificationCenter } from "@/components/notification-center";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
+import { usePostHogIdentify } from "@/hooks/use-posthog-identify";
+import posthog from "posthog-js";
 
 // Dynamic import for command palette (vercel-react-best-practices: bundle-dynamic-imports)
 const CommandPalette = dynamic(
@@ -79,6 +81,9 @@ interface WorkspaceShellProps {
   initialRole: CrmRole;
   initialDisplayName: string;
   initialEmail: string;
+  workosUserId: string;
+  workosOrgId: string;
+  tenantName: string;
   children: ReactNode;
 }
 
@@ -86,6 +91,9 @@ export function WorkspaceShell({
   initialRole,
   initialDisplayName,
   initialEmail,
+  workosUserId,
+  workosOrgId,
+  tenantName,
   children,
 }: WorkspaceShellProps) {
   return (
@@ -93,6 +101,10 @@ export function WorkspaceShell({
       <WorkspaceShellInner
         initialDisplayName={initialDisplayName}
         initialEmail={initialEmail}
+        initialRole={initialRole}
+        workosUserId={workosUserId}
+        workosOrgId={workosOrgId}
+        tenantName={tenantName}
       >
         {children}
       </WorkspaceShellInner>
@@ -109,10 +121,18 @@ export function WorkspaceShell({
 function WorkspaceShellInner({
   initialDisplayName,
   initialEmail,
+  initialRole,
+  workosUserId,
+  workosOrgId,
+  tenantName,
   children,
 }: {
   initialDisplayName: string;
   initialEmail: string;
+  initialRole: CrmRole;
+  workosUserId: string;
+  workosOrgId: string;
+  tenantName: string;
   children: ReactNode;
 }) {
   const { isAdmin, role } = useRole();
@@ -122,6 +142,22 @@ function WorkspaceShellInner({
   const displayName = initialDisplayName || initialEmail;
 
   const navItems = isAdmin ? adminNavItems : closerNavItems;
+
+  // Identify user in PostHog with full context
+  usePostHogIdentify({
+    workosUserId,
+    email: initialEmail,
+    name: initialDisplayName,
+    role: initialRole,
+    workosOrgId,
+    tenantName,
+  });
+
+  const handleSignOut = () => {
+    posthog.capture("user_signed_out");
+    posthog.reset();
+    signOut();
+  };
 
   // TODO [Phase 6]: When WorkOS permissions become authoritative, call
   // refreshAuth() (from useAuth) after role-changing flows complete. This
@@ -225,7 +261,7 @@ function WorkspaceShellInner({
             </SidebarMenuItem>
             <SidebarMenuItem>
               <SidebarMenuButton
-                onClick={() => signOut()}
+                onClick={handleSignOut}
                 tooltip="Sign out"
               >
                 <LogOutIcon />

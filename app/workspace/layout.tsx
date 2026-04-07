@@ -32,6 +32,9 @@ export default async function WorkspaceLayout({
           initialRole={access.crmUser.role}
           initialDisplayName={access.crmUser.fullName ?? access.crmUser.email}
           initialEmail={access.crmUser.email}
+          workosUserId={access.crmUser.workosUserId}
+          workosOrgId={access.tenant.workosOrgId}
+          tenantName={access.tenant.companyName}
         >
           {children}
         </WorkspaceShell>

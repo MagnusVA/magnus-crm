@@ -21,6 +21,7 @@ import {
 import { PaymentLinkEditor } from "./payment-link-editor";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
+import posthog from "posthog-js";
 
 interface PaymentLink {
   provider: string;
@@ -77,10 +78,16 @@ export function EventTypeConfigDialog({
         roundRobinEnabled,
       });
 
+      posthog.capture("event_type_config_saved", {
+        calendly_event_type_uri: config.calendlyEventTypeUri,
+        round_robin_enabled: roundRobinEnabled,
+        payment_link_count: paymentLinks.length,
+      });
       toast.success("Event type configuration saved");
       onOpenChange(false);
       onSuccess?.();
     } catch (error) {
+      posthog.captureException(error);
       toast.error(
         error instanceof Error ? error.message : "Failed to save configuration"
       );

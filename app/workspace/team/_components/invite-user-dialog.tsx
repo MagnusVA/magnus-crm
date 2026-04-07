@@ -31,6 +31,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { PlusIcon } from "lucide-react";
+import posthog from "posthog-js";
 
 type CrmRole = "closer" | "tenant_admin";
 
@@ -92,6 +93,10 @@ export function InviteUserDialog({ onSuccess }: InviteUserDialogProps) {
             : undefined,
       });
 
+      posthog.capture("team_member_invited", {
+        role,
+        has_calendly_member: role === "closer",
+      });
       toast.success("User invited successfully");
       setOpen(false);
       resetForm();
@@ -99,6 +104,7 @@ export function InviteUserDialog({ onSuccess }: InviteUserDialogProps) {
       // Re-run server components so the team list reflects the new invite
       router.refresh();
     } catch (error) {
+      posthog.captureException(error);
       toast.error(
         error instanceof Error ? error.message : "Failed to invite user",
       );
