@@ -65,13 +65,11 @@ async function resolveAssignedCloserId(
   tenantId: Id<"tenants">,
   hostUserUri: string | undefined,
 ): Promise<Id<"users"> | undefined> {
-  const tenant = await ctx.db.get(tenantId);
-
   console.log(`[Pipeline:invitee.created] Resolving closer | hostUserUri=${hostUserUri ?? "none"}`);
 
   if (!hostUserUri) {
-    console.log(`[Pipeline:invitee.created] No host URI, using tenant owner: ${tenant?.tenantOwnerId}`);
-    return tenant?.tenantOwnerId;
+    console.warn("[Pipeline:invitee.created] No host URI on scheduled event; leaving opportunity unassigned");
+    return undefined;
   }
 
   const directUser = await ctx.db
@@ -100,9 +98,9 @@ async function resolveAssignedCloserId(
   }
 
   console.warn(
-    `[Pipeline:invitee.created] Unmatched Calendly host URI: ${hostUserUri}. Falling back to tenant owner: ${tenant?.tenantOwnerId}`,
+    `[Pipeline:invitee.created] Unmatched Calendly host URI: ${hostUserUri}. Leaving opportunity unassigned.`,
   );
-  return tenant?.tenantOwnerId;
+  return undefined;
 }
 
 export const process = internalMutation({
@@ -201,8 +199,12 @@ export const process = internalMutation({
       : [];
     const primaryMembership = eventMemberships.find(isRecord);
     const hostUserUri = primaryMembership ? getString(primaryMembership, "user") : undefined;
+    const hostCalendlyEmail = primaryMembership ? getString(primaryMembership, "user_email") : undefined;
+    const hostCalendlyName = primaryMembership ? getString(primaryMembership, "user_name") : undefined;
     const assignedCloserId = await resolveAssignedCloserId(ctx, tenantId, hostUserUri);
-    console.log(`[Pipeline:invitee.created] Assigned closer resolved | closerId=${assignedCloserId ?? "none"}`);
+    console.log(
+      `[Pipeline:invitee.created] Assigned closer resolved | closerId=${assignedCloserId ?? "none"} hostEmail=${hostCalendlyEmail ?? "none"}`,
+    );
 
     let eventTypeConfigId: Id<"eventTypeConfigs"> | undefined;
     if (eventTypeUri) {
@@ -250,8 +252,10 @@ export const process = internalMutation({
       await ctx.db.patch(opportunityId, {
         status: "scheduled",
         calendlyEventUri,
-        assignedCloserId:
-          assignedCloserId ?? existingFollowUp.assignedCloserId ?? undefined,
+        assignedCloserId,
+        hostCalendlyUserUri: hostUserUri,
+        hostCalendlyEmail,
+        hostCalendlyName,
         eventTypeConfigId:
           eventTypeConfigId ?? existingFollowUp.eventTypeConfigId ?? undefined,
         updatedAt: now,
@@ -272,6 +276,9 @@ export const process = internalMutation({
         tenantId,
         leadId: lead._id,
         assignedCloserId,
+        hostCalendlyUserUri: hostUserUri,
+        hostCalendlyEmail,
+        hostCalendlyName,
         eventTypeConfigId,
         status: "scheduled",
         calendlyEventUri,

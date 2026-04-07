@@ -55,7 +55,7 @@ export const getMeetingsForRange = query({
 
     const myMeetings = [];
     for await (const meeting of meetings) {
-      if (oppIds.has(meeting.opportunityId)) {
+      if (oppIds.has(meeting.opportunityId) && meeting.status !== "canceled") {
         myMeetings.push(meeting);
       }
     }

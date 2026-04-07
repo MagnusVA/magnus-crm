@@ -21,6 +21,7 @@ type LeadSummary = {
 type UserSummary = {
   fullName?: string;
   email: string;
+  role: Doc<"users">["role"];
 };
 
 type MeetingSummary = {
@@ -127,6 +128,7 @@ export const listOpportunitiesForAdmin = query({
         closerById.set(closerId, {
           fullName: closer.fullName,
           email: closer.email,
+          role: closer.role,
         });
       }
     }
@@ -177,6 +179,7 @@ export const listOpportunitiesForAdmin = query({
         const closer = opportunity.assignedCloserId
           ? closerById.get(opportunity.assignedCloserId)
           : undefined;
+        const assignedCloser = closer?.role === "closer" ? closer : undefined;
         const eventTypeName = opportunity.eventTypeConfigId
           ? eventTypeById.get(opportunity.eventTypeConfigId)
           : undefined;
@@ -190,8 +193,12 @@ export const listOpportunitiesForAdmin = query({
           ...opportunity,
           leadName: lead?.fullName ?? lead?.email ?? "Unknown",
           leadEmail: lead?.email,
-          closerName: closer?.fullName ?? closer?.email ?? "Unassigned",
-          closerEmail: closer?.email,
+          closerName:
+            assignedCloser?.fullName ?? assignedCloser?.email ?? "Unassigned",
+          closerEmail: assignedCloser?.email,
+          hostCalendlyUserUri: opportunity.hostCalendlyUserUri ?? null,
+          hostCalendlyEmail: opportunity.hostCalendlyEmail ?? null,
+          hostCalendlyName: opportunity.hostCalendlyName ?? null,
           eventTypeName: eventTypeName ?? null,
           latestMeetingId: latestMeeting?._id ?? null,
           latestMeetingAt: latestMeeting?.scheduledAt ?? null,

@@ -50,6 +50,7 @@ import type * as lib_validation from "../lib/validation.js";
 import type * as lib_workosUserId from "../lib/workosUserId.js";
 import type * as onboarding_complete from "../onboarding/complete.js";
 import type * as onboarding_invite from "../onboarding/invite.js";
+import type * as opportunities_maintenance from "../opportunities/maintenance.js";
 import type * as opportunities_queries from "../opportunities/queries.js";
 import type * as pipeline_inviteeCanceled from "../pipeline/inviteeCanceled.js";
 import type * as pipeline_inviteeCreated from "../pipeline/inviteeCreated.js";
@@ -121,6 +122,7 @@ declare const fullApi: ApiFromModules<{
   "lib/workosUserId": typeof lib_workosUserId;
   "onboarding/complete": typeof onboarding_complete;
   "onboarding/invite": typeof onboarding_invite;
+  "opportunities/maintenance": typeof opportunities_maintenance;
   "opportunities/queries": typeof opportunities_queries;
   "pipeline/inviteeCanceled": typeof pipeline_inviteeCanceled;
   "pipeline/inviteeCreated": typeof pipeline_inviteeCreated;

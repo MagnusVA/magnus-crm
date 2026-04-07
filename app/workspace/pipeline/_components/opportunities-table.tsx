@@ -40,6 +40,9 @@ interface Opportunity {
   leadEmail?: string;
   closerName: string;
   closerEmail?: string;
+  hostCalendlyUserUri?: string | null;
+  hostCalendlyEmail?: string | null;
+  hostCalendlyName?: string | null;
   eventTypeName?: string | null;
   nextMeetingAt?: number | null;
   latestMeetingAt?: number | null;
@@ -185,9 +188,25 @@ export function OpportunitiesTable({ opportunities }: OpportunitiesTableProps) {
                 </TableCell>
                 <TableCell className="text-muted-foreground">
                   {opp.closerName === "Unassigned" ? (
-                    <Badge variant="secondary">Unassigned</Badge>
+                    <div className="flex flex-col gap-1">
+                      <div>
+                        <Badge variant="secondary">Unassigned</Badge>
+                      </div>
+                      {opp.hostCalendlyEmail ? (
+                        <span className="text-xs text-muted-foreground">
+                          {opp.hostCalendlyEmail}
+                        </span>
+                      ) : null}
+                    </div>
                   ) : (
-                    opp.closerName
+                    <div className="flex flex-col gap-0.5">
+                      <span>{opp.closerName}</span>
+                      {opp.closerEmail ? (
+                        <span className="text-xs text-muted-foreground">
+                          {opp.closerEmail}
+                        </span>
+                      ) : null}
+                    </div>
                   )}
                 </TableCell>
                 <TableCell>

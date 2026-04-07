@@ -135,7 +135,11 @@ function PipelineContent() {
                 opportunities.map((opportunity) => [
                   opportunity.leadName ?? "",
                   opportunity.leadEmail ?? "",
-                  opportunity.closerName ?? "Unassigned",
+                  opportunity.closerName === "Unassigned"
+                    ? opportunity.hostCalendlyEmail
+                      ? `Unassigned (${opportunity.hostCalendlyEmail})`
+                      : "Unassigned"
+                    : opportunity.closerName ?? "Unassigned",
                   opportunity.status,
                   format(opportunity.createdAt, "yyyy-MM-dd HH:mm"),
                 ]),

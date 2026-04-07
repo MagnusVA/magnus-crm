@@ -120,6 +120,9 @@ export default defineSchema({
     tenantId: v.id("tenants"),
     leadId: v.id("leads"),
     assignedCloserId: v.optional(v.id("users")),
+    hostCalendlyUserUri: v.optional(v.string()),
+    hostCalendlyEmail: v.optional(v.string()),
+    hostCalendlyName: v.optional(v.string()),
     eventTypeConfigId: v.optional(v.id("eventTypeConfigs")),
     status: v.union(
       v.literal("scheduled"),
