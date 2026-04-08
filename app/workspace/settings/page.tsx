@@ -4,6 +4,8 @@ import { ADMIN_ROLES } from "@/convex/lib/roleMapping";
 import { requireRole } from "@/lib/auth";
 import { SettingsPageClient } from "./_components/settings-page-client";
 
+export const unstable_instant = { prefetch: "static" };
+
 export default async function SettingsPage() {
   const { session } = await requireRole(ADMIN_ROLES);
 

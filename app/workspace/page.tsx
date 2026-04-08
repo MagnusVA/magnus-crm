@@ -10,6 +10,8 @@ import { PipelineSummarySkeleton } from "./_components/skeletons/pipeline-summar
 import { SystemHealthSkeleton } from "./_components/skeletons/system-health-skeleton";
 import { SectionErrorBoundary } from "./_components/section-error-boundary";
 
+export const unstable_instant = { prefetch: "static" };
+
 export default async function AdminDashboardPage() {
   const { crmUser, session } = await requireRole(ADMIN_ROLES);
 

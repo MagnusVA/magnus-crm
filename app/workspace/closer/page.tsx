@@ -10,6 +10,8 @@ import { SectionErrorBoundary } from "../_components/section-error-boundary";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 
+export const unstable_instant = { prefetch: "static" };
+
 export default async function CloserDashboardPage() {
   const { session } = await requireRole(["closer"]);
 

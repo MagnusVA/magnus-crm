@@ -139,3 +139,114 @@
     @apply font-sans;
   }
 }
+
+/* ============================================================
+   View Transitions & Streaming Animations (Phase 4)
+   ============================================================ */
+
+/* Page transition: cross-fade between old and new page content.
+   Triggered by <ViewTransition default="page-transition"> in
+   workspace-shell-client.tsx. React treats the prop value as a
+   CSS class name → selectors use .page-transition (dot prefix).
+   @see vercel-react-view-transitions — CSS class-based animations */
+::view-transition-group(.page-transition) {
+  animation-duration: 200ms;
+  animation-timing-function: ease-out;
+}
+
+::view-transition-old(.page-transition) {
+  animation: vt-fade-out 150ms ease-out;
+}
+
+::view-transition-new(.page-transition) {
+  animation: vt-fade-in 200ms ease-out;
+}
+
+/* vt-fade-out is 150ms and vt-fade-in is 200ms — the old page fades
+   out slightly faster than the new page fades in, creating a natural
+   cross-dissolve. translateY(4px) on fade-in adds subtle upward
+   motion — enough to feel dynamic without being distracting. */
+@keyframes vt-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes vt-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Streamed content entrance — applied when Suspense resolves.
+   Used by <StreamBoundary> component for animated data reveals. */
+@keyframes stream-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-stream-in {
+  animation: stream-in 300ms ease-out;
+}
+
+/* Enhanced skeleton shimmer (replaces default pulse).
+   Apply via className="skeleton-shimmer" on skeleton placeholders. */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    hsl(var(--muted)) 25%,
+    hsl(var(--muted-foreground) / 0.08) 50%,
+    hsl(var(--muted)) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+/* Navigation progress bar (optional — use for slow navigations) */
+@keyframes progress-bar {
+  0% { width: 0; }
+  50% { width: 70%; }
+  100% { width: 100%; }
+}
+
+.animate-progress-bar {
+  animation: progress-bar 500ms ease-out forwards;
+}
+
+/* ============================================================
+   Accessibility: Respect reduced motion preference
+   WCAG 2.1 Level AA — Success Criterion 2.3.3
+   @see web-design-guidelines: prefers-reduced-motion
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  /* Disable view transitions — 0.01ms (not 0ms) because some
+     browsers interpret 0ms differently for view transition timing */
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+  }
+
+  /* Disable streaming and shimmer animations */
+  .animate-stream-in,
+  .animate-progress-bar,
+  .skeleton-shimmer {
+    animation: none !important;
+  }
+
+  /* Ensure stream-in content is immediately visible */
+  .animate-stream-in {
+    opacity: 1;
+    transform: none;
+  }
+}

@@ -2,6 +2,7 @@ import { type ReactNode, Suspense } from "react";
 import { WorkspaceShellFrame } from "./_components/workspace-shell-frame";
 import { WorkspaceAuth } from "./_components/workspace-auth";
 import { WorkspaceShellSkeleton } from "./_components/workspace-shell-skeleton";
+import { WebVitalsReporter } from "./_components/web-vitals-reporter";
 
 export default function WorkspaceLayout({
   children,
@@ -10,6 +11,7 @@ export default function WorkspaceLayout({
 }) {
   return (
     <WorkspaceShellFrame>
+      <WebVitalsReporter />
       <Suspense fallback={<WorkspaceShellSkeleton />}>
         <WorkspaceAuth>{children}</WorkspaceAuth>
       </Suspense>

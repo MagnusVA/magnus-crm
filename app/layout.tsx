@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { Geist, JetBrains_Mono } from "next/font/google";
 import { ConvexClientProvider } from "./ConvexClientProvider";
 import "./globals.css";
@@ -6,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import Script from "next/script";
 
 const jetbrainsMono = JetBrains_Mono({
 	subsets: ["latin"],
@@ -39,18 +41,27 @@ export default function RootLayout({
 				"font-sans",
 			)}
 		>
+			<head>
+				<Script
+					src="//unpkg.com/react-scan/dist/auto.global.js"
+					crossOrigin="anonymous"
+					strategy="beforeInteractive"
+				/>
+			</head>
 			<body className="min-h-full flex flex-col">
-				<ThemeProvider
-					attribute="class"
-					defaultTheme="light"
-					enableSystem={false}
-					storageKey="theme-preference"
-				>
-					<TooltipProvider>
-						<ConvexClientProvider>{children}</ConvexClientProvider>
-					</TooltipProvider>
-					<Toaster />
-				</ThemeProvider>
+				<Suspense>
+					<ConvexClientProvider>
+						<ThemeProvider
+							attribute="class"
+							defaultTheme="light"
+							enableSystem={false}
+							storageKey="theme-preference"
+						>
+							<TooltipProvider>{children}</TooltipProvider>
+							<Toaster />
+						</ThemeProvider>
+					</ConvexClientProvider>
+				</Suspense>
 			</body>
 		</html>
 	);
