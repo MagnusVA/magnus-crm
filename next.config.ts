@@ -3,7 +3,7 @@ import type { NextConfig } from "next";
 const nextConfig: NextConfig = {
 	cacheComponents: true,
 	experimental: {
-		optimizePackageImports: ["lucide-react", "date-fns", "recharts"],
+		optimizePackageImports: ["lucide-react", "date-fns", "recharts", "zod"],
 		// Enable View Transition API for <Link> navigations — wraps every
 		// client-side navigation in document.startViewTransition() so all
 		// mounted <ViewTransition> components participate in link clicks.

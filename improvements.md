@@ -11,12 +11,6 @@ Lead manager
 Its a lead centered UI, that shows meeting/s if there are any meetings, it shows.
 Search leads afterwards for general management.
 
-
 Slackbot for qualified leads with social handle (opener user).
 
-
 More meeting details, if won show ammount paid, general improvements for the meeting view.
-
-
-
-

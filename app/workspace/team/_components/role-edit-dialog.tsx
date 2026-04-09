@@ -1,7 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useForm } from "react-hook-form";
+import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
+import { z } from "zod";
 import { useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -20,9 +23,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { FieldGroup, Field, FieldLabel } from "@/components/ui/field";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
+
+const roleEditSchema = z.object({
+  role: z.enum(["closer", "tenant_admin"]),
+});
+
+type RoleEditFormValues = z.infer<typeof roleEditSchema>;
 
 type CrmRole = "tenant_admin" | "closer";
 
@@ -49,22 +65,39 @@ export function RoleEditDialog({
   onSuccess,
 }: RoleEditDialogProps) {
   const router = useRouter();
-  const [selectedRole, setSelectedRole] = useState<CrmRole>(
-    currentRole as CrmRole,
-  );
   const [isSaving, setIsSaving] = useState(false);
   const updateRole = useAction(api.workos.userManagement.updateUserRole);
 
-  const handleSave = async () => {
-    if (selectedRole === currentRole) {
+  const form = useForm({
+    resolver: standardSchemaResolver(roleEditSchema),
+    defaultValues: {
+      role: currentRole as CrmRole,
+    },
+  });
+
+  // Watch the role field for no-op detection (save button disable)
+  const watchedRole = form.watch("role");
+
+  // Reset form when dialog opens (currentRole may have changed between opens)
+  useEffect(() => {
+    if (open) {
+      form.reset({ role: currentRole as CrmRole });
+    }
+  }, [open, currentRole, form]);
+
+  const onSubmit = async (values: RoleEditFormValues) => {
+    // No-op guard: if the selected role matches the current role, just close
+    if (values.role === currentRole) {
       onOpenChange(false);
       return;
     }
 
     setIsSaving(true);
     try {
-      await updateRole({ userId, newRole: selectedRole });
-      toast.success(`${userName}'s role updated to ${roleOptions.find((r) => r.value === selectedRole)?.label}`);
+      await updateRole({ userId, newRole: values.role });
+      toast.success(
+        `${userName}'s role updated to ${roleOptions.find((r) => r.value === values.role)?.label}`,
+      );
       onOpenChange(false);
       onSuccess?.();
       // Re-run server components so getWorkspaceAccess() picks up fresh CRM data
@@ -89,43 +122,56 @@ export function RoleEditDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <FieldGroup>
-          <Field>
-            <FieldLabel htmlFor="newRole">New Role</FieldLabel>
-            <Select
-              value={selectedRole}
-              onValueChange={(v) => setSelectedRole(v as CrmRole)}
-            >
-              <SelectTrigger id="newRole" disabled={isSaving}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {roleOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-        </FieldGroup>
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)}>
+            <FormField
+              control={form.control}
+              name="role"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>New Role</FormLabel>
+                  <Select
+                    onValueChange={field.onChange}
+                    value={field.value}
+                    disabled={isSaving}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {roleOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-        <div className="flex justify-end gap-2 pt-4">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            disabled={isSaving}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSave}
-            disabled={isSaving || selectedRole === currentRole}
-          >
-            {isSaving && <Spinner data-icon="inline-start" />}
-            {isSaving ? "Saving..." : "Save"}
-          </Button>
-        </div>
+            <div className="flex justify-end gap-2 pt-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={isSaving}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={isSaving || watchedRole === currentRole}
+              >
+                {isSaving && <Spinner data-icon="inline-start" />}
+                {isSaving ? "Saving..." : "Save"}
+              </Button>
+            </div>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

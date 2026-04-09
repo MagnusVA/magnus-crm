@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
+import { z } from "zod";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -24,26 +27,24 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field";
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { FieldGroup } from "@/components/ui/field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { BanknoteIcon, AlertCircleIcon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
 
-const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY"];
-const PROVIDERS = [
-  "Stripe",
-  "PayPal",
-  "Square",
-  "Cash",
-  "Bank Transfer",
-  "Other",
-];
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 /** Max proof file size: 10 MB */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
@@ -54,6 +55,53 @@ const VALID_FILE_TYPES = [
   "application/pdf",
 ];
 
+const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY"] as const;
+const PROVIDERS = [
+  "Stripe",
+  "PayPal",
+  "Square",
+  "Cash",
+  "Bank Transfer",
+  "Other",
+] as const;
+
+// ---------------------------------------------------------------------------
+// Zod Schema — single source of truth for form validation
+// ---------------------------------------------------------------------------
+
+const paymentFormSchema = z.object({
+  amount: z
+    .string()
+    .min(1, "Amount is required")
+    .refine(
+      (val) => {
+        const num = parseFloat(val);
+        return !isNaN(num) && num > 0;
+      },
+      { message: "Amount must be greater than 0" },
+    ),
+  currency: z.enum(CURRENCIES),
+  provider: z.enum(PROVIDERS, { error: "Please select a payment provider" }),
+  referenceCode: z.string().optional(),
+  proofFile: z
+    .instanceof(File)
+    .optional()
+    .refine(
+      (file) => !file || file.size <= MAX_FILE_SIZE,
+      "File size must be less than 10 MB",
+    )
+    .refine(
+      (file) => !file || VALID_FILE_TYPES.includes(file.type),
+      "Only images (JPEG, PNG, GIF) and PDFs are allowed",
+    ),
+});
+
+type PaymentFormValues = z.infer<typeof paymentFormSchema>;
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 type PaymentFormDialogProps = {
   opportunityId: Id<"opportunities">;
   meetingId: Id<"meetings">;
@@ -61,7 +109,7 @@ type PaymentFormDialogProps = {
 };
 
 /**
- * Payment Form Dialog (Phase 7D)
+ * Payment Form Dialog
  *
  * Allows a closer to log a payment for an opportunity:
  * - Amount (required, > 0)
@@ -80,62 +128,56 @@ type PaymentFormDialogProps = {
  * - Payment record is created
  * - Opportunity transitions to "payment_received" (terminal state)
  * - Dialog closes and form resets
+ *
+ * Form state is managed by React Hook Form + Zod resolver.
+ * Inline field-level errors are rendered via FormMessage.
+ * Submission-level errors (network, Convex) use an Alert.
  */
 export function PaymentFormDialog({
   opportunityId,
   meetingId,
   onSuccess,
 }: PaymentFormDialogProps) {
+  // Dialog open/close state — kept outside RHF (not a form field)
   const [open, setOpen] = useState(false);
-  const [amount, setAmount] = useState("");
-  const [currency, setCurrency] = useState("USD");
-  const [provider, setProvider] = useState("");
-  const [referenceCode, setReferenceCode] = useState("");
-  const [proofFile, setProofFile] = useState<File | null>(null);
+  // Submission loading flag — controls button spinner & disabled states
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Submission-level errors (network/Convex failures, NOT validation errors)
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // React Hook Form — single hook replaces 5 field-level useState hooks
+  const form = useForm({
+    resolver: standardSchemaResolver(paymentFormSchema),
+    defaultValues: {
+      amount: "",
+      currency: "USD",
+      provider: undefined,
+      referenceCode: "",
+      proofFile: undefined,
+    },
+  });
+
+  // Convex mutations (unchanged from original)
   const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
   const logPayment = useMutation(api.closer.payments.logPayment);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > MAX_FILE_SIZE) {
-        setError("File size must be less than 10 MB");
-        return;
-      }
-      if (!VALID_FILE_TYPES.includes(file.type)) {
-        setError("Only images (JPEG, PNG, GIF) and PDFs are allowed");
-        return;
-      }
-      setProofFile(file);
-      setError(null);
-    }
-  };
+  // ---------------------------------------------------------------------------
+  // Submission handler — only called when Zod validation passes
+  // ---------------------------------------------------------------------------
 
-  const handleSubmit = async () => {
+  const onSubmit = async (values: PaymentFormValues) => {
     setIsSubmitting(true);
-    setError(null);
+    setSubmitError(null);
 
     try {
-      // Validate required fields
-      const parsedAmount = parseFloat(amount);
-      if (isNaN(parsedAmount) || parsedAmount <= 0) {
-        throw new Error("Please enter a valid amount greater than 0");
-      }
-      if (!provider) {
-        throw new Error("Please select a payment provider");
-      }
-
-      // Upload proof file if provided
+      // Upload proof file if provided (two-step Convex storage flow)
       let proofFileId: Id<"_storage"> | undefined;
-      if (proofFile) {
+      if (values.proofFile) {
         const uploadUrl = await generateUploadUrl();
         const uploadResponse = await fetch(uploadUrl, {
           method: "POST",
-          headers: { "Content-Type": proofFile.type },
-          body: proofFile,
+          headers: { "Content-Type": values.proofFile.type },
+          body: values.proofFile,
         });
 
         if (!uploadResponse.ok) {
@@ -151,55 +193,63 @@ export function PaymentFormDialog({
         proofFileId = uploadData.storageId as Id<"_storage">;
       }
 
-      // Log the payment
+      // Log the payment via Convex mutation
+      const parsedAmount = parseFloat(values.amount);
       await logPayment({
         opportunityId,
         meetingId,
         amount: parsedAmount,
-        currency,
-        provider,
-        referenceCode: referenceCode || undefined,
+        currency: values.currency,
+        provider: values.provider,
+        referenceCode: values.referenceCode || undefined,
         proofFileId,
       });
-      await onSuccess?.();
 
-      // Success
+      // Success path (identical to previous implementation)
+      await onSuccess?.();
       posthog.capture("payment_logged", {
         opportunity_id: opportunityId,
         meeting_id: meetingId,
         amount: parsedAmount,
-        currency,
-        provider,
-        has_reference_code: Boolean(referenceCode),
+        currency: values.currency,
+        provider: values.provider,
+        has_reference_code: Boolean(values.referenceCode),
         has_proof_file: Boolean(proofFileId),
       });
       toast.success("Payment logged successfully");
       setOpen(false);
-      resetForm();
+      form.reset();
     } catch (err: unknown) {
       posthog.captureException(err);
       const message =
         err instanceof Error
           ? err.message
           : "Failed to log payment. Please try again.";
-      setError(message);
+      setSubmitError(message);
       toast.error(message);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const resetForm = () => {
-    setAmount("");
-    setCurrency("USD");
-    setProvider("");
-    setReferenceCode("");
-    setProofFile(null);
-    setError(null);
-  };
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog
+      open={open}
+      onOpenChange={(value) => {
+        // Prevent closing during submission
+        if (!isSubmitting) {
+          setOpen(value);
+          if (!value) {
+            form.reset();
+            setSubmitError(null);
+          }
+        }
+      }}
+    >
       <DialogTrigger asChild>
         <Button variant="outline" size="lg">
           <BanknoteIcon data-icon="inline-start" />
@@ -214,157 +264,194 @@ export function PaymentFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSubmit();
-          }}
-        >
-          <FieldGroup>
-            {/* Amount */}
-            <Field>
-              <FieldLabel htmlFor="payment-amount">
-                Amount <span className="text-destructive">*</span>
-              </FieldLabel>
-              <Input
-                id="payment-amount"
-                type="number"
-                step="0.01"
-                placeholder="299.99"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                disabled={isSubmitting}
-                min="0"
-                required
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)}>
+            <FieldGroup>
+              {/* Amount */}
+              <FormField
+                control={form.control}
+                name="amount"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Amount <span className="text-destructive">*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        placeholder="299.99"
+                        min="0"
+                        disabled={isSubmitting}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
               />
-            </Field>
 
-            {/* Currency */}
-            <Field>
-              <FieldLabel htmlFor="payment-currency">
-                Currency <span className="text-destructive">*</span>
-              </FieldLabel>
-              <Select
-                value={currency}
-                onValueChange={setCurrency}
+              {/* Currency */}
+              <FormField
+                control={form.control}
+                name="currency"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Currency <span className="text-destructive">*</span>
+                    </FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                      disabled={isSubmitting}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectGroup>
+                          {CURRENCIES.map((curr) => (
+                            <SelectItem key={curr} value={curr}>
+                              {curr}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Provider */}
+              <FormField
+                control={form.control}
+                name="provider"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Provider <span className="text-destructive">*</span>
+                    </FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                      disabled={isSubmitting}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select provider" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectGroup>
+                          {PROVIDERS.map((prov) => (
+                            <SelectItem key={prov} value={prov}>
+                              {prov}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Reference Code */}
+              <FormField
+                control={form.control}
+                name="referenceCode"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Reference Code</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="text"
+                        placeholder="e.g., pi_3abc123..."
+                        disabled={isSubmitting}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Transaction ID from your payment provider
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Proof File */}
+              <FormField
+                control={form.control}
+                name="proofFile"
+                render={({ field: { value, onChange, ...fieldProps } }) => (
+                  <FormItem>
+                    <FormLabel>Proof File</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="file"
+                        accept="image/jpeg,image/png,image/gif,application/pdf"
+                        disabled={isSubmitting}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          onChange(file);
+                        }}
+                        {...fieldProps}
+                      />
+                    </FormControl>
+                    {value && (
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <UploadIcon className="size-3 shrink-0" />
+                        <span className="truncate">
+                          {value.name} ({(value.size / 1024).toFixed(1)} KB)
+                        </span>
+                      </div>
+                    )}
+                    <FormDescription>
+                      Max 10 MB. Allowed: PNG, JPEG, GIF, PDF
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </FieldGroup>
+
+            {/* Submission-level error (network/Convex failures only) */}
+            {submitError && (
+              <Alert variant="destructive" className="mt-4">
+                <AlertCircleIcon />
+                <AlertDescription>{submitError}</AlertDescription>
+              </Alert>
+            )}
+
+            <DialogFooter className="mt-5">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setOpen(false);
+                  form.reset();
+                  setSubmitError(null);
+                }}
                 disabled={isSubmitting}
               >
-                <SelectTrigger id="payment-currency">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {CURRENCIES.map((curr) => (
-                      <SelectItem key={curr} value={curr}>
-                        {curr}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-
-            {/* Provider */}
-            <Field>
-              <FieldLabel htmlFor="payment-provider">
-                Provider <span className="text-destructive">*</span>
-              </FieldLabel>
-              <Select
-                value={provider}
-                onValueChange={setProvider}
-                disabled={isSubmitting}
-              >
-                <SelectTrigger id="payment-provider">
-                  <SelectValue placeholder="Select provider" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    {PROVIDERS.map((prov) => (
-                      <SelectItem key={prov} value={prov}>
-                        {prov}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            </Field>
-
-            {/* Reference Code */}
-            <Field>
-              <FieldLabel htmlFor="payment-reference">
-                Reference Code
-              </FieldLabel>
-              <Input
-                id="payment-reference"
-                type="text"
-                placeholder="e.g., pi_3abc123..."
-                value={referenceCode}
-                onChange={(e) => setReferenceCode(e.target.value)}
-                disabled={isSubmitting}
-              />
-              <FieldDescription>
-                Transaction ID from your payment provider
-              </FieldDescription>
-            </Field>
-
-            {/* Proof File */}
-            <Field>
-              <FieldLabel htmlFor="payment-proof">Proof File</FieldLabel>
-              <Input
-                id="payment-proof"
-                type="file"
-                accept="image/jpeg,image/png,image/gif,application/pdf"
-                onChange={handleFileChange}
-                disabled={isSubmitting}
-                aria-describedby="proof-file-hint"
-              />
-              {proofFile && (
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <UploadIcon className="size-3 shrink-0" />
-                  <span className="truncate">
-                    {proofFile.name} (
-                    {(proofFile.size / 1024).toFixed(1)} KB)
-                  </span>
-                </div>
-              )}
-              <FieldDescription id="proof-file-hint">
-                Max 10 MB. Allowed: PNG, JPEG, GIF, PDF
-              </FieldDescription>
-            </Field>
-          </FieldGroup>
-
-          {/* Error Alert */}
-          {error && (
-            <Alert variant="destructive" className="mt-4">
-              <AlertCircleIcon />
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-
-          <DialogFooter className="mt-5">
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                setOpen(false);
-                resetForm();
-              }}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isSubmitting}>
-              {isSubmitting ? (
-                <>
-                  <Spinner data-icon="inline-start" />
-                  Logging...
-                </>
-              ) : (
-                "Log Payment"
-              )}
-            </Button>
-          </DialogFooter>
-        </form>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Spinner data-icon="inline-start" />
+                    Logging...
+                  </>
+                ) : (
+                  "Log Payment"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );
