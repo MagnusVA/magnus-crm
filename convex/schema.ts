@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { utmParamsValidator } from "./lib/utmParams";
 
 export default defineSchema({
   tenants: defineTable({
@@ -144,6 +145,10 @@ export default defineSchema({
     lostReason: v.optional(v.string()),
     createdAt: v.number(),
     updatedAt: v.number(),
+    // UTM attribution from the first booking that created this opportunity.
+    // Subsequent follow-up bookings do NOT overwrite this field.
+    // Undefined for opportunities created before UTM tracking was enabled.
+    utmParams: v.optional(utmParamsValidator),
   })
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
@@ -168,6 +173,10 @@ export default defineSchema({
     notes: v.optional(v.string()),
     leadName: v.optional(v.string()), // Denormalized from lead for query efficiency
     createdAt: v.number(),
+    // UTM attribution data extracted from Calendly's tracking object.
+    // Populated from the invitee.created webhook payload.
+    // Undefined for meetings created before UTM tracking was enabled.
+    utmParams: v.optional(utmParamsValidator),
   })
     .index("by_opportunityId", ["opportunityId"])
     .index("by_tenantId_and_scheduledAt", ["tenantId", "scheduledAt"])

@@ -5,6 +5,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { validateTransition } from "../lib/statusTransitions";
+import { extractUtmParams } from "../lib/utmParams";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -172,6 +173,17 @@ export const process = internalMutation({
       .unique();
 
     const latestCustomFields = extractQuestionsAndAnswers(payload.questions_and_answers);
+
+    // ── NEW: Extract UTM tracking parameters ──
+    const utmParams = extractUtmParams(payload.tracking);
+    console.log(
+      `[Pipeline:invitee.created] UTM extraction | ` +
+      `hasUtm=${!!utmParams} ` +
+      `source=${utmParams?.utm_source ?? "none"} ` +
+      `medium=${utmParams?.utm_medium ?? "none"} ` +
+      `campaign=${utmParams?.utm_campaign ?? "none"}`
+    );
+
     if (!lead) {
       const leadId = await ctx.db.insert("leads", {
         tenantId,
@@ -259,6 +271,9 @@ export const process = internalMutation({
         eventTypeConfigId:
           eventTypeConfigId ?? existingFollowUp.eventTypeConfigId ?? undefined,
         updatedAt: now,
+        // NOTE: utmParams intentionally NOT included here.
+        // The opportunity preserves attribution from its original creation.
+        // The new meeting stores its own UTMs independently.
       });
       console.log(
         `[Pipeline:invitee.created] Follow-up opportunity reused | opportunityId=${opportunityId} status=follow_up_scheduled->scheduled`,
@@ -284,6 +299,7 @@ export const process = internalMutation({
         calendlyEventUri,
         createdAt: now,
         updatedAt: now,
+        utmParams,  // NEW: First booking's attribution
       });
       console.log(
         `[Pipeline:invitee.created] New opportunity created | opportunityId=${opportunityId}`,
@@ -308,6 +324,7 @@ export const process = internalMutation({
       notes: meetingNotes,
       leadName: lead.fullName ?? lead.email, // Denormalize for query efficiency
       createdAt: now,
+      utmParams,  // NEW: UTM attribution from Calendly tracking object
     });
     console.log(
       `[Pipeline:invitee.created] Meeting created | meetingId=${meetingId} durationMinutes=${durationMinutes}`,
