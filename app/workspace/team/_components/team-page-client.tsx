@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { usePreloadedQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useRouter } from "next/navigation";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { useRole } from "@/components/auth/role-context";
 import { TeamMembersTable } from "./team-members-table";
 import { RequirePermission } from "@/components/auth/require-permission";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import { DownloadIcon } from "lucide-react";
 import { downloadCSV } from "@/lib/export-csv";
 import { format } from "date-fns";
-import type { Preloaded } from "convex/react";
 import type { Id } from "@/convex/_generated/dataModel";
 
 // Lazy-load dialog components that are only shown on user interaction
@@ -60,17 +61,24 @@ type DialogState =
   | { type: "calendly"; userId: Id<"users">; userName: string }
   | { type: "role"; userId: Id<"users">; userName: string; currentRole: string };
 
-interface TeamPageClientProps {
-  preloadedTeam: Preloaded<typeof api.users.queries.listTeamMembers>;
-  currentUserId: Id<"users">;
-}
-
-export function TeamPageClient({
-  preloadedTeam,
-  currentUserId,
-}: TeamPageClientProps) {
+export function TeamPageClient() {
   usePageTitle("Team");
-  const members = usePreloadedQuery(preloadedTeam);
+  const router = useRouter();
+  const { isAdmin } = useRole();
+  const members = useQuery(
+    api.users.queries.listTeamMembers,
+    isAdmin ? {} : "skip",
+  );
+  const currentUser = useQuery(
+    api.users.queries.getCurrentUser,
+    isAdmin ? {} : "skip",
+  );
+
+  useEffect(() => {
+    if (!isAdmin) {
+      router.replace("/workspace/closer");
+    }
+  }, [isAdmin, router]);
 
   // Single state replaces 12 useState calls
   const [dialog, setDialog] = useState<DialogState>({ type: null });
@@ -79,7 +87,7 @@ export function TeamPageClient({
 
   const handleEditRole = (memberId: Id<"users">, currentRole: string) => {
     const member = members?.find((m) => m._id === memberId);
-    if (member && currentUserId !== memberId && member.role !== "tenant_master") {
+    if (member && currentUser?._id !== memberId && member.role !== "tenant_master") {
       setDialog({
         type: "role",
         userId: memberId,
@@ -91,7 +99,7 @@ export function TeamPageClient({
 
   const handleRemoveUser = (memberId: Id<"users">) => {
     const member = members?.find((m) => m._id === memberId);
-    if (member && currentUserId !== memberId && member.role !== "tenant_master") {
+    if (member && currentUser?._id !== memberId && member.role !== "tenant_master") {
       setDialog({
         type: "remove",
         userId: memberId,
@@ -110,6 +118,10 @@ export function TeamPageClient({
       });
     }
   };
+
+  if (!isAdmin || members === undefined || !currentUser) {
+    return <TableSkeleton />;
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -153,7 +165,7 @@ export function TeamPageClient({
       ) : (
         <TeamMembersTable
           members={members}
-          currentUserId={currentUserId}
+          currentUserId={currentUser._id}
           onEditRole={handleEditRole}
           onRemoveUser={handleRemoveUser}
           onRelinkCalendly={handleRelinkCalendly}

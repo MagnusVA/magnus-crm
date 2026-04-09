@@ -1,7 +1,6 @@
 "use client";
 
-import type { Preloaded } from "convex/react";
-import { usePreloadedQuery } from "convex/react";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
   Card,
@@ -19,16 +18,15 @@ import {
   ShieldIcon,
   CalendarIcon,
 } from "lucide-react";
+import ProfileLoading from "../loading";
 
-interface ProfilePageClientProps {
-  preloadedProfile: Preloaded<typeof api.users.queries.getCurrentUser>;
-}
-
-export function ProfilePageClient({
-  preloadedProfile,
-}: ProfilePageClientProps) {
+export function ProfilePageClient() {
   usePageTitle("Profile");
-  const user = usePreloadedQuery(preloadedProfile);
+  const user = useQuery(api.users.queries.getCurrentUser);
+
+  if (user === undefined) {
+    return <ProfileLoading />;
+  }
 
   if (!user) {
     return null;

@@ -1,17 +1,17 @@
 "use client";
 
+import { useEffect } from "react";
+import { useQuery } from "convex/react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/convex/_generated/api";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { usePollingQuery } from "@/hooks/use-polling-query";
+import { useRole } from "@/components/auth/role-context";
 import { PipelineSummary } from "./pipeline-summary";
 import { StatsRow } from "./stats-row";
 import { SystemHealth } from "./system-health";
-
-interface DashboardPageClientProps {
-  displayName: string;
-}
 
 function DashboardSkeleton() {
   return (
@@ -60,18 +60,28 @@ function DashboardSkeleton() {
   );
 }
 
-export function DashboardPageClient({
-  displayName,
-}: DashboardPageClientProps) {
+export function DashboardPageClient() {
   usePageTitle("Dashboard");
+  const router = useRouter();
+  const { isAdmin } = useRole();
+  const currentUser = useQuery(
+    api.users.queries.getCurrentUser,
+    isAdmin ? {} : "skip",
+  );
 
   const stats = usePollingQuery(
     api.dashboard.adminStats.getAdminDashboardStats,
-    {},
+    isAdmin ? {} : "skip",
     { intervalMs: 60_000 },
   );
 
-  if (stats === undefined) {
+  useEffect(() => {
+    if (!isAdmin) {
+      router.replace("/workspace/closer");
+    }
+  }, [isAdmin, router]);
+
+  if (!isAdmin || stats === undefined || !currentUser) {
     return <DashboardSkeleton />;
   }
 
@@ -80,7 +90,7 @@ export function DashboardPageClient({
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
         <p className="mt-2 text-muted-foreground">
-          Welcome back, {displayName}
+          Welcome back, {currentUser.fullName ?? currentUser.email}
         </p>
       </div>
 

@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
-import { getWorkspaceAccess } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import { getWorkspaceAccess } from "@/lib/auth";
 import { WorkspaceShellClient } from "./workspace-shell-client";
 import { NotProvisionedScreen } from "./not-provisioned-screen";
 

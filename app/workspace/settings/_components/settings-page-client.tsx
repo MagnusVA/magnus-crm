@@ -1,30 +1,39 @@
 "use client";
 
-import type { Preloaded } from "convex/react";
-import { usePreloadedQuery } from "convex/react";
+import { useEffect } from "react";
+import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useRouter } from "next/navigation";
+import { useRole } from "@/components/auth/role-context";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePageTitle } from "@/hooks/use-page-title";
+import SettingsLoading from "../loading";
 import { CalendlyConnection } from "./calendly-connection";
 import { EventTypeConfigList } from "./event-type-config-list";
 
-interface SettingsPageClientProps {
-  preloadedEventTypeConfigs: Preloaded<
-    typeof api.eventTypeConfigs.queries.listEventTypeConfigs
-  >;
-  preloadedConnectionStatus: Preloaded<
-    typeof api.calendly.oauthQueries.getConnectionStatus
-  >;
-}
-
-export function SettingsPageClient({
-  preloadedEventTypeConfigs,
-  preloadedConnectionStatus,
-}: SettingsPageClientProps) {
+export function SettingsPageClient() {
   usePageTitle("Settings");
+  const router = useRouter();
+  const { isAdmin } = useRole();
 
-  const eventTypeConfigs = usePreloadedQuery(preloadedEventTypeConfigs);
-  const connectionStatus = usePreloadedQuery(preloadedConnectionStatus);
+  const eventTypeConfigs = useQuery(
+    api.eventTypeConfigs.queries.listEventTypeConfigs,
+    isAdmin ? {} : "skip",
+  );
+  const connectionStatus = useQuery(
+    api.calendly.oauthQueries.getConnectionStatus,
+    isAdmin ? {} : "skip",
+  );
+
+  useEffect(() => {
+    if (!isAdmin) {
+      router.replace("/workspace/closer");
+    }
+  }, [isAdmin, router]);
+
+  if (!isAdmin || eventTypeConfigs === undefined || connectionStatus === undefined) {
+    return <SettingsLoading />;
+  }
 
   return (
     <div className="flex flex-col gap-6">

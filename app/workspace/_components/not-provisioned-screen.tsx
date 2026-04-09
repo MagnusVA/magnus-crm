@@ -1,3 +1,5 @@
+"use client";
+
 import { UserCircleIcon } from "lucide-react";
 import {
   Empty,
@@ -13,8 +15,7 @@ import { SignOutButton } from "./sign-out-button";
  * (e.g., user who hasn't been provisioned yet).
  * Uses the shadcn Empty compound component.
  *
- * This is a Server Component — the sign-out button is a separate
- * client component to keep the boundary minimal.
+ * Client component so it can be rendered from the client-side workspace gate.
  */
 export function NotProvisionedScreen() {
   return (

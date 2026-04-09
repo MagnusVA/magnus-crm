@@ -1,10 +1,11 @@
 "use client";
 
-import { Suspense, useCallback, useMemo } from "react";
+import { Suspense, useCallback, useEffect, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "convex/react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
+import { useRole } from "@/components/auth/role-context";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -52,9 +53,16 @@ function PipelineContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const pathname = usePathname();
+  const { isAdmin } = useRole();
 
   const statusFilter = searchParams.get("status") ?? "all";
   const closerFilter = searchParams.get("closer") ?? "all";
+
+  useEffect(() => {
+    if (!isAdmin) {
+      router.replace("/workspace/closer");
+    }
+  }, [isAdmin, router]);
 
   const setStatusFilter = useCallback(
     (value: string) => {
@@ -103,9 +111,12 @@ function PipelineContent() {
 
   const opportunities = useQuery(
     api.opportunities.queries.listOpportunitiesForAdmin,
-    queryArgs,
+    isAdmin ? queryArgs : "skip",
   );
-  const teamMembers = useQuery(api.users.queries.listTeamMembers, {});
+  const teamMembers = useQuery(
+    api.users.queries.listTeamMembers,
+    isAdmin ? {} : "skip",
+  );
 
   const closersForFilter = useMemo(() => {
     if (!teamMembers) {
@@ -114,6 +125,10 @@ function PipelineContent() {
 
     return teamMembers.filter((member) => member.role === "closer");
   }, [teamMembers]);
+
+  if (!isAdmin) {
+    return <TableSkeleton />;
+  }
 
   return (
     <div className="flex flex-col gap-6">

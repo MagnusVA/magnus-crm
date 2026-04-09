@@ -1,18 +1,20 @@
 "use client";
 
-import type { Preloaded } from "convex/react";
-import { usePreloadedQuery } from "convex/react";
+import { useEffect } from "react";
+import { useQuery } from "convex/react";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { usePollingQuery } from "@/hooks/use-polling-query";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
+import { useRole } from "@/components/auth/role-context";
+import { useRouter } from "next/navigation";
 import { UnmatchedBanner } from "./unmatched-banner";
 import { FeaturedMeetingCard } from "./featured-meeting-card";
 import { PipelineStrip } from "./pipeline-strip";
 import { CloserEmptyState } from "./closer-empty-state";
-import { CalendarView } from "./calendar-view";
+import { CalendarSection } from "./calendar-section";
 
 type NextMeetingData =
   | {
@@ -23,29 +25,38 @@ type NextMeetingData =
     }
   | null;
 
-type CloserDashboardPageClientProps = {
-  preloadedProfile: Preloaded<typeof api.closer.dashboard.getCloserProfile>;
-  preloadedPipelineSummary: Preloaded<
-    typeof api.closer.dashboard.getPipelineSummary
-  >;
-};
-
-export function CloserDashboardPageClient({
-  preloadedProfile,
-  preloadedPipelineSummary,
-}: CloserDashboardPageClientProps) {
+export function CloserDashboardPageClient() {
   usePageTitle("My Dashboard");
+  const router = useRouter();
+  const { isAdmin } = useRole();
 
-  const profile = usePreloadedQuery(preloadedProfile);
-  const pipelineSummary = usePreloadedQuery(preloadedPipelineSummary);
+  const profile = useQuery(
+    api.closer.dashboard.getCloserProfile,
+    isAdmin ? "skip" : {},
+  );
+  const pipelineSummary = useQuery(
+    api.closer.dashboard.getPipelineSummary,
+    isAdmin ? "skip" : {},
+  );
 
   const nextMeeting = usePollingQuery(
     api.closer.dashboard.getNextMeeting,
-    {},
+    isAdmin ? "skip" : {},
     { intervalMs: 60_000 },
   ) as NextMeetingData | undefined;
 
-  if (nextMeeting === undefined) {
+  useEffect(() => {
+    if (isAdmin) {
+      router.replace("/workspace");
+    }
+  }, [isAdmin, router]);
+
+  if (
+    isAdmin ||
+    profile === undefined ||
+    pipelineSummary === undefined ||
+    nextMeeting === undefined
+  ) {
     return <DashboardSkeleton />;
   }
 
@@ -82,12 +93,7 @@ export function CloserDashboardPageClient({
 
       <Separator />
 
-      <div>
-        <h2 className="mb-3 text-lg font-semibold tracking-tight text-pretty">
-          My Schedule
-        </h2>
-        <CalendarView />
-      </div>
+      <CalendarSection />
     </div>
   );
 }
