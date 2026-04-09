@@ -1,9 +1,10 @@
 # Frontend Performance & UX Enhancement — Design Specification
 
-**Version:** 0.1 (MVP)
-**Status:** Draft
+**Version:** 0.2 (Single-Day Implementation)
+**Status:** Ready for Implementation
 **Scope:** Sluggish workspace navigation → Instant, animated, production-grade UX. Audit the current Next.js 16 frontend, enable Partial Prerendering (PPR) via Cache Components, add streaming with Suspense, implement loading states, view transitions, lazy loading, and Activity-based state preservation across the owner/admin and closer workspaces.
 **Prerequisite:** Authorization Revamp Phase 2 complete (workspace layout is RSC). No backend/Convex changes required.
+**Implementation Window:** Single day, consecutive runs. All phases execute sequentially without waiting between them.
 
 ---
 
@@ -13,18 +14,15 @@
 2. [Actors & Roles](#2-actors--roles)
 3. [Current State Audit](#3-current-state-audit)
 4. [End-to-End Flow Overview](#4-end-to-end-flow-overview)
-5. [Phase 1: Streaming Foundation — loading.tsx & error.tsx](#5-phase-1-streaming-foundation--loadingtsx--errortsx)
-6. [Phase 2: Enable Cache Components & Activity](#6-phase-2-enable-cache-components--activity)
-7. [Phase 3: Layout Streaming Architecture](#7-phase-3-layout-streaming-architecture)
-8. [Phase 4: Granular Suspense & Component Streaming](#8-phase-4-granular-suspense--component-streaming)
-9. [Phase 5: Lazy Loading & Bundle Optimization](#9-phase-5-lazy-loading--bundle-optimization)
-10. [Phase 6: View Transitions & Micro-Animations](#10-phase-6-view-transitions--micro-animations)
-11. [Phase 7: Validation & Instant Navigation](#11-phase-7-validation--instant-navigation)
-12. [Routing & Authorization](#12-routing--authorization)
-13. [Error Handling & Edge Cases](#13-error-handling--edge-cases)
-14. [Open Questions](#14-open-questions)
-15. [Dependencies](#15-dependencies)
-16. [Applicable Skills](#16-applicable-skills)
+5. [Phase 1: Streaming Foundation & Config — loading.tsx, error.tsx, cacheComponents](#5-phase-1-streaming-foundation--config)
+6. [Phase 2: Layout Streaming Architecture & Activity](#6-phase-2-layout-streaming-architecture--activity)
+7. [Phase 3: Suspense Boundaries & Granular Streaming](#7-phase-3-suspense-boundaries--granular-streaming)
+8. [Phase 4: View Transitions, Lazy Loading & Validation](#8-phase-4-view-transitions-lazy-loading--validation)
+9. [Routing & Authorization](#9-routing--authorization)
+10. [Error Handling & Edge Cases](#10-error-handling--edge-cases)
+11. [Open Questions](#11-open-questions)
+12. [Dependencies](#12-dependencies)
+13. [Applicable Skills](#13-applicable-skills)
 
 ---
 
@@ -237,17 +235,56 @@ flowchart TD
 
 ---
 
-## 5. Phase 1: Streaming Foundation — loading.tsx & error.tsx
+## 5. Phase 1: Streaming Foundation & Config
+
+**Estimated time:** 2 hours (Run 1 & 2)
+
+This phase combines the original Phases 1 & 2 into a single foundation for all subsequent work. All 7 loading skeletons and 6 error boundaries are created in parallel (same skeleton logic across admin/closer routes), then `cacheComponents` is enabled in config.
 
 ### 5.1 What & Why
 
-Add `loading.tsx` and `error.tsx` files to every workspace route segment. This is the single highest-impact change because:
+**5.1.1 Add `loading.tsx` and `error.tsx` to every workspace route segment.** This is the highest-impact change because:
 
 1. **Instant navigation**: `loading.tsx` wraps the page in a `<Suspense>` boundary. The skeleton appears immediately on navigation while the server processes auth + data.
 2. **Prefetch enablement**: With `loading.tsx` present, Next.js prefetches the layout up to the loading boundary. Without it, the entire page must be server-rendered before navigation.
 3. **Error resilience**: `error.tsx` catches render errors per-route instead of crashing the entire workspace.
 
-> **Runtime decision:** `loading.tsx` is chosen over manual `<Suspense>` wrapping in layouts because it integrates with Next.js prefetching. The framework uses the loading boundary as the prefetch cut-off point, enabling partial prefetching of dynamic routes. Manual Suspense in layouts would need to be paired with `loading.tsx` anyway for the prefetch benefit.
+**5.1.2 Enable `cacheComponents: true` and `optimizePackageImports` in `next.config.ts`.** `cacheComponents` controls three unified features:
+
+1. **Partial Prerendering (PPR)**: At build time, Next.js renders the static shell (everything above `<Suspense>` boundaries) and ships it as prerendered HTML. Dynamic content streams in at request time.
+2. **`use cache` directive**: Mark functions or components as cacheable with customizable lifetimes (`cacheLife`).
+3. **React `<Activity>`**: Preserves component state across navigations. Up to 3 routes are preserved in memory.
+
+**5.1.3 Add `optimizePackageImports` for barrel-file heavy dependencies.** Per the `bundle-barrel-imports` Vercel rule (CRITICAL priority), importing from barrel files (e.g., `import { X } from "lucide-react"`) pulls in thousands of unused modules — adding 200-800ms to import time. Next.js 13.5+ has `optimizePackageImports` which automatically transforms these to direct imports at build time. This project uses `lucide-react`, `date-fns`, and `recharts` — all barrel-heavy.
+
+```typescript
+// Path: next.config.ts (Phase 1 additions)
+import type { NextConfig } from "next";
+
+const nextConfig: NextConfig = {
+  cacheComponents: true,
+  experimental: {
+    optimizePackageImports: ["lucide-react", "date-fns", "recharts"],
+  },
+  async rewrites() {
+    return [
+      {
+        source: "/ingest/static/:path*",
+        destination: "https://us-assets.i.posthog.com/static/:path*",
+      },
+      {
+        source: "/ingest/:path*",
+        destination: "https://us.i.posthog.com/:path*",
+      },
+    ];
+  },
+  skipTrailingSlashRedirect: true,
+};
+
+export default nextConfig;
+```
+
+> **Runtime decision:** `loading.tsx` is chosen over manual `<Suspense>` wrapping because it integrates with Next.js prefetching. The framework uses the loading boundary as the prefetch cut-off point. Combined with `cacheComponents: true`, this enables both instant navigation feedback AND state preservation across route transitions.
 
 ### 5.2 Loading Skeletons
 
@@ -578,34 +615,27 @@ export default function WorkspaceError({
 
 ---
 
-## 6. Phase 2: Enable Cache Components & Activity
+## 6. Phase 2: Layout Streaming Architecture & Activity
+
+**Estimated time:** 1.5 hours (Run 2)
+
+This phase restructures the workspace layout so the static shell (sidebar frame, header) becomes prerendered at build time and serves instantly. Auth-dependent and page-specific content streams in behind `<Suspense>` boundaries. Combined with `cacheComponents: true` from Phase 1, this enables Partial Prerendering (PPR) and state preservation via React `<Activity>`.
 
 ### 6.1 What & Why
 
-Enable `cacheComponents: true` in `next.config.ts`. This single flag controls three unified features in Next.js 16:
+**6.1.1 Restructure the workspace layout.** Split `WorkspaceShell` into:
 
-1. **Partial Prerendering (PPR)**: At build time, Next.js renders the static shell (everything above `<Suspense>` boundaries) and ships it as prerendered HTML. Dynamic content streams in at request time.
-2. **`use cache` directive**: Mark functions or components as cacheable with customizable lifetimes (`cacheLife`).
-3. **React `<Activity>`**: Preserves component state across navigations. Instead of unmounting routes, Next.js hides them with `display: none` and restores them when the user navigates back. Up to 3 routes are preserved.
+1. **Server Component outer shell** (`workspace-shell-frame.tsx`): Renders the static sidebar frame and header bar. No dynamic data — prerendered at build time and served from CDN / static cache.
+2. **Auth-dependent streaming** (`workspace-auth.tsx`): Wrapped in `<Suspense>`, resolves `getWorkspaceAccess()` and renders role-based nav, user info, and page content in parallel streams.
+3. **Client Component inner shell** (`workspace-shell-client.tsx`): Handles interactivity (sidebar toggle, command palette, theme toggle) for the dynamic parts.
 
-> **Why now:** Activity alone is a massive UX win. Filter selections in pipeline pages, scroll positions in long tables, calendar view state — all preserved across navigations. Without this, every navigation resets all client state.
+**6.1.2 Enable `cacheComponents: true` in `next.config.ts`.** (Completed in Phase 1) This flag controls:
 
-### 6.2 Configuration
+1. **Partial Prerendering (PPR)**: Static shell prerendered, dynamic content streams.
+2. **`use cache` directive**: Mark cacheable functions with lifetimes.
+3. **React `<Activity>`**: Preserves component state across navigations—filter selections, scroll positions, calendar view state, form drafts all survive route changes. Up to 3 recent routes preserved.
 
-```typescript
-// Path: next.config.ts
-import type { NextConfig } from "next";
-
-const nextConfig: NextConfig = {
-  cacheComponents: true,
-};
-
-export default nextConfig;
-```
-
-> **Runtime decision:** We set `cacheComponents: true` rather than enabling `ppr`, `useCache`, and `dynamicIO` individually. As per the Next.js 16 docs, `cacheComponents` is the unified flag that controls all three. This is the recommended approach.
-
-### 6.3 Activity Side Effects — State That Must Reset
+### 6.2 Activity Side Effects — State That Must Reset
 
 With Activity enabled, hidden routes stay mounted. This creates situations where transient UI state should reset on hide. Based on the [Preserving UI State guide](node_modules/next/dist/docs/01-app/02-guides/preserving-ui-state.md):
 
@@ -642,7 +672,7 @@ function useResetOnHide<T>(initialValue: T): [T, React.Dispatch<React.SetStateAc
 | Calendar view (`CalendarView`) | Internal date/view state | **Preserve** — user intentionally set this |
 | Table sort state (`useTableSort`) | Local state | **Preserve** — user intentionally set this |
 
-### 6.4 What Changes With Cache Components
+### 6.3 What Changes With Activity & Cache Components
 
 ```mermaid
 flowchart LR
@@ -667,7 +697,7 @@ flowchart LR
     style B5 fill:#10b981,color:#fff
 ```
 
-### 6.5 Handling `cacheComponents` with Auth-Dependent Layouts
+### 6.4 Handling `cacheComponents` with Auth-Dependent Layouts
 
 When `cacheComponents` is enabled, Next.js requires that components accessing runtime APIs (`cookies`, `headers`) are wrapped in `<Suspense>`. Our workspace layout calls `getWorkspaceAccess()` which ultimately calls `withAuth()` (reads cookies).
 
@@ -679,29 +709,7 @@ Error: Uncached data was accessed outside of <Suspense>
 
 This is why Phase 3 (Layout Streaming Architecture) must follow Phase 2. In the interim, the workspace layout can opt out of the static shell by placing `<Suspense>` with an empty or minimal fallback around the body — this preserves current behavior while Activity and `loading.tsx` benefits still apply.
 
----
-
-## 7. Phase 3: Layout Streaming Architecture
-
-### 7.1 What & Why
-
-Restructure the workspace layout so that the sidebar frame and header chrome become part of the **static shell** — prerendered at build time and served instantly. Auth-dependent content (user name, role-based nav, workspace access checks) streams in behind `<Suspense>` boundaries.
-
-This is the architectural core of PPR for this app. The static shell includes:
-- Sidebar frame (logo, navigation skeleton)
-- Header bar (sidebar trigger, separator, breadcrumb placeholder)
-- Main content area structure
-
-The dynamic parts stream independently:
-- User info in sidebar (name, role)
-- Role-based navigation items
-- Auth-gated page content
-
-> **Architecture decision:** We split `WorkspaceShell` into a Server Component outer shell and a Client Component inner shell. The Server Component renders the static frame. The Client Component, wrapped in `<Suspense>`, handles auth-dependent rendering and interactivity.
->
-> **Why not just `loading.tsx`?** `loading.tsx` already provides instant navigation feedback (Phase 1). This phase goes further by making the workspace shell itself prerenderable. The sidebar and header appear instantly on cold loads, not just navigations.
-
-### 7.2 Restructured Layout
+### 6.5 Restructured Layout
 
 ```typescript
 // Path: app/workspace/layout.tsx (PROPOSED)
@@ -817,8 +825,10 @@ export async function WorkspaceAuth({ children }: { children: ReactNode }) {
 ```
 
 > **Decision rationale:** The static `WorkspaceShellFrame` is a Server Component with zero runtime data access. It renders the sidebar frame, the "Magnus" logo, and the header chrome. These elements are identical for every user and every role, so they prerender at build time. The `WorkspaceAuth` component inside `<Suspense>` resolves the auth state and streams in the role-specific nav, user name, and children. This way, the user sees the workspace shell frame instantly, with auth-dependent content appearing within milliseconds.
+>
+> **`SidebarProvider` client boundary note:** `SidebarProvider` (from shadcn) is a `"use client"` component — it uses `useState`/`useContext` for sidebar open/close state. This does NOT prevent PPR from working. With PPR, even client components' initial HTML output is prerendered at build time — the static shell is the HTML, not the JS. `SidebarProvider` will hydrate on the client after the HTML is served, but the user sees the sidebar frame *immediately* as static HTML. The dynamic split happens at the `<Suspense>` boundary around `WorkspaceAuth` (which reads cookies via `withAuth()`), not at the `"use client"` boundary. If `SidebarProvider` turns out to interfere with the static shell prerender, fall back to wrapping it inside `WorkspaceAuth` instead.
 
-### 7.3 Skeleton for Auth Resolution
+### 6.6 Skeleton for Auth Resolution
 
 ```typescript
 // Path: app/workspace/_components/workspace-shell-skeleton.tsx (PROPOSED)
@@ -862,7 +872,7 @@ export function WorkspaceShellSkeleton() {
 }
 ```
 
-### 7.4 Impact on Render Timeline
+### 6.7 Impact on Render Timeline
 
 | Phase | What renders | When |
 |---|---|---|
@@ -873,9 +883,13 @@ export function WorkspaceShellSkeleton() {
 
 ---
 
-## 8. Phase 4: Granular Suspense & Component Streaming
+## 7. Phase 3: Suspense Boundaries & Granular Streaming
 
-### 8.1 What & Why
+**Estimated time:** 2 hours (Run 3)
+
+This phase breaks dashboard pages into independently streaming sections, adds lazy-loaded components for heavy imports (calendars, charts), and implements client-side view transitions for smooth page swaps.
+
+### 7.1 What & Why
 
 Break dashboard pages into independently streaming sections. Instead of one monolithic client component that shows a full-page skeleton until all data arrives, each widget/section gets its own `<Suspense>` boundary and streams independently.
 
@@ -883,7 +897,7 @@ Break dashboard pages into independently streaming sections. Instead of one mono
 >
 > **Why this works with Convex:** `preloadQuery()` returns a serializable preloaded state, not a promise. However, we can still parallelize the server-side calls with `Promise.all()` and wrap each section's client component in its own `<Suspense>`. The client component calls `usePreloadedQuery()` which resolves synchronously from the preloaded state — so the actual streaming benefit comes from splitting the server-side data resolution into independent boundaries.
 
-### 8.2 Admin Dashboard — Granular Streaming
+### 7.2 Admin Dashboard — Granular Streaming
 
 ```typescript
 // Path: app/workspace/page.tsx (PROPOSED)
@@ -939,7 +953,7 @@ export function DashboardHeader({ displayName }: { displayName: string }) {
 }
 ```
 
-### 8.3 Closer Dashboard — Granular Streaming
+### 7.3 Closer Dashboard — Granular Streaming
 
 ```typescript
 // Path: app/workspace/closer/page.tsx (PROPOSED)
@@ -1004,7 +1018,7 @@ export default async function CloserDashboardPage() {
 }
 ```
 
-### 8.4 CLS Prevention Rules
+### 7.4 CLS Prevention Rules
 
 Skeleton dimensions must match final content dimensions. Rules for skeleton components:
 
@@ -1021,13 +1035,21 @@ Skeleton dimensions must match final content dimensions. Rules for skeleton comp
 
 ---
 
-## 9. Phase 5: Lazy Loading & Bundle Optimization
+## 8. Phase 4: View Transitions, Lazy Loading & Validation
 
-### 9.1 What & Why
+**Estimated time:** 1.5 hours (Run 4)
 
-Audit and optimize dynamic imports. Move heavy client libraries (recharts, date-fns locale bundles, calendar view components) into lazy-loaded boundaries. Add custom loading components to dynamic imports for better perceived performance.
+This phase adds client-side view transitions for smooth page animations, lazy-loads heavy components (recharts, calendars), and adds build-time validation via `unstable_instant` exports.
 
-### 9.2 Current Dynamic Import Audit
+### 8.1 What & Why
+
+**8.1.1 Lazy load heavy libraries.** Move recharts, date-fns, and calendar components into dynamic imports with proper loading skeletons. These are only needed on certain routes and significantly bloat the initial bundle.
+
+**8.1.2 Add view transitions.** Use React's View Transition API via Next.js to animate page navigations smoothly. This eliminates the abrupt visual jarring of instant navigation and provides visual continuity.
+
+**8.1.3 Validate streaming architecture.** Export `unstable_instant` from workspace routes to validate at build time that navigations produce an instant static shell. The build catches Suspense boundary misplacement before deployment.
+
+### 8.2 Current Dynamic Import Audit
 
 | Component | Import Style | SSR | Loading Fallback | Optimization |
 |---|---|---|---|---|
@@ -1049,7 +1071,7 @@ Audit and optimize dynamic imports. Move heavy client libraries (recharts, date-
 | `NotificationCenter` | Popover with polling — not needed at first paint | Lazy load with placeholder icon |
 | `WorkspaceBreadcrumbs` | Reads pathname — not critical for first paint | Consider keeping static for now |
 
-### 9.3 Lazy Loading Heavy Charts
+### 8.3 Lazy Loading Heavy Charts
 
 ```typescript
 // Path: app/workspace/_components/stats-section.tsx (PROPOSED)
@@ -1077,7 +1099,7 @@ export function StatsSection() {
 }
 ```
 
-### 9.4 Lazy Loading Calendar
+### 8.4 Lazy Loading Calendar
 
 ```typescript
 // Path: app/workspace/closer/_components/calendar-section.tsx (PROPOSED)
@@ -1106,48 +1128,29 @@ export function CalendarSection() {
 }
 ```
 
-### 9.5 Bundle Analysis
+### 8.5 Bundle Analysis
 
-Run the bundle analyzer to identify other optimization opportunities:
+Next.js 16.1+ includes a built-in bundle analyzer — no third-party package needed:
 
 ```bash
-# Install (if not present)
-pnpm add -D @next/bundle-analyzer
+# Built-in analyzer (Next.js 16.1+) — interactive UI with treemap, route filtering, import chains
+pnpm next experimental-analyze
 
-# Analyze
-ANALYZE=true pnpm build
+# Save output for before/after comparison
+pnpm next experimental-analyze --output
+# Output saved to .next/diagnostics/analyze
 ```
 
-```typescript
-// Path: next.config.ts (with analyzer)
-import type { NextConfig } from "next";
-import bundleAnalyzer from "@next/bundle-analyzer";
-
-const withBundleAnalyzer = bundleAnalyzer({
-  enabled: process.env.ANALYZE === "true",
-});
-
-const nextConfig: NextConfig = {
-  cacheComponents: true,
-};
-
-export default withBundleAnalyzer(nextConfig);
-```
+> **Note:** The `@next/bundle-analyzer` package is **not needed**. The built-in `next experimental-analyze` command provides the same functionality (and more) without a dependency. Run it before Phase 1 implementation for a baseline, and again after Phase 4 to quantify improvement.
 
 ---
 
-## 10. Phase 6: View Transitions & Micro-Animations
+#### 8.6.1 Page Transition — Cross-Fade
 
-### 10.1 What & Why
-
-Add smooth visual transitions between pages using React's View Transition API. This transforms abrupt page swaps into polished, app-like navigation experiences.
-
-From the `vercel-react-view-transitions` skill:
+Add smooth visual transitions between pages using React's View Transition API. This transforms abrupt page swaps into polished, app-like navigation experiences. From the `vercel-react-view-transitions` skill:
 - `<ViewTransition>` component wraps elements that should animate across navigations
 - `addTransitionType` classifies transition types (e.g., "navigation", "slide-forward")
 - CSS `::view-transition-*` pseudo-elements control animation
-
-### 10.2 Page Transition — Cross-Fade
 
 ```typescript
 // Path: app/workspace/_components/workspace-shell-client.tsx (PROPOSED addition)
@@ -1193,7 +1196,7 @@ export function PageTransition({ children }: { children: ReactNode }) {
 }
 ```
 
-### 10.3 Streamed Content Entrance Animation
+#### 8.6.2 Streamed Content Entrance Animation
 
 When Suspense boundaries resolve and content replaces skeletons, add a subtle entrance animation:
 
@@ -1244,7 +1247,9 @@ export function StreamBoundary({ fallback, children, className }: StreamBoundary
 }
 ```
 
-### 10.4 Skeleton Pulse Enhancement
+> **Tradeoff note:** `StreamBoundary` adds an extra `<div>` wrapper around every resolved Suspense child. This can break flex/grid parent layouts if not accounted for. When using inside a grid or flex container, pass `className="contents"` to make the wrapper invisible to CSS layout, or apply the animation class directly to the resolved component's root element instead of using `StreamBoundary`. If View Transitions (8.6.1) already provide sufficient visual continuity, this component may be unnecessary — test both approaches.
+
+#### 8.6.3 Skeleton Pulse Enhancement
 
 Upgrade the default skeleton pulse to a more polished shimmer effect:
 
@@ -1267,11 +1272,37 @@ Upgrade the default skeleton pulse to a more polished shimmer effect:
   background-size: 200% 100%;
   animation: shimmer 1.5s ease-in-out infinite;
 }
+
+/* Accessibility: respect reduced motion preference for ALL animations */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation-duration: 0.01ms !important;
+  }
+
+  .animate-stream-in,
+  .animate-progress-bar,
+  .skeleton-shimmer {
+    animation: none !important;
+  }
+
+  .animate-stream-in {
+    opacity: 1;
+    transform: none;
+  }
+}
 ```
 
-### 10.5 Navigation Indicator
+> **Accessibility (`web-design-guidelines` skill):** All proposed animations (view transitions, stream-in, shimmer, progress bar) MUST respect `prefers-reduced-motion: reduce`. The CSS block above disables all animations for users who prefer reduced motion. This is a WCAG 2.1 Level AA requirement (Success Criterion 2.3.3).
 
-Add a thin progress bar at the top of the page during navigations (similar to NProgress):
+#### 8.6.4 Navigation Indicator (Optional)
+
+> **Implementation note:** With `loading.tsx` providing instant skeletons and View Transitions providing visual continuity, a navigation progress bar is *redundant* feedback in most cases. Consider omitting this initially and adding only if user testing reveals a need.
+>
+> **Suspense requirement (`next-best-practices` skill):** `usePathname()` requires a `<Suspense>` boundary in dynamic routes — this component must be wrapped in `<Suspense>` or placed inside a layout that already provides one.
+
+If needed, a thin progress bar at the top of the page during navigations (similar to NProgress):
 
 ```typescript
 // Path: components/navigation-progress.tsx (PROPOSED)
@@ -1321,16 +1352,14 @@ export function NavigationProgress() {
 
 ---
 
-## 11. Phase 7: Validation & Instant Navigation
-
-### 11.1 What & Why
+### 8.7 Build-Time Validation with `unstable_instant`
 
 Add `unstable_instant` exports to workspace routes to validate at build time that navigations produce an instant static shell. This catches Suspense boundary misplacement before deployment.
 
 From the Next.js docs:
 > `unstable_instant` tells Next.js to validate that this page produces an instant static shell at every possible entry point. Validation runs during development and at build time. If a component would block navigation, the error overlay tells you exactly which one and suggests a fix.
 
-### 11.2 Route-Level Validation
+#### 8.7.1 Route-Level Validation
 
 ```typescript
 // Path: app/workspace/page.tsx (add to top)
@@ -1362,17 +1391,25 @@ export const unstable_instant = { prefetch: "static" };
 export const unstable_instant = { prefetch: "static" };
 ```
 
-### 11.3 DevTools Configuration
+### 8.8 DevTools Configuration
 
 ```typescript
-// Path: next.config.ts (PROPOSED — Phase 7)
+// Path: next.config.ts (final state after all phases)
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   cacheComponents: true,
   experimental: {
+    optimizePackageImports: ["lucide-react", "date-fns", "recharts"],
     instantNavigationDevToolsToggle: true,
   },
+  async rewrites() {
+    return [
+      { source: "/ingest/static/:path*", destination: "https://us-assets.i.posthog.com/static/:path*" },
+      { source: "/ingest/:path*", destination: "https://us.i.posthog.com/:path*" },
+    ];
+  },
+  skipTrailingSlashRedirect: true,
 };
 
 export default nextConfig;
@@ -1382,7 +1419,7 @@ This adds an "Instant Navs" toggle in the Next.js DevTools overlay:
 - **Page load**: Freezes the page at the static shell to verify what renders before dynamic content streams in.
 - **Client navigation**: Shows the prefetched UI for the target page, confirming what appears instantly on link click.
 
-### 11.4 Performance Benchmarks
+### 8.9 Performance Benchmarks
 
 After all phases are implemented, measure:
 
@@ -1396,7 +1433,7 @@ After all phases are implemented, measure:
 | **Navigation perceived latency** | < 100ms (skeleton visible) | Manual testing with DevTools throttle |
 | **Client-side navigation time** | < 50ms to skeleton | Performance API `navigation` entries |
 
-### 11.5 Web Vitals Monitoring
+### 8.10 Web Vitals Monitoring
 
 ```typescript
 // Path: app/workspace/_components/web-vitals-reporter.tsx (PROPOSED)
@@ -1417,14 +1454,14 @@ export function WebVitalsReporter() {
 
 ---
 
-## 12. Routing & Authorization
+## 9. Routing & Authorization
 
-### 12.1 Route Structure (With New Files)
+### 9.1 Route Structure (With New Files)
 
 ```
 app/
 ├── layout.tsx                                    # Root layout (providers, fonts)
-├── globals.css                                   # MODIFIED: animations, transitions — Phase 6
+├── globals.css                                   # MODIFIED: animations, transitions — Phase 4
 ├── workspace/
 │   ├── layout.tsx                                # MODIFIED: streaming layout — Phase 3
 │   ├── loading.tsx                               # NEW: admin dashboard skeleton — Phase 1
@@ -1454,7 +1491,7 @@ app/
 │   │   │       ├── loading.tsx                   # NEW: meeting detail skeleton — Phase 1
 │   │   │       └── ...existing...
 │   │   └── _components/
-│   │       ├── calendar-section.tsx              # NEW: lazy-loaded calendar wrapper — Phase 5
+│   │       ├── calendar-section.tsx              # NEW: lazy-loaded calendar wrapper — Phase 4
 │   │       └── ...existing...
 │   ├── pipeline/
 │   │   ├── loading.tsx                           # NEW: admin pipeline skeleton — Phase 1
@@ -1470,12 +1507,12 @@ app/
 │       └── ...existing...
 ├── components/
 │   ├── ui/
-│   │   └── stream-boundary.tsx                   # NEW: animated Suspense wrapper — Phase 6
-│   └── navigation-progress.tsx                   # NEW: top progress bar — Phase 6
-└── next.config.ts                                # MODIFIED: cacheComponents + experimental — Phases 2, 7
+│   │   └── stream-boundary.tsx                   # NEW: animated Suspense wrapper — Phase 4
+│   └── navigation-progress.tsx                   # NEW: top progress bar (optional) — Phase 4
+└── next.config.ts                                # MODIFIED: cacheComponents + optimizePackageImports + experimental — Phases 1, 4
 ```
 
-### 12.2 Auth Flow With PPR
+### 9.2 Auth Flow With PPR
 
 ```mermaid
 flowchart TD
@@ -1510,74 +1547,72 @@ flowchart TD
 
 ---
 
-## 13. Error Handling & Edge Cases
+## 10. Error Handling & Edge Cases
 
-### 13.1 Auth Failure During Streaming
+### 10.1 Auth Failure During Streaming
 
 **Scenario:** `withAuth()` fails mid-stream (token expired, WorkOS down).
 **Detection:** `getWorkspaceAccess()` throws or redirects to `/sign-in`.
 **Recovery:** The `error.tsx` boundary catches the error and shows the retry UI. The workspace shell frame remains visible. The user can retry or navigate to sign-in.
 **User sees:** Sidebar frame (static) + error card in main content area.
 
-### 13.2 Convex Preload Failure
+### 10.2 Convex Preload Failure
 
 **Scenario:** `preloadQuery()` fails (Convex backend unreachable, query throws).
 **Detection:** Promise rejection inside a `<Suspense>` boundary.
 **Recovery:** `error.tsx` boundary catches. The rest of the page (other Suspense boundaries) continues to render normally.
 **User sees:** Other sections load fine; failed section shows error card with retry.
 
-### 13.3 Activity State After Session Expiry
+### 10.3 Activity State After Session Expiry
 
 **Scenario:** User navigates away, session expires, navigates back to preserved route.
 **Detection:** Convex subscription re-authentication fails; `useAuth()` reports unauthenticated.
 **Recovery:** Existing session expiry toast fires (from `ConvexClientProvider`). Activity-preserved state is stale but harmless — the user is prompted to sign in.
 **User sees:** Previous page appears (from Activity cache) with session expiry toast.
 
-### 13.4 CLS From Skeleton Mismatch
+### 10.4 CLS From Skeleton Mismatch
 
 **Scenario:** Skeleton height doesn't match resolved content height.
 **Detection:** Lighthouse CLS score > 0.1.
 **Recovery:** Adjust skeleton dimensions. Use `min-h-` containers around Suspense boundaries.
 **Prevention:** Each skeleton component is co-located with its content component and tested visually.
 
-### 13.5 Slow Network — Streaming Stall
+### 10.5 Slow Network — Streaming Stall
 
 **Scenario:** User on slow connection sees skeleton for extended period.
 **Detection:** Suspense boundary hasn't resolved after 3 seconds.
 **Recovery:** Skeletons have a subtle pulse animation that communicates "loading" state. No timeout — streaming will complete when data arrives.
 **User sees:** Animated skeleton that clearly communicates loading state.
 
-### 13.6 View Transition Fallback
+### 10.6 View Transition Fallback
 
 **Scenario:** Browser doesn't support View Transition API.
 **Detection:** React's `<ViewTransition>` gracefully falls back.
 **Recovery:** Standard instant navigation (no animation). No error thrown.
-**User sees:** Same behavior as before Phase 6 — abrupt but functional page swap.
+**User sees:** Same behavior as without view transitions — abrupt but functional page swap.
 
 ---
 
-## 14. Open Questions
+## 11. Open Questions
 
 | # | Question | Current Thinking |
 |---|---|---|
 | 1 | Should we add `loading.tsx` to the root `/workspace` or let each sub-route handle it? | Add at both levels. `/workspace/loading.tsx` covers the admin dashboard; each sub-route has its own for navigation between routes within the workspace. |
 | 2 | Will `cacheComponents` conflict with the ConvexClientProvider's auth flow? | Unlikely — ConvexClientProvider is a client component in the root layout, which is always rendered. Activity preservation means it stays mounted. Need to test. |
 | 3 | How does Activity interact with Convex's real-time subscriptions? | When a route is hidden via Activity, effects clean up (subscriptions pause). When visible again, effects re-run (subscriptions resume). This is the correct behavior — no stale data. Need to verify with `useQuery`. |
-| 4 | Should we use `@next/bundle-analyzer` to measure before/after? | Yes — run before Phase 1 and after Phase 5 to quantify bundle size improvement. |
-| 5 | Should the `WorkspaceShellFrame` be a Server Component or static HTML? | Server Component — it uses shadcn sidebar components which may import client-side code. If all sidebar primitives are server-compatible, it can be fully static. |
-| 6 | Is `react-day-picker` tree-shakeable enough or should we lazy-load the entire calendar? | Lazy-load the entire `CalendarView` (Phase 5). It pulls in `react-day-picker` + `date-fns` locale data + view mode logic. |
-| 7 | Should we implement `useReportWebVitals` in Phase 1 or Phase 7? | Phase 7 — get the optimizations in first, then measure. But consider adding it early for baseline measurement. |
+| ~~4~~ | ~~Should we use `@next/bundle-analyzer` to measure before/after?~~ | **Resolved.** No package needed — use built-in `pnpm next experimental-analyze` (Next.js 16.1+). Run before Phase 1 for baseline, after Phase 4 for comparison. |
+| ~~5~~ | ~~Should the `WorkspaceShellFrame` be a Server Component or static HTML?~~ | **Resolved.** Server Component, but `SidebarProvider` inside it is `"use client"`. This is fine — PPR prerendering includes client component HTML output. The dynamic split happens at the `<Suspense>` boundary around `WorkspaceAuth`, not at the client boundary. See architectural note in Phase 2. |
+| ~~6~~ | ~~Is `react-day-picker` tree-shakeable enough or should we lazy-load the entire calendar?~~ | **Resolved.** Lazy-load the entire `CalendarView` (Phase 4). It pulls in `react-day-picker` + `date-fns` locale data + view mode logic. `optimizePackageImports` handles `date-fns` barrel imports for any non-lazy-loaded usage. |
+| ~~7~~ | ~~Should we implement `useReportWebVitals` in Phase 1 or Phase 7?~~ | **Resolved.** Single-day implementation — add it at the end of Phase 4 as a validation step. Collect baseline via Lighthouse/DevTools before starting Phase 1. |
 | ~~8~~ | ~~Can we use ISR for any workspace pages?~~ | **Resolved.** No — all workspace pages require authentication (cookies/tokens), making them inherently dynamic. ISR is for public/static content. |
 
 ---
 
-## 15. Dependencies
+## 12. Dependencies
 
 ### New Packages
 
-| Package | Why | Runtime | Install |
-|---|---|---|---|
-| `@next/bundle-analyzer` | Bundle size analysis and optimization | Build-time only (dev dep) | `pnpm add -D @next/bundle-analyzer` |
+None required. All features (PPR, Cache Components, Activity, View Transitions, bundle analysis) are built into Next.js 16.2.1 and React 19.2.4. Bundle analysis uses the built-in `pnpm next experimental-analyze` command.
 
 ### Already Installed (no action needed)
 
@@ -1592,24 +1627,21 @@ flowchart TD
 
 ### Environment Variables
 
-| Variable | Where Set | Used By |
-|---|---|---|
-| `ANALYZE` | Shell env (`ANALYZE=true pnpm build`) | `@next/bundle-analyzer` — Phase 5 |
-
-> **Note:** No new environment variables are required for Cache Components, PPR, or Activity. These are framework-level features controlled by `next.config.ts`.
+No new environment variables required. All features are controlled by `next.config.ts`. Bundle analysis uses `pnpm next experimental-analyze` (no env vars needed).
 
 ---
 
-## 16. Applicable Skills
+## 13. Applicable Skills
 
-| Skill | When to Invoke | Phase(s) |
-|---|---|---|
-| `frontend-design` | Building skeleton components, error boundaries, navigation progress bar | Phases 1, 4, 6 |
-| `shadcn` | Using shadcn `Skeleton`, `Card`, `Button` in loading/error states | Phases 1, 4 |
-| `vercel-react-best-practices` | React 19 patterns: `use()` hook, Server Component composition, selective hydration | Phases 3, 4 |
-| `vercel-composition-patterns` | Splitting WorkspaceShell into frame + client, composition with Suspense | Phase 3 |
-| `vercel-react-view-transitions` | Implementing page transitions with `<ViewTransition>`, CSS animations | Phase 6 |
-| `web-design-guidelines` | WCAG compliance for loading states, error boundaries, skip links, animation preferences | All phases |
+| Skill | When to Invoke | Phase(s) | Key Rules Referenced |
+|---|---|---|---|
+| `next-best-practices` | File conventions, `loading.tsx`/`error.tsx` placement, Suspense boundary requirements, `usePathname` caveats, bundling, RSC boundary validation, data patterns, `cacheComponents`/`use cache` directives | All phases | `suspense-boundaries`, `file-conventions`, `bundling`, `rsc-boundaries`, `data-patterns`, `directives`, `error-handling` |
+| `vercel-react-best-practices` | React 19 patterns, barrel import optimization, dynamic imports, server-side parallel fetching, Activity usage, deferred third-party loading | All phases | `bundle-barrel-imports` (CRITICAL), `bundle-dynamic-imports` (CRITICAL), `async-suspense-boundaries` (HIGH), `server-parallel-fetching` (CRITICAL), `rendering-activity` (MEDIUM), `bundle-defer-third-party` (MEDIUM) |
+| `frontend-design` | Building skeleton components, error boundaries, navigation progress bar | Phases 1, 4 |  |
+| `shadcn` | Using shadcn `Skeleton`, `Card`, `Button` in loading/error states | Phases 1, 3 |  |
+| `vercel-composition-patterns` | Splitting WorkspaceShell into frame + client, composition with Suspense | Phase 2 |  |
+| `vercel-react-view-transitions` | Implementing page transitions with `<ViewTransition>`, CSS animations | Phase 4 |  |
+| `web-design-guidelines` | WCAG compliance for loading states, error boundaries, skip links, `prefers-reduced-motion` | All phases |  |
 
 ---
 
