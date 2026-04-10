@@ -25,28 +25,81 @@ export type EnrichedMeeting = {
   eventTypeName?: string | null;
 };
 
-// ─── Time grid constants ────────────────────────────────────────────────────
+// ─── Dynamic hour range ─────────────────────────────────────────────────────
 
-/** First visible hour row. */
-export const START_HOUR = 7;
-/** Last visible hour row (exclusive — 21 means 9 PM is the final label). */
-export const END_HOUR = 21;
 /** Pixel height for a one-hour slot. */
 export const HOUR_HEIGHT = 60;
 
-/** Array of visible hours (7 → 20). */
-export const HOURS = Array.from(
-  { length: END_HOUR - START_HOUR },
-  (_, i) => START_HOUR + i,
-);
+/** Default range shown when no meetings exist (8 AM – 6 PM). */
+const DEFAULT_START_HOUR = 8;
+const DEFAULT_END_HOUR = 18;
+
+/** Computed visible hour range for the time grid. */
+export type HourRange = {
+  /** First visible hour (inclusive). */
+  startHour: number;
+  /** Last visible hour (exclusive). */
+  endHour: number;
+  /** Array of hour values to render (startHour … endHour - 1). */
+  hours: number[];
+};
+
+/**
+ * Compute the visible hour range from actual meeting data.
+ *
+ * Scans all meetings to find the earliest start and latest end, then adds
+ * `padding` hours on each side. Clamps to [0, 24]. When no meetings exist
+ * falls back to 8 AM – 6 PM.
+ */
+export function computeHourRange(
+  meetings: EnrichedMeeting[],
+  padding = 2,
+): HourRange {
+  if (meetings.length === 0) {
+    return buildRange(DEFAULT_START_HOUR, DEFAULT_END_HOUR);
+  }
+
+  let minHour = 23;
+  let maxHour = 0;
+
+  for (const m of meetings) {
+    const start = new Date(m.meeting.scheduledAt);
+    const startH = start.getHours();
+
+    // Compute end hour — use minute arithmetic to avoid midnight-crossing issues
+    const startMinutes = startH * 60 + start.getMinutes();
+    const endMinutes = startMinutes + m.meeting.durationMinutes;
+    // Round up so a meeting ending at 10:15 PM → endH = 23
+    const endH = Math.min(24, Math.ceil(endMinutes / 60));
+
+    if (startH < minHour) minHour = startH;
+    if (endH > maxHour) maxHour = endH;
+  }
+
+  const startHour = Math.max(0, minHour - padding);
+  const endHour = Math.min(24, maxHour + padding);
+
+  return buildRange(startHour, endHour);
+}
+
+function buildRange(startHour: number, endHour: number): HourRange {
+  return {
+    startHour,
+    endHour,
+    hours: Array.from(
+      { length: endHour - startHour },
+      (_, i) => startHour + i,
+    ),
+  };
+}
 
 // ─── Positioning helpers ────────────────────────────────────────────────────
 
 /** Convert a scheduledAt timestamp to a top-offset in pixels within the time grid. */
-export function getTopPx(scheduledAt: number): number {
+export function getTopPx(scheduledAt: number, startHour: number): number {
   const d = new Date(scheduledAt);
   return (
-    (d.getHours() - START_HOUR) * HOUR_HEIGHT +
+    (d.getHours() - startHour) * HOUR_HEIGHT +
     (d.getMinutes() / 60) * HOUR_HEIGHT
   );
 }

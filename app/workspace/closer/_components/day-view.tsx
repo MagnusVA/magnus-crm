@@ -6,10 +6,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { MeetingBlock } from "./meeting-block";
 import {
   type EnrichedMeeting,
-  HOURS,
   HOUR_HEIGHT,
-  START_HOUR,
-  END_HOUR,
+  computeHourRange,
   getTopPx,
   getHeightPx,
   formatHour,
@@ -29,14 +27,22 @@ type DayViewProps = {
  */
 // ─── Now indicator component ────────────────────────────────────────────
 
-function NowIndicator({ now }: { now: Date }) {
+function NowIndicator({
+  now,
+  startHour,
+  endHour,
+}: {
+  now: Date;
+  startHour: number;
+  endHour: number;
+}) {
   const hour = now.getHours();
   const minutes = now.getMinutes();
 
   // Only show if within the visible grid range
-  if (hour < START_HOUR || hour >= END_HOUR) return null;
+  if (hour < startHour || hour >= endHour) return null;
 
-  const topPx = (hour - START_HOUR) * HOUR_HEIGHT + (minutes / 60) * HOUR_HEIGHT;
+  const topPx = (hour - startHour) * HOUR_HEIGHT + (minutes / 60) * HOUR_HEIGHT;
 
   return (
     <div
@@ -57,7 +63,13 @@ export function DayView({ meetings, date }: DayViewProps) {
     [meetings, date],
   );
 
-  const totalHeight = HOURS.length * HOUR_HEIGHT;
+  // Derive visible hour range from actual meeting data (±2h padding)
+  const { startHour, endHour, hours } = useMemo(
+    () => computeHourRange(dayMeetings),
+    [dayMeetings],
+  );
+
+  const totalHeight = hours.length * HOUR_HEIGHT;
   const now = useCurrentTime();
 
   return (
@@ -65,7 +77,7 @@ export function DayView({ meetings, date }: DayViewProps) {
       <div className="flex" style={{ height: totalHeight }}>
         {/* Time gutter */}
         <div className="w-16 shrink-0 border-r" aria-hidden="true">
-          {HOURS.map((hour) => (
+          {hours.map((hour) => (
             <div
               key={hour}
               className="flex h-[60px] items-start justify-end border-b border-border/40 pr-2 pt-1 text-[11px] tabular-nums text-muted-foreground"
@@ -78,7 +90,7 @@ export function DayView({ meetings, date }: DayViewProps) {
         {/* Day column */}
         <div className="relative flex-1">
           {/* Hour grid lines */}
-          {HOURS.map((hour) => (
+          {hours.map((hour) => (
             <div key={hour} className="h-[60px] border-b border-border/40" />
           ))}
 
@@ -93,14 +105,16 @@ export function DayView({ meetings, date }: DayViewProps) {
               leadName={m.leadName}
               eventTypeName={m.eventTypeName}
               style={{
-                top: getTopPx(m.meeting.scheduledAt),
+                top: getTopPx(m.meeting.scheduledAt, startHour),
                 height: getHeightPx(m.meeting.durationMinutes),
               }}
             />
           ))}
 
           {/* Current time indicator */}
-          {isSameDay(now, date) && <NowIndicator now={now} />}
+          {isSameDay(now, date) && (
+            <NowIndicator now={now} startHour={startHour} endHour={endHour} />
+          )}
         </div>
       </div>
     </ScrollArea>

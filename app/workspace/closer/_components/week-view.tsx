@@ -7,10 +7,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { MeetingBlock } from "./meeting-block";
 import {
   type EnrichedMeeting,
-  HOURS,
   HOUR_HEIGHT,
-  START_HOUR,
-  END_HOUR,
+  computeHourRange,
   getTopPx,
   getHeightPx,
   formatHour,
@@ -36,15 +34,24 @@ type WeekViewProps = {
  */
 // ─── Now indicator component ────────────────────────────────────────────
 
-function NowIndicator({ now, todayColumnIndex }: { now: Date; todayColumnIndex: number }) {
+function NowIndicator({
+  now,
+  todayColumnIndex,
+  startHour,
+  endHour,
+}: {
+  now: Date;
+  todayColumnIndex: number;
+  startHour: number;
+  endHour: number;
+}) {
   const hour = now.getHours();
   const minutes = now.getMinutes();
 
   // Only show if within the visible grid range
-  if (hour < START_HOUR || hour >= END_HOUR) return null;
+  if (hour < startHour || hour >= endHour) return null;
 
-  const topPx = (hour - START_HOUR) * HOUR_HEIGHT + (minutes / 60) * HOUR_HEIGHT;
-  const leftOffset = `calc(4rem + ${todayColumnIndex} * (1fr))`;
+  const topPx = (hour - startHour) * HOUR_HEIGHT + (minutes / 60) * HOUR_HEIGHT;
 
   return (
     <div
@@ -82,7 +89,13 @@ export function WeekView({ meetings, startDate }: WeekViewProps) {
     return map;
   }, [meetings, days]);
 
-  const totalHeight = HOURS.length * HOUR_HEIGHT;
+  // Derive visible hour range from actual meeting data (±2h padding)
+  const { startHour, endHour, hours } = useMemo(
+    () => computeHourRange(meetings),
+    [meetings],
+  );
+
+  const totalHeight = hours.length * HOUR_HEIGHT;
   const now = useCurrentTime();
   const todayColumnIndex = days.findIndex((d) => isToday(d));
 
@@ -125,7 +138,7 @@ export function WeekView({ meetings, startDate }: WeekViewProps) {
         >
           {/* Time gutter */}
           <div className="border-r border-border/40" aria-hidden="true">
-            {HOURS.map((hour) => (
+            {hours.map((hour) => (
               <div
                 key={hour}
                 className="flex h-[60px] items-start justify-end border-b border-border/40 pr-2 pt-1 text-[11px] tabular-nums text-muted-foreground"
@@ -149,7 +162,7 @@ export function WeekView({ meetings, startDate }: WeekViewProps) {
                 )}
               >
                 {/* Hour grid lines */}
-                {HOURS.map((hour) => (
+                {hours.map((hour) => (
                   <div
                     key={hour}
                     className="h-[60px] border-b border-border/40"
@@ -167,14 +180,21 @@ export function WeekView({ meetings, startDate }: WeekViewProps) {
                     leadName={m.leadName}
                     eventTypeName={m.eventTypeName}
                     style={{
-                      top: getTopPx(m.meeting.scheduledAt),
+                      top: getTopPx(m.meeting.scheduledAt, startHour),
                       height: getHeightPx(m.meeting.durationMinutes),
                     }}
                   />
                 ))}
 
                 {/* Current time indicator for today's column */}
-                {today && <NowIndicator now={now} todayColumnIndex={dayIdx} />}
+                {today && (
+                  <NowIndicator
+                    now={now}
+                    todayColumnIndex={dayIdx}
+                    startHour={startHour}
+                    endHour={endHour}
+                  />
+                )}
               </div>
             );
           })}
