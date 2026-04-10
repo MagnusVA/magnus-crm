@@ -1,4 +1,4 @@
 [mcp_servers.expect]
-command = "npx"
-args = [ "-y", "expect-cli@latest", "mcp" ]
+command = "node"
+args = [ "node_modules/expect-cli/dist/index.js", "mcp" ]
 startup_timeout_sec = 20

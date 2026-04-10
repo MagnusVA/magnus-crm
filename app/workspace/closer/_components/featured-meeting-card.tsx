@@ -26,6 +26,7 @@ type FeaturedMeetingCardProps = {
     _id: string;
     scheduledAt: number;
     durationMinutes: number;
+    meetingJoinUrl?: string;
     zoomJoinUrl?: string;
   };
   lead: {
@@ -39,7 +40,7 @@ type FeaturedMeetingCardProps = {
  * Hero card for the closer's next scheduled meeting.
  *
  * Displays lead info, event type, meeting time, a live countdown that
- * refreshes every minute, and action buttons (Join Zoom / View Details).
+ * refreshes every minute, and action buttons (Join Meeting / View Details).
  *
  * Visual hierarchy: a colored left‑border signals urgency —
  *   primary (> 30 min), amber (< 30 min), emerald (started).
@@ -135,10 +136,10 @@ export function FeaturedMeetingCard({
 
           {/* Actions */}
           <div className="flex flex-wrap items-center gap-2">
-            {meeting.zoomJoinUrl && (
+            {(meeting.meetingJoinUrl ?? meeting.zoomJoinUrl) && (
               <Button asChild>
                 <a
-                  href={meeting.zoomJoinUrl}
+                  href={meeting.meetingJoinUrl ?? meeting.zoomJoinUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                 >

@@ -27,6 +27,12 @@ export const process = internalMutation({
       return;
     }
 
+    // Log tracking presence for debugging (UTMs already stored at creation time)
+    const hasTracking = isRecord(payload) && isRecord(payload.tracking);
+    console.log(
+      `[Pipeline:invitee.canceled] UTM check | hasTracking=${hasTracking}`
+    );
+
     const scheduledEvent =
       isRecord(payload) && isRecord(payload.scheduled_event)
         ? payload.scheduled_event

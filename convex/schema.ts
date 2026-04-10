@@ -160,7 +160,9 @@ export default defineSchema({
     opportunityId: v.id("opportunities"),
     calendlyEventUri: v.string(),
     calendlyInviteeUri: v.string(),
-    zoomJoinUrl: v.optional(v.string()),
+    zoomJoinUrl: v.optional(v.string()), // Legacy Zoom-only field. Keep during migration window.
+    meetingJoinUrl: v.optional(v.string()), // Generic online join URL from Calendly location payloads.
+    meetingLocationType: v.optional(v.string()), // Raw/normalized Calendly location.type. String to avoid schema churn for new provider types.
     scheduledAt: v.number(),
     durationMinutes: v.number(),
     status: v.union(

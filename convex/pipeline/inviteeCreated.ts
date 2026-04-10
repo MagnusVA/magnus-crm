@@ -6,6 +6,7 @@ import type { MutationCtx } from "../_generated/server";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { validateTransition } from "../lib/statusTransitions";
 import { extractUtmParams } from "../lib/utmParams";
+import { extractMeetingLocation } from "../lib/meetingLocation";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -174,15 +175,8 @@ export const process = internalMutation({
 
     const latestCustomFields = extractQuestionsAndAnswers(payload.questions_and_answers);
 
-    // ── NEW: Extract UTM tracking parameters ──
     const utmParams = extractUtmParams(payload.tracking);
-    console.log(
-      `[Pipeline:invitee.created] UTM extraction | ` +
-      `hasUtm=${!!utmParams} ` +
-      `source=${utmParams?.utm_source ?? "none"} ` +
-      `medium=${utmParams?.utm_medium ?? "none"} ` +
-      `campaign=${utmParams?.utm_campaign ?? "none"}`
-    );
+    console.log(`[Pipeline:invitee.created] UTM extraction | hasUtm=${!!utmParams} source=${utmParams?.utm_source ?? "none"} medium=${utmParams?.utm_medium ?? "none"} campaign=${utmParams?.utm_campaign ?? "none"}`);
 
     if (!lead) {
       const leadId = await ctx.db.insert("leads", {
@@ -299,17 +293,14 @@ export const process = internalMutation({
         calendlyEventUri,
         createdAt: now,
         updatedAt: now,
-        utmParams,  // NEW: First booking's attribution
+        utmParams,
       });
       console.log(
         `[Pipeline:invitee.created] New opportunity created | opportunityId=${opportunityId}`,
       );
     }
 
-    const zoomJoinUrl =
-      isRecord(scheduledEvent.location)
-        ? getString(scheduledEvent.location, "join_url")
-        : undefined;
+    const meetingLocation = extractMeetingLocation(scheduledEvent.location);
     const meetingNotes = getString(scheduledEvent, "meeting_notes_plain");
 
     const meetingId = await ctx.db.insert("meetings", {
@@ -317,14 +308,16 @@ export const process = internalMutation({
       opportunityId,
       calendlyEventUri,
       calendlyInviteeUri,
-      zoomJoinUrl,
+      zoomJoinUrl: meetingLocation.zoomJoinUrl,
+      meetingJoinUrl: meetingLocation.meetingJoinUrl,
+      meetingLocationType: meetingLocation.meetingLocationType,
       scheduledAt,
       durationMinutes,
       status: "scheduled",
       notes: meetingNotes,
       leadName: lead.fullName ?? lead.email, // Denormalize for query efficiency
       createdAt: now,
-      utmParams,  // NEW: UTM attribution from Calendly tracking object
+      utmParams,
     });
     console.log(
       `[Pipeline:invitee.created] Meeting created | meetingId=${meetingId} durationMinutes=${durationMinutes}`,

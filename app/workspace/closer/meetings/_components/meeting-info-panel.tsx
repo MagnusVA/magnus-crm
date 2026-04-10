@@ -53,7 +53,7 @@ type MeetingInfoPanelProps = {
  * Meeting Info Panel — right column on the meeting detail page.
  *
  * Displays meeting date/time, duration, event type, assigned closer (useful
- * for admin view), meeting status badge, and a prominent Zoom join link with
+ * for admin view), meeting status badge, and a prominent meeting join link with
  * copy‑to‑clipboard via sonner toast.
  */
 export function MeetingInfoPanel({
@@ -64,10 +64,12 @@ export function MeetingInfoPanel({
   const statusKey = meeting.status as MeetingStatus;
   const statusCfg = meetingStatusConfig[statusKey];
 
-  const handleCopyZoomLink = () => {
-    if (meeting.zoomJoinUrl) {
-      navigator.clipboard.writeText(meeting.zoomJoinUrl);
-      toast.success("Zoom link copied to clipboard");
+  const meetingJoinUrl = meeting.meetingJoinUrl ?? meeting.zoomJoinUrl;
+
+  const handleCopyMeetingLink = () => {
+    if (meetingJoinUrl) {
+      navigator.clipboard.writeText(meetingJoinUrl);
+      toast.success("Meeting link copied to clipboard");
     }
   };
 
@@ -126,8 +128,8 @@ export function MeetingInfoPanel({
 
         <Separator />
 
-        {/* Zoom Link */}
-        {meeting.zoomJoinUrl ? (
+        {/* Meeting Link */}
+        {meetingJoinUrl ? (
           <div className="flex flex-col gap-2">
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Meeting Link
@@ -135,7 +137,7 @@ export function MeetingInfoPanel({
             <div className="flex gap-2">
               <Button asChild className="flex-1">
                 <a
-                  href={meeting.zoomJoinUrl}
+                  href={meetingJoinUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
@@ -146,8 +148,8 @@ export function MeetingInfoPanel({
               <Button
                 variant="outline"
                 size="icon"
-                onClick={handleCopyZoomLink}
-                aria-label="Copy Zoom link"
+                onClick={handleCopyMeetingLink}
+                aria-label="Copy meeting link"
               >
                 <CopyIcon />
               </Button>
@@ -157,7 +159,7 @@ export function MeetingInfoPanel({
           <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 p-3">
             <LinkIcon className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
             <p className="text-sm text-amber-700 dark:text-amber-400">
-              No Zoom link available
+              No meeting link available
             </p>
           </div>
         )}

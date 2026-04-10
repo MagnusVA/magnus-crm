@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -38,32 +38,23 @@ const TICK_INTERVAL_MS = 15_000; // re-check every 15 seconds
  * from 5 minutes before `scheduledAt` until `scheduledAt + durationMinutes`.
  */
 function useMeetingStartWindow(meeting: Doc<"meetings">) {
-  const computeState = useCallback(() => {
-    const now = Date.now();
-    const windowOpen = meeting.scheduledAt - EARLY_JOIN_MINUTES * 60 * 1000;
-    const windowClose =
-      meeting.scheduledAt + meeting.durationMinutes * 60 * 1000;
-
-    if (now < windowOpen) {
-      return { canStart: false, reason: "too_early" as const, windowOpen };
-    }
-    if (now > windowClose) {
-      return { canStart: false, reason: "too_late" as const, windowClose };
-    }
-    return { canStart: true, reason: null, windowOpen };
-  }, [meeting.scheduledAt, meeting.durationMinutes]);
-
-  const [state, setState] = useState(computeState);
+  const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    // Recalculate immediately in case deps changed
-    setState(computeState());
-
-    const interval = setInterval(() => setState(computeState()), TICK_INTERVAL_MS);
+    const interval = setInterval(() => setNow(Date.now()), TICK_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [computeState]);
+  }, []);
 
-  return state;
+  const windowOpen = meeting.scheduledAt - EARLY_JOIN_MINUTES * 60 * 1000;
+  const windowClose = meeting.scheduledAt + meeting.durationMinutes * 60 * 1000;
+
+  if (now < windowOpen) {
+    return { canStart: false, reason: "too_early" as const, windowOpen };
+  }
+  if (now > windowClose) {
+    return { canStart: false, reason: "too_late" as const, windowClose };
+  }
+  return { canStart: true, reason: null, windowOpen };
 }
 
 function formatTime(timestamp: number) {
@@ -77,7 +68,7 @@ function formatTime(timestamp: number) {
  * Outcome Action Bar — contextual action buttons on the meeting detail page.
  *
  * Renders buttons based on meeting/opportunity status:
- * - "Start Meeting" — when scheduled (opens Zoom, transitions to in_progress)
+ * - "Start Meeting" — when scheduled (opens the meeting link, transitions to in_progress)
  * - "Log Payment" — when in_progress (opens payment form dialog)
  * - "Schedule Follow-up" — when in_progress, canceled, or no_show
  * - "Mark as Lost" — when in_progress (opens confirmation dialog)
@@ -101,15 +92,15 @@ export function OutcomeActionBar({
     setIsStarting(true);
     try {
       const result = await startMeeting({ meetingId: meeting._id });
-      if (result.zoomJoinUrl) {
-        window.open(result.zoomJoinUrl, "_blank", "noopener,noreferrer");
+      if (result.meetingJoinUrl) {
+        window.open(result.meetingJoinUrl, "_blank", "noopener,noreferrer");
       }
       await onStatusChanged?.();
       toast.success("Meeting started");
       posthog.capture("meeting_started", {
         meeting_id: meeting._id,
         opportunity_id: opportunity._id,
-        has_zoom_url: Boolean(result.zoomJoinUrl),
+        has_meeting_url: Boolean(result.meetingJoinUrl),
         scheduled_at: meeting.scheduledAt,
         duration_minutes: meeting.durationMinutes,
       });
@@ -192,8 +183,8 @@ export function OutcomeActionBar({
         <Alert>
           <InfoIcon />
           <AlertDescription>
-            Click &ldquo;Start Meeting&rdquo; to open Zoom and mark the call as
-            in progress.
+            Click &ldquo;Start Meeting&rdquo; to open the meeting link and mark
+            the call as in progress.
           </AlertDescription>
         </Alert>
       )}

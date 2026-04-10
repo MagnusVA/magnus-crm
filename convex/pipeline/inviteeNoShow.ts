@@ -41,6 +41,12 @@ export const process = internalMutation({
       return;
     }
 
+    // Log tracking presence for debugging (UTMs already stored at creation time)
+    const hasTracking = isRecord(payload) && isRecord(payload.tracking);
+    console.log(
+      `[Pipeline:no-show] UTM check | hasTracking=${hasTracking}`
+    );
+
     const calendlyEventUri = extractCalendlyEventUri(payload);
     console.log(`[Pipeline:no-show] Extracted eventUri=${calendlyEventUri ?? "none"}`);
 
@@ -119,6 +125,12 @@ export const revert = internalMutation({
       console.log(`[Pipeline:no-show] Revert skipping: event already processed or not found`);
       return;
     }
+
+    // Log tracking presence for debugging
+    const hasTracking = isRecord(payload) && isRecord(payload.tracking);
+    console.log(
+      `[Pipeline:no-show] Revert UTM check | hasTracking=${hasTracking}`
+    );
 
     const calendlyEventUri = extractCalendlyEventUri(payload);
     console.log(`[Pipeline:no-show] Revert extracted eventUri=${calendlyEventUri ?? "none"}`);

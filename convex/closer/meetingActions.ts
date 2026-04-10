@@ -5,6 +5,7 @@ import { mutation } from "../_generated/server";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateTransition } from "../lib/statusTransitions";
+import { getStoredMeetingJoinUrl } from "../lib/meetingLocation";
 
 async function loadMeetingContext(
   ctx: MutationCtx,
@@ -61,7 +62,7 @@ export const updateMeetingNotes = mutation({
  * Start a meeting.
  *
  * Transitions the meeting and opportunity to "in_progress".
- * Returns the Zoom join URL so the frontend can open it in a new tab.
+ * Returns the meeting join URL so the frontend can open it in a new tab.
  *
  * Only closers can start meetings (on their own assignments).
  */
@@ -99,8 +100,9 @@ export const startMeeting = mutation({
     await ctx.db.patch(meetingId, { status: "in_progress" });
     await updateOpportunityMeetingRefs(ctx, opportunity._id);
 
-    console.log("[Closer:Meeting] startMeeting completed", { hasZoomUrl: !!meeting.zoomJoinUrl });
-    return { zoomJoinUrl: meeting.zoomJoinUrl ?? null };
+    const joinUrl = getStoredMeetingJoinUrl(meeting);
+    console.log("[Closer:Meeting] startMeeting completed", { hasMeetingUrl: !!joinUrl });
+    return { meetingJoinUrl: joinUrl ?? null };
   },
 });
 
