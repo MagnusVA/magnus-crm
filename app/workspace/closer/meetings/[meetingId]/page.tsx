@@ -2,6 +2,7 @@ import { preloadQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
 import { requireRole } from "@/lib/auth";
 import type { Id } from "@/convex/_generated/dataModel";
+import { isNonProductionDeployment } from "@/lib/deployment-environment";
 import { MeetingDetailPageClient } from "./_components/meeting-detail-page-client";
 
 export default async function MeetingDetailPage({
@@ -22,6 +23,7 @@ export default async function MeetingDetailPage({
   return (
     <MeetingDetailPageClient
       preloadedDetail={preloadedDetail}
+      allowOutOfWindowMeetingStart={isNonProductionDeployment()}
     />
   );
 }

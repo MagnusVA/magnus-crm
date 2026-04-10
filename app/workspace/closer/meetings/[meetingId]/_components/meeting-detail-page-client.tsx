@@ -60,8 +60,10 @@ type MeetingDetailData = {
 
 export function MeetingDetailPageClient({
   preloadedDetail,
+  allowOutOfWindowMeetingStart,
 }: {
   preloadedDetail: Preloaded<typeof api.closer.meetingDetail.getMeetingDetail>;
+  allowOutOfWindowMeetingStart: boolean;
 }) {
   const router = useRouter();
   const detail = usePreloadedQuery(preloadedDetail) as MeetingDetailData;
@@ -148,6 +150,7 @@ export function MeetingDetailPageClient({
         opportunity={opportunity}
         payments={payments}
         onStatusChanged={refreshDetail}
+        allowOutOfWindowMeetingStart={allowOutOfWindowMeetingStart}
       />
     </div>
   );

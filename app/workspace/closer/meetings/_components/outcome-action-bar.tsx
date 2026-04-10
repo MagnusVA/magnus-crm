@@ -28,6 +28,7 @@ type OutcomeActionBarProps = {
   opportunity: Doc<"opportunities">;
   payments: Doc<"paymentRecords">[];
   onStatusChanged?: () => Promise<void>;
+  allowOutOfWindowMeetingStart: boolean;
 };
 
 const EARLY_JOIN_MINUTES = 5;
@@ -36,14 +37,24 @@ const TICK_INTERVAL_MS = 15_000; // re-check every 15 seconds
 /**
  * Returns whether the current time falls within the meeting's start window:
  * from 5 minutes before `scheduledAt` until `scheduledAt + durationMinutes`.
+ *
+ * In non-production deployments, always allows starting (no time restrictions).
  */
-function useMeetingStartWindow(meeting: Doc<"meetings">) {
+function useMeetingStartWindow(
+  meeting: Doc<"meetings">,
+  allowOutOfWindowMeetingStart: boolean,
+) {
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), TICK_INTERVAL_MS);
     return () => clearInterval(interval);
   }, []);
+
+  // Non-production: no time restrictions
+  if (allowOutOfWindowMeetingStart) {
+    return { canStart: true, reason: null, windowOpen: meeting.scheduledAt };
+  }
 
   const windowOpen = meeting.scheduledAt - EARLY_JOIN_MINUTES * 60 * 1000;
   const windowClose = meeting.scheduledAt + meeting.durationMinutes * 60 * 1000;
@@ -80,10 +91,14 @@ export function OutcomeActionBar({
   meeting,
   opportunity,
   onStatusChanged,
+  allowOutOfWindowMeetingStart,
 }: OutcomeActionBarProps) {
   const startMeeting = useMutation(api.closer.meetingActions.startMeeting);
   const [isStarting, setIsStarting] = useState(false);
-  const { canStart, reason, windowOpen } = useMeetingStartWindow(meeting);
+  const { canStart, reason, windowOpen } = useMeetingStartWindow(
+    meeting,
+    allowOutOfWindowMeetingStart,
+  );
 
   const isScheduled = meeting.status === "scheduled";
   const isInProgress = opportunity.status === "in_progress";
@@ -189,7 +204,9 @@ export function OutcomeActionBar({
         </Alert>
       )}
 
-      {isScheduled && reason === "too_early" && (
+      {isScheduled &&
+        reason === "too_early" &&
+        !allowOutOfWindowMeetingStart && (
         <Alert>
           <ClockIcon />
           <AlertDescription>
@@ -197,9 +214,11 @@ export function OutcomeActionBar({
             before the scheduled time. The button will enable automatically.
           </AlertDescription>
         </Alert>
-      )}
+        )}
 
-      {isScheduled && reason === "too_late" && (
+      {isScheduled &&
+        reason === "too_late" &&
+        !allowOutOfWindowMeetingStart && (
         <Alert variant="destructive">
           <ClockIcon />
           <AlertDescription>
@@ -207,7 +226,7 @@ export function OutcomeActionBar({
             longer be started.
           </AlertDescription>
         </Alert>
-      )}
+        )}
     </div>
   );
 }
