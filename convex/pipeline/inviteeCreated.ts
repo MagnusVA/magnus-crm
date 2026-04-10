@@ -214,16 +214,53 @@ export const process = internalMutation({
 
     let eventTypeConfigId: Id<"eventTypeConfigs"> | undefined;
     if (eventTypeUri) {
-      const config = await ctx.db
+      // Use .take + canonical row (oldest createdAt) instead of .unique() so a rare
+      // double-insert race does not crash the pipeline with a uniqueness error.
+      const configCandidates = await ctx.db
         .query("eventTypeConfigs")
         .withIndex("by_tenantId_and_calendlyEventTypeUri", (q) =>
           q.eq("tenantId", tenantId).eq("calendlyEventTypeUri", eventTypeUri),
         )
-        .unique();
-      eventTypeConfigId = config?._id;
-      console.log(
-        `[Pipeline:invitee.created] Event type config lookup | configId=${eventTypeConfigId ?? "not found"}`,
-      );
+        .take(8);
+      const existingConfig =
+        configCandidates.length === 0
+          ? null
+          : configCandidates.reduce((best, row) =>
+              row.createdAt < best.createdAt ? row : best,
+            );
+
+      if (configCandidates.length > 1) {
+        console.warn(
+          `[Pipeline:invitee.created] Multiple eventTypeConfigs for same URI (${configCandidates.length}); using canonical configId=${existingConfig!._id}`,
+        );
+      }
+
+      if (existingConfig) {
+        eventTypeConfigId = existingConfig._id;
+        console.log(
+          `[Pipeline:invitee.created] Event type config found | configId=${eventTypeConfigId}`,
+        );
+      } else {
+        // Auto-create config on first booking for this event type.
+        // Uses scheduled_event.name from the Calendly payload as the display name.
+        const eventDisplayName =
+          getString(scheduledEvent, "name") ?? "Calendly Meeting";
+        const initialKeys = latestCustomFields
+          ? Object.keys(latestCustomFields)
+          : undefined;
+
+        eventTypeConfigId = await ctx.db.insert("eventTypeConfigs", {
+          tenantId,
+          calendlyEventTypeUri: eventTypeUri,
+          displayName: eventDisplayName,
+          createdAt: now,
+          knownCustomFieldKeys:
+            initialKeys && initialKeys.length > 0 ? initialKeys : undefined,
+        });
+        console.log(
+          `[Pipeline:invitee.created] Event type config auto-created | configId=${eventTypeConfigId} displayName="${eventDisplayName}" initialKeys=${initialKeys ? JSON.stringify(initialKeys) : "none"}`,
+        );
+      }
     }
 
     let existingFollowUp: Doc<"opportunities"> | null = null;
@@ -327,6 +364,33 @@ export const process = internalMutation({
     // (see @plans/caching/caching.md)
     await updateOpportunityMeetingRefs(ctx, opportunityId);
     console.log(`[Pipeline:invitee.created] Updated opportunity meeting refs | opportunityId=${opportunityId}`);
+
+    // === Feature F: Auto-discover custom field keys ===
+    // If this booking had questions_and_answers AND we have an eventTypeConfig,
+    // ensure the config's knownCustomFieldKeys includes all question texts from this booking.
+    // This populates the dropdown options in Settings > Field Mappings.
+    if (latestCustomFields && eventTypeConfigId) {
+      const incomingKeys = Object.keys(latestCustomFields);
+      if (incomingKeys.length > 0) {
+        const config = await ctx.db.get(eventTypeConfigId);
+        if (config) {
+          const existingKeys = config.knownCustomFieldKeys ?? [];
+          const existingSet = new Set(existingKeys);
+          const newKeys = incomingKeys.filter((k) => !existingSet.has(k));
+
+          if (newKeys.length > 0) {
+            const updatedKeys = [...existingKeys, ...newKeys];
+            await ctx.db.patch(eventTypeConfigId, {
+              knownCustomFieldKeys: updatedKeys,
+            });
+            console.log(
+              `[Pipeline:invitee.created] [Feature F] Auto-discovered ${newKeys.length} new custom field key(s) | configId=${eventTypeConfigId} newKeys=${JSON.stringify(newKeys)} totalKeys=${updatedKeys.length}`,
+            );
+          }
+        }
+      }
+    }
+    // === End Feature F ===
 
     await ctx.db.patch(rawEventId, { processed: true });
     console.log(`[Pipeline:invitee.created] Marked processed | rawEventId=${rawEventId}`);

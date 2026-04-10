@@ -32,7 +32,6 @@ interface EventTypeConfig {
   calendlyEventTypeUri: string;
   displayName: string;
   paymentLinks?: PaymentLink[];
-  roundRobinEnabled?: boolean;
 }
 
 interface EventTypeConfigListProps {
@@ -116,12 +115,6 @@ export function EventTypeConfigList({
                 </div>
               </div>
 
-              <div className="border-t pt-3">
-                <p className="text-xs text-muted-foreground">Round Robin</p>
-                <p className="mt-1 text-sm font-medium">
-                  {config.roundRobinEnabled ? "Enabled" : "Disabled"}
-                </p>
-              </div>
             </CardContent>
           </Card>
         ))}

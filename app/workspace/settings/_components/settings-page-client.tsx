@@ -10,6 +10,7 @@ import { usePageTitle } from "@/hooks/use-page-title";
 import SettingsLoading from "../loading";
 import { CalendlyConnection } from "./calendly-connection";
 import { EventTypeConfigList } from "./event-type-config-list";
+import { FieldMappingsTab } from "./field-mappings-tab";
 
 export function SettingsPageClient() {
   usePageTitle("Settings");
@@ -24,6 +25,10 @@ export function SettingsPageClient() {
     api.calendly.oauthQueries.getConnectionStatus,
     isAdmin ? {} : "skip",
   );
+  const configsWithStats = useQuery(
+    api.eventTypeConfigs.queries.getEventTypeConfigsWithStats,
+    isAdmin ? {} : "skip",
+  );
 
   useEffect(() => {
     if (!isAdmin) {
@@ -31,7 +36,12 @@ export function SettingsPageClient() {
     }
   }, [isAdmin, router]);
 
-  if (!isAdmin || eventTypeConfigs === undefined || connectionStatus === undefined) {
+  if (
+    !isAdmin ||
+    eventTypeConfigs === undefined ||
+    connectionStatus === undefined ||
+    configsWithStats === undefined
+  ) {
     return <SettingsLoading />;
   }
 
@@ -48,9 +58,7 @@ export function SettingsPageClient() {
         <TabsList>
           <TabsTrigger value="calendly">Calendly</TabsTrigger>
           <TabsTrigger value="event-types">Event Types</TabsTrigger>
-          {/* Future tabs: */}
-          {/* <TabsTrigger value="notifications">Notifications</TabsTrigger> */}
-          {/* <TabsTrigger value="billing">Billing</TabsTrigger> */}
+          <TabsTrigger value="field-mappings">Field Mappings</TabsTrigger>
         </TabsList>
 
         <TabsContent value="calendly" className="mt-6">
@@ -59,6 +67,10 @@ export function SettingsPageClient() {
 
         <TabsContent value="event-types" className="mt-6">
           <EventTypeConfigList configs={eventTypeConfigs} />
+        </TabsContent>
+
+        <TabsContent value="field-mappings" className="mt-6">
+          <FieldMappingsTab configs={configsWithStats} />
         </TabsContent>
       </Tabs>
     </div>

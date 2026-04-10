@@ -13,27 +13,55 @@ function getConvexUrl() {
   return convexUrl;
 }
 
-function redirectToConnect(request: NextRequest, error: string) {
-  const url = new URL("/onboarding/connect", request.url);
-  url.searchParams.set("error", error);
+function normalizeReturnTo(returnTo: string | null) {
+  if (!returnTo || !returnTo.startsWith("/") || returnTo.startsWith("//")) {
+    return "/onboarding/connect";
+  }
+
+  return returnTo;
+}
+
+function isOnboardingConnectPath(pathname: string) {
+  return pathname === "/onboarding/connect";
+}
+
+function redirectToReturnTarget(
+  request: NextRequest,
+  returnTo: string,
+  error: string,
+) {
+  const url = new URL(returnTo, request.url);
+  url.searchParams.set(
+    isOnboardingConnectPath(url.pathname) ? "error" : "calendlyError",
+    error,
+  );
   return NextResponse.redirect(url);
 }
 
 export async function GET(request: NextRequest) {
+  const returnTo = normalizeReturnTo(
+    request.nextUrl.searchParams.get("returnTo"),
+  );
   const auth = await withAuth({ ensureSignedIn: true });
   if (!auth.user || !auth.accessToken) {
-    return redirectToConnect(request, "not_authenticated");
+    return redirectToReturnTarget(request, returnTo, "not_authenticated");
   }
 
   const tenantId = request.nextUrl.searchParams.get("tenantId");
   if (!tenantId) {
-    return redirectToConnect(request, "missing_context");
+    return redirectToReturnTarget(request, returnTo, "missing_context");
   }
 
   const convex = new ConvexHttpClient(getConvexUrl());
   convex.setAuth(auth.accessToken);
 
   try {
+    if (request.nextUrl.searchParams.get("mode") === "reconnect") {
+      await convex.action(api.calendly.oauth.prepareReconnect, {
+        tenantId: tenantId as Id<"tenants">,
+      });
+    }
+
     const { authorizeUrl } = await convex.action(api.calendly.oauth.startOAuth, {
       tenantId: tenantId as Id<"tenants">,
     });
@@ -46,8 +74,15 @@ export async function GET(request: NextRequest) {
       path: "/",
       maxAge: 60 * 15,
     });
+    response.cookies.set("calendly_returnTo", returnTo, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      path: "/",
+      maxAge: 60 * 15,
+    });
     return response;
   } catch {
-    return redirectToConnect(request, "oauth_start_failed");
+    return redirectToReturnTarget(request, returnTo, "oauth_start_failed");
   }
 }

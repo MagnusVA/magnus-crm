@@ -23,13 +23,34 @@ function getConvexSiteUrl() {
   return convexSiteUrl;
 }
 
-function redirectToConnect(
+function normalizeReturnTo(returnTo: string | null | undefined) {
+  if (!returnTo || !returnTo.startsWith("/") || returnTo.startsWith("//")) {
+    return "/onboarding/connect";
+  }
+
+  return returnTo;
+}
+
+function isOnboardingConnectPath(pathname: string) {
+  return pathname === "/onboarding/connect";
+}
+
+function redirectToReturnTarget(
   request: NextRequest,
   params: Record<string, string>,
   clearTenantCookie = true,
 ) {
-  const url = new URL("/onboarding/connect", request.url);
+  const returnTo = normalizeReturnTo(
+    request.cookies.get("calendly_returnTo")?.value,
+  );
+  const url = new URL(returnTo, request.url);
+  const isOnboardingReturn = isOnboardingConnectPath(url.pathname);
+
   for (const [key, value] of Object.entries(params)) {
+    if (!isOnboardingReturn && key === "error") {
+      url.searchParams.set("calendlyError", value);
+      continue;
+    }
     url.searchParams.set(key, value);
   }
 
@@ -37,6 +58,7 @@ function redirectToConnect(
   if (clearTenantCookie) {
     response.cookies.delete("onboarding_tenantId");
   }
+  response.cookies.delete("calendly_returnTo");
   return response;
 }
 
@@ -45,19 +67,23 @@ export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get("code");
 
   if (error || !code) {
-    return redirectToConnect(request, {
+    return redirectToReturnTarget(request, {
       error: error ?? "calendly_denied",
     });
   }
 
   const tenantId = request.cookies.get("onboarding_tenantId")?.value;
   if (!tenantId) {
-    return redirectToConnect(request, { error: "missing_context" });
+    return redirectToReturnTarget(request, { error: "missing_context" });
   }
 
   const auth = await withAuth({ ensureSignedIn: true });
   if (!auth.user || !auth.accessToken) {
-    return redirectToConnect(request, { error: "not_authenticated" }, false);
+    return redirectToReturnTarget(
+      request,
+      { error: "not_authenticated" },
+      false,
+    );
   }
 
   const convex = new ConvexHttpClient(getConvexUrl());
@@ -70,7 +96,7 @@ export async function GET(request: NextRequest) {
       convexSiteUrl: getConvexSiteUrl(),
     });
 
-    return redirectToConnect(request, { calendly: "connected" });
+    return redirectToReturnTarget(request, { calendly: "connected" });
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message : "exchange_failed";
@@ -88,6 +114,6 @@ export async function GET(request: NextRequest) {
       errorCode = "exchange_failed";
     }
 
-    return redirectToConnect(request, { error: errorCode });
+    return redirectToReturnTarget(request, { error: errorCode });
   }
 }

@@ -7,6 +7,11 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Spinner } from "@/components/ui/spinner";
+import { format } from "date-fns";
+import {
+  MeetingOutcomeSelect,
+  type MeetingOutcome,
+} from "./meeting-outcome-select";
 
 const DEBOUNCE_MS = 800;
 const SAVED_INDICATOR_MS = 2000;
@@ -14,6 +19,7 @@ const SAVED_INDICATOR_MS = 2000;
 type MeetingNotesProps = {
   meetingId: Id<"meetings">;
   initialNotes: string;
+  meetingOutcome: MeetingOutcome | undefined;
 };
 
 /**
@@ -24,11 +30,12 @@ type MeetingNotesProps = {
  * - Syncs from the latest parent-provided value when the user is idle
  * - Textarea is **never** disabled — the closer can always keep typing
  */
-export function MeetingNotes({ meetingId, initialNotes }: MeetingNotesProps) {
+export function MeetingNotes({ meetingId, initialNotes, meetingOutcome }: MeetingNotesProps) {
   const [notes, setNotes] = useState(initialNotes);
   const [saveStatus, setSaveStatus] = useState<
     "idle" | "saving" | "saved" | "error"
   >("idle");
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const updateNotes = useMutation(api.closer.meetingActions.updateMeetingNotes);
@@ -58,6 +65,7 @@ export function MeetingNotes({ meetingId, initialNotes }: MeetingNotesProps) {
         try {
           await updateNotes({ meetingId, notes: value });
           lastSavedRef.current = value;
+          setLastSavedAt(Date.now());
           setSaveStatus("saved");
           savedTimerRef.current = setTimeout(
             () => setSaveStatus("idle"),
@@ -99,13 +107,19 @@ export function MeetingNotes({ meetingId, initialNotes }: MeetingNotesProps) {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="text-base">Meeting Notes</CardTitle>
-          <SaveIndicator status={saveStatus} />
+          <SaveIndicator status={saveStatus} lastSavedAt={lastSavedAt} />
         </div>
         {errorMessage && (
           <p className="mt-1 text-xs text-destructive">{errorMessage}</p>
         )}
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex flex-col gap-4">
+        {/* Meeting Outcome Select */}
+        <MeetingOutcomeSelect
+          meetingId={meetingId}
+          currentOutcome={meetingOutcome}
+        />
+
         <Textarea
           value={notes}
           onChange={(e) => handleChange(e.target.value)}
@@ -122,13 +136,15 @@ export function MeetingNotes({ meetingId, initialNotes }: MeetingNotesProps) {
 
 function SaveIndicator({
   status,
+  lastSavedAt,
 }: {
   status: "idle" | "saving" | "saved" | "error";
+  lastSavedAt: number | null;
 }) {
   if (status === "idle") return null;
 
   return (
-    <div className="flex items-center gap-1.5">
+    <div className="flex items-center gap-1.5" aria-live="polite">
       {status === "saving" && (
         <>
           <Spinner className="size-3" />
@@ -139,7 +155,7 @@ function SaveIndicator({
       )}
       {status === "saved" && (
         <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-          ✓ Saved
+          ✓ Saved{lastSavedAt ? ` at ${format(lastSavedAt, "h:mm a")}` : ""}
         </span>
       )}
     </div>

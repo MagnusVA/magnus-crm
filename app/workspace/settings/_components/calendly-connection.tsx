@@ -86,7 +86,12 @@ export function CalendlyConnection({
       was_connected: isConnected,
       needs_reconnect: connectionStatus.needsReconnect,
     });
-    window.location.href = "/api/calendly/start";
+    const params = new URLSearchParams({
+      tenantId: connectionStatus.tenantId,
+      mode: "reconnect",
+      returnTo: "/workspace/settings",
+    });
+    window.location.href = `/api/calendly/start?${params.toString()}`;
   };
 
   return (

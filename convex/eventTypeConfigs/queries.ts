@@ -35,3 +35,75 @@ export const listEventTypeConfigs = query({
     return configs;
   },
 });
+
+/**
+ * List event type configs with booking stats for the Field Mappings tab.
+ * Returns configs enriched with:
+ * - bookingCount: number of opportunities linked to this event type
+ * - lastBookingAt: timestamp of the most recent meeting (via denormalized latestMeetingAt)
+ * - fieldCount: number of discovered custom field keys
+ */
+export const getEventTypeConfigsWithStats = query({
+  args: {},
+  handler: async (ctx) => {
+    console.log("[EventTypeConfig] getEventTypeConfigsWithStats called");
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    // Load all configs for the tenant
+    const configs = [];
+    for await (const config of ctx.db
+      .query("eventTypeConfigs")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))) {
+      configs.push(config);
+    }
+
+    const statsByConfigId = new Map<
+      string,
+      { bookingCount: number; lastBookingAt: number | undefined }
+    >();
+
+    // Aggregate once across the tenant's opportunities instead of rescanning
+    // the table once per config.
+    for await (const opportunity of ctx.db
+      .query("opportunities")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))) {
+      if (!opportunity.eventTypeConfigId) {
+        continue;
+      }
+
+      const existingStats = statsByConfigId.get(opportunity.eventTypeConfigId) ?? {
+        bookingCount: 0,
+        lastBookingAt: undefined,
+      };
+      existingStats.bookingCount += 1;
+
+      if (
+        opportunity.latestMeetingAt !== undefined &&
+        (existingStats.lastBookingAt === undefined ||
+          opportunity.latestMeetingAt > existingStats.lastBookingAt)
+      ) {
+        existingStats.lastBookingAt = opportunity.latestMeetingAt;
+      }
+
+      statsByConfigId.set(opportunity.eventTypeConfigId, existingStats);
+    }
+
+    const results = configs.map((config) => {
+      const stats = statsByConfigId.get(config._id);
+      return {
+        ...config,
+        bookingCount: stats?.bookingCount ?? 0,
+        lastBookingAt: stats?.lastBookingAt,
+        fieldCount: config.knownCustomFieldKeys?.length ?? 0,
+      };
+    });
+
+    console.log("[EventTypeConfig] getEventTypeConfigsWithStats result", {
+      count: results.length,
+    });
+    return results;
+  },
+});

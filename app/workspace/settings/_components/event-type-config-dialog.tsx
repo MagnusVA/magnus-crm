@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
 import {
   FieldGroup,
   Field,
@@ -34,7 +33,6 @@ interface EventTypeConfig {
   calendlyEventTypeUri: string;
   displayName: string;
   paymentLinks?: PaymentLink[];
-  roundRobinEnabled?: boolean;
 }
 
 interface EventTypeConfigDialogProps {
@@ -54,9 +52,6 @@ export function EventTypeConfigDialog({
   const [paymentLinks, setPaymentLinks] = useState<PaymentLink[]>(
     config.paymentLinks || []
   );
-  const [roundRobinEnabled, setRoundRobinEnabled] = useState(
-    config.roundRobinEnabled || false
-  );
   const [isSaving, setIsSaving] = useState(false);
 
   const upsertConfig = useMutation(
@@ -75,12 +70,10 @@ export function EventTypeConfigDialog({
         calendlyEventTypeUri: config.calendlyEventTypeUri,
         displayName,
         paymentLinks: paymentLinks.length > 0 ? paymentLinks : undefined,
-        roundRobinEnabled,
       });
 
       posthog.capture("event_type_config_saved", {
         calendly_event_type_uri: config.calendlyEventTypeUri,
-        round_robin_enabled: roundRobinEnabled,
         payment_link_count: paymentLinks.length,
       });
       toast.success("Event type configuration saved");
@@ -118,17 +111,6 @@ export function EventTypeConfigDialog({
               />
             </Field>
 
-            <Field orientation="horizontal">
-              <FieldLabel htmlFor="config-roundRobin">
-                Round Robin Enabled
-              </FieldLabel>
-              <Switch
-                id="config-roundRobin"
-                checked={roundRobinEnabled}
-                onCheckedChange={setRoundRobinEnabled}
-                disabled={isSaving}
-              />
-            </Field>
           </FieldGroup>
 
           <div className="flex flex-col gap-3">

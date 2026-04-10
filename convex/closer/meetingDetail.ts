@@ -8,6 +8,14 @@ type MeetingHistoryEntry = Doc<"meetings"> & {
   isCurrentMeeting: boolean;
 };
 
+// Enriched payment with proof file URL and closer info
+type EnrichedPayment = Doc<"paymentRecords"> & {
+  proofFileUrl: string | null;
+  proofFileContentType: string | null;
+  proofFileSize: number | null;
+  closerName: string | null;
+};
+
 /**
  * Get all data for the meeting detail page.
  *
@@ -92,15 +100,49 @@ export const getMeetingDetail = query({
     const eventTypeName = eventTypeConfig?.displayName ?? null;
     const paymentLinks = eventTypeConfig?.paymentLinks ?? null;
 
-    // Load payment records for this opportunity
-    const payments: Doc<"paymentRecords">[] = [];
+    // Load payment records for this opportunity with enrichment
+    const payments: EnrichedPayment[] = [];
     const paymentRecords = ctx.db
       .query("paymentRecords")
-      .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunity._id));
+      .withIndex("by_opportunityId", (q) =>
+        q.eq("opportunityId", opportunity._id),
+      );
+
     for await (const payment of paymentRecords) {
-      if (payment.tenantId === tenantId) {
-        payments.push(payment);
+      if (payment.tenantId !== tenantId) continue;
+
+      // Resolve proof file URL and metadata from Convex file storage
+      let proofFileUrl: string | null = null;
+      let proofFileContentType: string | null = null;
+      let proofFileSize: number | null = null;
+
+      if (payment.proofFileId) {
+        proofFileUrl = await ctx.storage.getUrl(payment.proofFileId);
+        // Query the _storage system table for file metadata (contentType, size)
+        const fileMeta = await ctx.db.system.get(
+          "_storage",
+          payment.proofFileId,
+        );
+        if (fileMeta) {
+          proofFileContentType = fileMeta.contentType ?? null;
+          proofFileSize = fileMeta.size ?? null;
+        }
       }
+
+      // Resolve the closer who recorded this payment
+      let closerName: string | null = null;
+      const closer = await ctx.db.get(payment.closerId);
+      if (closer && closer.tenantId === tenantId) {
+        closerName = closer.fullName ?? closer.email;
+      }
+
+      payments.push({
+        ...payment,
+        proofFileUrl,
+        proofFileContentType,
+        proofFileSize,
+        closerName,
+      });
     }
     payments.sort((a, b) => b.recordedAt - a.recordedAt);
 
@@ -121,6 +163,7 @@ export const getMeetingDetail = query({
       paymentCount: payments.length,
       hasEventType: !!eventTypeName,
       hasPaymentLinks: !!paymentLinks,
+      hasUtmParams: !!(meeting.utmParams || opportunity.utmParams),
     });
     return {
       meeting,

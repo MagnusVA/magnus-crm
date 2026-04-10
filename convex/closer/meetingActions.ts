@@ -155,3 +155,53 @@ export const markAsLost = mutation({
     console.log("[Closer:Meeting] markAsLost patch applied", { opportunityId, newStatus: "lost", hasReason: !!normalizedReason });
   },
 });
+
+/**
+ * Set or clear the meeting outcome classification.
+ *
+ * The outcome is a structured tag that captures the closer's assessment
+ * of the lead's intent after a meeting. It's separate from the
+ * opportunity status (which tracks the deal lifecycle).
+ *
+ * Pass `undefined` for meetingOutcome to clear the tag.
+ *
+ * Only the assigned closer or an admin can update the outcome.
+ */
+export const updateMeetingOutcome = mutation({
+  args: {
+    meetingId: v.id("meetings"),
+    meetingOutcome: v.optional(
+      v.union(
+        v.literal("interested"),
+        v.literal("needs_more_info"),
+        v.literal("price_objection"),
+        v.literal("not_qualified"),
+        v.literal("ready_to_buy"),
+      ),
+    ),
+  },
+  handler: async (ctx, { meetingId, meetingOutcome }) => {
+    console.log("[Closer:MeetingActions] updateMeetingOutcome called", {
+      meetingId,
+      meetingOutcome,
+    });
+    const { userId, tenantId, role } = await requireTenantUser(ctx, [
+      "closer",
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    const { opportunity } = await loadMeetingContext(ctx, meetingId, tenantId);
+
+    // Closer authorization: only own meetings
+    if (role === "closer" && opportunity.assignedCloserId !== userId) {
+      throw new Error("Not your meeting");
+    }
+
+    await ctx.db.patch(meetingId, { meetingOutcome });
+    console.log("[Closer:MeetingActions] meetingOutcome updated", {
+      meetingId,
+      meetingOutcome,
+    });
+  },
+});

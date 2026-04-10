@@ -5,7 +5,14 @@ import { v } from "convex/values";
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { getIdentityOrgId } from "../lib/identity";
+import { getCanonicalIdentityWorkosUserId } from "../lib/workosUserId";
 import { provisionWebhookSubscription } from "./webhookSetup";
+
+type CalendlyTokenRevocationStatus =
+  | "revoked"
+  | "not_present"
+  | "already_invalid"
+  | "failed";
 
 function getCalendlyClientId() {
   return (
@@ -13,8 +20,59 @@ function getCalendlyClientId() {
   );
 }
 
+function getCalendlyClientSecret() {
+  return process.env.CALENDLY_CLIENT_SECRET;
+}
+
 function getCalendlyRedirectUri() {
   return `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/callback/calendly`;
+}
+
+async function revokeCalendlyToken(
+  token: string | undefined,
+): Promise<CalendlyTokenRevocationStatus> {
+  if (!token) {
+    return "not_present";
+  }
+
+  const clientId = getCalendlyClientId();
+  const clientSecret = getCalendlyClientSecret();
+  if (!clientId || !clientSecret) {
+    throw new Error("Missing Calendly OAuth configuration");
+  }
+
+  try {
+    const response = await fetch("https://auth.calendly.com/oauth/revoke", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        token,
+      }).toString(),
+    });
+
+    if (response.ok) {
+      return "revoked";
+    }
+
+    if (response.status === 400 || response.status === 403) {
+      return "already_invalid";
+    }
+
+    console.error("[Calendly:OAuth] token revocation failed", {
+      status: response.status,
+      body: await response.text(),
+    });
+    return "failed";
+  } catch (error) {
+    console.error("[Calendly:OAuth] token revocation request failed", {
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return "failed";
+  }
 }
 
 /**
@@ -78,7 +136,10 @@ export const startOAuth = action({
     }
 
     const scopes = [
+      "availability:read",
+      "scheduled_events:write",
       "scheduled_events:read",
+      "scheduling_links:write",
       "event_types:read",
       "users:read",
       "organizations:read",
@@ -105,6 +166,87 @@ export const startOAuth = action({
 });
 
 /**
+ * Prepare a tenant for a clean Calendly reconnect.
+ *
+ * Existing access/refresh tokens are revoked on a best-effort basis, then the
+ * local token and webhook state is cleared so the next OAuth flow starts from
+ * a known-good disconnected state.
+ */
+export const prepareReconnect = action({
+  args: { tenantId: v.id("tenants") },
+  handler: async (ctx, { tenantId }) => {
+    console.log(`[Calendly:OAuth] prepareReconnect called for tenant ${tenantId}`);
+
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      console.error("[Calendly:OAuth] prepareReconnect: not authenticated");
+      throw new Error("Not authenticated");
+    }
+
+    const workosUserId = getCanonicalIdentityWorkosUserId(identity);
+    if (!workosUserId) {
+      console.error("[Calendly:OAuth] prepareReconnect: missing WorkOS user ID");
+      throw new Error("Missing WorkOS user ID");
+    }
+
+    const currentUser = await ctx.runQuery(
+      internal.users.queries.getCurrentUserInternal,
+      { workosUserId },
+    );
+    if (
+      !currentUser ||
+      currentUser.tenantId !== tenantId ||
+      (currentUser.role !== "tenant_master" &&
+        currentUser.role !== "tenant_admin")
+    ) {
+      console.error("[Calendly:OAuth] prepareReconnect: insufficient permissions", {
+        tenantId,
+        userTenantId: currentUser?.tenantId ?? null,
+        role: currentUser?.role ?? null,
+      });
+      throw new Error("Insufficient permissions");
+    }
+
+    const tenant = await ctx.runQuery(internal.tenants.getCalendlyTokens, {
+      tenantId,
+    });
+    if (!tenant) {
+      console.error(`[Calendly:OAuth] prepareReconnect: tenant ${tenantId} not found`);
+      throw new Error("Tenant not found");
+    }
+
+    const identityOrgId = getIdentityOrgId(identity);
+    if (!identityOrgId || identityOrgId !== tenant.workosOrgId) {
+      console.error("[Calendly:OAuth] prepareReconnect: org mismatch", {
+        tenantId,
+        identityOrgId,
+        tenantOrgId: tenant.workosOrgId,
+      });
+      throw new Error("Not authorized");
+    }
+
+    const accessToken = await revokeCalendlyToken(tenant.calendlyAccessToken);
+    const refreshToken = await revokeCalendlyToken(tenant.calendlyRefreshToken);
+
+    await ctx.runMutation(internal.tenants.clearCalendlyConnection, {
+      tenantId,
+      status: "calendly_disconnected",
+    });
+
+    console.log("[Calendly:OAuth] prepareReconnect completed", {
+      tenantId,
+      accessToken,
+      refreshToken,
+    });
+
+    return {
+      accessToken,
+      refreshToken,
+    };
+  },
+});
+
+/**
  * Exchange the authorization code for tokens.
  *
  * Called by the Next.js callback route after Calendly redirects back.
@@ -119,6 +261,8 @@ export const exchangeCodeAndProvision = action({
   },
   handler: async (ctx, { tenantId, code, convexSiteUrl }) => {
     console.log(`[Calendly:OAuth] exchangeCodeAndProvision called for tenant ${tenantId}`);
+    let rollbackStatus: "pending_calendly" | "calendly_disconnected" =
+      "pending_calendly";
 
     try {
       const identity = await ctx.auth.getUserIdentity();
@@ -136,6 +280,10 @@ export const exchangeCodeAndProvision = action({
         throw new Error("Tenant not found");
       }
       console.log(`[Calendly:OAuth] exchangeCodeAndProvision: tenant found, status=${tenant.status}`);
+      rollbackStatus =
+        tenant.status === "calendly_disconnected"
+          ? "calendly_disconnected"
+          : "pending_calendly";
 
       const identityOrgId = getIdentityOrgId(identity);
       if (!identityOrgId || identityOrgId !== tenant.workosOrgId) {
@@ -285,9 +433,9 @@ export const exchangeCodeAndProvision = action({
       });
       await ctx.runMutation(internal.tenants.updateStatus, {
         tenantId,
-        status: "pending_calendly",
+        status: rollbackStatus,
       });
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: status rolled back to pending_calendly`);
+      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: status rolled back to ${rollbackStatus}`);
       throw error;
     }
   },

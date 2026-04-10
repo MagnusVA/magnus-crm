@@ -206,3 +206,30 @@ export const storeCalendlyTokens = internalMutation({
     console.log("[Tenants] storeCalendlyTokens completed", { tenantId });
   },
 });
+
+export const clearCalendlyConnection = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    status: v.union(
+      v.literal("pending_calendly"),
+      v.literal("calendly_disconnected"),
+    ),
+  },
+  handler: async (ctx, { tenantId, status }) => {
+    console.log("[Tenants] clearCalendlyConnection called", { tenantId, status });
+    await ctx.db.patch(tenantId, {
+      status,
+      codeVerifier: undefined,
+      calendlyAccessToken: undefined,
+      calendlyRefreshToken: undefined,
+      calendlyTokenExpiresAt: undefined,
+      calendlyOrgUri: undefined,
+      calendlyOwnerUri: undefined,
+      calendlyRefreshLockUntil: undefined,
+      lastTokenRefreshAt: undefined,
+      webhookProvisioningStartedAt: undefined,
+      calendlyWebhookUri: undefined,
+    });
+    console.log("[Tenants] clearCalendlyConnection completed", { tenantId, status });
+  },
+});

@@ -64,6 +64,7 @@ import type * as pipeline_queries from "../pipeline/queries.js";
 import type * as requireSystemAdmin from "../requireSystemAdmin.js";
 import type * as requireTenantUser from "../requireTenantUser.js";
 import type * as tenants from "../tenants.js";
+import type * as testing_calendly from "../testing/calendly.js";
 import type * as users_linkCalendlyMember from "../users/linkCalendlyMember.js";
 import type * as users_queries from "../users/queries.js";
 import type * as webhooks_calendly from "../webhooks/calendly.js";
@@ -139,6 +140,7 @@ declare const fullApi: ApiFromModules<{
   requireSystemAdmin: typeof requireSystemAdmin;
   requireTenantUser: typeof requireTenantUser;
   tenants: typeof tenants;
+  "testing/calendly": typeof testing_calendly;
   "users/linkCalendlyMember": typeof users_linkCalendlyMember;
   "users/queries": typeof users_queries;
   "webhooks/calendly": typeof webhooks_calendly;

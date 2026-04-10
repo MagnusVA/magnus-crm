@@ -3,6 +3,7 @@
 import { useQuery } from "convex/react";
 import { useAction } from "convex/react";
 import { useState } from "react";
+import { usePathname } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import {
   formatCalendlyLastRefresh,
@@ -25,6 +26,7 @@ import { toast } from "sonner";
 import { connectionStatusConfig } from "@/lib/status-config";
 
 export function SystemHealth() {
+  const pathname = usePathname();
   const connectionStatus = useQuery(
     api.calendly.oauthQueries.getConnectionStatus,
   );
@@ -75,7 +77,12 @@ export function SystemHealth() {
   };
 
   const handleReconnect = () => {
-    window.location.href = "/api/calendly/start";
+    const params = new URLSearchParams({
+      tenantId: connectionStatus.tenantId,
+      mode: "reconnect",
+      returnTo: pathname,
+    });
+    window.location.href = `/api/calendly/start?${params.toString()}`;
   };
 
   return (

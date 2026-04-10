@@ -28,6 +28,8 @@ import { MeetingNotes } from "../../_components/meeting-notes";
 import { PaymentLinksPanel } from "../../_components/payment-links-panel";
 import { OutcomeActionBar } from "../../_components/outcome-action-bar";
 import { BookingAnswersCard } from "../../_components/booking-answers-card";
+import { DealWonCard } from "../../_components/deal-won-card";
+import { AttributionCard } from "../../_components/attribution-card";
 
 type MeetingDetailData = {
   meeting: Doc<"meetings">;
@@ -46,7 +48,14 @@ type MeetingDetailData = {
     label: string;
     url: string;
   }> | null;
-  payments: Doc<"paymentRecords">[];
+  payments: Array<
+    Doc<"paymentRecords"> & {
+      proofFileUrl: string | null;
+      proofFileContentType: string | null;
+      proofFileSize: number | null;
+      closerName: string | null;
+    }
+  >;
 } | null;
 
 export function MeetingDetailPageClient({
@@ -108,10 +117,26 @@ export function MeetingDetailPageClient({
             assignedCloser={assignedCloser}
           />
           <BookingAnswersCard customFields={lead.customFields} />
+
+          {/* Deal Won Card — only when opportunity is won with payments */}
+          {opportunity.status === "payment_received" && payments.length > 0 && (
+            <DealWonCard payments={payments} />
+          )}
+
+          {/* Attribution Card — always shown */}
+          <AttributionCard
+            opportunity={opportunity}
+            meeting={meeting}
+            meetingHistory={meetingHistory}
+          />
+
+          {/* Notes with outcome select */}
           <MeetingNotes
             meetingId={meeting._id}
             initialNotes={meeting.notes ?? ""}
+            meetingOutcome={meeting.meetingOutcome}
           />
+
           {paymentLinks && paymentLinks.length > 0 && (
             <PaymentLinksPanel paymentLinks={paymentLinks} />
           )}
@@ -165,8 +190,10 @@ function MeetingDetailSkeleton() {
         </div>
 
         <div className="flex flex-col gap-4 md:col-span-2 lg:col-span-3">
-          <Skeleton className="h-56 rounded-xl" />
-          <Skeleton className="h-40 rounded-xl" />
+          <Skeleton className="h-56 rounded-xl" />  {/* Meeting Info */}
+          <Skeleton className="h-32 rounded-xl" />  {/* Booking Answers */}
+          <Skeleton className="h-36 rounded-xl" />  {/* Attribution */}
+          <Skeleton className="h-52 rounded-xl" />  {/* Notes + Outcome */}
         </div>
       </div>
 

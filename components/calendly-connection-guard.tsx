@@ -7,7 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { AlertCircleIcon, XIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 /* -------------------------------------------------------------------------- */
@@ -123,6 +123,44 @@ export function CalendlyConnectionGuard({
   const [isDismissed, setIsDismissed] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
 
+  useEffect(() => {
+    if (
+      typeof window === "undefined" ||
+      !pathname.startsWith("/workspace")
+    ) {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    const calendlyStatus = url.searchParams.get("calendly");
+    const calendlyError = url.searchParams.get("calendlyError");
+    if (!calendlyStatus && !calendlyError) {
+      return;
+    }
+
+    if (calendlyStatus === "connected") {
+      toast.success("Calendly reconnected.");
+    }
+
+    if (calendlyError) {
+      toast.error(
+        calendlyError === "missing_context"
+          ? "Calendly reconnect session expired. Start the reconnect again."
+          : calendlyError === "not_authenticated"
+            ? "Your session expired before Calendly finished reconnecting."
+            : "Calendly reconnect failed. Please try again.",
+      );
+    }
+
+    url.searchParams.delete("calendly");
+    url.searchParams.delete("calendlyError");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`,
+    );
+  }, [pathname]);
+
   // Trivial boolean — useMemo would add overhead, not save it
   const showBanner =
     (connectionStatus?.needsReconnect ?? false) && !isDismissed;
@@ -133,8 +171,12 @@ export function CalendlyConnectionGuard({
 
     setIsReconnecting(true);
     try {
-      // Use server route to ensure onboarding_tenantId cookie is set before OAuth redirect
-      window.location.href = `/api/calendly/start?tenantId=${encodeURIComponent(connectionStatus.tenantId)}`;
+      const params = new URLSearchParams({
+        tenantId: connectionStatus.tenantId,
+        mode: "reconnect",
+        returnTo: pathname,
+      });
+      window.location.href = `/api/calendly/start?${params.toString()}`;
     } catch (error) {
       console.error("CalendlyConnectionGuard: Failed to start OAuth:", error);
       toast.error("Failed to reconnect Calendly. Please try again.");

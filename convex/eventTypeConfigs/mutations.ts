@@ -9,6 +9,44 @@ const paymentLinkValidator = v.object({
   url: v.string(),
 });
 
+const socialHandleTypeValidator = v.union(
+  v.literal("instagram"),
+  v.literal("tiktok"),
+  v.literal("twitter"),
+  v.literal("other_social"),
+);
+
+const customFieldMappingsValidator = v.object({
+  socialHandleField: v.optional(v.string()),
+  socialHandleType: v.optional(socialHandleTypeValidator),
+  phoneField: v.optional(v.string()),
+});
+
+function normalizeCustomFieldMappings(customFieldMappings: {
+  socialHandleField?: string;
+  socialHandleType?: "instagram" | "tiktok" | "twitter" | "other_social";
+  phoneField?: string;
+}) {
+  const normalized: {
+    socialHandleField?: string;
+    socialHandleType?: "instagram" | "tiktok" | "twitter" | "other_social";
+    phoneField?: string;
+  } = {};
+
+  if (customFieldMappings.socialHandleField) {
+    normalized.socialHandleField = customFieldMappings.socialHandleField;
+    if (customFieldMappings.socialHandleType) {
+      normalized.socialHandleType = customFieldMappings.socialHandleType;
+    }
+  }
+
+  if (customFieldMappings.phoneField) {
+    normalized.phoneField = customFieldMappings.phoneField;
+  }
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+}
+
 function normalizePaymentLinks(
   paymentLinks:
     | Array<{
@@ -68,13 +106,12 @@ export const upsertEventTypeConfig = mutation({
     calendlyEventTypeUri: v.string(),
     displayName: v.string(),
     paymentLinks: v.optional(v.array(paymentLinkValidator)),
-    roundRobinEnabled: v.optional(v.boolean()),
   },
   handler: async (
     ctx,
-    { calendlyEventTypeUri, displayName, paymentLinks, roundRobinEnabled },
+    { calendlyEventTypeUri, displayName, paymentLinks },
   ) => {
-    console.log("[EventTypeConfig] upsertEventTypeConfig called", { displayName, hasPaymentLinks: !!paymentLinks, roundRobinEnabled });
+    console.log("[EventTypeConfig] upsertEventTypeConfig called", { displayName, hasPaymentLinks: !!paymentLinks });
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -118,10 +155,6 @@ export const upsertEventTypeConfig = mutation({
           normalizedPaymentLinks === undefined
             ? existing.paymentLinks
             : normalizedPaymentLinks,
-        roundRobinEnabled:
-          roundRobinEnabled === undefined
-            ? existing.roundRobinEnabled
-            : roundRobinEnabled,
       });
 
       console.log("[EventTypeConfig] upsertEventTypeConfig updated", { configId: existing._id });
@@ -133,11 +166,97 @@ export const upsertEventTypeConfig = mutation({
       calendlyEventTypeUri: normalizedEventTypeUri,
       displayName: normalizedDisplayName,
       paymentLinks: normalizedPaymentLinks,
-      roundRobinEnabled: roundRobinEnabled ?? false,
       createdAt: Date.now(),
     });
 
     console.log("[EventTypeConfig] upsertEventTypeConfig created", { configId });
     return configId;
+  },
+});
+
+/**
+ * Update the custom field mappings for an event type config.
+ * Admin-only: configures which Calendly form questions map to CRM identity fields.
+ * Feature E (Lead Identity Resolution) reads these mappings during pipeline processing.
+ */
+export const updateCustomFieldMappings = mutation({
+  args: {
+    eventTypeConfigId: v.id("eventTypeConfigs"),
+    customFieldMappings: customFieldMappingsValidator,
+  },
+  handler: async (ctx, { eventTypeConfigId, customFieldMappings }) => {
+    console.log("[EventTypeConfig] updateCustomFieldMappings called", {
+      eventTypeConfigId,
+      customFieldMappings,
+    });
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    // Load and validate ownership
+    const config = await ctx.db.get(eventTypeConfigId);
+    if (!config) {
+      throw new Error("Event type configuration not found.");
+    }
+    if (config.tenantId !== tenantId) {
+      // Deliberately vague error to avoid leaking info about other tenants
+      throw new Error("Event type configuration not found.");
+    }
+
+    // Validate that mapped fields exist in knownCustomFieldKeys (if available)
+    const knownKeys = config.knownCustomFieldKeys ?? [];
+    if (knownKeys.length > 0) {
+      if (
+        customFieldMappings.socialHandleField &&
+        !knownKeys.includes(customFieldMappings.socialHandleField)
+      ) {
+        throw new Error(
+          `Social handle field "${customFieldMappings.socialHandleField}" is not a known form field for this event type.`,
+        );
+      }
+      if (
+        customFieldMappings.phoneField &&
+        !knownKeys.includes(customFieldMappings.phoneField)
+      ) {
+        throw new Error(
+          `Phone field "${customFieldMappings.phoneField}" is not a known form field for this event type.`,
+        );
+      }
+    }
+
+    // Validate socialHandleType is required when socialHandleField is set
+    if (
+      customFieldMappings.socialHandleField &&
+      !customFieldMappings.socialHandleType
+    ) {
+      throw new Error(
+        "Social handle platform type is required when a social handle field is selected.",
+      );
+    }
+
+    // Validate no double-mapping (same question for both social handle and phone)
+    if (
+      customFieldMappings.socialHandleField &&
+      customFieldMappings.phoneField &&
+      customFieldMappings.socialHandleField === customFieldMappings.phoneField
+    ) {
+      throw new Error(
+        "Social handle field and phone field cannot be the same question.",
+      );
+    }
+
+    // Normalize: clear socialHandleType if socialHandleField is cleared.
+    const normalizedMappings =
+      normalizeCustomFieldMappings(customFieldMappings);
+
+    await ctx.db.patch(eventTypeConfigId, {
+      customFieldMappings: normalizedMappings,
+    });
+
+    console.log("[EventTypeConfig] updateCustomFieldMappings saved", {
+      configId: eventTypeConfigId,
+      mappings: normalizedMappings,
+    });
   },
 });

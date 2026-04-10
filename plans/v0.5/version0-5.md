@@ -248,7 +248,7 @@ Two distinct no-show handling paths, plus automatic reschedule detection:
 
 ### B3. Automatic Reschedule Detection
 
-**Use case:** Sometimes leads no-show but then independently go back to the original Calendly link and book a new meeting without the closer's intervention.
+**Use case:** Sometimes leads no-show but then independently go back to the original Calendly link and book a new meeting without the closer's intervention. The original link is typically a round-robin, so the new booking will likely be assigned to a **different closer** than the one who had the no-show.
 
 **Problem:** The current pipeline treats this as a brand new lead + opportunity because the old meeting was no-show'd and a fresh `invitee.created` webhook fires.
 
@@ -258,15 +258,21 @@ When the pipeline processor receives an `invitee.created` event, before creating
 
 1. **Email match:** Does a lead with this email already have an opportunity in `no_show` or `canceled` status?
 2. **Recency check:** Was the no-show/canceled opportunity updated within the last 14 days? (configurable per tenant)
-3. **Same closer check:** Is the new booking with the same closer as the no-show'd meeting?
 
-If all conditions match:
+If both conditions match:
 - **Link the new meeting to the existing opportunity** (don't create a new one)
 - Transition the opportunity from `no_show`/`canceled` → `scheduled`
 - Set `rescheduledFromMeetingId` on the new meeting
-- Log a `[Pipeline] auto-reschedule detected` event
-- If conditions partially match (different closer, different email but same social handle):
-  - Create the new opportunity normally but flag it as a **"Potential Reschedule"** with a link to the suspected original opportunity
+- **Reassign the opportunity to the new closer** from the webhook's `event_memberships` host — since this came through a round-robin link, the lead got whoever was available, and that's the closer who should own it now
+- Update `opportunity.assignedCloserId` to the new host
+- Log a `[Pipeline] auto-reschedule detected | reassigned from closer_A to closer_B` event
+- The new closer sees it on their dashboard; the old closer no longer owns this opportunity
+
+**Note on closer assignment:** Unlike CRM-generated reschedule links (B2) which explicitly target the same closer's personal calendar, organic rebookings through a round-robin link land on whichever closer Calendly assigns. This is correct behavior — the lead no-showed on the original closer, so there's no expectation of continuity. The system should respect Calendly's assignment.
+
+**Partial match (weaker signal):**
+- If email doesn't match but a social handle or phone does (via identity resolution from Phase 7):
+  - Create the new opportunity normally but flag it as a **"Potential Reschedule"** with a link to the suspected original opportunity (`potentialDuplicateLeadId`)
   - Surface this to the admin/closer for manual resolution
 
 ---
@@ -434,8 +440,6 @@ customers: defineTable({
   convertedByUserId: v.id("users"),          // Which closer/admin triggered it
   winningOpportunityId: v.id("opportunities"), // The opportunity that closed
   winningMeetingId: v.optional(v.id("meetings")), // The meeting where the deal closed
-  totalPaid: v.number(),                     // Sum of all payment records
-  currency: v.string(),                      // Primary currency
   programType: v.optional(v.string()),       // From event type config
   notes: v.optional(v.string()),
   status: v.union(
@@ -451,6 +455,45 @@ customers: defineTable({
 .index("by_tenantId_and_convertedAt", ["tenantId", "convertedAt"])
 ```
 
+**No `totalPaid` field.** Total paid is computed on-demand by summing `paymentRecords` linked to this customer. Storing a running total is an antipattern — it drifts from the source of truth and becomes a maintenance burden. The query aggregates from the actual records every time.
+
+### D1.1 Payment Records — Customer Linkage
+
+The existing `paymentRecords` table currently links payments to an opportunity and meeting. Customers need to be able to receive payments directly (e.g., payment plan installments after conversion), so we add a `customerId` field:
+
+**Changes to `paymentRecords`:**
+
+```typescript
+// Existing fields stay
+opportunityId: v.id("opportunities"),
+meetingId: v.id("meetings"),
+
+// New field
+customerId: v.optional(v.id("customers")),  // Set on conversion or for post-conversion payments
+```
+
+**New index:** `by_customerId` — for querying all payments belonging to a customer.
+
+**Payment context:**
+- **Pre-conversion payments** (closer records payment on a meeting): `opportunityId` and `meetingId` are set. `customerId` is backfilled when the lead converts.
+- **Post-conversion payments** (payment plan installments, upsells): `customerId` is set directly. `opportunityId` is optional (may not be tied to a specific opportunity). `meetingId` is optional (no meeting needed for a payment plan installment).
+
+**Computed total paid:**
+
+```typescript
+// Query — not a stored field
+export const getCustomerTotalPaid = query({
+  args: { customerId: v.id("customers") },
+  handler: async (ctx, { customerId }) => {
+    const payments = await ctx.db
+      .query("paymentRecords")
+      .withIndex("by_customerId", q => q.eq("customerId", customerId))
+      .collect();
+    return payments.reduce((sum, p) => sum + p.amount, 0);
+  },
+});
+```
+
 ### D2. Conversion Flow
 
 **Automatic conversion (on payment):**
@@ -461,11 +504,12 @@ When a closer records a payment and the opportunity transitions to `payment_rece
 2. If **no customer exists:**
    - Create customer record with data denormalized from lead
    - Update lead status to `converted`
-   - Populate `winningOpportunityId`, `winningMeetingId`, `totalPaid`
+   - Populate `winningOpportunityId`, `winningMeetingId`
+   - Backfill `customerId` on all existing `paymentRecords` for this lead's opportunities
    - Log `[Pipeline] lead converted to customer` with `{ leadId, customerId, opportunityId }`
 3. If **customer already exists** (returning customer / additional sale):
-   - Update `totalPaid` (add new payment amount)
-   - Optionally create a `CustomerTransaction` record (future)
+   - Set `customerId` on the new payment record
+   - No other changes needed — total is always computed from records
 
 **Manual conversion (admin):**
 
@@ -475,18 +519,27 @@ From the Lead Manager, an admin can manually convert a lead to a customer:
 - Enters payment amount if not already recorded
 - Confirms conversion
 
+**Post-conversion payments:**
+
+Once a customer exists, payments can be recorded directly against the customer (not just through meeting outcomes):
+- Use case: payment plan installments, upsells, renewals
+- The payment form gets an optional `customerId` field
+- If `customerId` is set, `opportunityId` and `meetingId` become optional
+- This allows admins/closers to record payments for customers without needing a meeting context
+
 ### D3. Customer View (Placeholder)
 
 **Route:** `/workspace/customers`
 **v0.5 scope:** A minimal list view that proves the data model works. Full customer management is v0.6+.
 
 **Placeholder features:**
-- List of all customers with name, email, converted date, total paid, program type
+- List of all customers with name, email, converted date, **computed total paid** (aggregated from payment records), program type
 - Click to open a detail sheet showing:
   - Customer info
   - Linked lead (clickable → Lead Manager)
   - Winning opportunity and meeting
-  - Payment history
+  - Payment history (all `paymentRecords` with `customerId` matching, sorted by date)
+  - Ability to record a new payment directly against the customer
   - Status badge (active/churned/paused)
 - Basic filtering by status and date range
 - No edit capabilities beyond status change (active ↔ paused ↔ churned)
@@ -903,11 +956,11 @@ When `invitee.created` fires, the pipeline processor checks UTMs **before** crea
    → Store whatever UTMs Calendly provides for attribution display
 ```
 
-**This is the deterministic path** — it takes priority over the heuristic reschedule detection in Feature B3. If a booking has `utm_source=ptdom`, we trust the UTMs. The heuristic path (B3: email match + recency + same closer) only activates for organic rebookings where the lead went to Calendly independently.
+**This is the deterministic path** — it takes priority over the heuristic reschedule detection in Feature B3. If a booking has `utm_source=ptdom`, we trust the UTMs. The heuristic path (B3: email match + recency) only activates for organic rebookings where the lead went back to the original Calendly link independently — typically a round-robin, so the closer may differ.
 
 **Priority order for opportunity linking:**
 1. **UTM-based** (deterministic): `utm_source=ptdom` → use `utm_campaign` as opportunity ID
-2. **Heuristic** (Feature B3): Email/identity match + no-show/canceled opportunity within 14 days
+2. **Heuristic** (Feature B3): Email/identity match + no-show/canceled opportunity within 14 days. If closer differs (round-robin reassignment), reassign the opportunity to the new host.
 3. **Follow-up detection** (existing): Lead has a `follow_up_scheduled` opportunity
 4. **New opportunity** (default): No match found
 
@@ -1336,7 +1389,7 @@ async function onSubmit(values: PaymentFormValues) {
 | **meetings** | Add `utmParams`, `customFormData` (per-meeting copy), `rescheduledFromMeetingId`, `reassignedFromCloserId`, `meetingOutcome` |
 | **eventTypeConfigs** | Add `customFieldMappings` (CRM overlay for identity resolution), `knownCustomFieldKeys` (auto-discovered from bookings). No new Calendly-managed fields — event type names, round-robin, questions are read-only from Calendly. |
 | **followUps** | Add `type` (`scheduling_link`/`manual_reminder`), `reminderMethod`, `reminderScheduledAt`, `reminderNote`, `completedAt` |
-| **paymentRecords** | No structural changes, but add `closerFullName` (denormalized for display) |
+| **paymentRecords** | Add `customerId` (optional, for post-conversion payments and backfill on conversion), `closerFullName` (denormalized). New index: `by_customerId`. `opportunityId` and `meetingId` become optional for post-conversion payments. |
 
 ### New Indexes
 
@@ -1547,14 +1600,15 @@ Phase 10: Closer Unavailability & Workload Redistribution ────── (af
 | **Request Reschedule** (B2) | Generates same-closer scheduling link with no-show-specific UTMs (`utm_medium=noshow_resched`, `utm_content={originalMeetingId}`) |
 | **Schema** | Add `rescheduledFromMeetingId` to `meetings` table |
 | **Reschedule chain display** (I3) | On meeting detail: if `rescheduledFromMeetingId` exists, show "This is a reschedule of [meeting] → [View]" |
-| **Automatic reschedule detection** (B3) | Pipeline heuristic: on `invitee.created`, if no UTM match, check if same-email lead has a `no_show`/`canceled` opportunity within 14 days with same closer → link to existing opportunity instead of creating new |
+| **Automatic reschedule detection** (B3) | Pipeline heuristic: on `invitee.created`, if no UTM match, check if same-email lead has a `no_show`/`canceled` opportunity within 14 days → link to existing opportunity. If the new booking has a **different closer** (round-robin assigned a different host), reassign the opportunity to the new closer. |
 | **Pipeline priority** | UTM-deterministic (Phase 4) → Heuristic (B3) → Existing follow-up detection → New opportunity |
 
 **How to test:**
 - Have Calendly fire a `invitee_no_show.created` webhook → open meeting detail → see No-Show Action Bar with 3 buttons
 - Click "Confirm No-Show" → bar updates to confirmed state, PostHog event fires
 - Click "Request Reschedule" → get URL with UTMs → book as lead → new meeting appears on same opportunity with `rescheduledFromMeetingId` set → meeting detail shows reschedule chain
-- Test automatic detection: create a no-show, then manually book the same lead (same email) with the same closer within Calendly directly (no CRM link) → pipeline should link to existing opportunity and log `[Pipeline] auto-reschedule detected`
+- Test automatic detection (same closer): create a no-show, then book the same lead (same email) directly through Calendly → pipeline should link to existing opportunity and log `[Pipeline] auto-reschedule detected`
+- Test automatic detection (different closer via round-robin): create a no-show with Closer A, then rebook the same email through the round-robin link → Calendly assigns Closer B → pipeline links to existing opportunity AND reassigns it from Closer A to Closer B → Closer B sees it on their dashboard, Closer A no longer owns it
 - Test non-match: book a different lead → should create a new opportunity normally
 
 ---
@@ -1638,21 +1692,24 @@ Phase 10: Closer Unavailability & Workload Redistribution ────── (af
 
 | What to build | Details |
 |---------------|---------|
-| **Schema** | New `customers` table |
-| **Auto-conversion** (D2) | Extend `logPayment` mutation: after transitioning opportunity to `payment_received`, check if customer exists for this lead → if not, create customer record with denormalized data, update lead status to `converted` |
+| **Schema** | New `customers` table. Add `customerId` (optional) to `paymentRecords` + new `by_customerId` index. Make `opportunityId`/`meetingId` optional on `paymentRecords` for post-conversion payments. |
+| **Auto-conversion** (D2) | Extend `logPayment` mutation: after transitioning opportunity to `payment_received`, check if customer exists for this lead → if not, create customer record with denormalized data, update lead status to `converted`, backfill `customerId` on all existing payment records for this lead |
 | **Manual conversion** (D2) | Admin action from Lead Manager: conversion dialog with pre-filled data |
-| **Customer list page** (D3) | `/workspace/customers` route. Minimal list: name, email, converted date, total paid, program, status |
-| **Customer detail sheet** (D3) | Click to open sheet: customer info, linked lead, winning opportunity, meeting history, payment records |
+| **Customer list page** (D3) | `/workspace/customers` route. Minimal list: name, email, converted date, computed total paid (aggregated from payment records), program, status |
+| **Customer detail sheet** (D3) | Click to open sheet: customer info, linked lead, winning opportunity, payment history (all records with this `customerId`), record new payment button |
+| **Post-conversion payments** | Payment form accessible from customer detail — records payment with `customerId` set, no meeting/opportunity required |
 | **Relationship navigation** (D4) | Every entity ID is a clickable link: Customer → Lead (Lead Manager), Customer → Opportunity (Pipeline), Customer → Meeting (Meeting detail) |
 | **Permissions** | New: `customer:view-all`, `customer:view-own`, `customer:edit` |
-| **Backend** | Queries: `listCustomers`, `getCustomerDetail`. Mutations: `convertLeadToCustomer`, `updateCustomerStatus` |
+| **Backend** | Queries: `listCustomers`, `getCustomerDetail`, `getCustomerTotalPaid` (computed from payment records). Mutations: `convertLeadToCustomer`, `updateCustomerStatus`, `recordCustomerPayment` |
 
 **How to test:**
 - Record a payment on a meeting → opportunity goes to `payment_received` → check that a customer record was created automatically
-- Navigate to `/workspace/customers` → see the new customer with correct amount and linked lead
-- Click the customer → sheet opens → click lead link → goes to Lead Manager. Click opportunity → goes to pipeline. Click meeting → goes to meeting detail
+- Verify the payment record now has `customerId` set (backfilled)
+- Navigate to `/workspace/customers` → see the new customer with computed total matching the payment amount
+- Click the customer → sheet opens → payment history shows the payment → click lead link → goes to Lead Manager. Click opportunity → goes to pipeline. Click meeting → goes to meeting detail
 - Verify lead's status changed to `converted` in the Lead Manager
-- Record another payment for a returning customer (same lead, different opportunity) → existing customer's `totalPaid` increases
+- Record another payment for a returning customer (same lead, different opportunity) → customer's computed total increases (sum of all payment records)
+- From the customer detail sheet → click "Record Payment" → enter a payment plan installment (no meeting/opportunity required) → payment appears in history, total updates
 - As admin: open a lead in Lead Manager → manually convert to customer via dialog
 - Verify closers can see their own customers (`customer:view-own`) but not all (`customer:view-all` is admin-only)
 

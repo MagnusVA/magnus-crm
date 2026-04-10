@@ -179,6 +179,20 @@ export default defineSchema({
     // Populated from the invitee.created webhook payload.
     // Undefined for meetings created before UTM tracking was enabled.
     utmParams: v.optional(utmParamsValidator),
+
+    // Feature I: Meeting outcome classification tag.
+    // Set by the closer after a meeting via dropdown on the detail page.
+    // Captures the lead's intent signal — independent of opportunity status.
+    // Undefined = not yet classified.
+    meetingOutcome: v.optional(
+      v.union(
+        v.literal("interested"),
+        v.literal("needs_more_info"),
+        v.literal("price_objection"),
+        v.literal("not_qualified"),
+        v.literal("ready_to_buy"),
+      ),
+    ),
   })
     .index("by_opportunityId", ["opportunityId"])
     .index("by_tenantId_and_scheduledAt", ["tenantId", "scheduledAt"])
@@ -197,8 +211,29 @@ export default defineSchema({
         }),
       ),
     ),
-    roundRobinEnabled: v.boolean(),
     createdAt: v.number(),
+
+    // === Feature F: Event Type Field Mappings ===
+    // CRM-only overlays (not from Calendly).
+    // Tells the pipeline which Calendly form question maps to which identity field.
+    customFieldMappings: v.optional(
+      v.object({
+        socialHandleField: v.optional(v.string()),
+        socialHandleType: v.optional(
+          v.union(
+            v.literal("instagram"),
+            v.literal("tiktok"),
+            v.literal("twitter"),
+            v.literal("other_social"),
+          ),
+        ),
+        phoneField: v.optional(v.string()),
+      }),
+    ),
+    // Auto-discovered from incoming bookings (system-managed, read-only from admin perspective).
+    // Populates the dropdown options in the field mapping configuration dialog.
+    knownCustomFieldKeys: v.optional(v.array(v.string())),
+    // === End Feature F ===
   })
     .index("by_tenantId", ["tenantId"])
     .index(
