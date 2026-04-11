@@ -157,6 +157,25 @@ export const getMeetingDetail = query({
           : { email: assignedCloser.email }
         : null;
 
+    // === Feature E: Load potential duplicate lead info ===
+    let potentialDuplicate: {
+      _id: typeof opportunity.leadId;
+      fullName?: string;
+      email: string;
+    } | null = null;
+
+    if (opportunity.potentialDuplicateLeadId) {
+      const dupLead = await ctx.db.get(opportunity.potentialDuplicateLeadId);
+      if (dupLead && dupLead.tenantId === tenantId) {
+        potentialDuplicate = {
+          _id: dupLead._id,
+          fullName: dupLead.fullName,
+          email: dupLead.email,
+        };
+      }
+    }
+    // === End Feature E ===
+
     console.log("[Closer:MeetingDetail] getMeetingDetail completed", {
       meetingId,
       meetingHistoryCount: meetingHistory.length,
@@ -164,6 +183,7 @@ export const getMeetingDetail = query({
       hasEventType: !!eventTypeName,
       hasPaymentLinks: !!paymentLinks,
       hasUtmParams: !!(meeting.utmParams || opportunity.utmParams),
+      hasPotentialDuplicate: !!potentialDuplicate,
     });
     return {
       meeting,
@@ -174,6 +194,7 @@ export const getMeetingDetail = query({
       eventTypeName,
       paymentLinks,
       payments,
+      potentialDuplicate,
     };
   },
 });

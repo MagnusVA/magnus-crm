@@ -30,6 +30,7 @@ import { OutcomeActionBar } from "../../_components/outcome-action-bar";
 import { BookingAnswersCard } from "../../_components/booking-answers-card";
 import { DealWonCard } from "../../_components/deal-won-card";
 import { AttributionCard } from "../../_components/attribution-card";
+import { PotentialDuplicateBanner } from "../../_components/potential-duplicate-banner";
 
 type MeetingDetailData = {
   meeting: Doc<"meetings">;
@@ -56,6 +57,11 @@ type MeetingDetailData = {
       closerName: string | null;
     }
   >;
+  potentialDuplicate: {
+    _id: string;
+    fullName?: string;
+    email: string;
+  } | null;
 } | null;
 
 export function MeetingDetailPageClient({
@@ -90,6 +96,7 @@ export function MeetingDetailPageClient({
     eventTypeName,
     paymentLinks,
     payments,
+    potentialDuplicate,
   } = detail;
 
   const statusKey = opportunity.status as OpportunityStatus;
@@ -106,6 +113,14 @@ export function MeetingDetailPageClient({
           {statusCfg?.label ?? opportunity.status}
         </Badge>
       </div>
+
+      {/* Feature E: Potential duplicate banner */}
+      {potentialDuplicate && (
+        <PotentialDuplicateBanner
+          duplicateLead={potentialDuplicate}
+          currentLeadName={lead.fullName}
+        />
+      )}
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3 lg:grid-cols-4">
         <div className="md:col-span-1">

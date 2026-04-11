@@ -76,16 +76,6 @@ Use these internal Convex actions from the terminal:
 
 These actions use the tenant's existing Calendly OAuth tokens, call Calendly's API directly, and still produce normal `invitee.created` webhook traffic for the pipeline.
 
-### Scope Prerequisite
-
-The helper flow requires Calendly OAuth tokens with:
-
-- `event_types:read`
-- `availability:read`
-- `scheduled_events:write`
-
-The repo now requests these scopes during Calendly connect/reconnect. Existing tenants connected before this change must reconnect Calendly once. If a helper returns a `Missing Calendly scope` error, reconnect the tenant and retry.
-
 ### Discover Tenant and Event Type
 
 ```bash
@@ -481,30 +471,30 @@ npx convex logs --history 100
 
 ### When to Use Each Command
 
-| Task                           | Command                                                                                               |
-| ------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| Discover event types           | `npx convex run testing/calendly:listEventTypes '{"tenantId":"..."}'`                                 |
-| Inspect exact custom questions | `npx convex run testing/calendly:getEventTypeDetailsForTesting '{"tenantId":"...","eventTypeUri":"..."}'` |
-| Preview open slots             | `npx convex run testing/calendly:listAvailableSlots '{"tenantId":"...","eventTypeUri":"..."}'`       |
-| Book a real test meeting       | `npx convex run testing/calendly:bookTestInvitee '{...}'`                                            |
-| Verify webhook arrived         | `npx convex data rawWebhookEvents --limit 5`                                                          |
-| Verify lead created            | `npx convex data leads`                                                                               |
-| Verify opportunity created     | `npx convex data opportunities`                                                                       |
-| Verify meeting created         | `npx convex data meetings`                                                                            |
-| Check closer assignment        | Read `assignedCloserId` from the opportunity query output                                             |
+| Task                           | Command                                                                                                            |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------ | ------------- |
+| Discover event types           | `npx convex run testing/calendly:listEventTypes '{"tenantId":"..."}'`                                              |
+| Inspect exact custom questions | `npx convex run testing/calendly:getEventTypeDetailsForTesting '{"tenantId":"...","eventTypeUri":"..."}'`          |
+| Preview open slots             | `npx convex run testing/calendly:listAvailableSlots '{"tenantId":"...","eventTypeUri":"..."}'`                     |
+| Book a real test meeting       | `npx convex run testing/calendly:bookTestInvitee '{...}'`                                                          |
+| Verify webhook arrived         | `npx convex data rawWebhookEvents --limit 5`                                                                       |
+| Verify lead created            | `npx convex data leads`                                                                                            |
+| Verify opportunity created     | `npx convex data opportunities`                                                                                    |
+| Verify meeting created         | `npx convex data meetings`                                                                                         |
+| Check closer assignment        | Read `assignedCloserId` from the opportunity query output                                                          |
 | Inspect custom form fields     | Read `customQuestions` from the helper output, or `payload.questions_and_answers` / `customFields` from table data |
-| Debug processing failure       | `npx convex logs` or `npx convex logs --history 100`                                          |
-| Verify email doesn't exist yet | `npx convex data leads | rg '<email>'`                                                       |
+| Debug processing failure       | `npx convex logs` or `npx convex logs --history 100`                                                               |
+| Verify email doesn't exist yet | `npx convex data leads                                                                                             | rg '<email>'` |
 
 ### Tables & What to Look For
 
-| Table              | CLI command                            | Key fields to check                                     |
-| ------------------ | -------------------------------------- | ------------------------------------------------------- |
-| `rawWebhookEvents` | `npx convex data rawWebhookEvents`     | `eventType`, `processed`, `payload` contents            |
-| `leads`            | `npx convex data leads`                | `email`, `fullName`, `phone`, `customFields`            |
-| `opportunities`    | `npx convex data opportunities`        | `status`, `assignedCloserId`, `latestMeetingId/At`      |
-| `meetings`         | `npx convex data meetings`             | `status`, `scheduledAt`, `calendlyEventUri`, `leadName` |
-| `users`            | `npx convex data users`                | Roles, `calendlyUserUri` (for closer matching)          |
+| Table              | CLI command                        | Key fields to check                                     |
+| ------------------ | ---------------------------------- | ------------------------------------------------------- |
+| `rawWebhookEvents` | `npx convex data rawWebhookEvents` | `eventType`, `processed`, `payload` contents            |
+| `leads`            | `npx convex data leads`            | `email`, `fullName`, `phone`, `customFields`            |
+| `opportunities`    | `npx convex data opportunities`    | `status`, `assignedCloserId`, `latestMeetingId/At`      |
+| `meetings`         | `npx convex data meetings`         | `status`, `scheduledAt`, `calendlyEventUri`, `leadName` |
+| `users`            | `npx convex data users`            | Roles, `calendlyUserUri` (for closer matching)          |
 
 ### Debugging Failed Webhooks
 
@@ -609,7 +599,7 @@ Common failures:
 
 | What                    | Where / How                                                     |
 | ----------------------- | --------------------------------------------------------------- |
-| Schedule a test meeting | `npx convex run testing/calendly:bookTestInvitee '{...}'`      |
+| Schedule a test meeting | `npx convex run testing/calendly:bookTestInvitee '{...}'`       |
 | Lead email pattern      | `vas.claudio15+lead{N}@icloud.com`                              |
 | Test password           | `grep TEST_USERS_PASSWORD .env.local`                           |
 | Sign in                 | `http://localhost:3000/sign-in`                                 |

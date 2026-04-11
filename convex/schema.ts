@@ -115,9 +115,68 @@ export default defineSchema({
     customFields: v.optional(v.any()),
     firstSeenAt: v.number(),
     updatedAt: v.number(),
+
+    // === Feature E: Lead Lifecycle Status & Merge Tracking ===
+    // Status for lead merge and conversion tracking.
+    // "active" = normal operating state (default for all existing + new leads).
+    // "merged" = this lead was merged into another lead; mergedIntoLeadId points to the target.
+    // "converted" = lead became a customer (Feature D).
+    status: v.optional(
+      v.union(v.literal("active"), v.literal("converted"), v.literal("merged")),
+    ),
+
+    // When status === "merged", points to the lead this was merged into.
+    // Undefined for active and converted leads.
+    mergedIntoLeadId: v.optional(v.id("leads")),
+
+    // Denormalized social handles for display in lead info panels.
+    // Updated when leadIdentifier records change. Array of { type, handle } pairs.
+    socialHandles: v.optional(
+      v.array(
+        v.object({
+          type: v.string(),
+          handle: v.string(),
+        }),
+      ),
+    ),
+    // === End Feature E ===
   })
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_email", ["tenantId", "email"]),
+
+  // === Feature E: Multi-Identifier Lead Model ===
+  leadIdentifiers: defineTable({
+    tenantId: v.id("tenants"),
+    leadId: v.id("leads"),
+    type: v.union(
+      v.literal("email"),
+      v.literal("phone"),
+      v.literal("instagram"),
+      v.literal("tiktok"),
+      v.literal("twitter"),
+      v.literal("facebook"),
+      v.literal("linkedin"),
+      v.literal("other_social"),
+    ),
+    value: v.string(), // Normalized: lowercased, trimmed, @ stripped, E.164 for phone
+    rawValue: v.string(), // Original value as received from the source
+    source: v.union(
+      v.literal("calendly_booking"), // Extracted from a Calendly webhook payload
+      v.literal("manual_entry"), // Manually entered by a CRM user (Feature C)
+      v.literal("merge"), // Created during a lead merge operation (Feature C)
+    ),
+    sourceMeetingId: v.optional(v.id("meetings")), // Which meeting provided this identifier
+    confidence: v.union(
+      v.literal("verified"), // Direct input by the lead (email from Calendly, phone from Calendly)
+      v.literal("inferred"), // Extracted from a form field via customFieldMappings
+      v.literal("suggested"), // Heuristic/AI suggestion, unconfirmed
+    ),
+    createdAt: v.number(), // Unix ms, for sorting and auditing
+  })
+    .index("by_tenantId_and_type_and_value", ["tenantId", "type", "value"])
+    .index("by_leadId", ["leadId"])
+    .index("by_tenantId_and_value", ["tenantId", "value"]),
+  // === End Feature E ===
 
   opportunities: defineTable({
     tenantId: v.id("tenants"),
@@ -151,6 +210,14 @@ export default defineSchema({
     // Subsequent follow-up bookings do NOT overwrite this field.
     // Undefined for opportunities created before UTM tracking was enabled.
     utmParams: v.optional(utmParamsValidator),
+
+    // === Feature E: Potential Duplicate Detection ===
+    // When the pipeline detects a fuzzy match during identity resolution,
+    // it creates a new lead but stores the ID of the suspected duplicate lead here.
+    // Surfaces as a banner on the meeting detail page: "This lead might be the same as [Name]."
+    // Cleared when a merge is performed (Feature C) or manually dismissed.
+    potentialDuplicateLeadId: v.optional(v.id("leads")),
+    // === End Feature E ===
   })
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
