@@ -36,6 +36,7 @@ import {
   Trash2Icon,
   UsersIcon,
   CalendarPlusIcon,
+  CalendarOffIcon,
 } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useTableSort } from "@/hooks/use-table-sort";
@@ -58,6 +59,7 @@ interface TeamMembersTableProps {
   onRemoveUser?: (memberId: Id<"users">) => void;
   onRelinkCalendly?: (memberId: Id<"users">) => void;
   onAssignEventType?: (memberId: Id<"users">) => void;
+  onMarkUnavailable?: (memberId: Id<"users">) => void;
 }
 
 const roleLabels: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
@@ -73,6 +75,7 @@ export function TeamMembersTable({
   onRemoveUser,
   onRelinkCalendly,
   onAssignEventType,
+  onMarkUnavailable,
 }: TeamMembersTableProps) {
   const comparators = useMemo(() => ({
     name: (a: TeamMember, b: TeamMember) => (a.fullName ?? a.email).localeCompare(b.fullName ?? b.email),
@@ -154,7 +157,9 @@ export function TeamMembersTable({
               member.role === "closer" && onRelinkCalendly;
             const canAssignEventType =
               member.role === "closer" && onAssignEventType;
-            const hasAnyAction = canEditRole || canRemove || canRelinkCalendly || canAssignEventType;
+            const canMarkUnavailable =
+              member.role === "closer" && onMarkUnavailable;
+            const hasAnyAction = canEditRole || canRemove || canRelinkCalendly || canAssignEventType || canMarkUnavailable;
 
             return (
               <TableRow key={member._id}>
@@ -244,6 +249,16 @@ export function TeamMembersTable({
                               >
                                 <ShieldIcon data-icon="inline-start" />
                                 Edit Role
+                              </DropdownMenuItem>
+                            )}
+                          </RequirePermission>
+                          <RequirePermission permission="team:manage-availability">
+                            {canMarkUnavailable && (
+                              <DropdownMenuItem
+                                onClick={() => onMarkUnavailable(member._id)}
+                              >
+                                <CalendarOffIcon data-icon="inline-start" />
+                                Mark Unavailable
                               </DropdownMenuItem>
                             )}
                           </RequirePermission>

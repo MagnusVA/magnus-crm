@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { useRole } from "@/components/auth/role-context";
 import { TeamMembersTable } from "./team-members-table";
+import { RecentReassignments } from "./recent-reassignments";
 import { RequirePermission } from "@/components/auth/require-permission";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent } from "@/components/ui/card";
@@ -43,6 +44,11 @@ const EventTypeAssignmentDialog = dynamic(() =>
     default: m.EventTypeAssignmentDialog,
   })),
 );
+const MarkUnavailableDialog = dynamic(() =>
+  import("./mark-unavailable-dialog").then((m) => ({
+    default: m.MarkUnavailableDialog,
+  })),
+);
 
 function TableSkeleton() {
   return (
@@ -70,7 +76,8 @@ type DialogState =
       userId: Id<"users">;
       userName: string;
       currentUri?: string;
-    };
+    }
+  | { type: "unavailability"; userId: Id<"users">; userName: string };
 
 export function TeamPageClient() {
   usePageTitle("Team");
@@ -142,6 +149,17 @@ export function TeamPageClient() {
     }
   };
 
+  const handleMarkUnavailable = (memberId: Id<"users">) => {
+    const member = members?.find((m) => m._id === memberId);
+    if (member && member.role === "closer") {
+      setDialog({
+        type: "unavailability",
+        userId: memberId,
+        userName: member.fullName || member.email,
+      });
+    }
+  };
+
   if (!isAdmin || members === undefined || !currentUser) {
     return <TableSkeleton />;
   }
@@ -193,8 +211,11 @@ export function TeamPageClient() {
           onRemoveUser={handleRemoveUser}
           onRelinkCalendly={handleRelinkCalendly}
           onAssignEventType={handleAssignEventType}
+          onMarkUnavailable={handleMarkUnavailable}
         />
       )}
+
+      <RecentReassignments />
 
       {/* Dialogs — render based on discriminated union */}
       {dialog.type === "remove" && (
@@ -240,6 +261,17 @@ export function TeamPageClient() {
           userId={dialog.userId}
           userName={dialog.userName}
           currentUri={dialog.currentUri}
+        />
+      )}
+
+      {dialog.type === "unavailability" && (
+        <MarkUnavailableDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) closeDialog();
+          }}
+          userId={dialog.userId}
+          userName={dialog.userName}
         />
       )}
     </div>

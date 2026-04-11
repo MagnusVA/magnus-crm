@@ -11,8 +11,11 @@ export const PERMISSIONS = {
   "payment:view-all": ["tenant_master", "tenant_admin"],
   "payment:view-own": ["tenant_master", "tenant_admin", "closer"],
   "team:assign-event-type": ["tenant_master", "tenant_admin"],
+  "team:manage-availability": ["tenant_master", "tenant_admin"],
   "follow-up:create": ["closer"],
   "follow-up:complete": ["closer"],
+  "reassignment:execute": ["tenant_master", "tenant_admin"],
+  "reassignment:view-all": ["tenant_master", "tenant_admin"],
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;

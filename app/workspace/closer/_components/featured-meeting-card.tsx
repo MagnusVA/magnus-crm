@@ -19,6 +19,7 @@ import {
   ClockIcon,
   CalendarDaysIcon,
   UserIcon,
+  ShuffleIcon,
 } from "lucide-react";
 
 type FeaturedMeetingCardProps = {
@@ -28,6 +29,7 @@ type FeaturedMeetingCardProps = {
     durationMinutes: number;
     meetingJoinUrl?: string;
     zoomJoinUrl?: string;
+    reassignedFromCloserId?: string;
   };
   lead: {
     fullName?: string;
@@ -92,6 +94,12 @@ export function FeaturedMeetingCard({
               <p className="truncate text-xs text-muted-foreground">
                 {lead.email}
               </p>
+            )}
+            {meeting.reassignedFromCloserId && (
+              <Badge variant="secondary" className="mt-1 gap-1 w-fit">
+                <ShuffleIcon className="size-3" />
+                Reassigned
+              </Badge>
             )}
           </div>
         </div>

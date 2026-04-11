@@ -157,6 +157,30 @@ export const getMeetingDetail = query({
           : { email: assignedCloser.email }
         : null;
 
+    // === Feature H: Load reassignment metadata ===
+    let reassignmentInfo: {
+      reassignedFromCloserName: string;
+      reassignedAt: number;
+      reason: string;
+    } | null = null;
+
+    if (meeting.reassignedFromCloserId) {
+      const fromCloser = await ctx.db.get(meeting.reassignedFromCloserId);
+      const reassignment = await ctx.db
+        .query("meetingReassignments")
+        .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
+        .order("desc")
+        .first();
+
+      reassignmentInfo = {
+        reassignedFromCloserName:
+          fromCloser?.fullName ?? fromCloser?.email ?? "Unknown",
+        reassignedAt: reassignment?.reassignedAt ?? meeting._creationTime,
+        reason: reassignment?.reason ?? "Reassigned",
+      };
+    }
+    // === End Feature H ===
+
     // === Feature E: Load potential duplicate lead info ===
     let potentialDuplicate: {
       _id: typeof opportunity.leadId;
@@ -194,6 +218,7 @@ export const getMeetingDetail = query({
       eventTypeName,
       paymentLinks,
       payments,
+      reassignmentInfo,
       potentialDuplicate,
     };
   },

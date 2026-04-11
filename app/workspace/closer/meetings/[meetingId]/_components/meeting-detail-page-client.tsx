@@ -17,7 +17,9 @@ import {
   EmptyDescription,
 } from "@/components/ui/empty";
 import { cn } from "@/lib/utils";
-import { ArrowLeftIcon, AlertCircleIcon } from "lucide-react";
+import { format } from "date-fns";
+import { ArrowLeftIcon, AlertCircleIcon, ShuffleIcon } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   opportunityStatusConfig,
   type OpportunityStatus,
@@ -62,6 +64,11 @@ type MeetingDetailData = {
     fullName?: string;
     email: string;
   } | null;
+  reassignmentInfo: {
+    reassignedFromCloserName: string;
+    reassignedAt: number;
+    reason: string;
+  } | null;
 } | null;
 
 export function MeetingDetailPageClient({
@@ -97,6 +104,7 @@ export function MeetingDetailPageClient({
     paymentLinks,
     payments,
     potentialDuplicate,
+    reassignmentInfo,
   } = detail;
 
   const statusKey = opportunity.status as OpportunityStatus;
@@ -120,6 +128,25 @@ export function MeetingDetailPageClient({
           duplicateLead={potentialDuplicate}
           currentLeadName={lead.fullName}
         />
+      )}
+
+      {/* Feature H: Reassignment info alert */}
+      {reassignmentInfo && (
+        <Alert className="mb-0">
+          <ShuffleIcon className="size-4" />
+          <AlertDescription>
+            This meeting was reassigned to you from{" "}
+            <span className="font-medium">
+              {reassignmentInfo.reassignedFromCloserName}
+            </span>{" "}
+            on{" "}
+            {format(
+              new Date(reassignmentInfo.reassignedAt),
+              "MMM d, h:mm a",
+            )}{" "}
+            — {reassignmentInfo.reason}
+          </AlertDescription>
+        </Alert>
       )}
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3 lg:grid-cols-4">

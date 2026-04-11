@@ -262,10 +262,55 @@ export default defineSchema({
         v.literal("ready_to_buy"),
       ),
     ),
+
+    // === Feature H: Closer Unavailability & Redistribution ===
+    // Denormalized source closer for the most recent reassignment.
+    // Undefined means the meeting has never been reassigned.
+    reassignedFromCloserId: v.optional(v.id("users")),
+    // === End Feature H ===
   })
     .index("by_opportunityId", ["opportunityId"])
     .index("by_tenantId_and_scheduledAt", ["tenantId", "scheduledAt"])
     .index("by_tenantId_and_calendlyEventUri", ["tenantId", "calendlyEventUri"]),
+
+  // === Feature H: Closer Unavailability & Redistribution ===
+  closerUnavailability: defineTable({
+    tenantId: v.id("tenants"),
+    closerId: v.id("users"),
+    date: v.number(), // Start-of-day UTC timestamp for the target date
+    startTime: v.optional(v.number()),
+    endTime: v.optional(v.number()),
+    isFullDay: v.boolean(),
+    reason: v.union(
+      v.literal("sick"),
+      v.literal("emergency"),
+      v.literal("personal"),
+      v.literal("other"),
+    ),
+    note: v.optional(v.string()),
+    createdByUserId: v.id("users"),
+    createdAt: v.number(),
+  })
+    .index("by_tenantId_and_date", ["tenantId", "date"])
+    .index("by_closerId_and_date", ["closerId", "date"]),
+
+  meetingReassignments: defineTable({
+    tenantId: v.id("tenants"),
+    meetingId: v.id("meetings"),
+    opportunityId: v.id("opportunities"),
+    fromCloserId: v.id("users"),
+    toCloserId: v.id("users"),
+    reason: v.string(),
+    unavailabilityId: v.optional(v.id("closerUnavailability")),
+    reassignedByUserId: v.id("users"),
+    reassignedAt: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_meetingId", ["meetingId"])
+    .index("by_toCloserId", ["toCloserId"])
+    .index("by_fromCloserId", ["fromCloserId"])
+    .index("by_unavailabilityId", ["unavailabilityId"]),
+  // === End Feature H ===
 
   eventTypeConfigs: defineTable({
     tenantId: v.id("tenants"),
