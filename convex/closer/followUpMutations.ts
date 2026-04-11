@@ -1,7 +1,8 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { internalMutation } from "../_generated/server";
+import { internalMutation, mutation } from "../_generated/server";
 import { validateTransition } from "../lib/statusTransitions";
+import { requireTenantUser } from "../requireTenantUser";
 
 /**
  * Create a follow-up record.
@@ -97,5 +98,213 @@ export const markFollowUpBooked = internalMutation({
     } else {
       console.warn("[Closer:FollowUp] markFollowUpBooked: no pending follow-up found", { opportunityId });
     }
+  },
+});
+
+export const createSchedulingLinkFollowUp = mutation({
+  args: {
+    opportunityId: v.id("opportunities"),
+  },
+  handler: async (ctx, { opportunityId }) => {
+    const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
+
+    const now = Date.now();
+    const user = await ctx.db.get(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+    if (!user.personalEventTypeUri) {
+      throw new Error(
+        "No personal calendar configured. Ask your admin to assign one in Team settings.",
+      );
+    }
+
+    const opportunity = await ctx.db.get(opportunityId);
+    if (!opportunity || opportunity.tenantId !== tenantId) {
+      throw new Error("Opportunity not found");
+    }
+    if (opportunity.assignedCloserId !== userId) {
+      throw new Error("Not your opportunity");
+    }
+    if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
+      throw new Error(
+        `Cannot schedule follow-up from status "${opportunity.status}"`,
+      );
+    }
+
+    const followUpId = await ctx.db.insert("followUps", {
+      tenantId,
+      opportunityId,
+      leadId: opportunity.leadId,
+      closerId: userId,
+      type: "scheduling_link",
+      reason: "closer_initiated",
+      status: "pending",
+      createdAt: now,
+    });
+
+    let schedulingLinkUrl: string;
+    try {
+      const bookingUrl = new URL(user.personalEventTypeUri);
+      bookingUrl.searchParams.set("utm_source", "ptdom");
+      bookingUrl.searchParams.set("utm_medium", "follow_up");
+      bookingUrl.searchParams.set("utm_campaign", opportunityId);
+      bookingUrl.searchParams.set("utm_content", followUpId);
+      bookingUrl.searchParams.set("utm_term", userId);
+      schedulingLinkUrl = bookingUrl.toString();
+    } catch {
+      throw new Error("Personal calendar URL is invalid");
+    }
+
+    await ctx.db.patch(followUpId, {
+      schedulingLinkUrl,
+    });
+    // NOTE: Status transition is deferred to confirmFollowUpScheduled.
+    // If we transition here, Convex reactivity pushes the new status to the
+    // client immediately, which re-renders OutcomeActionBar → returns null →
+    // unmounts the FollowUpDialog before the user can see/copy the link.
+
+    console.log("[Closer:FollowUp] scheduling link follow-up created", {
+      followUpId,
+      opportunityId,
+    });
+
+    return { schedulingLinkUrl, followUpId };
+  },
+});
+
+/**
+ * Confirm a scheduling-link follow-up by transitioning the opportunity status.
+ * Called from the dialog's "Done" button after the user has seen/copied the link.
+ */
+export const confirmFollowUpScheduled = mutation({
+  args: {
+    opportunityId: v.id("opportunities"),
+  },
+  handler: async (ctx, { opportunityId }) => {
+    const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
+
+    const opportunity = await ctx.db.get(opportunityId);
+    if (!opportunity || opportunity.tenantId !== tenantId) {
+      throw new Error("Opportunity not found");
+    }
+    if (opportunity.assignedCloserId !== userId) {
+      throw new Error("Not your opportunity");
+    }
+    // Already transitioned (e.g. user double-clicked Done) — silently succeed
+    if (opportunity.status === "follow_up_scheduled") {
+      return;
+    }
+    if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
+      throw new Error(
+        `Cannot schedule follow-up from status "${opportunity.status}"`,
+      );
+    }
+
+    await ctx.db.patch(opportunityId, {
+      status: "follow_up_scheduled",
+      updatedAt: Date.now(),
+    });
+
+    console.log(
+      "[Closer:FollowUp] opportunity confirmed as follow_up_scheduled",
+      { opportunityId },
+    );
+  },
+});
+
+export const createManualReminderFollowUpPublic = mutation({
+  args: {
+    opportunityId: v.id("opportunities"),
+    contactMethod: v.union(v.literal("call"), v.literal("text")),
+    reminderScheduledAt: v.number(),
+    reminderNote: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
+
+    const opportunity = await ctx.db.get(args.opportunityId);
+    if (!opportunity || opportunity.tenantId !== tenantId) {
+      throw new Error("Opportunity not found");
+    }
+    if (opportunity.assignedCloserId !== userId) {
+      throw new Error("Not your opportunity");
+    }
+    if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
+      throw new Error(
+        `Cannot schedule follow-up from status "${opportunity.status}"`,
+      );
+    }
+
+    const now = Date.now();
+    if (args.reminderScheduledAt <= now) {
+      throw new Error("Reminder time must be in the future");
+    }
+
+    const followUpId = await ctx.db.insert("followUps", {
+      tenantId,
+      opportunityId: args.opportunityId,
+      leadId: opportunity.leadId,
+      closerId: userId,
+      type: "manual_reminder",
+      contactMethod: args.contactMethod,
+      reminderScheduledAt: args.reminderScheduledAt,
+      reminderNote: args.reminderNote,
+      reason: "closer_initiated",
+      status: "pending",
+      createdAt: now,
+    });
+
+    await ctx.db.patch(args.opportunityId, {
+      status: "follow_up_scheduled",
+      updatedAt: now,
+    });
+
+    console.log("[Closer:FollowUp] manual reminder follow-up created", {
+      followUpId,
+      opportunityId: args.opportunityId,
+      contactMethod: args.contactMethod,
+      reminderScheduledAt: args.reminderScheduledAt,
+    });
+
+    return { followUpId };
+  },
+});
+
+export const markReminderComplete = mutation({
+  args: {
+    followUpId: v.id("followUps"),
+    completionNote: v.optional(v.string()),
+  },
+  handler: async (ctx, { followUpId, completionNote }) => {
+    const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
+
+    const followUp = await ctx.db.get(followUpId);
+    if (!followUp) {
+      throw new Error("Follow-up not found");
+    }
+    if (followUp.tenantId !== tenantId) {
+      throw new Error("Access denied");
+    }
+    if (followUp.closerId !== userId) {
+      throw new Error("Not your follow-up");
+    }
+    if (followUp.type !== "manual_reminder") {
+      throw new Error("Not a manual reminder");
+    }
+    if (followUp.status !== "pending") {
+      throw new Error("Follow-up is not pending");
+    }
+
+    await ctx.db.patch(followUpId, {
+      status: "completed",
+      completedAt: Date.now(),
+      ...(completionNote ? { completionNote } : {}),
+    });
+
+    console.log("[Closer:FollowUp] reminder marked complete", {
+      followUpId,
+      hasCompletionNote: Boolean(completionNote),
+    });
   },
 });

@@ -12,6 +12,7 @@ import { useRole } from "@/components/auth/role-context";
 import { useRouter } from "next/navigation";
 import { UnmatchedBanner } from "./unmatched-banner";
 import { FeaturedMeetingCard } from "./featured-meeting-card";
+import { RemindersSection } from "./reminders-section";
 import { PipelineStrip } from "./pipeline-strip";
 import { CloserEmptyState } from "./closer-empty-state";
 import { CalendarSection } from "./calendar-section";
@@ -73,18 +74,24 @@ export function CloserDashboardPageClient() {
 
       {!profile.isCalendlyLinked && <UnmatchedBanner />}
 
-      {nextMeeting ? (
-        <FeaturedMeetingCard
-          meeting={nextMeeting.meeting}
-          lead={nextMeeting.lead ?? null}
-          eventTypeName={nextMeeting.eventTypeName}
-        />
-      ) : (
-        <CloserEmptyState
-          title="No upcoming meetings"
-          description="You don't have any scheduled meetings. New meetings will appear here automatically when leads book through Calendly."
-        />
-      )}
+      {/* Next meeting + reminders — side by side on desktop */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_minmax(0,400px)]">
+        {nextMeeting ? (
+          <FeaturedMeetingCard
+            meeting={nextMeeting.meeting}
+            lead={nextMeeting.lead ?? null}
+            eventTypeName={nextMeeting.eventTypeName}
+          />
+        ) : (
+          <CloserEmptyState
+            title="No upcoming meetings"
+            description="You don't have any scheduled meetings. New meetings will appear here automatically when leads book through Calendly."
+          />
+        )}
+
+        {/* Reminders panel — only renders when closer has active reminders */}
+        <RemindersSection />
+      </div>
 
       <PipelineStrip
         counts={pipelineSummary.counts}

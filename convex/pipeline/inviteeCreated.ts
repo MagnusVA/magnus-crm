@@ -62,6 +62,88 @@ function mergeCustomFields(
   return incoming;
 }
 
+function extractHostMembership(scheduledEvent: Record<string, unknown>) {
+  const eventMemberships = Array.isArray(scheduledEvent.event_memberships)
+    ? scheduledEvent.event_memberships
+    : [];
+  const primaryMembership = eventMemberships.find(isRecord);
+
+  return {
+    hostUserUri: primaryMembership
+      ? getString(primaryMembership, "user")
+      : undefined,
+    hostCalendlyEmail: primaryMembership
+      ? getString(primaryMembership, "user_email")
+      : undefined,
+    hostCalendlyName: primaryMembership
+      ? getString(primaryMembership, "user_name")
+      : undefined,
+  };
+}
+
+async function upsertLead(
+  ctx: MutationCtx,
+  {
+    tenantId,
+    inviteeEmail,
+    inviteeName,
+    inviteePhone,
+    latestCustomFields,
+    now,
+  }: {
+    tenantId: Id<"tenants">;
+    inviteeEmail: string;
+    inviteeName: string | undefined;
+    inviteePhone: string | undefined;
+    latestCustomFields: Record<string, string> | undefined;
+    now: number;
+  },
+): Promise<Doc<"leads">> {
+  const existingLead = await ctx.db
+    .query("leads")
+    .withIndex("by_tenantId_and_email", (q) =>
+      q.eq("tenantId", tenantId).eq("email", inviteeEmail),
+    )
+    .unique();
+
+  if (!existingLead) {
+    const leadId = await ctx.db.insert("leads", {
+      tenantId,
+      email: inviteeEmail,
+      fullName: inviteeName,
+      phone: inviteePhone,
+      customFields: latestCustomFields,
+      firstSeenAt: now,
+      updatedAt: now,
+    });
+    const lead = (await ctx.db.get(leadId))!;
+    console.log(`[Pipeline:invitee.created] Lead created | leadId=${leadId}`);
+    return lead;
+  }
+
+  const mergedCustomFields = mergeCustomFields(
+    existingLead.customFields,
+    latestCustomFields,
+  );
+  const updatedLead = {
+    ...existingLead,
+    fullName: inviteeName || existingLead.fullName,
+    phone: inviteePhone || existingLead.phone,
+    customFields: mergedCustomFields,
+    updatedAt: now,
+  };
+
+  await ctx.db.patch(existingLead._id, {
+    fullName: updatedLead.fullName,
+    phone: updatedLead.phone,
+    customFields: updatedLead.customFields,
+    updatedAt: now,
+  });
+  console.log(`[Pipeline:invitee.created] Lead updated | leadId=${existingLead._id}`);
+
+  return updatedLead;
+}
+
 async function resolveAssignedCloserId(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
@@ -103,6 +185,108 @@ async function resolveAssignedCloserId(
     `[Pipeline:invitee.created] Unmatched Calendly host URI: ${hostUserUri}. Leaving opportunity unassigned.`,
   );
   return undefined;
+}
+
+async function resolveEventTypeConfigId(
+  ctx: MutationCtx,
+  {
+    tenantId,
+    eventTypeUri,
+    scheduledEvent,
+    latestCustomFields,
+    now,
+  }: {
+    tenantId: Id<"tenants">;
+    eventTypeUri: string | undefined;
+    scheduledEvent: Record<string, unknown>;
+    latestCustomFields: Record<string, string> | undefined;
+    now: number;
+  },
+): Promise<Id<"eventTypeConfigs"> | undefined> {
+  if (!eventTypeUri) {
+    return undefined;
+  }
+
+  const configCandidates = await ctx.db
+    .query("eventTypeConfigs")
+    .withIndex("by_tenantId_and_calendlyEventTypeUri", (q) =>
+      q.eq("tenantId", tenantId).eq("calendlyEventTypeUri", eventTypeUri),
+    )
+    .take(8);
+  const existingConfig =
+    configCandidates.length === 0
+      ? null
+      : configCandidates.reduce((best, row) =>
+          row.createdAt < best.createdAt ? row : best,
+        );
+
+  if (configCandidates.length > 1) {
+    console.warn(
+      `[Pipeline:invitee.created] Multiple eventTypeConfigs for same URI (${configCandidates.length}); using canonical configId=${existingConfig!._id}`,
+    );
+  }
+
+  if (existingConfig) {
+    console.log(
+      `[Pipeline:invitee.created] Event type config found | configId=${existingConfig._id}`,
+    );
+    return existingConfig._id;
+  }
+
+  const eventDisplayName =
+    getString(scheduledEvent, "name") ?? "Calendly Meeting";
+  const initialKeys = latestCustomFields
+    ? Object.keys(latestCustomFields)
+    : undefined;
+
+  const eventTypeConfigId = await ctx.db.insert("eventTypeConfigs", {
+    tenantId,
+    calendlyEventTypeUri: eventTypeUri,
+    displayName: eventDisplayName,
+    createdAt: now,
+    knownCustomFieldKeys:
+      initialKeys && initialKeys.length > 0 ? initialKeys : undefined,
+  });
+  console.log(
+    `[Pipeline:invitee.created] Event type config auto-created | configId=${eventTypeConfigId} displayName="${eventDisplayName}" initialKeys=${initialKeys ? JSON.stringify(initialKeys) : "none"}`,
+  );
+
+  return eventTypeConfigId;
+}
+
+async function syncKnownCustomFieldKeys(
+  ctx: MutationCtx,
+  eventTypeConfigId: Id<"eventTypeConfigs"> | undefined,
+  latestCustomFields: Record<string, string> | undefined,
+) {
+  if (!latestCustomFields || !eventTypeConfigId) {
+    return;
+  }
+
+  const incomingKeys = Object.keys(latestCustomFields);
+  if (incomingKeys.length === 0) {
+    return;
+  }
+
+  const config = await ctx.db.get(eventTypeConfigId);
+  if (!config) {
+    return;
+  }
+
+  const existingKeys = config.knownCustomFieldKeys ?? [];
+  const existingSet = new Set(existingKeys);
+  const newKeys = incomingKeys.filter((key) => !existingSet.has(key));
+  if (newKeys.length === 0) {
+    return;
+  }
+
+  const updatedKeys = [...existingKeys, ...newKeys];
+  await ctx.db.patch(eventTypeConfigId, {
+    knownCustomFieldKeys: updatedKeys,
+  });
+  console.log(
+    `[Pipeline:invitee.created] [Feature F] Auto-discovered ${newKeys.length} new custom field key(s) | configId=${eventTypeConfigId} newKeys=${JSON.stringify(newKeys)} totalKeys=${updatedKeys.length}`,
+  );
 }
 
 export const process = internalMutation({
@@ -165,103 +349,164 @@ export const process = internalMutation({
 
     const now = Date.now();
     const durationMinutes = Math.max(1, Math.round((endTime - scheduledAt) / 60000));
-
-    let lead = await ctx.db
-      .query("leads")
-      .withIndex("by_tenantId_and_email", (q) =>
-        q.eq("tenantId", tenantId).eq("email", inviteeEmail),
-      )
-      .unique();
-
     const latestCustomFields = extractQuestionsAndAnswers(payload.questions_and_answers);
-
     const utmParams = extractUtmParams(payload.tracking);
     console.log(`[Pipeline:invitee.created] UTM extraction | hasUtm=${!!utmParams} source=${utmParams?.utm_source ?? "none"} medium=${utmParams?.utm_medium ?? "none"} campaign=${utmParams?.utm_campaign ?? "none"}`);
 
-    if (!lead) {
-      const leadId = await ctx.db.insert("leads", {
-        tenantId,
-        email: inviteeEmail,
-        fullName: inviteeName,
-        phone: inviteePhone,
-        customFields: latestCustomFields,
-        firstSeenAt: now,
-        updatedAt: now,
-      });
-      lead = (await ctx.db.get(leadId))!;
-      console.log(`[Pipeline:invitee.created] Lead created | leadId=${leadId}`);
-    } else {
-      console.log(`[Pipeline:invitee.created] Lead updated | leadId=${lead._id}`);
-      await ctx.db.patch(lead._id, {
-        fullName: inviteeName || lead.fullName,
-        phone: inviteePhone || lead.phone,
-        customFields: mergeCustomFields(lead.customFields, latestCustomFields),
-        updatedAt: now,
-      });
+    if (utmParams?.utm_source === "ptdom" && utmParams.utm_campaign) {
+      console.log(
+        `[Pipeline:invitee.created] [Feature A] UTM deterministic linking | opportunityId=${utmParams.utm_campaign} followUpId=${utmParams.utm_content ?? "none"}`,
+      );
+
+      const targetOpportunityId = utmParams.utm_campaign as Id<"opportunities">;
+      const targetFollowUpId = utmParams.utm_content
+        ? (utmParams.utm_content as Id<"followUps">)
+        : undefined;
+      const targetOpportunity = await ctx.db.get(targetOpportunityId);
+
+      if (
+        targetOpportunity &&
+        targetOpportunity.tenantId === tenantId &&
+        targetOpportunity.status === "follow_up_scheduled" &&
+        validateTransition(targetOpportunity.status, "scheduled")
+      ) {
+        const lead = await upsertLead(ctx, {
+          tenantId,
+          inviteeEmail,
+          inviteeName,
+          inviteePhone,
+          latestCustomFields,
+          now,
+        });
+        const { hostUserUri, hostCalendlyEmail, hostCalendlyName } =
+          extractHostMembership(scheduledEvent);
+        const assignedCloserId = await resolveAssignedCloserId(
+          ctx,
+          tenantId,
+          hostUserUri,
+        );
+        console.log(
+          `[Pipeline:invitee.created] Assigned closer resolved | closerId=${assignedCloserId ?? "none"} hostEmail=${hostCalendlyEmail ?? "none"}`,
+        );
+        const eventTypeConfigId = await resolveEventTypeConfigId(ctx, {
+          tenantId,
+          eventTypeUri,
+          scheduledEvent,
+          latestCustomFields,
+          now,
+        });
+
+        await ctx.db.patch(targetOpportunityId, {
+          status: "scheduled",
+          calendlyEventUri,
+          assignedCloserId:
+            assignedCloserId ?? targetOpportunity.assignedCloserId,
+          hostCalendlyUserUri: hostUserUri,
+          hostCalendlyEmail,
+          hostCalendlyName,
+          eventTypeConfigId:
+            eventTypeConfigId ?? targetOpportunity.eventTypeConfigId ?? undefined,
+          updatedAt: now,
+        });
+        console.log(
+          `[Pipeline:invitee.created] [Feature A] Opportunity relinked | opportunityId=${targetOpportunityId} status=follow_up_scheduled->scheduled`,
+        );
+
+        if (targetFollowUpId) {
+          const followUp = await ctx.db.get(targetFollowUpId);
+          if (
+            followUp &&
+            followUp.tenantId === tenantId &&
+            followUp.status === "pending" &&
+            followUp.opportunityId === targetOpportunityId &&
+            followUp.type !== "manual_reminder"
+          ) {
+            await ctx.db.patch(targetFollowUpId, {
+              status: "booked",
+              calendlyEventUri,
+            });
+            console.log(
+              `[Pipeline:invitee.created] [Feature A] Follow-up marked booked | followUpId=${targetFollowUpId}`,
+            );
+          } else {
+            console.warn(
+              `[Pipeline:invitee.created] [Feature A] Follow-up target invalid | followUpId=${targetFollowUpId}`,
+            );
+          }
+        } else {
+          await ctx.runMutation(
+            internal.closer.followUpMutations.markFollowUpBooked,
+            {
+              opportunityId: targetOpportunityId,
+              calendlyEventUri,
+            },
+          );
+        }
+
+        const meetingLocation = extractMeetingLocation(scheduledEvent.location);
+        const meetingNotes = getString(scheduledEvent, "meeting_notes_plain");
+
+        const meetingId = await ctx.db.insert("meetings", {
+          tenantId,
+          opportunityId: targetOpportunityId,
+          calendlyEventUri,
+          calendlyInviteeUri,
+          zoomJoinUrl: meetingLocation.zoomJoinUrl,
+          meetingJoinUrl: meetingLocation.meetingJoinUrl,
+          meetingLocationType: meetingLocation.meetingLocationType,
+          scheduledAt,
+          durationMinutes,
+          status: "scheduled",
+          notes: meetingNotes,
+          leadName: lead.fullName ?? lead.email,
+          createdAt: now,
+          utmParams,
+        });
+
+        await updateOpportunityMeetingRefs(ctx, targetOpportunityId);
+        await syncKnownCustomFieldKeys(
+          ctx,
+          eventTypeConfigId,
+          latestCustomFields,
+        );
+
+        await ctx.db.patch(rawEventId, { processed: true });
+        console.log(
+          `[Pipeline:invitee.created] [Feature A] Deterministic linking complete | meetingId=${meetingId} opportunityId=${targetOpportunityId}`,
+        );
+        return;
+      }
+
+      console.warn(
+        `[Pipeline:invitee.created] [Feature A] UTM target invalid | opportunityExists=${!!targetOpportunity} tenantMatch=${targetOpportunity?.tenantId === tenantId} status=${targetOpportunity?.status ?? "N/A"} - falling through to normal flow`,
+      );
     }
 
-    const eventMemberships = Array.isArray(scheduledEvent.event_memberships)
-      ? scheduledEvent.event_memberships
-      : [];
-    const primaryMembership = eventMemberships.find(isRecord);
-    const hostUserUri = primaryMembership ? getString(primaryMembership, "user") : undefined;
-    const hostCalendlyEmail = primaryMembership ? getString(primaryMembership, "user_email") : undefined;
-    const hostCalendlyName = primaryMembership ? getString(primaryMembership, "user_name") : undefined;
-    const assignedCloserId = await resolveAssignedCloserId(ctx, tenantId, hostUserUri);
+    const lead = await upsertLead(ctx, {
+      tenantId,
+      inviteeEmail,
+      inviteeName,
+      inviteePhone,
+      latestCustomFields,
+      now,
+    });
+    const { hostUserUri, hostCalendlyEmail, hostCalendlyName } =
+      extractHostMembership(scheduledEvent);
+    const assignedCloserId = await resolveAssignedCloserId(
+      ctx,
+      tenantId,
+      hostUserUri,
+    );
     console.log(
       `[Pipeline:invitee.created] Assigned closer resolved | closerId=${assignedCloserId ?? "none"} hostEmail=${hostCalendlyEmail ?? "none"}`,
     );
-
-    let eventTypeConfigId: Id<"eventTypeConfigs"> | undefined;
-    if (eventTypeUri) {
-      // Use .take + canonical row (oldest createdAt) instead of .unique() so a rare
-      // double-insert race does not crash the pipeline with a uniqueness error.
-      const configCandidates = await ctx.db
-        .query("eventTypeConfigs")
-        .withIndex("by_tenantId_and_calendlyEventTypeUri", (q) =>
-          q.eq("tenantId", tenantId).eq("calendlyEventTypeUri", eventTypeUri),
-        )
-        .take(8);
-      const existingConfig =
-        configCandidates.length === 0
-          ? null
-          : configCandidates.reduce((best, row) =>
-              row.createdAt < best.createdAt ? row : best,
-            );
-
-      if (configCandidates.length > 1) {
-        console.warn(
-          `[Pipeline:invitee.created] Multiple eventTypeConfigs for same URI (${configCandidates.length}); using canonical configId=${existingConfig!._id}`,
-        );
-      }
-
-      if (existingConfig) {
-        eventTypeConfigId = existingConfig._id;
-        console.log(
-          `[Pipeline:invitee.created] Event type config found | configId=${eventTypeConfigId}`,
-        );
-      } else {
-        // Auto-create config on first booking for this event type.
-        // Uses scheduled_event.name from the Calendly payload as the display name.
-        const eventDisplayName =
-          getString(scheduledEvent, "name") ?? "Calendly Meeting";
-        const initialKeys = latestCustomFields
-          ? Object.keys(latestCustomFields)
-          : undefined;
-
-        eventTypeConfigId = await ctx.db.insert("eventTypeConfigs", {
-          tenantId,
-          calendlyEventTypeUri: eventTypeUri,
-          displayName: eventDisplayName,
-          createdAt: now,
-          knownCustomFieldKeys:
-            initialKeys && initialKeys.length > 0 ? initialKeys : undefined,
-        });
-        console.log(
-          `[Pipeline:invitee.created] Event type config auto-created | configId=${eventTypeConfigId} displayName="${eventDisplayName}" initialKeys=${initialKeys ? JSON.stringify(initialKeys) : "none"}`,
-        );
-      }
-    }
+    const eventTypeConfigId = await resolveEventTypeConfigId(ctx, {
+      tenantId,
+      eventTypeUri,
+      scheduledEvent,
+      latestCustomFields,
+      now,
+    });
 
     let existingFollowUp: Doc<"opportunities"> | null = null;
     const followUpCandidates = ctx.db
@@ -365,32 +610,7 @@ export const process = internalMutation({
     await updateOpportunityMeetingRefs(ctx, opportunityId);
     console.log(`[Pipeline:invitee.created] Updated opportunity meeting refs | opportunityId=${opportunityId}`);
 
-    // === Feature F: Auto-discover custom field keys ===
-    // If this booking had questions_and_answers AND we have an eventTypeConfig,
-    // ensure the config's knownCustomFieldKeys includes all question texts from this booking.
-    // This populates the dropdown options in Settings > Field Mappings.
-    if (latestCustomFields && eventTypeConfigId) {
-      const incomingKeys = Object.keys(latestCustomFields);
-      if (incomingKeys.length > 0) {
-        const config = await ctx.db.get(eventTypeConfigId);
-        if (config) {
-          const existingKeys = config.knownCustomFieldKeys ?? [];
-          const existingSet = new Set(existingKeys);
-          const newKeys = incomingKeys.filter((k) => !existingSet.has(k));
-
-          if (newKeys.length > 0) {
-            const updatedKeys = [...existingKeys, ...newKeys];
-            await ctx.db.patch(eventTypeConfigId, {
-              knownCustomFieldKeys: updatedKeys,
-            });
-            console.log(
-              `[Pipeline:invitee.created] [Feature F] Auto-discovered ${newKeys.length} new custom field key(s) | configId=${eventTypeConfigId} newKeys=${JSON.stringify(newKeys)} totalKeys=${updatedKeys.length}`,
-            );
-          }
-        }
-      }
-    }
-    // === End Feature F ===
+    await syncKnownCustomFieldKeys(ctx, eventTypeConfigId, latestCustomFields);
 
     await ctx.db.patch(rawEventId, { processed: true });
     console.log(`[Pipeline:invitee.created] Marked processed | rawEventId=${rawEventId}`);

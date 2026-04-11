@@ -72,6 +72,8 @@ export default defineSchema({
     ),
     // WorkOS invitation ID — used to revoke invitation if user is removed before sign-up.
     workosInvitationId: v.optional(v.string()),
+    // Personal Calendly booking page URL used for follow-up scheduling links.
+    personalEventTypeUri: v.optional(v.string()),
   })
     .index("by_tenantId", ["tenantId"])
     .index("by_workosUserId", ["workosUserId"])
@@ -267,8 +269,21 @@ export default defineSchema({
     opportunityId: v.id("opportunities"),
     leadId: v.id("leads"),
     closerId: v.id("users"),
+    type: v.optional(
+      v.union(
+        v.literal("scheduling_link"),
+        v.literal("manual_reminder"),
+      ),
+    ),
     schedulingLinkUrl: v.optional(v.string()),
     calendlyEventUri: v.optional(v.string()),
+    contactMethod: v.optional(
+      v.union(v.literal("call"), v.literal("text")),
+    ),
+    reminderScheduledAt: v.optional(v.number()),
+    reminderNote: v.optional(v.string()),
+    completedAt: v.optional(v.number()),
+    completionNote: v.optional(v.string()),
     reason: v.union(
       v.literal("closer_initiated"),
       v.literal("cancellation_follow_up"),
@@ -277,11 +292,16 @@ export default defineSchema({
     status: v.union(
       v.literal("pending"),
       v.literal("booked"),
+      v.literal("completed"),
       v.literal("expired"),
     ),
     createdAt: v.number(),
   })
     .index("by_tenantId", ["tenantId"])
     .index("by_opportunityId", ["opportunityId"])
-    .index("by_tenantId_and_closerId", ["tenantId", "closerId"]),
+    .index("by_tenantId_and_closerId", ["tenantId", "closerId"])
+    .index(
+      "by_tenantId_and_closerId_and_status",
+      ["tenantId", "closerId", "status"],
+    ),
 });

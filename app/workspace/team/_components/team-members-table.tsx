@@ -35,6 +35,7 @@ import {
   ShieldIcon,
   Trash2Icon,
   UsersIcon,
+  CalendarPlusIcon,
 } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useTableSort } from "@/hooks/use-table-sort";
@@ -47,6 +48,7 @@ interface TeamMember {
   role: "closer" | "tenant_admin" | "tenant_master";
   calendlyMemberName?: string;
   calendlyUserUri?: string;
+  personalEventTypeUri?: string;
 }
 
 interface TeamMembersTableProps {
@@ -55,6 +57,7 @@ interface TeamMembersTableProps {
   onEditRole?: (memberId: Id<"users">, currentRole: string) => void;
   onRemoveUser?: (memberId: Id<"users">) => void;
   onRelinkCalendly?: (memberId: Id<"users">) => void;
+  onAssignEventType?: (memberId: Id<"users">) => void;
 }
 
 const roleLabels: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
@@ -69,12 +72,14 @@ export function TeamMembersTable({
   onEditRole,
   onRemoveUser,
   onRelinkCalendly,
+  onAssignEventType,
 }: TeamMembersTableProps) {
   const comparators = useMemo(() => ({
     name: (a: TeamMember, b: TeamMember) => (a.fullName ?? a.email).localeCompare(b.fullName ?? b.email),
     email: (a: TeamMember, b: TeamMember) => a.email.localeCompare(b.email),
     role: (a: TeamMember, b: TeamMember) => a.role.localeCompare(b.role),
     calendly: (a: TeamMember, b: TeamMember) => (a.calendlyMemberName ?? "").localeCompare(b.calendlyMemberName ?? ""),
+    personalEventType: (a: TeamMember, b: TeamMember) => (a.personalEventTypeUri ?? "").localeCompare(b.personalEventTypeUri ?? ""),
   }), []);
 
   const { sorted, sort, toggle } = useTableSort(members, comparators);
@@ -123,6 +128,12 @@ export function TeamMembersTable({
               sort={sort}
               onToggle={toggle}
             />
+            <SortableHeader
+              label="Personal Event Type"
+              sortKey="personalEventType"
+              sort={sort}
+              onToggle={toggle}
+            />
             <TableHead className="text-right font-semibold">Actions</TableHead>
           </TableRow>
         </TableHeader>
@@ -141,7 +152,9 @@ export function TeamMembersTable({
             const canRemove = onRemoveUser && !isSelf && !isOwner;
             const canRelinkCalendly =
               member.role === "closer" && onRelinkCalendly;
-            const hasAnyAction = canEditRole || canRemove || canRelinkCalendly;
+            const canAssignEventType =
+              member.role === "closer" && onAssignEventType;
+            const hasAnyAction = canEditRole || canRemove || canRelinkCalendly || canAssignEventType;
 
             return (
               <TableRow key={member._id}>
@@ -172,6 +185,21 @@ export function TeamMembersTable({
                     )}
                   </div>
                 </TableCell>
+                <TableCell>
+                  {member.role === "closer" ? (
+                    member.personalEventTypeUri ? (
+                      <span className="block max-w-[200px] truncate text-sm text-muted-foreground">
+                        {member.personalEventTypeUri}
+                      </span>
+                    ) : (
+                      <span className="text-sm text-amber-600 dark:text-amber-400">
+                        Not assigned
+                      </span>
+                    )
+                  ) : (
+                    <span className="text-sm text-muted-foreground">—</span>
+                  )}
+                </TableCell>
                 <TableCell className="text-right">
                   {hasAnyAction ? (
                     <DropdownMenu>
@@ -197,6 +225,18 @@ export function TeamMembersTable({
                                 : "Re-link Calendly"}
                             </DropdownMenuItem>
                           )}
+                          <RequirePermission permission="team:assign-event-type">
+                            {canAssignEventType && (
+                              <DropdownMenuItem
+                                onClick={() => onAssignEventType(member._id)}
+                              >
+                                <CalendarPlusIcon data-icon="inline-start" />
+                                {member.personalEventTypeUri
+                                  ? "Change Event Type"
+                                  : "Assign Event Type"}
+                              </DropdownMenuItem>
+                            )}
+                          </RequirePermission>
                           <RequirePermission permission="team:update-role">
                             {canEditRole && (
                               <DropdownMenuItem

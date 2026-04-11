@@ -38,6 +38,11 @@ const RoleEditDialog = dynamic(() =>
     default: m.RoleEditDialog,
   })),
 );
+const EventTypeAssignmentDialog = dynamic(() =>
+  import("./event-type-assignment-dialog").then((m) => ({
+    default: m.EventTypeAssignmentDialog,
+  })),
+);
 
 function TableSkeleton() {
   return (
@@ -59,7 +64,13 @@ type DialogState =
   | { type: null }
   | { type: "remove"; userId: Id<"users">; userName: string }
   | { type: "calendly"; userId: Id<"users">; userName: string }
-  | { type: "role"; userId: Id<"users">; userName: string; currentRole: string };
+  | { type: "role"; userId: Id<"users">; userName: string; currentRole: string }
+  | {
+      type: "event-type";
+      userId: Id<"users">;
+      userName: string;
+      currentUri?: string;
+    };
 
 export function TeamPageClient() {
   usePageTitle("Team");
@@ -119,6 +130,18 @@ export function TeamPageClient() {
     }
   };
 
+  const handleAssignEventType = (memberId: Id<"users">) => {
+    const member = members?.find((m) => m._id === memberId);
+    if (member && member.role === "closer") {
+      setDialog({
+        type: "event-type",
+        userId: memberId,
+        userName: member.fullName || member.email,
+        currentUri: member.personalEventTypeUri,
+      });
+    }
+  };
+
   if (!isAdmin || members === undefined || !currentUser) {
     return <TableSkeleton />;
   }
@@ -169,6 +192,7 @@ export function TeamPageClient() {
           onEditRole={handleEditRole}
           onRemoveUser={handleRemoveUser}
           onRelinkCalendly={handleRelinkCalendly}
+          onAssignEventType={handleAssignEventType}
         />
       )}
 
@@ -204,6 +228,18 @@ export function TeamPageClient() {
           userId={dialog.userId}
           userName={dialog.userName}
           currentRole={dialog.currentRole}
+        />
+      )}
+
+      {dialog.type === "event-type" && (
+        <EventTypeAssignmentDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) closeDialog();
+          }}
+          userId={dialog.userId}
+          userName={dialog.userName}
+          currentUri={dialog.currentUri}
         />
       )}
     </div>
