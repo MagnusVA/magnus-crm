@@ -74,11 +74,17 @@ export default defineSchema({
     workosInvitationId: v.optional(v.string()),
     // Personal Calendly booking page URL used for follow-up scheduling links.
     personalEventTypeUri: v.optional(v.string()),
+
+    // === v0.5b: User Soft Delete ===
+    deletedAt: v.optional(v.number()),
+    isActive: v.optional(v.boolean()),
+    // === End v0.5b: User Soft Delete ===
   })
     .index("by_tenantId", ["tenantId"])
     .index("by_workosUserId", ["workosUserId"])
     .index("by_tenantId_and_email", ["tenantId", "email"])
-    .index("by_tenantId_and_calendlyUserUri", ["tenantId", "calendlyUserUri"]),
+    .index("by_tenantId_and_calendlyUserUri", ["tenantId", "calendlyUserUri"])
+    .index("by_tenantId_and_isActive", ["tenantId", "isActive"]),
 
   rawWebhookEvents: defineTable({
     tenantId: v.id("tenants"),
@@ -91,7 +97,12 @@ export default defineSchema({
     .index("by_tenantId_and_eventType", ["tenantId", "eventType"])
     .index("by_calendlyEventUri", ["calendlyEventUri"])
     .index("by_processed", ["processed"])
-    .index("by_processed_and_receivedAt", ["processed", "receivedAt"]),
+    .index("by_processed_and_receivedAt", ["processed", "receivedAt"])
+    .index("by_tenantId_and_eventType_and_calendlyEventUri", [
+      "tenantId",
+      "eventType",
+      "calendlyEventUri",
+    ]),
 
   calendlyOrgMembers: defineTable({
     tenantId: v.id("tenants"),
@@ -150,6 +161,7 @@ export default defineSchema({
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_email", ["tenantId", "email"])
     .index("by_tenantId_and_status", ["tenantId", "status"])
+    .index("by_tenantId_and_firstSeenAt", ["tenantId", "firstSeenAt"])
     .searchIndex("search_leads", {
       searchField: "searchText",
       filterFields: ["tenantId", "status"],
@@ -232,6 +244,11 @@ export default defineSchema({
     cancellationReason: v.optional(v.string()),
     canceledBy: v.optional(v.string()),
     lostReason: v.optional(v.string()),
+    lostAt: v.optional(v.number()),
+    canceledAt: v.optional(v.number()),
+    noShowAt: v.optional(v.number()),
+    paymentReceivedAt: v.optional(v.number()),
+    lostByUserId: v.optional(v.id("users")),
     createdAt: v.number(),
     updatedAt: v.number(),
     // UTM attribution from the first booking that created this opportunity.
@@ -250,11 +267,31 @@ export default defineSchema({
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
     .index("by_tenantId_and_assignedCloserId", ["tenantId", "assignedCloserId"])
-    .index("by_tenantId_and_status", ["tenantId", "status"]),
+    .index("by_tenantId_and_status", ["tenantId", "status"])
+    .index("by_tenantId_and_assignedCloserId_and_status", [
+      "tenantId",
+      "assignedCloserId",
+      "status",
+    ])
+    .index("by_tenantId_and_potentialDuplicateLeadId", [
+      "tenantId",
+      "potentialDuplicateLeadId",
+    ])
+    .index("by_tenantId_and_eventTypeConfigId", [
+      "tenantId",
+      "eventTypeConfigId",
+    ])
+    .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
+    .index("by_tenantId_and_status_and_createdAt", [
+      "tenantId",
+      "status",
+      "createdAt",
+    ]),
 
   meetings: defineTable({
     tenantId: v.id("tenants"),
     opportunityId: v.id("opportunities"),
+    assignedCloserId: v.optional(v.id("users")),
     calendlyEventUri: v.string(),
     calendlyInviteeUri: v.string(),
     zoomJoinUrl: v.optional(v.string()), // Legacy Zoom-only field. Keep during migration window.
@@ -272,6 +309,8 @@ export default defineSchema({
     notes: v.optional(v.string()),
     leadName: v.optional(v.string()), // Denormalized from lead for query efficiency
     createdAt: v.number(),
+    completedAt: v.optional(v.number()),
+    canceledAt: v.optional(v.number()),
     // UTM attribution data extracted from Calendly's tracking object.
     // Populated from the invitee.created webhook payload.
     // Undefined for meetings created before UTM tracking was enabled.
@@ -320,6 +359,7 @@ export default defineSchema({
     // Free-text note from the closer explaining the no-show.
     noShowNote: v.optional(v.string()),
     // Who created the no-show record.
+    noShowMarkedByUserId: v.optional(v.id("users")),
     noShowSource: v.optional(
       v.union(
         v.literal("closer"),
@@ -335,7 +375,27 @@ export default defineSchema({
   })
     .index("by_opportunityId", ["opportunityId"])
     .index("by_tenantId_and_scheduledAt", ["tenantId", "scheduledAt"])
-    .index("by_tenantId_and_calendlyEventUri", ["tenantId", "calendlyEventUri"]),
+    .index("by_tenantId_and_calendlyEventUri", ["tenantId", "calendlyEventUri"])
+    .index("by_tenantId_and_status_and_scheduledAt", [
+      "tenantId",
+      "status",
+      "scheduledAt",
+    ])
+    .index("by_tenantId_and_meetingOutcome_and_scheduledAt", [
+      "tenantId",
+      "meetingOutcome",
+      "scheduledAt",
+    ])
+    .index("by_opportunityId_and_scheduledAt", [
+      "opportunityId",
+      "scheduledAt",
+    ])
+    .index("by_tenantId_and_status", ["tenantId", "status"])
+    .index("by_tenantId_and_assignedCloserId_and_scheduledAt", [
+      "tenantId",
+      "assignedCloserId",
+      "scheduledAt",
+    ]),
 
   // === Feature H: Closer Unavailability & Redistribution ===
   closerUnavailability: defineTable({
@@ -373,7 +433,8 @@ export default defineSchema({
     .index("by_meetingId", ["meetingId"])
     .index("by_toCloserId", ["toCloserId"])
     .index("by_fromCloserId", ["fromCloserId"])
-    .index("by_unavailabilityId", ["unavailabilityId"]),
+    .index("by_unavailabilityId", ["unavailabilityId"])
+    .index("by_tenantId_and_reassignedAt", ["tenantId", "reassignedAt"]),
   // === End Feature H ===
 
   eventTypeConfigs: defineTable({
@@ -445,12 +506,26 @@ export default defineSchema({
       v.literal("churned"),
       v.literal("paused"),
     ),
+    totalPaidMinor: v.optional(v.number()),
+    totalPaymentCount: v.optional(v.number()),
+    paymentCurrency: v.optional(v.string()),
+    churnedAt: v.optional(v.number()),
+    pausedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
     .index("by_tenantId_and_status", ["tenantId", "status"])
-    .index("by_tenantId_and_convertedAt", ["tenantId", "convertedAt"]),
+    .index("by_tenantId_and_convertedAt", ["tenantId", "convertedAt"])
+    .index("by_tenantId_and_convertedByUserId", [
+      "tenantId",
+      "convertedByUserId",
+    ])
+    .index("by_tenantId_and_convertedByUserId_and_status", [
+      "tenantId",
+      "convertedByUserId",
+      "status",
+    ]),
   // === End Feature D ===
 
   paymentRecords: defineTable({
@@ -459,6 +534,7 @@ export default defineSchema({
     meetingId: v.optional(v.id("meetings")),
     closerId: v.id("users"),
     amount: v.number(),
+    amountMinor: v.optional(v.number()),
     currency: v.string(),
     provider: v.string(),
     referenceCode: v.optional(v.string()),
@@ -468,15 +544,33 @@ export default defineSchema({
       v.literal("verified"),
       v.literal("disputed"),
     ),
+    verifiedAt: v.optional(v.number()),
+    verifiedByUserId: v.optional(v.id("users")),
+    statusChangedAt: v.optional(v.number()),
     recordedAt: v.number(),
     // === Feature D: Customer Linkage ===
     customerId: v.optional(v.id("customers")),
+    contextType: v.optional(
+      v.union(v.literal("opportunity"), v.literal("customer")),
+    ),
     // === End Feature D ===
   })
     .index("by_opportunityId", ["opportunityId"])
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_closerId", ["tenantId", "closerId"])
-    .index("by_customerId", ["customerId"]),
+    .index("by_customerId", ["customerId"])
+    .index("by_tenantId_and_recordedAt", ["tenantId", "recordedAt"])
+    .index("by_tenantId_and_status_and_recordedAt", [
+      "tenantId",
+      "status",
+      "recordedAt",
+    ])
+    .index("by_customerId_and_recordedAt", ["customerId", "recordedAt"])
+    .index("by_tenantId_and_closerId_and_recordedAt", [
+      "tenantId",
+      "closerId",
+      "recordedAt",
+    ]),
 
   followUps: defineTable({
     tenantId: v.id("tenants"),
@@ -509,6 +603,7 @@ export default defineSchema({
       v.literal("completed"),
       v.literal("expired"),
     ),
+    bookedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index("by_tenantId", ["tenantId"])
@@ -517,5 +612,150 @@ export default defineSchema({
     .index(
       "by_tenantId_and_closerId_and_status",
       ["tenantId", "closerId", "status"],
+    )
+    .index("by_tenantId_and_leadId_and_createdAt", [
+      "tenantId",
+      "leadId",
+      "createdAt",
+    ])
+    .index("by_tenantId_and_closerId_and_type_and_status_reminderScheduledAt", [
+      "tenantId",
+      "closerId",
+      "type",
+      "status",
+      "reminderScheduledAt",
+    ])
+    .index("by_tenantId_and_status_and_createdAt", [
+      "tenantId",
+      "status",
+      "createdAt",
+    ])
+    .index("by_opportunityId_and_status", ["opportunityId", "status"]),
+
+  // === v0.5b: Domain Events (Finding 1) ===
+  domainEvents: defineTable({
+    tenantId: v.id("tenants"),
+    entityType: v.union(
+      v.literal("opportunity"),
+      v.literal("meeting"),
+      v.literal("lead"),
+      v.literal("customer"),
+      v.literal("followUp"),
+      v.literal("user"),
+      v.literal("payment"),
     ),
+    entityId: v.string(),
+    eventType: v.string(),
+    occurredAt: v.number(),
+    actorUserId: v.optional(v.id("users")),
+    source: v.union(
+      v.literal("closer"),
+      v.literal("admin"),
+      v.literal("pipeline"),
+      v.literal("system"),
+    ),
+    fromStatus: v.optional(v.string()),
+    toStatus: v.optional(v.string()),
+    reason: v.optional(v.string()),
+    metadata: v.optional(v.string()),
+  })
+    .index("by_entityId", ["entityId"])
+    .index("by_tenantId_and_occurredAt", ["tenantId", "occurredAt"])
+    .index("by_tenantId_and_entityType_and_entityId_and_occurredAt", [
+      "tenantId",
+      "entityType",
+      "entityId",
+      "occurredAt",
+    ])
+    .index("by_tenantId_and_eventType_and_occurredAt", [
+      "tenantId",
+      "eventType",
+      "occurredAt",
+    ])
+    .index("by_tenantId_and_actorUserId_and_occurredAt", [
+      "tenantId",
+      "actorUserId",
+      "occurredAt",
+    ]),
+  // === End v0.5b: Domain Events ===
+
+  // === v0.5b: Tenant Stats (Finding 4) ===
+  tenantStats: defineTable({
+    tenantId: v.id("tenants"),
+    totalTeamMembers: v.number(),
+    totalClosers: v.number(),
+    totalOpportunities: v.number(),
+    activeOpportunities: v.number(),
+    wonDeals: v.number(),
+    lostDeals: v.number(),
+    totalRevenueMinor: v.number(),
+    totalPaymentRecords: v.number(),
+    totalLeads: v.number(),
+    totalCustomers: v.number(),
+    lastUpdatedAt: v.number(),
+  }).index("by_tenantId", ["tenantId"]),
+  // === End v0.5b: Tenant Stats ===
+
+  // === v0.5b: Meeting Form Responses (Finding 2) ===
+  meetingFormResponses: defineTable({
+    tenantId: v.id("tenants"),
+    meetingId: v.id("meetings"),
+    opportunityId: v.id("opportunities"),
+    leadId: v.id("leads"),
+    eventTypeConfigId: v.optional(v.id("eventTypeConfigs")),
+    fieldCatalogId: v.optional(v.id("eventTypeFieldCatalog")),
+    fieldKey: v.string(),
+    questionLabelSnapshot: v.string(),
+    answerText: v.string(),
+    capturedAt: v.number(),
+  })
+    .index("by_meetingId", ["meetingId"])
+    .index("by_tenantId_and_eventTypeConfigId", [
+      "tenantId",
+      "eventTypeConfigId",
+    ])
+    .index("by_tenantId_and_fieldKey", ["tenantId", "fieldKey"])
+    .index("by_leadId", ["leadId"]),
+  // === End v0.5b: Meeting Form Responses ===
+
+  // === v0.5b: Event Type Field Catalog (Finding 2) ===
+  eventTypeFieldCatalog: defineTable({
+    tenantId: v.id("tenants"),
+    eventTypeConfigId: v.id("eventTypeConfigs"),
+    fieldKey: v.string(),
+    currentLabel: v.string(),
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+    valueType: v.optional(v.string()),
+  })
+    .index("by_tenantId_and_eventTypeConfigId", [
+      "tenantId",
+      "eventTypeConfigId",
+    ])
+    .index("by_tenantId_and_fieldKey", ["tenantId", "fieldKey"]),
+  // === End v0.5b: Event Type Field Catalog ===
+
+  // === v0.5b: Tenant Calendly Connections (Finding 14) ===
+  tenantCalendlyConnections: defineTable({
+    tenantId: v.id("tenants"),
+    calendlyAccessToken: v.optional(v.string()),
+    calendlyRefreshToken: v.optional(v.string()),
+    calendlyTokenExpiresAt: v.optional(v.number()),
+    calendlyRefreshLockUntil: v.optional(v.number()),
+    lastTokenRefreshAt: v.optional(v.number()),
+    codeVerifier: v.optional(v.string()),
+    calendlyOrganizationUri: v.optional(v.string()),
+    calendlyUserUri: v.optional(v.string()),
+    calendlyWebhookUri: v.optional(v.string()),
+    calendlyWebhookSigningKey: v.optional(v.string()),
+    connectionStatus: v.optional(
+      v.union(
+        v.literal("connected"),
+        v.literal("disconnected"),
+        v.literal("token_expired"),
+      ),
+    ),
+    lastHealthCheckAt: v.optional(v.number()),
+  }).index("by_tenantId", ["tenantId"]),
+  // === End v0.5b: Tenant Calendly Connections ===
 });
