@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateTransition } from "../lib/statusTransitions";
+import { executeConversion } from "../customers/conversion";
 
 /**
  * Generate a file upload URL for payment proof.
@@ -135,6 +136,45 @@ export const logPayment = mutation({
     });
 
     console.log("[Closer:Payment] opportunity transitioned to payment_received", { opportunityId: args.opportunityId });
+
+    // === Feature D: Auto-conversion ===
+    // After payment_received, auto-convert the lead to a customer.
+    const customerId = await executeConversion(ctx, {
+      tenantId,
+      leadId: opportunity.leadId,
+      convertedByUserId: userId,
+      winningOpportunityId: args.opportunityId,
+      winningMeetingId: args.meetingId,
+    });
+
+    if (customerId) {
+      // Set customerId on the payment record we just created
+      await ctx.db.patch(paymentId, { customerId });
+      console.log("[Closer:Payment] Auto-conversion complete", {
+        paymentId,
+        customerId,
+      });
+    } else {
+      // Customer already exists — this is a returning customer / additional sale
+      // Find the existing customer and link this payment
+      const existingCustomer = await ctx.db
+        .query("customers")
+        .withIndex("by_tenantId_and_leadId", (q) =>
+          q.eq("tenantId", tenantId).eq("leadId", opportunity.leadId),
+        )
+        .first();
+      if (existingCustomer) {
+        await ctx.db.patch(paymentId, {
+          customerId: existingCustomer._id,
+        });
+        console.log("[Closer:Payment] Payment linked to existing customer", {
+          paymentId,
+          customerId: existingCustomer._id,
+        });
+      }
+    }
+    // === End Feature D ===
+
     return paymentId;
   },
 });

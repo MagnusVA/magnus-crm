@@ -47,3 +47,32 @@ export function validateTransition(
   }
   return valid;
 }
+
+// === Feature D: Lead Status Transitions ===
+export const LEAD_STATUSES = ["active", "converted", "merged"] as const;
+
+export type LeadStatus = (typeof LEAD_STATUSES)[number];
+
+export const VALID_LEAD_TRANSITIONS: Record<LeadStatus, LeadStatus[]> = {
+  active: ["converted", "merged"],
+  converted: [],
+  merged: [],
+};
+
+export function validateLeadTransition(
+  from: LeadStatus,
+  to: LeadStatus,
+): boolean {
+  const valid = VALID_LEAD_TRANSITIONS[from].includes(to);
+  if (!valid) {
+    console.warn("[StatusTransition] Invalid lead transition rejected", {
+      from,
+      to,
+      allowedTargets: VALID_LEAD_TRANSITIONS[from],
+    });
+  } else {
+    console.log("[StatusTransition] Lead transition validated", { from, to });
+  }
+  return valid;
+}
+// === End Feature D ===

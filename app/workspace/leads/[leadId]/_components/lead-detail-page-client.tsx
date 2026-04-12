@@ -11,15 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
-import {
 	ArrowLeftIcon,
 	EditIcon,
 	MergeIcon,
-	UserCheckIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { LeadStatusBadge } from "../../_components/lead-status-badge";
@@ -29,6 +23,7 @@ import { LeadMeetingsTab } from "./tabs/lead-meetings-tab";
 import { LeadOpportunitiesTab } from "./tabs/lead-opportunities-tab";
 import { LeadActivityTab } from "./tabs/lead-activity-tab";
 import { LeadCustomFieldsTab } from "./tabs/lead-custom-fields-tab";
+import { ConvertToCustomerDialog } from "./convert-to-customer-dialog";
 import type { Id } from "@/convex/_generated/dataModel";
 
 export function LeadDetailPageClient() {
@@ -132,15 +127,12 @@ export function LeadDetailPageClient() {
 						</Button>
 					)}
 					{hasPermission("lead:convert") && (
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<Button variant="outline" size="sm" disabled>
-									<UserCheckIcon className="mr-1.5 h-3.5 w-3.5" />
-									Convert to Customer
-								</Button>
-							</TooltipTrigger>
-							<TooltipContent>Coming soon (Feature D)</TooltipContent>
-						</Tooltip>
+						<ConvertToCustomerDialog
+							leadId={leadId}
+							leadName={lead.fullName ?? lead.email}
+							leadStatus={lead.status ?? "active"}
+							opportunities={detail.opportunities}
+						/>
 					)}
 				</div>
 			</div>

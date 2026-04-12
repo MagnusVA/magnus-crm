@@ -23,6 +23,11 @@ export const PERMISSIONS = {
   "lead:merge": ["tenant_master", "tenant_admin", "closer"],
   "lead:convert": ["tenant_master", "tenant_admin"],
   "lead:export": ["tenant_master", "tenant_admin"],
+  // === Feature D: Customer Permissions ===
+  "customer:view-all": ["tenant_master", "tenant_admin"],
+  "customer:view-own": ["tenant_master", "tenant_admin", "closer"],
+  "customer:edit": ["tenant_master", "tenant_admin"],
+  // === End Feature D ===
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;

@@ -419,10 +419,44 @@ export default defineSchema({
       ["tenantId", "calendlyEventTypeUri"],
     ),
 
+  // === Feature D: Lead-to-Customer Conversion ===
+  customers: defineTable({
+    tenantId: v.id("tenants"),
+    leadId: v.id("leads"),
+    fullName: v.string(),
+    email: v.string(),
+    phone: v.optional(v.string()),
+    socialHandles: v.optional(
+      v.array(
+        v.object({
+          type: v.string(),
+          handle: v.string(),
+        }),
+      ),
+    ),
+    convertedAt: v.number(),
+    convertedByUserId: v.id("users"),
+    winningOpportunityId: v.id("opportunities"),
+    winningMeetingId: v.optional(v.id("meetings")),
+    programType: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    status: v.union(
+      v.literal("active"),
+      v.literal("churned"),
+      v.literal("paused"),
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
+    .index("by_tenantId_and_status", ["tenantId", "status"])
+    .index("by_tenantId_and_convertedAt", ["tenantId", "convertedAt"]),
+  // === End Feature D ===
+
   paymentRecords: defineTable({
     tenantId: v.id("tenants"),
-    opportunityId: v.id("opportunities"),
-    meetingId: v.id("meetings"),
+    opportunityId: v.optional(v.id("opportunities")),
+    meetingId: v.optional(v.id("meetings")),
     closerId: v.id("users"),
     amount: v.number(),
     currency: v.string(),
@@ -435,10 +469,14 @@ export default defineSchema({
       v.literal("disputed"),
     ),
     recordedAt: v.number(),
+    // === Feature D: Customer Linkage ===
+    customerId: v.optional(v.id("customers")),
+    // === End Feature D ===
   })
     .index("by_opportunityId", ["opportunityId"])
     .index("by_tenantId", ["tenantId"])
-    .index("by_tenantId_and_closerId", ["tenantId", "closerId"]),
+    .index("by_tenantId_and_closerId", ["tenantId", "closerId"])
+    .index("by_customerId", ["customerId"]),
 
   followUps: defineTable({
     tenantId: v.id("tenants"),
