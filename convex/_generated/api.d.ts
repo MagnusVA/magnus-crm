@@ -10,6 +10,7 @@
 
 import type * as admin_inviteCleanup from "../admin/inviteCleanup.js";
 import type * as admin_inviteCleanupMutations from "../admin/inviteCleanupMutations.js";
+import type * as admin_migrations from "../admin/migrations.js";
 import type * as admin_tenants from "../admin/tenants.js";
 import type * as admin_tenantsMutations from "../admin/tenantsMutations.js";
 import type * as admin_tenantsQueries from "../admin/tenantsQueries.js";
@@ -103,6 +104,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   "admin/inviteCleanup": typeof admin_inviteCleanup;
   "admin/inviteCleanupMutations": typeof admin_inviteCleanupMutations;
+  "admin/migrations": typeof admin_migrations;
   "admin/tenants": typeof admin_tenants;
   "admin/tenantsMutations": typeof admin_tenantsMutations;
   "admin/tenantsQueries": typeof admin_tenantsQueries;
