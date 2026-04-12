@@ -23,6 +23,7 @@ import {
   AlertCircleIcon,
   RefreshCwIcon,
   LinkIcon,
+  UsersIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -49,7 +50,9 @@ export function CalendlyConnection({
   connectionStatus,
 }: CalendlyConnectionProps) {
   const refreshToken = useAction(api.calendly.tokens.refreshMyTenantToken);
+  const syncMembers = useAction(api.calendly.orgMembers.syncMyTenantMembers);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   if (!connectionStatus) {
     return null;
@@ -78,6 +81,31 @@ export function CalendlyConnection({
       );
     } finally {
       setIsRefreshing(false);
+    }
+  };
+
+  const handleSyncMembers = async () => {
+    setIsSyncing(true);
+    try {
+      const result = await syncMembers();
+      if (result.reason) {
+        toast.error(`Sync skipped: ${result.reason.replace(/_/g, " ")}`);
+      } else {
+        toast.success(
+          `Synced ${result.synced} member${result.synced !== 1 ? "s" : ""}${result.deleted > 0 ? `, removed ${result.deleted} stale` : ""}`,
+        );
+      }
+      posthog.capture("calendly_members_synced", {
+        synced: result.synced,
+        deleted: result.deleted,
+        reason: result.reason ?? null,
+      });
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to sync members",
+      );
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -178,6 +206,19 @@ export function CalendlyConnection({
               <RefreshCwIcon data-icon="inline-start" />
             )}
             {isRefreshing ? "Refreshing..." : "Refresh Token"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSyncMembers}
+            disabled={isSyncing || !isConnected}
+          >
+            {isSyncing ? (
+              <Spinner data-icon="inline-start" />
+            ) : (
+              <UsersIcon data-icon="inline-start" />
+            )}
+            {isSyncing ? "Syncing Members..." : "Sync Members"}
           </Button>
           <Button variant="outline" size="sm" onClick={handleReconnect}>
             <LinkIcon data-icon="inline-start" />

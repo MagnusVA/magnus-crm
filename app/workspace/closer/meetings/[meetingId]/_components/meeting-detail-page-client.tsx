@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Preloaded } from "convex/react";
 import { usePreloadedQuery } from "convex/react";
@@ -33,6 +34,12 @@ import { BookingAnswersCard } from "../../_components/booking-answers-card";
 import { DealWonCard } from "../../_components/deal-won-card";
 import { AttributionCard } from "../../_components/attribution-card";
 import { PotentialDuplicateBanner } from "../../_components/potential-duplicate-banner";
+import { NoShowActionBar } from "../../_components/no-show-action-bar";
+import {
+  RescheduleLinkDisplay,
+  RescheduleLinkSentBanner,
+} from "../../_components/reschedule-link-display";
+import { RescheduleChainBanner } from "../../_components/reschedule-chain-banner";
 
 type MeetingDetailData = {
   meeting: Doc<"meetings">;
@@ -69,6 +76,11 @@ type MeetingDetailData = {
     reassignedAt: number;
     reason: string;
   } | null;
+  rescheduledFromMeeting: {
+    _id: string;
+    scheduledAt: number;
+    status: string;
+  } | null;
 } | null;
 
 export function MeetingDetailPageClient({
@@ -85,6 +97,8 @@ export function MeetingDetailPageClient({
   const refreshDetail = async () => {
     router.refresh();
   };
+
+  const [rescheduleLinkUrl, setRescheduleLinkUrl] = useState<string | null>(null);
 
   if (detail === undefined) {
     return <MeetingDetailSkeleton />;
@@ -105,6 +119,7 @@ export function MeetingDetailPageClient({
     payments,
     potentialDuplicate,
     reassignmentInfo,
+    rescheduledFromMeeting,
   } = detail;
 
   const statusKey = opportunity.status as OpportunityStatus;
@@ -127,6 +142,8 @@ export function MeetingDetailPageClient({
         <PotentialDuplicateBanner
           duplicateLead={potentialDuplicate}
           currentLeadName={lead.fullName}
+          opportunityId={opportunity._id}
+          currentLeadId={lead._id}
         />
       )}
 
@@ -147,6 +164,37 @@ export function MeetingDetailPageClient({
             — {reassignmentInfo.reason}
           </AlertDescription>
         </Alert>
+      )}
+
+      {/* Feature B: Reschedule chain banner */}
+      {rescheduledFromMeeting && (
+        <RescheduleChainBanner
+          rescheduledFromMeeting={rescheduledFromMeeting}
+        />
+      )}
+
+      {/* Feature B: No-Show Action Bar */}
+      {opportunity.status === "no_show" && (
+        <NoShowActionBar
+          meeting={meeting}
+          opportunity={opportunity}
+          lead={lead}
+          onStatusChanged={refreshDetail}
+          onRescheduleLinkCreated={(url) => setRescheduleLinkUrl(url)}
+        />
+      )}
+
+      {/* Feature B: Reschedule Link Display (survives NoShowActionBar unmount) */}
+      {rescheduleLinkUrl && (
+        <RescheduleLinkDisplay
+          url={rescheduleLinkUrl}
+          onDismiss={() => setRescheduleLinkUrl(null)}
+        />
+      )}
+
+      {/* Feature B: Reschedule Link Sent Banner (closer returned to page) */}
+      {opportunity.status === "reschedule_link_sent" && !rescheduleLinkUrl && (
+        <RescheduleLinkSentBanner opportunityId={opportunity._id} />
       )}
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3 lg:grid-cols-4">

@@ -51,6 +51,11 @@ const BOOKING_TYPE_CONFIG = {
     badgeClass:
       "bg-orange-500/10 text-orange-700 border-orange-200 dark:text-orange-400 dark:border-orange-900",
   },
+  noshow_reschedule: {
+    label: "No-Show Reschedule",
+    badgeClass:
+      "bg-red-500/10 text-red-700 border-red-200 dark:text-red-400 dark:border-red-900",
+  },
 } as const;
 
 type BookingType = keyof typeof BOOKING_TYPE_CONFIG;
@@ -60,23 +65,46 @@ type BookingType = keyof typeof BOOKING_TYPE_CONFIG;
 /**
  * Infer the booking type from the meeting's position in the meeting history.
  *
- * Logic (meetings sorted by scheduledAt ascending):
- * - No prior meetings → "organic" (first booking for this lead)
- * - Previous meeting status is "canceled" or "no_show" → "reschedule"
- * - Previous meeting exists with any other status → "follow_up"
+ * Logic:
+ * 1. Check for no-show reschedule markers (takes priority):
+ *    - UTM path (B3): utm_source === "ptdom" && utm_medium === "noshow_resched"
+ *    - Field path (B4): meeting.rescheduledFromMeetingId is set (pipeline heuristic)
+ * 2. Chronological inference (meetings sorted by scheduledAt ascending):
+ *    - No prior meetings → "organic" (first booking for this lead)
+ *    - Previous meeting status is "canceled" or "no_show" → "reschedule"
+ *    - Previous meeting exists with any other status → "follow_up"
  *
- * The inference is client-side from the meetingHistory array — no
- * denormalization needed.
+ * No-show reschedule markers take priority over chronological inference.
  */
 function inferBookingType(
-  meetingId: string,
+  meeting: Doc<"meetings">,
   meetingHistory: AttributionCardProps["meetingHistory"],
 ): { type: BookingType; originalMeetingId?: string } {
-  // Sort ascending for chronological order
+  // === Feature B: No-Show Reschedule detection (takes priority) ===
+  // Path 1 (B3): UTM-linked — closer generated a reschedule link with no-show UTMs
+  const utm = meeting.utmParams;
+  if (utm?.utm_source === "ptdom" && utm?.utm_medium === "noshow_resched") {
+    // utm_content contains the original no-show meeting ID (set by B3 link generation)
+    return {
+      type: "noshow_reschedule",
+      originalMeetingId: utm.utm_content ?? undefined,
+    };
+  }
+
+  // Path 2 (B4): Field-linked — pipeline heuristic detected an organic reschedule
+  if (meeting.rescheduledFromMeetingId) {
+    return {
+      type: "noshow_reschedule",
+      originalMeetingId: meeting.rescheduledFromMeetingId,
+    };
+  }
+  // === End Feature B ===
+
+  // Existing chronological inference for non-no-show bookings
   const sorted = [...meetingHistory].sort(
     (a, b) => a.scheduledAt - b.scheduledAt,
   );
-  const currentIdx = sorted.findIndex((m) => m._id === meetingId);
+  const currentIdx = sorted.findIndex((m) => m._id === meeting._id);
 
   if (currentIdx <= 0) {
     return { type: "organic" };
@@ -117,7 +145,7 @@ export function AttributionCard({
   const utm = opportunity.utmParams ?? meeting.utmParams;
 
   const { type: bookingType, originalMeetingId } = inferBookingType(
-    meeting._id,
+    meeting,
     meetingHistory,
   );
   const bookingCfg = BOOKING_TYPE_CONFIG[bookingType];

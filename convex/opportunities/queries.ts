@@ -8,6 +8,7 @@ const opportunityStatusValidator = v.union(
   v.literal("in_progress"),
   v.literal("payment_received"),
   v.literal("follow_up_scheduled"),
+  v.literal("reschedule_link_sent"),
   v.literal("lost"),
   v.literal("canceled"),
   v.literal("no_show"),

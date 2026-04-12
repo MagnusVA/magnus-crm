@@ -91,13 +91,17 @@ export const startMeeting = mutation({
       );
     }
 
+    const now = Date.now();
     console.log("[Closer:Meeting] startMeeting transitioning to in_progress", { meetingId, opportunityId: opportunity._id });
     await ctx.db.patch(opportunity._id, {
       status: "in_progress",
-      updatedAt: Date.now(),
+      updatedAt: now,
     });
 
-    await ctx.db.patch(meetingId, { status: "in_progress" });
+    await ctx.db.patch(meetingId, {
+      status: "in_progress",
+      startedAt: now,
+    });
     await updateOpportunityMeetingRefs(ctx, opportunity._id);
 
     const joinUrl = getStoredMeetingJoinUrl(meeting);

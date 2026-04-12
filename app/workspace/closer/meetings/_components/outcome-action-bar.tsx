@@ -7,7 +7,7 @@ import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
-import { PlayIcon, InfoIcon, ClockIcon } from "lucide-react";
+import { PlayIcon, InfoIcon, ClockIcon, UserXIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { Doc } from "@/convex/_generated/dataModel";
 import posthog from "posthog-js";
@@ -15,6 +15,11 @@ import posthog from "posthog-js";
 // Lazy-load dialog components that are only shown on user interaction
 const MarkLostDialog = dynamic(() =>
   import("./mark-lost-dialog").then((m) => ({ default: m.MarkLostDialog })),
+);
+const MarkNoShowDialog = dynamic(() =>
+  import("./mark-no-show-dialog").then((m) => ({
+    default: m.MarkNoShowDialog,
+  })),
 );
 const PaymentFormDialog = dynamic(() =>
   import("./payment-form-dialog").then((m) => ({ default: m.PaymentFormDialog })),
@@ -95,6 +100,7 @@ export function OutcomeActionBar({
 }: OutcomeActionBarProps) {
   const startMeeting = useMutation(api.closer.meetingActions.startMeeting);
   const [isStarting, setIsStarting] = useState(false);
+  const [showNoShowDialog, setShowNoShowDialog] = useState(false);
   const { canStart, reason, windowOpen } = useMeetingStartWindow(
     meeting,
     allowOutOfWindowMeetingStart,
@@ -129,11 +135,14 @@ export function OutcomeActionBar({
     }
   };
 
-  const isCanceledOrNoShow =
-    opportunity.status === "canceled" || opportunity.status === "no_show";
+  const isCanceled = opportunity.status === "canceled";
+  const isNoShow = opportunity.status === "no_show";
+
+  // No-show status is handled by NoShowActionBar (Phase 3) — return null here
+  if (isNoShow) return null;
 
   // No actions for terminal statuses (payment_received, lost, follow_up_scheduled)
-  if (!isScheduled && !isInProgress && !isCanceledOrNoShow) return null;
+  if (!isScheduled && !isInProgress && !isCanceled) return null;
 
   return (
     <div className="flex flex-col gap-3 border-t pt-4">
@@ -176,8 +185,29 @@ export function OutcomeActionBar({
           />
         )}
 
-        {/* Schedule Follow-up for canceled/no-show opportunities */}
-        {isCanceledOrNoShow && (
+        {/* Mark No-Show — when in_progress (Feature B Phase 2) */}
+        {isInProgress && (
+          <>
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() => setShowNoShowDialog(true)}
+            >
+              <UserXIcon data-icon="inline-start" />
+              Mark No-Show
+            </Button>
+            <MarkNoShowDialog
+              open={showNoShowDialog}
+              onOpenChange={setShowNoShowDialog}
+              meetingId={meeting._id}
+              startedAt={meeting.startedAt}
+              onSuccess={onStatusChanged}
+            />
+          </>
+        )}
+
+        {/* Schedule Follow-up for canceled opportunities */}
+        {isCanceled && (
           <FollowUpDialog
             opportunityId={opportunity._id}
             onSuccess={onStatusChanged}

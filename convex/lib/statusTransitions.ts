@@ -3,6 +3,7 @@ export const OPPORTUNITY_STATUSES = [
   "in_progress",
   "payment_received",
   "follow_up_scheduled",
+  "reschedule_link_sent",
   "lost",
   "canceled",
   "no_show",
@@ -25,10 +26,11 @@ export const VALID_TRANSITIONS: Record<
   OpportunityStatus[]
 > = {
   scheduled: ["in_progress", "canceled", "no_show"],
-  in_progress: ["payment_received", "follow_up_scheduled", "lost"],
-  canceled: ["follow_up_scheduled"],
-  no_show: ["follow_up_scheduled"],
+  in_progress: ["payment_received", "follow_up_scheduled", "no_show", "lost"],
+  canceled: ["follow_up_scheduled", "scheduled"],
+  no_show: ["follow_up_scheduled", "reschedule_link_sent", "scheduled"],
   follow_up_scheduled: ["scheduled"],
+  reschedule_link_sent: ["scheduled"],
   payment_received: [],
   lost: [],
 };

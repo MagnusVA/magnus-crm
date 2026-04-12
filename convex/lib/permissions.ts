@@ -16,6 +16,13 @@ export const PERMISSIONS = {
   "follow-up:complete": ["closer"],
   "reassignment:execute": ["tenant_master", "tenant_admin"],
   "reassignment:view-all": ["tenant_master", "tenant_admin"],
+  "lead:view-all": ["tenant_master", "tenant_admin", "closer"],
+  "lead:edit": ["tenant_master", "tenant_admin"],
+  "lead:create": ["tenant_master", "tenant_admin"],
+  "lead:delete": ["tenant_master"],
+  "lead:merge": ["tenant_master", "tenant_admin", "closer"],
+  "lead:convert": ["tenant_master", "tenant_admin"],
+  "lead:export": ["tenant_master", "tenant_admin"],
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;

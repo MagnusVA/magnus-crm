@@ -18,6 +18,9 @@ type PipelineStripProps = {
  *
  * Uses `font-variant-numeric: tabular-nums` so the counts align neatly when
  * the numbers change width as data streams in via Convex.
+ *
+ * On mobile: horizontal scroll with snap points for refined UX.
+ * On desktop: full row visible without scrolling.
  */
 export function PipelineStrip({ counts, total }: PipelineStripProps) {
   return (
@@ -29,22 +32,24 @@ export function PipelineStrip({ counts, total }: PipelineStripProps) {
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-7">
-        {PIPELINE_DISPLAY_ORDER.map((status) => {
-          const config = opportunityStatusConfig[status];
-          const count = counts[status] ?? 0;
+      <div className="overflow-x-auto scroll-smooth [-webkit-overflow-scrolling:touch]">
+        <div className="flex gap-2.5 lg:grid lg:grid-cols-8">
+          {PIPELINE_DISPLAY_ORDER.map((status) => {
+            const config = opportunityStatusConfig[status];
+            const count = counts[status] ?? 0;
 
-          return (
-            <PipelineCard
-              key={status}
-              status={status}
-              label={config.label}
-              count={count}
-              dotClass={config.dotClass}
-              stripBg={config.stripBg}
-            />
-          );
-        })}
+            return (
+              <PipelineCard
+                key={status}
+                status={status}
+                label={config.label}
+                count={count}
+                dotClass={config.dotClass}
+                stripBg={config.stripBg}
+              />
+            );
+          })}
+        </div>
       </div>
     </section>
   );
@@ -71,7 +76,7 @@ function PipelineCard({
     <Link
       href={`/workspace/closer/pipeline?status=${status}`}
       className={cn(
-        "flex flex-col gap-1 rounded-lg border p-3 transition-colors",
+        "flex min-w-[140px] flex-col gap-1 rounded-lg border p-3 transition-colors lg:min-w-0",
         stripBg,
       )}
     >

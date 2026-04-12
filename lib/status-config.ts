@@ -13,6 +13,7 @@ export const OPPORTUNITY_STATUSES = [
   "in_progress",
   "payment_received",
   "follow_up_scheduled",
+  "reschedule_link_sent",
   "lost",
   "canceled",
   "no_show",
@@ -91,6 +92,14 @@ export const opportunityStatusConfig: Record<
     dotClass: "bg-violet-500",
     stripBg:
       "bg-violet-500/5 hover:bg-violet-500/10 border-violet-200/60 dark:border-violet-900/60",
+  },
+  reschedule_link_sent: {
+    label: "Reschedule Sent",
+    badgeClass:
+      "bg-sky-500/10 text-sky-700 border-sky-200 dark:text-sky-400 dark:border-sky-900",
+    dotClass: "bg-sky-500",
+    stripBg:
+      "bg-sky-500/5 hover:bg-sky-500/10 border-sky-200/60 dark:border-sky-900/60",
   },
   payment_received: {
     label: "Won",
@@ -223,6 +232,7 @@ export const PIPELINE_DISPLAY_ORDER: OpportunityStatus[] = [
   "in_progress",
   "follow_up_scheduled",
   "payment_received",
+  "reschedule_link_sent",
   "lost",
   "canceled",
   "no_show",

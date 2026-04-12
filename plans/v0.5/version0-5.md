@@ -311,13 +311,13 @@ A full **Lead Manager** — a lead-centric UI that serves as the central hub for
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### C2. Lead Detail Panel (Sheet / Drawer)
+### C2. Lead Detail Page
 
-Clicking a lead row opens a **right-side sheet** (not a full page) with:
+Clicking a lead row opens a **full detail page** at `/workspace/leads/[leadId]` in a **new browser tab** (focused). This lets the user keep the lead list open for cross-referencing while working with a specific lead.
 
 **Header:**
-- Lead name, status badge, contact info (email, phone, social handles)
-- Quick actions: Edit, Merge, Convert to Customer
+- Back link to lead list, lead name, status badge, contact info (email, phone, social handles)
+- Quick actions: Edit, Merge Lead (navigates to `/workspace/leads/[leadId]/merge`), Convert to Customer
 
 **Tabs:**
 1. **Overview** — Summary card with key identifiers, first seen date, total meetings, current opportunity status
@@ -354,7 +354,7 @@ Clicking a lead row opens a **right-side sheet** (not a full page) with:
 | Edit lead info | ✓ | ✓ | ✗ |
 | Create lead manually | ✓ | ✓ | ✗ |
 | Delete lead | ✓ | ✗ | ✗ |
-| Merge leads | ✓ | ✓ | ✓ (initiate only — see C5) |
+| Merge leads | ✓ | ✓ | ✓ |
 | Convert to customer | ✓ | ✓ | ✗ |
 | Export leads | ✓ | ✓ | ✗ |
 
@@ -365,8 +365,7 @@ lead:view-all       → [tenant_master, tenant_admin, closer]
 lead:edit           → [tenant_master, tenant_admin]
 lead:create         → [tenant_master, tenant_admin]
 lead:delete         → [tenant_master]
-lead:merge          → [tenant_master, tenant_admin]
-lead:merge-request  → [closer]
+lead:merge          → [tenant_master, tenant_admin, closer]
 lead:convert        → [tenant_master, tenant_admin]
 lead:export         → [tenant_master, tenant_admin]
 ```
@@ -376,35 +375,31 @@ lead:export         → [tenant_master, tenant_admin]
 **Use case:** A closer recognizes that a lead who booked a new meeting is actually the same person as an existing lead (different email, same Instagram handle, etc.).
 
 **Who can merge:**
-- **Admin/Owner:** Can merge directly
-- **Closer:** Can **request** a merge — creates a merge suggestion that admins review
+- **All roles** — closers, admins, and owners can merge directly. Closers are the primary merge actors because they interact with leads daily and are best positioned to spot duplicates.
 
-**Merge flow (admin):**
-1. Admin opens Lead A's detail panel
+**Merge flow (all roles):**
+1. User opens Lead A's detail panel
 2. Clicks "Merge Lead"
-3. Search dialog appears — admin searches for Lead B (the target)
+3. Search dialog appears — user searches for Lead B (the target)
 4. System shows a **merge preview:**
    - Side-by-side comparison of both leads
    - Which fields will be kept (target lead wins, with option to pick source values)
    - What will be merged: all opportunities, meetings, payment records, follow-ups
    - Identifier consolidation: all emails, phones, social handles become identifiers on the target lead
-5. Admin confirms → merge executes:
+5. User confirms → merge executes:
    - All opportunities on Lead A are re-pointed to Lead B
    - Lead A's unique identifiers are added to Lead B
    - Lead A is soft-deleted (`status: "merged"`, `mergedIntoLeadId: leadB._id`)
-   - A `LeadMergeHistory` record is created for audit
+   - A `leadMergeHistory` record is created for audit
 
-**Merge flow (closer):**
-1. Closer opens a meeting and notices the lead might be a duplicate
-2. Clicks "Suggest Merge" on the lead panel
-3. Searches for the potential duplicate
-4. System creates a **merge suggestion** (a new `leadMergeSuggestions` record)
-5. Admins see merge suggestions in the Lead Manager (badge count)
-6. Admin reviews, approves (executes merge) or dismisses
+**Audit trail for admins:**
+- Every merge is recorded in `leadMergeHistory` with: who merged, when, which leads, how many identifiers and opportunities were moved.
+- Admins can review merge history in the Lead Manager's Activity tab and on the lead detail page.
+- Merged leads are never physically deleted — they stay in the database with `status: "merged"` and a pointer to the target lead.
 
 **Merge safety:**
-- Merges are **irreversible** in the UI (admin must understand this)
-- A `LeadMergeHistory` record preserves the full audit trail
+- Merges are **irreversible** in the UI (user must confirm they understand this)
+- A `leadMergeHistory` record preserves the full audit trail
 - Merged leads are never physically deleted — they stay in the database with `status: "merged"`
 - All references update atomically (within Convex transaction limits, or batched if needed)
 
@@ -1374,8 +1369,7 @@ async function onSubmit(values: PaymentFormValues) {
 |-------|---------|
 | `customers` | Converted leads with full relationship tracking |
 | `leadIdentifiers` | Multi-channel identity resolution (email, phone, social) |
-| `leadMergeHistory` | Audit trail for lead merges |
-| `leadMergeSuggestions` | Closer-initiated merge requests for admin review |
+| `leadMergeHistory` | Audit trail for lead merges (all roles can merge directly) |
 | `closerUnavailability` | Closer schedule exceptions |
 | `meetingReassignments` | Audit trail for meeting redistributions |
 
@@ -1423,8 +1417,7 @@ lead:view-all         → [tenant_master, tenant_admin, closer]
 lead:edit             → [tenant_master, tenant_admin]
 lead:create           → [tenant_master, tenant_admin]
 lead:delete           → [tenant_master]
-lead:merge            → [tenant_master, tenant_admin]
-lead:merge-request    → [closer]
+lead:merge            → [tenant_master, tenant_admin, closer]
 lead:convert          → [tenant_master, tenant_admin]
 lead:export           → [tenant_master, tenant_admin]
 customer:view-all     → [tenant_master, tenant_admin]
@@ -1462,8 +1455,7 @@ meeting:view-all      → [tenant_master, tenant_admin]
 | lead:edit | ✓ | ✓ | ✗ |
 | lead:create | ✓ | ✓ | ✗ |
 | lead:delete | ✓ | ✗ | ✗ |
-| lead:merge | ✓ | ✓ | ✗ |
-| lead:merge-request | ✗ | ✗ | ✓ |
+| lead:merge | ✓ | ✓ | ✓ |
 | lead:convert | ✓ | ✓ | ✗ |
 | lead:export | ✓ | ✓ | ✗ |
 | **Customers** | | | |
@@ -1662,27 +1654,26 @@ Phase 10: Closer Unavailability & Workload Redistribution ────── (af
 
 ### Phase 8 — Lead Manager
 **Feature Area:** C (C1, C2, C3, C4, C5)
-**Testable outcome:** `/workspace/leads` route with searchable lead list, detail sheet with tabs, and lead merge (admin direct, closer suggestion).
+**Testable outcome:** `/workspace/leads` route with searchable lead list, `/workspace/leads/[leadId]` detail page (opens in new tab) with 5 tabs, and `/workspace/leads/[leadId]/merge` page for direct lead merge (all roles) with full audit trail.
 
 | What to build | Details |
 |---------------|---------|
 | **Route & page** (C1) | `/workspace/leads` page + client component. New sidebar nav item |
 | **Lead list** | Paginated table: name, email, social handles, status, meeting count. Filterable by status, sortable |
 | **Lead search** (C3) | Debounced search across name, email, social handles, phone |
-| **Lead detail sheet** (C2) | Right-side sheet on row click. Tabs: Overview, Meetings, Opportunities, Activity, Custom Fields |
-| **Permissions** (C4) | New permissions: `lead:view-all`, `lead:edit`, `lead:create`, `lead:delete`, `lead:merge`, `lead:merge-request`, `lead:export`. Backend enforcement via `requireTenantUser` |
-| **Lead merge — admin** (C5) | Merge dialog: search for target lead → side-by-side preview → confirm. Repoints opportunities, consolidates identifiers, soft-deletes source lead |
-| **Lead merge — closer** (C5) | "Suggest Merge" creates a `leadMergeSuggestions` record. Admin sees suggestions badge in Lead Manager |
-| **Schema** | New `leadMergeHistory`, `leadMergeSuggestions` tables |
-| **Backend** | Queries: `listLeads`, `searchLeads`, `getLeadDetail`. Mutations: `updateLead`, `mergeLead`, `suggestMerge`, `resolveMergeSuggestion` |
+| **Lead detail page** (C2) | Full page at `/workspace/leads/[leadId]` (opens in new tab from list). Tabs: Overview, Meetings, Opportunities, Activity, Custom Fields |
+| **Permissions** (C4) | New permissions: `lead:view-all`, `lead:edit`, `lead:create`, `lead:delete`, `lead:merge`, `lead:export`. Backend enforcement via `requireTenantUser` |
+| **Lead merge** (C5) | All roles can merge directly. Merge dialog: search for target lead → side-by-side preview → confirm. Repoints opportunities, consolidates identifiers, soft-deletes source lead. Every merge recorded in `leadMergeHistory` for admin audit |
+| **Schema** | New `leadMergeHistory` table for audit trail |
+| **Backend** | Queries: `listLeads`, `searchLeads`, `getLeadDetail`, `getMergePreview`. Mutations: `updateLead`, `mergeLead`, `dismissDuplicateFlag` |
 
 **How to test:**
 - Navigate to `/workspace/leads` → see all leads for the tenant with search bar
 - Search by name → results filter. Search by Instagram handle → results filter
 - Click a lead → sheet opens with tabs. Meetings tab shows all meetings across opportunities
-- As admin: click "Merge Lead" → search for another lead → see preview → confirm → source lead disappears from list, target lead gains all opportunities and identifiers
-- As closer: open a lead → click "Suggest Merge" → search for suspected duplicate → suggestion created. Switch to admin → see suggestion badge → approve or dismiss
-- Verify closers cannot edit lead info or merge directly (read-only + suggest only)
+- As any role: click "Merge Lead" → search for another lead → see preview → confirm → source lead disappears from list, target lead gains all opportunities and identifiers
+- As admin: open a lead → Activity tab shows merge history with who merged what and when
+- Verify closers can merge but cannot edit lead info (read-only fields + merge only)
 
 ---
 
@@ -1753,7 +1744,7 @@ Phase 10: Closer Unavailability & Workload Redistribution ────── (af
 | 5 | No-Show Management | No-show action bar, reschedule links, auto-reschedule detection | 4 |
 | 6 | Event Type Field Mappings | Settings UI for custom field → identity field mapping | 2 |
 | 7 | Lead Identity Resolution | Multi-identifier leads, social handle extraction, duplicate flagging | 6 |
-| 8 | Lead Manager | Lead list, search, detail, merge (admin + closer suggestion) | 7 |
+| 8 | Lead Manager | Lead list, search, detail, merge (all roles, direct) | 7 |
 | 9 | Customer Conversion | Auto-convert on payment, customer list, relationship navigation | 8 |
 | 10 | Workload Redistribution | Mark unavailable, auto-distribute, manual resolution | 3 |
 
@@ -1846,7 +1837,8 @@ pending → expired (time-based expiry)
 | Route | Purpose | Access |
 |-------|---------|--------|
 | `/workspace/leads` | Lead Manager list | All roles |
-| `/workspace/leads/[leadId]` | Lead detail (or sheet from list) | All roles |
+| `/workspace/leads/[leadId]` | Lead detail — full page (opens in new tab from list) | All roles |
+| `/workspace/leads/[leadId]/merge` | Merge flow — full page (search → preview → confirm) | All roles |
 | `/workspace/customers` | Customer list (placeholder) | Admin/Owner |
 | `/workspace/team/schedule` | Closer availability management | Admin/Owner |
 
@@ -1865,7 +1857,7 @@ pending → expired (time-based expiry)
 | Job | Interval | Purpose |
 |-----|----------|---------|
 | `expire-follow-up-links` | 1 hour | Check `followUps` with `type: "scheduling_link"` where `status === "pending"` and `createdAt < now - 7 days` → transition to `expired` |
-| `detect-stale-merge-suggestions` | 24 hours | Check `leadMergeSuggestions` older than 30 days → notify admins |
+| ~~`detect-stale-merge-suggestions`~~ | ~~24 hours~~ | ~~Removed — no suggestion pipeline. All merges are direct.~~ |
 
 > **Note:** Reminders do NOT use a cron. The closer's dashboard subscribes to pending reminders via `useQuery` and the client handles time-based visual escalation locally — same pattern as `useMeetingStartWindow`.
 

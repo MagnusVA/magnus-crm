@@ -200,6 +200,25 @@ export const getMeetingDetail = query({
     }
     // === End Feature E ===
 
+    // === Feature B: Resolve reschedule chain ===
+    let rescheduledFromMeeting: {
+      _id: typeof meeting._id;
+      scheduledAt: number;
+      status: Doc<"meetings">["status"];
+    } | null = null;
+
+    if (meeting.rescheduledFromMeetingId) {
+      const originalMeeting = await ctx.db.get(meeting.rescheduledFromMeetingId);
+      if (originalMeeting && originalMeeting.tenantId === tenantId) {
+        rescheduledFromMeeting = {
+          _id: originalMeeting._id,
+          scheduledAt: originalMeeting.scheduledAt,
+          status: originalMeeting.status,
+        };
+      }
+    }
+    // === End Feature B ===
+
     console.log("[Closer:MeetingDetail] getMeetingDetail completed", {
       meetingId,
       meetingHistoryCount: meetingHistory.length,
@@ -208,6 +227,7 @@ export const getMeetingDetail = query({
       hasPaymentLinks: !!paymentLinks,
       hasUtmParams: !!(meeting.utmParams || opportunity.utmParams),
       hasPotentialDuplicate: !!potentialDuplicate,
+      hasRescheduleChain: !!rescheduledFromMeeting,
     });
     return {
       meeting,
@@ -220,6 +240,7 @@ export const getMeetingDetail = query({
       payments,
       reassignmentInfo,
       potentialDuplicate,
+      rescheduledFromMeeting,
     };
   },
 });

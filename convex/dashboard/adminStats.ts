@@ -5,6 +5,7 @@ const ACTIVE_OPPORTUNITY_STATUSES = new Set([
   "scheduled",
   "in_progress",
   "follow_up_scheduled",
+  "reschedule_link_sent",
 ]);
 
 function getStartAndEndOfToday(timestamp: number) {

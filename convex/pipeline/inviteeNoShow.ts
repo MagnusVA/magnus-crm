@@ -75,8 +75,13 @@ export const process = internalMutation({
       `[Pipeline:no-show] Meeting found | meetingId=${meeting._id} currentStatus=${meeting.status}`,
     );
 
+    const now = Date.now();
     if (meeting.status !== "no_show") {
-      await ctx.db.patch(meeting._id, { status: "no_show" });
+      await ctx.db.patch(meeting._id, {
+        status: "no_show",
+        noShowSource: "calendly_webhook",
+        noShowMarkedAt: now,
+      });
       await updateOpportunityMeetingRefs(ctx, meeting.opportunityId);
       console.log(`[Pipeline:no-show] Meeting status changed | ${meeting.status} -> no_show`);
     } else {
@@ -95,7 +100,7 @@ export const process = internalMutation({
       );
       await ctx.db.patch(opportunity._id, {
         status: "no_show",
-        updatedAt: Date.now(),
+        updatedAt: now,
       });
     } else if (opportunity) {
       console.log(

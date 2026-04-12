@@ -11,19 +11,11 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { downloadCSV } from "@/lib/export-csv";
+import type { OpportunityStatus } from "@/lib/status-config";
 import { format } from "date-fns";
 import { DownloadIcon } from "lucide-react";
 import { OpportunitiesTable } from "./opportunities-table";
 import { PipelineFilters } from "./pipeline-filters";
-
-type OpportunityStatus =
-  | "scheduled"
-  | "in_progress"
-  | "payment_received"
-  | "follow_up_scheduled"
-  | "lost"
-  | "canceled"
-  | "no_show";
 
 function TableSkeleton() {
   return (

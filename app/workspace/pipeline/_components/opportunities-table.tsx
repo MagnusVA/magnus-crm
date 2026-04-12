@@ -23,15 +23,7 @@ import {
 import { ExternalLinkIcon, InboxIcon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useTableSort } from "@/hooks/use-table-sort";
-
-type OpportunityStatus =
-  | "scheduled"
-  | "in_progress"
-  | "payment_received"
-  | "follow_up_scheduled"
-  | "lost"
-  | "canceled"
-  | "no_show";
+import type { OpportunityStatus } from "@/lib/status-config";
 
 interface Opportunity {
   _id: Id<"opportunities">;

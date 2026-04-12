@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 import {
+  ContactIcon,
   KanbanIcon,
   LayoutDashboardIcon,
   LogOutIcon,
@@ -62,14 +63,16 @@ type NavItem = {
 
 const adminNavItems: NavItem[] = [
   { href: "/workspace", label: "Overview", icon: LayoutDashboardIcon, exact: true },
-  { href: "/workspace/team", label: "Team", icon: UsersIcon },
   { href: "/workspace/pipeline", label: "Pipeline", icon: KanbanIcon },
+  { href: "/workspace/leads", label: "Leads", icon: ContactIcon },
+  { href: "/workspace/team", label: "Team", icon: UsersIcon },
   { href: "/workspace/settings", label: "Settings", icon: SettingsIcon },
 ];
 
 const closerNavItems: NavItem[] = [
   { href: "/workspace/closer", label: "Dashboard", icon: LayoutDashboardIcon, exact: true },
   { href: "/workspace/closer/pipeline", label: "My Pipeline", icon: KanbanIcon },
+  { href: "/workspace/leads", label: "Leads", icon: ContactIcon },
 ];
 
 // ---------------------------------------------------------------------------

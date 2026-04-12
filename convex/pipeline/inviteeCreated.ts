@@ -16,6 +16,7 @@ import {
 	extractEmailDomain,
 } from "../lib/normalization";
 import type { IdentifierType, SocialPlatformType } from "../lib/normalization";
+import { buildLeadSearchText } from "../leads/searchTextBuilder";
 
 function parseTimestamp(value: unknown): number | undefined {
 	if (typeof value !== "string") {
@@ -98,6 +99,16 @@ type LeadIdentifierUpsertResult =
 	| "created"
 	| "existing_same_lead"
 	| "existing_other_lead";
+
+// ---------------------------------------------------------------------------
+// Feature B4: Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Maximum age of a no-show/canceled opportunity for heuristic relinking.
+ * Older opportunities are treated as unrelated bookings.
+ */
+const RESCHEDULE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
 // Feature E: Helper Functions (3A)
@@ -629,6 +640,29 @@ async function createLeadIdentifiers(
 	}
 }
 
+async function updateLeadSearchText(
+	ctx: MutationCtx,
+	leadId: Id<"leads">,
+): Promise<void> {
+	const lead = await ctx.db.get(leadId);
+	if (!lead) {
+		return;
+	}
+
+	const identifiers = await ctx.db
+		.query("leadIdentifiers")
+		.withIndex("by_leadId", (q) => q.eq("leadId", leadId))
+		.take(50);
+
+	const searchText = buildLeadSearchText(
+		lead,
+		identifiers.map((identifier) => identifier.value),
+	);
+	if (searchText !== lead.searchText) {
+		await ctx.db.patch(leadId, { searchText });
+	}
+}
+
 function extractHostMembership(scheduledEvent: Record<string, unknown>) {
 	const eventMemberships = Array.isArray(scheduledEvent.event_memberships)
 		? scheduledEvent.event_memberships
@@ -936,22 +970,27 @@ export const process = internalMutation({
 
 		if (utmParams?.utm_source === "ptdom" && utmParams.utm_campaign) {
 			console.log(
-				`[Pipeline:invitee.created] [Feature A] UTM deterministic linking | opportunityId=${utmParams.utm_campaign} followUpId=${utmParams.utm_content ?? "none"}`,
+				`[Pipeline:invitee.created] [Feature A] UTM deterministic linking | opportunityId=${utmParams.utm_campaign} medium=${utmParams.utm_medium ?? "none"} content=${utmParams.utm_content ?? "none"}`,
 			);
 
 			const targetOpportunityId =
 				utmParams.utm_campaign as Id<"opportunities">;
-			const targetFollowUpId = utmParams.utm_content
-				? (utmParams.utm_content as Id<"followUps">)
-				: undefined;
+			const isNoShowRescheduleUtm =
+				utmParams.utm_medium === "noshow_resched";
+			const targetFollowUpId =
+				!isNoShowRescheduleUtm && utmParams.utm_content
+					? (utmParams.utm_content as Id<"followUps">)
+					: undefined;
 			const targetOpportunity = await ctx.db.get(targetOpportunityId);
 
 			if (
 				targetOpportunity &&
 				targetOpportunity.tenantId === tenantId &&
-				targetOpportunity.status === "follow_up_scheduled" &&
+				(targetOpportunity.status === "follow_up_scheduled" ||
+					targetOpportunity.status === "reschedule_link_sent") &&
 				validateTransition(targetOpportunity.status, "scheduled")
 			) {
+				const previousTargetStatus = targetOpportunity.status;
 				const targetLead = await ctx.db.get(targetOpportunity.leadId);
 				if (!targetLead || targetLead.tenantId !== tenantId) {
 					console.warn(
@@ -964,6 +1003,7 @@ export const process = internalMutation({
 						latestCustomFields,
 						now,
 					});
+					await updateLeadSearchText(ctx, lead._id);
 					const { hostUserUri, hostCalendlyEmail, hostCalendlyName } =
 						extractHostMembership(scheduledEvent);
 					const assignedCloserId = await resolveAssignedCloserId(
@@ -1002,8 +1042,24 @@ export const process = internalMutation({
 						updatedAt: now,
 					});
 					console.log(
-						`[Pipeline:invitee.created] [Feature A] Opportunity relinked | opportunityId=${targetOpportunityId} status=follow_up_scheduled->scheduled`,
+						`[Pipeline:invitee.created] [Feature A] Opportunity relinked | opportunityId=${targetOpportunityId} status=${previousTargetStatus}->scheduled`,
 					);
+
+					let rescheduledFromMeetingId: Id<"meetings"> | undefined;
+					if (isNoShowRescheduleUtm && utmParams.utm_content) {
+						const candidateMeetingId =
+							utmParams.utm_content as Id<"meetings">;
+						const originalMeeting = await ctx.db.get(
+							candidateMeetingId,
+						);
+						if (originalMeeting && originalMeeting.tenantId === tenantId) {
+							rescheduledFromMeetingId = originalMeeting._id;
+						} else {
+							console.warn(
+								`[Pipeline:invitee.created] [Feature B] Invalid no-show reschedule meeting | meetingId=${candidateMeetingId}`,
+							);
+						}
+					}
 
 					if (targetFollowUpId) {
 						const followUp = await ctx.db.get(targetFollowUpId);
@@ -1061,7 +1117,14 @@ export const process = internalMutation({
 						leadName: lead.fullName ?? lead.email,
 						createdAt: now,
 						utmParams,
+						rescheduledFromMeetingId,
 					});
+
+					if (rescheduledFromMeetingId) {
+						console.log(
+							`[Pipeline:invitee.created] [Feature B] Reschedule chain linked | newMeetingId=${meetingId} rescheduledFrom=${rescheduledFromMeetingId}`,
+						);
+					}
 
 					await updateOpportunityMeetingRefs(
 						ctx,
@@ -1078,6 +1141,7 @@ export const process = internalMutation({
 						extractedIdentifiers.socialHandle,
 						now,
 					);
+					await updateLeadSearchText(ctx, lead._id);
 					await syncKnownCustomFieldKeys(
 						ctx,
 						eventTypeConfigId,
@@ -1121,6 +1185,7 @@ export const process = internalMutation({
 				latestCustomFields,
 				now,
 			});
+			await updateLeadSearchText(ctx, lead._id);
 		} else if (latestCustomFields) {
 			// New lead: set custom fields (they were not set in resolveLeadIdentity)
 			await ctx.db.patch(lead._id, {
@@ -1147,6 +1212,142 @@ export const process = internalMutation({
 			now,
 			preloadedConfig: earlyEventTypeConfig,
 		});
+
+		// === Feature B4: Heuristic reschedule detection ===
+		let autoRescheduleTarget: Doc<"opportunities"> | null = null;
+		const rescheduleCutoff = now - RESCHEDULE_WINDOW_MS;
+		const reschedCandidates = ctx.db
+			.query("opportunities")
+			.withIndex("by_tenantId_and_leadId", (q) =>
+				q.eq("tenantId", tenantId).eq("leadId", lead._id),
+			)
+			.order("desc");
+
+		for await (const opportunity of reschedCandidates) {
+			if (
+				(opportunity.status === "no_show" ||
+					opportunity.status === "canceled") &&
+				opportunity.updatedAt > rescheduleCutoff
+			) {
+				autoRescheduleTarget = opportunity;
+				break;
+			}
+		}
+
+		if (autoRescheduleTarget) {
+			console.log(
+				`[Pipeline:invitee.created] [Feature B4] Heuristic reschedule detected | opportunityId=${autoRescheduleTarget._id} status=${autoRescheduleTarget.status}`,
+			);
+
+			if (!validateTransition(autoRescheduleTarget.status, "scheduled")) {
+				console.warn(
+					`[Pipeline:invitee.created] [Feature B4] Invalid transition ${autoRescheduleTarget.status} -> scheduled | falling through to normal flow`,
+				);
+				autoRescheduleTarget = null;
+			}
+		} else {
+			console.log(
+				`[Pipeline:invitee.created] [Feature B4] No reschedule candidate found for leadId=${lead._id} | proceeding to follow-up detection`,
+			);
+		}
+		// === End Feature B4: Heuristic reschedule detection ===
+
+		// === Feature B4: Opportunity linking + closer reassignment ===
+		if (autoRescheduleTarget) {
+			const reschedOpportunityId = autoRescheduleTarget._id;
+			const previousOpportunityStatus = autoRescheduleTarget.status;
+			const previousMeetings = await ctx.db
+				.query("meetings")
+				.withIndex("by_opportunityId", (q) =>
+					q.eq("opportunityId", reschedOpportunityId),
+				)
+				.order("desc")
+				.take(1);
+			const rescheduledFromMeetingId = previousMeetings[0]?._id;
+			const nextAssignedCloserId =
+				assignedCloserId ?? autoRescheduleTarget.assignedCloserId;
+			const closerChanged =
+				nextAssignedCloserId !== autoRescheduleTarget.assignedCloserId;
+
+			await ctx.db.patch(reschedOpportunityId, {
+				status: "scheduled",
+				calendlyEventUri,
+				assignedCloserId: nextAssignedCloserId,
+				hostCalendlyUserUri: hostUserUri,
+				hostCalendlyEmail,
+				hostCalendlyName,
+				eventTypeConfigId:
+					eventTypeConfigId ??
+					autoRescheduleTarget.eventTypeConfigId ??
+					undefined,
+				updatedAt: now,
+			});
+			console.log(
+				`[Pipeline:invitee.created] [Feature B4] Opportunity relinked | opportunityId=${reschedOpportunityId} status=${previousOpportunityStatus}->scheduled`,
+			);
+
+			if (closerChanged) {
+				console.log(
+					`[Pipeline:invitee.created] [Feature B4] Opportunity reassigned | opportunityId=${reschedOpportunityId} from=${autoRescheduleTarget.assignedCloserId ?? "none"} to=${nextAssignedCloserId ?? "none"}`,
+				);
+			}
+
+			await ctx.runMutation(
+				internal.closer.followUpMutations.markFollowUpBooked,
+				{
+					opportunityId: reschedOpportunityId,
+					calendlyEventUri,
+				},
+			);
+
+			const meetingLocation = extractMeetingLocation(scheduledEvent.location);
+			const meetingNotes = getString(scheduledEvent, "meeting_notes_plain");
+			const meetingId = await ctx.db.insert("meetings", {
+				tenantId,
+				opportunityId: reschedOpportunityId,
+				calendlyEventUri,
+				calendlyInviteeUri,
+				zoomJoinUrl: meetingLocation.zoomJoinUrl,
+				meetingJoinUrl: meetingLocation.meetingJoinUrl,
+				meetingLocationType: meetingLocation.meetingLocationType,
+				scheduledAt,
+				durationMinutes,
+				status: "scheduled",
+				notes: meetingNotes,
+				leadName: lead.fullName ?? lead.email,
+				createdAt: now,
+				utmParams,
+				rescheduledFromMeetingId,
+			});
+			console.log(
+				`[Pipeline:invitee.created] [Feature B4] Meeting created | meetingId=${meetingId} rescheduledFrom=${rescheduledFromMeetingId ?? "none"}`,
+			);
+
+			await updateOpportunityMeetingRefs(ctx, reschedOpportunityId);
+			await createLeadIdentifiers(
+				ctx,
+				tenantId,
+				lead._id,
+				meetingId,
+				inviteeEmail,
+				rawInviteeEmail,
+				effectivePhone,
+				extractedIdentifiers.socialHandle,
+				now,
+			);
+			await syncKnownCustomFieldKeys(
+				ctx,
+				eventTypeConfigId,
+				latestCustomFields,
+			);
+
+			await ctx.db.patch(rawEventId, { processed: true });
+			console.log(
+				`[Pipeline:invitee.created] [Feature B4] Heuristic reschedule complete | meetingId=${meetingId} opportunityId=${reschedOpportunityId}`,
+			);
+			return;
+		}
+		// === End Feature B4: Opportunity linking + closer reassignment ===
 
 		let existingFollowUp: Doc<"opportunities"> | null = null;
 		const followUpCandidates = ctx.db
@@ -1274,6 +1475,7 @@ export const process = internalMutation({
 		console.log(
 			`[Pipeline:Identity] Lead identifiers created | leadId=${lead._id} meetingId=${meetingId}`,
 		);
+		await updateLeadSearchText(ctx, lead._id);
 		// === End Feature E ===
 
 		await syncKnownCustomFieldKeys(

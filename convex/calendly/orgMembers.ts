@@ -1,9 +1,11 @@
 "use node";
 
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
-import { internalAction } from "../_generated/server";
+import { action, internalAction } from "../_generated/server";
+import { getIdentityOrgId } from "../lib/identity";
+import { ADMIN_ROLES } from "../lib/roleMapping";
 import { getValidAccessToken } from "./tokens";
 
 type TenantMemberState = {
@@ -144,6 +146,73 @@ export const syncForTenant = internalAction({
     );
 
     return { ...result, deleted: cleanupResult.deleted };
+  },
+});
+
+/**
+ * On-demand org member sync for the current user's tenant.
+ * Callable by tenant_master and tenant_admin from the Settings page.
+ */
+export const syncMyTenantMembers = action({
+  args: {},
+  handler: async (
+    ctx,
+  ): Promise<{ synced: number; deleted: number; reason?: string }> => {
+    console.log(`[org-sync] syncMyTenantMembers: called`);
+
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const workosUserId = identity.tokenIdentifier ?? identity.subject;
+    if (!workosUserId) {
+      throw new Error("Missing WorkOS user ID");
+    }
+
+    const currentUser: Doc<"users"> | null = await ctx.runQuery(
+      internal.users.queries.getCurrentUserInternal,
+      { workosUserId },
+    );
+    if (!currentUser || !ADMIN_ROLES.includes(currentUser.role)) {
+      throw new Error("Insufficient permissions");
+    }
+
+    const tenant = await ctx.runQuery(internal.tenants.getCalendlyTenant, {
+      tenantId: currentUser.tenantId,
+    });
+    if (!tenant) {
+      throw new Error("Tenant not found");
+    }
+
+    const identityOrgId = getIdentityOrgId(identity);
+    if (!identityOrgId || identityOrgId !== tenant.workosOrgId) {
+      throw new Error("Organization mismatch");
+    }
+
+    console.log(
+      `[org-sync] syncMyTenantMembers: user=${currentUser._id}, tenant=${currentUser.tenantId}`,
+    );
+
+    const result = await syncTenantOrgMembers(ctx, currentUser.tenantId);
+
+    if ("reason" in result) {
+      console.log(
+        `[org-sync] syncMyTenantMembers: skipped, reason=${result.reason}`,
+      );
+      return { synced: 0, deleted: 0, reason: result.reason };
+    }
+
+    const cleanupResult: { deleted: number } = await ctx.runMutation(
+      internal.calendly.orgMembersMutations.deleteStaleMembers,
+      { tenantId: currentUser.tenantId, syncStartTimestamp: Date.now() },
+    );
+
+    console.log(
+      `[org-sync] syncMyTenantMembers: complete, synced=${result.synced}, deleted=${cleanupResult.deleted}`,
+    );
+
+    return { synced: result.synced, deleted: cleanupResult.deleted };
   },
 });
 

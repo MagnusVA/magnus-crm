@@ -139,10 +139,21 @@ export default defineSchema({
         }),
       ),
     ),
+
+    // === Feature C: Lead Search ===
+    // Denormalized full-text search field built from lead fields and
+    // identifier values. Updated by the pipeline and lead mutations.
+    searchText: v.optional(v.string()),
+    // === End Feature C ===
     // === End Feature E ===
   })
     .index("by_tenantId", ["tenantId"])
-    .index("by_tenantId_and_email", ["tenantId", "email"]),
+    .index("by_tenantId_and_email", ["tenantId", "email"])
+    .index("by_tenantId_and_status", ["tenantId", "status"])
+    .searchIndex("search_leads", {
+      searchField: "searchText",
+      filterFields: ["tenantId", "status"],
+    }),
 
   // === Feature E: Multi-Identifier Lead Model ===
   leadIdentifiers: defineTable({
@@ -178,6 +189,22 @@ export default defineSchema({
     .index("by_tenantId_and_value", ["tenantId", "value"]),
   // === End Feature E ===
 
+  // === Feature C: Lead Merge Audit Trail ===
+  leadMergeHistory: defineTable({
+    tenantId: v.id("tenants"),
+    sourceLeadId: v.id("leads"),
+    targetLeadId: v.id("leads"),
+    mergedByUserId: v.id("users"),
+    mergedAt: v.number(),
+    identifiersMoved: v.number(),
+    opportunitiesMoved: v.number(),
+    meetingsMoved: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_sourceLeadId", ["sourceLeadId"])
+    .index("by_targetLeadId", ["targetLeadId"]),
+  // === End Feature C ===
+
   opportunities: defineTable({
     tenantId: v.id("tenants"),
     leadId: v.id("leads"),
@@ -191,6 +218,7 @@ export default defineSchema({
       v.literal("in_progress"),
       v.literal("payment_received"),
       v.literal("follow_up_scheduled"),
+      v.literal("reschedule_link_sent"),
       v.literal("lost"),
       v.literal("canceled"),
       v.literal("no_show"),
@@ -268,6 +296,42 @@ export default defineSchema({
     // Undefined means the meeting has never been reassigned.
     reassignedFromCloserId: v.optional(v.id("users")),
     // === End Feature H ===
+
+    // === Feature B: Meeting Start Time ===
+    // When the closer clicked "Start Meeting". Used to compute no-show wait duration.
+    // Undefined for meetings started before Feature B or webhook-driven no-shows.
+    startedAt: v.optional(v.number()),
+    // === End Feature B: Meeting Start Time ===
+
+    // === Feature B: No-Show Tracking ===
+    // When the no-show was recorded (by closer or webhook handler).
+    noShowMarkedAt: v.optional(v.number()),
+    // How long the closer waited before marking no-show (ms).
+    noShowWaitDurationMs: v.optional(v.number()),
+    // Structured reason for the no-show.
+    noShowReason: v.optional(
+      v.union(
+        v.literal("no_response"),
+        v.literal("late_cancel"),
+        v.literal("technical_issues"),
+        v.literal("other"),
+      ),
+    ),
+    // Free-text note from the closer explaining the no-show.
+    noShowNote: v.optional(v.string()),
+    // Who created the no-show record.
+    noShowSource: v.optional(
+      v.union(
+        v.literal("closer"),
+        v.literal("calendly_webhook"),
+      ),
+    ),
+    // === End Feature B: No-Show Tracking ===
+
+    // === Feature B: Reschedule Chain ===
+    // Links this meeting back to the no-show meeting it reschedules.
+    rescheduledFromMeetingId: v.optional(v.id("meetings")),
+    // === End Feature B: Reschedule Chain ===
   })
     .index("by_opportunityId", ["opportunityId"])
     .index("by_tenantId_and_scheduledAt", ["tenantId", "scheduledAt"])
