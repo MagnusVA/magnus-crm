@@ -1,25 +1,39 @@
-# v0.5b Migration Runbook (Phases 2-5)
+# v0.5b Migration Runbook (Phases 2-6)
 
-This runbook assumes the code through **Phase 5** has already been deployed.
+This runbook assumes the code through **Phase 6** is ready locally and that you
+are preparing the production rollout.
+
+Phase 6 is a **schema-narrowing deploy gate**, not a blind "deploy now" step.
+Only deploy it to production after the preflight validation in this file passes
+against the current production data.
 
 ## Short answer
 
-Because you already ran the Phase 2 migrations when Phase 2 shipped, the only **new** post-deploy migration introduced after that is **Phase 5A**:
+The safe production path for Phase 6 is:
 
-```bash
-npx convex run migrations/backfillTenantCalendlyConnections:backfillTenantCalendlyConnections '{}' --prod
-```
+1. capture fresh production snapshots for the narrowed tables
+2. validate that no documents still depend on the pre-Phase-6 shapes
+3. run the local typecheck
+4. run a Convex deploy dry run, then the real production deploy
+5. re-run the audits and keep after snapshots as evidence
 
-Phases **3** and **4** are **code-only**. They do not add standalone post-deploy backfill commands.
+Phases **3** and **4** remain **code-only**. Phase **6** is the convergence
+point where the earlier data migrations must already be true in production.
 
-The rest of this file is the **full canonical Phase 2-5 runbook** so you have:
+If the preflight finds any of the following, **stop and do not deploy Phase 6**:
+
+- a tenant missing its `tenantCalendlyConnections` row
+- any `paymentRecords` row missing `amountMinor`
+- any document still carrying a field the narrowed schema removes
+
+The rest of this file is the **full canonical Phase 2-6 runbook** so you have:
 
 - the complete migration list in one place
 - the exact `npx convex run` commands
 - the direct-read `npx convex data` snapshot commands for before/after evidence
 - the audit commands to verify the rollout
 
-## What Changes In Phases 2-5
+## What Changes In Phases 2-6
 
 ### Phase 2 — Backfill + Cleanup
 
@@ -59,11 +73,25 @@ No standalone migration commands. This phase switches reads to:
 
 ### Phase 5 — OAuth State Extraction
 
-This adds one new post-deploy migration:
+This introduced one one-shot backfill during the Phase 5 rollout:
 
 - backfill `tenantCalendlyConnections` from the legacy OAuth fields still present on `tenants`
 
 That backfill is what lets the new Phase 5 readers and writers stop depending on fallback reads from `tenants`, and it is the last data step before Phase 6 schema narrowing.
+
+### Phase 6 — Schema Narrow
+
+This phase removes the migration-era allowances after the earlier backfills are
+already complete:
+
+- `leads.status` is required
+- `users.isActive` is required
+- `meetings.assignedCloserId` is required
+- `followUps.type` is required
+- `paymentRecords.contextType` is required
+- `paymentRecords.amount` is removed from the schema
+- legacy Calendly OAuth fields are removed from `tenants`
+- `leads.customFields` is hardened to `Record<string, string>`
 
 ## Preflight
 
@@ -153,10 +181,13 @@ npx convex data tenantCalendlyConnections --prod --limit 20 --format pretty
 
 ## What You Actually Need To Run Now
 
-Because Phase 2 was already deployed and run in your environment, the minimum post-Phase-5 run is:
+Because Phase 2 was already deployed and run in your environment, the current
+production task is the **Phase 6 preflight + deploy** sequence:
 
 ```bash
-npx convex run migrations/backfillTenantCalendlyConnections:backfillTenantCalendlyConnections '{}' --prod
+pnpm exec tsc --noEmit
+pnpm exec convex deploy --dry-run --typecheck enable
+pnpm exec convex deploy --typecheck enable
 ```
 
 Then run the verification block:
@@ -167,7 +198,14 @@ npx convex run admin/migrations:auditOrphanedUserRefs '{}' --prod --identity "$A
 npx convex run admin/migrations:auditPaymentCurrencies '{}' --prod --identity "$ADMIN_IDENTITY"
 ```
 
-If you want a full reconciliation pass, the complete ordered list is below. The Phase 2 mutating functions are written to be safe to re-run.
+Do **not** run the deploy commands above until the Phase 6 preflight validation
+in the ordered runbook below succeeds.
+
+If you want a full reconciliation pass, the complete ordered list is below. The
+Phase 2 mutating functions are written to be safe to re-run, with one
+important exception: treat `backfillPaymentAmountMinor` as **historical only**
+in the current repo and prove `amountMinor` coverage from live data before
+deploying Phase 6.
 
 ## Full Ordered Runbook
 
@@ -191,7 +229,6 @@ What it changes:
 ```bash
 npx convex run admin/migrations:backfillLeadStatus '{}' --prod --identity "$ADMIN_IDENTITY"
 npx convex run admin/migrations:backfillUserIsActive '{}' --prod --identity "$ADMIN_IDENTITY"
-npx convex run admin/migrations:backfillPaymentAmountMinor '{}' --prod --identity "$ADMIN_IDENTITY"
 npx convex run admin/migrations:backfillPaymentContextType '{}' --prod --identity "$ADMIN_IDENTITY"
 npx convex run admin/migrations:backfillFollowUpType '{}' --prod --identity "$ADMIN_IDENTITY"
 ```
@@ -200,9 +237,15 @@ What they change:
 
 - `leads.status`: fill missing values with `"active"`
 - `users.isActive`: fill missing values with `true`
-- `paymentRecords.amountMinor`: derive from legacy `amount`
 - `paymentRecords.contextType`: derive from linked `opportunityId` vs `customerId`
 - `followUps.type`: infer `"scheduling_link"` vs `"manual_reminder"`
+
+Historical note:
+
+- `paymentRecords.amountMinor` was originally backfilled from legacy `amount`
+  during the Phase 2 rollout
+- for the current Phase 6 rollout, validate that those values already exist in
+  production before deploying the narrowed schema
 
 ### Phase 2C — relationship / aggregate backfills
 
@@ -277,19 +320,174 @@ Operational expectation after deploy:
 - payment queries read `amountMinor`
 - closer scheduling reads `meetings.assignedCloserId`
 
-### Phase 5A — Calendly connection backfill
+### Phase 5A — historical prerequisite
+
+This was the one-shot backfill that copied legacy tenant-level Calendly state
+into `tenantCalendlyConnections` during the Phase 5 rollout.
+
+For the Phase 6 rollout, treat it as a **required precondition**, not a command
+you should expect to run from the current branch:
+
+- every tenant must already have exactly one `tenantCalendlyConnections` row
+- that row must contain the OAuth/webhook state the Phase 5 readers now depend on
+
+If the Phase 6 preflight shows missing connection rows, stop and restore or
+recreate the original Phase 5A backfill before deploying the narrowed schema.
+
+### Phase 6A — production preflight validation
+
+Capture fresh production snapshots for the tables affected by narrowing:
 
 ```bash
-npx convex run migrations/backfillTenantCalendlyConnections:backfillTenantCalendlyConnections '{}' --prod
+mkdir -p .tmp/v05b-phase6/preflight
+
+for table in \
+  tenants \
+  tenantCalendlyConnections \
+  users \
+  leads \
+  meetings \
+  followUps \
+  paymentRecords
+do
+  npx convex data "$table" --prod --limit 2000 --order asc --format jsonArray \
+    > ".tmp/v05b-phase6/preflight/${table}.json"
+done
 ```
 
-What it changes:
+Validate the narrowing prerequisites from those snapshots:
 
-- copies legacy OAuth/webhook state from `tenants` into `tenantCalendlyConnections`
-- maps `calendlyOrgUri -> calendlyOrganizationUri`
-- maps `calendlyOwnerUri -> calendlyUserUri`
-- maps `webhookSigningKey -> calendlyWebhookSigningKey`
-- derives `connectionStatus`
+```bash
+node <<'EOF'
+const fs = require("fs");
+
+const load = (name) =>
+  JSON.parse(
+    fs.readFileSync(`.tmp/v05b-phase6/preflight/${name}.json`, "utf8"),
+  );
+
+const tenants = load("tenants");
+const connections = load("tenantCalendlyConnections");
+const users = load("users");
+const leads = load("leads");
+const meetings = load("meetings");
+const followUps = load("followUps");
+const payments = load("paymentRecords");
+
+const tenantConnectionIds = new Set(connections.map((row) => row.tenantId));
+const missingConnections = tenants.filter(
+  (tenant) => !tenantConnectionIds.has(tenant._id),
+);
+
+const legacyTenantFields = [
+  "calendlyAccessToken",
+  "calendlyRefreshToken",
+  "calendlyTokenExpiresAt",
+  "calendlyRefreshLockUntil",
+  "lastTokenRefreshAt",
+  "codeVerifier",
+  "calendlyOrgUri",
+  "calendlyOwnerUri",
+  "calendlyWebhookUri",
+  "webhookSigningKey",
+  "webhookProvisioningStartedAt",
+];
+
+const hasField = (row, field) =>
+  Object.prototype.hasOwnProperty.call(row, field) && row[field] !== undefined;
+
+const report = {
+  tenants_missing_connection_row: missingConnections.length,
+  tenants_with_legacy_oauth_fields: tenants.filter((row) =>
+    legacyTenantFields.some((field) => hasField(row, field)),
+  ).length,
+  leads_missing_status: leads.filter((row) => row.status === undefined).length,
+  users_missing_isActive: users.filter((row) => row.isActive === undefined)
+    .length,
+  meetings_missing_assignedCloserId: meetings.filter(
+    (row) => row.assignedCloserId === undefined,
+  ).length,
+  followUps_missing_type: followUps.filter((row) => row.type === undefined)
+    .length,
+  payments_missing_amountMinor: payments.filter(
+    (row) => row.amountMinor === undefined,
+  ).length,
+  payments_missing_contextType: payments.filter(
+    (row) => row.contextType === undefined,
+  ).length,
+  payments_with_legacy_amount_field: payments.filter((row) =>
+    hasField(row, "amount"),
+  ).length,
+  leads_with_invalid_customFields: leads.filter((row) => {
+    if (row.customFields === undefined) return false;
+    if (
+      typeof row.customFields !== "object" ||
+      row.customFields === null ||
+      Array.isArray(row.customFields)
+    ) {
+      return true;
+    }
+    return Object.values(row.customFields).some((value) => typeof value !== "string");
+  }).length,
+};
+
+console.log(JSON.stringify(report, null, 2));
+
+const failures = Object.entries(report).filter(([, count]) => count > 0);
+if (failures.length > 0) {
+  console.error("\\nPhase 6 preflight failed. Do not deploy until every count is 0.");
+  process.exit(1);
+}
+
+console.log("\\nPhase 6 preflight passed.");
+EOF
+```
+
+If this check fails, do **not** deploy Phase 6. Repair the missing Phase 2 or
+Phase 5 data state first, then rerun the preflight.
+
+### Phase 6B — production deploy
+
+Once the preflight passes, run the narrowing deploy:
+
+```bash
+pnpm exec tsc --noEmit
+pnpm exec convex deploy --dry-run --typecheck enable
+pnpm exec convex deploy --typecheck enable
+```
+
+What this does:
+
+- validates the narrowed schema and the generated Convex types against the repo
+- dry-runs the deploy before touching production
+- deploys the Phase 6 narrowed schema to the production deployment
+
+### Phase 6C — post-deploy verification
+
+Re-run the non-mutating audits and capture fresh after snapshots:
+
+```bash
+npx convex run admin/migrations:auditOrphanedTenantRows '{}' --prod --identity "$ADMIN_IDENTITY"
+npx convex run admin/migrations:auditOrphanedUserRefs '{}' --prod --identity "$ADMIN_IDENTITY"
+npx convex run admin/migrations:auditPaymentCurrencies '{}' --prod --identity "$ADMIN_IDENTITY"
+
+mkdir -p .tmp/v05b-phase6/after
+
+for table in \
+  tenants \
+  tenantCalendlyConnections \
+  users \
+  leads \
+  meetings \
+  followUps \
+  paymentRecords
+do
+  npx convex data "$table" --prod --limit 2000 --order asc --format jsonArray \
+    > ".tmp/v05b-phase6/after/${table}.json"
+done
+```
+
+Keep both the preflight and after snapshots until the rollout is fully accepted.
 
 ## Verification Checklist
 
@@ -304,10 +502,22 @@ After the run, verify these outcomes from the CLI output plus the before/after t
 - `tenantStats` exists for the active tenant
 - duplicate `eventTypeConfigs` are gone
 - `tenantCalendlyConnections` has one row per tenant with copied OAuth state
+- `tenants` no longer carry legacy OAuth fields in the live documents you
+  checked during preflight
+- `paymentRecords` no longer rely on legacy `amount` and every row has
+  `amountMinor`
+- the Phase 6 preflight validator prints zero failures before deploy
+- `pnpm exec convex deploy --typecheck enable` succeeds
 - orphan and currency audits return clean results
 
 ## Notes
 
 - For **your current environment**, the Phase 2 commands are primarily a **reference and reconciliation** set because you already ran them.
-- The only **new** migration introduced after that earlier run is `backfillTenantCalendlyConnections`.
-- Keep the `.tmp/v05b-migrations/before` and `.tmp/v05b-migrations/after` snapshots until Phase 6 schema narrowing is complete.
+- For the current repo state, the Phase 6 rollout is mainly a **validation +
+  deploy** exercise, not a new one-shot backfill.
+- If the Phase 6 preflight fails on missing `tenantCalendlyConnections` rows or
+  missing `paymentRecords.amountMinor`, do not deploy. Restore the needed
+  one-shot migration path first, then rerun the preflight.
+- Keep the `.tmp/v05b-migrations/before`, `.tmp/v05b-migrations/after`,
+  `.tmp/v05b-phase6/preflight`, and `.tmp/v05b-phase6/after` snapshots until
+  Phase 6 is fully accepted in production.

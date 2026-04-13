@@ -29,7 +29,7 @@ type LeadRow = {
 	fullName?: string;
 	email: string;
 	phone?: string;
-	status?: "active" | "converted" | "merged";
+	status: "active" | "converted" | "merged";
 	socialHandles?: Array<{ type: string; handle: string }>;
 	opportunityCount?: number;
 	latestMeetingAt?: number | null;
@@ -60,8 +60,7 @@ export function LeadsTable({
 			name: (a: LeadRow, b: LeadRow) =>
 				(a.fullName ?? a.email).localeCompare(b.fullName ?? b.email),
 			email: (a: LeadRow, b: LeadRow) => a.email.localeCompare(b.email),
-			status: (a: LeadRow, b: LeadRow) =>
-				(a.status ?? "active").localeCompare(b.status ?? "active"),
+			status: (a: LeadRow, b: LeadRow) => a.status.localeCompare(b.status),
 			meetings: (a: LeadRow, b: LeadRow) =>
 				(b.latestMeetingAt ?? 0) - (a.latestMeetingAt ?? 0),
 			opportunities: (a: LeadRow, b: LeadRow) =>
@@ -163,7 +162,7 @@ export function LeadsTable({
 									)}
 								</TableCell>
 								<TableCell>
-									<LeadStatusBadge status={lead.status ?? "active"} />
+									<LeadStatusBadge status={lead.status} />
 								</TableCell>
 								<TableCell className="text-right tabular-nums">
 									{lead.opportunityCount ?? 0}

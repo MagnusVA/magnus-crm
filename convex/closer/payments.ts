@@ -27,7 +27,7 @@ async function syncCustomerPaymentSummary(
   );
   await ctx.db.patch(customerId, {
     totalPaidMinor: nonDisputedPayments.reduce(
-      (sum, payment) => sum + (payment.amountMinor ?? toAmountMinor(payment.amount)),
+      (sum, payment) => sum + payment.amountMinor,
       0,
     ),
     totalPaymentCount: nonDisputedPayments.length,
@@ -148,7 +148,6 @@ export const logPayment = mutation({
       opportunityId: args.opportunityId,
       meetingId: args.meetingId,
       closerId: userId,
-      amount: args.amount,
       amountMinor,
       currency,
       provider,

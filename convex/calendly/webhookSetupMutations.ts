@@ -26,11 +26,11 @@ export const storeWebhookAndActivate = internalMutation({
       webhookUri,
       webhookSecret,
       connectionStatus: "connected",
+      webhookProvisioningStartedAt: undefined,
     });
     await ctx.db.patch(tenantId, {
       status: "active" as const,
       onboardingCompletedAt: tenant.onboardingCompletedAt ?? Date.now(),
-      webhookProvisioningStartedAt: undefined,
     });
 
     console.log(

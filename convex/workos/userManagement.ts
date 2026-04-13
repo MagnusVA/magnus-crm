@@ -22,7 +22,7 @@ type TenantSummary = {
 	workosOrgId: string;
 	status: Doc<"tenants">["status"];
 	companyName: string;
-	calendlyWebhookUri: Doc<"tenants">["calendlyWebhookUri"];
+	calendlyWebhookUri?: string;
 	tenantOwnerId: Doc<"tenants">["tenantOwnerId"];
 };
 

@@ -23,6 +23,7 @@ export type TenantCalendlyConnectionState = {
   webhookSecret?: string;
   connectionStatus?: StoredCalendlyConnectionStatus;
   lastHealthCheckAt?: number;
+  webhookProvisioningStartedAt?: number;
 };
 
 export type TenantCalendlyConnectionPatch = {
@@ -38,6 +39,7 @@ export type TenantCalendlyConnectionPatch = {
   webhookSecret?: string | undefined;
   connectionStatus?: StoredCalendlyConnectionStatus | undefined;
   lastHealthCheckAt?: number | undefined;
+  webhookProvisioningStartedAt?: number | undefined;
 };
 
 function deriveConnectionStatus(
@@ -77,74 +79,8 @@ function mapStoredConnection(
       connectionStatus: connection.connectionStatus,
     }),
     lastHealthCheckAt: connection.lastHealthCheckAt,
+    webhookProvisioningStartedAt: connection.webhookProvisioningStartedAt,
   };
-}
-
-function mapTenantFallback(
-  tenant: Doc<"tenants">,
-): TenantCalendlyConnectionState {
-  return {
-    connectionId: null,
-    tenantId: tenant._id,
-    accessToken: tenant.calendlyAccessToken,
-    refreshToken: tenant.calendlyRefreshToken,
-    tokenExpiresAt: tenant.calendlyTokenExpiresAt,
-    refreshLockUntil: tenant.calendlyRefreshLockUntil,
-    lastRefreshedAt: tenant.lastTokenRefreshAt,
-    pkceVerifier: tenant.codeVerifier,
-    organizationUri: tenant.calendlyOrgUri,
-    userUri: tenant.calendlyOwnerUri,
-    webhookUri: tenant.calendlyWebhookUri,
-    webhookSecret: tenant.webhookSigningKey,
-    connectionStatus:
-      tenant.calendlyAccessToken || tenant.calendlyRefreshToken
-        ? "connected"
-        : "disconnected",
-    lastHealthCheckAt: undefined,
-  };
-}
-
-function mergeConnectionState(
-  primary: TenantCalendlyConnectionState,
-  fallback: TenantCalendlyConnectionState,
-): TenantCalendlyConnectionState {
-  return {
-    connectionId: primary.connectionId,
-    tenantId: primary.tenantId,
-    accessToken: primary.accessToken ?? fallback.accessToken,
-    refreshToken: primary.refreshToken ?? fallback.refreshToken,
-    tokenExpiresAt: primary.tokenExpiresAt ?? fallback.tokenExpiresAt,
-    refreshLockUntil: primary.refreshLockUntil ?? fallback.refreshLockUntil,
-    lastRefreshedAt: primary.lastRefreshedAt ?? fallback.lastRefreshedAt,
-    pkceVerifier: primary.pkceVerifier ?? fallback.pkceVerifier,
-    organizationUri: primary.organizationUri ?? fallback.organizationUri,
-    userUri: primary.userUri ?? fallback.userUri,
-    webhookUri: primary.webhookUri ?? fallback.webhookUri,
-    webhookSecret: primary.webhookSecret ?? fallback.webhookSecret,
-    connectionStatus: deriveConnectionStatus({
-      accessToken: primary.accessToken ?? fallback.accessToken,
-      refreshToken: primary.refreshToken ?? fallback.refreshToken,
-      connectionStatus: primary.connectionStatus ?? fallback.connectionStatus,
-    }),
-    lastHealthCheckAt: primary.lastHealthCheckAt ?? fallback.lastHealthCheckAt,
-  };
-}
-
-function shouldReadTenantFallback(
-  connection: TenantCalendlyConnectionState,
-): boolean {
-  return (
-    connection.accessToken === undefined ||
-    connection.refreshToken === undefined ||
-    connection.tokenExpiresAt === undefined ||
-    connection.refreshLockUntil === undefined ||
-    connection.lastRefreshedAt === undefined ||
-    connection.pkceVerifier === undefined ||
-    connection.organizationUri === undefined ||
-    connection.userUri === undefined ||
-    connection.webhookUri === undefined ||
-    connection.webhookSecret === undefined
-  );
 }
 
 function toStoredPatch(
@@ -188,6 +124,10 @@ function toStoredPatch(
   if ("lastHealthCheckAt" in patch) {
     storedPatch.lastHealthCheckAt = patch.lastHealthCheckAt;
   }
+  if ("webhookProvisioningStartedAt" in patch) {
+    storedPatch.webhookProvisioningStartedAt =
+      patch.webhookProvisioningStartedAt;
+  }
 
   return storedPatch;
 }
@@ -207,22 +147,7 @@ export async function getTenantCalendlyConnectionState(
   tenantId: Id<"tenants">,
 ): Promise<TenantCalendlyConnectionState | null> {
   const storedConnection = await getStoredTenantCalendlyConnection(ctx, tenantId);
-  if (!storedConnection) {
-    const tenant = await ctx.db.get(tenantId);
-    return tenant ? mapTenantFallback(tenant) : null;
-  }
-
-  const connectionState = mapStoredConnection(storedConnection);
-  if (!shouldReadTenantFallback(connectionState)) {
-    return connectionState;
-  }
-
-  const tenant = await ctx.db.get(tenantId);
-  if (!tenant) {
-    return connectionState;
-  }
-
-  return mergeConnectionState(connectionState, mapTenantFallback(tenant));
+  return storedConnection ? mapStoredConnection(storedConnection) : null;
 }
 
 export async function requireTenantCalendlyConnectionState(
@@ -252,20 +177,7 @@ export async function ensureTenantCalendlyConnection(
 
   const connectionId = await ctx.db.insert("tenantCalendlyConnections", {
     tenantId,
-    calendlyAccessToken: tenant.calendlyAccessToken,
-    calendlyRefreshToken: tenant.calendlyRefreshToken,
-    calendlyTokenExpiresAt: tenant.calendlyTokenExpiresAt,
-    calendlyRefreshLockUntil: tenant.calendlyRefreshLockUntil,
-    lastTokenRefreshAt: tenant.lastTokenRefreshAt,
-    codeVerifier: tenant.codeVerifier,
-    calendlyOrganizationUri: tenant.calendlyOrgUri,
-    calendlyUserUri: tenant.calendlyOwnerUri,
-    calendlyWebhookUri: tenant.calendlyWebhookUri,
-    calendlyWebhookSigningKey: tenant.webhookSigningKey,
-    connectionStatus:
-      tenant.calendlyAccessToken || tenant.calendlyRefreshToken
-        ? "connected"
-        : "disconnected",
+    connectionStatus: "disconnected",
   });
 
   const created = await ctx.db.get(connectionId);
@@ -281,11 +193,11 @@ export async function updateTenantCalendlyConnection(
   tenantId: Id<"tenants">,
   patch: TenantCalendlyConnectionPatch,
 ): Promise<void> {
-  const connection = await ensureTenantCalendlyConnection(ctx, tenantId);
   const storedPatch = toStoredPatch(patch);
   if (Object.keys(storedPatch).length === 0) {
     return;
   }
 
+  const connection = await ensureTenantCalendlyConnection(ctx, tenantId);
   await ctx.db.patch(connection._id, storedPatch);
 }

@@ -1,7 +1,10 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery } from "../_generated/server";
-import { updateTenantCalendlyConnection } from "../lib/tenantCalendlyConnection";
+import {
+  getTenantCalendlyConnectionState,
+  updateTenantCalendlyConnection,
+} from "../lib/tenantCalendlyConnection";
 
 const PROVISIONING_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -15,8 +18,9 @@ export const listStuckProvisioningTenants = internalQuery({
     for await (const tenant of ctx.db
       .query("tenants")
       .withIndex("by_status", (q) => q.eq("status", "provisioning_webhooks"))) {
+      const connection = await getTenantCalendlyConnectionState(ctx, tenant._id);
       const startedAt =
-        tenant.webhookProvisioningStartedAt ?? tenant._creationTime;
+        connection?.webhookProvisioningStartedAt ?? tenant._creationTime;
       if (startedAt >= cutoff) {
         continue;
       }

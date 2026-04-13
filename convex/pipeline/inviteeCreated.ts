@@ -1050,6 +1050,11 @@ export const process = internalMutation({
 					const closerChanged =
 						nextAssignedCloserId !==
 						targetOpportunity.assignedCloserId;
+					if (!nextAssignedCloserId) {
+						throw new Error(
+							"[Pipeline] Unable to resolve assigned closer for deterministic booking",
+						);
+					}
 
 					await ctx.db.patch(targetOpportunityId, {
 						status: "scheduled",
@@ -1334,6 +1339,11 @@ export const process = internalMutation({
 				assignedCloserId ?? autoRescheduleTarget.assignedCloserId;
 			const closerChanged =
 				nextAssignedCloserId !== autoRescheduleTarget.assignedCloserId;
+			if (!nextAssignedCloserId) {
+				throw new Error(
+					"[Pipeline] Unable to resolve assigned closer for auto-rescheduled booking",
+				);
+			}
 
 			await ctx.db.patch(reschedOpportunityId, {
 				status: "scheduled",
@@ -1474,6 +1484,15 @@ export const process = internalMutation({
 			);
 		}
 
+		const meetingAssignedCloserId = existingFollowUp
+			? assignedCloserId ?? existingFollowUp.assignedCloserId
+			: assignedCloserId;
+		if (!meetingAssignedCloserId) {
+			throw new Error(
+				"[Pipeline] Unable to resolve assigned closer for invitee.created",
+			);
+		}
+
 		let opportunityId: Id<"opportunities">;
 		if (existingFollowUp) {
 			if (!validateTransition(existingFollowUp.status, "scheduled")) {
@@ -1535,7 +1554,7 @@ export const process = internalMutation({
 			opportunityId = await ctx.db.insert("opportunities", {
 				tenantId,
 				leadId: lead._id,
-				assignedCloserId,
+				assignedCloserId: meetingAssignedCloserId,
 				hostCalendlyUserUri: hostUserUri,
 				hostCalendlyEmail,
 				hostCalendlyName,
@@ -1574,10 +1593,7 @@ export const process = internalMutation({
 		const meetingId = await ctx.db.insert("meetings", {
 			tenantId,
 			opportunityId,
-			assignedCloserId:
-				(existingFollowUp
-					? assignedCloserId ?? existingFollowUp.assignedCloserId
-					: assignedCloserId),
+			assignedCloserId: meetingAssignedCloserId,
 			calendlyEventUri,
 			calendlyInviteeUri,
 			zoomJoinUrl: meetingLocation.zoomJoinUrl,

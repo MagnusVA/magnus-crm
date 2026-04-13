@@ -59,7 +59,8 @@ type MeetingDetailData = {
     url: string;
   }> | null;
   payments: Array<
-    Doc<"paymentRecords"> & {
+    Omit<Doc<"paymentRecords">, "amount"> & {
+      amount: number;
       proofFileUrl: string | null;
       proofFileContentType: string | null;
       proofFileSize: number | null;

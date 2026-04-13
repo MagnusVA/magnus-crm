@@ -18,7 +18,7 @@ const SOCIAL_IDENTIFIER_TYPES = new Set<Doc<"leadIdentifiers">["type"]>([
 ]);
 
 function isActiveLikeLeadStatus(status: Doc<"leads">["status"]): boolean {
-  return status === undefined || status === "active";
+  return status === "active";
 }
 
 function buildSocialHandles(
@@ -109,12 +109,12 @@ async function executeMerge(
   }
   if (!isActiveLikeLeadStatus(sourceLead.status)) {
     throw new Error(
-      `Source lead cannot be merged from status "${sourceLead.status ?? "active"}"`,
+      `Source lead cannot be merged from status "${sourceLead.status}"`,
     );
   }
   if (!isActiveLikeLeadStatus(targetLead.status)) {
     throw new Error(
-      `Target lead cannot receive a merge from status "${targetLead.status ?? "active"}"`,
+      `Target lead cannot receive a merge from status "${targetLead.status}"`,
     );
   }
 
@@ -215,7 +215,7 @@ async function executeMerge(
     eventType: "lead.merged",
     source: "admin",
     actorUserId: userId,
-    fromStatus: sourceLead.status ?? "active",
+    fromStatus: sourceLead.status,
     toStatus: "merged",
     metadata: {
       targetLeadId,
