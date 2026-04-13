@@ -42,6 +42,93 @@ export type TenantCalendlyConnectionPatch = {
   webhookProvisioningStartedAt?: number | undefined;
 };
 
+function getLegacyStringField(
+  row: Record<string, unknown>,
+  field: string,
+): string | undefined {
+  const value = row[field];
+  return typeof value === "string" ? value : undefined;
+}
+
+function getLegacyNumberField(
+  row: Record<string, unknown>,
+  field: string,
+): number | undefined {
+  const value = row[field];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+export function getLegacyTenantCalendlyConnectionPatch(
+  tenant: Doc<"tenants">,
+): TenantCalendlyConnectionPatch | null {
+  const rawTenant = tenant as Record<string, unknown>;
+  const patch: TenantCalendlyConnectionPatch = {};
+
+  const accessToken = getLegacyStringField(rawTenant, "calendlyAccessToken");
+  const refreshToken = getLegacyStringField(rawTenant, "calendlyRefreshToken");
+  const tokenExpiresAt = getLegacyNumberField(rawTenant, "calendlyTokenExpiresAt");
+  const refreshLockUntil = getLegacyNumberField(
+    rawTenant,
+    "calendlyRefreshLockUntil",
+  );
+  const lastRefreshedAt = getLegacyNumberField(rawTenant, "lastTokenRefreshAt");
+  const pkceVerifier = getLegacyStringField(rawTenant, "codeVerifier");
+  const organizationUri = getLegacyStringField(rawTenant, "calendlyOrgUri");
+  const userUri = getLegacyStringField(rawTenant, "calendlyOwnerUri");
+  const webhookUri = getLegacyStringField(rawTenant, "calendlyWebhookUri");
+  const webhookSecret = getLegacyStringField(rawTenant, "webhookSigningKey");
+  const webhookProvisioningStartedAt = getLegacyNumberField(
+    rawTenant,
+    "webhookProvisioningStartedAt",
+  );
+
+  if (accessToken !== undefined) {
+    patch.accessToken = accessToken;
+  }
+  if (refreshToken !== undefined) {
+    patch.refreshToken = refreshToken;
+  }
+  if (tokenExpiresAt !== undefined) {
+    patch.tokenExpiresAt = tokenExpiresAt;
+  }
+  if (refreshLockUntil !== undefined) {
+    patch.refreshLockUntil = refreshLockUntil;
+  }
+  if (lastRefreshedAt !== undefined) {
+    patch.lastRefreshedAt = lastRefreshedAt;
+  }
+  if (pkceVerifier !== undefined) {
+    patch.pkceVerifier = pkceVerifier;
+  }
+  if (organizationUri !== undefined) {
+    patch.organizationUri = organizationUri;
+  }
+  if (userUri !== undefined) {
+    patch.userUri = userUri;
+  }
+  if (webhookUri !== undefined) {
+    patch.webhookUri = webhookUri;
+  }
+  if (webhookSecret !== undefined) {
+    patch.webhookSecret = webhookSecret;
+  }
+  if (webhookProvisioningStartedAt !== undefined) {
+    patch.webhookProvisioningStartedAt = webhookProvisioningStartedAt;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    return null;
+  }
+
+  patch.connectionStatus = deriveConnectionStatus({
+    accessToken: patch.accessToken,
+    refreshToken: patch.refreshToken,
+    connectionStatus: undefined,
+  });
+
+  return patch;
+}
+
 function deriveConnectionStatus(
   state: Pick<
     TenantCalendlyConnectionState,
@@ -83,7 +170,7 @@ function mapStoredConnection(
   };
 }
 
-function toStoredPatch(
+export function toStoredPatch(
   patch: TenantCalendlyConnectionPatch,
 ): Partial<StoredCalendlyConnection> {
   const storedPatch: Partial<StoredCalendlyConnection> = {};
@@ -175,9 +262,17 @@ export async function ensureTenantCalendlyConnection(
     throw new Error("Tenant not found");
   }
 
+  const legacyPatch = getLegacyTenantCalendlyConnectionPatch(tenant);
   const connectionId = await ctx.db.insert("tenantCalendlyConnections", {
     tenantId,
-    connectionStatus: "disconnected",
+    ...toStoredPatch(legacyPatch ?? {}),
+    connectionStatus:
+      legacyPatch?.connectionStatus ??
+      deriveConnectionStatus({
+        accessToken: legacyPatch?.accessToken,
+        refreshToken: legacyPatch?.refreshToken,
+        connectionStatus: legacyPatch?.connectionStatus,
+      }),
   });
 
   const created = await ctx.db.get(connectionId);

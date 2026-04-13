@@ -15,6 +15,10 @@ import type {
   QueryCtx,
 } from "../_generated/server";
 import { getString, isRecord } from "../lib/payloadExtraction";
+import {
+  getLegacyTenantCalendlyConnectionPatch,
+  toStoredPatch,
+} from "../lib/tenantCalendlyConnection";
 import { requireSystemAdminSession } from "../requireSystemAdmin";
 
 const RAW_EVENT_BACKFILL_PAGE_SIZE = 25;
@@ -78,6 +82,31 @@ type TenantCurrencyAudit = {
   tenantId: string;
 };
 
+type Phase6ReadinessReport = {
+  followUpsMissingType: number;
+  leadsInvalidCustomFields: number;
+  leadsMissingStatus: number;
+  meetingsMissingAssignedCloserId: number;
+  paymentsMissingAmountMinor: number;
+  paymentsMissingContextType: number;
+  paymentsWithLegacyAmountField: number;
+  sampleIds: {
+    followUpsMissingType: string[];
+    leadsInvalidCustomFields: string[];
+    leadsMissingStatus: string[];
+    meetingsMissingAssignedCloserId: string[];
+    paymentsMissingAmountMinor: string[];
+    paymentsMissingContextType: string[];
+    paymentsWithLegacyAmountField: string[];
+    tenantsMissingCalendlyConnection: string[];
+    tenantsWithLegacyOAuthFields: string[];
+    usersMissingIsActive: string[];
+  };
+  tenantsMissingCalendlyConnection: number;
+  tenantsWithLegacyOAuthFields: number;
+  usersMissingIsActive: number;
+};
+
 type TenantScopedTable =
   | "calendlyOrgMembers"
   | "closerUnavailability"
@@ -126,6 +155,31 @@ async function requireSystemAdmin(
 ): Promise<void> {
   const identity = await ctx.auth.getUserIdentity();
   requireSystemAdminSession(identity);
+}
+
+function hasDefinedField(
+  row: Record<string, unknown>,
+  field: string,
+): boolean {
+  return Object.prototype.hasOwnProperty.call(row, field) && row[field] !== undefined;
+}
+
+function getLegacyNumberField(
+  row: Record<string, unknown>,
+  field: string,
+): number | undefined {
+  const value = row[field];
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  return value;
+}
+
+function addSampleId(sampleIds: string[], id: string): void {
+  if (sampleIds.length < 10) {
+    sampleIds.push(id);
+  }
 }
 
 function normalizeFieldKey(question: string): string {
@@ -1033,6 +1087,140 @@ export const backfillMeetingFormResponses = action({
   },
 });
 
+function collectCandidateCloser(
+  candidateScores: Map<
+    Id<"users">,
+    { score: number; sources: Set<string> }
+  >,
+  closerId: Id<"users"> | undefined,
+  source: string,
+  score: number,
+): void {
+  if (!closerId) {
+    return;
+  }
+
+  const existing = candidateScores.get(closerId) ?? {
+    score: 0,
+    sources: new Set<string>(),
+  };
+  existing.score += score;
+  existing.sources.add(source);
+  candidateScores.set(closerId, existing);
+}
+
+async function inferOpportunityAssignedCloserId(
+  ctx: MutationCtx,
+  opportunity: Doc<"opportunities">,
+): Promise<{
+  assignedCloserId: Id<"users"> | null;
+  reason:
+    | "already_set"
+    | "host_calendly_user"
+    | "meeting_history"
+    | "follow_up_history"
+    | "payment_history"
+    | "ambiguous"
+    | "not_found";
+}> {
+  if (opportunity.assignedCloserId) {
+    return {
+      assignedCloserId: opportunity.assignedCloserId,
+      reason: "already_set",
+    };
+  }
+
+  const candidateScores = new Map<
+    Id<"users">,
+    { score: number; sources: Set<string> }
+  >();
+
+  if (opportunity.hostCalendlyUserUri) {
+    const hostUser = await ctx.db
+      .query("users")
+      .withIndex("by_tenantId_and_calendlyUserUri", (q) =>
+        q
+          .eq("tenantId", opportunity.tenantId)
+          .eq("calendlyUserUri", opportunity.hostCalendlyUserUri!),
+      )
+      .first();
+    collectCandidateCloser(
+      candidateScores,
+      hostUser?._id,
+      "host_calendly_user",
+      100,
+    );
+  }
+
+  const relatedMeetings = await ctx.db
+    .query("meetings")
+    .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunity._id))
+    .collect();
+  for (const meeting of relatedMeetings) {
+    collectCandidateCloser(
+      candidateScores,
+      meeting.assignedCloserId,
+      "meeting_history",
+      40,
+    );
+  }
+
+  const followUps = await ctx.db
+    .query("followUps")
+    .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunity._id))
+    .collect();
+  for (const followUp of followUps) {
+    collectCandidateCloser(
+      candidateScores,
+      followUp.closerId,
+      "follow_up_history",
+      20,
+    );
+  }
+
+  const payments = await ctx.db
+    .query("paymentRecords")
+    .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunity._id))
+    .collect();
+  for (const payment of payments) {
+    collectCandidateCloser(
+      candidateScores,
+      payment.closerId,
+      "payment_history",
+      10,
+    );
+  }
+
+  if (candidateScores.size === 0) {
+    return { assignedCloserId: null, reason: "not_found" };
+  }
+
+  const ranked = [...candidateScores.entries()].sort((a, b) => {
+    if (b[1].score !== a[1].score) {
+      return b[1].score - a[1].score;
+    }
+    return a[0].localeCompare(b[0]);
+  });
+
+  const [bestCloserId, bestMeta] = ranked[0];
+  const secondBestScore = ranked[1]?.[1].score ?? -1;
+  if (bestMeta.score === secondBestScore) {
+    return { assignedCloserId: null, reason: "ambiguous" };
+  }
+
+  const primarySource = [...bestMeta.sources][0] ?? "meeting_history";
+  switch (primarySource) {
+    case "host_calendly_user":
+      return { assignedCloserId: bestCloserId, reason: "host_calendly_user" };
+    case "follow_up_history":
+      return { assignedCloserId: bestCloserId, reason: "follow_up_history" };
+    case "payment_history":
+      return { assignedCloserId: bestCloserId, reason: "payment_history" };
+    default:
+      return { assignedCloserId: bestCloserId, reason: "meeting_history" };
+  }
+}
+
 export const backfillLeadStatus = mutation({
   args: {},
   handler: async (ctx) => {
@@ -1089,14 +1277,44 @@ export const backfillPaymentAmountMinor = mutation({
     await requireSystemAdmin(ctx);
 
     const payments = await ctx.db.query("paymentRecords").collect();
-    const updated = 0;
+    let updated = 0;
+    let skippedMissingLegacyAmount = 0;
+    const sampleIdsMissingLegacyAmount: string[] = [];
+
+    for (const payment of payments) {
+      if (payment.amountMinor !== undefined) {
+        continue;
+      }
+
+      const legacyAmount = getLegacyNumberField(
+        payment as Record<string, unknown>,
+        "amount",
+      );
+      if (legacyAmount === undefined) {
+        skippedMissingLegacyAmount += 1;
+        addSampleId(sampleIdsMissingLegacyAmount, payment._id);
+        continue;
+      }
+
+      await ctx.db.patch(payment._id, {
+        amountMinor: Math.round(legacyAmount * 100),
+      });
+      updated += 1;
+    }
 
     console.log("[Migration:2B] Payment amountMinor backfill complete", {
       updated,
+      skippedMissingLegacyAmount,
+      sampleIdsMissingLegacyAmount,
       total: payments.length,
     });
 
-    return { updated, total: payments.length };
+    return {
+      updated,
+      skippedMissingLegacyAmount,
+      sampleIdsMissingLegacyAmount,
+      total: payments.length,
+    };
   },
 });
 
@@ -1163,7 +1381,23 @@ export const backfillMeetingCloserId = mutation({
 
     const meetings = await ctx.db.query("meetings").collect();
     let updated = 0;
-    let skippedNoCloser = 0;
+    let opportunitiesPatched = 0;
+    const inferredByReason: Record<string, number> = {};
+    const skippedMeetings: Array<{
+      meetingId: string;
+      opportunityId: string;
+      reason: string;
+    }> = [];
+
+    const addSkippedMeeting = (entry: {
+      meetingId: string;
+      opportunityId: string;
+      reason: string;
+    }) => {
+      if (skippedMeetings.length < 25) {
+        skippedMeetings.push(entry);
+      }
+    };
 
     for (const meeting of meetings) {
       if (meeting.assignedCloserId !== undefined) {
@@ -1171,24 +1405,56 @@ export const backfillMeetingCloserId = mutation({
       }
 
       const opportunity = await ctx.db.get(meeting.opportunityId);
-      if (!opportunity?.assignedCloserId) {
-        skippedNoCloser += 1;
+      if (!opportunity) {
+        addSkippedMeeting({
+          meetingId: meeting._id,
+          opportunityId: meeting.opportunityId,
+          reason: "missing_opportunity",
+        });
         continue;
       }
 
+      const inferred = await inferOpportunityAssignedCloserId(ctx, opportunity);
+      if (!inferred.assignedCloserId) {
+        addSkippedMeeting({
+          meetingId: meeting._id,
+          opportunityId: opportunity._id,
+          reason: inferred.reason,
+        });
+        continue;
+      }
+
+      if (opportunity.assignedCloserId !== inferred.assignedCloserId) {
+        await ctx.db.patch(opportunity._id, {
+          assignedCloserId: inferred.assignedCloserId,
+          updatedAt: Date.now(),
+        });
+        opportunitiesPatched += 1;
+      }
+
       await ctx.db.patch(meeting._id, {
-        assignedCloserId: opportunity.assignedCloserId,
+        assignedCloserId: inferred.assignedCloserId,
       });
       updated += 1;
+      inferredByReason[inferred.reason] =
+        (inferredByReason[inferred.reason] ?? 0) + 1;
     }
 
     console.log("[Migration:2C] Meeting closer backfill complete", {
+      inferredByReason,
+      opportunitiesPatched,
+      skippedMeetings,
       updated,
-      skippedNoCloser,
       total: meetings.length,
     });
 
-    return { updated, skippedNoCloser, total: meetings.length };
+    return {
+      inferredByReason,
+      opportunitiesPatched,
+      skippedMeetings,
+      updated,
+      total: meetings.length,
+    };
   },
 });
 
@@ -1578,6 +1844,301 @@ export const auditOrphanedUserRefs = query({
       issues,
       totalIssues: issues.length,
     };
+  },
+});
+
+export const backfillTenantCalendlyConnections = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireSystemAdmin(ctx);
+
+    const tenants = await ctx.db.query("tenants").collect();
+    let createdDisconnected = 0;
+    let createdFromLegacy = 0;
+    let patchedExisting = 0;
+    let skippedExisting = 0;
+    const sampleCreated: string[] = [];
+    const samplePatched: string[] = [];
+
+    for (const tenant of tenants) {
+      const existing = await ctx.db
+        .query("tenantCalendlyConnections")
+        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenant._id))
+        .first();
+
+      const legacyPatch = getLegacyTenantCalendlyConnectionPatch(tenant);
+      const storedLegacyPatch = toStoredPatch(legacyPatch ?? {});
+
+      if (!existing) {
+        await ctx.db.insert("tenantCalendlyConnections", {
+          tenantId: tenant._id,
+          ...storedLegacyPatch,
+          connectionStatus: legacyPatch?.connectionStatus ?? "disconnected",
+        });
+
+        if (legacyPatch) {
+          createdFromLegacy += 1;
+        } else {
+          createdDisconnected += 1;
+        }
+        addSampleId(sampleCreated, tenant._id);
+        continue;
+      }
+
+      const repairPatch: Partial<Doc<"tenantCalendlyConnections">> = {};
+
+      if (
+        existing.calendlyAccessToken === undefined &&
+        storedLegacyPatch.calendlyAccessToken !== undefined
+      ) {
+        repairPatch.calendlyAccessToken = storedLegacyPatch.calendlyAccessToken;
+      }
+      if (
+        existing.calendlyRefreshToken === undefined &&
+        storedLegacyPatch.calendlyRefreshToken !== undefined
+      ) {
+        repairPatch.calendlyRefreshToken = storedLegacyPatch.calendlyRefreshToken;
+      }
+      if (
+        existing.calendlyTokenExpiresAt === undefined &&
+        storedLegacyPatch.calendlyTokenExpiresAt !== undefined
+      ) {
+        repairPatch.calendlyTokenExpiresAt =
+          storedLegacyPatch.calendlyTokenExpiresAt;
+      }
+      if (
+        existing.calendlyRefreshLockUntil === undefined &&
+        storedLegacyPatch.calendlyRefreshLockUntil !== undefined
+      ) {
+        repairPatch.calendlyRefreshLockUntil =
+          storedLegacyPatch.calendlyRefreshLockUntil;
+      }
+      if (
+        existing.lastTokenRefreshAt === undefined &&
+        storedLegacyPatch.lastTokenRefreshAt !== undefined
+      ) {
+        repairPatch.lastTokenRefreshAt = storedLegacyPatch.lastTokenRefreshAt;
+      }
+      if (
+        existing.codeVerifier === undefined &&
+        storedLegacyPatch.codeVerifier !== undefined
+      ) {
+        repairPatch.codeVerifier = storedLegacyPatch.codeVerifier;
+      }
+      if (
+        existing.calendlyOrganizationUri === undefined &&
+        storedLegacyPatch.calendlyOrganizationUri !== undefined
+      ) {
+        repairPatch.calendlyOrganizationUri =
+          storedLegacyPatch.calendlyOrganizationUri;
+      }
+      if (
+        existing.calendlyUserUri === undefined &&
+        storedLegacyPatch.calendlyUserUri !== undefined
+      ) {
+        repairPatch.calendlyUserUri = storedLegacyPatch.calendlyUserUri;
+      }
+      if (
+        existing.calendlyWebhookUri === undefined &&
+        storedLegacyPatch.calendlyWebhookUri !== undefined
+      ) {
+        repairPatch.calendlyWebhookUri = storedLegacyPatch.calendlyWebhookUri;
+      }
+      if (
+        existing.calendlyWebhookSigningKey === undefined &&
+        storedLegacyPatch.calendlyWebhookSigningKey !== undefined
+      ) {
+        repairPatch.calendlyWebhookSigningKey =
+          storedLegacyPatch.calendlyWebhookSigningKey;
+      }
+      if (
+        existing.webhookProvisioningStartedAt === undefined &&
+        storedLegacyPatch.webhookProvisioningStartedAt !== undefined
+      ) {
+        repairPatch.webhookProvisioningStartedAt =
+          storedLegacyPatch.webhookProvisioningStartedAt;
+      }
+
+      if (
+        legacyPatch?.connectionStatus !== undefined &&
+        (existing.connectionStatus === undefined ||
+          (existing.connectionStatus === "disconnected" &&
+            existing.calendlyAccessToken === undefined &&
+            existing.calendlyRefreshToken === undefined &&
+            legacyPatch.connectionStatus !== "disconnected"))
+      ) {
+        repairPatch.connectionStatus = legacyPatch.connectionStatus;
+      }
+
+      if (Object.keys(repairPatch).length === 0) {
+        skippedExisting += 1;
+        continue;
+      }
+
+      await ctx.db.patch(existing._id, repairPatch);
+      patchedExisting += 1;
+      addSampleId(samplePatched, tenant._id);
+    }
+
+    console.log("[Migration:5A] Tenant Calendly connections backfill complete", {
+      createdDisconnected,
+      createdFromLegacy,
+      patchedExisting,
+      sampleCreated,
+      samplePatched,
+      skippedExisting,
+      total: tenants.length,
+    });
+
+    return {
+      createdDisconnected,
+      createdFromLegacy,
+      patchedExisting,
+      sampleCreated,
+      samplePatched,
+      skippedExisting,
+      total: tenants.length,
+    };
+  },
+});
+
+export const auditPhase6Readiness = query({
+  args: {},
+  handler: async (ctx): Promise<Phase6ReadinessReport> => {
+    await requireSystemAdmin(ctx);
+
+    const report: Phase6ReadinessReport = {
+      followUpsMissingType: 0,
+      leadsInvalidCustomFields: 0,
+      leadsMissingStatus: 0,
+      meetingsMissingAssignedCloserId: 0,
+      paymentsMissingAmountMinor: 0,
+      paymentsMissingContextType: 0,
+      paymentsWithLegacyAmountField: 0,
+      sampleIds: {
+        followUpsMissingType: [],
+        leadsInvalidCustomFields: [],
+        leadsMissingStatus: [],
+        meetingsMissingAssignedCloserId: [],
+        paymentsMissingAmountMinor: [],
+        paymentsMissingContextType: [],
+        paymentsWithLegacyAmountField: [],
+        tenantsMissingCalendlyConnection: [],
+        tenantsWithLegacyOAuthFields: [],
+        usersMissingIsActive: [],
+      },
+      tenantsMissingCalendlyConnection: 0,
+      tenantsWithLegacyOAuthFields: 0,
+      usersMissingIsActive: 0,
+    };
+
+    const tenants = await ctx.db.query("tenants").collect();
+    const connectionTenantIds = new Set<Id<"tenants">>();
+    for await (const connection of ctx.db.query("tenantCalendlyConnections")) {
+      connectionTenantIds.add(connection.tenantId);
+    }
+
+    const deprecatedTenantOAuthFields = [
+      "calendlyAccessToken",
+      "calendlyRefreshToken",
+      "calendlyTokenExpiresAt",
+      "calendlyRefreshLockUntil",
+      "lastTokenRefreshAt",
+      "codeVerifier",
+      "calendlyOrgUri",
+      "calendlyOwnerUri",
+      "calendlyWebhookUri",
+      "webhookSigningKey",
+      "webhookProvisioningStartedAt",
+    ] as const;
+
+    for (const tenant of tenants) {
+      if (!connectionTenantIds.has(tenant._id)) {
+        report.tenantsMissingCalendlyConnection += 1;
+        addSampleId(
+          report.sampleIds.tenantsMissingCalendlyConnection,
+          tenant._id,
+        );
+      }
+
+      const rawTenant = tenant as Record<string, unknown>;
+      if (
+        deprecatedTenantOAuthFields.some((field) =>
+          hasDefinedField(rawTenant, field),
+        )
+      ) {
+        report.tenantsWithLegacyOAuthFields += 1;
+        addSampleId(report.sampleIds.tenantsWithLegacyOAuthFields, tenant._id);
+      }
+    }
+
+    for await (const user of ctx.db.query("users")) {
+      if (user.isActive === undefined) {
+        report.usersMissingIsActive += 1;
+        addSampleId(report.sampleIds.usersMissingIsActive, user._id);
+      }
+    }
+
+    for await (const lead of ctx.db.query("leads")) {
+      if (lead.status === undefined) {
+        report.leadsMissingStatus += 1;
+        addSampleId(report.sampleIds.leadsMissingStatus, lead._id);
+      }
+
+      if (lead.customFields === undefined) {
+        continue;
+      }
+
+      if (
+        typeof lead.customFields !== "object" ||
+        lead.customFields === null ||
+        Array.isArray(lead.customFields)
+      ) {
+        report.leadsInvalidCustomFields += 1;
+        addSampleId(report.sampleIds.leadsInvalidCustomFields, lead._id);
+        continue;
+      }
+
+      const values = Object.values(lead.customFields as Record<string, unknown>);
+      if (values.some((value) => typeof value !== "string")) {
+        report.leadsInvalidCustomFields += 1;
+        addSampleId(report.sampleIds.leadsInvalidCustomFields, lead._id);
+      }
+    }
+
+    for await (const meeting of ctx.db.query("meetings")) {
+      if (meeting.assignedCloserId === undefined) {
+        report.meetingsMissingAssignedCloserId += 1;
+        addSampleId(report.sampleIds.meetingsMissingAssignedCloserId, meeting._id);
+      }
+    }
+
+    for await (const followUp of ctx.db.query("followUps")) {
+      if (followUp.type === undefined) {
+        report.followUpsMissingType += 1;
+        addSampleId(report.sampleIds.followUpsMissingType, followUp._id);
+      }
+    }
+
+    for await (const payment of ctx.db.query("paymentRecords")) {
+      if (payment.amountMinor === undefined) {
+        report.paymentsMissingAmountMinor += 1;
+        addSampleId(report.sampleIds.paymentsMissingAmountMinor, payment._id);
+      }
+
+      if (payment.contextType === undefined) {
+        report.paymentsMissingContextType += 1;
+        addSampleId(report.sampleIds.paymentsMissingContextType, payment._id);
+      }
+
+      if (hasDefinedField(payment as Record<string, unknown>, "amount")) {
+        report.paymentsWithLegacyAmountField += 1;
+        addSampleId(report.sampleIds.paymentsWithLegacyAmountField, payment._id);
+      }
+    }
+
+    console.log("[Audit:6] Phase 6 readiness", report);
+    return report;
   },
 });
 

@@ -193,6 +193,7 @@ pnpm exec convex deploy --typecheck enable
 Then run the verification block:
 
 ```bash
+npx convex run admin/migrations:auditPhase6Readiness '{}' --prod --identity "$ADMIN_IDENTITY"
 npx convex run admin/migrations:auditOrphanedTenantRows '{}' --prod --identity "$ADMIN_IDENTITY"
 npx convex run admin/migrations:auditOrphanedUserRefs '{}' --prod --identity "$ADMIN_IDENTITY"
 npx convex run admin/migrations:auditPaymentCurrencies '{}' --prod --identity "$ADMIN_IDENTITY"
@@ -202,10 +203,8 @@ Do **not** run the deploy commands above until the Phase 6 preflight validation
 in the ordered runbook below succeeds.
 
 If you want a full reconciliation pass, the complete ordered list is below. The
-Phase 2 mutating functions are written to be safe to re-run, with one
-important exception: treat `backfillPaymentAmountMinor` as **historical only**
-in the current repo and prove `amountMinor` coverage from live data before
-deploying Phase 6.
+Phase 2 and Phase 5 mutating functions are written to be safe to re-run as
+reconciliation commands if the Phase 6 preflight finds drift.
 
 ## Full Ordered Runbook
 
@@ -229,6 +228,7 @@ What it changes:
 ```bash
 npx convex run admin/migrations:backfillLeadStatus '{}' --prod --identity "$ADMIN_IDENTITY"
 npx convex run admin/migrations:backfillUserIsActive '{}' --prod --identity "$ADMIN_IDENTITY"
+npx convex run admin/migrations:backfillPaymentAmountMinor '{}' --prod --identity "$ADMIN_IDENTITY"
 npx convex run admin/migrations:backfillPaymentContextType '{}' --prod --identity "$ADMIN_IDENTITY"
 npx convex run admin/migrations:backfillFollowUpType '{}' --prod --identity "$ADMIN_IDENTITY"
 ```
@@ -237,15 +237,9 @@ What they change:
 
 - `leads.status`: fill missing values with `"active"`
 - `users.isActive`: fill missing values with `true`
+- `paymentRecords.amountMinor`: derive from legacy `amount` when older rows still exist
 - `paymentRecords.contextType`: derive from linked `opportunityId` vs `customerId`
 - `followUps.type`: infer `"scheduling_link"` vs `"manual_reminder"`
-
-Historical note:
-
-- `paymentRecords.amountMinor` was originally backfilled from legacy `amount`
-  during the Phase 2 rollout
-- for the current Phase 6 rollout, validate that those values already exist in
-  production before deploying the narrowed schema
 
 ### Phase 2C — relationship / aggregate backfills
 
@@ -320,19 +314,21 @@ Operational expectation after deploy:
 - payment queries read `amountMinor`
 - closer scheduling reads `meetings.assignedCloserId`
 
-### Phase 5A — historical prerequisite
+### Phase 5A — Calendly connection reconciliation
 
-This was the one-shot backfill that copied legacy tenant-level Calendly state
-into `tenantCalendlyConnections` during the Phase 5 rollout.
+This is the one-shot recovery/backfill that ensures every tenant has exactly one
+`tenantCalendlyConnections` row and repairs rows that were created empty while
+legacy OAuth/webhook state still existed on `tenants`.
 
-For the Phase 6 rollout, treat it as a **required precondition**, not a command
-you should expect to run from the current branch:
+```bash
+npx convex run admin/migrations:backfillTenantCalendlyConnections '{}' --prod --identity "$ADMIN_IDENTITY"
+```
 
-- every tenant must already have exactly one `tenantCalendlyConnections` row
-- that row must contain the OAuth/webhook state the Phase 5 readers now depend on
+What it changes:
 
-If the Phase 6 preflight shows missing connection rows, stop and restore or
-recreate the original Phase 5A backfill before deploying the narrowed schema.
+- creates a disconnected `tenantCalendlyConnections` row for any tenant missing one
+- copies legacy OAuth/webhook fields from `tenants` into newly created rows
+- repairs existing connection rows by filling only missing fields from legacy tenant data
 
 ### Phase 6A — production preflight validation
 
@@ -446,6 +442,30 @@ EOF
 If this check fails, do **not** deploy Phase 6. Repair the missing Phase 2 or
 Phase 5 data state first, then rerun the preflight.
 
+The server-side readiness audit should agree with the snapshot-based preflight:
+
+```bash
+npx convex run admin/migrations:auditPhase6Readiness '{}' --prod --identity "$ADMIN_IDENTITY"
+```
+
+If that audit reports missing `tenantCalendlyConnections`, rerun:
+
+```bash
+npx convex run admin/migrations:backfillTenantCalendlyConnections '{}' --prod --identity "$ADMIN_IDENTITY"
+```
+
+If that audit reports missing `meetings.assignedCloserId`, rerun:
+
+```bash
+npx convex run admin/migrations:backfillMeetingCloserId '{}' --prod --identity "$ADMIN_IDENTITY"
+```
+
+If it reports missing `paymentRecords.amountMinor`, rerun:
+
+```bash
+npx convex run admin/migrations:backfillPaymentAmountMinor '{}' --prod --identity "$ADMIN_IDENTITY"
+```
+
 ### Phase 6B — production deploy
 
 Once the preflight passes, run the narrowing deploy:
@@ -467,6 +487,7 @@ What this does:
 Re-run the non-mutating audits and capture fresh after snapshots:
 
 ```bash
+npx convex run admin/migrations:auditPhase6Readiness '{}' --prod --identity "$ADMIN_IDENTITY"
 npx convex run admin/migrations:auditOrphanedTenantRows '{}' --prod --identity "$ADMIN_IDENTITY"
 npx convex run admin/migrations:auditOrphanedUserRefs '{}' --prod --identity "$ADMIN_IDENTITY"
 npx convex run admin/migrations:auditPaymentCurrencies '{}' --prod --identity "$ADMIN_IDENTITY"
@@ -515,9 +536,9 @@ After the run, verify these outcomes from the CLI output plus the before/after t
 - For **your current environment**, the Phase 2 commands are primarily a **reference and reconciliation** set because you already ran them.
 - For the current repo state, the Phase 6 rollout is mainly a **validation +
   deploy** exercise, not a new one-shot backfill.
-- If the Phase 6 preflight fails on missing `tenantCalendlyConnections` rows or
-  missing `paymentRecords.amountMinor`, do not deploy. Restore the needed
-  one-shot migration path first, then rerun the preflight.
+- If the Phase 6 preflight fails on missing `tenantCalendlyConnections` rows,
+  missing `meetings.assignedCloserId`, or missing `paymentRecords.amountMinor`,
+  run the corresponding reconciliation command first, then rerun the preflight.
 - Keep the `.tmp/v05b-migrations/before`, `.tmp/v05b-migrations/after`,
   `.tmp/v05b-phase6/preflight`, and `.tmp/v05b-phase6/after` snapshots until
   Phase 6 is fully accepted in production.
