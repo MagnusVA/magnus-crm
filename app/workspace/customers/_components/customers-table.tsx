@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { formatDistanceToNow } from "date-fns";
 import { ChevronRightIcon } from "lucide-react";
+import { formatCurrency } from "@/lib/format-currency";
 import type { Id } from "@/convex/_generated/dataModel";
 import { CustomerStatusBadge } from "./customer-status-badge";
 
@@ -100,7 +101,7 @@ export function CustomersTable({
                   })}
                 </TableCell>
                 <TableCell className="text-right font-medium">
-                  {customer.currency} {customer.totalPaid.toFixed(2)}
+                  {formatCurrency(customer.totalPaid, customer.currency)}
                 </TableCell>
                 <TableCell>
                   <CustomerStatusBadge status={customer.status} />

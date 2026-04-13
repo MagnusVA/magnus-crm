@@ -2,7 +2,7 @@
 
 import { useCallback, useState, Suspense } from "react";
 import { useSearchParams, usePathname } from "next/navigation";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -128,11 +128,17 @@ function OpportunitiesTable({
 	statusFilter: OpportunityStatus | undefined;
 	onClearFilter: () => void;
 }) {
-	const opportunities = useQuery(api.closer.pipeline.listMyOpportunities, {
-		statusFilter,
-	});
+	const {
+		results: opportunities,
+		status: paginationStatus,
+		loadMore,
+	} = usePaginatedQuery(
+		api.closer.pipeline.listMyOpportunities,
+		{ statusFilter },
+		{ initialNumItems: 25 },
+	);
 
-	if (opportunities === undefined) {
+	if (paginationStatus === "LoadingFirstPage") {
 		return <TableSkeleton />;
 	}
 
@@ -160,5 +166,11 @@ function OpportunitiesTable({
 		);
 	}
 
-	return <OpportunityTable opportunities={opportunities} />;
+	return (
+		<OpportunityTable
+			opportunities={opportunities}
+			canLoadMore={paginationStatus === "CanLoadMore"}
+			onLoadMore={() => loadMore(25)}
+		/>
+	);
 }

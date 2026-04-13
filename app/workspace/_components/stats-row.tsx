@@ -1,25 +1,60 @@
 "use client";
 
 import { StatsCard } from "./stats-card";
-import { UsersIcon, TrendingUpIcon, CalendarIcon, TrophyIcon } from "lucide-react";
+import { formatCurrency } from "@/lib/format-currency";
+import {
+  UsersIcon,
+  TrendingUpIcon,
+  CalendarIcon,
+  TrophyIcon,
+  DollarSignIcon,
+} from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
-interface Stats {
+/** All-time aggregate stats from tenantStats summary doc. */
+interface StaticStats {
   totalClosers: number;
   unmatchedClosers: number;
   totalTeamMembers: number;
   activeOpportunities: number;
-  meetingsToday: number;
-  wonDeals: number;
   totalOpportunities: number;
-  revenueLogged?: number;
-  paymentRecordsLogged?: number;
+}
+
+/** Time-period scoped stats from getTimePeriodStats. */
+interface PeriodStats {
+  newOpportunities: number;
+  meetingsInPeriod: number;
+  wonDealsInPeriod: number;
+  revenueInPeriod: number;
+  paymentCountInPeriod: number;
+  newCustomers: number;
 }
 
 interface StatsRowProps {
-  stats: Stats;
+  stats: StaticStats;
+  periodStats: PeriodStats | null;
+  periodLabel: string;
 }
 
-export function StatsRow({ stats }: StatsRowProps) {
+function PeriodStatCardSkeleton() {
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="size-5 rounded" />
+        </div>
+      </CardHeader>
+      <CardContent>
+        <Skeleton className="h-8 w-12" />
+        <Skeleton className="mt-2 h-3 w-28" />
+      </CardContent>
+    </Card>
+  );
+}
+
+export function StatsRow({ stats, periodStats, periodLabel }: StatsRowProps) {
   const activePercent =
     stats.totalOpportunities > 0
       ? Math.round(
@@ -28,7 +63,12 @@ export function StatsRow({ stats }: StatsRowProps) {
       : 0;
 
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4" aria-live="polite" aria-atomic="true">
+    <div
+      className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      {/* Static: current team size */}
       <StatsCard
         icon={UsersIcon}
         label="Total Closers"
@@ -41,6 +81,7 @@ export function StatsRow({ stats }: StatsRowProps) {
         variant={stats.unmatchedClosers > 0 ? "warning" : "default"}
       />
 
+      {/* Static: current pipeline state */}
       <StatsCard
         icon={TrendingUpIcon}
         label="Active Opportunities"
@@ -48,20 +89,52 @@ export function StatsRow({ stats }: StatsRowProps) {
         subtext={`${activePercent}% of ${stats.totalOpportunities} total`}
       />
 
-      <StatsCard
-        icon={CalendarIcon}
-        label="Meetings Today"
-        value={stats.meetingsToday}
-        subtext={stats.meetingsToday > 0 ? "Scheduled" : "No meetings"}
-      />
+      {/* Period-scoped: meetings in selected window */}
+      {periodStats ? (
+        <StatsCard
+          icon={CalendarIcon}
+          label="Meetings"
+          value={periodStats.meetingsInPeriod}
+          subtext={periodLabel}
+        />
+      ) : (
+        <PeriodStatCardSkeleton />
+      )}
 
-      <StatsCard
-        icon={TrophyIcon}
-        label="Won Deals"
-        value={stats.wonDeals}
-        subtext="Payments received"
-        variant="success"
-      />
+      {/* Period-scoped: won deals in selected window */}
+      {periodStats ? (
+        <StatsCard
+          icon={TrophyIcon}
+          label="Won Deals"
+          value={periodStats.wonDealsInPeriod}
+          subtext={periodLabel}
+          variant={periodStats.wonDealsInPeriod > 0 ? "success" : "default"}
+        />
+      ) : (
+        <PeriodStatCardSkeleton />
+      )}
+
+      {/* Period-scoped: revenue in selected window */}
+      {periodStats ? (
+        periodStats.revenueInPeriod > 0 ? (
+          <StatsCard
+            icon={DollarSignIcon}
+            label="Revenue"
+            value={formatCurrency(periodStats.revenueInPeriod, "USD")}
+            subtext={`${periodStats.paymentCountInPeriod} payment${periodStats.paymentCountInPeriod !== 1 ? "s" : ""} ${periodLabel.toLowerCase()}`}
+            variant="success"
+          />
+        ) : (
+          <StatsCard
+            icon={DollarSignIcon}
+            label="Revenue"
+            value={formatCurrency(0, "USD")}
+            subtext={periodLabel}
+          />
+        )
+      ) : (
+        <PeriodStatCardSkeleton />
+      )}
     </div>
   );
 }

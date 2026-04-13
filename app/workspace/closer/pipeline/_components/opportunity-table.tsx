@@ -8,6 +8,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
 import { SortableHeader } from "@/components/sortable-header";
 import { useTableSort } from "@/hooks/use-table-sort";
 import { OpportunityRow } from "./opportunity-row";
@@ -24,6 +25,8 @@ type Opportunity = {
 
 type OpportunityTableProps = {
 	opportunities: Opportunity[];
+	canLoadMore: boolean;
+	onLoadMore: () => void;
 };
 
 /**
@@ -34,7 +37,11 @@ type OpportunityTableProps = {
  * Follows web-design-guidelines: `<th>` with proper `scope`, tabular-nums
  * on date columns, keyboard-navigable action buttons.
  */
-export function OpportunityTable({ opportunities }: OpportunityTableProps) {
+export function OpportunityTable({
+	opportunities,
+	canLoadMore,
+	onLoadMore,
+}: OpportunityTableProps) {
 	const comparators = useMemo(
 		() => ({
 			lead: (a: Opportunity, b: Opportunity) =>
@@ -52,6 +59,7 @@ export function OpportunityTable({ opportunities }: OpportunityTableProps) {
 	const { sorted, sort, toggle } = useTableSort(opportunities, comparators);
 
 	return (
+		<div className="flex flex-col gap-4">
 		<Table>
 			<TableHeader>
 				<TableRow>
@@ -98,5 +106,14 @@ export function OpportunityTable({ opportunities }: OpportunityTableProps) {
 				))}
 			</TableBody>
 		</Table>
+
+		{canLoadMore && (
+			<div className="flex justify-center py-4">
+				<Button variant="outline" size="sm" onClick={onLoadMore}>
+					Load more
+				</Button>
+			</div>
+		)}
+		</div>
 	);
 }

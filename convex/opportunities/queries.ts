@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalQuery, query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
@@ -45,10 +46,11 @@ export const getById = internalQuery({
  */
 export const listOpportunitiesForAdmin = query({
   args: {
+    paginationOpts: paginationOptsValidator,
     statusFilter: v.optional(opportunityStatusValidator),
     assignedCloserId: v.optional(v.id("users")),
   },
-  handler: async (ctx, { statusFilter, assignedCloserId }) => {
+  handler: async (ctx, { paginationOpts, statusFilter, assignedCloserId }) => {
     console.log("[Opportunities] listOpportunitiesForAdmin called", { statusFilter: statusFilter ?? "all", assignedCloserId: assignedCloserId ?? "none" });
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
@@ -66,7 +68,7 @@ export const listOpportunitiesForAdmin = query({
       }
     }
 
-    const opportunities: Array<Doc<"opportunities">> =
+    const paginatedResult =
       statusFilter && assignedCloserId
         ? await ctx.db
             .query("opportunities")
@@ -77,7 +79,7 @@ export const listOpportunitiesForAdmin = query({
                 .eq("status", statusFilter),
             )
             .order("desc")
-            .take(200)
+            .paginate(paginationOpts)
         : statusFilter
           ? await ctx.db
               .query("opportunities")
@@ -85,7 +87,7 @@ export const listOpportunitiesForAdmin = query({
                 q.eq("tenantId", tenantId).eq("status", statusFilter),
               )
               .order("desc")
-              .take(200)
+              .paginate(paginationOpts)
           : assignedCloserId
             ? await ctx.db
                 .query("opportunities")
@@ -93,12 +95,14 @@ export const listOpportunitiesForAdmin = query({
                   q.eq("tenantId", tenantId).eq("assignedCloserId", assignedCloserId),
                 )
                 .order("desc")
-                .take(200)
+                .paginate(paginationOpts)
             : await ctx.db
                 .query("opportunities")
                 .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
                 .order("desc")
-                .take(200);
+                .paginate(paginationOpts);
+
+    const opportunities = paginatedResult.page;
 
     const leadIds = new Set<Id<"leads">>();
     const closerIds = new Set<Id<"users">>();
@@ -239,6 +243,9 @@ export const listOpportunitiesForAdmin = query({
     );
 
     console.log("[Opportunities] listOpportunitiesForAdmin result", { count: enriched.length });
-    return enriched.sort((a, b) => b.updatedAt - a.updatedAt);
+    return {
+      ...paginatedResult,
+      page: enriched.sort((a, b) => b.updatedAt - a.updatedAt),
+    };
   },
 });

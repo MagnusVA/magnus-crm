@@ -195,6 +195,7 @@ export function PaymentFormDialog({
 
       // Log the payment via Convex mutation
       const parsedAmount = parseFloat(values.amount);
+      const amountMinor = Math.round(parsedAmount * 100);
       await logPayment({
         opportunityId,
         meetingId,
@@ -210,7 +211,7 @@ export function PaymentFormDialog({
       posthog.capture("payment_logged", {
         opportunity_id: opportunityId,
         meeting_id: meetingId,
-        amount: parsedAmount,
+        amount_minor: amountMinor,
         currency: values.currency,
         provider: values.provider,
         has_reference_code: Boolean(values.referenceCode),
