@@ -8,6 +8,10 @@ import { validateTransition } from "../lib/statusTransitions";
 import { getStoredMeetingJoinUrl } from "../lib/meetingLocation";
 import { emitDomainEvent } from "../lib/domainEvents";
 import {
+  replaceMeetingAggregate,
+  replaceOpportunityAggregate,
+} from "../reporting/writeHooks";
+import {
   isActiveOpportunityStatus,
   updateTenantStats,
 } from "../lib/tenantStatsHelper";
@@ -28,6 +32,14 @@ async function loadMeetingContext(
   }
 
   return { meeting, opportunity };
+}
+
+function normalizeRequiredString(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("Reason is required");
+  }
+  return trimmed;
 }
 
 /**
@@ -97,16 +109,22 @@ export const startMeeting = mutation({
     }
 
     const now = Date.now();
+    const lateStartDurationMs = Math.max(0, now - meeting.scheduledAt);
+    const oldOpportunity = opportunity;
+    const oldMeeting = meeting;
     console.log("[Closer:Meeting] startMeeting transitioning to in_progress", { meetingId, opportunityId: opportunity._id });
     await ctx.db.patch(opportunity._id, {
       status: "in_progress",
       updatedAt: now,
     });
+    await replaceOpportunityAggregate(ctx, oldOpportunity, opportunity._id);
 
     await ctx.db.patch(meetingId, {
       status: "in_progress",
       startedAt: now,
+      lateStartDurationMs,
     });
+    await replaceMeetingAggregate(ctx, oldMeeting, meetingId);
     await updateOpportunityMeetingRefs(ctx, opportunity._id);
     await emitDomainEvent(ctx, {
       tenantId,
@@ -133,7 +151,98 @@ export const startMeeting = mutation({
 
     const joinUrl = getStoredMeetingJoinUrl(meeting);
     console.log("[Closer:Meeting] startMeeting completed", { hasMeetingUrl: !!joinUrl });
-    return { meetingJoinUrl: joinUrl ?? null };
+    return {
+      meetingJoinUrl: joinUrl ?? null,
+      lateStartDurationMs,
+    };
+  },
+});
+
+export const setLateStartReason = mutation({
+  args: {
+    meetingId: v.id("meetings"),
+    reason: v.string(),
+  },
+  handler: async (ctx, { meetingId, reason }) => {
+    console.log("[Closer:Meeting] setLateStartReason called", { meetingId });
+    const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
+    const { meeting, opportunity } = await loadMeetingContext(ctx, meetingId, tenantId);
+
+    if (opportunity.assignedCloserId !== userId) {
+      throw new Error("Not your meeting");
+    }
+    if (meeting.status !== "in_progress") {
+      throw new Error("Meeting must be in progress to set late start reason");
+    }
+    if (!meeting.lateStartDurationMs || meeting.lateStartDurationMs <= 0) {
+      throw new Error("Meeting was not started late");
+    }
+
+    await ctx.db.patch(meetingId, {
+      lateStartReason: normalizeRequiredString(reason),
+    });
+    console.log("[Closer:Meeting] setLateStartReason completed", { meetingId });
+  },
+});
+
+export const stopMeeting = mutation({
+  args: { meetingId: v.id("meetings") },
+  handler: async (ctx, { meetingId }) => {
+    console.log("[Closer:Meeting] stopMeeting called", { meetingId });
+    const { userId, tenantId, role } = await requireTenantUser(ctx, [
+      "closer",
+      "tenant_master",
+      "tenant_admin",
+    ]);
+    const { meeting, opportunity } = await loadMeetingContext(ctx, meetingId, tenantId);
+
+    if (role === "closer" && opportunity.assignedCloserId !== userId) {
+      throw new Error("Not your meeting");
+    }
+    if (meeting.status !== "in_progress") {
+      throw new Error(`Cannot stop a meeting with status "${meeting.status}"`);
+    }
+
+    const now = Date.now();
+    const scheduledEndMs =
+      meeting.scheduledAt + meeting.durationMinutes * 60 * 1000;
+    const overranDurationMs = Math.max(0, now - scheduledEndMs);
+
+    await ctx.db.patch(meetingId, {
+      status: "completed",
+      stoppedAt: now,
+      completedAt: now,
+      overranDurationMs,
+    });
+    await replaceMeetingAggregate(ctx, meeting, meetingId);
+    await updateOpportunityMeetingRefs(ctx, opportunity._id);
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "meeting",
+      entityId: meetingId,
+      eventType: "meeting.stopped",
+      source: role === "closer" ? "closer" : "admin",
+      actorUserId: userId,
+      fromStatus: meeting.status,
+      toStatus: "completed",
+      occurredAt: now,
+      metadata: {
+        actualDurationMs:
+          meeting.startedAt !== undefined ? now - meeting.startedAt : undefined,
+        overranDurationMs,
+      },
+    });
+
+    console.log("[Closer:Meeting] stopMeeting completed", {
+      meetingId,
+      overranDurationMs,
+      wasOverran: overranDurationMs > 0,
+    });
+
+    return {
+      overranDurationMs,
+      wasOverran: overranDurationMs > 0,
+    };
   },
 });
 
@@ -186,6 +295,7 @@ export const markAsLost = mutation({
     }
 
     await ctx.db.patch(opportunityId, patch);
+    await replaceOpportunityAggregate(ctx, opportunity, opportunityId);
     await updateTenantStats(ctx, tenantId, {
       activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? -1 : 0,
       lostDeals: 1,

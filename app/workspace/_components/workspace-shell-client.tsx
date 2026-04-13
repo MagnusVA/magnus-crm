@@ -23,11 +23,16 @@ import {
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 import {
+  ActivityIcon,
+  BarChart3Icon,
+  ClockIcon,
   ContactIcon,
+  DollarSignIcon,
   KanbanIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   SettingsIcon,
+  TrendingUpIcon,
   type LucideIcon,
   UserCircleIcon,
   UsersIcon,
@@ -76,6 +81,14 @@ const closerNavItems: NavItem[] = [
   { href: "/workspace/closer/pipeline", label: "My Pipeline", icon: KanbanIcon },
   { href: "/workspace/leads", label: "Leads", icon: ContactIcon },
   { href: "/workspace/customers", label: "Customers", icon: UsersRoundIcon },
+];
+
+const reportNavItems: NavItem[] = [
+  { href: "/workspace/reports/team", label: "Team Performance", icon: BarChart3Icon },
+  { href: "/workspace/reports/revenue", label: "Revenue", icon: DollarSignIcon },
+  { href: "/workspace/reports/pipeline", label: "Pipeline Health", icon: ActivityIcon },
+  { href: "/workspace/reports/leads", label: "Leads & Conversions", icon: TrendingUpIcon },
+  { href: "/workspace/reports/activity", label: "Activity Feed", icon: ClockIcon },
 ];
 
 // ---------------------------------------------------------------------------
@@ -255,6 +268,34 @@ function WorkspaceShellClientInner({
               </SidebarMenu>
             </SidebarGroupContent>
           </SidebarGroup>
+
+          {/* Reports section — admin only (UI visibility; layout.tsx enforces auth) */}
+          {isAdmin && (
+            <SidebarGroup>
+              <SidebarGroupLabel>Reports</SidebarGroupLabel>
+              <SidebarGroupContent>
+                <SidebarMenu>
+                  {reportNavItems.map((item) => {
+                    const isActive = pathname.startsWith(item.href);
+                    return (
+                      <SidebarMenuItem key={item.href}>
+                        <SidebarMenuButton
+                          asChild
+                          isActive={isActive}
+                          tooltip={item.label}
+                        >
+                          <Link href={item.href}>
+                            <item.icon />
+                            <span>{item.label}</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          )}
         </SidebarContent>
 
         {/* Sidebar footer — user info and sign out */}

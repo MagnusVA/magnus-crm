@@ -14,6 +14,10 @@ import type {
   MutationCtx,
   QueryCtx,
 } from "../_generated/server";
+import {
+  extractQuestionsAndAnswers,
+  writeMeetingFormResponses,
+} from "../lib/meetingFormResponses";
 import { getString, isRecord } from "../lib/payloadExtraction";
 import {
   getLegacyTenantCalendlyConnectionPatch,
@@ -182,55 +186,6 @@ function addSampleId(sampleIds: string[], id: string): void {
   }
 }
 
-function normalizeFieldKey(question: string): string {
-  const normalized = question
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .replace(/_+/g, "_");
-
-  return normalized.length > 0 ? normalized : "unknown";
-}
-
-function getUniqueFieldKey(baseKey: string, usedKeys: Set<string>): string {
-  if (!usedKeys.has(baseKey)) {
-    return baseKey;
-  }
-
-  let suffix = 2;
-  while (usedKeys.has(`${baseKey}_${suffix}`)) {
-    suffix += 1;
-  }
-
-  return `${baseKey}_${suffix}`;
-}
-
-function extractQuestionsAndAnswers(
-  value: unknown,
-): Array<{ answer: string; question: string }> {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  const entries: Array<{ answer: string; question: string }> = [];
-  for (const item of value) {
-    if (!isRecord(item)) {
-      continue;
-    }
-
-    const question = getString(item, "question")?.trim();
-    const answer = getString(item, "answer")?.trim();
-    if (!question || !answer) {
-      continue;
-    }
-
-    entries.push({ answer, question });
-  }
-
-  return entries;
-}
-
 function mergePaymentLinks(
   canonical: Doc<"eventTypeConfigs">["paymentLinks"],
   duplicate: Doc<"eventTypeConfigs">["paymentLinks"],
@@ -344,68 +299,6 @@ async function resolveCanonicalEventTypeConfigId(
     .take(8);
 
   return getCanonicalEventTypeConfig(candidates)?._id;
-}
-
-async function upsertFieldCatalogEntry(
-  ctx: MutationCtx,
-  args: {
-    eventTypeConfigId: Id<"eventTypeConfigs">;
-    fieldKey: string;
-    questionLabel: string;
-    seenAt: number;
-    tenantId: Id<"tenants">;
-  },
-): Promise<{
-  action: "created" | "updated" | "unchanged";
-  fieldCatalogId: Id<"eventTypeFieldCatalog">;
-}> {
-  const existingEntries = await ctx.db
-    .query("eventTypeFieldCatalog")
-    .withIndex("by_tenantId_and_eventTypeConfigId", (q) =>
-      q
-        .eq("tenantId", args.tenantId)
-        .eq("eventTypeConfigId", args.eventTypeConfigId),
-    )
-    .collect();
-  const existingEntry =
-    existingEntries.find((entry) => entry.fieldKey === args.fieldKey) ?? null;
-
-  if (existingEntry) {
-    const patch: Partial<Doc<"eventTypeFieldCatalog">> = {};
-    if (args.seenAt > existingEntry.lastSeenAt) {
-      patch.lastSeenAt = args.seenAt;
-      patch.currentLabel = args.questionLabel;
-    } else if (existingEntry.currentLabel !== args.questionLabel) {
-      patch.currentLabel = args.questionLabel;
-    }
-
-    if (Object.keys(patch).length > 0) {
-      await ctx.db.patch(existingEntry._id, patch);
-      return {
-        action: "updated",
-        fieldCatalogId: existingEntry._id,
-      };
-    }
-
-    return {
-      action: "unchanged",
-      fieldCatalogId: existingEntry._id,
-    };
-  }
-
-  const fieldCatalogId = await ctx.db.insert("eventTypeFieldCatalog", {
-    tenantId: args.tenantId,
-    eventTypeConfigId: args.eventTypeConfigId,
-    fieldKey: args.fieldKey,
-    currentLabel: args.questionLabel,
-    firstSeenAt: args.seenAt,
-    lastSeenAt: args.seenAt,
-  });
-
-  return {
-    action: "created",
-    fieldCatalogId,
-  };
 }
 
 export const listInviteeCreatedRawEventIdsPage = internalQuery({
@@ -563,104 +456,24 @@ export const backfillMeetingFormResponsesForRawEvent = internalMutation({
       payload,
     });
 
-    const existingResponses = await ctx.db
-      .query("meetingFormResponses")
-      .withIndex("by_meetingId", (q) => q.eq("meetingId", meeting._id))
-      .collect();
-
-    const responseByQuestion = new Map<string, Doc<"meetingFormResponses">>();
-    const usedFieldKeys = new Set<string>();
-    for (const response of existingResponses) {
-      responseByQuestion.set(response.questionLabelSnapshot, response);
-      usedFieldKeys.add(response.fieldKey);
-    }
-
-    let responsesCreated = 0;
-    let responsesUpdated = 0;
-    let fieldCatalogCreated = 0;
-    let fieldCatalogUpdated = 0;
-    let questionsSkipped = 0;
-
-    for (const qa of questionsAndAnswers) {
-      const existingResponse = responseByQuestion.get(qa.question) ?? null;
-      const baseFieldKey = normalizeFieldKey(qa.question);
-      const fieldKey = existingResponse
-        ? existingResponse.fieldKey
-        : getUniqueFieldKey(baseFieldKey, usedFieldKeys);
-
-      let fieldCatalogId: Id<"eventTypeFieldCatalog"> | undefined;
-      if (eventTypeConfigId) {
-        const fieldCatalogResult = await upsertFieldCatalogEntry(ctx, {
-          tenantId: rawEvent.tenantId,
-          eventTypeConfigId,
-          fieldKey,
-          questionLabel: qa.question,
-          seenAt: rawEvent.receivedAt,
-        });
-        fieldCatalogId = fieldCatalogResult.fieldCatalogId;
-        if (fieldCatalogResult.action === "created") {
-          fieldCatalogCreated += 1;
-        } else if (fieldCatalogResult.action === "updated") {
-          fieldCatalogUpdated += 1;
-        }
-      }
-
-      if (existingResponse) {
-        const patch: Partial<Doc<"meetingFormResponses">> = {};
-        if (!existingResponse.eventTypeConfigId && eventTypeConfigId) {
-          patch.eventTypeConfigId = eventTypeConfigId;
-        }
-        if (!existingResponse.fieldCatalogId && fieldCatalogId) {
-          patch.fieldCatalogId = fieldCatalogId;
-        }
-
-        if (Object.keys(patch).length > 0) {
-          await ctx.db.patch(existingResponse._id, patch);
-          responsesUpdated += 1;
-        } else {
-          questionsSkipped += 1;
-        }
-        continue;
-      }
-
-      usedFieldKeys.add(fieldKey);
-      const responseId = await ctx.db.insert("meetingFormResponses", {
-        tenantId: rawEvent.tenantId,
-        meetingId: meeting._id,
-        opportunityId: opportunity._id,
-        leadId: opportunity.leadId,
-        eventTypeConfigId,
-        fieldCatalogId,
-        fieldKey,
-        questionLabelSnapshot: qa.question,
-        answerText: qa.answer,
-        capturedAt: rawEvent.receivedAt,
-      });
-      responsesCreated += 1;
-      responseByQuestion.set(qa.question, {
-        _id: responseId,
-        _creationTime: rawEvent.receivedAt,
-        tenantId: rawEvent.tenantId,
-        meetingId: meeting._id,
-        opportunityId: opportunity._id,
-        leadId: opportunity.leadId,
-        eventTypeConfigId,
-        fieldCatalogId,
-        fieldKey,
-        questionLabelSnapshot: qa.question,
-        answerText: qa.answer,
-        capturedAt: rawEvent.receivedAt,
-      });
-    }
+    const writeResult = await writeMeetingFormResponses(ctx, {
+      tenantId: rawEvent.tenantId,
+      meetingId: meeting._id,
+      opportunityId: opportunity._id,
+      leadId: opportunity.leadId,
+      eventTypeConfigId,
+      capturedAt: rawEvent.receivedAt,
+      questionsAndAnswers,
+    });
 
     return {
       status: "processed",
       eventsProcessed: 1,
-      responsesCreated,
-      responsesUpdated,
-      fieldCatalogCreated,
-      fieldCatalogUpdated,
-      questionsSkipped,
+      responsesCreated: writeResult.responsesCreated,
+      responsesUpdated: writeResult.responsesUpdated,
+      fieldCatalogCreated: writeResult.fieldCatalogCreated,
+      fieldCatalogUpdated: writeResult.fieldCatalogUpdated,
+      questionsSkipped: writeResult.questionsSkipped,
       eventTypeConfigIdResolved: !!eventTypeConfigId,
     };
   },

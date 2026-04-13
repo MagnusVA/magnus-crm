@@ -7,6 +7,11 @@ import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { validateTransition } from "../lib/statusTransitions";
 import { extractUtmParams } from "../lib/utmParams";
 import { extractMeetingLocation } from "../lib/meetingLocation";
+import {
+	extractQuestionsAndAnswers,
+	toQuestionAnswerRecord,
+	writeMeetingFormResponses,
+} from "../lib/meetingFormResponses";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { isRecord, getString } from "../lib/payloadExtraction";
 import {
@@ -24,6 +29,12 @@ import {
 	isActiveOpportunityStatus,
 } from "../lib/tenantStatsHelper";
 import { buildLeadSearchText } from "../leads/searchTextBuilder";
+import {
+	insertLeadAggregate,
+	insertMeetingAggregate,
+	insertOpportunityAggregate,
+	replaceOpportunityAggregate,
+} from "../reporting/writeHooks";
 
 function parseTimestamp(value: unknown): number | undefined {
 	if (typeof value !== "string") {
@@ -32,29 +43,6 @@ function parseTimestamp(value: unknown): number | undefined {
 
 	const timestamp = Date.parse(value);
 	return Number.isFinite(timestamp) ? timestamp : undefined;
-}
-
-function extractQuestionsAndAnswers(
-	value: unknown,
-): Record<string, string> | undefined {
-	if (!Array.isArray(value) || value.length === 0) {
-		return undefined;
-	}
-
-	const result: Record<string, string> = {};
-	for (const item of value) {
-		if (!isRecord(item)) {
-			continue;
-		}
-
-		const question = getString(item, "question");
-		const answer = getString(item, "answer");
-		if (question && answer) {
-			result[question] = answer;
-		}
-	}
-
-	return Object.keys(result).length > 0 ? result : undefined;
 }
 
 function mergeCustomFields(
@@ -70,6 +58,42 @@ function mergeCustomFields(
 	}
 
 	return incoming;
+}
+
+async function syncMeetingFormResponsesForBooking(
+	ctx: MutationCtx,
+	args: {
+		capturedAt: number;
+		eventTypeConfigId: Id<"eventTypeConfigs"> | undefined;
+		leadId: Id<"leads">;
+		meetingId: Id<"meetings">;
+		opportunityId: Id<"opportunities">;
+		questionsAndAnswers: ReturnType<typeof extractQuestionsAndAnswers>;
+		tenantId: Id<"tenants">;
+	},
+): Promise<void> {
+	if (args.questionsAndAnswers.length === 0) {
+		return;
+	}
+
+	const result = await writeMeetingFormResponses(ctx, args);
+	console.log(
+		`[Pipeline:invitee.created] Meeting form responses synced | meetingId=${args.meetingId} responsesCreated=${result.responsesCreated} responsesUpdated=${result.responsesUpdated} fieldCatalogCreated=${result.fieldCatalogCreated} fieldCatalogUpdated=${result.fieldCatalogUpdated} questionsSkipped=${result.questionsSkipped}`,
+	);
+}
+
+async function getCallClassificationForOpportunity(
+	ctx: MutationCtx,
+	opportunityId: Id<"opportunities">,
+): Promise<"new" | "follow_up"> {
+	const existingMeeting = await ctx.db
+		.query("meetings")
+		.withIndex("by_opportunityId_and_scheduledAt", (q) =>
+			q.eq("opportunityId", opportunityId),
+		)
+		.first();
+
+	return existingMeeting ? "follow_up" : "new";
 }
 
 // ---------------------------------------------------------------------------
@@ -531,6 +555,7 @@ async function resolveLeadIdentity(
 		updatedAt: now,
 	});
 	const newLead = (await ctx.db.get(leadId))!;
+	await insertLeadAggregate(ctx, leadId);
 	await updateTenantStats(ctx, tenantId, {
 		totalLeads: 1,
 	});
@@ -969,8 +994,11 @@ export const process = internalMutation({
 			1,
 			Math.round((endTime - scheduledAt) / 60000),
 		);
-		const latestCustomFields = extractQuestionsAndAnswers(
+		const bookingQuestionsAndAnswers = extractQuestionsAndAnswers(
 			payload.questions_and_answers,
+		);
+		const latestCustomFields = toQuestionAnswerRecord(
+			bookingQuestionsAndAnswers,
 		);
 		const utmParams = extractUtmParams(payload.tracking);
 		const eventTypeConfigLookup = await lookupEventTypeConfig(ctx, {
@@ -1045,6 +1073,10 @@ export const process = internalMutation({
 							preloadedConfig: earlyEventTypeConfig,
 						},
 					);
+					const effectiveEventTypeConfigId =
+						eventTypeConfigId ??
+						targetOpportunity.eventTypeConfigId ??
+						undefined;
 					const nextAssignedCloserId =
 						assignedCloserId ?? targetOpportunity.assignedCloserId;
 					const closerChanged =
@@ -1063,12 +1095,14 @@ export const process = internalMutation({
 						hostCalendlyUserUri: hostUserUri,
 						hostCalendlyEmail,
 						hostCalendlyName,
-						eventTypeConfigId:
-							eventTypeConfigId ??
-							targetOpportunity.eventTypeConfigId ??
-							undefined,
+						eventTypeConfigId: effectiveEventTypeConfigId,
 						updatedAt: now,
 					});
+					await replaceOpportunityAggregate(
+						ctx,
+						targetOpportunity,
+						targetOpportunityId,
+					);
 					if (closerChanged) {
 						await syncOpportunityMeetingsAssignedCloser(
 							ctx,
@@ -1171,11 +1205,26 @@ export const process = internalMutation({
 						scheduledAt,
 						durationMinutes,
 						status: "scheduled",
+						callClassification:
+							await getCallClassificationForOpportunity(
+								ctx,
+								targetOpportunityId,
+							),
 						notes: meetingNotes,
 						leadName: lead.fullName ?? lead.email,
 						createdAt: now,
 						utmParams,
 						rescheduledFromMeetingId,
+					});
+					await insertMeetingAggregate(ctx, meetingId);
+					await syncMeetingFormResponsesForBooking(ctx, {
+						tenantId,
+						meetingId,
+						opportunityId: targetOpportunityId,
+						leadId: lead._id,
+						eventTypeConfigId: effectiveEventTypeConfigId,
+						questionsAndAnswers: bookingQuestionsAndAnswers,
+						capturedAt: rawEvent.receivedAt,
 					});
 					await emitDomainEvent(ctx, {
 						tenantId,
@@ -1214,7 +1263,7 @@ export const process = internalMutation({
 					await updateLeadSearchText(ctx, lead._id);
 					await syncKnownCustomFieldKeys(
 						ctx,
-						eventTypeConfigId,
+						effectiveEventTypeConfigId,
 						latestCustomFields,
 					);
 
@@ -1337,6 +1386,10 @@ export const process = internalMutation({
 			const rescheduledFromMeetingId = previousMeetings[0]?._id;
 			const nextAssignedCloserId =
 				assignedCloserId ?? autoRescheduleTarget.assignedCloserId;
+			const effectiveEventTypeConfigId =
+				eventTypeConfigId ??
+				autoRescheduleTarget.eventTypeConfigId ??
+				undefined;
 			const closerChanged =
 				nextAssignedCloserId !== autoRescheduleTarget.assignedCloserId;
 			if (!nextAssignedCloserId) {
@@ -1352,12 +1405,14 @@ export const process = internalMutation({
 				hostCalendlyUserUri: hostUserUri,
 				hostCalendlyEmail,
 				hostCalendlyName,
-				eventTypeConfigId:
-					eventTypeConfigId ??
-					autoRescheduleTarget.eventTypeConfigId ??
-					undefined,
+				eventTypeConfigId: effectiveEventTypeConfigId,
 				updatedAt: now,
 			});
+			await replaceOpportunityAggregate(
+				ctx,
+				autoRescheduleTarget,
+				reschedOpportunityId,
+			);
 			if (closerChanged) {
 				await syncOpportunityMeetingsAssignedCloser(
 					ctx,
@@ -1412,11 +1467,25 @@ export const process = internalMutation({
 				scheduledAt,
 				durationMinutes,
 				status: "scheduled",
+				callClassification: await getCallClassificationForOpportunity(
+					ctx,
+					reschedOpportunityId,
+				),
 				notes: meetingNotes,
 				leadName: lead.fullName ?? lead.email,
 				createdAt: now,
 				utmParams,
 				rescheduledFromMeetingId,
+			});
+			await insertMeetingAggregate(ctx, meetingId);
+			await syncMeetingFormResponsesForBooking(ctx, {
+				tenantId,
+				meetingId,
+				opportunityId: reschedOpportunityId,
+				leadId: lead._id,
+				eventTypeConfigId: effectiveEventTypeConfigId,
+				questionsAndAnswers: bookingQuestionsAndAnswers,
+				capturedAt: rawEvent.receivedAt,
 			});
 			await emitDomainEvent(ctx, {
 				tenantId,
@@ -1448,7 +1517,7 @@ export const process = internalMutation({
 			);
 			await syncKnownCustomFieldKeys(
 				ctx,
-				eventTypeConfigId,
+				effectiveEventTypeConfigId,
 				latestCustomFields,
 			);
 
@@ -1494,6 +1563,8 @@ export const process = internalMutation({
 		}
 
 		let opportunityId: Id<"opportunities">;
+		let meetingEventTypeConfigId: Id<"eventTypeConfigs"> | undefined =
+			eventTypeConfigId;
 		if (existingFollowUp) {
 			if (!validateTransition(existingFollowUp.status, "scheduled")) {
 				throw new Error(
@@ -1502,6 +1573,10 @@ export const process = internalMutation({
 			}
 
 			opportunityId = existingFollowUp._id;
+			meetingEventTypeConfigId =
+				eventTypeConfigId ??
+				existingFollowUp.eventTypeConfigId ??
+				undefined;
 			const nextAssignedCloserId =
 				assignedCloserId ?? existingFollowUp.assignedCloserId;
 			const closerChanged =
@@ -1513,15 +1588,17 @@ export const process = internalMutation({
 				hostCalendlyUserUri: hostUserUri,
 				hostCalendlyEmail,
 				hostCalendlyName,
-				eventTypeConfigId:
-					eventTypeConfigId ??
-					existingFollowUp.eventTypeConfigId ??
-					undefined,
+				eventTypeConfigId: meetingEventTypeConfigId,
 				updatedAt: now,
 				// NOTE: utmParams intentionally NOT included here.
 				// The opportunity preserves attribution from its original creation.
 				// The new meeting stores its own UTMs independently.
 			});
+			await replaceOpportunityAggregate(
+				ctx,
+				existingFollowUp,
+				opportunityId,
+			);
 			if (closerChanged) {
 				await syncOpportunityMeetingsAssignedCloser(
 					ctx,
@@ -1566,6 +1643,7 @@ export const process = internalMutation({
 				utmParams,
 				potentialDuplicateLeadId: resolution.potentialDuplicateLeadId,
 			});
+			await insertOpportunityAggregate(ctx, opportunityId);
 			await updateTenantStats(ctx, tenantId, {
 				totalOpportunities: 1,
 				activeOpportunities: 1,
@@ -1602,10 +1680,24 @@ export const process = internalMutation({
 			scheduledAt,
 			durationMinutes,
 			status: "scheduled",
+			callClassification: await getCallClassificationForOpportunity(
+				ctx,
+				opportunityId,
+			),
 			notes: meetingNotes,
 			leadName: lead.fullName ?? lead.email, // Denormalize for query efficiency
 			createdAt: now,
 			utmParams,
+		});
+		await insertMeetingAggregate(ctx, meetingId);
+		await syncMeetingFormResponsesForBooking(ctx, {
+			tenantId,
+			meetingId,
+			opportunityId,
+			leadId: lead._id,
+			eventTypeConfigId: meetingEventTypeConfigId,
+			questionsAndAnswers: bookingQuestionsAndAnswers,
+			capturedAt: rawEvent.receivedAt,
 		});
 		await emitDomainEvent(ctx, {
 			tenantId,
@@ -1650,7 +1742,7 @@ export const process = internalMutation({
 
 		await syncKnownCustomFieldKeys(
 			ctx,
-			eventTypeConfigId,
+			meetingEventTypeConfigId,
 			latestCustomFields,
 		);
 

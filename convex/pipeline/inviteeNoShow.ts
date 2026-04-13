@@ -3,6 +3,10 @@ import { internalMutation } from "../_generated/server";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { emitDomainEvent } from "../lib/domainEvents";
 import {
+  replaceMeetingAggregate,
+  replaceOpportunityAggregate,
+} from "../reporting/writeHooks";
+import {
   isActiveOpportunityStatus,
   updateTenantStats,
 } from "../lib/tenantStatsHelper";
@@ -87,6 +91,7 @@ export const process = internalMutation({
         noShowSource: "calendly_webhook",
         noShowMarkedAt: now,
       });
+      await replaceMeetingAggregate(ctx, meeting, meeting._id);
       await updateOpportunityMeetingRefs(ctx, meeting.opportunityId);
       await emitDomainEvent(ctx, {
         tenantId,
@@ -119,6 +124,7 @@ export const process = internalMutation({
         updatedAt: now,
       });
       if (opportunity.status !== "no_show") {
+        await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
         await updateTenantStats(ctx, tenantId, {
           activeOpportunities: isActiveOpportunityStatus(opportunity.status)
             ? -1
@@ -207,6 +213,7 @@ export const revert = internalMutation({
         noShowNote: undefined,
         noShowSource: undefined,
       });
+      await replaceMeetingAggregate(ctx, meeting, meeting._id);
       await updateOpportunityMeetingRefs(ctx, meeting.opportunityId);
       await emitDomainEvent(ctx, {
         tenantId,
@@ -231,6 +238,7 @@ export const revert = internalMutation({
         noShowAt: undefined,
         updatedAt: now,
       });
+      await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
       await updateTenantStats(ctx, tenantId, {
         activeOpportunities: 1,
       });

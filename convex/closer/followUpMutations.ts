@@ -4,6 +4,7 @@ import { internalMutation, mutation } from "../_generated/server";
 import { validateTransition } from "../lib/statusTransitions";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { replaceOpportunityAggregate } from "../reporting/writeHooks";
 import {
   isActiveOpportunityStatus,
   updateTenantStats,
@@ -85,6 +86,7 @@ export const transitionToFollowUp = internalMutation({
       status: "follow_up_scheduled",
       updatedAt: now,
     });
+    await replaceOpportunityAggregate(ctx, opportunity, opportunityId);
     await updateTenantStats(ctx, opportunity.tenantId, {
       activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
     });
@@ -269,6 +271,7 @@ export const confirmFollowUpScheduled = mutation({
       status: "follow_up_scheduled",
       updatedAt: now,
     });
+    await replaceOpportunityAggregate(ctx, opportunity, opportunityId);
     await updateTenantStats(ctx, tenantId, {
       activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
     });
@@ -337,6 +340,7 @@ export const createManualReminderFollowUpPublic = mutation({
       status: "follow_up_scheduled",
       updatedAt: now,
     });
+    await replaceOpportunityAggregate(ctx, opportunity, args.opportunityId);
     await updateTenantStats(ctx, tenantId, {
       activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
     });
