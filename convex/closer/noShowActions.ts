@@ -5,6 +5,10 @@ import { validateTransition } from "../lib/statusTransitions";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
 import {
+  replaceMeetingAggregate,
+  replaceOpportunityAggregate,
+} from "../reporting/writeHooks";
+import {
   isActiveOpportunityStatus,
   updateTenantStats,
 } from "../lib/tenantStatsHelper";
@@ -77,12 +81,14 @@ export const markNoShow = mutation({
       noShowMarkedByUserId: userId,
       noShowSource: "closer",
     });
+    await replaceMeetingAggregate(ctx, meeting, meetingId);
 
     await ctx.db.patch(opportunity._id, {
       status: "no_show",
       noShowAt: now,
       updatedAt: now,
     });
+    await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
 
     await updateOpportunityMeetingRefs(ctx, opportunity._id);
     await updateTenantStats(ctx, tenantId, {
@@ -218,6 +224,7 @@ export const createNoShowRescheduleLink = mutation({
       status: "reschedule_link_sent",
       updatedAt: now,
     });
+    await replaceOpportunityAggregate(ctx, opportunity, opportunityId);
     await updateTenantStats(ctx, tenantId, {
       activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
     });

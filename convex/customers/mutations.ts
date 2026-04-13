@@ -4,6 +4,7 @@ import { requireTenantUser } from "../requireTenantUser";
 import { executeConversion } from "./conversion";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
+import { insertPaymentAggregate } from "../reporting/writeHooks";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 
 /**
@@ -180,6 +181,7 @@ export const recordCustomerPayment = mutation({
       recordedAt: now,
       contextType: "customer",
     });
+    await insertPaymentAggregate(ctx, paymentId);
     const customerPayments = await ctx.db
       .query("paymentRecords")
       .withIndex("by_customerId", (q) => q.eq("customerId", args.customerId))

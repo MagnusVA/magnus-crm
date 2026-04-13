@@ -8,6 +8,10 @@ import { executeConversion } from "../customers/conversion";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
 import {
+  insertPaymentAggregate,
+  replaceOpportunityAggregate,
+} from "../reporting/writeHooks";
+import {
   isActiveOpportunityStatus,
   updateTenantStats,
 } from "../lib/tenantStatsHelper";
@@ -160,6 +164,7 @@ export const logPayment = mutation({
     });
 
     console.log("[Closer:Payment] payment record created", { paymentId });
+    await insertPaymentAggregate(ctx, paymentId);
 
     // Transition opportunity to payment_received (terminal state)
     await ctx.db.patch(args.opportunityId, {
@@ -167,6 +172,7 @@ export const logPayment = mutation({
       paymentReceivedAt: now,
       updatedAt: now,
     });
+    await replaceOpportunityAggregate(ctx, opportunity, args.opportunityId);
     await updateTenantStats(ctx, tenantId, {
       activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? -1 : 0,
       wonDeals: 1,

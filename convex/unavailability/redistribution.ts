@@ -4,6 +4,10 @@ import { mutation } from "../_generated/server";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMeetingsAssignedCloser";
 import {
+  replaceMeetingAggregate,
+  replaceOpportunityAggregate,
+} from "../reporting/writeHooks";
+import {
   getEffectiveRange,
   isMeetingInRange,
   validateCloser,
@@ -229,10 +233,24 @@ export const autoDistributeMeetings = mutation({
         continue;
       }
 
+      const oldOpportunity = await ctx.db.get(meeting.opportunityId);
+      if (!oldOpportunity || oldOpportunity.tenantId !== tenantId) {
+        unassigned.push({
+          meetingId: meeting.meetingId,
+          reason: "Opportunity not found during reassignment",
+        });
+        continue;
+      }
+
       await ctx.db.patch(meeting.opportunityId, {
         assignedCloserId: bestCandidate.closerId,
         updatedAt: now,
       });
+      await replaceOpportunityAggregate(
+        ctx,
+        oldOpportunity,
+        meeting.opportunityId,
+      );
       await syncOpportunityMeetingsAssignedCloser(
         ctx,
         meeting.opportunityId,
@@ -362,6 +380,7 @@ export const manuallyResolveMeeting = mutation({
         assignedCloserId: targetCloser._id,
         updatedAt: now,
       });
+      await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
       await syncOpportunityMeetingsAssignedCloser(
         ctx,
         opportunity._id,
@@ -403,19 +422,24 @@ export const manuallyResolveMeeting = mutation({
 
     if (meeting.status !== "canceled") {
       await ctx.db.patch(args.meetingId, { status: "canceled" });
+      await replaceMeetingAggregate(ctx, meeting, args.meetingId);
       await updateOpportunityMeetingRefs(ctx, opportunity._id);
     }
 
+    const nextOpportunityStatus =
+      opportunity.status === "canceled" ||
+      validateTransition(opportunity.status, "canceled")
+        ? "canceled"
+        : opportunity.status;
     await ctx.db.patch(opportunity._id, {
-      status:
-        opportunity.status === "canceled" ||
-        validateTransition(opportunity.status, "canceled")
-          ? "canceled"
-          : opportunity.status,
+      status: nextOpportunityStatus,
       cancellationReason: `Canceled due to closer unavailability (${reasonLabel})`,
       canceledBy: "admin_unavailability_resolution",
       updatedAt: now,
     });
+    if (nextOpportunityStatus !== opportunity.status) {
+      await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
+    }
 
     return { action: "canceled" as const };
   },

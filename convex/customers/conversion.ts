@@ -3,6 +3,7 @@ import { Id } from "../_generated/dataModel";
 import { validateLeadTransition } from "../lib/statusTransitions";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
+import { insertCustomerAggregate } from "../reporting/writeHooks";
 
 /**
  * Core conversion logic — creates a customer record from a lead.
@@ -110,6 +111,7 @@ export async function executeConversion(
     leadId,
     winningOpportunityId,
   });
+  await insertCustomerAggregate(ctx, customerId);
 
   // 7. Transition lead to "converted"
   await ctx.db.patch(leadId, {

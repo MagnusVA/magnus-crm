@@ -293,11 +293,26 @@ export default defineSchema({
       v.literal("canceled"),
       v.literal("no_show"),
     ),
+    // === v0.6: Call Classification ===
+    // Set when a meeting is created or backfilled for historical records.
+    // "new" = first booking on an opportunity, "follow_up" = subsequent booking.
+    callClassification: v.optional(
+      v.union(
+        v.literal("new"),
+        v.literal("follow_up"),
+      ),
+    ),
+    // === End v0.6: Call Classification ===
     notes: v.optional(v.string()),
     leadName: v.optional(v.string()), // Denormalized from lead for query efficiency
     createdAt: v.number(),
     completedAt: v.optional(v.number()),
     canceledAt: v.optional(v.number()),
+    // === v0.6: Meeting Time Tracking ===
+    // When the closer explicitly ended the meeting.
+    // Distinct from completedAt, which may be set by other flows.
+    stoppedAt: v.optional(v.number()),
+    // === End v0.6: Meeting Time Tracking ===
     // UTM attribution data extracted from Calendly's tracking object.
     // Populated from the invitee.created webhook payload.
     // Undefined for meetings created before UTM tracking was enabled.
@@ -327,6 +342,14 @@ export default defineSchema({
     // When the closer clicked "Start Meeting". Used to compute no-show wait duration.
     // Undefined for meetings started before Feature B or webhook-driven no-shows.
     startedAt: v.optional(v.number()),
+    // === v0.6: Meeting Time Tracking ===
+    // Computed when a closer starts a meeting after its scheduled time.
+    lateStartDurationMs: v.optional(v.number()),
+    // Optional closer-supplied explanation for a late start.
+    lateStartReason: v.optional(v.string()),
+    // Computed when the meeting ends after its scheduled duration.
+    overranDurationMs: v.optional(v.number()),
+    // === End v0.6: Meeting Time Tracking ===
     // === End Feature B: Meeting Start Time ===
 
     // === Feature B: No-Show Tracking ===

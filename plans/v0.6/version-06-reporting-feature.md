@@ -40,12 +40,18 @@ The sales team currently tracks all call outcomes, closer performance, and reven
 
 **Approach**: Write-time denormalized aggregation via the [`@convex-dev/aggregate`](https://www.convex.dev/components/aggregate) Convex component. Five aggregate instances maintain O(log n) counts and sums, synced atomically with every mutation that writes to `meetings`, `paymentRecords`, `opportunities`, `leads`, or `customers`. Reporting queries read from these aggregates — never scan source tables — enabling **reactive real-time dashboards** via standard `useQuery` subscriptions.
 
+**Leveraging v0.5b infrastructure**: Beyond the aggregate-powered KPIs, v0.6 also consumes two v0.5b tables that are already populated with data but currently have no read-side consumers:
+
+- **`domainEvents`** — the append-only audit trail (25 emission sites across 17 mutations) powers a new **Activity Feed** report, giving admins visibility into who did what and when. Queries use existing indexes — no additional aggregate instances needed.
+- **`meetingFormResponses`** + **`eventTypeFieldCatalog`** — per-meeting booking answer facts (backfilled from raw webhooks) power a new **Booking Form Insights** section on the Leads & Conversions report, showing answer distributions across all bookings. These are insights the Excel cannot provide.
+
 This replaces the naive alternative (scanning ~800 meetings per monthly report in O(n) actions) with an architecture that:
 
 - Scales to any data volume without hitting transaction limits
 - Enables live-updating reports (no "click to generate" UX)
 - Requires no custom delta/sync logic — the component handles the data structure
 - Stays in sync atomically (Convex mutations are transactions)
+- Extracts full value from the v0.5b data model investment (42 KPIs across 5 report pages, up from the original 35 across 4)
 
 ---
 
@@ -61,6 +67,8 @@ This replaces the naive alternative (scanning ~800 meetings per monthly report i
 6. **Real-time reactive dashboards** — reports update live as data flows in (via `useQuery`, not one-shot actions)
 7. **Additional KPIs** — metrics the Excel can't compute (pipeline velocity, meeting outcome distribution, lead conversion, follow-up efficiency)
 8. **Admin-only access** — `tenant_master` and `tenant_admin` roles; enforced server-side
+9. **Activity visibility** — admin-facing audit trail showing who did what and when, powered by the `domainEvents` table (v0.5b)
+10. **Booking form insights** — answer distribution analytics from Calendly form responses, powered by `meetingFormResponses` (v0.5b)
 
 ### Non-Goals (v0.6)
 
@@ -190,6 +198,8 @@ Every aggregate instance uses `namespace: (doc) => doc.tenantId`. This provides:
 
 ### AD-6: Meeting Time Tracking — "End Meeting" Action + Late Start Detection
 
+> See also: AD-7 and AD-8 below for the `domainEvents` and `meetingFormResponses` query strategies.
+
 The Excel's "Overran" status is not a call outcome — it's a **time-tracking fact**: the meeting ran past its scheduled end time. Currently the CRM has a "Start Meeting" button but no "End Meeting" button, so actual meeting duration is never recorded.
 
 **New feature**: Add an explicit **"End Meeting"** action (`stopMeeting` mutation) that records `stoppedAt` and computes overrun duration. Enhance the existing `startMeeting` mutation to detect and record late starts.
@@ -220,6 +230,22 @@ The Excel's "Overran" status is not a call outcome — it's a **time-tracking fa
 4. Closer sets outcome, logs payment / schedules follow-up / marks lost
    → Opportunity transitions independently
 ```
+
+### AD-7: Activity Feed via Direct Index Scans (not aggregates)
+
+The `domainEvents` table is queried via its existing indexes (`by_tenantId_and_occurredAt`, `by_tenantId_and_eventType_and_occurredAt`, `by_tenantId_and_actorUserId_and_occurredAt`) using bounded range scans, **not** via `@convex-dev/aggregate`. At current scale (~1,000 events/month), a paginated scan of 50-100 events is well within Convex query limits. This avoids adding a 6th aggregate instance with its associated mutation hooks (25+ emission sites would each need an aggregate `insert()` call).
+
+**Scaling path**: If the tenant reaches 10,000+ events/month, a `domainEventCounts` aggregate instance can be added retroactively — only for the summary/count queries, not the paginated feed (which is inherently bounded by `.take()`).
+
+**Rejected**: (a) Aggregate instance for event counts — premature at current scale; would require touching all 25 emission sites. (b) Server action — unnecessary; the queries are well-indexed and bounded.
+
+### AD-8: Form Response Analytics via `meetingFormResponses` Scans
+
+Booking form answer analytics query `meetingFormResponses` via the `by_tenantId_and_fieldKey` index. The `eventTypeFieldCatalog` table provides the field dimension (available questions for the dropdown selector). No aggregate instance needed at current scale (~600 form response rows).
+
+**Critical prerequisite**: The live pipeline (`inviteeCreated.ts`) does **not** currently insert into `meetingFormResponses` during new bookings — only the v0.5b backfill populated it. This must be fixed in Phase 2 before form response analytics can reflect new data. The fix reuses the same extraction logic from the backfill migration (`admin/migrations.ts` lines ~509-640), wired into the 3 meeting-insert code paths.
+
+**Rejected**: (a) Aggregate on answer frequencies — premature; the table is append-only and small. (b) Deferred to v0.7 — the tables are already populated and the queries are simple; no reason to wait.
 
 ---
 
@@ -583,6 +609,22 @@ export const backfillMeetingsAggregate = internalMutation({
 ```
 
 **At ~213 meetings, ~50 payments, ~213 opportunities, ~200 leads, ~30 customers — all backfills complete in a single batch.**
+
+### 6.10 Pipeline Update — live `meetingFormResponses` insertion
+
+**Problem**: The v0.5b backfill populated `meetingFormResponses` from historical raw webhooks, but the live pipeline in `convex/pipeline/inviteeCreated.ts` does NOT insert into `meetingFormResponses` during new bookings. It only writes to `leads.customFields` (the legacy blob). Without this fix, form response analytics will only reflect historical data — new bookings silently stop contributing to the dataset.
+
+**Fix**: At each of the 3 meeting-insert code paths in `inviteeCreated.ts` (UTM reactivation, heuristic reschedule, new opportunity), after inserting the meeting:
+
+1. Parse `questions_and_answers` from the Calendly webhook payload (already extracted at line ~952 via `extractQuestionsAndAnswers`)
+2. For each Q&A pair:
+   a. Upsert into `eventTypeFieldCatalog` — create if `(tenantId, eventTypeConfigId, fieldKey)` combo is new; update `lastSeenAt` if it exists
+   b. Insert into `meetingFormResponses` with all FK references (`meetingId`, `opportunityId`, `leadId`, `eventTypeConfigId`, `fieldCatalogId`, `fieldKey`, `questionText`, `answerText`, `capturedAt`)
+3. Continue writing merged view to `leads.customFields` for backward UI compatibility
+
+**Reference implementation**: The backfill migration at `convex/admin/migrations.ts` lines ~509-640 contains the extraction and insertion logic. The live pipeline integration mirrors this, extracting it into a shared helper (e.g., `convex/lib/meetingFormResponseWriter.ts`) to avoid duplication.
+
+This matches the v0.5b specification (Section 3.7) which explicitly called for this integration but was not implemented during the v0.5b rollout.
 
 ---
 
@@ -1155,6 +1197,230 @@ export const getLeadConversionMetrics = query({
 });
 ```
 
+### 8.6 Activity Feed
+
+> **Purpose**: Admin-facing audit trail powered by `domainEvents`. Shows who did what and when — the CRM's "git log." Reactive via `useQuery`.
+
+```typescript
+// convex/reporting/activityFeed.ts
+
+export const getActivityFeed = query({
+  args: {
+    startDate: v.number(),
+    endDate: v.number(),
+    entityType: v.optional(v.string()),
+    eventType: v.optional(v.string()),
+    actorUserId: v.optional(v.id("users")),
+    limit: v.optional(v.number()),  // default 50, max 100
+  },
+  handler: async (ctx, args) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+    const limit = Math.min(args.limit ?? 50, 100);
+
+    // Use the most selective index available
+    let q;
+    if (args.actorUserId) {
+      q = ctx.db
+        .query("domainEvents")
+        .withIndex("by_tenantId_and_actorUserId_and_occurredAt", (q) =>
+          q
+            .eq("tenantId", tenantId)
+            .eq("actorUserId", args.actorUserId)
+            .gte("occurredAt", args.startDate)
+            .lt("occurredAt", args.endDate),
+        )
+        .order("desc");
+    } else if (args.eventType) {
+      q = ctx.db
+        .query("domainEvents")
+        .withIndex("by_tenantId_and_eventType_and_occurredAt", (q) =>
+          q
+            .eq("tenantId", tenantId)
+            .eq("eventType", args.eventType)
+            .gte("occurredAt", args.startDate)
+            .lt("occurredAt", args.endDate),
+        )
+        .order("desc");
+    } else {
+      q = ctx.db
+        .query("domainEvents")
+        .withIndex("by_tenantId_and_occurredAt", (q) =>
+          q
+            .eq("tenantId", tenantId)
+            .gte("occurredAt", args.startDate)
+            .lt("occurredAt", args.endDate),
+        )
+        .order("desc");
+    }
+
+    const events = await q.take(limit);
+
+    // Batch-enrich with actor names (deduplicated)
+    const actorIds = [
+      ...new Set(events.map((e) => e.actorUserId).filter(Boolean)),
+    ] as Id<"users">[];
+    const actors = new Map(
+      await Promise.all(
+        actorIds.map(async (id) => [id, await ctx.db.get(id)] as const),
+      ),
+    );
+
+    return events.map((e) => ({
+      ...e,
+      actorName: e.actorUserId
+        ? (actors.get(e.actorUserId)?.fullName ??
+          actors.get(e.actorUserId)?.email)
+        : null,
+      metadata: e.metadata ? JSON.parse(e.metadata) : null,
+    }));
+  },
+});
+```
+
+**Query cost**: One indexed range scan + `.take(50)` → ~50 document reads + actor enrichment (deduplicated, typically 5-8 users). Well within query limits at any scale.
+
+```typescript
+// convex/reporting/activityFeed.ts
+
+export const getActivitySummary = query({
+  args: { startDate: v.number(), endDate: v.number() },
+  handler: async (ctx, { startDate, endDate }) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    // Scan events in range and bucket by source + entityType
+    const bySource: Record<string, number> = {
+      closer: 0,
+      admin: 0,
+      pipeline: 0,
+      system: 0,
+    };
+    const byEntity: Record<string, number> = {};
+    const byActor: Record<string, number> = {};
+    let total = 0;
+
+    for await (const event of ctx.db
+      .query("domainEvents")
+      .withIndex("by_tenantId_and_occurredAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .gte("occurredAt", startDate)
+          .lt("occurredAt", endDate),
+      )) {
+      total++;
+      bySource[event.source] = (bySource[event.source] ?? 0) + 1;
+      byEntity[event.entityType] =
+        (byEntity[event.entityType] ?? 0) + 1;
+      if (event.actorUserId) {
+        byActor[event.actorUserId] =
+          (byActor[event.actorUserId] ?? 0) + 1;
+      }
+    }
+
+    return { totalEvents: total, bySource, byEntity, byActor };
+  },
+});
+```
+
+**Scalability note**: At current volume (~1,000 events/month), the summary scan is well within limits. At 10x scale (~10,000/month), this approaches Convex query document-read limits. The documented scaling path is to add a `domainEventCounts` aggregate instance at that point — **not needed now**.
+
+### 8.7 Form Response Analytics
+
+> **Purpose**: Booking form insights — which answers do leads give, and how frequently? Powered by `meetingFormResponses` + `eventTypeFieldCatalog` from v0.5b. Reactive via `useQuery`.
+
+```typescript
+// convex/reporting/formResponseAnalytics.ts
+
+/**
+ * Returns available form fields for the field selector dropdown.
+ * Populated by the pipeline (after 6.10 fix) and the v0.5b backfill.
+ */
+export const getFieldCatalog = query({
+  args: {},
+  handler: async (ctx) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    const fields = await ctx.db
+      .query("eventTypeFieldCatalog")
+      .withIndex("by_tenantId_and_fieldKey", (q) =>
+        q.eq("tenantId", tenantId),
+      )
+      .collect();
+
+    return fields.map((f) => ({
+      id: f._id,
+      fieldKey: f.fieldKey,
+      currentLabel: f.currentLabel,
+      firstSeenAt: f.firstSeenAt,
+      lastSeenAt: f.lastSeenAt,
+    }));
+  },
+});
+
+/**
+ * Returns answer frequency distribution for a specific form field.
+ * Supports optional date range filtering via capturedAt.
+ */
+export const getAnswerDistribution = query({
+  args: {
+    fieldKey: v.string(),
+    startDate: v.optional(v.number()),
+    endDate: v.optional(v.number()),
+  },
+  handler: async (ctx, { fieldKey, startDate, endDate }) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    const responses: string[] = [];
+    for await (const r of ctx.db
+      .query("meetingFormResponses")
+      .withIndex("by_tenantId_and_fieldKey", (q) =>
+        q.eq("tenantId", tenantId).eq("fieldKey", fieldKey),
+      )) {
+      if (startDate && r.capturedAt < startDate) continue;
+      if (endDate && r.capturedAt >= endDate) continue;
+      responses.push(r.answerText);
+    }
+
+    // Group and count
+    const freq: Record<string, number> = {};
+    for (const answer of responses) {
+      const normalized = answer.trim();
+      freq[normalized] = (freq[normalized] ?? 0) + 1;
+    }
+
+    // Sort by frequency descending
+    const distribution = Object.entries(freq)
+      .map(([answer, count]) => ({
+        answer,
+        count,
+        percent:
+          responses.length > 0 ? (count / responses.length) * 100 : 0,
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      fieldKey,
+      totalResponses: responses.length,
+      distinctAnswers: distribution.length,
+      distribution,
+    };
+  },
+});
+```
+
+**Query cost**: `getFieldCatalog` collects ~5-10 field definitions (tiny). `getAnswerDistribution` scans one field's responses via index — ~200 rows at current scale. Both are standard `useQuery` endpoints.
+
 ---
 
 ## 9. KPI Catalog
@@ -1194,6 +1460,10 @@ These are the exact KPIs from the manual report. Every one must be present in th
 | 20 | **Pipeline Velocity** | Supplementary query on won opportunities | Pipeline Health |
 | 21 | **Opportunity Aging** | Supplementary query on active opportunities | Pipeline Health |
 | 22 | **Stale Pipeline Count** | Supplementary query (active + no recent meeting) | Pipeline Health |
+| 23 | **Actions per Closer (daily avg)** | `COUNT(domainEvents WHERE actorUserId=closer) / distinct_active_days` in period | Activity Feed, Team Performance |
+| 24 | **Activity by Source** | Count of domain events grouped by `source` (closer / admin / pipeline / system) | Activity Feed |
+| 25 | **Activity by Entity** | Count of domain events grouped by `entityType` (meeting / opportunity / payment / lead / user) | Activity Feed |
+| 26 | **Most Active Closer** | `MAX(byActor)` from activity summary in period | Activity Feed |
 
 ### Tier 3: Meeting Time Tracking KPIs (ship with v0.6)
 
@@ -1201,24 +1471,27 @@ These KPIs are enabled by the new "End Meeting" feature (AD-6). All are computed
 
 | # | KPI | Formula | Where Shown |
 | --- | --- | --- | --- |
-| 23 | **On-Time Start Rate** | `COUNT(lateStartDurationMs = 0) / COUNT(started meetings)` | Team Performance |
-| 24 | **Avg Late Start Duration** | `AVG(lateStartDurationMs) WHERE lateStartDurationMs > 0` (minutes) | Team Performance |
-| 25 | **Overran Rate** | `COUNT(overranDurationMs > 0) / COUNT(completed meetings)` | Team Performance |
-| 26 | **Avg Overrun Duration** | `AVG(overranDurationMs) WHERE overranDurationMs > 0` (minutes) | Team Performance |
-| 27 | **Avg Actual Meeting Duration** | `AVG(stoppedAt - startedAt)` for completed meetings (minutes) | Team Performance |
-| 28 | **Schedule Adherence** | `COUNT(on-time start AND not overran) / COUNT(completed meetings)` | Team Performance |
-| 29 | **Late Start Reasons** | Distribution of `lateStartReason` values | Team Performance detail |
+| 27 | **On-Time Start Rate** | `COUNT(lateStartDurationMs = 0) / COUNT(started meetings)` | Team Performance |
+| 28 | **Avg Late Start Duration** | `AVG(lateStartDurationMs) WHERE lateStartDurationMs > 0` (minutes) | Team Performance |
+| 29 | **Overran Rate** | `COUNT(overranDurationMs > 0) / COUNT(completed meetings)` | Team Performance |
+| 30 | **Avg Overrun Duration** | `AVG(overranDurationMs) WHERE overranDurationMs > 0` (minutes) | Team Performance |
+| 31 | **Avg Actual Meeting Duration** | `AVG(stoppedAt - startedAt)` for completed meetings (minutes) | Team Performance |
+| 32 | **Schedule Adherence** | `COUNT(on-time start AND not overran) / COUNT(completed meetings)` | Team Performance |
+| 33 | **Late Start Reasons** | Distribution of `lateStartReason` values | Team Performance detail |
 
-### Tier 4: Conversion & Lead KPIs (ship with v0.6)
+### Tier 4: Conversion, Lead & Form Response KPIs (ship with v0.6)
 
 | # | KPI | Source | Where Shown |
 | --- | --- | --- | --- |
-| 30 | **New Leads** | `leadTimeline` aggregate | Lead Report |
-| 31 | **Conversions** | `customerConversions` aggregate | Lead Report |
-| 32 | **Lead Conversion Rate** | Computed from 30, 31 | Lead Report |
-| 33 | **Avg Meetings per Sale** | Supplementary query | Lead Report |
-| 34 | **Avg Time to Conversion** | Supplementary query | Lead Report |
-| 35 | **Conversions per Closer** | `customerConversions` aggregate (prefix by closer) | Lead Report |
+| 34 | **New Leads** | `leadTimeline` aggregate | Leads & Conversions |
+| 35 | **Conversions** | `customerConversions` aggregate | Leads & Conversions |
+| 36 | **Lead Conversion Rate** | Computed from 34, 35 | Leads & Conversions |
+| 37 | **Avg Meetings per Sale** | Supplementary query | Leads & Conversions |
+| 38 | **Avg Time to Conversion** | Supplementary query | Leads & Conversions |
+| 39 | **Conversions per Closer** | `customerConversions` aggregate (prefix by closer) | Leads & Conversions |
+| 40 | **Form Response Rate** | `COUNT(DISTINCT meetingId in meetingFormResponses) / COUNT(meetings)` in period | Leads & Conversions (Form Insights) |
+| 41 | **Top Answer per Field** | `MODE(answerText)` from `meetingFormResponses` grouped by `fieldKey` | Leads & Conversions (Form Insights) |
+| 42 | **Answer Distribution per Field** | `GROUP BY answerText, COUNT(*)` for selected `fieldKey` from `meetingFormResponses` | Leads & Conversions (Form Insights) |
 
 ### Tier 5: Future KPIs (not in v0.6 scope)
 
@@ -1229,6 +1502,8 @@ These KPIs are enabled by the new "End Meeting" feature (AD-6). All are computed
 | Revenue per Lead Source | Requires UTM attribution to be consistently set |
 | Customer Lifetime Value | Requires sufficient customer payment history |
 | Sales by Call Classification | Requires a second payment aggregate keyed by `[closerId, classification, recordedAt]` |
+| Answer-to-Conversion Correlation | Requires joining `meetingFormResponses` → `leads` → `customers`; deferred due to small sample size at current scale |
+| Full Entity Timeline | Per-entity chronological event log from `domainEvents`; requires entity-detail-page UI pattern (not a report page) |
 
 ---
 
@@ -1269,13 +1544,26 @@ app/workspace/reports/
 │       ├── velocity-metric-card.tsx       # Days to close
 │       ├── stale-pipeline-list.tsx        # Opps needing attention
 │       └── pipeline-report-skeleton.tsx
-└── leads/
-    ├── page.tsx            # Lead & Conversion report
+├── leads/
+│   ├── page.tsx            # Lead & Conversion report (includes Form Insights section)
+│   └── _components/
+│       ├── leads-report-page-client.tsx
+│       ├── conversion-funnel-chart.tsx    # New leads → conversions
+│       ├── conversion-by-closer-table.tsx
+│       ├── form-response-analytics-section.tsx  # Container with field selector
+│       ├── field-answer-distribution.tsx         # Bar chart of answer frequencies
+│       ├── form-field-selector.tsx               # Dropdown from eventTypeFieldCatalog
+│       ├── form-response-table.tsx               # Tabular answer frequency view
+│       └── leads-report-skeleton.tsx
+└── activity/
+    ├── page.tsx            # Activity Feed report
     └── _components/
-        ├── leads-report-page-client.tsx
-        ├── conversion-funnel-chart.tsx    # New leads → conversions
-        ├── conversion-by-closer-table.tsx
-        └── leads-report-skeleton.tsx
+        ├── activity-feed-page-client.tsx
+        ├── activity-feed-list.tsx         # Paginated event list with filters
+        ├── activity-feed-filters.tsx      # entityType/eventType/actor/date filters
+        ├── activity-event-row.tsx         # Single event: icon + actor + verb + timestamp
+        ├── activity-summary-cards.tsx     # Top-line activity counts by source
+        └── activity-feed-skeleton.tsx
 ```
 
 ### Navigation
@@ -1287,7 +1575,8 @@ Add a "Reports" section to the admin sidebar (`WorkspaceShellClient`):
   ├── Team Performance
   ├── Revenue
   ├── Pipeline Health
-  └── Leads & Conversions
+  ├── Leads & Conversions
+  └── Activity Feed
 ```
 
 Visible only when `useRole().hasPermission("pipeline:view-all")` (tenant_master and tenant_admin).
@@ -1335,13 +1624,69 @@ Shared `<ReportDateControls>` component used across all report pages:
 
 State managed locally via `useState`. When dates change, `useQuery` automatically refetches.
 
-### Chart Library
+### Charts — shadcn/ui + Recharts v3
 
-Use `recharts` (already in `optimizePackageImports` in `next.config.ts`):
-- `LineChart` for revenue trends
-- `BarChart` for closer comparisons
-- `PieChart` / `DonutChart` for status distribution
-- `ComposedChart` for overlay metrics
+All charts use the **shadcn `chart` component** (`components/ui/chart.tsx`) which wraps [Recharts v3](https://recharts.org/) with theme-aware colors, accessible tooltips, and legend components. The `chart` component is already installed in the project.
+
+**Pattern**: Build charts using Recharts primitives (`BarChart`, `LineChart`, etc.) inside a `ChartContainer`, and layer in shadcn's `ChartTooltip`, `ChartTooltipContent`, `ChartLegend`, and `ChartLegendContent` for consistent styling.
+
+```tsx
+import { Bar, BarChart, CartesianGrid, XAxis } from "recharts"
+import {
+  type ChartConfig,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+  ChartLegend,
+  ChartLegendContent,
+} from "@/components/ui/chart"
+
+const chartConfig = {
+  newCalls: {
+    label: "New Calls",
+    color: "var(--chart-1)",
+  },
+  followUpCalls: {
+    label: "Follow-Up Calls",
+    color: "var(--chart-2)",
+  },
+} satisfies ChartConfig
+
+function CloserComparisonChart({ data }) {
+  return (
+    <ChartContainer config={chartConfig} className="min-h-[300px] w-full">
+      <BarChart accessibilityLayer data={data}>
+        <CartesianGrid vertical={false} />
+        <XAxis dataKey="closerName" tickLine={false} axisLine={false} />
+        <ChartTooltip content={<ChartTooltipContent />} />
+        <ChartLegend content={<ChartLegendContent />} />
+        <Bar dataKey="newCalls" fill="var(--color-newCalls)" radius={4} />
+        <Bar dataKey="followUpCalls" fill="var(--color-followUpCalls)" radius={4} />
+      </BarChart>
+    </ChartContainer>
+  )
+}
+```
+
+**Key conventions**:
+- Colors reference CSS variables via `var(--color-KEY)` (Recharts v3 — no `hsl()` wrapping)
+- `ChartConfig` maps data keys to human-readable labels + color tokens (OKLCH via `--chart-1` through `--chart-5`)
+- Always set `min-h-*` on `ChartContainer` so `ResponsiveContainer` can measure
+- Always add `accessibilityLayer` to the root chart component for keyboard + screen reader support
+
+**Chart types per report page**:
+
+| Report | Chart Type | Recharts Component | Purpose |
+| --- | --- | --- | --- |
+| Revenue | Line chart | `LineChart` + `Line` | Revenue trend over time |
+| Revenue | Histogram | `BarChart` + `Bar` | Deal size distribution |
+| Team Performance | Grouped bar chart | `BarChart` + `Bar` | Per-closer KPI comparison |
+| Team Performance | Pie chart | `PieChart` + `Pie` | Meeting outcome distribution |
+| Pipeline Health | Donut chart | `PieChart` + `Pie` (with `innerRadius`) | Pipeline status distribution |
+| Leads & Conversions | Funnel / bar chart | `BarChart` + `Bar` | Conversion funnel |
+| Leads & Conversions (Form Insights) | Horizontal bar chart | `BarChart` + `Bar` (with `layout="vertical"`) | Answer frequency distribution |
+
+Browse the full shadcn chart library for additional styles: [ui.shadcn.com/charts](https://ui.shadcn.com/charts)
 
 ---
 
@@ -1374,9 +1719,9 @@ Use `recharts` (already in `optimizePackageImports` in `next.config.ts`):
 **Depends on**: v0.5b schema deployed
 **Risk**: Low — additive changes only; backfill is small dataset
 
-### Phase 2: Meeting Time Tracking + Mutation Integration (3-4 days)
+### Phase 2: Meeting Time Tracking + Mutation Integration + Form Response Pipeline (3.5-4.5 days)
 
-**Two goals**: (A) Build the `stopMeeting` mutation and enhance `startMeeting` with late-start detection. (B) Hook aggregate calls into every relevant mutation. This is the highest-risk phase — must not miss any write point.
+**Three goals**: (A) Build the `stopMeeting` mutation and enhance `startMeeting` with late-start detection. (B) Hook aggregate calls into every relevant mutation. (C) Wire live `meetingFormResponses` insertion into the pipeline. This is the highest-risk phase — must not miss any write point.
 
 **Part A — Meeting Time Tracking (1-1.5 days):**
 1. Enhance `startMeeting` in `closer/meetingActions.ts`: compute and store `lateStartDurationMs`
@@ -1423,10 +1768,22 @@ await meetingsByStatus.replace(ctx, oldDoc!, newDoc!);
 2. Trigger the relevant flow (e.g., cancel a meeting in the Convex dashboard)
 3. Check aggregate counts match expected values
 
-**Depends on**: Phase 1
-**Risk**: Medium — high touch point count; systematic but tedious. Risk of missing a write point. Mitigation: the integration map in Section 7 is exhaustive.
+**Part C — Live `meetingFormResponses` Pipeline Integration (0.5 day):**
 
-### Phase 3: Core Reporting Queries (2-3 days)
+Complete the v0.5b Section 3.7 specification that was not implemented during the v0.5b rollout:
+
+1. Extract shared helper `convex/lib/meetingFormResponseWriter.ts` from backfill logic in `admin/migrations.ts` (~lines 509-640)
+2. Wire into `pipeline/inviteeCreated.ts` at the 3 meeting-insert code paths:
+   - Flow 1 (UTM reactivation) — after meeting insert at ~1161
+   - Flow 2 (Heuristic reschedule) — after meeting insert at ~1403
+   - Flow 4 (New opportunity) — after meeting insert at ~1593
+3. For each inserted meeting: upsert `eventTypeFieldCatalog` entries + insert `meetingFormResponses` rows from `questions_and_answers`
+4. Verify: trigger a test booking via Calendly and confirm `meetingFormResponses` rows appear
+
+**Depends on**: Phase 1
+**Risk**: Medium — high touch point count; systematic but tedious. Risk of missing a write point. Mitigation: the integration map in Section 7 is exhaustive. Part C additionally requires verifying against a live Calendly booking.
+
+### Phase 3: Core Reporting Queries (3-4 days)
 
 **Files created:**
 - `convex/reporting/teamPerformance.ts` — Team Performance query
@@ -1434,34 +1791,39 @@ await meetingsByStatus.replace(ctx, oldDoc!, newDoc!);
 - `convex/reporting/revenueTrend.ts` — Period-bucketed revenue trend
 - `convex/reporting/pipelineHealth.ts` — Pipeline distribution + aging queries
 - `convex/reporting/leadConversion.ts` — Lead & conversion metrics
+- `convex/reporting/activityFeed.ts` — Activity feed + summary queries (v0.5b `domainEvents`)
+- `convex/reporting/formResponseAnalytics.ts` — Field catalog + answer distribution queries (v0.5b `meetingFormResponses`)
 - `convex/reporting/lib/outcomeDerivation.ts` — `deriveCallOutcome` helper for supplementary queries
+- `convex/reporting/lib/eventLabels.ts` — Human-readable label map for all `eventType` values (e.g., `meeting.started` → "Started meeting")
 - `convex/reporting/lib/helpers.ts` — shared utilities (`getActiveClosers`, `makeDateBounds`)
 
 **Steps:**
-1. Implement shared helpers
+1. Implement shared helpers + event labels map
 2. Build Team Performance report query (aggregates + supplementary)
 3. Build Revenue report queries (aggregate + payment scan)
 4. Build Pipeline Health queries (aggregate + opp scan)
 5. Build Lead & Conversion query (aggregates)
-6. Test all queries in Convex dashboard against known data
+6. Build Activity Feed queries (`getActivityFeed` + `getActivitySummary`) — see Section 8.6
+7. Build Form Response Analytics queries (`getFieldCatalog` + `getAnswerDistribution`) — see Section 8.7
+8. Test all queries in Convex dashboard against known data
 
-**Depends on**: Phase 2
-**Risk**: Medium — aggregation logic complexity. Cross-reference with Excel data for validation.
+**Depends on**: Phase 2 (especially Part C — live form response insertion must be verified before step 7)
+**Risk**: Medium — aggregation logic complexity. Cross-reference with Excel data for validation. Activity and form response queries are straightforward index scans.
 
 ### Phase 4: Frontend — Report Shell & Navigation (1-2 days)
 
 **Files created:** Report layout, loading states, navigation updates
 
 1. Create `app/workspace/reports/` route structure with auth-gated layout
-2. Add report navigation to sidebar (permission-gated)
+2. Add report navigation to sidebar (permission-gated) — now 5 items including Activity Feed
 3. Build shared `ReportDateControls` component
-4. Build skeleton components for all 4 report pages
+4. Build skeleton components for all 5 report pages
 5. Set up the page pattern (RSC wrapper → client component → `useQuery`)
 
 **Depends on**: Phase 3 queries available
 **Risk**: Low — standard page scaffolding
 
-### Phase 5: Frontend — Report Pages (4-5 days)
+### Phase 5: Frontend — Report Pages (5.5-6.5 days)
 
 **5A. Team Performance (2 days)**
 - Wire up `useQuery(getTeamPerformanceMetrics)` with date controls
@@ -1482,14 +1844,29 @@ await meetingsByStatus.replace(ctx, oldDoc!, newDoc!);
 - Velocity metric card
 - Stale opportunities list
 
-**5D. Lead & Conversion (0.5 day)**
+**5D. Lead & Conversion + Form Insights (1 day)**
 - Conversion funnel visualization
 - Conversions by closer table
+- Form Insights section:
+  - Field selector dropdown (`useQuery(getFieldCatalog)`)
+  - Answer distribution bar chart (`useQuery(getAnswerDistribution)`) — updates reactively when field selection changes
+  - Frequency table with counts and percentages
+  - Empty state when no form fields exist
+
+**5E. Activity Feed (1 day)**
+- Activity summary cards (total events, by-source breakdown, most active closer)
+- Paginated event list with `useQuery(getActivityFeed)` + date range controls
+- Filter controls: entity type, event type, actor dropdown
+- Human-readable event rendering using `eventLabels` map:
+  - Row format: `[icon by entityType] [actor name] [verb] [relative timestamp]`
+  - Expandable metadata for events with extra context (e.g., `overranDurationMs` for `meeting.stopped`)
+- "Load more" pagination (increment `limit` param)
+- Skeleton loading state
 
 All with skeleton loading states, error boundaries, responsive layout.
 
 **Depends on**: Phase 4
-**Risk**: Medium — chart configuration and number formatting
+**Risk**: Medium — chart configuration and number formatting. Activity Feed requires the `eventLabels` map to be comprehensive (all ~20 event types need human-readable labels).
 
 ### Phase 6: QA & Polish (1-2 days)
 
@@ -1500,9 +1877,12 @@ All with skeleton loading states, error boundaries, responsive layout.
 5. Edge cases: empty date ranges, single-day ranges, closers with zero meetings
 6. Error states: loading skeletons, auth expiry
 7. Performance: ensure report queries render under 1 second
+8. Verify Activity Feed displays domain events with correct actor attribution and human-readable labels
+9. Verify Form Insights shows answer distribution for at least one Calendly form field
+10. Verify live bookings (post-Phase 2C) create `meetingFormResponses` rows — confirm they appear in Form Insights
 
 **Depends on**: Phase 5
-**Total estimated effort**: **13-19 days**
+**Total estimated effort**: **16-22 days**
 
 ---
 
@@ -1514,10 +1894,12 @@ All with skeleton loading states, error boundaries, responsive layout.
 | **Aggregate backfill ordering** | Backfilling before schema deploy fails | Phase 1 is sequenced: schema → deploy → backfill classification → backfill aggregates |
 | **Component version compat** | `@convex-dev/aggregate` API may differ from docs | Pin to v0.2.1; verify API against installed package before coding |
 | **Reactive query performance** | 96 aggregate calls per Team Performance render could be slow on cold cache | Monitor; each call is O(log n) and aggregate data is small. If needed, batch into fewer queries |
-| **Chart rendering performance** | Large datasets in recharts could cause jank | Limit trend data to max 90 data points; aggregate to coarser granularity for long ranges |
+| **Chart rendering performance** | Large datasets in Recharts v3 (via shadcn `ChartContainer`) could cause jank | Limit trend data to max 90 data points; aggregate to coarser granularity for long ranges. Always set `min-h-*` on `ChartContainer` for proper responsive sizing |
 | **Time zones** | `scheduledAt` is UTC epoch; reports may need tenant timezone | v0.6 uses UTC. Tenant timezone support can be added in v0.7 |
 | **Aggregate data structure growth** | 5 aggregate instances add internal tables | Aggregate uses a balanced tree; space is O(n) per instance. At current scale (~700 total records) this is negligible |
 | **Transaction write limits** | Bulk operations (redistribution) that replace many meetings in aggregate could hit limits | Redistribution already batches; aggregate replace adds ~2 reads + ~2 writes per meeting. Monitor batch sizes |
+| **`domainEvents` summary scan at 10x scale** | `getActivitySummary` scans all events in date range; at 10,000+/month could approach read limits | Paginated feed (`take(50)`) is safe at any scale. Summary query only risks at 10x growth. Documented scaling path: add `domainEventCounts` aggregate at that point |
+| **`meetingFormResponses` not populated by live pipeline** | Form response analytics only reflect backfilled historical data, not new bookings | Phase 2C prerequisite: wire `meetingFormResponses` insertion into `inviteeCreated.ts`. Verify with a test booking before Phase 3 query work |
 
 ---
 
@@ -1540,9 +1922,13 @@ All with skeleton loading states, error boundaries, responsive layout.
 
 ### Should Have
 
-- [ ] All Tier 2 KPIs (Enhanced) are present
+- [ ] All Tier 2 KPIs (Enhanced + Activity) are present — including activity-by-source and actions-per-closer
 - [ ] All Tier 3 KPIs (Meeting Time Tracking) are present — requires `stopMeeting` usage
-- [ ] All Tier 4 KPIs (Lead & Conversion) are present
+- [ ] All Tier 4 KPIs (Lead & Conversion + Form Insights) are present
+- [ ] Activity Feed shows the 50 most recent domain events with correct actor attribution
+- [ ] Activity Feed filters work (by entity type, event type, actor)
+- [ ] Form Insights shows answer distribution for at least one Calendly form field
+- [ ] Live pipeline bookings create `meetingFormResponses` rows (Phase 2C verified)
 - [ ] Charts render without performance issues
 - [ ] Report pages render in under 1 second
 
@@ -1551,12 +1937,14 @@ All with skeleton loading states, error boundaries, responsive layout.
 - [ ] Quick-pick date range presets (This Month, Last Month, etc.)
 - [ ] Report pages accessible from the command palette (Cmd+K)
 - [ ] Reconciliation script that verifies aggregate integrity
+- [ ] Activity Feed: expandable metadata on events with extra context (overrun duration, payment amount, etc.)
+- [ ] Form Insights: date-range-filtered answer distribution (not just all-time)
 
 ---
 
 ## Appendix A: File Inventory
 
-### New Files (~25)
+### New Files (~36)
 
 ```
 convex/reporting/
@@ -1566,11 +1954,17 @@ convex/reporting/
 ├── revenueTrend.ts                 # Period-bucketed revenue trend
 ├── pipelineHealth.ts               # Pipeline distribution + aging queries
 ├── leadConversion.ts               # Lead & conversion metrics
+├── activityFeed.ts                 # Activity feed + summary queries (domainEvents)
+├── formResponseAnalytics.ts        # Field catalog + answer distribution (meetingFormResponses)
 ├── backfill.ts                     # Backfill mutations (classification + all 5 aggregates)
 └── lib/
     ├── periodBucketing.ts          # getPeriodKey, getPeriodsInRange
     ├── outcomeDerivation.ts        # deriveCallOutcome for supplementary queries
+    ├── eventLabels.ts              # Human-readable eventType → label map (~20 entries)
     └── helpers.ts                  # getActiveClosers, makeDateBounds
+
+convex/lib/
+└── meetingFormResponseWriter.ts    # Shared helper: upsert catalog + insert responses (extracted from migration)
 
 app/workspace/reports/
 ├── layout.tsx
@@ -1585,18 +1979,21 @@ app/workspace/reports/
 ├── pipeline/
 │   ├── page.tsx
 │   └── _components/ (5 files)
-└── leads/
+├── leads/
+│   ├── page.tsx
+│   └── _components/ (8 files — original 4 + 4 form response components)
+└── activity/
     ├── page.tsx
-    └── _components/ (4 files)
+    └── _components/ (6 files)
 ```
 
-### Modified Files (~12)
+### Modified Files (~13)
 
 ```
 convex/convex.config.ts                     # Add 5 aggregate component registrations
 convex/schema.ts                            # Add callClassification + time tracking fields to meetings
 package.json                                # Add @convex-dev/aggregate dependency
-convex/pipeline/inviteeCreated.ts           # 7 aggregate hooks + set callClassification
+convex/pipeline/inviteeCreated.ts           # 7 aggregate hooks + set callClassification + meetingFormResponses insertion (Phase 2C)
 convex/pipeline/inviteeCanceled.ts          # 2 aggregate hooks
 convex/pipeline/inviteeNoShow.ts            # 5 aggregate hooks
 convex/closer/meetingActions.ts             # 4 aggregate hooks + stopMeeting + setLateStartReason + startMeeting late-start tracking
@@ -1607,7 +2004,7 @@ convex/customers/mutations.ts               # 1 aggregate hook
 convex/customers/conversion.ts              # 1 aggregate hook
 convex/lib/syncOpportunityMeetingsAssignedCloser.ts  # meeting aggregate replace in loop
 convex/unavailability/redistribution.ts     # 5 aggregate hooks
-app/workspace/_components/workspace-shell-client.tsx  # Add Reports nav section
+app/workspace/_components/workspace-shell-client.tsx  # Add Reports nav section (5 items)
 ```
 
-### Estimated Total: ~37 files (17 backend, 20 frontend)
+### Estimated Total: ~49 files (21 backend, 28 frontend)

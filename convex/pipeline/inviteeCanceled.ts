@@ -4,6 +4,10 @@ import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { validateTransition } from "../lib/statusTransitions";
 import { emitDomainEvent } from "../lib/domainEvents";
 import {
+  replaceMeetingAggregate,
+  replaceOpportunityAggregate,
+} from "../reporting/writeHooks";
+import {
   isActiveOpportunityStatus,
   updateTenantStats,
 } from "../lib/tenantStatsHelper";
@@ -92,6 +96,7 @@ export const process = internalMutation({
 				status: "canceled",
 				canceledAt: now,
 			});
+			await replaceMeetingAggregate(ctx, meeting, meeting._id);
 			await updateOpportunityMeetingRefs(ctx, meeting.opportunityId);
 			await emitDomainEvent(ctx, {
 				tenantId,
@@ -148,6 +153,7 @@ export const process = internalMutation({
 				updatedAt: now,
 			});
 			if (newStatus !== opportunity.status) {
+				await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
 				await updateTenantStats(ctx, tenantId, {
 					activeOpportunities: isActiveOpportunityStatus(opportunity.status)
 						? -1

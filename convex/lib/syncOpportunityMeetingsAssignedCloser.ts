@@ -1,5 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { replaceMeetingAggregate } from "../reporting/writeHooks";
 
 export async function syncOpportunityMeetingsAssignedCloser(
   ctx: MutationCtx,
@@ -15,7 +16,9 @@ export async function syncOpportunityMeetingsAssignedCloser(
       continue;
     }
 
+    const oldMeeting = meeting;
     await ctx.db.patch(meeting._id, { assignedCloserId });
+    await replaceMeetingAggregate(ctx, oldMeeting, meeting._id);
     updatedCount += 1;
   }
 
