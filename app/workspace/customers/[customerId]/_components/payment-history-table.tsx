@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
+import { formatCurrency } from "@/lib/format-currency";
 import type { Id } from "@/convex/_generated/dataModel";
 
 interface Payment {
@@ -71,7 +72,7 @@ export function PaymentHistoryTable({ payments }: PaymentHistoryTableProps) {
                   {format(new Date(payment.recordedAt), "MMM d, yyyy")}
                 </TableCell>
                 <TableCell className="text-right font-medium">
-                  {payment.currency} {payment.amount.toFixed(2)}
+                  {formatCurrency(payment.amount, payment.currency)}
                 </TableCell>
                 <TableCell className="text-sm">{payment.provider}</TableCell>
                 <TableCell className="text-sm text-muted-foreground">

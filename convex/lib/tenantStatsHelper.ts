@@ -53,10 +53,31 @@ export async function updateTenantStats(
     .unique();
 
   if (!stats) {
-    console.warn("[TenantStats] Missing stats document, skipping delta", {
+    console.warn("[TenantStats] Missing stats document, auto-creating", {
       tenantId,
       delta,
     });
+    const initial: Record<string, unknown> = {
+      tenantId,
+      totalTeamMembers: 0,
+      totalClosers: 0,
+      totalOpportunities: 0,
+      activeOpportunities: 0,
+      wonDeals: 0,
+      lostDeals: 0,
+      totalRevenueMinor: 0,
+      totalPaymentRecords: 0,
+      totalLeads: 0,
+      totalCustomers: 0,
+      lastUpdatedAt: Date.now(),
+    };
+    for (const field of TENANT_STATS_FIELDS) {
+      const value = delta[field];
+      if (value !== undefined && value !== 0) {
+        initial[field] = Math.max(0, value);
+      }
+    }
+    await ctx.db.insert("tenantStats", initial as never);
     return;
   }
 

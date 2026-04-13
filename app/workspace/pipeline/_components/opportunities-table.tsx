@@ -20,6 +20,7 @@ import {
   EmptyTitle,
   EmptyDescription,
 } from "@/components/ui/empty";
+import { Spinner } from "@/components/ui/spinner";
 import { ExternalLinkIcon, InboxIcon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useTableSort } from "@/hooks/use-table-sort";
@@ -45,6 +46,9 @@ interface Opportunity {
 
 interface OpportunitiesTableProps {
   opportunities: Opportunity[];
+  canLoadMore: boolean;
+  isLoadingMore: boolean;
+  onLoadMore: () => void;
 }
 
 function formatDate(timestamp: number) {
@@ -82,7 +86,12 @@ function formatDate(timestamp: number) {
   });
 }
 
-export function OpportunitiesTable({ opportunities }: OpportunitiesTableProps) {
+export function OpportunitiesTable({
+  opportunities,
+  canLoadMore,
+  isLoadingMore,
+  onLoadMore,
+}: OpportunitiesTableProps) {
   const [now, setNow] = useState(() => Date.now());
 
   const comparators = useMemo(() => ({
@@ -122,7 +131,8 @@ export function OpportunitiesTable({ opportunities }: OpportunitiesTableProps) {
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border">
+    <div className="flex flex-col gap-4">
+      <div className="overflow-hidden rounded-lg border">
       <Table>
         <TableHeader>
           <TableRow>
@@ -225,6 +235,27 @@ export function OpportunitiesTable({ opportunities }: OpportunitiesTableProps) {
           })}
         </TableBody>
       </Table>
+      </div>
+
+      {canLoadMore && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onLoadMore}
+            disabled={isLoadingMore}
+          >
+            {isLoadingMore ? (
+              <>
+                <Spinner data-icon="inline-start" />
+                Loading...
+              </>
+            ) : (
+              "Load more"
+            )}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

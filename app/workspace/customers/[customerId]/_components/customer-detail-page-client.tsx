@@ -10,19 +10,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeftIcon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { formatCurrency } from "@/lib/format-currency";
 import { format, formatDistanceToNow } from "date-fns";
 import { CustomerStatusBadge } from "../../_components/customer-status-badge";
 import { CustomerStatusControl } from "../../_components/customer-status-control";
 import { PaymentHistoryTable } from "./payment-history-table";
 import { RecordPaymentDialog } from "./record-payment-dialog";
-
-// ---------------------------------------------------------------------------
-// Helpers (rendering-hoist-jsx)
-// ---------------------------------------------------------------------------
-
-function formatCurrency(amount: number, currency: string): string {
-  return `${currency} ${amount.toFixed(2)}`;
-}
 
 // ---------------------------------------------------------------------------
 // Component

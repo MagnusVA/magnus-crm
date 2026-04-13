@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
+import { formatCurrency } from "@/lib/format-currency";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -287,18 +288,6 @@ export function DealWonCard({ payments }: DealWonCardProps) {
 function isImageContentType(contentType: string | null): boolean {
   if (!contentType) return false;
   return contentType.startsWith("image/");
-}
-
-function formatCurrency(amount: number, currency: string): string {
-  try {
-    return new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: currency.toUpperCase(),
-    }).format(amount);
-  } catch {
-    // Fallback for unsupported currency codes
-    return `${currency.toUpperCase()} ${amount.toFixed(2)}`;
-  }
 }
 
 function formatFileSize(bytes: number): string {

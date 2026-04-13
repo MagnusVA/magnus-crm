@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { paginationOptsValidator } from "convex/server";
 import type { Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
@@ -24,13 +25,14 @@ const opportunityStatusValidator = v.union(
  */
 export const listMyOpportunities = query({
   args: {
+    paginationOpts: paginationOptsValidator,
     statusFilter: v.optional(opportunityStatusValidator),
   },
-  handler: async (ctx, { statusFilter }) => {
+  handler: async (ctx, { paginationOpts, statusFilter }) => {
     console.log("[Closer:Pipeline] listMyOpportunities called", { statusFilter: statusFilter ?? "all" });
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
 
-    const opportunities = statusFilter
+    const paginatedResult = statusFilter
       ? await ctx.db
           .query("opportunities")
           .withIndex("by_tenantId_and_assignedCloserId_and_status", (q) =>
@@ -39,13 +41,15 @@ export const listMyOpportunities = query({
               .eq("assignedCloserId", userId)
               .eq("status", statusFilter),
           )
-          .take(50)
+          .paginate(paginationOpts)
       : await ctx.db
           .query("opportunities")
           .withIndex("by_tenantId_and_assignedCloserId", (q) =>
             q.eq("tenantId", tenantId).eq("assignedCloserId", userId),
           )
-          .take(50);
+          .paginate(paginationOpts);
+
+    const opportunities = paginatedResult.page;
 
     const leadIds = [...new Set(opportunities.map((opportunity) => opportunity.leadId))];
     const leads = await Promise.all(
@@ -81,6 +85,9 @@ export const listMyOpportunities = query({
 
     // Sort by most recent update first
     console.log("[Closer:Pipeline] listMyOpportunities result", { totalOpps: opportunities.length, enrichedCount: enriched.length });
-    return enriched.sort((a, b) => b.updatedAt - a.updatedAt);
+    return {
+      ...paginatedResult,
+      page: enriched.sort((a, b) => b.updatedAt - a.updatedAt),
+    };
   },
 });

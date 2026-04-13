@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import { useRole } from "@/components/auth/role-context";
@@ -101,9 +101,14 @@ function PipelineContent() {
     return args;
   }, [closerFilter, statusFilter]);
 
-  const opportunities = useQuery(
+  const {
+    results: opportunities,
+    status: paginationStatus,
+    loadMore,
+  } = usePaginatedQuery(
     api.opportunities.queries.listOpportunitiesForAdmin,
     isAdmin ? queryArgs : "skip",
+    { initialNumItems: 25 },
   );
   const teamMembers = useQuery(
     api.users.queries.listTeamMembers,
@@ -131,7 +136,7 @@ function PipelineContent() {
             View all opportunities across your team
           </p>
         </div>
-        {opportunities && opportunities.length > 0 ? (
+        {opportunities.length > 0 ? (
           <Button
             variant="outline"
             size="sm"
@@ -171,10 +176,15 @@ function PipelineContent() {
         />
       )}
 
-      {opportunities === undefined ? (
+      {paginationStatus === "LoadingFirstPage" ? (
         <TableSkeleton />
       ) : (
-        <OpportunitiesTable opportunities={opportunities} />
+        <OpportunitiesTable
+          opportunities={opportunities}
+          canLoadMore={paginationStatus === "CanLoadMore"}
+          isLoadingMore={paginationStatus === "LoadingMore"}
+          onLoadMore={() => loadMore(25)}
+        />
       )}
     </div>
   );

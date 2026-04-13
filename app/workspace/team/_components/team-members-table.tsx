@@ -37,7 +37,10 @@ import {
   UsersIcon,
   CalendarPlusIcon,
   CalendarOffIcon,
+  EyeIcon,
+  EyeOffIcon,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useTableSort } from "@/hooks/use-table-sort";
 
@@ -47,6 +50,7 @@ interface TeamMember {
   email: string;
   fullName?: string;
   role: "closer" | "tenant_admin" | "tenant_master";
+  isActive: boolean;
   calendlyMemberName?: string;
   calendlyUserUri?: string;
   personalEventTypeUri?: string;
@@ -55,6 +59,8 @@ interface TeamMember {
 interface TeamMembersTableProps {
   members: TeamMember[];
   currentUserId?: Id<"users">;
+  showInactive: boolean;
+  onToggleShowInactive: () => void;
   onEditRole?: (memberId: Id<"users">, currentRole: string) => void;
   onRemoveUser?: (memberId: Id<"users">) => void;
   onRelinkCalendly?: (memberId: Id<"users">) => void;
@@ -71,12 +77,19 @@ const roleLabels: Record<string, { label: string; variant: "default" | "secondar
 export function TeamMembersTable({
   members,
   currentUserId,
+  showInactive,
+  onToggleShowInactive,
   onEditRole,
   onRemoveUser,
   onRelinkCalendly,
   onAssignEventType,
   onMarkUnavailable,
 }: TeamMembersTableProps) {
+  // Filter members based on showInactive toggle
+  const visibleMembers = showInactive
+    ? members
+    : members.filter((m) => m.isActive !== false);
+
   const comparators = useMemo(() => ({
     name: (a: TeamMember, b: TeamMember) => (a.fullName ?? a.email).localeCompare(b.fullName ?? b.email),
     email: (a: TeamMember, b: TeamMember) => a.email.localeCompare(b.email),
@@ -85,7 +98,10 @@ export function TeamMembersTable({
     personalEventType: (a: TeamMember, b: TeamMember) => (a.personalEventTypeUri ?? "").localeCompare(b.personalEventTypeUri ?? ""),
   }), []);
 
-  const { sorted, sort, toggle } = useTableSort(members, comparators);
+  const { sorted, sort, toggle } = useTableSort(visibleMembers, comparators);
+
+  const inactiveCount = members.filter((m) => m.isActive === false).length;
+
   if (members.length === 0) {
     return (
       <Empty>
@@ -103,7 +119,25 @@ export function TeamMembersTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-lg border">
+    <div className="flex flex-col gap-2">
+      {inactiveCount > 0 && (
+        <div className="flex items-center justify-end">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onToggleShowInactive}
+            className="text-xs text-muted-foreground"
+          >
+            {showInactive ? (
+              <EyeOffIcon data-icon="inline-start" />
+            ) : (
+              <EyeIcon data-icon="inline-start" />
+            )}
+            {showInactive ? "Hide inactive" : `Show inactive (${inactiveCount})`}
+          </Button>
+        </div>
+      )}
+      <div className="overflow-hidden rounded-lg border">
       <Table>
         <TableHeader>
           <TableRow>
@@ -162,9 +196,19 @@ export function TeamMembersTable({
             const hasAnyAction = canEditRole || canRemove || canRelinkCalendly || canAssignEventType || canMarkUnavailable;
 
             return (
-              <TableRow key={member._id}>
+              <TableRow
+                key={member._id}
+                className={cn(!member.isActive && "opacity-50")}
+              >
                 <TableCell className="font-medium">
-                  {member.fullName || member.email}
+                  <div className="flex items-center gap-2">
+                    {member.fullName || member.email}
+                    {!member.isActive && (
+                      <Badge variant="outline" className="text-xs text-muted-foreground">
+                        Deactivated
+                      </Badge>
+                    )}
+                  </div>
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
                   {member.email}
@@ -206,7 +250,7 @@ export function TeamMembersTable({
                   )}
                 </TableCell>
                 <TableCell className="text-right">
-                  {hasAnyAction ? (
+                  {member.isActive && hasAnyAction ? (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button
@@ -273,7 +317,7 @@ export function TeamMembersTable({
                                   variant="destructive"
                                 >
                                   <Trash2Icon data-icon="inline-start" />
-                                  Remove User
+                                  Deactivate User
                                 </DropdownMenuItem>
                               </DropdownMenuGroup>
                             </>
@@ -288,6 +332,7 @@ export function TeamMembersTable({
           })}
         </TableBody>
       </Table>
+      </div>
     </div>
   );
 }

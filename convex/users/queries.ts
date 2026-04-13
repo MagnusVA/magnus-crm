@@ -163,18 +163,13 @@ export const listTeamMembers = query({
     console.log("[Users] listTeamMembers called");
     const { tenantId } = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
 
-    const users: Doc<"users">[] = [];
-    for await (const user of ctx.db
+    // Return all users (including deactivated) — frontend handles filtering
+    // via showInactive toggle. Deactivated users are still needed for
+    // historical display and admin visibility.
+    const users = await ctx.db
       .query("users")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))) {
-      if (user.isActive === false) {
-        continue;
-      }
-      users.push(user);
-      if (users.length >= 200) {
-        break;
-      }
-    }
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .take(200);
 
     const missingCalendlyUris = [
       ...new Set(

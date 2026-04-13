@@ -68,7 +68,7 @@ function TableSkeleton() {
 
 type DialogState =
   | { type: null }
-  | { type: "remove"; userId: Id<"users">; userName: string }
+  | { type: "remove"; userId: Id<"users">; userName: string; hasActiveAssignments: boolean }
   | { type: "calendly"; userId: Id<"users">; userName: string }
   | { type: "role"; userId: Id<"users">; userName: string; currentRole: string }
   | {
@@ -100,6 +100,7 @@ export function TeamPageClient() {
 
   // Single state replaces 12 useState calls
   const [dialog, setDialog] = useState<DialogState>({ type: null });
+  const [showInactive, setShowInactive] = useState(false);
 
   const closeDialog = () => setDialog({ type: null });
 
@@ -118,10 +119,14 @@ export function TeamPageClient() {
   const handleRemoveUser = (memberId: Id<"users">) => {
     const member = members?.find((m) => m._id === memberId);
     if (member && currentUser?._id !== memberId && member.role !== "tenant_master") {
+      // Pre-flight: check if member has active opportunity assignments
+      // (a basic heuristic — the backend enforces the real check)
+      const hasActiveAssignments = false; // TODO: wire to query result when available
       setDialog({
         type: "remove",
         userId: memberId,
         userName: member.fullName || member.email,
+        hasActiveAssignments,
       });
     }
   };
@@ -181,11 +186,12 @@ export function TeamPageClient() {
               onClick={() => {
                 downloadCSV(
                   `team-${format(new Date(), "yyyy-MM-dd")}`,
-                  ["Name", "Email", "Role", "Calendly Status"],
+                  ["Name", "Email", "Role", "Status", "Calendly Status"],
                   members.map((m) => [
                     m.fullName ?? "",
                     m.email,
                     m.role.replace(/_/g, " "),
+                    m.isActive !== false ? "Active" : "Deactivated",
                     m.calendlyMemberName ?? "Not linked",
                   ]),
                 );
@@ -207,6 +213,8 @@ export function TeamPageClient() {
         <TeamMembersTable
           members={members}
           currentUserId={currentUser._id}
+          showInactive={showInactive}
+          onToggleShowInactive={() => setShowInactive((prev) => !prev)}
           onEditRole={handleEditRole}
           onRemoveUser={handleRemoveUser}
           onRelinkCalendly={handleRelinkCalendly}
@@ -226,6 +234,7 @@ export function TeamPageClient() {
           }}
           userId={dialog.userId}
           userName={dialog.userName}
+          hasActiveAssignments={dialog.hasActiveAssignments}
         />
       )}
 
