@@ -2190,3 +2190,274 @@ export const auditPaymentCurrencies = query({
     };
   },
 });
+
+// ============================================================================
+// Phase 6 Blocker Purge — ONE-SHOT DESTRUCTIVE CLEANUP
+// ============================================================================
+//
+// Removes the two categories of records blocking the Phase 6 schema narrowing
+// deploy, plus every related child record to avoid referential inconsistency.
+//
+// Blocker A: opportunities whose meetings have no assignedCloserId
+//   (the Calendly host could not be mapped to a closer user).
+//   → cascade-deletes: opportunity, meetings, followUps, paymentRecords,
+//     meetingFormResponses, meetingReassignments, domainEvents, and any
+//     customers whose winningOpportunityId points to the deleted opportunity.
+//
+// Blocker B: paymentRecords that still carry the legacy `amount` field
+//   (cannot be stripped while the deployed schema still requires it).
+//   → deletes the 2 affected payment records and their proof files.
+//
+// Leaves alone: leads, users, calendlyOrgMembers, tenantCalendlyConnections,
+// eventTypeConfigs, eventTypeFieldCatalog, rawWebhookEvents.
+// ============================================================================
+
+export const purgePhase6BlockerRecords = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireSystemAdmin(ctx);
+
+    const counts = {
+      opportunities: 0,
+      meetings: 0,
+      followUps: 0,
+      paymentRecords: 0,
+      paymentProofFiles: 0,
+      meetingFormResponses: 0,
+      meetingReassignments: 0,
+      domainEvents: 0,
+      customers: 0,
+      legacyPaymentsStripped: 0,
+    };
+
+    // ─── BLOCKER A: meetings without assignedCloserId ─────────────
+
+    // Gather all meetings across all tenants (bounded: ~230 in production).
+    const allMeetings = await ctx.db.query("meetings").collect();
+    const blockerMeetings = allMeetings.filter(
+      (m) => m.assignedCloserId === undefined,
+    );
+
+    // Unique opportunity IDs that need to be cascade-deleted.
+    const opportunityIds = [
+      ...new Set(blockerMeetings.map((m) => m.opportunityId)),
+    ];
+
+    console.log(
+      `[Phase6:Purge] Found ${blockerMeetings.length} meetings without assignedCloserId across ${opportunityIds.length} opportunities`,
+    );
+
+    for (const oppId of opportunityIds) {
+      // 1. All meetings for this opportunity (not just blocker ones — delete the
+      //    whole opportunity tree to avoid orphaned siblings).
+      const oppMeetings = await ctx.db
+        .query("meetings")
+        .withIndex("by_opportunityId", (q) => q.eq("opportunityId", oppId))
+        .collect();
+
+      const meetingIdSet = new Set(oppMeetings.map((m) => m._id));
+
+      // 2. meetingFormResponses
+      for (const meeting of oppMeetings) {
+        const formResponses = await ctx.db
+          .query("meetingFormResponses")
+          .withIndex("by_meetingId", (q) => q.eq("meetingId", meeting._id))
+          .collect();
+        for (const r of formResponses) {
+          await ctx.db.delete(r._id);
+          counts.meetingFormResponses++;
+        }
+      }
+
+      // 3. meetingReassignments
+      for (const meeting of oppMeetings) {
+        const reassignments = await ctx.db
+          .query("meetingReassignments")
+          .withIndex("by_meetingId", (q) => q.eq("meetingId", meeting._id))
+          .collect();
+        for (const r of reassignments) {
+          await ctx.db.delete(r._id);
+          counts.meetingReassignments++;
+        }
+      }
+
+      // 4. followUps
+      const followUps = await ctx.db
+        .query("followUps")
+        .withIndex("by_opportunityId", (q) => q.eq("opportunityId", oppId))
+        .collect();
+      for (const fu of followUps) {
+        await ctx.db.delete(fu._id);
+        counts.followUps++;
+      }
+
+      // 5. paymentRecords (opportunity-scoped) + proof files
+      const oppPayments = await ctx.db
+        .query("paymentRecords")
+        .withIndex("by_opportunityId", (q) => q.eq("opportunityId", oppId))
+        .collect();
+      for (const p of oppPayments) {
+        if (p.proofFileId) {
+          await ctx.storage.delete(p.proofFileId);
+          counts.paymentProofFiles++;
+        }
+        await ctx.db.delete(p._id);
+        counts.paymentRecords++;
+      }
+
+      // 6. domainEvents for the opportunity
+      //    (use the tenantId from the first meeting of this opportunity)
+      const tenantIdForOpp = oppMeetings[0]?.tenantId;
+      if (tenantIdForOpp) {
+        const oppEvents = await ctx.db
+          .query("domainEvents")
+          .withIndex(
+            "by_tenantId_and_entityType_and_entityId_and_occurredAt",
+            (q) =>
+              q
+                .eq("tenantId", tenantIdForOpp)
+                .eq("entityType", "opportunity")
+                .eq("entityId", oppId),
+          )
+          .collect();
+        for (const evt of oppEvents) {
+          await ctx.db.delete(evt._id);
+          counts.domainEvents++;
+        }
+      }
+
+      // 7. domainEvents for each meeting
+      for (const meeting of oppMeetings) {
+        const meetingEvents = await ctx.db
+          .query("domainEvents")
+          .withIndex(
+            "by_tenantId_and_entityType_and_entityId_and_occurredAt",
+            (q) =>
+              q
+                .eq("tenantId", meeting.tenantId)
+                .eq("entityType", "meeting")
+                .eq("entityId", meeting._id),
+          )
+          .collect();
+        for (const evt of meetingEvents) {
+          await ctx.db.delete(evt._id);
+          counts.domainEvents++;
+        }
+      }
+
+      // 8. customers whose winningOpportunityId points to this opportunity
+      //    (winningOpportunityId is required in the schema, so we must delete
+      //    the customer, not just clear the field).
+      const opportunity = await ctx.db.get(oppId);
+      if (opportunity) {
+        const customers = await ctx.db
+          .query("customers")
+          .withIndex("by_tenantId", (q) =>
+            q.eq("tenantId", opportunity.tenantId),
+          )
+          .collect();
+        const affectedCustomers = customers.filter(
+          (c) => c.winningOpportunityId === oppId,
+        );
+        for (const customer of affectedCustomers) {
+          // Delete customer-scoped payment records first
+          const custPayments = await ctx.db
+            .query("paymentRecords")
+            .withIndex("by_customerId", (q) =>
+              q.eq("customerId", customer._id),
+            )
+            .collect();
+          for (const p of custPayments) {
+            if (p.proofFileId) {
+              await ctx.storage.delete(p.proofFileId);
+              counts.paymentProofFiles++;
+            }
+            await ctx.db.delete(p._id);
+            counts.paymentRecords++;
+          }
+          // Delete domainEvents for the customer
+          const custEvents = await ctx.db
+            .query("domainEvents")
+            .withIndex(
+              "by_tenantId_and_entityType_and_entityId_and_occurredAt",
+              (q) =>
+                q
+                  .eq("tenantId", opportunity.tenantId)
+                  .eq("entityType", "customer")
+                  .eq("entityId", customer._id),
+            )
+            .collect();
+          for (const evt of custEvents) {
+            await ctx.db.delete(evt._id);
+            counts.domainEvents++;
+          }
+          await ctx.db.delete(customer._id);
+          counts.customers++;
+        }
+      }
+
+      // 9. Clear rescheduledFromMeetingId on OTHER meetings that chain from
+      //    any meeting we are about to delete (so we don't leave dangling refs).
+      for (const meeting of oppMeetings) {
+        const chainedMeetings = allMeetings.filter(
+          (m) =>
+            m.rescheduledFromMeetingId === meeting._id &&
+            !meetingIdSet.has(m._id),
+        );
+        for (const m of chainedMeetings) {
+          await ctx.db.patch(m._id, { rescheduledFromMeetingId: undefined });
+        }
+      }
+
+      // 10. Delete meetings
+      for (const meeting of oppMeetings) {
+        await ctx.db.delete(meeting._id);
+        counts.meetings++;
+      }
+
+      // 11. Delete the opportunity
+      await ctx.db.delete(oppId);
+      counts.opportunities++;
+    }
+
+    // ─── BLOCKER B: payment records with legacy `amount` field ────
+
+    const allPayments = await ctx.db.query("paymentRecords").collect();
+    const legacyPayments = allPayments.filter((p) =>
+      hasDefinedField(p as unknown as Record<string, unknown>, "amount"),
+    );
+
+    console.log(
+      `[Phase6:Purge] Found ${legacyPayments.length} payment records with legacy amount field`,
+    );
+
+    for (const p of legacyPayments) {
+      if (p.proofFileId) {
+        await ctx.storage.delete(p.proofFileId);
+        counts.paymentProofFiles++;
+      }
+      await ctx.db.delete(p._id);
+      counts.legacyPaymentsStripped++;
+    }
+
+    console.log("[Phase6:Purge] Completed", counts);
+
+    return {
+      blockerA: {
+        blockerMeetingsFound: blockerMeetings.length,
+        opportunitiesPurged: counts.opportunities,
+        meetingsPurged: counts.meetings,
+        followUpsPurged: counts.followUps,
+        paymentRecordsPurged: counts.paymentRecords,
+        proofFilesPurged: counts.paymentProofFiles,
+        formResponsesPurged: counts.meetingFormResponses,
+        reassignmentsPurged: counts.meetingReassignments,
+        domainEventsPurged: counts.domainEvents,
+        customersPurged: counts.customers,
+      },
+      blockerB: {
+        legacyPaymentsPurged: counts.legacyPaymentsStripped,
+      },
+    };
+  },
+});
