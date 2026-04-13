@@ -7,6 +7,7 @@ import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { validateTransition } from "../lib/statusTransitions";
 import { extractUtmParams } from "../lib/utmParams";
 import { extractMeetingLocation } from "../lib/meetingLocation";
+import { emitDomainEvent } from "../lib/domainEvents";
 import { isRecord, getString } from "../lib/payloadExtraction";
 import {
 	normalizeEmail,
@@ -16,6 +17,12 @@ import {
 	extractEmailDomain,
 } from "../lib/normalization";
 import type { IdentifierType, SocialPlatformType } from "../lib/normalization";
+import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
+import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMeetingsAssignedCloser";
+import {
+	updateTenantStats,
+	isActiveOpportunityStatus,
+} from "../lib/tenantStatsHelper";
 import { buildLeadSearchText } from "../leads/searchTextBuilder";
 
 function parseTimestamp(value: unknown): number | undefined {
@@ -263,6 +270,7 @@ async function syncLeadFromBooking(
 		customFields: updatedLead.customFields,
 		updatedAt: now,
 	});
+	await syncCustomerSnapshot(ctx, lead.tenantId, lead._id);
 
 	return updatedLead;
 }
@@ -523,6 +531,18 @@ async function resolveLeadIdentity(
 		updatedAt: now,
 	});
 	const newLead = (await ctx.db.get(leadId))!;
+	await updateTenantStats(ctx, tenantId, {
+		totalLeads: 1,
+	});
+	await emitDomainEvent(ctx, {
+		tenantId,
+		entityType: "lead",
+		entityId: leadId,
+		eventType: "lead.created",
+		source: "pipeline",
+		toStatus: "active",
+		occurredAt: now,
+	});
 	console.log(`[Pipeline:Identity] New lead created | leadId=${leadId}`);
 
 	// Step 5: Check for potential duplicates (fuzzy match)
@@ -1025,13 +1045,16 @@ export const process = internalMutation({
 							preloadedConfig: earlyEventTypeConfig,
 						},
 					);
+					const nextAssignedCloserId =
+						assignedCloserId ?? targetOpportunity.assignedCloserId;
+					const closerChanged =
+						nextAssignedCloserId !==
+						targetOpportunity.assignedCloserId;
 
 					await ctx.db.patch(targetOpportunityId, {
 						status: "scheduled",
 						calendlyEventUri,
-						assignedCloserId:
-							assignedCloserId ??
-							targetOpportunity.assignedCloserId,
+						assignedCloserId: nextAssignedCloserId,
 						hostCalendlyUserUri: hostUserUri,
 						hostCalendlyEmail,
 						hostCalendlyName,
@@ -1040,6 +1063,23 @@ export const process = internalMutation({
 							targetOpportunity.eventTypeConfigId ??
 							undefined,
 						updatedAt: now,
+					});
+					if (closerChanged) {
+						await syncOpportunityMeetingsAssignedCloser(
+							ctx,
+							targetOpportunityId,
+							nextAssignedCloserId,
+						);
+					}
+					await emitDomainEvent(ctx, {
+						tenantId,
+						entityType: "opportunity",
+						entityId: targetOpportunityId,
+						eventType: "opportunity.status_changed",
+						source: "pipeline",
+						fromStatus: previousTargetStatus,
+						toStatus: "scheduled",
+						occurredAt: now,
 					});
 					console.log(
 						`[Pipeline:invitee.created] [Feature A] Opportunity relinked | opportunityId=${targetOpportunityId} status=${previousTargetStatus}->scheduled`,
@@ -1070,9 +1110,21 @@ export const process = internalMutation({
 							followUp.opportunityId === targetOpportunityId &&
 							followUp.type !== "manual_reminder"
 						) {
+							const bookedAt = Date.now();
 							await ctx.db.patch(targetFollowUpId, {
 								status: "booked",
 								calendlyEventUri,
+								bookedAt,
+							});
+							await emitDomainEvent(ctx, {
+								tenantId,
+								entityType: "followUp",
+								entityId: targetFollowUpId,
+								eventType: "followUp.booked",
+								source: "pipeline",
+								fromStatus: followUp.status,
+								toStatus: "booked",
+								occurredAt: bookedAt,
 							});
 							console.log(
 								`[Pipeline:invitee.created] [Feature A] Follow-up marked booked | followUpId=${targetFollowUpId}`,
@@ -1104,6 +1156,7 @@ export const process = internalMutation({
 					const meetingId = await ctx.db.insert("meetings", {
 						tenantId,
 						opportunityId: targetOpportunityId,
+						assignedCloserId: nextAssignedCloserId,
 						calendlyEventUri,
 						calendlyInviteeUri,
 						zoomJoinUrl: meetingLocation.zoomJoinUrl,
@@ -1118,6 +1171,18 @@ export const process = internalMutation({
 						createdAt: now,
 						utmParams,
 						rescheduledFromMeetingId,
+					});
+					await emitDomainEvent(ctx, {
+						tenantId,
+						entityType: "meeting",
+						entityId: meetingId,
+						eventType: "meeting.created",
+						source: "pipeline",
+						toStatus: "scheduled",
+						metadata: {
+							opportunityId: targetOpportunityId,
+						},
+						occurredAt: now,
 					});
 
 					if (rescheduledFromMeetingId) {
@@ -1191,6 +1256,7 @@ export const process = internalMutation({
 			await ctx.db.patch(lead._id, {
 				customFields: latestCustomFields,
 			});
+			await syncCustomerSnapshot(ctx, tenantId, lead._id);
 		}
 		// === End Feature E: Identity Resolution ===
 
@@ -1282,6 +1348,28 @@ export const process = internalMutation({
 					undefined,
 				updatedAt: now,
 			});
+			if (closerChanged) {
+				await syncOpportunityMeetingsAssignedCloser(
+					ctx,
+					reschedOpportunityId,
+					nextAssignedCloserId,
+				);
+			}
+			await updateTenantStats(ctx, tenantId, {
+				activeOpportunities: isActiveOpportunityStatus(previousOpportunityStatus)
+					? 0
+					: 1,
+			});
+			await emitDomainEvent(ctx, {
+				tenantId,
+				entityType: "opportunity",
+				entityId: reschedOpportunityId,
+				eventType: "opportunity.status_changed",
+				source: "pipeline",
+				fromStatus: previousOpportunityStatus,
+				toStatus: "scheduled",
+				occurredAt: now,
+			});
 			console.log(
 				`[Pipeline:invitee.created] [Feature B4] Opportunity relinked | opportunityId=${reschedOpportunityId} status=${previousOpportunityStatus}->scheduled`,
 			);
@@ -1305,6 +1393,7 @@ export const process = internalMutation({
 			const meetingId = await ctx.db.insert("meetings", {
 				tenantId,
 				opportunityId: reschedOpportunityId,
+				assignedCloserId: nextAssignedCloserId,
 				calendlyEventUri,
 				calendlyInviteeUri,
 				zoomJoinUrl: meetingLocation.zoomJoinUrl,
@@ -1318,6 +1407,18 @@ export const process = internalMutation({
 				createdAt: now,
 				utmParams,
 				rescheduledFromMeetingId,
+			});
+			await emitDomainEvent(ctx, {
+				tenantId,
+				entityType: "meeting",
+				entityId: meetingId,
+				eventType: "meeting.created",
+				source: "pipeline",
+				toStatus: "scheduled",
+				metadata: {
+					opportunityId: reschedOpportunityId,
+				},
+				occurredAt: now,
 			});
 			console.log(
 				`[Pipeline:invitee.created] [Feature B4] Meeting created | meetingId=${meetingId} rescheduledFrom=${rescheduledFromMeetingId ?? "none"}`,
@@ -1382,10 +1483,14 @@ export const process = internalMutation({
 			}
 
 			opportunityId = existingFollowUp._id;
+			const nextAssignedCloserId =
+				assignedCloserId ?? existingFollowUp.assignedCloserId;
+			const closerChanged =
+				nextAssignedCloserId !== existingFollowUp.assignedCloserId;
 			await ctx.db.patch(opportunityId, {
 				status: "scheduled",
 				calendlyEventUri,
-				assignedCloserId,
+				assignedCloserId: nextAssignedCloserId,
 				hostCalendlyUserUri: hostUserUri,
 				hostCalendlyEmail,
 				hostCalendlyName,
@@ -1397,6 +1502,23 @@ export const process = internalMutation({
 				// NOTE: utmParams intentionally NOT included here.
 				// The opportunity preserves attribution from its original creation.
 				// The new meeting stores its own UTMs independently.
+			});
+			if (closerChanged) {
+				await syncOpportunityMeetingsAssignedCloser(
+					ctx,
+					opportunityId,
+					nextAssignedCloserId,
+				);
+			}
+			await emitDomainEvent(ctx, {
+				tenantId,
+				entityType: "opportunity",
+				entityId: opportunityId,
+				eventType: "opportunity.status_changed",
+				source: "pipeline",
+				fromStatus: existingFollowUp.status,
+				toStatus: "scheduled",
+				occurredAt: now,
 			});
 			console.log(
 				`[Pipeline:invitee.created] Follow-up opportunity reused | opportunityId=${opportunityId} status=follow_up_scheduled->scheduled`,
@@ -1425,6 +1547,22 @@ export const process = internalMutation({
 				utmParams,
 				potentialDuplicateLeadId: resolution.potentialDuplicateLeadId,
 			});
+			await updateTenantStats(ctx, tenantId, {
+				totalOpportunities: 1,
+				activeOpportunities: 1,
+			});
+			await emitDomainEvent(ctx, {
+				tenantId,
+				entityType: "opportunity",
+				entityId: opportunityId,
+				eventType: "opportunity.created",
+				source: "pipeline",
+				toStatus: "scheduled",
+				metadata: {
+					leadId: lead._id,
+				},
+				occurredAt: now,
+			});
 			console.log(
 				`[Pipeline:invitee.created] New opportunity created | opportunityId=${opportunityId}`,
 			);
@@ -1436,6 +1574,10 @@ export const process = internalMutation({
 		const meetingId = await ctx.db.insert("meetings", {
 			tenantId,
 			opportunityId,
+			assignedCloserId:
+				(existingFollowUp
+					? assignedCloserId ?? existingFollowUp.assignedCloserId
+					: assignedCloserId),
 			calendlyEventUri,
 			calendlyInviteeUri,
 			zoomJoinUrl: meetingLocation.zoomJoinUrl,
@@ -1448,6 +1590,18 @@ export const process = internalMutation({
 			leadName: lead.fullName ?? lead.email, // Denormalize for query efficiency
 			createdAt: now,
 			utmParams,
+		});
+		await emitDomainEvent(ctx, {
+			tenantId,
+			entityType: "meeting",
+			entityId: meetingId,
+			eventType: "meeting.created",
+			source: "pipeline",
+			toStatus: "scheduled",
+			metadata: {
+				opportunityId,
+			},
+			occurredAt: now,
 		});
 		console.log(
 			`[Pipeline:invitee.created] Meeting created | meetingId=${meetingId} durationMinutes=${durationMinutes}`,

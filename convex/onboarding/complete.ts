@@ -73,12 +73,15 @@ export const redeemInviteAndCreateUser = mutation({
         email: identity.email ?? tenant.contactEmail,
         fullName: identity.name ?? undefined,
         role: "tenant_master",
+        isActive: true,
       });
       console.log("[Onboarding] user created", { userId });
     } else {
       userId = existingUser._id;
       console.log("[Onboarding] using existing user", { userId });
       const userPatch: {
+        deletedAt?: undefined;
+        isActive?: boolean;
         tenantId?: Id<"tenants">;
         workosUserId?: string;
       } = {};
@@ -88,6 +91,10 @@ export const redeemInviteAndCreateUser = mutation({
       }
       if (existingUser.workosUserId !== workosUserId) {
         userPatch.workosUserId = workosUserId;
+      }
+      if (existingUser.isActive === false) {
+        userPatch.isActive = true;
+        userPatch.deletedAt = undefined;
       }
       if (Object.keys(userPatch).length > 0) {
         await ctx.db.patch(existingUser._id, userPatch);

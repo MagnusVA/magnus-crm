@@ -25,7 +25,7 @@ type ProvisionWebhookArgs = {
   accessToken: string;
   organizationUri: string;
   convexSiteUrl: string;
-  signingKey?: string;
+  signingSecret?: string;
 };
 
 class CalendlyWebhookConflictError extends Error {}
@@ -54,7 +54,9 @@ async function findExistingWebhook({
   organizationUri: string;
   callbackUrl: string;
 }) {
-  console.log(`[Webhook:Setup] findExistingWebhook: searching for callbackUrl=${callbackUrl}`);
+  console.log(
+    `[Webhook:Setup] findExistingWebhook: searching for callbackUrl=${callbackUrl}`,
+  );
 
   const params = new URLSearchParams({
     organization: organizationUri,
@@ -85,7 +87,9 @@ async function findExistingWebhook({
     (subscription) => subscription.callback_url === callbackUrl,
   );
 
-  console.log(`[Webhook:Setup] findExistingWebhook: found ${data.collection?.length ?? 0} subscriptions, match=${match ? match.uri : "none"}`);
+  console.log(
+    `[Webhook:Setup] findExistingWebhook: found ${data.collection?.length ?? 0} subscriptions, match=${match ? match.uri : "none"}`,
+  );
 
   return match;
 }
@@ -97,11 +101,15 @@ export async function deleteWebhookSubscription({
   accessToken: string;
   webhookUri: string;
 }) {
-  console.log(`[Webhook:Setup] deleteWebhookSubscription: deleting webhookUri=${webhookUri}`);
+  console.log(
+    `[Webhook:Setup] deleteWebhookSubscription: deleting webhookUri=${webhookUri}`,
+  );
 
   const webhookUuid = getWebhookUuid(webhookUri);
   if (!webhookUuid) {
-    console.error(`[Webhook:Setup] deleteWebhookSubscription: invalid webhook URI: ${webhookUri}`);
+    console.error(
+      `[Webhook:Setup] deleteWebhookSubscription: invalid webhook URI: ${webhookUri}`,
+    );
     throw new Error(`Invalid Calendly webhook URI: ${webhookUri}`);
   }
 
@@ -116,7 +124,9 @@ export async function deleteWebhookSubscription({
   );
 
   if (response.status === 404) {
-    console.warn(`[Webhook:Setup] deleteWebhookSubscription: webhook not found (404), uuid=${webhookUuid}`);
+    console.warn(
+      `[Webhook:Setup] deleteWebhookSubscription: webhook not found (404), uuid=${webhookUuid}`,
+    );
     return "not_found" as const;
   }
 
@@ -126,7 +136,9 @@ export async function deleteWebhookSubscription({
     );
   }
 
-  console.log(`[Webhook:Setup] deleteWebhookSubscription: deleted successfully, uuid=${webhookUuid}`);
+  console.log(
+    `[Webhook:Setup] deleteWebhookSubscription: deleted successfully, uuid=${webhookUuid}`,
+  );
   return "deleted" as const;
 }
 
@@ -134,12 +146,12 @@ async function createWebhookSubscription({
   accessToken,
   organizationUri,
   callbackUrl,
-  signingKey,
+  signingSecret,
 }: {
   accessToken: string;
   organizationUri: string;
   callbackUrl: string;
-  signingKey: string;
+  signingSecret: string;
 }) {
   const response = await fetch(
     "https://api.calendly.com/webhook_subscriptions",
@@ -154,7 +166,7 @@ async function createWebhookSubscription({
         events: SUBSCRIBED_EVENTS,
         organization: organizationUri,
         scope: "organization",
-        signing_key: signingKey,
+        signing_key: signingSecret,
       }),
     },
   );
@@ -183,64 +195,68 @@ async function createWebhookSubscription({
   return data.resource.uri;
 }
 
-export async function provisionWebhookSubscription(
-  args: ProvisionWebhookArgs,
-) {
+export async function provisionWebhookSubscription(args: ProvisionWebhookArgs) {
   const callbackUrl = `${args.convexSiteUrl}/webhooks/calendly?tenantId=${args.tenantId}`;
-  const signingKey = args.signingKey ?? randomBytes(32).toString("base64url");
+  const signingSecret =
+    args.signingSecret ?? randomBytes(32).toString("base64url");
 
-  console.log(`[Webhook:Setup] provisionWebhookSubscription: entry for tenant ${args.tenantId}, callbackUrl=${callbackUrl}, hasExistingSigningKey=${Boolean(args.signingKey)}`);
+  console.log(
+    `[Webhook:Setup] provisionWebhookSubscription: entry for tenant ${args.tenantId}, callbackUrl=${callbackUrl}, hasExistingSigningSecret=${Boolean(args.signingSecret)}`,
+  );
 
   const createWebhook = async () =>
     await createWebhookSubscription({
       accessToken: args.accessToken,
       organizationUri: args.organizationUri,
       callbackUrl,
-      signingKey,
+      signingSecret,
     });
 
   try {
     console.log(`[Webhook:Setup] provisionWebhookSubscription: attempting create`);
     const webhookUri = await createWebhook();
-    console.log(`[Webhook:Setup] provisionWebhookSubscription: created successfully, webhookUri=${webhookUri}`);
-    return { webhookUri, webhookSigningKey: signingKey };
+    console.log(
+      `[Webhook:Setup] provisionWebhookSubscription: created successfully, webhookUri=${webhookUri}`,
+    );
+    return { webhookUri, signingSecret };
   } catch (error) {
     if (!(error instanceof CalendlyWebhookConflictError)) {
       throw error;
     }
 
-    console.warn(`[Webhook:Setup] provisionWebhookSubscription: conflict detected, looking for existing webhook`);
+    console.warn(
+      `[Webhook:Setup] provisionWebhookSubscription: conflict detected, looking for existing webhook`,
+    );
     const existingWebhook = await findExistingWebhook({
       accessToken: args.accessToken,
       organizationUri: args.organizationUri,
       callbackUrl,
     });
     if (!existingWebhook) {
-      console.error(`[Webhook:Setup] provisionWebhookSubscription: conflict reported but no matching webhook found`);
+      console.error(
+        `[Webhook:Setup] provisionWebhookSubscription: conflict reported but no matching webhook found`,
+      );
       throw new Error(
         "Calendly reported an existing webhook subscription, but no matching callback URL was found",
       );
     }
 
-    console.log(`[Webhook:Setup] provisionWebhookSubscription: deleting existing webhook ${existingWebhook.uri} and recreating`);
-    // Delete existing webhook to ensure signing key consistency
+    console.log(
+      `[Webhook:Setup] provisionWebhookSubscription: deleting existing webhook ${existingWebhook.uri} and recreating`,
+    );
     await deleteWebhookSubscription({
       accessToken: args.accessToken,
       webhookUri: existingWebhook.uri,
     });
 
     const webhookUri = await createWebhook();
-    console.log(`[Webhook:Setup] provisionWebhookSubscription: recreated successfully, webhookUri=${webhookUri}`);
-    return { webhookUri, webhookSigningKey: signingKey };
+    console.log(
+      `[Webhook:Setup] provisionWebhookSubscription: recreated successfully, webhookUri=${webhookUri}`,
+    );
+    return { webhookUri, signingSecret };
   }
 }
 
-/**
- * Provision a Calendly webhook subscription for a tenant.
- *
- * Creates an organization-scoped subscription with a per-tenant signing key.
- * Updates the tenant record with the webhook URI and signing key.
- */
 export const provisionWebhooks = internalAction({
   args: {
     tenantId: v.id("tenants"),
@@ -252,33 +268,43 @@ export const provisionWebhooks = internalAction({
     ctx: ActionCtx,
     { tenantId, accessToken, organizationUri, convexSiteUrl },
   ) => {
-    console.log(`[Webhook:Setup] provisionWebhooks (internal action): entry for tenant ${tenantId}`);
-
-    const tenant = await ctx.runQuery(internal.tenants.getCalendlyTokens, {
-      tenantId,
-    });
-    if (!tenant) {
-      console.error(`[Webhook:Setup] provisionWebhooks: tenant ${tenantId} not found`);
-      throw new Error("Tenant not found");
-    }
-    console.log(`[Webhook:Setup] provisionWebhooks: tenant found, hasExistingSigningKey=${Boolean(tenant.webhookSigningKey)}`);
-
-    const { webhookUri, webhookSigningKey } = await provisionWebhookSubscription(
-      {
-        tenantId,
-        accessToken,
-        organizationUri,
-        convexSiteUrl,
-        signingKey: tenant.webhookSigningKey ?? undefined,
-      },
+    console.log(
+      `[Webhook:Setup] provisionWebhooks (internal action): entry for tenant ${tenantId}`,
     );
 
-    console.log(`[Webhook:Setup] provisionWebhooks: provisioned, storing webhook and activating tenant ${tenantId}`);
-    await ctx.runMutation(internal.calendly.webhookSetupMutations.storeWebhookAndActivate, {
+    const tenant = await ctx.runQuery(
+      internal.calendly.connectionQueries.getTenantConnectionContext,
+      { tenantId },
+    );
+    if (!tenant) {
+      console.error(
+        `[Webhook:Setup] provisionWebhooks: tenant ${tenantId} not found`,
+      );
+      throw new Error("Tenant not found");
+    }
+    console.log(
+      `[Webhook:Setup] provisionWebhooks: tenant found, hasExistingSigningSecret=${Boolean(tenant.webhookSecret)}`,
+    );
+
+    const { webhookUri, signingSecret } = await provisionWebhookSubscription({
       tenantId,
-      calendlyWebhookUri: webhookUri,
-      webhookSigningKey,
+      accessToken,
+      organizationUri,
+      convexSiteUrl,
+      signingSecret: tenant.webhookSecret ?? undefined,
     });
+
+    console.log(
+      `[Webhook:Setup] provisionWebhooks: provisioned, storing webhook and activating tenant ${tenantId}`,
+    );
+    await ctx.runMutation(
+      internal.calendly.webhookSetupMutations.storeWebhookAndActivate,
+      {
+        tenantId,
+        webhookUri,
+        webhookSecret: signingSecret,
+      },
+    );
     console.log(`[Webhook:Setup] provisionWebhooks: tenant ${tenantId} activated`);
   },
 });

@@ -1,4 +1,4 @@
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalMutation, mutation } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
@@ -8,6 +8,8 @@ import {
   getRawWorkosUserId,
 } from "../lib/workosUserId";
 import { getIdentityOrgId } from "../lib/identity";
+import { emitDomainEvent } from "../lib/domainEvents";
+import { updateTenantStats } from "../lib/tenantStatsHelper";
 
 /**
  * Create a fully-provisioned CRM user record and link a Calendly org member.
@@ -64,6 +66,8 @@ export const createUserWithCalendlyLink = internalMutation({
     }
     console.log("[WorkOS:Users] createUserWithCalendlyLink existing check", { exists: !!existing, existingId: existing?._id });
     if (existing) {
+      const wasInactive = existing.isActive === false;
+      const roleChanged = existing.role !== role;
       console.log("[WorkOS:Users] createUserWithCalendlyLink updating existing user", { userId: existing._id });
       await ctx.db.patch(existing._id, {
         tenantId,
@@ -74,7 +78,34 @@ export const createUserWithCalendlyLink = internalMutation({
         calendlyUserUri: resolvedCalendlyUserUri ?? existing.calendlyUserUri,
         calendlyMemberName:
           resolvedCalendlyMemberName ?? existing.calendlyMemberName,
+        deletedAt: undefined,
+        isActive: true,
       });
+
+      if (wasInactive) {
+        await updateTenantStats(ctx, tenantId, {
+          totalTeamMembers: 1,
+          totalClosers: role === "closer" ? 1 : 0,
+        });
+        await emitDomainEvent(ctx, {
+          tenantId,
+          entityType: "user",
+          entityId: existing._id,
+          eventType: "user.reactivated",
+          source: "system",
+          toStatus: "active",
+        });
+      } else if (roleChanged) {
+        await emitDomainEvent(ctx, {
+          tenantId,
+          entityType: "user",
+          entityId: existing._id,
+          eventType: "user.role_changed",
+          source: "system",
+          fromStatus: existing.role,
+          toStatus: role,
+        });
+      }
 
       if (calendlyMemberId) {
         console.log("[WorkOS:Users] createUserWithCalendlyLink linking calendly member to existing user", { calendlyMemberId, userId: existing._id });
@@ -95,6 +126,19 @@ export const createUserWithCalendlyLink = internalMutation({
       role,
       calendlyUserUri: resolvedCalendlyUserUri,
       calendlyMemberName: resolvedCalendlyMemberName,
+      isActive: true,
+    });
+    await updateTenantStats(ctx, tenantId, {
+      totalTeamMembers: 1,
+      totalClosers: role === "closer" ? 1 : 0,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "user",
+      entityId: userId,
+      eventType: "user.created",
+      source: "system",
+      toStatus: role,
     });
 
     console.log("[WorkOS:Users] createUserWithCalendlyLink user inserted", { userId });
@@ -168,6 +212,8 @@ export const createInvitedUser = internalMutation({
       .unique();
 
     if (existing) {
+      const wasInactive = existing.isActive === false;
+      const roleChanged = existing.role !== role;
       console.log("[WorkOS:Users] createInvitedUser updating existing user", { userId: existing._id });
       await ctx.db.patch(existing._id, {
         workosUserId,
@@ -178,7 +224,34 @@ export const createInvitedUser = internalMutation({
           resolvedCalendlyMemberName ?? existing.calendlyMemberName,
         invitationStatus,
         workosInvitationId,
+        deletedAt: undefined,
+        isActive: true,
       });
+
+      if (wasInactive) {
+        await updateTenantStats(ctx, tenantId, {
+          totalTeamMembers: 1,
+          totalClosers: role === "closer" ? 1 : 0,
+        });
+        await emitDomainEvent(ctx, {
+          tenantId,
+          entityType: "user",
+          entityId: existing._id,
+          eventType: "user.reactivated",
+          source: "system",
+          toStatus: "active",
+        });
+      } else if (roleChanged) {
+        await emitDomainEvent(ctx, {
+          tenantId,
+          entityType: "user",
+          entityId: existing._id,
+          eventType: "user.role_changed",
+          source: "system",
+          fromStatus: existing.role,
+          toStatus: role,
+        });
+      }
 
       if (calendlyMemberId) {
         await ctx.db.patch(calendlyMemberId, { matchedUserId: existing._id });
@@ -198,6 +271,19 @@ export const createInvitedUser = internalMutation({
       calendlyMemberName: resolvedCalendlyMemberName,
       invitationStatus,
       workosInvitationId,
+      isActive: true,
+    });
+    await updateTenantStats(ctx, tenantId, {
+      totalTeamMembers: 1,
+      totalClosers: role === "closer" ? 1 : 0,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "user",
+      entityId: userId,
+      eventType: "user.created",
+      source: "admin",
+      toStatus: invitationStatus,
     });
 
     console.log("[WorkOS:Users] createInvitedUser user inserted", { userId, invitationStatus });
@@ -278,6 +364,8 @@ export const claimInvitedAccountByEmail = internalMutation({
       workosUserId,
       invitationStatus: "accepted",
       fullName: pendingUser.fullName ?? fullName,
+      isActive: true,
+      deletedAt: undefined,
     });
 
     const claimed = await ctx.db.get(pendingUser._id);
@@ -399,7 +487,26 @@ export const updateRole = internalMutation({
   },
   handler: async (ctx, { userId, role }) => {
     console.log("[WorkOS:Users] updateRole called", { userId, role });
+    const existing = await ctx.db.get(userId);
+    if (!existing) {
+      throw new Error("User not found");
+    }
     await ctx.db.patch(userId, { role });
+    if (existing.role !== role) {
+      await updateTenantStats(ctx, existing.tenantId, {
+        totalClosers:
+          (role === "closer" ? 1 : 0) - (existing.role === "closer" ? 1 : 0),
+      });
+      await emitDomainEvent(ctx, {
+        tenantId: existing.tenantId,
+        entityType: "user",
+        entityId: userId,
+        eventType: "user.role_changed",
+        source: "admin",
+        fromStatus: existing.role,
+        toStatus: role,
+      });
+    }
     console.log("[WorkOS:Users] updateRole completed", { userId, role });
   },
 });
@@ -420,7 +527,26 @@ export const updateRoleAndInvitation = internalMutation({
   },
   handler: async (ctx, { userId, role, workosInvitationId }) => {
     console.log("[WorkOS:Users] updateRoleAndInvitation called", { userId, role, workosInvitationId });
+    const existing = await ctx.db.get(userId);
+    if (!existing) {
+      throw new Error("User not found");
+    }
     await ctx.db.patch(userId, { role, workosInvitationId });
+    if (existing.role !== role) {
+      await updateTenantStats(ctx, existing.tenantId, {
+        totalClosers:
+          (role === "closer" ? 1 : 0) - (existing.role === "closer" ? 1 : 0),
+      });
+      await emitDomainEvent(ctx, {
+        tenantId: existing.tenantId,
+        entityType: "user",
+        entityId: userId,
+        eventType: "user.role_changed",
+        source: "admin",
+        fromStatus: existing.role,
+        toStatus: role,
+      });
+    }
     console.log("[WorkOS:Users] updateRoleAndInvitation completed", { userId, role });
   },
 });
@@ -438,6 +564,35 @@ export const removeUser = internalMutation({
       console.warn("[WorkOS:Users] removeUser user not found", { userId });
       return;
     }
+    if (user.isActive === false) {
+      console.log("[WorkOS:Users] removeUser: already deactivated", { userId });
+      return;
+    }
+
+    const activeStatuses = [
+      "scheduled",
+      "in_progress",
+      "follow_up_scheduled",
+      "reschedule_link_sent",
+    ] as const;
+    for (const status of activeStatuses) {
+      const opportunities = await ctx.db
+        .query("opportunities")
+        .withIndex("by_tenantId_and_assignedCloserId_and_status", (q) =>
+          q
+            .eq("tenantId", user.tenantId)
+            .eq("assignedCloserId", userId)
+            .eq("status", status),
+        )
+        .take(1);
+      if (opportunities.length > 0) {
+        throw new ConvexError(
+          "Cannot remove a user who still has active assigned opportunities",
+        );
+      }
+    }
+
+    const now = Date.now();
 
     // Unlink Calendly org member (if linked)
     if (user.calendlyUserUri) {
@@ -453,8 +608,24 @@ export const removeUser = internalMutation({
       }
     }
 
-    // Delete the CRM user record
-    await ctx.db.delete(userId);
-    console.log("[WorkOS:Users] removeUser deleted", { userId });
+    await ctx.db.patch(userId, {
+      deletedAt: now,
+      isActive: false,
+    });
+    await updateTenantStats(ctx, user.tenantId, {
+      totalTeamMembers: -1,
+      totalClosers: user.role === "closer" ? -1 : 0,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId: user.tenantId,
+      entityType: "user",
+      entityId: userId,
+      eventType: "user.deactivated",
+      source: "admin",
+      fromStatus: user.role,
+      toStatus: "inactive",
+      occurredAt: now,
+    });
+    console.log("[WorkOS:Users] removeUser soft deleted", { userId });
   },
 });

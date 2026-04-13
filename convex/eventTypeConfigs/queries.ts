@@ -24,12 +24,10 @@ export const listEventTypeConfigs = query({
       "tenant_admin",
     ]);
 
-    const configs = [];
-    for await (const config of ctx.db
+    const configs = await ctx.db
       .query("eventTypeConfigs")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))) {
-      configs.push(config);
-    }
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .take(100);
 
     console.log("[EventTypeConfig] listEventTypeConfigs result", { count: configs.length });
     return configs;
@@ -52,54 +50,39 @@ export const getEventTypeConfigsWithStats = query({
       "tenant_admin",
     ]);
 
-    // Load all configs for the tenant
-    const configs = [];
-    for await (const config of ctx.db
+    const configs = await ctx.db
       .query("eventTypeConfigs")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))) {
-      configs.push(config);
-    }
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .take(100);
 
-    const statsByConfigId = new Map<
-      string,
-      { bookingCount: number; lastBookingAt: number | undefined }
-    >();
+    const results = await Promise.all(
+      configs.map(async (config) => {
+        let bookingCount = 0;
+        let lastBookingAt: number | undefined;
 
-    // Aggregate once across the tenant's opportunities instead of rescanning
-    // the table once per config.
-    for await (const opportunity of ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))) {
-      if (!opportunity.eventTypeConfigId) {
-        continue;
-      }
+        for await (const opportunity of ctx.db
+          .query("opportunities")
+          .withIndex("by_tenantId_and_eventTypeConfigId", (q) =>
+            q.eq("tenantId", tenantId).eq("eventTypeConfigId", config._id),
+          )) {
+          bookingCount += 1;
+          if (
+            opportunity.latestMeetingAt !== undefined &&
+            (lastBookingAt === undefined ||
+              opportunity.latestMeetingAt > lastBookingAt)
+          ) {
+            lastBookingAt = opportunity.latestMeetingAt;
+          }
+        }
 
-      const existingStats = statsByConfigId.get(opportunity.eventTypeConfigId) ?? {
-        bookingCount: 0,
-        lastBookingAt: undefined,
-      };
-      existingStats.bookingCount += 1;
-
-      if (
-        opportunity.latestMeetingAt !== undefined &&
-        (existingStats.lastBookingAt === undefined ||
-          opportunity.latestMeetingAt > existingStats.lastBookingAt)
-      ) {
-        existingStats.lastBookingAt = opportunity.latestMeetingAt;
-      }
-
-      statsByConfigId.set(opportunity.eventTypeConfigId, existingStats);
-    }
-
-    const results = configs.map((config) => {
-      const stats = statsByConfigId.get(config._id);
-      return {
-        ...config,
-        bookingCount: stats?.bookingCount ?? 0,
-        lastBookingAt: stats?.lastBookingAt,
-        fieldCount: config.knownCustomFieldKeys?.length ?? 0,
-      };
-    });
+        return {
+          ...config,
+          bookingCount,
+          lastBookingAt,
+          fieldCount: config.knownCustomFieldKeys?.length ?? 0,
+        };
+      }),
+    );
 
     console.log("[EventTypeConfig] getEventTypeConfigsWithStats result", {
       count: results.length,

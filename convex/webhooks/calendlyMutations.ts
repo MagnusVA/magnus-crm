@@ -12,20 +12,21 @@ export const persistRawEvent = internalMutation({
   handler: async (ctx, args) => {
     console.log(`[Webhook] persistRawEvent called: eventType=${args.eventType}, uri=${args.calendlyEventUri}`);
 
-    const existingEvents = ctx.db
+    const existingEvents = await ctx.db
       .query("rawWebhookEvents")
-      .withIndex("by_tenantId_and_eventType", (q) =>
-        q.eq("tenantId", args.tenantId).eq("eventType", args.eventType),
+      .withIndex("by_tenantId_and_eventType_and_calendlyEventUri", (q) =>
+        q
+          .eq("tenantId", args.tenantId)
+          .eq("eventType", args.eventType)
+          .eq("calendlyEventUri", args.calendlyEventUri),
       )
-      .order("desc");
+      .first();
 
-    for await (const existing of existingEvents) {
-      if (existing.calendlyEventUri === args.calendlyEventUri) {
-        console.warn(
-          `[Webhook] Duplicate detected: eventType=${args.eventType}, uri=${args.calendlyEventUri} — skipping`,
-        );
-        return null;
-      }
+    if (existingEvents) {
+      console.warn(
+        `[Webhook] Duplicate detected: eventType=${args.eventType}, uri=${args.calendlyEventUri} — skipping`,
+      );
+      return null;
     }
 
     const rawEventId = await ctx.db.insert("rawWebhookEvents", {

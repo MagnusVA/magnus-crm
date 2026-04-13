@@ -60,6 +60,9 @@ export const getCurrentUser = query({
     }
 
     console.log("[Users] getCurrentUser result", { found: !!user, userId: user?._id });
+    if (user?.isActive === false) {
+      return null;
+    }
     return user;
   },
 });
@@ -92,6 +95,40 @@ export const getByTenantAndEmail = internalQuery({
   },
 });
 
+export const getActiveAssignedOpportunityCount = internalQuery({
+  args: {
+    tenantId: v.id("tenants"),
+    userId: v.id("users"),
+  },
+  handler: async (ctx, { tenantId, userId }) => {
+    const activeStatuses = [
+      "scheduled",
+      "in_progress",
+      "follow_up_scheduled",
+      "reschedule_link_sent",
+    ] as const;
+
+    let count = 0;
+    for (const status of activeStatuses) {
+      const opportunities = await ctx.db
+        .query("opportunities")
+        .withIndex("by_tenantId_and_assignedCloserId_and_status", (q) =>
+          q
+            .eq("tenantId", tenantId)
+            .eq("assignedCloserId", userId)
+            .eq("status", status),
+        )
+        .take(1);
+      count += opportunities.length;
+      if (count > 0) {
+        break;
+      }
+    }
+
+    return count;
+  },
+});
+
 export const getCurrentUserInternal = internalQuery({
   args: { workosUserId: v.string() },
   handler: async (ctx, { workosUserId }) => {
@@ -107,6 +144,9 @@ export const getCurrentUserInternal = internalQuery({
       }
     }
     console.log("[Users] getCurrentUserInternal result", { found: !!user, userId: user?._id });
+    if (user?.isActive === false) {
+      return null;
+    }
     return user;
   },
 });
@@ -127,32 +167,53 @@ export const listTeamMembers = query({
     for await (const user of ctx.db
       .query("users")
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))) {
+      if (user.isActive === false) {
+        continue;
+      }
       users.push(user);
+      if (users.length >= 200) {
+        break;
+      }
     }
 
-    console.log("[Users] listTeamMembers result", { count: users.length });
-    return await Promise.all(
-      users.map(async (user) => {
-        let calendlyMemberName = user.calendlyMemberName;
-
-        if (!calendlyMemberName && user.calendlyUserUri) {
-          const linkedMember = await ctx.db
-            .query("calendlyOrgMembers")
-            .withIndex("by_tenantId_and_calendlyUserUri", (q) =>
-              q.eq("tenantId", tenantId).eq("calendlyUserUri", user.calendlyUserUri!),
-            )
-            .unique();
-          calendlyMemberName = linkedMember?.name;
-        }
-
-        return {
-          ...user,
-          calendlyMemberName,
-          // Surface invitation status for the team management UI
-          isPendingInvite: user.invitationStatus === "pending",
-        };
-      }),
+    const missingCalendlyUris = [
+      ...new Set(
+        users
+          .filter(
+            (user): user is Doc<"users"> & { calendlyUserUri: string } =>
+              !user.calendlyMemberName && Boolean(user.calendlyUserUri),
+          )
+          .map((user) => user.calendlyUserUri),
+      ),
+    ];
+    const linkedMembers = await Promise.all(
+      missingCalendlyUris.map(async (calendlyUserUri) => ({
+        calendlyUserUri,
+        linkedMember: await ctx.db
+          .query("calendlyOrgMembers")
+          .withIndex("by_tenantId_and_calendlyUserUri", (q) =>
+            q.eq("tenantId", tenantId).eq("calendlyUserUri", calendlyUserUri),
+          )
+          .unique(),
+      })),
     );
+    const calendlyMemberNameByUri = new Map(
+      linkedMembers.map(({ calendlyUserUri, linkedMember }) => [
+        calendlyUserUri,
+        linkedMember?.name,
+      ]),
+    );
+
+    console.log("[Users] listTeamMembers result", { count: users.length });
+    return users.map((user) => ({
+      ...user,
+      calendlyMemberName:
+        user.calendlyMemberName ??
+        (user.calendlyUserUri
+          ? calendlyMemberNameByUri.get(user.calendlyUserUri)
+          : undefined),
+      isPendingInvite: user.invitationStatus === "pending",
+    }));
   },
 });
 
@@ -168,14 +229,12 @@ export const listUnmatchedCalendlyMembers = query({
     console.log("[Users] listUnmatchedCalendlyMembers called");
     const { tenantId } = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
 
-    const members: Doc<"calendlyOrgMembers">[] = [];
-    for await (const member of ctx.db
+    const members = await ctx.db
       .query("calendlyOrgMembers")
       .withIndex("by_tenantId_and_matchedUserId", (q) =>
         q.eq("tenantId", tenantId).eq("matchedUserId", undefined),
-      )) {
-      members.push(member);
-    }
+      )
+      .take(200);
 
     console.log("[Users] listUnmatchedCalendlyMembers result", { count: members.length });
     return members;

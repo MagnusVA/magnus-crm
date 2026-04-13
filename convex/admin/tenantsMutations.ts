@@ -1,7 +1,68 @@
 import { v } from "convex/values";
-import { internalMutation } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { internalMutation, type MutationCtx } from "../_generated/server";
 
 const CLEANUP_BATCH_SIZE = 128;
+
+const TENANT_SCOPED_BY_TENANT_ID_TABLES = [
+  "calendlyOrgMembers",
+  "closerUnavailability",
+  "customers",
+  "eventTypeConfigs",
+  "followUps",
+  "leadIdentifiers",
+  "leadMergeHistory",
+  "leads",
+  "meetingReassignments",
+  "meetings",
+  "opportunities",
+  "paymentRecords",
+  "rawWebhookEvents",
+  "tenantCalendlyConnections",
+  "tenantStats",
+  "users",
+] as const;
+
+type TenantScopedByTenantIdTable =
+  (typeof TENANT_SCOPED_BY_TENANT_ID_TABLES)[number];
+
+async function deletePaymentRecordsBatch(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+) {
+  const rows = await ctx.db
+    .query("paymentRecords")
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .withIndex("by_tenantId", (q: any) => q.eq("tenantId", tenantId))
+    .take(CLEANUP_BATCH_SIZE);
+
+  for (const row of rows) {
+    if (row.proofFileId) {
+      await ctx.storage.delete(row.proofFileId);
+    }
+    await ctx.db.delete(row._id);
+  }
+
+  return rows.length;
+}
+
+async function deleteByTenantIdBatch<TableName extends TenantScopedByTenantIdTable>(
+  ctx: MutationCtx,
+  tableName: TableName,
+  tenantId: Id<"tenants">,
+) {
+  const rows = await ctx.db
+    .query(tableName)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .withIndex("by_tenantId", (q: any) => q.eq("tenantId", tenantId))
+    .take(CLEANUP_BATCH_SIZE);
+
+  for (const row of rows) {
+    await ctx.db.delete(row._id);
+  }
+
+  return rows.length;
+}
 
 export const insertTenant = internalMutation({
   args: {
@@ -69,59 +130,60 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
   handler: async (ctx, { tenantId }) => {
     console.log("[Admin] deleteTenantRuntimeDataBatch called", { tenantId });
 
-    const rawWebhookEvents = await ctx.db
-      .query("rawWebhookEvents")
-      .withIndex("by_tenantId_and_eventType", (q) => q.eq("tenantId", tenantId))
-      .take(CLEANUP_BATCH_SIZE);
+    const deletedCounts: Record<string, number> = {};
 
-    for (const event of rawWebhookEvents) {
-      await ctx.db.delete(event._id);
-    }
-    console.log("[Admin] deleteTenantRuntimeDataBatch: rawWebhookEvents deleted", {
+    deletedCounts.paymentRecords = await deletePaymentRecordsBatch(
+      ctx,
       tenantId,
-      count: rawWebhookEvents.length,
-    });
+    );
 
-    const calendlyOrgMembers = await ctx.db
-      .query("calendlyOrgMembers")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .take(CLEANUP_BATCH_SIZE);
+    for (const table of TENANT_SCOPED_BY_TENANT_ID_TABLES) {
+      if (table === "paymentRecords") {
+        continue;
+      }
 
-    for (const member of calendlyOrgMembers) {
-      await ctx.db.delete(member._id);
+      deletedCounts[table] = await deleteByTenantIdBatch(ctx, table, tenantId);
     }
-    console.log("[Admin] deleteTenantRuntimeDataBatch: calendlyOrgMembers deleted", {
-      tenantId,
-      count: calendlyOrgMembers.length,
-    });
 
-    const users = await ctx.db
-      .query("users")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+    const domainEvents = await ctx.db
+      .query("domainEvents")
+      .withIndex("by_tenantId_and_occurredAt", (q) => q.eq("tenantId", tenantId))
       .take(CLEANUP_BATCH_SIZE);
-
-    for (const user of users) {
-      await ctx.db.delete(user._id);
+    for (const row of domainEvents) {
+      await ctx.db.delete(row._id);
     }
-    console.log("[Admin] deleteTenantRuntimeDataBatch: users deleted", {
-      tenantId,
-      count: users.length,
-    });
+    deletedCounts.domainEvents = domainEvents.length;
 
-    const hasMore =
-      rawWebhookEvents.length === CLEANUP_BATCH_SIZE ||
-      calendlyOrgMembers.length === CLEANUP_BATCH_SIZE ||
-      users.length === CLEANUP_BATCH_SIZE;
+    const meetingFormResponses = await ctx.db
+      .query("meetingFormResponses")
+      .withIndex("by_tenantId_and_fieldKey", (q) => q.eq("tenantId", tenantId))
+      .take(CLEANUP_BATCH_SIZE);
+    for (const row of meetingFormResponses) {
+      await ctx.db.delete(row._id);
+    }
+    deletedCounts.meetingFormResponses = meetingFormResponses.length;
+
+    const eventTypeFieldCatalog = await ctx.db
+      .query("eventTypeFieldCatalog")
+      .withIndex("by_tenantId_and_fieldKey", (q) => q.eq("tenantId", tenantId))
+      .take(CLEANUP_BATCH_SIZE);
+    for (const row of eventTypeFieldCatalog) {
+      await ctx.db.delete(row._id);
+    }
+    deletedCounts.eventTypeFieldCatalog = eventTypeFieldCatalog.length;
+
+    const hasMore = Object.values(deletedCounts).some(
+      (count) => count === CLEANUP_BATCH_SIZE,
+    );
 
     console.log("[Admin] deleteTenantRuntimeDataBatch completed", {
       tenantId,
+      deletedCounts,
       hasMore,
     });
 
     return {
-      deletedRawWebhookEvents: rawWebhookEvents.length,
-      deletedCalendlyOrgMembers: calendlyOrgMembers.length,
-      deletedUsers: users.length,
+      deletedCounts,
       hasMore,
     };
   },

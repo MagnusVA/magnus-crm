@@ -80,6 +80,13 @@ export async function requireTenantUser(
     role: user.role,
   });
 
+  if (user.isActive === false) {
+    console.error("[Auth] requireTenantUser failed: user is inactive", {
+      userId: user._id,
+    });
+    throw new Error("User account is inactive");
+  }
+
   const tenant = await ctx.db.get(user.tenantId);
   if (!tenant || tenant.workosOrgId !== orgId) {
     console.error("[Auth] requireTenantUser failed: org mismatch", {

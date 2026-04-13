@@ -3,6 +3,11 @@ import { mutation } from "../_generated/server";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { validateTransition } from "../lib/statusTransitions";
 import { requireTenantUser } from "../requireTenantUser";
+import { emitDomainEvent } from "../lib/domainEvents";
+import {
+  isActiveOpportunityStatus,
+  updateTenantStats,
+} from "../lib/tenantStatsHelper";
 
 const noShowReasonValidator = v.union(
   v.literal("no_response"),
@@ -69,15 +74,48 @@ export const markNoShow = mutation({
       noShowWaitDurationMs: waitDurationMs,
       noShowReason: reason,
       noShowNote: normalizedNote,
+      noShowMarkedByUserId: userId,
       noShowSource: "closer",
     });
 
     await ctx.db.patch(opportunity._id, {
       status: "no_show",
+      noShowAt: now,
       updatedAt: now,
     });
 
     await updateOpportunityMeetingRefs(ctx, opportunity._id);
+    await updateTenantStats(ctx, tenantId, {
+      activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? -1 : 0,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "meeting",
+      entityId: meetingId,
+      eventType: "meeting.no_show",
+      source: "closer",
+      actorUserId: userId,
+      fromStatus: meeting.status,
+      toStatus: "no_show",
+      reason,
+      metadata: {
+        note: normalizedNote,
+        waitDurationMs,
+      },
+      occurredAt: now,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "opportunity",
+      entityId: opportunity._id,
+      eventType: "opportunity.status_changed",
+      source: "closer",
+      actorUserId: userId,
+      fromStatus: opportunity.status,
+      toStatus: "no_show",
+      reason,
+      occurredAt: now,
+    });
 
     console.log("[Closer:NoShow] markNoShow completed", {
       meetingId,
@@ -179,6 +217,34 @@ export const createNoShowRescheduleLink = mutation({
     await ctx.db.patch(opportunityId, {
       status: "reschedule_link_sent",
       updatedAt: now,
+    });
+    await updateTenantStats(ctx, tenantId, {
+      activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "followUp",
+      entityId: followUpId,
+      eventType: "followUp.created",
+      source: "closer",
+      actorUserId: userId,
+      toStatus: "pending",
+      metadata: {
+        type: "scheduling_link",
+        opportunityId,
+      },
+      occurredAt: now,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "opportunity",
+      entityId: opportunityId,
+      eventType: "opportunity.status_changed",
+      source: "closer",
+      actorUserId: userId,
+      fromStatus: opportunity.status,
+      toStatus: "reschedule_link_sent",
+      occurredAt: now,
     });
 
     console.log("[Closer:NoShow] createNoShowRescheduleLink completed", {

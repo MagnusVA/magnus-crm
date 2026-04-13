@@ -1,6 +1,9 @@
 import { MutationCtx } from "../_generated/server";
 import { Id } from "../_generated/dataModel";
 import { validateLeadTransition } from "../lib/statusTransitions";
+import { emitDomainEvent } from "../lib/domainEvents";
+import { toAmountMinor } from "../lib/formatMoney";
+import { updateTenantStats } from "../lib/tenantStatsHelper";
 
 /**
  * Core conversion logic — creates a customer record from a lead.
@@ -56,7 +59,7 @@ export async function executeConversion(
   }
 
   // 3. Validate lead status transition
-  const currentStatus = (lead.status ?? "active") as any;
+  const currentStatus = lead.status ?? "active";
   if (!validateLeadTransition(currentStatus, "converted")) {
     throw new Error(
       `Cannot convert lead with status "${currentStatus}". Only active leads can be converted.`,
@@ -98,6 +101,8 @@ export async function executeConversion(
     programType: resolvedProgramType,
     notes,
     status: "active",
+    totalPaidMinor: 0,
+    totalPaymentCount: 0,
     createdAt: now,
   });
 
@@ -111,6 +116,35 @@ export async function executeConversion(
   await ctx.db.patch(leadId, {
     status: "converted",
     updatedAt: now,
+  });
+  await updateTenantStats(ctx, tenantId, {
+    totalCustomers: 1,
+    totalLeads: lead.status === "active" ? -1 : 0,
+  });
+  await emitDomainEvent(ctx, {
+    tenantId,
+    entityType: "customer",
+    entityId: customerId,
+    eventType: "customer.converted",
+    source: "system",
+    actorUserId: convertedByUserId,
+    metadata: {
+      leadId,
+      winningOpportunityId,
+      winningMeetingId,
+    },
+    occurredAt: now,
+  });
+  await emitDomainEvent(ctx, {
+    tenantId,
+    entityType: "lead",
+    entityId: leadId,
+    eventType: "lead.status_changed",
+    source: "system",
+    actorUserId: convertedByUserId,
+    fromStatus: currentStatus,
+    toStatus: "converted",
+    occurredAt: now,
   });
 
   console.log("[Customer] Lead status → converted", { leadId });
@@ -137,6 +171,25 @@ export async function executeConversion(
       }
     }
   }
+
+  const customerPayments = await ctx.db
+    .query("paymentRecords")
+    .withIndex("by_customerId", (q) => q.eq("customerId", customerId))
+    .take(100);
+  const nonDisputedPayments = customerPayments.filter(
+    (payment) => payment.status !== "disputed",
+  );
+  const currencies = Array.from(
+    new Set(nonDisputedPayments.map((payment) => payment.currency)),
+  );
+  await ctx.db.patch(customerId, {
+    totalPaidMinor: nonDisputedPayments.reduce(
+      (sum, payment) => sum + (payment.amountMinor ?? toAmountMinor(payment.amount)),
+      0,
+    ),
+    totalPaymentCount: nonDisputedPayments.length,
+    paymentCurrency: currencies.length === 1 ? currencies[0] : undefined,
+  });
 
   console.log("[Customer] Backfilled customerId on payment records", {
     customerId,

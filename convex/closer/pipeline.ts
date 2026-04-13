@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 
@@ -29,42 +30,57 @@ export const listMyOpportunities = query({
     console.log("[Closer:Pipeline] listMyOpportunities called", { statusFilter: statusFilter ?? "all" });
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
 
-    // Get this closer's opportunities
-    const myOpps = await ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_and_assignedCloserId", (q) =>
-        q.eq("tenantId", tenantId).eq("assignedCloserId", userId)
-      )
-      .collect();
+    const opportunities = statusFilter
+      ? await ctx.db
+          .query("opportunities")
+          .withIndex("by_tenantId_and_assignedCloserId_and_status", (q) =>
+            q
+              .eq("tenantId", tenantId)
+              .eq("assignedCloserId", userId)
+              .eq("status", statusFilter),
+          )
+          .take(50)
+      : await ctx.db
+          .query("opportunities")
+          .withIndex("by_tenantId_and_assignedCloserId", (q) =>
+            q.eq("tenantId", tenantId).eq("assignedCloserId", userId),
+          )
+          .take(50);
 
-    // Apply status filter if provided
-    const filtered = statusFilter
-      ? myOpps.filter((o) => o.status === statusFilter)
-      : myOpps;
-
-    // Enrich with lead and latest meeting data
-    const enriched = await Promise.all(
-      filtered.map(async (opp) => {
-        const lead = await ctx.db.get(opp.leadId);
-        const latestMeeting = opp.latestMeetingId
-          ? await ctx.db.get(opp.latestMeetingId)
-          : null;
-
-        return {
-          ...opp,
-          leadName: lead?.fullName ?? lead?.email ?? "Unknown",
-          leadEmail: lead?.email,
-          leadPhone: lead?.phone,
-          eventTypeConfigId: opp.eventTypeConfigId,
-          latestMeetingId: latestMeeting?._id,
-          latestMeetingAt: latestMeeting?.scheduledAt,
-          latestMeetingStatus: latestMeeting?.status,
-        };
-      })
+    const leadIds = [...new Set(opportunities.map((opportunity) => opportunity.leadId))];
+    const leads = await Promise.all(
+      leadIds.map(async (leadId) => ({
+        leadId,
+        lead: await ctx.db.get(leadId),
+      })),
     );
+    const leadById = new Map<
+      Id<"leads">,
+      { fullName?: string; email: string; phone?: string }
+    >();
+    for (const { leadId, lead } of leads) {
+      if (lead) {
+        leadById.set(leadId, lead);
+      }
+    }
+
+    const enriched = opportunities.map((opportunity) => {
+      const lead = leadById.get(opportunity.leadId);
+
+      return {
+        ...opportunity,
+        leadName: lead?.fullName ?? lead?.email ?? "Unknown",
+        leadEmail: lead?.email,
+        leadPhone: lead?.phone,
+        eventTypeConfigId: opportunity.eventTypeConfigId,
+        latestMeetingId: opportunity.latestMeetingId,
+        latestMeetingAt: opportunity.latestMeetingAt,
+        latestMeetingStatus: undefined,
+      };
+    });
 
     // Sort by most recent update first
-    console.log("[Closer:Pipeline] listMyOpportunities result", { totalOpps: myOpps.length, filteredCount: filtered.length, enrichedCount: enriched.length });
+    console.log("[Closer:Pipeline] listMyOpportunities result", { totalOpps: opportunities.length, enrichedCount: enriched.length });
     return enriched.sort((a, b) => b.updatedAt - a.updatedAt);
   },
 });

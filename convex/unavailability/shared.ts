@@ -7,10 +7,6 @@ import {
 
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
-const ACTIVE_OPPORTUNITY_STATUSES = new Set<
-  Doc<"opportunities">["status"]
->(["scheduled", "in_progress"]);
-
 type TenantContext = QueryCtx | MutationCtx;
 
 export type AffectedMeeting = {
@@ -72,26 +68,6 @@ export function getReasonLabel(reason: UnavailabilityReason): string {
   return reason.charAt(0).toUpperCase() + reason.slice(1);
 }
 
-export async function listActiveOpportunityIdsForCloser(
-  ctx: TenantContext,
-  tenantId: Id<"tenants">,
-  closerId: Id<"users">,
-): Promise<Set<Id<"opportunities">>> {
-  const opportunityIds = new Set<Id<"opportunities">>();
-
-  for await (const opportunity of ctx.db
-    .query("opportunities")
-    .withIndex("by_tenantId_and_assignedCloserId", (q) =>
-      q.eq("tenantId", tenantId).eq("assignedCloserId", closerId),
-    )) {
-    if (ACTIVE_OPPORTUNITY_STATUSES.has(opportunity.status)) {
-      opportunityIds.add(opportunity._id);
-    }
-  }
-
-  return opportunityIds;
-}
-
 export async function listAffectedMeetingsForCloserInRange(
   ctx: TenantContext,
   {
@@ -106,31 +82,18 @@ export async function listAffectedMeetingsForCloserInRange(
     rangeEnd: number;
   },
 ): Promise<AffectedMeeting[]> {
-  const activeOpportunityIds = await listActiveOpportunityIdsForCloser(
-    ctx,
-    tenantId,
-    closerId,
-  );
-
-  if (activeOpportunityIds.size === 0) {
-    return [];
-  }
-
   const affectedMeetings: AffectedMeeting[] = [];
 
   for await (const meeting of ctx.db
     .query("meetings")
-    .withIndex("by_tenantId_and_scheduledAt", (q) =>
+    .withIndex("by_tenantId_and_assignedCloserId_and_scheduledAt", (q) =>
       q
         .eq("tenantId", tenantId)
+        .eq("assignedCloserId", closerId)
         .gte("scheduledAt", rangeStart)
         .lt("scheduledAt", rangeEnd),
     )) {
     if (meeting.status !== "scheduled") {
-      continue;
-    }
-
-    if (!activeOpportunityIds.has(meeting.opportunityId)) {
       continue;
     }
 
@@ -164,11 +127,16 @@ export async function buildCloserSchedulesForDate(
 ): Promise<Map<Id<"users">, CloserSchedule>> {
   const uniqueCloserIds = [...new Set(closerIds)];
   const schedules = new Map<Id<"users">, CloserSchedule>();
-  const opportunityToCloserId = new Map<Id<"opportunities">, Id<"users">>();
   const { dayStart, dayEnd } = getDayRange(date);
 
-  for (const closerId of uniqueCloserIds) {
-    const closer = await ctx.db.get(closerId);
+  const closers = await Promise.all(
+    uniqueCloserIds.map(async (closerId) => ({
+      closerId,
+      closer: await ctx.db.get(closerId),
+    })),
+  );
+
+  for (const { closerId, closer } of closers) {
     if (!closer || closer.tenantId !== tenantId || closer.role !== "closer") {
       continue;
     }
@@ -182,16 +150,6 @@ export async function buildCloserSchedulesForDate(
       isAvailable: true,
       unavailabilityReason: null,
     });
-
-    for await (const opportunity of ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_and_assignedCloserId", (q) =>
-        q.eq("tenantId", tenantId).eq("assignedCloserId", closerId),
-      )) {
-      if (ACTIVE_OPPORTUNITY_STATUSES.has(opportunity.status)) {
-        opportunityToCloserId.set(opportunity._id, closerId);
-      }
-    }
   }
 
   if (schedules.size === 0) {
@@ -222,36 +180,31 @@ export async function buildCloserSchedulesForDate(
     }
   }
 
-  for await (const meeting of ctx.db
-    .query("meetings")
-    .withIndex("by_tenantId_and_scheduledAt", (q) =>
-      q
-        .eq("tenantId", tenantId)
-        .gte("scheduledAt", dayStart)
-        .lt("scheduledAt", dayEnd),
-    )) {
-    if (meeting.status !== "scheduled") {
-      continue;
-    }
+  await Promise.all(
+    [...schedules.entries()].map(async ([closerId, schedule]) => {
+      for await (const meeting of ctx.db
+        .query("meetings")
+        .withIndex("by_tenantId_and_assignedCloserId_and_scheduledAt", (q) =>
+          q
+            .eq("tenantId", tenantId)
+            .eq("assignedCloserId", closerId)
+            .gte("scheduledAt", dayStart)
+            .lt("scheduledAt", dayEnd),
+        )) {
+        if (meeting.status !== "scheduled") {
+          continue;
+        }
 
-    const closerId = opportunityToCloserId.get(meeting.opportunityId);
-    if (!closerId) {
-      continue;
-    }
-
-    const schedule = schedules.get(closerId);
-    if (!schedule) {
-      continue;
-    }
-
-    schedule.meetings.push({
-      meetingId: meeting._id,
-      opportunityId: meeting.opportunityId,
-      scheduledAt: meeting.scheduledAt,
-      durationMinutes: meeting.durationMinutes,
-      leadName: meeting.leadName,
-    });
-  }
+        schedule.meetings.push({
+          meetingId: meeting._id,
+          opportunityId: meeting.opportunityId,
+          scheduledAt: meeting.scheduledAt,
+          durationMinutes: meeting.durationMinutes,
+          leadName: meeting.leadName,
+        });
+      }
+    }),
+  );
 
   for (const schedule of schedules.values()) {
     schedule.meetings.sort((a, b) => a.scheduledAt - b.scheduledAt);

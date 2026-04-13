@@ -2,6 +2,9 @@ import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { executeConversion } from "./conversion";
+import { emitDomainEvent } from "../lib/domainEvents";
+import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
+import { updateTenantStats } from "../lib/tenantStatsHelper";
 
 /**
  * Manually convert a lead to a customer.
@@ -88,7 +91,22 @@ export const updateCustomerStatus = mutation({
       throw new Error("Customer not found");
     }
 
-    await ctx.db.patch(args.customerId, { status: args.status });
+    const now = Date.now();
+    await ctx.db.patch(args.customerId, {
+      status: args.status,
+      churnedAt: args.status === "churned" ? now : undefined,
+      pausedAt: args.status === "paused" ? now : undefined,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "customer",
+      entityId: args.customerId,
+      eventType: "customer.status_changed",
+      source: "admin",
+      fromStatus: customer.status,
+      toStatus: args.status,
+      occurredAt: now,
+    });
     console.log("[Customer] Status updated", {
       customerId: args.customerId,
       from: customer.status,
@@ -139,27 +157,66 @@ export const recordCustomerPayment = mutation({
       throw new Error("Payment amount must be positive");
     }
 
-    const currency = args.currency.trim().toUpperCase();
-    if (!currency) {
-      throw new Error("Currency is required");
-    }
+    const currency = validateCurrency(args.currency);
 
     const provider = args.provider.trim();
     if (!provider) {
       throw new Error("Provider is required");
     }
 
+    const now = Date.now();
+    const amountMinor = toAmountMinor(args.amount);
     const paymentId = await ctx.db.insert("paymentRecords", {
       tenantId,
       closerId: userId,
       customerId: args.customerId,
       amount: args.amount,
+      amountMinor,
       currency,
       provider,
       referenceCode: args.referenceCode?.trim() || undefined,
       proofFileId: args.proofFileId ?? undefined,
       status: "recorded",
-      recordedAt: Date.now(),
+      statusChangedAt: now,
+      recordedAt: now,
+      contextType: "customer",
+    });
+    const customerPayments = await ctx.db
+      .query("paymentRecords")
+      .withIndex("by_customerId", (q) => q.eq("customerId", args.customerId))
+      .take(100);
+    const nonDisputedPayments = customerPayments.filter(
+      (payment) => payment.status !== "disputed",
+    );
+    const currencies = Array.from(
+      new Set(nonDisputedPayments.map((payment) => payment.currency)),
+    );
+    await ctx.db.patch(args.customerId, {
+      totalPaidMinor: nonDisputedPayments.reduce(
+        (sum, payment) => sum + (payment.amountMinor ?? toAmountMinor(payment.amount)),
+        0,
+      ),
+      totalPaymentCount: nonDisputedPayments.length,
+      paymentCurrency: currencies.length === 1 ? currencies[0] : undefined,
+    });
+    await updateTenantStats(ctx, tenantId, {
+      totalPaymentRecords: 1,
+      totalRevenueMinor: amountMinor,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "payment",
+      entityId: paymentId,
+      eventType: "payment.recorded",
+      source: role === "closer" ? "closer" : "admin",
+      actorUserId: userId,
+      toStatus: "recorded",
+      metadata: {
+        customerId: args.customerId,
+        amountMinor,
+        currency,
+      },
+      occurredAt: now,
     });
 
     console.log("[Customer] Post-conversion payment recorded", {

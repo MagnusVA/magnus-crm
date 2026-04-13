@@ -2,6 +2,11 @@ import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { validateTransition } from "../lib/statusTransitions";
+import { emitDomainEvent } from "../lib/domainEvents";
+import {
+  isActiveOpportunityStatus,
+  updateTenantStats,
+} from "../lib/tenantStatsHelper";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -82,8 +87,22 @@ export const process = internalMutation({
 		);
 
 		if (meeting.status !== "canceled") {
-			await ctx.db.patch(meeting._id, { status: "canceled" });
+			const now = Date.now();
+			await ctx.db.patch(meeting._id, {
+				status: "canceled",
+				canceledAt: now,
+			});
 			await updateOpportunityMeetingRefs(ctx, meeting.opportunityId);
+			await emitDomainEvent(ctx, {
+				tenantId,
+				entityType: "meeting",
+				entityId: meeting._id,
+				eventType: "meeting.canceled",
+				source: "pipeline",
+				fromStatus: meeting.status,
+				toStatus: "canceled",
+				occurredAt: now,
+			});
 			console.log(
 				`[Pipeline:invitee.canceled] Meeting status changed | ${meeting.status} -> canceled`,
 			);
@@ -120,12 +139,33 @@ export const process = internalMutation({
 				`[Pipeline:invitee.canceled] Opportunity update | opportunityId=${opportunity._id} statusTransition=${opportunity.status}->${newStatus} reason=${cancellationReason ?? "none"} canceledBy=${canceledBy ?? "unknown"}`,
 			);
 
+			const now = Date.now();
 			await ctx.db.patch(opportunity._id, {
 				status: newStatus,
 				cancellationReason,
 				canceledBy,
-				updatedAt: Date.now(),
+				canceledAt: newStatus === "canceled" ? now : opportunity.canceledAt,
+				updatedAt: now,
 			});
+			if (newStatus !== opportunity.status) {
+				await updateTenantStats(ctx, tenantId, {
+					activeOpportunities: isActiveOpportunityStatus(opportunity.status)
+						? -1
+						: 0,
+				});
+				await emitDomainEvent(ctx, {
+					tenantId,
+					entityType: "opportunity",
+					entityId: opportunity._id,
+					eventType: "opportunity.status_changed",
+					source: "pipeline",
+					fromStatus: opportunity.status,
+					toStatus: newStatus,
+					reason: cancellationReason,
+					metadata: { canceledBy },
+					occurredAt: now,
+				});
+			}
 		} else {
 			console.warn(
 				`[Pipeline:invitee.canceled] Opportunity not found for meeting ${meeting._id}`,

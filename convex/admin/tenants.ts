@@ -54,6 +54,14 @@ type WorkOSCleanupResult = {
   deletedOrganization: boolean;
 };
 
+type TenantWithConnectionState = Doc<"tenants"> & {
+  accessToken?: string;
+  refreshToken?: string;
+  tokenExpiresAt?: number;
+  webhookUri?: string;
+  webhookSecret?: string;
+};
+
 function getAppUrl() {
   return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 }
@@ -110,15 +118,15 @@ function buildInviteLinkForTenant(
 async function resolveCalendlyAccessToken(
   ctx: ActionCtx,
   tenantId: Id<"tenants">,
-  tenant: Doc<"tenants">,
+  tenant: TenantWithConnectionState,
 ) {
   const now = Date.now();
   const hasUsableStoredToken =
-    tenant.calendlyAccessToken &&
-    (!tenant.calendlyTokenExpiresAt || tenant.calendlyTokenExpiresAt > now + 60_000);
+    tenant.accessToken &&
+    (!tenant.tokenExpiresAt || tenant.tokenExpiresAt > now + 60_000);
 
   if (hasUsableStoredToken) {
-    return tenant.calendlyAccessToken;
+    return tenant.accessToken;
   }
 
   try {
@@ -134,16 +142,16 @@ async function resolveCalendlyAccessToken(
 
 async function cleanupCalendlyWebhook(
   ctx: ActionCtx,
-  tenant: Doc<"tenants">,
+  tenant: TenantWithConnectionState,
 ): Promise<WebhookCleanupResult> {
   console.log("[tenant-offboarding] Calendly webhook cleanup starting", {
     tenantId: tenant._id,
     workosOrgId: tenant.workosOrgId,
-    hasWebhook: Boolean(tenant.calendlyWebhookUri),
+    hasWebhook: Boolean(tenant.webhookUri),
     status: tenant.status,
   });
 
-  if (!tenant.calendlyWebhookUri) {
+  if (!tenant.webhookUri) {
     console.log("[tenant-offboarding] Calendly webhook cleanup skipped", {
       tenantId: tenant._id,
       reason: "not_configured",
@@ -167,7 +175,7 @@ async function cleanupCalendlyWebhook(
   try {
     await deleteWebhookSubscription({
       accessToken,
-      webhookUri: tenant.calendlyWebhookUri,
+      webhookUri: tenant.webhookUri,
     });
     console.log("[tenant-offboarding] Calendly webhook cleanup finished", {
       tenantId: tenant._id,
@@ -228,16 +236,16 @@ async function revokeCalendlyToken(
 }
 
 async function cleanupCalendlyTokens(
-  tenant: Doc<"tenants">,
+  tenant: TenantWithConnectionState,
 ): Promise<CalendlyTokenCleanupResult> {
   console.log("[tenant-offboarding] Calendly token cleanup starting", {
     tenantId: tenant._id,
-    hasAccessToken: Boolean(tenant.calendlyAccessToken),
-    hasRefreshToken: Boolean(tenant.calendlyRefreshToken),
+    hasAccessToken: Boolean(tenant.accessToken),
+    hasRefreshToken: Boolean(tenant.refreshToken),
   });
 
-  const accessToken = await revokeCalendlyToken(tenant.calendlyAccessToken);
-  const refreshToken = await revokeCalendlyToken(tenant.calendlyRefreshToken);
+  const accessToken = await revokeCalendlyToken(tenant.accessToken);
+  const refreshToken = await revokeCalendlyToken(tenant.refreshToken);
 
   console.log("[tenant-offboarding] Calendly token cleanup finished", {
     tenantId: tenant._id,
@@ -642,6 +650,7 @@ export const resetTenantForReonboarding = action({
     deletedRawWebhookEvents: number;
     deletedCalendlyOrgMembers: number;
     deletedUsers: number;
+    deletedCounts: Record<string, number>;
   }> => {
     const identity = await ctx.auth.getUserIdentity();
     requireSystemAdminSession(identity);
@@ -663,9 +672,9 @@ export const resetTenantForReonboarding = action({
       tenantId: tenant._id,
       workosOrgId: tenant.workosOrgId,
       status: tenant.status,
-      hasCalendlyWebhook: Boolean(tenant.calendlyWebhookUri),
-      hasCalendlyAccessToken: Boolean(tenant.calendlyAccessToken),
-      hasCalendlyRefreshToken: Boolean(tenant.calendlyRefreshToken),
+      hasCalendlyWebhook: Boolean(tenant.webhookUri),
+      hasCalendlyAccessToken: Boolean(tenant.accessToken),
+      hasCalendlyRefreshToken: Boolean(tenant.refreshToken),
     });
 
     const webhookCleanup = await cleanupCalendlyWebhook(ctx, tenant);
@@ -697,9 +706,7 @@ export const resetTenantForReonboarding = action({
     const tokenCleanup = await cleanupCalendlyTokens(refreshedTenant);
     const workosCleanup = await cleanupWorkOSOrganization(refreshedTenant);
 
-    let deletedRawWebhookEvents = 0;
-    let deletedCalendlyOrgMembers = 0;
-    let deletedUsers = 0;
+    const deletedCounts: Record<string, number> = {};
 
     while (true) {
       const batch = await ctx.runMutation(
@@ -707,18 +714,14 @@ export const resetTenantForReonboarding = action({
         { tenantId },
       );
 
-      deletedRawWebhookEvents += batch.deletedRawWebhookEvents;
-      deletedCalendlyOrgMembers += batch.deletedCalendlyOrgMembers;
-      deletedUsers += batch.deletedUsers;
+      for (const [table, count] of Object.entries(batch.deletedCounts)) {
+        deletedCounts[table] = (deletedCounts[table] ?? 0) + count;
+      }
 
       console.log("[tenant-offboarding] Tenant data batch deleted", {
         tenantId,
         batch,
-        totals: {
-          deletedRawWebhookEvents,
-          deletedCalendlyOrgMembers,
-          deletedUsers,
-        },
+        totals: deletedCounts,
       });
 
       if (!batch.hasMore) {
@@ -740,9 +743,10 @@ export const resetTenantForReonboarding = action({
       webhookCleanup,
       tokenCleanup,
       workosCleanup,
-      deletedRawWebhookEvents,
-      deletedCalendlyOrgMembers,
-      deletedUsers,
+      deletedRawWebhookEvents: deletedCounts.rawWebhookEvents ?? 0,
+      deletedCalendlyOrgMembers: deletedCounts.calendlyOrgMembers ?? 0,
+      deletedUsers: deletedCounts.users ?? 0,
+      deletedCounts,
     });
 
     return {
@@ -751,9 +755,10 @@ export const resetTenantForReonboarding = action({
       webhookCleanup,
       tokenCleanup,
       workosCleanup,
-      deletedRawWebhookEvents,
-      deletedCalendlyOrgMembers,
-      deletedUsers,
+      deletedRawWebhookEvents: deletedCounts.rawWebhookEvents ?? 0,
+      deletedCalendlyOrgMembers: deletedCounts.calendlyOrgMembers ?? 0,
+      deletedUsers: deletedCounts.users ?? 0,
+      deletedCounts,
     };
   },
 });

@@ -1,5 +1,7 @@
+import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
-import { internalQuery } from "../_generated/server";
+import { internalMutation, internalQuery } from "../_generated/server";
+import { updateTenantCalendlyConnection } from "../lib/tenantCalendlyConnection";
 
 const PROVISIONING_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -32,5 +34,17 @@ export const listStuckProvisioningTenants = internalQuery({
 
     console.log(`[health-check] listStuckProvisioningTenants: found ${stuck.length} stuck tenants`);
     return stuck;
+  },
+});
+
+export const markTenantHealthChecked = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    checkedAt: v.number(),
+  },
+  handler: async (ctx, { tenantId, checkedAt }) => {
+    await updateTenantCalendlyConnection(ctx, tenantId, {
+      lastHealthCheckAt: checkedAt,
+    });
   },
 });

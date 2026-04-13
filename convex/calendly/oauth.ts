@@ -75,13 +75,6 @@ async function revokeCalendlyToken(
   }
 }
 
-/**
- * Generate PKCE challenge and return the Calendly OAuth authorize URL.
- *
- * The frontend redirects the user's browser to the returned URL.
- * The code_verifier is stored server-side (on the tenant record)
- * and used later during the token exchange.
- */
 export const startOAuth = action({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
@@ -100,11 +93,15 @@ export const startOAuth = action({
       console.error(`[Calendly:OAuth] startOAuth: tenant ${tenantId} not found`);
       throw new Error("Tenant not found");
     }
-    console.log(`[Calendly:OAuth] startOAuth: tenant found, status=${tenant.status}`);
+    console.log(
+      `[Calendly:OAuth] startOAuth: tenant found, status=${tenant.status}`,
+    );
 
     const identityOrgId = getIdentityOrgId(identity);
     if (!identityOrgId || identityOrgId !== tenant.workosOrgId) {
-      console.error(`[Calendly:OAuth] startOAuth: authorization failed, identityOrgId=${identityOrgId}, tenantOrgId=${tenant.workosOrgId}`);
+      console.error(
+        `[Calendly:OAuth] startOAuth: authorization failed, identityOrgId=${identityOrgId}, tenantOrgId=${tenant.workosOrgId}`,
+      );
       throw new Error("Not authorized");
     }
     console.log(`[Calendly:OAuth] startOAuth: authorization check passed`);
@@ -113,21 +110,23 @@ export const startOAuth = action({
       tenant.status !== "pending_calendly" &&
       tenant.status !== "calendly_disconnected"
     ) {
-      console.error(`[Calendly:OAuth] startOAuth: tenant not ready, status=${tenant.status}`);
+      console.error(
+        `[Calendly:OAuth] startOAuth: tenant not ready, status=${tenant.status}`,
+      );
       throw new Error("Tenant is not ready to connect Calendly");
     }
 
-    const codeVerifier = randomBytes(32).toString("base64url");
+    const pkceVerifier = randomBytes(32).toString("base64url");
     const codeChallenge = createHash("sha256")
-      .update(codeVerifier)
+      .update(pkceVerifier)
       .digest("base64url");
     console.log(`[Calendly:OAuth] startOAuth: PKCE challenge generated`);
 
-    await ctx.runMutation(internal.calendly.oauthMutations.storeCodeVerifier, {
+    await ctx.runMutation(internal.calendly.oauthMutations.storePkceVerifier, {
       tenantId,
-      codeVerifier,
+      pkceVerifier,
     });
-    console.log(`[Calendly:OAuth] startOAuth: code verifier stored`);
+    console.log(`[Calendly:OAuth] startOAuth: PKCE verifier stored`);
 
     const clientId = getCalendlyClientId();
     if (!clientId) {
@@ -157,7 +156,9 @@ export const startOAuth = action({
       scope: scopes,
     });
 
-    console.log(`[Calendly:OAuth] startOAuth: authorize URL built, redirectUri=${getCalendlyRedirectUri()}`);
+    console.log(
+      `[Calendly:OAuth] startOAuth: authorize URL built, redirectUri=${getCalendlyRedirectUri()}`,
+    );
 
     return {
       authorizeUrl: `https://auth.calendly.com/oauth/authorize?${params.toString()}`,
@@ -165,17 +166,12 @@ export const startOAuth = action({
   },
 });
 
-/**
- * Prepare a tenant for a clean Calendly reconnect.
- *
- * Existing access/refresh tokens are revoked on a best-effort basis, then the
- * local token and webhook state is cleared so the next OAuth flow starts from
- * a known-good disconnected state.
- */
 export const prepareReconnect = action({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
-    console.log(`[Calendly:OAuth] prepareReconnect called for tenant ${tenantId}`);
+    console.log(
+      `[Calendly:OAuth] prepareReconnect called for tenant ${tenantId}`,
+    );
 
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
@@ -199,19 +195,25 @@ export const prepareReconnect = action({
       (currentUser.role !== "tenant_master" &&
         currentUser.role !== "tenant_admin")
     ) {
-      console.error("[Calendly:OAuth] prepareReconnect: insufficient permissions", {
-        tenantId,
-        userTenantId: currentUser?.tenantId ?? null,
-        role: currentUser?.role ?? null,
-      });
+      console.error(
+        "[Calendly:OAuth] prepareReconnect: insufficient permissions",
+        {
+          tenantId,
+          userTenantId: currentUser?.tenantId ?? null,
+          role: currentUser?.role ?? null,
+        },
+      );
       throw new Error("Insufficient permissions");
     }
 
-    const tenant = await ctx.runQuery(internal.tenants.getCalendlyTokens, {
-      tenantId,
-    });
+    const tenant = await ctx.runQuery(
+      internal.calendly.connectionQueries.getTenantConnectionContext,
+      { tenantId },
+    );
     if (!tenant) {
-      console.error(`[Calendly:OAuth] prepareReconnect: tenant ${tenantId} not found`);
+      console.error(
+        `[Calendly:OAuth] prepareReconnect: tenant ${tenantId} not found`,
+      );
       throw new Error("Tenant not found");
     }
 
@@ -225,10 +227,10 @@ export const prepareReconnect = action({
       throw new Error("Not authorized");
     }
 
-    const accessToken = await revokeCalendlyToken(tenant.calendlyAccessToken);
-    const refreshToken = await revokeCalendlyToken(tenant.calendlyRefreshToken);
+    const accessToken = await revokeCalendlyToken(tenant.accessToken);
+    const refreshToken = await revokeCalendlyToken(tenant.refreshToken);
 
-    await ctx.runMutation(internal.tenants.clearCalendlyConnection, {
+    await ctx.runMutation(internal.calendly.oauthMutations.clearTenantConnection, {
       tenantId,
       status: "calendly_disconnected",
     });
@@ -246,13 +248,6 @@ export const prepareReconnect = action({
   },
 });
 
-/**
- * Exchange the authorization code for tokens.
- *
- * Called by the Next.js callback route after Calendly redirects back.
- * Performs: code exchange → token storage → user/me verification →
- * webhook provisioning → status transition to active.
- */
 export const exchangeCodeAndProvision = action({
   args: {
     tenantId: v.id("tenants"),
@@ -260,26 +255,36 @@ export const exchangeCodeAndProvision = action({
     convexSiteUrl: v.string(),
   },
   handler: async (ctx, { tenantId, code, convexSiteUrl }) => {
-    console.log(`[Calendly:OAuth] exchangeCodeAndProvision called for tenant ${tenantId}`);
+    console.log(
+      `[Calendly:OAuth] exchangeCodeAndProvision called for tenant ${tenantId}`,
+    );
     let rollbackStatus: "pending_calendly" | "calendly_disconnected" =
       "pending_calendly";
 
     try {
       const identity = await ctx.auth.getUserIdentity();
       if (!identity) {
-        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: not authenticated`);
+        console.error(
+          `[Calendly:OAuth] exchangeCodeAndProvision: not authenticated`,
+        );
         throw new Error("Not authenticated");
       }
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: auth check passed`);
+      console.log(
+        `[Calendly:OAuth] exchangeCodeAndProvision: auth check passed`,
+      );
 
       const tenant = await ctx.runQuery(internal.tenants.getCalendlyTenant, {
         tenantId,
       });
       if (!tenant) {
-        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: tenant ${tenantId} not found`);
+        console.error(
+          `[Calendly:OAuth] exchangeCodeAndProvision: tenant ${tenantId} not found`,
+        );
         throw new Error("Tenant not found");
       }
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: tenant found, status=${tenant.status}`);
+      console.log(
+        `[Calendly:OAuth] exchangeCodeAndProvision: tenant found, status=${tenant.status}`,
+      );
       rollbackStatus =
         tenant.status === "calendly_disconnected"
           ? "calendly_disconnected"
@@ -292,48 +297,57 @@ export const exchangeCodeAndProvision = action({
       }
 
       const tenantData = await ctx.runQuery(
-        internal.calendly.oauthMutations.getCodeVerifier,
+        internal.calendly.oauthMutations.getPkceVerifier,
         { tenantId },
       );
-      if (!tenantData?.codeVerifier) {
-        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: no code verifier found`);
-        throw new Error("No code verifier found — OAuth flow may have expired");
+      if (!tenantData?.pkceVerifier) {
+        console.error(
+          `[Calendly:OAuth] exchangeCodeAndProvision: no PKCE verifier found`,
+        );
+        throw new Error("No PKCE verifier found — OAuth flow may have expired");
       }
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: code verifier retrieved`);
+      console.log(
+        `[Calendly:OAuth] exchangeCodeAndProvision: PKCE verifier retrieved`,
+      );
 
       const clientId = getCalendlyClientId();
       const clientSecret = process.env.CALENDLY_CLIENT_SECRET;
       if (!clientId || !clientSecret) {
-        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: missing OAuth config, hasClientId=${Boolean(clientId)}, hasClientSecret=${Boolean(clientSecret)}`);
+        console.error(
+          `[Calendly:OAuth] exchangeCodeAndProvision: missing OAuth config, hasClientId=${Boolean(clientId)}, hasClientSecret=${Boolean(clientSecret)}`,
+        );
         throw new Error("Missing Calendly OAuth configuration");
       }
 
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: sending token exchange request`);
-      const tokenResponse = await fetch(
-        "https://auth.calendly.com/oauth/token",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: new URLSearchParams({
-            grant_type: "authorization_code",
-            code,
-            redirect_uri: getCalendlyRedirectUri(),
-            code_verifier: tenantData.codeVerifier,
-          }).toString(),
-        },
+      console.log(
+        `[Calendly:OAuth] exchangeCodeAndProvision: sending token exchange request`,
       );
+      const tokenResponse = await fetch("https://auth.calendly.com/oauth/token", {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code,
+          redirect_uri: getCalendlyRedirectUri(),
+          code_verifier: tenantData.pkceVerifier,
+        }).toString(),
+      });
 
       if (!tokenResponse.ok) {
         const error = await tokenResponse.text();
-        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: token exchange failed, status=${tokenResponse.status}`);
+        console.error(
+          `[Calendly:OAuth] exchangeCodeAndProvision: token exchange failed, status=${tokenResponse.status}`,
+        );
         throw new Error(
           `Calendly token exchange failed: ${tokenResponse.status} ${error}`,
         );
       }
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: token exchange response OK`);
+      console.log(
+        `[Calendly:OAuth] exchangeCodeAndProvision: token exchange response OK`,
+      );
 
       const tokens = (await tokenResponse.json()) as {
         access_token: string;
@@ -343,15 +357,21 @@ export const exchangeCodeAndProvision = action({
         organization: string;
       };
 
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: verifying token via /users/me`);
+      console.log(
+        `[Calendly:OAuth] exchangeCodeAndProvision: verifying token via /users/me`,
+      );
       const meResponse = await fetch("https://api.calendly.com/users/me", {
         headers: { Authorization: `Bearer ${tokens.access_token}` },
       });
       if (!meResponse.ok) {
-        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: /users/me verification failed, status=${meResponse.status}`);
+        console.error(
+          `[Calendly:OAuth] exchangeCodeAndProvision: /users/me verification failed, status=${meResponse.status}`,
+        );
         throw new Error("Failed to verify Calendly token via /users/me");
       }
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: /users/me verification passed`);
+      console.log(
+        `[Calendly:OAuth] exchangeCodeAndProvision: /users/me verification passed`,
+      );
 
       const meData = (await meResponse.json()) as {
         resource?: {
@@ -359,83 +379,106 @@ export const exchangeCodeAndProvision = action({
           current_organization?: string;
         };
       };
-      const calendlyOrgUri =
+      const organizationUri =
         tokens.organization ?? meData.resource?.current_organization;
-      const calendlyOwnerUri = tokens.owner ?? meData.resource?.uri;
-      if (!calendlyOrgUri || !calendlyOwnerUri) {
-        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: missing org/owner URI, hasOrgUri=${Boolean(calendlyOrgUri)}, hasOwnerUri=${Boolean(calendlyOwnerUri)}`);
+      const userUri = tokens.owner ?? meData.resource?.uri;
+      if (!organizationUri || !userUri) {
+        console.error(
+          `[Calendly:OAuth] exchangeCodeAndProvision: missing org/owner URI, hasOrganizationUri=${Boolean(organizationUri)}, hasUserUri=${Boolean(userUri)}`,
+        );
         throw new Error(
           "Calendly token response did not include owner or organization",
         );
       }
 
       const expiresAt = Date.now() + tokens.expires_in * 1000;
-      await ctx.runMutation(internal.tenants.storeCalendlyTokens, {
+      await ctx.runMutation(internal.calendly.oauthMutations.storeConnectionTokens, {
         tenantId,
-        calendlyAccessToken: tokens.access_token,
-        calendlyRefreshToken: tokens.refresh_token,
-        calendlyTokenExpiresAt: expiresAt,
-        calendlyOrgUri,
-        calendlyOwnerUri,
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        tokenExpiresAt: expiresAt,
+        organizationUri,
+        userUri,
       });
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: tokens stored, expiresAt=${new Date(expiresAt).toISOString()}`);
+      console.log(
+        `[Calendly:OAuth] exchangeCodeAndProvision: tokens stored, expiresAt=${new Date(expiresAt).toISOString()}`,
+      );
 
       await ctx.runMutation(internal.tenants.updateStatus, {
         tenantId,
         status: "provisioning_webhooks",
       });
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: status transitioned to provisioning_webhooks`);
+      console.log(
+        `[Calendly:OAuth] exchangeCodeAndProvision: status transitioned to provisioning_webhooks`,
+      );
 
       const tenantAfterTokenStore = await ctx.runQuery(
-        internal.tenants.getCalendlyTokens,
+        internal.calendly.connectionQueries.getTenantConnectionContext,
         { tenantId },
       );
-      if (!tenantAfterTokenStore?.calendlyOrgUri) {
-        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: org URI not stored after token save`);
+      if (!tenantAfterTokenStore?.organizationUri) {
+        console.error(
+          `[Calendly:OAuth] exchangeCodeAndProvision: organization URI not stored after token save`,
+        );
         throw new Error("Calendly organization URI was not stored");
       }
 
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: provisioning webhook subscription`);
-      const { webhookUri, webhookSigningKey } = await provisionWebhookSubscription(
+      console.log(
+        `[Calendly:OAuth] exchangeCodeAndProvision: provisioning webhook subscription`,
+      );
+      const { webhookUri, signingSecret } = await provisionWebhookSubscription({
+        tenantId,
+        accessToken: tokens.access_token,
+        organizationUri,
+        convexSiteUrl,
+        signingSecret: tenantAfterTokenStore.webhookSecret ?? undefined,
+      });
+      console.log(
+        `[Calendly:OAuth] exchangeCodeAndProvision: webhook provisioned, webhookUri=${webhookUri}`,
+      );
+
+      await ctx.runMutation(
+        internal.calendly.webhookSetupMutations.storeWebhookAndActivate,
         {
           tenantId,
-          accessToken: tokens.access_token,
-          organizationUri: calendlyOrgUri,
-          convexSiteUrl,
-          signingKey: tenantAfterTokenStore.webhookSigningKey ?? undefined,
+          webhookUri,
+          webhookSecret: signingSecret,
         },
       );
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: webhook provisioned, webhookUri=${webhookUri}`);
+      console.log(
+        `[Calendly:OAuth] exchangeCodeAndProvision: webhook stored and tenant activated`,
+      );
 
-      await ctx.runMutation(internal.calendly.webhookSetupMutations.storeWebhookAndActivate, {
-        tenantId,
-        calendlyWebhookUri: webhookUri,
-        webhookSigningKey,
-      });
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: webhook stored and tenant activated`);
-
-      // Schedule org member sync (non-blocking, runs after onboarding completes)
       await ctx.scheduler.runAfter(0, internal.calendly.orgMembers.syncForTenant, {
         tenantId,
       });
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: org member sync scheduled`);
+      console.log(
+        `[Calendly:OAuth] exchangeCodeAndProvision: org member sync scheduled`,
+      );
 
-      await ctx.runMutation(internal.calendly.oauthMutations.clearCodeVerifier, {
+      await ctx.runMutation(internal.calendly.oauthMutations.clearPkceVerifier, {
         tenantId,
       });
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: code verifier cleared, flow complete`);
+      console.log(
+        `[Calendly:OAuth] exchangeCodeAndProvision: PKCE verifier cleared, flow complete`,
+      );
 
       return { success: true };
     } catch (error) {
-      console.error(`[Calendly:OAuth] exchangeCodeAndProvision: error for tenant ${tenantId}, rolling back status`, error instanceof Error ? error.message : error);
-      await ctx.runMutation(internal.calendly.oauthMutations.clearCodeVerifier, {
+      console.error(
+        `[Calendly:OAuth] exchangeCodeAndProvision: error for tenant ${tenantId}, rolling back status`,
+        error instanceof Error ? error.message : error,
+      );
+      await ctx.runMutation(internal.calendly.oauthMutations.clearPkceVerifier, {
         tenantId,
       });
       await ctx.runMutation(internal.tenants.updateStatus, {
         tenantId,
         status: rollbackStatus,
       });
-      console.log(`[Calendly:OAuth] exchangeCodeAndProvision: status rolled back to ${rollbackStatus}`);
+      console.log(
+        `[Calendly:OAuth] exchangeCodeAndProvision: status rolled back to ${rollbackStatus}`,
+      );
       throw error;
     }
   },

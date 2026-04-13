@@ -3,6 +3,11 @@ import type { Id } from "../_generated/dataModel";
 import { internalMutation, mutation } from "../_generated/server";
 import { validateTransition } from "../lib/statusTransitions";
 import { requireTenantUser } from "../requireTenantUser";
+import { emitDomainEvent } from "../lib/domainEvents";
+import {
+  isActiveOpportunityStatus,
+  updateTenantStats,
+} from "../lib/tenantStatsHelper";
 
 /**
  * Create a follow-up record.
@@ -23,15 +28,31 @@ export const createFollowUpRecord = internalMutation({
   },
   handler: async (ctx, args) => {
     console.log("[Closer:FollowUp] createFollowUpRecord called", { opportunityId: args.opportunityId, reason: args.reason });
+    const now = Date.now();
     const id = await ctx.db.insert("followUps", {
       tenantId: args.tenantId,
       opportunityId: args.opportunityId,
       leadId: args.leadId,
       closerId: args.closerId,
+      type: "scheduling_link",
       schedulingLinkUrl: args.schedulingLinkUrl,
       reason: args.reason,
       status: "pending",
-      createdAt: Date.now(),
+      createdAt: now,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId: args.tenantId,
+      entityType: "followUp",
+      entityId: id,
+      eventType: "followUp.created",
+      source: "system",
+      actorUserId: args.closerId,
+      toStatus: "pending",
+      metadata: {
+        type: "scheduling_link",
+        opportunityId: args.opportunityId,
+      },
+      occurredAt: now,
     });
     console.log("[Closer:FollowUp] createFollowUpRecord inserted", { followUpId: id });
     return id;
@@ -59,9 +80,23 @@ export const transitionToFollowUp = internalMutation({
       );
     }
 
+    const now = Date.now();
     await ctx.db.patch(opportunityId, {
       status: "follow_up_scheduled",
-      updatedAt: Date.now(),
+      updatedAt: now,
+    });
+    await updateTenantStats(ctx, opportunity.tenantId, {
+      activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId: opportunity.tenantId,
+      entityType: "opportunity",
+      entityId: opportunityId,
+      eventType: "opportunity.status_changed",
+      source: "system",
+      fromStatus: opportunity.status,
+      toStatus: "follow_up_scheduled",
+      occurredAt: now,
     });
     console.log("[Closer:FollowUp] transitionToFollowUp patch applied", { opportunityId, newStatus: "follow_up_scheduled" });
   },
@@ -79,11 +114,15 @@ export const markFollowUpBooked = internalMutation({
   handler: async (ctx, { opportunityId, calendlyEventUri }) => {
     console.log("[Closer:FollowUp] markFollowUpBooked called", { opportunityId });
     let followUpId: Id<"followUps"> | null = null;
+    let pendingFollowUpTenantId: Id<"tenants"> | null = null;
+    let previousStatus: "pending" | "booked" | "completed" | "expired" | null = null;
     for await (const followUp of ctx.db
       .query("followUps")
       .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunityId))) {
       if (followUp.status === "pending") {
         followUpId = followUp._id;
+        pendingFollowUpTenantId = followUp.tenantId;
+        previousStatus = followUp.status;
         break;
       }
     }
@@ -93,6 +132,16 @@ export const markFollowUpBooked = internalMutation({
       await ctx.db.patch(followUpId, {
         status: "booked",
         calendlyEventUri,
+        bookedAt: Date.now(),
+      });
+    await emitDomainEvent(ctx, {
+      tenantId: pendingFollowUpTenantId!,
+      entityType: "followUp",
+      entityId: followUpId,
+      eventType: "followUp.booked",
+      source: "system",
+      fromStatus: previousStatus ?? undefined,
+      toStatus: "booked",
       });
       console.log("[Closer:FollowUp] markFollowUpBooked patch applied", { followUpId, newStatus: "booked" });
     } else {
@@ -159,6 +208,20 @@ export const createSchedulingLinkFollowUp = mutation({
     await ctx.db.patch(followUpId, {
       schedulingLinkUrl,
     });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "followUp",
+      entityId: followUpId,
+      eventType: "followUp.created",
+      source: "closer",
+      actorUserId: userId,
+      toStatus: "pending",
+      metadata: {
+        type: "scheduling_link",
+        opportunityId,
+      },
+      occurredAt: now,
+    });
     // NOTE: Status transition is deferred to confirmFollowUpScheduled.
     // If we transition here, Convex reactivity pushes the new status to the
     // client immediately, which re-renders OutcomeActionBar → returns null →
@@ -201,9 +264,24 @@ export const confirmFollowUpScheduled = mutation({
       );
     }
 
+    const now = Date.now();
     await ctx.db.patch(opportunityId, {
       status: "follow_up_scheduled",
-      updatedAt: Date.now(),
+      updatedAt: now,
+    });
+    await updateTenantStats(ctx, tenantId, {
+      activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "opportunity",
+      entityId: opportunityId,
+      eventType: "opportunity.status_changed",
+      source: "closer",
+      actorUserId: userId,
+      fromStatus: opportunity.status,
+      toStatus: "follow_up_scheduled",
+      occurredAt: now,
     });
 
     console.log(
@@ -259,6 +337,34 @@ export const createManualReminderFollowUpPublic = mutation({
       status: "follow_up_scheduled",
       updatedAt: now,
     });
+    await updateTenantStats(ctx, tenantId, {
+      activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "followUp",
+      entityId: followUpId,
+      eventType: "followUp.created",
+      source: "closer",
+      actorUserId: userId,
+      toStatus: "pending",
+      metadata: {
+        type: "manual_reminder",
+        opportunityId: args.opportunityId,
+      },
+      occurredAt: now,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "opportunity",
+      entityId: args.opportunityId,
+      eventType: "opportunity.status_changed",
+      source: "closer",
+      actorUserId: userId,
+      fromStatus: opportunity.status,
+      toStatus: "follow_up_scheduled",
+      occurredAt: now,
+    });
 
     console.log("[Closer:FollowUp] manual reminder follow-up created", {
       followUpId,
@@ -296,10 +402,22 @@ export const markReminderComplete = mutation({
       throw new Error("Follow-up is not pending");
     }
 
+    const now = Date.now();
     await ctx.db.patch(followUpId, {
       status: "completed",
-      completedAt: Date.now(),
+      completedAt: now,
       ...(completionNote ? { completionNote } : {}),
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "followUp",
+      entityId: followUpId,
+      eventType: "followUp.completed",
+      source: "closer",
+      actorUserId: userId,
+      fromStatus: followUp.status,
+      toStatus: "completed",
+      occurredAt: now,
     });
 
     console.log("[Closer:FollowUp] reminder marked complete", {

@@ -1,8 +1,39 @@
 import { v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
+import type { MutationCtx } from "../_generated/server";
 import { mutation, query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateTransition } from "../lib/statusTransitions";
 import { executeConversion } from "../customers/conversion";
+import { emitDomainEvent } from "../lib/domainEvents";
+import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
+import {
+  isActiveOpportunityStatus,
+  updateTenantStats,
+} from "../lib/tenantStatsHelper";
+
+async function syncCustomerPaymentSummary(
+  ctx: MutationCtx,
+  customerId: Id<"customers">,
+) {
+  const payments = await ctx.db
+    .query("paymentRecords")
+    .withIndex("by_customerId", (q) => q.eq("customerId", customerId))
+    .take(100);
+
+  const nonDisputedPayments = payments.filter((payment) => payment.status !== "disputed");
+  const currencies = Array.from(
+    new Set(nonDisputedPayments.map((payment) => payment.currency)),
+  );
+  await ctx.db.patch(customerId, {
+    totalPaidMinor: nonDisputedPayments.reduce(
+      (sum, payment) => sum + (payment.amountMinor ?? toAmountMinor(payment.amount)),
+      0,
+    ),
+    totalPaymentCount: nonDisputedPayments.length,
+    paymentCurrency: currencies.length === 1 ? currencies[0] : undefined,
+  });
+}
 
 /**
  * Generate a file upload URL for payment proof.
@@ -100,10 +131,7 @@ export const logPayment = mutation({
       throw new Error("Payment amount must be positive");
     }
 
-    const currency = args.currency.trim().toUpperCase();
-    if (!currency) {
-      throw new Error("Currency is required");
-    }
+    const currency = validateCurrency(args.currency);
 
     const provider = args.provider.trim();
     if (!provider) {
@@ -111,6 +139,8 @@ export const logPayment = mutation({
     }
 
     const referenceCode = args.referenceCode?.trim();
+    const now = Date.now();
+    const amountMinor = toAmountMinor(args.amount);
 
     // Create payment record
     const paymentId = await ctx.db.insert("paymentRecords", {
@@ -119,12 +149,15 @@ export const logPayment = mutation({
       meetingId: args.meetingId,
       closerId: userId,
       amount: args.amount,
+      amountMinor,
       currency,
       provider,
       referenceCode: referenceCode || undefined,
       proofFileId: args.proofFileId ?? undefined,
       status: "recorded",
-      recordedAt: Date.now(),
+      statusChangedAt: now,
+      recordedAt: now,
+      contextType: "opportunity",
     });
 
     console.log("[Closer:Payment] payment record created", { paymentId });
@@ -132,7 +165,41 @@ export const logPayment = mutation({
     // Transition opportunity to payment_received (terminal state)
     await ctx.db.patch(args.opportunityId, {
       status: "payment_received",
-      updatedAt: Date.now(),
+      paymentReceivedAt: now,
+      updatedAt: now,
+    });
+    await updateTenantStats(ctx, tenantId, {
+      activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? -1 : 0,
+      wonDeals: 1,
+      totalPaymentRecords: 1,
+      totalRevenueMinor: amountMinor,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "payment",
+      entityId: paymentId,
+      eventType: "payment.recorded",
+      source: role === "closer" ? "closer" : "admin",
+      actorUserId: userId,
+      toStatus: "recorded",
+      metadata: {
+        opportunityId: args.opportunityId,
+        meetingId: args.meetingId,
+        amountMinor,
+        currency,
+      },
+      occurredAt: now,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "opportunity",
+      entityId: args.opportunityId,
+      eventType: "opportunity.status_changed",
+      source: role === "closer" ? "closer" : "admin",
+      actorUserId: userId,
+      fromStatus: opportunity.status,
+      toStatus: "payment_received",
+      occurredAt: now,
     });
 
     console.log("[Closer:Payment] opportunity transitioned to payment_received", { opportunityId: args.opportunityId });
@@ -150,6 +217,7 @@ export const logPayment = mutation({
     if (customerId) {
       // Set customerId on the payment record we just created
       await ctx.db.patch(paymentId, { customerId });
+      await syncCustomerPaymentSummary(ctx, customerId);
       console.log("[Closer:Payment] Auto-conversion complete", {
         paymentId,
         customerId,
@@ -167,6 +235,7 @@ export const logPayment = mutation({
         await ctx.db.patch(paymentId, {
           customerId: existingCustomer._id,
         });
+        await syncCustomerPaymentSummary(ctx, existingCustomer._id);
         console.log("[Closer:Payment] Payment linked to existing customer", {
           paymentId,
           customerId: existingCustomer._id,
