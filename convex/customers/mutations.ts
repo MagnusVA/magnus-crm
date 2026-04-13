@@ -170,7 +170,6 @@ export const recordCustomerPayment = mutation({
       tenantId,
       closerId: userId,
       customerId: args.customerId,
-      amount: args.amount,
       amountMinor,
       currency,
       provider,
@@ -193,7 +192,7 @@ export const recordCustomerPayment = mutation({
     );
     await ctx.db.patch(args.customerId, {
       totalPaidMinor: nonDisputedPayments.reduce(
-        (sum, payment) => sum + (payment.amountMinor ?? toAmountMinor(payment.amount)),
+        (sum, payment) => sum + payment.amountMinor,
         0,
       ),
       totalPaymentCount: nonDisputedPayments.length,

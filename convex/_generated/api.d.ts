@@ -72,7 +72,6 @@ import type * as lib_utmParams from "../lib/utmParams.js";
 import type * as lib_validation from "../lib/validation.js";
 import type * as lib_workosUserId from "../lib/workosUserId.js";
 import type * as meetings_maintenance from "../meetings/maintenance.js";
-import type * as migrations_backfillTenantCalendlyConnections from "../migrations/backfillTenantCalendlyConnections.js";
 import type * as onboarding_complete from "../onboarding/complete.js";
 import type * as onboarding_invite from "../onboarding/invite.js";
 import type * as opportunities_maintenance from "../opportunities/maintenance.js";
@@ -175,7 +174,6 @@ declare const fullApi: ApiFromModules<{
   "lib/validation": typeof lib_validation;
   "lib/workosUserId": typeof lib_workosUserId;
   "meetings/maintenance": typeof meetings_maintenance;
-  "migrations/backfillTenantCalendlyConnections": typeof migrations_backfillTenantCalendlyConnections;
   "onboarding/complete": typeof onboarding_complete;
   "onboarding/invite": typeof onboarding_invite;
   "opportunities/maintenance": typeof opportunities_maintenance;

@@ -23,21 +23,6 @@ export default defineSchema({
     inviteExpiresAt: v.number(),
     inviteRedeemedAt: v.optional(v.number()),
 
-    // Calendly OAuth
-    codeVerifier: v.optional(v.string()), // Temporary: PKCE code verifier during OAuth
-    calendlyAccessToken: v.optional(v.string()),
-    calendlyRefreshToken: v.optional(v.string()),
-    calendlyTokenExpiresAt: v.optional(v.number()),
-    calendlyOrgUri: v.optional(v.string()),
-    calendlyOwnerUri: v.optional(v.string()),
-    calendlyRefreshLockUntil: v.optional(v.number()),
-    lastTokenRefreshAt: v.optional(v.number()),
-    webhookProvisioningStartedAt: v.optional(v.number()),
-
-    // Webhooks
-    calendlyWebhookUri: v.optional(v.string()),
-    webhookSigningKey: v.optional(v.string()),
-
     // Metadata
     notes: v.optional(v.string()),
     createdBy: v.string(),
@@ -77,7 +62,7 @@ export default defineSchema({
 
     // === v0.5b: User Soft Delete ===
     deletedAt: v.optional(v.number()),
-    isActive: v.optional(v.boolean()),
+    isActive: v.boolean(),
     // === End v0.5b: User Soft Delete ===
   })
     .index("by_tenantId", ["tenantId"])
@@ -123,7 +108,7 @@ export default defineSchema({
     email: v.string(),
     fullName: v.optional(v.string()),
     phone: v.optional(v.string()),
-    customFields: v.optional(v.any()),
+    customFields: v.optional(v.record(v.string(), v.string())),
     firstSeenAt: v.number(),
     updatedAt: v.number(),
 
@@ -132,8 +117,10 @@ export default defineSchema({
     // "active" = normal operating state (default for all existing + new leads).
     // "merged" = this lead was merged into another lead; mergedIntoLeadId points to the target.
     // "converted" = lead became a customer (Feature D).
-    status: v.optional(
-      v.union(v.literal("active"), v.literal("converted"), v.literal("merged")),
+    status: v.union(
+      v.literal("active"),
+      v.literal("converted"),
+      v.literal("merged"),
     ),
 
     // When status === "merged", points to the lead this was merged into.
@@ -291,7 +278,7 @@ export default defineSchema({
   meetings: defineTable({
     tenantId: v.id("tenants"),
     opportunityId: v.id("opportunities"),
-    assignedCloserId: v.optional(v.id("users")),
+    assignedCloserId: v.id("users"),
     calendlyEventUri: v.string(),
     calendlyInviteeUri: v.string(),
     zoomJoinUrl: v.optional(v.string()), // Legacy Zoom-only field. Keep during migration window.
@@ -533,8 +520,7 @@ export default defineSchema({
     opportunityId: v.optional(v.id("opportunities")),
     meetingId: v.optional(v.id("meetings")),
     closerId: v.id("users"),
-    amount: v.number(),
-    amountMinor: v.optional(v.number()),
+    amountMinor: v.number(),
     currency: v.string(),
     provider: v.string(),
     referenceCode: v.optional(v.string()),
@@ -550,8 +536,9 @@ export default defineSchema({
     recordedAt: v.number(),
     // === Feature D: Customer Linkage ===
     customerId: v.optional(v.id("customers")),
-    contextType: v.optional(
-      v.union(v.literal("opportunity"), v.literal("customer")),
+    contextType: v.union(
+      v.literal("opportunity"),
+      v.literal("customer"),
     ),
     // === End Feature D ===
   })
@@ -577,11 +564,9 @@ export default defineSchema({
     opportunityId: v.id("opportunities"),
     leadId: v.id("leads"),
     closerId: v.id("users"),
-    type: v.optional(
-      v.union(
-        v.literal("scheduling_link"),
-        v.literal("manual_reminder"),
-      ),
+    type: v.union(
+      v.literal("scheduling_link"),
+      v.literal("manual_reminder"),
     ),
     schedulingLinkUrl: v.optional(v.string()),
     calendlyEventUri: v.optional(v.string()),
@@ -756,6 +741,7 @@ export default defineSchema({
       ),
     ),
     lastHealthCheckAt: v.optional(v.number()),
+    webhookProvisioningStartedAt: v.optional(v.number()),
   }).index("by_tenantId", ["tenantId"]),
   // === End v0.5b: Tenant Calendly Connections ===
 });

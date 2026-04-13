@@ -82,7 +82,7 @@ export function LeadDetailPageClient() {
 						Leads
 					</Link>
 				</Button>
-				<LeadStatusBadge status={lead.status ?? "active"} />
+				<LeadStatusBadge status={lead.status} />
 			</div>
 
 			{/* Lead header */}
@@ -130,7 +130,7 @@ export function LeadDetailPageClient() {
 						<ConvertToCustomerDialog
 							leadId={leadId}
 							leadName={lead.fullName ?? lead.email}
-							leadStatus={lead.status ?? "active"}
+							leadStatus={lead.status}
 							opportunities={detail.opportunities}
 						/>
 					)}

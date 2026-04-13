@@ -1,7 +1,10 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { getIdentityOrgId } from "./lib/identity";
-import { getTenantCalendlyConnectionState } from "./lib/tenantCalendlyConnection";
+import {
+  getTenantCalendlyConnectionState,
+  updateTenantCalendlyConnection,
+} from "./lib/tenantCalendlyConnection";
 
 export const getByWorkosOrgId = internalQuery({
   args: { workosOrgId: v.string() },
@@ -130,10 +133,14 @@ export const updateStatus = internalMutation({
   },
   handler: async (ctx, { tenantId, status }) => {
     console.log("[Tenants] updateStatus called", { tenantId, status });
+    const webhookProvisioningStartedAt =
+      status === "provisioning_webhooks" ? Date.now() : undefined;
+
+    await updateTenantCalendlyConnection(ctx, tenantId, {
+      webhookProvisioningStartedAt,
+    });
     await ctx.db.patch(tenantId, {
       status,
-      webhookProvisioningStartedAt:
-        status === "provisioning_webhooks" ? Date.now() : undefined,
     });
     console.log("[Tenants] updateStatus completed", { tenantId, status });
   },

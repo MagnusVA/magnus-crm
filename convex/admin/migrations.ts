@@ -128,10 +128,6 @@ async function requireSystemAdmin(
   requireSystemAdminSession(identity);
 }
 
-function toAmountMinor(amount: number): number {
-  return Math.round(amount * 100);
-}
-
 function normalizeFieldKey(question: string): string {
   const normalized = question
     .trim()
@@ -626,7 +622,7 @@ export const seedTenantStatsInternal = internalMutation({
       .query("users")
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
       .collect();
-    const activeUsers = users.filter((user) => user.isActive !== false);
+    const activeUsers = users.filter((user) => user.isActive);
     const closers = activeUsers.filter((user) => user.role === "closer");
 
     const opportunities = await ctx.db
@@ -651,7 +647,7 @@ export const seedTenantStatsInternal = internalMutation({
       (payment) => payment.status !== "disputed",
     );
     const totalRevenueMinor = nonDisputedPayments.reduce(
-      (sum, payment) => sum + (payment.amountMinor ?? toAmountMinor(payment.amount)),
+      (sum, payment) => sum + payment.amountMinor,
       0,
     );
 
@@ -1093,17 +1089,7 @@ export const backfillPaymentAmountMinor = mutation({
     await requireSystemAdmin(ctx);
 
     const payments = await ctx.db.query("paymentRecords").collect();
-    let updated = 0;
-    for (const payment of payments) {
-      if (payment.amountMinor !== undefined) {
-        continue;
-      }
-
-      await ctx.db.patch(payment._id, {
-        amountMinor: toAmountMinor(payment.amount),
-      });
-      updated += 1;
-    }
+    const updated = 0;
 
     console.log("[Migration:2B] Payment amountMinor backfill complete", {
       updated,
@@ -1223,8 +1209,7 @@ export const backfillCustomerTotals = mutation({
         (payment) => payment.status !== "disputed",
       );
       const totalPaidMinor = nonDisputedPayments.reduce(
-        (sum, payment) =>
-          sum + (payment.amountMinor ?? toAmountMinor(payment.amount)),
+        (sum, payment) => sum + payment.amountMinor,
         0,
       );
 

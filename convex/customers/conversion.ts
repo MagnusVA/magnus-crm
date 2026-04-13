@@ -2,7 +2,6 @@ import { MutationCtx } from "../_generated/server";
 import { Id } from "../_generated/dataModel";
 import { validateLeadTransition } from "../lib/statusTransitions";
 import { emitDomainEvent } from "../lib/domainEvents";
-import { toAmountMinor } from "../lib/formatMoney";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 
 /**
@@ -59,7 +58,7 @@ export async function executeConversion(
   }
 
   // 3. Validate lead status transition
-  const currentStatus = lead.status ?? "active";
+  const currentStatus = lead.status;
   if (!validateLeadTransition(currentStatus, "converted")) {
     throw new Error(
       `Cannot convert lead with status "${currentStatus}". Only active leads can be converted.`,
@@ -184,7 +183,7 @@ export async function executeConversion(
   );
   await ctx.db.patch(customerId, {
     totalPaidMinor: nonDisputedPayments.reduce(
-      (sum, payment) => sum + (payment.amountMinor ?? toAmountMinor(payment.amount)),
+      (sum, payment) => sum + payment.amountMinor,
       0,
     ),
     totalPaymentCount: nonDisputedPayments.length,

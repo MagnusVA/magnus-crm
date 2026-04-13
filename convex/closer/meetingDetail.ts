@@ -9,7 +9,8 @@ type MeetingHistoryEntry = Doc<"meetings"> & {
 };
 
 // Enriched payment with proof file URL and closer info
-type EnrichedPayment = Doc<"paymentRecords"> & {
+type EnrichedPayment = Omit<Doc<"paymentRecords">, "amount"> & {
+  amount: number;
   proofFileUrl: string | null;
   proofFileContentType: string | null;
   proofFileSize: number | null;
@@ -182,7 +183,7 @@ export const getMeetingDetail = query({
 
           return {
             ...payment,
-            amount: (payment.amountMinor ?? 0) / 100,
+            amount: payment.amountMinor / 100,
             proofFileUrl,
             proofFileContentType,
             proofFileSize,

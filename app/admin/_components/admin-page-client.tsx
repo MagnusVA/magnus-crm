@@ -56,6 +56,9 @@ const ResetTenantDialog = dynamic(() =>
 );
 
 type TenantStatus = Doc<"tenants">["status"];
+type TenantWithWebhookStatus = Doc<"tenants"> & {
+  calendlyWebhookUri?: string;
+};
 
 const PAGE_SIZE = 25;
 
@@ -68,7 +71,7 @@ export function AdminPageClient() {
   );
   const [dialogOpen, setDialogOpen] = useState(false);
   const [inviteResult, setInviteResult] = useState<InviteResult | null>(null);
-  const [tenantToReset, setTenantToReset] = useState<Doc<"tenants"> | null>(
+  const [tenantToReset, setTenantToReset] = useState<TenantWithWebhookStatus | null>(
     null,
   );
 
@@ -97,7 +100,7 @@ export function AdminPageClient() {
     });
   };
 
-  const handleReset = async (tenant: Doc<"tenants">) => {
+  const handleReset = async (tenant: TenantWithWebhookStatus) => {
     try {
       const result = await deleteTenant({ tenantId: tenant._id });
 

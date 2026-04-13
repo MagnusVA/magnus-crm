@@ -164,7 +164,7 @@ export const getCustomerDetail = query({
 
     const payments = paymentRecords.map((payment) => ({
       ...payment,
-      amount: (payment.amountMinor ?? 0) / 100,
+      amount: payment.amountMinor / 100,
     }));
 
     const totalPaid = (customer.totalPaidMinor ?? 0) / 100;

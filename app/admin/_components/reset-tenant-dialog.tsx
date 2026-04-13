@@ -47,6 +47,10 @@ export type ResetTenantResult = {
   deletedUsers: number;
 };
 
+type TenantWithWebhookStatus = Doc<"tenants"> & {
+  calendlyWebhookUri?: string;
+};
+
 export function ResetTenantDialog({
   open,
   tenant,
@@ -54,9 +58,9 @@ export function ResetTenantDialog({
   onSubmit,
 }: {
   open: boolean;
-  tenant: Doc<"tenants"> | null;
+  tenant: TenantWithWebhookStatus | null;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (tenant: Doc<"tenants">) => Promise<void>;
+  onSubmit: (tenant: TenantWithWebhookStatus) => Promise<void>;
 }) {
   const [confirmation, setConfirmation] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);

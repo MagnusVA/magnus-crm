@@ -115,10 +115,10 @@ export const clearTenantConnection = internalMutation({
       webhookSecret: undefined,
       connectionStatus: "disconnected",
       lastHealthCheckAt: undefined,
+      webhookProvisioningStartedAt: undefined,
     });
     await ctx.db.patch(tenantId, {
       status,
-      webhookProvisioningStartedAt: undefined,
     });
 
     console.log("[Calendly:OAuth] clearTenantConnection completed", {
