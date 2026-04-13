@@ -1,6 +1,17 @@
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 
+const PIPELINE_STATUSES = [
+  "scheduled",
+  "in_progress",
+  "follow_up_scheduled",
+  "reschedule_link_sent",
+  "payment_received",
+  "lost",
+  "canceled",
+  "no_show",
+] as const;
+
 /**
  * Get the closer's next upcoming meeting.
  *
@@ -17,62 +28,48 @@ export const getNextMeeting = query({
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
     const now = Date.now();
 
-    // Get this closer's scheduled opportunities
-    const myOpps = await ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_and_assignedCloserId", (q) =>
-        q.eq("tenantId", tenantId).eq("assignedCloserId", userId)
-      )
-      .collect();
-    const scheduledOpps = myOpps.filter((opportunity) => opportunity.status === "scheduled");
-    console.log("[Closer:Dashboard] getNextMeeting opp count", { total: myOpps.length, scheduled: scheduledOpps.length });
-
-    if (scheduledOpps.length === 0) return null;
-
-    const oppIds = new Set(scheduledOpps.map((opportunity) => opportunity._id));
-    const opportunityById = new Map(
-      scheduledOpps.map((opportunity) => [opportunity._id, opportunity]),
-    );
-
-    // Scan upcoming tenant meetings in chronological order and stop at the
-    // first scheduled meeting owned by this closer.
-    const upcomingMeetings = ctx.db
+    for await (const meeting of ctx.db
       .query("meetings")
-      .withIndex("by_tenantId_and_scheduledAt", (q) =>
-        q.eq("tenantId", tenantId).gte("scheduledAt", now)
-      );
-
-    let nextMeeting = null;
-    for await (const meeting of upcomingMeetings) {
+      .withIndex("by_tenantId_and_assignedCloserId_and_scheduledAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("assignedCloserId", userId)
+          .gte("scheduledAt", now),
+      )) {
       if (meeting.status !== "scheduled") {
         continue;
       }
-      if (!oppIds.has(meeting.opportunityId)) {
+
+      const opportunity = await ctx.db.get(meeting.opportunityId);
+      if (
+        !opportunity ||
+        opportunity.tenantId !== tenantId ||
+        opportunity.assignedCloserId !== userId
+      ) {
         continue;
       }
-      nextMeeting = meeting;
-      break;
+
+      const [lead, eventTypeConfig] = await Promise.all([
+        ctx.db.get(opportunity.leadId),
+        opportunity.eventTypeConfigId
+          ? ctx.db.get(opportunity.eventTypeConfigId)
+          : Promise.resolve(null),
+      ]);
+
+      console.log("[Closer:Dashboard] getNextMeeting: next meeting found", {
+        meetingId: meeting._id,
+        scheduledAt: meeting.scheduledAt,
+      });
+      return {
+        meeting,
+        opportunity,
+        lead,
+        eventTypeName: eventTypeConfig?.displayName ?? null,
+      };
     }
 
-    if (!nextMeeting) {
-      console.log("[Closer:Dashboard] getNextMeeting: no upcoming meeting found");
-      return null;
-    }
-    console.log("[Closer:Dashboard] getNextMeeting: next meeting found", { meetingId: nextMeeting._id, scheduledAt: nextMeeting.scheduledAt });
-
-    const opportunity = opportunityById.get(nextMeeting.opportunityId);
-    const lead = opportunity ? await ctx.db.get(opportunity.leadId) : null;
-    const eventTypeConfig =
-      opportunity?.eventTypeConfigId
-        ? await ctx.db.get(opportunity.eventTypeConfigId)
-        : null;
-
-    return {
-      meeting: nextMeeting,
-      opportunity,
-      lead,
-      eventTypeName: eventTypeConfig?.displayName ?? null,
-    };
+    console.log("[Closer:Dashboard] getNextMeeting: no upcoming meeting found");
+    return null;
   },
 });
 
@@ -88,13 +85,6 @@ export const getPipelineSummary = query({
     console.log("[Closer:Dashboard] getPipelineSummary called");
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
 
-    const myOpps = await ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_and_assignedCloserId", (q) =>
-        q.eq("tenantId", tenantId).eq("assignedCloserId", userId)
-      )
-      .collect();
-
     const counts = {
       scheduled: 0,
       in_progress: 0,
@@ -105,17 +95,28 @@ export const getPipelineSummary = query({
       canceled: 0,
       no_show: 0,
     };
+    let total = 0;
 
-    for (const opp of myOpps) {
-      if (opp.status in counts) {
-        counts[opp.status as keyof typeof counts]++;
+    for (const status of PIPELINE_STATUSES) {
+      let count = 0;
+      for await (const _opportunity of ctx.db
+        .query("opportunities")
+        .withIndex("by_tenantId_and_assignedCloserId_and_status", (q) =>
+          q
+            .eq("tenantId", tenantId)
+            .eq("assignedCloserId", userId)
+            .eq("status", status),
+        )) {
+        count += 1;
       }
+      counts[status] = count;
+      total += count;
     }
 
-    console.log("[Closer:Dashboard] getPipelineSummary counts", { total: myOpps.length, counts });
+    console.log("[Closer:Dashboard] getPipelineSummary counts", { total, counts });
     return {
       counts,
-      total: myOpps.length,
+      total,
     };
   },
 });

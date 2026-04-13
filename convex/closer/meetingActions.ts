@@ -6,6 +6,11 @@ import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateTransition } from "../lib/statusTransitions";
 import { getStoredMeetingJoinUrl } from "../lib/meetingLocation";
+import { emitDomainEvent } from "../lib/domainEvents";
+import {
+  isActiveOpportunityStatus,
+  updateTenantStats,
+} from "../lib/tenantStatsHelper";
 
 async function loadMeetingContext(
   ctx: MutationCtx,
@@ -103,6 +108,28 @@ export const startMeeting = mutation({
       startedAt: now,
     });
     await updateOpportunityMeetingRefs(ctx, opportunity._id);
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "opportunity",
+      entityId: opportunity._id,
+      eventType: "opportunity.status_changed",
+      source: "closer",
+      actorUserId: userId,
+      fromStatus: opportunity.status,
+      toStatus: "in_progress",
+      occurredAt: now,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "meeting",
+      entityId: meetingId,
+      eventType: "meeting.started",
+      source: "closer",
+      actorUserId: userId,
+      fromStatus: meeting.status,
+      toStatus: "in_progress",
+      occurredAt: now,
+    });
 
     const joinUrl = getStoredMeetingJoinUrl(meeting);
     console.log("[Closer:Meeting] startMeeting completed", { hasMeetingUrl: !!joinUrl });
@@ -147,15 +174,34 @@ export const markAsLost = mutation({
     }
 
     const normalizedReason = reason?.trim();
+    const now = Date.now();
     const patch: Partial<Doc<"opportunities">> = {
       status: "lost",
-      updatedAt: Date.now(),
+      updatedAt: now,
+      lostAt: now,
+      lostByUserId: userId,
     };
     if (normalizedReason) {
       patch.lostReason = normalizedReason;
     }
 
     await ctx.db.patch(opportunityId, patch);
+    await updateTenantStats(ctx, tenantId, {
+      activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? -1 : 0,
+      lostDeals: 1,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "opportunity",
+      entityId: opportunityId,
+      eventType: "opportunity.marked_lost",
+      source: "closer",
+      actorUserId: userId,
+      fromStatus: opportunity.status,
+      toStatus: "lost",
+      reason: normalizedReason,
+      occurredAt: now,
+    });
     console.log("[Closer:Meeting] markAsLost patch applied", { opportunityId, newStatus: "lost", hasReason: !!normalizedReason });
   },
 });

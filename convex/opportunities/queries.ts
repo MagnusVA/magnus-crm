@@ -66,36 +66,39 @@ export const listOpportunitiesForAdmin = query({
       }
     }
 
-    const opportunities: Array<Doc<"opportunities">> = [];
-    if (statusFilter) {
-      for await (const opportunity of ctx.db
-        .query("opportunities")
-        .withIndex("by_tenantId_and_status", (q) =>
-          q.eq("tenantId", tenantId).eq("status", statusFilter),
-        )) {
-        if (
-          assignedCloserId !== undefined &&
-          opportunity.assignedCloserId !== assignedCloserId
-        ) {
-          continue;
-        }
-        opportunities.push(opportunity);
-      }
-    } else if (assignedCloserId) {
-      for await (const opportunity of ctx.db
-        .query("opportunities")
-        .withIndex("by_tenantId_and_assignedCloserId", (q) =>
-          q.eq("tenantId", tenantId).eq("assignedCloserId", assignedCloserId),
-        )) {
-        opportunities.push(opportunity);
-      }
-    } else {
-      for await (const opportunity of ctx.db
-        .query("opportunities")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))) {
-        opportunities.push(opportunity);
-      }
-    }
+    const opportunities: Array<Doc<"opportunities">> =
+      statusFilter && assignedCloserId
+        ? await ctx.db
+            .query("opportunities")
+            .withIndex("by_tenantId_and_assignedCloserId_and_status", (q) =>
+              q
+                .eq("tenantId", tenantId)
+                .eq("assignedCloserId", assignedCloserId)
+                .eq("status", statusFilter),
+            )
+            .order("desc")
+            .take(200)
+        : statusFilter
+          ? await ctx.db
+              .query("opportunities")
+              .withIndex("by_tenantId_and_status", (q) =>
+                q.eq("tenantId", tenantId).eq("status", statusFilter),
+              )
+              .order("desc")
+              .take(200)
+          : assignedCloserId
+            ? await ctx.db
+                .query("opportunities")
+                .withIndex("by_tenantId_and_assignedCloserId", (q) =>
+                  q.eq("tenantId", tenantId).eq("assignedCloserId", assignedCloserId),
+                )
+                .order("desc")
+                .take(200)
+            : await ctx.db
+                .query("opportunities")
+                .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+                .order("desc")
+                .take(200);
 
     const leadIds = new Set<Id<"leads">>();
     const closerIds = new Set<Id<"users">>();
@@ -111,9 +114,29 @@ export const listOpportunitiesForAdmin = query({
       }
     }
 
+    const [leads, closers, eventTypes] = await Promise.all([
+      Promise.all(
+        [...leadIds].map(async (leadId) => ({
+          leadId,
+          lead: await ctx.db.get(leadId),
+        })),
+      ),
+      Promise.all(
+        [...closerIds].map(async (closerId) => ({
+          closerId,
+          closer: await ctx.db.get(closerId),
+        })),
+      ),
+      Promise.all(
+        [...eventTypeConfigIds].map(async (eventTypeConfigId) => ({
+          eventTypeConfigId,
+          eventTypeConfig: await ctx.db.get(eventTypeConfigId),
+        })),
+      ),
+    ]);
+
     const leadById = new Map<Id<"leads">, LeadSummary>();
-    for (const leadId of leadIds) {
-      const lead = await ctx.db.get(leadId);
+    for (const { leadId, lead } of leads) {
       if (lead) {
         leadById.set(leadId, {
           fullName: lead.fullName,
@@ -123,8 +146,7 @@ export const listOpportunitiesForAdmin = query({
     }
 
     const closerById = new Map<Id<"users">, UserSummary>();
-    for (const closerId of closerIds) {
-      const closer = await ctx.db.get(closerId);
+    for (const { closerId, closer } of closers) {
       if (closer) {
         closerById.set(closerId, {
           fullName: closer.fullName,
@@ -135,8 +157,7 @@ export const listOpportunitiesForAdmin = query({
     }
 
     const eventTypeById = new Map<Id<"eventTypeConfigs">, string>();
-    for (const eventTypeConfigId of eventTypeConfigIds) {
-      const eventTypeConfig = await ctx.db.get(eventTypeConfigId);
+    for (const { eventTypeConfigId, eventTypeConfig } of eventTypes) {
       if (eventTypeConfig) {
         eventTypeById.set(eventTypeConfigId, eventTypeConfig.displayName);
       }
@@ -156,9 +177,14 @@ export const listOpportunitiesForAdmin = query({
       }
     }
 
+    const meetings = await Promise.all(
+      [...meetingIdsToFetch].map(async (meetingId) => ({
+        meetingId,
+        meeting: await ctx.db.get(meetingId as Id<"meetings">),
+      })),
+    );
     const meetingById = new Map<string, MeetingSummary>();
-    for (const meetingId of meetingIdsToFetch) {
-      const meeting = await ctx.db.get(meetingId as Id<"meetings">);
+    for (const { meetingId, meeting } of meetings) {
       if (meeting) {
         meetingById.set(meetingId, {
           _id: meeting._id,

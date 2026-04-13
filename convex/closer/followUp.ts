@@ -107,12 +107,14 @@ export const createFollowUp = action({
     }
 
     // ==== Step 2: Get valid Calendly access token ====
-    const tokenState = await ctx.runQuery(
-      internal.tenants.getCalendlyTokens,
+    const connectionState = await ctx.runQuery(
+      internal.calendly.connectionQueries.getTenantConnectionContext,
       { tenantId: caller.tenantId },
     );
-    console.log("[Closer:FollowUp] token state", { hasAccessToken: !!tokenState?.calendlyAccessToken });
-    if (!tokenState?.calendlyAccessToken) {
+    console.log("[Closer:FollowUp] token state", {
+      hasAccessToken: !!connectionState?.accessToken,
+    });
+    if (!connectionState?.accessToken) {
       throw new Error(
         "Calendly is not connected. Please ask your admin to reconnect Calendly."
       );

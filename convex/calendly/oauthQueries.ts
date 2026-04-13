@@ -1,4 +1,5 @@
 import { query } from "../_generated/server";
+import { getTenantCalendlyConnectionState } from "../lib/tenantCalendlyConnection";
 import { requireTenantUser } from "../requireTenantUser";
 
 /**
@@ -16,6 +17,7 @@ export const getConnectionStatus = query({
     ]);
 
     const tenant = await ctx.db.get(tenantId);
+    const connection = await getTenantCalendlyConnectionState(ctx, tenantId);
 
     if (!tenant) {
       console.warn(`[Calendly:OAuth] getConnectionStatus: tenant ${tenantId} not found`);
@@ -26,12 +28,12 @@ export const getConnectionStatus = query({
       tenantId: tenant._id,
       status: tenant.status,
       needsReconnect: tenant.status === "calendly_disconnected",
-      lastTokenRefresh: tenant.lastTokenRefreshAt ?? null,
-      tokenExpiresAt: tenant.calendlyTokenExpiresAt ?? null,
-      calendlyWebhookUri: tenant.calendlyWebhookUri ?? null,
-      hasWebhookSigningKey: Boolean(tenant.webhookSigningKey),
-      hasAccessToken: Boolean(tenant.calendlyAccessToken),
-      hasRefreshToken: Boolean(tenant.calendlyRefreshToken),
+      lastTokenRefresh: connection?.lastRefreshedAt ?? null,
+      tokenExpiresAt: connection?.tokenExpiresAt ?? null,
+      calendlyWebhookUri: connection?.webhookUri ?? null,
+      hasWebhookSigningKey: Boolean(connection?.webhookSecret),
+      hasAccessToken: Boolean(connection?.accessToken),
+      hasRefreshToken: Boolean(connection?.refreshToken),
     };
 
     console.log(`[Calendly:OAuth] getConnectionStatus: tenant=${tenantId}, status=${result.status}, needsReconnect=${result.needsReconnect}, hasAccessToken=${result.hasAccessToken}, hasRefreshToken=${result.hasRefreshToken}`);

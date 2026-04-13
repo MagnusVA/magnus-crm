@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
+import { getTenantCalendlyConnectionState } from "../lib/tenantCalendlyConnection";
 
 export const getTenantSigningKey = internalQuery({
   args: { tenantId: v.string() },
@@ -12,8 +13,11 @@ export const getTenantSigningKey = internalQuery({
       return null;
     }
 
-    const tenant = await ctx.db.get(normalizedTenantId);
-    if (!tenant?.webhookSigningKey) {
+    const connection = await getTenantCalendlyConnectionState(
+      ctx,
+      normalizedTenantId,
+    );
+    if (!connection?.webhookSecret) {
       console.warn(`[Webhook] getTenantSigningKey: tenant found but has no signing key`);
       return null;
     }
@@ -21,7 +25,7 @@ export const getTenantSigningKey = internalQuery({
     console.log(`[Webhook] getTenantSigningKey: found tenant with signing key present`);
     return {
       tenantId: normalizedTenantId,
-      webhookSigningKey: tenant.webhookSigningKey,
+      webhookSecret: connection.webhookSecret,
     };
   },
 });

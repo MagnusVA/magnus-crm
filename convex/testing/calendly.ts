@@ -95,20 +95,20 @@ type AvailableSlot = {
   schedulingUrl: string | null;
 };
 
-type TenantCalendlyTokens = {
-  calendlyAccessToken?: string;
-  calendlyRefreshToken?: string;
-  calendlyTokenExpiresAt?: number;
-  calendlyRefreshLockUntil?: number;
-  calendlyOrgUri?: string;
-  calendlyOwnerUri?: string;
-  status: string;
+type TenantCalendlyContext = {
+  accessToken?: string;
+  refreshToken?: string;
+  tokenExpiresAt?: number;
+  refreshLockUntil?: number;
+  organizationUri?: string;
+  userUri?: string;
+  tenantStatus: string;
 };
 
 type TenantCalendlyAccess = {
   accessToken: string;
-  calendlyOrgUri: string | null;
-  calendlyOwnerUri: string | null;
+  organizationUri: string | null;
+  userUri: string | null;
 };
 
 function normalizeString(value: string | null | undefined) {
@@ -255,8 +255,8 @@ async function getTenantCalendlyAccess(
   ctx: ActionCtx,
   tenantId: Id<"tenants">,
 ): Promise<TenantCalendlyAccess> {
-  const tenant: TenantCalendlyTokens | null = await ctx.runQuery(
-    internal.tenants.getCalendlyTokens,
+  const tenant: TenantCalendlyContext | null = await ctx.runQuery(
+    internal.calendly.connectionQueries.getTenantConnectionContext,
     {
       tenantId,
     },
@@ -266,9 +266,12 @@ async function getTenantCalendlyAccess(
     throw new Error(`Tenant ${tenantId} not found.`);
   }
 
-  if (tenant.status !== "active" && tenant.status !== "provisioning_webhooks") {
+  if (
+    tenant.tenantStatus !== "active" &&
+    tenant.tenantStatus !== "provisioning_webhooks"
+  ) {
     throw new Error(
-      `Tenant ${tenantId} is not Calendly-ready. Current status: ${tenant.status}.`,
+      `Tenant ${tenantId} is not Calendly-ready. Current status: ${tenant.tenantStatus}.`,
     );
   }
 
@@ -281,8 +284,8 @@ async function getTenantCalendlyAccess(
 
   return {
     accessToken,
-    calendlyOrgUri: tenant.calendlyOrgUri ?? null,
-    calendlyOwnerUri: tenant.calendlyOwnerUri ?? null,
+    organizationUri: tenant.organizationUri ?? null,
+    userUri: tenant.userUri ?? null,
   };
 }
 
@@ -471,7 +474,7 @@ export const listEventTypes = internalAction({
     args,
   ): Promise<{
     tenantId: Id<"tenants">;
-    calendlyOrgUri: string;
+    organizationUri: string;
     count: number;
     eventTypes: EventTypeSummary[];
   }> => {
@@ -481,18 +484,18 @@ export const listEventTypes = internalAction({
       count: args.count ?? 100,
     });
 
-    const { accessToken, calendlyOrgUri } = await getTenantCalendlyAccess(
+    const { accessToken, organizationUri } = await getTenantCalendlyAccess(
       ctx,
       args.tenantId,
     );
-    if (!calendlyOrgUri) {
+    if (!organizationUri) {
       throw new Error(
         `Tenant ${args.tenantId} has no stored Calendly organization URI.`,
       );
     }
 
     const params = new URLSearchParams({
-      organization: calendlyOrgUri,
+      organization: organizationUri,
       active: String(args.activeOnly ?? true),
       count: String(args.count ?? 100),
       sort: "name:asc",
@@ -518,7 +521,7 @@ export const listEventTypes = internalAction({
 
     return {
       tenantId: args.tenantId,
-      calendlyOrgUri,
+      organizationUri,
       count: eventTypes.length,
       eventTypes,
     };

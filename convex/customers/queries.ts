@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import type { Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { paginationOptsValidator } from "convex/server";
@@ -27,56 +28,65 @@ export const listCustomers = query({
       "closer",
     ]);
 
-    // Build base query
-    let customersQuery;
-    if (args.statusFilter) {
-      customersQuery = ctx.db
-        .query("customers")
-        .withIndex("by_tenantId_and_status", (q) =>
-          q.eq("tenantId", tenantId).eq("status", args.statusFilter!),
-        );
-    } else {
-      customersQuery = ctx.db
-        .query("customers")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId));
-    }
+    const paginatedResult = role === "closer"
+      ? args.statusFilter
+        ? await ctx.db
+                .query("customers")
+                .withIndex("by_tenantId_and_convertedByUserId_and_status", (q) =>
+                  q
+                    .eq("tenantId", tenantId)
+                    .eq("convertedByUserId", userId)
+                    .eq("status", args.statusFilter!),
+                )
+            .order("desc")
+            .paginate(args.paginationOpts)
+        : await ctx.db
+            .query("customers")
+            .withIndex("by_tenantId_and_convertedByUserId", (q) =>
+              q.eq("tenantId", tenantId).eq("convertedByUserId", userId),
+            )
+            .order("desc")
+            .paginate(args.paginationOpts)
+      : args.statusFilter
+        ? await ctx.db
+            .query("customers")
+            .withIndex("by_tenantId_and_status", (q) =>
+              q.eq("tenantId", tenantId).eq("status", args.statusFilter!),
+            )
+            .order("desc")
+            .paginate(args.paginationOpts)
+        : await ctx.db
+            .query("customers")
+            .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+            .order("desc")
+            .paginate(args.paginationOpts);
 
-    const paginatedResult = await customersQuery
-      .order("desc")
-      .paginate(args.paginationOpts);
-
-    // Enrich with computed totalPaid and closer name
-    const enrichedPage = await Promise.all(
-      paginatedResult.page.map(async (customer) => {
-        // Closer filter: only show own customers
-        if (role === "closer" && customer.convertedByUserId !== userId) {
-          return null; // Filtered out client-side; paginate doesn't support compound conditions
-        }
-
-        // Compute total paid from payment records
-        const payments = await ctx.db
-          .query("paymentRecords")
-          .withIndex("by_customerId", (q) => q.eq("customerId", customer._id))
-          .collect();
-        const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
-        const currency = payments[0]?.currency ?? "USD"; // Use first payment's currency
-
-        // Get converter's name
-        const converter = await ctx.db.get(customer.convertedByUserId);
-
-        return {
-          ...customer,
-          totalPaid,
-          currency,
-          paymentCount: payments.length,
-          convertedByName: converter?.fullName ?? converter?.email ?? "Unknown",
-        };
-      }),
+    const converterIds = [
+      ...new Set(paginatedResult.page.map((customer) => customer.convertedByUserId)),
+    ];
+    const converters = await Promise.all(
+      converterIds.map(async (converterId) => ({
+        converterId,
+        converter: await ctx.db.get(converterId),
+      })),
+    );
+    const converterNameById = new Map<Id<"users">, string>(
+      converters.map(({ converterId, converter }) => [
+        converterId,
+        converter?.fullName ?? converter?.email ?? "Unknown",
+      ]),
     );
 
     return {
       ...paginatedResult,
-      page: enrichedPage.filter(Boolean),
+      page: paginatedResult.page.map((customer) => ({
+        ...customer,
+        totalPaid: (customer.totalPaidMinor ?? 0) / 100,
+        currency: customer.paymentCurrency ?? "USD",
+        paymentCount: customer.totalPaymentCount ?? 0,
+        convertedByName:
+          converterNameById.get(customer.convertedByUserId) ?? "Unknown",
+      })),
     };
   },
 });
@@ -106,62 +116,64 @@ export const getCustomerDetail = query({
       return null;
     }
 
-    // Load linked lead
-    const lead = await ctx.db.get(customer.leadId);
+    const [lead, winningOpportunity, winningMeeting, opportunities, paymentRecords, converter] =
+      await Promise.all([
+        ctx.db.get(customer.leadId),
+        ctx.db.get(customer.winningOpportunityId),
+        customer.winningMeetingId
+          ? ctx.db.get(customer.winningMeetingId)
+          : Promise.resolve(null),
+        ctx.db
+          .query("opportunities")
+          .withIndex("by_tenantId_and_leadId", (q) =>
+            q.eq("tenantId", tenantId).eq("leadId", customer.leadId),
+          )
+          .take(50),
+        ctx.db
+          .query("paymentRecords")
+          .withIndex("by_customerId_and_recordedAt", (q) =>
+            q.eq("customerId", customer._id),
+          )
+          .order("desc")
+          .take(50),
+        ctx.db.get(customer.convertedByUserId),
+      ]);
 
-    // Load winning opportunity
-    const winningOpportunity = await ctx.db.get(
-      customer.winningOpportunityId,
+    const opportunityStatusById = new Map(
+      opportunities.map((opportunity) => [opportunity._id.toString(), opportunity.status]),
+    );
+    const meetingBatches = await Promise.all(
+      opportunities.map((opportunity) =>
+        ctx.db
+          .query("meetings")
+          .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunity._id))
+          .take(20),
+      ),
     );
 
-    // Load winning meeting (if set)
-    const winningMeeting = customer.winningMeetingId
-      ? await ctx.db.get(customer.winningMeetingId)
+    const meetings = meetingBatches
+      .flat()
+      .map((meeting) => ({
+        ...meeting,
+        opportunityStatus:
+          opportunityStatusById.get(meeting.opportunityId.toString()) ??
+          "scheduled",
+      }))
+      .sort((a, b) => b.scheduledAt - a.scheduledAt)
+      .slice(0, 20);
+
+    const payments = paymentRecords.map((payment) => ({
+      ...payment,
+      amount: (payment.amountMinor ?? 0) / 100,
+    }));
+
+    const totalPaid = (customer.totalPaidMinor ?? 0) / 100;
+    const currency = customer.paymentCurrency ?? "USD";
+
+    const assignedCloser = winningOpportunity?.assignedCloserId
+      ? await ctx.db.get(winningOpportunity.assignedCloserId)
       : null;
-
-    // Load all opportunities for this lead (for relationship graph)
-    const opportunities = await ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_and_leadId", (q) =>
-        q.eq("tenantId", tenantId).eq("leadId", customer.leadId),
-      )
-      .take(50);
-
-    // Load all meetings across all opportunities
-    const meetings = [];
-    for (const opp of opportunities) {
-      const oppMeetings = await ctx.db
-        .query("meetings")
-        .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opp._id))
-        .take(20);
-      meetings.push(
-        ...oppMeetings.map((m) => ({
-          ...m,
-          opportunityStatus: opp.status,
-        })),
-      );
-    }
-    meetings.sort((a, b) => b.scheduledAt - a.scheduledAt);
-
-    // Load all payment records for this customer
-    const payments = await ctx.db
-      .query("paymentRecords")
-      .withIndex("by_customerId", (q) => q.eq("customerId", customer._id))
-      .collect();
-    payments.sort((a, b) => b.recordedAt - a.recordedAt);
-
-    const totalPaid = payments.reduce((sum, p) => sum + p.amount, 0);
-    const currency = payments[0]?.currency ?? "USD";
-
-    // Get converter name
-    const converter = await ctx.db.get(customer.convertedByUserId);
-
-    // Get closer name (from winning opportunity)
-    let closerName: string | undefined;
-    if (winningOpportunity?.assignedCloserId) {
-      const closer = await ctx.db.get(winningOpportunity.assignedCloserId);
-      closerName = closer?.fullName ?? closer?.email;
-    }
+    const closerName = assignedCloser?.fullName ?? assignedCloser?.email;
 
     return {
       customer,
@@ -185,9 +197,8 @@ export const getCustomerDetail = query({
 });
 
 /**
- * Get computed total paid for a customer.
- *
- * Lightweight query for when only the total is needed (e.g., list enrichment).
+ * @deprecated Use customer.totalPaidMinor directly.
+ * Kept during the Phase 4-7 migration window for compatibility.
  */
 export const getCustomerTotalPaid = query({
   args: { customerId: v.id("customers") },
@@ -203,15 +214,10 @@ export const getCustomerTotalPaid = query({
       return null;
     }
 
-    const payments = await ctx.db
-      .query("paymentRecords")
-      .withIndex("by_customerId", (q) => q.eq("customerId", customerId))
-      .collect();
-
     return {
-      totalPaid: payments.reduce((sum, p) => sum + p.amount, 0),
-      currency: payments[0]?.currency ?? "USD",
-      paymentCount: payments.length,
+      totalPaid: (customer.totalPaidMinor ?? 0) / 100,
+      currency: customer.paymentCurrency ?? "USD",
+      paymentCount: customer.totalPaymentCount ?? 0,
     };
   },
 });

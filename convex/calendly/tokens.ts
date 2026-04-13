@@ -8,14 +8,14 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { getIdentityOrgId } from "../lib/identity";
 import { ADMIN_ROLES } from "../lib/roleMapping";
 
-type TenantTokenState = {
-  calendlyAccessToken?: string;
-  calendlyRefreshToken?: string;
-  calendlyTokenExpiresAt?: number;
-  calendlyRefreshLockUntil?: number;
-  calendlyOrgUri?: string;
-  calendlyOwnerUri?: string;
-  status: string;
+type TenantConnectionContext = {
+  accessToken?: string;
+  refreshToken?: string;
+  tokenExpiresAt?: number;
+  refreshLockUntil?: number;
+  organizationUri?: string;
+  userUri?: string;
+  tenantStatus: string;
 };
 
 type RefreshOutcome =
@@ -50,45 +50,56 @@ function getCalendlyClientSecret() {
 }
 
 async function releaseRefreshLock(ctx: ActionCtx, tenantId: Id<"tenants">) {
-  await ctx.runMutation(internal.calendly.tokenMutations.releaseRefreshLock, {
-    tenantId,
-  });
+  await ctx.runMutation(
+    internal.calendly.tokenMutations.releaseTokenRefreshLock,
+    { tenantId },
+  );
 }
 
 async function getTenantTokenState(
   ctx: ActionCtx,
   tenantId: Id<"tenants">,
-): Promise<TenantTokenState | null> {
-  const tenant = await ctx.runQuery(internal.tenants.getCalendlyTokens, {
-    tenantId,
-  });
-
-  return tenant as TenantTokenState | null;
+): Promise<TenantConnectionContext | null> {
+  return (await ctx.runQuery(
+    internal.calendly.connectionQueries.getTenantConnectionContext,
+    { tenantId },
+  )) as TenantConnectionContext | null;
 }
 
 export async function refreshTenantTokenCore(
   ctx: ActionCtx,
   tenantId: Id<"tenants">,
 ): Promise<RefreshOutcome> {
-  console.log(`[token-refresh] refreshTenantTokenCore: entry for tenant ${tenantId}`);
+  console.log(
+    `[token-refresh] refreshTenantTokenCore: entry for tenant ${tenantId}`,
+  );
 
   const tenant = await getTenantTokenState(ctx, tenantId);
   if (!tenant) {
-    console.warn(`[token-refresh] refreshTenantTokenCore: tenant ${tenantId} not found`);
+    console.warn(
+      `[token-refresh] refreshTenantTokenCore: tenant ${tenantId} not found`,
+    );
     return { refreshed: false, reason: "tenant_not_found" };
   }
 
-  if (tenant.status !== "active" && tenant.status !== "provisioning_webhooks") {
-    console.warn(`[token-refresh] refreshTenantTokenCore: tenant ${tenantId} not active, status=${tenant.status}`);
+  if (
+    tenant.tenantStatus !== "active" &&
+    tenant.tenantStatus !== "provisioning_webhooks"
+  ) {
+    console.warn(
+      `[token-refresh] refreshTenantTokenCore: tenant ${tenantId} not active, status=${tenant.tenantStatus}`,
+    );
     return {
       refreshed: false,
       reason: "tenant_not_active",
-      accessToken: tenant.calendlyAccessToken,
+      accessToken: tenant.accessToken,
     };
   }
 
-  if (!tenant.calendlyRefreshToken) {
-    console.warn(`[token-refresh] refreshTenantTokenCore: tenant ${tenantId} missing refresh token, disconnecting`);
+  if (!tenant.refreshToken) {
+    console.warn(
+      `[token-refresh] refreshTenantTokenCore: tenant ${tenantId} missing refresh token, disconnecting`,
+    );
     await ctx.runMutation(internal.tenants.updateStatus, {
       tenantId,
       status: "calendly_disconnected",
@@ -96,45 +107,52 @@ export async function refreshTenantTokenCore(
     return {
       refreshed: false,
       reason: "missing_refresh_token",
-      accessToken: tenant.calendlyAccessToken,
+      accessToken: tenant.accessToken,
     };
   }
 
   const now = Date.now();
-  if (
-    tenant.calendlyRefreshLockUntil &&
-    tenant.calendlyRefreshLockUntil > now
-  ) {
-    console.warn(`[token-refresh] refreshTenantTokenCore: tenant ${tenantId} lock held until ${new Date(tenant.calendlyRefreshLockUntil).toISOString()}`);
+  if (tenant.refreshLockUntil && tenant.refreshLockUntil > now) {
+    console.warn(
+      `[token-refresh] refreshTenantTokenCore: tenant ${tenantId} lock held until ${new Date(tenant.refreshLockUntil).toISOString()}`,
+    );
     return {
       refreshed: false,
       reason: "lock_held",
-      accessToken: tenant.calendlyAccessToken,
+      accessToken: tenant.accessToken,
     };
   }
 
-  console.log(`[token-refresh] refreshTenantTokenCore: acquiring lock for tenant ${tenantId}`);
+  console.log(
+    `[token-refresh] refreshTenantTokenCore: acquiring lock for tenant ${tenantId}`,
+  );
   const lockResult: { acquired: boolean } = await ctx.runMutation(
-    internal.calendly.tokenMutations.acquireRefreshLock,
+    internal.calendly.tokenMutations.acquireTokenRefreshLock,
     {
       tenantId,
       lockUntil: now + 30_000,
     },
   );
   if (!lockResult.acquired) {
-    console.warn(`[token-refresh] refreshTenantTokenCore: failed to acquire lock for tenant ${tenantId}`);
+    console.warn(
+      `[token-refresh] refreshTenantTokenCore: failed to acquire lock for tenant ${tenantId}`,
+    );
     return {
       refreshed: false,
       reason: "lock_held",
-      accessToken: tenant.calendlyAccessToken,
+      accessToken: tenant.accessToken,
     };
   }
-  console.log(`[token-refresh] refreshTenantTokenCore: lock acquired for tenant ${tenantId}`);
+  console.log(
+    `[token-refresh] refreshTenantTokenCore: lock acquired for tenant ${tenantId}`,
+  );
 
   try {
     const lockedTenant = await getTenantTokenState(ctx, tenantId);
-    if (!lockedTenant?.calendlyRefreshToken) {
-      console.warn(`[token-refresh] refreshTenantTokenCore: tenant ${tenantId} refresh token gone after lock`);
+    if (!lockedTenant?.refreshToken) {
+      console.warn(
+        `[token-refresh] refreshTenantTokenCore: tenant ${tenantId} refresh token gone after lock`,
+      );
       await ctx.runMutation(internal.tenants.updateStatus, {
         tenantId,
         status: "calendly_disconnected",
@@ -143,7 +161,7 @@ export async function refreshTenantTokenCore(
       return {
         refreshed: false,
         reason: "missing_refresh_token",
-        accessToken: lockedTenant?.calendlyAccessToken,
+        accessToken: lockedTenant?.accessToken,
       };
     }
 
@@ -153,7 +171,9 @@ export async function refreshTenantTokenCore(
       throw new Error("Missing Calendly OAuth configuration");
     }
 
-    console.log(`[token-refresh] refreshTenantTokenCore: sending refresh request for tenant ${tenantId}`);
+    console.log(
+      `[token-refresh] refreshTenantTokenCore: sending refresh request for tenant ${tenantId}`,
+    );
     const response = await fetch("https://auth.calendly.com/oauth/token", {
       method: "POST",
       headers: {
@@ -162,12 +182,14 @@ export async function refreshTenantTokenCore(
       },
       body: new URLSearchParams({
         grant_type: "refresh_token",
-        refresh_token: lockedTenant.calendlyRefreshToken,
+        refresh_token: lockedTenant.refreshToken,
       }).toString(),
     });
 
     if (response.status === 400 || response.status === 401) {
-      console.error(`[token-refresh] refreshTenantTokenCore: tenant ${tenantId} token revoked (${response.status}), disconnecting`);
+      console.error(
+        `[token-refresh] refreshTenantTokenCore: tenant ${tenantId} token revoked (${response.status}), disconnecting`,
+      );
       await ctx.runMutation(internal.tenants.updateStatus, {
         tenantId,
         status: "calendly_disconnected",
@@ -176,12 +198,11 @@ export async function refreshTenantTokenCore(
       return {
         refreshed: false,
         reason: "token_revoked",
-        accessToken: lockedTenant.calendlyAccessToken,
+        accessToken: lockedTenant.accessToken,
       };
     }
 
     if (response.status === 429) {
-      // Rate limited by Calendly API
       const retryAfter = parseInt(
         response.headers.get("Retry-After") ?? "60",
         10,
@@ -202,16 +223,20 @@ export async function refreshTenantTokenCore(
     }
 
     if (!response.ok) {
-      console.error(`[token-refresh] refreshTenantTokenCore: tenant ${tenantId} API error, status=${response.status}`);
+      console.error(
+        `[token-refresh] refreshTenantTokenCore: tenant ${tenantId} API error, status=${response.status}`,
+      );
       await releaseRefreshLock(ctx, tenantId);
       return {
         refreshed: false,
         reason: "api_error",
-        accessToken: lockedTenant.calendlyAccessToken,
+        accessToken: lockedTenant.accessToken,
       };
     }
 
-    console.log(`[token-refresh] refreshTenantTokenCore: tenant ${tenantId} refresh response OK`);
+    console.log(
+      `[token-refresh] refreshTenantTokenCore: tenant ${tenantId} refresh response OK`,
+    );
 
     const tokens = (await response.json()) as {
       access_token?: string;
@@ -227,20 +252,22 @@ export async function refreshTenantTokenCore(
       throw new Error("Calendly refresh response was missing token fields");
     }
 
-    if (!lockedTenant.calendlyOrgUri || !lockedTenant.calendlyOwnerUri) {
+    if (!lockedTenant.organizationUri || !lockedTenant.userUri) {
       throw new Error("Calendly tenant is missing org or owner URIs");
     }
 
     const expiresAt = Date.now() + tokens.expires_in * 1000;
-    await ctx.runMutation(internal.tenants.storeCalendlyTokens, {
+    await ctx.runMutation(internal.calendly.oauthMutations.storeConnectionTokens, {
       tenantId,
-      calendlyAccessToken: tokens.access_token,
-      calendlyRefreshToken: tokens.refresh_token,
-      calendlyTokenExpiresAt: expiresAt,
-      calendlyOrgUri: lockedTenant.calendlyOrgUri,
-      calendlyOwnerUri: lockedTenant.calendlyOwnerUri,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      tokenExpiresAt: expiresAt,
+      organizationUri: lockedTenant.organizationUri,
+      userUri: lockedTenant.userUri,
     });
-    console.log(`[token-refresh] refreshTenantTokenCore: tenant ${tenantId} tokens stored, expiresAt=${new Date(expiresAt).toISOString()}`);
+    console.log(
+      `[token-refresh] refreshTenantTokenCore: tenant ${tenantId} tokens stored, expiresAt=${new Date(expiresAt).toISOString()}`,
+    );
 
     return {
       refreshed: true,
@@ -248,7 +275,10 @@ export async function refreshTenantTokenCore(
       expiresAt,
     };
   } catch (error) {
-    console.error(`[token-refresh] refreshTenantTokenCore: tenant ${tenantId} unexpected error, releasing lock`, error instanceof Error ? error.message : error);
+    console.error(
+      `[token-refresh] refreshTenantTokenCore: tenant ${tenantId} unexpected error, releasing lock`,
+      error instanceof Error ? error.message : error,
+    );
     await releaseRefreshLock(ctx, tenantId);
     throw error;
   }
@@ -261,60 +291,73 @@ export async function getValidAccessToken(
   console.log(`[token-refresh] getValidAccessToken: entry for tenant ${tenantId}`);
 
   const tenant = await getTenantTokenState(ctx, tenantId);
-  if (!tenant?.calendlyAccessToken) {
-    console.warn(`[token-refresh] getValidAccessToken: tenant ${tenantId} has no access token`);
+  if (!tenant?.accessToken) {
+    console.warn(
+      `[token-refresh] getValidAccessToken: tenant ${tenantId} has no access token`,
+    );
     return null;
   }
 
-  if (tenant.status !== "active" && tenant.status !== "provisioning_webhooks") {
-    console.warn(`[token-refresh] getValidAccessToken: tenant ${tenantId} not active, status=${tenant.status}`);
+  if (
+    tenant.tenantStatus !== "active" &&
+    tenant.tenantStatus !== "provisioning_webhooks"
+  ) {
+    console.warn(
+      `[token-refresh] getValidAccessToken: tenant ${tenantId} not active, status=${tenant.tenantStatus}`,
+    );
     return null;
   }
 
   const now = Date.now();
   const expiresSoon =
-    !tenant.calendlyTokenExpiresAt ||
-    tenant.calendlyTokenExpiresAt - now < 5 * 60 * 1000;
+    !tenant.tokenExpiresAt || tenant.tokenExpiresAt - now < 5 * 60 * 1000;
 
-  console.log(`[token-refresh] getValidAccessToken: tenant ${tenantId}, hasExpiry=${Boolean(tenant.calendlyTokenExpiresAt)}, expiresSoon=${expiresSoon}, expiresIn=${tenant.calendlyTokenExpiresAt ? Math.round((tenant.calendlyTokenExpiresAt - now) / 1000) : "N/A"}s`);
+  console.log(
+    `[token-refresh] getValidAccessToken: tenant ${tenantId}, hasExpiry=${Boolean(tenant.tokenExpiresAt)}, expiresSoon=${expiresSoon}, expiresIn=${tenant.tokenExpiresAt ? Math.round((tenant.tokenExpiresAt - now) / 1000) : "N/A"}s`,
+  );
 
   if (!expiresSoon) {
-    console.log(`[token-refresh] getValidAccessToken: tenant ${tenantId} token still valid, returning cached`);
-    return tenant.calendlyAccessToken;
+    console.log(
+      `[token-refresh] getValidAccessToken: tenant ${tenantId} token still valid, returning cached`,
+    );
+    return tenant.accessToken;
   }
 
-  console.log(`[token-refresh] getValidAccessToken: tenant ${tenantId} token expiring soon, refreshing`);
+  console.log(
+    `[token-refresh] getValidAccessToken: tenant ${tenantId} token expiring soon, refreshing`,
+  );
   const refreshed = await refreshTenantTokenCore(ctx, tenantId);
   if (refreshed.refreshed) {
-    console.log(`[token-refresh] getValidAccessToken: tenant ${tenantId} token refreshed successfully`);
+    console.log(
+      `[token-refresh] getValidAccessToken: tenant ${tenantId} token refreshed successfully`,
+    );
     return refreshed.accessToken;
   }
 
-  console.warn(`[token-refresh] getValidAccessToken: tenant ${tenantId} refresh failed, reason=${refreshed.reason}`);
+  console.warn(
+    `[token-refresh] getValidAccessToken: tenant ${tenantId} refresh failed, reason=${refreshed.reason}`,
+  );
   if (refreshed.reason === "lock_held" || refreshed.reason === "api_error") {
-    return refreshed.accessToken ?? tenant.calendlyAccessToken ?? null;
+    return refreshed.accessToken ?? tenant.accessToken ?? null;
   }
 
   return null;
 }
 
-/**
- * Refresh a single tenant's Calendly access token.
- */
 export const refreshTenantToken = internalAction({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
-    console.log(`[token-refresh] refreshTenantToken: scheduled refresh for tenant ${tenantId}`);
+    console.log(
+      `[token-refresh] refreshTenantToken: scheduled refresh for tenant ${tenantId}`,
+    );
     const result = await refreshTenantTokenCore(ctx, tenantId);
-    console.log(`[token-refresh] refreshTenantToken: tenant ${tenantId} result: refreshed=${result.refreshed}${!result.refreshed ? `, reason=${result.reason}` : ""}`);
+    console.log(
+      `[token-refresh] refreshTenantToken: tenant ${tenantId} result: refreshed=${result.refreshed}${!result.refreshed ? `, reason=${result.reason}` : ""}`,
+    );
     return result;
   },
 });
 
-/**
- * Manually refresh Calendly token for the current tenant.
- * Only tenant owner/admin can call this action.
- */
 export const refreshMyTenantToken = action({
   args: {},
   handler: async (ctx): Promise<RefreshOutcome> => {
@@ -338,7 +381,9 @@ export const refreshMyTenantToken = action({
       throw new Error("Insufficient permissions");
     }
 
-    console.log(`[token-refresh] refreshMyTenantToken: user=${currentUser._id}, role=${currentUser.role}, tenant=${currentUser.tenantId}`);
+    console.log(
+      `[token-refresh] refreshMyTenantToken: user=${currentUser._id}, role=${currentUser.role}, tenant=${currentUser.tenantId}`,
+    );
 
     const tenant = await ctx.runQuery(internal.tenants.getCalendlyTenant, {
       tenantId: currentUser.tenantId,
@@ -352,18 +397,13 @@ export const refreshMyTenantToken = action({
       throw new Error("Organization mismatch");
     }
 
-    console.log(`[token-refresh] refreshMyTenantToken: invoking refreshTenantTokenCore for tenant ${currentUser.tenantId}`);
+    console.log(
+      `[token-refresh] refreshMyTenantToken: invoking refreshTenantTokenCore for tenant ${currentUser.tenantId}`,
+    );
     return await refreshTenantTokenCore(ctx, currentUser.tenantId);
   },
 });
 
-/**
- * Cron job: fan out token refresh for all active tenants.
- *
- * Instead of processing tenants sequentially (which risks timeout at ~1200 tenants),
- * schedule each refresh as a separate action. Convex will process them in parallel,
- * respecting platform concurrency limits.
- */
 export const refreshAllTokens = internalAction({
   args: {},
   handler: async (ctx) => {
@@ -378,13 +418,11 @@ export const refreshAllTokens = internalAction({
       `[token-refresh] refreshAllTokens: scheduling refresh for ${tenantIds.length} tenants, stagger=${TOKEN_REFRESH_STAGGER_MS}ms`,
     );
 
-    // Fan out: each tenant gets its own action invocation, slightly staggered
-    // so large refresh waves do not all hit Calendly at once.
-    for (let i = 0; i < tenantIds.length; i++) {
-      // Calendly enforces OAuth token limits per user. Keep the stagger short
-      // enough for scalability while still smoothing request bursts.
+    for (let i = 0; i < tenantIds.length; i += 1) {
       const delayMs = i * TOKEN_REFRESH_STAGGER_MS;
-      console.log(`[token-refresh] refreshAllTokens: scheduling tenant ${tenantIds[i]} with delay=${delayMs}ms`);
+      console.log(
+        `[token-refresh] refreshAllTokens: scheduling tenant ${tenantIds[i]} with delay=${delayMs}ms`,
+      );
       await ctx.scheduler.runAfter(
         delayMs,
         internal.calendly.tokens.refreshTenantToken,
@@ -392,9 +430,8 @@ export const refreshAllTokens = internalAction({
       );
     }
 
-    console.log(`[token-refresh] refreshAllTokens: all ${tenantIds.length} tenants scheduled`);
-    // The cron completes immediately after scheduling.
-    // Individual refresh actions run asynchronously and independently.
-    // Failures in one tenant do not affect others.
+    console.log(
+      `[token-refresh] refreshAllTokens: all ${tenantIds.length} tenants scheduled`,
+    );
   },
 });

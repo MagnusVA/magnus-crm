@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalQuery, query } from "../_generated/server";
 import { paginationOptsValidator } from "convex/server";
+import { getTenantCalendlyConnectionState } from "../lib/tenantCalendlyConnection";
 import { requireSystemAdminSession } from "../requireSystemAdmin";
 
 export const listTenants = query({
@@ -44,7 +45,21 @@ export const listTenants = query({
       resultCount: result.page.length,
       isDone: result.isDone,
     });
-    return result;
+
+    const page = await Promise.all(
+      result.page.map(async (tenant) => {
+        const connection = await getTenantCalendlyConnectionState(ctx, tenant._id);
+        return {
+          ...tenant,
+          calendlyWebhookUri: connection?.webhookUri,
+        };
+      }),
+    );
+
+    return {
+      ...result,
+      page,
+    };
   },
 });
 
@@ -65,7 +80,11 @@ export const getTenant = query({
       tenantId,
       status: tenant.status,
     });
-    return tenant;
+    const connection = await getTenantCalendlyConnectionState(ctx, tenantId);
+    return {
+      ...tenant,
+      calendlyWebhookUri: connection?.webhookUri,
+    };
   },
 });
 
@@ -82,7 +101,20 @@ export const getTenantInternal = internalQuery({
         status: tenant.status,
       });
     }
-    return tenant;
+    if (!tenant) {
+      return null;
+    }
+
+    const connection = await getTenantCalendlyConnectionState(ctx, tenantId);
+    return {
+      ...tenant,
+      calendlyWebhookUri: connection?.webhookUri,
+      accessToken: connection?.accessToken,
+      refreshToken: connection?.refreshToken,
+      tokenExpiresAt: connection?.tokenExpiresAt,
+      webhookUri: connection?.webhookUri,
+      webhookSecret: connection?.webhookSecret,
+    };
   },
 });
 

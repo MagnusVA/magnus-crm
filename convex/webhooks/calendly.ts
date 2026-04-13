@@ -125,7 +125,7 @@ export const handleCalendlyWebhook = httpAction(async (ctx, req) => {
   }
 
   const expectedSignature = await createSignature(
-    tenant.webhookSigningKey,
+    tenant.webhookSecret,
     `${timestamp}.${rawBody}`,
   );
   if (!timingSafeEqualHex(expectedSignature, signature)) {

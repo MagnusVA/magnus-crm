@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 
@@ -25,59 +26,75 @@ export const getMeetingsForRange = query({
 
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
 
-    // Get this closer's opportunities (needed to filter meetings)
-    const myOpps = await ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_and_assignedCloserId", (q) =>
-        q.eq("tenantId", tenantId).eq("assignedCloserId", userId)
-      )
-      .collect();
-
-    const oppIds = new Set(myOpps.map((o) => o._id));
-    const oppMap = new Map(myOpps.map((o) => [o._id.toString(), o]));
-
-    console.log("[Closer:Calendar] opportunity count", { count: oppIds.size });
-    if (oppIds.size === 0) {
-      console.log("[Closer:Calendar] no opportunities found, returning empty");
-      return [];
-    }
-
-    // Walk the tenant's meetings in the requested range and keep only the
-    // meetings that belong to this closer's opportunities.
-    const meetings = ctx.db
+    const myMeetings: Array<Doc<"meetings">> = [];
+    for await (const meeting of ctx.db
       .query("meetings")
-      .withIndex("by_tenantId_and_scheduledAt", (q) =>
+      .withIndex("by_tenantId_and_assignedCloserId_and_scheduledAt", (q) =>
         q
           .eq("tenantId", tenantId)
+          .eq("assignedCloserId", userId)
           .gte("scheduledAt", startDate)
           .lt("scheduledAt", endDate)
-      );
-
-    const myMeetings = [];
-    for await (const meeting of meetings) {
-      if (oppIds.has(meeting.opportunityId) && meeting.status !== "canceled") {
+      )) {
+      if (meeting.status !== "canceled") {
         myMeetings.push(meeting);
       }
     }
 
     console.log("[Closer:Calendar] meetings found in range", { count: myMeetings.length });
+    if (myMeetings.length === 0) {
+      return [];
+    }
 
-    // Enrich with opportunity and event type data.
-    // leadName is now denormalized onto the meeting document (see @plans/caching/caching.md).
-    const enriched = await Promise.all(
-      myMeetings.map(async (meeting) => {
-        const opp = oppMap.get(meeting.opportunityId.toString());
-        const eventTypeConfig =
-          opp?.eventTypeConfigId ? await ctx.db.get(opp.eventTypeConfigId) : null;
-
-        return {
-          meeting,
-          leadName: meeting.leadName ?? "Unknown",
-          opportunityStatus: opp?.status,
-          eventTypeName: eventTypeConfig?.displayName ?? null,
-        };
-      })
+    const opportunityIds = [...new Set(myMeetings.map((meeting) => meeting.opportunityId))];
+    const opportunities = await Promise.all(
+      opportunityIds.map(async (opportunityId) => ({
+        opportunityId,
+        opportunity: await ctx.db.get(opportunityId),
+      })),
     );
+    const opportunityById = new Map<
+      Id<"opportunities">,
+      Doc<"opportunities">
+    >();
+    const eventTypeConfigIds = new Set<Id<"eventTypeConfigs">>();
+
+    for (const { opportunityId, opportunity } of opportunities) {
+      if (!opportunity || opportunity.tenantId !== tenantId) {
+        continue;
+      }
+      opportunityById.set(opportunityId, opportunity);
+      if (opportunity.eventTypeConfigId) {
+        eventTypeConfigIds.add(opportunity.eventTypeConfigId);
+      }
+    }
+
+    const eventTypeConfigs = await Promise.all(
+      [...eventTypeConfigIds].map(async (eventTypeConfigId) => ({
+        eventTypeConfigId,
+        eventTypeConfig: await ctx.db.get(eventTypeConfigId),
+      })),
+    );
+    const eventTypeNameById = new Map<Id<"eventTypeConfigs">, string | null>(
+      eventTypeConfigs.map(({ eventTypeConfigId, eventTypeConfig }) => [
+        eventTypeConfigId,
+        eventTypeConfig?.displayName ?? null,
+      ]),
+    );
+
+    const enriched = myMeetings.map((meeting) => {
+      const opportunity = opportunityById.get(meeting.opportunityId);
+      const eventTypeName = opportunity?.eventTypeConfigId
+        ? eventTypeNameById.get(opportunity.eventTypeConfigId) ?? null
+        : null;
+
+      return {
+        meeting,
+        leadName: meeting.leadName ?? "Unknown",
+        opportunityStatus: opportunity?.status,
+        eventTypeName,
+      };
+    });
 
     console.log("[Closer:Calendar] enriched count", { count: enriched.length });
     return enriched;

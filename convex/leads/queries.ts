@@ -32,25 +32,6 @@ type LeadMergeHistoryEntry = Doc<"leadMergeHistory"> & {
   targetLeadName: string;
 };
 
-function isActiveLikeLeadStatus(status: Doc<"leads">["status"]): boolean {
-  return status === undefined || status === "active";
-}
-
-function matchesStatusFilter(
-  lead: Pick<Doc<"leads">, "status">,
-  statusFilter: Doc<"leads">["status"] | undefined,
-): boolean {
-  if (statusFilter === undefined) {
-    return lead.status !== "merged";
-  }
-
-  if (statusFilter === "active") {
-    return isActiveLikeLeadStatus(lead.status);
-  }
-
-  return lead.status === statusFilter;
-}
-
 function getDisplayName(
   doc: Pick<Doc<"users">, "fullName" | "email"> | Pick<Doc<"leads">, "fullName" | "email"> | null,
 ): string {
@@ -72,29 +53,19 @@ export const listLeads = query({
       "tenant_admin",
       "closer",
     ]);
+    const effectiveStatus = statusFilter ?? "active";
 
-    const rawResults =
-      statusFilter === "converted" || statusFilter === "merged"
-        ? await ctx.db
-            .query("leads")
-            .withIndex("by_tenantId_and_status", (q) =>
-              q.eq("tenantId", tenantId).eq("status", statusFilter),
-            )
-            .order("desc")
-            .paginate(paginationOpts)
-        : await ctx.db
-            .query("leads")
-            .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-            .order("desc")
-            .paginate(paginationOpts);
-
-    const filteredPage = rawResults.page.filter((lead) =>
-      matchesStatusFilter(lead, statusFilter),
-    );
+    const rawResults = await ctx.db
+      .query("leads")
+      .withIndex("by_tenantId_and_status", (q) =>
+        q.eq("tenantId", tenantId).eq("status", effectiveStatus),
+      )
+      .order("desc")
+      .paginate(paginationOpts);
 
     const closerNameCache = new Map<Id<"users">, string | null>();
     const enrichedPage = await Promise.all(
-      filteredPage.map(async (lead): Promise<LeadListItem> => {
+      rawResults.page.map(async (lead): Promise<LeadListItem> => {
         const opportunities = await ctx.db
           .query("opportunities")
           .withIndex("by_tenantId_and_leadId", (q) =>
@@ -144,8 +115,7 @@ export const listLeads = query({
 
     console.log("[Leads:List] listLeads completed", {
       tenantId,
-      statusFilter: statusFilter ?? "default (non-merged)",
-      rawPageSize: rawResults.page.length,
+      statusFilter: effectiveStatus,
       pageSize: enrichedPage.length,
       isDone: rawResults.isDone,
     });
@@ -174,38 +144,26 @@ export const searchLeads = query({
       console.log("[Leads:Search] empty search term", { tenantId });
       return [];
     }
+    const effectiveStatus = statusFilter ?? "active";
 
-    const rawResults =
-      statusFilter === "converted" || statusFilter === "merged"
-        ? await ctx.db
-            .query("leads")
-            .withSearchIndex("search_leads", (q) =>
-              q
-                .search("searchText", trimmed)
-                .eq("tenantId", tenantId)
-                .eq("status", statusFilter),
-            )
-            .take(20)
-        : await ctx.db
-            .query("leads")
-            .withSearchIndex("search_leads", (q) =>
-              q.search("searchText", trimmed).eq("tenantId", tenantId),
-            )
-            .take(40);
-
-    const filtered = rawResults
-      .filter((lead) => matchesStatusFilter(lead, statusFilter))
-      .slice(0, 20);
+    const results = await ctx.db
+      .query("leads")
+      .withSearchIndex("search_leads", (q) =>
+        q
+          .search("searchText", trimmed)
+          .eq("tenantId", tenantId)
+          .eq("status", effectiveStatus),
+      )
+      .take(20);
 
     console.log("[Leads:Search] searchLeads completed", {
       tenantId,
       searchTerm: trimmed,
-      statusFilter: statusFilter ?? "default (non-merged)",
-      rawResultCount: rawResults.length,
-      resultCount: filtered.length,
+      statusFilter: effectiveStatus,
+      resultCount: results.length,
     });
 
-    return filtered;
+    return results;
   },
 });
 
@@ -253,7 +211,7 @@ export const getLeadDetail = query({
     const [
       identifiers,
       rawOpportunities,
-      tenantFollowUps,
+      followUps,
       mergeHistoryAsSource,
       mergeHistoryAsTarget,
     ] = await Promise.all([
@@ -271,9 +229,11 @@ export const getLeadDetail = query({
         .take(50),
       ctx.db
         .query("followUps")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+        .withIndex("by_tenantId_and_leadId_and_createdAt", (q) =>
+          q.eq("tenantId", tenantId).eq("leadId", leadId),
+        )
         .order("desc")
-        .take(200),
+        .take(50),
       ctx.db
         .query("leadMergeHistory")
         .withIndex("by_sourceLeadId", (q) => q.eq("sourceLeadId", leadId))
@@ -295,22 +255,36 @@ export const getLeadDetail = query({
       }
     }
 
-    const closerById = new Map<Id<"users">, string | null>();
-    for (const closerId of closerIds) {
-      const closer = await ctx.db.get(closerId);
-      closerById.set(
+    const [closers, eventTypes] = await Promise.all([
+      Promise.all(
+        [...closerIds].map(async (closerId) => ({
+          closerId,
+          closer: await ctx.db.get(closerId),
+        })),
+      ),
+      Promise.all(
+        [...eventTypeConfigIds].map(async (eventTypeConfigId) => ({
+          eventTypeConfigId,
+          eventType: await ctx.db.get(eventTypeConfigId),
+        })),
+      ),
+    ]);
+
+    const closerById = new Map<Id<"users">, string | null>(
+      closers.map(({ closerId, closer }) => [
         closerId,
         closer && closer.tenantId === tenantId
           ? closer.fullName ?? closer.email
           : null,
-      );
-    }
+      ]),
+    );
 
-    const eventTypeById = new Map<Id<"eventTypeConfigs">, string | null>();
-    for (const eventTypeConfigId of eventTypeConfigIds) {
-      const eventType = await ctx.db.get(eventTypeConfigId);
-      eventTypeById.set(eventTypeConfigId, eventType?.displayName ?? null);
-    }
+    const eventTypeById = new Map<Id<"eventTypeConfigs">, string | null>(
+      eventTypes.map(({ eventTypeConfigId, eventType }) => [
+        eventTypeConfigId,
+        eventType?.displayName ?? null,
+      ]),
+    );
 
     const opportunities: LeadDetailOpportunity[] = rawOpportunities.map(
       (opportunity) => ({
@@ -348,10 +322,6 @@ export const getLeadDetail = query({
       .flat()
       .sort((a, b) => b.scheduledAt - a.scheduledAt);
 
-    const followUps = tenantFollowUps
-      .filter((followUp) => followUp.leadId === leadId)
-      .sort((a, b) => b.createdAt - a.createdAt);
-
     const rawMergeHistory = [...mergeHistoryAsSource, ...mergeHistoryAsTarget].sort(
       (a, b) => b.mergedAt - a.mergedAt,
     );
@@ -364,22 +334,30 @@ export const getLeadDetail = query({
       mergeLeadIds.add(entry.targetLeadId);
     }
 
-    const mergeUserById = new Map<Id<"users">, string>();
-    for (const userId of mergeUserIds) {
-      const user = await ctx.db.get(userId);
-      mergeUserById.set(userId, getDisplayName(user));
-    }
+    const [mergeUsers, mergeLeads] = await Promise.all([
+      Promise.all(
+        [...mergeUserIds].map(async (userId) => ({
+          userId,
+          user: await ctx.db.get(userId),
+        })),
+      ),
+      Promise.all(
+        [...mergeLeadIds].map(async (mergeLeadId) => ({
+          mergeLeadId,
+          mergeLead:
+            mergeLeadId === leadId ? lead : await ctx.db.get(mergeLeadId),
+        })),
+      ),
+    ]);
 
-    const mergeLeadById = new Map<Id<"leads">, Pick<Doc<"leads">, "fullName" | "email"> | null>();
-    for (const mergeLeadId of mergeLeadIds) {
-      if (mergeLeadId === leadId) {
-        mergeLeadById.set(mergeLeadId, lead);
-        continue;
-      }
+    const mergeUserById = new Map<Id<"users">, string>(
+      mergeUsers.map(({ userId, user }) => [userId, getDisplayName(user)]),
+    );
 
-      const mergeLead = await ctx.db.get(mergeLeadId);
-      mergeLeadById.set(mergeLeadId, mergeLead);
-    }
+    const mergeLeadById = new Map<
+      Id<"leads">,
+      Pick<Doc<"leads">, "fullName" | "email"> | null
+    >(mergeLeads.map(({ mergeLeadId, mergeLead }) => [mergeLeadId, mergeLead]));
 
     const mergeHistory: LeadMergeHistoryEntry[] = rawMergeHistory.map((entry) => ({
       ...entry,
@@ -411,8 +389,14 @@ export const getLeadDetail = query({
       opportunityId: Id<"opportunities">;
     }> = [];
 
-    for (const dupLeadId of duplicateLeadIds) {
-      const dupLead = await ctx.db.get(dupLeadId);
+    const duplicateLeads = await Promise.all(
+      [...duplicateLeadIds].map(async (dupLeadId) => ({
+        dupLeadId,
+        dupLead: await ctx.db.get(dupLeadId),
+      })),
+    );
+
+    for (const { dupLeadId, dupLead } of duplicateLeads) {
       if (dupLead && dupLead.tenantId === tenantId) {
         const oppId = duplicateOpportunityMap.get(dupLeadId as string);
         if (oppId) {
@@ -476,11 +460,11 @@ export const getMergePreview = query({
     if (!target || target.tenantId !== tenantId) {
       throw new Error("Target lead not found");
     }
-    if (!isActiveLikeLeadStatus(source.status)) {
-      throw new Error(`Source lead cannot be merged from status "${source.status ?? "active"}"`);
+    if (source.status !== "active") {
+      throw new Error(`Source lead cannot be merged from status "${source.status}"`);
     }
-    if (!isActiveLikeLeadStatus(target.status)) {
-      throw new Error(`Target lead cannot receive a merge from status "${target.status ?? "active"}"`);
+    if (target.status !== "active") {
+      throw new Error(`Target lead cannot receive a merge from status "${target.status}"`);
     }
 
     const [sourceIdentifiers, targetIdentifiers, sourceOpportunities, targetOpportunities] =

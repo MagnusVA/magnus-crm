@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
+import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMeetingsAssignedCloser";
 import {
   getEffectiveRange,
   isMeetingInRange,
@@ -232,6 +233,11 @@ export const autoDistributeMeetings = mutation({
         assignedCloserId: bestCandidate.closerId,
         updatedAt: now,
       });
+      await syncOpportunityMeetingsAssignedCloser(
+        ctx,
+        meeting.opportunityId,
+        bestCandidate.closerId,
+      );
       await ctx.db.patch(meeting.meetingId, {
         reassignedFromCloserId: meeting.fromCloserId,
       });
@@ -356,6 +362,11 @@ export const manuallyResolveMeeting = mutation({
         assignedCloserId: targetCloser._id,
         updatedAt: now,
       });
+      await syncOpportunityMeetingsAssignedCloser(
+        ctx,
+        opportunity._id,
+        targetCloser._id,
+      );
       await ctx.db.patch(args.meetingId, {
         reassignedFromCloserId: unavailability.closerId,
       });

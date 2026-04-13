@@ -9,8 +9,8 @@ import { ADMIN_ROLES } from "../lib/roleMapping";
 import { getValidAccessToken } from "./tokens";
 
 type TenantMemberState = {
-  calendlyOrgUri?: string;
-  status: string;
+  organizationUri?: string;
+  tenantStatus: string;
 };
 
 type CalendlyOrganizationMembership = {
@@ -45,17 +45,25 @@ async function syncTenantOrgMembers(
 ): Promise<SyncTenantOrgMembersResult> {
   console.log(`[org-sync] syncTenantOrgMembers: entry for tenant ${tenantId}`);
 
-  const tenant = (await ctx.runQuery(internal.tenants.getCalendlyTokens, {
-    tenantId,
-  })) as TenantMemberState | null;
+  const tenant = (await ctx.runQuery(
+    internal.calendly.connectionQueries.getTenantConnectionContext,
+    {
+      tenantId,
+    },
+  )) as TenantMemberState | null;
 
-  if (!tenant?.calendlyOrgUri) {
+  if (!tenant?.organizationUri) {
     console.warn(`[org-sync] syncTenantOrgMembers: tenant ${tenantId} missing org URI`);
     return { synced: 0, reason: "missing_org_uri" as const };
   }
 
-  if (tenant.status !== "active" && tenant.status !== "provisioning_webhooks") {
-    console.warn(`[org-sync] syncTenantOrgMembers: tenant ${tenantId} not ready, status=${tenant.status}`);
+  if (
+    tenant.tenantStatus !== "active" &&
+    tenant.tenantStatus !== "provisioning_webhooks"
+  ) {
+    console.warn(
+      `[org-sync] syncTenantOrgMembers: tenant ${tenantId} not ready, status=${tenant.tenantStatus}`,
+    );
     return { synced: 0, reason: "tenant_not_ready" as const };
   }
 
@@ -66,7 +74,7 @@ async function syncTenantOrgMembers(
     return { synced: 0, reason: "missing_access_token" as const };
   }
 
-  let nextPage: string | null = `https://api.calendly.com/organization_memberships?organization=${encodeURIComponent(tenant.calendlyOrgUri)}&count=100`;
+  let nextPage: string | null = `https://api.calendly.com/organization_memberships?organization=${encodeURIComponent(tenant.organizationUri)}&count=100`;
   let synced = 0;
   let pageNum = 0;
 

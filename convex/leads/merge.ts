@@ -4,6 +4,9 @@ import type { MutationCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { buildLeadSearchText } from "./searchTextBuilder";
+import { emitDomainEvent } from "../lib/domainEvents";
+import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
+import { syncLeadMeetingNames } from "../lib/syncLeadMeetingNames";
 
 const SOCIAL_IDENTIFIER_TYPES = new Set<Doc<"leadIdentifiers">["type"]>([
   "instagram",
@@ -51,11 +54,12 @@ async function countMeetingsForOpportunities(
   let count = 0;
 
   for (const opportunity of opportunities) {
-    for await (const _meeting of ctx.db
+    for await (const meeting of ctx.db
       .query("meetings")
       .withIndex("by_opportunityId", (q) =>
         q.eq("opportunityId", opportunity._id),
       )) {
+      void meeting;
       count += 1;
     }
   }
@@ -191,11 +195,35 @@ async function executeMerge(
     searchText,
     updatedAt: now,
   });
+  await syncCustomerSnapshot(ctx, tenantId, targetLeadId);
+  await syncLeadMeetingNames(
+    ctx,
+    tenantId,
+    targetLeadId,
+    refreshedTargetLead.fullName ?? refreshedTargetLead.email,
+  );
 
   await ctx.db.patch(sourceLeadId, {
     status: "merged",
     mergedIntoLeadId: targetLeadId,
     updatedAt: now,
+  });
+  await emitDomainEvent(ctx, {
+    tenantId,
+    entityType: "lead",
+    entityId: sourceLeadId,
+    eventType: "lead.merged",
+    source: "admin",
+    actorUserId: userId,
+    fromStatus: sourceLead.status ?? "active",
+    toStatus: "merged",
+    metadata: {
+      targetLeadId,
+      identifiersMoved,
+      opportunitiesMoved: sourceOpportunities.length,
+      meetingsMoved,
+    },
+    occurredAt: now,
   });
 
   const tenantOpportunities = await ctx.db

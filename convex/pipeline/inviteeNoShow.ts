@@ -1,6 +1,11 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
+import { emitDomainEvent } from "../lib/domainEvents";
+import {
+  isActiveOpportunityStatus,
+  updateTenantStats,
+} from "../lib/tenantStatsHelper";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -83,6 +88,16 @@ export const process = internalMutation({
         noShowMarkedAt: now,
       });
       await updateOpportunityMeetingRefs(ctx, meeting.opportunityId);
+      await emitDomainEvent(ctx, {
+        tenantId,
+        entityType: "meeting",
+        entityId: meeting._id,
+        eventType: "meeting.no_show",
+        source: "pipeline",
+        fromStatus: meeting.status,
+        toStatus: "no_show",
+        occurredAt: now,
+      });
       console.log(`[Pipeline:no-show] Meeting status changed | ${meeting.status} -> no_show`);
     } else {
       console.log(`[Pipeline:no-show] Meeting already no_show, no change`);
@@ -100,8 +115,26 @@ export const process = internalMutation({
       );
       await ctx.db.patch(opportunity._id, {
         status: "no_show",
+        noShowAt: now,
         updatedAt: now,
       });
+      if (opportunity.status !== "no_show") {
+        await updateTenantStats(ctx, tenantId, {
+          activeOpportunities: isActiveOpportunityStatus(opportunity.status)
+            ? -1
+            : 0,
+        });
+        await emitDomainEvent(ctx, {
+          tenantId,
+          entityType: "opportunity",
+          entityId: opportunity._id,
+          eventType: "opportunity.status_changed",
+          source: "pipeline",
+          fromStatus: opportunity.status,
+          toStatus: "no_show",
+          occurredAt: now,
+        });
+      }
     } else if (opportunity) {
       console.log(
         `[Pipeline:no-show] Opportunity not eligible for no_show transition | opportunityId=${opportunity._id} currentStatus=${opportunity.status}`,
@@ -164,8 +197,27 @@ export const revert = internalMutation({
     );
 
     if (meeting.status === "no_show") {
-      await ctx.db.patch(meeting._id, { status: "scheduled" });
+      const now = Date.now();
+      await ctx.db.patch(meeting._id, {
+        status: "scheduled",
+        noShowMarkedAt: undefined,
+        noShowMarkedByUserId: undefined,
+        noShowWaitDurationMs: undefined,
+        noShowReason: undefined,
+        noShowNote: undefined,
+        noShowSource: undefined,
+      });
       await updateOpportunityMeetingRefs(ctx, meeting.opportunityId);
+      await emitDomainEvent(ctx, {
+        tenantId,
+        entityType: "meeting",
+        entityId: meeting._id,
+        eventType: "meeting.no_show_reverted",
+        source: "pipeline",
+        fromStatus: "no_show",
+        toStatus: "scheduled",
+        occurredAt: now,
+      });
       console.log(`[Pipeline:no-show] Revert: meeting status changed | no_show -> scheduled`);
     } else {
       console.log(`[Pipeline:no-show] Revert: meeting not in no_show status, no change`);
@@ -173,9 +225,24 @@ export const revert = internalMutation({
 
     const opportunity = await ctx.db.get(meeting.opportunityId);
     if (opportunity?.status === "no_show") {
+      const now = Date.now();
       await ctx.db.patch(opportunity._id, {
         status: "scheduled",
-        updatedAt: Date.now(),
+        noShowAt: undefined,
+        updatedAt: now,
+      });
+      await updateTenantStats(ctx, tenantId, {
+        activeOpportunities: 1,
+      });
+      await emitDomainEvent(ctx, {
+        tenantId,
+        entityType: "opportunity",
+        entityId: opportunity._id,
+        eventType: "opportunity.status_changed",
+        source: "pipeline",
+        fromStatus: "no_show",
+        toStatus: "scheduled",
+        occurredAt: now,
       });
       console.log(
         `[Pipeline:no-show] Revert: opportunity status changed | opportunityId=${opportunity._id} no_show -> scheduled`,

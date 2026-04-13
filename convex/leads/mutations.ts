@@ -3,6 +3,8 @@ import type { Doc } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
 import { normalizeEmail } from "../lib/normalization";
 import { requireTenantUser } from "../requireTenantUser";
+import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
+import { syncLeadMeetingNames } from "../lib/syncLeadMeetingNames";
 import { buildLeadSearchText } from "./searchTextBuilder";
 
 function normalizeOptionalText(value: string | undefined): string | undefined {
@@ -68,6 +70,14 @@ export const updateLead = mutation({
     if (searchText !== updatedLead.searchText) {
       await ctx.db.patch(leadId, { searchText });
     }
+
+    await syncCustomerSnapshot(ctx, tenantId, leadId);
+    await syncLeadMeetingNames(
+      ctx,
+      tenantId,
+      leadId,
+      updatedLead.fullName ?? updatedLead.email,
+    );
 
     console.log("[Leads:Mutation] updateLead completed", {
       leadId,

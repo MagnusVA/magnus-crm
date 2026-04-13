@@ -6,36 +6,37 @@ export const getActiveReminders = query({
   handler: async (ctx) => {
     const { tenantId, userId } = await requireTenantUser(ctx, ["closer"]);
 
-    const pendingFollowUps = await ctx.db
+    const reminders = await ctx.db
       .query("followUps")
-      .withIndex("by_tenantId_and_closerId_and_status", (q) =>
-        q
-          .eq("tenantId", tenantId)
-          .eq("closerId", userId)
-          .eq("status", "pending"),
+      .withIndex(
+        "by_tenantId_and_closerId_and_type_and_status_reminderScheduledAt",
+        (q) =>
+          q
+            .eq("tenantId", tenantId)
+            .eq("closerId", userId)
+            .eq("type", "manual_reminder")
+            .eq("status", "pending"),
       )
       .take(50);
 
-    const reminders = pendingFollowUps.filter(
-      (followUp) => followUp.type === "manual_reminder",
+    const leadIds = [...new Set(reminders.map((reminder) => reminder.leadId))];
+    const leads = await Promise.all(
+      leadIds.map(async (leadId) => ({
+        leadId,
+        lead: await ctx.db.get(leadId),
+      })),
+    );
+    const leadById = new Map(
+      leads.map(({ leadId, lead }) => [leadId, lead]),
     );
 
-    const enriched = await Promise.all(
-      reminders.map(async (reminder) => {
-        const lead = await ctx.db.get(reminder.leadId);
-
-        return {
-          ...reminder,
-          leadName: lead?.fullName ?? lead?.email ?? "Unknown",
-          leadPhone: lead?.phone ?? null,
-        };
-      }),
-    );
-
-    enriched.sort((a, b) => {
-      const aTime = a.reminderScheduledAt ?? Number.POSITIVE_INFINITY;
-      const bTime = b.reminderScheduledAt ?? Number.POSITIVE_INFINITY;
-      return aTime - bTime;
+    const enriched = reminders.map((reminder) => {
+      const lead = leadById.get(reminder.leadId);
+      return {
+        ...reminder,
+        leadName: lead?.fullName ?? lead?.email ?? "Unknown",
+        leadPhone: lead?.phone ?? null,
+      };
     });
 
     console.log("[Closer:FollowUp] getActiveReminders", {

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 
@@ -67,89 +67,131 @@ export const getMeetingDetail = query({
       throw new Error("Lead not found");
     }
 
-    // Load lead's full meeting history (all meetings across all opportunities for this lead)
-    const meetingHistory: MeetingHistoryEntry[] = [];
-    const leadOpportunities = ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_and_leadId", (q) =>
-        q.eq("tenantId", tenantId).eq("leadId", opportunity.leadId),
-      );
-
-    for await (const leadOpportunity of leadOpportunities) {
-      const meetings = ctx.db
-        .query("meetings")
+    const [
+      leadOpportunities,
+      eventTypeConfig,
+      paymentRecordsRaw,
+      assignedCloser,
+      reassignment,
+      reassignedFromCloser,
+      potentialDuplicateLead,
+      originalMeeting,
+    ] = await Promise.all([
+      ctx.db
+        .query("opportunities")
+        .withIndex("by_tenantId_and_leadId", (q) =>
+          q.eq("tenantId", tenantId).eq("leadId", opportunity.leadId),
+        )
+        .take(50),
+      opportunity.eventTypeConfigId
+        ? ctx.db.get(opportunity.eventTypeConfigId)
+        : Promise.resolve(null),
+      ctx.db
+        .query("paymentRecords")
         .withIndex("by_opportunityId", (q) =>
-          q.eq("opportunityId", leadOpportunity._id),
-        );
+          q.eq("opportunityId", opportunity._id),
+        )
+        .take(50),
+      opportunity.assignedCloserId
+        ? ctx.db.get(opportunity.assignedCloserId)
+        : Promise.resolve(null),
+      meeting.reassignedFromCloserId
+        ? ctx.db
+            .query("meetingReassignments")
+            .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
+            .order("desc")
+            .first()
+        : Promise.resolve(null),
+      meeting.reassignedFromCloserId
+        ? ctx.db.get(meeting.reassignedFromCloserId)
+        : Promise.resolve(null),
+      opportunity.potentialDuplicateLeadId
+        ? ctx.db.get(opportunity.potentialDuplicateLeadId)
+        : Promise.resolve(null),
+      meeting.rescheduledFromMeetingId
+        ? ctx.db.get(meeting.rescheduledFromMeetingId)
+        : Promise.resolve(null),
+    ]);
 
-      for await (const historicalMeeting of meetings) {
-        meetingHistory.push({
-          ...historicalMeeting,
-          opportunityStatus: leadOpportunity.status,
-          isCurrentMeeting: historicalMeeting._id === meetingId,
-        });
-      }
-    }
+    const opportunityStatusById = new Map<
+      Id<"opportunities">,
+      Doc<"opportunities">["status"]
+    >(leadOpportunities.map((item) => [item._id, item.status]));
+    const meetingHistoryBatches = await Promise.all(
+      leadOpportunities.map((leadOpportunity) =>
+        ctx.db
+          .query("meetings")
+          .withIndex("by_opportunityId", (q) =>
+            q.eq("opportunityId", leadOpportunity._id),
+          )
+          .order("desc")
+          .take(20),
+      ),
+    );
+    const meetingHistory: MeetingHistoryEntry[] = meetingHistoryBatches
+      .flat()
+      .map((historicalMeeting) => ({
+        ...historicalMeeting,
+        opportunityStatus:
+          opportunityStatusById.get(historicalMeeting.opportunityId) ??
+          "scheduled",
+        isCurrentMeeting: historicalMeeting._id === meetingId,
+      }))
+      .sort((a, b) => b.scheduledAt - a.scheduledAt);
 
-    // Sort meeting history by scheduledAt descending (most recent first)
-    meetingHistory.sort((a, b) => b.scheduledAt - a.scheduledAt);
-
-    const eventTypeConfig = opportunity.eventTypeConfigId
-      ? await ctx.db.get(opportunity.eventTypeConfigId)
-      : null;
     const eventTypeName = eventTypeConfig?.displayName ?? null;
     const paymentLinks = eventTypeConfig?.paymentLinks ?? null;
 
-    // Load payment records for this opportunity with enrichment
-    const payments: EnrichedPayment[] = [];
-    const paymentRecords = ctx.db
-      .query("paymentRecords")
-      .withIndex("by_opportunityId", (q) =>
-        q.eq("opportunityId", opportunity._id),
-      );
+    const paymentCloserIds = [
+      ...new Set(paymentRecordsRaw.map((payment) => payment.closerId)),
+    ];
+    const paymentClosers = await Promise.all(
+      paymentCloserIds.map(async (closerId) => ({
+        closerId,
+        closer: await ctx.db.get(closerId),
+      })),
+    );
+    const paymentCloserNameById = new Map<Id<"users">, string | null>(
+      paymentClosers.map(({ closerId, closer }) => [
+        closerId,
+        closer && closer.tenantId === tenantId
+          ? closer.fullName ?? closer.email
+          : null,
+      ]),
+    );
 
-    for await (const payment of paymentRecords) {
-      if (payment.tenantId !== tenantId) continue;
+    const payments: EnrichedPayment[] = await Promise.all(
+      paymentRecordsRaw
+        .filter((payment) => payment.tenantId === tenantId)
+        .map(async (payment) => {
+          let proofFileUrl: string | null = null;
+          let proofFileContentType: string | null = null;
+          let proofFileSize: number | null = null;
 
-      // Resolve proof file URL and metadata from Convex file storage
-      let proofFileUrl: string | null = null;
-      let proofFileContentType: string | null = null;
-      let proofFileSize: number | null = null;
+          if (payment.proofFileId) {
+            const [url, fileMeta] = await Promise.all([
+              ctx.storage.getUrl(payment.proofFileId),
+              ctx.db.system.get("_storage", payment.proofFileId),
+            ]);
+            proofFileUrl = url;
+            if (fileMeta) {
+              proofFileContentType = fileMeta.contentType ?? null;
+              proofFileSize = fileMeta.size ?? null;
+            }
+          }
 
-      if (payment.proofFileId) {
-        proofFileUrl = await ctx.storage.getUrl(payment.proofFileId);
-        // Query the _storage system table for file metadata (contentType, size)
-        const fileMeta = await ctx.db.system.get(
-          "_storage",
-          payment.proofFileId,
-        );
-        if (fileMeta) {
-          proofFileContentType = fileMeta.contentType ?? null;
-          proofFileSize = fileMeta.size ?? null;
-        }
-      }
-
-      // Resolve the closer who recorded this payment
-      let closerName: string | null = null;
-      const closer = await ctx.db.get(payment.closerId);
-      if (closer && closer.tenantId === tenantId) {
-        closerName = closer.fullName ?? closer.email;
-      }
-
-      payments.push({
-        ...payment,
-        proofFileUrl,
-        proofFileContentType,
-        proofFileSize,
-        closerName,
-      });
-    }
+          return {
+            ...payment,
+            amount: (payment.amountMinor ?? 0) / 100,
+            proofFileUrl,
+            proofFileContentType,
+            proofFileSize,
+            closerName: paymentCloserNameById.get(payment.closerId) ?? null,
+          };
+        }),
+    );
     payments.sort((a, b) => b.recordedAt - a.recordedAt);
 
-    // Load assigned closer info (for admin view)
-    const assignedCloser = opportunity.assignedCloserId
-      ? await ctx.db.get(opportunity.assignedCloserId)
-      : null;
     const assignedCloserSummary =
       assignedCloser && assignedCloser.tenantId === tenantId
         ? assignedCloser.fullName
@@ -165,16 +207,11 @@ export const getMeetingDetail = query({
     } | null = null;
 
     if (meeting.reassignedFromCloserId) {
-      const fromCloser = await ctx.db.get(meeting.reassignedFromCloserId);
-      const reassignment = await ctx.db
-        .query("meetingReassignments")
-        .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
-        .order("desc")
-        .first();
-
       reassignmentInfo = {
         reassignedFromCloserName:
-          fromCloser?.fullName ?? fromCloser?.email ?? "Unknown",
+          reassignedFromCloser?.fullName ??
+          reassignedFromCloser?.email ??
+          "Unknown",
         reassignedAt: reassignment?.reassignedAt ?? meeting._creationTime,
         reason: reassignment?.reason ?? "Reassigned",
       };
@@ -188,15 +225,12 @@ export const getMeetingDetail = query({
       email: string;
     } | null = null;
 
-    if (opportunity.potentialDuplicateLeadId) {
-      const dupLead = await ctx.db.get(opportunity.potentialDuplicateLeadId);
-      if (dupLead && dupLead.tenantId === tenantId) {
+    if (potentialDuplicateLead && potentialDuplicateLead.tenantId === tenantId) {
         potentialDuplicate = {
-          _id: dupLead._id,
-          fullName: dupLead.fullName,
-          email: dupLead.email,
+          _id: potentialDuplicateLead._id,
+          fullName: potentialDuplicateLead.fullName,
+          email: potentialDuplicateLead.email,
         };
-      }
     }
     // === End Feature E ===
 
@@ -207,15 +241,12 @@ export const getMeetingDetail = query({
       status: Doc<"meetings">["status"];
     } | null = null;
 
-    if (meeting.rescheduledFromMeetingId) {
-      const originalMeeting = await ctx.db.get(meeting.rescheduledFromMeetingId);
-      if (originalMeeting && originalMeeting.tenantId === tenantId) {
+    if (originalMeeting && originalMeeting.tenantId === tenantId) {
         rescheduledFromMeeting = {
           _id: originalMeeting._id,
           scheduledAt: originalMeeting.scheduledAt,
           status: originalMeeting.status,
         };
-      }
     }
     // === End Feature B ===
 
