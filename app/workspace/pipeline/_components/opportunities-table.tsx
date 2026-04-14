@@ -9,6 +9,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/status-badge";
@@ -37,7 +38,9 @@ interface Opportunity {
   hostCalendlyEmail?: string | null;
   hostCalendlyName?: string | null;
   eventTypeName?: string | null;
+  nextMeetingId?: Id<"meetings"> | null;
   nextMeetingAt?: number | null;
+  latestMeetingId?: Id<"meetings"> | null;
   latestMeetingAt?: number | null;
   meetingStatus?: string | null;
   createdAt: number;
@@ -221,14 +224,32 @@ export function OpportunitiesTable({
                   {formatDate(opp.createdAt)}
                 </TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    aria-label={`View details for ${opp.leadName}`}
-                  >
-                    View
-                    <ExternalLinkIcon data-icon="inline-end" />
-                  </Button>
+                  {(() => {
+                    const targetMeetingId = opp.nextMeetingId ?? opp.latestMeetingId;
+                    return targetMeetingId ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        asChild
+                        aria-label={`View details for ${opp.leadName}`}
+                      >
+                        <Link href={`/workspace/pipeline/meetings/${targetMeetingId}`}>
+                          View
+                          <ExternalLinkIcon data-icon="inline-end" />
+                        </Link>
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled
+                        aria-label={`No meeting for ${opp.leadName}`}
+                      >
+                        View
+                        <ExternalLinkIcon data-icon="inline-end" />
+                      </Button>
+                    );
+                  })()}
                 </TableCell>
               </TableRow>
             );
