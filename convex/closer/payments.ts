@@ -146,12 +146,17 @@ export const logPayment = mutation({
     const now = Date.now();
     const amountMinor = toAmountMinor(args.amount);
 
+    // Determine attribution: admin-logged payments are attributed to the assigned
+    // closer so the sale appears in the closer's stats and dashboard — not the admin's.
+    const attributedCloserId =
+      role === "closer" ? userId : (opportunity.assignedCloserId ?? userId);
+
     // Create payment record
     const paymentId = await ctx.db.insert("paymentRecords", {
       tenantId,
       opportunityId: args.opportunityId,
       meetingId: args.meetingId,
-      closerId: userId,
+      closerId: attributedCloserId,
       amountMinor,
       currency,
       provider,
@@ -192,6 +197,8 @@ export const logPayment = mutation({
         meetingId: args.meetingId,
         amountMinor,
         currency,
+        attributedCloserId: attributedCloserId,
+        ...(role !== "closer" && { loggedByAdminUserId: userId }),
       },
       occurredAt: now,
     });
