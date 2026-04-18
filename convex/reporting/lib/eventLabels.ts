@@ -60,6 +60,10 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "ended a meeting",
     iconHint: "square",
   },
+  "meeting.times_manually_set": {
+    verb: "manually set meeting times",
+    iconHint: "clock-3",
+  },
   "opportunity.created": {
     verb: "created an opportunity",
     iconHint: "sparkles",

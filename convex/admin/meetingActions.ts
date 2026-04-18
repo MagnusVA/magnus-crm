@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateTransition } from "../lib/statusTransitions";
+import { cancelMeetingAttendanceCheck } from "../lib/attendanceChecks";
 import { emitDomainEvent } from "../lib/domainEvents";
 import {
   updateTenantStats,
@@ -434,9 +435,10 @@ export const adminCreateRescheduleLink = mutation({
 // Quick-patch for the case where a closer didn't start their meeting (e.g.,
 // late start, forgot to press the button). The admin sets the actual start/end
 // times, which transitions meeting → completed and opportunity → in_progress,
-// unlocking outcome actions (Log Payment, Mark Lost, Follow-up).
+// unlocking outcome actions (Log Payment, Mark Lost, Follow-up). These manual
+// timestamps are attributed so the meeting detail audit trail stays complete.
 //
-// This bridges the gap until the full Late Start Review System ships.
+// This remains a manual backfill tool alongside the meeting-overran review flow.
 // ---------------------------------------------------------------------------
 
 export const adminResolveMeeting = mutation({
@@ -482,9 +484,18 @@ export const adminResolveMeeting = mutation({
     }
 
     const now = Date.now();
+    const lateStartDurationMs = Math.max(0, args.startedAt - meeting.scheduledAt);
     const scheduledEndMs =
       meeting.scheduledAt + meeting.durationMinutes * 60_000;
-    const overranDurationMs = Math.max(0, args.stoppedAt - scheduledEndMs);
+    const exceededScheduledDurationMs = Math.max(
+      0,
+      args.stoppedAt - scheduledEndMs,
+    );
+    await cancelMeetingAttendanceCheck(
+      ctx,
+      meeting.attendanceCheckId,
+      "admin.adminResolveMeeting",
+    );
 
     // Transition opportunity: scheduled → in_progress
     const oldOpportunity = opportunity;
@@ -499,9 +510,12 @@ export const adminResolveMeeting = mutation({
     await ctx.db.patch(args.meetingId, {
       status: "completed",
       startedAt: args.startedAt,
+      startedAtSource: "admin_manual" as const,
       stoppedAt: args.stoppedAt,
+      stoppedAtSource: "admin_manual" as const,
       completedAt: args.stoppedAt,
-      overranDurationMs,
+      lateStartDurationMs,
+      exceededScheduledDurationMs,
     });
     await replaceMeetingAggregate(ctx, oldMeeting, args.meetingId);
     await updateOpportunityMeetingRefs(ctx, opportunity._id);
@@ -520,7 +534,8 @@ export const adminResolveMeeting = mutation({
       metadata: {
         retroactiveStartedAt: args.startedAt,
         retroactiveStoppedAt: args.stoppedAt,
-        overranDurationMs,
+        lateStartDurationMs,
+        exceededScheduledDurationMs,
         resolvedAt: now,
       },
     });

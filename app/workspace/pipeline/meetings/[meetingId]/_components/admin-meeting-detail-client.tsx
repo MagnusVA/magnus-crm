@@ -35,7 +35,7 @@ import {
 // Cross-import reusable display components from closer meeting detail
 import { LeadInfoPanel } from "@/app/workspace/closer/meetings/_components/lead-info-panel";
 import { MeetingInfoPanel } from "@/app/workspace/closer/meetings/_components/meeting-info-panel";
-import { MeetingNotes } from "@/app/workspace/closer/meetings/_components/meeting-notes";
+import { MeetingComments } from "@/app/workspace/closer/meetings/_components/meeting-comments";
 import { PaymentLinksPanel } from "@/app/workspace/closer/meetings/_components/payment-links-panel";
 import { BookingAnswersCard } from "@/app/workspace/closer/meetings/_components/booking-answers-card";
 import { DealWonCard } from "@/app/workspace/closer/meetings/_components/deal-won-card";
@@ -46,6 +46,7 @@ import {
   RescheduleLinkSentBanner,
 } from "@/app/workspace/closer/meetings/_components/reschedule-link-display";
 import { RescheduleChainBanner } from "@/app/workspace/closer/meetings/_components/reschedule-chain-banner";
+import { FathomLinkField } from "@/app/workspace/closer/meetings/_components/fathom-link-field";
 import { AdminActionBar } from "@/app/workspace/pipeline/meetings/_components/admin-action-bar";
 
 type MeetingDetailData = {
@@ -216,7 +217,11 @@ export function AdminMeetingDetailClient({
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3 lg:grid-cols-4">
         <div className="md:col-span-1">
-          <LeadInfoPanel lead={lead} meetingHistory={meetingHistory} />
+          <LeadInfoPanel
+            lead={lead}
+            meetingHistory={meetingHistory}
+            meetingDetailBasePath="/workspace/pipeline/meetings"
+          />
         </div>
 
         <div className="flex flex-col gap-6 md:col-span-2 lg:col-span-3">
@@ -238,12 +243,17 @@ export function AdminMeetingDetailClient({
             meetingHistory={meetingHistory}
           />
 
-          {/* Notes with outcome select */}
-          <MeetingNotes
+          {/* v2: Fathom Recording link — admin can save/update for any
+              meeting. Same component as closer side (backend authorizes
+              both roles). */}
+          <FathomLinkField
             meetingId={meeting._id}
-            initialNotes={meeting.notes ?? ""}
-            meetingOutcome={meeting.meetingOutcome}
+            initialLink={meeting.fathomLink ?? ""}
+            savedAt={meeting.fathomLinkSavedAt}
           />
+
+          {/* Comments */}
+          <MeetingComments meetingId={meeting._id} />
 
           {paymentLinks && paymentLinks.length > 0 && (
             <PaymentLinksPanel paymentLinks={paymentLinks} />

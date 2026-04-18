@@ -1,7 +1,16 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "convex/react";
+import {
+  endOfDay,
+  endOfMonth,
+  endOfWeek,
+  format,
+  startOfDay,
+  startOfMonth,
+  startOfWeek,
+} from "date-fns";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import { usePageTitle } from "@/hooks/use-page-title";
@@ -16,6 +25,7 @@ import { RemindersSection } from "./reminders-section";
 import { PipelineStrip } from "./pipeline-strip";
 import { CloserEmptyState } from "./closer-empty-state";
 import { CalendarSection } from "./calendar-section";
+import type { ViewMode } from "./calendar-utils";
 
 type NextMeetingData =
   | {
@@ -31,13 +41,50 @@ export function CloserDashboardPageClient() {
   const router = useRouter();
   const { isAdmin } = useRole();
 
+  // ── Shared filter state (calendar + pipeline strip) ───────────────────
+  // Owned here so a single source of truth drives both the calendar query
+  // and the stats query. Defaults match the calendar's previous defaults.
+  const [viewMode, setViewMode] = useState<ViewMode>("week");
+  const [currentDate, setCurrentDate] = useState(() => new Date());
+
+  const { startDate, endDate } = useMemo(() => {
+    let start: Date;
+    let end: Date;
+
+    if (viewMode === "day") {
+      start = startOfDay(currentDate);
+      end = endOfDay(currentDate);
+    } else if (viewMode === "week") {
+      start = startOfWeek(currentDate); // Sunday
+      end = endOfWeek(currentDate); // Saturday 23:59:59
+    } else {
+      // month — extend to fill calendar grid (prev/next month partials)
+      start = startOfWeek(startOfMonth(currentDate));
+      end = endOfWeek(endOfMonth(currentDate));
+    }
+
+    return { startDate: start.getTime(), endDate: end.getTime() };
+  }, [currentDate, viewMode]);
+
+  const rangeLabel = useMemo(() => {
+    if (viewMode === "day") {
+      return format(currentDate, "EEEE, MMMM d, yyyy");
+    }
+    if (viewMode === "week") {
+      const ws = startOfWeek(currentDate);
+      const we = endOfWeek(currentDate);
+      return `${format(ws, "MMM d")} – ${format(we, "MMM d, yyyy")}`;
+    }
+    return format(currentDate, "MMMM yyyy");
+  }, [currentDate, viewMode]);
+
   const profile = useQuery(
     api.closer.dashboard.getCloserProfile,
     isAdmin ? "skip" : {},
   );
   const pipelineSummary = useQuery(
     api.closer.dashboard.getPipelineSummary,
-    isAdmin ? "skip" : {},
+    isAdmin ? "skip" : { startDate, endDate },
   );
 
   const nextMeeting = usePollingQuery(
@@ -96,11 +143,21 @@ export function CloserDashboardPageClient() {
       <PipelineStrip
         counts={pipelineSummary.counts}
         total={pipelineSummary.total}
+        rangeLabel={rangeLabel}
+        viewMode={viewMode}
       />
 
       <Separator />
 
-      <CalendarSection />
+      <CalendarSection
+        viewMode={viewMode}
+        currentDate={currentDate}
+        startDate={startDate}
+        endDate={endDate}
+        rangeLabel={rangeLabel}
+        onViewModeChange={setViewMode}
+        onCurrentDateChange={setCurrentDate}
+      />
     </div>
   );
 }

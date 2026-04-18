@@ -43,6 +43,17 @@ const MEETING_BADGE_CLASS: Record<string, string> = {
     "bg-orange-500/10 text-orange-700 border-orange-200 dark:text-orange-400 dark:border-orange-900",
 };
 
+type MeetingTimestampSource = NonNullable<
+  Doc<"meetings">["startedAtSource"] | Doc<"meetings">["stoppedAtSource"]
+>;
+
+const TIMESTAMP_SOURCE_LABELS: Record<MeetingTimestampSource, string> = {
+  closer: "Closer lifecycle control",
+  closer_no_show: "Closer no-show action",
+  admin_manual: "Admin-entered manually",
+  system: "System safety net",
+};
+
 type MeetingInfoPanelProps = {
   meeting: Doc<"meetings">;
   eventTypeName: string | null;
@@ -65,6 +76,12 @@ export function MeetingInfoPanel({
   const statusCfg = meetingStatusConfig[statusKey];
 
   const meetingJoinUrl = meeting.meetingJoinUrl ?? meeting.zoomJoinUrl;
+  const recordedEndAt = meeting.stoppedAt ?? meeting.completedAt;
+  const hasTimingBadges =
+    (meeting.lateStartDurationMs ?? 0) > 0 ||
+    (meeting.exceededScheduledDurationMs ?? 0) > 0;
+  const hasRecordedTiming =
+    meeting.startedAt !== undefined || recordedEndAt !== undefined || hasTimingBadges;
 
   const handleCopyMeetingLink = () => {
     if (meetingJoinUrl) {
@@ -124,6 +141,60 @@ export function MeetingInfoPanel({
               </p>
             )}
           </InfoRow>
+        )}
+
+        {hasRecordedTiming && (
+          <>
+            <Separator />
+            <div className="flex flex-col gap-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Recorded Timing
+              </p>
+
+              {meeting.startedAt !== undefined && (
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">
+                    Started {format(meeting.startedAt, "MMM d, yyyy 'at' h:mm a")}
+                  </p>
+                  {meeting.startedAtSource && (
+                    <p className="text-xs text-muted-foreground">
+                      Source: {TIMESTAMP_SOURCE_LABELS[meeting.startedAtSource]}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {recordedEndAt !== undefined && (
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">
+                    Ended {format(recordedEndAt, "MMM d, yyyy 'at' h:mm a")}
+                  </p>
+                  {meeting.stoppedAtSource && (
+                    <p className="text-xs text-muted-foreground">
+                      Source: {TIMESTAMP_SOURCE_LABELS[meeting.stoppedAtSource]}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {hasTimingBadges && (
+                <div className="flex flex-wrap gap-2">
+                  {meeting.lateStartDurationMs !== undefined &&
+                    meeting.lateStartDurationMs > 0 && (
+                      <Badge variant="outline">
+                        Started {Math.max(1, Math.round(meeting.lateStartDurationMs / 60_000))} min late
+                      </Badge>
+                    )}
+                  {meeting.exceededScheduledDurationMs !== undefined &&
+                    meeting.exceededScheduledDurationMs > 0 && (
+                      <Badge variant="outline">
+                        Ran {Math.max(1, Math.round(meeting.exceededScheduledDurationMs / 60_000))} min over
+                      </Badge>
+                    )}
+                </div>
+              )}
+            </div>
+          </>
         )}
 
         <Separator />

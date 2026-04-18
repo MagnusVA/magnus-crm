@@ -7,6 +7,7 @@ import { getUserDisplayName } from "./lib/helpers";
 const OPPORTUNITY_STATUSES = [
   "scheduled",
   "in_progress",
+  "meeting_overran",
   "follow_up_scheduled",
   "reschedule_link_sent",
   "payment_received",
@@ -18,6 +19,7 @@ const OPPORTUNITY_STATUSES = [
 const ACTIVE_PIPELINE_STATUSES = [
   "scheduled",
   "in_progress",
+  "meeting_overran",
   "follow_up_scheduled",
   "reschedule_link_sent",
 ] as const satisfies ReadonlyArray<Doc<"opportunities">["status"]>;

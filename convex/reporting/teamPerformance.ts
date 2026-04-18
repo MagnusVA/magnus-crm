@@ -19,6 +19,7 @@ const MEETING_STATUSES = [
   "completed",
   "canceled",
   "no_show",
+  "meeting_overran",
 ] as const satisfies ReadonlyArray<Doc<"meetings">["status"]>;
 
 type CallClassification = (typeof CALL_CLASSIFICATIONS)[number];
@@ -42,6 +43,7 @@ function emptyStatusCountMap(): StatusCountMap {
     completed: 0,
     canceled: 0,
     no_show: 0,
+    meeting_overran: 0,
   };
 }
 
@@ -155,7 +157,9 @@ export const getTeamPerformanceMetrics = query({
         return {
           bookedCalls,
           canceledCalls,
-          noShows: countsForClassification.no_show,
+          noShows:
+            countsForClassification.no_show +
+            countsForClassification.meeting_overran,
           callsShowed,
           showUpRate: toRate(callsShowed, showRateDenominator),
         };

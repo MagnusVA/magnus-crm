@@ -1,12 +1,12 @@
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
-import type { MutationCtx } from "../_generated/server";
 import { mutation, query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateTransition } from "../lib/statusTransitions";
 import { executeConversion } from "../customers/conversion";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
+import { assertOverranReviewStillPending } from "../lib/overranReviewGuards";
+import { syncCustomerPaymentSummary } from "../lib/paymentHelpers";
 import {
   insertPaymentAggregate,
   replaceOpportunityAggregate,
@@ -16,28 +16,19 @@ import {
   updateTenantStats,
 } from "../lib/tenantStatsHelper";
 
-async function syncCustomerPaymentSummary(
-  ctx: MutationCtx,
-  customerId: Id<"customers">,
-) {
-  const payments = await ctx.db
-    .query("paymentRecords")
-    .withIndex("by_customerId", (q) => q.eq("customerId", customerId))
-    .take(100);
-
-  const nonDisputedPayments = payments.filter((payment) => payment.status !== "disputed");
-  const currencies = Array.from(
-    new Set(nonDisputedPayments.map((payment) => payment.currency)),
-  );
-  await ctx.db.patch(customerId, {
-    totalPaidMinor: nonDisputedPayments.reduce(
-      (sum, payment) => sum + payment.amountMinor,
-      0,
-    ),
-    totalPaymentCount: nonDisputedPayments.length,
-    paymentCurrency: currencies.length === 1 ? currencies[0] : undefined,
-  });
-}
+/**
+ * OUTCOME MUTATION CONTRACT
+ *
+ * Outcome mutations operate on the opportunity only. They MUST NOT write:
+ * - meetings.startedAt / startedAtSource
+ * - meetings.stoppedAt / stoppedAtSource
+ * - meetings.completedAt
+ * - meetings.status
+ *
+ * Rationale: logging a payment can happen mid-call. The meeting lifecycle is
+ * ended explicitly via stopMeeting. The lone exception is markNoShow, because
+ * the closer waited through the meeting window and the end timestamp is known.
+ */
 
 /**
  * Generate a file upload URL for payment proof.
@@ -121,13 +112,13 @@ export const logPayment = mutation({
     ) {
       throw new Error("Meeting does not belong to this opportunity");
     }
+    if (opportunity.status === "meeting_overran") {
+      await assertOverranReviewStillPending(ctx, opportunity._id);
+    }
 
     // Validate status transition
     if (!validateTransition(opportunity.status, "payment_received")) {
-      throw new Error(
-        `Cannot log payment for opportunity with status "${opportunity.status}". ` +
-          `Only "in_progress" opportunities can receive payments.`
-      );
+      throw new Error(`Cannot log payment for opportunity with status "${opportunity.status}"`);
     }
 
     // Validate amount

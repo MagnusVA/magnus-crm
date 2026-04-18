@@ -20,6 +20,7 @@ import {
 const STATUS_COLORS: Record<string, string> = {
   scheduled: "var(--chart-1)",
   in_progress: "var(--chart-2)",
+  meeting_overran: "hsl(var(--warning, 45 93% 47%))",
   follow_up_scheduled: "var(--chart-3)",
   reschedule_link_sent: "var(--chart-3)",
   payment_received: "var(--chart-4)",

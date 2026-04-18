@@ -360,23 +360,23 @@ export function PaymentFormDialog({
                 )}
               />
 
-              {/* Reference Code */}
+              {/* Fathom Link */}
               <FormField
                 control={form.control}
                 name="referenceCode"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Reference Code</FormLabel>
+                    <FormLabel>Fathom Link</FormLabel>
                     <FormControl>
                       <Input
-                        type="text"
-                        placeholder="e.g., pi_3abc123..."
+                        type="url"
+                        placeholder="https://app.fathom.video/share/..."
                         disabled={isSubmitting}
                         {...field}
                       />
                     </FormControl>
                     <FormDescription>
-                      Transaction ID from your payment provider
+                      Link to the Fathom call recording
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

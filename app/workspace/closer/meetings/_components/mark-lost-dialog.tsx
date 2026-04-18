@@ -119,8 +119,9 @@ export function MarkLostDialog({
               <div className="flex-1">
                 <AlertDialogTitle>Mark as Lost?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This will mark the opportunity as lost. This action is
-                  permanent and cannot be undone.
+                  This marks the opportunity as lost. If this meeting is
+                  under overran review, an admin may still dispute the
+                  outcome and revert the opportunity.
                 </AlertDialogDescription>
               </div>
             </div>

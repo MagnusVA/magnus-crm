@@ -12,10 +12,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { downloadCSV } from "@/lib/export-csv";
 import type { OpportunityStatus } from "@/lib/status-config";
+import { getDateRange } from "@/app/workspace/_components/time-period-filter";
+import type { TimePeriod } from "@/app/workspace/_components/time-period-filter";
 import { format } from "date-fns";
 import { DownloadIcon } from "lucide-react";
-import { OpportunitiesTable } from "./opportunities-table";
-import { PipelineFilters } from "./pipeline-filters";
+import { OpportunitiesTable } from "@/app/workspace/_components/pipeline/opportunities-table";
+import { PipelineFilters } from "@/app/workspace/_components/pipeline/pipeline-filters";
+import type { PipelinePeriod } from "@/app/workspace/_components/pipeline/pipeline-filters";
 
 function TableSkeleton() {
   return (
@@ -49,6 +52,7 @@ function PipelineContent() {
 
   const statusFilter = searchParams.get("status") ?? "all";
   const closerFilter = searchParams.get("closer") ?? "all";
+  const periodFilter = (searchParams.get("period") ?? "all") as PipelinePeriod;
 
   useEffect(() => {
     if (!isAdmin) {
@@ -56,13 +60,13 @@ function PipelineContent() {
     }
   }, [isAdmin, router]);
 
-  const setStatusFilter = useCallback(
-    (value: string) => {
+  const setFilter = useCallback(
+    (key: string, value: string) => {
       const params = new URLSearchParams(searchParams.toString());
       if (value && value !== "all") {
-        params.set("status", value);
+        params.set(key, value);
       } else {
-        params.delete("status");
+        params.delete(key);
       }
       const qs = params.toString();
       router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
@@ -70,24 +74,27 @@ function PipelineContent() {
     [pathname, router, searchParams],
   );
 
+  const setStatusFilter = useCallback(
+    (value: string) => setFilter("status", value),
+    [setFilter],
+  );
+
   const setCloserFilter = useCallback(
-    (value: string) => {
-      const params = new URLSearchParams(searchParams.toString());
-      if (value && value !== "all") {
-        params.set("closer", value);
-      } else {
-        params.delete("closer");
-      }
-      const qs = params.toString();
-      router.replace(`${pathname}${qs ? `?${qs}` : ""}`, { scroll: false });
-    },
-    [pathname, router, searchParams],
+    (value: string) => setFilter("closer", value),
+    [setFilter],
+  );
+
+  const setPeriodFilter = useCallback(
+    (value: PipelinePeriod) => setFilter("period", value),
+    [setFilter],
   );
 
   const queryArgs = useMemo(() => {
     const args: {
       statusFilter?: OpportunityStatus;
       assignedCloserId?: Id<"users">;
+      periodStart?: number;
+      periodEnd?: number;
     } = {};
 
     if (statusFilter !== "all") {
@@ -98,8 +105,14 @@ function PipelineContent() {
       args.assignedCloserId = closerFilter as Id<"users">;
     }
 
+    if (periodFilter !== "all") {
+      const { periodStart, periodEnd } = getDateRange(periodFilter as TimePeriod);
+      args.periodStart = periodStart;
+      args.periodEnd = periodEnd;
+    }
+
     return args;
-  }, [closerFilter, statusFilter]);
+  }, [closerFilter, statusFilter, periodFilter]);
 
   const {
     results: opportunities,
@@ -170,9 +183,11 @@ function PipelineContent() {
         <PipelineFilters
           statusFilter={statusFilter}
           closerFilter={closerFilter}
+          periodFilter={periodFilter}
           closers={closersForFilter}
           onStatusChange={setStatusFilter}
           onCloserChange={setCloserFilter}
+          onPeriodChange={setPeriodFilter}
         />
       )}
 
@@ -184,6 +199,8 @@ function PipelineContent() {
           canLoadMore={paginationStatus === "CanLoadMore"}
           isLoadingMore={paginationStatus === "LoadingMore"}
           onLoadMore={() => loadMore(25)}
+          showCloserColumn
+          meetingBasePath="/workspace/pipeline/meetings"
         />
       )}
     </div>

@@ -7,6 +7,7 @@ import { internal } from "../_generated/api";
 import { getValidAccessToken } from "../calendly/tokens";
 import { validateTransition } from "../lib/statusTransitions";
 import { getIdentityOrgId } from "../lib/identity";
+import { assertOverranReviewStillPendingViaQuery } from "../lib/overranReviewGuards";
 
 type SchedulingLinkPayload = {
   resource?: {
@@ -99,6 +100,9 @@ export const createFollowUp = action({
     }
     if (opportunity.assignedCloserId !== caller._id) {
       throw new Error("Not your opportunity");
+    }
+    if (opportunity.status === "meeting_overran") {
+      await assertOverranReviewStillPendingViaQuery(ctx, opportunityId);
     }
     if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
       throw new Error(

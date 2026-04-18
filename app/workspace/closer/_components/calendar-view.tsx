@@ -1,14 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useCallback } from "react";
 import {
-  format,
-  startOfWeek,
-  endOfWeek,
-  startOfMonth,
-  endOfMonth,
-  startOfDay,
-  endOfDay,
   addDays,
   subDays,
   addWeeks,
@@ -26,75 +19,57 @@ import { MonthView } from "./month-view";
 import { CloserEmptyState } from "./closer-empty-state";
 import type { ViewMode } from "./calendar-utils";
 
+type CalendarViewProps = {
+  viewMode: ViewMode;
+  currentDate: Date;
+  /** Range start, inclusive (Unix ms). Computed by the parent. */
+  startDate: number;
+  /** Range end, exclusive (Unix ms). Computed by the parent. */
+  endDate: number;
+  /** Human‑readable range label, e.g. "Mar 30 – Apr 5, 2026". */
+  rangeLabel: string;
+  onViewModeChange: (mode: ViewMode) => void;
+  onCurrentDateChange: (date: Date) => void;
+};
+
 /**
- * Self‑contained calendar component for the closer dashboard.
+ * Calendar component for the closer dashboard.
  *
- * Manages its own state (current date + view mode), computes the
- * query date range, and delegates rendering to DayView / WeekView /
- * MonthView.  The range params are memoised so the Convex subscription
- * only updates when the user actually navigates to a different period.
+ * State (`viewMode`, `currentDate`) is owned by the parent so the same range
+ * also drives the pipeline stats strip. This component delegates rendering
+ * to DayView / WeekView / MonthView and handles its own navigation buttons.
  */
-export function CalendarView() {
-  const [viewMode, setViewMode] = useState<ViewMode>("week");
-  const [currentDate, setCurrentDate] = useState(() => new Date());
-
-  // ── Date range for the Convex query ─────────────────────────────────────
-  const { startDate, endDate } = useMemo(() => {
-    let start: Date;
-    let end: Date;
-
-    if (viewMode === "day") {
-      start = startOfDay(currentDate);
-      end = endOfDay(currentDate);
-    } else if (viewMode === "week") {
-      start = startOfWeek(currentDate); // Sunday
-      end = endOfWeek(currentDate); // Saturday 23:59:59
-    } else {
-      // month — extend to fill calendar grid (prev/next month partials)
-      start = startOfWeek(startOfMonth(currentDate));
-      end = endOfWeek(endOfMonth(currentDate));
-    }
-
-    return { startDate: start.getTime(), endDate: end.getTime() };
-  }, [currentDate, viewMode]);
-
+export function CalendarView({
+  viewMode,
+  currentDate,
+  startDate,
+  endDate,
+  rangeLabel,
+  onViewModeChange,
+  onCurrentDateChange,
+}: CalendarViewProps) {
   const meetings = useQuery(api.closer.calendar.getMeetingsForRange, {
     startDate,
     endDate,
   });
 
   // ── Navigation callbacks (stable via useCallback) ───────────────────────
-  const goToday = useCallback(() => setCurrentDate(new Date()), []);
+  const goToday = useCallback(
+    () => onCurrentDateChange(new Date()),
+    [onCurrentDateChange],
+  );
 
   const goPrev = useCallback(() => {
-    setCurrentDate((prev) => {
-      if (viewMode === "day") return subDays(prev, 1);
-      if (viewMode === "week") return subWeeks(prev, 1);
-      return subMonths(prev, 1);
-    });
-  }, [viewMode]);
+    if (viewMode === "day") onCurrentDateChange(subDays(currentDate, 1));
+    else if (viewMode === "week") onCurrentDateChange(subWeeks(currentDate, 1));
+    else onCurrentDateChange(subMonths(currentDate, 1));
+  }, [viewMode, currentDate, onCurrentDateChange]);
 
   const goNext = useCallback(() => {
-    setCurrentDate((prev) => {
-      if (viewMode === "day") return addDays(prev, 1);
-      if (viewMode === "week") return addWeeks(prev, 1);
-      return addMonths(prev, 1);
-    });
-  }, [viewMode]);
-
-  // ── Range label (header) ────────────────────────────────────────────────
-  const rangeLabel = useMemo(() => {
-    if (viewMode === "day") {
-      return format(currentDate, "EEEE, MMMM d, yyyy");
-    }
-    if (viewMode === "week") {
-      const ws = startOfWeek(currentDate);
-      const we = endOfWeek(currentDate);
-      // Same month: "Mar 30 – Apr 5, 2026"
-      return `${format(ws, "MMM d")} – ${format(we, "MMM d, yyyy")}`;
-    }
-    return format(currentDate, "MMMM yyyy");
-  }, [currentDate, viewMode]);
+    if (viewMode === "day") onCurrentDateChange(addDays(currentDate, 1));
+    else if (viewMode === "week") onCurrentDateChange(addWeeks(currentDate, 1));
+    else onCurrentDateChange(addMonths(currentDate, 1));
+  }, [viewMode, currentDate, onCurrentDateChange]);
 
   // ── Render ──────────────────────────────────────────────────────────────
   return (
@@ -105,7 +80,7 @@ export function CalendarView() {
         onPrev={goPrev}
         onNext={goNext}
         onToday={goToday}
-        onViewModeChange={setViewMode}
+        onViewModeChange={onViewModeChange}
       />
 
       {meetings === undefined ? (

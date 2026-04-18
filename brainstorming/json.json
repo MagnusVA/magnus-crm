@@ -1,0 +1,83 @@
+{
+    "created_at": "2026-04-15T02:12:50.000000Z",
+    "created_by": "https://api.calendly.com/users/b668ac77-c39d-4277-adda-ec59e346ed42",
+    "event": "invitee.created",
+    "payload": {
+        "cancel_url": "https://calendly.com/cancellations/5a7d92bf-486b-4b26-86a0-2e419dd6f011",
+        "created_at": "2026-04-15T02:12:49.577006Z",
+        "email": "vas.claudio15+lead34@icloud.com",
+        "event": "https://api.calendly.com/scheduled_events/458ccb42-ae03-4e92-893d-226f6e6b8040",
+        "first_name": null,
+        "invitee_scheduled_by": "https://api.calendly.com/users/b668ac77-c39d-4277-adda-ec59e346ed42",
+        "last_name": null,
+        "name": "Test Lead 34",
+        "new_invitee": null,
+        "no_show": null,
+        "old_invitee": null,
+        "payment": null,
+        "questions_and_answers": [
+            {
+                "answer": "lead34_handle",
+                "position": 0,
+                "question": "Instagram Handle"
+            },
+            {
+                "answer": "+50488423064",
+                "position": 1,
+                "question": "Phone Number"
+            },
+            {
+                "answer": "Booked via TESTING.MD helper",
+                "position": 2,
+                "question": "Random question"
+            }
+        ],
+        "reconfirmation": null,
+        "reschedule_url": "https://calendly.com/reschedulings/5a7d92bf-486b-4b26-86a0-2e419dd6f011",
+        "rescheduled": false,
+        "routing_form_submission": null,
+        "scheduled_event": {
+            "created_at": "2026-04-15T02:12:49.566420Z",
+            "end_time": "2026-04-15T03:00:00.000000Z",
+            "event_guests": [],
+            "event_memberships": [
+                {
+                    "user": "https://api.calendly.com/users/3878b1cd-330f-4f92-ac2a-2d6e28d9ae50",
+                    "user_email": "vas.claudio15+closer1@icloud.com",
+                    "user_name": "Nimbus Claudio Rafael"
+                }
+            ],
+            "event_type": "https://api.calendly.com/event_types/1bfc6cdf-0559-4411-8f5d-09d34664b886",
+            "invitees_counter": {
+                "total": 1,
+                "active": 1,
+                "limit": 1
+            },
+            "location": {
+                "location": null,
+                "type": "custom"
+            },
+            "meeting_notes_html": null,
+            "meeting_notes_plain": null,
+            "name": "Test meeting for CRM",
+            "start_time": "2026-04-15T02:30:00.000000Z",
+            "status": "active",
+            "updated_at": "2026-04-15T02:12:49.566420Z",
+            "uri": "https://api.calendly.com/scheduled_events/458ccb42-ae03-4e92-893d-226f6e6b8040"
+        },
+        "scheduling_method": null,
+        "status": "active",
+        "text_reminder_number": null,
+        "timezone": "America/Tegucigalpa",
+        "tracking": {
+            "utm_campaign": null,
+            "utm_source": null,
+            "utm_medium": null,
+            "utm_content": null,
+            "utm_term": null,
+            "salesforce_uuid": null
+        },
+        "updated_at": "2026-04-15T02:12:49.577006Z",
+        "uri": "https://api.calendly.com/scheduled_events/458ccb42-ae03-4e92-893d-226f6e6b8040/invitees/5a7d92bf-486b-4b26-86a0-2e419dd6f011"
+    }
+}

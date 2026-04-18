@@ -11,6 +11,7 @@
 export const OPPORTUNITY_STATUSES = [
   "scheduled",
   "in_progress",
+  "meeting_overran",
   "payment_received",
   "follow_up_scheduled",
   "reschedule_link_sent",
@@ -35,6 +36,7 @@ export const MEETING_STATUSES = [
   "completed",
   "canceled",
   "no_show",
+  "meeting_overran",
 ] as const;
 
 export type MeetingStatus = (typeof MEETING_STATUSES)[number];
@@ -84,6 +86,14 @@ export const opportunityStatusConfig: Record<
     dotClass: "bg-amber-500",
     stripBg:
       "bg-amber-500/5 hover:bg-amber-500/10 border-amber-200/60 dark:border-amber-900/60",
+  },
+  meeting_overran: {
+    label: "Meeting Overran",
+    badgeClass:
+      "bg-yellow-500/10 text-yellow-700 border-yellow-200 dark:text-yellow-400 dark:border-yellow-900",
+    dotClass: "bg-yellow-500",
+    stripBg:
+      "bg-yellow-500/5 hover:bg-yellow-500/10 border-yellow-200/60 dark:border-yellow-900/60",
   },
   follow_up_scheduled: {
     label: "Follow-up",
@@ -167,6 +177,11 @@ export const meetingStatusConfig: Record<MeetingStatus, MeetingBlockConfig> = {
     blockClass: "bg-orange-500/10 border-l-orange-500",
     textClass: "text-orange-700 dark:text-orange-300",
   },
+  meeting_overran: {
+    label: "Meeting Overran",
+    blockClass: "bg-yellow-500/10 border-l-yellow-500",
+    textClass: "text-yellow-700 dark:text-yellow-400",
+  },
 };
 
 // ─── Tenant status config ────────────────────────────────────────────
@@ -230,6 +245,7 @@ export const connectionStatusConfig = {
 export const PIPELINE_DISPLAY_ORDER: OpportunityStatus[] = [
   "scheduled",
   "in_progress",
+  "meeting_overran",
   "follow_up_scheduled",
   "payment_received",
   "reschedule_link_sent",

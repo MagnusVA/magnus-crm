@@ -104,6 +104,7 @@ export const getActiveAssignedOpportunityCount = internalQuery({
     const activeStatuses = [
       "scheduled",
       "in_progress",
+      "meeting_overran",
       "follow_up_scheduled",
       "reschedule_link_sent",
     ] as const;

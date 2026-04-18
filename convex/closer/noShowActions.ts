@@ -1,7 +1,11 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
-import { validateTransition } from "../lib/statusTransitions";
+import {
+  validateMeetingTransition,
+  validateTransition,
+} from "../lib/statusTransitions";
+import { assertOverranReviewStillPending } from "../lib/overranReviewGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
 import {
@@ -46,9 +50,9 @@ export const markNoShow = mutation({
     if (!meeting || meeting.tenantId !== tenantId) {
       throw new Error("Meeting not found");
     }
-    if (meeting.status !== "in_progress") {
+    if (meeting.status !== "in_progress" && meeting.status !== "meeting_overran") {
       throw new Error(
-        `Can only mark no-show on in-progress meetings (current: "${meeting.status}")`,
+        `Can only mark no-show on in-progress or meeting-overran meetings (current: "${meeting.status}")`,
       );
     }
 
@@ -59,9 +63,17 @@ export const markNoShow = mutation({
     if (opportunity.assignedCloserId !== userId) {
       throw new Error("Not your meeting");
     }
+    if (opportunity.status === "meeting_overran") {
+      await assertOverranReviewStillPending(ctx, opportunity._id);
+    }
     if (!validateTransition(opportunity.status, "no_show")) {
       throw new Error(
         `Cannot transition opportunity from "${opportunity.status}" to "no_show"`,
+      );
+    }
+    if (!validateMeetingTransition(meeting.status, "no_show")) {
+      throw new Error(
+        `Cannot transition meeting from "${meeting.status}" to "no_show"`,
       );
     }
 
@@ -74,6 +86,11 @@ export const markNoShow = mutation({
 
     await ctx.db.patch(meetingId, {
       status: "no_show",
+      // The closer waited in the meeting and explicitly marked the no-show,
+      // so pinning the end timestamp here is accurate.
+      stoppedAt: now,
+      completedAt: now,
+      stoppedAtSource: "closer_no_show" as const,
       noShowMarkedAt: now,
       noShowWaitDurationMs: waitDurationMs,
       noShowReason: reason,
@@ -129,6 +146,8 @@ export const markNoShow = mutation({
       closerId: userId,
       reason,
       waitDurationMs,
+      stoppedAt: now,
+      stoppedAtSource: "closer_no_show",
     });
   },
 });

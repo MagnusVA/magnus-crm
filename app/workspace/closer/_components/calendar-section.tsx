@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { ViewMode } from "./calendar-utils";
 
 /**
  * Lazy-load CalendarView — react-day-picker + date-fns locale + view modes (~80KB).
@@ -21,17 +22,27 @@ const CalendarView = dynamic(
   },
 );
 
+type CalendarSectionProps = {
+  viewMode: ViewMode;
+  currentDate: Date;
+  startDate: number;
+  endDate: number;
+  rangeLabel: string;
+  onViewModeChange: (mode: ViewMode) => void;
+  onCurrentDateChange: (date: Date) => void;
+};
+
 /**
- * Calendar section — wraps the lazy-loaded calendar view.
- * Suspense boundary in parent page handles streaming.
+ * Calendar section — wraps the lazy-loaded calendar view and forwards the
+ * shared filter state owned by the dashboard page.
  */
-export function CalendarSection() {
+export function CalendarSection(props: CalendarSectionProps) {
   return (
     <div>
       <h2 className="mb-3 text-lg font-semibold tracking-tight text-pretty">
         My Schedule
       </h2>
-      <CalendarView />
+      <CalendarView {...props} />
     </div>
   );
 }
