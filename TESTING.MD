@@ -1,13 +1,13 @@
 # Testing Guidelines — ptdom-crm
 
-> **This app integrates Calendly, Convex, and WorkOS.** End-to-end testing requires creating _real_ Calendly meetings, preferably via the Convex CLI test helpers in `convex/testing/calendly.ts`, then validating the processed data through the web app.
+> **This app integrates Calendly, Convex, and WorkOS.** End-to-end testing is done **manually** and requires creating _real_ Calendly meetings, preferably via the Convex CLI test helpers in `convex/testing/calendly.ts`, then validating the processed data through the web app.
 >
-> This document is the authoritative reference for AI agents running QA via the **Expect** skill.
+> This document is the authoritative reference for running manual QA on ptdom-crm.
 
 > **MANDATORY: Use the Convex CLI (terminal only) to validate all backend data.**
 > Every testing workflow **must** include Convex CLI verification against the **test deployment** before moving to browser validation. Use `npx convex run` and `npx convex logs` in the terminal — these are the single source of truth for confirming that webhooks arrived, were processed, and produced the correct records. You cannot skip this step — browser-only validation is insufficient because the UI may cache stale data or hide backend errors. Always run CLI checks first, then validate the UI.
 >
-> **Do NOT use `npx convex dashboard`.** The dashboard opens a browser UI — the Expect agent's browser must only be used for the actual application (`localhost:3000`). All backend data inspection must happen through terminal CLI commands: `npx convex run <function>` to query tables, and `npx convex logs` to check function execution logs.
+> **Do NOT rely solely on `npx convex dashboard` output in screenshots.** Use terminal CLI commands (`npx convex run` to query tables, `npx convex logs` to check function execution logs) as the source of truth for all backend data inspection.
 
 ---
 
@@ -20,7 +20,7 @@
 5. [App Routes by Role](#app-routes-by-role)
 6. [End-to-End Testing Workflow](#end-to-end-testing-workflow)
 7. [Validation Checklist](#validation-checklist)
-8. [Using the Expect Skill](#using-the-expect-skill)
+8. [Manual Browser QA](#manual-browser-qa)
 9. [Convex CLI — Test Environment Validation](#convex-cli--test-environment-validation)
 10. [Common Scenarios](#common-scenarios)
 11. [Quick Reference](#quick-reference)
@@ -46,7 +46,6 @@ calendly:bookTestInvitee ─────► POST /invitees + webhook flow ──
                      ┌─ Convex CLI: validate all records (MANDATORY) ─┐
                      │  npx convex run <function> → query tables      │
                      │  npx convex logs → check for errors            │
-                     │  (terminal only — NOT npx convex dashboard)    │
                      └────────────────────────────────────────────────┘
                                         │
                                    THEN and only then
@@ -59,7 +58,7 @@ calendly:bookTestInvitee ─────► POST /invitees + webhook flow ──
 
 1. **Calendly** — generates real webhook events from the Scheduling API
 2. **Convex (test deployment)** — processes webhooks and stores lead, opportunity, and meeting records; **validated via the Convex CLI before touching the browser**
-3. **Web app** — displays the data; where you do final UI validation _after_ CLI confirms the data is correct
+3. **Web app** — displays the data; where you do final manual UI validation _after_ CLI confirms the data is correct
 
 ---
 
@@ -133,6 +132,27 @@ npx convex data leads | rg 'vas\.claudio15\+lead3@icloud\.com'
 ```
 
 If the email exists and you need a clean slate, increment to the next number (`+lead4`, `+lead5`, etc.).
+
+### Phone Numbers
+
+Use a **fresh random phone number for each "new lead" test booking**.
+
+Phone numbers participate in lead identity resolution, so reusing a phone number can cause the pipeline to attach the booking to an existing lead even when the email is new. Formatting differences do not help here: values such as `+504 8842-3064` and `+50488423064` normalize to the same identifier.
+
+This applies to both:
+
+- the standard Calendly `textReminderNumber` field
+- any custom question mapped to phone (for this event type, `Phone Number`)
+
+We are **not using SMS automations** in this environment, so it is safe to use random test numbers.
+
+**Use the Convex CLI to check**:
+
+```bash
+# Check whether a phone number has already been used for a lead
+npx convex data leadIdentifiers | rg '\+15005550006'
+# If it returns a row, the phone is taken — use a different random number
+```
 
 ### Round-Robin Assignment
 
@@ -259,7 +279,7 @@ This is the primary page for validating that Calendly data flowed correctly. It 
 
 ### Phase 1: Generate Test Data
 
-1. **Pick an unused lead email** — check via `npx convex data leads | rg 'lead4@icloud.com'` first
+1. **Pick an unused lead email and a fresh random phone number** — check both before booking
 2. **Find the event type and questions**:
     ```bash
     npx convex run testing/calendly:listEventTypes '{"tenantId":"<tenantId>"}'
@@ -281,6 +301,7 @@ This is the primary page for validating that Calendly data flowed correctly. It 
       }
     }'
     ```
+    Use a phone number that has not appeared in prior test bookings when you anticipate a brand-new lead.
 4. **Optional: attach attribution UTMs** by passing `tracking`:
     ```bash
     "tracking":{
@@ -293,7 +314,7 @@ This is the primary page for validating that Calendly data flowed correctly. It 
 
 > **This phase is mandatory and must use the Convex CLI against the test deployment.** Do not skip to browser validation. The CLI is the only way to confirm the webhook was received, processed without errors, and produced the correct database records.
 
-5. **Run Convex CLI commands in the terminal to verify the full data chain.** Use `npx convex data` to inspect each table — do **not** open the Convex dashboard:
+5. **Run Convex CLI commands in the terminal to verify the full data chain.** Use `npx convex data` to inspect each table:
 
     ```bash
     # Step 5a: Check that the webhook event arrived and was processed
@@ -324,7 +345,7 @@ This is the primary page for validating that Calendly data flowed correctly. It 
 
 7. **If any check fails, stop here.** Do not proceed to browser validation until the CLI confirms all records exist and are correct. Common issues are documented in [Debugging Failed Webhooks](#debugging-failed-webhooks).
 
-### Phase 3: Validate in the Web App
+### Phase 3: Validate in the Web App (Manual)
 
 > Only proceed here after the Convex CLI confirms all records exist (Phase 2).
 
@@ -351,7 +372,7 @@ Use this after every test meeting is scheduled.
 
 ### Convex Backend (CLI terminal only — mandatory, always first)
 
-> **All backend checks must be performed via `npx convex data`, `npx convex run testing/calendly:*`, and `npx convex logs` in the terminal.** Do not use `npx convex dashboard`.
+> **All backend checks must be performed via `npx convex data`, `npx convex run testing/calendly:*`, and `npx convex logs` in the terminal.**
 
 - [ ] `rawWebhookEvents` — `npx convex data rawWebhookEvents --limit 5` → event received, `processed: true`, no errors in payload
 - [ ] `leads` — `npx convex data leads` → record exists with correct `email`, `fullName`, `phone`, `customFields`
@@ -377,65 +398,62 @@ Use this after every test meeting is scheduled.
 
 ---
 
-## Using the Expect Skill
+## Manual Browser QA
 
-**Expect** is the project's browser-based QA tool. It runs a real Playwright browser and validates accessibility, performance, and correctness.
-
-> **Critical: Expect's browser is for the app only.**
-> The Expect agent must **never** open `npx convex dashboard` or navigate to `localhost:3210`. The browser is exclusively for testing the application at `localhost:3000`. All backend/database validation must happen through **Convex CLI commands in the terminal** (`npx convex run`, `npx convex logs`) — not through any browser-based dashboard.
+After CLI validation passes, perform manual browser QA to confirm the UI renders correctly.
 
 ### Prerequisites
 
-Before running Expect, you **must** have real data in the system:
+Before running through browser QA, you **must** have real data in the system:
 
 - **Minimum 3 meetings** created through the CLI test helpers (so dashboards, pipelines, and lists render real content)
 - **Both closers** should have at least 1 meeting assigned (test round-robin)
 - Empty-state screenshots are **not valid tests**
 - **Backend data verified via CLI first** — run `npx convex data` table inspections to confirm all records exist before opening the browser
 
-### Workflow
+### Manual QA Checklist
 
-1. **Seed data** — create meetings via `testing/calendly:bookTestInvitee`
-2. **Verify data via Convex CLI** — run `npx convex data`, `npx convex run testing/calendly:*`, and `npx convex logs` in the terminal to confirm webhooks were processed and records are correct (see [Phase 2](#phase-2-verify-webhook-processing-via-convex-cli))
-3. **Make your code changes**
-4. **Invoke Expect** — the skill auto-generates a test plan from your git diff
-5. **Expect opens a browser** (only `localhost:3000`) and runs checks:
-    - Signs in with test credentials (use `TEST_USERS_PASSWORD` from `.env.local`)
-    - Navigates to affected routes
-    - Takes screenshots, runs audits
-6. **Review results** — accessibility violations, performance metrics, console errors
-7. **Fix and re-run** if any failures
+Walk through each of the following in a real browser (Chrome / Safari / Firefox) after signing in as the appropriate test user:
 
-### Completion Gates
+1. **Functional smoke tests**
+    - Sign in with each test user and confirm the correct landing route for their role
+    - Exercise the changed page(s): click primary CTAs, open dialogs, submit forms, verify success toasts
+    - Confirm real-time updates — changes made in one tab should reflect in a second tab without a refresh
 
-Expect enforces these before work can be marked done:
+2. **State transitions** — where applicable, run the meeting lifecycle (scheduled → in progress → completed / lost / payment received / follow-up scheduled) and confirm the status actions behave correctly
 
-| Gate                | Tool                  | Fail condition                              |
-| ------------------- | --------------------- | ------------------------------------------- |
-| Accessibility audit | `accessibility_audit` | Any critical or serious WCAG violation      |
-| Performance metrics | `performance_metrics` | Any Core Web Vital rated "poor"             |
-| Console errors      | `console_logs`        | Any `type='error'` entries                  |
-| Responsive design   | `screenshot`          | Must test 4 viewports: 375, 768, 1280, 1440 |
-| Session flush       | `close`               | Must be called to save artifacts            |
+3. **Console & network**
+    - Open DevTools → Console — no red error entries during the flow
+    - DevTools → Network — no 4xx/5xx responses, no CORS errors, no failed asset loads
 
-### Expect MCP Tools Reference
+4. **Responsive design** — resize the window or use DevTools device toolbar to verify at least these viewports:
+    - 375 px (mobile)
+    - 768 px (tablet)
+    - 1280 px (laptop)
+    - 1440 px (desktop)
 
-| Tool                  | Purpose                                                          |
-| --------------------- | ---------------------------------------------------------------- |
-| `open`                | Launch browser, navigate to URL                                  |
-| `playwright`          | Execute arbitrary Playwright code (click, fill, assert, etc.)    |
-| `screenshot`          | Capture page: `snapshot` (ARIA), `screenshot` (PNG), `annotated` |
-| `console_logs`        | Get console messages (filter by error/warning/log)               |
-| `network_requests`    | Check for failed requests, 4xx/5xx, mixed content                |
-| `performance_metrics` | Core Web Vitals, TTFB, Long Animation Frames                     |
-| `accessibility_audit` | axe-core + IBM Equal Access WCAG audit                           |
-| `close`               | End session, flush recordings to disk                            |
+5. **Accessibility spot check**
+    - Tab through the page — focus order is logical, focus ring is visible
+    - All interactive elements are reachable via keyboard
+    - Dialogs trap focus and close on `Esc`
+    - Form fields have visible labels; error messages are announced (use VoiceOver / NVDA if changes are significant)
+
+6. **Dark mode** — toggle the theme and confirm colors, contrast, and icons render correctly in both light and dark modes
+
+### When to Re-Test
+
+Re-run the relevant manual checks whenever you:
+
+- Modify a page, route, dialog, form, or shared layout component
+- Change a Convex query/mutation touched by a UI surface
+- Update shared UI primitives (`components/ui/*`) or the workspace shell
+- Adjust styles, tokens, or theme variables
 
 ---
 
 ## Convex CLI — Test Environment Validation
 
-> **The Convex CLI is the only tool for backend validation.** All commands below run in the terminal and target the test deployment configured in your `.env.local`. **Never use `npx convex dashboard`** — it opens a browser UI, and the Expect agent's browser must only be used for the actual app at `localhost:3000`.
+> **The Convex CLI is the only tool for backend validation.** All commands below run in the terminal and target the test deployment configured in your `.env.local`.
 
 ### Essential Commands
 
@@ -547,7 +565,7 @@ Common failures:
 
 ### Scenario 3: Round-Robin Distribution
 
-1. Schedule 4+ meetings with different lead emails
+1. Schedule 4+ meetings with different lead emails and different phone numbers
 2. **CLI**: Inspect `npx convex data leads` and `npx convex data opportunities` — `assignedCloserId` should alternate between closer1 and closer2
 3. **Browser**: Login as each closer — each should see only their assigned meetings
 
@@ -593,20 +611,18 @@ Common failures:
 | Check recent history         | `npx convex logs --history 100`                                         |
 | Inspect custom form fields   | Read `customFields` from lead query or `payload` from raw event query   |
 
-> **Never use `npx convex dashboard`** — it opens a browser. Use only `npx convex run` and `npx convex logs`.
-
 ### Calendly & App
 
-| What                    | Where / How                                                     |
-| ----------------------- | --------------------------------------------------------------- |
-| Schedule a test meeting | `npx convex run testing/calendly:bookTestInvitee '{...}'`       |
-| Lead email pattern      | `vas.claudio15+lead{N}@icloud.com`                              |
-| Test password           | `grep TEST_USERS_PASSWORD .env.local`                           |
-| Sign in                 | `http://localhost:3000/sign-in`                                 |
-| Admin dashboard         | `http://localhost:3000/workspace`                               |
-| Closer dashboard        | `http://localhost:3000/workspace/closer`                        |
-| Meeting detail          | `http://localhost:3000/workspace/closer/meetings/[id]`          |
-| Expect skill            | Invoke via `expect` in Claude Code / mention "test" or "verify" |
+| What                    | Where / How                                                 |
+| ----------------------- | ----------------------------------------------------------- |
+| Schedule a test meeting | `npx convex run testing/calendly:bookTestInvitee '{...}'`   |
+| Lead email pattern      | `vas.claudio15+lead{N}@icloud.com`                          |
+| Lead phone pattern      | Use a fresh random E.164-like number for each new-lead test |
+| Test password           | `grep TEST_USERS_PASSWORD .env.local`                       |
+| Sign in                 | `http://localhost:3000/sign-in`                             |
+| Admin dashboard         | `http://localhost:3000/workspace`                           |
+| Closer dashboard        | `http://localhost:3000/workspace/closer`                    |
+| Meeting detail          | `http://localhost:3000/workspace/closer/meetings/[id]`      |
 
 ### Code References
 

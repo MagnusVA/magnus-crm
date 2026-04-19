@@ -35,7 +35,7 @@ I need you to audit the current codebase and regenerate AGENTS.md with accurate,
 
    d. **Frontend Architecture** — Route structure, component organization, shadcn/ui usage, styling approach (Tailwind config, globals.css), state management (Convex queries, context, hooks), form handling patterns, provider nesting, custom hooks, dynamic imports. Check: app/ directory tree, components/, hooks/, package.json, next.config.ts, components.json, tailwind config.
 
-   e. **Project Config & Tooling** — Package manager, TypeScript config, ESLint, testing setup (expect MCP tool, .mcp.json, .expect/), CI/CD, environment variables, deployment config, .agents/skills/ directory, plans/ structure, .docs/ structure. Check: root config files, .agents/, .mcp.json, .expect/.
+   e. **Project Config & Tooling** — Package manager, TypeScript config, ESLint, manual QA workflow (TESTING.MD), CI/CD, environment variables, deployment config, .agents/skills/ directory, plans/ structure, .docs/ structure. Check: root config files, .agents/, TESTING.MD.
 
 2. **Read key files directly** to verify patterns found by exploration:
    - convex/_generated/ai/guidelines.md
@@ -82,7 +82,7 @@ For each section, document WHAT the pattern is, WHERE it lives (file paths), and
 - **Form Patterns** — manual useState approach, validation, toast feedback, compound form components
 - **Styling & Theming** — Tailwind 4, OKLCH, shadcn config, CSS import order, dark mode
 - **Analytics** — PostHog client/server, proxy rewrites, Web Vitals, user identification
-- **Testing with Expect** — what it actually is (MCP browser QA tool, NOT a test framework), configuration, when it fires, verification rules
+- **Testing** — point to `TESTING.MD` for the manual QA workflow (Convex CLI seeding + CLI validation + human browser verification). Do not add any automated browser-QA or MCP-based testing guidance.
 - **Next.js patterns table** — key patterns specific to this codebase's Next.js usage
 - **Skills table** — all available skills with trigger words and when to invoke
 - **Quick Reference: Key Files** — table mapping important files to their purpose
@@ -93,7 +93,7 @@ For each section, document WHAT the pattern is, WHERE it lives (file paths), and
 - [ ] All file paths referenced actually exist in the codebase
 - [ ] No patterns described that don't match the actual code
 - [ ] PPR status accurately reflects what's in next.config.ts (don't claim it's enabled if the flag isn't set)
-- [ ] Expect is described as an MCP browser tool, not a traditional test framework
+- [ ] Testing is described as manual QA (see TESTING.MD) — no automated browser-QA tooling is in use
 - [ ] Skills table includes ALL skills from .agents/skills/
 - [ ] No generic/placeholder code examples — use actual patterns from this codebase
 ```
@@ -110,7 +110,7 @@ The prompt above instructs the agent to run **5 parallel exploration subagents**
 | RSC      | `app/workspace/`, all `loading.tsx`                      | `app/workspace/layout.tsx`, skeleton files               |
 | Convex   | `convex/` (all subdirs)                                  | `convex/schema.ts`, `convex/_generated/ai/guidelines.md` |
 | Frontend | `app/`, `components/`, `hooks/`                          | `package.json`, `next.config.ts`, `components.json`      |
-| Config   | root config files, `.agents/`, `.docs/`, `.expect/`      | `.mcp.json`, `tsconfig.json`, `pnpm-lock.yaml`           |
+| Config   | root config files, `.agents/`, `.docs/`                  | `TESTING.MD`, `tsconfig.json`, `pnpm-lock.yaml`          |
 
 After the parallel exploration, the agent reads ~6 key files directly to verify findings before writing.
 
