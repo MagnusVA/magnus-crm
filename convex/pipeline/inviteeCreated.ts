@@ -130,6 +130,20 @@ type EventTypeConfigLookupResult = {
 	candidateCount: number;
 };
 
+type AssignedCloserResolution = {
+	assignedCloserId: Id<"users"> | undefined;
+	hostCalendlyRole: string | undefined;
+	isKnownNonCloserHost: boolean;
+	resolution:
+		| "missing_host"
+		| "direct_closer"
+		| "direct_non_closer"
+		| "org_member_closer"
+		| "org_member_non_closer"
+		| "org_member_unmatched"
+		| "unknown_host";
+};
+
 type LeadIdentifierUpsertResult =
 	| "created"
 	| "existing_same_lead"
@@ -414,7 +428,7 @@ async function detectPotentialDuplicate(
  * Multi-identifier lead identity resolution chain.
  * Priority: email > social handle > phone > new lead.
  */
-async function resolveLeadIdentity(
+async function resolveLeadIdentityInternal(
 	ctx: MutationCtx,
 	tenantId: Id<"tenants">,
 	inviteeEmail: string,
@@ -424,7 +438,8 @@ async function resolveLeadIdentity(
 		| { rawValue: string; platform: SocialPlatformType }
 		| undefined,
 	now: number,
-): Promise<IdentityResolutionResult> {
+	{ createIfMissing }: { createIfMissing: boolean },
+): Promise<IdentityResolutionResult | null> {
 	// Step 1: Email match — legacy index first for backward compat
 	const normalizedEmail = normalizeEmail(inviteeEmail);
 	if (normalizedEmail) {
@@ -547,6 +562,10 @@ async function resolveLeadIdentity(
 	}
 
 	// Step 4: No match — create a new lead
+	if (!createIfMissing) {
+		return null;
+	}
+
 	// Note: customFields will be set separately in the main handler if present
 	const leadId = await ctx.db.insert("leads", {
 		tenantId,
@@ -589,6 +608,58 @@ async function resolveLeadIdentity(
 		resolvedVia: "new",
 		potentialDuplicateLeadId,
 	};
+}
+
+async function resolveExistingLeadIdentity(
+	ctx: MutationCtx,
+	tenantId: Id<"tenants">,
+	inviteeEmail: string,
+	inviteeName: string | undefined,
+	inviteePhone: string | undefined,
+	socialHandle:
+		| { rawValue: string; platform: SocialPlatformType }
+		| undefined,
+	now: number,
+): Promise<IdentityResolutionResult | null> {
+	return resolveLeadIdentityInternal(
+		ctx,
+		tenantId,
+		inviteeEmail,
+		inviteeName,
+		inviteePhone,
+		socialHandle,
+		now,
+		{ createIfMissing: false },
+	);
+}
+
+async function resolveLeadIdentity(
+	ctx: MutationCtx,
+	tenantId: Id<"tenants">,
+	inviteeEmail: string,
+	inviteeName: string | undefined,
+	inviteePhone: string | undefined,
+	socialHandle:
+		| { rawValue: string; platform: SocialPlatformType }
+		| undefined,
+	now: number,
+): Promise<IdentityResolutionResult> {
+	const resolution = await resolveLeadIdentityInternal(
+		ctx,
+		tenantId,
+		inviteeEmail,
+		inviteeName,
+		inviteePhone,
+		socialHandle,
+		now,
+		{ createIfMissing: true },
+	);
+
+	if (!resolution) {
+		throw new Error("[Pipeline:Identity] Expected lead resolution to succeed");
+	}
+
+	return resolution;
 }
 
 /**
@@ -766,11 +837,11 @@ async function lookupEventTypeConfig(
 	};
 }
 
-async function resolveAssignedCloserId(
+async function resolveAssignedCloser(
 	ctx: MutationCtx,
 	tenantId: Id<"tenants">,
 	hostUserUri: string | undefined,
-): Promise<Id<"users"> | undefined> {
+): Promise<AssignedCloserResolution> {
 	console.log(
 		`[Pipeline:invitee.created] Resolving closer | hostUserUri=${hostUserUri ?? "none"}`,
 	);
@@ -779,7 +850,12 @@ async function resolveAssignedCloserId(
 		console.warn(
 			"[Pipeline:invitee.created] No host URI on scheduled event; leaving opportunity unassigned",
 		);
-		return undefined;
+		return {
+			assignedCloserId: undefined,
+			hostCalendlyRole: undefined,
+			isKnownNonCloserHost: false,
+			resolution: "missing_host",
+		};
 	}
 
 	const directUser = await ctx.db
@@ -792,7 +868,24 @@ async function resolveAssignedCloserId(
 		console.log(
 			`[Pipeline:invitee.created] Direct user match: userId=${directUser._id}`,
 		);
-		return directUser._id;
+		return {
+			assignedCloserId: directUser._id,
+			hostCalendlyRole: undefined,
+			isKnownNonCloserHost: false,
+			resolution: "direct_closer",
+		};
+	}
+
+	if (directUser) {
+		console.warn(
+			`[Pipeline:invitee.created] Host maps to non-closer CRM user | userId=${directUser._id} role=${directUser.role}`,
+		);
+		return {
+			assignedCloserId: undefined,
+			hostCalendlyRole: undefined,
+			isKnownNonCloserHost: true,
+			resolution: "direct_non_closer",
+		};
 	}
 
 	const orgMember = await ctx.db
@@ -807,14 +900,48 @@ async function resolveAssignedCloserId(
 			console.log(
 				`[Pipeline:invitee.created] Org member match: userId=${matchedUser._id} via orgMemberId=${orgMember._id}`,
 			);
-			return matchedUser._id;
+			return {
+				assignedCloserId: matchedUser._id,
+				hostCalendlyRole: orgMember.calendlyRole,
+				isKnownNonCloserHost: false,
+				resolution: "org_member_closer",
+			};
 		}
+
+		if (matchedUser) {
+			console.warn(
+				`[Pipeline:invitee.created] Host org member maps to non-closer CRM user | orgMemberId=${orgMember._id} userId=${matchedUser._id} role=${matchedUser.role}`,
+			);
+			return {
+				assignedCloserId: undefined,
+				hostCalendlyRole: orgMember.calendlyRole,
+				isKnownNonCloserHost: true,
+				resolution: "org_member_non_closer",
+			};
+		}
+	}
+
+	if (orgMember) {
+		console.warn(
+			`[Pipeline:invitee.created] Known Calendly host has no matched closer | orgMemberId=${orgMember._id} calendlyRole=${orgMember.calendlyRole ?? "none"} email=${orgMember.email}`,
+		);
+		return {
+			assignedCloserId: undefined,
+			hostCalendlyRole: orgMember.calendlyRole,
+			isKnownNonCloserHost: true,
+			resolution: "org_member_unmatched",
+		};
 	}
 
 	console.warn(
 		`[Pipeline:invitee.created] Unmatched Calendly host URI: ${hostUserUri}. Leaving opportunity unassigned.`,
 	);
-	return undefined;
+	return {
+		assignedCloserId: undefined,
+		hostCalendlyRole: undefined,
+		isKnownNonCloserHost: false,
+		resolution: "unknown_host",
+	};
 }
 
 async function resolveEventTypeConfigId(
@@ -1016,6 +1143,17 @@ export const process = internalMutation({
 		);
 		const effectivePhone =
 			extractedIdentifiers.phoneOverride ?? inviteePhone;
+		const { hostUserUri, hostCalendlyEmail, hostCalendlyName } =
+			extractHostMembership(scheduledEvent);
+		const assignedCloserResolution = await resolveAssignedCloser(
+			ctx,
+			tenantId,
+			hostUserUri,
+		);
+		const assignedCloserId = assignedCloserResolution.assignedCloserId;
+		console.log(
+			`[Pipeline:invitee.created] Assigned closer resolved | closerId=${assignedCloserId ?? "none"} hostEmail=${hostCalendlyEmail ?? "none"} resolution=${assignedCloserResolution.resolution}`,
+		);
 		console.log(
 			`[Pipeline:invitee.created] UTM extraction | hasUtm=${!!utmParams} source=${utmParams?.utm_source ?? "none"} medium=${utmParams?.utm_medium ?? "none"} campaign=${utmParams?.utm_campaign ?? "none"}`,
 		);
@@ -1056,16 +1194,6 @@ export const process = internalMutation({
 						now,
 					});
 					await updateLeadSearchText(ctx, lead._id);
-					const { hostUserUri, hostCalendlyEmail, hostCalendlyName } =
-						extractHostMembership(scheduledEvent);
-					const assignedCloserId = await resolveAssignedCloserId(
-						ctx,
-						tenantId,
-						hostUserUri,
-					);
-					console.log(
-						`[Pipeline:invitee.created] Assigned closer resolved | closerId=${assignedCloserId ?? "none"} hostEmail=${hostCalendlyEmail ?? "none"}`,
-					);
 					const eventTypeConfigId = await resolveEventTypeConfigId(
 						ctx,
 						{
@@ -1305,6 +1433,28 @@ export const process = internalMutation({
 			);
 		}
 
+		if (
+			!assignedCloserId &&
+			assignedCloserResolution.isKnownNonCloserHost
+		) {
+			const existingLeadResolution = await resolveExistingLeadIdentity(
+				ctx,
+				tenantId,
+				inviteeEmail,
+				inviteeName,
+				effectivePhone,
+				extractedIdentifiers.socialHandle,
+				now,
+			);
+			if (!existingLeadResolution) {
+				console.warn(
+					`[Pipeline:invitee.created] Skipping booking for known non-closer host without existing lead context | eventUri=${calendlyEventUri} hostUserUri=${hostUserUri ?? "none"} hostEmail=${hostCalendlyEmail ?? "none"} eventTypeUri=${eventTypeUri ?? "none"} calendlyRole=${assignedCloserResolution.hostCalendlyRole ?? "none"}`,
+				);
+				await ctx.db.patch(rawEventId, { processed: true });
+				return;
+			}
+		}
+
 		// === Feature E: Multi-identifier identity resolution ===
 		const resolution = await resolveLeadIdentity(
 			ctx,
@@ -1338,17 +1488,6 @@ export const process = internalMutation({
 			await syncCustomerSnapshot(ctx, tenantId, lead._id);
 		}
 		// === End Feature E: Identity Resolution ===
-
-		const { hostUserUri, hostCalendlyEmail, hostCalendlyName } =
-			extractHostMembership(scheduledEvent);
-		const assignedCloserId = await resolveAssignedCloserId(
-			ctx,
-			tenantId,
-			hostUserUri,
-		);
-		console.log(
-			`[Pipeline:invitee.created] Assigned closer resolved | closerId=${assignedCloserId ?? "none"} hostEmail=${hostCalendlyEmail ?? "none"}`,
-		);
 		const eventTypeConfigId = await resolveEventTypeConfigId(ctx, {
 			tenantId,
 			eventTypeUri,
@@ -1599,6 +1738,13 @@ export const process = internalMutation({
 			? assignedCloserId ?? existingFollowUp.assignedCloserId
 			: assignedCloserId;
 		if (!meetingAssignedCloserId) {
+			if (assignedCloserResolution.isKnownNonCloserHost) {
+				console.warn(
+					`[Pipeline:invitee.created] Skipping booking for known non-closer host without reusable opportunity context | leadId=${lead._id} eventUri=${calendlyEventUri} hostUserUri=${hostUserUri ?? "none"} hostEmail=${hostCalendlyEmail ?? "none"} resolution=${assignedCloserResolution.resolution}`,
+				);
+				await ctx.db.patch(rawEventId, { processed: true });
+				return;
+			}
 			throw new Error(
 				"[Pipeline] Unable to resolve assigned closer for invitee.created",
 			);
