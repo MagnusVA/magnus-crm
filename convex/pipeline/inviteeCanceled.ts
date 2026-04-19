@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
+import { cancelMeetingAttendanceCheck } from "../lib/attendanceChecks";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { validateTransition } from "../lib/statusTransitions";
 import { emitDomainEvent } from "../lib/domainEvents";
@@ -90,6 +91,39 @@ export const process = internalMutation({
 			`[Pipeline:invitee.canceled] Meeting found | meetingId=${meeting._id} currentStatus=${meeting.status}`,
 		);
 
+		const opportunity = await ctx.db.get(meeting.opportunityId);
+		if (meeting.status !== "meeting_overran") {
+			await cancelMeetingAttendanceCheck(
+				ctx,
+				meeting.attendanceCheckId,
+				"pipeline.inviteeCanceled",
+			);
+		}
+		if (opportunity?.status === "meeting_overran") {
+			const now = Date.now();
+			console.log(
+				"[Pipeline:invitee.canceled] IGNORED - opportunity is meeting_overran",
+				{
+					opportunityId: opportunity._id,
+					meetingId: meeting._id,
+				},
+			);
+			await emitDomainEvent(ctx, {
+				tenantId,
+				entityType: "meeting",
+				entityId: meeting._id,
+				eventType: "meeting.webhook_ignored_overran",
+				source: "pipeline",
+				occurredAt: now,
+				metadata: {
+					webhookEventType: "invitee.canceled",
+					opportunityStatus: "meeting_overran",
+				},
+			});
+			await ctx.db.patch(rawEventId, { processed: true });
+			return;
+		}
+
 		if (meeting.status !== "canceled") {
 			const now = Date.now();
 			await ctx.db.patch(meeting._id, {
@@ -117,7 +151,6 @@ export const process = internalMutation({
 			);
 		}
 
-		const opportunity = await ctx.db.get(meeting.opportunityId);
 		if (opportunity) {
 			const cancellation =
 				isRecord(payload) && isRecord(payload.cancellation)

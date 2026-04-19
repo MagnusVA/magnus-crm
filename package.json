@@ -44,12 +44,6 @@
     "vaul": "^1.1.2",
     "zod": "^4.3.6"
   },
-  "pnpm": {
-    "overrides": {
-      "effect": "4.0.0-beta.35",
-      "@effect/platform-node-shared": "4.0.0-beta.35"
-    }
-  },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
@@ -57,7 +51,6 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.1",
-    "expect-cli": "0.1.2",
     "react-scan": "^0.5.3",
     "tailwindcss": "^4",
     "typescript": "^5"

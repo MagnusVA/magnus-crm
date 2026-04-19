@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Preloaded } from "convex/react";
 import { usePreloadedQuery } from "convex/react";
-import type { Doc } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -27,7 +27,7 @@ import {
 } from "@/lib/status-config";
 import { LeadInfoPanel } from "../../_components/lead-info-panel";
 import { MeetingInfoPanel } from "../../_components/meeting-info-panel";
-import { MeetingNotes } from "../../_components/meeting-notes";
+import { MeetingComments } from "../../_components/meeting-comments";
 import { PaymentLinksPanel } from "../../_components/payment-links-panel";
 import { OutcomeActionBar } from "../../_components/outcome-action-bar";
 import { BookingAnswersCard } from "../../_components/booking-answers-card";
@@ -40,6 +40,8 @@ import {
   RescheduleLinkSentBanner,
 } from "../../_components/reschedule-link-display";
 import { RescheduleChainBanner } from "../../_components/reschedule-chain-banner";
+import { MeetingOverranBanner } from "../../_components/meeting-overran-banner";
+import { FathomLinkField } from "../../_components/fathom-link-field";
 
 type MeetingDetailData = {
   meeting: Doc<"meetings">;
@@ -82,14 +84,22 @@ type MeetingDetailData = {
     scheduledAt: number;
     status: string;
   } | null;
+  meetingReview: Doc<"meetingReviews"> | null;
+  activeFollowUp: {
+    _id: Id<"followUps">;
+    type: Doc<"followUps">["type"];
+    status: "pending";
+    createdAt: number;
+    reminderScheduledAt?: number;
+  } | null;
 } | null;
 
 export function MeetingDetailPageClient({
   preloadedDetail,
-  allowOutOfWindowMeetingStart,
+  viewerRole,
 }: {
   preloadedDetail: Preloaded<typeof api.closer.meetingDetail.getMeetingDetail>;
-  allowOutOfWindowMeetingStart: boolean;
+  viewerRole: Doc<"users">["role"];
 }) {
   const router = useRouter();
   const detail = usePreloadedQuery(preloadedDetail) as MeetingDetailData;
@@ -121,6 +131,8 @@ export function MeetingDetailPageClient({
     potentialDuplicate,
     reassignmentInfo,
     rescheduledFromMeeting,
+    meetingReview,
+    activeFollowUp,
   } = detail;
 
   const statusKey = opportunity.status as OpportunityStatus;
@@ -175,7 +187,7 @@ export function MeetingDetailPageClient({
       )}
 
       {/* Feature B: No-Show Action Bar */}
-      {opportunity.status === "no_show" && (
+      {viewerRole === "closer" && opportunity.status === "no_show" && (
         <NoShowActionBar
           meeting={meeting}
           opportunity={opportunity}
@@ -198,17 +210,53 @@ export function MeetingDetailPageClient({
         <RescheduleLinkSentBanner opportunityId={opportunity._id} />
       )}
 
+      {/* v2: Meeting Overran Banner — persistent whenever a review exists.
+          No longer gated on `opportunity.status === "meeting_overran"`: the
+          banner stays visible across the review lifecycle (pending → resolved)
+          so the closer always sees where the review sits.
+
+          `activeFollowUp` is passed so the banner flips to "Action Recorded —
+          Awaiting Admin Review" when the closer created a follow-up that
+          intentionally did NOT move the opportunity out of `meeting_overran`
+          (see `convex/closer/followUpMutations.ts` and overhaul-v2.md §14.6). */}
+      {meetingReview && (
+        <MeetingOverranBanner
+          meeting={meeting}
+          meetingReview={meetingReview}
+          opportunityStatus={opportunity.status}
+          activeFollowUp={activeFollowUp}
+        />
+      )}
+
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3 lg:grid-cols-4">
         <div className="md:col-span-1">
           <LeadInfoPanel lead={lead} meetingHistory={meetingHistory} />
         </div>
 
         <div className="flex flex-col gap-6 md:col-span-2 lg:col-span-3">
-          <MeetingInfoPanel
-            meeting={meeting}
-            eventTypeName={eventTypeName}
-            assignedCloser={assignedCloser}
-          />
+          {/* Meeting details + actions side by side */}
+          <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-3">
+            <div className="lg:col-span-2">
+              <MeetingInfoPanel
+                meeting={meeting}
+                eventTypeName={eventTypeName}
+                assignedCloser={assignedCloser}
+              />
+            </div>
+            <div className="lg:col-span-1">
+              <div className="sticky top-6 h-full">
+                <OutcomeActionBar
+                  meeting={meeting}
+                  opportunity={opportunity}
+                  viewerRole={viewerRole}
+                  payments={payments}
+                  meetingReview={meetingReview}
+                  activeFollowUp={activeFollowUp}
+                  onStatusChanged={refreshDetail}
+                />
+              </div>
+            </div>
+          </div>
           <BookingAnswersCard customFields={lead.customFields} />
 
           {/* Deal Won Card — only when opportunity is won with payments */}
@@ -223,12 +271,16 @@ export function MeetingDetailPageClient({
             meetingHistory={meetingHistory}
           />
 
-          {/* Notes with outcome select */}
-          <MeetingNotes
+          {/* v2: Fathom Recording link — available on every meeting,
+              not just flagged ones. Primary attendance artifact. */}
+          <FathomLinkField
             meetingId={meeting._id}
-            initialNotes={meeting.notes ?? ""}
-            meetingOutcome={meeting.meetingOutcome}
+            initialLink={meeting.fathomLink ?? ""}
+            savedAt={meeting.fathomLinkSavedAt}
           />
+
+          {/* Comments */}
+          <MeetingComments meetingId={meeting._id} />
 
           {paymentLinks && paymentLinks.length > 0 && (
             <PaymentLinksPanel paymentLinks={paymentLinks} />
@@ -236,13 +288,6 @@ export function MeetingDetailPageClient({
         </div>
       </div>
 
-      <OutcomeActionBar
-        meeting={meeting}
-        opportunity={opportunity}
-        payments={payments}
-        onStatusChanged={refreshDetail}
-        allowOutOfWindowMeetingStart={allowOutOfWindowMeetingStart}
-      />
     </div>
   );
 }
@@ -284,18 +329,16 @@ function MeetingDetailSkeleton() {
         </div>
 
         <div className="flex flex-col gap-4 md:col-span-2 lg:col-span-3">
-          <Skeleton className="h-56 rounded-xl" />  {/* Meeting Info */}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <Skeleton className="h-56 rounded-xl lg:col-span-2" />  {/* Meeting Info */}
+            <Skeleton className="h-56 rounded-xl lg:col-span-1" />  {/* Actions */}
+          </div>
           <Skeleton className="h-32 rounded-xl" />  {/* Booking Answers */}
           <Skeleton className="h-36 rounded-xl" />  {/* Attribution */}
           <Skeleton className="h-52 rounded-xl" />  {/* Notes + Outcome */}
         </div>
       </div>
 
-      <div className="flex gap-3 border-t pt-4">
-        {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className="h-10 w-32 rounded-md" />
-        ))}
-      </div>
     </div>
   );
 }

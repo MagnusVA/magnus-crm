@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
+import { loadActiveFollowUpSummary } from "../lib/activeFollowUp";
 
 type MeetingHistoryEntry = Doc<"meetings"> & {
   opportunityStatus: Doc<"opportunities">["status"];
@@ -77,6 +78,8 @@ export const getMeetingDetail = query({
       reassignedFromCloser,
       potentialDuplicateLead,
       originalMeeting,
+      meetingReview,
+      activeFollowUp,
     ] = await Promise.all([
       ctx.db
         .query("opportunities")
@@ -112,6 +115,8 @@ export const getMeetingDetail = query({
       meeting.rescheduledFromMeetingId
         ? ctx.db.get(meeting.rescheduledFromMeetingId)
         : Promise.resolve(null),
+      meeting.reviewId ? ctx.db.get(meeting.reviewId) : Promise.resolve(null),
+      loadActiveFollowUpSummary(ctx, opportunity._id),
     ]);
 
     const opportunityStatusById = new Map<
@@ -251,6 +256,9 @@ export const getMeetingDetail = query({
     }
     // === End Feature B ===
 
+    const meetingReviewForTenant =
+      meetingReview && meetingReview.tenantId === tenantId ? meetingReview : null;
+
     console.log("[Closer:MeetingDetail] getMeetingDetail completed", {
       meetingId,
       meetingHistoryCount: meetingHistory.length,
@@ -260,6 +268,7 @@ export const getMeetingDetail = query({
       hasUtmParams: !!(meeting.utmParams || opportunity.utmParams),
       hasPotentialDuplicate: !!potentialDuplicate,
       hasRescheduleChain: !!rescheduledFromMeeting,
+      hasActiveFollowUp: !!activeFollowUp,
     });
     return {
       meeting,
@@ -270,9 +279,16 @@ export const getMeetingDetail = query({
       eventTypeName,
       paymentLinks,
       payments,
+      meetingReview: meetingReviewForTenant,
       reassignmentInfo,
       potentialDuplicate,
       rescheduledFromMeeting,
+      // v2: closer may have created a follow-up (scheduling link or manual
+      // reminder) on a still-`meeting_overran` opportunity. The follow-up
+      // mutations intentionally skip the status transition in that case,
+      // so the closer UI uses this signal to detect "already acted" and
+      // flip the banner/action-bar accordingly.
+      activeFollowUp,
     };
   },
 });

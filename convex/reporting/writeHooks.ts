@@ -32,6 +32,17 @@ async function getOpportunityOrThrow(
   return opportunity;
 }
 
+async function getPaymentOrThrow(
+  ctx: MutationCtx,
+  paymentId: Id<"paymentRecords">,
+): Promise<Doc<"paymentRecords">> {
+  const payment = await ctx.db.get(paymentId);
+  if (!payment) {
+    throw new Error(`Payment ${paymentId} not found for reporting aggregate sync`);
+  }
+  return payment;
+}
+
 export async function insertMeetingAggregate(
   ctx: MutationCtx,
   meetingId: Id<"meetings">,
@@ -86,11 +97,18 @@ export async function insertPaymentAggregate(
   ctx: MutationCtx,
   paymentId: Id<"paymentRecords">,
 ): Promise<Doc<"paymentRecords">> {
-  const payment = await ctx.db.get(paymentId);
-  if (!payment) {
-    throw new Error(`Payment ${paymentId} not found for reporting aggregate sync`);
-  }
+  const payment = await getPaymentOrThrow(ctx, paymentId);
   await paymentSums.insert(ctx, payment);
+  return payment;
+}
+
+export async function replacePaymentAggregate(
+  ctx: MutationCtx,
+  oldPayment: Doc<"paymentRecords">,
+  paymentId: Id<"paymentRecords">,
+): Promise<Doc<"paymentRecords">> {
+  const payment = await getPaymentOrThrow(ctx, paymentId);
+  await paymentSums.replace(ctx, oldPayment, payment);
   return payment;
 }
 
@@ -106,4 +124,15 @@ export async function insertCustomerAggregate(
   }
   await customerConversions.insert(ctx, customer);
   return customer;
+}
+
+export async function deleteCustomerAggregate(
+  ctx: MutationCtx,
+  customerId: Id<"customers">,
+): Promise<void> {
+  const customer = await ctx.db.get(customerId);
+  if (!customer) {
+    return;
+  }
+  await customerConversions.delete(ctx, customer);
 }

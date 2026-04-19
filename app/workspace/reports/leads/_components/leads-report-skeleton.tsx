@@ -19,8 +19,16 @@ export function LeadsReportSkeleton() {
           <Skeleton key={i} className="h-28 rounded-lg" />
         ))}
       </div>
+      {/* Secondary KPI cards */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-28 rounded-lg" />
+        ))}
+      </div>
       {/* Conversion table */}
       <Skeleton className="h-48 rounded-lg" />
+      {/* Top answer summary */}
+      <Skeleton className="h-64 rounded-lg" />
       {/* Form insights */}
       <Skeleton className="h-64 rounded-lg" />
     </div>

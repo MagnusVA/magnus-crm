@@ -5,8 +5,10 @@ import { mutation } from "../_generated/server";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateTransition } from "../lib/statusTransitions";
+import { cancelMeetingAttendanceCheck } from "../lib/attendanceChecks";
 import { getStoredMeetingJoinUrl } from "../lib/meetingLocation";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { assertOverranReviewStillPending } from "../lib/overranReviewGuards";
 import {
   replaceMeetingAggregate,
   replaceOpportunityAggregate,
@@ -16,7 +18,7 @@ import {
   updateTenantStats,
 } from "../lib/tenantStatsHelper";
 
-async function loadMeetingContext(
+export async function loadMeetingContext(
   ctx: MutationCtx,
   meetingId: Id<"meetings">,
   tenantId: Id<"tenants">,
@@ -33,47 +35,6 @@ async function loadMeetingContext(
 
   return { meeting, opportunity };
 }
-
-function normalizeRequiredString(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    throw new Error("Reason is required");
-  }
-  return trimmed;
-}
-
-/**
- * Update meeting notes.
- *
- * Called by the auto-saving notes textarea on the meeting detail page.
- * Debounced on the client side (typically 500ms–1s).
- *
- * Accessible by closers (own meetings) and admins (any meeting).
- */
-export const updateMeetingNotes = mutation({
-  args: {
-    meetingId: v.id("meetings"),
-    notes: v.string(),
-  },
-  handler: async (ctx, { meetingId, notes }) => {
-    console.log("[Closer:Meeting] updateMeetingNotes called", { meetingId });
-    const { userId, tenantId, role } = await requireTenantUser(ctx, [
-      "closer",
-      "tenant_master",
-      "tenant_admin",
-    ]);
-    console.log("[Closer:Meeting] updateMeetingNotes auth check passed", { userId, role });
-    const { opportunity } = await loadMeetingContext(ctx, meetingId, tenantId);
-
-    // Closer authorization: only own meetings
-    if (role === "closer" && opportunity.assignedCloserId !== userId) {
-      throw new Error("Not your meeting");
-    }
-
-    await ctx.db.patch(meetingId, { notes });
-    console.log("[Closer:Meeting] updateMeetingNotes completed", { meetingId });
-  },
-});
 
 /**
  * Start a meeting.
@@ -109,10 +70,26 @@ export const startMeeting = mutation({
     }
 
     const now = Date.now();
+    const windowCloseMs = meeting.scheduledAt + meeting.durationMinutes * 60_000;
+    if (now > windowCloseMs) {
+      throw new Error(
+        "Meeting window has passed. This meeting can no longer be started directly.",
+      );
+    }
+
     const lateStartDurationMs = Math.max(0, now - meeting.scheduledAt);
+
     const oldOpportunity = opportunity;
     const oldMeeting = meeting;
-    console.log("[Closer:Meeting] startMeeting transitioning to in_progress", { meetingId, opportunityId: opportunity._id });
+    await cancelMeetingAttendanceCheck(
+      ctx,
+      meeting.attendanceCheckId,
+      "closer.startMeeting",
+    );
+    console.log("[Closer:Meeting] startMeeting transitioning to in_progress", {
+      meetingId,
+      opportunityId: opportunity._id,
+    });
     await ctx.db.patch(opportunity._id, {
       status: "in_progress",
       updatedAt: now,
@@ -122,6 +99,7 @@ export const startMeeting = mutation({
     await ctx.db.patch(meetingId, {
       status: "in_progress",
       startedAt: now,
+      startedAtSource: "closer" as const,
       lateStartDurationMs,
     });
     await replaceMeetingAggregate(ctx, oldMeeting, meetingId);
@@ -150,38 +128,13 @@ export const startMeeting = mutation({
     });
 
     const joinUrl = getStoredMeetingJoinUrl(meeting);
-    console.log("[Closer:Meeting] startMeeting completed", { hasMeetingUrl: !!joinUrl });
+    console.log("[Closer:Meeting] startMeeting completed", {
+      hasMeetingUrl: !!joinUrl,
+    });
     return {
       meetingJoinUrl: joinUrl ?? null,
       lateStartDurationMs,
     };
-  },
-});
-
-export const setLateStartReason = mutation({
-  args: {
-    meetingId: v.id("meetings"),
-    reason: v.string(),
-  },
-  handler: async (ctx, { meetingId, reason }) => {
-    console.log("[Closer:Meeting] setLateStartReason called", { meetingId });
-    const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
-    const { meeting, opportunity } = await loadMeetingContext(ctx, meetingId, tenantId);
-
-    if (opportunity.assignedCloserId !== userId) {
-      throw new Error("Not your meeting");
-    }
-    if (meeting.status !== "in_progress") {
-      throw new Error("Meeting must be in progress to set late start reason");
-    }
-    if (!meeting.lateStartDurationMs || meeting.lateStartDurationMs <= 0) {
-      throw new Error("Meeting was not started late");
-    }
-
-    await ctx.db.patch(meetingId, {
-      lateStartReason: normalizeRequiredString(reason),
-    });
-    console.log("[Closer:Meeting] setLateStartReason completed", { meetingId });
   },
 });
 
@@ -206,13 +159,14 @@ export const stopMeeting = mutation({
     const now = Date.now();
     const scheduledEndMs =
       meeting.scheduledAt + meeting.durationMinutes * 60 * 1000;
-    const overranDurationMs = Math.max(0, now - scheduledEndMs);
+    const exceededScheduledDurationMs = Math.max(0, now - scheduledEndMs);
 
     await ctx.db.patch(meetingId, {
       status: "completed",
       stoppedAt: now,
+      stoppedAtSource: "closer" as const,
       completedAt: now,
-      overranDurationMs,
+      exceededScheduledDurationMs,
     });
     await replaceMeetingAggregate(ctx, meeting, meetingId);
     await updateOpportunityMeetingRefs(ctx, opportunity._id);
@@ -229,22 +183,36 @@ export const stopMeeting = mutation({
       metadata: {
         actualDurationMs:
           meeting.startedAt !== undefined ? now - meeting.startedAt : undefined,
-        overranDurationMs,
+        exceededScheduledDurationMs,
       },
     });
 
     console.log("[Closer:Meeting] stopMeeting completed", {
       meetingId,
-      overranDurationMs,
-      wasOverran: overranDurationMs > 0,
+      exceededScheduledDurationMs,
+      exceededScheduledDuration: exceededScheduledDurationMs > 0,
     });
 
     return {
-      overranDurationMs,
-      wasOverran: overranDurationMs > 0,
+      exceededScheduledDurationMs,
+      exceededScheduledDuration: exceededScheduledDurationMs > 0,
     };
   },
 });
+
+/**
+ * OUTCOME MUTATION CONTRACT
+ *
+ * Outcome mutations operate on the opportunity only. They MUST NOT write:
+ * - meetings.startedAt / startedAtSource
+ * - meetings.stoppedAt / stoppedAtSource
+ * - meetings.completedAt
+ * - meetings.status
+ *
+ * Rationale: a closer may record an outcome before the conversation is
+ * actually over. The explicit End Meeting control is the only closer-facing
+ * action that should end the meeting lifecycle.
+ */
 
 /**
  * Mark an opportunity as lost.
@@ -275,11 +243,11 @@ export const markAsLost = mutation({
 
     // Validate the transition
     console.log("[Closer:Meeting] markAsLost current status", { currentStatus: opportunity.status });
+    if (opportunity.status === "meeting_overran") {
+      await assertOverranReviewStillPending(ctx, opportunity._id);
+    }
     if (!validateTransition(opportunity.status, "lost")) {
-      throw new Error(
-        `Cannot mark as lost from status "${opportunity.status}". ` +
-        `Only "in_progress" opportunities can be marked as lost.`
-      );
+      throw new Error(`Cannot mark as lost from status "${opportunity.status}"`);
     }
 
     const normalizedReason = reason?.trim();
@@ -316,52 +284,40 @@ export const markAsLost = mutation({
   },
 });
 
-/**
- * Set or clear the meeting outcome classification.
- *
- * The outcome is a structured tag that captures the closer's assessment
- * of the lead's intent after a meeting. It's separate from the
- * opportunity status (which tracks the deal lifecycle).
- *
- * Pass `undefined` for meetingOutcome to clear the tag.
- *
- * Only the assigned closer or an admin can update the outcome.
- */
-export const updateMeetingOutcome = mutation({
+export const saveFathomLink = mutation({
   args: {
     meetingId: v.id("meetings"),
-    meetingOutcome: v.optional(
-      v.union(
-        v.literal("interested"),
-        v.literal("needs_more_info"),
-        v.literal("price_objection"),
-        v.literal("not_qualified"),
-        v.literal("ready_to_buy"),
-      ),
-    ),
+    fathomLink: v.string(),
   },
-  handler: async (ctx, { meetingId, meetingOutcome }) => {
-    console.log("[Closer:MeetingActions] updateMeetingOutcome called", {
-      meetingId,
-      meetingOutcome,
-    });
+  handler: async (ctx, { meetingId, fathomLink: rawLink }) => {
+    console.log("[Closer:Meeting] saveFathomLink called", { meetingId });
     const { userId, tenantId, role } = await requireTenantUser(ctx, [
       "closer",
       "tenant_master",
       "tenant_admin",
     ]);
+    console.log("[Closer:Meeting] saveFathomLink auth check passed", { userId, role });
 
     const { opportunity } = await loadMeetingContext(ctx, meetingId, tenantId);
 
-    // Closer authorization: only own meetings
     if (role === "closer" && opportunity.assignedCloserId !== userId) {
       throw new Error("Not your meeting");
     }
 
-    await ctx.db.patch(meetingId, { meetingOutcome });
-    console.log("[Closer:MeetingActions] meetingOutcome updated", {
+    const fathomLink = rawLink.trim();
+    if (!fathomLink) {
+      throw new Error("Fathom link is required");
+    }
+
+    const now = Date.now();
+    await ctx.db.patch(meetingId, {
+      fathomLink,
+      fathomLinkSavedAt: now,
+    });
+
+    console.log("[Closer:Meeting] saveFathomLink completed", {
       meetingId,
-      meetingOutcome,
+      fathomLinkSavedAt: now,
     });
   },
 });

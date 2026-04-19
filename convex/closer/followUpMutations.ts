@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, mutation } from "../_generated/server";
 import { validateTransition } from "../lib/statusTransitions";
+import { assertOverranReviewStillPending } from "../lib/overranReviewGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { replaceOpportunityAggregate } from "../reporting/writeHooks";
@@ -9,6 +10,20 @@ import {
   isActiveOpportunityStatus,
   updateTenantStats,
 } from "../lib/tenantStatsHelper";
+
+/**
+ * OUTCOME MUTATION CONTRACT
+ *
+ * Follow-up mutations operate on the opportunity/follow-up records only. They
+ * MUST NOT write:
+ * - meetings.startedAt / startedAtSource
+ * - meetings.stoppedAt / stoppedAtSource
+ * - meetings.completedAt
+ * - meetings.status
+ *
+ * Rationale: a follow-up can be scheduled while the meeting is still ongoing.
+ * The meeting lifecycle is closed explicitly via stopMeeting.
+ */
 
 /**
  * Create a follow-up record.
@@ -40,6 +55,8 @@ export const createFollowUpRecord = internalMutation({
       reason: args.reason,
       status: "pending",
       createdAt: now,
+      createdByUserId: args.closerId,
+      createdSource: "closer",
     });
     await emitDomainEvent(ctx, {
       tenantId: args.tenantId,
@@ -72,6 +89,10 @@ export const transitionToFollowUp = internalMutation({
     if (!opportunity) throw new Error("Opportunity not found");
 
     console.log("[Closer:FollowUp] transitionToFollowUp current status", { currentStatus: opportunity.status });
+    if (opportunity.status === "meeting_overran") {
+      await assertOverranReviewStillPending(ctx, opportunity._id);
+      return;
+    }
     const isValid = validateTransition(opportunity.status, "follow_up_scheduled");
     console.log("[Closer:FollowUp] transitionToFollowUp transition valid", { from: opportunity.status, to: "follow_up_scheduled", valid: isValid });
     if (!isValid) {
@@ -177,6 +198,9 @@ export const createSchedulingLinkFollowUp = mutation({
     if (opportunity.assignedCloserId !== userId) {
       throw new Error("Not your opportunity");
     }
+    if (opportunity.status === "meeting_overran") {
+      await assertOverranReviewStillPending(ctx, opportunity._id);
+    }
     if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
       throw new Error(
         `Cannot schedule follow-up from status "${opportunity.status}"`,
@@ -192,6 +216,8 @@ export const createSchedulingLinkFollowUp = mutation({
       reason: "closer_initiated",
       status: "pending",
       createdAt: now,
+      createdByUserId: userId,
+      createdSource: "closer",
     });
 
     let schedulingLinkUrl: string;
@@ -256,6 +282,10 @@ export const confirmFollowUpScheduled = mutation({
     if (opportunity.assignedCloserId !== userId) {
       throw new Error("Not your opportunity");
     }
+    if (opportunity.status === "meeting_overran") {
+      await assertOverranReviewStillPending(ctx, opportunity._id);
+      return;
+    }
     // Already transitioned (e.g. user double-clicked Done) — silently succeed
     if (opportunity.status === "follow_up_scheduled") {
       return;
@@ -311,6 +341,10 @@ export const createManualReminderFollowUpPublic = mutation({
     if (opportunity.assignedCloserId !== userId) {
       throw new Error("Not your opportunity");
     }
+    if (opportunity.status === "meeting_overran") {
+      await assertOverranReviewStillPending(ctx, opportunity._id);
+    }
+    const isTerminalOverran = opportunity.status === "meeting_overran";
     if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
       throw new Error(
         `Cannot schedule follow-up from status "${opportunity.status}"`,
@@ -334,16 +368,10 @@ export const createManualReminderFollowUpPublic = mutation({
       reason: "closer_initiated",
       status: "pending",
       createdAt: now,
+      createdByUserId: userId,
+      createdSource: "closer",
     });
 
-    await ctx.db.patch(args.opportunityId, {
-      status: "follow_up_scheduled",
-      updatedAt: now,
-    });
-    await replaceOpportunityAggregate(ctx, opportunity, args.opportunityId);
-    await updateTenantStats(ctx, tenantId, {
-      activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
-    });
     await emitDomainEvent(ctx, {
       tenantId,
       entityType: "followUp",
@@ -355,26 +383,39 @@ export const createManualReminderFollowUpPublic = mutation({
       metadata: {
         type: "manual_reminder",
         opportunityId: args.opportunityId,
+        terminalOverran: isTerminalOverran,
       },
       occurredAt: now,
     });
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: args.opportunityId,
-      eventType: "opportunity.status_changed",
-      source: "closer",
-      actorUserId: userId,
-      fromStatus: opportunity.status,
-      toStatus: "follow_up_scheduled",
-      occurredAt: now,
-    });
+
+    if (!isTerminalOverran) {
+      await ctx.db.patch(args.opportunityId, {
+        status: "follow_up_scheduled",
+        updatedAt: now,
+      });
+      await replaceOpportunityAggregate(ctx, opportunity, args.opportunityId);
+      await updateTenantStats(ctx, tenantId, {
+        activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
+      });
+      await emitDomainEvent(ctx, {
+        tenantId,
+        entityType: "opportunity",
+        entityId: args.opportunityId,
+        eventType: "opportunity.status_changed",
+        source: "closer",
+        actorUserId: userId,
+        fromStatus: opportunity.status,
+        toStatus: "follow_up_scheduled",
+        occurredAt: now,
+      });
+    }
 
     console.log("[Closer:FollowUp] manual reminder follow-up created", {
       followUpId,
       opportunityId: args.opportunityId,
       contactMethod: args.contactMethod,
       reminderScheduledAt: args.reminderScheduledAt,
+      terminalOverran: isTerminalOverran,
     });
 
     return { followUpId };

@@ -28,6 +28,10 @@ import {
 	updateTenantStats,
 	isActiveOpportunityStatus,
 } from "../lib/tenantStatsHelper";
+import {
+	getMeetingAttendanceCheckTimestamp,
+	scheduleMeetingAttendanceCheck,
+} from "../lib/attendanceChecks";
 import { buildLeadSearchText } from "../leads/searchTextBuilder";
 import {
 	insertLeadAggregate,
@@ -1238,6 +1242,27 @@ export const process = internalMutation({
 						},
 						occurredAt: now,
 					});
+					const attendanceCheckId =
+						await scheduleMeetingAttendanceCheck(
+							ctx,
+							meetingId,
+							scheduledAt,
+							durationMinutes,
+						);
+					await ctx.db.patch(meetingId, { attendanceCheckId });
+					console.log(
+						"[Pipeline:invitee.created] Attendance check scheduled",
+						{
+							meetingId,
+							attendanceCheckId,
+							scheduledFireTime: new Date(
+								getMeetingAttendanceCheckTimestamp(
+									scheduledAt,
+									durationMinutes,
+								),
+							).toISOString(),
+						},
+					);
 
 					if (rescheduledFromMeetingId) {
 						console.log(
@@ -1499,6 +1524,23 @@ export const process = internalMutation({
 				},
 				occurredAt: now,
 			});
+			const attendanceCheckId = await scheduleMeetingAttendanceCheck(
+				ctx,
+				meetingId,
+				scheduledAt,
+				durationMinutes,
+			);
+			await ctx.db.patch(meetingId, { attendanceCheckId });
+			console.log("[Pipeline:invitee.created] Attendance check scheduled", {
+				meetingId,
+				attendanceCheckId,
+				scheduledFireTime: new Date(
+					getMeetingAttendanceCheckTimestamp(
+						scheduledAt,
+						durationMinutes,
+					),
+				).toISOString(),
+			});
 			console.log(
 				`[Pipeline:invitee.created] [Feature B4] Meeting created | meetingId=${meetingId} rescheduledFrom=${rescheduledFromMeetingId ?? "none"}`,
 			);
@@ -1710,6 +1752,20 @@ export const process = internalMutation({
 				opportunityId,
 			},
 			occurredAt: now,
+		});
+		const attendanceCheckId = await scheduleMeetingAttendanceCheck(
+			ctx,
+			meetingId,
+			scheduledAt,
+			durationMinutes,
+		);
+		await ctx.db.patch(meetingId, { attendanceCheckId });
+		console.log("[Pipeline:invitee.created] Attendance check scheduled", {
+			meetingId,
+			attendanceCheckId,
+			scheduledFireTime: new Date(
+				getMeetingAttendanceCheckTimestamp(scheduledAt, durationMinutes),
+			).toISOString(),
 		});
 		console.log(
 			`[Pipeline:invitee.created] Meeting created | meetingId=${meetingId} durationMinutes=${durationMinutes}`,

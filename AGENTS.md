@@ -65,7 +65,6 @@ Convex agent skills for common tasks can be installed by running `npx convex ai-
     - [Form Patterns](#form-patterns)
     - [Styling & Theming](#styling--theming)
     - [Analytics (PostHog)](#analytics-posthog)
-    - [Testing with Expect](#testing-with-expect)
 3. [Version-Specific & Framework Guidance](#version-specific--framework-guidance)
 4. [Available Skills](#available-skills-this-repository)
 
@@ -755,41 +754,9 @@ const form = useForm({
 
 ---
 
-## Testing with Expect
+## Testing
 
-**[Expect](https://expect.dev)** ([github.com/millionco/expect](https://github.com/millionco/expect)) is the project's browser-based QA tool. It is **not** a traditional test framework — it's an MCP-powered tool that AI coding agents use to verify changes in a real browser.
-
-### What it does
-
-Expect reads your git diff, generates a test plan, and runs it in a real headed browser (Playwright under the hood). It checks:
-
-- **Performance**: Long Animation Frames, INP, LCP, Core Web Vitals
-- **Security**: npm dependency vulnerabilities, CSRF
-- **Design**: broken hover states, links, buttons, responsive layouts
-- **Accessibility**: WCAG audit via axe-core + IBM Equal Access
-- **App completeness**: missing metadata, dead links
-
-### How it's configured
-
-- **MCP server** (`.mcp.json`): `node node_modules/expect-cli/dist/index.js mcp` (run from the repo root so resolution uses this project’s `node_modules`). Gives the agent access to `open`, `playwright`, `screenshot`, `console_logs`, `network_requests`, `performance_metrics`, `accessibility_audit`, `close` tools.
-- **`expect-cli`**: Listed under `devDependencies` in `package.json`. Run **`pnpm install`** after clone or lockfile changes so the MCP command can find the CLI.
-- **`pnpm.overrides`**: `package.json` pins `effect` and `@effect/platform-node-shared` to **`4.0.0-beta.35`**. Global `npx expect-cli` can hoist a newer `effect` beta that is incompatible with `expect-cli`’s `@effect/platform-node` and crashes on startup (`effect/ServiceMap` missing); the local install plus overrides avoids that.
-- **Browser mode**: Headed (visible browser) via `.expect/project-preferences.json`
-
-### When to use
-
-The `expect` skill (`.agents/skills/expect/SKILL.md`) fires whenever:
-
-- Editing `.tsx`, `.jsx`, `.css`, `.html`, React components, pages, routes, forms, styles, or layouts
-- Asked to test, verify, validate, QA, find bugs, or debug browser behavior
-
-### Verification rules
-
-- **No completion claims without browser evidence.** If you haven't used expect MCP tools in the conversation, you cannot claim the change works.
-- **Delegate to a subagent** for browser verification so the main thread stays free for code edits.
-- **Data seeding**: Pages must have real data (minimum 3 records) before testing — empty state screenshots are not valid tests.
-- **Responsive testing**: 4 viewports minimum.
-- **Completion gate**: Must run accessibility audit, performance metrics, and console error check before claiming work is done.
+This project relies on **manual QA testing**. See `TESTING.MD` for the end-to-end workflow: seeding test data via the Convex CLI test helpers (`testing/calendly:bookTestInvitee`), validating backend records through `npx convex data` and `npx convex logs`, then signing in as the appropriate test user to verify UI behavior in the browser.
 
 ---
 
@@ -803,7 +770,6 @@ Repo-local skills live under **`.agents/skills/<skill-name>/SKILL.md`**. When a 
 | ---------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
 | **convex-performance-audit** | Audit and optimize Convex performance — high read/write costs, function limits, sub overhead | "slow", "expensive", "performance audit", "high bytes", "npx convex insights"     |
 | **web-design-guidelines**    | Review UI code for accessibility (WCAG), UX standards, design consistency                    | "review UI", "check accessibility", "audit design", "review UX", "best practices" |
-| **expect**                   | Verify UI changes in a real browser — accessibility, performance, responsive, visual QA      | "test this", "verify", "QA", "check in browser", "validate", "find bugs"          |
 
 ### Frontend Development
 
@@ -852,6 +818,5 @@ Repo-local skills live under **`.agents/skills/<skill-name>/SKILL.md`**. When a 
 | `components/auth/role-context.tsx`              | RoleProvider + useRole() hook                                             |
 | `components/ui/field.tsx`                       | Compound form layout components                                           |
 | `next.config.ts`                                | View Transitions, cacheComponents, package optimization                   |
-| `.mcp.json`                                     | Expect MCP: `node node_modules/expect-cli/dist/index.js mcp`              |
-| `package.json` (`expect-cli`, `pnpm.overrides`) | Local Expect CLI + pinned Effect packages for a reliable MCP server       |
+| `TESTING.MD`                                    | Manual QA workflow: test data seeding, CLI validation, UI verification    |
 | `.agents/skills/*/SKILL.md`                     | Repo-local AI agent skills                                                |

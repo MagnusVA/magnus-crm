@@ -3,12 +3,21 @@ import type { Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import {
+  assertValidDateRange,
   attributePaymentsToClosers,
   getActiveClosers,
   getNonDisputedPaymentsInRange,
   getUserDisplayName,
   summarizeAttributedPayments,
 } from "./lib/helpers";
+
+const REVENUE_ORIGINS = [
+  "closer_meeting",
+  "closer_reminder",
+  "admin_meeting",
+  "customer_flow",
+  "unknown",
+] as const;
 
 const DEAL_SIZE_BUCKETS = {
   over10k: { count: 0, label: "$10k+" },
@@ -24,6 +33,8 @@ export const getRevenueMetrics = query({
     endDate: v.number(),
   },
   handler: async (ctx, { startDate, endDate }) => {
+    assertValidDateRange(startDate, endDate);
+
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -41,6 +52,13 @@ export const getRevenueMetrics = query({
       paymentScan.payments,
     );
     const paymentSummary = summarizeAttributedPayments(attributedPayments);
+    const byOrigin = Object.fromEntries(
+      REVENUE_ORIGINS.map((origin) => [origin, 0]),
+    ) as Record<(typeof REVENUE_ORIGINS)[number], number>;
+
+    for (const payment of paymentScan.payments) {
+      byOrigin[payment.origin ?? "unknown"] += payment.amountMinor;
+    }
 
     const byCloser = closers
       .map((closer) => {
@@ -77,6 +95,7 @@ export const getRevenueMetrics = query({
       totalDeals,
       avgDealMinor:
         totalDeals > 0 ? totalRevenueMinor / totalDeals : null,
+      byOrigin,
       byCloser: byCloser.map((closer) => ({
         ...closer,
         revenuePercent:
@@ -98,6 +117,8 @@ export const getRevenueDetails = query({
     endDate: v.number(),
   },
   handler: async (ctx, { startDate, endDate }) => {
+    assertValidDateRange(startDate, endDate);
+
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",

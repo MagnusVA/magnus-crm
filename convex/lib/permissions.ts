@@ -28,6 +28,13 @@ export const PERMISSIONS = {
   "customer:view-own": ["tenant_master", "tenant_admin", "closer"],
   "customer:edit": ["tenant_master", "tenant_admin"],
   // === End Feature D ===
+  // === Meeting Overran Review System ===
+  "review:view": ["tenant_master", "tenant_admin"],
+  "review:resolve": ["tenant_master", "tenant_admin"],
+  // === End Meeting Overran Review System ===
+  // === v0.6b Reporting ===
+  "reports:view": ["tenant_master", "tenant_admin"],
+  // === End v0.6b Reporting ===
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;

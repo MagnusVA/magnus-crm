@@ -5,6 +5,8 @@ import dynamic from "next/dynamic";
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import type { CrmRole } from "@/convex/lib/roleMapping";
 import { RoleProvider, useRole } from "@/components/auth/role-context";
 import {
@@ -23,8 +25,10 @@ import {
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 import {
+  AlarmClockCheckIcon,
   ActivityIcon,
   BarChart3Icon,
+  ClipboardCheckIcon,
   ClockIcon,
   ContactIcon,
   DollarSignIcon,
@@ -32,6 +36,8 @@ import {
   LayoutDashboardIcon,
   LogOutIcon,
   SettingsIcon,
+  ShieldCheckIcon,
+  TimerIcon,
   TrendingUpIcon,
   type LucideIcon,
   UserCircleIcon,
@@ -70,6 +76,7 @@ type NavItem = {
 const adminNavItems: NavItem[] = [
   { href: "/workspace", label: "Overview", icon: LayoutDashboardIcon, exact: true },
   { href: "/workspace/pipeline", label: "Pipeline", icon: KanbanIcon },
+  { href: "/workspace/reviews", label: "Reviews", icon: ClipboardCheckIcon },
   { href: "/workspace/leads", label: "Leads", icon: ContactIcon },
   { href: "/workspace/customers", label: "Customers", icon: UsersRoundIcon },
   { href: "/workspace/team", label: "Team", icon: UsersIcon },
@@ -89,6 +96,9 @@ const reportNavItems: NavItem[] = [
   { href: "/workspace/reports/pipeline", label: "Pipeline Health", icon: ActivityIcon },
   { href: "/workspace/reports/leads", label: "Leads & Conversions", icon: TrendingUpIcon },
   { href: "/workspace/reports/activity", label: "Activity Feed", icon: ClockIcon },
+  { href: "/workspace/reports/meeting-time", label: "Meeting Time", icon: TimerIcon },
+  { href: "/workspace/reports/reviews", label: "Review Ops", icon: ShieldCheckIcon },
+  { href: "/workspace/reports/reminders", label: "Reminders", icon: AlarmClockCheckIcon },
 ];
 
 // ---------------------------------------------------------------------------
@@ -167,6 +177,12 @@ function WorkspaceShellClientInner({
   const displayName = initialDisplayName || initialEmail;
 
   const navItems = isAdmin ? adminNavItems : closerNavItems;
+
+  // Reactive pending review count — admin only (skipped for closers to avoid unnecessary queries)
+  const pendingReviewCount = useQuery(
+    api.reviews.queries.getPendingReviewCount,
+    isAdmin ? {} : "skip",
+  );
 
   // Identify user in PostHog with full context
   usePostHogIdentify({
@@ -250,6 +266,10 @@ function WorkspaceShellClientInner({
                   const isActive = item.exact
                     ? pathname === item.href
                     : pathname.startsWith(item.href);
+                  const badgeCount =
+                    item.href === "/workspace/reviews" && pendingReviewCount
+                      ? pendingReviewCount.count
+                      : 0;
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton
@@ -260,6 +280,11 @@ function WorkspaceShellClientInner({
                         <Link href={item.href}>
                           <item.icon />
                           <span>{item.label}</span>
+                          {badgeCount > 0 && (
+                            <span className="ml-auto inline-flex size-5 items-center justify-center rounded-full bg-destructive text-[10px] font-medium text-destructive-foreground">
+                              {badgeCount >= 100 ? "99+" : badgeCount}
+                            </span>
+                          )}
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>

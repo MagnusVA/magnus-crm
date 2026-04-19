@@ -38,4 +38,11 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "sweep-stale-scheduled-meetings",
+  { minutes: 5 },
+  internal.closer.meetingOverrunSweep.sweepStaleMeetings,
+  {},
+);
+
 export default crons;

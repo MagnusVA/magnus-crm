@@ -3,7 +3,9 @@
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -22,10 +24,12 @@ const ENTITY_TYPE_OPTIONS = [
 
 const EVENT_TYPE_OPTIONS = [
   { label: "All", value: "__all__" },
-  ...Object.entries(EVENT_LABELS).map(([key, { verb }]) => ({
-    label: verb.charAt(0).toUpperCase() + verb.slice(1),
-    value: key,
-  })),
+  ...Object.entries(EVENT_LABELS)
+    .map(([key, { verb }]) => ({
+      label: verb.charAt(0).toUpperCase() + verb.slice(1),
+      value: key,
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label)),
 ];
 
 type EntityType =
@@ -77,11 +81,14 @@ export function ActivityFeedFilters({
           <SelectValue placeholder="Entity Type" />
         </SelectTrigger>
         <SelectContent>
-          {ENTITY_TYPE_OPTIONS.map((opt) => (
-            <SelectItem key={opt.value} value={opt.value}>
-              {opt.label}
-            </SelectItem>
-          ))}
+          <SelectGroup>
+            <SelectLabel>Entity Type</SelectLabel>
+            {ENTITY_TYPE_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
         </SelectContent>
       </Select>
 
@@ -102,11 +109,14 @@ export function ActivityFeedFilters({
           <SelectValue placeholder="Event Type" />
         </SelectTrigger>
         <SelectContent>
-          {EVENT_TYPE_OPTIONS.map((opt) => (
-            <SelectItem key={opt.value} value={opt.value}>
-              {opt.label}
-            </SelectItem>
-          ))}
+          <SelectGroup>
+            <SelectLabel>Event Type</SelectLabel>
+            {EVENT_TYPE_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value}>
+                {opt.label}
+              </SelectItem>
+            ))}
+          </SelectGroup>
         </SelectContent>
       </Select>
 
@@ -127,12 +137,15 @@ export function ActivityFeedFilters({
           <SelectValue placeholder="Actor" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="__all__">All</SelectItem>
-          {actorBreakdown.map((actor) => (
-            <SelectItem key={actor.actorUserId} value={actor.actorUserId}>
-              {actor.actorName ?? "Unknown"} ({actor.count})
-            </SelectItem>
-          ))}
+          <SelectGroup>
+            <SelectLabel>Actor</SelectLabel>
+            <SelectItem value="__all__">All</SelectItem>
+            {actorBreakdown.map((actor) => (
+              <SelectItem key={actor.actorUserId} value={actor.actorUserId}>
+                {actor.actorName ?? "Unknown"} ({actor.count})
+              </SelectItem>
+            ))}
+          </SelectGroup>
         </SelectContent>
       </Select>
     </div>

@@ -16,15 +16,13 @@ import {
 } from "@/components/ui/select";
 import { CalendarIcon } from "lucide-react";
 import {
+  addDays,
   format,
-  startOfMonth,
-  endOfMonth,
-  startOfWeek,
-  endOfWeek,
   startOfDay,
-  endOfDay,
-  subMonths,
   subDays,
+  startOfMonth,
+  startOfWeek,
+  subMonths,
 } from "date-fns";
 
 type Granularity = "day" | "week" | "month";
@@ -42,44 +40,80 @@ interface ReportDateControlsProps {
   showGranularity?: boolean;
 }
 
+function getStartOfDayTimestamp(date: Date): number {
+  return startOfDay(date).getTime();
+}
+
+function getExclusiveUpperTimestamp(date: Date): number {
+  return startOfDay(addDays(date, 1)).getTime();
+}
+
+function getDisplayEndDate(endDate: number): Date {
+  const end = new Date(endDate);
+  const isExactMidnight =
+    end.getHours() === 0 &&
+    end.getMinutes() === 0 &&
+    end.getSeconds() === 0 &&
+    end.getMilliseconds() === 0;
+
+  if (isExactMidnight) {
+    end.setDate(end.getDate() - 1);
+  }
+
+  return end;
+}
+
 const QUICK_PICKS = [
   {
     label: "Today",
-    getRange: () => ({
-      startDate: startOfDay(new Date()).getTime(),
-      endDate: endOfDay(new Date()).getTime(),
-    }),
+    getRange: () => {
+      const now = new Date();
+      return {
+        startDate: getStartOfDayTimestamp(now),
+        endDate: getExclusiveUpperTimestamp(now),
+      };
+    },
   },
   {
     label: "This Week",
-    getRange: () => ({
-      startDate: startOfWeek(new Date()).getTime(),
-      endDate: endOfWeek(new Date()).getTime(),
-    }),
+    getRange: () => {
+      const now = new Date();
+      return {
+        startDate: startOfWeek(now).getTime(),
+        endDate: getExclusiveUpperTimestamp(now),
+      };
+    },
   },
   {
     label: "This Month",
-    getRange: () => ({
-      startDate: startOfMonth(new Date()).getTime(),
-      endDate: endOfMonth(new Date()).getTime(),
-    }),
+    getRange: () => {
+      const now = new Date();
+      return {
+        startDate: startOfMonth(now).getTime(),
+        endDate: getExclusiveUpperTimestamp(now),
+      };
+    },
   },
   {
     label: "Last Month",
     getRange: () => {
-      const last = subMonths(new Date(), 1);
+      const now = new Date();
+      const last = subMonths(now, 1);
       return {
         startDate: startOfMonth(last).getTime(),
-        endDate: endOfMonth(last).getTime(),
+        endDate: startOfMonth(now).getTime(),
       };
     },
   },
   {
     label: "Last 90 Days",
-    getRange: () => ({
-      startDate: subDays(new Date(), 90).getTime(),
-      endDate: new Date().getTime(),
-    }),
+    getRange: () => {
+      const now = new Date();
+      return {
+        startDate: subDays(startOfDay(now), 89).getTime(),
+        endDate: getExclusiveUpperTimestamp(now),
+      };
+    },
   },
 ] as const;
 
@@ -90,6 +124,8 @@ export function ReportDateControls({
   onGranularityChange,
   showGranularity = false,
 }: ReportDateControlsProps) {
+  const displayEndDate = getDisplayEndDate(value.endDate);
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       {/* Quick pick buttons */}
@@ -110,7 +146,7 @@ export function ReportDateControls({
           <Button variant="outline" size="sm">
             <CalendarIcon className="mr-2 h-4 w-4" />
             {format(value.startDate, "MMM d")} –{" "}
-            {format(value.endDate, "MMM d, yyyy")}
+            {format(displayEndDate, "MMM d, yyyy")}
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-auto p-0" align="start">
@@ -118,13 +154,13 @@ export function ReportDateControls({
             mode="range"
             selected={{
               from: new Date(value.startDate),
-              to: new Date(value.endDate),
+              to: displayEndDate,
             }}
             onSelect={(range) => {
               if (range?.from && range?.to) {
                 onChange({
-                  startDate: range.from.getTime(),
-                  endDate: range.to.getTime(),
+                  startDate: getStartOfDayTimestamp(range.from),
+                  endDate: getExclusiveUpperTimestamp(range.to),
                 });
               }
             }}

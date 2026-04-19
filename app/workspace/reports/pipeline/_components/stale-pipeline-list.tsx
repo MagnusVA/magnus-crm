@@ -11,6 +11,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import {
   Table,
   TableBody,
   TableCell,
@@ -27,6 +34,7 @@ function formatStatus(status: string): string {
 }
 
 interface StalePipelineListProps {
+  staleCount: number;
   staleOpps: Array<{
     opportunityId: string;
     status: string;
@@ -39,21 +47,38 @@ interface StalePipelineListProps {
   }>;
 }
 
-export function StalePipelineList({ staleOpps }: StalePipelineListProps) {
+export function StalePipelineList({
+  staleCount,
+  staleOpps,
+}: StalePipelineListProps) {
+  const isShowingSubset = staleOpps.length < staleCount;
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Stale Opportunities</CardTitle>
+        <CardTitle>
+          Stale Opportunities ({staleCount.toLocaleString()})
+        </CardTitle>
         <CardDescription>
-          Opportunities with no upcoming meetings or overdue next meetings
+          {isShowingSubset
+            ? `Showing the stalest ${staleOpps.length.toLocaleString()} opportunities by age.`
+            : "Opportunities with no upcoming meetings or overdue next meetings."}
         </CardDescription>
       </CardHeader>
       <CardContent>
         {staleOpps.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 py-6 text-sm text-emerald-600 dark:text-emerald-400">
-            <CheckCircle2Icon className="h-4 w-4" />
-            No stale opportunities found — pipeline is healthy!
-          </div>
+          <Empty className="border bg-muted/20 py-10">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <CheckCircle2Icon className="size-4" />
+              </EmptyMedia>
+              <EmptyTitle>No stale opportunities</EmptyTitle>
+              <EmptyDescription>
+                The active pipeline has upcoming meetings scheduled and no
+                overdue next steps.
+              </EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <Table>
             <TableHeader>

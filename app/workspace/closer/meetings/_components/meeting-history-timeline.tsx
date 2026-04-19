@@ -17,6 +17,7 @@ type MeetingHistoryEntry = Doc<"meetings"> & {
 
 type MeetingHistoryTimelineProps = {
   meetingHistory: MeetingHistoryEntry[];
+  meetingDetailBasePath?: string;
 };
 
 /**
@@ -29,6 +30,7 @@ type MeetingHistoryTimelineProps = {
  */
 export function MeetingHistoryTimeline({
   meetingHistory,
+  meetingDetailBasePath = "/workspace/closer/meetings",
 }: MeetingHistoryTimelineProps) {
   if (meetingHistory.length === 0) return null;
 
@@ -93,7 +95,7 @@ export function MeetingHistoryTimeline({
               row
             ) : (
               <Link
-                href={`/workspace/closer/meetings/${meeting._id}`}
+                href={`${meetingDetailBasePath}/${meeting._id}`}
                 className="-mx-1 block rounded-md px-1 transition-colors hover:bg-accent/50"
               >
                 {row}

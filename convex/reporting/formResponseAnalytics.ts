@@ -6,6 +6,8 @@ import { assertValidDateRange } from "./lib/helpers";
 
 const MAX_FIELD_CATALOG_ROWS = 200;
 const MAX_FORM_RESPONSE_ROWS = 2500;
+const MAX_FORM_RESPONSE_KPI_MEETING_ROWS = 2000;
+const MAX_FORM_RESPONSE_KPI_RESPONSE_ROWS = 5000;
 
 export const getFieldCatalog = query({
   args: {},
@@ -130,6 +132,95 @@ export const getAnswerDistribution = query({
       distinctAnswers: distribution.length,
       distribution,
       isTruncated: rows.length > MAX_FORM_RESPONSE_ROWS,
+    };
+  },
+});
+
+export const getFormResponseKpis = query({
+  args: {
+    startDate: v.number(),
+    endDate: v.number(),
+  },
+  handler: async (ctx, { startDate, endDate }) => {
+    assertValidDateRange(startDate, endDate);
+
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    const meetingRows = await ctx.db
+      .query("meetings")
+      .withIndex("by_tenantId_and_scheduledAt", (q) =>
+        q.eq("tenantId", tenantId).gte("scheduledAt", startDate).lt("scheduledAt", endDate),
+      )
+      .take(MAX_FORM_RESPONSE_KPI_MEETING_ROWS + 1);
+    const meetings = meetingRows.slice(0, MAX_FORM_RESPONSE_KPI_MEETING_ROWS);
+
+    const respondedMeetingIds = new Set<Id<"meetings">>();
+    const answersByField = new Map<string, Map<string, number>>();
+    let totalFormResponsesRead = 0;
+    let isFormResponsesTruncated = false;
+
+    for (const meeting of meetings) {
+      for await (const response of ctx.db
+        .query("meetingFormResponses")
+        .withIndex("by_meetingId", (q) => q.eq("meetingId", meeting._id))) {
+        if (totalFormResponsesRead >= MAX_FORM_RESPONSE_KPI_RESPONSE_ROWS) {
+          isFormResponsesTruncated = true;
+          break;
+        }
+
+        totalFormResponsesRead += 1;
+        respondedMeetingIds.add(meeting._id);
+
+        const answer = response.answerText.trim();
+        if (answer.length === 0) {
+          continue;
+        }
+
+        const countsForField =
+          answersByField.get(response.fieldKey) ?? new Map<string, number>();
+        countsForField.set(answer, (countsForField.get(answer) ?? 0) + 1);
+        answersByField.set(response.fieldKey, countsForField);
+      }
+
+      if (isFormResponsesTruncated) {
+        break;
+      }
+    }
+
+    const topAnswerPerField = [...answersByField.entries()]
+      .map(([fieldKey, answerCounts]) => {
+        const topEntry = [...answerCounts.entries()].sort(
+          (left, right) =>
+            right[1] - left[1] || left[0].localeCompare(right[0]),
+        )[0];
+        const totalResponses = [...answerCounts.values()].reduce(
+          (sum, count) => sum + count,
+          0,
+        );
+
+        return {
+          fieldKey,
+          topAnswer: topEntry?.[0] ?? "",
+          topAnswerCount: topEntry?.[1] ?? 0,
+          totalResponses,
+          topAnswerShare:
+            totalResponses > 0 && topEntry ? topEntry[1] / totalResponses : 0,
+        };
+      })
+      .sort((left, right) => left.fieldKey.localeCompare(right.fieldKey));
+
+    return {
+      totalMeetings: meetings.length,
+      respondedMeetingsCount: respondedMeetingIds.size,
+      formResponseRate:
+        meetings.length > 0 ? respondedMeetingIds.size / meetings.length : null,
+      topAnswerPerField,
+      isMeetingsTruncated:
+        meetingRows.length > MAX_FORM_RESPONSE_KPI_MEETING_ROWS,
+      isFormResponsesTruncated,
     };
   },
 });

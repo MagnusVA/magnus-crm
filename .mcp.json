@@ -1,11 +1,3 @@
 {
-  "mcpServers": {
-    "expect": {
-      "command": "node",
-      "args": [
-        "node_modules/expect-cli/dist/index.js",
-        "mcp"
-      ]
-    }
-  }
+  "mcpServers": {}
 }

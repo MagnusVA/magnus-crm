@@ -47,7 +47,6 @@ export function LeadMeetingsTab({ meetings }: LeadMeetingsTabProps) {
 						<TableHead>Date</TableHead>
 						<TableHead>Closer</TableHead>
 						<TableHead>Status</TableHead>
-						<TableHead>Outcome</TableHead>
 					</TableRow>
 				</TableHeader>
 				<TableBody>
@@ -97,15 +96,6 @@ export function LeadMeetingsTab({ meetings }: LeadMeetingsTabProps) {
 										<Badge variant="outline" className="text-xs">
 											{mtg.opportunityStatus}
 										</Badge>
-									)}
-								</TableCell>
-								<TableCell>
-									{mtg.meetingOutcome ? (
-										<span className="text-sm capitalize">
-											{mtg.meetingOutcome.replace(/_/g, " ")}
-										</span>
-									) : (
-										<span className="text-sm text-muted-foreground">--</span>
 									)}
 								</TableCell>
 							</TableRow>

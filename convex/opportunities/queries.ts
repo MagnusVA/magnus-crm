@@ -1,12 +1,15 @@
 import { v } from "convex/values";
+import type { PaginationOptions } from "convex/server";
 import { paginationOptsValidator } from "convex/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import type { QueryCtx } from "../_generated/server";
 import { internalQuery, query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 
 const opportunityStatusValidator = v.union(
   v.literal("scheduled"),
   v.literal("in_progress"),
+  v.literal("meeting_overran"),
   v.literal("payment_received"),
   v.literal("follow_up_scheduled"),
   v.literal("reschedule_link_sent"),
@@ -41,6 +44,132 @@ export const getById = internalQuery({
 });
 
 /**
+ * Build the right paginated index query for the 8 filter combinations:
+ * (status × closer × date) each map to a dedicated composite index.
+ */
+async function buildPaginatedOpportunityQuery(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  filters: {
+    statusFilter?: Doc<"opportunities">["status"];
+    assignedCloserId?: Id<"users">;
+    periodStart?: number;
+    periodEnd?: number;
+  },
+  paginationOpts: PaginationOptions,
+) {
+  const { statusFilter, assignedCloserId, periodStart, periodEnd } = filters;
+  const hasDate = periodStart !== undefined && periodEnd !== undefined;
+
+  // Status + Closer + Date
+  if (statusFilter && assignedCloserId && hasDate) {
+    return ctx.db
+      .query("opportunities")
+      .withIndex(
+        "by_tenantId_and_assignedCloserId_and_status_and_createdAt",
+        (q) =>
+          q
+            .eq("tenantId", tenantId)
+            .eq("assignedCloserId", assignedCloserId)
+            .eq("status", statusFilter)
+            .gte("createdAt", periodStart)
+            .lt("createdAt", periodEnd),
+      )
+      .order("desc")
+      .paginate(paginationOpts);
+  }
+
+  // Status + Date (no closer)
+  if (statusFilter && hasDate) {
+    return ctx.db
+      .query("opportunities")
+      .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("status", statusFilter)
+          .gte("createdAt", periodStart)
+          .lt("createdAt", periodEnd),
+      )
+      .order("desc")
+      .paginate(paginationOpts);
+  }
+
+  // Closer + Date (no status)
+  if (assignedCloserId && hasDate) {
+    return ctx.db
+      .query("opportunities")
+      .withIndex("by_tenantId_and_assignedCloserId_and_createdAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("assignedCloserId", assignedCloserId)
+          .gte("createdAt", periodStart)
+          .lt("createdAt", periodEnd),
+      )
+      .order("desc")
+      .paginate(paginationOpts);
+  }
+
+  // Date only
+  if (hasDate) {
+    return ctx.db
+      .query("opportunities")
+      .withIndex("by_tenantId_and_createdAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .gte("createdAt", periodStart)
+          .lt("createdAt", periodEnd),
+      )
+      .order("desc")
+      .paginate(paginationOpts);
+  }
+
+  // Status + Closer (no date)
+  if (statusFilter && assignedCloserId) {
+    return ctx.db
+      .query("opportunities")
+      .withIndex("by_tenantId_and_assignedCloserId_and_status", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("assignedCloserId", assignedCloserId)
+          .eq("status", statusFilter),
+      )
+      .order("desc")
+      .paginate(paginationOpts);
+  }
+
+  // Status only
+  if (statusFilter) {
+    return ctx.db
+      .query("opportunities")
+      .withIndex("by_tenantId_and_status", (q) =>
+        q.eq("tenantId", tenantId).eq("status", statusFilter),
+      )
+      .order("desc")
+      .paginate(paginationOpts);
+  }
+
+  // Closer only
+  if (assignedCloserId) {
+    return ctx.db
+      .query("opportunities")
+      .withIndex("by_tenantId_and_assignedCloserId", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("assignedCloserId", assignedCloserId),
+      )
+      .order("desc")
+      .paginate(paginationOpts);
+  }
+
+  // No filters
+  return ctx.db
+    .query("opportunities")
+    .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+    .order("desc")
+    .paginate(paginationOpts);
+}
+
+/**
  * List opportunities for tenant owner/admin with optional filters.
  * Includes lead, closer, event type, and latest meeting metadata.
  */
@@ -49,9 +178,16 @@ export const listOpportunitiesForAdmin = query({
     paginationOpts: paginationOptsValidator,
     statusFilter: v.optional(opportunityStatusValidator),
     assignedCloserId: v.optional(v.id("users")),
+    periodStart: v.optional(v.number()),
+    periodEnd: v.optional(v.number()),
   },
-  handler: async (ctx, { paginationOpts, statusFilter, assignedCloserId }) => {
-    console.log("[Opportunities] listOpportunitiesForAdmin called", { statusFilter: statusFilter ?? "all", assignedCloserId: assignedCloserId ?? "none" });
+  handler: async (ctx, { paginationOpts, statusFilter, assignedCloserId, periodStart, periodEnd }) => {
+    console.log("[Opportunities] listOpportunitiesForAdmin called", {
+      statusFilter: statusFilter ?? "all",
+      assignedCloserId: assignedCloserId ?? "none",
+      periodStart: periodStart ?? "none",
+      periodEnd: periodEnd ?? "none",
+    });
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -68,39 +204,16 @@ export const listOpportunitiesForAdmin = query({
       }
     }
 
-    const paginatedResult =
-      statusFilter && assignedCloserId
-        ? await ctx.db
-            .query("opportunities")
-            .withIndex("by_tenantId_and_assignedCloserId_and_status", (q) =>
-              q
-                .eq("tenantId", tenantId)
-                .eq("assignedCloserId", assignedCloserId)
-                .eq("status", statusFilter),
-            )
-            .order("desc")
-            .paginate(paginationOpts)
-        : statusFilter
-          ? await ctx.db
-              .query("opportunities")
-              .withIndex("by_tenantId_and_status", (q) =>
-                q.eq("tenantId", tenantId).eq("status", statusFilter),
-              )
-              .order("desc")
-              .paginate(paginationOpts)
-          : assignedCloserId
-            ? await ctx.db
-                .query("opportunities")
-                .withIndex("by_tenantId_and_assignedCloserId", (q) =>
-                  q.eq("tenantId", tenantId).eq("assignedCloserId", assignedCloserId),
-                )
-                .order("desc")
-                .paginate(paginationOpts)
-            : await ctx.db
-                .query("opportunities")
-                .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-                .order("desc")
-                .paginate(paginationOpts);
+    const hasDate = periodStart !== undefined && periodEnd !== undefined;
+
+    // 8 filter combinations, each targeting a dedicated index for efficient pagination.
+    // Date-filtered branches use range operators on createdAt (last index field).
+    const paginatedResult = await buildPaginatedOpportunityQuery(
+      ctx,
+      tenantId,
+      { statusFilter, assignedCloserId, periodStart: hasDate ? periodStart : undefined, periodEnd: hasDate ? periodEnd : undefined },
+      paginationOpts,
+    );
 
     const opportunities = paginatedResult.page;
 

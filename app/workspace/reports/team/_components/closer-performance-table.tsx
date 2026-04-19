@@ -9,56 +9,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-
-interface CallMetrics {
-  bookedCalls: number;
-  canceledCalls: number;
-  noShows: number;
-  callsShowed: number;
-  showUpRate: number | null;
-}
-
-interface CloserData {
-  closerId: string;
-  closerName: string;
-  newCalls: CallMetrics;
-  followUpCalls: CallMetrics;
-  sales: number;
-  cashCollectedMinor: number;
-  closeRate: number | null;
-  avgCashCollectedMinor: number | null;
-}
-
-interface TeamTotals {
-  newBookedCalls: number;
-  newCanceled: number;
-  newNoShows: number;
-  newShowed: number;
-  followUpBookedCalls: number;
-  followUpCanceled: number;
-  followUpNoShows: number;
-  followUpShowed: number;
-  totalSales: number;
-  totalRevenue: number;
-  totalRevenueMinor: number;
-  newShowUpRate: number | null;
-  followUpShowUpRate: number | null;
-  overallShowUpRate: number | null;
-  overallCloseRate: number | null;
-  avgCashCollectedMinor: number | null;
-  excludedRevenueMinor: number;
-  excludedSales: number;
-}
+import type { CallMetrics, CloserData, TeamTotals } from "./team-report-types";
+import {
+  formatCompactCurrency,
+  formatRate,
+} from "./team-report-formatters";
 
 interface CloserPerformanceTableProps {
   closers: CloserData[];
   callType: "new" | "follow_up";
   teamTotals: TeamTotals;
-}
-
-function formatRate(rate: number | null): string {
-  if (rate === null) return "\u2014";
-  return `${(rate * 100).toFixed(1)}%`;
 }
 
 function getCallMetrics(closer: CloserData, callType: "new" | "follow_up"): CallMetrics {
@@ -74,16 +34,22 @@ function getTeamFooterData(
       bookedCalls: teamTotals.newBookedCalls,
       canceledCalls: teamTotals.newCanceled,
       noShows: teamTotals.newNoShows,
+      reviewRequiredCalls: teamTotals.newReviewRequired,
       callsShowed: teamTotals.newShowed,
       showUpRate: teamTotals.newShowUpRate,
+      confirmedAttendanceDenominator:
+        teamTotals.newConfirmedAttendanceDenominator,
     };
   }
   return {
     bookedCalls: teamTotals.followUpBookedCalls,
     canceledCalls: teamTotals.followUpCanceled,
     noShows: teamTotals.followUpNoShows,
+    reviewRequiredCalls: teamTotals.followUpReviewRequired,
     callsShowed: teamTotals.followUpShowed,
     showUpRate: teamTotals.followUpShowUpRate,
+    confirmedAttendanceDenominator:
+      teamTotals.followUpConfirmedAttendanceDenominator,
   };
 }
 
@@ -101,17 +67,40 @@ export function CloserPerformanceTable({
   }
 
   const footer = getTeamFooterData(teamTotals, callType);
+  const commercialTotals = {
+    sales: teamTotals.totalSales,
+    cashCollectedMinor: teamTotals.totalRevenueMinor,
+    adminLoggedRevenueMinor: teamTotals.totalAdminLoggedRevenueMinor,
+    closeRate: teamTotals.overallCloseRate,
+    avgDealMinor:
+      teamTotals.totalSales > 0
+        ? teamTotals.totalRevenueMinor / teamTotals.totalSales
+        : null,
+  };
 
   return (
-    <Table>
+    <Table className="min-w-[76rem]">
       <TableHeader>
         <TableRow>
           <TableHead>Closer</TableHead>
           <TableHead className="text-right">Booked</TableHead>
           <TableHead className="text-right">Canceled</TableHead>
           <TableHead className="text-right">No Shows</TableHead>
+          <TableHead
+            className="text-right"
+            title="Meetings flagged for review and excluded from show-up rate until resolved."
+          >
+            Review Req.
+          </TableHead>
           <TableHead className="text-right">Showed</TableHead>
           <TableHead className="text-right">Show-Up Rate</TableHead>
+          <TableHead className="border-l border-border/70 pl-4 text-right">
+            Sales
+          </TableHead>
+          <TableHead className="text-right">Cash Collected</TableHead>
+          <TableHead className="text-right">Admin-Logged</TableHead>
+          <TableHead className="text-right">Close Rate</TableHead>
+          <TableHead className="text-right">Avg Deal</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -119,15 +108,46 @@ export function CloserPerformanceTable({
           const calls = getCallMetrics(closer, callType);
           return (
             <TableRow key={closer.closerId}>
-              <TableCell>{closer.closerName}</TableCell>
-              <TableCell className="text-right">{calls.bookedCalls}</TableCell>
-              <TableCell className="text-right">
+              <TableCell className="font-medium">{closer.closerName}</TableCell>
+              <TableCell className="text-right tabular-nums">
+                {calls.bookedCalls}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
                 {calls.canceledCalls}
               </TableCell>
-              <TableCell className="text-right">{calls.noShows}</TableCell>
-              <TableCell className="text-right">{calls.callsShowed}</TableCell>
+              <TableCell className="text-right tabular-nums">
+                {calls.noShows}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {calls.reviewRequiredCalls}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {calls.callsShowed}
+              </TableCell>
               <TableCell className="text-right">
-                {formatRate(calls.showUpRate)}
+                <div className="flex flex-col items-end gap-0.5">
+                  <span className="tabular-nums">{formatRate(calls.showUpRate)}</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {calls.callsShowed} / {calls.confirmedAttendanceDenominator}
+                  </span>
+                </div>
+              </TableCell>
+              <TableCell className="border-l border-border/70 pl-4 text-right tabular-nums">
+                {closer.sales}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {formatCompactCurrency(closer.cashCollectedMinor)}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {formatCompactCurrency(closer.adminLoggedRevenueMinor)}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {formatRate(closer.closeRate)}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {closer.avgCashCollectedMinor !== null
+                  ? formatCompactCurrency(closer.avgCashCollectedMinor)
+                  : "\u2014"}
               </TableCell>
             </TableRow>
           );
@@ -136,20 +156,40 @@ export function CloserPerformanceTable({
       <TableFooter>
         <TableRow>
           <TableCell className="font-bold">Team Total</TableCell>
-          <TableCell className="text-right font-bold">
+          <TableCell className="text-right font-bold tabular-nums">
             {footer.bookedCalls}
           </TableCell>
-          <TableCell className="text-right font-bold">
+          <TableCell className="text-right font-bold tabular-nums">
             {footer.canceledCalls}
           </TableCell>
-          <TableCell className="text-right font-bold">
+          <TableCell className="text-right font-bold tabular-nums">
             {footer.noShows}
           </TableCell>
-          <TableCell className="text-right font-bold">
+          <TableCell className="text-right font-bold tabular-nums">
+            {footer.reviewRequiredCalls}
+          </TableCell>
+          <TableCell className="text-right font-bold tabular-nums">
             {footer.callsShowed}
           </TableCell>
-          <TableCell className="text-right font-bold">
+          <TableCell className="text-right font-bold tabular-nums">
             {formatRate(footer.showUpRate)}
+          </TableCell>
+          <TableCell className="border-l border-border/70 pl-4 text-right font-bold tabular-nums">
+            {commercialTotals.sales}
+          </TableCell>
+          <TableCell className="text-right font-bold tabular-nums">
+            {formatCompactCurrency(commercialTotals.cashCollectedMinor)}
+          </TableCell>
+          <TableCell className="text-right font-bold tabular-nums">
+            {formatCompactCurrency(commercialTotals.adminLoggedRevenueMinor)}
+          </TableCell>
+          <TableCell className="text-right font-bold tabular-nums">
+            {formatRate(commercialTotals.closeRate)}
+          </TableCell>
+          <TableCell className="text-right font-bold tabular-nums">
+            {commercialTotals.avgDealMinor !== null
+              ? formatCompactCurrency(commercialTotals.avgDealMinor)
+              : "\u2014"}
           </TableCell>
         </TableRow>
       </TableFooter>

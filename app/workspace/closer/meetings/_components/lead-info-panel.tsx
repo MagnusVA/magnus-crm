@@ -19,6 +19,7 @@ type LeadInfoPanelProps = {
       isCurrentMeeting: boolean;
     }
   >;
+  meetingDetailBasePath?: string;
 };
 
 /**
@@ -28,7 +29,11 @@ type LeadInfoPanelProps = {
  * vertical timeline of all their meetings across all opportunities via
  * the extracted `MeetingHistoryTimeline` component.
  */
-export function LeadInfoPanel({ lead, meetingHistory }: LeadInfoPanelProps) {
+export function LeadInfoPanel({
+  lead,
+  meetingHistory,
+  meetingDetailBasePath,
+}: LeadInfoPanelProps) {
   return (
     <div className="flex flex-col gap-4">
       {/* Lead Profile */}
@@ -87,7 +92,10 @@ export function LeadInfoPanel({ lead, meetingHistory }: LeadInfoPanelProps) {
             <CardTitle className="text-base">Meeting History</CardTitle>
           </CardHeader>
           <CardContent>
-            <MeetingHistoryTimeline meetingHistory={meetingHistory} />
+            <MeetingHistoryTimeline
+              meetingHistory={meetingHistory}
+              meetingDetailBasePath={meetingDetailBasePath}
+            />
           </CardContent>
         </Card>
       )}
