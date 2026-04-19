@@ -94,7 +94,7 @@ export function ActivityFeedPageClient() {
       <ReportDateControls value={dateRange} onChange={setDateRange} />
 
       {/* Summary cards */}
-      <ActivitySummaryCards summary={summary} />
+      <ActivitySummaryCards summary={summary} dateRange={dateRange} />
 
       {/* Truncation warning */}
       {summary.isTruncated && (

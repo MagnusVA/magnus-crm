@@ -3,6 +3,7 @@
 import { formatDistanceToNow } from "date-fns";
 import {
   Activity,
+  AlertTriangle,
   ArrowRightLeft,
   BadgeCheck,
   CalendarCheck,
@@ -10,15 +11,21 @@ import {
   CalendarPlus2,
   CalendarX2,
   CheckCircle2,
+  CircleAlert,
   Combine,
   DollarSign,
+  Filter,
+  Gavel,
   GitBranch,
+  MessageSquare,
   Play,
   RefreshCw,
   RotateCcw,
   Shield,
+  ShieldCheck,
   Sparkles,
   Square,
+  Undo2,
   UserPlus,
   UserRoundCheck,
   UserRoundPlus,
@@ -39,13 +46,20 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   "check-circle-2": CheckCircle2,
   combine: Combine,
   "dollar-sign": DollarSign,
+  filter: Filter,
+  gavel: Gavel,
   "git-branch": GitBranch,
+  "message-square": MessageSquare,
   play: Play,
   "refresh-cw": RefreshCw,
   "rotate-ccw": RotateCcw,
   shield: Shield,
+  "shield-check": ShieldCheck,
   sparkles: Sparkles,
   square: Square,
+  "alert-triangle": AlertTriangle,
+  "circle-alert": CircleAlert,
+  "undo-2": Undo2,
   "user-plus": UserPlus,
   "user-round-check": UserRoundCheck,
   "user-round-plus": UserRoundPlus,
@@ -62,6 +76,8 @@ interface ActivityEventRowProps {
     actorName: string | null;
     occurredAt: number;
     source: string;
+    fromStatus?: string;
+    toStatus?: string;
     metadata: Record<string, unknown> | null;
   };
 }
@@ -70,22 +86,29 @@ export function ActivityEventRow({ event }: ActivityEventRowProps) {
   const label = getEventLabel(event.eventType);
   const Icon = ICON_MAP[label.iconHint] ?? Activity;
 
-  const fromStatus = event.metadata?.fromStatus as string | undefined;
-  const toStatus = event.metadata?.toStatus as string | undefined;
+  const legacyFromStatus =
+    typeof event.metadata?.fromStatus === "string"
+      ? event.metadata.fromStatus
+      : undefined;
+  const legacyToStatus =
+    typeof event.metadata?.toStatus === "string"
+      ? event.metadata.toStatus
+      : undefined;
+  const fromStatus = event.fromStatus ?? legacyFromStatus;
+  const toStatus = event.toStatus ?? legacyToStatus;
 
   return (
     <div className="flex items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50">
-      {/* Icon */}
-      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+      <div
+        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted"
+        title={event.eventType}
+      >
         <Icon className="h-4 w-4 text-muted-foreground" />
       </div>
 
-      {/* Content */}
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="text-sm">
-          <span className="font-medium">
-            {event.actorName ?? "System"}
-          </span>{" "}
+          <span className="font-medium">{event.actorName ?? "System"}</span>{" "}
           {label.verb}
         </p>
 

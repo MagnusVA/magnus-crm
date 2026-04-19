@@ -80,6 +80,7 @@ export default defineSchema({
     receivedAt: v.number(),
   })
     .index("by_tenantId_and_eventType", ["tenantId", "eventType"])
+    .index("by_tenantId_and_receivedAt", ["tenantId", "receivedAt"])
     .index("by_calendlyEventUri", ["calendlyEventUri"])
     .index("by_processed", ["processed"])
     .index("by_processed_and_receivedAt", ["processed", "receivedAt"])
@@ -570,7 +571,8 @@ export default defineSchema({
       "tenantId",
       "closerId",
       "createdAt",
-    ]),
+    ])
+    .index("by_tenantId_and_resolvedAt", ["tenantId", "resolvedAt"]),
   // === End Meeting Overran Review System ===
 
   eventTypeConfigs: defineTable({
@@ -689,6 +691,15 @@ export default defineSchema({
       v.literal("opportunity"),
       v.literal("customer"),
     ),
+    origin: v.optional(
+      v.union(
+        v.literal("closer_meeting"),
+        v.literal("closer_reminder"),
+        v.literal("admin_meeting"),
+        v.literal("customer_flow"),
+      ),
+    ),
+    loggedByAdminUserId: v.optional(v.id("users")),
     // === End Feature D ===
   })
     .index("by_opportunityId", ["opportunityId"])
@@ -705,6 +716,11 @@ export default defineSchema({
     .index("by_tenantId_and_closerId_and_recordedAt", [
       "tenantId",
       "closerId",
+      "recordedAt",
+    ])
+    .index("by_tenantId_and_origin_and_recordedAt", [
+      "tenantId",
+      "origin",
       "recordedAt",
     ]),
 
@@ -741,6 +757,8 @@ export default defineSchema({
       v.literal("closer_initiated"),
       v.literal("cancellation_follow_up"),
       v.literal("no_show_follow_up"),
+      v.literal("admin_initiated"),
+      v.literal("overran_review_resolution"),
     ),
     status: v.union(
       v.literal("pending"),
@@ -750,6 +768,14 @@ export default defineSchema({
     ),
     bookedAt: v.optional(v.number()),
     createdAt: v.number(),
+    createdByUserId: v.optional(v.id("users")),
+    createdSource: v.optional(
+      v.union(
+        v.literal("closer"),
+        v.literal("admin"),
+        v.literal("system"),
+      ),
+    ),
   })
     .index("by_tenantId", ["tenantId"])
     .index("by_opportunityId", ["opportunityId"])
@@ -773,6 +799,12 @@ export default defineSchema({
     .index("by_tenantId_and_status_and_createdAt", [
       "tenantId",
       "status",
+      "createdAt",
+    ])
+    .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
+    .index("by_tenantId_and_createdSource_and_createdAt", [
+      "tenantId",
+      "createdSource",
       "createdAt",
     ])
     .index("by_opportunityId_and_status", ["opportunityId", "status"]),

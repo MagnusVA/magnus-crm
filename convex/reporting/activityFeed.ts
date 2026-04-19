@@ -46,7 +46,7 @@ function matchesFeedFilters(
   return true;
 }
 
-function parseEventMetadata(metadata: string | undefined) {
+function parseEventMetadata(metadata: string | undefined | null) {
   if (!metadata) {
     return null;
   }
@@ -176,6 +176,8 @@ export const getActivitySummary = query({
     const byEntity = Object.fromEntries(
       DOMAIN_EVENT_ENTITY_TYPES.map((entityType) => [entityType, 0]),
     ) as Record<Doc<"domainEvents">["entityType"], number>;
+    const byEventType: Record<string, number> = {};
+    const byOutcome: Record<string, number> = {};
     const actorCounts = new Map<Id<"users">, number>();
     let totalEvents = 0;
     let isTruncated = false;
@@ -194,6 +196,22 @@ export const getActivitySummary = query({
       totalEvents += 1;
       bySource[event.source] = (bySource[event.source] ?? 0) + 1;
       byEntity[event.entityType] = (byEntity[event.entityType] ?? 0) + 1;
+      byEventType[event.eventType] = (byEventType[event.eventType] ?? 0) + 1;
+
+      const parsedMetadata = parseEventMetadata(event.metadata);
+      if (event.eventType === "followUp.completed") {
+        const outcome = parsedMetadata?.outcome;
+        if (typeof outcome === "string") {
+          const bucket = `reminder_${outcome}`;
+          byOutcome[bucket] = (byOutcome[bucket] ?? 0) + 1;
+        }
+      } else if (event.eventType === "meeting.overran_review_resolved") {
+        const resolutionAction = parsedMetadata?.resolutionAction;
+        if (typeof resolutionAction === "string") {
+          const bucket = `review_resolved_${resolutionAction}`;
+          byOutcome[bucket] = (byOutcome[bucket] ?? 0) + 1;
+        }
+      }
 
       if (event.actorUserId) {
         actorCounts.set(
@@ -216,12 +234,18 @@ export const getActivitySummary = query({
       byEntity,
       byActor: Object.fromEntries(actorCounts.entries()),
       actorBreakdown: [...actorCounts.entries()]
-        .map(([actorUserId, count]) => ({
-          actorUserId,
-          actorName: getUserDisplayName(actorById.get(actorUserId) ?? null),
-          count,
-        }))
+        .map(([actorUserId, count]) => {
+          const actor = actorById.get(actorUserId) ?? null;
+          return {
+            actorUserId,
+            actorName: getUserDisplayName(actor),
+            actorRole: actor?.role ?? "unknown",
+            count,
+          };
+        })
         .sort((left, right) => right.count - left.count),
+      byEventType,
+      byOutcome,
     };
   },
 });

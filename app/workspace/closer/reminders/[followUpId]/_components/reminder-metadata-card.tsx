@@ -74,6 +74,10 @@ function humaniseReason(reason: Doc<"followUps">["reason"]): string {
 			return "Follow-up after cancellation";
 		case "no_show_follow_up":
 			return "Follow-up after no-show";
+		case "admin_initiated":
+			return "Admin created this reminder";
+		case "overran_review_resolution":
+			return "Created while resolving an overran review";
 	}
 }
 

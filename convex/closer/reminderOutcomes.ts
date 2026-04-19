@@ -111,6 +111,7 @@ export const logReminderPayment = mutation({
       statusChangedAt: now,
       recordedAt: now,
       contextType: "opportunity",
+      origin: "closer_reminder",
     });
     await insertPaymentAggregate(ctx, paymentId);
 
@@ -421,6 +422,8 @@ export const markReminderNoResponse = mutation({
         reason: "closer_initiated",
         status: "pending",
         createdAt: now,
+        createdByUserId: userId,
+        createdSource: "closer",
       });
 
       await emitDomainEvent(ctx, {

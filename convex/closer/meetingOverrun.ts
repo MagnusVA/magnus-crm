@@ -294,6 +294,8 @@ export const scheduleFollowUpFromOverran = mutation({
       reason: "closer_initiated",
       status: "pending",
       createdAt: now,
+      createdByUserId: userId,
+      createdSource: "closer",
     });
 
     const activeDelta = getActiveOpportunityDelta(

@@ -7,6 +7,21 @@ import { updateTenantStats } from "./tenantStatsHelper";
 import { syncCustomerPaymentSummary } from "./paymentHelpers";
 import { insertPaymentAggregate } from "../reporting/writeHooks";
 
+type PaymentOrigin =
+  | "closer_meeting"
+  | "closer_reminder"
+  | "admin_meeting"
+  | "customer_flow";
+
+type FollowUpReason =
+  | "closer_initiated"
+  | "cancellation_follow_up"
+  | "no_show_follow_up"
+  | "admin_initiated"
+  | "overran_review_resolution";
+
+type FollowUpCreatedSource = "closer" | "admin" | "system";
+
 type CreatePaymentRecordArgs = {
   tenantId: Id<"tenants">;
   opportunityId: Id<"opportunities">;
@@ -17,6 +32,8 @@ type CreatePaymentRecordArgs = {
   provider: string;
   referenceCode?: string;
   proofFileId?: Id<"_storage">;
+  origin: PaymentOrigin;
+  loggedByAdminUserId?: Id<"users">;
 };
 
 type CreateManualReminderArgs = {
@@ -24,6 +41,9 @@ type CreateManualReminderArgs = {
   opportunityId: Id<"opportunities">;
   actorUserId: Id<"users">;
   note: string;
+  reason: FollowUpReason;
+  createdByUserId: Id<"users">;
+  createdSource: FollowUpCreatedSource;
 };
 
 export async function createPaymentRecord(
@@ -70,6 +90,8 @@ export async function createPaymentRecord(
     statusChangedAt: now,
     recordedAt: now,
     contextType: "opportunity",
+    origin: args.origin,
+    loggedByAdminUserId: args.loggedByAdminUserId,
   });
 
   await insertPaymentAggregate(ctx, paymentId);
@@ -89,6 +111,7 @@ export async function createPaymentRecord(
       currency,
       attributedCloserId,
       loggedByAdminUserId: args.actorUserId,
+      origin: args.origin,
     },
   });
   await updateTenantStats(ctx, args.tenantId, {
@@ -147,10 +170,12 @@ export async function createManualReminder(
     leadId: opportunity.leadId,
     closerId,
     type: "manual_reminder",
-    reason: "closer_initiated",
+    reason: args.reason,
     reminderNote: note,
     status: "pending",
     createdAt: now,
+    createdByUserId: args.createdByUserId,
+    createdSource: args.createdSource,
   });
 
   await emitDomainEvent(ctx, {
@@ -166,6 +191,7 @@ export async function createManualReminder(
       opportunityId: args.opportunityId,
       type: "manual_reminder",
       createdVia: "overran_review_resolution",
+      reason: args.reason,
     },
   });
 

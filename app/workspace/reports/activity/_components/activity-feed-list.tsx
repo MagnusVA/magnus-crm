@@ -1,6 +1,12 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ActivityEventRow } from "./activity-event-row";
 
@@ -37,16 +43,19 @@ export function ActivityFeedList({
 
   if (events.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
-        <p className="text-sm text-muted-foreground">
-          No activity found for this period and filters.
-        </p>
-      </div>
+      <Empty className="rounded-lg border p-12">
+        <EmptyHeader>
+          <EmptyTitle>No activity found</EmptyTitle>
+          <EmptyDescription>
+            No activity matched the selected date range and filters.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
   return (
-    <div className="space-y-2">
+    <div className="flex flex-col gap-2">
       {events.map((event) => (
         <ActivityEventRow key={event._id} event={event} />
       ))}

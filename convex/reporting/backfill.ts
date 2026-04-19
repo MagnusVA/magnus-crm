@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalMutation } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { internalMutation, internalQuery } from "../_generated/server";
 import {
   customerConversions,
   leadTimeline,
@@ -11,6 +12,38 @@ import {
 
 const CLASSIFICATION_PAGE_SIZE = 100;
 const AGGREGATE_PAGE_SIZE = 200;
+const ORIGIN_BACKFILL_PAGE_SIZE = 100;
+
+type PaymentOrigin =
+  | "closer_meeting"
+  | "closer_reminder"
+  | "admin_meeting"
+  | "customer_flow";
+
+type FollowUpCreatedSource = "closer" | "admin" | "system";
+
+function parseMetadata(
+  metadata: string | undefined | null,
+): Record<string, unknown> | null {
+  if (!metadata) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(metadata);
+    return typeof parsed === "object" && parsed !== null
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function asUserId(value: unknown): Id<"users"> | undefined {
+  return typeof value === "string" && value.length > 0
+    ? (value as Id<"users">)
+    : undefined;
+}
 
 export const backfillMeetingClassification = internalMutation({
   args: { cursor: v.optional(v.string()) },
@@ -189,6 +222,303 @@ export const backfillCustomersAggregate = internalMutation({
     return {
       hasMore: !result.isDone,
       inserted: result.page.length,
+    };
+  },
+});
+
+export const backfillPaymentOrigin = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, { cursor }) => {
+    const result = await ctx.db.query("paymentRecords").paginate({
+      numItems: ORIGIN_BACKFILL_PAGE_SIZE,
+      cursor: cursor ?? null,
+    });
+
+    let updated = 0;
+    let skipped = 0;
+    let defaultedToCloserMeeting = 0;
+
+    for (const payment of result.page) {
+      if (payment.origin !== undefined) {
+        skipped += 1;
+        continue;
+      }
+
+      let origin: PaymentOrigin =
+        payment.contextType === "customer"
+          ? "customer_flow"
+          : "closer_meeting";
+      let loggedByAdminUserId: Id<"users"> | undefined;
+      let usedDefault = false;
+
+      const events = await ctx.db
+        .query("domainEvents")
+        .withIndex("by_tenantId_and_entityType_and_entityId_and_occurredAt", (q) =>
+          q
+            .eq("tenantId", payment.tenantId)
+            .eq("entityType", "payment")
+            .eq("entityId", payment._id),
+        )
+        .take(5);
+      const recordedEvent =
+        events.find((event) => event.eventType === "payment.recorded") ?? null;
+
+      if (recordedEvent) {
+        const metadata = parseMetadata(recordedEvent.metadata);
+
+        if (payment.contextType !== "customer") {
+          if (metadata?.origin === "reminder") {
+            origin = "closer_reminder";
+          } else if (
+            recordedEvent.source === "admin" ||
+            asUserId(metadata?.loggedByAdminUserId)
+          ) {
+            origin = "admin_meeting";
+          } else if (recordedEvent.source === "closer") {
+            origin = "closer_meeting";
+          } else {
+            origin = "closer_meeting";
+            usedDefault = true;
+          }
+        }
+
+        loggedByAdminUserId =
+          (recordedEvent.source === "admin"
+            ? recordedEvent.actorUserId
+            : undefined) ?? asUserId(metadata?.loggedByAdminUserId);
+      } else if (payment.contextType !== "customer") {
+        usedDefault = true;
+      }
+
+      if (usedDefault) {
+        defaultedToCloserMeeting += 1;
+      }
+
+      await ctx.db.patch(payment._id, {
+        origin,
+        loggedByAdminUserId,
+      });
+      updated += 1;
+    }
+
+    if (defaultedToCloserMeeting > 0) {
+      console.log(
+        "[Backfill:PaymentOrigin] batch complete | updated=%d skipped=%d defaulted=%d",
+        updated,
+        skipped,
+        defaultedToCloserMeeting,
+      );
+    }
+
+    if (!result.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.reporting.backfill.backfillPaymentOrigin,
+        { cursor: result.continueCursor },
+      );
+    }
+
+    return {
+      hasMore: !result.isDone,
+      updated,
+      skipped,
+      defaultedToCloserMeeting,
+    };
+  },
+});
+
+export const auditPaymentOriginBackfill = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    let cursor: string | null = null;
+    let total = 0;
+    let withOrigin = 0;
+    let adminAttributed = 0;
+    const byOrigin: Record<PaymentOrigin, number> = {
+      closer_meeting: 0,
+      closer_reminder: 0,
+      admin_meeting: 0,
+      customer_flow: 0,
+    };
+
+    while (true) {
+      const result = await ctx.db.query("paymentRecords").paginate({
+        numItems: 500,
+        cursor,
+      });
+
+      for (const payment of result.page) {
+        total += 1;
+
+        if (payment.origin !== undefined) {
+          withOrigin += 1;
+          byOrigin[payment.origin] += 1;
+        }
+        if (payment.loggedByAdminUserId !== undefined) {
+          adminAttributed += 1;
+        }
+      }
+
+      if (result.isDone) {
+        break;
+      }
+      cursor = result.continueCursor;
+    }
+
+    return {
+      total,
+      withOrigin,
+      unset: total - withOrigin,
+      adminAttributed,
+      byOrigin,
+    };
+  },
+});
+
+export const backfillFollowUpOrigin = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  handler: async (ctx, { cursor }) => {
+    const result = await ctx.db.query("followUps").paginate({
+      numItems: ORIGIN_BACKFILL_PAGE_SIZE,
+      cursor: cursor ?? null,
+    });
+
+    let updated = 0;
+    let skipped = 0;
+    let defaultedToSystem = 0;
+
+    for (const followUp of result.page) {
+      const alreadyBackfilled =
+        followUp.createdSource === "system" ||
+        (followUp.createdSource !== undefined &&
+          followUp.createdByUserId !== undefined);
+      if (alreadyBackfilled) {
+        skipped += 1;
+        continue;
+      }
+
+      let createdSource = followUp.createdSource;
+      let createdByUserId = followUp.createdByUserId;
+      let defaulted = false;
+
+      const events = await ctx.db
+        .query("domainEvents")
+        .withIndex("by_tenantId_and_entityType_and_entityId_and_occurredAt", (q) =>
+          q
+            .eq("tenantId", followUp.tenantId)
+            .eq("entityType", "followUp")
+            .eq("entityId", followUp._id),
+        )
+        .take(5);
+      const createdEvent =
+        events.find((event) => event.eventType === "followUp.created") ?? null;
+
+      if (createdEvent) {
+        if (createdEvent.source === "admin") {
+          createdSource = "admin";
+          createdByUserId = createdEvent.actorUserId ?? createdByUserId;
+        } else if (createdEvent.source === "closer") {
+          createdSource = "closer";
+          createdByUserId =
+            createdEvent.actorUserId ?? createdByUserId ?? followUp.closerId;
+        } else if (
+          createdEvent.source === "system" &&
+          createdEvent.actorUserId === followUp.closerId
+        ) {
+          createdSource = "closer";
+          createdByUserId = followUp.closerId;
+        } else {
+          createdSource = "system";
+          createdByUserId = undefined;
+          defaulted = true;
+        }
+      } else {
+        createdSource = "system";
+        createdByUserId = undefined;
+        defaulted = true;
+      }
+
+      if (defaulted) {
+        defaultedToSystem += 1;
+      }
+
+      await ctx.db.patch(followUp._id, {
+        createdSource,
+        createdByUserId,
+      });
+      updated += 1;
+    }
+
+    if (defaultedToSystem > 0) {
+      console.log(
+        "[Backfill:FollowUpOrigin] batch complete | updated=%d skipped=%d defaulted=%d",
+        updated,
+        skipped,
+        defaultedToSystem,
+      );
+    }
+
+    if (!result.isDone) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.reporting.backfill.backfillFollowUpOrigin,
+        { cursor: result.continueCursor },
+      );
+    }
+
+    return {
+      hasMore: !result.isDone,
+      updated,
+      skipped,
+      defaultedToSystem,
+    };
+  },
+});
+
+export const auditFollowUpOriginBackfill = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    let cursor: string | null = null;
+    let total = 0;
+    let withSource = 0;
+    let withCreator = 0;
+    const bySource: Record<FollowUpCreatedSource, number> = {
+      closer: 0,
+      admin: 0,
+      system: 0,
+    };
+
+    while (true) {
+      const result = await ctx.db.query("followUps").paginate({
+        numItems: 500,
+        cursor,
+      });
+
+      for (const followUp of result.page) {
+        total += 1;
+
+        if (followUp.createdSource !== undefined) {
+          withSource += 1;
+          bySource[followUp.createdSource] += 1;
+        }
+        if (followUp.createdByUserId !== undefined) {
+          withCreator += 1;
+        }
+      }
+
+      if (result.isDone) {
+        break;
+      }
+      cursor = result.continueCursor;
+    }
+
+    return {
+      total,
+      withSource,
+      unsetSource: total - withSource,
+      withCreator,
+      unsetCreator: total - withCreator,
+      bySource,
     };
   },
 });

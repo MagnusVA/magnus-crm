@@ -237,6 +237,8 @@ export const createNoShowRescheduleLink = mutation({
       reason: "no_show_follow_up",
       status: "pending",
       createdAt: now,
+      createdByUserId: userId,
+      createdSource: "closer",
     });
 
     await ctx.db.patch(opportunityId, {

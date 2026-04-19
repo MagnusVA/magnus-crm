@@ -55,6 +55,8 @@ export const createFollowUpRecord = internalMutation({
       reason: args.reason,
       status: "pending",
       createdAt: now,
+      createdByUserId: args.closerId,
+      createdSource: "closer",
     });
     await emitDomainEvent(ctx, {
       tenantId: args.tenantId,
@@ -214,6 +216,8 @@ export const createSchedulingLinkFollowUp = mutation({
       reason: "closer_initiated",
       status: "pending",
       createdAt: now,
+      createdByUserId: userId,
+      createdSource: "closer",
     });
 
     let schedulingLinkUrl: string;
@@ -364,6 +368,8 @@ export const createManualReminderFollowUpPublic = mutation({
       reason: "closer_initiated",
       status: "pending",
       createdAt: now,
+      createdByUserId: userId,
+      createdSource: "closer",
     });
 
     await emitDomainEvent(ctx, {

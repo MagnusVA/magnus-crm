@@ -11,6 +11,7 @@ import {
   type Granularity,
 } from "../../_components/report-date-controls";
 import { RevenueReportSkeleton } from "./revenue-report-skeleton";
+import { RevenueByOriginChart } from "./revenue-by-origin-chart";
 import { RevenueTrendChart } from "./revenue-trend-chart";
 import { CloserRevenueTable } from "./closer-revenue-table";
 import { DealSizeDistribution } from "./deal-size-distribution";
@@ -62,11 +63,19 @@ export function RevenueReportPageClient() {
         onGranularityChange={setGranularity}
       />
 
-      {trend !== undefined ? (
-        <RevenueTrendChart data={trend.trend} />
-      ) : (
-        <Skeleton className="h-[260px] rounded-lg" />
-      )}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(20rem,0.9fr)]">
+        {trend !== undefined ? (
+          <RevenueTrendChart data={trend.trend} />
+        ) : (
+          <Skeleton className="h-[260px] rounded-lg" />
+        )}
+
+        {metrics !== undefined ? (
+          <RevenueByOriginChart byOrigin={metrics.byOrigin} />
+        ) : (
+          <Skeleton className="h-[260px] rounded-lg" />
+        )}
+      </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {metrics !== undefined ? (

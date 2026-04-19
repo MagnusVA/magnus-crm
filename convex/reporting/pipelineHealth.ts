@@ -1,8 +1,9 @@
+import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { opportunityByStatus } from "./aggregates";
-import { getUserDisplayName } from "./lib/helpers";
+import { assertValidDateRange, getUserDisplayName } from "./lib/helpers";
 
 const OPPORTUNITY_STATUSES = [
   "scheduled",
@@ -26,8 +27,80 @@ const ACTIVE_PIPELINE_STATUSES = [
 
 const MAX_STALE_OPPORTUNITIES = 20;
 const MAX_VELOCITY_ROWS = 500;
-const MAX_AGING_ROWS_PER_STATUS = 500;
+const REPORT_ROW_CAP = 2000;
+const MAX_PENDING_REVIEW_SCAN_ROWS = REPORT_ROW_CAP + 1;
+const MAX_UNRESOLVED_REMINDER_SCAN_ROWS = REPORT_ROW_CAP + 1;
+const MAX_NO_SHOW_SCAN_ROWS = REPORT_ROW_CAP + 1;
+const MAX_LOSS_SCAN_ROWS = REPORT_ROW_CAP + 1;
 const STALE_THRESHOLD_MS = 14 * 24 * 60 * 60 * 1000;
+
+type NoShowSource = "closer" | "calendly_webhook" | "none";
+type LossAttributionRole = "admin" | "closer" | "unknown";
+type ReminderCreatedSource = "closer" | "admin" | "system";
+
+function emptyNoShowSourceSplit(): Record<NoShowSource, number> {
+  return {
+    closer: 0,
+    calendly_webhook: 0,
+    none: 0,
+  };
+}
+
+function emptyReminderCreatedSourceSplit(): Record<ReminderCreatedSource, number> {
+  return {
+    closer: 0,
+    admin: 0,
+    system: 0,
+  };
+}
+
+function toNoShowSource(
+  source: Doc<"meetings">["noShowSource"],
+): NoShowSource {
+  switch (source) {
+    case "closer":
+      return "closer";
+    case "calendly_webhook":
+      return "calendly_webhook";
+    case undefined:
+      return "none";
+    default:
+      return "none";
+  }
+}
+
+function toReminderCreatedSource(
+  source: Doc<"followUps">["createdSource"],
+): ReminderCreatedSource {
+  switch (source) {
+    case "closer":
+      return "closer";
+    case "admin":
+      return "admin";
+    case "system":
+    case undefined:
+      return "system";
+    default:
+      return "system";
+  }
+}
+
+function toLossAttributionRole(
+  role: Doc<"users">["role"] | null | undefined,
+): LossAttributionRole {
+  switch (role) {
+    case "tenant_master":
+    case "tenant_admin":
+      return "admin";
+    case "closer":
+      return "closer";
+    case undefined:
+    case null:
+      return "unknown";
+    default:
+      return "unknown";
+  }
+}
 
 export const getPipelineDistribution = query({
   args: {},
@@ -72,25 +145,21 @@ export const getPipelineAging = query({
       nextMeetingAt: number | null;
       opportunity: Doc<"opportunities">;
     }> = [];
-    let isAgingTruncated = false;
+    let staleCount = 0;
 
     for (const status of ACTIVE_PIPELINE_STATUSES) {
-      const rows = await ctx.db
-        .query("opportunities")
-        .withIndex("by_tenantId_and_status", (q) =>
-          q.eq("tenantId", tenantId).eq("status", status),
-        )
-        .take(MAX_AGING_ROWS_PER_STATUS + 1);
-
-      const opportunities = rows.slice(0, MAX_AGING_ROWS_PER_STATUS);
-      if (rows.length > MAX_AGING_ROWS_PER_STATUS) {
-        isAgingTruncated = true;
-      }
-
+      let opportunityCount = 0;
       let totalAgeDays = 0;
       let oldestAgeDays = 0;
 
-      for (const opportunity of opportunities) {
+      // `nextMeetingAt` is not indexed, so exact stale counts require scanning
+      // the active pipeline rows instead of relying on the capped sample list.
+      for await (const opportunity of ctx.db
+        .query("opportunities")
+        .withIndex("by_tenantId_and_status", (q) =>
+          q.eq("tenantId", tenantId).eq("status", status),
+        )) {
+        opportunityCount += 1;
         const ageDays = (now - opportunity.createdAt) / 86400000;
         totalAgeDays += ageDays;
         oldestAgeDays = Math.max(oldestAgeDays, ageDays);
@@ -99,6 +168,7 @@ export const getPipelineAging = query({
           opportunity.nextMeetingAt === undefined ||
           opportunity.nextMeetingAt < now - STALE_THRESHOLD_MS
         ) {
+          staleCount += 1;
           staleCandidates.push({
             opportunity,
             ageDays,
@@ -108,10 +178,10 @@ export const getPipelineAging = query({
       }
 
       agingByStatus[status] = {
-        count: opportunities.length,
+        count: opportunityCount,
         averageAgeDays:
-          opportunities.length > 0 ? totalAgeDays / opportunities.length : null,
-        oldestAgeDays: opportunities.length > 0 ? oldestAgeDays : null,
+          opportunityCount > 0 ? totalAgeDays / opportunityCount : null,
+        oldestAgeDays: opportunityCount > 0 ? oldestAgeDays : null,
       };
     }
 
@@ -163,6 +233,7 @@ export const getPipelineAging = query({
     return {
       agingByStatus,
       velocityDays: velocityCount > 0 ? velocityTotalDays / velocityCount : null,
+      staleCount,
       staleOpps: staleOpportunities.map(({ opportunity, ageDays, nextMeetingAt }) => ({
         opportunityId: opportunity._id,
         status: opportunity.status,
@@ -178,8 +249,138 @@ export const getPipelineAging = query({
           leadById.get(opportunity.leadId)?.email ??
           null,
       })),
-      isAgingTruncated,
+      isAgingTruncated: false,
       isVelocityTruncated: velocityRows.length > MAX_VELOCITY_ROWS,
+    };
+  },
+});
+
+export const getPipelineBacklogAndLoss = query({
+  args: {
+    startDate: v.number(),
+    endDate: v.number(),
+  },
+  handler: async (ctx, { startDate, endDate }) => {
+    assertValidDateRange(startDate, endDate);
+
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    const pendingReviewRows = await ctx.db
+      .query("meetingReviews")
+      .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
+        q.eq("tenantId", tenantId).eq("status", "pending"),
+      )
+      .take(MAX_PENDING_REVIEW_SCAN_ROWS);
+
+    const pendingFollowUpRows = await ctx.db
+      .query("followUps")
+      .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
+        q.eq("tenantId", tenantId).eq("status", "pending"),
+      )
+      .take(MAX_UNRESOLVED_REMINDER_SCAN_ROWS);
+
+    const noShowRows = await ctx.db
+      .query("meetings")
+      .withIndex("by_tenantId_and_status_and_scheduledAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("status", "no_show")
+          .gte("scheduledAt", startDate)
+          .lt("scheduledAt", endDate),
+      )
+      .take(MAX_NO_SHOW_SCAN_ROWS);
+
+    const lostOpportunityRows = await ctx.db
+      .query("opportunities")
+      .withIndex("by_tenantId_and_status", (q) =>
+        q.eq("tenantId", tenantId).eq("status", "lost"),
+      )
+      .take(MAX_LOSS_SCAN_ROWS);
+
+    const unresolvedManualReminders = pendingFollowUpRows
+      .slice(0, REPORT_ROW_CAP)
+      .filter((followUp) => followUp.type === "manual_reminder");
+    const unresolvedReminderSplit = emptyReminderCreatedSourceSplit();
+    for (const followUp of unresolvedManualReminders) {
+      unresolvedReminderSplit[toReminderCreatedSource(followUp.createdSource)] += 1;
+    }
+
+    const noShowMeetings = noShowRows.slice(0, REPORT_ROW_CAP);
+    const noShowSourceSplit = emptyNoShowSourceSplit();
+    for (const meeting of noShowMeetings) {
+      noShowSourceSplit[toNoShowSource(meeting.noShowSource)] += 1;
+    }
+
+    const lostOpportunities = lostOpportunityRows
+      .slice(0, REPORT_ROW_CAP)
+      .filter(
+        (opportunity) =>
+          opportunity.lostAt !== undefined &&
+          opportunity.lostAt >= startDate &&
+          opportunity.lostAt < endDate,
+      );
+
+    const lossCountsByActor = new Map<Id<"users">, number>();
+    let unknownLossCount = 0;
+
+    for (const opportunity of lostOpportunities) {
+      if (!opportunity.lostByUserId) {
+        unknownLossCount += 1;
+        continue;
+      }
+
+      lossCountsByActor.set(
+        opportunity.lostByUserId,
+        (lossCountsByActor.get(opportunity.lostByUserId) ?? 0) + 1,
+      );
+    }
+
+    const actorIds = [...lossCountsByActor.keys()];
+    const actorDocs = await Promise.all(
+      actorIds.map(async (actorId) => [actorId, await ctx.db.get(actorId)] as const),
+    );
+    const actorById = new Map(actorDocs);
+
+    const byActor = actorIds
+      .map((actorId) => {
+        const actor = actorById.get(actorId);
+        return {
+          userId: actorId,
+          actorName: actor ? getUserDisplayName(actor) : "Removed user",
+          actorRole: toLossAttributionRole(actor?.role),
+          count: lossCountsByActor.get(actorId) ?? 0,
+        };
+      })
+      .sort(
+        (left, right) =>
+          right.count - left.count ||
+          left.actorName.localeCompare(right.actorName),
+      );
+
+    const lossAttribution = {
+      admin: 0,
+      closer: 0,
+      unknown: unknownLossCount,
+      byActor,
+    };
+
+    for (const actor of byActor) {
+      lossAttribution[actor.actorRole] += actor.count;
+    }
+
+    return {
+      pendingReviewsCount: Math.min(pendingReviewRows.length, REPORT_ROW_CAP),
+      isPendingReviewsTruncated: pendingReviewRows.length > REPORT_ROW_CAP,
+      unresolvedRemindersCount: unresolvedManualReminders.length,
+      unresolvedReminderSplit,
+      isUnresolvedRemindersTruncated: pendingFollowUpRows.length > REPORT_ROW_CAP,
+      noShowSourceSplit,
+      isNoShowSourceTruncated: noShowRows.length > REPORT_ROW_CAP,
+      lossAttribution,
+      isLossAttributionTruncated: lostOpportunityRows.length > REPORT_ROW_CAP,
     };
   },
 });

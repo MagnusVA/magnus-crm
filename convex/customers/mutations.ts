@@ -167,6 +167,7 @@ export const recordCustomerPayment = mutation({
 
     const now = Date.now();
     const amountMinor = toAmountMinor(args.amount);
+    const loggedByAdminUserId = role === "closer" ? undefined : userId;
     const paymentId = await ctx.db.insert("paymentRecords", {
       tenantId,
       closerId: userId,
@@ -180,6 +181,8 @@ export const recordCustomerPayment = mutation({
       statusChangedAt: now,
       recordedAt: now,
       contextType: "customer",
+      origin: "customer_flow",
+      loggedByAdminUserId,
     });
     await insertPaymentAggregate(ctx, paymentId);
     const customerPayments = await ctx.db
@@ -216,6 +219,8 @@ export const recordCustomerPayment = mutation({
         customerId: args.customerId,
         amountMinor,
         currency,
+        origin: "customer_flow",
+        ...(loggedByAdminUserId ? { loggedByAdminUserId } : {}),
       },
       occurredAt: now,
     });

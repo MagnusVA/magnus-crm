@@ -141,6 +141,9 @@ export const logPayment = mutation({
     // closer so the sale appears in the closer's stats and dashboard — not the admin's.
     const attributedCloserId =
       role === "closer" ? userId : (opportunity.assignedCloserId ?? userId);
+    const origin =
+      role === "closer" ? "closer_meeting" : "admin_meeting";
+    const loggedByAdminUserId = role === "closer" ? undefined : userId;
 
     // Create payment record
     const paymentId = await ctx.db.insert("paymentRecords", {
@@ -157,6 +160,8 @@ export const logPayment = mutation({
       statusChangedAt: now,
       recordedAt: now,
       contextType: "opportunity",
+      origin,
+      loggedByAdminUserId,
     });
 
     console.log("[Closer:Payment] payment record created", { paymentId });

@@ -120,9 +120,11 @@ export const adminCreateFollowUp = mutation({
       leadId: opportunity.leadId,
       closerId,
       type: "scheduling_link",
-      reason: "closer_initiated",
+      reason: "admin_initiated",
       status: "pending",
       createdAt: now,
+      createdByUserId: userId,
+      createdSource: "admin",
     });
 
     // Build scheduling link URL with UTM params
@@ -261,12 +263,14 @@ export const adminCreateManualReminder = mutation({
       leadId: opportunity.leadId,
       closerId,
       type: "manual_reminder",
-      reason: "closer_initiated",
+      reason: "admin_initiated",
       status: "pending",
       contactMethod: args.contactMethod,
       reminderScheduledAt: args.reminderScheduledAt,
       reminderNote: args.reminderNote,
       createdAt: now,
+      createdByUserId: userId,
+      createdSource: "admin",
     });
 
     const wasActive = isActiveOpportunityStatus(opportunity.status);
@@ -288,7 +292,11 @@ export const adminCreateManualReminder = mutation({
       eventType: "followUp.created",
       source: "admin",
       actorUserId: userId,
-      metadata: { type: "manual_reminder", contactMethod: args.contactMethod },
+      metadata: {
+        type: "manual_reminder",
+        contactMethod: args.contactMethod,
+        reason: "admin_initiated",
+      },
     });
 
     await emitDomainEvent(ctx, {
@@ -384,6 +392,8 @@ export const adminCreateRescheduleLink = mutation({
       status: "pending",
       schedulingLinkUrl,
       createdAt: now,
+      createdByUserId: userId,
+      createdSource: "admin",
     });
 
     const wasActive = isActiveOpportunityStatus(opportunity.status);

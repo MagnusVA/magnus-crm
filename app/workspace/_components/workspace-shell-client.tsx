@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 import {
+  AlarmClockCheckIcon,
   ActivityIcon,
   BarChart3Icon,
   ClipboardCheckIcon,
@@ -35,6 +36,8 @@ import {
   LayoutDashboardIcon,
   LogOutIcon,
   SettingsIcon,
+  ShieldCheckIcon,
+  TimerIcon,
   TrendingUpIcon,
   type LucideIcon,
   UserCircleIcon,
@@ -93,6 +96,9 @@ const reportNavItems: NavItem[] = [
   { href: "/workspace/reports/pipeline", label: "Pipeline Health", icon: ActivityIcon },
   { href: "/workspace/reports/leads", label: "Leads & Conversions", icon: TrendingUpIcon },
   { href: "/workspace/reports/activity", label: "Activity Feed", icon: ClockIcon },
+  { href: "/workspace/reports/meeting-time", label: "Meeting Time", icon: TimerIcon },
+  { href: "/workspace/reports/reviews", label: "Review Ops", icon: ShieldCheckIcon },
+  { href: "/workspace/reports/reminders", label: "Reminders", icon: AlarmClockCheckIcon },
 ];
 
 // ---------------------------------------------------------------------------

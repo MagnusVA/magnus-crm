@@ -532,6 +532,8 @@ export const resolveReview = mutation({
         provider: args.paymentData.provider,
         referenceCode: args.paymentData.referenceCode,
         proofFileId: args.paymentData.proofFileId,
+        origin: "admin_meeting",
+        loggedByAdminUserId: userId,
       });
     } else if (args.resolutionAction === "schedule_follow_up") {
       await createManualReminder(ctx, {
@@ -539,6 +541,9 @@ export const resolveReview = mutation({
         opportunityId: review.opportunityId,
         actorUserId: userId,
         note: resolutionNote ?? "Scheduled via meeting-overran review resolution",
+        reason: "overran_review_resolution",
+        createdByUserId: userId,
+        createdSource: "admin",
       });
     }
 
