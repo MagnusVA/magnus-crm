@@ -390,6 +390,10 @@ export default defineSchema({
     // === v0.6: Meeting Time Tracking ===
     // Computed when a closer starts a meeting after its scheduled time.
     lateStartDurationMs: v.optional(v.number()),
+    // Legacy pre-v0.6b field name retained as optional so older production
+    // meetings remain schema-valid during the fresh-start rollout. New writes
+    // use `exceededScheduledDurationMs`.
+    overranDurationMs: v.optional(v.number()),
     // Computed when the meeting ends after its scheduled duration.
     exceededScheduledDurationMs: v.optional(v.number()),
     // === End v0.6: Meeting Time Tracking ===
