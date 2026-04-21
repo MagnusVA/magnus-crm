@@ -41,13 +41,13 @@ export default function RootLayout({
 				"font-sans",
 			)}
 		>
-			<head>
+			{/* <head>
 				<Script
 					src="//unpkg.com/react-scan/dist/auto.global.js"
 					crossOrigin="anonymous"
 					strategy="beforeInteractive"
 				/>
-			</head>
+			</head> */}
 			<body className="min-h-full flex flex-col">
 				<Suspense>
 					<ConvexClientProvider>
