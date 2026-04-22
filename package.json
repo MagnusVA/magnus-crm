@@ -17,6 +17,7 @@
     "@convex-dev/workos": "^0.0.1",
     "@convex-dev/workos-authkit": "^0.1.7",
     "@hookform/resolvers": "^5.2.2",
+    "@posthog/nextjs-config": "^1.9.4",
     "@workos-inc/authkit-nextjs": "^3.0.0",
     "@workos-inc/node": "^8.10.0",
     "class-variance-authority": "^0.7.1",
