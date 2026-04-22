@@ -1,17 +1,20 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { executeConversion } from "../customers/conversion";
-import { toAmountMinor, validateCurrency } from "./formatMoney";
 import { emitDomainEvent } from "./domainEvents";
-import { updateTenantStats } from "./tenantStatsHelper";
-import { syncCustomerPaymentSummary } from "./paymentHelpers";
+import { toAmountMinor, validateCurrency } from "./formatMoney";
+import {
+  applyPaymentStatsDelta,
+  updateTenantStats,
+} from "./tenantStatsHelper";
+import {
+  assertPaymentRow,
+  resolveProgramForWrite,
+  syncCustomerPaymentSummary,
+  type CommissionableOrigin,
+} from "./paymentHelpers";
 import { insertPaymentAggregate } from "../reporting/writeHooks";
-
-type PaymentOrigin =
-  | "closer_meeting"
-  | "closer_reminder"
-  | "admin_meeting"
-  | "customer_flow";
+import { paymentTypeValidator, resolvePaymentType } from "./paymentTypes";
 
 type FollowUpReason =
   | "closer_initiated"
@@ -29,11 +32,11 @@ type CreatePaymentRecordArgs = {
   actorUserId: Id<"users">;
   amount: number;
   currency: string;
-  provider: string;
+  programId: Id<"tenantPrograms">;
+  paymentType: ReturnType<typeof resolvePaymentType>;
   referenceCode?: string;
   proofFileId?: Id<"_storage">;
-  origin: PaymentOrigin;
-  loggedByAdminUserId?: Id<"users">;
+  origin: CommissionableOrigin;
 };
 
 type CreateManualReminderArgs = {
@@ -50,51 +53,67 @@ export async function createPaymentRecord(
   ctx: MutationCtx,
   args: CreatePaymentRecordArgs,
 ): Promise<Id<"paymentRecords">> {
-  console.log("[OutcomeHelpers] createPaymentRecord called", {
-    opportunityId: args.opportunityId,
-    meetingId: args.meetingId,
-    amount: args.amount,
-  });
-
   if (args.amount <= 0) {
     throw new Error("Payment amount must be positive");
   }
 
   const currency = validateCurrency(args.currency);
-  const provider = args.provider.trim();
-  if (!provider) {
-    throw new Error("Provider is required");
-  }
+  const amountMinor = toAmountMinor(args.amount);
+  const referenceCode = args.referenceCode?.trim() || undefined;
+  const paymentType = resolvePaymentType(args.paymentType);
 
   const opportunity = await ctx.db.get(args.opportunityId);
   if (!opportunity || opportunity.tenantId !== args.tenantId) {
     throw new Error("Opportunity not found");
   }
+  if (!opportunity.assignedCloserId) {
+    throw new Error("Assign a closer before logging a commissionable payment");
+  }
 
+  const program = await resolveProgramForWrite(ctx, args.tenantId, args.programId);
   const now = Date.now();
-  const amountMinor = toAmountMinor(args.amount);
-  const attributedCloserId =
-    opportunity.assignedCloserId ?? args.actorUserId;
+
+  assertPaymentRow({
+    tenantId: args.tenantId,
+    commissionable: true,
+    attributedCloserId: opportunity.assignedCloserId,
+    recordedByUserId: args.actorUserId,
+    origin: args.origin,
+    contextType: "opportunity",
+    opportunityId: args.opportunityId,
+    customerId: undefined,
+    programId: program._id,
+    paymentType,
+  });
 
   const paymentId = await ctx.db.insert("paymentRecords", {
     tenantId: args.tenantId,
     opportunityId: args.opportunityId,
     meetingId: args.meetingId,
-    closerId: attributedCloserId,
+    attributedCloserId: opportunity.assignedCloserId,
+    recordedByUserId: args.actorUserId,
+    commissionable: true,
     amountMinor,
     currency,
-    provider,
-    referenceCode: args.referenceCode?.trim() || undefined,
+    programId: program._id,
+    programName: program.name,
+    paymentType,
+    referenceCode,
     proofFileId: args.proofFileId ?? undefined,
     status: "recorded",
     statusChangedAt: now,
     recordedAt: now,
     contextType: "opportunity",
     origin: args.origin,
-    loggedByAdminUserId: args.loggedByAdminUserId,
   });
 
   await insertPaymentAggregate(ctx, paymentId);
+  await applyPaymentStatsDelta(ctx, args.tenantId, {
+    commissionable: true,
+    paymentType,
+    amountMinorDelta: amountMinor,
+    wonDealDelta: 1,
+  });
   await emitDomainEvent(ctx, {
     tenantId: args.tenantId,
     entityType: "payment",
@@ -109,15 +128,14 @@ export async function createPaymentRecord(
       meetingId: args.meetingId,
       amountMinor,
       currency,
-      attributedCloserId,
-      loggedByAdminUserId: args.actorUserId,
+      programId: program._id,
+      programName: program.name,
+      paymentType,
+      commissionable: true,
+      attributedCloserId: opportunity.assignedCloserId,
+      recordedByUserId: args.actorUserId,
       origin: args.origin,
     },
-  });
-  await updateTenantStats(ctx, args.tenantId, {
-    wonDeals: 1,
-    totalPaymentRecords: 1,
-    totalRevenueMinor: amountMinor,
   });
 
   const customerId = await executeConversion(ctx, {
@@ -197,3 +215,5 @@ export async function createManualReminder(
 
   return followUpId;
 }
+
+export { paymentTypeValidator };

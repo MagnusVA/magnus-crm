@@ -1,8 +1,9 @@
-import { MutationCtx } from "../_generated/server";
-import { Id } from "../_generated/dataModel";
-import { validateLeadTransition } from "../lib/statusTransitions";
+import type { Doc, Id } from "../_generated/dataModel";
+import type { MutationCtx } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
+import { validateLeadTransition } from "../lib/statusTransitions";
+import { syncCustomerPaymentSummary } from "../lib/paymentHelpers";
 import { insertCustomerAggregate } from "../reporting/writeHooks";
 
 /**
@@ -10,7 +11,8 @@ import { insertCustomerAggregate } from "../reporting/writeHooks";
  *
  * Called by:
  * 1. Auto-conversion in logPayment (after opportunity → payment_received)
- * 2. Manual conversion from Lead Manager (admin action)
+ * 2. Auto-conversion in reminder/review payment flows
+ * 3. Manual conversion from Lead Manager (admin action)
  *
  * Returns the new customer ID, or null if a customer already exists for this lead.
  */
@@ -22,7 +24,6 @@ export async function executeConversion(
     convertedByUserId: Id<"users">;
     winningOpportunityId: Id<"opportunities">;
     winningMeetingId?: Id<"meetings">;
-    programType?: string;
     notes?: string;
   },
 ): Promise<Id<"customers"> | null> {
@@ -32,33 +33,28 @@ export async function executeConversion(
     convertedByUserId,
     winningOpportunityId,
     winningMeetingId,
-    programType,
     notes,
   } = args;
 
-  // 1. Load and validate the lead
   const lead = await ctx.db.get(leadId);
   if (!lead || lead.tenantId !== tenantId) {
     throw new Error("Lead not found");
   }
 
-  // 2. Check if customer already exists for this lead
   const existingCustomer = await ctx.db
     .query("customers")
     .withIndex("by_tenantId_and_leadId", (q) =>
       q.eq("tenantId", tenantId).eq("leadId", leadId),
     )
     .first();
-
   if (existingCustomer) {
     console.log("[Customer] Customer already exists for lead", {
       leadId,
       customerId: existingCustomer._id,
     });
-    return null; // Caller handles returning-customer case
+    return null;
   }
 
-  // 3. Validate lead status transition
   const currentStatus = lead.status;
   if (!validateLeadTransition(currentStatus, "converted")) {
     throw new Error(
@@ -66,7 +62,6 @@ export async function executeConversion(
     );
   }
 
-  // 4. Validate the winning opportunity
   const opportunity = await ctx.db.get(winningOpportunityId);
   if (!opportunity || opportunity.tenantId !== tenantId) {
     throw new Error("Winning opportunity not found");
@@ -75,18 +70,32 @@ export async function executeConversion(
     throw new Error("Winning opportunity does not belong to this lead");
   }
 
-  // 5. Resolve program type from event type config if not provided
-  let resolvedProgramType = programType;
-  if (!resolvedProgramType && opportunity.eventTypeConfigId) {
-    const config = await ctx.db.get(opportunity.eventTypeConfigId);
-    if (config) {
-      resolvedProgramType = config.displayName ?? undefined;
-    }
+  const winningPayment = (
+    await ctx.db
+      .query("paymentRecords")
+      .withIndex("by_opportunityId", (q) =>
+        q.eq("opportunityId", winningOpportunityId),
+      )
+      .order("desc")
+      .take(10)
+  ).find((payment) => payment.status !== "disputed");
+  if (!winningPayment) {
+    throw new Error("Cannot convert lead to customer: no payment found on winning opportunity");
+  }
+  if (!winningPayment.programId) {
+    throw new Error(
+      "Cannot convert lead to customer: winning payment is missing programId",
+    );
   }
 
-  const now = Date.now();
+  const program = await ctx.db.get(winningPayment.programId);
+  if (!program || program.tenantId !== tenantId) {
+    throw new Error("Program not found on winning payment");
+  }
+  const resolvedProgramId = program._id;
+  const resolvedProgramName = program.name;
 
-  // 6. Create customer record with denormalized lead data
+  const now = Date.now();
   const customerId = await ctx.db.insert("customers", {
     tenantId,
     leadId,
@@ -98,7 +107,8 @@ export async function executeConversion(
     convertedByUserId,
     winningOpportunityId,
     winningMeetingId,
-    programType: resolvedProgramType,
+    programId: resolvedProgramId,
+    programName: resolvedProgramName,
     notes,
     status: "active",
     totalPaidMinor: 0,
@@ -106,14 +116,8 @@ export async function executeConversion(
     createdAt: now,
   });
 
-  console.log("[Customer] Customer created", {
-    customerId,
-    leadId,
-    winningOpportunityId,
-  });
   await insertCustomerAggregate(ctx, customerId);
 
-  // 7. Transition lead to "converted"
   await ctx.db.patch(leadId, {
     status: "converted",
     updatedAt: now,
@@ -122,6 +126,7 @@ export async function executeConversion(
     totalCustomers: 1,
     totalLeads: lead.status === "active" ? -1 : 0,
   });
+
   await emitDomainEvent(ctx, {
     tenantId,
     entityType: "customer",
@@ -133,6 +138,8 @@ export async function executeConversion(
       leadId,
       winningOpportunityId,
       winningMeetingId,
+      programId: resolvedProgramId,
+      programName: resolvedProgramName,
     },
     occurredAt: now,
   });
@@ -148,9 +155,6 @@ export async function executeConversion(
     occurredAt: now,
   });
 
-  console.log("[Customer] Lead status → converted", { leadId });
-
-  // 8. Backfill customerId on all existing payment records for this lead's opportunities
   const leadOpportunities = await ctx.db
     .query("opportunities")
     .withIndex("by_tenantId_and_leadId", (q) =>
@@ -159,42 +163,41 @@ export async function executeConversion(
     .take(100);
 
   let backfilledCount = 0;
-  for (const opp of leadOpportunities) {
+  for (const candidateOpportunity of leadOpportunities) {
     const payments = await ctx.db
       .query("paymentRecords")
-      .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opp._id))
+      .withIndex("by_opportunityId", (q) =>
+        q.eq("opportunityId", candidateOpportunity._id),
+      )
       .take(50);
 
     for (const payment of payments) {
+      const patch: Partial<Doc<"paymentRecords">> = {};
       if (!payment.customerId) {
-        await ctx.db.patch(payment._id, { customerId });
-        backfilledCount++;
+        patch.customerId = customerId;
+      }
+      if (!payment.programId) {
+        patch.programId = resolvedProgramId;
+      }
+      if (payment.programName !== resolvedProgramName) {
+        patch.programName = resolvedProgramName;
+      }
+      if (Object.keys(patch).length > 0) {
+        await ctx.db.patch(payment._id, patch);
+        backfilledCount += 1;
       }
     }
   }
 
-  const customerPayments = await ctx.db
-    .query("paymentRecords")
-    .withIndex("by_customerId", (q) => q.eq("customerId", customerId))
-    .take(100);
-  const nonDisputedPayments = customerPayments.filter(
-    (payment) => payment.status !== "disputed",
-  );
-  const currencies = Array.from(
-    new Set(nonDisputedPayments.map((payment) => payment.currency)),
-  );
-  await ctx.db.patch(customerId, {
-    totalPaidMinor: nonDisputedPayments.reduce(
-      (sum, payment) => sum + payment.amountMinor,
-      0,
-    ),
-    totalPaymentCount: nonDisputedPayments.length,
-    paymentCurrency: currencies.length === 1 ? currencies[0] : undefined,
-  });
+  await syncCustomerPaymentSummary(ctx, customerId);
 
-  console.log("[Customer] Backfilled customerId on payment records", {
+  console.log("[Customer] Conversion completed", {
     customerId,
+    leadId,
+    winningOpportunityId,
     backfilledCount,
+    resolvedProgramId,
+    resolvedProgramName,
   });
 
   return customerId;

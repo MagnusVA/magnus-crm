@@ -8,9 +8,11 @@ import {
   type EnrichedMeeting,
   HOUR_HEIGHT,
   computeHourRange,
-  getTopPx,
+  getBlockHorizontalStyle,
   getHeightPx,
+  getTopPx,
   formatHour,
+  layoutMeetings,
   useCurrentTime,
 } from "./calendar-utils";
 
@@ -63,6 +65,9 @@ export function DayView({ meetings, date }: DayViewProps) {
     [meetings, date],
   );
 
+  // Assign side-by-side columns to overlapping meetings (no visual stacking)
+  const positioned = useMemo(() => layoutMeetings(dayMeetings), [dayMeetings]);
+
   // Derive visible hour range from actual meeting data (±2h padding)
   const { startHour, endHour, hours } = useMemo(
     () => computeHourRange(dayMeetings),
@@ -95,7 +100,7 @@ export function DayView({ meetings, date }: DayViewProps) {
           ))}
 
           {/* Meetings */}
-          {dayMeetings.map((m) => (
+          {positioned.map((m) => (
             <MeetingBlock
               key={m.meeting._id}
               meetingId={m.meeting._id}
@@ -107,6 +112,7 @@ export function DayView({ meetings, date }: DayViewProps) {
               style={{
                 top: getTopPx(m.meeting.scheduledAt, startHour),
                 height: getHeightPx(m.meeting.durationMinutes),
+                ...getBlockHorizontalStyle(m.column, m.columnCount),
               }}
             />
           ))}

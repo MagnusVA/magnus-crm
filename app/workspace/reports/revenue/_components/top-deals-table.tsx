@@ -16,13 +16,25 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+type PaymentTypeLiteral = "pif" | "split" | "monthly" | "deposit";
+
+const PAYMENT_TYPE_LABELS: Record<PaymentTypeLiteral, string> = {
+  pif: "PIF",
+  split: "Split",
+  monthly: "Monthly",
+  deposit: "Deposit",
+};
+
 interface TopDealsTableProps {
   deals: Array<{
     paymentRecordId: string;
     amountMinor: number;
-    closerName: string;
+    attributedCloserName: string;
     recordedAt: number;
     contextType: string;
+    programId?: string | null;
+    programName?: string | null;
+    paymentType?: string | null;
   }>;
 }
 
@@ -36,6 +48,14 @@ function formatCurrency(minor: number): string {
 function formatSource(contextType: string): string {
   if (!contextType) return "\u2014";
   return contextType.charAt(0).toUpperCase() + contextType.slice(1);
+}
+
+function formatPaymentType(paymentType: string | null | undefined): string {
+  if (!paymentType) return "\u2014";
+  return (
+    PAYMENT_TYPE_LABELS[paymentType as PaymentTypeLiteral] ??
+    paymentType.charAt(0).toUpperCase() + paymentType.slice(1)
+  );
 }
 
 export function TopDealsTable({ deals }: TopDealsTableProps) {
@@ -55,6 +75,8 @@ export function TopDealsTable({ deals }: TopDealsTableProps) {
               <TableRow>
                 <TableHead className="w-12">#</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
+                <TableHead>Program</TableHead>
+                <TableHead>Payment Type</TableHead>
                 <TableHead>Closer</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Source</TableHead>
@@ -64,10 +86,12 @@ export function TopDealsTable({ deals }: TopDealsTableProps) {
               {deals.map((deal, index) => (
                 <TableRow key={deal.paymentRecordId}>
                   <TableCell>{index + 1}</TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className="text-right tabular-nums">
                     {formatCurrency(deal.amountMinor)}
                   </TableCell>
-                  <TableCell>{deal.closerName}</TableCell>
+                  <TableCell>{deal.programName ?? "\u2014"}</TableCell>
+                  <TableCell>{formatPaymentType(deal.paymentType)}</TableCell>
+                  <TableCell>{deal.attributedCloserName}</TableCell>
                   <TableCell>
                     {format(deal.recordedAt, "MMM d, yyyy")}
                   </TableCell>

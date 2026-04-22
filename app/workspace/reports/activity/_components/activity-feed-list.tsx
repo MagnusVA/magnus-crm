@@ -10,6 +10,15 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { ActivityEventRow } from "./activity-event-row";
 
+interface PaymentMetadata {
+  programId: string | null;
+  programName: string | null;
+  paymentType: string;
+  commissionable: boolean;
+  attributedCloserId: string | null;
+  originCategory: string;
+}
+
 interface ActivityFeedListProps {
   events: Array<{
     _id: string;
@@ -19,6 +28,7 @@ interface ActivityFeedListProps {
     occurredAt: number;
     source: string;
     metadata: Record<string, unknown> | null;
+    paymentMetadata?: PaymentMetadata | null;
   }>;
   onLoadMore: () => void;
   hasMore: boolean;

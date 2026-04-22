@@ -1,5 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import type { PaymentType } from "./paymentTypes";
 
 export type TenantStatsDelta = {
   totalTeamMembers?: number;
@@ -9,9 +10,21 @@ export type TenantStatsDelta = {
   wonDeals?: number;
   lostDeals?: number;
   totalRevenueMinor?: number;
+  totalCommissionableFinalRevenueMinor?: number;
+  totalCommissionableDepositRevenueMinor?: number;
+  totalNonCommissionableFinalRevenueMinor?: number;
+  totalNonCommissionableDepositRevenueMinor?: number;
   totalPaymentRecords?: number;
   totalLeads?: number;
   totalCustomers?: number;
+};
+
+export type PaymentStatsDelta = {
+  commissionable: boolean;
+  paymentType: PaymentType;
+  amountMinorDelta: number;
+  wonDealDelta?: number;
+  activeOpportunityDelta?: number;
 };
 
 type TenantStatsField = keyof TenantStatsDelta;
@@ -24,6 +37,10 @@ const TENANT_STATS_FIELDS: TenantStatsField[] = [
   "wonDeals",
   "lostDeals",
   "totalRevenueMinor",
+  "totalCommissionableFinalRevenueMinor",
+  "totalCommissionableDepositRevenueMinor",
+  "totalNonCommissionableFinalRevenueMinor",
+  "totalNonCommissionableDepositRevenueMinor",
   "totalPaymentRecords",
   "totalLeads",
   "totalCustomers",
@@ -92,4 +109,28 @@ export async function updateTenantStats(
   }
 
   await ctx.db.patch(stats._id, patch);
+}
+
+export async function applyPaymentStatsDelta(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  delta: PaymentStatsDelta,
+): Promise<void> {
+  const bucketKey =
+    delta.commissionable
+      ? delta.paymentType === "deposit"
+        ? "totalCommissionableDepositRevenueMinor"
+        : "totalCommissionableFinalRevenueMinor"
+      : delta.paymentType === "deposit"
+        ? "totalNonCommissionableDepositRevenueMinor"
+        : "totalNonCommissionableFinalRevenueMinor";
+
+  await updateTenantStats(ctx, tenantId, {
+    activeOpportunities: delta.activeOpportunityDelta ?? 0,
+    totalPaymentRecords:
+      delta.amountMinorDelta === 0 ? 0 : Math.sign(delta.amountMinorDelta),
+    totalRevenueMinor: delta.amountMinorDelta,
+    [bucketKey]: delta.amountMinorDelta,
+    wonDeals: delta.wonDealDelta ?? 0,
+  });
 }

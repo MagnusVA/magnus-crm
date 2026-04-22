@@ -1,11 +1,11 @@
 "use client";
 
+import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Preloaded } from "convex/react";
 import { usePreloadedQuery } from "convex/react";
-import type { Doc } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -49,48 +49,9 @@ import { RescheduleChainBanner } from "@/app/workspace/closer/meetings/_componen
 import { FathomLinkField } from "@/app/workspace/closer/meetings/_components/fathom-link-field";
 import { AdminActionBar } from "@/app/workspace/pipeline/meetings/_components/admin-action-bar";
 
-type MeetingDetailData = {
-  meeting: Doc<"meetings">;
-  opportunity: Doc<"opportunities">;
-  lead: Doc<"leads">;
-  assignedCloser: { fullName?: string; email: string } | null;
-  meetingHistory: Array<
-    Doc<"meetings"> & {
-      opportunityStatus: Doc<"opportunities">["status"];
-      isCurrentMeeting: boolean;
-    }
-  >;
-  eventTypeName: string | null;
-  paymentLinks: Array<{
-    provider: string;
-    label: string;
-    url: string;
-  }> | null;
-  payments: Array<
-    Omit<Doc<"paymentRecords">, "amount"> & {
-      amount: number;
-      proofFileUrl: string | null;
-      proofFileContentType: string | null;
-      proofFileSize: number | null;
-      closerName: string | null;
-    }
-  >;
-  potentialDuplicate: {
-    _id: string;
-    fullName?: string;
-    email: string;
-  } | null;
-  reassignmentInfo: {
-    reassignedFromCloserName: string;
-    reassignedAt: number;
-    reason: string;
-  } | null;
-  rescheduledFromMeeting: {
-    _id: string;
-    scheduledAt: number;
-    status: string;
-  } | null;
-} | null;
+type MeetingDetailData = FunctionReturnType<
+  typeof api.closer.meetingDetail.getMeetingDetail
+>;
 
 export function AdminMeetingDetailClient({
   preloadedDetail,

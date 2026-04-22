@@ -109,6 +109,110 @@ export function getHeightPx(durationMinutes: number): number {
   return Math.max((durationMinutes / 60) * HOUR_HEIGHT, 20);
 }
 
+// ─── Overlap layout ─────────────────────────────────────────────────────────
+
+/** Meeting augmented with overlap-column metadata. */
+export type PositionedMeeting = EnrichedMeeting & {
+  /** 0-based column index within this meeting's overlap cluster. */
+  column: number;
+  /** Total number of columns used by this meeting's overlap cluster. */
+  columnCount: number;
+};
+
+/**
+ * Assign side-by-side columns to overlapping meetings so they all remain
+ * legible — matches the behaviour of Google Calendar / Apple Calendar.
+ *
+ * 1. Sort by start time; longer events first on ties so they land in the
+ *    leftmost column (more visually prominent).
+ * 2. Walk the sorted list and group into clusters — a cluster is a maximal
+ *    run of events where each subsequent event starts before the cluster's
+ *    running end time.
+ * 3. Within a cluster, greedily assign each event to the first column whose
+ *    previous event ended at/before this one starts; otherwise open a new
+ *    column. The cluster's column count is the total columns used.
+ *
+ * Non-overlapping events end up in 1-event clusters with `columnCount === 1`
+ * and render full-width.
+ */
+export function layoutMeetings(
+  meetings: EnrichedMeeting[],
+): PositionedMeeting[] {
+  if (meetings.length === 0) return [];
+
+  const sorted = [...meetings].sort((a, b) => {
+    const startDiff = a.meeting.scheduledAt - b.meeting.scheduledAt;
+    if (startDiff !== 0) return startDiff;
+    return b.meeting.durationMinutes - a.meeting.durationMinutes;
+  });
+
+  const endMs = (m: EnrichedMeeting) =>
+    m.meeting.scheduledAt + m.meeting.durationMinutes * 60_000;
+
+  const result: PositionedMeeting[] = [];
+  let clusterStart = 0;
+  let clusterColumns: number[] = []; // per-column end timestamp
+  let clusterAssignments: number[] = []; // per-item column index
+  let clusterEnd = 0; // max end across the current cluster
+
+  const flush = () => {
+    const columnCount = clusterColumns.length;
+    for (let k = 0; k < clusterAssignments.length; k++) {
+      result.push({
+        ...sorted[clusterStart + k],
+        column: clusterAssignments[k],
+        columnCount,
+      });
+    }
+    clusterColumns = [];
+    clusterAssignments = [];
+    clusterEnd = 0;
+  };
+
+  for (let i = 0; i < sorted.length; i++) {
+    const m = sorted[i];
+    const start = m.meeting.scheduledAt;
+    const end = endMs(m);
+
+    // Close the current cluster when this event starts after everything in it
+    if (clusterAssignments.length > 0 && start >= clusterEnd) {
+      flush();
+      clusterStart = i;
+    }
+
+    // First column whose previous event ended at/before this one starts, else new
+    let col = clusterColumns.findIndex((prevEnd) => prevEnd <= start);
+    if (col === -1) {
+      col = clusterColumns.length;
+      clusterColumns.push(end);
+    } else {
+      clusterColumns[col] = end;
+    }
+    clusterAssignments.push(col);
+    if (end > clusterEnd) clusterEnd = end;
+  }
+
+  if (clusterAssignments.length > 0) flush();
+
+  return result;
+}
+
+/**
+ * Left/width CSS for a meeting block based on its column layout.
+ *
+ * Divides the day column into `columnCount` equal-width slots with a 2 px
+ * gutter on each side (4 px gap between adjacent columns). When a block is
+ * alone in its cluster (`columnCount === 1`) this approximates the previous
+ * `inset-x-1` full-width behaviour.
+ */
+export function getBlockHorizontalStyle(column: number, columnCount: number) {
+  const widthPct = 100 / columnCount;
+  return {
+    left: `calc(${widthPct * column}% + 2px)`,
+    width: `calc(${widthPct}% - 4px)`,
+  };
+}
+
 /** Format an hour number (0–23) as a 12-hour label, e.g. "7 AM", "1 PM". */
 export function formatHour(hour: number): string {
   const period = hour >= 12 ? "PM" : "AM";

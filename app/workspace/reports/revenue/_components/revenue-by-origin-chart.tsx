@@ -1,6 +1,10 @@
 "use client";
 
+import type { FunctionReturnType } from "convex/server";
+import { InfoIcon } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, XAxis, YAxis } from "recharts";
+import { api } from "@/convex/_generated/api";
+import { Button } from "@/components/ui/button";
 import {
   ChartContainer,
   ChartTooltip,
@@ -14,29 +18,45 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 
+type RevenueMetrics = FunctionReturnType<
+  typeof api.reporting.revenue.getRevenueMetrics
+>;
+type RevenueByOrigin = RevenueMetrics["commissionable"]["byOrigin"];
+type RevenueOrigin = keyof RevenueByOrigin;
+
+// Labels are prefixed with "-Logged" to distinguish *who clicked Record* from
+// *who is credited*. All five origins land in the commissionable bucket and
+// are attributed to the assigned closer for commission — the prefix lets the
+// team spot when admins are logging on behalf (Admin-Logged) vs when the
+// closer themselves logged (Closer-Logged).
 const ORIGIN_META = {
   closer_meeting: {
-    label: "Closer · Meeting",
+    label: "Closer-Logged · Meeting",
     color: "var(--chart-1)",
   },
   closer_reminder: {
-    label: "Closer · Reminder",
+    label: "Closer-Logged · Reminder",
     color: "var(--chart-2)",
   },
   admin_meeting: {
-    label: "Admin · Meeting",
+    label: "Admin-Logged · Meeting",
     color: "var(--chart-3)",
   },
-  customer_flow: {
-    label: "Customer Flow",
+  admin_reminder: {
+    label: "Admin-Logged · Reminder",
     color: "var(--chart-4)",
   },
-  unknown: {
-    label: "Legacy / Unknown",
+  admin_review_resolution: {
+    label: "Admin-Logged · Review",
     color: "var(--chart-5)",
   },
-} as const;
+} satisfies Record<RevenueOrigin, { label: string; color: string }>;
 
 const chartConfig = {
   amount: {
@@ -46,7 +66,7 @@ const chartConfig = {
 } satisfies ChartConfig;
 
 interface RevenueByOriginChartProps {
-  byOrigin: Record<keyof typeof ORIGIN_META, number>;
+  byOrigin: RevenueByOrigin;
 }
 
 function formatCurrency(value: number): string {
@@ -63,7 +83,7 @@ export function RevenueByOriginChart({
     .map(([origin, meta]) => ({
       origin,
       label: meta.label,
-      amount: byOrigin[origin as keyof typeof ORIGIN_META] / 100,
+      amount: byOrigin[origin as RevenueOrigin] / 100,
       fill: meta.color,
     }))
     .filter((entry) => entry.amount > 0);
@@ -71,9 +91,47 @@ export function RevenueByOriginChart({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Revenue by Origin</CardTitle>
+        <div className="flex items-center gap-1">
+          <CardTitle>Revenue by Origin</CardTitle>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                aria-label="What do the origin labels mean?"
+              >
+                <InfoIcon className="size-4 text-muted-foreground" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80 text-sm" align="start">
+              <p>
+                Every bar here counts as commissionable revenue and is
+                attributed to the <strong>assigned closer</strong> for
+                commission — that does not change based on who logged the
+                payment.
+              </p>
+              <p className="mt-2">
+                The prefix tells you <em>who clicked Record</em>:
+              </p>
+              <ul className="mt-1 list-disc pl-5">
+                <li>
+                  <strong>Closer-Logged</strong> — the closer themselves
+                  recorded the payment from their meeting or reminder.
+                </li>
+                <li>
+                  <strong>Admin-Logged</strong> — an admin recorded the
+                  payment on behalf of the closer (from a meeting, reminder,
+                  or review resolution). Useful for spotting when admins are
+                  picking up the slack.
+                </li>
+              </ul>
+            </PopoverContent>
+          </Popover>
+        </div>
         <CardDescription>
-          Split revenue by the flow that created each payment record.
+          Split commissionable final revenue by the workflow that created the payment.
         </CardDescription>
       </CardHeader>
       <CardContent>

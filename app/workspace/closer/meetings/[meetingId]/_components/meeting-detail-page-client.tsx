@@ -1,12 +1,14 @@
 "use client";
 
+import type { FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Preloaded } from "convex/react";
 import { usePreloadedQuery } from "convex/react";
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Doc } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { useInProgressMeetingGuard } from "@/hooks/use-in-progress-meeting-guard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,9 +19,18 @@ import {
   EmptyTitle,
   EmptyDescription,
 } from "@/components/ui/empty";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
-import { ArrowLeftIcon, AlertCircleIcon, ShuffleIcon } from "lucide-react";
+import { ArrowLeftIcon, AlertCircleIcon, ShuffleIcon, AlertTriangleIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   opportunityStatusConfig,
@@ -43,56 +54,9 @@ import { RescheduleChainBanner } from "../../_components/reschedule-chain-banner
 import { MeetingOverranBanner } from "../../_components/meeting-overran-banner";
 import { FathomLinkField } from "../../_components/fathom-link-field";
 
-type MeetingDetailData = {
-  meeting: Doc<"meetings">;
-  opportunity: Doc<"opportunities">;
-  lead: Doc<"leads">;
-  assignedCloser: { fullName?: string; email: string } | null;
-  meetingHistory: Array<
-    Doc<"meetings"> & {
-      opportunityStatus: Doc<"opportunities">["status"];
-      isCurrentMeeting: boolean;
-    }
-  >;
-  eventTypeName: string | null;
-  paymentLinks: Array<{
-    provider: string;
-    label: string;
-    url: string;
-  }> | null;
-  payments: Array<
-    Omit<Doc<"paymentRecords">, "amount"> & {
-      amount: number;
-      proofFileUrl: string | null;
-      proofFileContentType: string | null;
-      proofFileSize: number | null;
-      closerName: string | null;
-    }
-  >;
-  potentialDuplicate: {
-    _id: string;
-    fullName?: string;
-    email: string;
-  } | null;
-  reassignmentInfo: {
-    reassignedFromCloserName: string;
-    reassignedAt: number;
-    reason: string;
-  } | null;
-  rescheduledFromMeeting: {
-    _id: string;
-    scheduledAt: number;
-    status: string;
-  } | null;
-  meetingReview: Doc<"meetingReviews"> | null;
-  activeFollowUp: {
-    _id: Id<"followUps">;
-    type: Doc<"followUps">["type"];
-    status: "pending";
-    createdAt: number;
-    reminderScheduledAt?: number;
-  } | null;
-} | null;
+type MeetingDetailData = FunctionReturnType<
+  typeof api.closer.meetingDetail.getMeetingDetail
+>;
 
 export function MeetingDetailPageClient({
   preloadedDetail,
@@ -110,6 +74,23 @@ export function MeetingDetailPageClient({
   };
 
   const [rescheduleLinkUrl, setRescheduleLinkUrl] = useState<string | null>(null);
+
+  // Hard-block navigation away while the meeting is still in progress
+  // (started but not yet ended). The guard auto-disarms once `meeting.status`
+  // transitions out of "in_progress".
+  const isMeetingInProgress = detail?.meeting?.status === "in_progress";
+  const { blockBack, warningOpen, dismissWarning } =
+    useInProgressMeetingGuard({ active: isMeetingInProgress });
+
+  // Every time the warning is dismissed we bump `flashKey`, which the
+  // OutcomeActionBar subscribes to in order to wiggle its card and
+  // pulse-ring the End Meeting button — pointing the closer at the
+  // action they need to take before navigating away.
+  const [flashKey, setFlashKey] = useState(0);
+  const dismissAndFlash = () => {
+    dismissWarning();
+    setFlashKey((k) => k + 1);
+  };
 
   if (detail === undefined) {
     return <MeetingDetailSkeleton />;
@@ -137,11 +118,19 @@ export function MeetingDetailPageClient({
 
   const statusKey = opportunity.status as OpportunityStatus;
   const statusCfg = opportunityStatusConfig[statusKey];
+  const outcomeActionBarPayments = payments.map((payment) => ({
+    ...payment,
+    attributedCloserId: payment.attributedCloserId ?? undefined,
+  })) as Doc<"paymentRecords">[];
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
-        <Button variant="ghost" size="sm" onClick={() => router.back()}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => blockBack(() => router.back())}
+        >
           <ArrowLeftIcon data-icon="inline-start" />
           Back
         </Button>
@@ -249,10 +238,11 @@ export function MeetingDetailPageClient({
                   meeting={meeting}
                   opportunity={opportunity}
                   viewerRole={viewerRole}
-                  payments={payments}
+                  payments={outcomeActionBarPayments}
                   meetingReview={meetingReview}
                   activeFollowUp={activeFollowUp}
                   onStatusChanged={refreshDetail}
+                  flashKey={flashKey}
                 />
               </div>
             </div>
@@ -288,6 +278,34 @@ export function MeetingDetailPageClient({
         </div>
       </div>
 
+      <AlertDialog
+        open={warningOpen}
+        onOpenChange={(value) => {
+          if (!value) dismissAndFlash();
+        }}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <div className="flex items-start gap-3">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10">
+                <AlertTriangleIcon className="size-4 text-destructive" />
+              </div>
+              <div className="flex-1">
+                <AlertDialogTitle>End the meeting first</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This meeting is still in progress. Press{" "}
+                  <span className="font-medium">End Meeting</span> before
+                  navigating away so the call duration is recorded correctly.
+                </AlertDialogDescription>
+              </div>
+            </div>
+          </AlertDialogHeader>
+
+          <AlertDialogFooter>
+            <AlertDialogCancel>Got it</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

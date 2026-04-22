@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
+import { PAYMENT_TYPES } from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   assertValidDateRange,
@@ -25,6 +26,7 @@ const DOMAIN_EVENT_SOURCES = [
   "pipeline",
   "system",
 ] as const satisfies ReadonlyArray<Doc<"domainEvents">["source"]>;
+const PAYMENT_TYPE_SET = new Set<string>(PAYMENT_TYPES);
 
 function matchesFeedFilters(
   event: Doc<"domainEvents">,
@@ -58,6 +60,42 @@ function parseEventMetadata(metadata: string | undefined | null) {
   }
 }
 
+function parsePaymentMetadata(metadata: Record<string, unknown> | null) {
+  if (!metadata) {
+    return null;
+  }
+
+  const paymentType = metadata.paymentType;
+  const programId = metadata.programId;
+  const programName = metadata.programName;
+  const commissionable = metadata.commissionable;
+  const attributedCloserId = metadata.attributedCloserId;
+
+  if (
+    typeof paymentType !== "string" ||
+    !PAYMENT_TYPE_SET.has(paymentType) ||
+    (programId !== undefined && typeof programId !== "string") ||
+    (programName !== undefined && typeof programName !== "string") ||
+    (commissionable !== undefined && typeof commissionable !== "boolean") ||
+    (attributedCloserId !== undefined &&
+      attributedCloserId !== null &&
+      typeof attributedCloserId !== "string")
+  ) {
+    return null;
+  }
+
+  return {
+    programId: typeof programId === "string" ? programId : null,
+    programName: typeof programName === "string" ? programName : null,
+    paymentType,
+    commissionable: commissionable === true,
+    attributedCloserId:
+      typeof attributedCloserId === "string" ? attributedCloserId : null,
+    originCategory:
+      commissionable === true ? "commissionable" : "non_commissionable",
+  };
+}
+
 export const getActivityFeed = query({
   args: {
     startDate: v.number(),
@@ -75,6 +113,15 @@ export const getActivityFeed = query({
     ),
     eventType: v.optional(v.string()),
     actorUserId: v.optional(v.id("users")),
+    programId: v.optional(v.id("tenantPrograms")),
+    paymentType: v.optional(
+      v.union(
+        v.literal("monthly"),
+        v.literal("split"),
+        v.literal("pif"),
+        v.literal("deposit"),
+      ),
+    ),
     limit: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
@@ -91,7 +138,11 @@ export const getActivityFeed = query({
       Math.max(Math.floor(args.limit ?? 50), 1),
       MAX_ACTIVITY_FEED_LIMIT,
     );
-    const events: Array<Doc<"domainEvents">> = [];
+    const events: Array<{
+      event: Doc<"domainEvents">;
+      parsedMetadata: Record<string, unknown> | null;
+      paymentMetadata: ReturnType<typeof parsePaymentMetadata>;
+    }> = [];
 
     const querySource = args.actorUserId
       ? ctx.db
@@ -130,7 +181,24 @@ export const getActivityFeed = query({
         continue;
       }
 
-      events.push(event);
+      const parsedMetadata = parseEventMetadata(event.metadata);
+      const paymentMetadata =
+        event.entityType === "payment"
+          ? parsePaymentMetadata(parsedMetadata)
+          : null;
+      if (args.programId || args.paymentType) {
+        if (!paymentMetadata) {
+          continue;
+        }
+        if (
+          (args.programId && paymentMetadata.programId !== args.programId) ||
+          (args.paymentType && paymentMetadata.paymentType !== args.paymentType)
+        ) {
+          continue;
+        }
+      }
+
+      events.push({ event, parsedMetadata, paymentMetadata });
       if (events.length >= limit) {
         break;
       }
@@ -139,7 +207,7 @@ export const getActivityFeed = query({
     const actorIds = [
       ...new Set(
         events
-          .map((event) => event.actorUserId)
+          .map(({ event }) => event.actorUserId)
           .filter((actorUserId): actorUserId is Id<"users"> => actorUserId !== undefined),
       ),
     ];
@@ -148,12 +216,13 @@ export const getActivityFeed = query({
     );
     const actorById = new Map(actorDocs);
 
-    return events.map((event) => ({
+    return events.map(({ event, parsedMetadata, paymentMetadata }) => ({
       ...event,
       actorName: event.actorUserId
         ? getUserDisplayName(actorById.get(event.actorUserId) ?? null)
         : null,
-      metadata: parseEventMetadata(event.metadata),
+      metadata: parsedMetadata,
+      paymentMetadata,
     }));
   },
 });

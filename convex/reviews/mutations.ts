@@ -16,6 +16,7 @@ import {
   validateTransition,
 } from "../lib/statusTransitions";
 import {
+  applyPaymentStatsDelta,
   isActiveOpportunityStatus,
   updateTenantStats,
 } from "../lib/tenantStatsHelper";
@@ -27,6 +28,11 @@ import {
 } from "../reporting/writeHooks";
 import { loadActiveFollowUpDoc } from "../lib/activeFollowUp";
 import { validateManualTimes } from "../lib/manualMeetingTimes";
+import {
+  paymentTypeValidator,
+  resolveLegacyCompatiblePaymentCommissionable,
+  resolvePaymentType,
+} from "../lib/paymentTypes";
 
 function normalizeOptionalString(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
@@ -61,7 +67,8 @@ export const resolveReview = mutation({
       v.object({
         amount: v.number(),
         currency: v.string(),
-        provider: v.string(),
+        programId: v.id("tenantPrograms"),
+        paymentType: paymentTypeValidator,
         referenceCode: v.optional(v.string()),
         proofFileId: v.optional(v.id("_storage")),
       }),
@@ -364,16 +371,37 @@ export const resolveReview = mutation({
       const statsDelta = {
         ...(activeDelta !== 0 ? { activeOpportunities: activeDelta } : {}),
         ...(previousOpportunityStatus === "lost" ? { lostDeals: -1 } : {}),
-        ...(previousOpportunityStatus === "payment_received"
-          ? {
-              wonDeals: -1,
-              totalPaymentRecords: -1,
-              totalRevenueMinor: -disputedPaymentAmountMinor,
-            }
-          : {}),
       };
       if (Object.keys(statsDelta).length > 0) {
         await updateTenantStats(ctx, tenantId, statsDelta);
+      }
+      if (previousOpportunityStatus === "payment_received" && paymentDisputed) {
+        const disputedPayment = (
+          await ctx.db
+            .query("paymentRecords")
+            .withIndex("by_opportunityId", (q) =>
+              q.eq("opportunityId", review.opportunityId),
+            )
+            .take(50)
+        ).find(
+          (payment) =>
+            payment.meetingId === review.meetingId &&
+            payment.status === "disputed" &&
+            payment.amountMinor === disputedPaymentAmountMinor,
+        );
+        if (!disputedPayment) {
+          throw new Error("Disputed payment not found");
+        }
+        const commissionable = resolveLegacyCompatiblePaymentCommissionable(
+          disputedPayment,
+        );
+        await applyPaymentStatsDelta(ctx, tenantId, {
+          commissionable,
+          paymentType: resolvePaymentType(disputedPayment.paymentType),
+          amountMinorDelta: -disputedPaymentAmountMinor,
+          wonDealDelta: commissionable ? -1 : 0,
+          activeOpportunityDelta: 0,
+        });
       }
 
       if (paymentDisputed && disputedPaymentCustomerId) {
@@ -529,11 +557,11 @@ export const resolveReview = mutation({
         actorUserId: userId,
         amount: args.paymentData.amount,
         currency: args.paymentData.currency,
-        provider: args.paymentData.provider,
+        programId: args.paymentData.programId,
+        paymentType: args.paymentData.paymentType,
         referenceCode: args.paymentData.referenceCode,
         proofFileId: args.paymentData.proofFileId,
-        origin: "admin_meeting",
-        loggedByAdminUserId: userId,
+        origin: "admin_review_resolution",
       });
     } else if (args.resolutionAction === "schedule_follow_up") {
       await createManualReminder(ctx, {

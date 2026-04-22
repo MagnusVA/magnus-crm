@@ -1,12 +1,23 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import {
+  resolveLegacyCompatibleAttributedCloserId,
+  resolveLegacyCompatiblePaymentCommissionable,
+} from "../lib/paymentTypes";
+import {
   customerConversions,
   leadTimeline,
   meetingsByStatus,
   opportunityByStatus,
   paymentSums,
 } from "./aggregates";
+
+function isPaymentAggregateEligible(payment: Doc<"paymentRecords">): boolean {
+  return (
+    resolveLegacyCompatiblePaymentCommissionable(payment) &&
+    resolveLegacyCompatibleAttributedCloserId(payment) !== undefined
+  );
+}
 
 async function getMeetingOrThrow(
   ctx: MutationCtx,
@@ -98,7 +109,9 @@ export async function insertPaymentAggregate(
   paymentId: Id<"paymentRecords">,
 ): Promise<Doc<"paymentRecords">> {
   const payment = await getPaymentOrThrow(ctx, paymentId);
-  await paymentSums.insert(ctx, payment);
+  if (isPaymentAggregateEligible(payment)) {
+    await paymentSums.insert(ctx, payment);
+  }
   return payment;
 }
 
@@ -108,7 +121,19 @@ export async function replacePaymentAggregate(
   paymentId: Id<"paymentRecords">,
 ): Promise<Doc<"paymentRecords">> {
   const payment = await getPaymentOrThrow(ctx, paymentId);
-  await paymentSums.replace(ctx, oldPayment, payment);
+  const oldEligible = isPaymentAggregateEligible(oldPayment);
+  const nextEligible = isPaymentAggregateEligible(payment);
+
+  if (oldEligible && nextEligible) {
+    // Legacy rows may become aggregate-eligible during a widen/migrate rollout
+    // before they were ever inserted into the aggregate. Use the idempotent
+    // path so backfills can safely repair or create the aggregate entry.
+    await paymentSums.replaceOrInsert(ctx, oldPayment, payment);
+  } else if (oldEligible) {
+    await paymentSums.deleteIfExists(ctx, oldPayment);
+  } else if (nextEligible) {
+    await paymentSums.insertIfDoesNotExist(ctx, payment);
+  }
   return payment;
 }
 

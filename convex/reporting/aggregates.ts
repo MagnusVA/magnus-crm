@@ -4,6 +4,16 @@ import type { DataModel, Doc, Id } from "../_generated/dataModel";
 
 type MeetingCallClassification = "new" | "follow_up";
 type OpportunityAssignedCloserKey = Id<"users"> | "";
+type PaymentAggregateCloserKey = Id<"users"> | "";
+
+function paymentAggregateCloserKey(
+  doc: Doc<"paymentRecords">,
+): PaymentAggregateCloserKey {
+  if (doc.commissionable === false) {
+    return "";
+  }
+  return doc.attributedCloserId ?? "";
+}
 
 export const meetingsByStatus = new TableAggregate<{
   Namespace: Id<"tenants">;
@@ -22,12 +32,12 @@ export const meetingsByStatus = new TableAggregate<{
 
 export const paymentSums = new TableAggregate<{
   Namespace: Id<"tenants">;
-  Key: [Id<"users">, number];
+  Key: [PaymentAggregateCloserKey, number];
   DataModel: DataModel;
   TableName: "paymentRecords";
 }>(components.paymentSums, {
   namespace: (doc) => doc.tenantId,
-  sortKey: (doc) => [doc.closerId, doc.recordedAt],
+  sortKey: (doc) => [paymentAggregateCloserKey(doc), doc.recordedAt],
   sumValue: (doc) => (doc.status === "disputed" ? 0 : doc.amountMinor),
 });
 

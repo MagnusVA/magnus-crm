@@ -1,24 +1,26 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
-import { requireTenantUser } from "../requireTenantUser";
-import { executeConversion } from "./conversion";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
+import {
+  applyPaymentStatsDelta,
+  updateTenantStats,
+} from "../lib/tenantStatsHelper";
+import {
+  assertPaymentRow,
+  resolveProgramForWrite,
+  syncCustomerPaymentSummary,
+} from "../lib/paymentHelpers";
+import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
+import { requireTenantUser } from "../requireTenantUser";
 import { insertPaymentAggregate } from "../reporting/writeHooks";
-import { updateTenantStats } from "../lib/tenantStatsHelper";
+import { executeConversion } from "./conversion";
 
-/**
- * Manually convert a lead to a customer.
- *
- * Admin-only action from the Lead Manager detail page.
- * Requires selecting a winning opportunity (must be payment_received).
- */
 export const convertLeadToCustomer = mutation({
   args: {
     leadId: v.id("leads"),
     winningOpportunityId: v.id("opportunities"),
     winningMeetingId: v.optional(v.id("meetings")),
-    programType: v.optional(v.string()),
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -31,15 +33,13 @@ export const convertLeadToCustomer = mutation({
       "tenant_admin",
     ]);
 
-    // Validate winning opportunity has payment_received status
     const opportunity = await ctx.db.get(args.winningOpportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
     if (opportunity.status !== "payment_received") {
       throw new Error(
-        `Cannot convert: winning opportunity must have status "payment_received", ` +
-          `but has "${opportunity.status}". Record a payment first.`,
+        `Cannot convert: winning opportunity must have status "payment_received", but has "${opportunity.status}". Record a payment first.`,
       );
     }
 
@@ -49,7 +49,6 @@ export const convertLeadToCustomer = mutation({
       convertedByUserId: userId,
       winningOpportunityId: args.winningOpportunityId,
       winningMeetingId: args.winningMeetingId,
-      programType: args.programType,
       notes: args.notes,
     });
 
@@ -63,11 +62,6 @@ export const convertLeadToCustomer = mutation({
   },
 });
 
-/**
- * Update a customer's status (active, paused, churned).
- *
- * Admin-only. Status changes are the only edit allowed in v0.5.
- */
 export const updateCustomerStatus = mutation({
   args: {
     customerId: v.id("customers"),
@@ -108,36 +102,36 @@ export const updateCustomerStatus = mutation({
       toStatus: args.status,
       occurredAt: now,
     });
-    console.log("[Customer] Status updated", {
-      customerId: args.customerId,
-      from: customer.status,
-      to: args.status,
-    });
   },
 });
 
-/**
- * Record a payment directly against a customer (post-conversion).
- *
- * Use case: payment plan installments, upsells, renewals.
- * No meeting or opportunity context required.
- */
 export const recordCustomerPayment = mutation({
   args: {
     customerId: v.id("customers"),
     amount: v.number(),
     currency: v.string(),
-    provider: v.string(),
+    programId: v.id("tenantPrograms"),
+    paymentType: paymentTypeValidator,
     referenceCode: v.optional(v.string()),
     proofFileId: v.optional(v.id("_storage")),
+    // Optional back-dated "paid at" timestamp. When omitted the server stamps
+    // the current time, preserving existing behaviour. When provided it is
+    // used as the row's `recordedAt` so revenue / trend reports bucket the
+    // payment into the correct period.
+    paidAt: v.optional(v.number()),
+    // Optional free-form audit note (max 500 chars, trimmed).
+    note: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     console.log("[Customer] recordCustomerPayment called", {
       customerId: args.customerId,
       amount: args.amount,
+      programId: args.programId,
+      paymentType: args.paymentType,
+      hasPaidAt: args.paidAt !== undefined,
+      hasNote: !!args.note,
     });
-    const { userId, tenantId, role } = await requireTenantUser(ctx, [
-      "closer",
+    const { userId, tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
@@ -147,87 +141,105 @@ export const recordCustomerPayment = mutation({
       throw new Error("Customer not found");
     }
 
-    // Closer authorization: can only record payments on their own customers
-    // "Own" = the closer is the convertedByUserId (they closed the deal)
-    if (role === "closer" && customer.convertedByUserId !== userId) {
-      throw new Error("Not your customer");
-    }
-
-    // Validate amount
     if (args.amount <= 0) {
       throw new Error("Payment amount must be positive");
     }
 
     const currency = validateCurrency(args.currency);
+    const amountMinor = toAmountMinor(args.amount);
+    const now = Date.now();
+    const program = await resolveProgramForWrite(ctx, tenantId, args.programId);
+    const paymentType = resolvePaymentType(args.paymentType);
 
-    const provider = args.provider.trim();
-    if (!provider) {
-      throw new Error("Provider is required");
+    // Guard: `paidAt` must be a finite past-or-present timestamp. Disallow
+    // future-dated entries so backdated admin corrections can't land ahead
+    // of the current period boundary.
+    let paidAt = now;
+    if (args.paidAt !== undefined) {
+      if (!Number.isFinite(args.paidAt)) {
+        throw new Error("Invalid paidAt timestamp");
+      }
+      if (args.paidAt > now) {
+        throw new Error(
+          "Paid at cannot be in the future. Pick today's date or earlier.",
+        );
+      }
+      paidAt = args.paidAt;
     }
 
-    const now = Date.now();
-    const amountMinor = toAmountMinor(args.amount);
-    const loggedByAdminUserId = role === "closer" ? undefined : userId;
-    const paymentId = await ctx.db.insert("paymentRecords", {
+    const normalizedNote =
+      args.note && args.note.trim().length > 0
+        ? args.note.trim().slice(0, 500)
+        : undefined;
+
+    const row = {
       tenantId,
-      closerId: userId,
+      opportunityId: undefined,
+      attributedCloserId: undefined,
+      recordedByUserId: userId,
+      commissionable: false as const,
       customerId: args.customerId,
+      originatingOpportunityId: customer.winningOpportunityId,
       amountMinor,
       currency,
-      provider,
+      programId: program._id,
+      programName: program.name,
+      paymentType,
       referenceCode: args.referenceCode?.trim() || undefined,
       proofFileId: args.proofFileId ?? undefined,
-      status: "recorded",
+      note: normalizedNote,
+      status: "recorded" as const,
       statusChangedAt: now,
-      recordedAt: now,
-      contextType: "customer",
-      origin: "customer_flow",
-      loggedByAdminUserId,
-    });
+      // Use the caller-supplied `paidAt` (if any) as the effective reporting
+      // timestamp. Falls back to `now` for forward-dated "today" entries.
+      recordedAt: paidAt,
+      contextType: "customer" as const,
+      origin: "customer_direct" as const,
+    };
+    assertPaymentRow(row);
+
+    const paymentId = await ctx.db.insert("paymentRecords", row);
     await insertPaymentAggregate(ctx, paymentId);
-    const customerPayments = await ctx.db
-      .query("paymentRecords")
-      .withIndex("by_customerId", (q) => q.eq("customerId", args.customerId))
-      .take(100);
-    const nonDisputedPayments = customerPayments.filter(
-      (payment) => payment.status !== "disputed",
-    );
-    const currencies = Array.from(
-      new Set(nonDisputedPayments.map((payment) => payment.currency)),
-    );
-    await ctx.db.patch(args.customerId, {
-      totalPaidMinor: nonDisputedPayments.reduce(
-        (sum, payment) => sum + payment.amountMinor,
-        0,
-      ),
-      totalPaymentCount: nonDisputedPayments.length,
-      paymentCurrency: currencies.length === 1 ? currencies[0] : undefined,
+    await syncCustomerPaymentSummary(ctx, args.customerId);
+    await applyPaymentStatsDelta(ctx, tenantId, {
+      commissionable: false,
+      paymentType,
+      amountMinorDelta: amountMinor,
     });
-    await updateTenantStats(ctx, tenantId, {
-      totalPaymentRecords: 1,
-      totalRevenueMinor: amountMinor,
-    });
+
     await emitDomainEvent(ctx, {
       tenantId,
       entityType: "payment",
       entityId: paymentId,
       eventType: "payment.recorded",
-      source: role === "closer" ? "closer" : "admin",
+      source: "admin",
       actorUserId: userId,
       toStatus: "recorded",
       metadata: {
         customerId: args.customerId,
+        originatingOpportunityId: customer.winningOpportunityId,
         amountMinor,
         currency,
-        origin: "customer_flow",
-        ...(loggedByAdminUserId ? { loggedByAdminUserId } : {}),
+        programId: program._id,
+        programName: program.name,
+        paymentType,
+        commissionable: false,
+        origin: "customer_direct",
+        recordedByUserId: userId,
+        paidAt,
+        note: normalizedNote,
       },
+      // Preserve the "when the admin performed this action" signal on the
+      // event timeline; reporting uses `paymentRecords.recordedAt` for
+      // financial bucketing instead.
       occurredAt: now,
     });
 
     console.log("[Customer] Post-conversion payment recorded", {
       paymentId,
       customerId: args.customerId,
+      programId: program._id,
+      paymentType,
     });
 
     return paymentId;

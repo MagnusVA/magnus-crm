@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -34,63 +36,76 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { FieldGroup } from "@/components/ui/field";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
-import { BanknoteIcon, AlertCircleIcon, UploadIcon } from "lucide-react";
+import { AlertCircleIcon, InfoIcon } from "lucide-react";
 import { toast } from "sonner";
-import type { Id } from "@/convex/_generated/dataModel";
+import posthog from "posthog-js";
+
+import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
-const VALID_FILE_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "application/pdf",
-];
-
 const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY"] as const;
-const PROVIDERS = [
-  "Stripe",
-  "PayPal",
-  "Square",
-  "Cash",
-  "Bank Transfer",
-  "Other",
+type Currency = (typeof CURRENCIES)[number];
+
+const PAYMENT_TYPES = [
+  { value: "pif", label: "PIF (Paid in Full)" },
+  { value: "split", label: "Split Payment" },
+  { value: "monthly", label: "Monthly" },
+  { value: "deposit", label: "Deposit" },
 ] as const;
 
 // ---------------------------------------------------------------------------
-// Schema — amount as string, parsed on submit (same pattern as payment-form-dialog)
+// Schema — non-commissionable post-conversion payment. Mirrors the
+// commissionable dialogs' shape MINUS the proof file: non-commissionable
+// rows are not attributed to any closer, so the admin attestation /
+// proof-of-payment requirement does not apply.
 // ---------------------------------------------------------------------------
 
 const paymentSchema = z.object({
   amount: z
     .string()
     .min(1, "Amount is required")
-    .refine(
-      (val) => {
-        const num = parseFloat(val);
-        return !isNaN(num) && num > 0;
-      },
-      { message: "Amount must be greater than 0" },
-    ),
+    .refine((value) => {
+      const parsed = parseFloat(value);
+      return !Number.isNaN(parsed) && parsed > 0;
+    }, "Amount must be greater than 0"),
   currency: z.enum(CURRENCIES),
-  provider: z.enum(PROVIDERS, { error: "Please select a payment provider" }),
+  programId: z.string().min(1, "Program is required"),
+  paymentType: z.enum(["pif", "split", "monthly", "deposit"], {
+    error: "Please select a payment type",
+  }),
+  paidAt: z
+    .string()
+    .min(1, "Paid date is required")
+    .refine((value) => {
+      // `<input type="date">` emits `YYYY-MM-DD`; `Date.parse` accepts that
+      // as a UTC midnight. Reject unparseable input to catch manual typing.
+      const ms = Date.parse(value);
+      return !Number.isNaN(ms);
+    }, "Invalid date")
+    .refine((value) => {
+      const ms = Date.parse(value);
+      // Compare against the start of tomorrow (local) so "today" is always
+      // valid and we only reject truly-future dates.
+      const startOfTomorrow = new Date();
+      startOfTomorrow.setHours(0, 0, 0, 0);
+      startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+      return ms < startOfTomorrow.getTime();
+    }, "Paid date cannot be in the future"),
   referenceCode: z.string().optional(),
-  proofFile: z
-    .instanceof(File)
-    .optional()
-    .refine(
-      (file) => !file || file.size <= MAX_FILE_SIZE,
-      "File size must be less than 10 MB",
-    )
-    .refine(
-      (file) => !file || VALID_FILE_TYPES.includes(file.type),
-      "Only images (JPEG, PNG, GIF) and PDFs are allowed",
-    ),
+  note: z
+    .string()
+    .trim()
+    .max(500, "Note must be 500 characters or fewer")
+    .optional(),
 });
 
 type PaymentFormValues = z.infer<typeof paymentSchema>;
@@ -99,75 +114,139 @@ type PaymentFormValues = z.infer<typeof paymentSchema>;
 // Component
 // ---------------------------------------------------------------------------
 
+function normalizeCurrency(value: string | undefined): Currency {
+  if (!value) return "USD";
+  const upper = value.toUpperCase();
+  return (CURRENCIES as readonly string[]).includes(upper)
+    ? (upper as Currency)
+    : "USD";
+}
+
+/**
+ * Returns today's date as `YYYY-MM-DD` in the viewer's local timezone. Used
+ * as the default for the "Paid At" picker so the admin sees their own
+ * calendar date, not UTC midnight.
+ */
+function todayLocalIso(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = `${now.getMonth() + 1}`.padStart(2, "0");
+  const day = `${now.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 interface RecordPaymentDialogProps {
-  customerId: Id<"customers">;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  customer: {
+    _id: Id<"customers">;
+    programId?: Id<"tenantPrograms">;
+    programName?: string;
+    currency?: string;
+  };
   onPaymentRecorded?: () => void;
 }
 
 export function RecordPaymentDialog({
-  customerId,
+  open,
+  onOpenChange,
+  customer,
   onPaymentRecorded,
 }: RecordPaymentDialogProps) {
-  const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
   const recordPayment = useMutation(
     api.customers.mutations.recordCustomerPayment,
   );
+
+  const defaultCurrency = normalizeCurrency(customer.currency);
+  const customerProgramIsActive =
+    !!customer.programId && !!customer.programName;
 
   const form = useForm({
     resolver: standardSchemaResolver(paymentSchema),
     defaultValues: {
       amount: "",
-      currency: "USD",
-      provider: undefined,
+      currency: defaultCurrency,
+      programId: "",
+      paymentType: undefined,
+      paidAt: todayLocalIso(),
       referenceCode: "",
-      proofFile: undefined,
+      note: "",
     },
   });
+
+  // Reset form whenever the dialog opens. We re-seed here (rather than in
+  // `defaultValues`) so the preselect reflects the latest `customer` prop
+  // every time the admin reopens the dialog — the dialog is externally
+  // controlled, so the parent may mutate `customer` between openings.
+  useEffect(() => {
+    if (!open) return;
+    form.reset({
+      amount: "",
+      currency: normalizeCurrency(customer.currency),
+      programId:
+        customerProgramIsActive && customer.programId ? customer.programId : "",
+      paymentType: undefined,
+      paidAt: todayLocalIso(),
+      referenceCode: "",
+      note: "",
+    });
+    setSubmitError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, customer.programId, customer.programName, customer.currency]);
 
   const onSubmit = async (values: PaymentFormValues) => {
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
-      // Upload proof file if provided
-      let proofFileId: Id<"_storage"> | undefined;
-      if (values.proofFile) {
-        const uploadUrl = await generateUploadUrl();
-        const uploadResponse = await fetch(uploadUrl, {
-          method: "POST",
-          headers: { "Content-Type": values.proofFile.type },
-          body: values.proofFile,
-        });
-
-        if (!uploadResponse.ok) {
-          throw new Error("Failed to upload proof file");
-        }
-
-        const uploadData = (await uploadResponse.json()) as {
-          storageId?: string;
-        };
-        if (!uploadData.storageId) {
-          throw new Error("File upload returned invalid storage ID");
-        }
-        proofFileId = uploadData.storageId as Id<"_storage">;
-      }
+      const amountDollars = parseFloat(values.amount);
+      // `paidAt` comes in as `YYYY-MM-DD` (UTC midnight per `<input type="date">`).
+      // Convert to the user's *local* midnight so the reporting bucket lines
+      // up with the calendar date the admin picked, no matter their TZ.
+      const [yearStr, monthStr, dayStr] = values.paidAt.split("-");
+      const paidAtLocal = new Date(
+        Number(yearStr),
+        Number(monthStr) - 1,
+        Number(dayStr),
+        0,
+        0,
+        0,
+        0,
+      );
+      const paidAtMs = paidAtLocal.getTime();
+      const trimmedNote = values.note?.trim();
 
       await recordPayment({
-        customerId,
-        amount: parseFloat(values.amount),
+        customerId: customer._id,
+        amount: amountDollars,
         currency: values.currency,
-        provider: values.provider,
-        referenceCode: values.referenceCode || undefined,
-        proofFileId,
+        programId: values.programId as Id<"tenantPrograms">,
+        paymentType: values.paymentType,
+        referenceCode: values.referenceCode?.trim() || undefined,
+        paidAt: paidAtMs,
+        note: trimmedNote || undefined,
       });
 
-      toast.success("Payment recorded successfully");
-      setOpen(false);
-      form.reset();
+      posthog.capture("post_conversion_payment_recorded", {
+        customer_id: customer._id,
+        amount_minor: Math.round(amountDollars * 100),
+        currency: values.currency,
+        program_id: values.programId,
+        payment_type: values.paymentType,
+        has_reference: !!values.referenceCode?.trim(),
+        has_note: !!trimmedNote,
+        is_backdated: paidAtMs < Date.now() - 24 * 60 * 60 * 1000,
+        preseeded_from_customer_program:
+          customerProgramIsActive &&
+          !!customer.programId &&
+          customer.programId === values.programId,
+      });
+
+      toast.success("Payment recorded");
+      onOpenChange(false);
       onPaymentRecorded?.();
     } catch (err: unknown) {
       const message =
@@ -182,225 +261,258 @@ export function RecordPaymentDialog({
   };
 
   return (
-    <>
-      <Button
-        onClick={() => setOpen(true)}
-        variant="outline"
-        size="sm"
-      >
-        <BanknoteIcon data-icon="inline-start" />
-        Record Payment
-      </Button>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!isSubmitting) onOpenChange(next);
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Record Payment</DialogTitle>
+          <DialogDescription>
+            Record a post-conversion payment (installment, upsell, renewal).
+          </DialogDescription>
+        </DialogHeader>
 
-      <Dialog
-        open={open}
-        onOpenChange={(value) => {
-          if (!isSubmitting) {
-            setOpen(value);
-            if (!value) {
-              form.reset();
-              setSubmitError(null);
-            }
-          }
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Record Payment</DialogTitle>
-            <DialogDescription>
-              Record a post-conversion payment (installment, upsell, renewal).
-            </DialogDescription>
-          </DialogHeader>
+        {/* Persistent banner — this dialog is non-commissionable by design. */}
+        <Alert className="mb-4" variant="default">
+          <InfoIcon />
+          <AlertTitle>Post-Conversion Revenue</AlertTitle>
+          <AlertDescription>
+            This payment is not attributed to any closer and will not affect
+            commissionable revenue reports. Use this only for direct payments
+            logged by admin after the deal has closed.
+          </AlertDescription>
+        </Alert>
 
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)}>
-              <FieldGroup>
-                {/* Amount */}
-                <FormField
-                  control={form.control}
-                  name="amount"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Amount <span className="text-destructive">*</span>
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          type="number"
-                          step="0.01"
-                          placeholder="299.99"
-                          min="0"
-                          disabled={isSubmitting}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {/* Currency */}
-                <FormField
-                  control={form.control}
-                  name="currency"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Currency <span className="text-destructive">*</span>
-                      </FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)}>
+            <FieldGroup>
+              {/* Program */}
+              <FormField
+                control={form.control}
+                name="programId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Program <span className="text-destructive">*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <ProgramSelect
+                        value={field.value || undefined}
+                        onChange={field.onChange}
                         disabled={isSubmitting}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectGroup>
-                            {CURRENCIES.map((curr) => (
-                              <SelectItem key={curr} value={curr}>
-                                {curr}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                        placeholder="Select program"
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {customerProgramIsActive
+                        ? "Pre-seeded from this customer's program. Change only if this payment belongs to a different program."
+                        : "This customer's original program is archived. Pick an active program for this payment."}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-                {/* Provider */}
-                <FormField
-                  control={form.control}
-                  name="provider"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Provider <span className="text-destructive">*</span>
-                      </FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
+              {/* Payment Type */}
+              <FormField
+                control={form.control}
+                name="paymentType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Payment Type <span className="text-destructive">*</span>
+                    </FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                      disabled={isSubmitting}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select payment type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectGroup>
+                          {PAYMENT_TYPES.map((pt) => (
+                            <SelectItem key={pt.value} value={pt.value}>
+                              {pt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* Amount */}
+              <FormField
+                control={form.control}
+                name="amount"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Amount <span className="text-destructive">*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="299.99"
                         disabled={isSubmitting}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select provider" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          <SelectGroup>
-                            {PROVIDERS.map((prov) => (
-                              <SelectItem key={prov} value={prov}>
-                                {prov}
-                              </SelectItem>
-                            ))}
-                          </SelectGroup>
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-                {/* Reference Code */}
-                <FormField
-                  control={form.control}
-                  name="referenceCode"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Reference Code</FormLabel>
+              {/* Currency */}
+              <FormField
+                control={form.control}
+                name="currency"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Currency <span className="text-destructive">*</span>
+                    </FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                      disabled={isSubmitting}
+                    >
                       <FormControl>
-                        <Input
-                          type="text"
-                          placeholder="e.g., pi_3abc123..."
-                          disabled={isSubmitting}
-                          {...field}
-                        />
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
                       </FormControl>
-                      <FormDescription>
-                        Transaction ID from your payment provider
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                      <SelectContent>
+                        <SelectGroup>
+                          {CURRENCIES.map((curr) => (
+                            <SelectItem key={curr} value={curr}>
+                              {curr}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-                {/* Proof File */}
-                <FormField
-                  control={form.control}
-                  name="proofFile"
-                  render={({ field: { value, onChange, ...fieldProps } }) => (
-                    <FormItem>
-                      <FormLabel>Proof File</FormLabel>
-                      <FormControl>
-                        <Input
-                          type="file"
-                          accept="image/jpeg,image/png,image/gif,application/pdf"
-                          disabled={isSubmitting}
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            onChange(file);
-                          }}
-                          {...fieldProps}
-                        />
-                      </FormControl>
-                      {value && (
-                        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                          <UploadIcon className="size-3 shrink-0" />
-                          <span className="truncate">
-                            {value.name} ({(value.size / 1024).toFixed(1)} KB)
-                          </span>
-                        </div>
-                      )}
-                      <FormDescription>
-                        Max 10 MB. Allowed: PNG, JPEG, GIF, PDF
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </FieldGroup>
+              {/* Paid At */}
+              <FormField
+                control={form.control}
+                name="paidAt"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Paid At <span className="text-destructive">*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        type="date"
+                        max={todayLocalIso()}
+                        disabled={isSubmitting}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Defaults to today. Back-date when logging a payment you
+                      received earlier so it lands in the correct reporting
+                      period.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-              {submitError && (
-                <Alert variant="destructive" className="mt-4">
-                  <AlertCircleIcon />
-                  <AlertDescription>{submitError}</AlertDescription>
-                </Alert>
-              )}
+              {/* Reference */}
+              <FormField
+                control={form.control}
+                name="referenceCode"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Reference</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="text"
+                        placeholder="e.g., pi_3abc123..."
+                        disabled={isSubmitting}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Transaction ID from your payment provider.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-              <DialogFooter className="mt-5">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => {
-                    setOpen(false);
-                    form.reset();
-                    setSubmitError(null);
-                  }}
-                  disabled={isSubmitting}
-                >
-                  Cancel
-                </Button>
-                <Button type="submit" disabled={isSubmitting}>
-                  {isSubmitting ? (
-                    <>
-                      <Spinner data-icon="inline-start" />
-                      Recording...
-                    </>
-                  ) : (
-                    "Record Payment"
-                  )}
-                </Button>
-              </DialogFooter>
-            </form>
-          </Form>
-        </DialogContent>
-      </Dialog>
-    </>
+              {/* Note */}
+              <FormField
+                control={form.control}
+                name="note"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Note</FormLabel>
+                    <FormControl>
+                      <Textarea
+                        rows={3}
+                        maxLength={500}
+                        placeholder="Re-enrollment, partial chargeback, upsell..."
+                        disabled={isSubmitting}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Optional audit context (visible in admin views only).
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </FieldGroup>
+
+            {submitError && (
+              <Alert variant="destructive" className="mt-4">
+                <AlertCircleIcon />
+                <AlertDescription>{submitError}</AlertDescription>
+              </Alert>
+            )}
+
+            <DialogFooter className="mt-5">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => onOpenChange(false)}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Spinner data-icon="inline-start" />
+                    Recording...
+                  </>
+                ) : (
+                  "Record Payment"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
+      </DialogContent>
+    </Dialog>
   );
 }

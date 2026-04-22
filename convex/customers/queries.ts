@@ -1,14 +1,72 @@
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
+import type { QueryCtx } from "../_generated/server";
 import { query } from "../_generated/server";
+import {
+  resolveLegacyCompatibleAttributedCloserId,
+  resolveLegacyCompatibleCustomerProgramName,
+  resolveLegacyCompatibleRecordedByUserId,
+} from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
 import { paginationOptsValidator } from "convex/server";
+
+type EnrichedPayment = Omit<
+  Doc<"paymentRecords">,
+  "attributedCloserId"
+> & {
+  amount: number;
+  attributedCloserId: Id<"users"> | undefined;
+  attributedCloserName: string | null;
+  recordedByName: string | null;
+};
+
+function resolveAttributedCloserId(
+  payment: Doc<"paymentRecords">,
+): Id<"users"> | undefined {
+  return resolveLegacyCompatibleAttributedCloserId(payment);
+}
+
+async function loadPaymentUserNameById(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  payments: Array<Doc<"paymentRecords">>,
+) {
+  const userIds = [
+    ...new Set(
+      payments.flatMap((payment) => {
+        const ids: Id<"users">[] = [];
+        const attributedCloserId = resolveAttributedCloserId(payment);
+        const recordedByUserId = resolveLegacyCompatibleRecordedByUserId(payment);
+        if (attributedCloserId) {
+          ids.push(attributedCloserId);
+        }
+        if (recordedByUserId) {
+          ids.push(recordedByUserId);
+        }
+        return ids;
+      }),
+    ),
+  ];
+
+  const users = await Promise.all(
+    userIds.map(async (userId) => [userId, await ctx.db.get(userId)] as const),
+  );
+
+  return new Map<Id<"users">, string | null>(
+    users.map(([userId, user]) => [
+      userId,
+      user && "tenantId" in user && user.tenantId === tenantId
+        ? (user.fullName ?? user.email)
+        : null,
+    ]),
+  );
+}
 
 /**
  * List customers with pagination and optional status filter.
  *
- * Admins see all customers. Closers see only their own (convertedByUserId).
- * Enriches each customer with computed totalPaid from payment records.
+ * All tenant users with customer access see the tenant-wide customer registry.
+ * Enriches each customer with denormalized totals and converter display names.
  */
 export const listCustomers = query({
   args: {
@@ -22,44 +80,25 @@ export const listCustomers = query({
     ),
   },
   handler: async (ctx, args) => {
-    const { tenantId, userId, role } = await requireTenantUser(ctx, [
+    const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
       "closer",
     ]);
 
-    const paginatedResult = role === "closer"
-      ? args.statusFilter
-        ? await ctx.db
-                .query("customers")
-                .withIndex("by_tenantId_and_convertedByUserId_and_status", (q) =>
-                  q
-                    .eq("tenantId", tenantId)
-                    .eq("convertedByUserId", userId)
-                    .eq("status", args.statusFilter!),
-                )
-            .order("desc")
-            .paginate(args.paginationOpts)
-        : await ctx.db
-            .query("customers")
-            .withIndex("by_tenantId_and_convertedByUserId", (q) =>
-              q.eq("tenantId", tenantId).eq("convertedByUserId", userId),
-            )
-            .order("desc")
-            .paginate(args.paginationOpts)
-      : args.statusFilter
-        ? await ctx.db
-            .query("customers")
-            .withIndex("by_tenantId_and_status", (q) =>
-              q.eq("tenantId", tenantId).eq("status", args.statusFilter!),
-            )
-            .order("desc")
-            .paginate(args.paginationOpts)
-        : await ctx.db
-            .query("customers")
-            .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-            .order("desc")
-            .paginate(args.paginationOpts);
+    const paginatedResult = args.statusFilter
+      ? await ctx.db
+          .query("customers")
+          .withIndex("by_tenantId_and_status", (q) =>
+            q.eq("tenantId", tenantId).eq("status", args.statusFilter!),
+          )
+          .order("desc")
+          .paginate(args.paginationOpts)
+      : await ctx.db
+          .query("customers")
+          .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+          .order("desc")
+          .paginate(args.paginationOpts);
 
     const converterIds = [
       ...new Set(paginatedResult.page.map((customer) => customer.convertedByUserId)),
@@ -100,7 +139,7 @@ export const listCustomers = query({
 export const getCustomerDetail = query({
   args: { customerId: v.id("customers") },
   handler: async (ctx, args) => {
-    const { tenantId, userId, role } = await requireTenantUser(ctx, [
+    const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
       "closer",
@@ -111,12 +150,7 @@ export const getCustomerDetail = query({
       return null;
     }
 
-    // Closer authorization: own customers only
-    if (role === "closer" && customer.convertedByUserId !== userId) {
-      return null;
-    }
-
-    const [lead, winningOpportunity, winningMeeting, opportunities, paymentRecords, converter] =
+    const [lead, winningOpportunity, winningMeeting, opportunities, paymentRecordsRaw, converter] =
       await Promise.all([
         ctx.db.get(customer.leadId),
         ctx.db.get(customer.winningOpportunityId),
@@ -162,10 +196,33 @@ export const getCustomerDetail = query({
       .sort((a, b) => b.scheduledAt - a.scheduledAt)
       .slice(0, 20);
 
-    const payments = paymentRecords.map((payment) => ({
-      ...payment,
-      amount: payment.amountMinor / 100,
-    }));
+    const paymentUserNameById = await loadPaymentUserNameById(
+      ctx,
+      tenantId,
+      paymentRecordsRaw,
+    );
+    const payments: EnrichedPayment[] = paymentRecordsRaw
+      .filter((payment) => payment.tenantId === tenantId)
+      .map((payment) => {
+        const attributedCloserId = resolveAttributedCloserId(payment);
+        return {
+          ...payment,
+          amount: payment.amountMinor / 100,
+          attributedCloserId,
+          attributedCloserName: attributedCloserId
+            ? (paymentUserNameById.get(attributedCloserId) ?? null)
+            : null,
+          recordedByName: (() => {
+            const recordedByUserId = resolveLegacyCompatibleRecordedByUserId(
+              payment,
+            );
+            return recordedByUserId
+              ? (paymentUserNameById.get(recordedByUserId) ?? null)
+              : null;
+          })(),
+        };
+      });
+    payments.sort((a, b) => b.recordedAt - a.recordedAt);
 
     const totalPaid = (customer.totalPaidMinor ?? 0) / 100;
     const currency = customer.paymentCurrency ?? "USD";
@@ -176,7 +233,10 @@ export const getCustomerDetail = query({
     const closerName = assignedCloser?.fullName ?? assignedCloser?.email;
 
     return {
-      customer,
+      customer: {
+        ...customer,
+        programName: resolveLegacyCompatibleCustomerProgramName(customer),
+      },
       lead,
       winningOpportunity,
       winningMeeting,
@@ -192,32 +252,6 @@ export const getCustomerDetail = query({
       payments,
       totalPaid,
       currency,
-    };
-  },
-});
-
-/**
- * @deprecated Use customer.totalPaidMinor directly.
- * Kept during the Phase 4-7 migration window for compatibility.
- */
-export const getCustomerTotalPaid = query({
-  args: { customerId: v.id("customers") },
-  handler: async (ctx, { customerId }) => {
-    const { tenantId } = await requireTenantUser(ctx, [
-      "tenant_master",
-      "tenant_admin",
-      "closer",
-    ]);
-
-    const customer = await ctx.db.get(customerId);
-    if (!customer || customer.tenantId !== tenantId) {
-      return null;
-    }
-
-    return {
-      totalPaid: (customer.totalPaidMinor ?? 0) / 100,
-      currency: customer.paymentCurrency ?? "USD",
-      paymentCount: customer.totalPaymentCount ?? 0,
     };
   },
 });

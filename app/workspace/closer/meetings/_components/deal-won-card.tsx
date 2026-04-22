@@ -17,7 +17,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   TrophyIcon,
-  CreditCardIcon,
   UserIcon,
   CalendarIcon,
   FileIcon,
@@ -30,27 +29,29 @@ import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format-currency";
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 type EnrichedPayment = {
   _id: string;
   amount: number;
   currency: string;
-  provider: string;
+  programName?: string | null;
+  paymentType?: string | null;
+  commissionable?: boolean;
   referenceCode?: string;
   status: "recorded" | "verified" | "disputed";
   recordedAt: number;
   proofFileUrl: string | null;
   proofFileContentType: string | null;
   proofFileSize: number | null;
-  closerName: string | null;
+  origin?: string;
+  attributedCloserId?: string | null;
+  attributedCloserName?: string | null;
+  recordedByUserId?: string;
+  recordedByName?: string | null;
 };
 
 type DealWonCardProps = {
   payments: EnrichedPayment[];
 };
-
-// ─── Config ─────────────────────────────────────────────────────────────────
 
 const PAYMENT_STATUS_CONFIG = {
   recorded: {
@@ -70,17 +71,11 @@ const PAYMENT_STATUS_CONFIG = {
   },
 } as const;
 
-// ─── Component ──────────────────────────────────────────────────────────────
-
 /**
  * Deal Won Card — displays payment details when opportunity is payment_received.
  *
- * Shows: amount, provider, reference code, recorded timestamp, recorded by,
- * payment status badge, and proof file (image thumbnail with lightbox, or
- * PDF/file download link).
- *
- * Returns null when no payments exist (guard in parent component ensures
- * this card only renders for won opportunities with payments).
+ * Shows: amount, program, payment type, commissionability, attribution,
+ * reference code, recorded timestamp, and proof file.
  */
 export function DealWonCard({ payments }: DealWonCardProps) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
@@ -104,9 +99,7 @@ export function DealWonCard({ payments }: DealWonCardProps) {
             <div key={payment._id}>
               {idx > 0 && <Separator className="mb-4" />}
 
-              {/* Payment details grid */}
               <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-                {/* Amount */}
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Amount Paid
@@ -116,18 +109,35 @@ export function DealWonCard({ payments }: DealWonCardProps) {
                   </dd>
                 </div>
 
-                {/* Provider */}
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Provider
+                    Program
                   </dt>
-                  <dd className="flex items-center gap-1.5 text-sm font-medium">
-                    <CreditCardIcon className="size-3.5 text-muted-foreground" />
-                    {payment.provider}
+                  <dd className="text-sm font-medium">
+                    {payment.programName ?? "Not set"}
                   </dd>
                 </div>
 
-                {/* Reference Code */}
+                <div>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Payment Type
+                  </dt>
+                  <dd className="text-sm font-medium">
+                    {formatPaymentTypeLabel(payment.paymentType)}
+                  </dd>
+                </div>
+
+                <div>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Revenue
+                  </dt>
+                  <dd className="text-sm font-medium">
+                    {payment.commissionable === false
+                      ? "Non-commissionable"
+                      : "Commissionable"}
+                  </dd>
+                </div>
+
                 {payment.referenceCode && (
                   <div>
                     <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -139,7 +149,6 @@ export function DealWonCard({ payments }: DealWonCardProps) {
                   </div>
                 )}
 
-                {/* Recorded At */}
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Recorded
@@ -150,20 +159,18 @@ export function DealWonCard({ payments }: DealWonCardProps) {
                   </dd>
                 </div>
 
-                {/* Recorded By */}
-                {payment.closerName && (
+                {payment.attributedCloserName && (
                   <div>
                     <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                      Recorded By
+                      Attributed To
                     </dt>
                     <dd className="flex items-center gap-1.5 text-sm font-medium">
                       <UserIcon className="size-3.5 text-muted-foreground" />
-                      {payment.closerName}
+                      {payment.attributedCloserName}
                     </dd>
                   </div>
                 )}
 
-                {/* Status */}
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Status
@@ -179,7 +186,18 @@ export function DealWonCard({ payments }: DealWonCardProps) {
                 </div>
               </dl>
 
-              {/* Proof File Display (I2) */}
+              {payment.origin === "admin_meeting" &&
+                payment.attributedCloserId &&
+                payment.recordedByUserId &&
+                payment.attributedCloserId !== payment.recordedByUserId && (
+                  <p className="mt-2 text-xs italic text-muted-foreground">
+                    Logged on behalf by{" "}
+                    <span className="font-medium">
+                      {payment.recordedByName ?? "an admin"}
+                    </span>
+                  </p>
+                )}
+
               {payment.proofFileUrl && (
                 <div className="mt-4">
                   <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -188,7 +206,6 @@ export function DealWonCard({ payments }: DealWonCardProps) {
                   <div className="flex items-center gap-3 rounded-lg border bg-background p-3">
                     {isImage ? (
                       <>
-                        {/* Image thumbnail with lightbox trigger */}
                         <button
                           type="button"
                           onClick={() => setLightboxUrl(payment.proofFileUrl)}
@@ -218,7 +235,6 @@ export function DealWonCard({ payments }: DealWonCardProps) {
                       </>
                     ) : (
                       <>
-                        {/* Non-image file (PDF, etc.) */}
                         <div className="flex size-16 shrink-0 items-center justify-center rounded-md border bg-muted">
                           <FileIcon className="size-6 text-muted-foreground" />
                         </div>
@@ -238,7 +254,6 @@ export function DealWonCard({ payments }: DealWonCardProps) {
                       </>
                     )}
 
-                    {/* Download / Open button */}
                     <Button variant="outline" size="sm" asChild>
                       <a
                         href={payment.proofFileUrl}
@@ -260,7 +275,6 @@ export function DealWonCard({ payments }: DealWonCardProps) {
           );
         })}
 
-        {/* Image Lightbox Dialog */}
         <Dialog
           open={lightboxUrl !== null}
           onOpenChange={(open) => {
@@ -283,8 +297,6 @@ export function DealWonCard({ payments }: DealWonCardProps) {
   );
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function isImageContentType(contentType: string | null): boolean {
   if (!contentType) return false;
   return contentType.startsWith("image/");
@@ -294,4 +306,19 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatPaymentTypeLabel(paymentType?: string | null): string {
+  switch (paymentType) {
+    case "monthly":
+      return "Monthly";
+    case "split":
+      return "Split";
+    case "pif":
+      return "Paid in Full";
+    case "deposit":
+      return "Deposit";
+    default:
+      return "Not set";
+  }
 }

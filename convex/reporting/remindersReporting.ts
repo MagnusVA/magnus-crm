@@ -1,14 +1,21 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
+import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   assertValidDateRange,
   getUserDisplayName,
+  splitPaymentsForRevenueReporting,
 } from "./lib/helpers";
 
 const MAX_FOLLOWUP_SCAN_ROWS = 2000;
 const MAX_REMINDER_REVENUE_SCAN_ROWS = 2000;
+const REMINDER_REVENUE_SCAN_PAGE_SIZE = 250;
+const REMINDER_PAYMENT_ORIGINS = [
+  "closer_reminder",
+  "admin_reminder",
+] as const;
 
 const COMPLETION_OUTCOMES = [
   "payment_received",
@@ -74,8 +81,10 @@ export const getReminderOutcomeFunnel = query({
   args: {
     startDate: v.number(),
     endDate: v.number(),
+    programId: v.optional(v.id("tenantPrograms")),
+    paymentType: v.optional(paymentTypeValidator),
   },
-  handler: async (ctx, { startDate, endDate }) => {
+  handler: async (ctx, { startDate, endDate, programId, paymentType }) => {
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -94,51 +103,80 @@ export const getReminderOutcomeFunnel = query({
         row.type === "manual_reminder",
     );
     const reminderRevenueRows: Array<Doc<"paymentRecords">> = [];
-    let reminderRevenueCursor: string | null = null;
     let isReminderRevenueTruncated = false;
 
-    while (reminderRevenueRows.length <= MAX_REMINDER_REVENUE_SCAN_ROWS) {
-      const page = await ctx.db
-        .query("paymentRecords")
-        .withIndex("by_tenantId_and_origin_and_recordedAt", (q) =>
-          q
-            .eq("tenantId", tenantId)
-            .eq("origin", "closer_reminder")
-            .gte("recordedAt", startDate)
-            .lt("recordedAt", endDate),
-        )
-        .paginate({
-          cursor: reminderRevenueCursor,
-          numItems: 250,
-        });
+    for (const origin of REMINDER_PAYMENT_ORIGINS) {
+      let cursor: string | null = null;
 
-      for (const payment of page.page) {
-        if (payment.status === "disputed") {
-          continue;
+      while (reminderRevenueRows.length <= MAX_REMINDER_REVENUE_SCAN_ROWS) {
+        const page = await ctx.db
+          .query("paymentRecords")
+          .withIndex("by_tenantId_and_origin_and_recordedAt", (q) =>
+            q
+              .eq("tenantId", tenantId)
+              .eq("origin", origin)
+              .gte("recordedAt", startDate)
+              .lt("recordedAt", endDate),
+          )
+          .paginate({
+            cursor,
+            numItems: REMINDER_REVENUE_SCAN_PAGE_SIZE,
+          });
+
+        for (const payment of page.page) {
+          if (payment.status === "disputed") {
+            continue;
+          }
+
+          reminderRevenueRows.push(payment);
+          if (reminderRevenueRows.length > MAX_REMINDER_REVENUE_SCAN_ROWS) {
+            isReminderRevenueTruncated = true;
+            break;
+          }
         }
 
-        reminderRevenueRows.push(payment);
-        if (reminderRevenueRows.length > MAX_REMINDER_REVENUE_SCAN_ROWS) {
-          isReminderRevenueTruncated = true;
+        if (isReminderRevenueTruncated || page.isDone) {
           break;
         }
+
+        cursor = page.continueCursor;
       }
 
-      if (isReminderRevenueTruncated || page.isDone) {
+      if (isReminderRevenueTruncated) {
         break;
       }
-
-      reminderRevenueCursor = page.continueCursor;
     }
 
     const reminderRevenue = reminderRevenueRows.slice(
       0,
       MAX_REMINDER_REVENUE_SCAN_ROWS,
     );
-    const reminderDrivenRevenueMinor = reminderRevenue.reduce(
-      (sum, payment) => sum + payment.amountMinor,
-      0,
+    const filteredReminderRevenue = reminderRevenue.filter(
+      (payment) =>
+        (!programId || payment.programId === programId) &&
+        (!paymentType ||
+          resolvePaymentType(payment.paymentType) === paymentType),
     );
+    const reminderRevenueSplit = splitPaymentsForRevenueReporting(
+      filteredReminderRevenue,
+    );
+
+    if (reminderRevenueSplit.nonCommissionable.allPayments.length > 0) {
+      console.warn(
+        "[Reporting:Reminders] Non-commissionable reminder payments detected",
+        {
+          tenantId,
+          count: reminderRevenueSplit.nonCommissionable.allPayments.length,
+        },
+      );
+    }
+
+    const reminderDrivenFinalRevenueMinor =
+      reminderRevenueSplit.commissionable.finalRevenueMinor;
+    const reminderDrivenDepositRevenueMinor =
+      reminderRevenueSplit.commissionable.depositRevenueMinor;
+    const reminderDrivenRevenueMinor =
+      reminderDrivenFinalRevenueMinor + reminderDrivenDepositRevenueMinor;
 
     const outcomeMix = emptyOutcomeMix();
     const perCloser = new Map<Id<"users">, PerCloserBucket>();
@@ -227,8 +265,10 @@ export const getReminderOutcomeFunnel = query({
         count: chainLengthHistogramCounts[bucket],
       })),
       opportunitiesWithReminderChains: chainByOpportunity.size,
+      reminderDrivenFinalRevenueMinor,
+      reminderDrivenDepositRevenueMinor,
       reminderDrivenRevenueMinor,
-      reminderDrivenPaymentCount: reminderRevenue.length,
+      reminderDrivenPaymentCount: filteredReminderRevenue.length,
       isReminderRevenueTruncated,
       isTruncated: rows.length >= MAX_FOLLOWUP_SCAN_ROWS,
     };

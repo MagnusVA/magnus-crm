@@ -1,5 +1,6 @@
 "use client";
 
+import type { Id } from "@/convex/_generated/dataModel";
 import {
   Select,
   SelectContent,
@@ -10,6 +11,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EVENT_LABELS } from "@/convex/reporting/lib/eventLabels";
+import { ReportProgramFilter } from "@/app/workspace/reports/_components/report-program-filter";
+import {
+  ReportPaymentTypeFilter,
+  type PaymentType,
+} from "@/app/workspace/reports/_components/report-payment-type-filter";
 
 const ENTITY_TYPE_OPTIONS = [
   { label: "All", value: "__all__" },
@@ -32,6 +38,8 @@ const EVENT_TYPE_OPTIONS = [
     .sort((left, right) => left.label.localeCompare(right.label)),
 ];
 
+const PAYMENT_RELATED_EVENT_PREFIXES = ["payment.", "customer.paid", "deal."];
+
 type EntityType =
   | "customer"
   | "followUp"
@@ -45,6 +53,8 @@ interface Filters {
   entityType?: EntityType;
   eventType?: string;
   actorUserId?: string;
+  programId?: Id<"tenantPrograms">;
+  paymentType?: PaymentType;
 }
 
 interface ActivityFeedFiltersProps {
@@ -57,12 +67,37 @@ interface ActivityFeedFiltersProps {
   }>;
 }
 
+function shouldShowPaymentFilters(filters: Filters): boolean {
+  // Always show when explicitly scoped to payment entities
+  if (filters.entityType === "payment") {
+    return true;
+  }
+  // If entity type is "All" (undefined) and no eventType filter, expose them so
+  // payment-bearing events can be narrowed.
+  if (!filters.entityType && !filters.eventType) {
+    return true;
+  }
+  // Allow when the event type is clearly payment-related.
+  if (
+    filters.eventType &&
+    PAYMENT_RELATED_EVENT_PREFIXES.some((prefix) =>
+      filters.eventType!.startsWith(prefix),
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export function ActivityFeedFilters({
   filters,
   onChange,
   actorBreakdown,
 }: ActivityFeedFiltersProps) {
+  const showPaymentFilters = shouldShowPaymentFilters(filters);
+
   return (
+    <div className="flex flex-col gap-1.5">
     <div className="flex flex-wrap items-center gap-3">
       {/* Entity Type filter */}
       <Select
@@ -73,6 +108,14 @@ export function ActivityFeedFilters({
             delete next.entityType;
           } else {
             next.entityType = value as EntityType;
+          }
+          // If switching away from payment-relevant filters, clear them
+          if (
+            !shouldShowPaymentFilters(next) &&
+            (next.programId || next.paymentType)
+          ) {
+            delete next.programId;
+            delete next.paymentType;
           }
           onChange(next);
         }}
@@ -101,6 +144,13 @@ export function ActivityFeedFilters({
             delete next.eventType;
           } else {
             next.eventType = value;
+          }
+          if (
+            !shouldShowPaymentFilters(next) &&
+            (next.programId || next.paymentType)
+          ) {
+            delete next.programId;
+            delete next.paymentType;
           }
           onChange(next);
         }}
@@ -148,6 +198,45 @@ export function ActivityFeedFilters({
           </SelectGroup>
         </SelectContent>
       </Select>
+
+      {/* Payment-scoped filters (program + payment type) — only rendered when
+          the current entity/event-type filter makes payment rows relevant. */}
+      {showPaymentFilters ? (
+        <>
+          <ReportProgramFilter
+            value={filters.programId}
+            onChange={(nextProgramId) => {
+              const next = { ...filters };
+              if (nextProgramId) {
+                next.programId = nextProgramId;
+              } else {
+                delete next.programId;
+              }
+              onChange(next);
+            }}
+          />
+          <ReportPaymentTypeFilter
+            value={filters.paymentType}
+            onChange={(nextPaymentType) => {
+              const next = { ...filters };
+              if (nextPaymentType) {
+                next.paymentType = nextPaymentType;
+              } else {
+                delete next.paymentType;
+              }
+              onChange(next);
+            }}
+          />
+        </>
+      ) : null}
+    </div>
+      {showPaymentFilters ? (
+        <p className="text-xs text-muted-foreground">
+          Program and Payment Type filters apply only to payment events
+          (payment.*, customer.paid, deal.*). Narrow to the Payment entity or
+          a payment event type above to see richer payment-specific columns.
+        </p>
+      ) : null}
     </div>
   );
 }

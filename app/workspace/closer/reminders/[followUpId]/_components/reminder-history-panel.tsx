@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { format } from "date-fns";
 import type { Doc } from "@/convex/_generated/dataModel";
 import {
@@ -136,6 +137,13 @@ function LatestMeetingRow({ meeting }: { meeting: Doc<"meetings"> }) {
 	);
 }
 
+const PAYMENT_TYPE_LABELS = {
+	pif: "PIF",
+	split: "Split",
+	monthly: "Monthly",
+	deposit: "Deposit",
+} as const;
+
 function PaymentRow({ payment }: { payment: Doc<"paymentRecords"> }) {
 	// `amountMinor` stores integer cents (Convex monetary convention).
 	// `.toFixed(2)` gives us the display decimal; we avoid `Intl.NumberFormat`
@@ -150,12 +158,49 @@ function PaymentRow({ payment }: { payment: Doc<"paymentRecords"> }) {
 		"MMM d",
 	);
 
-	return (
-		<li className="flex items-center justify-between text-sm tabular-nums">
-			<span className="text-muted-foreground">{date}</span>
-			<span className="font-medium">
-				{amount} {payment.currency.toUpperCase()}
+	const typeLabel =
+		PAYMENT_TYPE_LABELS[
+			payment.paymentType as keyof typeof PAYMENT_TYPE_LABELS
+		] ?? undefined;
+	const programName = payment.programName;
+	const isCommissionable = payment.commissionable !== false;
+
+	// Second-line context. Non-commissionable rows should not normally appear
+	// in a reminder panel (reminders are always commissionable per §5.4 of the
+	// design) — if one slips through, surface a muted "post-conversion" chip
+	// instead of crashing.
+	let contextLine: ReactNode = null;
+	if (!isCommissionable) {
+		contextLine = (
+			<span className="italic text-muted-foreground">post-conversion</span>
+		);
+	} else if (programName && typeLabel) {
+		contextLine = (
+			<span className="text-muted-foreground">
+				{programName} · {typeLabel}
 			</span>
+		);
+	} else if (typeLabel) {
+		contextLine = (
+			<span className="text-muted-foreground">{typeLabel}</span>
+		);
+	} else if (programName) {
+		contextLine = (
+			<span className="text-muted-foreground">{programName}</span>
+		);
+	}
+
+	return (
+		<li className="flex flex-col gap-0.5 text-sm tabular-nums">
+			<div className="flex items-center justify-between">
+				<span className="text-muted-foreground">{date}</span>
+				<span className="font-medium">
+					{amount} {payment.currency.toUpperCase()}
+				</span>
+			</div>
+			{contextLine && (
+				<div className="flex items-center text-xs">{contextLine}</div>
+			)}
 		</li>
 	);
 }

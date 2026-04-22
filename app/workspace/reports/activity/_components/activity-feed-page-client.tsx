@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "convex/react";
 import { startOfMonth, endOfMonth } from "date-fns";
 import { AlertTriangleIcon } from "lucide-react";
@@ -12,6 +12,7 @@ import {
   ReportDateControls,
   type DateRange,
 } from "@/app/workspace/reports/_components/report-date-controls";
+import type { PaymentType } from "@/app/workspace/reports/_components/report-payment-type-filter";
 import { ActivityFeedSkeleton } from "./activity-feed-skeleton";
 import { ActivitySummaryCards } from "./activity-summary-cards";
 import { ActivityFeedFilters } from "./activity-feed-filters";
@@ -30,6 +31,8 @@ interface Filters {
   entityType?: EntityType;
   eventType?: string;
   actorUserId?: string;
+  programId?: Id<"tenantPrograms">;
+  paymentType?: PaymentType;
 }
 
 export function ActivityFeedPageClient() {
@@ -42,11 +45,26 @@ export function ActivityFeedPageClient() {
   });
   const [filters, setFilters] = useState<Filters>({});
   const [limit, setLimit] = useState(50);
-
-  // Reset limit when filters or date range change
-  useEffect(() => {
-    setLimit(50);
-  }, [dateRange.startDate, dateRange.endDate, filters.entityType, filters.eventType, filters.actorUserId]);
+  // Reset limit when filters or date range change by deriving state during
+  // render. Storing the previous key in `useState` is the canonical pattern
+  // per https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  // — it avoids both cascading effects and direct ref mutation during render.
+  const resetKey = [
+    dateRange.startDate,
+    dateRange.endDate,
+    filters.entityType ?? "",
+    filters.eventType ?? "",
+    filters.actorUserId ?? "",
+    filters.programId ?? "",
+    filters.paymentType ?? "",
+  ].join("|");
+  const [previousResetKey, setPreviousResetKey] = useState(resetKey);
+  if (previousResetKey !== resetKey) {
+    setPreviousResetKey(resetKey);
+    if (limit !== 50) {
+      setLimit(50);
+    }
+  }
 
   const summary = useQuery(api.reporting.activityFeed.getActivitySummary, dateRange);
 
@@ -59,6 +77,8 @@ export function ActivityFeedPageClient() {
     ...(filters.actorUserId
       ? { actorUserId: filters.actorUserId as Id<"users"> }
       : {}),
+    ...(filters.programId ? { programId: filters.programId } : {}),
+    ...(filters.paymentType ? { paymentType: filters.paymentType } : {}),
   };
   const feed = useQuery(api.reporting.activityFeed.getActivityFeed, feedArgs);
 

@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import { paymentOriginValidator, paymentTypeValidator } from "./lib/paymentTypes";
 import { utmParamsValidator } from "./lib/utmParams";
 
 export default defineSchema({
@@ -622,6 +623,24 @@ export default defineSchema({
       ["tenantId", "calendlyEventTypeUri"],
     ),
 
+  tenantPrograms: defineTable({
+    tenantId: v.id("tenants"),
+    name: v.string(),
+    normalizedName: v.string(),
+    description: v.optional(v.string()),
+    defaultCurrency: v.optional(v.string()),
+    archivedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    createdByUserId: v.id("users"),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_tenantId_and_archivedAt", ["tenantId", "archivedAt"])
+    .index("by_tenantId_and_normalizedName", [
+      "tenantId",
+      "normalizedName",
+    ]),
+
   // === Feature D: Lead-to-Customer Conversion ===
   customers: defineTable({
     tenantId: v.id("tenants"),
@@ -641,7 +660,8 @@ export default defineSchema({
     convertedByUserId: v.id("users"),
     winningOpportunityId: v.id("opportunities"),
     winningMeetingId: v.optional(v.id("meetings")),
-    programType: v.optional(v.string()),
+    programId: v.id("tenantPrograms"),
+    programName: v.string(),
     notes: v.optional(v.string()),
     status: v.union(
       v.literal("active"),
@@ -659,6 +679,7 @@ export default defineSchema({
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
     .index("by_tenantId_and_status", ["tenantId", "status"])
     .index("by_tenantId_and_convertedAt", ["tenantId", "convertedAt"])
+    .index("by_tenantId_and_programId", ["tenantId", "programId"])
     .index("by_tenantId_and_convertedByUserId", [
       "tenantId",
       "convertedByUserId",
@@ -674,12 +695,20 @@ export default defineSchema({
     tenantId: v.id("tenants"),
     opportunityId: v.optional(v.id("opportunities")),
     meetingId: v.optional(v.id("meetings")),
-    closerId: v.id("users"),
+    attributedCloserId: v.optional(v.id("users")),
     amountMinor: v.number(),
     currency: v.string(),
-    provider: v.string(),
+    recordedByUserId: v.id("users"),
+    commissionable: v.boolean(),
+    programId: v.id("tenantPrograms"),
+    programName: v.string(),
+    paymentType: paymentTypeValidator,
     referenceCode: v.optional(v.string()),
     proofFileId: v.optional(v.id("_storage")),
+    // Optional free-form note captured by the admin at the time of logging.
+    // Used for audit context on post-conversion payments
+    // (e.g. "re-enrollment after 6-month gap", "partial chargeback resolved").
+    note: v.optional(v.string()),
     status: v.union(
       v.literal("recorded"),
       v.literal("verified"),
@@ -688,27 +717,23 @@ export default defineSchema({
     verifiedAt: v.optional(v.number()),
     verifiedByUserId: v.optional(v.id("users")),
     statusChangedAt: v.optional(v.number()),
+    // `recordedAt` is the effective "paid at" timestamp used by all reporting
+    // queries. For admin-logged post-conversion payments this may be
+    // back-dated via the `paidAt` argument on `recordCustomerPayment`.
     recordedAt: v.number(),
     // === Feature D: Customer Linkage ===
     customerId: v.optional(v.id("customers")),
+    originatingOpportunityId: v.optional(v.id("opportunities")),
     contextType: v.union(
       v.literal("opportunity"),
       v.literal("customer"),
     ),
-    origin: v.optional(
-      v.union(
-        v.literal("closer_meeting"),
-        v.literal("closer_reminder"),
-        v.literal("admin_meeting"),
-        v.literal("customer_flow"),
-      ),
-    ),
-    loggedByAdminUserId: v.optional(v.id("users")),
+    origin: paymentOriginValidator,
     // === End Feature D ===
   })
     .index("by_opportunityId", ["opportunityId"])
+    .index("by_originatingOpportunityId", ["originatingOpportunityId"])
     .index("by_tenantId", ["tenantId"])
-    .index("by_tenantId_and_closerId", ["tenantId", "closerId"])
     .index("by_customerId", ["customerId"])
     .index("by_tenantId_and_recordedAt", ["tenantId", "recordedAt"])
     .index("by_tenantId_and_status_and_recordedAt", [
@@ -717,14 +742,29 @@ export default defineSchema({
       "recordedAt",
     ])
     .index("by_customerId_and_recordedAt", ["customerId", "recordedAt"])
-    .index("by_tenantId_and_closerId_and_recordedAt", [
+    .index("by_tenantId_and_attributedCloserId_and_recordedAt", [
       "tenantId",
-      "closerId",
+      "attributedCloserId",
+      "recordedAt",
+    ])
+    .index("by_tenantId_and_commissionable_and_recordedAt", [
+      "tenantId",
+      "commissionable",
       "recordedAt",
     ])
     .index("by_tenantId_and_origin_and_recordedAt", [
       "tenantId",
       "origin",
+      "recordedAt",
+    ])
+    .index("by_tenantId_and_programId_and_recordedAt", [
+      "tenantId",
+      "programId",
+      "recordedAt",
+    ])
+    .index("by_tenantId_and_paymentType_and_recordedAt", [
+      "tenantId",
+      "paymentType",
       "recordedAt",
     ]),
 
@@ -870,6 +910,10 @@ export default defineSchema({
     wonDeals: v.number(),
     lostDeals: v.number(),
     totalRevenueMinor: v.number(),
+    totalCommissionableFinalRevenueMinor: v.optional(v.number()),
+    totalCommissionableDepositRevenueMinor: v.optional(v.number()),
+    totalNonCommissionableFinalRevenueMinor: v.optional(v.number()),
+    totalNonCommissionableDepositRevenueMinor: v.optional(v.number()),
     totalPaymentRecords: v.number(),
     totalLeads: v.number(),
     totalCustomers: v.number(),

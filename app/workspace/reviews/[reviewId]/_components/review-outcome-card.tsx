@@ -53,7 +53,23 @@ type ActiveFollowUp = {
   reminderScheduledAt?: number;
 };
 
-type PaymentRecord = Doc<"paymentRecords">;
+type PaymentRecord = {
+  _id: Id<"paymentRecords">;
+  amountMinor: number;
+  currency: string;
+  status: Doc<"paymentRecords">["status"];
+  recordedAt: number;
+  referenceCode?: string;
+  proofFileId?: Id<"_storage">;
+  programName?: string | null;
+  paymentType?: string | null;
+  commissionable?: boolean;
+  origin?: Doc<"paymentRecords">["origin"];
+  attributedCloserId?: Id<"users"> | null;
+  attributedCloserName?: string | null;
+  recordedByUserId?: Id<"users">;
+  recordedByName?: string | null;
+};
 
 type ReviewOutcomeCardProps = {
   opportunity: Doc<"opportunities">;
@@ -84,6 +100,21 @@ function formatAmount(amountMinor: number, currency: string): string {
 
 function formatDateTime(ts: number): string {
   return format(new Date(ts), "MMM d, yyyy 'at' h:mm a");
+}
+
+function formatPaymentTypeLabel(paymentType?: string | null): string {
+  switch (paymentType) {
+    case "monthly":
+      return "Monthly";
+    case "split":
+      return "Split";
+    case "pif":
+      return "Paid in Full";
+    case "deposit":
+      return "Deposit";
+    default:
+      return "Not set";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -269,7 +300,10 @@ function PaymentSection({
   return (
     <div className="space-y-3">
       <div className="text-muted-foreground">
-        Logged by <span className="font-medium text-foreground">{closerName}</span>
+        Attributed to{" "}
+        <span className="font-medium text-foreground">
+          {paymentRecords[0]?.attributedCloserName ?? closerName}
+        </span>
       </div>
       <ul className="space-y-2">
         {paymentRecords.map((p) => (
@@ -299,10 +333,43 @@ function PaymentSection({
               </Badge>
             </div>
             <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              {p.programName && (
+                <div>
+                  <span>Program:</span>{" "}
+                  <span className="text-foreground">{p.programName}</span>
+                </div>
+              )}
               <div>
-                <span>Provider:</span>{" "}
-                <span className="text-foreground">{p.provider}</span>
+                <span>Payment type:</span>{" "}
+                <span className="text-foreground">
+                  {formatPaymentTypeLabel(p.paymentType)}
+                </span>
               </div>
+              <div>
+                <span>Revenue:</span>{" "}
+                <span className="text-foreground">
+                  {p.commissionable === false
+                    ? "Non-commissionable"
+                    : "Commissionable"}
+                </span>
+              </div>
+              {p.attributedCloserName && (
+                <div>
+                  <span>Attributed to:</span>{" "}
+                  <span className="text-foreground">{p.attributedCloserName}</span>
+                </div>
+              )}
+              {p.origin === "admin_review_resolution" &&
+                p.attributedCloserId &&
+                p.recordedByUserId &&
+                p.attributedCloserId !== p.recordedByUserId && (
+                  <div className="col-span-2 italic">
+                    Logged on behalf by{" "}
+                    <span className="text-foreground">
+                      {p.recordedByName ?? "an admin"}
+                    </span>
+                  </div>
+                )}
               {p.referenceCode && (
                 <div>
                   <span>Reference:</span>{" "}

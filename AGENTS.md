@@ -113,18 +113,24 @@ This section documents the **established, stable patterns** across auth, RBAC, R
 
 ## Authentication (WorkOS AuthKit)
 
-**Stack**: WorkOS AuthKit (OAuth/PKCE) → JWT → Convex token validation
+**Stack**
+
+```mermaid
+flowchart LR
+  authkit["WorkOS AuthKit<br/>(OAuth/PKCE)"] --> jwt["JWT"]
+  jwt --> convex["Convex token validation"]
+```
 
 ### Frontend auth chain (`app/ConvexClientProvider.tsx`)
 
-```
-<AuthKitProvider>                          // WorkOS session management
-  <ConvexProviderWithAuth useAuth={…}>     // Bridges WorkOS token → Convex
-    <CalendlyConnectionGuard>              // App-root Calendly status banner
-      {children}
-    </CalendlyConnectionGuard>
-  </ConvexProviderWithAuth>
-</AuthKitProvider>
+```mermaid
+flowchart TD
+  auth["AuthKitProvider<br/>WorkOS session management"]
+  convex["ConvexProviderWithAuth<br/>Bridges WorkOS token to Convex"]
+  guard["CalendlyConnectionGuard<br/>App-root Calendly status banner"]
+  children["children"]
+
+  auth --> convex --> guard --> children
 ```
 
 - `useAuthFromAuthKit()` bridges the WorkOS `useAuth()` / `useAccessToken()` hooks into Convex's `{ isLoading, isAuthenticated, fetchAccessToken }` contract.
@@ -277,43 +283,32 @@ export default function WorkspaceLayout({ children }) {
 
 ### Provider nesting order
 
-```
-<html>
-  <body>
-    <Suspense>
-      <ConvexClientProvider>
-        <AuthKitProvider>
-          <ConvexProviderWithAuth>
-            <CalendlyConnectionGuard>
-              <ThemeProvider>
-                <TooltipProvider>
-                  <Toaster />
-                  {children}
-                </TooltipProvider>
-              </ThemeProvider>
-            </CalendlyConnectionGuard>
-          </ConvexProviderWithAuth>
-        </AuthKitProvider>
-      </ConvexClientProvider>
-    </Suspense>
-  </body>
-</html>
+```mermaid
+flowchart TD
+  html["html"] --> body["body"]
+  body --> suspense["Suspense"]
+  suspense --> convexClient["ConvexClientProvider"]
+  convexClient --> auth["AuthKitProvider"]
+  auth --> convexAuth["ConvexProviderWithAuth"]
+  convexAuth --> calendly["CalendlyConnectionGuard"]
+  calendly --> theme["ThemeProvider"]
+  theme --> tooltip["TooltipProvider"]
+  tooltip --> toaster["Toaster"]
+  tooltip --> children["children"]
 ```
 
 Inside workspace:
 
-```
-<WorkspaceShellFrame>        ← SidebarProvider (above Suspense for state preservation)
-  <Suspense>
-    <WorkspaceAuth>
-      <WorkspaceShellClient>
-        <RoleProvider>       ← Role context for UI permission checks
-          {children}
-        </RoleProvider>
-      </WorkspaceShellClient>
-    </WorkspaceAuth>
-  </Suspense>
-</WorkspaceShellFrame>
+```mermaid
+flowchart TD
+  shell["WorkspaceShellFrame<br/>SidebarProvider above Suspense"]
+  suspense["Suspense"]
+  auth["WorkspaceAuth"]
+  client["WorkspaceShellClient"]
+  role["RoleProvider<br/>UI permission checks only"]
+  children["children"]
+
+  shell --> suspense --> auth --> client --> role --> children
 ```
 
 ---
@@ -468,8 +463,17 @@ export const getOpportunities = query({
 
 ### Webhook processing pattern
 
-```
-HTTP handler → signature verification → store raw event → schedule async processing
+```mermaid
+flowchart LR
+  http["HTTP handler"]
+  verify["Signature verification"]
+  store["Store raw event"]
+  schedule["Schedule async processing"]
+  route["Route by eventType"]
+  mutate["Validate transition and update records"]
+  processed["Mark event processed"]
+
+  http --> verify --> store --> schedule --> route --> mutate --> processed
 ```
 
 1. `convex/webhooks/calendly.ts` — HMAC-SHA256 signature verification (timing-safe)

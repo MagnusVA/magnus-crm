@@ -20,8 +20,10 @@ type MeetingBlockProps = {
 /**
  * A single meeting block rendered inside the calendar grid.
  *
- * Positioned absolutely by the parent view — the `style` prop supplies `top`
- * and `height` calculated from the meeting time.  A coloured left‑border
+ * Positioned absolutely by the parent view — the `style` prop supplies
+ * vertical placement (`top` / `height` from the meeting's time and duration)
+ * and horizontal placement (`left` / `width` from the overlap-column layout;
+ * see `layoutMeetings` + `getBlockHorizontalStyle`). A coloured left‑border
  * communicates status at a glance.
  *
  * Clicking navigates to the meeting detail page (Phase 6).
@@ -51,7 +53,7 @@ export function MeetingBlock({
     <Link
       href={`/workspace/closer/meetings/${meetingId}`}
       className={cn(
-        "absolute inset-x-1 overflow-hidden rounded-md border-l-[3px] px-2 py-1 text-xs transition-opacity hover:opacity-80",
+        "absolute overflow-hidden rounded-md border-l-[3px] px-2 py-1 text-xs transition-opacity hover:opacity-80",
         config.blockClass,
         className,
       )}

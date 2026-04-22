@@ -1,11 +1,31 @@
 import type { Value } from "convex/values";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
+import {
+  COMMISSIONABLE_ORIGINS,
+  resolveLegacyCompatibleAttributedCloserId,
+  resolveLegacyCompatiblePaymentCommissionable,
+  resolvePaymentType,
+} from "../../lib/paymentTypes";
 
 const MAX_PAYMENT_SCAN_ROWS = 2500;
 
 export type AttributedPayment = Doc<"paymentRecords"> & {
   effectiveCloserId: Id<"users"> | null;
+};
+
+export type RevenueBucket = {
+  allPayments: Array<AttributedPayment>;
+  finalPayments: Array<AttributedPayment>;
+  depositPayments: Array<AttributedPayment>;
+  finalRevenueMinor: number;
+  depositRevenueMinor: number;
+};
+
+export type RevenueSplit = {
+  filteredPayments: Array<AttributedPayment>;
+  commissionable: RevenueBucket;
+  nonCommissionable: RevenueBucket;
 };
 
 export function getUserDisplayName(
@@ -17,9 +37,6 @@ export function getUserDisplayName(
     : (user?.email ?? "Unknown");
 }
 
-/**
- * Fetch all active closers for a tenant, sorted for deterministic report rows.
- */
 export async function getActiveClosers(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
@@ -55,9 +72,6 @@ export function assertValidDateRange(startDate: number, endDate: number) {
   }
 }
 
-/**
- * Create aggregate-compatible bounds for scalar time keys.
- */
 export function makeDateBounds(startDate: number, endDate: number) {
   assertValidDateRange(startDate, endDate);
   return {
@@ -66,9 +80,6 @@ export function makeDateBounds(startDate: number, endDate: number) {
   };
 }
 
-/**
- * Create aggregate-compatible bounds for tuple keys that end in a timestamp.
- */
 export function makeTupleDateBounds<TPrefix extends readonly Value[]>(
   prefix: TPrefix,
   startDate: number,
@@ -87,75 +98,75 @@ export function makeTupleDateBounds<TPrefix extends readonly Value[]>(
   };
 }
 
-/**
- * Payment rows are currently keyed by the recording user, which can be an admin.
- * For closer reports, attribute payments to the opportunity/customer owner instead.
- */
+function getEffectiveCloserId(
+  payment: Doc<"paymentRecords">,
+): Id<"users"> | null {
+  return resolveLegacyCompatibleAttributedCloserId(payment) ?? null;
+}
+
+function isCommissionablePayment(payment: Doc<"paymentRecords">): boolean {
+  return resolveLegacyCompatiblePaymentCommissionable(payment);
+}
+
+function emptyRevenueBucket(): RevenueBucket {
+  return {
+    allPayments: [],
+    finalPayments: [],
+    depositPayments: [],
+    finalRevenueMinor: 0,
+    depositRevenueMinor: 0,
+  };
+}
+
 export async function attributePaymentsToClosers(
-  ctx: QueryCtx,
+  _ctx: QueryCtx,
   payments: Array<Doc<"paymentRecords">>,
 ): Promise<Array<AttributedPayment>> {
-  if (payments.length === 0) {
-    return [];
+  return payments.map((payment) => ({
+    ...payment,
+    effectiveCloserId: getEffectiveCloserId(payment),
+  }));
+}
+
+export function splitPaymentsForRevenueReporting(
+  payments: Array<Doc<"paymentRecords"> | AttributedPayment>,
+): RevenueSplit {
+  const attributedPayments = payments.map((payment) => ({
+    ...payment,
+    effectiveCloserId:
+      "effectiveCloserId" in payment
+        ? payment.effectiveCloserId
+        : getEffectiveCloserId(payment),
+  }));
+
+  const split: RevenueSplit = {
+    filteredPayments: [],
+    commissionable: emptyRevenueBucket(),
+    nonCommissionable: emptyRevenueBucket(),
+  };
+
+  for (const payment of attributedPayments) {
+    if (payment.status === "disputed") {
+      continue;
+    }
+
+    split.filteredPayments.push(payment);
+    const bucket = isCommissionablePayment(payment)
+      ? split.commissionable
+      : split.nonCommissionable;
+    bucket.allPayments.push(payment);
+
+    const paymentType = resolvePaymentType(payment.paymentType);
+    if (paymentType === "deposit") {
+      bucket.depositPayments.push(payment);
+      bucket.depositRevenueMinor += payment.amountMinor;
+    } else {
+      bucket.finalPayments.push(payment);
+      bucket.finalRevenueMinor += payment.amountMinor;
+    }
   }
 
-  const opportunityIds = [
-    ...new Set(
-      payments
-        .map((payment) => payment.opportunityId)
-        .filter((opportunityId): opportunityId is Id<"opportunities"> =>
-          opportunityId !== undefined,
-        ),
-    ),
-  ];
-  const customerIds = [
-    ...new Set(
-      payments
-        .map((payment) => payment.customerId)
-        .filter((customerId): customerId is Id<"customers"> => customerId !== undefined),
-    ),
-  ];
-
-  const [opportunities, customers] = await Promise.all([
-    Promise.all(
-      opportunityIds.map(async (opportunityId) => [
-        opportunityId,
-        await ctx.db.get(opportunityId),
-      ] as const),
-    ),
-    Promise.all(
-      customerIds.map(async (customerId) => [
-        customerId,
-        await ctx.db.get(customerId),
-      ] as const),
-    ),
-  ]);
-
-  const opportunityById = new Map<
-    Id<"opportunities">,
-    Doc<"opportunities"> | null
-  >(opportunities);
-  const customerById = new Map<Id<"customers">, Doc<"customers"> | null>(
-    customers,
-  );
-
-  return payments.map((payment) => {
-    if (payment.contextType === "opportunity" && payment.opportunityId) {
-      const effectiveCloserId =
-        opportunityById.get(payment.opportunityId)?.assignedCloserId ??
-        payment.closerId;
-      return { ...payment, effectiveCloserId: effectiveCloserId ?? null };
-    }
-
-    if (payment.contextType === "customer" && payment.customerId) {
-      const effectiveCloserId =
-        customerById.get(payment.customerId)?.convertedByUserId ??
-        payment.closerId;
-      return { ...payment, effectiveCloserId: effectiveCloserId ?? null };
-    }
-
-    return { ...payment, effectiveCloserId: payment.closerId ?? null };
-  });
+  return split;
 }
 
 export async function getNonDisputedPaymentsInRange(
@@ -221,3 +232,5 @@ export function summarizeAttributedPayments(
     totalRevenueMinor,
   };
 }
+
+export { COMMISSIONABLE_ORIGINS };

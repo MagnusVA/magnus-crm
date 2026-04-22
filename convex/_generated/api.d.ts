@@ -73,6 +73,7 @@ import type * as lib_outcomeHelpers from "../lib/outcomeHelpers.js";
 import type * as lib_overranReviewGuards from "../lib/overranReviewGuards.js";
 import type * as lib_payloadExtraction from "../lib/payloadExtraction.js";
 import type * as lib_paymentHelpers from "../lib/paymentHelpers.js";
+import type * as lib_paymentTypes from "../lib/paymentTypes.js";
 import type * as lib_permissions from "../lib/permissions.js";
 import type * as lib_roleMapping from "../lib/roleMapping.js";
 import type * as lib_statusTransitions from "../lib/statusTransitions.js";
@@ -86,6 +87,7 @@ import type * as lib_utmParams from "../lib/utmParams.js";
 import type * as lib_validation from "../lib/validation.js";
 import type * as lib_workosUserId from "../lib/workosUserId.js";
 import type * as meetings_maintenance from "../meetings/maintenance.js";
+import type * as migrations from "../migrations.js";
 import type * as onboarding_complete from "../onboarding/complete.js";
 import type * as onboarding_invite from "../onboarding/invite.js";
 import type * as opportunities_maintenance from "../opportunities/maintenance.js";
@@ -96,6 +98,7 @@ import type * as pipeline_inviteeNoShow from "../pipeline/inviteeNoShow.js";
 import type * as pipeline_mutations from "../pipeline/mutations.js";
 import type * as pipeline_processor from "../pipeline/processor.js";
 import type * as pipeline_queries from "../pipeline/queries.js";
+import type * as pipeline_reminderDetail from "../pipeline/reminderDetail.js";
 import type * as reporting_activityFeed from "../reporting/activityFeed.js";
 import type * as reporting_aggregates from "../reporting/aggregates.js";
 import type * as reporting_backfill from "../reporting/backfill.js";
@@ -120,6 +123,11 @@ import type * as requireSystemAdmin from "../requireSystemAdmin.js";
 import type * as requireTenantUser from "../requireTenantUser.js";
 import type * as reviews_mutations from "../reviews/mutations.js";
 import type * as reviews_queries from "../reviews/queries.js";
+import type * as tenantPrograms_mutations from "../tenantPrograms/mutations.js";
+import type * as tenantPrograms_queries from "../tenantPrograms/queries.js";
+import type * as tenantPrograms_seed from "../tenantPrograms/seed.js";
+import type * as tenantPrograms_shared from "../tenantPrograms/shared.js";
+import type * as tenantPrograms_sync from "../tenantPrograms/sync.js";
 import type * as tenants from "../tenants.js";
 import type * as testing_calendly from "../testing/calendly.js";
 import type * as testing_operationalData from "../testing/operationalData.js";
@@ -212,6 +220,7 @@ declare const fullApi: ApiFromModules<{
   "lib/overranReviewGuards": typeof lib_overranReviewGuards;
   "lib/payloadExtraction": typeof lib_payloadExtraction;
   "lib/paymentHelpers": typeof lib_paymentHelpers;
+  "lib/paymentTypes": typeof lib_paymentTypes;
   "lib/permissions": typeof lib_permissions;
   "lib/roleMapping": typeof lib_roleMapping;
   "lib/statusTransitions": typeof lib_statusTransitions;
@@ -225,6 +234,7 @@ declare const fullApi: ApiFromModules<{
   "lib/validation": typeof lib_validation;
   "lib/workosUserId": typeof lib_workosUserId;
   "meetings/maintenance": typeof meetings_maintenance;
+  migrations: typeof migrations;
   "onboarding/complete": typeof onboarding_complete;
   "onboarding/invite": typeof onboarding_invite;
   "opportunities/maintenance": typeof opportunities_maintenance;
@@ -235,6 +245,7 @@ declare const fullApi: ApiFromModules<{
   "pipeline/mutations": typeof pipeline_mutations;
   "pipeline/processor": typeof pipeline_processor;
   "pipeline/queries": typeof pipeline_queries;
+  "pipeline/reminderDetail": typeof pipeline_reminderDetail;
   "reporting/activityFeed": typeof reporting_activityFeed;
   "reporting/aggregates": typeof reporting_aggregates;
   "reporting/backfill": typeof reporting_backfill;
@@ -259,6 +270,11 @@ declare const fullApi: ApiFromModules<{
   requireTenantUser: typeof requireTenantUser;
   "reviews/mutations": typeof reviews_mutations;
   "reviews/queries": typeof reviews_queries;
+  "tenantPrograms/mutations": typeof tenantPrograms_mutations;
+  "tenantPrograms/queries": typeof tenantPrograms_queries;
+  "tenantPrograms/seed": typeof tenantPrograms_seed;
+  "tenantPrograms/shared": typeof tenantPrograms_shared;
+  "tenantPrograms/sync": typeof tenantPrograms_sync;
   tenants: typeof tenants;
   "testing/calendly": typeof testing_calendly;
   "testing/operationalData": typeof testing_operationalData;
@@ -341,6 +357,93 @@ export declare const components: {
           profilePictureUrl?: null | string;
           updatedAt: string;
         } | null
+      >;
+    };
+  };
+  migrations: {
+    lib: {
+      cancel: FunctionReference<
+        "mutation",
+        "internal",
+        { name: string },
+        {
+          batchSize?: number;
+          cursor?: string | null;
+          error?: string;
+          isDone: boolean;
+          latestEnd?: number;
+          latestStart: number;
+          name: string;
+          next?: Array<string>;
+          processed: number;
+          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
+        }
+      >;
+      cancelAll: FunctionReference<
+        "mutation",
+        "internal",
+        { sinceTs?: number },
+        Array<{
+          batchSize?: number;
+          cursor?: string | null;
+          error?: string;
+          isDone: boolean;
+          latestEnd?: number;
+          latestStart: number;
+          name: string;
+          next?: Array<string>;
+          processed: number;
+          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
+        }>
+      >;
+      clearAll: FunctionReference<
+        "mutation",
+        "internal",
+        { before?: number },
+        null
+      >;
+      getStatus: FunctionReference<
+        "query",
+        "internal",
+        { limit?: number; names?: Array<string> },
+        Array<{
+          batchSize?: number;
+          cursor?: string | null;
+          error?: string;
+          isDone: boolean;
+          latestEnd?: number;
+          latestStart: number;
+          name: string;
+          next?: Array<string>;
+          processed: number;
+          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
+        }>
+      >;
+      migrate: FunctionReference<
+        "mutation",
+        "internal",
+        {
+          batchSize?: number;
+          cursor?: string | null;
+          dryRun: boolean;
+          fnHandle: string;
+          name: string;
+          next?: Array<{ fnHandle: string; name: string }>;
+          oneBatchOnly?: boolean;
+          reset?: boolean;
+        },
+        {
+          batchSize?: number;
+          cursor?: string | null;
+          error?: string;
+          isDone: boolean;
+          latestEnd?: number;
+          latestStart: number;
+          name: string;
+          next?: Array<string>;
+          processed: number;
+          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
+        }
       >;
     };
   };

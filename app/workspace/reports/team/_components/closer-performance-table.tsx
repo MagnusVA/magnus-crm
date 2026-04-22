@@ -9,6 +9,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { InfoIcon } from "lucide-react";
 import type { CallMetrics, CloserData, TeamTotals } from "./team-report-types";
 import {
   formatCompactCurrency,
@@ -98,7 +104,26 @@ export function CloserPerformanceTable({
             Sales
           </TableHead>
           <TableHead className="text-right">Cash Collected</TableHead>
-          <TableHead className="text-right">Admin-Logged</TableHead>
+          <TableHead className="text-right">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex items-center gap-1">
+                  Admin On Behalf
+                  <InfoIcon
+                    aria-hidden
+                    className="size-3 text-muted-foreground"
+                  />
+                  <span className="sr-only">
+                    What does Admin On Behalf mean?
+                  </span>
+                </span>
+              </TooltipTrigger>
+              <TooltipContent>
+                Payments logged by an admin on behalf of this closer (still
+                attributed to the closer for commission).
+              </TooltipContent>
+            </Tooltip>
+          </TableHead>
           <TableHead className="text-right">Close Rate</TableHead>
           <TableHead className="text-right">Avg Deal</TableHead>
         </TableRow>
