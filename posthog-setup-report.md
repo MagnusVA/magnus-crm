@@ -12,6 +12,27 @@ The wizard has completed a deep integration of PostHog into MAGNUS CRM. The foll
 - `next.config.ts` — added `/ingest` reverse-proxy rewrites and `skipTrailingSlashRedirect: true`
 - 8 client component files — `posthog.capture()` calls added to key user actions; `posthog.captureException()` added to every error catch block
 
+## Source maps
+
+Source map upload for PostHog Error Tracking is now wired into the Next.js build via `@posthog/nextjs-config`.
+
+- `package.json` — includes `@posthog/nextjs-config`
+- `next.config.ts` — wraps the existing config in `withPostHogConfig(...)`
+- Production builds upload source maps automatically when the required build credentials are present
+- Uploaded source maps are deleted from the build output after upload
+
+### Required environment variables
+
+- `POSTHOG_API_KEY` — preferred name for the PostHog personal API key used during build
+- `POSTHOG_PERSONAL_API_KEY` — supported fallback name for the same credential
+- `POSTHOG_PROJECT_ID` — PostHog project ID
+- `NEXT_PUBLIC_POSTHOG_HOST` — PostHog ingest host (already used by the runtime integration)
+
+### Notes
+
+- If `POSTHOG_API_KEY`/`POSTHOG_PERSONAL_API_KEY` and `POSTHOG_PROJECT_ID` are missing, the app still builds, but source map upload is disabled and Next.js build logs will warn about it.
+- Verification is done against `.next/**/*.js.map` for Next.js, not a generic `dist/` directory.
+
 | Event | Description | File |
 |---|---|---|
 | `meeting_started` | Closer clicked Start Meeting and Zoom link was opened | `app/workspace/closer/meetings/_components/outcome-action-bar.tsx` |

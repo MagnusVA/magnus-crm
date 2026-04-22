@@ -1,4 +1,21 @@
+import { withPostHogConfig } from "@posthog/nextjs-config";
 import type { NextConfig } from "next";
+
+const posthogPersonalApiKey =
+	process.env.POSTHOG_API_KEY ??
+	process.env.POSTHOG_PERSONAL_API_KEY ??
+	"";
+const posthogProjectId = process.env.POSTHOG_PROJECT_ID;
+const posthogSourcemapsEnabled =
+	process.env.NODE_ENV === "production" &&
+	Boolean(posthogPersonalApiKey) &&
+	Boolean(posthogProjectId);
+
+if (process.env.NODE_ENV === "production" && !posthogSourcemapsEnabled) {
+	console.warn(
+		"[PostHog] Source map upload disabled. Set POSTHOG_API_KEY (or POSTHOG_PERSONAL_API_KEY) and POSTHOG_PROJECT_ID to enable it.",
+	);
+}
 
 const nextConfig: NextConfig = {
 	cacheComponents: true,
@@ -30,4 +47,12 @@ const nextConfig: NextConfig = {
 	skipTrailingSlashRedirect: true,
 };
 
-export default nextConfig;
+export default withPostHogConfig(nextConfig, {
+	personalApiKey: posthogPersonalApiKey,
+	projectId: posthogProjectId,
+	host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
+	sourcemaps: {
+		enabled: posthogSourcemapsEnabled,
+		deleteAfterUpload: true,
+	},
+});
