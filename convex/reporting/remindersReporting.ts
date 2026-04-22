@@ -11,7 +11,6 @@ import {
 
 const MAX_FOLLOWUP_SCAN_ROWS = 2000;
 const MAX_REMINDER_REVENUE_SCAN_ROWS = 2000;
-const REMINDER_REVENUE_SCAN_PAGE_SIZE = 250;
 const REMINDER_PAYMENT_ORIGINS = [
   "closer_reminder",
   "admin_reminder",
@@ -105,45 +104,27 @@ export const getReminderOutcomeFunnel = query({
     const reminderRevenueRows: Array<Doc<"paymentRecords">> = [];
     let isReminderRevenueTruncated = false;
 
-    for (const origin of REMINDER_PAYMENT_ORIGINS) {
-      let cursor: string | null = null;
+    outer: for (const origin of REMINDER_PAYMENT_ORIGINS) {
+      const payments = ctx.db
+        .query("paymentRecords")
+        .withIndex("by_tenantId_and_origin_and_recordedAt", (q) =>
+          q
+            .eq("tenantId", tenantId)
+            .eq("origin", origin)
+            .gte("recordedAt", startDate)
+            .lt("recordedAt", endDate),
+        );
 
-      while (reminderRevenueRows.length <= MAX_REMINDER_REVENUE_SCAN_ROWS) {
-        const page = await ctx.db
-          .query("paymentRecords")
-          .withIndex("by_tenantId_and_origin_and_recordedAt", (q) =>
-            q
-              .eq("tenantId", tenantId)
-              .eq("origin", origin)
-              .gte("recordedAt", startDate)
-              .lt("recordedAt", endDate),
-          )
-          .paginate({
-            cursor,
-            numItems: REMINDER_REVENUE_SCAN_PAGE_SIZE,
-          });
-
-        for (const payment of page.page) {
-          if (payment.status === "disputed") {
-            continue;
-          }
-
-          reminderRevenueRows.push(payment);
-          if (reminderRevenueRows.length > MAX_REMINDER_REVENUE_SCAN_ROWS) {
-            isReminderRevenueTruncated = true;
-            break;
-          }
+      for await (const payment of payments) {
+        if (payment.status === "disputed") {
+          continue;
         }
 
-        if (isReminderRevenueTruncated || page.isDone) {
-          break;
+        reminderRevenueRows.push(payment);
+        if (reminderRevenueRows.length > MAX_REMINDER_REVENUE_SCAN_ROWS) {
+          isReminderRevenueTruncated = true;
+          break outer;
         }
-
-        cursor = page.continueCursor;
-      }
-
-      if (isReminderRevenueTruncated) {
-        break;
       }
     }
 
