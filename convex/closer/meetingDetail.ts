@@ -1,6 +1,10 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
+import {
+  resolveLegacyCompatibleAttributedCloserId,
+  resolveLegacyCompatibleRecordedByUserId,
+} from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
 import { loadActiveFollowUpSummary } from "../lib/activeFollowUp";
 
@@ -9,13 +13,17 @@ type MeetingHistoryEntry = Doc<"meetings"> & {
   isCurrentMeeting: boolean;
 };
 
-// Enriched payment with proof file URL and closer info
-type EnrichedPayment = Omit<Doc<"paymentRecords">, "amount"> & {
+type EnrichedPayment = Omit<
+  Doc<"paymentRecords">,
+  "amount" | "attributedCloserId"
+> & {
   amount: number;
   proofFileUrl: string | null;
   proofFileContentType: string | null;
   proofFileSize: number | null;
-  closerName: string | null;
+  attributedCloserId: Id<"users"> | null;
+  attributedCloserName: string | null;
+  recordedByName: string | null;
 };
 
 /**
@@ -148,20 +156,31 @@ export const getMeetingDetail = query({
     const eventTypeName = eventTypeConfig?.displayName ?? null;
     const paymentLinks = eventTypeConfig?.paymentLinks ?? null;
 
-    const paymentCloserIds = [
-      ...new Set(paymentRecordsRaw.map((payment) => payment.closerId)),
+    const paymentUserIds = [
+      ...new Set(
+        paymentRecordsRaw.flatMap((payment) =>
+          [
+            resolveLegacyCompatibleAttributedCloserId(payment),
+            resolveLegacyCompatibleRecordedByUserId(payment),
+          ].filter((userId): userId is Id<"users"> => userId !== undefined),
+        ),
+      ),
     ];
-    const paymentClosers = await Promise.all(
-      paymentCloserIds.map(async (closerId) => ({
-        closerId,
-        closer: await ctx.db.get(closerId),
-      })),
+    const paymentUsers = await Promise.all(
+      paymentUserIds.map(async (paymentUserId) => [
+        paymentUserId,
+        await ctx.db.get(paymentUserId),
+      ] as const),
     );
-    const paymentCloserNameById = new Map<Id<"users">, string | null>(
-      paymentClosers.map(({ closerId, closer }) => [
-        closerId,
-        closer && closer.tenantId === tenantId
-          ? closer.fullName ?? closer.email
+    const paymentUserNameById = new Map<Id<"users">, string | null>(
+      paymentUsers.map(([paymentUserId, paymentUser]) => [
+        paymentUserId,
+        paymentUser && "tenantId" in paymentUser && paymentUser.tenantId === tenantId
+          ? ("fullName" in paymentUser && paymentUser.fullName
+              ? paymentUser.fullName
+              : "email" in paymentUser
+                ? paymentUser.email
+                : null)
           : null,
       ]),
     );
@@ -173,6 +192,11 @@ export const getMeetingDetail = query({
           let proofFileUrl: string | null = null;
           let proofFileContentType: string | null = null;
           let proofFileSize: number | null = null;
+          const attributedCloserId =
+            resolveLegacyCompatibleAttributedCloserId(payment) ?? null;
+          const recordedByUserId = resolveLegacyCompatibleRecordedByUserId(
+            payment,
+          );
 
           if (payment.proofFileId) {
             const [url, fileMeta] = await Promise.all([
@@ -192,7 +216,14 @@ export const getMeetingDetail = query({
             proofFileUrl,
             proofFileContentType,
             proofFileSize,
-            closerName: paymentCloserNameById.get(payment.closerId) ?? null,
+            attributedCloserId,
+            attributedCloserName:
+              attributedCloserId !== null
+                ? (paymentUserNameById.get(attributedCloserId) ?? null)
+                : null,
+            recordedByName: recordedByUserId
+              ? (paymentUserNameById.get(recordedByUserId) ?? null)
+              : null,
           };
         }),
     );

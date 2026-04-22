@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import Link from "next/link";
@@ -7,11 +8,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeftIcon } from "lucide-react";
+import { ArrowLeftIcon, BanknoteIcon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { formatCurrency } from "@/lib/format-currency";
 import { format, formatDistanceToNow } from "date-fns";
+import { useRole } from "@/components/auth/role-context";
 import { CustomerStatusBadge } from "../../_components/customer-status-badge";
 import { CustomerStatusControl } from "../../_components/customer-status-control";
 import { PaymentHistoryTable } from "./payment-history-table";
@@ -29,6 +31,8 @@ export function CustomerDetailPageClient({
   customerId,
 }: CustomerDetailPageClientProps) {
   const id = customerId as Id<"customers">;
+  const { isAdmin } = useRole();
+  const [recordPaymentOpen, setRecordPaymentOpen] = useState(false);
 
   const detail = useQuery(api.customers.queries.getCustomerDetail, {
     customerId: id,
@@ -187,10 +191,10 @@ export function CustomerDetailPageClient({
                 <p className="text-sm font-medium">{closerName}</p>
               </div>
             )}
-            {customer.programType && (
+            {customer.programName && (
               <div>
                 <p className="text-xs text-muted-foreground">Program</p>
-                <p className="text-sm font-medium">{customer.programType}</p>
+                <p className="text-sm font-medium">{customer.programName}</p>
               </div>
             )}
           </div>
@@ -208,12 +212,31 @@ export function CustomerDetailPageClient({
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-base">Payment History</CardTitle>
-            <RecordPaymentDialog
-              customerId={id}
-              onPaymentRecorded={() => {
-                /* useQuery auto-refreshes */
-              }}
-            />
+            {isAdmin && (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setRecordPaymentOpen(true)}
+                >
+                  <BanknoteIcon data-icon="inline-start" />
+                  Record Payment
+                </Button>
+                <RecordPaymentDialog
+                  open={recordPaymentOpen}
+                  onOpenChange={setRecordPaymentOpen}
+                  customer={{
+                    _id: id,
+                    programId: customer.programId,
+                    programName: customer.programName,
+                    currency,
+                  }}
+                  onPaymentRecorded={() => {
+                    /* useQuery auto-refreshes */
+                  }}
+                />
+              </>
+            )}
           </div>
         </CardHeader>
         <CardContent>

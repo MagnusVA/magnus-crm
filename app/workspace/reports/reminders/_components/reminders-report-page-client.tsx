@@ -5,6 +5,7 @@ import { endOfMonth, startOfMonth } from "date-fns";
 import { useQuery } from "convex/react";
 import { AlertTriangleIcon, BellIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -19,6 +20,11 @@ import {
   ReportDateControls,
   type DateRange,
 } from "../../_components/report-date-controls";
+import { ReportProgramFilter } from "../../_components/report-program-filter";
+import {
+  ReportPaymentTypeFilter,
+  type PaymentType,
+} from "../../_components/report-payment-type-filter";
 import { ReminderChainLengthHistogram } from "./reminder-chain-length-histogram";
 import { ReminderDrivenRevenueCard } from "./reminder-driven-revenue-card";
 import { ReminderFunnelChart } from "./reminder-funnel-chart";
@@ -38,9 +44,18 @@ export function RemindersReportPageClient() {
   usePageTitle("Reminder Outcomes — Reports");
 
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
+  const [programId, setProgramId] = useState<Id<"tenantPrograms"> | undefined>();
+  const [paymentType, setPaymentType] = useState<PaymentType | undefined>();
+
+  const queryArgs = {
+    ...dateRange,
+    ...(programId ? { programId } : {}),
+    ...(paymentType ? { paymentType } : {}),
+  };
+
   const data = useQuery(
     api.reporting.remindersReporting.getReminderOutcomeFunnel,
-    dateRange,
+    queryArgs,
   );
 
   if (data === undefined) {
@@ -69,6 +84,14 @@ export function RemindersReportPageClient() {
       </div>
 
       <ReportDateControls value={dateRange} onChange={setDateRange} />
+
+      <div className="flex flex-wrap items-center gap-3">
+        <ReportProgramFilter value={programId} onChange={setProgramId} />
+        <ReportPaymentTypeFilter
+          value={paymentType}
+          onChange={setPaymentType}
+        />
+      </div>
 
       {data.isTruncated ? (
         <Alert>

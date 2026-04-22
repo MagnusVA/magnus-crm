@@ -1,6 +1,10 @@
 import { v } from "convex/values";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
+import {
+  getNonDisputedPaymentsInRange,
+  splitPaymentsForRevenueReporting,
+} from "../reporting/lib/helpers";
 
 /**
  * Aggregate stats for tenant owner/admin dashboard cards.
@@ -32,6 +36,9 @@ export const getAdminDashboardStats = query({
         meetingsToday: 0,
         wonDeals: 0,
         revenueLogged: 0,
+        postConversionRevenueLogged: 0,
+        depositsCollected: 0,
+        postConversionDepositsLogged: 0,
         totalRevenue: 0,
         paymentRecordsLogged: 0,
       };
@@ -54,7 +61,28 @@ export const getAdminDashboardStats = query({
       meetingsToday += 1;
     }
 
-    const revenueLogged = stats.totalRevenueMinor / 100;
+    const hasSplitRevenueCounters =
+      stats.totalCommissionableFinalRevenueMinor !== undefined ||
+      stats.totalCommissionableDepositRevenueMinor !== undefined ||
+      stats.totalNonCommissionableFinalRevenueMinor !== undefined ||
+      stats.totalNonCommissionableDepositRevenueMinor !== undefined;
+    const revenueLogged = hasSplitRevenueCounters
+      ? (stats.totalCommissionableFinalRevenueMinor ?? 0) / 100
+      : stats.totalRevenueMinor / 100;
+    const depositsCollected = hasSplitRevenueCounters
+      ? (stats.totalCommissionableDepositRevenueMinor ?? 0) / 100
+      : 0;
+    const postConversionRevenueLogged = hasSplitRevenueCounters
+      ? (stats.totalNonCommissionableFinalRevenueMinor ?? 0) / 100
+      : 0;
+    const postConversionDepositsLogged = hasSplitRevenueCounters
+      ? (stats.totalNonCommissionableDepositRevenueMinor ?? 0) / 100
+      : 0;
+    const totalRevenue =
+      revenueLogged +
+      depositsCollected +
+      postConversionRevenueLogged +
+      postConversionDepositsLogged;
 
     console.log("[Dashboard] getAdminDashboardStats completed", {
       tenantId,
@@ -65,6 +93,9 @@ export const getAdminDashboardStats = query({
       meetingsToday,
       wonDeals: stats.wonDeals,
       revenueLogged,
+      postConversionRevenueLogged,
+      depositsCollected,
+      postConversionDepositsLogged,
     });
     return {
       totalTeamMembers: stats.totalTeamMembers,
@@ -75,7 +106,10 @@ export const getAdminDashboardStats = query({
       meetingsToday,
       wonDeals: stats.wonDeals,
       revenueLogged,
-      totalRevenue: revenueLogged,
+      postConversionRevenueLogged,
+      depositsCollected,
+      postConversionDepositsLogged,
+      totalRevenue,
       paymentRecordsLogged: stats.totalPaymentRecords,
     };
   },
@@ -125,26 +159,35 @@ export const getTimePeriodStats = query({
       meetingsInPeriod += 1;
     }
 
-    // 3. Payments recorded in period → revenue + won deals (distinct opps)
-    let revenueMinorInPeriod = 0;
-    let paymentCountInPeriod = 0;
-    const wonOpportunityIds = new Set<string>();
-    for await (const payment of ctx.db
-      .query("paymentRecords")
-      .withIndex("by_tenantId_and_recordedAt", (q) =>
-        q
-          .eq("tenantId", tenantId)
-          .gte("recordedAt", periodStart)
-          .lt("recordedAt", periodEnd),
-      )) {
-      if (payment.status !== "disputed") {
-        revenueMinorInPeriod += payment.amountMinor;
-        paymentCountInPeriod += 1;
-      }
-      if (payment.opportunityId) {
-        wonOpportunityIds.add(payment.opportunityId);
-      }
-    }
+    // 3. Payments recorded in period → split KPIs + won deals (distinct opps)
+    const paymentScan = await getNonDisputedPaymentsInRange(
+      ctx,
+      tenantId,
+      periodStart,
+      periodEnd,
+    );
+    const paymentSplit = splitPaymentsForRevenueReporting(paymentScan.payments);
+    const closedWonOpportunityIds = new Set(
+      paymentSplit.commissionable.finalPayments
+        .map((payment) => payment.opportunityId)
+        .filter(
+          (opportunityId): opportunityId is NonNullable<typeof opportunityId> =>
+            opportunityId !== undefined,
+        ),
+    );
+    const paymentCountInPeriod = paymentSplit.filteredPayments.length;
+    const closedWonInPeriod = paymentSplit.commissionable.finalRevenueMinor / 100;
+    const depositsInPeriod =
+      paymentSplit.commissionable.depositRevenueMinor / 100;
+    const postConversionInPeriod =
+      paymentSplit.nonCommissionable.finalRevenueMinor / 100;
+    const postConversionDepositsInPeriod =
+      paymentSplit.nonCommissionable.depositRevenueMinor / 100;
+    const revenueInPeriod =
+      closedWonInPeriod +
+      depositsInPeriod +
+      postConversionInPeriod +
+      postConversionDepositsInPeriod;
 
     // 4. New customers converted in period
     let newCustomers = 0;
@@ -162,10 +205,15 @@ export const getTimePeriodStats = query({
     return {
       newOpportunities,
       meetingsInPeriod,
-      wonDealsInPeriod: wonOpportunityIds.size,
-      revenueInPeriod: revenueMinorInPeriod / 100,
+      wonDealsInPeriod: closedWonOpportunityIds.size,
+      closedWonInPeriod,
+      depositsInPeriod,
+      postConversionInPeriod,
+      postConversionDepositsInPeriod,
+      revenueInPeriod,
       paymentCountInPeriod,
       newCustomers,
+      isPaymentDataTruncated: paymentScan.isTruncated,
     };
   },
 });

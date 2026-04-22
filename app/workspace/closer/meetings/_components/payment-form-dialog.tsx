@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -41,6 +41,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { BanknoteIcon, AlertCircleIcon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
+import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -56,14 +57,13 @@ const VALID_FILE_TYPES = [
 ];
 
 const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY"] as const;
-const PROVIDERS = [
-  "Stripe",
-  "PayPal",
-  "Square",
-  "Cash",
-  "Bank Transfer",
-  "Other",
-] as const;
+const PAYMENT_TYPES = ["monthly", "split", "pif", "deposit"] as const;
+const PAYMENT_TYPE_LABELS: Record<(typeof PAYMENT_TYPES)[number], string> = {
+  monthly: "Monthly",
+  split: "Split",
+  pif: "Paid in Full",
+  deposit: "Deposit",
+};
 
 // ---------------------------------------------------------------------------
 // Zod Schema — single source of truth for form validation
@@ -81,8 +81,10 @@ const paymentFormSchema = z.object({
       { message: "Amount must be greater than 0" },
     ),
   currency: z.enum(CURRENCIES),
-  provider: z.enum(PROVIDERS, { error: "Please select a payment provider" }),
-  referenceCode: z.string().optional(),
+  programId: z.string().min(1, "Please select a program"),
+  paymentType: z.enum(PAYMENT_TYPES, {
+    error: "Please select a payment type",
+  }),
   proofFile: z
     .instanceof(File)
     .optional()
@@ -114,63 +116,46 @@ type PaymentFormDialogProps = {
  * Allows a closer to log a payment for an opportunity:
  * - Amount (required, > 0)
  * - Currency (required, defaults to USD)
- * - Provider (required)
- * - Reference Code (optional)
+ * - Program (required)
+ * - Payment Type (required)
  * - Proof File (optional, image or PDF up to 10 MB)
- *
- * Two-step file upload:
- * 1. Client calls `generateUploadUrl()` mutation to get a Convex storage URL
- * 2. Client uploads the file directly to that URL
- * 3. Convex returns a storageId
- * 4. Client passes storageId to `logPayment()` mutation
- *
- * On success:
- * - Payment record is created
- * - Opportunity transitions to "payment_received" (terminal state)
- * - Dialog closes and form resets
- *
- * Form state is managed by React Hook Form + Zod resolver.
- * Inline field-level errors are rendered via FormMessage.
- * Submission-level errors (network, Convex) use an Alert.
  */
 export function PaymentFormDialog({
   opportunityId,
   meetingId,
   onSuccess,
 }: PaymentFormDialogProps) {
-  // Dialog open/close state — kept outside RHF (not a form field)
   const [open, setOpen] = useState(false);
-  // Submission loading flag — controls button spinner & disabled states
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // Submission-level errors (network/Convex failures, NOT validation errors)
   const [submitError, setSubmitError] = useState<string | null>(null);
 
-  // React Hook Form — single hook replaces 5 field-level useState hooks
+  const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
+    includeArchived: false,
+  });
+
   const form = useForm({
     resolver: standardSchemaResolver(paymentFormSchema),
     defaultValues: {
       amount: "",
       currency: "USD",
-      provider: undefined,
-      referenceCode: "",
+      programId: "",
+      paymentType: undefined,
       proofFile: undefined,
     },
   });
 
-  // Convex mutations (unchanged from original)
   const generateUploadUrl = useMutation(api.closer.payments.generateUploadUrl);
   const logPayment = useMutation(api.closer.payments.logPayment);
-
-  // ---------------------------------------------------------------------------
-  // Submission handler — only called when Zod validation passes
-  // ---------------------------------------------------------------------------
 
   const onSubmit = async (values: PaymentFormValues) => {
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
-      // Upload proof file if provided (two-step Convex storage flow)
+      if (!programs || programs.length === 0) {
+        throw new Error("Create an active program before logging a payment.");
+      }
+
       let proofFileId: Id<"_storage"> | undefined;
       if (values.proofFile) {
         const uploadUrl = await generateUploadUrl();
@@ -193,28 +178,31 @@ export function PaymentFormDialog({
         proofFileId = uploadData.storageId as Id<"_storage">;
       }
 
-      // Log the payment via Convex mutation
       const parsedAmount = parseFloat(values.amount);
       const amountMinor = Math.round(parsedAmount * 100);
+      const selectedProgram = programs.find(
+        (program) => program._id === values.programId,
+      );
+
       await logPayment({
         opportunityId,
         meetingId,
         amount: parsedAmount,
         currency: values.currency,
-        provider: values.provider,
-        referenceCode: values.referenceCode || undefined,
+        programId: values.programId as Id<"tenantPrograms">,
+        paymentType: values.paymentType,
         proofFileId,
       });
 
-      // Success path (identical to previous implementation)
       await onSuccess?.();
       posthog.capture("payment_logged", {
         opportunity_id: opportunityId,
         meeting_id: meetingId,
         amount_minor: amountMinor,
         currency: values.currency,
-        provider: values.provider,
-        has_reference_code: Boolean(values.referenceCode),
+        program_id: values.programId,
+        program_name: selectedProgram?.name ?? null,
+        payment_type: values.paymentType,
         has_proof_file: Boolean(proofFileId),
       });
       toast.success("Payment logged successfully");
@@ -233,15 +221,14 @@ export function PaymentFormDialog({
     }
   };
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
+  const isProgramListLoading = programs === undefined;
+  const hasPrograms = (programs?.length ?? 0) > 0;
+  const isSubmitDisabled = isSubmitting || isProgramListLoading || !hasPrograms;
 
   return (
     <Dialog
       open={open}
       onOpenChange={(value) => {
-        // Prevent closing during submission
         if (!isSubmitting) {
           setOpen(value);
           if (!value) {
@@ -268,7 +255,6 @@ export function PaymentFormDialog({
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)}>
             <FieldGroup>
-              {/* Amount */}
               <FormField
                 control={form.control}
                 name="amount"
@@ -292,7 +278,6 @@ export function PaymentFormDialog({
                 )}
               />
 
-              {/* Currency */}
               <FormField
                 control={form.control}
                 name="currency"
@@ -326,14 +311,36 @@ export function PaymentFormDialog({
                 )}
               />
 
-              {/* Provider */}
               <FormField
                 control={form.control}
-                name="provider"
+                name="programId"
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      Provider <span className="text-destructive">*</span>
+                      Program <span className="text-destructive">*</span>
+                    </FormLabel>
+                    <FormControl>
+                      <ProgramSelect
+                        value={field.value || undefined}
+                        onChange={field.onChange}
+                        disabled={isSubmitDisabled}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Attribute this payment to the correct tenant program.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="paymentType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Payment Type <span className="text-destructive">*</span>
                     </FormLabel>
                     <Select
                       onValueChange={field.onChange}
@@ -342,48 +349,27 @@ export function PaymentFormDialog({
                     >
                       <FormControl>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select provider" />
+                          <SelectValue placeholder="Select payment type" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
                         <SelectGroup>
-                          {PROVIDERS.map((prov) => (
-                            <SelectItem key={prov} value={prov}>
-                              {prov}
+                          {PAYMENT_TYPES.map((paymentType) => (
+                            <SelectItem key={paymentType} value={paymentType}>
+                              {PAYMENT_TYPE_LABELS[paymentType]}
                             </SelectItem>
                           ))}
                         </SelectGroup>
                       </SelectContent>
                     </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* Fathom Link */}
-              <FormField
-                control={form.control}
-                name="referenceCode"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Fathom Link</FormLabel>
-                    <FormControl>
-                      <Input
-                        type="url"
-                        placeholder="https://app.fathom.video/share/..."
-                        disabled={isSubmitting}
-                        {...field}
-                      />
-                    </FormControl>
                     <FormDescription>
-                      Link to the Fathom call recording
+                      Choose how the revenue should be classified.
                     </FormDescription>
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
-              {/* Proof File */}
               <FormField
                 control={form.control}
                 name="proofFile"
@@ -419,7 +405,16 @@ export function PaymentFormDialog({
               />
             </FieldGroup>
 
-            {/* Submission-level error (network/Convex failures only) */}
+            {!isProgramListLoading && !hasPrograms && (
+              <Alert variant="destructive" className="mt-4">
+                <AlertCircleIcon />
+                <AlertDescription>
+                  No active programs are available. Create one before logging a
+                  payment.
+                </AlertDescription>
+              </Alert>
+            )}
+
             {submitError && (
               <Alert variant="destructive" className="mt-4">
                 <AlertCircleIcon />
@@ -440,7 +435,7 @@ export function PaymentFormDialog({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={isSubmitting}>
+              <Button type="submit" disabled={isSubmitDisabled}>
                 {isSubmitting ? (
                   <>
                     <Spinner data-icon="inline-start" />

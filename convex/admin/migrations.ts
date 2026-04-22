@@ -23,6 +23,23 @@ import {
   getLegacyTenantCalendlyConnectionPatch,
   toStoredPatch,
 } from "../lib/tenantCalendlyConnection";
+import { syncCustomerPaymentSummary } from "../lib/paymentHelpers";
+import {
+  normalizePaymentOrigin,
+  paymentTypeValidator,
+  resolveLegacyCompatibleAttributedCloserId,
+  resolveLegacyCompatibleCustomerProgramName,
+  resolveLegacyCompatiblePaymentCommissionable,
+  resolveLegacyCompatiblePaymentProgramName,
+  resolveLegacyCompatibleRecordedByUserId,
+  resolvePaymentType,
+  type PaymentType,
+} from "../lib/paymentTypes";
+import {
+  ensureProgramForTenant,
+  findProgramByNormalizedName,
+  normalizeProgramName,
+} from "../tenantPrograms/shared";
 import { requireSystemAdminSession } from "../requireSystemAdmin";
 
 const RAW_EVENT_BACKFILL_PAGE_SIZE = 25;
@@ -109,6 +126,49 @@ type Phase6ReadinessReport = {
   tenantsMissingCalendlyConnection: number;
   tenantsWithLegacyOAuthFields: number;
   usersMissingIsActive: number;
+};
+
+type PaymentProgramsCutoverAudit = {
+  customersMissingProgramId: number;
+  customersWithLegacyProgramType: number;
+  paymentsMissingCommissionable: number;
+  paymentsMissingPaymentType: number;
+  paymentsMissingProgramId: number;
+  paymentsMissingProgramName: number;
+  paymentsMissingRecordedByUserId: number;
+  paymentsUsingLegacyFields: number;
+  paymentsUsingLegacyOrigin: number;
+  sampleLegacyCustomers: Array<{
+    customerId: string;
+    email: string;
+    programType: string | null;
+    winningOpportunityId: string;
+  }>;
+  sampleLegacyPayments: Array<{
+    amountMinor: number;
+    contextType: "opportunity" | "customer";
+    customerId: string | null;
+    opportunityId: string | null;
+    origin: string | null;
+    paymentId: string;
+    programName: string | null;
+    provider: string | null;
+    recordedAt: number;
+  }>;
+  tenantProgramCount: number;
+  totalCustomers: number;
+  totalPayments: number;
+};
+
+type LegacyCustomerMigrationRow = Doc<"customers"> & {
+  programType?: string;
+};
+
+type LegacyPaymentMigrationRow = Doc<"paymentRecords"> & {
+  closerId?: Id<"users">;
+  provider?: string;
+  loggedByAdminUserId?: Id<"users">;
+  origin?: string;
 };
 
 type TenantScopedTable =
@@ -998,7 +1058,7 @@ async function inferOpportunityAssignedCloserId(
   for (const payment of payments) {
     collectCandidateCloser(
       candidateScores,
-      payment.closerId,
+      payment.attributedCloserId,
       "payment_history",
       10,
     );
@@ -1312,6 +1372,374 @@ export const backfillCustomerTotals = mutation({
   },
 });
 
+export const auditPaymentProgramsAndTypesCutover = query({
+  args: {},
+  handler: async (ctx): Promise<PaymentProgramsCutoverAudit> => {
+    await requireSystemAdmin(ctx);
+
+    const [customers, payments, tenantPrograms] = await Promise.all([
+      ctx.db.query("customers").collect(),
+      ctx.db.query("paymentRecords").collect(),
+      ctx.db.query("tenantPrograms").collect(),
+    ]);
+
+    const audit: PaymentProgramsCutoverAudit = {
+      customersMissingProgramId: 0,
+      customersWithLegacyProgramType: 0,
+      paymentsMissingCommissionable: 0,
+      paymentsMissingPaymentType: 0,
+      paymentsMissingProgramId: 0,
+      paymentsMissingProgramName: 0,
+      paymentsMissingRecordedByUserId: 0,
+      paymentsUsingLegacyFields: 0,
+      paymentsUsingLegacyOrigin: 0,
+      sampleLegacyCustomers: [],
+      sampleLegacyPayments: [],
+      tenantProgramCount: tenantPrograms.length,
+      totalCustomers: customers.length,
+      totalPayments: payments.length,
+    };
+
+    for (const customer of customers) {
+      const legacyCustomer = customer as LegacyCustomerMigrationRow;
+      if (customer.programId === undefined) {
+        audit.customersMissingProgramId += 1;
+      }
+      if (legacyCustomer.programType !== undefined) {
+        audit.customersWithLegacyProgramType += 1;
+      }
+      if (
+        (
+          customer.programId === undefined ||
+          legacyCustomer.programType !== undefined
+        ) &&
+        audit.sampleLegacyCustomers.length < 10
+      ) {
+        audit.sampleLegacyCustomers.push({
+          customerId: customer._id,
+          email: customer.email,
+          programType: legacyCustomer.programType ?? null,
+          winningOpportunityId: customer.winningOpportunityId,
+        });
+      }
+    }
+
+    for (const payment of payments) {
+      const legacyPayment = payment as LegacyPaymentMigrationRow;
+      const legacyOrigin = legacyPayment.origin as string | undefined;
+      if (payment.programId === undefined) {
+        audit.paymentsMissingProgramId += 1;
+      }
+      if (payment.programName === undefined) {
+        audit.paymentsMissingProgramName += 1;
+      }
+      if (payment.paymentType === undefined) {
+        audit.paymentsMissingPaymentType += 1;
+      }
+      if (payment.recordedByUserId === undefined) {
+        audit.paymentsMissingRecordedByUserId += 1;
+      }
+      if (payment.commissionable === undefined) {
+        audit.paymentsMissingCommissionable += 1;
+      }
+      if (legacyOrigin === "customer_flow") {
+        audit.paymentsUsingLegacyOrigin += 1;
+      }
+      if (
+        legacyPayment.closerId !== undefined ||
+        legacyPayment.provider !== undefined ||
+        legacyPayment.loggedByAdminUserId !== undefined
+      ) {
+        audit.paymentsUsingLegacyFields += 1;
+      }
+
+      if (
+        (
+          payment.programId === undefined ||
+          payment.programName === undefined ||
+          payment.paymentType === undefined ||
+          payment.recordedByUserId === undefined ||
+          payment.commissionable === undefined ||
+          legacyPayment.closerId !== undefined ||
+          legacyPayment.provider !== undefined ||
+          legacyPayment.loggedByAdminUserId !== undefined ||
+          legacyOrigin === "customer_flow"
+        ) &&
+        audit.sampleLegacyPayments.length < 10
+      ) {
+        audit.sampleLegacyPayments.push({
+          amountMinor: payment.amountMinor,
+          contextType: payment.contextType,
+          customerId: payment.customerId ?? null,
+          opportunityId: payment.opportunityId ?? null,
+          origin: payment.origin ?? null,
+          paymentId: payment._id,
+          programName: payment.programName ?? null,
+          provider: legacyPayment.provider ?? null,
+          recordedAt: payment.recordedAt,
+        });
+      }
+    }
+
+    return audit;
+  },
+});
+
+export const backfillPaymentProgramsAndTypes = mutation({
+  args: {
+    defaultLegacyPaymentType: v.optional(paymentTypeValidator),
+    paymentTypeOverrides: v.optional(v.record(v.string(), paymentTypeValidator)),
+  },
+  handler: async (ctx, args) => {
+    await requireSystemAdmin(ctx);
+
+    const customers = await ctx.db.query("customers").collect();
+    const payments = await ctx.db.query("paymentRecords").collect();
+    const customersById = new Map(customers.map((customer) => [customer._id, customer]));
+    const customerByWinningOpportunityId = new Map(
+      customers.map((customer) => [customer.winningOpportunityId, customer]),
+    );
+    const opportunityCache = new Map<Id<"opportunities">, Doc<"opportunities"> | null>();
+    const eventTypeConfigCache = new Map<
+      Id<"eventTypeConfigs">,
+      Doc<"eventTypeConfigs"> | null
+    >();
+    const touchedProgramIds = new Set<Id<"tenantPrograms">>();
+    const touchedCustomerIds = new Set<Id<"customers">>();
+    const unresolvedCustomers: string[] = [];
+    const unresolvedPayments: string[] = [];
+    const paymentTypeOverrides = args.paymentTypeOverrides ?? {};
+    let customersPatched = 0;
+    let paymentsPatched = 0;
+
+    const getOpportunity = async (opportunityId: Id<"opportunities">) => {
+      if (!opportunityCache.has(opportunityId)) {
+        opportunityCache.set(opportunityId, await ctx.db.get(opportunityId));
+      }
+      return opportunityCache.get(opportunityId) ?? null;
+    };
+
+    const getEventTypeConfig = async (eventTypeConfigId: Id<"eventTypeConfigs">) => {
+      if (!eventTypeConfigCache.has(eventTypeConfigId)) {
+        eventTypeConfigCache.set(eventTypeConfigId, await ctx.db.get(eventTypeConfigId));
+      }
+      return eventTypeConfigCache.get(eventTypeConfigId) ?? null;
+    };
+
+    const resolveProgramNameFromOpportunity = async (
+      opportunityId: Id<"opportunities">,
+    ) => {
+      const opportunity = await getOpportunity(opportunityId);
+      if (!opportunity?.eventTypeConfigId) {
+        return undefined;
+      }
+      const eventTypeConfig = await getEventTypeConfig(opportunity.eventTypeConfigId);
+      const displayName = eventTypeConfig?.displayName?.trim();
+      return displayName || undefined;
+    };
+
+    const ensureCanonicalProgram = async (args: {
+      createdByUserId: Id<"users">;
+      defaultCurrency?: string;
+      name: string;
+      tenantId: Id<"tenants">;
+    }) => {
+      const existing = await findProgramByNormalizedName(
+        ctx,
+        args.tenantId,
+        normalizeProgramName(args.name),
+      );
+      const program = existing
+        ? existing
+        : await ensureProgramForTenant(ctx, {
+            tenantId: args.tenantId,
+            createdByUserId: args.createdByUserId,
+            name: args.name,
+            defaultCurrency: args.defaultCurrency,
+          });
+      touchedProgramIds.add(program._id);
+      return program;
+    };
+
+    const resolvedCustomerPrograms = new Map<
+      Id<"customers">,
+      { programId: Id<"tenantPrograms">; programName: string }
+    >();
+
+    for (const customer of customers) {
+      const legacyCustomer = customer as LegacyCustomerMigrationRow;
+      let resolvedProgramName =
+        resolveLegacyCompatibleCustomerProgramName(legacyCustomer);
+      if (!resolvedProgramName) {
+        resolvedProgramName = await resolveProgramNameFromOpportunity(
+          customer.winningOpportunityId,
+        );
+      }
+
+      if (!resolvedProgramName) {
+        unresolvedCustomers.push(customer._id);
+        continue;
+      }
+
+      const program = await ensureCanonicalProgram({
+        tenantId: customer.tenantId,
+        createdByUserId: customer.convertedByUserId,
+        name: resolvedProgramName,
+        defaultCurrency: customer.paymentCurrency,
+      });
+      resolvedCustomerPrograms.set(customer._id, {
+        programId: program._id,
+        programName: program.name,
+      });
+
+      if (
+        customer.programId !== program._id ||
+        customer.programName !== program.name
+      ) {
+        await ctx.db.patch(customer._id, {
+          programId: program._id,
+          programName: program.name,
+        });
+        customersPatched += 1;
+      }
+    }
+
+    for (const payment of payments) {
+      const legacyPayment = payment as LegacyPaymentMigrationRow;
+      const resolvedOrigin = normalizePaymentOrigin(
+        legacyPayment.origin,
+        payment.contextType,
+      );
+      const resolvedCommissionable =
+        resolveLegacyCompatiblePaymentCommissionable(legacyPayment);
+      const resolvedAttributedCloserId =
+        resolveLegacyCompatibleAttributedCloserId(legacyPayment);
+      const resolvedRecordedByUserId =
+        resolveLegacyCompatibleRecordedByUserId(legacyPayment);
+      const overridePaymentType = paymentTypeOverrides[payment._id];
+      const resolvedPaymentType =
+        payment.paymentType ??
+        overridePaymentType ??
+        args.defaultLegacyPaymentType;
+
+      let programId = payment.programId;
+      let programName = resolveLegacyCompatiblePaymentProgramName(legacyPayment);
+
+      const linkedCustomer =
+        (payment.customerId ? customersById.get(payment.customerId) : undefined) ??
+        (payment.opportunityId
+          ? customerByWinningOpportunityId.get(payment.opportunityId)
+          : undefined);
+      const linkedCustomerProgram = linkedCustomer
+        ? resolvedCustomerPrograms.get(linkedCustomer._id)
+        : undefined;
+
+      if (linkedCustomerProgram) {
+        programId = linkedCustomerProgram.programId;
+        programName = linkedCustomerProgram.programName;
+      } else if (!programName && payment.opportunityId) {
+        programName = await resolveProgramNameFromOpportunity(payment.opportunityId);
+      }
+
+      if ((programId === undefined || programName === undefined) && programName) {
+        const programCreatorUserId =
+          resolvedRecordedByUserId ??
+          linkedCustomer?.convertedByUserId ??
+          legacyPayment.closerId;
+        if (!programCreatorUserId) {
+          unresolvedPayments.push(`${payment._id}:missing_program_creator`);
+          continue;
+        }
+        const program = await ensureCanonicalProgram({
+          tenantId: payment.tenantId,
+          createdByUserId: programCreatorUserId,
+          name: programName,
+          defaultCurrency: payment.currency,
+        });
+        programId = program._id;
+        programName = program.name;
+      }
+
+      if (resolvedRecordedByUserId === undefined) {
+        unresolvedPayments.push(`${payment._id}:missing_recordedByUserId`);
+        continue;
+      }
+      if (resolvedCommissionable && resolvedAttributedCloserId === undefined) {
+        unresolvedPayments.push(`${payment._id}:missing_attributedCloserId`);
+        continue;
+      }
+      if (programId === undefined || programName === undefined) {
+        unresolvedPayments.push(`${payment._id}:missing_program`);
+        continue;
+      }
+      if (resolvedPaymentType === undefined) {
+        unresolvedPayments.push(`${payment._id}:missing_paymentType`);
+        continue;
+      }
+
+      const patch: Partial<Doc<"paymentRecords">> = {};
+      if (payment.programId !== programId) {
+        patch.programId = programId;
+      }
+      if (payment.programName !== programName) {
+        patch.programName = programName;
+      }
+      if (payment.paymentType !== resolvedPaymentType) {
+        patch.paymentType = resolvePaymentType(resolvedPaymentType);
+      }
+      if (payment.recordedByUserId !== resolvedRecordedByUserId) {
+        patch.recordedByUserId = resolvedRecordedByUserId;
+      }
+      if (payment.commissionable !== resolvedCommissionable) {
+        patch.commissionable = resolvedCommissionable;
+      }
+      if (payment.attributedCloserId !== resolvedAttributedCloserId) {
+        patch.attributedCloserId = resolvedAttributedCloserId;
+      }
+      if (payment.origin !== resolvedOrigin) {
+        patch.origin = resolvedOrigin;
+      }
+      if (
+        payment.contextType === "customer" &&
+        payment.originatingOpportunityId === undefined &&
+        linkedCustomer
+      ) {
+        patch.originatingOpportunityId = linkedCustomer.winningOpportunityId;
+      }
+
+      if (Object.keys(patch).length === 0) {
+        continue;
+      }
+
+      await ctx.db.patch(payment._id, patch);
+      paymentsPatched += 1;
+      if (payment.customerId) {
+        touchedCustomerIds.add(payment.customerId);
+      }
+    }
+
+    if (unresolvedCustomers.length > 0 || unresolvedPayments.length > 0) {
+      throw new Error(
+        JSON.stringify({
+          unresolvedCustomers: unresolvedCustomers.slice(0, 10),
+          unresolvedPayments: unresolvedPayments.slice(0, 10),
+        }),
+      );
+    }
+
+    for (const customerId of touchedCustomerIds) {
+      await syncCustomerPaymentSummary(ctx, customerId);
+    }
+
+    return {
+      customersPatched,
+      paymentsPatched,
+      tenantProgramsResolved: touchedProgramIds.size,
+      touchedCustomers: touchedCustomerIds.size,
+    };
+  },
+});
+
 export const seedTenantStats = mutation({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
@@ -1614,9 +2042,15 @@ export const auditOrphanedUserRefs = query({
     for await (const payment of ctx.db.query("paymentRecords")) {
       addMissingUserIssue(issues, userIds, {
         table: "paymentRecords",
-        field: "closerId",
+        field: "attributedCloserId",
         recordId: payment._id,
-        userId: payment.closerId,
+        userId: payment.attributedCloserId,
+      });
+      addMissingUserIssue(issues, userIds, {
+        table: "paymentRecords",
+        field: "recordedByUserId",
+        recordId: payment._id,
+        userId: payment.recordedByUserId,
       });
       addMissingUserIssue(issues, userIds, {
         table: "paymentRecords",

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
@@ -37,10 +37,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
 
 type ResolutionAction =
   | "log_payment"
@@ -49,14 +46,6 @@ type ResolutionAction =
   | "mark_lost"
   | "acknowledged"
   | "disputed";
-
-// ---------------------------------------------------------------------------
-// Dialog config per action
-//
-// `satisfies Record<...>` gives strict exhaustiveness: adding a new
-// resolution-action literal to the union will fail the compile until a
-// matching ACTION_CONFIG entry is added.
-// ---------------------------------------------------------------------------
 
 const ACTION_CONFIG = {
   log_payment: {
@@ -87,10 +76,6 @@ const ACTION_CONFIG = {
       "Acknowledge this review without changing the opportunity or meeting status. Use when the closer has already handled the situation correctly.",
     confirmLabel: "Acknowledge & Resolve",
   },
-  // v2: disputing neutralizes the closer's action. Opportunity and meeting
-  // revert to `meeting_overran`; disputed payments mark as invalid (and
-  // reverse revenue + customer conversion); pending follow-ups expire; no-show
-  // and lost outcomes reverse. Audit history is preserved.
   disputed: {
     title: "Dispute Review",
     description:
@@ -112,35 +97,23 @@ const NO_SHOW_REASONS = [
 ] as const;
 
 const CURRENCIES = ["USD", "EUR", "GBP", "CAD", "AUD", "JPY"] as const;
-const PROVIDERS = [
-  "Stripe",
-  "PayPal",
-  "Square",
-  "Cash",
-  "Bank Transfer",
-  "Other",
-] as const;
-
-// ---------------------------------------------------------------------------
-// Unified Zod schema
-//
-// All fields are optional at the top level. Conditional validation is done
-// via superRefine, which targets errors to specific field paths. This avoids
-// the TypeScript issues of switching schemas dynamically with useForm.
-// ---------------------------------------------------------------------------
+const PAYMENT_TYPES = ["monthly", "split", "pif", "deposit"] as const;
+const PAYMENT_TYPE_LABELS: Record<(typeof PAYMENT_TYPES)[number], string> = {
+  monthly: "Monthly",
+  split: "Split",
+  pif: "Paid in Full",
+  deposit: "Deposit",
+};
 
 function buildSchema(action: ResolutionAction) {
   const base = z.object({
-    // Payment fields — amount stored as string, parsed in submit handler
     amount: z.string().optional(),
     currency: z.string().optional(),
-    provider: z.string().optional(),
+    programId: z.string().optional(),
+    paymentType: z.string().optional(),
     referenceCode: z.string().optional(),
-    // No-show field
     noShowReason: z.string().optional(),
-    // Lost field
     lostReason: z.string().optional(),
-    // Common field
     resolutionNote: z.string().optional(),
   });
 
@@ -162,6 +135,7 @@ function buildSchema(action: ResolutionAction) {
           });
         }
       }
+
       if (!data.currency || data.currency.trim().length === 0) {
         ctx.addIssue({
           code: "custom",
@@ -169,11 +143,23 @@ function buildSchema(action: ResolutionAction) {
           path: ["currency"],
         });
       }
-      if (!data.provider || data.provider.trim().length === 0) {
+
+      if (!data.programId || data.programId.trim().length === 0) {
         ctx.addIssue({
           code: "custom",
-          message: "Provider is required",
-          path: ["provider"],
+          message: "Program is required",
+          path: ["programId"],
+        });
+      }
+
+      if (
+        !data.paymentType ||
+        !PAYMENT_TYPES.includes(data.paymentType as (typeof PAYMENT_TYPES)[number])
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          message: "Payment type is required",
+          path: ["paymentType"],
         });
       }
     }
@@ -188,14 +174,12 @@ function buildSchema(action: ResolutionAction) {
       }
     }
 
-    if (action === "mark_no_show") {
-      if (!data.noShowReason) {
-        ctx.addIssue({
-          code: "custom",
-          message: "Reason is required",
-          path: ["noShowReason"],
-        });
-      }
+    if (action === "mark_no_show" && !data.noShowReason) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Reason is required",
+        path: ["noShowReason"],
+      });
     }
   });
 }
@@ -205,16 +189,13 @@ type ResolutionFormValues = z.infer<ReturnType<typeof buildSchema>>;
 const DEFAULT_VALUES: ResolutionFormValues = {
   amount: "",
   currency: "USD",
-  provider: "",
+  programId: "",
+  paymentType: "",
   referenceCode: "",
   noShowReason: "",
   lostReason: "",
   resolutionNote: "",
 };
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
 
 type ReviewResolutionDialogProps = {
   open: boolean;
@@ -235,6 +216,9 @@ export function ReviewResolutionDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
+    includeArchived: false,
+  });
   const resolveReview = useMutation(api.reviews.mutations.resolveReview);
 
   const config = ACTION_CONFIG[resolutionAction];
@@ -245,11 +229,23 @@ export function ReviewResolutionDialog({
     defaultValues: DEFAULT_VALUES,
   });
 
+  const isProgramListLoading = programs === undefined;
+  const hasPrograms = (programs?.length ?? 0) > 0;
+  const isLogPaymentBlocked =
+    resolutionAction === "log_payment" && (isProgramListLoading || !hasPrograms);
+
   const handleSubmit = async (data: ResolutionFormValues) => {
     setIsSubmitting(true);
     setSubmitError(null);
 
     try {
+      if (
+        resolutionAction === "log_payment" &&
+        (!programs || programs.length === 0)
+      ) {
+        throw new Error("Create an active program before logging a payment.");
+      }
+
       const resolutionNote = data.resolutionNote?.trim() || undefined;
 
       await resolveReview({
@@ -260,7 +256,12 @@ export function ReviewResolutionDialog({
           paymentData: {
             amount: parseFloat(data.amount ?? "0"),
             currency: data.currency as string,
-            provider: data.provider as string,
+            programId: data.programId as Id<"tenantPrograms">,
+            paymentType: data.paymentType as
+              | "monthly"
+              | "split"
+              | "pif"
+              | "deposit",
             referenceCode: data.referenceCode?.trim() || undefined,
           },
         }),
@@ -315,26 +316,23 @@ export function ReviewResolutionDialog({
             onSubmit={form.handleSubmit(handleSubmit)}
             className="space-y-4"
           >
-            {/* Submission-level error */}
             {submitError && (
               <Alert variant="destructive">
                 <AlertDescription>{submitError}</AlertDescription>
               </Alert>
             )}
 
-            {/* False-positive correction notice */}
             {closerResponse === "forgot_to_press" &&
               resolutionAction !== "acknowledged" && (
                 <Alert>
                   <AlertDescription>
-                    The closer claimed they attended but forgot to press
-                    start. Resolving will correct the meeting status to
+                    The closer claimed they attended but forgot to press start.
+                    Resolving will correct the meeting status to
                     &ldquo;completed&rdquo;.
                   </AlertDescription>
                 </Alert>
               )}
 
-            {/* Payment fields */}
             {resolutionAction === "log_payment" && (
               <>
                 <FormField
@@ -343,8 +341,7 @@ export function ReviewResolutionDialog({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>
-                        Amount{" "}
-                        <span className="text-destructive">*</span>
+                        Amount <span className="text-destructive">*</span>
                       </FormLabel>
                       <FormControl>
                         <Input
@@ -361,6 +358,7 @@ export function ReviewResolutionDialog({
                     </FormItem>
                   )}
                 />
+
                 <div className="grid grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
@@ -368,8 +366,7 @@ export function ReviewResolutionDialog({
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>
-                          Currency{" "}
-                          <span className="text-destructive">*</span>
+                          Currency <span className="text-destructive">*</span>
                         </FormLabel>
                         <Select
                           onValueChange={field.onChange}
@@ -393,18 +390,19 @@ export function ReviewResolutionDialog({
                       </FormItem>
                     )}
                   />
+
                   <FormField
                     control={form.control}
-                    name="provider"
+                    name="paymentType"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>
-                          Provider{" "}
+                          Payment Type{" "}
                           <span className="text-destructive">*</span>
                         </FormLabel>
                         <Select
                           onValueChange={field.onChange}
-                          value={field.value ?? ""}
+                          value={field.value || undefined}
                           disabled={isSubmitting}
                         >
                           <FormControl>
@@ -413,9 +411,9 @@ export function ReviewResolutionDialog({
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            {PROVIDERS.map((prov) => (
-                              <SelectItem key={prov} value={prov}>
-                                {prov}
+                            {PAYMENT_TYPES.map((paymentType) => (
+                              <SelectItem key={paymentType} value={paymentType}>
+                                {PAYMENT_TYPE_LABELS[paymentType]}
                               </SelectItem>
                             ))}
                           </SelectContent>
@@ -425,6 +423,27 @@ export function ReviewResolutionDialog({
                     )}
                   />
                 </div>
+
+                <FormField
+                  control={form.control}
+                  name="programId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>
+                        Program <span className="text-destructive">*</span>
+                      </FormLabel>
+                      <FormControl>
+                        <ProgramSelect
+                          value={field.value || undefined}
+                          onChange={field.onChange}
+                          disabled={isSubmitting || isLogPaymentBlocked}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 <FormField
                   control={form.control}
                   name="referenceCode"
@@ -442,10 +461,18 @@ export function ReviewResolutionDialog({
                     </FormItem>
                   )}
                 />
+
+                {!isProgramListLoading && !hasPrograms && (
+                  <Alert variant="destructive">
+                    <AlertDescription>
+                      No active programs are available. Create one before
+                      logging a payment from review resolution.
+                    </AlertDescription>
+                  </Alert>
+                )}
               </>
             )}
 
-            {/* No-show reason select */}
             {resolutionAction === "mark_no_show" && (
               <FormField
                 control={form.control}
@@ -453,8 +480,7 @@ export function ReviewResolutionDialog({
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      Reason{" "}
-                      <span className="text-destructive">*</span>
+                      Reason <span className="text-destructive">*</span>
                     </FormLabel>
                     <Select
                       onValueChange={field.onChange}
@@ -467,9 +493,9 @@ export function ReviewResolutionDialog({
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {NO_SHOW_REASONS.map((r) => (
-                          <SelectItem key={r.value} value={r.value}>
-                            {r.label}
+                        {NO_SHOW_REASONS.map((reason) => (
+                          <SelectItem key={reason.value} value={reason.value}>
+                            {reason.label}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -480,7 +506,6 @@ export function ReviewResolutionDialog({
               />
             )}
 
-            {/* Lost reason */}
             {resolutionAction === "mark_lost" && (
               <FormField
                 control={form.control}
@@ -501,7 +526,6 @@ export function ReviewResolutionDialog({
               />
             )}
 
-            {/* Admin note -- all actions */}
             <FormField
               control={form.control}
               name="resolutionNote"
@@ -546,7 +570,7 @@ export function ReviewResolutionDialog({
               </Button>
               <Button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || isLogPaymentBlocked}
                 variant={
                   resolutionAction === "mark_lost" ||
                   resolutionAction === "disputed"

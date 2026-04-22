@@ -7,11 +7,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { MeetingBlock } from "./meeting-block";
 import {
   type EnrichedMeeting,
+  type PositionedMeeting,
   HOUR_HEIGHT,
   computeHourRange,
-  getTopPx,
+  getBlockHorizontalStyle,
   getHeightPx,
+  getTopPx,
   formatHour,
+  layoutMeetings,
   useCurrentTime,
 } from "./calendar-utils";
 
@@ -74,19 +77,25 @@ export function WeekView({ meetings, startDate }: WeekViewProps) {
     [startDate],
   );
 
-  // Build a Map<dayIndex, meeting[]> for O(1) lookups
+  // Build a Map<dayIndex, meeting[]> for O(1) lookups, and run each day's
+  // meetings through the overlap-column layout so overlapping events render
+  // side-by-side instead of stacked on top of each other.
   // (js-index-maps)
   const meetingsByDay = useMemo(() => {
-    const map = new Map<number, EnrichedMeeting[]>();
+    const grouped = new Map<number, EnrichedMeeting[]>();
     for (const m of meetings) {
       const mDate = new Date(m.meeting.scheduledAt);
       const dayIdx = days.findIndex((d) => isSameDay(d, mDate));
       if (dayIdx === -1) continue;
-      const list = map.get(dayIdx) ?? [];
+      const list = grouped.get(dayIdx) ?? [];
       list.push(m);
-      map.set(dayIdx, list);
+      grouped.set(dayIdx, list);
     }
-    return map;
+    const positioned = new Map<number, PositionedMeeting[]>();
+    for (const [dayIdx, list] of grouped) {
+      positioned.set(dayIdx, layoutMeetings(list));
+    }
+    return positioned;
   }, [meetings, days]);
 
   // Derive visible hour range from actual meeting data (±2h padding)
@@ -182,6 +191,7 @@ export function WeekView({ meetings, startDate }: WeekViewProps) {
                     style={{
                       top: getTopPx(m.meeting.scheduledAt, startHour),
                       height: getHeightPx(m.meeting.durationMinutes),
+                      ...getBlockHorizontalStyle(m.column, m.columnCount),
                     }}
                   />
                 ))}

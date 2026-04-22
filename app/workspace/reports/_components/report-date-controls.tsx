@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import type { DateRange as CalendarDateRange } from "react-day-picker";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import {
@@ -125,6 +127,43 @@ export function ReportDateControls({
   showGranularity = false,
 }: ReportDateControlsProps) {
   const displayEndDate = getDisplayEndDate(value.endDate);
+  const [isOpen, setIsOpen] = useState(false);
+  // Pending range for the calendar while the popover is open. This prevents the
+  // filter from being applied on the first click (which in react-day-picker's
+  // controlled range mode produces a complete range by retaining the old `to`)
+  // and instead defers the commit until the user explicitly clicks Apply.
+  const [pendingRange, setPendingRange] = useState<
+    CalendarDateRange | undefined
+  >(undefined);
+
+  const canApply = Boolean(pendingRange?.from && pendingRange?.to);
+
+  // Handle popover open/close as an event: when it's about to open, seed the
+  // pending range from the currently applied value so the calendar starts in
+  // a clean, known state each time. (Avoids `setState` inside a `useEffect`.)
+  const handleOpenChange = (next: boolean) => {
+    if (next) {
+      setPendingRange({
+        from: new Date(value.startDate),
+        to: displayEndDate,
+      });
+    }
+    setIsOpen(next);
+  };
+
+  const handleApply = () => {
+    if (pendingRange?.from && pendingRange?.to) {
+      onChange({
+        startDate: getStartOfDayTimestamp(pendingRange.from),
+        endDate: getExclusiveUpperTimestamp(pendingRange.to),
+      });
+    }
+    setIsOpen(false);
+  };
+
+  const handleCancel = () => {
+    setIsOpen(false);
+  };
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -141,7 +180,7 @@ export function ReportDateControls({
       ))}
 
       {/* Custom date range picker */}
-      <Popover>
+      <Popover open={isOpen} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
           <Button variant="outline" size="sm">
             <CalendarIcon className="mr-2 h-4 w-4" />
@@ -152,19 +191,17 @@ export function ReportDateControls({
         <PopoverContent className="w-auto p-0" align="start">
           <Calendar
             mode="range"
-            selected={{
-              from: new Date(value.startDate),
-              to: displayEndDate,
-            }}
-            onSelect={(range) => {
-              if (range?.from && range?.to) {
-                onChange({
-                  startDate: getStartOfDayTimestamp(range.from),
-                  endDate: getExclusiveUpperTimestamp(range.to),
-                });
-              }
-            }}
+            selected={pendingRange}
+            onSelect={(range) => setPendingRange(range)}
           />
+          <div className="flex items-center justify-end gap-2 border-t p-2">
+            <Button variant="ghost" size="sm" onClick={handleCancel}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={handleApply} disabled={!canApply}>
+              Apply
+            </Button>
+          </div>
         </PopoverContent>
       </Popover>
 

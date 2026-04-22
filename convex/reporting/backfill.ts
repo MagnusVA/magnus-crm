@@ -1,7 +1,10 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
 import { internalMutation, internalQuery } from "../_generated/server";
+import {
+  normalizePaymentOrigin,
+  type PaymentOrigin,
+} from "../lib/paymentTypes";
 import {
   customerConversions,
   leadTimeline,
@@ -14,36 +17,7 @@ const CLASSIFICATION_PAGE_SIZE = 100;
 const AGGREGATE_PAGE_SIZE = 200;
 const ORIGIN_BACKFILL_PAGE_SIZE = 100;
 
-type PaymentOrigin =
-  | "closer_meeting"
-  | "closer_reminder"
-  | "admin_meeting"
-  | "customer_flow";
-
 type FollowUpCreatedSource = "closer" | "admin" | "system";
-
-function parseMetadata(
-  metadata: string | undefined | null,
-): Record<string, unknown> | null {
-  if (!metadata) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(metadata);
-    return typeof parsed === "object" && parsed !== null
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-function asUserId(value: unknown): Id<"users"> | undefined {
-  return typeof value === "string" && value.length > 0
-    ? (value as Id<"users">)
-    : undefined;
-}
 
 export const backfillMeetingClassification = internalMutation({
   args: { cursor: v.optional(v.string()) },
@@ -239,16 +213,15 @@ export const backfillPaymentOrigin = internalMutation({
     let defaultedToCloserMeeting = 0;
 
     for (const payment of result.page) {
-      if (payment.origin !== undefined) {
+      if (payment.origin) {
         skipped += 1;
         continue;
       }
 
       let origin: PaymentOrigin =
         payment.contextType === "customer"
-          ? "customer_flow"
+          ? "customer_direct"
           : "closer_meeting";
-      let loggedByAdminUserId: Id<"users"> | undefined;
       let usedDefault = false;
 
       const events = await ctx.db
@@ -263,29 +236,15 @@ export const backfillPaymentOrigin = internalMutation({
       const recordedEvent =
         events.find((event) => event.eventType === "payment.recorded") ?? null;
 
-      if (recordedEvent) {
-        const metadata = parseMetadata(recordedEvent.metadata);
-
-        if (payment.contextType !== "customer") {
-          if (metadata?.origin === "reminder") {
-            origin = "closer_reminder";
-          } else if (
-            recordedEvent.source === "admin" ||
-            asUserId(metadata?.loggedByAdminUserId)
-          ) {
-            origin = "admin_meeting";
-          } else if (recordedEvent.source === "closer") {
-            origin = "closer_meeting";
-          } else {
-            origin = "closer_meeting";
-            usedDefault = true;
-          }
+      if (recordedEvent && payment.contextType !== "customer") {
+        if (recordedEvent.source === "admin") {
+          origin = "admin_meeting";
+        } else if (recordedEvent.source === "closer") {
+          origin = "closer_meeting";
+        } else {
+          origin = "closer_meeting";
+          usedDefault = true;
         }
-
-        loggedByAdminUserId =
-          (recordedEvent.source === "admin"
-            ? recordedEvent.actorUserId
-            : undefined) ?? asUserId(metadata?.loggedByAdminUserId);
       } else if (payment.contextType !== "customer") {
         usedDefault = true;
       }
@@ -294,10 +253,7 @@ export const backfillPaymentOrigin = internalMutation({
         defaultedToCloserMeeting += 1;
       }
 
-      await ctx.db.patch(payment._id, {
-        origin,
-        loggedByAdminUserId,
-      });
+      await ctx.db.patch(payment._id, { origin });
       updated += 1;
     }
 
@@ -338,7 +294,10 @@ export const auditPaymentOriginBackfill = internalQuery({
       closer_meeting: 0,
       closer_reminder: 0,
       admin_meeting: 0,
-      customer_flow: 0,
+      admin_reminder: 0,
+      admin_review_resolution: 0,
+      customer_direct: 0,
+      bookkeeper_direct: 0,
     };
 
     while (true) {
@@ -350,11 +309,11 @@ export const auditPaymentOriginBackfill = internalQuery({
       for (const payment of result.page) {
         total += 1;
 
-        if (payment.origin !== undefined) {
+        if (payment.origin) {
           withOrigin += 1;
-          byOrigin[payment.origin] += 1;
+          byOrigin[normalizePaymentOrigin(payment.origin, payment.contextType)] += 1;
         }
-        if (payment.loggedByAdminUserId !== undefined) {
+        if (payment.origin?.startsWith("admin_")) {
           adminAttributed += 1;
         }
       }

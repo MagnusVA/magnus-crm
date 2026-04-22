@@ -3,6 +3,84 @@ import type { MutationCtx } from "../_generated/server";
 import { emitDomainEvent } from "./domainEvents";
 import { updateTenantStats } from "./tenantStatsHelper";
 import { deleteCustomerAggregate } from "../reporting/writeHooks";
+import {
+  type AssertablePaymentShape,
+  type CommissionableOrigin,
+  isNonCommissionableOrigin,
+  type NonCommissionableOrigin,
+  type PaymentType,
+} from "./paymentTypes";
+
+export type {
+  AssertablePaymentShape,
+  CommissionableOrigin,
+  NonCommissionableOrigin,
+  PaymentType,
+} from "./paymentTypes";
+
+export function assertPaymentRow(row: AssertablePaymentShape): void {
+  if (row.commissionable && row.attributedCloserId === undefined) {
+    throw new Error(
+      "[Payments] invariant: commissionable row must have attributedCloserId",
+    );
+  }
+
+  if (!row.commissionable && row.attributedCloserId !== undefined) {
+    throw new Error(
+      "[Payments] invariant: non-commissionable row must not carry attributedCloserId",
+    );
+  }
+
+  if (
+    row.commissionable &&
+    (row.contextType !== "opportunity" || row.opportunityId === undefined)
+  ) {
+    throw new Error(
+      "[Payments] invariant: commissionable row must link to an opportunity",
+    );
+  }
+
+  if (
+    !row.commissionable &&
+    (row.contextType !== "customer" || row.customerId === undefined)
+  ) {
+    throw new Error(
+      "[Payments] invariant: non-commissionable row must link to a customer",
+    );
+  }
+
+  const originIsNonCommissionable = isNonCommissionableOrigin(row.origin);
+  if (row.commissionable === originIsNonCommissionable) {
+    throw new Error(
+      `[Payments] invariant: origin "${row.origin}" contradicts commissionable=${row.commissionable}`,
+    );
+  }
+}
+
+export async function requireActiveProgram(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  programId: Id<"tenantPrograms">,
+) {
+  const program = await ctx.db.get(programId);
+  if (!program || program.tenantId !== tenantId) {
+    throw new Error("Program not found");
+  }
+  if (program.archivedAt !== undefined) {
+    throw new Error(
+      `Program "${program.name}" is archived and cannot accept new payments. Restore it in Settings → Programs first.`,
+    );
+  }
+  return program;
+}
+
+export async function resolveProgramForWrite(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  programId: Id<"tenantPrograms">,
+) {
+  return await requireActiveProgram(ctx, tenantId, programId);
+}
 
 export async function syncCustomerPaymentSummary(
   ctx: MutationCtx,

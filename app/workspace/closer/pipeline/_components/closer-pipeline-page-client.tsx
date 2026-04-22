@@ -58,7 +58,7 @@ function CloserPipelineContent() {
   const periodParam = searchParams.get("period");
   const initialPeriod: PipelinePeriod = isValidPeriod(periodParam)
     ? periodParam
-    : "all";
+    : "today";
 
   const [statusFilter, setStatusFilter] = useState<
     OpportunityStatus | undefined
@@ -81,7 +81,7 @@ function CloserPipelineContent() {
         params.delete("status");
       }
 
-      if (nextPeriod && nextPeriod !== "all") {
+      if (nextPeriod && nextPeriod !== "today") {
         params.set("period", nextPeriod);
       } else {
         params.delete("period");

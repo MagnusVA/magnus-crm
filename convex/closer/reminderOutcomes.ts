@@ -6,9 +6,16 @@ import { executeConversion } from "../customers/conversion";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
 import { assertOverranReviewStillPending } from "../lib/overranReviewGuards";
-import { syncCustomerPaymentSummary } from "../lib/paymentHelpers";
+import {
+  assertPaymentRow,
+  resolveProgramForWrite,
+  syncCustomerPaymentSummary,
+  type CommissionableOrigin,
+} from "../lib/paymentHelpers";
+import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { validateTransition } from "../lib/statusTransitions";
 import {
+  applyPaymentStatsDelta,
   isActiveOpportunityStatus,
   updateTenantStats,
 } from "../lib/tenantStatsHelper";
@@ -62,17 +69,62 @@ async function assertOwnedPendingReminder(
   return { followUp, opportunity, tenantId, userId };
 }
 
+async function loadPendingReminderForPayment(
+  ctx: MutationCtx,
+  followUpId: Id<"followUps">,
+): Promise<{
+  followUp: Doc<"followUps">;
+  opportunity: Doc<"opportunities">;
+  tenantId: Id<"tenants">;
+  userId: Id<"users">;
+  role: "closer" | "tenant_master" | "tenant_admin";
+}> {
+  const { userId, tenantId, role } = await requireTenantUser(ctx, [
+    "closer",
+    "tenant_master",
+    "tenant_admin",
+  ]);
+
+  const followUp = await ctx.db.get(followUpId);
+  if (!followUp) {
+    throw new Error("Reminder not found");
+  }
+  if (followUp.tenantId !== tenantId) {
+    throw new Error("Access denied");
+  }
+  if (role === "closer" && followUp.closerId !== userId) {
+    throw new Error("Not your reminder");
+  }
+  if (followUp.type !== "manual_reminder") {
+    throw new Error("Only manual reminders can be resolved on this page");
+  }
+  if (followUp.status !== "pending") {
+    throw new Error("Reminder is not pending");
+  }
+
+  const opportunity = await ctx.db.get(followUp.opportunityId);
+  if (!opportunity || opportunity.tenantId !== tenantId) {
+    throw new Error("Opportunity not found");
+  }
+  if (opportunity.status === "meeting_overran") {
+    await assertOverranReviewStillPending(ctx, opportunity._id);
+  }
+
+  return { followUp, opportunity, tenantId, userId, role };
+}
+
 export const logReminderPayment = mutation({
   args: {
     followUpId: v.id("followUps"),
     amount: v.number(),
     currency: v.string(),
-    provider: v.string(),
-    referenceCode: v.optional(v.string()),
+    programId: v.id("tenantPrograms"),
+    paymentType: paymentTypeValidator,
     proofFileId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args) => {
-    const { opportunity, tenantId, userId } = await assertOwnedPendingReminder(
+    const { followUp, opportunity, tenantId, userId, role } =
+      await loadPendingReminderForPayment(
       ctx,
       args.followUpId,
     );
@@ -87,47 +139,68 @@ export const logReminderPayment = mutation({
     }
 
     const currency = validateCurrency(args.currency);
-    const provider = args.provider.trim();
-    if (!provider) {
-      throw new Error("Provider is required");
-    }
-
+    const program = await resolveProgramForWrite(ctx, tenantId, args.programId);
+    const paymentType = resolvePaymentType(args.paymentType);
     const now = Date.now();
     const amountMinor = toAmountMinor(args.amount);
     const meetingId = opportunity.latestMeetingId ?? undefined;
     const previousOpportunityStatus = opportunity.status;
+    const attributedCloserId =
+      role === "closer" ? userId : followUp.closerId;
+    const origin: CommissionableOrigin =
+      role === "closer" ? "closer_reminder" : "admin_reminder";
+
+    assertPaymentRow({
+      tenantId,
+      commissionable: true,
+      attributedCloserId,
+      recordedByUserId: userId,
+      origin,
+      contextType: "opportunity",
+      opportunityId: opportunity._id,
+      customerId: undefined,
+      programId: program._id,
+      paymentType,
+    });
 
     const paymentId = await ctx.db.insert("paymentRecords", {
       tenantId,
       opportunityId: opportunity._id,
       meetingId,
-      closerId: userId,
+      attributedCloserId,
+      recordedByUserId: userId,
+      commissionable: true,
       amountMinor,
       currency,
-      provider,
-      referenceCode: normalizeOptionalString(args.referenceCode),
+      programId: program._id,
+      programName: program.name,
+      paymentType,
       proofFileId: args.proofFileId ?? undefined,
       status: "recorded",
       statusChangedAt: now,
       recordedAt: now,
       contextType: "opportunity",
-      origin: "closer_reminder",
+      origin,
     });
     await insertPaymentAggregate(ctx, paymentId);
 
     await ctx.db.patch(opportunity._id, {
+      ...(role !== "closer" && opportunity.assignedCloserId !== followUp.closerId
+        ? { assignedCloserId: followUp.closerId }
+        : {}),
       status: "payment_received",
       paymentReceivedAt: now,
       updatedAt: now,
     });
     await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
-    await updateTenantStats(ctx, tenantId, {
-      activeOpportunities: isActiveOpportunityStatus(previousOpportunityStatus)
+    await applyPaymentStatsDelta(ctx, tenantId, {
+      commissionable: true,
+      paymentType,
+      amountMinorDelta: amountMinor,
+      wonDealDelta: 1,
+      activeOpportunityDelta: isActiveOpportunityStatus(previousOpportunityStatus)
         ? -1
         : 0,
-      wonDeals: 1,
-      totalPaymentRecords: 1,
-      totalRevenueMinor: amountMinor,
     });
 
     await ctx.db.patch(args.followUpId, {
@@ -141,7 +214,7 @@ export const logReminderPayment = mutation({
       entityType: "payment",
       entityId: paymentId,
       eventType: "payment.recorded",
-      source: "closer",
+      source: role === "closer" ? "closer" : "admin",
       actorUserId: userId,
       toStatus: "recorded",
       metadata: {
@@ -150,7 +223,13 @@ export const logReminderPayment = mutation({
         followUpId: args.followUpId,
         amountMinor,
         currency,
-        origin: "reminder",
+        programId: program._id,
+        programName: program.name,
+        paymentType,
+        commissionable: true,
+        attributedCloserId,
+        recordedByUserId: userId,
+        origin,
       },
       occurredAt: now,
     });
@@ -159,7 +238,7 @@ export const logReminderPayment = mutation({
       entityType: "opportunity",
       entityId: opportunity._id,
       eventType: "opportunity.status_changed",
-      source: "closer",
+      source: role === "closer" ? "closer" : "admin",
       actorUserId: userId,
       fromStatus: previousOpportunityStatus,
       toStatus: "payment_received",
@@ -170,13 +249,13 @@ export const logReminderPayment = mutation({
       entityType: "followUp",
       entityId: args.followUpId,
       eventType: "followUp.completed",
-      source: "closer",
+      source: role === "closer" ? "closer" : "admin",
       actorUserId: userId,
       fromStatus: "pending",
       toStatus: "completed",
       metadata: {
         outcome: "payment_received",
-        origin: "reminder",
+        origin,
       },
       occurredAt: now,
     });

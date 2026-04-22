@@ -18,7 +18,10 @@ import { PlayIcon, InfoIcon, ClockIcon, UserXIcon } from "lucide-react";
 import { toast } from "sonner";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
 import posthog from "posthog-js";
+import { cn } from "@/lib/utils";
 import { EndMeetingButton } from "./end-meeting-button";
+
+const WIGGLE_DURATION_MS = 500; // matches attention-wiggle keyframe duration
 
 // Lazy-load dialog components that are only shown on user interaction
 const MarkLostDialog = dynamic(() =>
@@ -68,6 +71,12 @@ type OutcomeActionBarProps = {
    */
   activeFollowUp?: ActiveFollowUpSummary | null;
   onStatusChanged?: () => Promise<void>;
+  /**
+   * Increment to briefly wiggle the action card and pulse the End
+   * Meeting button — fired when the closer dismissed the warning
+   * dialog after trying to navigate away from an in-progress meeting.
+   */
+  flashKey?: number;
 };
 
 const EARLY_JOIN_MINUTES = 5;
@@ -144,11 +153,26 @@ export function OutcomeActionBar({
   meetingReview,
   activeFollowUp = null,
   onStatusChanged,
+  flashKey,
 }: OutcomeActionBarProps) {
   const startMeeting = useMutation(api.closer.meetingActions.startMeeting);
   const [isStarting, setIsStarting] = useState(false);
   const [showNoShowDialog, setShowNoShowDialog] = useState(false);
+  const [isWiggling, setIsWiggling] = useState(false);
   const { status: windowStatus, windowOpen } = useMeetingStartWindow(meeting);
+
+  // Wiggle effect — re-triggers on every flashKey bump. Guard against
+  // initial mount (undefined or 0) so the card is static on first paint.
+  useEffect(() => {
+    if (!flashKey) return;
+    setIsWiggling(true);
+    const timer = window.setTimeout(() => {
+      setIsWiggling(false);
+    }, WIGGLE_DURATION_MS);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [flashKey]);
 
   const viewerIsCloser = viewerRole === "closer";
   const isMeetingScheduled = meeting.status === "scheduled";
@@ -241,7 +265,12 @@ export function OutcomeActionBar({
   }
 
   return (
-    <Card className="h-full">
+    <Card
+      className={cn(
+        "h-full",
+        isWiggling && "animate-attention-wiggle",
+      )}
+    >
       <CardHeader>
         <CardTitle>Actions</CardTitle>
       </CardHeader>
@@ -272,6 +301,7 @@ export function OutcomeActionBar({
                 meetingId={meeting._id}
                 meetingStatus={meeting.status}
                 onStopped={onStatusChanged}
+                flashKey={flashKey}
               />
             )}
           </div>

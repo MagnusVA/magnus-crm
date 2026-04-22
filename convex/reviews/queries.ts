@@ -2,10 +2,65 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { query } from "../_generated/server";
+import {
+  resolveLegacyCompatibleAttributedCloserId,
+  resolveLegacyCompatibleRecordedByUserId,
+} from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
 import { loadActiveFollowUpSummary } from "../lib/activeFollowUp";
 
 type ReviewStatus = Doc<"meetingReviews">["status"];
+type EnrichedPaymentRecord = Omit<
+  Doc<"paymentRecords">,
+  "attributedCloserId"
+> & {
+  amount: number;
+  attributedCloserId: Id<"users"> | undefined;
+  attributedCloserName: string | null;
+  recordedByName: string | null;
+};
+
+function resolveAttributedCloserId(
+  payment: Doc<"paymentRecords">,
+): Id<"users"> | undefined {
+  return resolveLegacyCompatibleAttributedCloserId(payment);
+}
+
+async function loadPaymentUserNameById(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  payments: Array<Doc<"paymentRecords">>,
+) {
+  const userIds = [
+    ...new Set(
+      payments.flatMap((payment) => {
+        const ids: Id<"users">[] = [];
+        const attributedCloserId = resolveAttributedCloserId(payment);
+        const recordedByUserId = resolveLegacyCompatibleRecordedByUserId(payment);
+        if (attributedCloserId) {
+          ids.push(attributedCloserId);
+        }
+        if (recordedByUserId) {
+          ids.push(recordedByUserId);
+        }
+        return ids;
+      }),
+    ),
+  ];
+
+  const users = await Promise.all(
+    userIds.map(async (userId) => [userId, await ctx.db.get(userId)] as const),
+  );
+
+  return new Map<Id<"users">, string | null>(
+    users.map(([userId, user]) => [
+      userId,
+      user && "tenantId" in user && user.tenantId === tenantId
+        ? (user.fullName ?? user.email)
+        : null,
+    ]),
+  );
+}
 
 async function listReviewsByStatus(
   ctx: QueryCtx,
@@ -137,7 +192,7 @@ export const getReviewDetail = query({
     // admin can review the full context before acknowledging or disputing.
     // All of this data is bounded per-opportunity (usually 0-3 payments,
     // always ≤1 lost/no-show actor).
-    const [paymentRecords, lostByUser, noShowByUser] = await Promise.all([
+    const [paymentRecordsRaw, lostByUser, noShowByUser] = await Promise.all([
       ctx.db
         .query("paymentRecords")
         .withIndex("by_opportunityId", (q) =>
@@ -149,6 +204,34 @@ export const getReviewDetail = query({
         ? ctx.db.get(meeting.noShowMarkedByUserId)
         : null,
     ]);
+
+    const paymentUserNameById = await loadPaymentUserNameById(
+      ctx,
+      tenantId,
+      paymentRecordsRaw,
+    );
+    const paymentRecords: EnrichedPaymentRecord[] = paymentRecordsRaw
+      .filter((payment) => payment.tenantId === tenantId)
+      .map((payment) => {
+        const attributedCloserId = resolveAttributedCloserId(payment);
+        return {
+          ...payment,
+          amount: payment.amountMinor / 100,
+          attributedCloserId,
+          attributedCloserName: attributedCloserId
+            ? (paymentUserNameById.get(attributedCloserId) ?? null)
+            : null,
+          recordedByName: (() => {
+            const recordedByUserId = resolveLegacyCompatibleRecordedByUserId(
+              payment,
+            );
+            return recordedByUserId
+              ? (paymentUserNameById.get(recordedByUserId) ?? null)
+              : null;
+          })(),
+        };
+      });
+    paymentRecords.sort((a, b) => b.recordedAt - a.recordedAt);
 
     return {
       review,

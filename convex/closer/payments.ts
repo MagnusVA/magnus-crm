@@ -1,74 +1,43 @@
 import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
-import { requireTenantUser } from "../requireTenantUser";
-import { validateTransition } from "../lib/statusTransitions";
 import { executeConversion } from "../customers/conversion";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
+import {
+  assertPaymentRow,
+  resolveProgramForWrite,
+  syncCustomerPaymentSummary,
+  type CommissionableOrigin,
+} from "../lib/paymentHelpers";
 import { assertOverranReviewStillPending } from "../lib/overranReviewGuards";
-import { syncCustomerPaymentSummary } from "../lib/paymentHelpers";
+import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
+import { validateTransition } from "../lib/statusTransitions";
+import {
+  applyPaymentStatsDelta,
+  isActiveOpportunityStatus,
+} from "../lib/tenantStatsHelper";
+import { requireTenantUser } from "../requireTenantUser";
 import {
   insertPaymentAggregate,
   replaceOpportunityAggregate,
 } from "../reporting/writeHooks";
-import {
-  isActiveOpportunityStatus,
-  updateTenantStats,
-} from "../lib/tenantStatsHelper";
 
-/**
- * OUTCOME MUTATION CONTRACT
- *
- * Outcome mutations operate on the opportunity only. They MUST NOT write:
- * - meetings.startedAt / startedAtSource
- * - meetings.stoppedAt / stoppedAtSource
- * - meetings.completedAt
- * - meetings.status
- *
- * Rationale: logging a payment can happen mid-call. The meeting lifecycle is
- * ended explicitly via stopMeeting. The lone exception is markNoShow, because
- * the closer waited through the meeting window and the end timestamp is known.
- */
-
-/**
- * Generate a file upload URL for payment proof.
- *
- * Returns a short-lived URL that the client uses to upload a file
- * to Convex file storage. The resulting storage ID is then passed
- * to logPayment as proofFileId.
- *
- * Accessible by closers and admins.
- */
 export const generateUploadUrl = mutation({
   args: {},
   handler: async (ctx) => {
-    console.log("[Closer:Payment] generateUploadUrl called");
     await requireTenantUser(ctx, ["closer", "tenant_master", "tenant_admin"]);
     return await ctx.storage.generateUploadUrl();
   },
 });
 
-/**
- * Log a payment for an opportunity.
- *
- * Creates a paymentRecords entry and transitions the opportunity
- * to "payment_received" (terminal state).
- *
- * The payment proof file (if any) must already be uploaded to Convex
- * file storage via generateUploadUrl — pass the resulting storage ID
- * as proofFileId.
- *
- * Only closers can log payments on their own opportunities.
- * Admins can log payments on any opportunity.
- */
 export const logPayment = mutation({
   args: {
     opportunityId: v.id("opportunities"),
     meetingId: v.id("meetings"),
     amount: v.number(),
     currency: v.string(),
-    provider: v.string(),
-    referenceCode: v.optional(v.string()),
+    programId: v.id("tenantPrograms"),
+    paymentType: paymentTypeValidator,
     proofFileId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args) => {
@@ -77,7 +46,8 @@ export const logPayment = mutation({
       meetingId: args.meetingId,
       amount: args.amount,
       currency: args.currency,
-      provider: args.provider,
+      programId: args.programId,
+      paymentType: args.paymentType,
       hasProofFile: !!args.proofFileId,
     });
     const { userId, tenantId, role } = await requireTenantUser(ctx, [
@@ -86,25 +56,15 @@ export const logPayment = mutation({
       "tenant_admin",
     ]);
 
-    // Load and validate the opportunity
     const opportunity = await ctx.db.get(args.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
-
-    // Closer authorization: only own opportunities
     if (role === "closer" && opportunity.assignedCloserId !== userId) {
       throw new Error("Not your opportunity");
     }
 
-    // Validate the meeting belongs to this opportunity
     const meeting = await ctx.db.get(args.meetingId);
-    console.log("[Closer:Payment] logPayment validation", {
-      opportunityFound: !!opportunity,
-      meetingFound: !!meeting,
-      meetingBelongsToOpp: meeting?.opportunityId === args.opportunityId,
-      currentStatus: opportunity?.status,
-    });
     if (
       !meeting ||
       meeting.tenantId !== tenantId ||
@@ -115,71 +75,79 @@ export const logPayment = mutation({
     if (opportunity.status === "meeting_overran") {
       await assertOverranReviewStillPending(ctx, opportunity._id);
     }
-
-    // Validate status transition
     if (!validateTransition(opportunity.status, "payment_received")) {
-      throw new Error(`Cannot log payment for opportunity with status "${opportunity.status}"`);
+      throw new Error(
+        `Cannot log payment for opportunity with status "${opportunity.status}"`,
+      );
     }
-
-    // Validate amount
     if (args.amount <= 0) {
       throw new Error("Payment amount must be positive");
     }
 
     const currency = validateCurrency(args.currency);
-
-    const provider = args.provider.trim();
-    if (!provider) {
-      throw new Error("Provider is required");
-    }
-
-    const referenceCode = args.referenceCode?.trim();
-    const now = Date.now();
     const amountMinor = toAmountMinor(args.amount);
+    const now = Date.now();
+    const program = await resolveProgramForWrite(ctx, tenantId, args.programId);
+    const paymentType = resolvePaymentType(args.paymentType);
 
-    // Determine attribution: admin-logged payments are attributed to the assigned
-    // closer so the sale appears in the closer's stats and dashboard — not the admin's.
+    if (role !== "closer" && !opportunity.assignedCloserId) {
+      throw new Error("Assign a closer before logging a commissionable payment");
+    }
     const attributedCloserId =
-      role === "closer" ? userId : (opportunity.assignedCloserId ?? userId);
-    const origin =
+      role === "closer" ? userId : opportunity.assignedCloserId!;
+    const origin: CommissionableOrigin =
       role === "closer" ? "closer_meeting" : "admin_meeting";
-    const loggedByAdminUserId = role === "closer" ? undefined : userId;
 
-    // Create payment record
+    assertPaymentRow({
+      tenantId,
+      commissionable: true,
+      attributedCloserId,
+      recordedByUserId: userId,
+      origin,
+      contextType: "opportunity",
+      opportunityId: args.opportunityId,
+      customerId: undefined,
+      programId: program._id,
+      paymentType,
+    });
+
     const paymentId = await ctx.db.insert("paymentRecords", {
       tenantId,
       opportunityId: args.opportunityId,
       meetingId: args.meetingId,
-      closerId: attributedCloserId,
+      attributedCloserId,
+      recordedByUserId: userId,
+      commissionable: true,
       amountMinor,
       currency,
-      provider,
-      referenceCode: referenceCode || undefined,
+      programId: program._id,
+      programName: program.name,
+      paymentType,
       proofFileId: args.proofFileId ?? undefined,
       status: "recorded",
       statusChangedAt: now,
       recordedAt: now,
       contextType: "opportunity",
       origin,
-      loggedByAdminUserId,
     });
-
-    console.log("[Closer:Payment] payment record created", { paymentId });
     await insertPaymentAggregate(ctx, paymentId);
 
-    // Transition opportunity to payment_received (terminal state)
     await ctx.db.patch(args.opportunityId, {
       status: "payment_received",
       paymentReceivedAt: now,
       updatedAt: now,
     });
     await replaceOpportunityAggregate(ctx, opportunity, args.opportunityId);
-    await updateTenantStats(ctx, tenantId, {
-      activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? -1 : 0,
-      wonDeals: 1,
-      totalPaymentRecords: 1,
-      totalRevenueMinor: amountMinor,
+    await applyPaymentStatsDelta(ctx, tenantId, {
+      commissionable: true,
+      paymentType,
+      amountMinorDelta: amountMinor,
+      wonDealDelta: 1,
+      activeOpportunityDelta: isActiveOpportunityStatus(opportunity.status)
+        ? -1
+        : 0,
     });
+
     await emitDomainEvent(ctx, {
       tenantId,
       entityType: "payment",
@@ -193,8 +161,13 @@ export const logPayment = mutation({
         meetingId: args.meetingId,
         amountMinor,
         currency,
-        attributedCloserId: attributedCloserId,
-        ...(role !== "closer" && { loggedByAdminUserId: userId }),
+        programId: program._id,
+        programName: program.name,
+        paymentType,
+        commissionable: true,
+        attributedCloserId,
+        recordedByUserId: userId,
+        origin,
       },
       occurredAt: now,
     });
@@ -210,10 +183,6 @@ export const logPayment = mutation({
       occurredAt: now,
     });
 
-    console.log("[Closer:Payment] opportunity transitioned to payment_received", { opportunityId: args.opportunityId });
-
-    // === Feature D: Auto-conversion ===
-    // After payment_received, auto-convert the lead to a customer.
     const customerId = await executeConversion(ctx, {
       tenantId,
       leadId: opportunity.leadId,
@@ -223,16 +192,9 @@ export const logPayment = mutation({
     });
 
     if (customerId) {
-      // Set customerId on the payment record we just created
       await ctx.db.patch(paymentId, { customerId });
       await syncCustomerPaymentSummary(ctx, customerId);
-      console.log("[Closer:Payment] Auto-conversion complete", {
-        paymentId,
-        customerId,
-      });
     } else {
-      // Customer already exists — this is a returning customer / additional sale
-      // Find the existing customer and link this payment
       const existingCustomer = await ctx.db
         .query("customers")
         .withIndex("by_tenantId_and_leadId", (q) =>
@@ -240,35 +202,18 @@ export const logPayment = mutation({
         )
         .first();
       if (existingCustomer) {
-        await ctx.db.patch(paymentId, {
-          customerId: existingCustomer._id,
-        });
+        await ctx.db.patch(paymentId, { customerId: existingCustomer._id });
         await syncCustomerPaymentSummary(ctx, existingCustomer._id);
-        console.log("[Closer:Payment] Payment linked to existing customer", {
-          paymentId,
-          customerId: existingCustomer._id,
-        });
       }
     }
-    // === End Feature D ===
 
     return paymentId;
   },
 });
 
-/**
- * Get a tenant-scoped URL for a payment proof file.
- *
- * Validates that the caller belongs to the same tenant as the
- * payment record before generating the file URL.
- *
- * Returns null if the record doesn't exist, has no proof file,
- * or the caller isn't authorized.
- */
 export const getPaymentProofUrl = query({
   args: { paymentRecordId: v.id("paymentRecords") },
   handler: async (ctx, { paymentRecordId }) => {
-    console.log("[Closer:Payment] getPaymentProofUrl called", { paymentRecordId });
     const { tenantId } = await requireTenantUser(ctx, [
       "closer",
       "tenant_master",
@@ -277,11 +222,9 @@ export const getPaymentProofUrl = query({
 
     const record = await ctx.db.get(paymentRecordId);
     if (!record || record.tenantId !== tenantId || !record.proofFileId) {
-      console.log("[Closer:Payment] getPaymentProofUrl: not found or no proof", { found: !!record, hasProofFile: !!record?.proofFileId });
       return null;
     }
 
-    console.log("[Closer:Payment] getPaymentProofUrl: returning URL", { paymentRecordId });
     return await ctx.storage.getUrl(record.proofFileId);
   },
 });

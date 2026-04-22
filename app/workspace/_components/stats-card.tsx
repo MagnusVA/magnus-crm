@@ -9,11 +9,28 @@ interface StatsCardProps {
   label: string;
   value: number | string;
   subtext?: string;
-  variant?: "default" | "success" | "warning" | "destructive";
+  /**
+   * Visual treatment:
+   * - `primary`     — headline / hero metric (accent border + ring).
+   * - `default`     — standard card (no accent).
+   * - `muted`       — informational / lower-emphasis card (neutral bg).
+   * - `success`     — positive-outcome accent (emerald).
+   * - `warning`     — caution accent (amber).
+   * - `destructive` — negative-outcome accent (red).
+   */
+  variant?:
+    | "default"
+    | "primary"
+    | "muted"
+    | "success"
+    | "warning"
+    | "destructive";
 }
 
 const variantClasses = {
   default: "",
+  primary: "border-primary/30 bg-primary/5 ring-1 ring-primary/10",
+  muted: "border-border bg-muted/40",
   success: "border-emerald-500/20 bg-emerald-500/5",
   warning: "border-amber-500/20 bg-amber-500/5",
   destructive: "border-destructive/20 bg-destructive/5",

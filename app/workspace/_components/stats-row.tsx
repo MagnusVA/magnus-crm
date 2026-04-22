@@ -8,6 +8,9 @@ import {
   CalendarIcon,
   TrophyIcon,
   DollarSignIcon,
+  HandCoinsIcon,
+  CoinsIcon,
+  WalletIcon,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -27,6 +30,10 @@ interface PeriodStats {
   meetingsInPeriod: number;
   wonDealsInPeriod: number;
   revenueInPeriod: number;
+  closedWonInPeriod: number;
+  depositsInPeriod: number;
+  postConversionInPeriod: number;
+  postConversionDepositsInPeriod: number;
   paymentCountInPeriod: number;
   newCustomers: number;
 }
@@ -61,80 +68,107 @@ export function StatsRow({ stats, periodStats, periodLabel }: StatsRowProps) {
           (stats.activeOpportunities / stats.totalOpportunities) * 100,
         )
       : 0;
+  const periodSuffix = periodLabel.toLowerCase();
 
   return (
-    <div
-      className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5"
-      aria-live="polite"
-      aria-atomic="true"
-    >
-      {/* Static: current team size */}
-      <StatsCard
-        icon={UsersIcon}
-        label="Total Closers"
-        value={stats.totalClosers}
-        subtext={
-          stats.unmatchedClosers > 0
-            ? `${stats.unmatchedClosers} unmatched`
-            : "All matched"
-        }
-        variant={stats.unmatchedClosers > 0 ? "warning" : "default"}
-      />
-
-      {/* Static: current pipeline state */}
-      <StatsCard
-        icon={TrendingUpIcon}
-        label="Active Opportunities"
-        value={stats.activeOpportunities}
-        subtext={`${activePercent}% of ${stats.totalOpportunities} total`}
-      />
-
-      {/* Period-scoped: meetings in selected window */}
-      {periodStats ? (
+    <div className="flex flex-col gap-4" aria-live="polite" aria-atomic="true">
+      {/* Row 1 — static + period meetings / won deals */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <StatsCard
-          icon={CalendarIcon}
-          label="Meetings"
-          value={periodStats.meetingsInPeriod}
-          subtext={periodLabel}
+          icon={UsersIcon}
+          label="Total Closers"
+          value={stats.totalClosers}
+          subtext={
+            stats.unmatchedClosers > 0
+              ? `${stats.unmatchedClosers} unmatched`
+              : "All matched"
+          }
+          variant={stats.unmatchedClosers > 0 ? "warning" : "default"}
         />
-      ) : (
-        <PeriodStatCardSkeleton />
-      )}
 
-      {/* Period-scoped: won deals in selected window */}
-      {periodStats ? (
         <StatsCard
-          icon={TrophyIcon}
-          label="Won Deals"
-          value={periodStats.wonDealsInPeriod}
-          subtext={periodLabel}
-          variant={periodStats.wonDealsInPeriod > 0 ? "success" : "default"}
+          icon={TrendingUpIcon}
+          label="Active Opportunities"
+          value={stats.activeOpportunities}
+          subtext={`${activePercent}% of ${stats.totalOpportunities} total`}
         />
-      ) : (
-        <PeriodStatCardSkeleton />
-      )}
 
-      {/* Period-scoped: revenue in selected window */}
-      {periodStats ? (
-        periodStats.revenueInPeriod > 0 ? (
+        {periodStats ? (
           <StatsCard
-            icon={DollarSignIcon}
-            label="Revenue"
-            value={formatCurrency(periodStats.revenueInPeriod, "USD")}
-            subtext={`${periodStats.paymentCountInPeriod} payment${periodStats.paymentCountInPeriod !== 1 ? "s" : ""} ${periodLabel.toLowerCase()}`}
-            variant="success"
-          />
-        ) : (
-          <StatsCard
-            icon={DollarSignIcon}
-            label="Revenue"
-            value={formatCurrency(0, "USD")}
+            icon={CalendarIcon}
+            label="Meetings"
+            value={periodStats.meetingsInPeriod}
             subtext={periodLabel}
           />
-        )
-      ) : (
-        <PeriodStatCardSkeleton />
-      )}
+        ) : (
+          <PeriodStatCardSkeleton />
+        )}
+
+        {periodStats ? (
+          <StatsCard
+            icon={TrophyIcon}
+            label="Won Deals"
+            value={periodStats.wonDealsInPeriod}
+            subtext={periodLabel}
+            variant={periodStats.wonDealsInPeriod > 0 ? "success" : "default"}
+          />
+        ) : (
+          <PeriodStatCardSkeleton />
+        )}
+      </div>
+
+      {/* Row 2 — Commissionable Final / Commissionable Deposits / Post-Conversion Final / Post-Conversion Deposits */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {periodStats ? (
+          <StatsCard
+            icon={DollarSignIcon}
+            label="Commissionable Final"
+            value={formatCurrency(periodStats.closedWonInPeriod, "USD")}
+            subtext={`Closed-won revenue ${periodSuffix}`}
+            variant={periodStats.closedWonInPeriod > 0 ? "primary" : "default"}
+          />
+        ) : (
+          <PeriodStatCardSkeleton />
+        )}
+
+        {periodStats ? (
+          <StatsCard
+            icon={HandCoinsIcon}
+            label="Commissionable Deposits"
+            value={formatCurrency(periodStats.depositsInPeriod, "USD")}
+            subtext={`Deposits collected ${periodSuffix}`}
+          />
+        ) : (
+          <PeriodStatCardSkeleton />
+        )}
+
+        {periodStats ? (
+          <StatsCard
+            icon={CoinsIcon}
+            label="Post-Conversion Final"
+            value={formatCurrency(periodStats.postConversionInPeriod, "USD")}
+            subtext={`Customer-direct revenue ${periodSuffix}`}
+            variant="muted"
+          />
+        ) : (
+          <PeriodStatCardSkeleton />
+        )}
+
+        {periodStats ? (
+          <StatsCard
+            icon={WalletIcon}
+            label="Post-Conversion Deposits"
+            value={formatCurrency(
+              periodStats.postConversionDepositsInPeriod,
+              "USD",
+            )}
+            subtext={`Customer deposits ${periodSuffix}`}
+            variant="muted"
+          />
+        ) : (
+          <PeriodStatCardSkeleton />
+        )}
+      </div>
     </div>
   );
 }

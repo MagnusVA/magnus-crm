@@ -5,11 +5,11 @@ import { requireTenantUser } from "../requireTenantUser";
 import { meetingsByStatus } from "./aggregates";
 import {
   assertValidDateRange,
-  attributePaymentsToClosers,
   getActiveClosers,
   getNonDisputedPaymentsInRange,
   getUserDisplayName,
   makeTupleDateBounds,
+  splitPaymentsForRevenueReporting,
   summarizeAttributedPayments,
 } from "./lib/helpers";
 
@@ -212,18 +212,18 @@ export const getTeamPerformanceMetrics = query({
       startDate,
       endDate,
     );
-    const attributedPayments = await attributePaymentsToClosers(
-      ctx,
-      paymentScan.payments,
+    const paymentSplit = splitPaymentsForRevenueReporting(paymentScan.payments);
+    const commissionableFinalPayments = paymentSplit.commissionable.finalPayments;
+    const paymentSummary = summarizeAttributedPayments(
+      commissionableFinalPayments,
     );
-    const paymentSummary = summarizeAttributedPayments(attributedPayments);
     const activeCloserIds = new Set(closers.map((closer) => closer._id));
     const adminLoggedRevenueByCloser = new Map<Id<"users">, number>();
 
-    for (const payment of attributedPayments) {
+    for (const payment of commissionableFinalPayments) {
       if (
-        payment.loggedByAdminUserId === undefined ||
         payment.effectiveCloserId === null ||
+        payment.recordedByUserId === payment.effectiveCloserId ||
         !activeCloserIds.has(payment.effectiveCloserId)
       ) {
         continue;
@@ -412,6 +412,8 @@ export const getTeamPerformanceMetrics = query({
       teamTotals: {
         ...teamTotals,
         totalRevenueMinor: teamTotals.totalRevenue,
+        postConversionRevenueMinor:
+          paymentSplit.nonCommissionable.finalRevenueMinor,
         newConfirmedAttendanceDenominator:
           teamTotals.newBookedCalls -
           teamTotals.newCanceled -

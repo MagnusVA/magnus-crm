@@ -33,6 +33,7 @@ import {
   UserX,
   XCircle,
 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { getEventLabel } from "@/convex/reporting/lib/eventLabels";
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -68,6 +69,22 @@ const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   "x-circle": XCircle,
 };
 
+const PAYMENT_TYPE_LABELS: Record<string, string> = {
+  pif: "PIF",
+  split: "Split",
+  monthly: "Monthly",
+  deposit: "Deposit",
+};
+
+interface PaymentMetadata {
+  programId: string | null;
+  programName: string | null;
+  paymentType: string;
+  commissionable: boolean;
+  attributedCloserId: string | null;
+  originCategory: string;
+}
+
 interface ActivityEventRowProps {
   event: {
     _id: string;
@@ -79,6 +96,7 @@ interface ActivityEventRowProps {
     fromStatus?: string;
     toStatus?: string;
     metadata: Record<string, unknown> | null;
+    paymentMetadata?: PaymentMetadata | null;
   };
 }
 
@@ -97,6 +115,13 @@ export function ActivityEventRow({ event }: ActivityEventRowProps) {
   const fromStatus = event.fromStatus ?? legacyFromStatus;
   const toStatus = event.toStatus ?? legacyToStatus;
 
+  const paymentMetadata =
+    event.entityType === "payment" ? event.paymentMetadata ?? null : null;
+  const paymentTypeLabel = paymentMetadata
+    ? PAYMENT_TYPE_LABELS[paymentMetadata.paymentType] ??
+      paymentMetadata.paymentType
+    : null;
+
   return (
     <div className="flex items-start gap-3 rounded-lg border p-3 transition-colors hover:bg-muted/50">
       <div
@@ -106,7 +131,7 @@ export function ActivityEventRow({ event }: ActivityEventRowProps) {
         <Icon className="h-4 w-4 text-muted-foreground" />
       </div>
 
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
         <p className="text-sm">
           <span className="font-medium">{event.actorName ?? "System"}</span>{" "}
           {label.verb}
@@ -117,6 +142,26 @@ export function ActivityEventRow({ event }: ActivityEventRowProps) {
             {fromStatus} &rarr; {toStatus}
           </p>
         )}
+
+        {paymentMetadata ? (
+          <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+            {paymentMetadata.programName ? (
+              <Badge variant="secondary" className="tabular-nums">
+                {paymentMetadata.programName}
+              </Badge>
+            ) : null}
+            {paymentTypeLabel ? (
+              <Badge variant="outline">{paymentTypeLabel}</Badge>
+            ) : null}
+            <Badge
+              variant={paymentMetadata.commissionable ? "default" : "muted"}
+            >
+              {paymentMetadata.commissionable
+                ? "Commissionable"
+                : "Post-Conversion"}
+            </Badge>
+          </div>
+        ) : null}
 
         <p className="text-xs text-muted-foreground">
           {formatDistanceToNow(event.occurredAt, { addSuffix: true })}

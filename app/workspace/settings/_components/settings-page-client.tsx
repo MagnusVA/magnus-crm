@@ -11,6 +11,7 @@ import SettingsLoading from "../loading";
 import { CalendlyConnection } from "./calendly-connection";
 import { EventTypeConfigList } from "./event-type-config-list";
 import { FieldMappingsTab } from "./field-mappings-tab";
+import { ProgramsTab } from "./programs-tab";
 
 export function SettingsPageClient() {
   usePageTitle("Settings");
@@ -59,6 +60,7 @@ export function SettingsPageClient() {
           <TabsTrigger value="calendly">Calendly</TabsTrigger>
           <TabsTrigger value="event-types">Event Types</TabsTrigger>
           <TabsTrigger value="field-mappings">Field Mappings</TabsTrigger>
+          <TabsTrigger value="programs">Programs</TabsTrigger>
         </TabsList>
 
         <TabsContent value="calendly" className="mt-6">
@@ -71,6 +73,10 @@ export function SettingsPageClient() {
 
         <TabsContent value="field-mappings" className="mt-6">
           <FieldMappingsTab configs={configsWithStats} />
+        </TabsContent>
+
+        <TabsContent value="programs" className="mt-6">
+          <ProgramsTab />
         </TabsContent>
       </Tabs>
     </div>

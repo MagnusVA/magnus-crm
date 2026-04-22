@@ -1,6 +1,11 @@
 import type { GenericDataModel, TableNamesInDataModel } from "convex/server";
 import { internalQuery } from "../_generated/server";
+import type { Doc } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
+import {
+  resolveLegacyCompatibleAttributedCloserId,
+  resolveLegacyCompatiblePaymentCommissionable,
+} from "../lib/paymentTypes";
 import {
   customerConversions,
   leadTimeline,
@@ -31,6 +36,13 @@ async function countTableRows<
   }
 
   return count;
+}
+
+function isPaymentAggregateEligible(payment: Doc<"paymentRecords">): boolean {
+  return (
+    resolveLegacyCompatiblePaymentCommissionable(payment) &&
+    resolveLegacyCompatibleAttributedCloserId(payment) !== undefined
+  );
 }
 
 async function countAggregateRows(
@@ -65,6 +77,7 @@ export const verifyBackfillCounts = internalQuery({
       opportunitiesTableCount,
       paymentAggregateCount,
       paymentTableCount,
+      commissionablePaymentTableCount,
       tenantCount,
       unclassifiedMeetings,
     ] = await Promise.all([
@@ -78,6 +91,15 @@ export const verifyBackfillCounts = internalQuery({
       countTableRows(ctx, "opportunities"),
       countAggregateRows(ctx, paymentSums),
       countTableRows(ctx, "paymentRecords"),
+      (async () => {
+        let count = 0;
+        for await (const payment of ctx.db.query("paymentRecords")) {
+          if (isPaymentAggregateEligible(payment)) {
+            count += 1;
+          }
+        }
+        return count;
+      })(),
       countTableRows(ctx, "tenants"),
       (async () => {
         let count = 0;
@@ -114,7 +136,8 @@ export const verifyBackfillCounts = internalQuery({
       },
       paymentRecords: {
         aggregate: paymentAggregateCount,
-        match: paymentAggregateCount === paymentTableCount,
+        match: paymentAggregateCount === commissionablePaymentTableCount,
+        aggregateEligibleTable: commissionablePaymentTableCount,
         table: paymentTableCount,
       },
       tenantCount,
