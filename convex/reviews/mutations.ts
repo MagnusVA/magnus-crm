@@ -15,6 +15,7 @@ import {
   validateMeetingTransition,
   validateTransition,
 } from "../lib/statusTransitions";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import {
   applyPaymentStatsDelta,
   isActiveOpportunityStatus,
@@ -23,7 +24,6 @@ import {
 import { requireTenantUser } from "../requireTenantUser";
 import {
   replaceMeetingAggregate,
-  replaceOpportunityAggregate,
   replacePaymentAggregate,
 } from "../reporting/writeHooks";
 import { loadActiveFollowUpDoc } from "../lib/activeFollowUp";
@@ -329,7 +329,7 @@ export const resolveReview = mutation({
       }
 
       if (previousOpportunityStatus !== "meeting_overran") {
-        await ctx.db.patch(opportunity._id, {
+        await patchOpportunityLifecycle(ctx, opportunity._id, {
           status: "meeting_overran",
           updatedAt: now,
           ...(previousOpportunityStatus === "payment_received"
@@ -346,7 +346,6 @@ export const resolveReview = mutation({
             ? { noShowAt: undefined }
             : {}),
         });
-        await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
       }
 
       if (previousMeetingStatus === "no_show") {
@@ -516,7 +515,7 @@ export const resolveReview = mutation({
     }
 
     if (targetOpportunityStatus) {
-      await ctx.db.patch(opportunity._id, {
+      await patchOpportunityLifecycle(ctx, opportunity._id, {
         status: targetOpportunityStatus,
         updatedAt: now,
         ...(args.resolutionAction === "log_payment"
@@ -531,7 +530,6 @@ export const resolveReview = mutation({
           : {}),
         ...(args.resolutionAction === "mark_no_show" ? { noShowAt: now } : {}),
       });
-      await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
     }
 
     const falsePositiveCorrected =

@@ -2,10 +2,10 @@ import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { cancelMeetingAttendanceCheck } from "../lib/attendanceChecks";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { emitDomainEvent } from "../lib/domainEvents";
 import {
   replaceMeetingAggregate,
-  replaceOpportunityAggregate,
 } from "../reporting/writeHooks";
 import {
   isActiveOpportunityStatus,
@@ -148,13 +148,12 @@ export const process = internalMutation({
       console.log(
         `[Pipeline:no-show] Opportunity status changed | opportunityId=${opportunity._id} ${opportunity.status} -> no_show`,
       );
-      await ctx.db.patch(opportunity._id, {
+      await patchOpportunityLifecycle(ctx, opportunity._id, {
         status: "no_show",
         noShowAt: now,
         updatedAt: now,
       });
       if (opportunity.status !== "no_show") {
-        await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
         await updateTenantStats(ctx, tenantId, {
           activeOpportunities: isActiveOpportunityStatus(opportunity.status)
             ? -1
@@ -263,12 +262,11 @@ export const revert = internalMutation({
     const opportunity = await ctx.db.get(meeting.opportunityId);
     if (opportunity?.status === "no_show") {
       const now = Date.now();
-      await ctx.db.patch(opportunity._id, {
+      await patchOpportunityLifecycle(ctx, opportunity._id, {
         status: "scheduled",
         noShowAt: undefined,
         updatedAt: now,
       });
-      await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
       await updateTenantStats(ctx, tenantId, {
         activeOpportunities: 1,
       });

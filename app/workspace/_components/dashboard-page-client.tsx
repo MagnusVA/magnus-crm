@@ -26,18 +26,10 @@ function DashboardSkeleton() {
         <Skeleton className="h-4 w-96" />
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Card key={i}>
-            <CardHeader className="pb-3">
-              <Skeleton className="h-4 w-24" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-8 w-16" />
-              <Skeleton className="mt-2 h-3 w-32" />
-            </CardContent>
-          </Card>
-        ))}
+      <div className="flex flex-col gap-4">
+        <DashboardStatsSkeletonGrid count={4} />
+        <DashboardStatsSkeletonGrid count={4} />
+        <DashboardStatsSkeletonGrid count={1} />
       </div>
 
       <Card>
@@ -61,6 +53,24 @@ function DashboardSkeleton() {
           <Skeleton className="h-20 w-full" />
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+function DashboardStatsSkeletonGrid({ count }: { count: number }) {
+  return (
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {Array.from({ length: count }).map((_, i) => (
+        <Card key={i}>
+          <CardHeader className="pb-3">
+            <Skeleton className="h-4 w-24" />
+          </CardHeader>
+          <CardContent>
+            <Skeleton className="h-8 w-16" />
+            <Skeleton className="mt-2 h-3 w-32" />
+          </CardContent>
+        </Card>
+      ))}
     </div>
   );
 }

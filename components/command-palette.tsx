@@ -19,6 +19,8 @@ import {
   KanbanIcon,
   SettingsIcon,
   CalendarIcon,
+  PlusIcon,
+  TargetIcon,
 } from "lucide-react";
 import { useRole } from "@/components/auth/role-context";
 
@@ -28,12 +30,14 @@ const adminPages = [
   { label: "Team", href: "/workspace/team", icon: UsersIcon, shortcut: "2" },
   { label: "Pipeline", href: "/workspace/pipeline", icon: KanbanIcon, shortcut: "3" },
   { label: "Settings", href: "/workspace/settings", icon: SettingsIcon, shortcut: "4" },
+  { label: "Opportunities", href: "/workspace/opportunities", icon: TargetIcon },
 ];
 
 const closerPages = [
   { label: "Dashboard", href: "/workspace/closer", icon: LayoutDashboardIcon, shortcut: "1" },
   { label: "My Pipeline", href: "/workspace/closer/pipeline", icon: KanbanIcon, shortcut: "2" },
   { label: "My Schedule", href: "/workspace/closer", icon: CalendarIcon, shortcut: "3" },
+  { label: "Opportunities", href: "/workspace/opportunities", icon: TargetIcon },
 ];
 
 export function CommandPalette() {
@@ -81,23 +85,29 @@ export function CommandPalette() {
             >
               <page.icon />
               <span>{page.label}</span>
-              <CommandShortcut>
-                <Kbd className="text-[10px]">⌘{page.shortcut}</Kbd>
-              </CommandShortcut>
+              {page.shortcut ? (
+                <CommandShortcut>
+                  <Kbd className="text-[10px]">⌘{page.shortcut}</Kbd>
+                </CommandShortcut>
+              ) : null}
             </CommandItem>
           ))}
         </CommandGroup>
-        {isAdmin && (
-          <>
-            <CommandSeparator />
-            <CommandGroup heading="Quick Actions">
+        <>
+          <CommandSeparator />
+          <CommandGroup heading="Quick Actions">
+            {isAdmin ? (
               <CommandItem onSelect={() => navigate("/workspace/team")}>
                 <UsersIcon />
                 <span>Invite team member</span>
               </CommandItem>
-            </CommandGroup>
-          </>
-        )}
+            ) : null}
+            <CommandItem onSelect={() => navigate("/workspace/opportunities/new")}>
+              <PlusIcon />
+              <span>Create opportunity</span>
+            </CommandItem>
+          </CommandGroup>
+        </>
       </CommandList>
     </CommandDialog>
   );

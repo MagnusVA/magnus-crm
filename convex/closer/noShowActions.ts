@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import {
   validateMeetingTransition,
   validateTransition,
@@ -10,7 +11,6 @@ import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
 import {
   replaceMeetingAggregate,
-  replaceOpportunityAggregate,
 } from "../reporting/writeHooks";
 import {
   isActiveOpportunityStatus,
@@ -100,12 +100,11 @@ export const markNoShow = mutation({
     });
     await replaceMeetingAggregate(ctx, meeting, meetingId);
 
-    await ctx.db.patch(opportunity._id, {
+    await patchOpportunityLifecycle(ctx, opportunity._id, {
       status: "no_show",
       noShowAt: now,
       updatedAt: now,
     });
-    await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
 
     await updateOpportunityMeetingRefs(ctx, opportunity._id);
     await updateTenantStats(ctx, tenantId, {
@@ -241,11 +240,10 @@ export const createNoShowRescheduleLink = mutation({
       createdSource: "closer",
     });
 
-    await ctx.db.patch(opportunityId, {
+    await patchOpportunityLifecycle(ctx, opportunityId, {
       status: "reschedule_link_sent",
       updatedAt: now,
     });
-    await replaceOpportunityAggregate(ctx, opportunity, opportunityId);
     await updateTenantStats(ctx, tenantId, {
       activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
     });

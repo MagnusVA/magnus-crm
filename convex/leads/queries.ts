@@ -167,6 +167,76 @@ export const searchLeads = query({
   },
 });
 
+export const getLeadForPicker = query({
+  args: { leadId: v.id("leads") },
+  handler: async (ctx, { leadId }) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "closer",
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    const lead = await ctx.db.get(leadId);
+    if (!lead || lead.tenantId !== tenantId) {
+      return null;
+    }
+
+    const resolvedLead =
+      lead.status === "merged" && lead.mergedIntoLeadId
+        ? await ctx.db.get(lead.mergedIntoLeadId)
+        : lead;
+
+    if (!resolvedLead || resolvedLead.tenantId !== tenantId) {
+      return null;
+    }
+    if (resolvedLead.status !== "active") {
+      return null;
+    }
+
+    return {
+      _id: resolvedLead._id,
+      fullName: resolvedLead.fullName,
+      email: resolvedLead.email,
+      phone: resolvedLead.phone,
+      status: resolvedLead.status,
+    };
+  },
+});
+
+export const searchLeadsForPicker = query({
+  args: { searchTerm: v.string() },
+  handler: async (ctx, { searchTerm }) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "closer",
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    const term = searchTerm.trim();
+    if (term.length < 2) {
+      return [];
+    }
+
+    const results = await ctx.db
+      .query("leads")
+      .withSearchIndex("search_leads", (q) =>
+        q
+          .search("searchText", term)
+          .eq("tenantId", tenantId)
+          .eq("status", "active"),
+      )
+      .take(20);
+
+    return results.map((lead) => ({
+      _id: lead._id,
+      fullName: lead.fullName,
+      email: lead.email,
+      phone: lead.phone,
+      status: lead.status,
+    }));
+  },
+});
+
 export const getLeadDetail = query({
   args: {
     leadId: v.id("leads"),

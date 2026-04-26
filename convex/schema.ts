@@ -176,6 +176,7 @@ export default defineSchema({
       v.literal("calendly_booking"), // Extracted from a Calendly webhook payload
       v.literal("manual_entry"), // Manually entered by a CRM user (Feature C)
       v.literal("merge"), // Created during a lead merge operation (Feature C)
+      v.literal("side_deal"), // Created during manual side-deal opportunity entry
     ),
     sourceMeetingId: v.optional(v.id("meetings")), // Which meeting provided this identifier
     confidence: v.union(
@@ -225,6 +226,13 @@ export default defineSchema({
       v.literal("canceled"),
       v.literal("no_show"),
     ),
+    // Widened for side-deals rollout. Undefined legacy rows normalize to
+    // "calendly" until the production backfill is verified and schema narrows.
+    source: v.optional(
+      v.union(v.literal("calendly"), v.literal("side_deal")),
+    ),
+    // Idempotency key for manual opportunity creation. Undefined for Calendly rows.
+    manualCreationKey: v.optional(v.string()),
     calendlyEventUri: v.optional(v.string()),
     // Denormalized meeting references for query efficiency (see @plans/caching/caching.md)
     latestMeetingId: v.optional(v.id("meetings")),
@@ -233,12 +241,16 @@ export default defineSchema({
     nextMeetingAt: v.optional(v.number()),
     cancellationReason: v.optional(v.string()),
     canceledBy: v.optional(v.string()),
+    notes: v.optional(v.string()),
     lostReason: v.optional(v.string()),
     lostAt: v.optional(v.number()),
     canceledAt: v.optional(v.number()),
     noShowAt: v.optional(v.number()),
     paymentReceivedAt: v.optional(v.number()),
     lostByUserId: v.optional(v.id("users")),
+    // Denormalized cross-source activity timestamp for entity-browse sorting.
+    // Backfilled for legacy rows before this becomes required.
+    latestActivityAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
     // UTM attribution from the first booking that created this opportunity.
@@ -287,7 +299,111 @@ export default defineSchema({
       "assignedCloserId",
       "status",
       "createdAt",
-    ]),
+    ])
+    .index("by_tenantId_and_manualCreationKey", [
+      "tenantId",
+      "manualCreationKey",
+    ])
+    .index("by_tenantId_and_source_and_createdAt", [
+      "tenantId",
+      "source",
+      "createdAt",
+    ])
+    .index("by_source_and_status_and_createdAt", [
+      "source",
+      "status",
+      "createdAt",
+    ])
+    .index("by_tenantId_and_latestActivityAt", [
+      "tenantId",
+      "latestActivityAt",
+    ])
+    .index("by_tenantId_and_status_and_latestActivityAt", [
+      "tenantId",
+      "status",
+      "latestActivityAt",
+    ])
+    .index("by_tenantId_and_source_and_latestActivityAt", [
+      "tenantId",
+      "source",
+      "latestActivityAt",
+    ])
+    .index("by_tenantId_and_source_and_status_and_latestActivityAt", [
+      "tenantId",
+      "source",
+      "status",
+      "latestActivityAt",
+    ])
+    .index("by_tenantId_and_assignedCloserId_and_latestActivityAt", [
+      "tenantId",
+      "assignedCloserId",
+      "latestActivityAt",
+    ])
+    .index("by_tenantId_and_assignedCloserId_and_status_and_latestActivityAt", [
+      "tenantId",
+      "assignedCloserId",
+      "status",
+      "latestActivityAt",
+    ])
+    .index("by_tenantId_and_assignedCloserId_and_source_and_latestActivityAt", [
+      "tenantId",
+      "assignedCloserId",
+      "source",
+      "latestActivityAt",
+    ])
+    .index(
+      "by_tenantId_assignedCloserId_source_status_latestActivityAt",
+      [
+        "tenantId",
+        "assignedCloserId",
+        "source",
+        "status",
+        "latestActivityAt",
+      ],
+    ),
+
+  opportunitySearch: defineTable({
+    tenantId: v.id("tenants"),
+    opportunityId: v.id("opportunities"),
+    leadId: v.id("leads"),
+    assignedCloserId: v.optional(v.id("users")),
+    source: v.union(v.literal("calendly"), v.literal("side_deal")),
+    status: v.union(
+      v.literal("scheduled"),
+      v.literal("in_progress"),
+      v.literal("meeting_overran"),
+      v.literal("payment_received"),
+      v.literal("follow_up_scheduled"),
+      v.literal("reschedule_link_sent"),
+      v.literal("lost"),
+      v.literal("canceled"),
+      v.literal("no_show"),
+    ),
+    latestActivityAt: v.number(),
+    activityDayKey: v.string(),
+    activityWeekKey: v.string(),
+    activityMonthKey: v.string(),
+    searchText: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_opportunityId", ["opportunityId"])
+    .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
+    .index("by_tenantId_and_latestActivityAt", [
+      "tenantId",
+      "latestActivityAt",
+    ])
+    .searchIndex("search_opportunities", {
+      searchField: "searchText",
+      filterFields: [
+        "tenantId",
+        "source",
+        "status",
+        "assignedCloserId",
+        "activityDayKey",
+        "activityWeekKey",
+        "activityMonthKey",
+      ],
+    }),
 
   meetings: defineTable({
     tenantId: v.id("tenants"),
@@ -803,6 +919,7 @@ export default defineSchema({
       v.literal("no_show_follow_up"),
       v.literal("admin_initiated"),
       v.literal("overran_review_resolution"),
+      v.literal("stale_opportunity_nudge"),
     ),
     status: v.union(
       v.literal("pending"),
@@ -851,7 +968,12 @@ export default defineSchema({
       "createdSource",
       "createdAt",
     ])
-    .index("by_opportunityId_and_status", ["opportunityId", "status"]),
+    .index("by_opportunityId_and_status", ["opportunityId", "status"])
+    .index("by_opportunityId_and_status_and_reason", [
+      "opportunityId",
+      "status",
+      "reason",
+    ]),
 
   // === v0.5b: Domain Events (Finding 1) ===
   domainEvents: defineTable({

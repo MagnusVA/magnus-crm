@@ -213,6 +213,31 @@ export const listTeamMembers = query({
   },
 });
 
+export const listActiveClosers = query({
+  args: {},
+  handler: async (ctx) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    const users = await ctx.db
+      .query("users")
+      .withIndex("by_tenantId_and_isActive", (q) =>
+        q.eq("tenantId", tenantId).eq("isActive", true),
+      )
+      .take(200);
+
+    return users
+      .filter((user) => user.role === "closer")
+      .map((user) => ({
+        _id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+      }));
+  },
+});
+
 /**
  * List Calendly org members that are NOT yet linked to a CRM user.
  * Used by the invite form dropdown when inviting a Closer.

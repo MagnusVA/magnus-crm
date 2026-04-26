@@ -51,10 +51,12 @@ export interface OpportunitiesTableProps {
   /** When true, render the "Closer" column. */
   showCloserColumn?: boolean;
   /**
-   * Base path for the "View" link. The meeting id is appended as the last
-   * segment, e.g. `/workspace/pipeline/meetings/{meetingId}`.
+   * Deprecated transition prop kept for compatibility with existing pipeline
+   * callers while opportunity detail becomes the primary destination.
    */
   meetingBasePath: string;
+  /** Base path for canonical opportunity detail links. */
+  opportunityBasePath?: string;
   /** Optional custom empty state. Falls back to a generic "No opportunities" card. */
   emptyState?: React.ReactNode;
 }
@@ -100,7 +102,7 @@ export function OpportunitiesTable({
   isLoadingMore = false,
   onLoadMore,
   showCloserColumn = false,
-  meetingBasePath,
+  opportunityBasePath = "/workspace/opportunities",
   emptyState,
 }: OpportunitiesTableProps) {
   const [now, setNow] = useState(() => Date.now());
@@ -142,7 +144,7 @@ export function OpportunitiesTable({
       <Empty>
         <EmptyHeader>
           <EmptyMedia variant="icon">
-            <InboxIcon />
+            <InboxIcon aria-hidden="true" />
           </EmptyMedia>
           <EmptyTitle>No opportunities found</EmptyTitle>
           <EmptyDescription>
@@ -203,8 +205,6 @@ export function OpportunitiesTable({
                 opp.nextMeetingAt && opp.nextMeetingAt > now
                   ? opp.nextMeetingAt
                   : opp.latestMeetingAt;
-              const targetMeetingId = opp.nextMeetingId ?? opp.latestMeetingId;
-
               return (
                 <TableRow key={opp._id}>
                   <TableCell>
@@ -252,29 +252,20 @@ export function OpportunitiesTable({
                     {formatDate(opp.createdAt)}
                   </TableCell>
                   <TableCell className="text-right">
-                    {targetMeetingId ? (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        asChild
-                        aria-label={`View details for ${opp.leadName}`}
-                      >
-                        <Link href={`${meetingBasePath}/${targetMeetingId}`}>
-                          View
-                          <ExternalLinkIcon data-icon="inline-end" />
-                        </Link>
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled
-                        aria-label={`No meeting for ${opp.leadName}`}
-                      >
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      asChild
+                      aria-label={`View opportunity for ${opp.leadName}`}
+                    >
+                      <Link href={`${opportunityBasePath}/${opp._id}`}>
                         View
-                        <ExternalLinkIcon data-icon="inline-end" />
-                      </Button>
-                    )}
+                        <ExternalLinkIcon
+                          aria-hidden="true"
+                          data-icon="inline-end"
+                        />
+                      </Link>
+                    </Button>
                   </TableCell>
                 </TableRow>
               );
@@ -294,7 +285,7 @@ export function OpportunitiesTable({
             {isLoadingMore ? (
               <>
                 <Spinner data-icon="inline-start" />
-                Loading...
+                Loading…
               </>
             ) : (
               "Load more"

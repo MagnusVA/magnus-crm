@@ -10,6 +10,7 @@ import {
   DollarSignIcon,
   HandCoinsIcon,
   CoinsIcon,
+  LinkIcon,
   WalletIcon,
 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -34,6 +35,8 @@ interface PeriodStats {
   depositsInPeriod: number;
   postConversionInPeriod: number;
   postConversionDepositsInPeriod: number;
+  sideDealRevenueInPeriod: number;
+  sideDealCountInPeriod: number;
   paymentCountInPeriod: number;
   newCustomers: number;
 }
@@ -164,6 +167,24 @@ export function StatsRow({ stats, periodStats, periodLabel }: StatsRowProps) {
             )}
             subtext={`Customer deposits ${periodSuffix}`}
             variant="muted"
+          />
+        ) : (
+          <PeriodStatCardSkeleton />
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {periodStats ? (
+          <StatsCard
+            icon={LinkIcon}
+            label="Side-Deal Revenue"
+            value={formatCurrency(periodStats.sideDealRevenueInPeriod, "USD")}
+            subtext={`${periodStats.sideDealCountInPeriod} side-deal${
+              periodStats.sideDealCountInPeriod === 1 ? "" : "s"
+            } ${periodSuffix}`}
+            variant={
+              periodStats.sideDealRevenueInPeriod > 0 ? "primary" : "default"
+            }
           />
         ) : (
           <PeriodStatCardSkeleton />

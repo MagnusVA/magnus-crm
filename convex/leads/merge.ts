@@ -5,6 +5,7 @@ import { mutation } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { buildLeadSearchText } from "./searchTextBuilder";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
 import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
 import { syncLeadMeetingNames } from "../lib/syncLeadMeetingNames";
 
@@ -195,6 +196,7 @@ async function executeMerge(
     searchText,
     updatedAt: now,
   });
+  await refreshOpportunitySearchForLead(ctx, tenantId, targetLeadId);
   await syncCustomerSnapshot(ctx, tenantId, targetLeadId);
   await syncLeadMeetingNames(
     ctx,

@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateTransition } from "../lib/statusTransitions";
 import { cancelMeetingAttendanceCheck } from "../lib/attendanceChecks";
@@ -11,7 +12,6 @@ import { emitDomainEvent } from "../lib/domainEvents";
 import { assertOverranReviewStillPending } from "../lib/overranReviewGuards";
 import {
   replaceMeetingAggregate,
-  replaceOpportunityAggregate,
 } from "../reporting/writeHooks";
 import {
   isActiveOpportunityStatus,
@@ -79,7 +79,6 @@ export const startMeeting = mutation({
 
     const lateStartDurationMs = Math.max(0, now - meeting.scheduledAt);
 
-    const oldOpportunity = opportunity;
     const oldMeeting = meeting;
     await cancelMeetingAttendanceCheck(
       ctx,
@@ -90,11 +89,10 @@ export const startMeeting = mutation({
       meetingId,
       opportunityId: opportunity._id,
     });
-    await ctx.db.patch(opportunity._id, {
+    await patchOpportunityLifecycle(ctx, opportunity._id, {
       status: "in_progress",
       updatedAt: now,
     });
-    await replaceOpportunityAggregate(ctx, oldOpportunity, opportunity._id);
 
     await ctx.db.patch(meetingId, {
       status: "in_progress",
@@ -262,8 +260,7 @@ export const markAsLost = mutation({
       patch.lostReason = normalizedReason;
     }
 
-    await ctx.db.patch(opportunityId, patch);
-    await replaceOpportunityAggregate(ctx, opportunity, opportunityId);
+    await patchOpportunityLifecycle(ctx, opportunityId, patch);
     await updateTenantStats(ctx, tenantId, {
       activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? -1 : 0,
       lostDeals: 1,

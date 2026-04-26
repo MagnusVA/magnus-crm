@@ -4,6 +4,7 @@ import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatiblePaymentCommissionable,
 } from "../lib/paymentTypes";
+import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
 import {
   customerConversions,
   leadTimeline,
@@ -79,6 +80,7 @@ export async function insertOpportunityAggregate(
 ): Promise<Doc<"opportunities">> {
   const opportunity = await getOpportunityOrThrow(ctx, opportunityId);
   await opportunityByStatus.insert(ctx, opportunity);
+  await upsertOpportunitySearchProjection(ctx, opportunityId);
   return opportunity;
 }
 
@@ -89,6 +91,7 @@ export async function replaceOpportunityAggregate(
 ): Promise<Doc<"opportunities">> {
   const opportunity = await getOpportunityOrThrow(ctx, opportunityId);
   await opportunityByStatus.replace(ctx, oldOpportunity, opportunity);
+  await upsertOpportunitySearchProjection(ctx, opportunityId);
   return opportunity;
 }
 

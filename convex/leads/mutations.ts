@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
 import { normalizeEmail } from "../lib/normalization";
+import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
 import { requireTenantUser } from "../requireTenantUser";
 import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
 import { syncLeadMeetingNames } from "../lib/syncLeadMeetingNames";
@@ -69,6 +70,7 @@ export const updateLead = mutation({
 
     if (searchText !== updatedLead.searchText) {
       await ctx.db.patch(leadId, { searchText });
+      await refreshOpportunitySearchForLead(ctx, tenantId, leadId);
     }
 
     await syncCustomerSnapshot(ctx, tenantId, leadId);

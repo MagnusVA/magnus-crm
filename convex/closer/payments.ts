@@ -10,6 +10,7 @@ import {
   type CommissionableOrigin,
 } from "../lib/paymentHelpers";
 import { assertOverranReviewStillPending } from "../lib/overranReviewGuards";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { validateTransition } from "../lib/statusTransitions";
 import {
@@ -19,7 +20,6 @@ import {
 import { requireTenantUser } from "../requireTenantUser";
 import {
   insertPaymentAggregate,
-  replaceOpportunityAggregate,
 } from "../reporting/writeHooks";
 
 export const generateUploadUrl = mutation({
@@ -132,12 +132,11 @@ export const logPayment = mutation({
     });
     await insertPaymentAggregate(ctx, paymentId);
 
-    await ctx.db.patch(args.opportunityId, {
+    await patchOpportunityLifecycle(ctx, args.opportunityId, {
       status: "payment_received",
       paymentReceivedAt: now,
       updatedAt: now,
     });
-    await replaceOpportunityAggregate(ctx, opportunity, args.opportunityId);
     await applyPaymentStatsDelta(ctx, tenantId, {
       commissionable: true,
       paymentType,

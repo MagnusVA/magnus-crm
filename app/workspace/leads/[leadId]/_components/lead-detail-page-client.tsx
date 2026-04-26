@@ -14,6 +14,7 @@ import {
 	ArrowLeftIcon,
 	EditIcon,
 	MergeIcon,
+	PlusIcon,
 } from "lucide-react";
 import Link from "next/link";
 import { LeadStatusBadge } from "../../_components/lead-status-badge";
@@ -112,6 +113,12 @@ export function LeadDetailPageClient() {
 
 				{/* Action buttons */}
 				<div className="flex flex-wrap gap-2">
+					<Button size="sm" asChild>
+						<Link href={`/workspace/opportunities/new?leadId=${lead._id}`}>
+							<PlusIcon data-icon="inline-start" />
+							Create opportunity
+						</Link>
+					</Button>
 					{hasPermission("lead:edit") && (
 						<Button variant="outline" size="sm">
 							<EditIcon className="mr-1.5 h-3.5 w-3.5" />

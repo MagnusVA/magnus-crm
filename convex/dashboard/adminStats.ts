@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
+import { isSideDealOrigin } from "../lib/sideDeals";
 import {
   getNonDisputedPaymentsInRange,
   splitPaymentsForRevenueReporting,
@@ -50,7 +51,7 @@ export const getAdminDashboardStats = query({
     const endOfDay = startOfDay + 24 * 60 * 60 * 1000;
 
     let meetingsToday = 0;
-    for await (const _meeting of ctx.db
+    for await (const meeting of ctx.db
       .query("meetings")
       .withIndex("by_tenantId_and_scheduledAt", (q) =>
         q
@@ -58,7 +59,7 @@ export const getAdminDashboardStats = query({
           .gte("scheduledAt", startOfDay)
           .lt("scheduledAt", endOfDay),
       )) {
-      meetingsToday += 1;
+      meetingsToday += meeting._id ? 1 : 0;
     }
 
     const hasSplitRevenueCounters =
@@ -135,7 +136,7 @@ export const getTimePeriodStats = query({
 
     // 1. New opportunities created in period
     let newOpportunities = 0;
-    for await (const _opp of ctx.db
+    for await (const opportunity of ctx.db
       .query("opportunities")
       .withIndex("by_tenantId_and_createdAt", (q) =>
         q
@@ -143,12 +144,12 @@ export const getTimePeriodStats = query({
           .gte("createdAt", periodStart)
           .lt("createdAt", periodEnd),
       )) {
-      newOpportunities += 1;
+      newOpportunities += opportunity._id ? 1 : 0;
     }
 
     // 2. Meetings scheduled in period
     let meetingsInPeriod = 0;
-    for await (const _meeting of ctx.db
+    for await (const meeting of ctx.db
       .query("meetings")
       .withIndex("by_tenantId_and_scheduledAt", (q) =>
         q
@@ -156,7 +157,7 @@ export const getTimePeriodStats = query({
           .gte("scheduledAt", periodStart)
           .lt("scheduledAt", periodEnd),
       )) {
-      meetingsInPeriod += 1;
+      meetingsInPeriod += meeting._id ? 1 : 0;
     }
 
     // 3. Payments recorded in period → split KPIs + won deals (distinct opps)
@@ -175,10 +176,25 @@ export const getTimePeriodStats = query({
             opportunityId !== undefined,
         ),
     );
+    const sideDealPayments = paymentSplit.commissionable.allPayments.filter(
+      (payment) => isSideDealOrigin(payment.origin),
+    );
+    const sideDealFinalOpportunityIds = new Set(
+      paymentSplit.commissionable.finalPayments
+        .filter((payment) => isSideDealOrigin(payment.origin))
+        .map((payment) => payment.opportunityId)
+        .filter(
+          (opportunityId): opportunityId is NonNullable<typeof opportunityId> =>
+            opportunityId !== undefined,
+        ),
+    );
     const paymentCountInPeriod = paymentSplit.filteredPayments.length;
     const closedWonInPeriod = paymentSplit.commissionable.finalRevenueMinor / 100;
     const depositsInPeriod =
       paymentSplit.commissionable.depositRevenueMinor / 100;
+    const sideDealRevenueInPeriod =
+      sideDealPayments.reduce((sum, payment) => sum + payment.amountMinor, 0) /
+      100;
     const postConversionInPeriod =
       paymentSplit.nonCommissionable.finalRevenueMinor / 100;
     const postConversionDepositsInPeriod =
@@ -191,7 +207,7 @@ export const getTimePeriodStats = query({
 
     // 4. New customers converted in period
     let newCustomers = 0;
-    for await (const _customer of ctx.db
+    for await (const customer of ctx.db
       .query("customers")
       .withIndex("by_tenantId_and_convertedAt", (q) =>
         q
@@ -199,7 +215,7 @@ export const getTimePeriodStats = query({
           .gte("convertedAt", periodStart)
           .lt("convertedAt", periodEnd),
       )) {
-      newCustomers += 1;
+      newCustomers += customer._id ? 1 : 0;
     }
 
     return {
@@ -210,6 +226,8 @@ export const getTimePeriodStats = query({
       depositsInPeriod,
       postConversionInPeriod,
       postConversionDepositsInPeriod,
+      sideDealRevenueInPeriod,
+      sideDealCountInPeriod: sideDealFinalOpportunityIds.size,
       revenueInPeriod,
       paymentCountInPeriod,
       newCustomers,

@@ -34,7 +34,8 @@ type RevenueOrigin = keyof RevenueByOrigin;
 // *who is credited*. All five origins land in the commissionable bucket and
 // are attributed to the assigned closer for commission — the prefix lets the
 // team spot when admins are logging on behalf (Admin-Logged) vs when the
-// closer themselves logged (Closer-Logged).
+// closer themselves logged (Closer-Logged). Side-deal origins use the same
+// commission attribution rule and are split only for reporting.
 const ORIGIN_META = {
   closer_meeting: {
     label: "Closer-Logged · Meeting",
@@ -55,6 +56,14 @@ const ORIGIN_META = {
   admin_review_resolution: {
     label: "Admin-Logged · Review",
     color: "var(--chart-5)",
+  },
+  closer_side_deal: {
+    label: "Closer-Logged · Side Deal",
+    color: "var(--chart-1)",
+  },
+  admin_side_deal: {
+    label: "Admin-Logged · Side Deal",
+    color: "var(--chart-3)",
   },
 } satisfies Record<RevenueOrigin, { label: string; color: string }>;
 
@@ -123,8 +132,8 @@ export function RevenueByOriginChart({
                 <li>
                   <strong>Admin-Logged</strong> — an admin recorded the
                   payment on behalf of the closer (from a meeting, reminder,
-                  or review resolution). Useful for spotting when admins are
-                  picking up the slack.
+                  review resolution, or side deal). Useful for spotting when
+                  admins are picking up the slack.
                 </li>
               </ul>
             </PopoverContent>

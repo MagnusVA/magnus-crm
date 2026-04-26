@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { internalMutation } from "../_generated/server";
+import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -141,6 +142,7 @@ export const repairAssignmentsFromCalendlyHosts = internalMutation({
         hostCalendlyName: hostDetails?.hostCalendlyName,
         updatedAt: Date.now(),
       });
+      await upsertOpportunitySearchProjection(ctx, opportunity._id);
       patched += 1;
     }
 
