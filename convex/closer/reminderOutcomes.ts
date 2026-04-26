@@ -6,6 +6,7 @@ import { executeConversion } from "../customers/conversion";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
 import { assertOverranReviewStillPending } from "../lib/overranReviewGuards";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import {
   assertPaymentRow,
   resolveProgramForWrite,
@@ -22,7 +23,6 @@ import {
 import { requireTenantUser } from "../requireTenantUser";
 import {
   insertPaymentAggregate,
-  replaceOpportunityAggregate,
 } from "../reporting/writeHooks";
 
 function normalizeOptionalString(value: string | undefined): string | undefined {
@@ -53,6 +53,11 @@ async function assertOwnedPendingReminder(
   }
   if (followUp.type !== "manual_reminder") {
     throw new Error("Only manual reminders can be resolved on this page");
+  }
+  if (followUp.reason === "stale_opportunity_nudge") {
+    throw new Error(
+      "Stale opportunity nudges must be resolved from the opportunity detail page.",
+    );
   }
   if (followUp.status !== "pending") {
     throw new Error("Reminder is not pending");
@@ -97,6 +102,11 @@ async function loadPendingReminderForPayment(
   }
   if (followUp.type !== "manual_reminder") {
     throw new Error("Only manual reminders can be resolved on this page");
+  }
+  if (followUp.reason === "stale_opportunity_nudge") {
+    throw new Error(
+      "Stale opportunity nudges must be resolved from the opportunity detail page.",
+    );
   }
   if (followUp.status !== "pending") {
     throw new Error("Reminder is not pending");
@@ -184,7 +194,7 @@ export const logReminderPayment = mutation({
     });
     await insertPaymentAggregate(ctx, paymentId);
 
-    await ctx.db.patch(opportunity._id, {
+    await patchOpportunityLifecycle(ctx, opportunity._id, {
       ...(role !== "closer" && opportunity.assignedCloserId !== followUp.closerId
         ? { assignedCloserId: followUp.closerId }
         : {}),
@@ -192,7 +202,6 @@ export const logReminderPayment = mutation({
       paymentReceivedAt: now,
       updatedAt: now,
     });
-    await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
     await applyPaymentStatsDelta(ctx, tenantId, {
       commissionable: true,
       paymentType,
@@ -313,14 +322,13 @@ export const markReminderLost = mutation({
     const trimmedReason = normalizeOptionalString(reason);
     const previousOpportunityStatus = opportunity.status;
 
-    await ctx.db.patch(opportunity._id, {
+    await patchOpportunityLifecycle(ctx, opportunity._id, {
       status: "lost",
       updatedAt: now,
       lostAt: now,
       lostByUserId: userId,
       ...(trimmedReason ? { lostReason: trimmedReason } : {}),
     });
-    await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
     await updateTenantStats(ctx, tenantId, {
       activeOpportunities: isActiveOpportunityStatus(previousOpportunityStatus)
         ? -1
@@ -431,14 +439,13 @@ export const markReminderNoResponse = mutation({
       const previousOpportunityStatus = opportunity.status;
       const lostReason = trimmedNote ?? "No response to outreach";
 
-      await ctx.db.patch(opportunity._id, {
+      await patchOpportunityLifecycle(ctx, opportunity._id, {
         status: "lost",
         updatedAt: now,
         lostAt: now,
         lostByUserId: userId,
         lostReason,
       });
-      await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
       await updateTenantStats(ctx, tenantId, {
         activeOpportunities: isActiveOpportunityStatus(previousOpportunityStatus)
           ? -1

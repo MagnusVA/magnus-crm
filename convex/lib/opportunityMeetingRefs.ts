@@ -1,5 +1,7 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { computeLatestActivityAt } from "./opportunityActivity";
+import { upsertOpportunitySearchProjection } from "./opportunitySearch";
 
 /**
  * Keep denormalized meeting references on an opportunity in sync with its meetings.
@@ -62,10 +64,23 @@ export async function updateOpportunityMeetingRefs(
     return;
   }
 
+  const now = Date.now();
+  const nextOpportunity = {
+    ...opportunity,
+    latestMeetingId: latestMeeting?._id,
+    latestMeetingAt: latestMeeting?.scheduledAt,
+    nextMeetingId: nextMeeting?._id,
+    nextMeetingAt: nextMeeting?.scheduledAt,
+    updatedAt: now,
+  };
+
   await ctx.db.patch(opportunityId, {
     latestMeetingId: latestMeeting?._id,
     latestMeetingAt: latestMeeting?.scheduledAt,
     nextMeetingId: nextMeeting?._id,
     nextMeetingAt: nextMeeting?.scheduledAt,
+    updatedAt: now,
+    latestActivityAt: computeLatestActivityAt(nextOpportunity),
   });
+  await upsertOpportunitySearchProjection(ctx, opportunityId);
 }

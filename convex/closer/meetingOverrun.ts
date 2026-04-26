@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
 import { internalMutation, mutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { validateTransition } from "../lib/statusTransitions";
 import {
@@ -11,7 +12,6 @@ import {
 import { requireTenantUser } from "../requireTenantUser";
 import {
   replaceMeetingAggregate,
-  replaceOpportunityAggregate,
 } from "../reporting/writeHooks";
 
 const closerResponseValidator = v.union(
@@ -104,11 +104,10 @@ export const checkMeetingAttendance = internalMutation({
     await replaceMeetingAggregate(ctx, meeting, meetingId);
 
     if (shouldTransitionOpportunity) {
-      await ctx.db.patch(opportunity._id, {
+      await patchOpportunityLifecycle(ctx, opportunity._id, {
         status: "meeting_overran",
         updatedAt: now,
       });
-      await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
     }
 
     await updateOpportunityMeetingRefs(ctx, opportunity._id);
@@ -278,11 +277,10 @@ export const scheduleFollowUpFromOverran = mutation({
     }
 
     const now = Date.now();
-    await ctx.db.patch(opportunityId, {
+    await patchOpportunityLifecycle(ctx, opportunityId, {
       status: "follow_up_scheduled",
       updatedAt: now,
     });
-    await replaceOpportunityAggregate(ctx, opportunity, opportunityId);
 
     const followUpId = await ctx.db.insert("followUps", {
       tenantId,

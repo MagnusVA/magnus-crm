@@ -1,10 +1,10 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useQuery } from "convex/react";
+import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
 import {
 	Card,
 	CardAction,
@@ -23,14 +23,9 @@ import {
 
 const TICK_INTERVAL_MS = 30_000;
 
-type EnrichedReminder = {
-	_id: Id<"followUps">;
-	contactMethod?: "call" | "text";
-	reminderScheduledAt?: number;
-	reminderNote?: string;
-	leadName: string;
-	leadPhone: string | null;
-};
+type EnrichedReminder = FunctionReturnType<
+	typeof api.closer.followUpQueries.getActiveReminders
+>[number];
 
 /**
  * Reminders panel — single card with a scrollable list of active reminders
@@ -50,7 +45,6 @@ type EnrichedReminder = {
  *     scanning the dashboard.
  */
 export function RemindersSection() {
-	const router = useRouter();
 	const reminders = useQuery(api.closer.followUpQueries.getActiveReminders);
 	const [now, setNow] = useState(() => Date.now());
 
@@ -85,10 +79,10 @@ export function RemindersSection() {
 								<ReminderListItem
 									reminder={reminder}
 									urgency={urgency}
-									onClick={() =>
-										router.push(
-											`/workspace/closer/reminders/${reminder._id}`,
-										)
+									href={
+										reminder.reason === "stale_opportunity_nudge"
+											? `/workspace/opportunities/${reminder.opportunityId}`
+											: `/workspace/closer/reminders/${reminder._id}`
 									}
 								/>
 							</div>
@@ -108,22 +102,35 @@ export function RemindersSection() {
 function ReminderListItem({
 	reminder,
 	urgency,
-	onClick,
+	href,
 }: {
 	reminder: EnrichedReminder;
 	urgency: ReminderUrgency;
-	onClick: () => void;
+	href: string;
 }) {
-	const MethodIcon =
-		reminder.contactMethod === "text" ? MessageSquareIcon : PhoneIcon;
+	const isStaleNudge = reminder.reason === "stale_opportunity_nudge";
+	const MethodIcon = isStaleNudge
+		? BellIcon
+		: reminder.contactMethod === "text"
+			? MessageSquareIcon
+			: PhoneIcon;
 	const urgencyLabel =
 		urgency === "red" ? "Overdue" : urgency === "amber" ? "Now" : "Due";
+	const methodLabel = isStaleNudge
+		? "Review"
+		: reminder.contactMethod === "text"
+			? "Text"
+			: "Call";
+	const statusLabel = isStaleNudge ? "Stale" : urgencyLabel;
 
 	return (
-		<button
-			type="button"
-			onClick={onClick}
-			aria-label={`Open reminder for ${reminder.leadName}`}
+		<Link
+			href={href}
+			aria-label={
+				isStaleNudge
+					? `Open stale opportunity for ${reminder.leadName}`
+					: `Open reminder for ${reminder.leadName}`
+			}
 			className={cn(
 				"hover:bg-accent focus-visible:ring-ring flex w-full items-center gap-3 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset",
 				urgency === "red" && "bg-red-50 dark:bg-red-950/20",
@@ -156,7 +163,9 @@ function ReminderListItem({
 
 			<Badge
 				variant={
-					urgency === "red"
+					isStaleNudge
+						? "outline"
+						: urgency === "red"
 						? "destructive"
 						: urgency === "amber"
 							? "outline"
@@ -165,10 +174,10 @@ function ReminderListItem({
 				className="shrink-0"
 			>
 				<MethodIcon className="mr-1 size-3" />
-				{reminder.contactMethod === "text" ? "Text" : "Call"}
+				{methodLabel}
 				{" · "}
-				{urgencyLabel}
+				{statusLabel}
 			</Badge>
-		</button>
+		</Link>
 	);
 }

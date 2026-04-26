@@ -4,12 +4,12 @@ import { requireTenantUser } from "../requireTenantUser";
 import { validateTransition } from "../lib/statusTransitions";
 import { cancelMeetingAttendanceCheck } from "../lib/attendanceChecks";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import {
   updateTenantStats,
   isActiveOpportunityStatus,
 } from "../lib/tenantStatsHelper";
 import {
-  replaceOpportunityAggregate,
   replaceMeetingAggregate,
 } from "../reporting/writeHooks";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
@@ -44,7 +44,7 @@ export const adminMarkAsLost = mutation({
     const reason = args.reason?.trim() || undefined;
     const wasActive = isActiveOpportunityStatus(opportunity.status);
 
-    await ctx.db.patch(args.opportunityId, {
+    await patchOpportunityLifecycle(ctx, args.opportunityId, {
       status: "lost",
       updatedAt: now,
       lostAt: now,
@@ -52,7 +52,6 @@ export const adminMarkAsLost = mutation({
       lostReason: reason,
     });
 
-    await replaceOpportunityAggregate(ctx, opportunity, args.opportunityId);
     await updateTenantStats(ctx, tenantId, {
       ...(wasActive ? { activeOpportunities: -1 } : {}),
       lostDeals: 1,
@@ -192,12 +191,11 @@ export const adminConfirmFollowUp = mutation({
     const now = Date.now();
     const wasActive = isActiveOpportunityStatus(opportunity.status);
 
-    await ctx.db.patch(args.opportunityId, {
+    await patchOpportunityLifecycle(ctx, args.opportunityId, {
       status: "follow_up_scheduled",
       updatedAt: now,
     });
 
-    await replaceOpportunityAggregate(ctx, opportunity, args.opportunityId);
     await updateTenantStats(ctx, tenantId, {
       ...(!wasActive ? { activeOpportunities: 1 } : {}),
     });
@@ -275,12 +273,11 @@ export const adminCreateManualReminder = mutation({
 
     const wasActive = isActiveOpportunityStatus(opportunity.status);
 
-    await ctx.db.patch(args.opportunityId, {
+    await patchOpportunityLifecycle(ctx, args.opportunityId, {
       status: "follow_up_scheduled",
       updatedAt: now,
     });
 
-    await replaceOpportunityAggregate(ctx, opportunity, args.opportunityId);
     await updateTenantStats(ctx, tenantId, {
       ...(!wasActive ? { activeOpportunities: 1 } : {}),
     });
@@ -398,12 +395,11 @@ export const adminCreateRescheduleLink = mutation({
 
     const wasActive = isActiveOpportunityStatus(opportunity.status);
 
-    await ctx.db.patch(args.opportunityId, {
+    await patchOpportunityLifecycle(ctx, args.opportunityId, {
       status: "reschedule_link_sent",
       updatedAt: now,
     });
 
-    await replaceOpportunityAggregate(ctx, opportunity, args.opportunityId);
     await updateTenantStats(ctx, tenantId, {
       ...(!wasActive ? { activeOpportunities: 1 } : {}),
     });
@@ -508,12 +504,10 @@ export const adminResolveMeeting = mutation({
     );
 
     // Transition opportunity: scheduled → in_progress
-    const oldOpportunity = opportunity;
-    await ctx.db.patch(opportunity._id, {
+    await patchOpportunityLifecycle(ctx, opportunity._id, {
       status: "in_progress",
       updatedAt: now,
     });
-    await replaceOpportunityAggregate(ctx, oldOpportunity, opportunity._id);
 
     // Transition meeting: scheduled → completed (retroactive — it already happened)
     const oldMeeting = meeting;

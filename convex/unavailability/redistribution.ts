@@ -3,6 +3,7 @@ import type { Id } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMeetingsAssignedCloser";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import {
   replaceMeetingAggregate,
   replaceOpportunityAggregate,
@@ -431,15 +432,12 @@ export const manuallyResolveMeeting = mutation({
       validateTransition(opportunity.status, "canceled")
         ? "canceled"
         : opportunity.status;
-    await ctx.db.patch(opportunity._id, {
+    await patchOpportunityLifecycle(ctx, opportunity._id, {
       status: nextOpportunityStatus,
       cancellationReason: `Canceled due to closer unavailability (${reasonLabel})`,
       canceledBy: "admin_unavailability_resolution",
       updatedAt: now,
     });
-    if (nextOpportunityStatus !== opportunity.status) {
-      await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
-    }
 
     return { action: "canceled" as const };
   },

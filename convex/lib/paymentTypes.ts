@@ -1,4 +1,4 @@
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
 
 export const COMMISSIONABLE_ORIGINS = [
@@ -7,6 +7,8 @@ export const COMMISSIONABLE_ORIGINS = [
   "admin_meeting",
   "admin_reminder",
   "admin_review_resolution",
+  "closer_side_deal",
+  "admin_side_deal",
 ] as const;
 
 export const NON_COMMISSIONABLE_ORIGINS = [
@@ -55,6 +57,8 @@ export const commissionableOriginValidator = v.union(
   v.literal("admin_meeting"),
   v.literal("admin_reminder"),
   v.literal("admin_review_resolution"),
+  v.literal("closer_side_deal"),
+  v.literal("admin_side_deal"),
 );
 
 export const nonCommissionableOriginValidator = v.union(
@@ -68,6 +72,8 @@ export const paymentOriginValidator = v.union(
   v.literal("admin_meeting"),
   v.literal("admin_reminder"),
   v.literal("admin_review_resolution"),
+  v.literal("closer_side_deal"),
+  v.literal("admin_side_deal"),
   v.literal("customer_direct"),
   v.literal("bookkeeper_direct"),
 );

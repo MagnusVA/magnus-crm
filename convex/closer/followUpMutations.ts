@@ -3,9 +3,9 @@ import type { Id } from "../_generated/dataModel";
 import { internalMutation, mutation } from "../_generated/server";
 import { validateTransition } from "../lib/statusTransitions";
 import { assertOverranReviewStillPending } from "../lib/overranReviewGuards";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
-import { replaceOpportunityAggregate } from "../reporting/writeHooks";
 import {
   isActiveOpportunityStatus,
   updateTenantStats,
@@ -103,11 +103,10 @@ export const transitionToFollowUp = internalMutation({
     }
 
     const now = Date.now();
-    await ctx.db.patch(opportunityId, {
+    await patchOpportunityLifecycle(ctx, opportunityId, {
       status: "follow_up_scheduled",
       updatedAt: now,
     });
-    await replaceOpportunityAggregate(ctx, opportunity, opportunityId);
     await updateTenantStats(ctx, opportunity.tenantId, {
       activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
     });
@@ -297,11 +296,10 @@ export const confirmFollowUpScheduled = mutation({
     }
 
     const now = Date.now();
-    await ctx.db.patch(opportunityId, {
+    await patchOpportunityLifecycle(ctx, opportunityId, {
       status: "follow_up_scheduled",
       updatedAt: now,
     });
-    await replaceOpportunityAggregate(ctx, opportunity, opportunityId);
     await updateTenantStats(ctx, tenantId, {
       activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
     });
@@ -389,11 +387,10 @@ export const createManualReminderFollowUpPublic = mutation({
     });
 
     if (!isTerminalOverran) {
-      await ctx.db.patch(args.opportunityId, {
+      await patchOpportunityLifecycle(ctx, args.opportunityId, {
         status: "follow_up_scheduled",
         updatedAt: now,
       });
-      await replaceOpportunityAggregate(ctx, opportunity, args.opportunityId);
       await updateTenantStats(ctx, tenantId, {
         activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
       });

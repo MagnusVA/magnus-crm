@@ -1,6 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import type { Doc } from "@/convex/_generated/dataModel";
 import {
 	Card,
@@ -9,8 +10,9 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import { InfoIcon } from "lucide-react";
+import { ArrowRightIcon, InfoIcon } from "lucide-react";
 import {
 	opportunityStatusConfig,
 	type OpportunityStatus,
@@ -91,6 +93,31 @@ export function ReminderOutcomeActionBar({
 	disabled,
 	onCompleted,
 }: Props) {
+	if (followUp.reason === "stale_opportunity_nudge") {
+		return (
+			<Card>
+				<CardHeader>
+					<CardTitle>Actions</CardTitle>
+				</CardHeader>
+				<CardContent className="flex flex-col gap-3">
+					<Alert>
+						<InfoIcon />
+						<AlertDescription>
+							This system nudge is resolved from the opportunity page. Record
+							payment, mark it lost, or delete the empty opportunity there.
+						</AlertDescription>
+					</Alert>
+					<Button asChild>
+						<Link href={`/workspace/opportunities/${followUp.opportunityId}`}>
+							Open opportunity
+							<ArrowRightIcon data-icon="inline-end" />
+						</Link>
+					</Button>
+				</CardContent>
+			</Card>
+		);
+	}
+
 	// --- Branch 1: reminder already completed (design doc §14.2) --------------
 	if (disabled) {
 		return (

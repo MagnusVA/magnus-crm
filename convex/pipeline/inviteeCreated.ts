@@ -4,6 +4,8 @@ import { internalMutation } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
 import { validateTransition } from "../lib/statusTransitions";
 import { extractUtmParams } from "../lib/utmParams";
 import { extractMeetingLocation } from "../lib/meetingLocation";
@@ -18,8 +20,6 @@ import {
 	normalizeEmail,
 	normalizeSocialHandle,
 	normalizePhone,
-	areNamesSimilar,
-	extractEmailDomain,
 } from "../lib/normalization";
 import type { IdentifierType, SocialPlatformType } from "../lib/normalization";
 import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
@@ -34,10 +34,12 @@ import {
 } from "../lib/attendanceChecks";
 import { buildLeadSearchText } from "../leads/searchTextBuilder";
 import {
-	insertLeadAggregate,
+	resolveExistingLeadIdentity,
+	resolveLeadIdentity,
+} from "../leads/identityResolution";
+import {
 	insertMeetingAggregate,
 	insertOpportunityAggregate,
-	replaceOpportunityAggregate,
 } from "../reporting/writeHooks";
 
 function parseTimestamp(value: unknown): number | undefined {
@@ -113,16 +115,6 @@ type ExtractedIdentifiers = {
 		platform: SocialPlatformType;
 	};
 	phoneOverride?: string;
-};
-
-/**
- * Result of multi-identifier identity resolution.
- */
-type IdentityResolutionResult = {
-	lead: Doc<"leads">;
-	isNewLead: boolean;
-	resolvedVia: "email" | "social_handle" | "phone" | "new";
-	potentialDuplicateLeadId?: Id<"leads">;
 };
 
 type EventTypeConfigLookupResult = {
@@ -317,351 +309,6 @@ async function syncLeadFromBooking(
 	return updatedLead;
 }
 
-// ---------------------------------------------------------------------------
-// Feature E: Identity Resolution Core (3B)
-// ---------------------------------------------------------------------------
-
-/** Public email domains excluded from fuzzy duplicate detection. */
-const PUBLIC_EMAIL_DOMAINS = new Set([
-	"gmail.com",
-	"yahoo.com",
-	"hotmail.com",
-	"outlook.com",
-	"icloud.com",
-	"aol.com",
-	"protonmail.com",
-	"mail.com",
-	"live.com",
-	"msn.com",
-	"ymail.com",
-	"zoho.com",
-]);
-
-/**
- * Follow the merge chain to find the active lead.
- * Max depth of 5 to prevent infinite loops from data corruption.
- */
-async function followMergeChain(
-	ctx: MutationCtx,
-	lead: Doc<"leads">,
-): Promise<Doc<"leads"> | undefined> {
-	let current = lead;
-	let depth = 0;
-	const MAX_DEPTH = 5;
-
-	while (
-		current.status === "merged" &&
-		current.mergedIntoLeadId &&
-		depth < MAX_DEPTH
-	) {
-		const next = await ctx.db.get(current.mergedIntoLeadId);
-		if (!next) {
-			console.error(
-				`[Pipeline:Identity] Broken merge chain at depth=${depth} | leadId=${current._id} mergedIntoLeadId=${current.mergedIntoLeadId}`,
-			);
-			return undefined;
-		}
-		current = next;
-		depth++;
-	}
-
-	if (depth >= MAX_DEPTH) {
-		console.error(
-			`[Pipeline:Identity] Merge chain too deep (>${MAX_DEPTH}) | startLeadId=${lead._id}`,
-		);
-		return undefined;
-	}
-
-	// Skip if the final lead is still in "merged" state (broken chain)
-	if (current.status === "merged") {
-		return undefined;
-	}
-
-	return current;
-}
-
-/**
- * Detect potential duplicate leads using fuzzy matching.
- * Checks: same non-public email domain + similar name.
- * Bounded to 50 most recent leads to keep the hot path fast.
- */
-async function detectPotentialDuplicate(
-	ctx: MutationCtx,
-	tenantId: Id<"tenants">,
-	newLeadName: string | undefined,
-	newLeadEmail: string,
-	newLeadId: Id<"leads">,
-): Promise<Id<"leads"> | undefined> {
-	if (!newLeadName) return undefined;
-
-	const emailDomain = extractEmailDomain(newLeadEmail);
-	if (!emailDomain) return undefined;
-
-	if (PUBLIC_EMAIL_DOMAINS.has(emailDomain)) return undefined;
-
-	const recentLeads = await ctx.db
-		.query("leads")
-		.withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-		.order("desc")
-		.take(50);
-
-	for (const candidate of recentLeads) {
-		if (candidate._id === newLeadId) continue;
-		if (candidate.status === "merged" || candidate.status === "converted")
-			continue;
-
-		const candidateDomain = extractEmailDomain(candidate.email);
-		if (candidateDomain !== emailDomain) continue;
-
-		if (areNamesSimilar(newLeadName, candidate.fullName)) {
-			console.log(
-				`[Pipeline:Identity] Potential duplicate detected | newLeadId=${newLeadId} candidateLeadId=${candidate._id} domain=${emailDomain}`,
-			);
-			return candidate._id;
-		}
-	}
-
-	return undefined;
-}
-
-/**
- * Multi-identifier lead identity resolution chain.
- * Priority: email > social handle > phone > new lead.
- */
-async function resolveLeadIdentityInternal(
-	ctx: MutationCtx,
-	tenantId: Id<"tenants">,
-	inviteeEmail: string,
-	inviteeName: string | undefined,
-	inviteePhone: string | undefined,
-	socialHandle:
-		| { rawValue: string; platform: SocialPlatformType }
-		| undefined,
-	now: number,
-	{ createIfMissing }: { createIfMissing: boolean },
-): Promise<IdentityResolutionResult | null> {
-	// Step 1: Email match — legacy index first for backward compat
-	const normalizedEmail = normalizeEmail(inviteeEmail);
-	if (normalizedEmail) {
-		const legacyLead = await ctx.db
-			.query("leads")
-			.withIndex("by_tenantId_and_email", (q) =>
-				q.eq("tenantId", tenantId).eq("email", normalizedEmail),
-			)
-			.unique();
-
-		if (legacyLead) {
-			const activeLead = await followMergeChain(ctx, legacyLead);
-			if (activeLead) {
-				console.log(
-					`[Pipeline:Identity] Email match via legacy index | leadId=${activeLead._id} email=${normalizedEmail}`,
-				);
-				return {
-					lead: activeLead,
-					isNewLead: false,
-					resolvedVia: "email",
-				};
-			}
-		}
-
-		const emailIdentifier = await ctx.db
-			.query("leadIdentifiers")
-			.withIndex("by_tenantId_and_type_and_value", (q) =>
-				q
-					.eq("tenantId", tenantId)
-					.eq("type", "email")
-					.eq("value", normalizedEmail),
-			)
-			.first();
-
-		if (emailIdentifier) {
-			const matchedLead = await ctx.db.get(emailIdentifier.leadId);
-			if (matchedLead && matchedLead.tenantId === tenantId) {
-				const activeLead = await followMergeChain(ctx, matchedLead);
-				if (activeLead) {
-					console.log(
-						`[Pipeline:Identity] Email match via leadIdentifiers | leadId=${activeLead._id} email=${normalizedEmail}`,
-					);
-					return {
-						lead: activeLead,
-						isNewLead: false,
-						resolvedVia: "email",
-					};
-				}
-			}
-		}
-	}
-
-	// Step 2: Social handle match
-	if (socialHandle) {
-		const normalizedHandle = normalizeSocialHandle(
-			socialHandle.rawValue,
-			socialHandle.platform,
-		);
-		if (normalizedHandle) {
-			const handleIdentifier = await ctx.db
-				.query("leadIdentifiers")
-				.withIndex("by_tenantId_and_type_and_value", (q) =>
-					q
-						.eq("tenantId", tenantId)
-						.eq("type", socialHandle.platform)
-						.eq("value", normalizedHandle),
-				)
-				.first();
-
-			if (handleIdentifier) {
-				const matchedLead = await ctx.db.get(handleIdentifier.leadId);
-				if (matchedLead && matchedLead.tenantId === tenantId) {
-					const activeLead = await followMergeChain(ctx, matchedLead);
-					if (activeLead) {
-						console.log(
-							`[Pipeline:Identity] Social handle match | leadId=${activeLead._id} platform=${socialHandle.platform} handle=${normalizedHandle}`,
-						);
-						return {
-							lead: activeLead,
-							isNewLead: false,
-							resolvedVia: "social_handle",
-						};
-					}
-				}
-			}
-		}
-	}
-
-	// Step 3: Phone match
-	if (inviteePhone) {
-		const normalizedPhone = normalizePhone(inviteePhone);
-		if (normalizedPhone) {
-			const phoneIdentifier = await ctx.db
-				.query("leadIdentifiers")
-				.withIndex("by_tenantId_and_type_and_value", (q) =>
-					q
-						.eq("tenantId", tenantId)
-						.eq("type", "phone")
-						.eq("value", normalizedPhone),
-				)
-				.first();
-
-			if (phoneIdentifier) {
-				const matchedLead = await ctx.db.get(phoneIdentifier.leadId);
-				if (matchedLead && matchedLead.tenantId === tenantId) {
-					const activeLead = await followMergeChain(ctx, matchedLead);
-					if (activeLead) {
-						console.log(
-							`[Pipeline:Identity] Phone match | leadId=${activeLead._id} phone=${normalizedPhone}`,
-						);
-						return {
-							lead: activeLead,
-							isNewLead: false,
-							resolvedVia: "phone",
-						};
-					}
-				}
-			}
-		}
-	}
-
-	// Step 4: No match — create a new lead
-	if (!createIfMissing) {
-		return null;
-	}
-
-	// Note: customFields will be set separately in the main handler if present
-	const leadId = await ctx.db.insert("leads", {
-		tenantId,
-		email: inviteeEmail,
-		fullName: inviteeName,
-		phone: inviteePhone,
-		customFields: undefined,
-		status: "active",
-		firstSeenAt: now,
-		updatedAt: now,
-	});
-	const newLead = (await ctx.db.get(leadId))!;
-	await insertLeadAggregate(ctx, leadId);
-	await updateTenantStats(ctx, tenantId, {
-		totalLeads: 1,
-	});
-	await emitDomainEvent(ctx, {
-		tenantId,
-		entityType: "lead",
-		entityId: leadId,
-		eventType: "lead.created",
-		source: "pipeline",
-		toStatus: "active",
-		occurredAt: now,
-	});
-	console.log(`[Pipeline:Identity] New lead created | leadId=${leadId}`);
-
-	// Step 5: Check for potential duplicates (fuzzy match)
-	const potentialDuplicateLeadId = await detectPotentialDuplicate(
-		ctx,
-		tenantId,
-		inviteeName,
-		inviteeEmail,
-		leadId,
-	);
-
-	return {
-		lead: newLead,
-		isNewLead: true,
-		resolvedVia: "new",
-		potentialDuplicateLeadId,
-	};
-}
-
-async function resolveExistingLeadIdentity(
-	ctx: MutationCtx,
-	tenantId: Id<"tenants">,
-	inviteeEmail: string,
-	inviteeName: string | undefined,
-	inviteePhone: string | undefined,
-	socialHandle:
-		| { rawValue: string; platform: SocialPlatformType }
-		| undefined,
-	now: number,
-): Promise<IdentityResolutionResult | null> {
-	return resolveLeadIdentityInternal(
-		ctx,
-		tenantId,
-		inviteeEmail,
-		inviteeName,
-		inviteePhone,
-		socialHandle,
-		now,
-		{ createIfMissing: false },
-	);
-}
-
-async function resolveLeadIdentity(
-	ctx: MutationCtx,
-	tenantId: Id<"tenants">,
-	inviteeEmail: string,
-	inviteeName: string | undefined,
-	inviteePhone: string | undefined,
-	socialHandle:
-		| { rawValue: string; platform: SocialPlatformType }
-		| undefined,
-	now: number,
-): Promise<IdentityResolutionResult> {
-	const resolution = await resolveLeadIdentityInternal(
-		ctx,
-		tenantId,
-		inviteeEmail,
-		inviteeName,
-		inviteePhone,
-		socialHandle,
-		now,
-		{ createIfMissing: true },
-	);
-
-	if (!resolution) {
-		throw new Error("[Pipeline:Identity] Expected lead resolution to succeed");
-	}
-
-	return resolution;
-}
-
 /**
  * Create leadIdentifier records for all identifiers found in this booking.
  * Called after meeting creation so we have a meetingId for provenance tracking.
@@ -780,6 +427,7 @@ async function updateLeadSearchText(
 	);
 	if (searchText !== lead.searchText) {
 		await ctx.db.patch(leadId, { searchText });
+		await refreshOpportunitySearchForLead(ctx, lead.tenantId, leadId);
 	}
 }
 
@@ -1220,7 +868,7 @@ export const process = internalMutation({
 						);
 					}
 
-					await ctx.db.patch(targetOpportunityId, {
+					await patchOpportunityLifecycle(ctx, targetOpportunityId, {
 						status: "scheduled",
 						calendlyEventUri,
 						assignedCloserId: nextAssignedCloserId,
@@ -1230,11 +878,6 @@ export const process = internalMutation({
 						eventTypeConfigId: effectiveEventTypeConfigId,
 						updatedAt: now,
 					});
-					await replaceOpportunityAggregate(
-						ctx,
-						targetOpportunity,
-						targetOpportunityId,
-					);
 					if (closerChanged) {
 						await syncOpportunityMeetingsAssignedCloser(
 							ctx,
@@ -1437,15 +1080,15 @@ export const process = internalMutation({
 			!assignedCloserId &&
 			assignedCloserResolution.isKnownNonCloserHost
 		) {
-			const existingLeadResolution = await resolveExistingLeadIdentity(
-				ctx,
+			const existingLeadResolution = await resolveExistingLeadIdentity(ctx, {
 				tenantId,
-				inviteeEmail,
-				inviteeName,
-				effectivePhone,
-				extractedIdentifiers.socialHandle,
-				now,
-			);
+				email: inviteeEmail,
+				fullName: inviteeName,
+				phone: effectivePhone,
+				socialHandle: extractedIdentifiers.socialHandle,
+				identifierSource: "calendly_booking",
+				createdAt: now,
+			});
 			if (!existingLeadResolution) {
 				console.warn(
 					`[Pipeline:invitee.created] Skipping booking for known non-closer host without existing lead context | eventUri=${calendlyEventUri} hostUserUri=${hostUserUri ?? "none"} hostEmail=${hostCalendlyEmail ?? "none"} eventTypeUri=${eventTypeUri ?? "none"} calendlyRole=${assignedCloserResolution.hostCalendlyRole ?? "none"}`,
@@ -1456,15 +1099,16 @@ export const process = internalMutation({
 		}
 
 		// === Feature E: Multi-identifier identity resolution ===
-		const resolution = await resolveLeadIdentity(
-			ctx,
+		const resolution = await resolveLeadIdentity(ctx, {
 			tenantId,
-			inviteeEmail,
-			inviteeName,
-			effectivePhone,
-			extractedIdentifiers.socialHandle,
-			now,
-		);
+			email: inviteeEmail,
+			fullName: inviteeName,
+			phone: effectivePhone,
+			socialHandle: extractedIdentifiers.socialHandle,
+			identifierSource: "calendly_booking",
+			createdAt: now,
+			createIdentifiers: false,
+		});
 
 		let lead = resolution.lead;
 		console.log(
@@ -1486,6 +1130,17 @@ export const process = internalMutation({
 				customFields: latestCustomFields,
 			});
 			await syncCustomerSnapshot(ctx, tenantId, lead._id);
+		}
+		if (resolution.isNewLead) {
+			await emitDomainEvent(ctx, {
+				tenantId,
+				entityType: "lead",
+				entityId: lead._id,
+				eventType: "lead.created",
+				source: "pipeline",
+				toStatus: "active",
+				occurredAt: now,
+			});
 		}
 		// === End Feature E: Identity Resolution ===
 		const eventTypeConfigId = await resolveEventTypeConfigId(ctx, {
@@ -1562,7 +1217,7 @@ export const process = internalMutation({
 				);
 			}
 
-			await ctx.db.patch(reschedOpportunityId, {
+			await patchOpportunityLifecycle(ctx, reschedOpportunityId, {
 				status: "scheduled",
 				calendlyEventUri,
 				assignedCloserId: nextAssignedCloserId,
@@ -1572,11 +1227,6 @@ export const process = internalMutation({
 				eventTypeConfigId: effectiveEventTypeConfigId,
 				updatedAt: now,
 			});
-			await replaceOpportunityAggregate(
-				ctx,
-				autoRescheduleTarget,
-				reschedOpportunityId,
-			);
 			if (closerChanged) {
 				await syncOpportunityMeetingsAssignedCloser(
 					ctx,
@@ -1769,7 +1419,7 @@ export const process = internalMutation({
 				assignedCloserId ?? existingFollowUp.assignedCloserId;
 			const closerChanged =
 				nextAssignedCloserId !== existingFollowUp.assignedCloserId;
-			await ctx.db.patch(opportunityId, {
+			await patchOpportunityLifecycle(ctx, opportunityId, {
 				status: "scheduled",
 				calendlyEventUri,
 				assignedCloserId: nextAssignedCloserId,
@@ -1782,11 +1432,6 @@ export const process = internalMutation({
 				// The opportunity preserves attribution from its original creation.
 				// The new meeting stores its own UTMs independently.
 			});
-			await replaceOpportunityAggregate(
-				ctx,
-				existingFollowUp,
-				opportunityId,
-			);
 			if (closerChanged) {
 				await syncOpportunityMeetingsAssignedCloser(
 					ctx,
@@ -1825,9 +1470,11 @@ export const process = internalMutation({
 				hostCalendlyName,
 				eventTypeConfigId,
 				status: "scheduled",
+				source: "calendly",
 				calendlyEventUri,
 				createdAt: now,
 				updatedAt: now,
+				latestActivityAt: now,
 				utmParams,
 				potentialDuplicateLeadId: resolution.potentialDuplicateLeadId,
 			});

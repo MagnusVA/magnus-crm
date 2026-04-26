@@ -2,11 +2,11 @@ import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { cancelMeetingAttendanceCheck } from "../lib/attendanceChecks";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { validateTransition } from "../lib/statusTransitions";
 import { emitDomainEvent } from "../lib/domainEvents";
 import {
   replaceMeetingAggregate,
-  replaceOpportunityAggregate,
 } from "../reporting/writeHooks";
 import {
   isActiveOpportunityStatus,
@@ -178,7 +178,7 @@ export const process = internalMutation({
 			);
 
 			const now = Date.now();
-			await ctx.db.patch(opportunity._id, {
+			await patchOpportunityLifecycle(ctx, opportunity._id, {
 				status: newStatus,
 				cancellationReason,
 				canceledBy,
@@ -186,7 +186,6 @@ export const process = internalMutation({
 				updatedAt: now,
 			});
 			if (newStatus !== opportunity.status) {
-				await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
 				await updateTenantStats(ctx, tenantId, {
 					activeOpportunities: isActiveOpportunityStatus(opportunity.status)
 						? -1

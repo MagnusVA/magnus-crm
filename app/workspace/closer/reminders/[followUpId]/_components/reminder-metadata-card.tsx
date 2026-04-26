@@ -78,6 +78,8 @@ function humaniseReason(reason: Doc<"followUps">["reason"]): string {
 			return "Admin created this reminder";
 		case "overran_review_resolution":
 			return "Created while resolving an overran review";
+		case "stale_opportunity_nudge":
+			return "System nudge for a stale side-deal opportunity";
 	}
 }
 
@@ -157,7 +159,7 @@ export function ReminderMetadataCard({
 					</InfoRow>
 				)}
 
-				{/* Reason — schema guarantees this is one of three literals, so
+				{/* Reason — schema guarantees this is a known literal, so
 				    humaniseReason has total coverage and no default branch. */}
 				<InfoRow icon={<TagIcon />} label="Reason">
 					<p className="text-sm">{humaniseReason(followUp.reason)}</p>
