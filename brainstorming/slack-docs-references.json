@@ -1,0 +1,189 @@
+{
+  "description": "Documentation links referenced (explicitly or implicitly) by brainstorming/slackbot.md. Intended as a fetch list for .docs/slack/.",
+  "source": "brainstorming/slackbot.md",
+  "categories": {
+    "slack_platform_docs": [
+      {
+        "title": "OAuth v2 install flow",
+        "url": "https://docs.slack.dev/authentication/installing-with-oauth.md",
+        "notes": "Canonical install + token-exchange spec"
+      },
+      {
+        "title": "Verifying requests from Slack",
+        "url": "https://docs.slack.dev/authentication/verifying-requests-from-slack.md",
+        "notes": "Exact HMAC algorithm, replay window"
+      },
+      {
+        "title": "Using token rotation",
+        "url": "https://docs.slack.dev/authentication/using-token-rotation.md",
+        "notes": "oauth.v2.exchange, refresh flow, irreversibility note"
+      },
+      {
+        "title": "Implementing slash commands",
+        "url": "https://docs.slack.dev/interactivity/implementing-slash-commands.md",
+        "notes": "Payload fields, 3-second window"
+      },
+      {
+        "title": "Handling user interaction",
+        "url": "https://docs.slack.dev/interactivity/handling-user-interaction.md",
+        "notes": "Interactivity payload reference"
+      },
+      {
+        "title": "Modals",
+        "url": "https://docs.slack.dev/surfaces/modals.md",
+        "notes": "views.open, view_submission, response_action: errors"
+      },
+      {
+        "title": "views.open reference",
+        "url": "https://docs.slack.dev/reference/methods/views.open.md",
+        "notes": "Error codes (expired_trigger_id, view_too_large)"
+      },
+      {
+        "title": "chat.postMessage reference",
+        "url": "https://docs.slack.dev/reference/methods/chat.postMessage.md",
+        "notes": "Block Kit, channel formats"
+      },
+      {
+        "title": "App Manifest reference",
+        "url": "https://docs.slack.dev/reference/app-manifest.md",
+        "notes": "Every manifest field"
+      },
+      {
+        "title": "Configuring apps with App Manifests",
+        "url": "https://docs.slack.dev/app-manifests/configuring-apps-with-app-manifests.md",
+        "notes": "Manifest configuration guide"
+      },
+      {
+        "title": "tokens_revoked event",
+        "url": "https://docs.slack.dev/reference/events/tokens_revoked.md",
+        "notes": "Token revocation event"
+      },
+      {
+        "title": "app_uninstalled event",
+        "url": "https://docs.slack.dev/reference/events/app_uninstalled.md",
+        "notes": "App uninstall event"
+      },
+      {
+        "title": "Web API rate limits",
+        "url": "https://docs.slack.dev/apis/web-api/rate-limits.md",
+        "notes": "Tier 1-4"
+      },
+      {
+        "title": "Bolt-JS overview",
+        "url": "https://docs.slack.dev/tools/bolt-js.md",
+        "notes": "Slack's official SDK (rejected for serverless friction)"
+      },
+      {
+        "title": "Bolt-JS Receiver concept",
+        "url": "https://docs.slack.dev/tools/bolt-js/concepts/receiver.md",
+        "notes": "The abstraction we're choosing not to use"
+      },
+      {
+        "title": "HTTP vs Socket Mode",
+        "url": "https://docs.slack.dev/apis/events-api/comparing-http-socket-mode.md",
+        "notes": "Why we use HTTP"
+      }
+    ],
+    "slack_api_endpoints": [
+      {
+        "title": "oauth.v2.access",
+        "url": "https://slack.com/api/oauth.v2.access",
+        "notes": "Token exchange + refresh endpoint"
+      },
+      {
+        "title": "oauth/v2/authorize",
+        "url": "https://slack.com/oauth/v2/authorize",
+        "notes": "Install authorize endpoint"
+      }
+    ],
+    "convex_patterns": [
+      {
+        "title": "Convex Discord webhooks walkthrough",
+        "url": "https://stack.convex.dev/webhooks-with-convex",
+        "notes": "Closest analog: HMAC verification in httpAction"
+      }
+    ],
+    "practitioner_notes": [
+      {
+        "title": "Christopher Hayes - Bolt-on-serverless gotchas",
+        "url": "https://gist.github.com/Christopher-Hayes/684ab3a73e0e8945384d4742e6547693"
+      },
+      {
+        "title": "Renzo Lucioni - Serverless Slack Bolt App",
+        "url": "https://renzolucioni.com/serverless-slack-bolt-app/"
+      },
+      {
+        "title": "Inventive HQ - Slack Webhooks signature verification (2025)",
+        "url": "https://inventivehq.com/blog/slack-webhooks-guide"
+      },
+      {
+        "title": "Soumya Dey - Verifying Slack requests in Node.js",
+        "url": "https://dev.to/soumyadey/verifying-requests-from-slack-the-correct-method-for-nodejs-417i"
+      }
+    ],
+    "recommended_additions": [
+      {
+        "title": "Block Kit overview",
+        "url": "https://docs.slack.dev/block-kit.md",
+        "notes": "Used heavily for modals and message formatting"
+      },
+      {
+        "title": "Block Kit blocks reference",
+        "url": "https://api.slack.com/reference/block-kit/blocks"
+      },
+      {
+        "title": "Block Kit block elements reference",
+        "url": "https://api.slack.com/reference/block-kit/block-elements",
+        "notes": "Inputs, selects, buttons"
+      },
+      {
+        "title": "Surface formatting (mrkdwn)",
+        "url": "https://api.slack.com/reference/surfaces/formatting"
+      },
+      {
+        "title": "chat.update reference",
+        "url": "https://docs.slack.dev/reference/methods/chat.update.md",
+        "notes": "Ephemeral confirmation updates"
+      },
+      {
+        "title": "views.update reference",
+        "url": "https://docs.slack.dev/reference/methods/views.update.md",
+        "notes": "Modal updates"
+      },
+      {
+        "title": "views.push reference",
+        "url": "https://docs.slack.dev/reference/methods/views.push.md",
+        "notes": "Multi-step modals"
+      },
+      {
+        "title": "auth.test reference",
+        "url": "https://docs.slack.dev/reference/methods/auth.test.md",
+        "notes": "Install validation"
+      },
+      {
+        "title": "conversations.list reference",
+        "url": "https://docs.slack.dev/reference/methods/conversations.list.md",
+        "notes": "Channel picker for stale-reminder config"
+      },
+      {
+        "title": "users.info reference",
+        "url": "https://docs.slack.dev/reference/methods/users.info.md",
+        "notes": "Slack user metadata for slackUsers table"
+      },
+      {
+        "title": "OAuth scopes catalog",
+        "url": "https://docs.slack.dev/reference/scopes.md",
+        "notes": "commands, chat:write, users:read, etc."
+      },
+      {
+        "title": "Events API overview",
+        "url": "https://docs.slack.dev/apis/events-api.md",
+        "notes": "Delivery model for tokens_revoked / app_uninstalled"
+      },
+      {
+        "title": "response_url mechanics",
+        "url": "https://docs.slack.dev/interactivity/handling-user-interaction.md#message_actions"
+      }
+    ]
+  }
+}
