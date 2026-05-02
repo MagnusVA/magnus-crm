@@ -1,26 +1,11 @@
+import type { SocialPlatform } from "./socialPlatform";
+
+export type SocialPlatformType = SocialPlatform;
+
 /**
  * Identifier type union -- matches the leadIdentifiers.type schema.
  */
-export type IdentifierType =
-  | "email"
-  | "phone"
-  | "instagram"
-  | "tiktok"
-  | "twitter"
-  | "facebook"
-  | "linkedin"
-  | "other_social";
-
-/**
- * Social platform type -- subset of IdentifierType for social handles.
- */
-export type SocialPlatformType =
-  | "instagram"
-  | "tiktok"
-  | "twitter"
-  | "facebook"
-  | "linkedin"
-  | "other_social";
+export type IdentifierType = "email" | "phone" | SocialPlatformType;
 
 /**
  * Result of normalizing an identifier value.

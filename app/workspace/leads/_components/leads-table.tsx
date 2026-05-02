@@ -27,7 +27,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 type LeadRow = {
 	_id: Id<"leads">;
 	fullName?: string;
-	email: string;
+	email?: string;
 	phone?: string;
 	status: "active" | "converted" | "merged";
 	socialHandles?: Array<{ type: string; handle: string }>;
@@ -58,8 +58,11 @@ export function LeadsTable({
 	const comparators = useMemo(
 		() => ({
 			name: (a: LeadRow, b: LeadRow) =>
-				(a.fullName ?? a.email).localeCompare(b.fullName ?? b.email),
-			email: (a: LeadRow, b: LeadRow) => a.email.localeCompare(b.email),
+				(a.fullName ?? a.email ?? "").localeCompare(
+					b.fullName ?? b.email ?? "",
+				),
+			email: (a: LeadRow, b: LeadRow) =>
+				(a.email ?? "").localeCompare(b.email ?? ""),
 			status: (a: LeadRow, b: LeadRow) => a.status.localeCompare(b.status),
 			meetings: (a: LeadRow, b: LeadRow) =>
 				(b.latestMeetingAt ?? 0) - (a.latestMeetingAt ?? 0),
@@ -145,10 +148,10 @@ export function LeadsTable({
 								onClick={() => onLeadClick(lead._id)}
 							>
 								<TableCell className="font-medium">
-									{lead.fullName ?? "\u2014"}
+									{lead.fullName ?? lead.email ?? "\u2014"}
 								</TableCell>
 								<TableCell className="text-muted-foreground">
-									{lead.email}
+									{lead.email ?? "\u2014"}
 								</TableCell>
 								<TableCell className="hidden md:table-cell">
 									{lead.socialHandles && lead.socialHandles.length > 0 ? (

@@ -7,6 +7,7 @@ import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 
 const opportunityStatusValidator = v.union(
+  v.literal("qualified_pending"),
   v.literal("scheduled"),
   v.literal("in_progress"),
   v.literal("meeting_overran"),
@@ -148,7 +149,7 @@ export const listMyOpportunities = query({
     );
     const leadById = new Map<
       Id<"leads">,
-      { fullName?: string; email: string; phone?: string }
+      { _id: Id<"leads">; fullName?: string; email?: string; phone?: string }
     >();
     for (const { leadId, lead } of leads) {
       if (lead) {
@@ -161,7 +162,8 @@ export const listMyOpportunities = query({
 
       return {
         ...opportunity,
-        leadName: lead?.fullName ?? lead?.email ?? "Unknown",
+        leadName:
+          lead?.fullName ?? lead?.email ?? (lead ? `Lead ${lead._id.slice(-6)}` : "Unknown"),
         leadEmail: lead?.email,
         leadPhone: lead?.phone,
         eventTypeConfigId: opportunity.eventTypeConfigId,

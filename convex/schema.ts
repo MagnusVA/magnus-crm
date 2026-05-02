@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import { paymentOriginValidator, paymentTypeValidator } from "./lib/paymentTypes";
+import { socialPlatformValidator } from "./lib/socialPlatform";
 import { utmParamsValidator } from "./lib/utmParams";
 
 export default defineSchema({
@@ -107,7 +108,9 @@ export default defineSchema({
 
   leads: defineTable({
     tenantId: v.id("tenants"),
-    email: v.string(),
+    // Widened for Slack-qualified leads. Calendly-created leads still write
+    // email; Slack-created leads may begin with only name + social handle.
+    email: v.optional(v.string()),
     fullName: v.optional(v.string()),
     phone: v.optional(v.string()),
     customFields: v.optional(v.record(v.string(), v.string())),
@@ -163,12 +166,7 @@ export default defineSchema({
     type: v.union(
       v.literal("email"),
       v.literal("phone"),
-      v.literal("instagram"),
-      v.literal("tiktok"),
-      v.literal("twitter"),
-      v.literal("facebook"),
-      v.literal("linkedin"),
-      v.literal("other_social"),
+      ...socialPlatformValidator.members,
     ),
     value: v.string(), // Normalized: lowercased, trimmed, @ stripped, E.164 for phone
     rawValue: v.string(), // Original value as received from the source
@@ -177,6 +175,7 @@ export default defineSchema({
       v.literal("manual_entry"), // Manually entered by a CRM user (Feature C)
       v.literal("merge"), // Created during a lead merge operation (Feature C)
       v.literal("side_deal"), // Created during manual side-deal opportunity entry
+      v.literal("slack_qualified"), // Created from Slack /qualify-lead
     ),
     sourceMeetingId: v.optional(v.id("meetings")), // Which meeting provided this identifier
     confidence: v.union(
@@ -216,6 +215,7 @@ export default defineSchema({
     hostCalendlyName: v.optional(v.string()),
     eventTypeConfigId: v.optional(v.id("eventTypeConfigs")),
     status: v.union(
+      v.literal("qualified_pending"),
       v.literal("scheduled"),
       v.literal("in_progress"),
       v.literal("meeting_overran"),
@@ -229,7 +229,20 @@ export default defineSchema({
     // Widened for side-deals rollout. Undefined legacy rows normalize to
     // "calendly" until the production backfill is verified and schema narrows.
     source: v.optional(
-      v.union(v.literal("calendly"), v.literal("side_deal")),
+      v.union(
+        v.literal("calendly"),
+        v.literal("side_deal"),
+        v.literal("slack_qualified"),
+      ),
+    ),
+    // Slack attribution. Keep immutable Slack IDs here and render display names
+    // through the normalized slackUsers directory.
+    qualifiedBy: v.optional(
+      v.object({
+        slackUserId: v.string(),
+        slackTeamId: v.string(),
+        submittedAt: v.number(),
+      }),
     ),
     // Idempotency key for manual opportunity creation. Undefined for Calendly rows.
     manualCreationKey: v.optional(v.string()),
@@ -268,6 +281,13 @@ export default defineSchema({
   })
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
+    .index("by_tenantId_and_leadId_and_source_and_status_and_createdAt", [
+      "tenantId",
+      "leadId",
+      "source",
+      "status",
+      "createdAt",
+    ])
     .index("by_tenantId_and_assignedCloserId", ["tenantId", "assignedCloserId"])
     .index("by_tenantId_and_status", ["tenantId", "status"])
     .index("by_tenantId_and_assignedCloserId_and_status", [
@@ -307,6 +327,12 @@ export default defineSchema({
     .index("by_tenantId_and_source_and_createdAt", [
       "tenantId",
       "source",
+      "createdAt",
+    ])
+    .index("by_tenantId_and_source_and_status_and_createdAt", [
+      "tenantId",
+      "source",
+      "status",
       "createdAt",
     ])
     .index("by_source_and_status_and_createdAt", [
@@ -367,8 +393,13 @@ export default defineSchema({
     opportunityId: v.id("opportunities"),
     leadId: v.id("leads"),
     assignedCloserId: v.optional(v.id("users")),
-    source: v.union(v.literal("calendly"), v.literal("side_deal")),
+    source: v.union(
+      v.literal("calendly"),
+      v.literal("side_deal"),
+      v.literal("slack_qualified"),
+    ),
     status: v.union(
+      v.literal("qualified_pending"),
       v.literal("scheduled"),
       v.literal("in_progress"),
       v.literal("meeting_overran"),
@@ -1106,4 +1137,116 @@ export default defineSchema({
     webhookProvisioningStartedAt: v.optional(v.number()),
   }).index("by_tenantId", ["tenantId"]),
   // === End v0.5b: Tenant Calendly Connections ===
+
+  // === Slack Bot v1: OAuth Install & Token Rotation ===
+  slackInstallations: defineTable({
+    tenantId: v.id("tenants"),
+
+    // Slack workspace identity. Inbound payloads must join on teamId + appId,
+    // not teamId alone, because dev/prod Slack apps can share a workspace.
+    teamId: v.string(),
+    teamName: v.string(),
+    enterpriseId: v.optional(v.string()),
+    isEnterpriseInstall: v.boolean(),
+    appId: v.string(),
+
+    botUserId: v.string(),
+    botAccessToken: v.string(),
+    scopes: v.array(v.string()),
+
+    // Phase 5 configures these; until then the install can still be active.
+    notifyChannelId: v.optional(v.string()),
+    notifyChannelName: v.optional(v.string()),
+    staleReminderChannelId: v.optional(v.string()),
+    staleReminderChannelName: v.optional(v.string()),
+
+    installedByWorkosUserId: v.string(),
+    installedAt: v.number(),
+
+    tokenExpiresAt: v.number(),
+    refreshToken: v.string(),
+    lastRefreshedAt: v.optional(v.number()),
+    refreshLockHolder: v.optional(v.string()),
+    refreshLockAcquiredAt: v.optional(v.number()),
+
+    status: v.union(
+      v.literal("active"),
+      v.literal("token_expired"),
+      v.literal("revoked"),
+      v.literal("uninstalled"),
+    ),
+    uninstalledAt: v.optional(v.number()),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_teamId", ["teamId"])
+    .index("by_teamId_and_appId", ["teamId", "appId"])
+    .index("by_status_and_tokenExpiresAt", ["status", "tokenExpiresAt"]),
+
+  slackOAuthStates: defineTable({
+    tenantId: v.id("tenants"),
+    workosUserId: v.string(),
+    stateHash: v.string(),
+    nonceHash: v.string(),
+    issuedAt: v.number(),
+    expiresAt: v.number(),
+    consumedAt: v.optional(v.number()),
+  })
+    .index("by_stateHash", ["stateHash"])
+    .index("by_expiresAt", ["expiresAt"]),
+
+  /**
+   * Per-tenant Slack-user directory. Opportunities store only immutable Slack
+   * IDs; this table carries the mutable display snapshot.
+   */
+  slackUsers: defineTable({
+    tenantId: v.id("tenants"),
+    installationId: v.id("slackInstallations"),
+    slackUserId: v.string(),
+    slackTeamId: v.string(),
+    username: v.optional(v.string()),
+    realName: v.optional(v.string()),
+    displayName: v.optional(v.string()),
+    avatarUrl: v.optional(v.string()),
+    timezone: v.optional(v.string()),
+    isBot: v.boolean(),
+    isDeleted: v.boolean(),
+    crmUserId: v.optional(v.id("users")),
+    firstSeenAt: v.number(),
+    lastSeenAt: v.number(),
+    lastSyncedAt: v.number(),
+  })
+    .index("by_tenantId_and_slackUserId", ["tenantId", "slackUserId"])
+    .index("by_installationId_and_slackUserId", [
+      "installationId",
+      "slackUserId",
+    ])
+    .index("by_slackTeamId_and_slackUserId", [
+      "slackTeamId",
+      "slackUserId",
+    ])
+    .index("by_tenantId", ["tenantId"]),
+
+  /**
+   * Redacted audit trail of inbound Slack payloads. Raw bodies are used only
+   * in memory for HMAC verification and hashing.
+   */
+  rawSlackEvents: defineTable({
+    tenantId: v.optional(v.id("tenants")),
+    teamId: v.string(),
+    apiAppId: v.optional(v.string()),
+    eventType: v.string(),
+    payloadRedacted: v.string(),
+    requestHash: v.string(),
+    slackEventId: v.optional(v.string()),
+    receivedAt: v.number(),
+    expiresAt: v.number(),
+    processed: v.boolean(),
+    processingError: v.optional(v.string()),
+  })
+    .index("by_tenantId_and_processed", ["tenantId", "processed"])
+    .index("by_teamId", ["teamId"])
+    .index("by_teamId_and_apiAppId", ["teamId", "apiAppId"])
+    .index("by_requestHash", ["requestHash"])
+    .index("by_expiresAt", ["expiresAt"]),
+  // === End Slack Bot v1 ===
 });

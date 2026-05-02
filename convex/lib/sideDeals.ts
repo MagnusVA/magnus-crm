@@ -1,7 +1,10 @@
 import type { Doc } from "../_generated/dataModel";
 import type { CommissionableOrigin } from "./paymentTypes";
 
-export type OpportunitySource = "calendly" | "side_deal";
+export type OpportunitySource =
+  | "calendly"
+  | "side_deal"
+  | "slack_qualified";
 
 export function normalizeOpportunitySource(
   opportunity: Pick<Doc<"opportunities">, "source">,

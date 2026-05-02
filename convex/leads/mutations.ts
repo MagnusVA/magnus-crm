@@ -6,6 +6,7 @@ import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
 import { requireTenantUser } from "../requireTenantUser";
 import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
 import { syncLeadMeetingNames } from "../lib/syncLeadMeetingNames";
+import { leadDisplayString } from "../lib/leadDisplay";
 import { buildLeadSearchText } from "./searchTextBuilder";
 
 function normalizeOptionalText(value: string | undefined): string | undefined {
@@ -78,7 +79,7 @@ export const updateLead = mutation({
       ctx,
       tenantId,
       leadId,
-      updatedLead.fullName ?? updatedLead.email,
+      leadDisplayString(updatedLead, identifiers),
     );
 
     console.log("[Leads:Mutation] updateLead completed", {

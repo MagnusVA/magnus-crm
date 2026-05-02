@@ -51,7 +51,7 @@ export function ReminderContactCard({ followUp, lead }: Props) {
 	const phone = lead.phone?.trim() || null;
 	const method = followUp.contactMethod ?? "call";
 	const reminderNote = followUp.reminderNote?.trim();
-	const displayName = lead.fullName?.trim() || lead.email;
+	const displayName = lead.fullName?.trim() || lead.email || "Unknown lead";
 
 	const copyPhone = async () => {
 		if (!phone) return;

@@ -279,11 +279,13 @@ async function syncLeadFromBooking(
 	ctx: MutationCtx,
 	lead: Doc<"leads">,
 	{
+		inviteeEmail,
 		inviteeName,
 		inviteePhone,
 		latestCustomFields,
 		now,
 	}: {
+		inviteeEmail: string | undefined;
 		inviteeName: string | undefined;
 		inviteePhone: string | undefined;
 		latestCustomFields: Record<string, string> | undefined;
@@ -292,6 +294,7 @@ async function syncLeadFromBooking(
 ): Promise<Doc<"leads">> {
 	const updatedLead: Doc<"leads"> = {
 		...lead,
+		email: lead.email ?? inviteeEmail,
 		fullName: inviteeName || lead.fullName,
 		phone: inviteePhone || lead.phone,
 		customFields: mergeCustomFields(lead.customFields, latestCustomFields),
@@ -299,6 +302,7 @@ async function syncLeadFromBooking(
 	};
 
 	await ctx.db.patch(lead._id, {
+		email: updatedLead.email,
 		fullName: updatedLead.fullName,
 		phone: updatedLead.phone,
 		customFields: updatedLead.customFields,
@@ -836,6 +840,7 @@ export const process = internalMutation({
 					);
 				} else {
 					const lead = await syncLeadFromBooking(ctx, targetLead, {
+						inviteeEmail,
 						inviteeName,
 						inviteePhone: effectivePhone,
 						latestCustomFields,
@@ -1118,6 +1123,7 @@ export const process = internalMutation({
 		// If existing lead, update fields (existing behavior, preserved)
 		if (!resolution.isNewLead) {
 			lead = await syncLeadFromBooking(ctx, lead, {
+				inviteeEmail,
 				inviteeName,
 				inviteePhone: effectivePhone,
 				latestCustomFields,

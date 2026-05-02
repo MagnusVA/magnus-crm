@@ -6,6 +6,7 @@ import { opportunityByStatus } from "./aggregates";
 import { assertValidDateRange, getUserDisplayName } from "./lib/helpers";
 
 const OPPORTUNITY_STATUSES = [
+  "qualified_pending",
   "scheduled",
   "in_progress",
   "meeting_overran",
@@ -18,6 +19,7 @@ const OPPORTUNITY_STATUSES = [
 ] as const satisfies ReadonlyArray<Doc<"opportunities">["status"]>;
 
 const ACTIVE_PIPELINE_STATUSES = [
+  "qualified_pending",
   "scheduled",
   "in_progress",
   "meeting_overran",

@@ -788,7 +788,7 @@ Exact copy is TBD (the user said "we will define exactly what it will contain la
         {
           "type": "button",
           "text": { "type": "plain_text", "text": "Open in CRM" },
-          "url": "https://ptdom-crm.com/workspace/pipeline?opportunity=<id>"
+          "url": "https://magnuscrm.com/workspace/pipeline?opportunity=<id>"
         }
       ]
     }
@@ -800,7 +800,7 @@ Exact copy is TBD (the user said "we will define exactly what it will contain la
 
 - `chat:write` — required for `chat.postMessage`
 - `chat:write.public` — required to post to public channels the bot wasn't `/invite`'d to
-- For private channels, the bot **must be invited** — surface a clean error in the CRM UI: "Bot not in #ops-leads — run `/invite @PTDom` in that channel."
+- For private channels, the bot **must be invited** — surface a clean error in the CRM UI: "Bot not in #ops-leads — run `/invite @Magnus` in that channel."
 
 ### 9.4 Failure modes
 
@@ -876,7 +876,7 @@ The reminder lives **where the work lives**. Setters do their DM outreach in Sla
       "accessory": {
         "type": "button",
         "text": { "type": "plain_text", "text": "Open" },
-        "url": "https://ptdom-crm.com/workspace/pipeline?opportunity=<id>"
+        "url": "https://magnuscrm.com/workspace/pipeline?opportunity=<id>"
       }
     },
     // ...one section per stale lead, capped at e.g. 25 to stay under message size limits...
@@ -886,7 +886,7 @@ The reminder lives **where the work lives**. Setters do their DM outreach in Sla
         {
           "type": "button",
           "text": { "type": "plain_text", "text": "View all in CRM" },
-          "url": "https://ptdom-crm.com/workspace/pipeline?status=qualified_pending"
+          "url": "https://magnuscrm.com/workspace/pipeline?status=qualified_pending"
         }
       ]
     }
@@ -1124,12 +1124,12 @@ _metadata:
   major_version: 2
   minor_version: 1
 display_information:
-  name: "PTDom CRM"
+  name: "Magnus CRM"
   description: "Qualify leads from Slack into your CRM."
   background_color: "#0b1020"
 features:
   bot_user:
-    display_name: "PTDom"
+    display_name: "Magnus"
     always_online: true
   slash_commands:
     - command: "/qualify-lead"
@@ -1478,7 +1478,7 @@ The reasons this is a strong "yes":
 ### What to add later (post-v1, if metric proves valuable)
 
 - Slack DM home tab showing the user their own qualified-lead pipeline + ratios
-- Slack App Mention (`@PTDom how am I doing this week?`) returning a stats card
+- Slack App Mention (`@Magnus how am I doing this week?`) returning a stats card
 - Two-way sync — surface "your Slack-qualified lead just booked" as a personal DM to the original submitter
 - `/qualify-lead` shortcut from Slack message context menus (right-click → Qualify this lead from this DM)
 

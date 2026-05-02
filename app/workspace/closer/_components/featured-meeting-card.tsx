@@ -33,7 +33,7 @@ type FeaturedMeetingCardProps = {
   };
   lead: {
     fullName?: string;
-    email: string;
+    email?: string;
   } | null;
   eventTypeName: string | null;
 };

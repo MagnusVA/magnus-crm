@@ -39,7 +39,7 @@ function getDisplayName(
     return "Unknown";
   }
 
-  return doc.fullName ?? doc.email;
+  return doc.fullName ?? doc.email ?? "Unknown";
 }
 
 export const listLeads = query({
@@ -455,7 +455,7 @@ export const getLeadDetail = query({
     }
 
     const potentialDuplicates: Array<{
-      duplicateLead: { _id: Id<"leads">; fullName?: string; email: string };
+      duplicateLead: { _id: Id<"leads">; fullName?: string; email?: string };
       opportunityId: Id<"opportunities">;
     }> = [];
 

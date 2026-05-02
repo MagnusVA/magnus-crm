@@ -5,6 +5,7 @@ import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { validateLeadTransition } from "../lib/statusTransitions";
 import { syncCustomerPaymentSummary } from "../lib/paymentHelpers";
 import { insertCustomerAggregate } from "../reporting/writeHooks";
+import { leadDisplayString } from "../lib/leadDisplay";
 
 /**
  * Core conversion logic — creates a customer record from a lead.
@@ -94,12 +95,15 @@ export async function executeConversion(
   }
   const resolvedProgramId = program._id;
   const resolvedProgramName = program.name;
+  if (!lead.email) {
+    throw new Error("Cannot convert lead to customer: lead email is missing");
+  }
 
   const now = Date.now();
   const customerId = await ctx.db.insert("customers", {
     tenantId,
     leadId,
-    fullName: lead.fullName ?? lead.email,
+    fullName: leadDisplayString(lead),
     email: lead.email,
     phone: lead.phone,
     socialHandles: lead.socialHandles,

@@ -1,12 +1,20 @@
 "use client";
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useRole } from "@/components/auth/role-context";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import SettingsLoading from "../loading";
 import { CalendlyConnection } from "./calendly-connection";
 import { EventTypeConfigList } from "./event-type-config-list";
@@ -14,9 +22,26 @@ import { FieldMappingsTab } from "./field-mappings-tab";
 import { ProgramsTab } from "./programs-tab";
 
 export function SettingsPageClient() {
+  return (
+    <Suspense fallback={<SettingsLoading />}>
+      <SettingsContent />
+    </Suspense>
+  );
+}
+
+function SettingsContent() {
   usePageTitle("Settings");
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isAdmin } = useRole();
+  const tabParam = searchParams.get("tab");
+  const defaultTab =
+    tabParam === "event-types" ||
+    tabParam === "field-mappings" ||
+    tabParam === "programs" ||
+    tabParam === "integrations"
+      ? tabParam
+      : "calendly";
 
   const eventTypeConfigs = useQuery(
     api.eventTypeConfigs.queries.listEventTypeConfigs,
@@ -55,12 +80,13 @@ export function SettingsPageClient() {
         </p>
       </div>
 
-      <Tabs defaultValue="calendly" className="w-full">
+      <Tabs defaultValue={defaultTab} className="w-full">
         <TabsList>
           <TabsTrigger value="calendly">Calendly</TabsTrigger>
           <TabsTrigger value="event-types">Event Types</TabsTrigger>
           <TabsTrigger value="field-mappings">Field Mappings</TabsTrigger>
           <TabsTrigger value="programs">Programs</TabsTrigger>
+          <TabsTrigger value="integrations">Integrations</TabsTrigger>
         </TabsList>
 
         <TabsContent value="calendly" className="mt-6">
@@ -77,6 +103,22 @@ export function SettingsPageClient() {
 
         <TabsContent value="programs" className="mt-6">
           <ProgramsTab />
+        </TabsContent>
+
+        <TabsContent value="integrations" className="mt-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>Slack</CardTitle>
+              <CardDescription>
+                Connect Slack to qualify leads from your workspace.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button asChild>
+                <a href="/api/slack/start">Connect Slack</a>
+              </Button>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

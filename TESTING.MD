@@ -1,8 +1,8 @@
-# Testing Guidelines — ptdom-crm
+# Testing Guidelines — Magnus CRM
 
 > **This app integrates Calendly, Convex, and WorkOS.** End-to-end testing is done **manually** and requires creating _real_ Calendly meetings, preferably via the Convex CLI test helpers in `convex/testing/calendly.ts`, then validating the processed data through the web app.
 >
-> This document is the authoritative reference for running manual QA on ptdom-crm.
+> This document is the authoritative reference for running manual QA on Magnus CRM.
 
 > **MANDATORY: Use the Convex CLI (terminal only) to validate all backend data.**
 > Every testing workflow **must** include Convex CLI verification against the **test deployment** before moving to browser validation. Use `npx convex run` and `npx convex logs` in the terminal — these are the single source of truth for confirming that webhooks arrived, were processed, and produced the correct records. You cannot skip this step — browser-only validation is insufficient because the UI may cache stale data or hide backend errors. Always run CLI checks first, then validate the UI.

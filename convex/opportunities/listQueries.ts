@@ -18,7 +18,7 @@ type OpportunityRow = Doc<"opportunities"> & {
   lead: {
     _id: Id<"leads">;
     fullName?: string;
-    email: string;
+    email?: string;
     phone?: string;
     status: Doc<"leads">["status"];
   } | null;

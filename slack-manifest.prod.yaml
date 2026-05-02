@@ -1,0 +1,39 @@
+_metadata:
+  major_version: 2
+  minor_version: 1
+display_information:
+  name: "Magnus CRM"
+  description: "Qualify leads from Slack into your CRM."
+  background_color: "#0b1020"
+features:
+  bot_user:
+    display_name: "Magnus"
+    always_online: true
+  slash_commands:
+    - command: "/qualify-lead"
+      description: "Open a form to qualify a new lead"
+      url: "https://<convex-prod>.convex.site/slack/commands"
+      should_escape: false
+oauth_config:
+  redirect_urls:
+    - "https://<convex-prod>.convex.site/slack/oauth_redirect"
+  scopes:
+    bot:
+      - commands
+      - chat:write
+      - chat:write.public
+      - channels:read
+      - groups:read
+      - users:read
+settings:
+  interactivity:
+    is_enabled: true
+    request_url: "https://<convex-prod>.convex.site/slack/interactivity"
+  event_subscriptions:
+    request_url: "https://<convex-prod>.convex.site/slack/events"
+    bot_events:
+      - app_uninstalled
+      - tokens_revoked
+      - user_change
+  socket_mode_enabled: false
+  token_rotation_enabled: true

@@ -8,6 +8,7 @@ import { emitDomainEvent } from "../lib/domainEvents";
 import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
 import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
 import { syncLeadMeetingNames } from "../lib/syncLeadMeetingNames";
+import { leadDisplayString } from "../lib/leadDisplay";
 
 const SOCIAL_IDENTIFIER_TYPES = new Set<Doc<"leadIdentifiers">["type"]>([
   "instagram",
@@ -202,7 +203,7 @@ async function executeMerge(
     ctx,
     tenantId,
     targetLeadId,
-    refreshedTargetLead.fullName ?? refreshedTargetLead.email,
+    leadDisplayString(refreshedTargetLead, allTargetIdentifiers),
   );
 
   await ctx.db.patch(sourceLeadId, {
