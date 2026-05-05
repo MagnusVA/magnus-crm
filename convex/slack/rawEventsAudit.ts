@@ -13,6 +13,22 @@ const REDACTED_PII_KEYS = new Set([
   "email",
   "phone",
   "real_name",
+  "real_name_normalized",
+  "display_name",
+  "display_name_normalized",
+  "first_name",
+  "last_name",
+]);
+
+const SENSITIVE_BLOCK_IDS = new Set(["email", "phone", "full_name"]);
+
+const PROFILE_PII_KEYS = new Set([
+  "email",
+  "phone",
+  "real_name",
+  "real_name_normalized",
+  "display_name",
+  "display_name_normalized",
   "first_name",
   "last_name",
 ]);
@@ -50,7 +66,7 @@ export async function persistRawSlackEvent(
   await ctx.runMutation(internal.slack.rawEvents.insert, envelope);
 }
 
-function redact(value: unknown, depth = 0): unknown {
+function redact(value: unknown, path: string[] = [], depth = 0): unknown {
   if (depth > 8) {
     return "<redacted:depth>";
   }
@@ -58,7 +74,7 @@ function redact(value: unknown, depth = 0): unknown {
     return value;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => redact(item, depth + 1));
+    return value.map((item) => redact(item, path, depth + 1));
   }
 
   const out: Record<string, unknown> = {};
@@ -66,11 +82,20 @@ function redact(value: unknown, depth = 0): unknown {
     if (REDACTED_KEYS.has(key)) {
       continue;
     }
+    const nextPath = [...path, key];
     if (REDACTED_PII_KEYS.has(key)) {
       out[key] = "<redacted:pii>";
       continue;
     }
-    out[key] = redact(item, depth + 1);
+    if (key === "value" && path.some((part) => SENSITIVE_BLOCK_IDS.has(part))) {
+      out[key] = "<redacted:pii>";
+      continue;
+    }
+    if (path.includes("profile") && PROFILE_PII_KEYS.has(key)) {
+      out[key] = "<redacted:pii>";
+      continue;
+    }
+    out[key] = redact(item, nextPath, depth + 1);
   }
   return out;
 }

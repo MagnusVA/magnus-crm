@@ -1,35 +1,36 @@
 "use client";
 
 import { Suspense, useEffect } from "react";
-import { useQuery } from "convex/react";
+import { type Preloaded, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRole } from "@/components/auth/role-context";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import SettingsLoading from "../loading";
 import { CalendlyConnection } from "./calendly-connection";
 import { EventTypeConfigList } from "./event-type-config-list";
 import { FieldMappingsTab } from "./field-mappings-tab";
 import { ProgramsTab } from "./programs-tab";
+import { SlackIntegrationCard } from "./integrations/slack-integration-card";
 
-export function SettingsPageClient() {
+type SettingsPageClientProps = {
+  preloadedSlackStatus: Preloaded<
+    typeof api.slack.channels.getInstallationStatus
+  >;
+};
+
+export function SettingsPageClient({
+  preloadedSlackStatus,
+}: SettingsPageClientProps) {
   return (
     <Suspense fallback={<SettingsLoading />}>
-      <SettingsContent />
+      <SettingsContent preloadedSlackStatus={preloadedSlackStatus} />
     </Suspense>
   );
 }
 
-function SettingsContent() {
+function SettingsContent({ preloadedSlackStatus }: SettingsPageClientProps) {
   usePageTitle("Settings");
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -106,19 +107,7 @@ function SettingsContent() {
         </TabsContent>
 
         <TabsContent value="integrations" className="mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Slack</CardTitle>
-              <CardDescription>
-                Connect Slack to qualify leads from your workspace.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button asChild>
-                <a href="/api/slack/start">Connect Slack</a>
-              </Button>
-            </CardContent>
-          </Card>
+          <SlackIntegrationCard preloadedStatus={preloadedSlackStatus} />
         </TabsContent>
       </Tabs>
     </div>

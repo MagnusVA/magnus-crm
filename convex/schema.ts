@@ -1017,6 +1017,7 @@ export default defineSchema({
       v.literal("followUp"),
       v.literal("user"),
       v.literal("payment"),
+      v.literal("slackInstallation"),
     ),
     entityId: v.string(),
     eventType: v.string(),
@@ -1159,6 +1160,22 @@ export default defineSchema({
     notifyChannelName: v.optional(v.string()),
     staleReminderChannelId: v.optional(v.string()),
     staleReminderChannelName: v.optional(v.string()),
+    notifyChannelError: v.optional(
+      v.object({
+        code: v.string(),
+        channelId: v.string(),
+        channelName: v.optional(v.string()),
+        occurredAt: v.number(),
+      }),
+    ),
+    staleReminderChannelError: v.optional(
+      v.object({
+        code: v.string(),
+        channelId: v.string(),
+        channelName: v.optional(v.string()),
+        occurredAt: v.number(),
+      }),
+    ),
 
     installedByWorkosUserId: v.string(),
     installedAt: v.number(),

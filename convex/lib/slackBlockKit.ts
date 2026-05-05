@@ -1,4 +1,4 @@
-import type { ModalView } from "@slack/types";
+import type { KnownBlock, ModalView } from "@slack/types";
 import type { Id } from "../_generated/dataModel";
 import {
   isSocialPlatform,
@@ -6,6 +6,8 @@ import {
   SOCIAL_PLATFORMS,
   type SocialPlatform,
 } from "./socialPlatform";
+
+const MAX_DIGEST_ENTRIES = 25;
 
 export type QualifyLeadModalMetadata = {
   tenantId: Id<"tenants">;
@@ -21,6 +23,25 @@ export type ParsedQualifyLeadSubmission = QualifyLeadModalMetadata & {
   handle: string;
   email: string | null;
   phone: string | null;
+};
+
+export type QualifiedLeadConfirmationArgs = {
+  leadFullName: string;
+  platform: SocialPlatform;
+  handle: string;
+  qualifiedBySlackUserId: string;
+  appUrl: string;
+  opportunityId: string;
+};
+
+export type StaleLeadDigestEntry = {
+  leadFullName: string;
+  platform: SocialPlatform;
+  handle: string;
+  daysOld: number;
+  appUrl: string;
+  opportunityId: string;
+  qualifiedBySlackUserId: string;
 };
 
 type SlackStateElement = {
@@ -116,6 +137,121 @@ export function buildQualifyLeadModal(
   };
 }
 
+export function buildQualifiedLeadConfirmation(
+  args: QualifiedLeadConfirmationArgs,
+) {
+  const leadName = escapeSlackMrkdwn(args.leadFullName);
+  const handle = escapeSlackMrkdwn(args.handle);
+  const platformLabel = SOCIAL_PLATFORM_LABELS[args.platform];
+  const opportunityUrl = crmOpportunityUrl(args.appUrl, args.opportunityId);
+  const blocks: KnownBlock[] = [
+    {
+      type: "header",
+      text: { type: "plain_text", text: "🎯 New Qualified Lead", emoji: true },
+    },
+    {
+      type: "section",
+      fields: [
+        { type: "mrkdwn", text: `*Name:*\n${leadName}` },
+        { type: "mrkdwn", text: `*Platform:*\n${platformLabel}` },
+        { type: "mrkdwn", text: `*Handle:*\n${handle}` },
+        {
+          type: "mrkdwn",
+          text: `*Qualified by:*\n<@${args.qualifiedBySlackUserId}>`,
+        },
+      ],
+    },
+    {
+      type: "actions",
+      elements: [
+        {
+          type: "button",
+          text: { type: "plain_text", text: "Open in CRM" },
+          url: opportunityUrl,
+        },
+      ],
+    },
+  ];
+
+  return {
+    text: `${leadName} was qualified by <@${args.qualifiedBySlackUserId}>`,
+    blocks,
+  };
+}
+
+export function buildStaleDigest(args: {
+  entries: StaleLeadDigestEntry[];
+  hasMore: boolean;
+  appUrl: string;
+}) {
+  const visible = args.entries.slice(0, MAX_DIGEST_ENTRIES);
+  const headline = args.hasMore
+    ? `${visible.length}+ qualified leads waiting`
+    : `${visible.length} qualified lead${visible.length === 1 ? "" : "s"} waiting`;
+
+  const blocks: KnownBlock[] = [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: `🟡 ${headline}`,
+        emoji: true,
+      },
+    },
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: "Qualified more than 30 days ago with no booking yet. Daily digest, 8am ET.",
+        },
+      ],
+    },
+    { type: "divider" },
+  ];
+
+  for (const entry of visible) {
+    const leadName = escapeSlackMrkdwn(entry.leadFullName);
+    const platformLabel = SOCIAL_PLATFORM_LABELS[entry.platform];
+    const handle = escapeSlackMrkdwn(entry.handle);
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text:
+          `*${leadName}*\n` +
+          `${platformLabel} - ${handle} - ${entry.daysOld} day${entry.daysOld === 1 ? "" : "s"} old\n` +
+          `Qualified by <@${entry.qualifiedBySlackUserId}>`,
+      },
+      accessory: {
+        type: "button",
+        text: { type: "plain_text", text: "Open" },
+        url: crmOpportunityUrl(entry.appUrl, entry.opportunityId),
+      },
+    });
+  }
+
+  if (args.hasMore) {
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: "_More qualified leads are waiting - view all in CRM_",
+      },
+      accessory: {
+        type: "button",
+        text: { type: "plain_text", text: "View all" },
+        url: `${args.appUrl}/workspace/pipeline?source=slack_qualified&status=qualified_pending`,
+      },
+    });
+  }
+
+  return {
+    text: headline,
+    blocks,
+  };
+}
+
 export function parseQualifyLeadSubmission(
   view: unknown,
 ): ParsedQualifyLeadSubmission | null {
@@ -153,6 +289,10 @@ function isSubmittedView(value: unknown): value is SlackSubmittedView {
   return typeof value === "object" && value !== null;
 }
 
+function crmOpportunityUrl(appUrl: string, opportunityId: string) {
+  return `${appUrl.replace(/\/$/, "")}/workspace/opportunities/${opportunityId}`;
+}
+
 function parseMetadata(value: unknown): QualifyLeadModalMetadata | null {
   if (typeof value !== "string") {
     return null;
@@ -188,4 +328,11 @@ function getStringValue(
 ): string | undefined {
   const value = values?.[blockId]?.v?.value;
   return typeof value === "string" ? value : undefined;
+}
+
+function escapeSlackMrkdwn(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }

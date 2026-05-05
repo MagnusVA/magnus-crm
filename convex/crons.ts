@@ -73,4 +73,11 @@ crons.interval(
   {},
 );
 
+crons.cron(
+  "slack-stale-qualified-leads-reminder",
+  "0 * * * *",
+  internal.slack.staleReminders.maybeRun,
+  {},
+);
+
 export default crons;

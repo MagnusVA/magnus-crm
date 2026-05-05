@@ -9,6 +9,7 @@ import {
   type IdentifierType,
   type SocialPlatformType,
 } from "../lib/normalization";
+import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { insertLeadAggregate } from "../reporting/writeHooks";
 import { buildLeadSearchText } from "./searchTextBuilder";
@@ -198,7 +199,7 @@ async function insertLeadIdentifierIfMissing(
     confidence: "verified" | "inferred" | "suggested";
     createdAt: number;
   },
-): Promise<void> {
+): Promise<"created" | "existing_same_lead" | "existing_other_lead"> {
   const existing = await ctx.db
     .query("leadIdentifiers")
     .withIndex("by_tenantId_and_type_and_value", (q) =>
@@ -210,10 +211,13 @@ async function insertLeadIdentifierIfMissing(
     .first();
 
   if (existing) {
-    return;
+    return existing.leadId === record.leadId
+      ? "existing_same_lead"
+      : "existing_other_lead";
   }
 
   await ctx.db.insert("leadIdentifiers", record);
+  return "created";
 }
 
 async function createManualIdentifiers(
@@ -272,7 +276,7 @@ async function createManualIdentifiers(
     return undefined;
   }
 
-  await insertLeadIdentifierIfMissing(ctx, {
+  const socialInsertResult = await insertLeadIdentifierIfMissing(ctx, {
     tenantId: args.tenantId,
     leadId: args.leadId,
     type: args.socialHandle.platform,
@@ -282,8 +286,75 @@ async function createManualIdentifiers(
     confidence: "verified",
     createdAt: args.createdAt,
   });
+  if (socialInsertResult === "existing_other_lead") {
+    return undefined;
+  }
 
   return [{ type: args.socialHandle.platform, handle: normalizedHandle }];
+}
+
+async function syncSubmittedIdentifiersForExistingLead(
+  ctx: MutationCtx,
+  lead: Doc<"leads">,
+  args: ResolveLeadIdentityArgs,
+  normalizedEmail: string | undefined,
+): Promise<Doc<"leads">> {
+  if (!(args.createIdentifiers ?? false)) {
+    return lead;
+  }
+
+  const submittedSocialHandles = await createManualIdentifiers(ctx, {
+    tenantId: args.tenantId,
+    leadId: lead._id,
+    email: normalizedEmail,
+    rawEmail: args.email,
+    phone: args.phone?.trim() || undefined,
+    socialHandle: args.socialHandle,
+    source: args.identifierSource,
+    createdAt: args.createdAt,
+  });
+
+  const nextSocialHandles = [...(lead.socialHandles ?? [])];
+  for (const submittedHandle of submittedSocialHandles ?? []) {
+    const alreadyPresent = nextSocialHandles.some(
+      (handle) =>
+        handle.type === submittedHandle.type &&
+        handle.handle === submittedHandle.handle,
+    );
+    if (!alreadyPresent) {
+      nextSocialHandles.push(submittedHandle);
+    }
+  }
+
+  const identifiers = await ctx.db
+    .query("leadIdentifiers")
+    .withIndex("by_leadId", (q) => q.eq("leadId", lead._id))
+    .take(50);
+  const identifierValues = identifiers.map((identifier) => identifier.value);
+  const searchText = buildLeadSearchText(
+    {
+      fullName: lead.fullName,
+      email: lead.email,
+      phone: lead.phone,
+      socialHandles: nextSocialHandles,
+    },
+    identifierValues,
+  );
+
+  const socialHandlesChanged =
+    nextSocialHandles.length !== (lead.socialHandles ?? []).length;
+  const searchTextChanged = searchText !== lead.searchText;
+  if (!socialHandlesChanged && !searchTextChanged) {
+    return lead;
+  }
+
+  await ctx.db.patch(lead._id, {
+    ...(socialHandlesChanged ? { socialHandles: nextSocialHandles } : {}),
+    ...(searchTextChanged ? { searchText } : {}),
+  });
+  await refreshOpportunitySearchForLead(ctx, lead.tenantId, lead._id);
+
+  return (await ctx.db.get(lead._id)) ?? lead;
 }
 
 export async function resolveLeadIdentity(
@@ -310,9 +381,15 @@ export async function resolveLeadIdentity(
     if (legacyLead) {
       const activeLead = await followMergeChain(ctx, legacyLead);
       if (activeLead) {
+        const syncedLead = await syncSubmittedIdentifiersForExistingLead(
+          ctx,
+          activeLead,
+          args,
+          normalizedEmail,
+        );
         return {
-          lead: activeLead,
-          leadId: activeLead._id,
+          lead: syncedLead,
+          leadId: syncedLead._id,
           created: false,
           isNewLead: false,
           resolvedVia: "email",
@@ -326,9 +403,15 @@ export async function resolveLeadIdentity(
       value: normalizedEmail,
     });
     if (emailLead) {
+      const syncedLead = await syncSubmittedIdentifiersForExistingLead(
+        ctx,
+        emailLead,
+        args,
+        normalizedEmail,
+      );
       return {
-        lead: emailLead,
-        leadId: emailLead._id,
+        lead: syncedLead,
+        leadId: syncedLead._id,
         created: false,
         isNewLead: false,
         resolvedVia: "email",
@@ -344,9 +427,15 @@ export async function resolveLeadIdentity(
         value: normalizedSocialHandle,
       });
       if (socialLead) {
+        const syncedLead = await syncSubmittedIdentifiersForExistingLead(
+          ctx,
+          socialLead,
+          args,
+          normalizedEmail,
+        );
         return {
-          lead: socialLead,
-          leadId: socialLead._id,
+          lead: syncedLead,
+          leadId: syncedLead._id,
           created: false,
           isNewLead: false,
           resolvedVia: "social_handle",
@@ -363,9 +452,15 @@ export async function resolveLeadIdentity(
         value: normalizedPhone,
       });
       if (phoneLead) {
+        const syncedLead = await syncSubmittedIdentifiersForExistingLead(
+          ctx,
+          phoneLead,
+          args,
+          normalizedEmail,
+        );
         return {
-          lead: phoneLead,
-          leadId: phoneLead._id,
+          lead: syncedLead,
+          leadId: syncedLead._id,
           created: false,
           isNewLead: false,
           resolvedVia: "phone",

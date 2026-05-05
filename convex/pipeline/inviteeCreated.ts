@@ -41,6 +41,7 @@ import {
 	insertMeetingAggregate,
 	insertOpportunityAggregate,
 } from "../reporting/writeHooks";
+import { findOpenSlackQualifiedOpportunity } from "./slackJoinLookup";
 
 function parseTimestamp(value: unknown): number | undefined {
 	if (typeof value !== "string") {
@@ -1380,7 +1381,17 @@ export const process = internalMutation({
 			}
 		}
 
-		if (existingFollowUp) {
+		const slackQualifiedOpportunity =
+			await findOpenSlackQualifiedOpportunity(ctx, {
+				tenantId,
+				leadId: lead._id,
+			});
+
+		if (slackQualifiedOpportunity) {
+			console.log(
+				`[Pipeline:invitee.created] Slack-qualified opportunity eligible | opportunityId=${slackQualifiedOpportunity._id} leadId=${lead._id}`,
+			);
+		} else if (existingFollowUp) {
 			console.log(
 				`[Pipeline:invitee.created] Follow-up opportunity detected | opportunityId=${existingFollowUp._id}`,
 			);
@@ -1390,9 +1401,13 @@ export const process = internalMutation({
 			);
 		}
 
-		const meetingAssignedCloserId = existingFollowUp
-			? assignedCloserId ?? existingFollowUp.assignedCloserId
-			: assignedCloserId;
+		const meetingAssignedCloserId = slackQualifiedOpportunity
+			? assignedCloserId ??
+				slackQualifiedOpportunity.assignedCloserId ??
+				existingFollowUp?.assignedCloserId
+			: existingFollowUp
+				? assignedCloserId ?? existingFollowUp.assignedCloserId
+				: assignedCloserId;
 		if (!meetingAssignedCloserId) {
 			if (assignedCloserResolution.isKnownNonCloserHost) {
 				console.warn(
@@ -1409,7 +1424,53 @@ export const process = internalMutation({
 		let opportunityId: Id<"opportunities">;
 		let meetingEventTypeConfigId: Id<"eventTypeConfigs"> | undefined =
 			eventTypeConfigId;
-		if (existingFollowUp) {
+		let slackJoinEventOpportunityId: Id<"opportunities"> | undefined;
+		if (slackQualifiedOpportunity) {
+			if (
+				!validateTransition(slackQualifiedOpportunity.status, "scheduled")
+			) {
+				throw new Error(
+					"[Pipeline] Invalid slack-qualified opportunity transition to scheduled",
+				);
+			}
+
+			opportunityId = slackQualifiedOpportunity._id;
+			meetingEventTypeConfigId =
+				eventTypeConfigId ??
+				slackQualifiedOpportunity.eventTypeConfigId ??
+				undefined;
+			const nextAssignedCloserId =
+				assignedCloserId ??
+				slackQualifiedOpportunity.assignedCloserId ??
+				meetingAssignedCloserId;
+			const closerChanged =
+				nextAssignedCloserId !==
+				slackQualifiedOpportunity.assignedCloserId;
+			await patchOpportunityLifecycle(ctx, opportunityId, {
+				status: "scheduled",
+				calendlyEventUri,
+				assignedCloserId: nextAssignedCloserId,
+				hostCalendlyUserUri: hostUserUri,
+				hostCalendlyEmail,
+				hostCalendlyName,
+				eventTypeConfigId: meetingEventTypeConfigId,
+				updatedAt: now,
+				// NOTE: utmParams intentionally NOT included here.
+				// The opportunity preserves attribution from its Slack qualification.
+				// The new meeting stores its own UTMs independently.
+			});
+			if (closerChanged) {
+				await syncOpportunityMeetingsAssignedCloser(
+					ctx,
+					opportunityId,
+					nextAssignedCloserId,
+				);
+			}
+			slackJoinEventOpportunityId = opportunityId;
+			console.log(
+				`[Pipeline:invitee.created] Slack-qualified opportunity joined | opportunityId=${opportunityId} leadId=${lead._id} slackOppCreatedAt=${new Date(slackQualifiedOpportunity.createdAt).toISOString()} qualifiedBy=${slackQualifiedOpportunity.qualifiedBy?.slackUserId ?? "unknown"}`,
+			);
+		} else if (existingFollowUp) {
 			if (!validateTransition(existingFollowUp.status, "scheduled")) {
 				throw new Error(
 					"[Pipeline] Invalid follow-up opportunity transition",
@@ -1552,6 +1613,22 @@ export const process = internalMutation({
 			},
 			occurredAt: now,
 		});
+		if (slackJoinEventOpportunityId) {
+			await emitDomainEvent(ctx, {
+				tenantId,
+				entityType: "opportunity",
+				entityId: slackJoinEventOpportunityId,
+				eventType: "slack_qualified_lead_booked",
+				source: "pipeline",
+				fromStatus: "qualified_pending",
+				toStatus: "scheduled",
+				metadata: {
+					leadId: lead._id,
+					meetingId,
+				},
+				occurredAt: now,
+			});
+		}
 		const attendanceCheckId = await scheduleMeetingAttendanceCheck(
 			ctx,
 			meetingId,
