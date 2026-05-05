@@ -141,9 +141,15 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
     });
   }
 
-  await ctx.runMutation(internal.slack.installations.upsertOnInstall, {
-    tenantId: state.tenantId,
-    teamId: data.team.id,
+  const existing = await ctx.runQuery(
+    internal.slack.installations.byTeamIdAndAppId,
+    {
+      teamId: data.team.id,
+      appId: data.app_id,
+    },
+  );
+
+  const tokenTuple = {
     teamName: data.team.name,
     enterpriseId: data.enterprise?.id,
     isEnterpriseInstall: Boolean(data.is_enterprise_install),
@@ -154,7 +160,38 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
     tokenExpiresAt: Date.now() + data.expires_in * 1000,
     scopes: (data.scope ?? "").split(",").filter(Boolean),
     installedByWorkosUserId: state.workosUserId,
-  });
+  };
+  let needsChannelPicker = true;
+
+  if (existing) {
+    if (existing.tenantId !== state.tenantId) {
+      console.error("[Slack:OAuth] cross-tenant install attempt", {
+        existingTenantId: existing.tenantId,
+        attemptingTenantId: state.tenantId,
+        teamId: data.team.id,
+        appId: data.app_id,
+      });
+      return new Response("Slack workspace already linked to another tenant", {
+        status: 409,
+      });
+    }
+
+    await ctx.runMutation(internal.slack.installations.reactivate, {
+      id: existing._id,
+      ...tokenTuple,
+    });
+    needsChannelPicker = !existing.notifyChannelId;
+    console.log("[Slack:OAuth] existing row reactivated", {
+      id: existing._id,
+      previousStatus: existing.status,
+    });
+  } else {
+    await ctx.runMutation(internal.slack.installations.upsertOnInstall, {
+      tenantId: state.tenantId,
+      teamId: data.team.id,
+      ...tokenTuple,
+    });
+  }
 
   console.log("[Slack:OAuth] install complete", {
     tenantId: state.tenantId,
@@ -163,6 +200,8 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
   });
 
   const destination = new URL(workspaceSettingsUrl("connected"));
-  destination.searchParams.set("pickChannel", "true");
+  if (needsChannelPicker) {
+    destination.searchParams.set("pickChannel", "true");
+  }
   return Response.redirect(destination.toString(), 302);
 });

@@ -219,3 +219,109 @@ export const markTokenExpired = internalMutation({
     });
   },
 });
+
+export const markUninstalled = internalMutation({
+  args: {
+    teamId: v.string(),
+    appId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("slackInstallations")
+      .withIndex("by_teamId_and_appId", (q) =>
+        q.eq("teamId", args.teamId).eq("appId", args.appId),
+      )
+      .unique();
+    if (!row || row.status === "uninstalled") {
+      return [];
+    }
+
+    await ctx.db.patch(row._id, {
+      status: "uninstalled",
+      uninstalledAt: Date.now(),
+      botAccessToken: "",
+      refreshToken: "",
+      refreshLockHolder: undefined,
+      refreshLockAcquiredAt: undefined,
+    });
+
+    return [
+      {
+        tenantId: row.tenantId,
+        installationId: row._id,
+        previousStatus: row.status,
+      },
+    ];
+  },
+});
+
+export const markRevoked = internalMutation({
+  args: {
+    teamId: v.string(),
+    appId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("slackInstallations")
+      .withIndex("by_teamId_and_appId", (q) =>
+        q.eq("teamId", args.teamId).eq("appId", args.appId),
+      )
+      .unique();
+    if (!row || row.status === "uninstalled" || row.status === "revoked") {
+      return [];
+    }
+
+    await ctx.db.patch(row._id, {
+      status: "revoked",
+      uninstalledAt: Date.now(),
+      botAccessToken: "",
+      refreshToken: "",
+      refreshLockHolder: undefined,
+      refreshLockAcquiredAt: undefined,
+    });
+
+    return [
+      {
+        tenantId: row.tenantId,
+        installationId: row._id,
+        previousStatus: row.status,
+      },
+    ];
+  },
+});
+
+export const reactivate = internalMutation({
+  args: {
+    id: v.id("slackInstallations"),
+    teamName: v.string(),
+    enterpriseId: v.optional(v.string()),
+    isEnterpriseInstall: v.boolean(),
+    appId: v.string(),
+    botUserId: v.string(),
+    botAccessToken: v.string(),
+    refreshToken: v.string(),
+    tokenExpiresAt: v.number(),
+    scopes: v.array(v.string()),
+    installedByWorkosUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.id, {
+      teamName: args.teamName,
+      enterpriseId: args.enterpriseId,
+      isEnterpriseInstall: args.isEnterpriseInstall,
+      appId: args.appId,
+      botUserId: args.botUserId,
+      botAccessToken: args.botAccessToken,
+      refreshToken: args.refreshToken,
+      tokenExpiresAt: args.tokenExpiresAt,
+      scopes: args.scopes,
+      installedByWorkosUserId: args.installedByWorkosUserId,
+      installedAt: Date.now(),
+      lastRefreshedAt: undefined,
+      refreshLockHolder: undefined,
+      refreshLockAcquiredAt: undefined,
+      status: "active",
+      uninstalledAt: undefined,
+    });
+  },
+});

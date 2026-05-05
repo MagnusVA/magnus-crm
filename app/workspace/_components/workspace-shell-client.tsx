@@ -49,6 +49,7 @@ import { WorkspaceBreadcrumbs } from "@/components/workspace-breadcrumbs";
 import { CommandPaletteTrigger } from "@/components/command-palette-trigger";
 import { NotificationCenter } from "@/components/notification-center";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { MagnusBrand } from "@/components/magnus-brand";
 import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
 import { usePostHogIdentify } from "@/hooks/use-posthog-identify";
 import posthog from "posthog-js";
@@ -245,11 +246,14 @@ function WorkspaceShellClientInner({
         <SidebarHeader>
           <Link
             href={isAdmin ? "/workspace" : "/workspace/closer"}
-            className="flex items-center gap-2 px-2 py-1.5"
+            aria-label="MAGNUS CRM workspace home"
+            className="group/brand flex min-h-10 items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1"
           >
-            <span className="text-xs font-semibold uppercase tracking-[0.25em] text-sidebar-foreground/80">
-              Magnus
-            </span>
+            <MagnusBrand
+              label="MAGNUS CRM"
+              size="sm"
+              textClassName="text-sidebar-foreground group-hover/brand:text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
+            />
           </Link>
           <Separator className="mx-2" />
           <div className="flex flex-col gap-1 px-2 py-1.5">

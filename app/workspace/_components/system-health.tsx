@@ -11,7 +11,15 @@ import {
   getCalendlyTokenTiming,
 } from "@/lib/calendly-connection-status";
 import { cn } from "@/lib/utils";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -35,12 +43,13 @@ export function SystemHealth() {
 
   if (connectionStatus === undefined) {
     return (
-      <Card>
+      <Card size="sm">
         <CardHeader>
-          <CardTitle className="text-base">System Health</CardTitle>
+          <CardTitle>System Health</CardTitle>
+          <CardDescription>Calendly token status</CardDescription>
         </CardHeader>
         <CardContent>
-          <Skeleton className="h-20 w-full" />
+          <Skeleton className="h-28 w-full rounded-lg" />
         </CardContent>
       </Card>
     );
@@ -85,98 +94,120 @@ export function SystemHealth() {
     window.location.href = `/api/calendly/start?${params.toString()}`;
   };
 
+  const statusBadge = (() => {
+    if (isExpired) {
+      return (
+        <Badge variant={connectionStatusConfig.expired.badgeVariant}>
+          {connectionStatusConfig.expired.label}
+        </Badge>
+      );
+    }
+
+    if (isExpiringSoon) {
+      return (
+        <Badge
+          variant={connectionStatusConfig.expiring.badgeVariant}
+          className={connectionStatusConfig.expiring.badgeClass}
+        >
+          {connectionStatusConfig.expiring.label}
+        </Badge>
+      );
+    }
+
+    if (isConnected) {
+      return (
+        <Badge
+          variant={connectionStatusConfig.connected.badgeVariant}
+          className={connectionStatusConfig.connected.badgeClass}
+        >
+          {connectionStatusConfig.connected.label}
+        </Badge>
+      );
+    }
+
+    return (
+      <Badge variant={connectionStatusConfig.disconnected.badgeVariant}>
+        {connectionStatusConfig.disconnected.label}
+      </Badge>
+    );
+  })();
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">System Health</CardTitle>
+    <Card size="sm">
+      <CardHeader className="border-b">
+        <CardTitle>System Health</CardTitle>
+        <CardDescription>Calendly token status</CardDescription>
+        <CardAction>{statusBadge}</CardAction>
       </CardHeader>
-      <CardContent>
-        <div className="flex flex-col gap-4">
-          {/* Calendly Connection Status */}
-          <div className="flex items-center justify-between rounded-lg border p-4">
+      <CardContent className="pt-3">
+        <div className="flex flex-col gap-3">
+          <div className="rounded-lg border bg-background p-3">
             <div className="flex items-start gap-3">
               {isConnected ? (
-                <CheckCircle2Icon className={cn("mt-0.5 size-5", connectionStatusConfig.connected.iconClass)} />
+                <CheckCircle2Icon
+                  className={cn(
+                    "mt-0.5 size-5",
+                    connectionStatusConfig.connected.iconClass,
+                  )}
+                />
               ) : (
-                <AlertCircleIcon className={cn("mt-0.5 size-5", connectionStatusConfig.disconnected.iconClass)} />
+                <AlertCircleIcon
+                  className={cn(
+                    "mt-0.5 size-5",
+                    connectionStatusConfig.disconnected.iconClass,
+                  )}
+                />
               )}
               <div className="flex flex-col gap-1">
                 <p className="text-sm font-medium">Calendly Connection</p>
                 <p className="text-xs text-muted-foreground">
                   Status: {isConnected ? "Connected" : "Disconnected"}
                 </p>
-                {connectionStatus.tokenExpiresAt !== null && (
-                  <p className="text-xs text-muted-foreground">
-                    Token expires:{" "}
-                    {formatCalendlyTokenExpiry(
-                      connectionStatus.tokenExpiresAt,
-                      now,
-                    )}
-                  </p>
-                )}
-                {connectionStatus.lastTokenRefresh !== null && (
-                  <p className="text-xs text-muted-foreground">
-                    Last refresh:{" "}
-                    {formatCalendlyLastRefresh(
-                      connectionStatus.lastTokenRefresh,
-                      now,
-                    )}
-                  </p>
-                )}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              {isExpired && (
-                <Badge variant={connectionStatusConfig.expired.badgeVariant}>
-                  {connectionStatusConfig.expired.label}
-                </Badge>
+
+            <div className="mt-3 grid gap-1 text-xs text-muted-foreground">
+              {connectionStatus.tokenExpiresAt !== null && (
+                <p>
+                  Token expires:{" "}
+                  {formatCalendlyTokenExpiry(
+                    connectionStatus.tokenExpiresAt,
+                    now,
+                  )}
+                </p>
               )}
-              {isExpiringSoon && (
-                <Badge
-                  variant={connectionStatusConfig.expiring.badgeVariant}
-                  className={connectionStatusConfig.expiring.badgeClass}
-                >
-                  {connectionStatusConfig.expiring.label}
-                </Badge>
-              )}
-              {isConnected && !isExpired && !isExpiringSoon && (
-                <Badge
-                  variant={connectionStatusConfig.connected.badgeVariant}
-                  className={connectionStatusConfig.connected.badgeClass}
-                >
-                  {connectionStatusConfig.connected.label}
-                </Badge>
-              )}
-              {!isConnected && (
-                <Badge variant={connectionStatusConfig.disconnected.badgeVariant}>
-                  {connectionStatusConfig.disconnected.label}
-                </Badge>
+              {connectionStatus.lastTokenRefresh !== null && (
+                <p>
+                  Last refresh:{" "}
+                  {formatCalendlyLastRefresh(
+                    connectionStatus.lastTokenRefresh,
+                    now,
+                  )}
+                </p>
               )}
             </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRefreshToken}
-              disabled={isRefreshing || !isConnected}
-            >
-              {isRefreshing ? (
-                <Spinner data-icon="inline-start" />
-              ) : (
-                <RefreshCwIcon data-icon="inline-start" />
-              )}
-              {isRefreshing ? "Refreshing..." : "Refresh Token"}
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleReconnect}>
-              <LinkIcon data-icon="inline-start" />
-              Reconnect Calendly
-            </Button>
           </div>
         </div>
       </CardContent>
+      <CardFooter className="flex flex-wrap gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRefreshToken}
+          disabled={isRefreshing || !isConnected}
+        >
+          {isRefreshing ? (
+            <Spinner data-icon="inline-start" />
+          ) : (
+            <RefreshCwIcon data-icon="inline-start" />
+          )}
+          {isRefreshing ? "Refreshing..." : "Refresh Token"}
+        </Button>
+        <Button variant="outline" size="sm" onClick={handleReconnect}>
+          <LinkIcon data-icon="inline-start" />
+          Reconnect Calendly
+        </Button>
+      </CardFooter>
     </Card>
   );
 }

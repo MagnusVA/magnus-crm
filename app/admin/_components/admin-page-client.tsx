@@ -13,6 +13,7 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { MagnusBrand } from "@/components/magnus-brand";
 
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/badge";
@@ -128,6 +129,11 @@ export function AdminPageClient() {
       <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-1.5">
+            <MagnusBrand
+              label="MAGNUS CRM"
+              size="sm"
+              textClassName="text-foreground"
+            />
             <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-muted-foreground">
               System Admin
             </p>

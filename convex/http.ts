@@ -2,7 +2,7 @@ import { httpRouter } from "convex/server";
 import { authKit } from "./auth";
 import { handleCalendlyWebhook } from "./webhooks/calendly";
 import { slashCommand } from "./slack/commands";
-import { slackEventsStub } from "./slack/inboundStubs";
+import { handleEvent } from "./slack/events";
 import { interactivity } from "./slack/interactivity";
 import { oauthRedirect } from "./slack/oauth";
 
@@ -36,7 +36,7 @@ http.route({
 http.route({
   path: "/slack/events",
   method: "POST",
-  handler: slackEventsStub,
+  handler: handleEvent,
 });
 
 export default http;
