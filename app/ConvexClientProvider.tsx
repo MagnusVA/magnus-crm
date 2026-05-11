@@ -5,6 +5,7 @@ import { AuthKitProvider, useAccessToken, useAuth } from "@workos-inc/authkit-ne
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CalendlyConnectionGuard } from "@/components/calendly-connection-guard";
+import { SlackConnectionGuard } from "@/components/slack-connection-guard";
 
 function getConvexUrl(): string {
   const url = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -23,7 +24,9 @@ export function ConvexClientProvider({ children }: { children: ReactNode }) {
     <AuthKitProvider>
       <ConvexProviderWithAuth client={convex} useAuth={useAuthFromAuthKit}>
         <CalendlyConnectionGuard>
-          {children}
+          <SlackConnectionGuard>
+            {children}
+          </SlackConnectionGuard>
         </CalendlyConnectionGuard>
       </ConvexProviderWithAuth>
     </AuthKitProvider>

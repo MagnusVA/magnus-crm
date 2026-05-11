@@ -85,7 +85,7 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
   const code = url.searchParams.get("code");
   const stateRaw = url.searchParams.get("state");
   if (!code || !stateRaw) {
-    return new Response("Bad request - missing code or state", { status: 400 });
+    return Response.redirect(workspaceSettingsUrl("oauth_failed"), 302);
   }
 
   const state = await validateAndConsumeSlackOAuthState(ctx, {
@@ -93,7 +93,7 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
   });
   if (!state) {
     console.error("[Slack:OAuth] invalid or expired state");
-    return new Response("Invalid state", { status: 401 });
+    return Response.redirect(workspaceSettingsUrl("oauth_failed"), 302);
   }
 
   const installer = await ctx.runQuery(
@@ -108,7 +108,7 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
       tenantId: state.tenantId,
       workosUserId: state.workosUserId,
     });
-    return new Response("Installer no longer authorized", { status: 403 });
+    return Response.redirect(workspaceSettingsUrl("admin_required"), 302);
   }
 
   const tokenResponse = await fetch("https://slack.com/api/oauth.v2.access", {
@@ -136,9 +136,7 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
     console.error("[Slack:OAuth] oauth.v2.access failed", {
       error: data.error,
     });
-    return new Response(`Slack OAuth failed: ${data.error ?? "unknown"}`, {
-      status: 502,
-    });
+    return Response.redirect(workspaceSettingsUrl("oauth_failed"), 302);
   }
 
   const existing = await ctx.runQuery(
@@ -171,9 +169,7 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
         teamId: data.team.id,
         appId: data.app_id,
       });
-      return new Response("Slack workspace already linked to another tenant", {
-        status: 409,
-      });
+      return Response.redirect(workspaceSettingsUrl("oauth_failed"), 302);
     }
 
     await ctx.runMutation(internal.slack.installations.reactivate, {

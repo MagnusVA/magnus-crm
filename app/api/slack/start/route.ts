@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     console.error("[/api/slack/start] startInstall failed", { message });
 
     if (message.includes("Insufficient permissions")) {
-      return redirectTo(request, "/workspace?error=slack_admin_required");
+      return redirectTo(request, "/workspace?slack=admin_required");
     }
 
     return redirectTo(

@@ -152,6 +152,7 @@ import type * as slack_channelsActions from "../slack/channelsActions.js";
 import type * as slack_cleanup from "../slack/cleanup.js";
 import type * as slack_commands from "../slack/commands.js";
 import type * as slack_createQualifiedLead from "../slack/createQualifiedLead.js";
+import type * as slack_deepLinks from "../slack/deepLinks.js";
 import type * as slack_events from "../slack/events.js";
 import type * as slack_inboundStubs from "../slack/inboundStubs.js";
 import type * as slack_installations from "../slack/installations.js";
@@ -347,6 +348,7 @@ declare const fullApi: ApiFromModules<{
   "slack/cleanup": typeof slack_cleanup;
   "slack/commands": typeof slack_commands;
   "slack/createQualifiedLead": typeof slack_createQualifiedLead;
+  "slack/deepLinks": typeof slack_deepLinks;
   "slack/events": typeof slack_events;
   "slack/inboundStubs": typeof slack_inboundStubs;
   "slack/installations": typeof slack_installations;

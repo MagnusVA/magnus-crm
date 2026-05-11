@@ -290,7 +290,9 @@ function isSubmittedView(value: unknown): value is SlackSubmittedView {
 }
 
 function crmOpportunityUrl(appUrl: string, opportunityId: string) {
-  return `${appUrl.replace(/\/$/, "")}/workspace/opportunities/${opportunityId}`;
+  const url = new URL("/api/slack/open-opportunity", appUrl.replace(/\/$/, ""));
+  url.searchParams.set("opportunityId", opportunityId);
+  return url.toString();
 }
 
 function parseMetadata(value: unknown): QualifyLeadModalMetadata | null {

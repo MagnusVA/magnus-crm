@@ -1,7 +1,84 @@
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "../_generated/server";
+import { internalMutation, internalQuery, query } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { requireTenantUser } from "../requireTenantUser";
 
 const STALE_LOCK_MS = 30_000;
+
+type SlackConnectionStatus = {
+  tenantId: Id<"tenants">;
+  installationId: Id<"slackInstallations"> | null;
+  status:
+    | "not_installed"
+    | "active"
+    | "token_expired"
+    | "revoked"
+    | "uninstalled";
+  needsReconnect: boolean;
+  needsChannelConfig: boolean;
+  teamName: string | null;
+  appId: string | null;
+  botUserId: string | null;
+  installedAt: number | null;
+  lastRefreshedAt: number | null;
+  tokenExpiresAt: number | null;
+  notifyChannelName: string | null;
+  staleReminderChannelName: string | null;
+};
+
+export const getConnectionStatus = query({
+  args: {},
+  handler: async (ctx): Promise<SlackConnectionStatus> => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    const installation = await ctx.db
+      .query("slackInstallations")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .first();
+
+    if (!installation) {
+      return {
+        tenantId,
+        installationId: null,
+        status: "not_installed",
+        needsReconnect: false,
+        needsChannelConfig: false,
+        teamName: null,
+        appId: null,
+        botUserId: null,
+        installedAt: null,
+        lastRefreshedAt: null,
+        tokenExpiresAt: null,
+        notifyChannelName: null,
+        staleReminderChannelName: null,
+      };
+    }
+
+    const needsReconnect = installation.status !== "active";
+    const needsChannelConfig =
+      installation.status === "active" &&
+      (!installation.notifyChannelId || !installation.staleReminderChannelId);
+
+    return {
+      tenantId,
+      installationId: installation._id,
+      status: installation.status,
+      needsReconnect,
+      needsChannelConfig,
+      teamName: installation.teamName,
+      appId: installation.appId,
+      botUserId: installation.botUserId,
+      installedAt: installation.installedAt,
+      lastRefreshedAt: installation.lastRefreshedAt ?? null,
+      tokenExpiresAt: installation.tokenExpiresAt,
+      notifyChannelName: installation.notifyChannelName ?? null,
+      staleReminderChannelName: installation.staleReminderChannelName ?? null,
+    };
+  },
+});
 
 export const byTeamIdAndAppId = internalQuery({
   args: {
