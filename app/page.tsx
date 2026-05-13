@@ -186,9 +186,19 @@ export default function Home() {
           size="xs"
           textClassName="text-base text-muted-foreground/70"
         />
-        <div className="flex gap-4 text-[11px] text-muted-foreground/40">
-          <span>Privacy</span>
-          <span>Terms</span>
+        <div className="flex gap-4 text-[11px] text-muted-foreground/60">
+          <Link
+            href="/privacy"
+            className="underline-offset-4 hover:text-muted-foreground hover:underline"
+          >
+            Privacy
+          </Link>
+          <Link
+            href="/support"
+            className="underline-offset-4 hover:text-muted-foreground hover:underline"
+          >
+            Support
+          </Link>
         </div>
       </footer>
     </div>

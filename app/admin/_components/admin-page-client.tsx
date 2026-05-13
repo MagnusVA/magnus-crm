@@ -48,6 +48,7 @@ import {
   InviteBanner,
   type InviteResult,
 } from "./invite-banner";
+import { SupportTicketsSection } from "./support-tickets-section";
 
 const CreateTenantDialog = dynamic(() =>
   import("./create-tenant-dialog").then((m) => ({ default: m.CreateTenantDialog })),
@@ -294,6 +295,8 @@ export function AdminPageClient() {
             </>
           )}
         </div>
+
+        <SupportTicketsSection />
 
         <CreateTenantDialog
           open={dialogOpen}

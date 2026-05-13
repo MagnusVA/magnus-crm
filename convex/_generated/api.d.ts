@@ -13,6 +13,7 @@ import type * as admin_inviteCleanupMutations from "../admin/inviteCleanupMutati
 import type * as admin_meetingActions from "../admin/meetingActions.js";
 import type * as admin_migrations from "../admin/migrations.js";
 import type * as admin_rawWebhookReplay from "../admin/rawWebhookReplay.js";
+import type * as admin_supportTickets from "../admin/supportTickets.js";
 import type * as admin_tenants from "../admin/tenants.js";
 import type * as admin_tenantsMutations from "../admin/tenantsMutations.js";
 import type * as admin_tenantsQueries from "../admin/tenantsQueries.js";
@@ -172,6 +173,7 @@ import type * as slack_tokens from "../slack/tokens.js";
 import type * as slack_userActions from "../slack/userActions.js";
 import type * as slack_users from "../slack/users.js";
 import type * as slack_webApi from "../slack/webApi.js";
+import type * as support from "../support.js";
 import type * as tenantPrograms_mutations from "../tenantPrograms/mutations.js";
 import type * as tenantPrograms_queries from "../tenantPrograms/queries.js";
 import type * as tenantPrograms_seed from "../tenantPrograms/seed.js";
@@ -209,6 +211,7 @@ declare const fullApi: ApiFromModules<{
   "admin/meetingActions": typeof admin_meetingActions;
   "admin/migrations": typeof admin_migrations;
   "admin/rawWebhookReplay": typeof admin_rawWebhookReplay;
+  "admin/supportTickets": typeof admin_supportTickets;
   "admin/tenants": typeof admin_tenants;
   "admin/tenantsMutations": typeof admin_tenantsMutations;
   "admin/tenantsQueries": typeof admin_tenantsQueries;
@@ -368,6 +371,7 @@ declare const fullApi: ApiFromModules<{
   "slack/userActions": typeof slack_userActions;
   "slack/users": typeof slack_users;
   "slack/webApi": typeof slack_webApi;
+  support: typeof support;
   "tenantPrograms/mutations": typeof tenantPrograms_mutations;
   "tenantPrograms/queries": typeof tenantPrograms_queries;
   "tenantPrograms/seed": typeof tenantPrograms_seed;

@@ -1266,4 +1266,24 @@ export default defineSchema({
     .index("by_requestHash", ["requestHash"])
     .index("by_expiresAt", ["expiresAt"]),
   // === End Slack Bot v1 ===
+
+  // === Public Support Requests ===
+  supportTickets: defineTable({
+    name: v.string(),
+    email: v.string(),
+    organizationName: v.optional(v.string()),
+    slackWorkspace: v.optional(v.string()),
+    subject: v.string(),
+    message: v.string(),
+    source: v.literal("support_page"),
+    status: v.union(
+      v.literal("new"),
+      v.literal("reviewed"),
+      v.literal("closed"),
+    ),
+    createdAt: v.number(),
+  })
+    .index("by_createdAt", ["createdAt"])
+    .index("by_status_and_createdAt", ["status", "createdAt"]),
+  // === End Public Support Requests ===
 });
