@@ -259,7 +259,7 @@ export const getMeetingDetail = query({
     let potentialDuplicate: {
       _id: typeof opportunity.leadId;
       fullName?: string;
-      email: string;
+      email?: string;
     } | null = null;
 
     if (potentialDuplicateLead && potentialDuplicateLead.tenantId === tenantId) {

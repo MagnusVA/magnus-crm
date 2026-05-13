@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
-import { useQuery } from "convex/react";
+import { Suspense, useEffect } from "react";
+import { type Preloaded, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useRole } from "@/components/auth/role-context";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePageTitle } from "@/hooks/use-page-title";
@@ -12,11 +12,37 @@ import { CalendlyConnection } from "./calendly-connection";
 import { EventTypeConfigList } from "./event-type-config-list";
 import { FieldMappingsTab } from "./field-mappings-tab";
 import { ProgramsTab } from "./programs-tab";
+import { SlackIntegrationCard } from "./integrations/slack-integration-card";
 
-export function SettingsPageClient() {
+type SettingsPageClientProps = {
+  preloadedSlackStatus: Preloaded<
+    typeof api.slack.channels.getInstallationStatus
+  >;
+};
+
+export function SettingsPageClient({
+  preloadedSlackStatus,
+}: SettingsPageClientProps) {
+  return (
+    <Suspense fallback={<SettingsLoading />}>
+      <SettingsContent preloadedSlackStatus={preloadedSlackStatus} />
+    </Suspense>
+  );
+}
+
+function SettingsContent({ preloadedSlackStatus }: SettingsPageClientProps) {
   usePageTitle("Settings");
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { isAdmin } = useRole();
+  const tabParam = searchParams.get("tab");
+  const defaultTab =
+    tabParam === "event-types" ||
+    tabParam === "field-mappings" ||
+    tabParam === "programs" ||
+    tabParam === "integrations"
+      ? tabParam
+      : "calendly";
 
   const eventTypeConfigs = useQuery(
     api.eventTypeConfigs.queries.listEventTypeConfigs,
@@ -55,12 +81,13 @@ export function SettingsPageClient() {
         </p>
       </div>
 
-      <Tabs defaultValue="calendly" className="w-full">
+      <Tabs defaultValue={defaultTab} className="w-full">
         <TabsList>
           <TabsTrigger value="calendly">Calendly</TabsTrigger>
           <TabsTrigger value="event-types">Event Types</TabsTrigger>
           <TabsTrigger value="field-mappings">Field Mappings</TabsTrigger>
           <TabsTrigger value="programs">Programs</TabsTrigger>
+          <TabsTrigger value="integrations">Integrations</TabsTrigger>
         </TabsList>
 
         <TabsContent value="calendly" className="mt-6">
@@ -77,6 +104,10 @@ export function SettingsPageClient() {
 
         <TabsContent value="programs" className="mt-6">
           <ProgramsTab />
+        </TabsContent>
+
+        <TabsContent value="integrations" className="mt-6">
+          <SlackIntegrationCard preloadedStatus={preloadedSlackStatus} />
         </TabsContent>
       </Tabs>
     </div>

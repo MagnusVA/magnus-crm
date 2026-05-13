@@ -9,6 +9,7 @@
 // ─── Opportunity statuses ────────────────────────────────────────────
 
 export const OPPORTUNITY_STATUSES = [
+  "qualified_pending",
   "scheduled",
   "in_progress",
   "meeting_overran",
@@ -71,6 +72,14 @@ export const opportunityStatusConfig: Record<
   OpportunityStatus,
   StatusVisualConfig
 > = {
+  qualified_pending: {
+    label: "Qualified - pending meeting",
+    badgeClass:
+      "bg-cyan-500/10 text-cyan-700 border-cyan-200 dark:text-cyan-400 dark:border-cyan-900",
+    dotClass: "bg-cyan-500",
+    stripBg:
+      "bg-cyan-500/5 hover:bg-cyan-500/10 border-cyan-200/60 dark:border-cyan-900/60",
+  },
   scheduled: {
     label: "Scheduled",
     badgeClass:
@@ -243,6 +252,7 @@ export const connectionStatusConfig = {
 // ─── Pipeline display order ──────────────────────────────────────────
 
 export const PIPELINE_DISPLAY_ORDER: OpportunityStatus[] = [
+  "qualified_pending",
   "scheduled",
   "in_progress",
   "meeting_overran",

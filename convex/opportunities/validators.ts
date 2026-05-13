@@ -3,9 +3,11 @@ import { v } from "convex/values";
 export const opportunitySourceValidator = v.union(
   v.literal("calendly"),
   v.literal("side_deal"),
+  v.literal("slack_qualified"),
 );
 
 export const opportunityStatusValidator = v.union(
+  v.literal("qualified_pending"),
   v.literal("scheduled"),
   v.literal("in_progress"),
   v.literal("meeting_overran"),

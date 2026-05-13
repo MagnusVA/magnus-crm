@@ -8,7 +8,8 @@ export type DomainEventEntityType =
   | "customer"
   | "followUp"
   | "user"
-  | "payment";
+  | "payment"
+  | "slackInstallation";
 
 export type DomainEventSource = "closer" | "admin" | "pipeline" | "system";
 

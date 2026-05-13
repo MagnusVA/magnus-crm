@@ -13,7 +13,7 @@ type PotentialDuplicateBannerProps = {
 	duplicateLead: {
 		_id: string;
 		fullName?: string;
-		email: string;
+		email?: string;
 	};
 	currentLeadName?: string;
 	opportunityId: Id<"opportunities">;
@@ -26,8 +26,10 @@ export function PotentialDuplicateBanner({
 	opportunityId,
 	currentLeadId,
 }: PotentialDuplicateBannerProps) {
-	const duplicateLeadLabel = duplicateLead.fullName ?? duplicateLead.email;
-	const showEmailDetail = duplicateLead.fullName !== undefined;
+	const duplicateLeadLabel =
+		duplicateLead.fullName ?? duplicateLead.email ?? "Unknown lead";
+	const showEmailDetail =
+		duplicateLead.fullName !== undefined && duplicateLead.email !== undefined;
 
 	const dismissDuplicateFlag = useMutation(
 		api.leads.merge.dismissDuplicateFlag,

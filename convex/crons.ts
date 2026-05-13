@@ -52,4 +52,32 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "refresh-slack-tokens",
+  { hours: 1 },
+  internal.slack.tokens.refreshExpiringTokens,
+  {},
+);
+
+crons.interval(
+  "cleanup-slack-oauth-states",
+  { hours: 24 },
+  internal.slack.cleanup.deleteExpiredOAuthStates,
+  {},
+);
+
+crons.interval(
+  "cleanup-slack-raw-events",
+  { hours: 24 },
+  internal.slack.cleanup.deleteExpiredRawEvents,
+  {},
+);
+
+crons.cron(
+  "slack-stale-qualified-leads-reminder",
+  "0 * * * *",
+  internal.slack.staleReminders.maybeRun,
+  {},
+);
+
 export default crons;

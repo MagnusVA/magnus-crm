@@ -25,6 +25,8 @@ interface StatsCardProps {
     | "success"
     | "warning"
     | "destructive";
+  size?: "default" | "sm";
+  className?: string;
 }
 
 const variantClasses = {
@@ -42,19 +44,33 @@ export function StatsCard({
   value,
   subtext,
   variant = "default",
+  size = "default",
+  className,
 }: StatsCardProps) {
   return (
-    <Card className={cn(variantClasses[variant])}>
-      <CardHeader className="pb-3">
+    <Card size={size} className={cn(variantClasses[variant], className)}>
+      <CardHeader className={cn(size === "sm" ? "pb-1" : "pb-3")}>
         <div className="flex items-start justify-between">
           <CardTitle className="text-sm font-medium text-muted-foreground">
             {label}
           </CardTitle>
-          <Icon className="size-5 text-muted-foreground/60" />
+          <Icon
+            className={cn(
+              "text-muted-foreground/60",
+              size === "sm" ? "size-4" : "size-5",
+            )}
+          />
         </div>
       </CardHeader>
       <CardContent>
-        <div className="text-3xl font-bold font-mono tabular-nums tracking-tight">{value}</div>
+        <div
+          className={cn(
+            "font-mono font-bold tabular-nums",
+            size === "sm" ? "text-2xl" : "text-3xl",
+          )}
+        >
+          {value}
+        </div>
         {subtext && (
           <p className="mt-1 text-xs text-muted-foreground">{subtext}</p>
         )}

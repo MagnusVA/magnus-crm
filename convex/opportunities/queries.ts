@@ -7,6 +7,7 @@ import { internalQuery, query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 
 const opportunityStatusValidator = v.union(
+  v.literal("qualified_pending"),
   v.literal("scheduled"),
   v.literal("in_progress"),
   v.literal("meeting_overran"),

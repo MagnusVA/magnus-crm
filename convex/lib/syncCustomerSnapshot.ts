@@ -1,5 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { leadDisplayString } from "./leadDisplay";
 
 export async function syncCustomerSnapshot(
   ctx: MutationCtx,
@@ -23,8 +24,8 @@ export async function syncCustomerSnapshot(
   }
 
   await ctx.db.patch(customer._id, {
-    fullName: lead.fullName ?? lead.email,
-    email: lead.email,
+    fullName: leadDisplayString(lead),
+    ...(lead.email ? { email: lead.email } : {}),
     phone: lead.phone,
     socialHandles: lead.socialHandles,
   });

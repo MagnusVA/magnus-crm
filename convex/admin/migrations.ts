@@ -44,6 +44,7 @@ import { requireSystemAdminSession } from "../requireSystemAdmin";
 
 const RAW_EVENT_BACKFILL_PAGE_SIZE = 25;
 const ACTIVE_OPPORTUNITY_STATUSES = new Set<Doc<"opportunities">["status"]>([
+  "qualified_pending",
   "scheduled",
   "in_progress",
   "follow_up_scheduled",

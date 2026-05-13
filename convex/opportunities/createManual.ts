@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { leadDisplayString } from "../lib/leadDisplay";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { resolveLeadIdentity } from "../leads/identityResolution";
 import { requireTenantUser } from "../requireTenantUser";
@@ -26,7 +27,7 @@ type NewLeadInput = {
 };
 
 function leadDisplayName(lead: Doc<"leads">): string {
-  return lead.fullName ?? lead.email;
+  return leadDisplayString(lead);
 }
 
 function assertLeadCanStartManualSideDeal(lead: Doc<"leads">): void {

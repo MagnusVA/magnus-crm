@@ -1,0 +1,26 @@
+name: slack-manifest-lint
+
+on:
+  pull_request:
+    paths:
+      - "slack-manifest.prod.yaml"
+  push:
+    branches: [main]
+    paths:
+      - "slack-manifest.prod.yaml"
+
+jobs:
+  verify-token-rotation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify token_rotation_enabled is true in prod manifest
+        run: |
+          VALUE=$(ruby -ryaml -e 'print YAML.load_file("slack-manifest.prod.yaml").dig("settings", "token_rotation_enabled").inspect')
+          echo "token_rotation_enabled = $VALUE"
+          if [ "$VALUE" != "true" ]; then
+            echo "::error file=slack-manifest.prod.yaml::token_rotation_enabled MUST be true (irreversible; see plans/slackbot-v1/slackbot-design.md section 4.1 and 14.10). Got: $VALUE"
+            exit 1
+          fi
+          echo "OK - token_rotation_enabled is true"

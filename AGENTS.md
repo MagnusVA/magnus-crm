@@ -1,4 +1,4 @@
-# AGENTS.md — ptdom-crm
+# AGENTS.md — magnus-crm
 
 > **This app is under heavy development with 1 test tenant on production.**
 > Any significant schema or data changes require a migration strategy — use the `convex-migration-helper` skill.
@@ -806,21 +806,21 @@ Repo-local skills live under **`.agents/skills/<skill-name>/SKILL.md`**. When a 
 
 ## Quick Reference: Key Files
 
-| File / Directory                                | Purpose                                                                   |
-| ----------------------------------------------- | ------------------------------------------------------------------------- |
-| `lib/auth.ts`                                   | Server-side auth helpers (verifySession, getWorkspaceAccess, requireRole) |
-| `convex/requireTenantUser.ts`                   | Convex tenant auth guard                                                  |
-| `convex/requireSystemAdmin.ts`                  | Convex system admin guard                                                 |
-| `convex/lib/permissions.ts`                     | RBAC permission table                                                     |
-| `convex/lib/roleMapping.ts`                     | CRM ↔ WorkOS role mapping                                                 |
-| `convex/lib/statusTransitions.ts`               | State machine for opportunity/meeting status                              |
-| `convex/schema.ts`                              | Single source of truth for all tables and indexes                         |
-| `convex/_generated/ai/guidelines.md`            | Convex coding guidelines (read before any Convex work)                    |
-| `app/ConvexClientProvider.tsx`                  | Root provider chain (AuthKit + Convex + CalendlyGuard)                    |
-| `app/workspace/layout.tsx`                      | Workspace streaming shell + auth gate                                     |
-| `app/workspace/_components/workspace-auth.tsx`  | Async RSC that resolves workspace access                                  |
-| `components/auth/role-context.tsx`              | RoleProvider + useRole() hook                                             |
-| `components/ui/field.tsx`                       | Compound form layout components                                           |
-| `next.config.ts`                                | View Transitions, cacheComponents, package optimization                   |
-| `TESTING.MD`                                    | Manual QA workflow: test data seeding, CLI validation, UI verification    |
-| `.agents/skills/*/SKILL.md`                     | Repo-local AI agent skills                                                |
+| File / Directory                               | Purpose                                                                   |
+| ---------------------------------------------- | ------------------------------------------------------------------------- |
+| `lib/auth.ts`                                  | Server-side auth helpers (verifySession, getWorkspaceAccess, requireRole) |
+| `convex/requireTenantUser.ts`                  | Convex tenant auth guard                                                  |
+| `convex/requireSystemAdmin.ts`                 | Convex system admin guard                                                 |
+| `convex/lib/permissions.ts`                    | RBAC permission table                                                     |
+| `convex/lib/roleMapping.ts`                    | CRM ↔ WorkOS role mapping                                                 |
+| `convex/lib/statusTransitions.ts`              | State machine for opportunity/meeting status                              |
+| `convex/schema.ts`                             | Single source of truth for all tables and indexes                         |
+| `convex/_generated/ai/guidelines.md`           | Convex coding guidelines (read before any Convex work)                    |
+| `app/ConvexClientProvider.tsx`                 | Root provider chain (AuthKit + Convex + CalendlyGuard)                    |
+| `app/workspace/layout.tsx`                     | Workspace streaming shell + auth gate                                     |
+| `app/workspace/_components/workspace-auth.tsx` | Async RSC that resolves workspace access                                  |
+| `components/auth/role-context.tsx`             | RoleProvider + useRole() hook                                             |
+| `components/ui/field.tsx`                      | Compound form layout components                                           |
+| `next.config.ts`                               | View Transitions, cacheComponents, package optimization                   |
+| `TESTING.MD`                                   | Manual QA workflow: test data seeding, CLI validation, UI verification    |
+| `.agents/skills/*/SKILL.md`                    | Repo-local AI agent skills                                                |

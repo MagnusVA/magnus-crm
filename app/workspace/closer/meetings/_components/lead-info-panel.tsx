@@ -53,19 +53,21 @@ export function LeadInfoPanel({
             </ContactRow>
           )}
 
-          <ContactRow
-            icon={<MailIcon />}
-            bgClass="bg-primary/10"
-            iconClass="text-primary"
-            label="Email"
-          >
-            <a
-              href={`mailto:${lead.email}`}
-              className="truncate text-sm text-primary hover:underline"
+          {lead.email && (
+            <ContactRow
+              icon={<MailIcon />}
+              bgClass="bg-primary/10"
+              iconClass="text-primary"
+              label="Email"
             >
-              {lead.email}
-            </a>
-          </ContactRow>
+              <a
+                href={`mailto:${lead.email}`}
+                className="truncate text-sm text-primary hover:underline"
+              >
+                {lead.email}
+              </a>
+            </ContactRow>
+          )}
 
           {lead.phone && (
             <ContactRow

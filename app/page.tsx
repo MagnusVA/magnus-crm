@@ -11,6 +11,7 @@ import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { MagnusBrand } from "@/components/magnus-brand";
 import { SYSTEM_ADMIN_ORG_ID } from "@/lib/system-admin-org";
 import { DOT_GRID_STYLE } from "@/lib/dot-grid";
 
@@ -98,9 +99,18 @@ export default function Home() {
     >
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-5">
-        <span className="text-xs font-semibold uppercase tracking-[0.3em] text-muted-foreground">
-          Magnus CRM
-        </span>
+        <Link
+          href="/"
+          aria-label="MAGNUS CRM home"
+          className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          <MagnusBrand
+            label="MAGNUS CRM"
+            size="sm"
+            priority
+            textClassName="text-foreground"
+          />
+        </Link>
         <div className="flex items-center gap-2">
           <ThemeToggle />
           <Button asChild variant="outline" size="sm">
@@ -115,14 +125,23 @@ export default function Home() {
       {/* Hero */}
       <main className="flex flex-1 flex-col items-center justify-center px-4 py-16">
         <div className="flex w-full max-w-lg flex-col gap-10 text-center motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-3 motion-safe:duration-600">
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col items-center gap-5">
+            <MagnusBrand
+              label="MAGNUS CRM"
+              size="lg"
+              className="justify-center"
+              textClassName="text-3xl text-foreground sm:text-4xl"
+            />
             <h1 className="text-3xl font-semibold tracking-tight text-foreground sm:text-4xl text-balance">
               Sales Meetings. Pipeline Tracking. Deal Closing. All in One Place.
             </h1>
             <p className="mx-auto max-w-md text-sm leading-relaxed text-muted-foreground text-pretty">
-              Magnus CRM turns your Calendly meetings into a structured sales
-              pipeline — from booking to payment, with real-time visibility
-              for closers and admins.
+              <span className="font-brand text-[1.08em] tracking-normal text-foreground">
+                MAGNUS CRM
+              </span>{" "}
+              turns your Calendly meetings into a structured sales pipeline —
+              from booking to payment, with real-time visibility for closers
+              and admins.
             </p>
           </div>
 
@@ -162,12 +181,24 @@ export default function Home() {
 
       {/* Footer */}
       <footer className="flex items-center justify-between px-6 pb-5">
-        <p className="text-[11px] text-muted-foreground/60">
-          Magnus CRM
-        </p>
-        <div className="flex gap-4 text-[11px] text-muted-foreground/40">
-          <span>Privacy</span>
-          <span>Terms</span>
+        <MagnusBrand
+          label="MAGNUS CRM"
+          size="xs"
+          textClassName="text-base text-muted-foreground/70"
+        />
+        <div className="flex gap-4 text-[11px] text-muted-foreground/60">
+          <Link
+            href="/privacy"
+            className="underline-offset-4 hover:text-muted-foreground hover:underline"
+          >
+            Privacy
+          </Link>
+          <Link
+            href="/support"
+            className="underline-offset-4 hover:text-muted-foreground hover:underline"
+          >
+            Support
+          </Link>
         </div>
       </footer>
     </div>

@@ -92,7 +92,7 @@ export function NoShowActionBar({
         <AlertTriangleIcon className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-400" />
         <div className="flex-1">
           <p className="font-medium text-amber-900 dark:text-amber-100">
-            {lead.fullName ?? lead.email} &mdash; {reasonLabel}
+            {lead.fullName ?? lead.email ?? "Unknown lead"} &mdash; {reasonLabel}
           </p>
           <p className="mt-0.5 text-sm text-amber-700 dark:text-amber-300">
             {format(new Date(meeting.scheduledAt), "MMM d, h:mm a")}

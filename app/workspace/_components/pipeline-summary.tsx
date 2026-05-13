@@ -1,6 +1,12 @@
 "use client";
 
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { opportunityStatusConfig } from "@/lib/status-config";
 
@@ -38,21 +44,29 @@ export function PipelineSummary({ stats }: PipelineSummaryProps) {
   ];
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Pipeline Overview</CardTitle>
+    <Card size="sm">
+      <CardHeader className="border-b">
+        <CardTitle>Pipeline Overview</CardTitle>
+        <CardDescription>Current opportunity mix</CardDescription>
       </CardHeader>
-      <CardContent>
-        <div className="flex flex-wrap gap-6">
+      <CardContent className="pt-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 2xl:grid-cols-1">
           {statuses.map((status) => (
-            <div key={status.label} className="flex flex-col gap-2">
-              <span className="text-sm text-muted-foreground">{status.label}</span>
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-bold">{status.value}</span>
+            <div
+              key={status.label}
+              className="flex items-center justify-between gap-3 rounded-lg border bg-background p-3"
+            >
+              <div className="flex flex-col gap-1">
+                <span className="text-sm text-muted-foreground">
+                  {status.label}
+                </span>
                 <Badge className={status.badgeClass} variant="secondary">
                   {status.label}
                 </Badge>
               </div>
+              <span className="font-mono text-2xl font-bold tabular-nums">
+                {status.value}
+              </span>
             </div>
           ))}
         </div>

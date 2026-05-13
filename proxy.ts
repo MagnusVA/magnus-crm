@@ -7,6 +7,8 @@ const PUBLIC_PREFIXES = [
 	"/sign-up",
 	"/callback",
 	"/onboarding",
+	"/privacy",
+	"/support",
 ] as const;
 
 function isPublicPath(pathname: string) {

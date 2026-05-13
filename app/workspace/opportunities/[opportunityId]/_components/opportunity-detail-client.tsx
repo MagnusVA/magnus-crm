@@ -55,8 +55,12 @@ function formatDateTime(timestamp: number | null | undefined) {
   return dateTimeFormatter.format(new Date(timestamp));
 }
 
-function formatSource(source: "calendly" | "side_deal") {
-  return source === "side_deal" ? "Side deal" : "Calendly";
+function formatSource(
+  source: "calendly" | "side_deal" | "slack_qualified",
+) {
+  if (source === "side_deal") return "Side deal";
+  if (source === "slack_qualified") return "Slack qualified";
+  return "Calendly";
 }
 
 export function OpportunityDetailClient({
@@ -233,7 +237,7 @@ export function OpportunityDetailClient({
                     </div>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">
-                        {lead.fullName ?? lead.email}
+                        {lead.fullName ?? lead.email ?? "Unknown lead"}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {lead.status}
@@ -243,7 +247,7 @@ export function OpportunityDetailClient({
                   <div className="flex flex-col gap-3 text-sm">
                     <IconLine
                       icon={<MailIcon aria-hidden="true" />}
-                      value={lead.email}
+                      value={lead.email ?? "No email recorded"}
                     />
                     <IconLine
                       icon={<PhoneIcon aria-hidden="true" />}

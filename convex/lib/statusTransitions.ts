@@ -1,4 +1,5 @@
 export const OPPORTUNITY_STATUSES = [
+  "qualified_pending",
   "scheduled",
   "in_progress",
   "meeting_overran",
@@ -27,6 +28,7 @@ export const VALID_TRANSITIONS: Record<
   OpportunityStatus,
   OpportunityStatus[]
 > = {
+  qualified_pending: ["scheduled", "lost"],
   scheduled: ["in_progress", "meeting_overran", "canceled", "no_show"],
   in_progress: ["payment_received", "follow_up_scheduled", "no_show", "lost"],
   meeting_overran: [

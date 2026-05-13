@@ -15,6 +15,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
+import { MagnusBrand } from "@/components/magnus-brand";
 
 /**
  * Suspense fallback for the workspace shell.
@@ -38,9 +39,13 @@ export function WorkspaceShellSkeleton() {
     <>
       <Sidebar>
         <SidebarHeader>
-          <span className="px-2 py-1.5 text-xs font-semibold uppercase tracking-[0.25em] text-sidebar-foreground/80">
-            Magnus
-          </span>
+          <div className="flex min-h-10 items-center px-2 py-1.5 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1">
+            <MagnusBrand
+              label="MAGNUS CRM"
+              size="sm"
+              textClassName="text-sidebar-foreground group-data-[collapsible=icon]:hidden"
+            />
+          </div>
           <Separator className="mx-2" />
           {/* User info skeleton — matches displayName + role label */}
           <div className="flex flex-col gap-1 px-2 py-1.5">

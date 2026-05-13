@@ -72,6 +72,7 @@ export function LeadDetailPageClient() {
 			</div>
 		);
 	}
+	const leadDisplayName = lead.fullName ?? lead.email ?? "Lead";
 
 	return (
 		<div className="flex flex-col gap-6">
@@ -90,10 +91,10 @@ export function LeadDetailPageClient() {
 			<div className="flex flex-col gap-3">
 				<div>
 					<h1 className="text-2xl font-semibold tracking-tight">
-						{lead.fullName ?? lead.email}
+						{leadDisplayName}
 					</h1>
 					<div className="flex flex-col gap-0.5 text-sm text-muted-foreground">
-						<span>{lead.email}</span>
+						{lead.email && <span>{lead.email}</span>}
 						{lead.phone && <span>{lead.phone}</span>}
 					</div>
 				</div>
@@ -136,7 +137,7 @@ export function LeadDetailPageClient() {
 					{hasPermission("lead:convert") && (
 						<ConvertToCustomerDialog
 							leadId={leadId}
-							leadName={lead.fullName ?? lead.email}
+							leadName={leadDisplayName}
 							leadStatus={lead.status}
 							opportunities={detail.opportunities}
 						/>
