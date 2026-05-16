@@ -1,11 +1,5 @@
-UX:
-Today, yesterday, current week, current month, and date range filters on all data heavy pages, default to this week.
+quitar las opciones que no sirven en el bot
 
-Reminders: Reschedule reminders.
-And mark actions, payment, lost no show etc.
+Y hacer agregacion de quien califico el lead en un bucket de 24 horas.
 
-
-Fathom on the meeting details page for closers, 
-
-
-Always mark as overran but allow normal closer operations. that can be disputed by the review.
+HAcer los videos/ manual operativo.

@@ -202,6 +202,7 @@ export const syncMyTenantMembers = action({
       `[org-sync] syncMyTenantMembers: user=${currentUser._id}, tenant=${currentUser.tenantId}`,
     );
 
+    const syncStartTimestamp = Date.now();
     const result = await syncTenantOrgMembers(ctx, currentUser.tenantId);
 
     if ("reason" in result) {
@@ -213,7 +214,7 @@ export const syncMyTenantMembers = action({
 
     const cleanupResult: { deleted: number } = await ctx.runMutation(
       internal.calendly.orgMembersMutations.deleteStaleMembers,
-      { tenantId: currentUser.tenantId, syncStartTimestamp: Date.now() },
+      { tenantId: currentUser.tenantId, syncStartTimestamp },
     );
 
     console.log(
