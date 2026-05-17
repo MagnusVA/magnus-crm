@@ -55,6 +55,39 @@ export const opportunityByStatus = new TableAggregate<{
   ],
 });
 
+function slackQualificationSubmittedAt(doc: Doc<"opportunities">): number {
+  return doc.qualifiedBy?.submittedAt ?? doc.createdAt;
+}
+
+export function isSlackQualificationAggregateEligible(
+  doc: Doc<"opportunities">,
+): boolean {
+  return doc.source === "slack_qualified" && doc.qualifiedBy !== undefined;
+}
+
+export const slackQualificationsByUser = new TableAggregate<{
+  Namespace: Id<"tenants">;
+  Key: [string, number];
+  DataModel: DataModel;
+  TableName: "opportunities";
+}>(components.slackQualificationsByUser, {
+  namespace: (doc) => doc.tenantId,
+  sortKey: (doc) => [
+    doc.qualifiedBy?.slackUserId ?? "",
+    slackQualificationSubmittedAt(doc),
+  ],
+});
+
+export const slackQualificationsByTime = new TableAggregate<{
+  Namespace: Id<"tenants">;
+  Key: number;
+  DataModel: DataModel;
+  TableName: "opportunities";
+}>(components.slackQualificationsByTime, {
+  namespace: (doc) => doc.tenantId,
+  sortKey: (doc) => slackQualificationSubmittedAt(doc),
+});
+
 export const leadTimeline = new TableAggregate<{
   Namespace: Id<"tenants">;
   Key: number;

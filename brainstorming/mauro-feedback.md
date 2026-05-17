@@ -1,5 +1,8 @@
-quitar las opciones que no sirven en el bot
 
-Y hacer agregacion de quien califico el lead en un bucket de 24 horas.
 
-HAcer los videos/ manual operativo.
+
+
+Meeting attribution on customer/oportunity page.
+Operations team needs to be able to view via the utm source which currently resides in the meeting metadata.
+This is so they can determine Which of the setters team actually scheduled the meeting.
+This will probably add another reporting surface.

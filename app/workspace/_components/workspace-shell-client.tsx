@@ -35,6 +35,7 @@ import {
   KanbanIcon,
   LayoutDashboardIcon,
   LogOutIcon,
+  MessageSquareTextIcon,
   SettingsIcon,
   ShieldCheckIcon,
   TargetIcon,
@@ -103,6 +104,11 @@ const reportNavItems: NavItem[] = [
   { href: "/workspace/reports/meeting-time", label: "Meeting Time", icon: TimerIcon },
   { href: "/workspace/reports/reviews", label: "Review Ops", icon: ShieldCheckIcon },
   { href: "/workspace/reports/reminders", label: "Reminders", icon: AlarmClockCheckIcon },
+  {
+    href: "/workspace/reports/slack-qualifications",
+    label: "Slack Qualifications",
+    icon: MessageSquareTextIcon,
+  },
 ];
 
 // ---------------------------------------------------------------------------

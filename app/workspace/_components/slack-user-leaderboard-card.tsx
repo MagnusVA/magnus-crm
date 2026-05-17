@@ -1,10 +1,12 @@
 "use client";
 
 import type { FunctionReturnType } from "convex/server";
+import Link from "next/link";
 import { TrophyIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardAction,
@@ -34,10 +36,13 @@ export function SlackUserLeaderboardCard({
           Top Qualifiers
         </CardTitle>
         <CardDescription>Slack users by submitted leads</CardDescription>
-        <CardAction>
+        <CardAction className="flex items-center gap-2">
           <Badge variant={breakdown.truncated ? "destructive" : "outline"}>
             {breakdown.truncated ? "Partial" : "Top 5"}
           </Badge>
+          <Button asChild variant="ghost" size="sm">
+            <Link href="/workspace/reports/slack-qualifications">Details</Link>
+          </Button>
         </CardAction>
       </CardHeader>
       <CardContent>

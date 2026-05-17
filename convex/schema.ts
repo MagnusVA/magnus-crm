@@ -30,6 +30,9 @@ export default defineSchema({
     createdBy: v.string(),
     onboardingCompletedAt: v.optional(v.number()),
     tenantOwnerId: v.optional(v.id("users")),
+    // One tenant-wide count target for one Honduras 1am-to-1am business day.
+    // Undefined means no team goal configured. Field name retained for migration safety.
+    slackQualificationDailyTeamQuota: v.optional(v.number()),
   })
     .index("by_contactEmail", ["contactEmail"])
     .index("by_workosOrgId", ["workosOrgId"])
@@ -1228,6 +1231,9 @@ export default defineSchema({
     isBot: v.boolean(),
     isDeleted: v.boolean(),
     crmUserId: v.optional(v.id("users")),
+    // Deprecated compatibility for an earlier per-setter goal draft.
+    // Do not read or write this field; team goal lives on tenants.
+    dailyQualificationQuota: v.optional(v.number()),
     firstSeenAt: v.number(),
     lastSeenAt: v.number(),
     lastSyncedAt: v.number(),
