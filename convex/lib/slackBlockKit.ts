@@ -28,6 +28,10 @@ export type QualifiedLeadConfirmationArgs = {
   platform: SocialPlatform;
   handle: string;
   qualifiedBySlackUserId: string;
+  qualificationGoal?: {
+    qualifiedCount: number;
+    dailyTeamQualificationGoal: number;
+  };
   appUrl: string;
   opportunityId: string;
 };
@@ -121,6 +125,22 @@ export function buildQualifiedLeadConfirmation(
   const handle = escapeSlackMrkdwn(args.handle);
   const platformLabel = SOCIAL_PLATFORM_LABELS[args.platform];
   const opportunityUrl = crmOpportunityUrl(args.appUrl, args.opportunityId);
+  const goalText = args.qualificationGoal
+    ? `${args.qualificationGoal.qualifiedCount}/${args.qualificationGoal.dailyTeamQualificationGoal} qualified`
+    : null;
+  const fields = [
+    { type: "mrkdwn" as const, text: `*Name:*\n${leadName}` },
+    { type: "mrkdwn" as const, text: `*Platform:*\n${platformLabel}` },
+    { type: "mrkdwn" as const, text: `*Handle:*\n${handle}` },
+    {
+      type: "mrkdwn" as const,
+      text: `*Qualified by:*\n<@${args.qualifiedBySlackUserId}>`,
+    },
+  ];
+  if (goalText) {
+    fields.push({ type: "mrkdwn", text: `*Goal:*\n${goalText}` });
+  }
+
   const blocks: KnownBlock[] = [
     {
       type: "header",
@@ -128,15 +148,7 @@ export function buildQualifiedLeadConfirmation(
     },
     {
       type: "section",
-      fields: [
-        { type: "mrkdwn", text: `*Name:*\n${leadName}` },
-        { type: "mrkdwn", text: `*Platform:*\n${platformLabel}` },
-        { type: "mrkdwn", text: `*Handle:*\n${handle}` },
-        {
-          type: "mrkdwn",
-          text: `*Qualified by:*\n<@${args.qualifiedBySlackUserId}>`,
-        },
-      ],
+      fields,
     },
     {
       type: "actions",
@@ -151,7 +163,9 @@ export function buildQualifiedLeadConfirmation(
   ];
 
   return {
-    text: `${leadName} was qualified by <@${args.qualifiedBySlackUserId}>`,
+    text:
+      `${leadName} was qualified by <@${args.qualifiedBySlackUserId}>` +
+      `${goalText ? `. Goal: ${goalText}` : ""}`,
     blocks,
   };
 }
