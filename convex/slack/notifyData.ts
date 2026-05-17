@@ -1,6 +1,12 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { SOCIAL_PLATFORMS, type SocialPlatform } from "../lib/socialPlatform";
+import { slackQualificationsByTime } from "../reporting/aggregates";
+import {
+  addBusinessDays,
+  businessDateToUtcStart,
+  timestampToBusinessDateKey,
+} from "../reporting/lib/hondurasBusinessTime";
 
 export const getOppForNotify = internalQuery({
   args: { opportunityId: v.id("opportunities") },
@@ -46,6 +52,41 @@ export const getPrimarySocialIdentifier = internalQuery({
     return {
       platform: primary.type as SocialPlatform,
       rawValue: primary.rawValue,
+    };
+  },
+});
+
+export const getQualificationGoalProgress = internalQuery({
+  args: {
+    tenantId: v.id("tenants"),
+    now: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const tenant = await ctx.db.get(args.tenantId);
+    const dailyTeamQualificationGoal =
+      tenant?.slackQualificationDailyTeamQuota;
+
+    if (
+      dailyTeamQualificationGoal === undefined ||
+      dailyTeamQualificationGoal <= 0
+    ) {
+      return null;
+    }
+
+    const businessDate = timestampToBusinessDateKey(args.now);
+    const start = businessDateToUtcStart(businessDate);
+    const end = businessDateToUtcStart(addBusinessDays(businessDate, 1));
+    const qualifiedCount = await slackQualificationsByTime.count(ctx, {
+      namespace: args.tenantId,
+      bounds: {
+        lower: { key: start, inclusive: true },
+        upper: { key: end, inclusive: false },
+      },
+    });
+
+    return {
+      qualifiedCount,
+      dailyTeamQualificationGoal,
     };
   },
 });

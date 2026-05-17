@@ -49,6 +49,10 @@ export const postConfirmation = internalAction({
       internal.slack.notifyData.getPrimarySocialIdentifier,
       { leadId: args.leadId },
     );
+    const qualificationGoal = await ctx.runQuery(
+      internal.slack.notifyData.getQualificationGoalProgress,
+      { tenantId: args.tenantId, now: Date.now() },
+    );
 
     if (!opportunity || !lead || !identifier || !opportunity.qualifiedBy) {
       console.warn("[Slack:Notify] missing notification data", {
@@ -88,6 +92,7 @@ export const postConfirmation = internalAction({
       platform: identifier.platform,
       handle: identifier.rawValue,
       qualifiedBySlackUserId: opportunity.qualifiedBy.slackUserId,
+      qualificationGoal: qualificationGoal ?? undefined,
       appUrl,
       opportunityId: args.opportunityId,
     });
