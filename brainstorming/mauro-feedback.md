@@ -1,11 +1,8 @@
-UX:
-Today, yesterday, current week, current month, and date range filters on all data heavy pages, default to this week.
-
-Reminders: Reschedule reminders.
-And mark actions, payment, lost no show etc.
 
 
-Fathom on the meeting details page for closers, 
 
 
-Always mark as overran but allow normal closer operations. that can be disputed by the review.
+Meeting attribution on customer/oportunity page.
+Operations team needs to be able to view via the utm source which currently resides in the meeting metadata.
+This is so they can determine Which of the setters team actually scheduled the meeting.
+This will probably add another reporting surface.

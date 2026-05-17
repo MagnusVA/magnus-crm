@@ -104,9 +104,6 @@ export const interactivity = httpAction(async (ctx, req) => {
   if (parsed.handle.length === 0) {
     fieldErrors.handle = "Required";
   }
-  if (parsed.email && !looksLikeEmail(parsed.email)) {
-    fieldErrors.email = "Invalid email";
-  }
 
   if (Object.keys(fieldErrors).length > 0) {
     return jsonResponse({
@@ -123,8 +120,6 @@ export const interactivity = httpAction(async (ctx, req) => {
       fullName: parsed.fullName,
       platform: parsed.platform,
       handle: parsed.handle,
-      email: parsed.email ?? undefined,
-      phone: parsed.phone ?? undefined,
       qualifiedBy: {
         slackUserId: parsed.slackUserId,
         slackTeamId: parsed.teamId,
@@ -175,7 +170,6 @@ export const interactivity = httpAction(async (ctx, req) => {
     opportunityId: result.opportunityId,
     leadId: result.leadId,
     isNewLead: result.isNewLead,
-    resolvedVia: result.resolvedVia,
   });
 
   return new Response("", { status: 200 });
@@ -242,10 +236,6 @@ function verificationFailedResponse() {
   });
 }
 
-function looksLikeEmail(value: string) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
-}
-
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -269,5 +259,4 @@ type CreateQualifiedLeadResult =
       opportunityId: Id<"opportunities">;
       leadId: Id<"leads">;
       isNewLead: boolean;
-      resolvedVia: "email" | "social_handle" | "phone" | "new";
     };

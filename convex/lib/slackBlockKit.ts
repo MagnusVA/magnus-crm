@@ -21,8 +21,6 @@ export type ParsedQualifyLeadSubmission = QualifyLeadModalMetadata & {
   fullName: string;
   platform: SocialPlatform;
   handle: string;
-  email: string | null;
-  phone: string | null;
 };
 
 export type QualifiedLeadConfirmationArgs = {
@@ -110,27 +108,6 @@ export function buildQualifyLeadModal(
           action_id: "v",
           placeholder: { type: "plain_text", text: "@username" },
           max_length: 80,
-        },
-      },
-      {
-        type: "input",
-        block_id: "email",
-        optional: true,
-        label: { type: "plain_text", text: "Email (optional)" },
-        element: {
-          type: "email_text_input",
-          action_id: "v",
-        },
-      },
-      {
-        type: "input",
-        block_id: "phone",
-        optional: true,
-        label: { type: "plain_text", text: "Phone (optional)" },
-        element: {
-          type: "plain_text_input",
-          action_id: "v",
-          max_length: 30,
         },
       },
     ],
@@ -268,8 +245,6 @@ export function parseQualifyLeadSubmission(
   const fullName = getStringValue(values, "full_name")?.trim() ?? "";
   const platformRaw = values?.platform?.v?.selected_option?.value;
   const handle = getStringValue(values, "handle")?.trim() ?? "";
-  const email = getStringValue(values, "email")?.trim() || null;
-  const phone = getStringValue(values, "phone")?.trim() || null;
 
   if (!isSocialPlatform(platformRaw)) {
     return null;
@@ -280,8 +255,6 @@ export function parseQualifyLeadSubmission(
     fullName,
     platform: platformRaw,
     handle,
-    email,
-    phone,
   };
 }
 

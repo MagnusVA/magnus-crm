@@ -20,7 +20,7 @@ const REDACTED_PII_KEYS = new Set([
   "last_name",
 ]);
 
-const SENSITIVE_BLOCK_IDS = new Set(["email", "phone", "full_name"]);
+const SENSITIVE_MODAL_BLOCK_IDS = new Set(["full_name"]);
 
 const PROFILE_PII_KEYS = new Set([
   "email",
@@ -87,7 +87,10 @@ function redact(value: unknown, path: string[] = [], depth = 0): unknown {
       out[key] = "<redacted:pii>";
       continue;
     }
-    if (key === "value" && path.some((part) => SENSITIVE_BLOCK_IDS.has(part))) {
+    if (
+      key === "value" &&
+      path.some((part) => SENSITIVE_MODAL_BLOCK_IDS.has(part))
+    ) {
       out[key] = "<redacted:pii>";
       continue;
     }

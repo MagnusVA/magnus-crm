@@ -17,8 +17,6 @@ export const create = internalMutation({
     fullName: v.string(),
     platform: socialPlatformValidator,
     handle: v.string(),
-    email: v.optional(v.string()),
-    phone: v.optional(v.string()),
     qualifiedBy: v.object({
       slackUserId: v.string(),
       slackTeamId: v.string(),
@@ -29,9 +27,7 @@ export const create = internalMutation({
     const now = Date.now();
     const resolution = await resolveLeadIdentity(ctx, {
       tenantId: args.tenantId,
-      email: args.email,
       socialHandle: { platform: args.platform, rawValue: args.handle },
-      phone: args.phone,
       fullName: args.fullName,
       identifierSource: "slack_qualified",
       createIfMissing: true,
@@ -143,7 +139,6 @@ export const create = internalMutation({
       opportunityId,
       leadId: resolution.leadId,
       isNewLead: resolution.isNewLead,
-      resolvedVia: resolution.resolvedVia,
     };
   },
 });

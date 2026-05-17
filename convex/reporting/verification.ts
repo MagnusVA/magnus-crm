@@ -1,4 +1,5 @@
 import type { GenericDataModel, TableNamesInDataModel } from "convex/server";
+import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
@@ -8,10 +9,13 @@ import {
 } from "../lib/paymentTypes";
 import {
   customerConversions,
+  isSlackQualificationAggregateEligible,
   leadTimeline,
   meetingsByStatus,
   opportunityByStatus,
   paymentSums,
+  slackQualificationsByTime,
+  slackQualificationsByUser,
 } from "./aggregates";
 
 type CountableTableName =
@@ -52,7 +56,9 @@ async function countAggregateRows(
     | typeof leadTimeline
     | typeof meetingsByStatus
     | typeof opportunityByStatus
-    | typeof paymentSums,
+    | typeof paymentSums
+    | typeof slackQualificationsByTime
+    | typeof slackQualificationsByUser,
 ): Promise<number> {
   let count = 0;
 
@@ -76,8 +82,11 @@ export const verifyBackfillCounts = internalQuery({
       opportunitiesAggregateCount,
       opportunitiesTableCount,
       paymentAggregateCount,
+      slackQualificationTimeAggregateCount,
+      slackQualificationUserAggregateCount,
       paymentTableCount,
       commissionablePaymentTableCount,
+      slackQualificationEligibleTableCount,
       tenantCount,
       unclassifiedMeetings,
     ] = await Promise.all([
@@ -90,11 +99,22 @@ export const verifyBackfillCounts = internalQuery({
       countAggregateRows(ctx, opportunityByStatus),
       countTableRows(ctx, "opportunities"),
       countAggregateRows(ctx, paymentSums),
+      countAggregateRows(ctx, slackQualificationsByTime),
+      countAggregateRows(ctx, slackQualificationsByUser),
       countTableRows(ctx, "paymentRecords"),
       (async () => {
         let count = 0;
         for await (const payment of ctx.db.query("paymentRecords")) {
           if (isPaymentAggregateEligible(payment)) {
+            count += 1;
+          }
+        }
+        return count;
+      })(),
+      (async () => {
+        let count = 0;
+        for await (const opportunity of ctx.db.query("opportunities")) {
+          if (isSlackQualificationAggregateEligible(opportunity)) {
             count += 1;
           }
         }
@@ -140,7 +160,61 @@ export const verifyBackfillCounts = internalQuery({
         aggregateEligibleTable: commissionablePaymentTableCount,
         table: paymentTableCount,
       },
+      slackQualifications: {
+        byTimeAggregate: slackQualificationTimeAggregateCount,
+        byUserAggregate: slackQualificationUserAggregateCount,
+        match:
+          slackQualificationTimeAggregateCount ===
+            slackQualificationEligibleTableCount &&
+          slackQualificationUserAggregateCount ===
+            slackQualificationEligibleTableCount,
+        aggregateEligibleTable: slackQualificationEligibleTableCount,
+      },
       tenantCount,
+    };
+  },
+});
+
+export const verifySlackQualificationAggregate = internalQuery({
+  args: {
+    tenantId: v.id("tenants"),
+    startDate: v.number(),
+    endDate: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("opportunities")
+      .withIndex("by_tenantId_and_source_and_createdAt", (q) =>
+        q
+          .eq("tenantId", args.tenantId)
+          .eq("source", "slack_qualified")
+          .gte("createdAt", args.startDate)
+          .lt("createdAt", args.endDate),
+      )
+      .take(1000);
+
+    const eligibleRows = rows.filter((row) => {
+      const submittedAt = row.qualifiedBy?.submittedAt ?? row.createdAt;
+      return (
+        row.qualifiedBy !== undefined &&
+        submittedAt >= args.startDate &&
+        submittedAt < args.endDate
+      );
+    });
+
+    const aggregate = await slackQualificationsByTime.count(ctx, {
+      namespace: args.tenantId,
+      bounds: {
+        lower: { key: args.startDate, inclusive: true },
+        upper: { key: args.endDate, inclusive: false },
+      },
+    });
+
+    return {
+      scannedCount: eligibleRows.length,
+      aggregate,
+      matches: rows.length < 1000 && aggregate === eligibleRows.length,
+      scanTruncated: rows.length >= 1000,
     };
   },
 });

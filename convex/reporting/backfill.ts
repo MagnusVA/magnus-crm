@@ -6,16 +6,20 @@ import {
 	type PaymentOrigin,
 } from "../lib/paymentTypes";
 import {
-	customerConversions,
-	leadTimeline,
-	meetingsByStatus,
-	opportunityByStatus,
-	paymentSums,
+  customerConversions,
+  isSlackQualificationAggregateEligible,
+  leadTimeline,
+  meetingsByStatus,
+  opportunityByStatus,
+  paymentSums,
+  slackQualificationsByTime,
+  slackQualificationsByUser,
 } from "./aggregates";
 
 const CLASSIFICATION_PAGE_SIZE = 100;
 const AGGREGATE_PAGE_SIZE = 200;
 const ORIGIN_BACKFILL_PAGE_SIZE = 100;
+const SLACK_QUALIFICATION_AGGREGATE_PAGE_SIZE = 200;
 
 type FollowUpCreatedSource = "closer" | "admin" | "system";
 
@@ -142,6 +146,41 @@ export const backfillOpportunitiesAggregate = internalMutation({
 		return {
 			hasMore: !result.isDone,
 			inserted: result.page.length,
+		};
+	},
+});
+
+export const backfillSlackQualificationAggregates = internalMutation({
+	args: { cursor: v.optional(v.string()) },
+	handler: async (ctx, { cursor }) => {
+		const result = await ctx.db.query("opportunities").paginate({
+			numItems: SLACK_QUALIFICATION_AGGREGATE_PAGE_SIZE,
+			cursor: cursor ?? null,
+		});
+
+		let inserted = 0;
+		for (const opportunity of result.page) {
+			if (!isSlackQualificationAggregateEligible(opportunity)) {
+				continue;
+			}
+
+			await slackQualificationsByUser.insertIfDoesNotExist(ctx, opportunity);
+			await slackQualificationsByTime.insertIfDoesNotExist(ctx, opportunity);
+			inserted += 1;
+		}
+
+		if (!result.isDone) {
+			await ctx.scheduler.runAfter(
+				0,
+				internal.reporting.backfill.backfillSlackQualificationAggregates,
+				{ cursor: result.continueCursor },
+			);
+		}
+
+		return {
+			hasMore: !result.isDone,
+			processed: result.page.length,
+			inserted,
 		};
 	},
 });

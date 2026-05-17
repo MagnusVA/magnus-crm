@@ -4,13 +4,19 @@ import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatiblePaymentCommissionable,
 } from "../lib/paymentTypes";
-import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
+import {
+  deleteOpportunitySearchProjection,
+  upsertOpportunitySearchProjection,
+} from "../lib/opportunitySearch";
 import {
   customerConversions,
+  isSlackQualificationAggregateEligible,
   leadTimeline,
   meetingsByStatus,
   opportunityByStatus,
   paymentSums,
+  slackQualificationsByTime,
+  slackQualificationsByUser,
 } from "./aggregates";
 
 function isPaymentAggregateEligible(payment: Doc<"paymentRecords">): boolean {
@@ -80,6 +86,10 @@ export async function insertOpportunityAggregate(
 ): Promise<Doc<"opportunities">> {
   const opportunity = await getOpportunityOrThrow(ctx, opportunityId);
   await opportunityByStatus.insert(ctx, opportunity);
+  if (isSlackQualificationAggregateEligible(opportunity)) {
+    await slackQualificationsByUser.insert(ctx, opportunity);
+    await slackQualificationsByTime.insert(ctx, opportunity);
+  }
   await upsertOpportunitySearchProjection(ctx, opportunityId);
   return opportunity;
 }
@@ -91,8 +101,42 @@ export async function replaceOpportunityAggregate(
 ): Promise<Doc<"opportunities">> {
   const opportunity = await getOpportunityOrThrow(ctx, opportunityId);
   await opportunityByStatus.replace(ctx, oldOpportunity, opportunity);
+
+  const oldEligible = isSlackQualificationAggregateEligible(oldOpportunity);
+  const nextEligible = isSlackQualificationAggregateEligible(opportunity);
+  if (oldEligible && nextEligible) {
+    await slackQualificationsByUser.replaceOrInsert(
+      ctx,
+      oldOpportunity,
+      opportunity,
+    );
+    await slackQualificationsByTime.replaceOrInsert(
+      ctx,
+      oldOpportunity,
+      opportunity,
+    );
+  } else if (oldEligible) {
+    await slackQualificationsByUser.deleteIfExists(ctx, oldOpportunity);
+    await slackQualificationsByTime.deleteIfExists(ctx, oldOpportunity);
+  } else if (nextEligible) {
+    await slackQualificationsByUser.insertIfDoesNotExist(ctx, opportunity);
+    await slackQualificationsByTime.insertIfDoesNotExist(ctx, opportunity);
+  }
+
   await upsertOpportunitySearchProjection(ctx, opportunityId);
   return opportunity;
+}
+
+export async function deleteOpportunityAggregate(
+  ctx: MutationCtx,
+  oldOpportunity: Doc<"opportunities">,
+): Promise<void> {
+  await opportunityByStatus.deleteIfExists(ctx, oldOpportunity);
+  if (isSlackQualificationAggregateEligible(oldOpportunity)) {
+    await slackQualificationsByUser.deleteIfExists(ctx, oldOpportunity);
+    await slackQualificationsByTime.deleteIfExists(ctx, oldOpportunity);
+  }
+  await deleteOpportunitySearchProjection(ctx, oldOpportunity._id);
 }
 
 export async function insertLeadAggregate(

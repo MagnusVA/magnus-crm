@@ -1,11 +1,10 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
-import { deleteOpportunitySearchProjection } from "../lib/opportunitySearch";
 import { isSideDeal } from "../lib/sideDeals";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { requireTenantUser } from "../requireTenantUser";
-import { opportunityByStatus } from "../reporting/aggregates";
+import { deleteOpportunityAggregate } from "../reporting/writeHooks";
 
 export const deleteEmptyOpportunity = mutation({
   args: {
@@ -124,12 +123,11 @@ export const deleteEmptyOpportunity = mutation({
     for (const followUp of followUps) {
       await ctx.db.delete(followUp._id);
     }
-    await opportunityByStatus.delete(ctx, opportunity);
+    await deleteOpportunityAggregate(ctx, opportunity);
     await updateTenantStats(ctx, tenantId, {
       totalOpportunities: -1,
       activeOpportunities: -1,
     });
-    await deleteOpportunitySearchProjection(ctx, opportunityId);
     await ctx.db.delete(opportunityId);
 
     return null;
