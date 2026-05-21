@@ -128,7 +128,7 @@ export const rotatePublicSlug = internalMutation({
 
     const config = await getConfigByTenant(ctx, tenantId);
     if (!config) {
-      throw new Error("Generate a portal password first.");
+      throw new Error("Set a portal password first.");
     }
 
     await ctx.db.patch(config._id, {
@@ -153,10 +153,10 @@ export const setPortalEnabled = mutation({
     ]);
     const config = await getConfigByTenant(ctx, tenantId);
     if (!config) {
-      throw new Error("Generate a portal password first.");
+      throw new Error("Set a portal password first.");
     }
     if (isEnabled && (!config.passwordHash || !config.passwordSalt)) {
-      throw new Error("Generate a portal password before enabling the portal.");
+      throw new Error("Set a portal password before enabling the portal.");
     }
     if (config.isEnabled === isEnabled) {
       return {
@@ -186,7 +186,7 @@ export const updateSessionTtl = mutation({
     ]);
     const config = await getConfigByTenant(ctx, tenantId);
     if (!config) {
-      throw new Error("Generate a portal password first.");
+      throw new Error("Set a portal password first.");
     }
 
     const normalizedTtl = normalizeTtl(sessionTtlSeconds);
