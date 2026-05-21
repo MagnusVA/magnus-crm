@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import { format } from "date-fns";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { usePaginatedQuery, useQuery } from "convex/react";
@@ -10,13 +11,18 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useRole } from "@/components/auth/role-context";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { downloadCSV } from "@/lib/export-csv";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { OpportunityFilters } from "./opportunity-filters";
 import { OpportunitySearchInput } from "./opportunity-search-input";
-import { OpportunitiesTable } from "./opportunities-table";
+import {
+  OpportunitiesTable,
+  type OpportunityListRow,
+} from "./opportunities-table";
 
 export type StatusFilter =
   | "all"
+  | "qualified_pending"
   | "scheduled"
   | "in_progress"
   | "meeting_overran"
@@ -27,11 +33,12 @@ export type StatusFilter =
   | "canceled"
   | "no_show";
 
-export type SourceFilter = "all" | "calendly" | "side_deal";
+export type SourceFilter = "all" | "calendly" | "side_deal" | "slack_qualified";
 export type PeriodFilter = "all" | "today" | "this_week" | "this_month";
 
 const STATUS_FILTERS = new Set<StatusFilter>([
   "all",
+  "qualified_pending",
   "scheduled",
   "in_progress",
   "meeting_overran",
@@ -47,6 +54,7 @@ const SOURCE_FILTERS = new Set<SourceFilter>([
   "all",
   "calendly",
   "side_deal",
+  "slack_qualified",
 ]);
 
 const PERIOD_FILTERS = new Set<PeriodFilter>([
@@ -62,6 +70,26 @@ function readFilter<T extends string>(
   fallback: T,
 ): T {
   return value && allowed.has(value as T) ? (value as T) : fallback;
+}
+
+function exportOpportunityRows(opportunities: OpportunityListRow[]) {
+  downloadCSV(
+    `opportunities-${format(new Date(), "yyyy-MM-dd")}`,
+    ["Lead", "Email", "Status", "Source", "Closer", "Latest activity", "Created"],
+    opportunities.map((opportunity) => [
+      opportunity.lead?.fullName ?? "Unknown lead",
+      opportunity.lead?.email ?? "",
+      opportunity.status,
+      opportunity.source,
+      opportunity.assignedCloser?.fullName ??
+        opportunity.assignedCloser?.email ??
+        "",
+      opportunity.latestActivityAt
+        ? new Date(opportunity.latestActivityAt).toISOString()
+        : "",
+      new Date(opportunity.createdAt).toISOString(),
+    ]),
+  );
 }
 
 export function OpportunitiesPageClient() {
@@ -185,7 +213,12 @@ export function OpportunitiesPageClient() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" disabled title="Coming soon">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={opportunities.length === 0}
+            onClick={() => exportOpportunityRows(opportunities)}
+          >
             <DownloadIcon data-icon="inline-start" />
             Export CSV
           </Button>

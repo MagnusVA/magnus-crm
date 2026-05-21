@@ -78,6 +78,10 @@ function identifyUserInPostHog(user: {
 			.trim();
 
 		const posthog = getPostHogClient();
+		if (!posthog) {
+			return;
+		}
+
 		posthog.identify({
 			distinctId: user.id,
 			properties: {

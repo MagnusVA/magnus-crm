@@ -137,7 +137,7 @@ function estimatePeriodCount(filters: SlackQualificationFilters): number {
   return periods;
 }
 
-function businessDateToUtcStart(dateKey: string): number {
+export function businessDateToUtcStart(dateKey: string): number {
   const { year, month, day } = parseBusinessDateKey(dateKey);
   return Date.UTC(year, month - 1, day, BUSINESS_DAY_UTC_START_HOUR);
 }

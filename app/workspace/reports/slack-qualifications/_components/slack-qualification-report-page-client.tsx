@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { AlertTriangleIcon, TargetIcon } from "lucide-react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangleIcon, ListChecksIcon, TargetIcon } from "lucide-react";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import {
@@ -13,10 +14,12 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { usePageTitle } from "@/hooks/use-page-title";
 import {
+  businessDateToUtcStart,
   getInitialSlackQualificationFilters,
   getRangeValidationMessage,
   type SlackQualificationFilters,
 } from "./business-date-utils";
+import { useReportAnalytics } from "../../_components/use-report-analytics";
 import { TeamGoalDialog } from "./team-goal-dialog";
 import { SetterQualificationControls } from "./setter-qualification-controls";
 import { SetterQualificationSummaryCards } from "./setter-qualification-summary-cards";
@@ -26,6 +29,9 @@ import { SlackQualificationReportSkeleton } from "./slack-qualification-report-s
 
 export function SlackQualificationReportPageClient() {
   usePageTitle("Slack Qualifications - Reports");
+  const { captureViewed, captureFiltersChanged } = useReportAnalytics(
+    "slack_qualifications",
+  );
 
   const [filters, setFilters] = useState<SlackQualificationFilters>(() =>
     getInitialSlackQualificationFilters(),
@@ -54,6 +60,24 @@ export function SlackQualificationReportPageClient() {
     queryArgs,
   );
 
+  useEffect(() => {
+    captureViewed();
+  }, [captureViewed]);
+
+  const operationsHref = useMemo(() => {
+    const params = new URLSearchParams({
+      tab: "qualifications",
+      qualifiedAfter: String(businessDateToUtcStart(filters.startBusinessDate)),
+      qualifiedBefore: String(
+        businessDateToUtcStart(filters.endBusinessDateExclusive),
+      ),
+    });
+    if (filters.slackUserId) {
+      params.set("slackUserId", filters.slackUserId);
+    }
+    return `/workspace/operations?${params.toString()}`;
+  }, [filters]);
+
   if (report === undefined && !rangeError) {
     return <SlackQualificationReportSkeleton />;
   }
@@ -68,27 +92,41 @@ export function SlackQualificationReportPageClient() {
             Slack Qualifications
           </h1>
           <p className="text-sm text-muted-foreground">
-            Team qualification pace and setter contribution by Honduras
-            1am-to-1am business day.
+            Qualification events, unique Slack-sourced opportunities, and setter
+            contribution by Honduras 1am-to-1am business day.
           </p>
         </div>
-        {report ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setIsTeamGoalDialogOpen(true)}
-          >
-            <TargetIcon data-icon="inline-start" />
-            Team Goal
+        <div className="flex flex-wrap items-center gap-2">
+          <Button asChild type="button" variant="outline" size="sm">
+            <Link href={operationsHref}>
+              <ListChecksIcon data-icon="inline-start" />
+              View Events
+            </Link>
           </Button>
-        ) : null}
+          {report ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsTeamGoalDialogOpen(true)}
+            >
+              <TargetIcon data-icon="inline-start" />
+              Team Goal
+            </Button>
+          ) : null}
+        </div>
       </div>
 
       <SetterQualificationControls
         setters={setters}
         value={filters}
-        onChange={setFilters}
+        onChange={(next) => {
+          setFilters(next);
+          captureFiltersChanged({
+            date_range_preset: "custom",
+            has_slack_setter_filter: Boolean(next.slackUserId),
+          });
+        }}
       />
 
       {rangeError ? (
@@ -112,6 +150,18 @@ export function SlackQualificationReportPageClient() {
             </Alert>
           ) : null}
 
+          {report.totals.eventsTruncated ? (
+            <Alert>
+              <AlertTriangleIcon />
+              <AlertTitle>Qualification event sample capped</AlertTitle>
+              <AlertDescription>
+                Showing the first 1,000 qualification events in this range.
+                Narrow the date range before using these totals for parity
+                checks.
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           <SetterQualificationSummaryCards
             totals={report.totals}
             filteredToSetter={report.selectedSlackUserId !== null}
@@ -126,8 +176,8 @@ export function SlackQualificationReportPageClient() {
             <div>
               <h2 className="text-lg font-medium">Setter Contributions</h2>
               <p className="text-sm text-muted-foreground">
-                Individual rows explain who contributed to the visible total.
-                No individual goals are assigned.
+                Individual rows count qualification events. Unique opportunity
+                counts show entity conversion separately.
               </p>
             </div>
             <SetterContributionTable rows={report.users} />

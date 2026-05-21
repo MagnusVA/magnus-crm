@@ -114,6 +114,8 @@ export function MeetingDetailPageClient({
     rescheduledFromMeeting,
     meetingReview,
     activeFollowUp,
+    attributionTeam,
+    dmCloser,
   } = detail;
 
   const statusKey = opportunity.status as OpportunityStatus;
@@ -259,6 +261,8 @@ export function MeetingDetailPageClient({
             opportunity={opportunity}
             meeting={meeting}
             meetingHistory={meetingHistory}
+            attributionTeam={attributionTeam}
+            dmCloser={dmCloser}
           />
 
           {/* v2: Fathom Recording link — available on every meeting,

@@ -14,6 +14,12 @@ import {
   reportGranularityValidator,
   type BusinessPeriod,
 } from "./lib/hondurasBusinessTime";
+import {
+  listQualificationEventsForRange,
+  loadOpportunityMapForQualificationEvents,
+  summarizeQualificationEvents,
+  type QualificationEventSummary,
+} from "./lib/slackQualificationLedger";
 
 const MAX_SLACK_SETTERS = 500;
 const MAX_DAILY_TEAM_GOAL = 5000;
@@ -22,6 +28,8 @@ type SlackSetter = Doc<"slackUsers">;
 
 type PeriodReportRow = BusinessPeriod & {
   qualifiedCount: number;
+  qualificationEventCount: number;
+  uniqueSlackOpportunityCount: number;
   expectedTeamCount: number | null;
   teamGoalAttainment: number | null;
 };
@@ -33,6 +41,12 @@ type SetterContributionRow = {
   avatarUrl: string | null;
   isDeleted: boolean;
   totalQualified: number;
+  qualificationEventCount: number;
+  uniqueSlackOpportunityCount: number;
+  createdOpportunityEvents: number;
+  duplicatePendingEvents: number;
+  alreadyBookedEvents: number;
+  unlinkedEvents: number;
   contributionShare: number | null;
   lastQualifiedAt: number | null;
 };
@@ -87,21 +101,39 @@ export const getQualificationReport = query({
       : setterResult.setters;
     const isTeamView = selectedSlackUserId === undefined;
 
-    const [periodCounts, userCounts] = await Promise.all([
-      countPeriods(ctx, {
+    const eventResult = await listQualificationEventsForRange(ctx, {
+      tenantId,
+      start: rangeStart,
+      end: rangeEnd,
+      slackUserId: selectedSlackUserId,
+    });
+    const opportunityById = await loadOpportunityMapForQualificationEvents(
+      ctx,
+      eventResult.rows,
+    );
+    const eventSummary = summarizeQualificationEvents(
+      eventResult.rows,
+      opportunityById,
+    );
+    const periodCounts = countPeriods({
+      periods,
+      teamDailyGoal,
+      qualificationEvents: eventResult.rows,
+      opportunityById,
+    });
+    const userCounts = countUsersForRange({
+      setters: visibleSetters,
+      qualificationEvents: eventResult.rows,
+      opportunityById,
+      includeContributionShare: isTeamView,
+    });
+    const legacyOpportunityAggregateCount =
+      await countLegacyOpportunityAggregate(ctx, {
         tenantId,
-        periods,
-        slackUserId: selectedSlackUserId,
-        teamDailyGoal,
-      }),
-      countUsersForRange(ctx, {
-        tenantId,
-        setters: visibleSetters,
         start: rangeStart,
         end: rangeEnd,
-        includeContributionShare: isTeamView,
-      }),
-    ]);
+        slackUserId: selectedSlackUserId,
+      });
 
     return {
       timezone: HONDURAS_TIME_ZONE,
@@ -123,6 +155,9 @@ export const getQualificationReport = query({
         businessDayCount,
         teamDailyGoal,
         isTeamView,
+        eventSummary,
+        eventsTruncated: eventResult.truncated,
+        legacyOpportunityAggregateCount,
       }),
     };
   },
@@ -160,63 +195,30 @@ export const setTeamDailyGoal = mutation({
   },
 });
 
-async function countPeriods(
-  ctx: QueryCtx,
-  args: {
-    tenantId: Id<"tenants">;
-    periods: BusinessPeriod[];
-    slackUserId?: string;
-    teamDailyGoal: number | null;
-  },
-): Promise<PeriodReportRow[]> {
+function countPeriods(args: {
+  periods: BusinessPeriod[];
+  teamDailyGoal: number | null;
+  qualificationEvents: Doc<"slackQualificationEvents">[];
+  opportunityById: Map<Id<"opportunities">, Doc<"opportunities">>;
+}): PeriodReportRow[] {
   if (args.periods.length === 0) {
     return [];
   }
 
-  if (args.slackUserId) {
-    const counts = await slackQualificationsByUser.countBatch(
-      ctx,
-      args.periods.map((period) => ({
-        namespace: args.tenantId,
-        bounds: {
-          lower: {
-            key: [args.slackUserId!, period.start] as [string, number],
-            inclusive: true,
-          },
-          upper: {
-            key: [args.slackUserId!, period.end] as [string, number],
-            inclusive: false,
-          },
-        },
-      })),
+  return args.periods.map((period) => {
+    const periodEvents = args.qualificationEvents.filter(
+      (event) =>
+        event.submittedAt >= period.start && event.submittedAt < period.end,
     );
-
-    return args.periods.map((period, index) => ({
-      ...period,
-      qualifiedCount: counts[index] ?? 0,
-      expectedTeamCount: null,
-      teamGoalAttainment: null,
-    }));
-  }
-
-  const counts = await slackQualificationsByTime.countBatch(
-    ctx,
-    args.periods.map((period) => ({
-      namespace: args.tenantId,
-      bounds: {
-        lower: { key: period.start, inclusive: true },
-        upper: { key: period.end, inclusive: false },
-      },
-    })),
-  );
-
-  return args.periods.map((period, index) => {
-    const qualifiedCount = counts[index] ?? 0;
+    const summary = summarizeQualificationEvents(periodEvents, args.opportunityById);
+    const qualifiedCount = summary.qualificationEventCount;
     const expectedTeamCount =
       args.teamDailyGoal === null ? null : args.teamDailyGoal * period.goalDays;
     return {
       ...period,
       qualifiedCount,
+      qualificationEventCount: qualifiedCount,
+      uniqueSlackOpportunityCount: summary.uniqueSlackOpportunityCount,
       expectedTeamCount,
       teamGoalAttainment:
         expectedTeamCount !== null && expectedTeamCount > 0
@@ -226,80 +228,49 @@ async function countPeriods(
   });
 }
 
-async function countUsersForRange(
-  ctx: QueryCtx,
-  args: {
-    tenantId: Id<"tenants">;
-    setters: SlackSetter[];
-    start: number;
-    end: number;
-    includeContributionShare: boolean;
-  },
-): Promise<SetterContributionRow[]> {
+function countUsersForRange(args: {
+  setters: SlackSetter[];
+  qualificationEvents: Doc<"slackQualificationEvents">[];
+  opportunityById: Map<Id<"opportunities">, Doc<"opportunities">>;
+  includeContributionShare: boolean;
+}): SetterContributionRow[] {
   if (args.setters.length === 0) {
     return [];
   }
 
-  const countQueries = args.setters.map((setter) => ({
-    namespace: args.tenantId,
-    bounds: {
-      lower: {
-        key: [setter.slackUserId, args.start] as [string, number],
-        inclusive: true,
-      },
-      upper: {
-        key: [setter.slackUserId, args.end] as [string, number],
-        inclusive: false,
-      },
-    },
-  }));
-  const counts = await slackQualificationsByUser.countBatch(ctx, countQueries);
-
-  const lastQualifiedQueries: Array<(typeof countQueries)[number] & {
-    offset: number;
-  }> = [];
-  const lastQualifiedIndexes: number[] = [];
-
-  counts.forEach((count, index) => {
-    if (count <= 0) {
-      return;
-    }
-
-    lastQualifiedQueries.push({
-      ...countQueries[index],
-      offset: -1,
-    });
-    lastQualifiedIndexes.push(index);
-  });
-
-  const lastQualifiedAtByIndex = new Map<number, number>();
-  if (lastQualifiedQueries.length > 0) {
-    const lastItems = await slackQualificationsByUser.atBatch(
-      ctx,
-      lastQualifiedQueries,
-    );
-    lastItems.forEach((item, index) => {
-      lastQualifiedAtByIndex.set(lastQualifiedIndexes[index], item.key[1]);
-    });
+  const eventsBySlackUserId = new Map<string, Doc<"slackQualificationEvents">[]>();
+  for (const event of args.qualificationEvents) {
+    const existing = eventsBySlackUserId.get(event.slackUserId) ?? [];
+    existing.push(event);
+    eventsBySlackUserId.set(event.slackUserId, existing);
   }
-
-  const visibleTotal = counts.reduce((sum, count) => sum + count, 0);
+  const visibleTotal = args.qualificationEvents.length;
 
   return args.setters
-    .map((setter, index) => {
-      const totalQualified = counts[index] ?? 0;
+    .map((setter) => {
+      const events = eventsBySlackUserId.get(setter.slackUserId) ?? [];
+      const summary = summarizeQualificationEvents(events, args.opportunityById);
       return {
         slackUserId: setter.slackUserId,
         slackTeamId: setter.slackTeamId,
         displayName: getSlackDisplayName(setter),
         avatarUrl: setter.avatarUrl ?? null,
         isDeleted: setter.isDeleted,
-        totalQualified,
+        totalQualified: summary.qualificationEventCount,
+        qualificationEventCount: summary.qualificationEventCount,
+        uniqueSlackOpportunityCount: summary.uniqueSlackOpportunityCount,
+        createdOpportunityEvents: summary.createdOpportunityEvents,
+        duplicatePendingEvents: summary.duplicatePendingEvents,
+        alreadyBookedEvents: summary.alreadyBookedEvents,
+        unlinkedEvents: summary.unlinkedEvents,
         contributionShare:
           args.includeContributionShare && visibleTotal > 0
-            ? totalQualified / visibleTotal
+            ? summary.qualificationEventCount / visibleTotal
             : null,
-        lastQualifiedAt: lastQualifiedAtByIndex.get(index) ?? null,
+        lastQualifiedAt:
+          events.length > 0
+            ? Math.max(...events.map((event) => event.submittedAt))
+            : null,
       };
     })
     .sort((left, right) => {
@@ -311,6 +282,40 @@ async function countUsersForRange(
         sensitivity: "base",
       });
     });
+}
+
+async function countLegacyOpportunityAggregate(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    start: number;
+    end: number;
+    slackUserId?: string;
+  },
+): Promise<number> {
+  if (args.slackUserId) {
+    return await slackQualificationsByUser.count(ctx, {
+      namespace: args.tenantId,
+      bounds: {
+        lower: {
+          key: [args.slackUserId, args.start] as [string, number],
+          inclusive: true,
+        },
+        upper: {
+          key: [args.slackUserId, args.end] as [string, number],
+          inclusive: false,
+        },
+      },
+    });
+  }
+
+  return await slackQualificationsByTime.count(ctx, {
+    namespace: args.tenantId,
+    bounds: {
+      lower: { key: args.start, inclusive: true },
+      upper: { key: args.end, inclusive: false },
+    },
+  });
 }
 
 async function listTenantSlackSetters(
@@ -355,6 +360,9 @@ function summarizeReport(args: {
   businessDayCount: number;
   teamDailyGoal: number | null;
   isTeamView: boolean;
+  eventSummary: QualificationEventSummary;
+  eventsTruncated: boolean;
+  legacyOpportunityAggregateCount: number;
 }) {
   const totalQualified = args.periodCounts.reduce(
     (sum, period) => sum + period.qualifiedCount,
@@ -387,6 +395,15 @@ function summarizeReport(args: {
         : null,
     underGoalPeriods,
     setterCount: args.userCounts.length,
+    qualificationEventCount: args.eventSummary.qualificationEventCount,
+    uniqueLinkedOpportunityCount: args.eventSummary.uniqueLinkedOpportunityCount,
+    uniqueSlackOpportunityCount: args.eventSummary.uniqueSlackOpportunityCount,
+    createdOpportunityEvents: args.eventSummary.createdOpportunityEvents,
+    duplicatePendingEvents: args.eventSummary.duplicatePendingEvents,
+    alreadyBookedEvents: args.eventSummary.alreadyBookedEvents,
+    unlinkedEvents: args.eventSummary.unlinkedEvents,
+    legacyOpportunityAggregateCount: args.legacyOpportunityAggregateCount,
+    eventsTruncated: args.eventsTruncated,
   };
 }
 

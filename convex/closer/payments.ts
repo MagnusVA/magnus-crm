@@ -12,6 +12,7 @@ import {
 import { assertOverranReviewStillPending } from "../lib/overranReviewGuards";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
+import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { validateTransition } from "../lib/statusTransitions";
 import {
   applyPaymentStatsDelta,
@@ -131,6 +132,13 @@ export const logPayment = mutation({
       origin,
     });
     await insertPaymentAggregate(ctx, paymentId);
+    await setSoldProgramCaches(ctx, {
+      tenantId,
+      opportunityId: args.opportunityId,
+      meetingId: args.meetingId,
+      programId: program._id,
+      programName: program.name,
+    });
 
     await patchOpportunityLifecycle(ctx, args.opportunityId, {
       status: "payment_received",

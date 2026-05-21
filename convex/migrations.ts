@@ -3,6 +3,11 @@ import { components } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import { upsertOpportunitySearchProjection } from "./lib/opportunitySearch";
+import {
+  insertOperationsMeetingStats,
+  replaceOperationsMeetingStats,
+} from "./operations/meetingStats";
+import { rebuildQualificationRow } from "./operations/projections";
 
 export const migrations = new Migrations<DataModel>(components.migrations);
 
@@ -81,3 +86,89 @@ export const assertOpportunitySearchProjectionBackfilled = migrations.define({
     }
   },
 });
+
+export const backfillSlackQualificationEvents = migrations.define({
+  table: "opportunities",
+  batchSize: 100,
+  migrateOne: async (ctx, opportunity) => {
+    if (opportunity.source !== "slack_qualified" || !opportunity.qualifiedBy) {
+      return;
+    }
+
+    const existing = await ctx.db
+      .query("slackQualificationEvents")
+      .withIndex("by_tenantId_and_opportunityId", (q) =>
+        q
+          .eq("tenantId", opportunity.tenantId)
+          .eq("opportunityId", opportunity._id),
+      )
+      .first();
+    if (existing) {
+      await rebuildQualificationRow(ctx, existing._id);
+      return;
+    }
+
+    const lead = await ctx.db.get(opportunity.leadId);
+    const installations = await ctx.db
+      .query("slackInstallations")
+      .withIndex("by_teamId", (q) =>
+        q.eq("teamId", opportunity.qualifiedBy!.slackTeamId),
+      )
+      .take(10);
+    const installation = installations.find(
+      (row) => row.tenantId === opportunity.tenantId && row.status === "active",
+    );
+    if (!installation) {
+      throw new Error(
+        `Missing active Slack installation for opportunity ${opportunity._id}`,
+      );
+    }
+
+    const eventId = await ctx.db.insert("slackQualificationEvents", {
+      tenantId: opportunity.tenantId,
+      installationId: installation._id,
+      leadId: opportunity.leadId,
+      opportunityId: opportunity._id,
+      resultKind: "created_opportunity",
+      qualifiedBy: opportunity.qualifiedBy,
+      slackUserId: opportunity.qualifiedBy.slackUserId,
+      slackTeamId: opportunity.qualifiedBy.slackTeamId,
+      fullNameSnapshot: lead?.fullName ?? lead?.email ?? "Unknown lead",
+      platform: "other_social",
+      handleSnapshot: "",
+      submittedAt: opportunity.qualifiedBy.submittedAt,
+      createdAt: opportunity.createdAt,
+    });
+
+    if (opportunity.qualifiedAt === undefined) {
+      await ctx.db.patch(opportunity._id, {
+        qualifiedAt: opportunity.qualifiedBy.submittedAt,
+      });
+    }
+    await rebuildQualificationRow(ctx, eventId);
+  },
+});
+
+export const backfillMeetingOpportunityStatusAndOperationsStats =
+  migrations.define({
+    table: "meetings",
+    batchSize: 100,
+    migrateOne: async (ctx, meeting) => {
+      const opportunity = await ctx.db.get(meeting.opportunityId);
+      const opportunityStatus = opportunity?.status;
+      const nextMeeting = { ...meeting, opportunityStatus };
+
+      if (meeting.opportunityStatus !== opportunityStatus) {
+        await ctx.db.patch(meeting._id, { opportunityStatus });
+      }
+
+      if (meeting.operationsStatsSyncedAt !== undefined) {
+        if (meeting.opportunityStatus !== opportunityStatus) {
+          await replaceOperationsMeetingStats(ctx, meeting, nextMeeting);
+        }
+        return;
+      }
+
+      await insertOperationsMeetingStats(ctx, nextMeeting);
+    },
+  });

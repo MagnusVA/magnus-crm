@@ -41,7 +41,7 @@ type SetterQualificationTrendProps = {
 
 const chartConfig = {
   qualified: {
-    label: "Qualified",
+    label: "Qualification events",
     color: "var(--chart-1)",
   },
   target: {
@@ -68,11 +68,11 @@ export function SetterQualificationTrend({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Qualification Trend</CardTitle>
+        <CardTitle>Qualification Event Trend</CardTitle>
         <CardDescription>
           {filteredToSetter
-            ? "Selected setter contribution bucketed by Honduras 1am business day."
-            : "Team qualifications bucketed against the shared daily goal."}
+            ? "Selected setter events bucketed by Honduras 1am business day."
+            : "Team qualification events bucketed against the shared daily goal."}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -82,7 +82,7 @@ export function SetterQualificationTrend({
               <EmptyMedia variant="icon">
                 <BarChart3Icon />
               </EmptyMedia>
-              <EmptyTitle>No Slack qualifications in this range.</EmptyTitle>
+              <EmptyTitle>No Slack qualification events in this range.</EmptyTitle>
               <EmptyDescription>
                 Counts will appear after setters submit qualified leads through
                 Slack.
@@ -109,7 +109,7 @@ export function SetterQualificationTrend({
                     formatter={(value, name) => (
                       <div className="flex w-full items-center justify-between gap-4">
                         <span className="text-muted-foreground">
-                          {name === "target" ? "Target" : "Qualified"}
+                          {name === "target" ? "Target" : "Events"}
                         </span>
                         <span className="font-mono font-medium tabular-nums">
                           {Number(value).toLocaleString()}

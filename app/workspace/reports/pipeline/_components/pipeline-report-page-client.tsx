@@ -1,15 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { endOfMonth, startOfMonth } from "date-fns";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   ReportDateControls,
   type DateRange,
 } from "../../_components/report-date-controls";
+import {
+  ReportAttributionFilters,
+  type ReportAttributionFilterValue,
+} from "../../_components/report-attribution-filters";
+import { useReportAnalytics } from "../../_components/use-report-analytics";
 import { LossAttributionChart } from "./loss-attribution-chart";
 import { NoShowSourceSplitChart } from "./no-show-source-split-chart";
 import { PendingOverranReviewsCard } from "./pending-overran-reviews-card";
@@ -28,10 +41,35 @@ function getDefaultDateRange(): DateRange {
   };
 }
 
+function toDayKey(timestamp: number): string {
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
+
 export function PipelineReportPageClient() {
   usePageTitle("Pipeline Health");
+  const { captureViewed, captureFiltersChanged } =
+    useReportAnalytics("pipeline_health");
 
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
+  const [attributionFilters, setAttributionFilters] =
+    useState<ReportAttributionFilterValue>({});
+
+  useEffect(() => {
+    captureViewed();
+  }, [captureViewed]);
+
+  const captureOperationsFilterChange = useCallback(
+    (next?: ReportAttributionFilterValue) => {
+      const filters = next ?? attributionFilters;
+      captureFiltersChanged({
+        date_range_preset: "custom",
+        has_booking_program_filter: Boolean(filters.bookingProgramId),
+        has_attribution_team_filter: Boolean(filters.attributionTeamId),
+        has_dm_closer_filter: Boolean(filters.dmCloserId),
+      });
+    },
+    [attributionFilters, captureFiltersChanged],
+  );
 
   const distribution = useQuery(
     api.reporting.pipelineHealth.getPipelineDistribution,
@@ -44,12 +82,21 @@ export function PipelineReportPageClient() {
       endDate: dateRange.endDate,
     },
   );
+  const operationsShowRate = useQuery(
+    api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions,
+    {
+      startDayKey: toDayKey(dateRange.startDate),
+      endDayKeyExclusive: toDayKey(dateRange.endDate),
+      ...attributionFilters,
+    },
+  );
 
   // Both queries still loading — show full skeleton
   if (
     distribution === undefined &&
     aging === undefined &&
-    backlogAndLoss === undefined
+    backlogAndLoss === undefined &&
+    operationsShowRate === undefined
   ) {
     return <PipelineReportSkeleton />;
   }
@@ -130,8 +177,29 @@ export function PipelineReportPageClient() {
             </p>
           </div>
 
-          <ReportDateControls value={dateRange} onChange={setDateRange} />
+          <div className="flex flex-col gap-3">
+            <ReportDateControls
+              value={dateRange}
+              onChange={(next) => {
+                setDateRange(next);
+                captureOperationsFilterChange();
+              }}
+            />
+            <ReportAttributionFilters
+              value={attributionFilters}
+              onChange={(next) => {
+                setAttributionFilters(next);
+                captureOperationsFilterChange(next);
+              }}
+            />
+          </div>
         </div>
+
+        {operationsShowRate !== undefined ? (
+          <SchedulingShowRateCard stats={operationsShowRate} />
+        ) : (
+          <Skeleton className="h-36 rounded-lg" />
+        )}
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           {backlogAndLoss !== undefined ? (
@@ -151,4 +219,83 @@ export function PipelineReportPageClient() {
       </section>
     </div>
   );
+}
+
+function SchedulingShowRateCard({
+  stats,
+}: {
+  stats: {
+    scheduled: number;
+    shown: number;
+    noShows: number;
+    reviewRequired: number;
+    showRate: number | null;
+    noShowRate: number | null;
+    truncated: boolean;
+  };
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle>Scheduling Show Rate</CardTitle>
+            <CardDescription>
+              Booked-call metrics grouped by booked program, DM team, and DM
+              closer.
+            </CardDescription>
+          </div>
+          {stats.truncated ? (
+            <Badge variant="destructive">Rollup sample capped</Badge>
+          ) : null}
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          <PipelineMetric label="Booked calls" value={stats.scheduled} />
+          <PipelineMetric label="Shown" value={stats.shown} />
+          <PipelineMetric label="No shows" value={stats.noShows} />
+          <PipelineMetric
+            label="Show rate"
+            value={formatPercent(stats.showRate)}
+          />
+          <PipelineMetric
+            label="No-show rate"
+            value={formatPercent(stats.noShowRate)}
+          />
+        </div>
+        {stats.reviewRequired > 0 ? (
+          <p className="mt-3 text-xs text-muted-foreground">
+            {stats.reviewRequired.toLocaleString()} meeting-overran rows are
+            waiting for review and remain visible in booked-call totals.
+          </p>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PipelineMetric({
+  label,
+  value,
+}: {
+  label: string;
+  value: number | string;
+}) {
+  return (
+    <div className="rounded-md border bg-muted/20 p-3">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="mt-1 text-xl font-semibold tabular-nums">
+        {typeof value === "number" ? value.toLocaleString() : value}
+      </div>
+    </div>
+  );
+}
+
+function formatPercent(value: number | null): string {
+  return value === null
+    ? "-"
+    : `${(value * 100).toLocaleString(undefined, {
+        maximumFractionDigits: 1,
+      })}%`;
 }

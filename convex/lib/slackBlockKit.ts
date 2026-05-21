@@ -124,7 +124,6 @@ export function buildQualifiedLeadConfirmation(
   const leadName = escapeSlackMrkdwn(args.leadFullName);
   const handle = escapeSlackMrkdwn(args.handle);
   const platformLabel = SOCIAL_PLATFORM_LABELS[args.platform];
-  const opportunityUrl = crmOpportunityUrl(args.appUrl, args.opportunityId);
   const goalText = args.qualificationGoal
     ? `${args.qualificationGoal.qualifiedCount}/${args.qualificationGoal.dailyTeamQualificationGoal} qualified`
     : null;
@@ -149,16 +148,6 @@ export function buildQualifiedLeadConfirmation(
     {
       type: "section",
       fields,
-    },
-    {
-      type: "actions",
-      elements: [
-        {
-          type: "button",
-          text: { type: "plain_text", text: "Open in CRM" },
-          url: opportunityUrl,
-        },
-      ],
     },
   ];
 

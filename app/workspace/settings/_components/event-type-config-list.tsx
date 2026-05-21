@@ -32,6 +32,43 @@ interface EventTypeConfig {
   calendlyEventTypeUri: string;
   displayName: string;
   paymentLinks?: PaymentLink[];
+  bookingProgramName?: string;
+  bookingProgramMappingStatus?: "mapped" | "unmapped";
+  bookingBaseUrl?: string;
+  linkPortalEnabled?: boolean;
+  portalReadiness?: PortalReadiness;
+}
+
+type PortalReadiness =
+  | "ready"
+  | "missing_url"
+  | "unmapped_program"
+  | "hidden";
+
+const READINESS_LABEL: Record<PortalReadiness, string> = {
+  ready: "Ready",
+  missing_url: "Missing URL",
+  unmapped_program: "Unmapped program",
+  hidden: "Hidden",
+};
+
+function readinessFor(config: EventTypeConfig): PortalReadiness {
+  const hasMappedProgram = config.bookingProgramMappingStatus === "mapped";
+
+  if (
+    config.linkPortalEnabled === true &&
+    config.bookingBaseUrl &&
+    hasMappedProgram
+  ) {
+    return "ready";
+  }
+  if (!config.bookingBaseUrl && hasMappedProgram) {
+    return "missing_url";
+  }
+  if (config.bookingBaseUrl && !hasMappedProgram) {
+    return "unmapped_program";
+  }
+  return "hidden";
 }
 
 interface EventTypeConfigListProps {
@@ -84,14 +121,29 @@ export function EventTypeConfigList({
                 <CardTitle className="text-base">
                   {config.displayName}
                 </CardTitle>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleEdit(config)}
-                  aria-label={`Edit ${config.displayName} configuration`}
-                >
-                  <Edit2Icon />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Badge
+                    variant={
+                      config.linkPortalEnabled === true
+                        ? "secondary"
+                        : "outline"
+                    }
+                  >
+                    {
+                      READINESS_LABEL[
+                        config.portalReadiness ?? readinessFor(config)
+                      ]
+                    }
+                  </Badge>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleEdit(config)}
+                    aria-label={`Edit ${config.displayName} configuration`}
+                  >
+                    <Edit2Icon />
+                  </Button>
+                </div>
               </div>
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
@@ -110,6 +162,26 @@ export function EventTypeConfigList({
                   ) : (
                     <span className="text-sm text-muted-foreground">
                       None configured
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <p className="text-xs text-muted-foreground">Booked Program</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant={
+                      config.bookingProgramMappingStatus === "mapped"
+                        ? "secondary"
+                        : "outline"
+                    }
+                  >
+                    {config.bookingProgramName ?? "Unmapped"}
+                  </Badge>
+                  {config.bookingBaseUrl && (
+                    <span className="max-w-full truncate font-mono text-xs text-muted-foreground">
+                      {config.bookingBaseUrl}
                     </span>
                   )}
                 </div>

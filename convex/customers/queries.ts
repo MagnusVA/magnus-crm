@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { query } from "../_generated/server";
+import { buildOpportunityAttributionPayload } from "../lib/attribution/detailPayload";
 import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatibleCustomerProgramName,
@@ -227,9 +228,24 @@ export const getCustomerDetail = query({
     const totalPaid = (customer.totalPaidMinor ?? 0) / 100;
     const currency = customer.paymentCurrency ?? "USD";
 
-    const assignedCloser = winningOpportunity?.assignedCloserId
-      ? await ctx.db.get(winningOpportunity.assignedCloserId)
-      : null;
+    const validWinningOpportunity =
+      winningOpportunity && winningOpportunity.tenantId === tenantId
+        ? winningOpportunity
+        : null;
+    const validWinningMeeting =
+      winningMeeting && winningMeeting.tenantId === tenantId
+        ? winningMeeting
+        : null;
+    const [assignedCloser, attribution] = await Promise.all([
+      validWinningOpportunity?.assignedCloserId
+        ? ctx.db.get(validWinningOpportunity.assignedCloserId)
+        : Promise.resolve(null),
+      validWinningOpportunity
+        ? buildOpportunityAttributionPayload(ctx, validWinningOpportunity, {
+            meeting: validWinningMeeting,
+          })
+        : Promise.resolve(null),
+    ]);
     const closerName = assignedCloser?.fullName ?? assignedCloser?.email;
 
     return {
@@ -252,6 +268,7 @@ export const getCustomerDetail = query({
       payments,
       totalPaid,
       currency,
+      attribution,
     };
   },
 });

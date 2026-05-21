@@ -1,5 +1,6 @@
 import "server-only";
 import { cookies } from "next/headers";
+import { isPostHogEnabled } from "@/lib/posthog-config";
 import { getPostHogClient } from "@/lib/posthog-server";
 
 /**
@@ -45,10 +46,18 @@ export async function captureServerEvent(
   properties?: Record<string, unknown>,
   fallbackDistinctId?: string,
 ) {
+  if (!isPostHogEnabled()) {
+    return;
+  }
+
   const cookieDistinctId = await getPostHogDistinctId();
   const distinctId = cookieDistinctId ?? fallbackDistinctId ?? "system:server";
 
   const posthog = getPostHogClient();
+  if (!posthog) {
+    return;
+  }
+
   posthog.capture({
     distinctId,
     event,

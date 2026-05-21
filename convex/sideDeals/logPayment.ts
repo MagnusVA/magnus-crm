@@ -12,6 +12,7 @@ import {
 } from "../lib/paymentHelpers";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { isSideDeal } from "../lib/sideDeals";
+import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { expirePendingStaleOpportunityNudges } from "../lib/staleOpportunityNudges";
 import { validateTransition } from "../lib/statusTransitions";
 import {
@@ -110,6 +111,12 @@ export const logPayment = mutation({
     });
 
     const paymentBeforeCustomerLink = await insertPaymentAggregate(ctx, paymentId);
+    await setSoldProgramCaches(ctx, {
+      tenantId,
+      opportunityId: args.opportunityId,
+      programId: program._id,
+      programName: program.name,
+    });
     await patchOpportunityLifecycle(ctx, args.opportunityId, {
       status: "payment_received",
       paymentReceivedAt: now,

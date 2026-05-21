@@ -41,7 +41,7 @@ export function SlackConversionRatioCard({
           />
           Conversion Ratio
         </CardTitle>
-        <CardDescription>Booked from Slack-qualified</CardDescription>
+        <CardDescription>Booked from unique Slack opportunities</CardDescription>
         <CardAction>
           <Badge variant="outline">30d</Badge>
         </CardAction>
@@ -60,7 +60,8 @@ export function SlackConversionRatioCard({
         />
         <p className="mt-2 text-sm text-muted-foreground">
           {metrics.booked.toLocaleString()} of{" "}
-          {metrics.total.toLocaleString()} qualified leads booked
+          {metrics.uniqueOpportunityCount.toLocaleString()} unique opportunities
+          booked
         </p>
       </CardContent>
     </Card>

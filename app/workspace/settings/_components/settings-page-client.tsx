@@ -13,6 +13,7 @@ import { EventTypeConfigList } from "./event-type-config-list";
 import { FieldMappingsTab } from "./field-mappings-tab";
 import { ProgramsTab } from "./programs-tab";
 import { SlackIntegrationCard } from "./integrations/slack-integration-card";
+import { AttributionTab } from "./attribution-tab";
 
 type SettingsPageClientProps = {
   preloadedSlackStatus: Preloaded<
@@ -40,7 +41,8 @@ function SettingsContent({ preloadedSlackStatus }: SettingsPageClientProps) {
     tabParam === "event-types" ||
     tabParam === "field-mappings" ||
     tabParam === "programs" ||
-    tabParam === "integrations"
+    tabParam === "integrations" ||
+    tabParam === "attribution"
       ? tabParam
       : "calendly";
 
@@ -87,6 +89,7 @@ function SettingsContent({ preloadedSlackStatus }: SettingsPageClientProps) {
           <TabsTrigger value="event-types">Event Types</TabsTrigger>
           <TabsTrigger value="field-mappings">Field Mappings</TabsTrigger>
           <TabsTrigger value="programs">Programs</TabsTrigger>
+          <TabsTrigger value="attribution">Attribution</TabsTrigger>
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
         </TabsList>
 
@@ -104,6 +107,10 @@ function SettingsContent({ preloadedSlackStatus }: SettingsPageClientProps) {
 
         <TabsContent value="programs" className="mt-6">
           <ProgramsTab />
+        </TabsContent>
+
+        <TabsContent value="attribution" className="mt-6">
+          <AttributionTab />
         </TabsContent>
 
         <TabsContent value="integrations" className="mt-6">

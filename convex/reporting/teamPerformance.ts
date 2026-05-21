@@ -23,6 +23,7 @@ const MEETING_STATUSES = [
   "meeting_overran",
 ] as const satisfies ReadonlyArray<Doc<"meetings">["status"]>;
 const MAX_MEETING_TIME_SCAN_ROWS = 2000;
+const MAX_OPERATIONS_STATS_ROWS = 1000;
 
 type CallClassification = (typeof CALL_CLASSIFICATIONS)[number];
 type MeetingStatus = (typeof MEETING_STATUSES)[number];
@@ -450,6 +451,126 @@ export const getTeamPerformanceMetrics = query({
       teamMeetingTime: toMeetingTimeKpis(teamMeetingTimeTotals),
       isPaymentDataTruncated: paymentScan.isTruncated,
       isMeetingTimeTruncated,
+    };
+  },
+});
+
+export const getTeamOperationsDimensions = query({
+  args: {
+    startDate: v.number(),
+    endDate: v.number(),
+    bookingProgramId: v.optional(v.id("tenantPrograms")),
+    attributionTeamId: v.optional(v.id("attributionTeams")),
+    dmCloserId: v.optional(v.id("dmClosers")),
+  },
+  handler: async (ctx, args) => {
+    assertValidDateRange(args.startDate, args.endDate);
+
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    const startDayKey = new Date(args.startDate).toISOString().slice(0, 10);
+    const endDayKeyExclusive = new Date(args.endDate).toISOString().slice(0, 10);
+    const [closers, statsRows] = await Promise.all([
+      getActiveClosers(ctx, tenantId),
+      ctx.db
+        .query("operationsMeetingDailyStats")
+        .withIndex("by_tenantId_and_dayKey", (q) =>
+          q
+            .eq("tenantId", tenantId)
+            .gte("dayKey", startDayKey)
+            .lt("dayKey", endDayKeyExclusive),
+        )
+        .take(MAX_OPERATIONS_STATS_ROWS + 1),
+    ]);
+
+    const closerNameById = new Map(
+      closers.map((closer) => [closer._id, getUserDisplayName(closer)]),
+    );
+    const byCloser = new Map<
+      Id<"users">,
+      {
+        scheduled: number;
+        completed: number;
+        noShows: number;
+        reviewRequired: number;
+      }
+    >();
+
+    for (const row of statsRows.slice(0, MAX_OPERATIONS_STATS_ROWS)) {
+      if (
+        args.bookingProgramId &&
+        row.bookingProgramId !== args.bookingProgramId
+      ) {
+        continue;
+      }
+      if (
+        args.attributionTeamId &&
+        row.attributionTeamId !== args.attributionTeamId
+      ) {
+        continue;
+      }
+      if (args.dmCloserId && row.dmCloserId !== args.dmCloserId) {
+        continue;
+      }
+
+      const current = byCloser.get(row.assignedCloserId) ?? {
+        scheduled: 0,
+        completed: 0,
+        noShows: 0,
+        reviewRequired: 0,
+      };
+      current.scheduled += row.count;
+      if (row.meetingStatus === "completed") {
+        current.completed += row.count;
+      }
+      if (row.meetingStatus === "no_show") {
+        current.noShows += row.count;
+      }
+      if (row.meetingStatus === "meeting_overran") {
+        current.reviewRequired += row.count;
+      }
+      byCloser.set(row.assignedCloserId, current);
+    }
+
+    const rows = [...byCloser.entries()]
+      .map(([closerId, totals]) => ({
+        closerId,
+        closerName: closerNameById.get(closerId) ?? "Removed closer",
+        ...totals,
+        showRate:
+          totals.scheduled === 0 ? null : totals.completed / totals.scheduled,
+        noShowRate:
+          totals.scheduled === 0 ? null : totals.noShows / totals.scheduled,
+      }))
+      .sort(
+        (left, right) =>
+          right.scheduled - left.scheduled ||
+          left.closerName.localeCompare(right.closerName),
+      );
+
+    const totals = rows.reduce(
+      (acc, row) => ({
+        scheduled: acc.scheduled + row.scheduled,
+        completed: acc.completed + row.completed,
+        noShows: acc.noShows + row.noShows,
+        reviewRequired: acc.reviewRequired + row.reviewRequired,
+      }),
+      { scheduled: 0, completed: 0, noShows: 0, reviewRequired: 0 },
+    );
+
+    return {
+      rows,
+      totals: {
+        ...totals,
+        showRate:
+          totals.scheduled === 0 ? null : totals.completed / totals.scheduled,
+        noShowRate:
+          totals.scheduled === 0 ? null : totals.noShows / totals.scheduled,
+      },
+      truncated: statsRows.length > MAX_OPERATIONS_STATS_ROWS,
     };
   },
 });

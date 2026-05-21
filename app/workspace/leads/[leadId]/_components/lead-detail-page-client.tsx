@@ -176,6 +176,7 @@ export function LeadDetailPageClient() {
 						identifiers={detail.identifiers}
 						opportunities={detail.opportunities}
 						meetings={detail.meetings}
+						qualificationEvents={detail.qualificationEvents}
 					/>
 				</TabsContent>
 

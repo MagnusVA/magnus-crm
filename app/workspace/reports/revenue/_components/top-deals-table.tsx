@@ -75,7 +75,7 @@ export function TopDealsTable({ deals }: TopDealsTableProps) {
               <TableRow>
                 <TableHead className="w-12">#</TableHead>
                 <TableHead className="text-right">Amount</TableHead>
-                <TableHead>Program</TableHead>
+                <TableHead>Payment program</TableHead>
                 <TableHead>Payment Type</TableHead>
                 <TableHead>Closer</TableHead>
                 <TableHead>Date</TableHead>

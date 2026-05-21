@@ -78,7 +78,7 @@ type NavItem = {
 
 const adminNavItems: NavItem[] = [
   { href: "/workspace", label: "Overview", icon: LayoutDashboardIcon, exact: true },
-  { href: "/workspace/pipeline", label: "Pipeline", icon: KanbanIcon },
+  { href: "/workspace/operations", label: "Operations", icon: KanbanIcon },
   { href: "/workspace/reviews", label: "Reviews", icon: ClipboardCheckIcon },
   { href: "/workspace/leads", label: "Leads", icon: ContactIcon },
   { href: "/workspace/customers", label: "Customers", icon: UsersRoundIcon },

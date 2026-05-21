@@ -1,0 +1,173 @@
+import { v } from "convex/values";
+import { mutation, query } from "../_generated/server";
+import { normalizeUtmValue, slugifyAttributionLabel } from "../lib/attribution/normalize";
+import { validateRequiredString } from "../lib/validation";
+import { requireTenantUser } from "../requireTenantUser";
+
+function normalizeDmCloserInput(args: {
+  displayName: string;
+  utmMedium: string;
+}) {
+  const displayName = args.displayName.trim();
+  const utmMedium = args.utmMedium.trim();
+  const displayNameValidation = validateRequiredString(displayName, {
+    fieldName: "DM closer name",
+    maxLength: 120,
+  });
+  if (!displayNameValidation.valid) {
+    throw new Error(displayNameValidation.error);
+  }
+  const utmMediumValidation = validateRequiredString(utmMedium, {
+    fieldName: "UTM medium",
+    maxLength: 256,
+  });
+  if (!utmMediumValidation.valid) {
+    throw new Error(utmMediumValidation.error);
+  }
+  const normalizedUtmMedium = normalizeUtmValue(utmMedium);
+  if (!normalizedUtmMedium) {
+    throw new Error("UTM medium is required.");
+  }
+  const slug = slugifyAttributionLabel(displayName || utmMedium);
+  if (!slug) {
+    throw new Error("DM closer name must contain at least one letter or number.");
+  }
+  return { displayName, utmMedium, normalizedUtmMedium, slug };
+}
+
+export const listDmClosers = query({
+  args: {},
+  handler: async (ctx) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    const closers = await ctx.db
+      .query("dmClosers")
+      .withIndex("by_tenantId_and_teamId", (q) => q.eq("tenantId", tenantId))
+      .take(300);
+    const teams = await ctx.db
+      .query("attributionTeams")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .take(200);
+    const teamById = new Map(teams.map((team) => [team._id, team]));
+
+    return closers.map((closer) => ({
+      ...closer,
+      teamLabel: teamById.get(closer.teamId)?.displayName ?? "Unknown team",
+    }));
+  },
+});
+
+export const createDmCloser = mutation({
+  args: {
+    teamId: v.id("attributionTeams"),
+    displayName: v.string(),
+    utmMedium: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+    const team = await ctx.db.get(args.teamId);
+    if (!team || team.tenantId !== tenantId) {
+      throw new Error("Attribution team not found.");
+    }
+    const normalized = normalizeDmCloserInput(args);
+    const now = Date.now();
+
+    const existingActive = await ctx.db
+      .query("dmClosers")
+      .withIndex("by_tenantId_and_normalizedUtmMedium", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("normalizedUtmMedium", normalized.normalizedUtmMedium),
+      )
+      .take(5);
+    if (existingActive.some((closer) => closer.isActive)) {
+      throw new Error("An active DM closer already uses this UTM medium.");
+    }
+
+    return await ctx.db.insert("dmClosers", {
+      tenantId,
+      teamId: args.teamId,
+      slug: normalized.slug,
+      displayName: normalized.displayName,
+      utmMedium: normalized.utmMedium,
+      normalizedUtmMedium: normalized.normalizedUtmMedium,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+    });
+  },
+});
+
+export const updateDmCloser = mutation({
+  args: {
+    dmCloserId: v.id("dmClosers"),
+    teamId: v.id("attributionTeams"),
+    displayName: v.string(),
+    utmMedium: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+    const dmCloser = await ctx.db.get(args.dmCloserId);
+    if (!dmCloser || dmCloser.tenantId !== tenantId) {
+      throw new Error("DM closer not found.");
+    }
+    const team = await ctx.db.get(args.teamId);
+    if (!team || team.tenantId !== tenantId) {
+      throw new Error("Attribution team not found.");
+    }
+    const normalized = normalizeDmCloserInput(args);
+    const existingActive = await ctx.db
+      .query("dmClosers")
+      .withIndex("by_tenantId_and_normalizedUtmMedium", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("normalizedUtmMedium", normalized.normalizedUtmMedium),
+      )
+      .take(5);
+    if (
+      existingActive.some(
+        (candidate) => candidate.isActive && candidate._id !== args.dmCloserId,
+      )
+    ) {
+      throw new Error("An active DM closer already uses this UTM medium.");
+    }
+
+    await ctx.db.patch(args.dmCloserId, {
+      teamId: args.teamId,
+      slug: normalized.slug,
+      displayName: normalized.displayName,
+      utmMedium: normalized.utmMedium,
+      normalizedUtmMedium: normalized.normalizedUtmMedium,
+      updatedAt: Date.now(),
+    });
+    return args.dmCloserId;
+  },
+});
+
+export const setDmCloserActive = mutation({
+  args: {
+    dmCloserId: v.id("dmClosers"),
+    isActive: v.boolean(),
+  },
+  handler: async (ctx, { dmCloserId, isActive }) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+    const dmCloser = await ctx.db.get(dmCloserId);
+    if (!dmCloser || dmCloser.tenantId !== tenantId) {
+      throw new Error("DM closer not found.");
+    }
+    await ctx.db.patch(dmCloserId, { isActive, updatedAt: Date.now() });
+    return dmCloserId;
+  },
+});

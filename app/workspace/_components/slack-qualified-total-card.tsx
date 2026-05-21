@@ -33,7 +33,7 @@ export function SlackQualifiedTotalCard({
             className="size-4 text-muted-foreground"
             aria-hidden
           />
-          Slack-Qualified
+          Slack Qualification Events
         </CardTitle>
         <CardDescription>Last 30 days</CardDescription>
         <CardAction>
@@ -44,11 +44,11 @@ export function SlackQualifiedTotalCard({
       </CardHeader>
       <CardContent>
         <div className="font-mono text-4xl font-bold tabular-nums">
-          {metrics.total.toLocaleString()}
+          {metrics.qualificationEventCount.toLocaleString()}
         </div>
         <p className="mt-2 text-sm text-muted-foreground">
-          {metrics.stillPending.toLocaleString()} pending,{" "}
-          {metrics.lost.toLocaleString()} lost
+          {metrics.uniqueOpportunityCount.toLocaleString()} unique Slack
+          opportunities
         </p>
       </CardContent>
     </Card>

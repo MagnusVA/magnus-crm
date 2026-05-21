@@ -2709,3 +2709,57 @@ export const purgePhase6BlockerRecords = mutation({
     };
   },
 });
+
+export const getQualificationProjectionReadiness = query({
+  args: {},
+  handler: async (ctx) => {
+    await requireSystemAdmin(ctx);
+
+    const tenants = await ctx.db.query("tenants").take(100);
+    let slackSourcedOpportunities = 0;
+    let qualificationEvents = 0;
+    let projectionRows = 0;
+    let rowsWithoutOpportunity = 0;
+    let rowsWithoutLead = 0;
+
+    for (const tenant of tenants) {
+      const opportunities = await ctx.db
+        .query("opportunities")
+        .withIndex("by_tenantId_and_source_and_qualifiedAt", (q) =>
+          q.eq("tenantId", tenant._id).eq("source", "slack_qualified"),
+        )
+        .take(1000);
+      slackSourcedOpportunities += opportunities.length;
+
+      const events = await ctx.db
+        .query("slackQualificationEvents")
+        .withIndex("by_tenantId_and_submittedAt", (q) =>
+          q.eq("tenantId", tenant._id),
+        )
+        .take(1000);
+      qualificationEvents += events.length;
+
+      const rows = await ctx.db
+        .query("operationsQualificationRows")
+        .withIndex("by_tenantId_and_qualifiedAt", (q) =>
+          q.eq("tenantId", tenant._id),
+        )
+        .take(1000);
+      projectionRows += rows.length;
+      rowsWithoutOpportunity += rows.filter(
+        (row) => row.opportunityId === undefined,
+      ).length;
+      rowsWithoutLead += rows.filter((row) => row.leadId === undefined).length;
+    }
+
+    return {
+      tenantsScanned: tenants.length,
+      slackSourcedOpportunities,
+      qualificationEvents,
+      projectionRows,
+      rowsWithoutOpportunity,
+      rowsWithoutLead,
+      truncated: tenants.length === 100,
+    };
+  },
+});

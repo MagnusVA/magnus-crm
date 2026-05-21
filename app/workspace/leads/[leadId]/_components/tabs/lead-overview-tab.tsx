@@ -4,6 +4,7 @@ import {
 	CalendarIcon,
 	FingerprintIcon,
 	LayersIcon,
+	MessageSquareTextIcon,
 	UsersIcon,
 } from "lucide-react";
 import {
@@ -27,11 +28,23 @@ type LeadDetailMeeting = Doc<"meetings"> & {
 	closerName: string | null;
 };
 
+type LeadQualificationEvent = {
+	_id: string;
+	resultKind: string;
+	slackUserLabel: string;
+	submittedAt: number;
+	opportunityId?: string;
+	fullNameSnapshot: string;
+	platform: string;
+	handleSnapshot: string;
+};
+
 interface LeadOverviewTabProps {
 	lead: Doc<"leads">;
 	identifiers: Doc<"leadIdentifiers">[];
 	opportunities: LeadDetailOpportunity[];
 	meetings: LeadDetailMeeting[];
+	qualificationEvents: LeadQualificationEvent[];
 }
 
 const identifierTypeLabels: Record<string, string> = {
@@ -48,11 +61,21 @@ const confidenceColors: Record<string, string> = {
 	low: "bg-red-500/10 text-red-700 border-red-200 dark:text-red-400 dark:border-red-900",
 };
 
+const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
+	dateStyle: "medium",
+	timeStyle: "short",
+});
+
+function formatToken(value: string) {
+	return value.replace(/_/g, " ");
+}
+
 export function LeadOverviewTab({
 	lead,
 	identifiers,
 	opportunities,
 	meetings,
+	qualificationEvents,
 }: LeadOverviewTabProps) {
 	const firstSeenDate = lead.firstSeenAt
 		? new Date(lead.firstSeenAt).toLocaleDateString("en-US", {
@@ -107,6 +130,54 @@ export function LeadOverviewTab({
 					</Card>
 				))}
 			</div>
+
+			{/* Slack qualification context */}
+			<Card>
+				<CardHeader>
+					<CardTitle className="flex items-center gap-2 text-base">
+						<MessageSquareTextIcon className="size-4" aria-hidden="true" />
+						Slack Qualifications
+					</CardTitle>
+					<CardDescription>
+						Recent setter submissions attached to this lead
+					</CardDescription>
+				</CardHeader>
+				<CardContent>
+					{qualificationEvents.length === 0 ? (
+						<p className="text-sm text-muted-foreground">
+							No Slack qualification attempts recorded.
+						</p>
+					) : (
+						<div className="flex flex-col divide-y">
+							{qualificationEvents.slice(0, 5).map((event) => (
+								<div
+									key={event._id}
+									className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
+								>
+									<div className="min-w-0">
+										<p className="truncate text-sm font-medium">
+											{event.slackUserLabel}
+										</p>
+										<p className="text-xs text-muted-foreground">
+											{DATE_TIME_FORMATTER.format(new Date(event.submittedAt))}
+										</p>
+									</div>
+									<div className="flex flex-wrap gap-2">
+										<Badge variant="outline" className="capitalize">
+											{formatToken(event.resultKind)}
+										</Badge>
+										<Badge
+											variant={event.opportunityId ? "secondary" : "outline"}
+										>
+											{event.opportunityId ? "Linked" : "Unlinked"}
+										</Badge>
+									</div>
+								</div>
+							))}
+						</div>
+					)}
+				</CardContent>
+			</Card>
 
 			{/* Known identifiers */}
 			<Card>

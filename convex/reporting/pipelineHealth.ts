@@ -34,6 +34,7 @@ const MAX_PENDING_REVIEW_SCAN_ROWS = REPORT_ROW_CAP + 1;
 const MAX_UNRESOLVED_REMINDER_SCAN_ROWS = REPORT_ROW_CAP + 1;
 const MAX_NO_SHOW_SCAN_ROWS = REPORT_ROW_CAP + 1;
 const MAX_LOSS_SCAN_ROWS = REPORT_ROW_CAP + 1;
+const MAX_OPERATIONS_STATS_ROWS = 1000;
 const STALE_THRESHOLD_MS = 14 * 24 * 60 * 60 * 1000;
 
 type NoShowSource = "closer" | "calendly_webhook" | "none";
@@ -383,6 +384,82 @@ export const getPipelineBacklogAndLoss = query({
       isNoShowSourceTruncated: noShowRows.length > REPORT_ROW_CAP,
       lossAttribution,
       isLossAttributionTruncated: lostOpportunityRows.length > REPORT_ROW_CAP,
+    };
+  },
+});
+
+export const getSchedulingShowRateByOperationsDimensions = query({
+  args: {
+    startDayKey: v.string(),
+    endDayKeyExclusive: v.string(),
+    bookingProgramId: v.optional(v.id("tenantPrograms")),
+    attributionTeamId: v.optional(v.id("attributionTeams")),
+    dmCloserId: v.optional(v.id("dmClosers")),
+  },
+  handler: async (ctx, args) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    if (args.startDayKey >= args.endDayKeyExclusive) {
+      throw new Error("startDayKey must be before endDayKeyExclusive");
+    }
+
+    const rows = await ctx.db
+      .query("operationsMeetingDailyStats")
+      .withIndex("by_tenantId_and_dayKey", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .gte("dayKey", args.startDayKey)
+          .lt("dayKey", args.endDayKeyExclusive),
+      )
+      .take(MAX_OPERATIONS_STATS_ROWS + 1);
+
+    const filtered = rows.slice(0, MAX_OPERATIONS_STATS_ROWS).filter((row) => {
+      if (
+        args.bookingProgramId &&
+        row.bookingProgramId !== args.bookingProgramId
+      ) {
+        return false;
+      }
+      if (
+        args.attributionTeamId &&
+        row.attributionTeamId !== args.attributionTeamId
+      ) {
+        return false;
+      }
+      if (args.dmCloserId && row.dmCloserId !== args.dmCloserId) {
+        return false;
+      }
+      return true;
+    });
+
+    let scheduled = 0;
+    let shown = 0;
+    let noShows = 0;
+    let reviewRequired = 0;
+    for (const row of filtered) {
+      scheduled += row.count;
+      if (row.meetingStatus === "completed") {
+        shown += row.count;
+      }
+      if (row.meetingStatus === "no_show") {
+        noShows += row.count;
+      }
+      if (row.meetingStatus === "meeting_overran") {
+        reviewRequired += row.count;
+      }
+    }
+
+    return {
+      scheduled,
+      shown,
+      noShows,
+      reviewRequired,
+      showRate: scheduled === 0 ? null : shown / scheduled,
+      noShowRate: scheduled === 0 ? null : noShows / scheduled,
+      truncated: rows.length > MAX_OPERATIONS_STATS_ROWS,
     };
   },
 });

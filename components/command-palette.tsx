@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/command";
 import { Kbd } from "@/components/ui/kbd";
 import {
+  ClipboardCheckIcon,
+  ContactIcon,
   LayoutDashboardIcon,
   UsersIcon,
   KanbanIcon,
@@ -27,10 +29,12 @@ import { useRole } from "@/components/auth/role-context";
 // Hoisted static page definitions (vercel-react-best-practices: rendering-hoist-jsx)
 const adminPages = [
   { label: "Overview", href: "/workspace", icon: LayoutDashboardIcon, shortcut: "1" },
-  { label: "Team", href: "/workspace/team", icon: UsersIcon, shortcut: "2" },
-  { label: "Pipeline", href: "/workspace/pipeline", icon: KanbanIcon, shortcut: "3" },
-  { label: "Settings", href: "/workspace/settings", icon: SettingsIcon, shortcut: "4" },
+  { label: "Operations", href: "/workspace/operations", icon: KanbanIcon, shortcut: "2" },
+  { label: "Reviews", href: "/workspace/reviews", icon: ClipboardCheckIcon, shortcut: "3" },
+  { label: "Leads", href: "/workspace/leads", icon: ContactIcon, shortcut: "4" },
   { label: "Opportunities", href: "/workspace/opportunities", icon: TargetIcon },
+  { label: "Team", href: "/workspace/team", icon: UsersIcon },
+  { label: "Settings", href: "/workspace/settings", icon: SettingsIcon },
 ];
 
 const closerPages = [

@@ -9,6 +9,7 @@ const PUBLIC_PREFIXES = [
 	"/onboarding",
 	"/privacy",
 	"/support",
+	"/dm-links",
 ] as const;
 
 function isPublicPath(pathname: string) {

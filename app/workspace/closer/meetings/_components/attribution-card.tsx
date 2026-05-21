@@ -10,6 +10,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import {
+  CalendarCheckIcon,
+  DollarSignIcon,
   TrendingUpIcon,
   GlobeIcon,
   MegaphoneIcon,
@@ -31,6 +33,9 @@ type AttributionCardProps = {
       isCurrentMeeting: boolean;
     }
   >;
+  attributionTeam?: Doc<"attributionTeams"> | null;
+  dmCloser?: Doc<"dmClosers"> | null;
+  meetingDetailBasePath?: string;
 };
 
 // ─── Config ─────────────────────────────────────────────────────────────────
@@ -127,8 +132,8 @@ function inferBookingType(
  * Attribution Card — displays UTM source tracking and booking type.
  *
  * Shows:
- * - UTM parameters (source, medium, campaign, term, content) from the
- *   opportunity's first booking. Falls back to meeting-level UTM.
+ * - Resolved booked/sold program, DM attribution labels, and raw meeting UTM
+ *   parameters. Falls back to opportunity attribution for legacy records.
  * - Booking type badge: Organic / Follow-Up / Reschedule.
  * - "View original" link to the predecessor meeting.
  *
@@ -139,10 +144,21 @@ export function AttributionCard({
   opportunity,
   meeting,
   meetingHistory,
+  attributionTeam,
+  dmCloser,
+  meetingDetailBasePath = "/workspace/closer/meetings",
 }: AttributionCardProps) {
-  // Use opportunity-level UTM (first booking) as canonical attribution source.
-  // Fall back to meeting-level UTM if opportunity has none (pre-Feature G data).
-  const utm = opportunity.utmParams ?? meeting.utmParams;
+  const utm = meeting.utmParams ?? opportunity.utmParams;
+  const attributionResolution =
+    meeting.attributionResolution ?? opportunity.attributionResolution ?? "none";
+  const bookedProgramName =
+    meeting.bookingProgramName ??
+    opportunity.firstBookingProgramName ??
+    "Unmapped";
+  const soldProgramName =
+    meeting.soldProgramName ?? opportunity.soldProgramName ?? "No payment yet";
+  const dmTeamName = attributionTeam?.displayName ?? utm?.utm_source ?? "None";
+  const dmCloserName = dmCloser?.displayName ?? utm?.utm_medium ?? "None";
 
   const { type: bookingType, originalMeetingId } = inferBookingType(
     meeting,
@@ -155,13 +171,46 @@ export function AttributionCard({
   return (
     <Card>
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <TrendingUpIcon className="size-4" />
-          Attribution
-        </CardTitle>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <TrendingUpIcon className="size-4" />
+            Attribution
+          </CardTitle>
+          <Badge
+            variant={
+              attributionResolution === "mapped" ? "secondary" : "outline"
+            }
+            className="capitalize"
+          >
+            {attributionResolution === "none"
+              ? "No UTM"
+              : attributionResolution}
+          </Badge>
+        </div>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        {/* UTM Parameters */}
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+          <UtmField
+            icon={<CalendarCheckIcon />}
+            label="Booked Program"
+            value={bookedProgramName}
+          />
+          <UtmField
+            icon={<DollarSignIcon />}
+            label="Sold Program"
+            value={soldProgramName}
+          />
+          <UtmField icon={<GlobeIcon />} label="DM Team" value={dmTeamName} />
+          <UtmField
+            icon={<MegaphoneIcon />}
+            label="DM Closer"
+            value={dmCloserName}
+          />
+        </dl>
+
+        <Separator />
+
+        {/* Raw UTM Parameters */}
         {hasUtm ? (
           <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
             {utm.utm_source && (
@@ -202,7 +251,7 @@ export function AttributionCard({
           </dl>
         ) : (
           <p className="text-sm text-muted-foreground">
-            No UTM attribution data available for this opportunity.
+            No UTM attribution data available for this meeting.
           </p>
         )}
 
@@ -220,7 +269,7 @@ export function AttributionCard({
           </div>
           {originalMeetingId && (
             <Link
-              href={`/workspace/closer/meetings/${originalMeetingId}`}
+              href={`${meetingDetailBasePath}/${originalMeetingId}`}
               className="flex items-center gap-1 text-xs text-primary hover:underline"
             >
               View original
@@ -250,7 +299,9 @@ function UtmField({
         <span className="[&>svg]:size-3">{icon}</span>
         {label}
       </dt>
-      <dd className="text-sm font-medium">{value}</dd>
+      <dd className="truncate text-sm font-medium" title={value}>
+        {value}
+      </dd>
     </div>
   );
 }

@@ -9,6 +9,10 @@ import {
   upsertOpportunitySearchProjection,
 } from "../lib/opportunitySearch";
 import {
+  insertOperationsMeetingStats,
+  replaceOperationsMeetingStats,
+} from "../operations/meetingStats";
+import {
   customerConversions,
   isSlackQualificationAggregateEligible,
   leadTimeline,
@@ -61,12 +65,55 @@ async function getPaymentOrThrow(
   return payment;
 }
 
-export async function insertMeetingAggregate(
+async function getMeetingWithOpportunityStatus(
   ctx: MutationCtx,
   meetingId: Id<"meetings">,
 ): Promise<Doc<"meetings">> {
   const meeting = await getMeetingOrThrow(ctx, meetingId);
-  await meetingsByStatus.insert(ctx, meeting);
+  const opportunity = await ctx.db.get(meeting.opportunityId);
+  const opportunityStatus = opportunity?.status;
+  if (meeting.opportunityStatus !== opportunityStatus) {
+    await ctx.db.patch(meeting._id, { opportunityStatus });
+    return { ...meeting, opportunityStatus };
+  }
+  return meeting;
+}
+
+async function syncMeetingOpportunityStatusForOpportunity(
+  ctx: MutationCtx,
+  opportunity: Doc<"opportunities">,
+) {
+  const meetings = await ctx.db
+    .query("meetings")
+    .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunity._id))
+    .take(200);
+
+  await Promise.all(
+    meetings.map(async (meeting) => {
+      if (meeting.opportunityStatus === opportunity.status) {
+        return;
+      }
+      const nextMeeting = {
+        ...meeting,
+        opportunityStatus: opportunity.status,
+      };
+      await ctx.db.patch(meeting._id, {
+        opportunityStatus: opportunity.status,
+      });
+      await replaceOperationsMeetingStats(ctx, meeting, nextMeeting);
+    }),
+  );
+}
+
+export async function insertMeetingAggregate(
+  ctx: MutationCtx,
+  meetingId: Id<"meetings">,
+): Promise<Doc<"meetings">> {
+  const meeting = await getMeetingWithOpportunityStatus(ctx, meetingId);
+  await Promise.all([
+    meetingsByStatus.insert(ctx, meeting),
+    insertOperationsMeetingStats(ctx, meeting),
+  ]);
   return meeting;
 }
 
@@ -75,8 +122,11 @@ export async function replaceMeetingAggregate(
   oldMeeting: Doc<"meetings">,
   meetingId: Id<"meetings">,
 ): Promise<Doc<"meetings">> {
-  const meeting = await getMeetingOrThrow(ctx, meetingId);
-  await meetingsByStatus.replace(ctx, oldMeeting, meeting);
+  const meeting = await getMeetingWithOpportunityStatus(ctx, meetingId);
+  await Promise.all([
+    meetingsByStatus.replace(ctx, oldMeeting, meeting),
+    replaceOperationsMeetingStats(ctx, oldMeeting, meeting),
+  ]);
   return meeting;
 }
 
@@ -124,6 +174,9 @@ export async function replaceOpportunityAggregate(
   }
 
   await upsertOpportunitySearchProjection(ctx, opportunityId);
+  if (oldOpportunity.status !== opportunity.status) {
+    await syncMeetingOpportunityStatusForOpportunity(ctx, opportunity);
+  }
   return opportunity;
 }
 

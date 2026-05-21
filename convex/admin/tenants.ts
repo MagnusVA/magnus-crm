@@ -709,7 +709,10 @@ export const resetTenantForReonboarding = action({
     const deletedCounts: Record<string, number> = {};
 
     while (true) {
-      const batch = await ctx.runMutation(
+      const batch: {
+        deletedCounts: Record<string, number>;
+        hasMore: boolean;
+      } = await ctx.runMutation(
         internal.admin.tenantsMutations.deleteTenantRuntimeDataBatch,
         { tenantId },
       );

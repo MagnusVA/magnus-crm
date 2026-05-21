@@ -2,15 +2,13 @@ import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
-import {
-  applyPaymentStatsDelta,
-  updateTenantStats,
-} from "../lib/tenantStatsHelper";
+import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import {
   assertPaymentRow,
   resolveProgramForWrite,
   syncCustomerPaymentSummary,
 } from "../lib/paymentHelpers";
+import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
 import { insertPaymentAggregate } from "../reporting/writeHooks";
@@ -200,6 +198,13 @@ export const recordCustomerPayment = mutation({
 
     const paymentId = await ctx.db.insert("paymentRecords", row);
     await insertPaymentAggregate(ctx, paymentId);
+    await setSoldProgramCaches(ctx, {
+      tenantId,
+      opportunityId: customer.winningOpportunityId,
+      meetingId: customer.winningMeetingId,
+      programId: program._id,
+      programName: program.name,
+    });
     await syncCustomerPaymentSummary(ctx, args.customerId);
     await applyPaymentStatsDelta(ctx, tenantId, {
       commissionable: false,

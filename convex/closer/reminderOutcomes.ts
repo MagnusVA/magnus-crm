@@ -14,6 +14,7 @@ import {
   type CommissionableOrigin,
 } from "../lib/paymentHelpers";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
+import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { validateTransition } from "../lib/statusTransitions";
 import {
   applyPaymentStatsDelta,
@@ -193,6 +194,13 @@ export const logReminderPayment = mutation({
       origin,
     });
     await insertPaymentAggregate(ctx, paymentId);
+    await setSoldProgramCaches(ctx, {
+      tenantId,
+      opportunityId: opportunity._id,
+      meetingId,
+      programId: program._id,
+      programName: program.name,
+    });
 
     await patchOpportunityLifecycle(ctx, opportunity._id, {
       ...(role !== "closer" && opportunity.assignedCloserId !== followUp.closerId
