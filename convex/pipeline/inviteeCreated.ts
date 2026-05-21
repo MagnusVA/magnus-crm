@@ -709,6 +709,7 @@ async function resolveEventTypeConfigId(
 		tenantId,
 		calendlyEventTypeUri: eventTypeUri,
 		displayName: eventDisplayName,
+		displayNameSource: "webhook_discovered",
 		bookingProgramMappingStatus: "unmapped",
 		createdAt: now,
 		updatedAt: now,

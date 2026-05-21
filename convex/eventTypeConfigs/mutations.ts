@@ -184,6 +184,7 @@ export const upsertEventTypeConfig = mutation({
     if (existing) {
       await ctx.db.patch(existing._id, {
         displayName: normalizedDisplayName,
+        displayNameSource: "admin_entered",
         paymentLinks:
           normalizedPaymentLinks === undefined
             ? existing.paymentLinks
@@ -202,6 +203,7 @@ export const upsertEventTypeConfig = mutation({
       tenantId,
       calendlyEventTypeUri: normalizedEventTypeUri,
       displayName: normalizedDisplayName,
+      displayNameSource: "admin_entered",
       paymentLinks: normalizedPaymentLinks,
       ...bookingProgramPatch,
       bookingBaseUrl: trimmedBookingBaseUrl,

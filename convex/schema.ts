@@ -1129,9 +1129,51 @@ export default defineSchema({
     bookingProgramMappingStatus: v.optional(bookingProgramMappingStatusValidator),
     bookingBaseUrl: v.optional(v.string()),
     bookingUrlSource: v.optional(
-      v.union(v.literal("admin_entered"), v.literal("imported_sheet")),
+      v.union(
+        v.literal("admin_entered"),
+        v.literal("imported_sheet"),
+        v.literal("calendly_synced"),
+      ),
     ),
     linkPortalEnabled: v.optional(v.boolean()),
+
+    // Calendly-owned metadata from GET /event_types. All fields remain
+    // optional for widen-only rollout safety.
+    calendlyName: v.optional(v.string()),
+    displayNameSource: v.optional(
+      v.union(
+        v.literal("admin_entered"),
+        v.literal("calendly_synced"),
+        v.literal("webhook_discovered"),
+      ),
+    ),
+    calendlySchedulingUrl: v.optional(v.string()),
+    calendlySlug: v.optional(v.string()),
+    calendlyActive: v.optional(v.boolean()),
+    calendlyDeletedAt: v.optional(v.string()),
+    calendlyCreatedAt: v.optional(v.string()),
+    calendlyUpdatedAt: v.optional(v.string()),
+    calendlyDurationMinutes: v.optional(v.number()),
+    calendlyKind: v.optional(v.string()),
+    calendlyType: v.optional(v.string()),
+    calendlyBookingMethod: v.optional(v.string()),
+    calendlyPoolingType: v.optional(v.string()),
+    calendlySecret: v.optional(v.boolean()),
+    calendlyAdminManaged: v.optional(v.boolean()),
+    calendlyColor: v.optional(v.string()),
+    calendlyLocale: v.optional(v.string()),
+    calendlyOwnerUri: v.optional(v.string()),
+    calendlyProfileName: v.optional(v.string()),
+    calendlySyncStatus: v.optional(
+      v.union(
+        v.literal("active"),
+        v.literal("inactive"),
+        v.literal("deleted"),
+        v.literal("not_returned"),
+      ),
+    ),
+    lastCalendlySeenAt: v.optional(v.number()),
+    lastCalendlySyncedAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
   })
     .index("by_tenantId", ["tenantId"])
@@ -1510,6 +1552,31 @@ export default defineSchema({
     ),
     lastHealthCheckAt: v.optional(v.number()),
     webhookProvisioningStartedAt: v.optional(v.number()),
+
+    eventTypeSyncLockUntil: v.optional(v.number()),
+    lastEventTypeSyncStartedAt: v.optional(v.number()),
+    lastEventTypeSyncCompletedAt: v.optional(v.number()),
+    lastEventTypeSyncStatus: v.optional(
+      v.union(
+        v.literal("success"),
+        v.literal("failed"),
+        v.literal("skipped"),
+      ),
+    ),
+    lastEventTypeSyncError: v.optional(v.string()),
+    lastEventTypeSyncCount: v.optional(v.number()),
+    lastEventTypeSyncSummary: v.optional(
+      v.object({
+        totalSeen: v.number(),
+        created: v.number(),
+        updated: v.number(),
+        unchanged: v.number(),
+        inactive: v.number(),
+        deleted: v.number(),
+        notReturned: v.number(),
+        questionsMerged: v.number(),
+      }),
+    ),
   }).index("by_tenantId", ["tenantId"]),
   // === End v0.5b: Tenant Calendly Connections ===
 

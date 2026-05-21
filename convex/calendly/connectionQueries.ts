@@ -29,6 +29,14 @@ export const getTenantConnectionContext = internalQuery({
       webhookSecret: connection?.webhookSecret,
       connectionStatus: connection?.connectionStatus,
       lastHealthCheckAt: connection?.lastHealthCheckAt,
+      webhookProvisioningStartedAt: connection?.webhookProvisioningStartedAt,
+      eventTypeSyncLockUntil: connection?.eventTypeSyncLockUntil,
+      lastEventTypeSyncStartedAt: connection?.lastEventTypeSyncStartedAt,
+      lastEventTypeSyncCompletedAt: connection?.lastEventTypeSyncCompletedAt,
+      lastEventTypeSyncStatus: connection?.lastEventTypeSyncStatus,
+      lastEventTypeSyncError: connection?.lastEventTypeSyncError,
+      lastEventTypeSyncCount: connection?.lastEventTypeSyncCount,
+      lastEventTypeSyncSummary: connection?.lastEventTypeSyncSummary,
     };
   },
 });
