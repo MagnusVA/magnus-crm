@@ -1,34 +1,7 @@
 import { v } from "convex/values";
 import { internalQuery, query } from "../_generated/server";
+import { portalReadiness } from "../lib/eventTypeBookability";
 import { requireTenantUser } from "../requireTenantUser";
-
-type PortalReadiness =
-  | "ready"
-  | "missing_url"
-  | "unmapped_program"
-  | "hidden";
-
-function portalReadiness(config: {
-  linkPortalEnabled?: boolean;
-  bookingBaseUrl?: string;
-  bookingProgramId?: unknown;
-  bookingProgramMappingStatus?: "mapped" | "unmapped";
-}): PortalReadiness {
-  const hasMappedProgram =
-    config.bookingProgramId !== undefined &&
-    config.bookingProgramMappingStatus === "mapped";
-
-  if (config.linkPortalEnabled === true && config.bookingBaseUrl && hasMappedProgram) {
-    return "ready";
-  }
-  if (!config.bookingBaseUrl && hasMappedProgram) {
-    return "missing_url";
-  }
-  if (config.bookingBaseUrl && !hasMappedProgram) {
-    return "unmapped_program";
-  }
-  return "hidden";
-}
 
 export const getById = internalQuery({
   args: { eventTypeConfigId: v.id("eventTypeConfigs") },
@@ -55,7 +28,14 @@ export const listEventTypeConfigs = query({
     const configs = await ctx.db
       .query("eventTypeConfigs")
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .take(100);
+      .take(500);
+
+    if (configs.length >= 500) {
+      console.warn("[EventTypeConfig] listEventTypeConfigs reached MVP bound", {
+        tenantId,
+        count: configs.length,
+      });
+    }
 
     console.log("[EventTypeConfig] listEventTypeConfigs result", { count: configs.length });
     return configs.map((config) => ({
@@ -84,7 +64,17 @@ export const getEventTypeConfigsWithStats = query({
     const configs = await ctx.db
       .query("eventTypeConfigs")
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .take(100);
+      .take(500);
+
+    if (configs.length >= 500) {
+      console.warn(
+        "[EventTypeConfig] getEventTypeConfigsWithStats reached MVP bound",
+        {
+          tenantId,
+          count: configs.length,
+        },
+      );
+    }
 
     const results = await Promise.all(
       configs.map(async (config) => {

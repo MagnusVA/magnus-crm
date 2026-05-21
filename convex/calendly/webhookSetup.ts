@@ -6,6 +6,7 @@ import { internal } from "../_generated/api";
 import type { ActionCtx } from "../_generated/server";
 import { internalAction } from "../_generated/server";
 
+const EVENT_TYPE_WEBHOOK_PREFIX = "event_type";
 const SUBSCRIBED_EVENTS = [
   "invitee.created",
   "invitee.canceled",
@@ -13,6 +14,21 @@ const SUBSCRIBED_EVENTS = [
   "invitee_no_show.deleted",
   "routing_form_submission.created",
 ] as const;
+
+function assertManualEventTypeSyncBoundary(events: readonly string[]) {
+  const unsupportedEvents = events.filter((event) =>
+    event.startsWith(`${EVENT_TYPE_WEBHOOK_PREFIX}.`),
+  );
+  if (unsupportedEvents.length > 0) {
+    throw new Error(
+      `Manual event type sync boundary violated by webhook subscriptions: ${unsupportedEvents.join(
+        ", ",
+      )}`,
+    );
+  }
+}
+
+assertManualEventTypeSyncBoundary(SUBSCRIBED_EVENTS);
 
 type CalendlyWebhookResource = {
   uri: string;

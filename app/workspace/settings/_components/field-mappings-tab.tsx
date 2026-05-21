@@ -16,7 +16,7 @@ import { InfoIcon, Settings2Icon, CalendarIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { formatDistanceToNow } from "date-fns";
 
-// Lazy-load dialog — only rendered on user interaction
+// Lazy-load dialog only when it is opened.
 const FieldMappingDialog = dynamic(() =>
   import("./field-mapping-dialog").then((m) => ({
     default: m.FieldMappingDialog,
@@ -75,8 +75,8 @@ export function FieldMappingsTab({ configs }: FieldMappingsTabProps) {
           </EmptyMedia>
           <EmptyTitle>No event types yet</EmptyTitle>
           <EmptyDescription>
-            Event types appear here after their first booking. Connect Calendly
-            and wait for incoming bookings to auto-discover form fields.
+            Event types and form questions sync from Calendly. Booking
+            responses can add additional observed fields.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -88,9 +88,9 @@ export function FieldMappingsTab({ configs }: FieldMappingsTabProps) {
       <Alert>
         <InfoIcon className="size-4" />
         <AlertDescription>
-          Configure how your CRM identifies leads from booking form data.
-          Event types and their form questions are managed in Calendly —
-          field names below are auto-discovered from actual bookings.
+          Configure how your CRM identifies leads from booking form data. Event
+          types and form questions sync from Calendly; booking responses can add
+          additional observed fields.
         </AlertDescription>
       </Alert>
 
@@ -148,7 +148,7 @@ export function FieldMappingsTab({ configs }: FieldMappingsTabProps) {
                   disabled={config.fieldCount === 0}
                   aria-label={`Configure field mappings for ${config.displayName}`}
                 >
-                  <Settings2Icon className="mr-2 size-4" />
+                  <Settings2Icon data-icon="inline-start" />
                   Configure
                 </Button>
               </CardContent>

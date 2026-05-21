@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { formatCalendlyLastRefresh } from "@/lib/calendly-connection-status";
 import {
   Empty,
   EmptyHeader,
@@ -13,6 +14,12 @@ import {
   EmptyDescription,
 } from "@/components/ui/empty";
 import { Edit2Icon, CalendarIcon } from "lucide-react";
+import {
+  READINESS_LABEL,
+  type PortalReadiness,
+  portalReadinessFor,
+  readinessBadgeVariant,
+} from "./portal-readiness";
 
 // Lazy-load dialog component that is only shown on user interaction
 const EventTypeConfigDialog = dynamic(() =>
@@ -31,45 +38,37 @@ interface EventTypeConfig {
   _id: string;
   calendlyEventTypeUri: string;
   displayName: string;
+  calendlyName?: string;
+  calendlySchedulingUrl?: string;
+  calendlySyncStatus?: "active" | "inactive" | "deleted" | "not_returned";
+  lastCalendlySyncedAt?: number;
   paymentLinks?: PaymentLink[];
   bookingProgramName?: string;
   bookingProgramMappingStatus?: "mapped" | "unmapped";
   bookingBaseUrl?: string;
+  bookingUrlSource?: "admin_entered" | "imported_sheet" | "calendly_synced";
   linkPortalEnabled?: boolean;
   portalReadiness?: PortalReadiness;
 }
 
-type PortalReadiness =
-  | "ready"
-  | "missing_url"
-  | "unmapped_program"
-  | "hidden";
-
-const READINESS_LABEL: Record<PortalReadiness, string> = {
-  ready: "Ready",
-  missing_url: "Missing URL",
-  unmapped_program: "Unmapped program",
-  hidden: "Hidden",
+const SYNC_STATUS_LABEL: Record<
+  NonNullable<EventTypeConfig["calendlySyncStatus"]>,
+  string
+> = {
+  active: "Active",
+  inactive: "Inactive",
+  deleted: "Deleted",
+  not_returned: "Not returned",
 };
 
-function readinessFor(config: EventTypeConfig): PortalReadiness {
-  const hasMappedProgram = config.bookingProgramMappingStatus === "mapped";
-
-  if (
-    config.linkPortalEnabled === true &&
-    config.bookingBaseUrl &&
-    hasMappedProgram
-  ) {
-    return "ready";
-  }
-  if (!config.bookingBaseUrl && hasMappedProgram) {
-    return "missing_url";
-  }
-  if (config.bookingBaseUrl && !hasMappedProgram) {
-    return "unmapped_program";
-  }
-  return "hidden";
-}
+const BOOKING_URL_SOURCE_LABEL: Record<
+  NonNullable<EventTypeConfig["bookingUrlSource"]>,
+  string
+> = {
+  admin_entered: "Admin URL",
+  imported_sheet: "Imported URL",
+  calendly_synced: "Calendly URL",
+};
 
 interface EventTypeConfigListProps {
   configs: EventTypeConfig[];
@@ -94,6 +93,7 @@ export function EventTypeConfigList({
     setSelectedConfig(null);
     onSuccess?.();
   };
+  const now = Date.now();
 
   if (configs.length === 0) {
     return (
@@ -104,7 +104,8 @@ export function EventTypeConfigList({
           </EmptyMedia>
           <EmptyTitle>No event types configured</EmptyTitle>
           <EmptyDescription>
-            Connect Calendly and your event types will appear here automatically.
+            Sync Calendly event types to import zero-booking event types and
+            keep metadata current.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>
@@ -114,82 +115,135 @@ export function EventTypeConfigList({
   return (
     <>
       <div className="grid gap-4 md:grid-cols-2">
-        {configs.map((config) => (
-          <Card key={config._id}>
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between">
-                <CardTitle className="text-base">
-                  {config.displayName}
-                </CardTitle>
-                <div className="flex items-center gap-2">
-                  <Badge
-                    variant={
-                      config.linkPortalEnabled === true
-                        ? "secondary"
-                        : "outline"
-                    }
-                  >
-                    {
-                      READINESS_LABEL[
-                        config.portalReadiness ?? readinessFor(config)
-                      ]
-                    }
-                  </Badge>
+        {configs.map((config) => {
+          const readiness =
+            config.portalReadiness ?? portalReadinessFor(config);
+
+          return (
+            <Card key={config._id}>
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <CardTitle className="truncate text-base">
+                      {config.displayName}
+                    </CardTitle>
+                    {config.calendlyName &&
+                    config.calendlyName !== config.displayName ? (
+                      <p className="mt-1 truncate text-xs text-muted-foreground">
+                        Calendly: {config.calendlyName}
+                      </p>
+                    ) : null}
+                  </div>
                   <Button
                     variant="ghost"
-                    size="sm"
+                    size="icon-sm"
                     onClick={() => handleEdit(config)}
                     aria-label={`Edit ${config.displayName} configuration`}
                   >
                     <Edit2Icon />
                   </Button>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent className="flex flex-col gap-3">
-              <div>
-                <p className="text-xs text-muted-foreground">Payment Links</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {config.paymentLinks && config.paymentLinks.length > 0 ? (
-                    config.paymentLinks.map((link) => (
-                      <Badge
-                        key={`${link.provider}-${link.label}`}
-                        variant="secondary"
-                      >
-                        {link.provider}
-                      </Badge>
-                    ))
-                  ) : (
-                    <span className="text-sm text-muted-foreground">
-                      None configured
-                    </span>
-                  )}
-                </div>
-              </div>
-
-              <div>
-                <p className="text-xs text-muted-foreground">Booked Program</p>
-                <div className="mt-2 flex flex-wrap items-center gap-2">
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   <Badge
                     variant={
-                      config.bookingProgramMappingStatus === "mapped"
-                        ? "secondary"
+                      config.calendlySyncStatus === "deleted" ||
+                      config.calendlySyncStatus === "inactive" ||
+                      config.calendlySyncStatus === "not_returned"
+                        ? "destructive"
                         : "outline"
                     }
                   >
-                    {config.bookingProgramName ?? "Unmapped"}
+                    {config.calendlySyncStatus
+                      ? SYNC_STATUS_LABEL[config.calendlySyncStatus]
+                      : "Legacy"}
                   </Badge>
-                  {config.bookingBaseUrl && (
-                    <span className="max-w-full truncate font-mono text-xs text-muted-foreground">
-                      {config.bookingBaseUrl}
-                    </span>
+                  <Badge
+                    variant={readinessBadgeVariant(readiness)}
+                  >
+                    {READINESS_LABEL[readiness]}
+                  </Badge>
+                  {config.bookingUrlSource ? (
+                    <Badge variant="muted">
+                      {BOOKING_URL_SOURCE_LABEL[config.bookingUrlSource]}
+                    </Badge>
+                  ) : null}
+                </div>
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3">
+                <div>
+                  <p className="text-xs text-muted-foreground">
+                    Calendly Invite Link
+                  </p>
+                  {config.calendlySchedulingUrl ? (
+                    <p className="mt-2 truncate font-mono text-xs text-muted-foreground">
+                      {config.calendlySchedulingUrl}
+                    </p>
+                  ) : (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      No synced Calendly URL
+                    </p>
                   )}
                 </div>
-              </div>
 
-            </CardContent>
-          </Card>
-        ))}
+                <div>
+                  <p className="text-xs text-muted-foreground">
+                    Last Synced
+                  </p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    {config.lastCalendlySyncedAt
+                      ? formatCalendlyLastRefresh(
+                          config.lastCalendlySyncedAt,
+                          now,
+                        )
+                      : "Never synced"}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="text-xs text-muted-foreground">Payment Links</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {config.paymentLinks && config.paymentLinks.length > 0 ? (
+                      config.paymentLinks.map((link) => (
+                        <Badge
+                          key={`${link.provider}-${link.label}`}
+                          variant="secondary"
+                        >
+                          {link.provider}
+                        </Badge>
+                      ))
+                    ) : (
+                      <span className="text-sm text-muted-foreground">
+                        None configured
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs text-muted-foreground">
+                    Booked Program
+                  </p>
+                  <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
+                    <Badge
+                      variant={
+                        config.bookingProgramMappingStatus === "mapped"
+                          ? "secondary"
+                          : "outline"
+                      }
+                    >
+                      {config.bookingProgramName ?? "Unmapped"}
+                    </Badge>
+                    {config.bookingBaseUrl ? (
+                      <span className="min-w-0 max-w-full truncate font-mono text-xs text-muted-foreground">
+                        {config.bookingBaseUrl}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       {selectedConfig && (

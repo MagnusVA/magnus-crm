@@ -7,6 +7,18 @@ type DbWriterCtx = Pick<MutationCtx, "db">;
 type StoredCalendlyConnection = Doc<"tenantCalendlyConnections">;
 type StoredCalendlyConnectionStatus =
   StoredCalendlyConnection["connectionStatus"];
+export type EventTypeSyncStatus = "success" | "failed" | "skipped";
+
+export type EventTypeSyncSummary = {
+  totalSeen: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  inactive: number;
+  deleted: number;
+  notReturned: number;
+  questionsMerged: number;
+};
 
 export type TenantCalendlyConnectionState = {
   connectionId: Id<"tenantCalendlyConnections"> | null;
@@ -24,6 +36,13 @@ export type TenantCalendlyConnectionState = {
   connectionStatus?: StoredCalendlyConnectionStatus;
   lastHealthCheckAt?: number;
   webhookProvisioningStartedAt?: number;
+  eventTypeSyncLockUntil?: number;
+  lastEventTypeSyncStartedAt?: number;
+  lastEventTypeSyncCompletedAt?: number;
+  lastEventTypeSyncStatus?: EventTypeSyncStatus;
+  lastEventTypeSyncError?: string;
+  lastEventTypeSyncCount?: number;
+  lastEventTypeSyncSummary?: EventTypeSyncSummary;
 };
 
 export type TenantCalendlyConnectionPatch = {
@@ -40,6 +59,13 @@ export type TenantCalendlyConnectionPatch = {
   connectionStatus?: StoredCalendlyConnectionStatus | undefined;
   lastHealthCheckAt?: number | undefined;
   webhookProvisioningStartedAt?: number | undefined;
+  eventTypeSyncLockUntil?: number | undefined;
+  lastEventTypeSyncStartedAt?: number | undefined;
+  lastEventTypeSyncCompletedAt?: number | undefined;
+  lastEventTypeSyncStatus?: EventTypeSyncStatus | undefined;
+  lastEventTypeSyncError?: string | undefined;
+  lastEventTypeSyncCount?: number | undefined;
+  lastEventTypeSyncSummary?: EventTypeSyncSummary | undefined;
 };
 
 function getLegacyStringField(
@@ -167,6 +193,13 @@ function mapStoredConnection(
     }),
     lastHealthCheckAt: connection.lastHealthCheckAt,
     webhookProvisioningStartedAt: connection.webhookProvisioningStartedAt,
+    eventTypeSyncLockUntil: connection.eventTypeSyncLockUntil,
+    lastEventTypeSyncStartedAt: connection.lastEventTypeSyncStartedAt,
+    lastEventTypeSyncCompletedAt: connection.lastEventTypeSyncCompletedAt,
+    lastEventTypeSyncStatus: connection.lastEventTypeSyncStatus,
+    lastEventTypeSyncError: connection.lastEventTypeSyncError,
+    lastEventTypeSyncCount: connection.lastEventTypeSyncCount,
+    lastEventTypeSyncSummary: connection.lastEventTypeSyncSummary,
   };
 }
 
@@ -214,6 +247,29 @@ export function toStoredPatch(
   if ("webhookProvisioningStartedAt" in patch) {
     storedPatch.webhookProvisioningStartedAt =
       patch.webhookProvisioningStartedAt;
+  }
+  if ("eventTypeSyncLockUntil" in patch) {
+    storedPatch.eventTypeSyncLockUntil = patch.eventTypeSyncLockUntil;
+  }
+  if ("lastEventTypeSyncStartedAt" in patch) {
+    storedPatch.lastEventTypeSyncStartedAt =
+      patch.lastEventTypeSyncStartedAt;
+  }
+  if ("lastEventTypeSyncCompletedAt" in patch) {
+    storedPatch.lastEventTypeSyncCompletedAt =
+      patch.lastEventTypeSyncCompletedAt;
+  }
+  if ("lastEventTypeSyncStatus" in patch) {
+    storedPatch.lastEventTypeSyncStatus = patch.lastEventTypeSyncStatus;
+  }
+  if ("lastEventTypeSyncError" in patch) {
+    storedPatch.lastEventTypeSyncError = patch.lastEventTypeSyncError;
+  }
+  if ("lastEventTypeSyncCount" in patch) {
+    storedPatch.lastEventTypeSyncCount = patch.lastEventTypeSyncCount;
+  }
+  if ("lastEventTypeSyncSummary" in patch) {
+    storedPatch.lastEventTypeSyncSummary = patch.lastEventTypeSyncSummary;
   }
 
   return storedPatch;

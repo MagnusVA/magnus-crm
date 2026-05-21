@@ -1,44 +1,45 @@
-# Phase 3 — Sync Triggers and Operational State
+# Phase 3 — Manual Sync Trigger and Operational State
 
-**Goal:** Wire the full sync into real operational entry points: OAuth completion, manual admin sync, and daily reconciliation. After this phase, the sync has visible latest status and can be safely triggered without accepting tenant IDs from the client.
+**Goal:** Expose the full event type sync through a tenant-scoped admin action and make latest sync state readable by Settings. After this phase, admins can trigger sync manually without passing tenant IDs from the client, and the backend records a toast-friendly result summary.
 
 **Prerequisite:** Phase 2 core sync action and lock/status mutations are implemented. Phase 1 connection-state fields are available through `convex/lib/tenantCalendlyConnection.ts`.
 
-**Runs in PARALLEL with:** Phase 5 UI can implement read-only status rendering after 3D exposes query fields. Phase 4 can proceed independently once Phase 2 upsert helpers exist.
+**Runs in PARALLEL with:** Phase 4 boundary audit can run independently. Phase 5 UI can implement the button and status display after 3A and 3B define the public action and query shape.
 
 **Skills to invoke:**
-- `convex` — public action authorization, internal scheduled fan-out, cron registration, and connection queries.
+- `convex` — public action authorization, internal action calls, identity/org validation, and query result shaping.
 - `convex-dev-workos-authkit` — only if the identity/org matching logic diverges from existing WorkOS patterns.
 
 **Acceptance Criteria:**
-1. Completing Calendly OAuth schedules `internal.calendly.eventTypes.syncForTenant` with reason `"oauth_connected"`.
-2. `api.calendly.eventTypes.syncMyTenantEventTypes` is callable only by authenticated `tenant_master` and `tenant_admin` users in their own WorkOS organization.
-3. The public sync action never accepts `tenantId` from the client.
-4. Daily cron `"sync-calendly-event-types"` fans out active tenants to independent sync actions.
-5. If an event type sync lock is held, manual sync returns a skipped result instead of starting a second run.
-6. `api.calendly.oauthQueries.getConnectionStatus` includes latest event type sync status, count, error, and in-progress state.
-7. Existing org member sync, token refresh, and health check crons continue to register.
-8. `pnpm tsc --noEmit` passes without errors.
+1. `api.calendly.eventTypes.syncMyTenantEventTypes` is callable only by authenticated `tenant_master` and `tenant_admin` users in their own WorkOS organization.
+2. The public sync action has `args: {}` and never accepts `tenantId` from the client.
+3. The public action calls the Phase 2 sync for the current user's tenant with `reason = "manual_admin"`.
+4. If an event type sync lock is held, manual sync returns a skipped result instead of starting a second run.
+5. `api.calendly.oauthQueries.getConnectionStatus` includes latest event type sync status, count, summary, error, and in-progress state.
+6. Completing Calendly OAuth does not automatically trigger event type sync.
+7. No event type sync cron is registered.
+8. Existing org member sync, token refresh, and health check behavior remains unchanged.
+9. `pnpm tsc --noEmit` passes without errors.
 
 ---
 
 ## Subphase Dependency Graph
 
 ```
-3A (OAuth trigger) ─────────────────────────┐
-                                            ├── 3D (Connection status query)
-3B (Manual admin action) ───────────────────┤
-                                            │
-3C (Cron fan-out) ──────────────────────────┘
+3A (Public manual action) ───────────┬── 3C (Result contract polish)
+                                     │
+3B (Connection status query) ────────┤
+                                     └── 3D (Manual-only trigger audit)
 
-3A + 3B + 3C + 3D complete ───────────────── 3E (Operational verification)
+3A + 3B + 3C + 3D complete ───────────── 3E (Operational verification)
 ```
 
 **Optimal execution:**
-1. Implement 3B first if testing manually, because it gives a controlled trigger.
-2. Implement 3A and 3C in parallel because they only schedule the existing internal action.
-3. Implement 3D once sync completion fields are confirmed.
-4. Finish with 3E to verify action authorization and cron registration.
+1. Implement 3A first because it provides the controlled manual trigger for all downstream testing.
+2. Implement 3B in parallel so the UI can observe lock and latest status fields.
+3. Polish result/error semantics in 3C.
+4. Run 3D before UI work to ensure no automatic triggers slip into the MVP.
+5. Finish with 3E authorization and status verification.
 
 **Estimated time:** 0.5-1 day
 
@@ -46,75 +47,10 @@
 
 ## Subphases
 
-### 3A — OAuth Completion Trigger
+### 3A — Public Manual Admin Action
 
-**Type:** Backend
-**Parallelizable:** Yes — depends only on Phase 2 internal action reference.
-
-**What:** Schedule event type sync immediately after a tenant connects Calendly and the webhook subscription is stored.
-
-**Why:** New tenants should see event types in Settings before the first `invitee.created` webhook arrives.
-
-**Where:**
-- `convex/calendly/oauth.ts` (modify)
-
-**How:**
-
-**Step 1: Schedule event type sync beside org member sync.**
-
-```typescript
-// Path: convex/calendly/oauth.ts
-
-await ctx.scheduler.runAfter(0, internal.calendly.orgMembers.syncForTenant, {
-  tenantId,
-});
-console.log(
-  `[Calendly:OAuth] exchangeCodeAndProvision: org member sync scheduled`,
-);
-
-await ctx.scheduler.runAfter(0, internal.calendly.eventTypes.syncForTenant, {
-  tenantId,
-  reason: "oauth_connected",
-});
-console.log(
-  `[Calendly:OAuth] exchangeCodeAndProvision: event type sync scheduled`,
-);
-```
-
-**Step 2: Keep scheduling after webhook activation succeeds.**
-
-```typescript
-// Path: convex/calendly/oauth.ts
-
-await ctx.runMutation(
-  internal.calendly.webhookSetupMutations.storeWebhookAndActivate,
-  {
-    tenantId,
-    webhookUri,
-    webhookSecret: signingSecret,
-  },
-);
-
-// Scheduling belongs here, after tokens and organization URI are stored.
-```
-
-**Key implementation notes:**
-- Do not schedule event type sync before `storeConnectionTokens`; the sync action reads connection context.
-- Do not block OAuth success on sync completion; scheduling is asynchronous.
-- If webhook provisioning fails, existing rollback behavior still applies and no event type sync should be scheduled.
-
-**Files touched:**
-
-| File | Action | Notes |
-|---|---|---|
-| `convex/calendly/oauth.ts` | Modify | Schedule full event type sync after successful connection |
-
----
-
-### 3B — Manual Admin Sync Action
-
-**Type:** Backend
-**Parallelizable:** Yes — depends on Phase 2 sync core and existing auth patterns.
+**Type:** Backend  
+**Parallelizable:** No — UI work depends on this public API shape.
 
 **What:** Add `api.calendly.eventTypes.syncMyTenantEventTypes`, mirroring `syncMyTenantMembers` authorization and tenant resolution.
 
@@ -125,7 +61,19 @@ await ctx.runMutation(
 
 **How:**
 
-**Step 1: Add public action after the internal action.**
+**Step 1: Add imports used by the public action.**
+
+```typescript
+// Path: convex/calendly/eventTypes.ts
+
+import type { Doc } from "../_generated/dataModel";
+import { action, internalAction } from "../_generated/server";
+import { getIdentityOrgId } from "../lib/identity";
+import { ADMIN_ROLES } from "../lib/roleMapping";
+import { getCanonicalIdentityWorkosUserId } from "../lib/workosUserId";
+```
+
+**Step 2: Add the public action with no arguments.**
 
 ```typescript
 // Path: convex/calendly/eventTypes.ts
@@ -140,12 +88,12 @@ export const syncMyTenantEventTypes = action({
       throw new Error("Not authenticated");
     }
 
-    const workosUserId = identity.tokenIdentifier ?? identity.subject;
+    const workosUserId = getCanonicalIdentityWorkosUserId(identity);
     if (!workosUserId) {
       throw new Error("Missing WorkOS user ID");
     }
 
-    const currentUser = await ctx.runQuery(
+    const currentUser: Doc<"users"> | null = await ctx.runQuery(
       internal.users.queries.getCurrentUserInternal,
       { workosUserId },
     );
@@ -156,12 +104,8 @@ export const syncMyTenantEventTypes = action({
     const tenant = await ctx.runQuery(internal.tenants.getCalendlyTenant, {
       tenantId: currentUser.tenantId,
     });
-    if (!tenant) {
-      throw new Error("Tenant not found");
-    }
-
     const identityOrgId = getIdentityOrgId(identity);
-    if (!identityOrgId || identityOrgId !== tenant.workosOrgId) {
+    if (!tenant || !identityOrgId || identityOrgId !== tenant.workosOrgId) {
       throw new Error("Organization mismatch");
     }
 
@@ -173,155 +117,44 @@ export const syncMyTenantEventTypes = action({
 });
 ```
 
-**Step 2: Keep the result shape compatible with UI toasts.**
-
-```typescript
-// Path: convex/calendly/eventTypes.ts
-
-// Return examples:
-// { status: "success", created, updated, unchanged, questionsMerged, notReturned }
-// { status: "skipped", reason: "lock_held" }
-// { status: "skipped", reason: "rate_limited_retry_scheduled" }
-```
-
 **Key implementation notes:**
-- This public action intentionally takes `args: {}`.
-- Reuse `ADMIN_ROLES` from `convex/lib/roleMapping.ts`.
-- Use `getIdentityOrgId(identity)` exactly like existing Calendly admin actions to prevent cross-org tenant access.
+- Keep `args: {}`. Client-supplied `tenantId` is not allowed.
+- Reuse the canonical WorkOS user helper used elsewhere in Convex auth logic.
+- Do not expose this as a mutation; the runtime performs external fetches and must remain an action.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/calendly/eventTypes.ts` | Modify | Public manual admin sync action |
+| `convex/calendly/eventTypes.ts` | Modify | Add public manual admin sync action |
 
 ---
 
-### 3C — Daily Reconciliation Cron
+### 3B — Connection Status Query Shape
 
-**Type:** Backend
-**Parallelizable:** Yes — independent of 3A and 3B.
+**Type:** Backend  
+**Parallelizable:** Yes — depends on Phase 1 connection helper fields.
 
-**What:** Add an internal fan-out action for all active tenants and register a daily cron.
+**What:** Extend `getConnectionStatus` so Settings can render latest sync time, status, count, summary, error text, and current in-progress state.
 
-**Why:** Webhooks are incremental signals, not the source of truth. Daily reconciliation repairs missed events and metadata drift.
-
-**Where:**
-- `convex/calendly/eventTypes.ts` (modify)
-- `convex/crons.ts` (modify)
-
-**How:**
-
-**Step 1: Add internal fan-out action.**
-
-```typescript
-// Path: convex/calendly/eventTypes.ts
-
-const EVENT_TYPE_SYNC_STAGGER_MS = 250;
-
-export const syncAllTenants = internalAction({
-  args: {},
-  handler: async (ctx) => {
-    const tenantIds: Array<Id<"tenants">> = await ctx.runQuery(
-      internal.calendly.tokenMutations.listActiveTenantIds,
-      {},
-    );
-
-    console.log("[Calendly:EventTypes] syncAllTenants scheduling", {
-      tenantCount: tenantIds.length,
-    });
-
-    for (const [index, tenantId] of tenantIds.entries()) {
-      await ctx.scheduler.runAfter(
-        index * EVENT_TYPE_SYNC_STAGGER_MS,
-        internal.calendly.eventTypes.syncForTenant,
-        { tenantId, reason: "daily_reconciliation" },
-      );
-    }
-  },
-});
-```
-
-**Step 2: Register daily cron with existing cron style.**
-
-```typescript
-// Path: convex/crons.ts
-
-crons.interval(
-  "sync-calendly-event-types",
-  { hours: 24 },
-  internal.calendly.eventTypes.syncAllTenants,
-  {},
-);
-```
-
-**Key implementation notes:**
-- Use `crons.interval()` to match current project standards.
-- Fan out to independent tenant actions so one failure does not stop others.
-- The stagger can be small for the current single-tenant production state; keep the constant for future growth.
-
-**Files touched:**
-
-| File | Action | Notes |
-|---|---|---|
-| `convex/calendly/eventTypes.ts` | Modify | Internal all-tenant fan-out |
-| `convex/crons.ts` | Modify | Daily reconciliation cron |
-
----
-
-### 3D — Expose Latest Sync Status
-
-**Type:** Backend
-**Parallelizable:** Yes — depends on Phase 1 connection mapping.
-
-**What:** Return event type sync state from internal connection context and public Settings connection status.
-
-**Why:** The Settings UI needs to show last sync time/status/count and disable duplicate manual sync while a lock is active.
+**Why:** The sync button must be disabled while a sync is active, and admins need freshness/status without inspecting Convex data.
 
 **Where:**
-- `convex/calendly/connectionQueries.ts` (modify)
 - `convex/calendly/oauthQueries.ts` (modify)
-- `app/workspace/settings/_components/calendly-connection.tsx` (type shape in Phase 5)
+- `convex/calendly/connectionQueries.ts` (verify / modify)
 
 **How:**
 
-**Step 1: Add fields to internal connection context.**
-
-```typescript
-// Path: convex/calendly/connectionQueries.ts
-
-return {
-  tenantId: tenant._id,
-  companyName: tenant.companyName,
-  workosOrgId: tenant.workosOrgId,
-  tenantStatus: tenant.status,
-  accessToken: connection?.accessToken,
-  refreshToken: connection?.refreshToken,
-  tokenExpiresAt: connection?.tokenExpiresAt,
-  refreshLockUntil: connection?.refreshLockUntil,
-  lastRefreshedAt: connection?.lastRefreshedAt,
-  pkceVerifier: connection?.pkceVerifier,
-  organizationUri: connection?.organizationUri,
-  userUri: connection?.userUri,
-  webhookUri: connection?.webhookUri,
-  webhookSecret: connection?.webhookSecret,
-  connectionStatus: connection?.connectionStatus,
-  lastHealthCheckAt: connection?.lastHealthCheckAt,
-  eventTypeSyncLockUntil: connection?.eventTypeSyncLockUntil,
-  lastEventTypeSyncStartedAt: connection?.lastEventTypeSyncStartedAt,
-  lastEventTypeSyncCompletedAt: connection?.lastEventTypeSyncCompletedAt,
-  lastEventTypeSyncStatus: connection?.lastEventTypeSyncStatus,
-  lastEventTypeSyncError: connection?.lastEventTypeSyncError,
-  lastEventTypeSyncCount: connection?.lastEventTypeSyncCount,
-};
-```
-
-**Step 2: Return public status values with `null` fallbacks.**
+**Step 1: Add event type sync state to the client query.**
 
 ```typescript
 // Path: convex/calendly/oauthQueries.ts
 
 const now = Date.now();
+const eventTypeSyncInProgress =
+  connection?.eventTypeSyncLockUntil !== undefined &&
+  connection.eventTypeSyncLockUntil > now;
+
 const result = {
   tenantId: tenant._id,
   status: tenant.status,
@@ -332,83 +165,259 @@ const result = {
   hasWebhookSigningKey: Boolean(connection?.webhookSecret),
   hasAccessToken: Boolean(connection?.accessToken),
   hasRefreshToken: Boolean(connection?.refreshToken),
+  eventTypeSyncInProgress,
+  eventTypeSyncLockUntil: connection?.eventTypeSyncLockUntil ?? null,
   lastEventTypeSyncStartedAt: connection?.lastEventTypeSyncStartedAt ?? null,
   lastEventTypeSyncCompletedAt: connection?.lastEventTypeSyncCompletedAt ?? null,
   lastEventTypeSyncStatus: connection?.lastEventTypeSyncStatus ?? null,
   lastEventTypeSyncError: connection?.lastEventTypeSyncError ?? null,
   lastEventTypeSyncCount: connection?.lastEventTypeSyncCount ?? null,
-  eventTypeSyncInProgress:
-    typeof connection?.eventTypeSyncLockUntil === "number" &&
-    connection.eventTypeSyncLockUntil > now,
+  lastEventTypeSyncSummary: connection?.lastEventTypeSyncSummary ?? null,
+};
+```
+
+**Step 2: Include internal sync state only where needed.**
+
+```typescript
+// Path: convex/calendly/connectionQueries.ts
+
+return {
+  tenantId: tenant._id,
+  companyName: tenant.companyName,
+  workosOrgId: tenant.workosOrgId,
+  tenantStatus: tenant.status,
+  organizationUri: connection?.organizationUri,
+  eventTypeSyncLockUntil: connection?.eventTypeSyncLockUntil,
+  lastEventTypeSyncStatus: connection?.lastEventTypeSyncStatus,
 };
 ```
 
 **Key implementation notes:**
-- Public status must not include access tokens, refresh tokens, or webhook signing keys.
-- `eventTypeSyncInProgress` is derived server-side from the lock timestamp.
-- Keep `null` rather than `undefined` in the public query response for stable client rendering.
+- Keep sensitive token fields off `oauthQueries.getConnectionStatus`.
+- Return nullable fields to the client so TypeScript props are easy to model.
+- `eventTypeSyncInProgress` is derived from wall-clock `Date.now()` and the lock timeout.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/calendly/connectionQueries.ts` | Modify | Internal sync state |
-| `convex/calendly/oauthQueries.ts` | Modify | Public Settings status |
+| `convex/calendly/oauthQueries.ts` | Modify | Expose latest sync state for Settings |
+| `convex/calendly/connectionQueries.ts` | Verify / Modify | Internal connection context remains consistent |
+
+---
+
+### 3C — Result Contract and Error Semantics
+
+**Type:** Backend  
+**Parallelizable:** Yes — depends on 3A public action and Phase 2 return values.
+
+**What:** Keep manual sync return values stable for the Settings toast and avoid throwing for expected lock-held skips.
+
+**Why:** The UI should distinguish "sync already running" from real failures, while real Calendly/API failures should surface as errors and persist latest failed status.
+
+**Where:**
+- `convex/calendly/eventTypes.ts` (modify)
+- `convex/calendly/eventTypeMutations.ts` (verify)
+
+**How:**
+
+**Step 1: Use a discriminated result shape.**
+
+```typescript
+// Path: convex/calendly/eventTypes.ts
+
+type ManualEventTypeSyncResult =
+  | ({
+      status: "success";
+      totalSeen: number;
+      created: number;
+      updated: number;
+      unchanged: number;
+      inactive: number;
+      deleted: number;
+      notReturned: number;
+      questionsMerged: number;
+    })
+  | {
+      status: "skipped";
+      reason: "lock_held";
+    };
+```
+
+**Step 2: Return lock-held skips without throwing.**
+
+```typescript
+// Path: convex/calendly/eventTypes.ts
+
+const lock = await ctx.runMutation(
+  internal.calendly.eventTypeMutations.acquireEventTypeSyncLock,
+  { tenantId, lockUntil: startedAt + 2 * 60 * 1000, reason },
+);
+if (!lock.acquired) {
+  await ctx.runMutation(
+    internal.calendly.eventTypeMutations.completeEventTypeSync,
+    {
+      tenantId,
+      status: "skipped",
+      error: "An event type sync is already running.",
+    },
+  );
+  return { status: "skipped" as const, reason: "lock_held" as const };
+}
+```
+
+**Key implementation notes:**
+- Do not swallow Calendly `403`, `401` after refresh, or `429`; those are real failed syncs.
+- Persist the failed status before rethrowing so Settings reflects the latest attempt.
+- Keep result field names identical to the design contract.
+
+**Files touched:**
+
+| File | Action | Notes |
+|---|---|---|
+| `convex/calendly/eventTypes.ts` | Modify | Stable manual result contract |
+| `convex/calendly/eventTypeMutations.ts` | Verify | Latest status persists skipped/failed states |
+
+---
+
+### 3D — Manual-Only Trigger Audit
+
+**Type:** Backend / Manual  
+**Parallelizable:** Yes — independent audit after 3A exists.
+
+**What:** Verify that no OAuth-completion trigger, cron, or webhook path starts event type sync in the MVP.
+
+**Why:** The design intentionally makes sync explicit so admins control when Calendly metadata is imported.
+
+**Where:**
+- `convex/calendly/oauth.ts` (verify)
+- `convex/crons.ts` (verify)
+- `convex/pipeline/processor.ts` (verify)
+
+**How:**
+
+**Step 1: Keep OAuth completion unchanged.**
+
+```typescript
+// Path: convex/calendly/oauth.ts
+
+// Existing org member sync may remain scheduled after connection.
+await ctx.scheduler.runAfter(0, internal.calendly.orgMembers.syncForTenant, {
+  tenantId,
+});
+
+// Do not add:
+// internal.calendly.eventTypes.syncForTenant
+```
+
+**Step 2: Keep crons free of event type sync.**
+
+```typescript
+// Path: convex/crons.ts
+
+crons.interval(
+  "sync-calendly-org-members",
+  { hours: 24 },
+  internal.calendly.orgMembers.syncAllTenants,
+  {},
+);
+
+// Do not add a "sync-calendly-event-types" cron for MVP.
+```
+
+**Step 3: Keep webhook processor dispatch unchanged for event type events.**
+
+```typescript
+// Path: convex/pipeline/processor.ts
+
+default:
+  console.log(`[Pipeline] Unhandled event type "${rawEvent.eventType}"`);
+  await ctx.runMutation(internal.pipeline.mutations.markProcessed, {
+    rawEventId,
+  });
+```
+
+**Key implementation notes:**
+- This is an audit subphase. If earlier work added automatic triggers, remove them.
+- The only public trigger after this phase should be `api.calendly.eventTypes.syncMyTenantEventTypes`.
+- Phase 4 documents the broader manual-sync-only boundary.
+
+**Files touched:**
+
+| File | Action | Notes |
+|---|---|---|
+| `convex/calendly/oauth.ts` | Verify | No automatic sync on OAuth completion |
+| `convex/crons.ts` | Verify | No event type sync cron |
+| `convex/pipeline/processor.ts` | Verify | No event type webhook dispatch |
 
 ---
 
 ### 3E — Operational Verification
 
-**Type:** Manual
-**Parallelizable:** No — runs after 3A-3D.
+**Type:** Manual  
+**Parallelizable:** No — verifies the public action and query shape together.
 
-**What:** Verify that triggers schedule the correct internal action and public authorization blocks non-admin callers.
+**What:** Confirm action authorization, manual result shape, lock handling, and latest status query output.
 
-**Why:** The sync is now reachable from admin UI and cron; tenant isolation and lock behavior must be validated before UI rollout.
+**Why:** Phase 5 depends on this contract for the Settings button and status display.
 
 **Where:**
-- Local terminal verification
-- Convex dashboard logs
-- Settings client in Phase 5
+- `convex/calendly/eventTypes.ts` (verify)
+- `convex/calendly/oauthQueries.ts` (verify)
 
 **How:**
 
-**Step 1: Run codegen and TypeScript.**
+**Step 1: Run compile gates.**
 
 ```bash
-// Path: terminal
+# Path: terminal
 npx convex dev --once
 pnpm tsc --noEmit
 ```
 
-**Step 2: Manually trigger the public action in a dev authenticated admin session.**
+**Step 2: Verify role behavior.**
 
 ```typescript
 // Path: convex/calendly/eventTypes.ts
 
-// Expected admin result:
-// { status: "success", created, updated, unchanged, questionsMerged, notReturned }
+// tenant_master / tenant_admin:
+// - api.calendly.eventTypes.syncMyTenantEventTypes succeeds or returns skipped.
+//
+// closer:
+// - throws "Insufficient permissions".
+//
+// unauthenticated:
+// - throws "Not authenticated".
 ```
 
-**Step 3: Confirm non-admin rejection.**
+**Step 3: Verify status query.**
 
 ```typescript
-// Path: convex/calendly/eventTypes.ts
+// Path: convex/calendly/oauthQueries.ts
 
-// A closer session calling api.calendly.eventTypes.syncMyTenantEventTypes
-// must throw "Insufficient permissions".
+// During lock:
+// eventTypeSyncInProgress === true
+//
+// After success:
+// lastEventTypeSyncStatus === "success"
+// lastEventTypeSyncCount === totalSeen
+//
+// After failure:
+// lastEventTypeSyncStatus === "failed"
+// lastEventTypeSyncError is non-empty
 ```
 
 **Key implementation notes:**
-- Do not force production manual sync until Phase 6 rollout.
-- The cron registration can be verified by `npx convex dev` startup logs and generated API references.
-- If lock behavior is hard to exercise manually, use two quick manual action calls and confirm the second returns `lock_held`.
+- Do not rely on client role context for security; Convex action revalidates role and org.
+- If the public action can be called from Convex dashboard without auth, it should fail.
+- Keep logs tagged with `[Calendly:EventTypes]`.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/_generated/*` | Generate | New public/internal function references |
+| `convex/calendly/eventTypes.ts` | Verify | Manual action authorization and result shape |
+| `convex/calendly/oauthQueries.ts` | Verify | Latest status query output |
 
 ---
 
@@ -416,9 +425,10 @@ pnpm tsc --noEmit
 
 | File | Action | Subphase |
 |---|---|---|
-| `convex/calendly/oauth.ts` | Modify | 3A |
-| `convex/calendly/eventTypes.ts` | Modify | 3B, 3C |
-| `convex/crons.ts` | Modify | 3C |
-| `convex/calendly/connectionQueries.ts` | Modify | 3D |
-| `convex/calendly/oauthQueries.ts` | Modify | 3D |
-| `convex/_generated/*` | Generate | 3E |
+| `convex/calendly/eventTypes.ts` | Modify | 3A, 3C |
+| `convex/calendly/oauthQueries.ts` | Modify | 3B |
+| `convex/calendly/connectionQueries.ts` | Verify / Modify | 3B |
+| `convex/calendly/eventTypeMutations.ts` | Verify | 3C |
+| `convex/calendly/oauth.ts` | Verify | 3D |
+| `convex/crons.ts` | Verify | 3D |
+| `convex/pipeline/processor.ts` | Verify | 3D |

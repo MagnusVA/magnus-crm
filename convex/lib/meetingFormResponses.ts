@@ -1,5 +1,11 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import {
+  getUniqueFieldKey,
+  loadFieldCatalogByKey,
+  normalizeFieldKey,
+  upsertEventTypeFieldCatalogEntry,
+} from "./eventTypeFields";
 import { getString, isRecord } from "./payloadExtraction";
 
 export type MeetingQuestionAnswer = {
@@ -14,30 +20,6 @@ export type MeetingFormResponseWriteResult = {
   responsesCreated: number;
   responsesUpdated: number;
 };
-
-function normalizeFieldKey(question: string): string {
-  const normalized = question
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .replace(/_+/g, "_");
-
-  return normalized.length > 0 ? normalized : "unknown";
-}
-
-function getUniqueFieldKey(baseKey: string, usedKeys: Set<string>): string {
-  if (!usedKeys.has(baseKey)) {
-    return baseKey;
-  }
-
-  let suffix = 2;
-  while (usedKeys.has(`${baseKey}_${suffix}`)) {
-    suffix += 1;
-  }
-
-  return `${baseKey}_${suffix}`;
-}
 
 export function extractQuestionsAndAnswers(
   value: unknown,
@@ -79,78 +61,6 @@ export function toQuestionAnswerRecord(
   return Object.keys(record).length > 0 ? record : undefined;
 }
 
-async function upsertFieldCatalogEntry(
-  ctx: MutationCtx,
-  args: {
-    existingEntriesByFieldKey: Map<string, Doc<"eventTypeFieldCatalog">>;
-    eventTypeConfigId: Id<"eventTypeConfigs">;
-    fieldKey: string;
-    questionLabel: string;
-    seenAt: number;
-    tenantId: Id<"tenants">;
-  },
-): Promise<{
-  action: "created" | "updated" | "unchanged";
-  fieldCatalogId: Id<"eventTypeFieldCatalog">;
-}> {
-  const existingEntry =
-    args.existingEntriesByFieldKey.get(args.fieldKey) ?? null;
-
-  if (existingEntry) {
-    const patch: Partial<Doc<"eventTypeFieldCatalog">> = {};
-    if (args.seenAt > existingEntry.lastSeenAt) {
-      patch.lastSeenAt = args.seenAt;
-      patch.currentLabel = args.questionLabel;
-    } else if (existingEntry.currentLabel !== args.questionLabel) {
-      patch.currentLabel = args.questionLabel;
-    }
-
-    if (Object.keys(patch).length > 0) {
-      const updatedEntry = {
-        ...existingEntry,
-        ...patch,
-      };
-      await ctx.db.patch(existingEntry._id, patch);
-      args.existingEntriesByFieldKey.set(updatedEntry.fieldKey, updatedEntry);
-      return {
-        action: "updated",
-        fieldCatalogId: existingEntry._id,
-      };
-    }
-
-    return {
-      action: "unchanged",
-      fieldCatalogId: existingEntry._id,
-    };
-  }
-
-  const fieldCatalogId = await ctx.db.insert("eventTypeFieldCatalog", {
-    tenantId: args.tenantId,
-    eventTypeConfigId: args.eventTypeConfigId,
-    fieldKey: args.fieldKey,
-    currentLabel: args.questionLabel,
-    firstSeenAt: args.seenAt,
-    lastSeenAt: args.seenAt,
-  });
-
-  args.existingEntriesByFieldKey.set(args.fieldKey, {
-    _id: fieldCatalogId,
-    _creationTime: args.seenAt,
-    tenantId: args.tenantId,
-    eventTypeConfigId: args.eventTypeConfigId,
-    fieldKey: args.fieldKey,
-    currentLabel: args.questionLabel,
-    firstSeenAt: args.seenAt,
-    lastSeenAt: args.seenAt,
-    valueType: undefined,
-  });
-
-  return {
-    action: "created",
-    fieldCatalogId,
-  };
-}
-
 export async function writeMeetingFormResponses(
   ctx: MutationCtx,
   args: {
@@ -179,17 +89,12 @@ export async function writeMeetingFormResponses(
     Doc<"eventTypeFieldCatalog">
   >();
   if (args.eventTypeConfigId) {
-    const eventTypeConfigId = args.eventTypeConfigId;
-    const existingFieldCatalogEntries = ctx.db
-      .query("eventTypeFieldCatalog")
-      .withIndex("by_tenantId_and_eventTypeConfigId", (q) =>
-        q
-          .eq("tenantId", args.tenantId)
-          .eq("eventTypeConfigId", eventTypeConfigId),
-      );
-
-    for await (const entry of existingFieldCatalogEntries) {
-      fieldCatalogEntriesByFieldKey.set(entry.fieldKey, entry);
+    const entries = await loadFieldCatalogByKey(ctx, {
+      tenantId: args.tenantId,
+      eventTypeConfigId: args.eventTypeConfigId,
+    });
+    for (const [fieldKey, entry] of entries) {
+      fieldCatalogEntriesByFieldKey.set(fieldKey, entry);
     }
   }
 
@@ -208,11 +113,11 @@ export async function writeMeetingFormResponses(
 
     let fieldCatalogId: Id<"eventTypeFieldCatalog"> | undefined;
     if (args.eventTypeConfigId) {
-      const fieldCatalogResult = await upsertFieldCatalogEntry(ctx, {
+      const fieldCatalogResult = await upsertEventTypeFieldCatalogEntry(ctx, {
         tenantId: args.tenantId,
         eventTypeConfigId: args.eventTypeConfigId,
         fieldKey,
-        questionLabel: qa.question,
+        currentLabel: qa.question,
         seenAt: args.capturedAt,
         existingEntriesByFieldKey: fieldCatalogEntriesByFieldKey,
       });

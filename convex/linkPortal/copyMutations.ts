@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
+import { isPortalBookable } from "../lib/eventTypeBookability";
 
 export const insertCopyEvent = internalMutation({
   args: {
@@ -34,15 +35,17 @@ export const insertCopyEvent = internalMutation({
     if (
       !eventTypeConfig ||
       eventTypeConfig.tenantId !== args.tenantId ||
-      eventTypeConfig.linkPortalEnabled !== true ||
-      !eventTypeConfig.bookingBaseUrl ||
-      !eventTypeConfig.bookingProgramId ||
-      eventTypeConfig.bookingProgramMappingStatus !== "mapped"
+      !isPortalBookable(eventTypeConfig)
     ) {
       throw new Error("Portal event type is not available.");
     }
 
-    const bookingProgram = await ctx.db.get(eventTypeConfig.bookingProgramId);
+    const bookingProgramId = eventTypeConfig.bookingProgramId;
+    if (!bookingProgramId) {
+      throw new Error("Portal event type is not available.");
+    }
+
+    const bookingProgram = await ctx.db.get(bookingProgramId);
     if (
       !bookingProgram ||
       bookingProgram.tenantId !== args.tenantId ||
@@ -68,7 +71,7 @@ export const insertCopyEvent = internalMutation({
       tenantId: args.tenantId,
       sessionIdHash: args.sessionIdHash,
       eventTypeConfigId: eventTypeConfig._id,
-      bookingProgramId: bookingProgram._id,
+      bookingProgramId,
       attributionTeamId: team._id,
       dmCloserId: dmCloser._id,
       campaignPresetId: campaign._id,

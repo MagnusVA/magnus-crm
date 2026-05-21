@@ -1,13 +1,13 @@
 # Phase 6 — Verification and Rollout
 
-**Goal:** Validate the backend sync, webhook reconciliation, Settings UI, portal safety, and production rollout path before enabling daily reconciliation for the current production tenant.
+**Goal:** Validate the backend sync, manual admin operation, Settings UI, portal safety, and production rollout path before running sync for the current production tenant.
 
-**Prerequisite:** Phases 1-5 are implemented and passing local TypeScript. The production Calendly OAuth app has `event_types:read`, `webhooks:read`, and `webhooks:write`, and the tenant is connected with an account that can read organization event types.
+**Prerequisite:** Phases 1-5 are implemented and passing local TypeScript. The production Calendly OAuth app has `event_types:read`, and the tenant is connected with an account that can read organization event types.
 
 **Runs in PARALLEL with:** Nothing — this is the final integration, rollout, and rollback phase.
 
 **Skills to invoke:**
-- `convex` — run and inspect Convex functions, scheduled jobs, and dashboard data.
+- `convex` — run and inspect Convex functions, dashboard data, and tenant sync state.
 - `playwright` — browser verification for Settings and public portal flows if manual inspection is insufficient.
 - `frontend-design` — final Settings UI pass for dense operational readability.
 - `convex-migration-helper` — only if rollout discovers a need to narrow schema or backfill required fields, which MVP avoids.
@@ -15,13 +15,13 @@
 **Acceptance Criteria:**
 1. Manual event type sync creates zero-booking event types and preserves CRM-owned settings.
 2. Manual event type sync with expired token refreshes once and completes or fails with a clear status.
-3. Multi-page Calendly responses upsert every page before marking missing rows.
-4. Deleted event type webhook marks the row deleted and disables portal visibility.
-5. Repeated `event_type.updated` deliveries for the same event type are both persisted when delivery timestamps differ.
-6. Existing webhook subscriptions missing `event_type.*` are detected and repaired with replacement-before-delete ordering.
-7. Settings > Event Types shows synced active, inactive, deleted, and not-returned rows with stable layout.
-8. Public portal bootstrap and copy tracking reject deleted, inactive, and not-returned event types.
-9. Rollback can disable cron/manual UI while leaving optional metadata fields in place.
+3. Multi-page Calendly responses upsert every page before marking not-returned rows.
+4. Deleted event types returned by sync are marked deleted and have `linkPortalEnabled = false`.
+5. Existing admin display names and admin/imported booking URLs are preserved.
+6. Settings > Event Types shows synced active, inactive, deleted, not-returned, and legacy rows with stable layout.
+7. Public portal bootstrap and copy tracking reject deleted, inactive, and not-returned event types.
+8. No OAuth trigger, cron, or `event_type.*` webhook subscription is present in the MVP.
+9. Rollback can disable the manual UI while leaving optional metadata fields in place.
 10. `pnpm tsc --noEmit` passes without errors.
 
 ---
@@ -29,54 +29,96 @@
 ## Subphase Dependency Graph
 
 ```
-6A (Backend verification matrix) ─────┬── 6C (Production manual sync)
-                                      │
-6B (Webhook verification matrix) ─────┤
-                                      │
-6D (UI + portal verification) ────────┘
+6A (Compile + schema gates) ───────┬── 6B (Backend scenario matrix)
+                                   │
+6C (UI + portal verification) ─────┤
+                                   └── 6D (Production manual sync)
 
-6C + 6D complete ─────────────────────── 6E (Enable cron + monitor)
-6E complete ──────────────────────────── 6F (Rollback notes + handoff)
+6B + 6C + 6D complete ─────────────── 6E (Rollback notes + handoff)
 ```
 
 **Optimal execution:**
-1. Run 6A and 6B in development or staging first.
-2. Run 6D against local UI with realistic data states.
-3. Perform 6C manually for the current production tenant.
-4. Enable or leave enabled the cron only after the manual sync and webhook repair checks pass.
-5. Finish by documenting rollback status and residual risks.
+1. Run 6A first so rollout does not start with known type/schema failures.
+2. Run 6B in development or staging with realistic Calendly responses.
+3. Run 6C against the local app with realistic data states.
+4. Perform 6D manually for the current production tenant.
+5. Finish with 6E rollback and residual-risk notes.
 
-**Estimated time:** 1-2 days, depending on Calendly tenant access and webhook repair timing.
+**Estimated time:** 1-2 days, depending on Calendly tenant access.
 
 ---
 
 ## Subphases
 
-### 6A — Backend Sync Verification Matrix
+### 6A — Compile and Schema Gates
 
-**Type:** Manual
-**Parallelizable:** Yes — can run independently of UI verification.
+**Type:** Manual  
+**Parallelizable:** No — must pass before behavioral verification.
 
-**What:** Exercise core full sync behavior across success, preservation, token refresh, rate limit, and missing/deleted state scenarios.
+**What:** Run Convex schema/type generation and the repo TypeScript gate.
 
-**Why:** The full sync is the source of truth and the online metadata backfill. Incorrect stale marking or ownership overwrites would affect production configuration.
+**Why:** The feature touches schema, generated Convex function references, Node actions, and React component types.
+
+**Where:**
+- Terminal (verify)
+- `convex/schema.ts` (verify)
+
+**How:**
+
+**Step 1: Run Convex once.**
+
+```bash
+# Path: terminal
+npx convex dev --once
+```
+
+**Step 2: Run TypeScript.**
+
+```bash
+# Path: terminal
+pnpm tsc --noEmit
+```
+
+**Step 3: Confirm the migration shape is still widen-only.**
+
+```typescript
+// Path: convex/schema.ts
+
+// Verify all new eventTypeConfigs and tenantCalendlyConnections fields are optional.
+// Verify no existing field was removed, renamed, or narrowed.
+```
+
+**Key implementation notes:**
+- If schema validation fails because a field became required, stop and re-plan with `convex-migration-helper`.
+- Do not run production sync before TypeScript and schema checks pass.
+- Generated Convex files may change after `npx convex dev --once`.
+
+**Files touched:**
+
+| File | Action | Notes |
+|---|---|---|
+| `convex/schema.ts` | Verify | Widen-only schema |
+| `convex/_generated/*` | Generated / Verify | Convex generated output |
+
+---
+
+### 6B — Backend Sync Scenario Matrix
+
+**Type:** Manual  
+**Parallelizable:** Yes — can run independently of UI verification after 6A.
+
+**What:** Exercise core sync behavior across success, preservation, token refresh, rate limit, pagination, and deleted/not-returned states.
+
+**Why:** The full sync is the online metadata backfill. Incorrect stale marking or ownership overwrites would affect production configuration.
 
 **Where:**
 - `convex/calendly/eventTypes.ts` (verify)
 - `convex/calendly/eventTypeMutations.ts` (verify)
-- Convex dashboard data
+- Convex dashboard data (verify)
 
 **How:**
 
-**Step 1: Run compile gates.**
-
-```bash
-// Path: terminal
-npx convex dev --once
-pnpm tsc --noEmit
-```
-
-**Step 2: Verify success path on a connected dev tenant.**
+**Step 1: Verify success path on a connected dev tenant.**
 
 ```typescript
 // Path: convex/calendly/eventTypes.ts
@@ -84,17 +126,18 @@ pnpm tsc --noEmit
 // Call api.calendly.eventTypes.syncMyTenantEventTypes as a tenant admin.
 // Expected:
 // - status === "success"
-// - created + updated + unchanged equals Calendly organization event type count
+// - totalSeen equals the Calendly organization event type count
+// - created + updated + unchanged is explainable from existing rows
 // - lastEventTypeSyncStatus === "success"
-// - lastEventTypeSyncCount is set on tenantCalendlyConnections
+// - lastEventTypeSyncCount === totalSeen
 ```
 
-**Step 3: Verify ownership preservation.**
+**Step 2: Verify ownership preservation.**
 
 ```typescript
 // Path: convex/calendly/eventTypeMutations.ts
 
-// Seed or identify an existing config:
+// Existing config before sync:
 // displayNameSource: "admin_entered"
 // displayName: "CRM Custom Name"
 // bookingUrlSource: "admin_entered"
@@ -106,185 +149,56 @@ pnpm tsc --noEmit
 // calendlyName and calendlySchedulingUrl update from Calendly
 ```
 
-**Step 4: Verify missing/deleted handling.**
+**Step 3: Verify failure and edge cases.**
+
+```typescript
+// Path: convex/calendly/eventTypes.ts
+
+// Scenarios:
+// - Expired access token: refreshes once and retries current page.
+// - Repeated 401: sync fails and records lastEventTypeSyncStatus = "failed".
+// - 403: sync fails with reconnect/permission guidance and preserves rows.
+// - 429: sync fails, clears lock, and does not schedule retry.
+// - Page 2 failure: page 1 writes remain, but not-returned marking does not run.
+```
+
+**Step 4: Verify deleted and not-returned states.**
 
 ```typescript
 // Path: convex/calendly/eventTypeMutations.ts
 
-// Deleted payload or deleted_at response:
+// Returned with deleted_at:
 // calendlySyncStatus === "deleted"
 // calendlyActive === false
 // linkPortalEnabled === false
 //
-// Previously synced row absent from a completed full sync:
+// Previously synced and absent from a completed full sync:
 // calendlySyncStatus === "not_returned"
 // document is not deleted
 ```
 
 **Key implementation notes:**
-- Do not run stale/missing checks against a partial failed sync.
-- If real Calendly rate limits are hard to trigger, inspect the `429` branch and scheduled retry in code review.
-- Record the Calendly UI event type count before production manual sync.
+- Use real Calendly data for final validation where possible.
+- If multi-page real data is unavailable, mock or temporarily lower page size in development only.
+- Record the production Calendly UI count before the production manual sync.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
 | `convex/calendly/eventTypes.ts` | Verify | Full sync action behavior |
-| `convex/calendly/eventTypeMutations.ts` | Verify | Ownership and state transitions |
+| `convex/calendly/eventTypeMutations.ts` | Verify | Upsert and status behavior |
 
 ---
 
-### 6B — Webhook Verification Matrix
+### 6C — UI and Portal Verification
 
-**Type:** Manual
-**Parallelizable:** Yes — can run independently of 6A after Phase 4.
+**Type:** Manual / Frontend  
+**Parallelizable:** Yes — can run independently of backend edge-case tests after realistic rows exist.
 
-**What:** Verify subscription event names, health repair ordering, raw webhook idempotency, and event type processor behavior.
+**What:** Verify Settings and public portal behavior across relevant sync states and viewport sizes.
 
-**Why:** Webhooks provide low-latency updates, but a wrong dedupe key or repair sequence can silently lose events.
-
-**Where:**
-- `convex/calendly/webhookSetup.ts` (verify)
-- `convex/calendly/healthCheck.ts` (verify)
-- `convex/webhooks/calendly.ts` (verify)
-- `convex/webhooks/calendlyMutations.ts` (verify)
-- `convex/pipeline/processor.ts` (verify)
-
-**How:**
-
-**Step 1: Inspect required subscription events.**
-
-```typescript
-// Path: convex/calendly/webhookSetup.ts
-
-// REQUIRED_WEBHOOK_EVENTS must include all existing scheduling events plus:
-// "event_type.created"
-// "event_type.updated"
-// "event_type.deleted"
-```
-
-**Step 2: Verify health check mismatch repair.**
-
-```typescript
-// Path: convex/calendly/healthCheck.ts
-
-// For a webhook missing event_type.*:
-// 1. getWebhookSubscriptionState returns "events_mismatch".
-// 2. health check creates a replacement with webhookVersion.
-// 3. storeWebhookAndActivate stores the new webhook URI.
-// 4. deleteWebhookSubscription deletes the old webhook URI.
-```
-
-**Step 3: Verify idempotency keys.**
-
-```typescript
-// Path: convex/webhooks/calendly.ts
-
-// For event_type.updated:
-// webhookEventKey = `${event}:${payload.uri}:${created_at}`
-// calendlyResourceUri = payload.uri
-// calendlyEventUri = webhookEventKey for legacy compatibility
-```
-
-**Step 4: Verify processor dispatch.**
-
-```typescript
-// Path: convex/pipeline/processor.ts
-
-// event_type.created / updated / deleted:
-// - calls internal.calendly.eventTypeMutations.upsertEventTypeFromWebhook
-// - schedules internal.calendly.eventTypes.syncForTenant after 5 seconds
-// - marks raw event processed after successful scheduling
-```
-
-**Key implementation notes:**
-- If Calendly dashboard can send test event type webhooks, use it and inspect `rawWebhookEvents`.
-- If direct test delivery is unavailable, use a local signed payload only in development.
-- Confirm `payload.uri` is not the only dedupe component for event type updates.
-
-**Files touched:**
-
-| File | Action | Notes |
-|---|---|---|
-| `convex/calendly/webhookSetup.ts` | Verify | Required events |
-| `convex/calendly/healthCheck.ts` | Verify | Replacement-before-delete |
-| `convex/webhooks/calendly.ts` | Verify | Event key extraction |
-| `convex/webhooks/calendlyMutations.ts` | Verify | Dedupe behavior |
-| `convex/pipeline/processor.ts` | Verify | Event type dispatch |
-
----
-
-### 6C — Production Tenant Manual Sync
-
-**Type:** Manual
-**Parallelizable:** No — run after backend verification passes.
-
-**What:** Trigger one manual event type sync for the current production tenant and compare results to Calendly.
-
-**Why:** The app currently has one production tenant; manual sync before relying on cron gives a controlled first backfill.
-
-**Where:**
-- Production Settings > Calendly
-- Convex dashboard
-- Calendly organization UI
-
-**How:**
-
-**Step 1: Capture pre-sync state.**
-
-```typescript
-// Path: rollout-notes
-
-// Record:
-// - current number of eventTypeConfigs rows
-// - current published portal event types
-// - Calendly organization event type count from Calendly UI
-// - existing webhook URI
-```
-
-**Step 2: Trigger manual sync from Settings.**
-
-```tsx
-// Path: app/workspace/settings/_components/calendly-connection.tsx
-
-// Click "Sync Event Types" as tenant_master or tenant_admin.
-// Expected toast: synced count or clear skipped/failure reason.
-```
-
-**Step 3: Validate post-sync state.**
-
-```typescript
-// Path: convex/eventTypeConfigs/queries.ts
-
-// Expected:
-// - zero-booking event types appear in Settings
-// - CRM-owned fields are preserved
-// - knownCustomFieldKeys includes Calendly custom question labels
-// - lastEventTypeSyncStatus === "success"
-```
-
-**Key implementation notes:**
-- If the result is `403`, preserve rows and reconnect Calendly with an owner/admin account.
-- Do not proceed to webhook repair if event type sync cannot read organization event types.
-- Keep a note of any rows marked inactive/deleted before publishing portal changes.
-
-**Files touched:**
-
-| File | Action | Notes |
-|---|---|---|
-| Production data | Verify | Manual backfill and status |
-
----
-
-### 6D — Settings and Portal Verification
-
-**Type:** Full-Stack
-**Parallelizable:** Yes — can run after 5A-5E with seeded or synced data.
-
-**What:** Verify Settings display and portal hiding/copy protections for every sync state.
-
-**Why:** The feature changes visible admin workflows and public link availability.
+**Why:** Admins need accurate operational state, and public portal users must not see unsafe event types.
 
 **Where:**
 - `app/workspace/settings/_components/calendly-connection.tsx` (verify)
@@ -295,180 +209,175 @@ pnpm tsc --noEmit
 
 **How:**
 
-**Step 1: Start local app for browser inspection.**
+**Step 1: Start the app.**
 
 ```bash
-// Path: terminal
+# Path: terminal
 pnpm dev
 ```
 
-**Step 2: Inspect Settings pages.**
+**Step 2: Verify Settings > Calendly.**
+
+```tsx
+// Path: app/workspace/settings/_components/calendly-connection.tsx
+
+// Expected:
+// - Button disabled when disconnected.
+// - Button disabled while local action is in flight.
+// - Button disabled when eventTypeSyncInProgress is true.
+// - Last sync status/count/error render compactly.
+```
+
+**Step 3: Verify Settings > Event Types and Field Mappings.**
 
 ```tsx
 // Path: app/workspace/settings/_components/event-type-config-list.tsx
 
-// Verify:
-// - long Calendly names truncate
-// - long booking URLs truncate
-// - active/inactive/deleted/not_returned badges fit
-// - "Calendly:" secondary name appears only when different from CRM name
+// Expected:
+// - Zero-booking synced event types are visible.
+// - Calendly name is shown when different from CRM display name.
+// - Deleted/inactive/not-returned badges fit on mobile.
+// - Long URLs truncate and do not overflow cards.
 ```
 
-**Step 3: Verify portal helper behavior.**
+**Step 4: Verify public portal safety.**
 
 ```typescript
-// Path: convex/lib/eventTypeBookability.ts
+// Path: convex/linkPortal/portalQueries.ts
 
 // Expected:
-// isPortalBookable({ calendlySyncStatus: "active", linkPortalEnabled: true, ...mapped }) === true
-// isPortalBookable({ calendlySyncStatus: "inactive", linkPortalEnabled: true, ...mapped }) === false
-// isPortalBookable({ calendlySyncStatus: "deleted", linkPortalEnabled: true, ...mapped }) === false
-// isPortalBookable({ calendlySyncStatus: "not_returned", linkPortalEnabled: true, ...mapped }) === false
-// isPortalBookable({ calendlySyncStatus: undefined, linkPortalEnabled: true, ...mapped }) === true
-```
-
-**Step 4: Verify copy tracking rejects stale clients.**
-
-```typescript
-// Path: convex/linkPortal/copyMutations.ts
-
-// Try copying a link whose row became deleted/inactive after bootstrap.
-// Expected: "Portal event type is not available."
+// - active + mapped + published rows appear.
+// - inactive/deleted/not_returned rows do not appear.
+// - calendly_synced booking URL without calendlySchedulingUrl does not appear.
 ```
 
 **Key implementation notes:**
-- Use desktop and mobile viewports.
-- Ensure Settings still loads for admins when `lastEventTypeSyncStatus` is null before first sync.
-- Meeting detail should continue to show the existing CRM `displayName`.
+- Use the in-app browser or Playwright screenshots if layout is uncertain.
+- Check desktop and mobile widths.
+- Confirm stale client copy attempts fail through `copyMutations`.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| Settings UI | Verify | Calendly, Event Types, Field Mappings |
-| Link portal flows | Verify | Bootstrap and copy protection |
+| Settings UI files | Verify | Browser QA |
+| `convex/linkPortal/portalQueries.ts` | Verify | Public portal filtering |
+| `convex/linkPortal/copyMutations.ts` | Verify | Stale copy rejection |
 
 ---
 
-### 6E — Enable Cron and Monitor
+### 6D — Production Tenant Manual Sync
 
-**Type:** Config
-**Parallelizable:** No — run after production manual sync and webhook checks.
+**Type:** Manual / Operations  
+**Parallelizable:** No — perform after local verification.
 
-**What:** Confirm the daily cron is active and monitor the first scheduled reconciliation after manual backfill.
+**What:** Run manual sync for the current production tenant and reconcile counts against Calendly.
 
-**Why:** Cron should be the ongoing backstop, but it should not be the first uncontrolled production write.
+**Why:** The app has one production test tenant, and the first manual sync acts as the online metadata backfill.
 
 **Where:**
-- `convex/crons.ts` (verify)
-- Convex dashboard logs
-- `tenantCalendlyConnections` latest sync fields
+- Production Settings page (manual)
+- Convex dashboard (verify)
+- Calendly UI (verify)
 
 **How:**
 
-**Step 1: Confirm cron registration.**
+**Step 1: Record pre-sync state.**
 
 ```typescript
-// Path: convex/crons.ts
+// Path: production checklist
 
-crons.interval(
-  "sync-calendly-event-types",
-  { hours: 24 },
-  internal.calendly.eventTypes.syncAllTenants,
-  {},
-);
+// Record:
+// - Existing eventTypeConfigs count.
+// - Calendly organization event type count.
+// - Existing published portal rows.
+// - Any admin-entered display names or booking URLs.
 ```
 
-**Step 2: Monitor first cron run.**
+**Step 2: Run the sync from Settings.**
 
-```typescript
-// Path: convex/calendly/eventTypes.ts
+```tsx
+// Path: app/workspace/settings/_components/calendly-connection.tsx
 
-// Expected logs:
-// [Calendly:EventTypes] syncAllTenants scheduling
-// [Calendly:EventTypes] syncForTenant page synced
-// lastEventTypeSyncStatus === "success" or clear failure reason
+// Click "Sync Event Types" as tenant_master or tenant_admin.
+// Expected toast includes totalSeen, created, and updated counts.
 ```
 
-**Step 3: Confirm no unwanted portal publication.**
+**Step 3: Reconcile after sync.**
 
 ```typescript
-// Path: convex/eventTypeConfigs/queries.ts
+// Path: production checklist
 
-// Sync may initialize bookingBaseUrl from Calendly, but it must not set
-// linkPortalEnabled = true.
+// Verify:
+// - lastEventTypeSyncStatus === "success".
+// - lastEventTypeSyncCount matches Calendly UI count.
+// - Existing CRM-owned fields are preserved.
+// - Deleted/inactive rows are not public portal bookable.
 ```
 
 **Key implementation notes:**
-- If cron fails with `403`, disable/hide manual sync only if needed but leave schema fields in place.
-- One tenant means fan-out pressure is negligible; keep stagger for future tenants.
-- Monitor for duplicate webhook events after repair.
+- Do not run schema-narrowing or data-deleting migrations.
+- If Calendly returns 403, preserve data and reconnect with an org owner/admin account.
+- Keep existing scheduling webhook subscription unchanged.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/crons.ts` | Verify | Daily reconciliation active |
-| Production logs/data | Verify | First scheduled reconciliation |
+| Production data | Verify / Update via sync | Manual metadata backfill |
 
 ---
 
-### 6F — Rollback and Handoff Notes
+### 6E — Rollback Notes and Handoff
 
-**Type:** Manual
-**Parallelizable:** No — final documentation step.
+**Type:** Documentation / Manual  
+**Parallelizable:** No — final phase output.
 
-**What:** Record the rollback path, residual risks, and follow-up items discovered during rollout.
+**What:** Document the exact rollback path, residual risks, and future follow-ups.
 
-**Why:** Optional schema fields make rollback simple, but operators need to know which switches to turn off and what data can safely remain.
+**Why:** Optional metadata fields make rollback straightforward, but the team needs to know which behavior to disable if sync causes issues.
 
 **Where:**
-- `plans/calendly-event-type-sync/phases/phase6.md` (reference)
-- Release notes or deployment checklist if the team keeps one
+- `plans/calendly-event-type-sync/rollout-notes.md` (new, optional)
+- PR description / handoff notes (create when publishing)
 
 **How:**
 
-**Step 1: Rollback sequence if sync causes issues.**
+**Step 1: Document rollback.**
 
-```typescript
-// Path: rollout-notes
+```markdown
+<!-- Path: plans/calendly-event-type-sync/rollout-notes.md -->
 
-// 1. Remove or comment the "sync-calendly-event-types" cron.
-// 2. Hide the "Sync Event Types" button from Settings.
-// 3. Keep optional metadata fields in schema.
-// 4. Keep invitee.created fallback path running.
-// 5. If event_type.* webhook deliveries cause issues, repair subscription
-//    back to the old event list.
+# Calendly Event Type Sync Rollout Notes
+
+Rollback:
+1. Hide the Sync Event Types button in Settings.
+2. Leave optional schema fields in place.
+3. Keep invitee.created fallback creation running.
+4. Do not delete eventTypeConfigs or field catalog rows.
 ```
 
-**Step 2: Record residual risk.**
+**Step 2: Document residual risks.**
 
-```typescript
-// Path: rollout-notes
+```markdown
+<!-- Path: plans/calendly-event-type-sync/rollout-notes.md -->
 
-// Known MVP compromises:
-// - Settings event type queries use .take(500), not full pagination.
-// - No sync-run history table; only latest status is stored.
-// - Source-less existing display names remain protected and may diverge from Calendly.
-```
-
-**Step 3: Final compile gate.**
-
-```bash
-// Path: terminal
-pnpm tsc --noEmit
+Residual risks:
+- Calendly metadata is stale until an admin clicks Sync Event Types again.
+- Calendly may omit custom_questions from list responses in some cases.
+- Settings uses a bounded 500-row MVP query until pagination is implemented.
 ```
 
 **Key implementation notes:**
-- Do not delete synced metadata as part of rollback; it is optional and safe at rest.
-- If a future phase makes fields required, create a new widen-migrate-narrow plan first.
-- Capture exact production sync date/time in deployment notes.
+- Creating a separate rollout notes file is optional if the PR description captures the same information.
+- Do not present event type webhooks or cron reconciliation as part of MVP completion.
+- Future event type webhook support needs its own design because idempotency and repair semantics are different.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| Rollout notes | Create / Modify | Production sync outcome and rollback status |
+| `plans/calendly-event-type-sync/rollout-notes.md` | Create / Optional | Rollback and residual risks |
 
 ---
 
@@ -476,15 +385,14 @@ pnpm tsc --noEmit
 
 | File | Action | Subphase |
 |---|---|---|
-| `convex/calendly/eventTypes.ts` | Verify | 6A, 6E |
-| `convex/calendly/eventTypeMutations.ts` | Verify | 6A |
-| `convex/calendly/webhookSetup.ts` | Verify | 6B |
-| `convex/calendly/healthCheck.ts` | Verify | 6B |
-| `convex/webhooks/calendly.ts` | Verify | 6B |
-| `convex/webhooks/calendlyMutations.ts` | Verify | 6B |
-| `convex/pipeline/processor.ts` | Verify | 6B |
-| Production data | Verify | 6C |
-| Settings UI | Verify | 6D |
-| Link portal flows | Verify | 6D |
-| `convex/crons.ts` | Verify | 6E |
-| Rollout notes | Create / Modify | 6F |
+| `convex/schema.ts` | Verify | 6A |
+| `convex/_generated/*` | Generated / Verify | 6A |
+| `convex/calendly/eventTypes.ts` | Verify | 6B |
+| `convex/calendly/eventTypeMutations.ts` | Verify | 6B |
+| `app/workspace/settings/_components/calendly-connection.tsx` | Verify | 6C |
+| `app/workspace/settings/_components/event-type-config-list.tsx` | Verify | 6C |
+| `app/workspace/settings/_components/field-mappings-tab.tsx` | Verify | 6C |
+| `convex/linkPortal/portalQueries.ts` | Verify | 6C |
+| `convex/linkPortal/copyMutations.ts` | Verify | 6C |
+| Production data | Verify / Update via sync | 6D |
+| `plans/calendly-event-type-sync/rollout-notes.md` | Create / Optional | 6E |

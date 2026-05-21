@@ -18,6 +18,10 @@ export const getConnectionStatus = query({
 
     const tenant = await ctx.db.get(tenantId);
     const connection = await getTenantCalendlyConnectionState(ctx, tenantId);
+    const now = Date.now();
+    const eventTypeSyncInProgress =
+      connection?.eventTypeSyncLockUntil !== undefined &&
+      connection.eventTypeSyncLockUntil > now;
 
     if (!tenant) {
       console.warn(`[Calendly:OAuth] getConnectionStatus: tenant ${tenantId} not found`);
@@ -34,6 +38,16 @@ export const getConnectionStatus = query({
       hasWebhookSigningKey: Boolean(connection?.webhookSecret),
       hasAccessToken: Boolean(connection?.accessToken),
       hasRefreshToken: Boolean(connection?.refreshToken),
+      eventTypeSyncInProgress,
+      eventTypeSyncLockUntil: connection?.eventTypeSyncLockUntil ?? null,
+      lastEventTypeSyncStartedAt:
+        connection?.lastEventTypeSyncStartedAt ?? null,
+      lastEventTypeSyncCompletedAt:
+        connection?.lastEventTypeSyncCompletedAt ?? null,
+      lastEventTypeSyncStatus: connection?.lastEventTypeSyncStatus ?? null,
+      lastEventTypeSyncError: connection?.lastEventTypeSyncError ?? null,
+      lastEventTypeSyncCount: connection?.lastEventTypeSyncCount ?? null,
+      lastEventTypeSyncSummary: connection?.lastEventTypeSyncSummary ?? null,
     };
 
     console.log(`[Calendly:OAuth] getConnectionStatus: tenant=${tenantId}, status=${result.status}, needsReconnect=${result.needsReconnect}, hasAccessToken=${result.hasAccessToken}, hasRefreshToken=${result.hasRefreshToken}`);

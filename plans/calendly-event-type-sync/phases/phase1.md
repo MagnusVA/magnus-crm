@@ -1,24 +1,24 @@
 # Phase 1 — Metadata Ownership Model
 
-**Goal:** Widen the Convex schema and local helper layer so Calendly-owned metadata can live beside CRM-owned configuration without overwriting production settings. After this phase, existing rows remain valid, new writes record ownership source fields, and later sync phases can rely on generated types.
+**Goal:** Widen the Convex schema and helper layer so Calendly-owned event type metadata can live beside CRM-owned configuration without invalidating existing production data. After this phase, generated Convex types expose optional sync fields, admin writes record ownership sources, and the webhook fallback path remains safe.
 
-**Prerequisite:** The design spec in `plans/calendly-event-type-sync/calendly-event-type-sync-design.md` is accepted for Phase 1 scope. No backfill is required because all new fields are optional and the first sync performs the online Calendly metadata backfill.
+**Prerequisite:** The design spec in `plans/calendly-event-type-sync/calendly-event-type-sync-design.md` is accepted for Phase 1 scope. No backfill is required because all new fields are optional and the first manual sync performs the online Calendly metadata backfill.
 
-**Runs in PARALLEL with:** Nothing — Phase 2, Phase 3, Phase 4, and Phase 5 all depend on the widened schema and helper contracts from this phase.
+**Runs in PARALLEL with:** Nothing — Phase 2, Phase 3, and Phase 5 depend on the widened schema and source-field contracts from this phase.
 
 **Skills to invoke:**
-- `convex` — schema validators, indexed queries, internal helper patterns, and generated Convex types.
-- `convex-migration-helper` — confirm this is a widen-only schema deployment with no `@convex-dev/migrations` backfill.
+- `convex` — schema validators, generated types, internal helpers, and indexed write patterns.
+- `convex-migration-helper` — confirm this remains a widen-only deployment with no `@convex-dev/migrations` backfill.
 
 **Acceptance Criteria:**
 1. `eventTypeConfigs` accepts optional Calendly metadata fields without invalidating existing documents.
-2. `tenantCalendlyConnections` accepts optional latest event type sync state and sync lock fields.
-3. `rawWebhookEvents` accepts separated `webhookEventKey` and `calendlyResourceUri` fields and has a matching dedupe index.
-4. `bookingUrlSource` accepts `"calendly_synced"` while preserving existing `"admin_entered"` and `"imported_sheet"` values.
-5. Admin saves mark CRM-owned `displayName` and manually-entered booking URLs with source fields.
-6. Lazy `invitee.created` fallback rows are marked `displayNameSource = "webhook_discovered"` and do not claim Calendly API sync.
-7. Field-key normalization is exported from a shared helper so booking webhooks and event type sync use the same catalog keys.
-8. `npx convex dev` accepts the widened schema and regenerates Convex types.
+2. `tenantCalendlyConnections` accepts optional latest event type sync state and lock fields.
+3. `bookingUrlSource` accepts `"calendly_synced"` while preserving existing `"admin_entered"` and `"imported_sheet"` values.
+4. Existing source-less `displayName` values are treated as CRM-protected by later sync code.
+5. Admin saves set `displayNameSource = "admin_entered"` and set `bookingUrlSource = "admin_entered"` only when a booking URL is provided.
+6. Lazy `invitee.created` fallback rows set `displayNameSource = "webhook_discovered"` and do not claim Calendly API sync.
+7. Field-key normalization and field-catalog upsert behavior are exported through a shared helper used by booking webhooks and event type sync.
+8. `npx convex dev --once` accepts the widened schema and regenerates Convex types.
 9. `pnpm tsc --noEmit` passes without errors.
 
 ---
@@ -34,9 +34,9 @@
 ```
 
 **Optimal execution:**
-1. Complete 1A first and run Convex type generation.
+1. Complete 1A first and regenerate Convex types.
 2. Run 1B, 1C, and 1D in parallel because they touch separate helper/write paths.
-3. Finish with 1E to catch generated type drift before Phase 2 imports the new fields.
+3. Finish with 1E before Phase 2 imports the new fields.
 
 **Estimated time:** 0.5-1 day
 
@@ -46,12 +46,12 @@
 
 ### 1A — Widen Convex Schema
 
-**Type:** Backend
+**Type:** Backend  
 **Parallelizable:** No — all later subphases depend on generated types from this schema.
 
-**What:** Add optional Calendly sync metadata, sync lock/status fields, webhook idempotency fields, and the `"calendly_synced"` booking URL source literal.
+**What:** Add optional Calendly metadata fields to `eventTypeConfigs`, add optional latest sync state to `tenantCalendlyConnections`, and extend the `bookingUrlSource` union with `"calendly_synced"`.
 
-**Why:** Convex rejects schema changes that do not match existing data. Widening with optional fields lets code deploy safely before any event type sync has run.
+**Why:** Convex schema validation must continue accepting all existing documents. Optional fields let the code deploy before any tenant has run event type sync.
 
 **Where:**
 - `convex/schema.ts` (modify)
@@ -63,189 +63,117 @@
 ```typescript
 // Path: convex/schema.ts
 
-eventTypeConfigs: defineTable({
-  tenantId: v.id("tenants"),
-  calendlyEventTypeUri: v.string(),
-  displayName: v.string(),
-  paymentLinks: v.optional(
-    v.array(
-      v.object({
-        provider: v.string(),
-        label: v.string(),
-        url: v.string(),
-      }),
-    ),
+bookingBaseUrl: v.optional(v.string()),
+bookingUrlSource: v.optional(
+  v.union(
+    v.literal("admin_entered"),
+    v.literal("imported_sheet"),
+    v.literal("calendly_synced"),
   ),
-  createdAt: v.number(),
+),
+linkPortalEnabled: v.optional(v.boolean()),
 
-  // Existing CRM-owned fields remain unchanged.
-  customFieldMappings: v.optional(
-    v.object({
-      socialHandleField: v.optional(v.string()),
-      socialHandleType: v.optional(
-        v.union(
-          v.literal("instagram"),
-          v.literal("tiktok"),
-          v.literal("twitter"),
-          v.literal("other_social"),
-        ),
-      ),
-      phoneField: v.optional(v.string()),
-    }),
+// Calendly-owned metadata from GET /event_types. Keep every field optional.
+calendlyName: v.optional(v.string()),
+displayNameSource: v.optional(
+  v.union(
+    v.literal("admin_entered"),
+    v.literal("calendly_synced"),
+    v.literal("webhook_discovered"),
   ),
-  knownCustomFieldKeys: v.optional(v.array(v.string())),
-  bookingProgramId: v.optional(v.id("tenantPrograms")),
-  bookingProgramName: v.optional(v.string()),
-  bookingProgramMappingStatus: v.optional(bookingProgramMappingStatusValidator),
-  bookingBaseUrl: v.optional(v.string()),
-  bookingUrlSource: v.optional(
-    v.union(
-      v.literal("admin_entered"),
-      v.literal("imported_sheet"),
-      v.literal("calendly_synced"),
-    ),
+),
+calendlySchedulingUrl: v.optional(v.string()),
+calendlySlug: v.optional(v.string()),
+calendlyActive: v.optional(v.boolean()),
+calendlyDeletedAt: v.optional(v.string()),
+calendlyCreatedAt: v.optional(v.string()),
+calendlyUpdatedAt: v.optional(v.string()),
+calendlyDurationMinutes: v.optional(v.number()),
+calendlyKind: v.optional(v.string()),
+calendlyType: v.optional(v.string()),
+calendlyBookingMethod: v.optional(v.string()),
+calendlyPoolingType: v.optional(v.string()),
+calendlySecret: v.optional(v.boolean()),
+calendlyAdminManaged: v.optional(v.boolean()),
+calendlyColor: v.optional(v.string()),
+calendlyLocale: v.optional(v.string()),
+calendlyOwnerUri: v.optional(v.string()),
+calendlyProfileName: v.optional(v.string()),
+calendlySyncStatus: v.optional(
+  v.union(
+    v.literal("active"),
+    v.literal("inactive"),
+    v.literal("deleted"),
+    v.literal("not_returned"),
   ),
-  linkPortalEnabled: v.optional(v.boolean()),
-
-  // Calendly-owned metadata. All optional for zero-downtime rollout.
-  calendlyName: v.optional(v.string()),
-  displayNameSource: v.optional(
-    v.union(
-      v.literal("admin_entered"),
-      v.literal("calendly_synced"),
-      v.literal("webhook_discovered"),
-    ),
-  ),
-  calendlySchedulingUrl: v.optional(v.string()),
-  calendlySlug: v.optional(v.string()),
-  calendlyActive: v.optional(v.boolean()),
-  calendlyDeletedAt: v.optional(v.string()),
-  calendlyCreatedAt: v.optional(v.string()),
-  calendlyUpdatedAt: v.optional(v.string()),
-  calendlyDurationMinutes: v.optional(v.number()),
-  calendlyKind: v.optional(v.string()),
-  calendlyType: v.optional(v.string()),
-  calendlyBookingMethod: v.optional(v.string()),
-  calendlyPoolingType: v.optional(v.string()),
-  calendlySecret: v.optional(v.boolean()),
-  calendlyAdminManaged: v.optional(v.boolean()),
-  calendlyColor: v.optional(v.string()),
-  calendlyLocale: v.optional(v.string()),
-  calendlyOwnerUri: v.optional(v.string()),
-  calendlyProfileName: v.optional(v.string()),
-  calendlySyncStatus: v.optional(
-    v.union(
-      v.literal("active"),
-      v.literal("inactive"),
-      v.literal("deleted"),
-      v.literal("not_returned"),
-    ),
-  ),
-  lastCalendlySeenAt: v.optional(v.number()),
-  lastCalendlySyncedAt: v.optional(v.number()),
-  updatedAt: v.optional(v.number()),
-})
-  .index("by_tenantId", ["tenantId"])
-  .index("by_tenantId_and_calendlyEventTypeUri", [
-    "tenantId",
-    "calendlyEventTypeUri",
-  ])
-  .index("by_tenantId_and_bookingProgramId", [
-    "tenantId",
-    "bookingProgramId",
-  ]),
+),
+lastCalendlySeenAt: v.optional(v.number()),
+lastCalendlySyncedAt: v.optional(v.number()),
+updatedAt: v.optional(v.number()),
 ```
 
-**Step 2: Add lightweight latest sync state to `tenantCalendlyConnections`.**
+**Step 2: Add latest sync state to `tenantCalendlyConnections`.**
 
 ```typescript
 // Path: convex/schema.ts
 
-tenantCalendlyConnections: defineTable({
-  tenantId: v.id("tenants"),
-  calendlyAccessToken: v.optional(v.string()),
-  calendlyRefreshToken: v.optional(v.string()),
-  calendlyTokenExpiresAt: v.optional(v.number()),
-  calendlyRefreshLockUntil: v.optional(v.number()),
-  lastTokenRefreshAt: v.optional(v.number()),
-  codeVerifier: v.optional(v.string()),
-  calendlyOrganizationUri: v.optional(v.string()),
-  calendlyUserUri: v.optional(v.string()),
-  calendlyWebhookUri: v.optional(v.string()),
-  calendlyWebhookSigningKey: v.optional(v.string()),
-  connectionStatus: v.optional(
-    v.union(
-      v.literal("connected"),
-      v.literal("disconnected"),
-      v.literal("token_expired"),
-    ),
+lastHealthCheckAt: v.optional(v.number()),
+webhookProvisioningStartedAt: v.optional(v.number()),
+
+eventTypeSyncLockUntil: v.optional(v.number()),
+lastEventTypeSyncStartedAt: v.optional(v.number()),
+lastEventTypeSyncCompletedAt: v.optional(v.number()),
+lastEventTypeSyncStatus: v.optional(
+  v.union(
+    v.literal("success"),
+    v.literal("failed"),
+    v.literal("skipped"),
   ),
-  lastHealthCheckAt: v.optional(v.number()),
-  webhookProvisioningStartedAt: v.optional(v.number()),
-  eventTypeSyncLockUntil: v.optional(v.number()),
-  lastEventTypeSyncStartedAt: v.optional(v.number()),
-  lastEventTypeSyncCompletedAt: v.optional(v.number()),
-  lastEventTypeSyncStatus: v.optional(
-    v.union(v.literal("success"), v.literal("failed"), v.literal("skipped")),
-  ),
-  lastEventTypeSyncError: v.optional(v.string()),
-  lastEventTypeSyncCount: v.optional(v.number()),
-}).index("by_tenantId", ["tenantId"]),
+),
+lastEventTypeSyncError: v.optional(v.string()),
+lastEventTypeSyncCount: v.optional(v.number()),
+lastEventTypeSyncSummary: v.optional(
+  v.object({
+    totalSeen: v.number(),
+    created: v.number(),
+    updated: v.number(),
+    unchanged: v.number(),
+    inactive: v.number(),
+    deleted: v.number(),
+    notReturned: v.number(),
+    questionsMerged: v.number(),
+  }),
+),
 ```
 
-**Step 3: Separate webhook delivery idempotency from Calendly resource identity.**
+**Step 3: Regenerate types locally.**
 
-```typescript
-// Path: convex/schema.ts
-
-rawWebhookEvents: defineTable({
-  tenantId: v.id("tenants"),
-  calendlyEventUri: v.string(),
-  webhookEventKey: v.optional(v.string()),
-  calendlyResourceUri: v.optional(v.string()),
-  eventType: v.string(),
-  payload: v.string(),
-  processed: v.boolean(),
-  receivedAt: v.number(),
-})
-  .index("by_tenantId_and_eventType", ["tenantId", "eventType"])
-  .index("by_tenantId_and_receivedAt", ["tenantId", "receivedAt"])
-  .index("by_calendlyEventUri", ["calendlyEventUri"])
-  .index("by_processed", ["processed"])
-  .index("by_processed_and_receivedAt", ["processed", "receivedAt"])
-  .index("by_tenantId_and_eventType_and_calendlyEventUri", [
-    "tenantId",
-    "eventType",
-    "calendlyEventUri",
-  ])
-  .index("by_tenantId_and_eventType_and_webhookEventKey", [
-    "tenantId",
-    "eventType",
-    "webhookEventKey",
-  ]),
+```bash
+# Path: terminal
+npx convex dev --once
 ```
 
 **Key implementation notes:**
-- Do not make any new field required in MVP.
-- Do not add a `calendlySyncStatus` index yet; Settings and portal reads are tenant-scoped.
-- Keep the legacy `calendlyEventUri` field because existing scheduling webhooks already use it.
+- This is a widen-only migration. Do not add required fields and do not remove legacy data.
+- No new index is needed for MVP because Settings and portal paths query by tenant first.
+- Keep `knownCustomFieldKeys` optional; the sync path merges labels rather than replacing the array.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/schema.ts` | Modify | Widen three existing tables and one union literal |
+| `convex/schema.ts` | Modify | Add optional Calendly sync metadata and latest sync state |
 
 ---
 
-### 1B — Map New Connection Fields
+### 1B — Connection State Mapping
 
-**Type:** Backend
-**Parallelizable:** Yes — depends on 1A schema types only.
+**Type:** Backend  
+**Parallelizable:** Yes — depends only on 1A generated types.
 
-**What:** Extend the tenant Calendly connection helper and internal/public connection queries so later phases can read and write event type sync lock/status.
+**What:** Extend the tenant Calendly connection helper and connection queries so Phase 2 can update sync state and Phase 5 can read it.
 
-**Why:** The codebase centralizes connection storage in `convex/lib/tenantCalendlyConnection.ts`; bypassing it would create drift between stored field names and app-facing state names.
+**Why:** Sync status lives on `tenantCalendlyConnections`, but code should continue using `TenantCalendlyConnectionState` instead of directly leaking storage field names across modules.
 
 **Where:**
 - `convex/lib/tenantCalendlyConnection.ts` (modify)
@@ -254,59 +182,48 @@ rawWebhookEvents: defineTable({
 
 **How:**
 
-**Step 1: Extend helper state and patch types.**
+**Step 1: Extend the helper state and patch types.**
 
 ```typescript
 // Path: convex/lib/tenantCalendlyConnection.ts
 
+type EventTypeSyncStatus = "success" | "failed" | "skipped";
+
+export type EventTypeSyncSummary = {
+  totalSeen: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  inactive: number;
+  deleted: number;
+  notReturned: number;
+  questionsMerged: number;
+};
+
 export type TenantCalendlyConnectionState = {
-  connectionId: Id<"tenantCalendlyConnections"> | null;
-  tenantId: Id<"tenants">;
-  accessToken?: string;
-  refreshToken?: string;
-  tokenExpiresAt?: number;
-  refreshLockUntil?: number;
-  lastRefreshedAt?: number;
-  pkceVerifier?: string;
-  organizationUri?: string;
-  userUri?: string;
-  webhookUri?: string;
-  webhookSecret?: string;
-  connectionStatus?: StoredCalendlyConnectionStatus;
-  lastHealthCheckAt?: number;
-  webhookProvisioningStartedAt?: number;
+  // existing fields...
   eventTypeSyncLockUntil?: number;
   lastEventTypeSyncStartedAt?: number;
   lastEventTypeSyncCompletedAt?: number;
-  lastEventTypeSyncStatus?: "success" | "failed" | "skipped";
+  lastEventTypeSyncStatus?: EventTypeSyncStatus;
   lastEventTypeSyncError?: string;
   lastEventTypeSyncCount?: number;
+  lastEventTypeSyncSummary?: EventTypeSyncSummary;
 };
 
 export type TenantCalendlyConnectionPatch = {
-  accessToken?: string | undefined;
-  refreshToken?: string | undefined;
-  tokenExpiresAt?: number | undefined;
-  refreshLockUntil?: number | undefined;
-  lastRefreshedAt?: number | undefined;
-  pkceVerifier?: string | undefined;
-  organizationUri?: string | undefined;
-  userUri?: string | undefined;
-  webhookUri?: string | undefined;
-  webhookSecret?: string | undefined;
-  connectionStatus?: StoredCalendlyConnectionStatus | undefined;
-  lastHealthCheckAt?: number | undefined;
-  webhookProvisioningStartedAt?: number | undefined;
+  // existing fields...
   eventTypeSyncLockUntil?: number | undefined;
   lastEventTypeSyncStartedAt?: number | undefined;
   lastEventTypeSyncCompletedAt?: number | undefined;
-  lastEventTypeSyncStatus?: "success" | "failed" | "skipped" | undefined;
+  lastEventTypeSyncStatus?: EventTypeSyncStatus | undefined;
   lastEventTypeSyncError?: string | undefined;
   lastEventTypeSyncCount?: number | undefined;
+  lastEventTypeSyncSummary?: EventTypeSyncSummary | undefined;
 };
 ```
 
-**Step 2: Map stored fields both directions.**
+**Step 2: Map stored fields in both directions.**
 
 ```typescript
 // Path: convex/lib/tenantCalendlyConnection.ts
@@ -315,31 +232,14 @@ function mapStoredConnection(
   connection: StoredCalendlyConnection,
 ): TenantCalendlyConnectionState {
   return {
-    connectionId: connection._id,
-    tenantId: connection.tenantId,
-    accessToken: connection.calendlyAccessToken,
-    refreshToken: connection.calendlyRefreshToken,
-    tokenExpiresAt: connection.calendlyTokenExpiresAt,
-    refreshLockUntil: connection.calendlyRefreshLockUntil,
-    lastRefreshedAt: connection.lastTokenRefreshAt,
-    pkceVerifier: connection.codeVerifier,
-    organizationUri: connection.calendlyOrganizationUri,
-    userUri: connection.calendlyUserUri,
-    webhookUri: connection.calendlyWebhookUri,
-    webhookSecret: connection.calendlyWebhookSigningKey,
-    connectionStatus: deriveConnectionStatus({
-      accessToken: connection.calendlyAccessToken,
-      refreshToken: connection.calendlyRefreshToken,
-      connectionStatus: connection.connectionStatus,
-    }),
-    lastHealthCheckAt: connection.lastHealthCheckAt,
-    webhookProvisioningStartedAt: connection.webhookProvisioningStartedAt,
+    // existing mappings...
     eventTypeSyncLockUntil: connection.eventTypeSyncLockUntil,
     lastEventTypeSyncStartedAt: connection.lastEventTypeSyncStartedAt,
     lastEventTypeSyncCompletedAt: connection.lastEventTypeSyncCompletedAt,
     lastEventTypeSyncStatus: connection.lastEventTypeSyncStatus,
     lastEventTypeSyncError: connection.lastEventTypeSyncError,
     lastEventTypeSyncCount: connection.lastEventTypeSyncCount,
+    lastEventTypeSyncSummary: connection.lastEventTypeSyncSummary,
   };
 }
 
@@ -347,78 +247,65 @@ export function toStoredPatch(
   patch: TenantCalendlyConnectionPatch,
 ): Partial<StoredCalendlyConnection> {
   const storedPatch: Partial<StoredCalendlyConnection> = {};
-  // Keep existing mappings above this point.
+
+  // existing mappings...
   if ("eventTypeSyncLockUntil" in patch) {
     storedPatch.eventTypeSyncLockUntil = patch.eventTypeSyncLockUntil;
   }
-  if ("lastEventTypeSyncStartedAt" in patch) {
-    storedPatch.lastEventTypeSyncStartedAt = patch.lastEventTypeSyncStartedAt;
+  if ("lastEventTypeSyncSummary" in patch) {
+    storedPatch.lastEventTypeSyncSummary = patch.lastEventTypeSyncSummary;
   }
-  if ("lastEventTypeSyncCompletedAt" in patch) {
-    storedPatch.lastEventTypeSyncCompletedAt = patch.lastEventTypeSyncCompletedAt;
-  }
-  if ("lastEventTypeSyncStatus" in patch) {
-    storedPatch.lastEventTypeSyncStatus = patch.lastEventTypeSyncStatus;
-  }
-  if ("lastEventTypeSyncError" in patch) {
-    storedPatch.lastEventTypeSyncError = patch.lastEventTypeSyncError;
-  }
-  if ("lastEventTypeSyncCount" in patch) {
-    storedPatch.lastEventTypeSyncCount = patch.lastEventTypeSyncCount;
-  }
+
   return storedPatch;
 }
 ```
 
-**Step 3: Expose status to Convex callers.**
+**Step 3: Return sync status through existing queries.**
 
 ```typescript
 // Path: convex/calendly/oauthQueries.ts
 
-const result = {
-  tenantId: tenant._id,
-  status: tenant.status,
-  needsReconnect: tenant.status === "calendly_disconnected",
-  lastTokenRefresh: connection?.lastRefreshedAt ?? null,
-  tokenExpiresAt: connection?.tokenExpiresAt ?? null,
-  calendlyWebhookUri: connection?.webhookUri ?? null,
-  hasWebhookSigningKey: Boolean(connection?.webhookSecret),
-  hasAccessToken: Boolean(connection?.accessToken),
-  hasRefreshToken: Boolean(connection?.refreshToken),
+const now = Date.now();
+const eventTypeSyncInProgress =
+  connection?.eventTypeSyncLockUntil !== undefined &&
+  connection.eventTypeSyncLockUntil > now;
+
+return {
+  // existing result fields...
+  eventTypeSyncInProgress,
+  eventTypeSyncLockUntil: connection?.eventTypeSyncLockUntil ?? null,
   lastEventTypeSyncStartedAt: connection?.lastEventTypeSyncStartedAt ?? null,
   lastEventTypeSyncCompletedAt: connection?.lastEventTypeSyncCompletedAt ?? null,
   lastEventTypeSyncStatus: connection?.lastEventTypeSyncStatus ?? null,
   lastEventTypeSyncError: connection?.lastEventTypeSyncError ?? null,
   lastEventTypeSyncCount: connection?.lastEventTypeSyncCount ?? null,
-  eventTypeSyncInProgress:
-    typeof connection?.eventTypeSyncLockUntil === "number" &&
-    connection.eventTypeSyncLockUntil > Date.now(),
+  lastEventTypeSyncSummary: connection?.lastEventTypeSyncSummary ?? null,
 };
 ```
 
 **Key implementation notes:**
-- Preserve legacy tenant-to-connection migration behavior in `ensureTenantCalendlyConnection`.
-- Do not expose tokens or webhook signing keys in public queries.
-- Public query fields should be `null` when absent so client types are easier to render.
+- Keep client-facing values nullable instead of `undefined`; this makes UI conditionals clearer.
+- Do not expose access or refresh tokens through `oauthQueries`.
+- `connectionQueries.getTenantConnectionContext` may return sync state for internal actions, but Phase 2 should still use mutation helpers for lock writes.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/lib/tenantCalendlyConnection.ts` | Modify | Map new sync state fields |
-| `convex/calendly/connectionQueries.ts` | Modify | Return event type state internally |
-| `convex/calendly/oauthQueries.ts` | Modify | Return latest sync status to Settings |
+| `convex/lib/tenantCalendlyConnection.ts` | Modify | Add sync state mapping and patch support |
+| `convex/calendly/connectionQueries.ts` | Modify | Include sync state for internal callers if needed |
+| `convex/calendly/oauthQueries.ts` | Modify | Expose latest sync status to Settings |
 
 ---
 
-### 1C — Shared Event Type Field Helpers
+### 1C — Shared Field Catalog Helpers
 
-**Type:** Backend
-**Parallelizable:** Yes — depends on 1A schema types only.
+**Type:** Backend  
+**Parallelizable:** Yes — depends only on 1A generated types.
 
-**What:** Create a shared helper for normalizing Calendly question labels and upserting `eventTypeFieldCatalog` rows, then reuse it from existing meeting form response writes.
+**What:** Move field-key normalization and event type field catalog upsert behavior into a shared helper used by booking webhook writes and Calendly event type sync.
 
-**Why:** Phase 2 sync will import Calendly `custom_questions` before any booking. It must generate the same field keys as `questions_and_answers` from booking webhooks.
+**Why:** The same Calendly question label should produce the same `eventTypeFieldCatalog.fieldKey` whether it is first seen from a booking webhook or from `GET /event_types`.
 
 **Where:**
 - `convex/lib/eventTypeFields.ts` (new)
@@ -426,7 +313,7 @@ const result = {
 
 **How:**
 
-**Step 1: Create the shared helper module.**
+**Step 1: Create shared normalization and catalog functions.**
 
 ```typescript
 // Path: convex/lib/eventTypeFields.ts
@@ -434,20 +321,27 @@ const result = {
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 
-export type EventTypeFieldInput = {
-  label: string;
-  valueType?: string;
-};
-
 export function normalizeFieldKey(question: string): string {
-  const normalized = question
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .replace(/_+/g, "_");
+  return (
+    question
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .replace(/_+/g, "_") || "unknown"
+  );
+}
 
-  return normalized.length > 0 ? normalized : "unknown";
+export function getUniqueFieldKey(baseKey: string, usedKeys: Set<string>) {
+  if (!usedKeys.has(baseKey)) {
+    return baseKey;
+  }
+
+  let suffix = 2;
+  while (usedKeys.has(`${baseKey}_${suffix}`)) {
+    suffix += 1;
+  }
+  return `${baseKey}_${suffix}`;
 }
 
 export async function loadFieldCatalogByKey(
@@ -469,19 +363,24 @@ export async function loadFieldCatalogByKey(
   for await (const row of rows) {
     entries.set(row.fieldKey, row);
   }
-
   return entries;
 }
+```
+
+**Step 2: Export an upsert that supports Calendly value types.**
+
+```typescript
+// Path: convex/lib/eventTypeFields.ts
 
 export async function upsertEventTypeFieldCatalogEntry(
   ctx: MutationCtx,
   args: {
     existingEntriesByFieldKey: Map<string, Doc<"eventTypeFieldCatalog">>;
+    tenantId: Id<"tenants">;
     eventTypeConfigId: Id<"eventTypeConfigs">;
     fieldKey: string;
-    questionLabel: string;
+    currentLabel: string;
     seenAt: number;
-    tenantId: Id<"tenants">;
     valueType?: string;
   },
 ) {
@@ -490,73 +389,82 @@ export async function upsertEventTypeFieldCatalogEntry(
     const patch: Partial<Doc<"eventTypeFieldCatalog">> = {};
     if (args.seenAt > existing.lastSeenAt) {
       patch.lastSeenAt = args.seenAt;
-      patch.currentLabel = args.questionLabel;
+      patch.currentLabel = args.currentLabel;
     }
     if (args.valueType && existing.valueType !== args.valueType) {
       patch.valueType = args.valueType;
     }
+
     if (Object.keys(patch).length > 0) {
       await ctx.db.patch(existing._id, patch);
       args.existingEntriesByFieldKey.set(args.fieldKey, {
         ...existing,
         ...patch,
       });
-      return { action: "updated" as const, fieldCatalogId: existing._id };
+      return "updated" as const;
     }
-    return { action: "unchanged" as const, fieldCatalogId: existing._id };
+    return "unchanged" as const;
   }
 
-  const fieldCatalogId = await ctx.db.insert("eventTypeFieldCatalog", {
+  const id = await ctx.db.insert("eventTypeFieldCatalog", {
     tenantId: args.tenantId,
     eventTypeConfigId: args.eventTypeConfigId,
     fieldKey: args.fieldKey,
-    currentLabel: args.questionLabel,
+    currentLabel: args.currentLabel,
     firstSeenAt: args.seenAt,
     lastSeenAt: args.seenAt,
     valueType: args.valueType,
   });
-
-  return { action: "created" as const, fieldCatalogId };
+  args.existingEntriesByFieldKey.set(args.fieldKey, {
+    _id: id,
+    _creationTime: args.seenAt,
+    tenantId: args.tenantId,
+    eventTypeConfigId: args.eventTypeConfigId,
+    fieldKey: args.fieldKey,
+    currentLabel: args.currentLabel,
+    firstSeenAt: args.seenAt,
+    lastSeenAt: args.seenAt,
+    valueType: args.valueType,
+  });
+  return "created" as const;
 }
 ```
 
-**Step 2: Import `normalizeFieldKey` and the upsert helper in `meetingFormResponses`.**
+**Step 3: Replace private helpers in `meetingFormResponses`.**
 
 ```typescript
 // Path: convex/lib/meetingFormResponses.ts
 
 import {
+  getUniqueFieldKey,
   loadFieldCatalogByKey,
   normalizeFieldKey,
   upsertEventTypeFieldCatalogEntry,
 } from "./eventTypeFields";
-
-// Remove the private normalizeFieldKey implementation from this file.
-// Replace existing manual catalog-map loading with loadFieldCatalogByKey().
 ```
 
 **Key implementation notes:**
-- Keep `getUniqueFieldKey` local to `meetingFormResponses` because booking responses need collision suffixes.
-- Phase 2 should pass Calendly `custom_questions[].type` as `valueType`; booking responses can leave it unset.
-- Do not delete old field catalog rows when Calendly no longer returns a question.
+- Keep labels, not normalized keys, in `knownCustomFieldKeys` because the Settings dialog validates against display labels.
+- The catalog key collision strategy should remain stable for bookings and sync.
+- Do not delete historical catalog rows when Calendly removes a question.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/lib/eventTypeFields.ts` | Create | Shared field-key/catalog helpers |
-| `convex/lib/meetingFormResponses.ts` | Modify | Reuse shared helpers |
+| `convex/lib/eventTypeFields.ts` | Create | Shared normalization and catalog helpers |
+| `convex/lib/meetingFormResponses.ts` | Modify | Reuse shared helper |
 
 ---
 
-### 1D — Preserve CRM Ownership on Existing Writes
+### 1D — Ownership-Aware Existing Writes
 
-**Type:** Backend
-**Parallelizable:** Yes — depends on 1A schema types only.
+**Type:** Backend  
+**Parallelizable:** Yes — depends on 1A generated types.
 
-**What:** Update existing admin and fallback write paths so they set ownership source fields without changing user-visible behavior.
+**What:** Mark admin-edited rows and lazy webhook-discovered rows with source fields so Phase 2 can safely decide what it may update.
 
-**Why:** Phase 2 sync needs to know which fields it may update. Source-less existing rows are protected by design; new admin/fallback writes should be explicit.
+**Why:** Sync must preserve production CRM names, URLs, program mappings, payment links, and field mappings. Source fields make that boundary explicit.
 
 **Where:**
 - `convex/eventTypeConfigs/mutations.ts` (modify)
@@ -564,42 +472,39 @@ import {
 
 **How:**
 
-**Step 1: Mark admin edits as CRM-owned.**
+**Step 1: Mark admin writes as CRM-owned.**
 
 ```typescript
 // Path: convex/eventTypeConfigs/mutations.ts
 
-if (existing) {
-  await ctx.db.patch(existing._id, {
-    displayName: normalizedDisplayName,
-    displayNameSource: "admin_entered",
-    paymentLinks:
-      normalizedPaymentLinks === undefined
-        ? existing.paymentLinks
-        : normalizedPaymentLinks,
-    ...bookingProgramPatch,
-    bookingBaseUrl: trimmedBookingBaseUrl,
-    bookingUrlSource: trimmedBookingBaseUrl ? "admin_entered" : undefined,
-    updatedAt: Date.now(),
-  });
-  return existing._id;
-}
-
-const configId = await ctx.db.insert("eventTypeConfigs", {
-  tenantId,
-  calendlyEventTypeUri: normalizedEventTypeUri,
+const displayNamePatch = {
   displayName: normalizedDisplayName,
-  displayNameSource: "admin_entered",
-  paymentLinks: normalizedPaymentLinks,
+  displayNameSource: "admin_entered" as const,
+};
+
+const bookingUrlPatch = trimmedBookingBaseUrl
+  ? {
+      bookingBaseUrl: trimmedBookingBaseUrl,
+      bookingUrlSource: "admin_entered" as const,
+    }
+  : {
+      bookingBaseUrl: undefined,
+      bookingUrlSource: undefined,
+    };
+
+await ctx.db.patch(existing._id, {
+  ...displayNamePatch,
+  paymentLinks:
+    normalizedPaymentLinks === undefined
+      ? existing.paymentLinks
+      : normalizedPaymentLinks,
   ...bookingProgramPatch,
-  bookingBaseUrl: trimmedBookingBaseUrl,
-  bookingUrlSource: trimmedBookingBaseUrl ? "admin_entered" : undefined,
-  createdAt: Date.now(),
+  ...bookingUrlPatch,
   updatedAt: Date.now(),
 });
 ```
 
-**Step 2: Mark lazy booking-discovered rows as webhook fallback rows.**
+**Step 2: Mark webhook fallback rows.**
 
 ```typescript
 // Path: convex/pipeline/inviteeCreated.ts
@@ -609,7 +514,6 @@ const eventTypeConfigId = await ctx.db.insert("eventTypeConfigs", {
   calendlyEventTypeUri: eventTypeUri,
   displayName: eventDisplayName,
   displayNameSource: "webhook_discovered",
-  calendlyName: eventDisplayName,
   bookingProgramMappingStatus: "unmapped",
   createdAt: now,
   updatedAt: now,
@@ -618,7 +522,7 @@ const eventTypeConfigId = await ctx.db.insert("eventTypeConfigs", {
 });
 ```
 
-**Step 3: Leave source-less existing rows protected.**
+**Step 3: Keep source-less existing rows protected.**
 
 ```typescript
 // Path: convex/calendly/eventTypeMutations.ts
@@ -631,76 +535,69 @@ function canSyncDisplayName(config: Doc<"eventTypeConfigs">) {
 }
 ```
 
-This helper is implemented in Phase 2, but Phase 1 should document and preserve the rule.
-
 **Key implementation notes:**
-- Admin saves should set `displayNameSource = "admin_entered"` even if the typed name equals the Calendly name.
-- If an admin clears `bookingBaseUrl`, leave `bookingUrlSource` undefined so future sync can safely initialize it.
-- Do not backfill source fields for existing rows; source-less rows remain protected.
+- Do not retroactively mark existing source-less rows as `calendly_synced`; treat them as admin-protected.
+- Admin clears of `bookingBaseUrl` should clear `bookingUrlSource` as well.
+- The webhook fallback still creates rows during races with manual sync.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/eventTypeConfigs/mutations.ts` | Modify | Mark admin-owned fields |
-| `convex/pipeline/inviteeCreated.ts` | Modify | Mark webhook fallback rows |
+| `convex/eventTypeConfigs/mutations.ts` | Modify | Mark admin-entered display name and booking URL source |
+| `convex/pipeline/inviteeCreated.ts` | Modify | Mark lazy fallback rows as webhook-discovered |
 
 ---
 
-### 1E — Verify Widen-Only Deployment
+### 1E — Schema and Type Verification
 
-**Type:** Manual
-**Parallelizable:** No — runs after 1A-1D.
+**Type:** Manual  
+**Parallelizable:** No — verifies all Phase 1 edits together.
 
-**What:** Regenerate Convex types and run TypeScript validation before Phase 2 imports the new schema fields.
+**What:** Run schema/type checks and inspect the generated types used by later phases.
 
-**Why:** Schema/type failures are cheapest to catch before the sync implementation fans new fields through actions, mutations, and UI queries.
+**Why:** Phase 2 imports `Doc<"eventTypeConfigs">` and connection patch fields. Catching type drift here prevents sync implementation churn.
 
 **Where:**
-- `convex/_generated/*` (generated)
-- Local terminal verification
+- `convex/schema.ts` (verify)
+- `convex/_generated/dataModel.d.ts` (generated / verify)
 
 **How:**
 
-**Step 1: Run Convex codegen/schema validation.**
+**Step 1: Run Convex once.**
 
 ```bash
-// Path: terminal
+# Path: terminal
 npx convex dev --once
 ```
 
-If this project’s installed Convex CLI does not support `--once`, run `npx convex dev`, wait for schema/codegen success, then stop it.
-
-**Step 2: Run TypeScript validation.**
+**Step 2: Run TypeScript.**
 
 ```bash
-// Path: terminal
+# Path: terminal
 pnpm tsc --noEmit
 ```
 
-**Step 3: Confirm no migration component is needed.**
+**Step 3: Confirm no data migration is required.**
 
 ```typescript
-// Path: plans/calendly-event-type-sync/phases/phase1.md
+// Path: convex/schema.ts
 
-// Migration decision:
-// - All added fields are optional.
-// - The only union change widens an optional field.
-// - No field is deleted or narrowed.
-// - No existing document requires a backfill before deploy.
+// All added fields in eventTypeConfigs and tenantCalendlyConnections are v.optional(...).
+// No existing field is deleted, renamed, or narrowed in this phase.
 ```
 
 **Key implementation notes:**
-- Generated files may change after `npx convex dev`; review them but do not hand-edit generated code.
-- If a field accidentally becomes required, stop and use a widen-migrate-narrow plan before deployment.
-- Keep the first production rollout as a schema-and-safe-write deploy before the sync action deploy if extra caution is needed.
+- If any field becomes required during implementation, stop and re-plan with `convex-migration-helper`.
+- Do not introduce `@convex-dev/migrations` for this MVP widen-only phase.
+- Keep rollback simple: leaving optional fields in schema is safe.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/_generated/*` | Generate | Convex generated API/types |
-| `plans/calendly-event-type-sync/phases/phase1.md` | Reference | Records migration decision |
+| `convex/_generated/dataModel.d.ts` | Generated | Convex generated type output |
+| `convex/_generated/api.d.ts` | Generated | Convex generated function references if helpers changed |
 
 ---
 
@@ -716,4 +613,5 @@ pnpm tsc --noEmit
 | `convex/lib/meetingFormResponses.ts` | Modify | 1C |
 | `convex/eventTypeConfigs/mutations.ts` | Modify | 1D |
 | `convex/pipeline/inviteeCreated.ts` | Modify | 1D |
-| `convex/_generated/*` | Generate | 1E |
+| `convex/_generated/dataModel.d.ts` | Generated | 1E |
+| `convex/_generated/api.d.ts` | Generated | 1E |

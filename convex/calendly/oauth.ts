@@ -452,6 +452,7 @@ export const exchangeCodeAndProvision = action({
       await ctx.scheduler.runAfter(0, internal.calendly.orgMembers.syncForTenant, {
         tenantId,
       });
+      // Event type metadata sync is manual-only for the MVP.
       console.log(
         `[Calendly:OAuth] exchangeCodeAndProvision: org member sync scheduled`,
       );

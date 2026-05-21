@@ -1,9 +1,9 @@
 # Calendly Event Type Sync — Design Specification
 
-**Version:** 0.1 (MVP)  
+**Version:** 0.2 (MVP)
 **Status:** Draft  
-**Scope:** The current system discovers `eventTypeConfigs` lazily from `invitee.created` scheduling webhooks. This feature makes Calendly event types a first-class synced directory: all organization event types are imported from Calendly, kept current by reconciliation and webhooks, and merged without overwriting CRM-owned configuration.  
-**Prerequisite:** Existing Calendly OAuth connection, `event_types:read`, `webhooks:read`, and `webhooks:write` are already requested by `convex/calendly/oauth.ts`; existing `eventTypeConfigs` table is deployed.
+**Scope:** The current system discovers `eventTypeConfigs` lazily from `invitee.created` scheduling webhooks. This feature makes Calendly event types a first-class synced directory on demand: admins can import all organization event types from Calendly with a Settings button, and sync merges Calendly metadata without overwriting CRM-owned configuration. The MVP does not add or repair event type webhook subscriptions.
+**Prerequisite:** Existing Calendly OAuth connection and `event_types:read` are already requested by `convex/calendly/oauth.ts`; existing `eventTypeConfigs` table is deployed.
 
 ---
 
@@ -14,8 +14,8 @@
 3. [End-to-End Flow Overview](#3-end-to-end-flow-overview)
 4. [Phase 1: Metadata Ownership Model](#4-phase-1-metadata-ownership-model)
 5. [Phase 2: Full Calendly Event Type Sync](#5-phase-2-full-calendly-event-type-sync)
-6. [Phase 3: Sync Triggers and Operational State](#6-phase-3-sync-triggers-and-operational-state)
-7. [Phase 4: Event Type Webhook Reconciliation](#7-phase-4-event-type-webhook-reconciliation)
+6. [Phase 3: Manual Sync Trigger and Operational State](#6-phase-3-manual-sync-trigger-and-operational-state)
+7. [Phase 4: Manual Sync-Only Boundary](#7-phase-4-manual-sync-only-boundary)
 8. [Phase 5: Settings UI and Admin Operations](#8-phase-5-settings-ui-and-admin-operations)
 9. [Phase 6: Verification and Rollout](#9-phase-6-verification-and-rollout)
 10. [Data Model](#10-data-model)
@@ -38,9 +38,9 @@
 - Preserve existing CRM configuration on `eventTypeConfigs`: payment links, booked-program mapping, field mappings, portal visibility, and any admin-edited display name.
 - Populate Calendly-owned metadata for each event type: Calendly name, scheduling URL, active/deleted state, duration, kind, slug, owner/profile details, custom questions, and sync timestamps.
 - Import Calendly `custom_questions` into the existing field mapping experience so admins can configure identity fields before the first booking.
-- Keep the existing `invitee.created` auto-create path as a fallback for race conditions and webhook-only recovery.
-- Add an admin-triggered sync button and a recurring reconciliation job.
-- Subscribe to Calendly `event_type.created`, `event_type.updated`, and `event_type.deleted` webhooks, apply their documented Event Type payload immediately, and use full API sync as reconciliation/backstop.
+- Use Calendly `scheduling_url` as the raw invite link, store it separately from CRM-owned overrides, and seed `bookingBaseUrl` only when it is safe to do so.
+- Keep the existing `invitee.created` auto-create path as a fallback for race conditions and booking-webhook recovery.
+- Add an admin-triggered sync button in Settings.
 - Make stale/deleted/inactive event type states visible enough that admins do not publish broken portal links.
 
 ### Non-Goals (deferred)
@@ -48,6 +48,8 @@
 - Creating, editing, or deleting Calendly event types from the CRM. This feature is read-only against Event Types.
 - Replacing Calendly as the booking host.
 - Removing `invitee.created` event-type fallback creation. The fallback remains necessary because booking webhooks can arrive before or during a sync.
+- Subscribing to Calendly `event_type.created`, `event_type.updated`, or `event_type.deleted` webhooks.
+- Running automatic recurring event type reconciliation. Sync is explicit through the admin button for MVP.
 - Backfilling historical scheduled events beyond their existing opportunity and meeting links.
 - Making `calendlyName`, `calendlySchedulingUrl`, or sync status required fields. This would require a later narrow migration and is not needed for MVP.
 - Building a large event type analytics surface. This design only adds sync health, list visibility, and configuration support.
@@ -61,9 +63,8 @@
 | **Tenant owner** | CRM user with `users.role = "tenant_master"` | WorkOS AuthKit, tenant org JWT bridged into Convex | Reconnect Calendly, manually sync event types, edit event type configuration, publish portal-visible links. |
 | **Tenant admin** | CRM user with `users.role = "tenant_admin"` | WorkOS AuthKit, tenant org JWT bridged into Convex | Same as tenant owner except owner-only functionality outside this feature. |
 | **Closer** | CRM user with `users.role = "closer"` | WorkOS AuthKit, tenant org JWT bridged into Convex | Reads meeting and opportunity data that may reference synced event types. Cannot trigger sync or edit configuration. |
-| **Calendly OAuth owner** | Calendly owner/admin user who connected the tenant's organization | Calendly OAuth bearer token stored in Convex | Grants API access to organization event types and webhook management. |
-| **Calendly platform** | External API and webhook sender | OAuth bearer token for API calls; webhook HMAC signing key for inbound events | Returns event type pages and delivers event type/scheduling webhooks. |
-| **Convex scheduled jobs** | Backend scheduler | Internal Convex function references | Runs reconciliation, token refresh, health checks, and webhook repair. |
+| **Calendly OAuth owner** | Calendly owner/admin user who connected the tenant's organization | Calendly OAuth bearer token stored in Convex | Grants API access to organization event types. |
+| **Calendly platform** | External API | OAuth bearer token for API calls | Returns event type pages for manual sync. |
 
 ### CRM Role <-> External Role Mapping
 
@@ -73,7 +74,7 @@
 | `tenant_admin` | `tenant-admin` | Not assumed | Can trigger CRM sync because Convex uses stored tenant OAuth tokens. |
 | `closer` | `closer` | Calendly org member may be linked through `calendlyOrgMembers` | No event type sync permissions. |
 
-> **Calendly permission prerequisite:** The connected Calendly account must be able to read organization-scoped event types and manage organization webhooks. In practice this should be a Calendly owner/admin connection. If an OAuth user can complete connection but receives `403` from `GET /event_types?organization=...`, preserve existing rows, mark event type sync failed, and ask the tenant to reconnect with a Calendly owner/admin account.
+> **Calendly permission prerequisite:** The connected Calendly account must be able to read organization-scoped event types. In practice this should be a Calendly owner/admin connection. If an OAuth user can complete connection but receives `403` from `GET /event_types?organization=...`, preserve existing rows, mark event type sync failed, and ask the tenant to reconnect with a Calendly owner/admin account.
 
 ---
 
@@ -85,8 +86,6 @@ sequenceDiagram
     participant Next as Next.js Settings
     participant CVX as Convex Backend
     participant CAL as Calendly API
-    participant WH as Calendly Webhooks
-    participant Jobs as Convex Scheduler
 
     Note over Admin,CAL: Phase 1 - Tenant connects Calendly with current OAuth scopes
     Admin->>Next: Start Calendly OAuth
@@ -96,30 +95,21 @@ sequenceDiagram
     CAL-->>Next: OAuth callback code
     Next->>CVX: exchangeCodeAndProvision
     CVX->>CAL: Exchange token
-    CVX->>CAL: Create org webhook subscription
-    CVX->>Jobs: Schedule org member sync and event type sync
+    CVX->>CVX: Existing Calendly provisioning continues unchanged
 
-    Note over Jobs,CAL: Phase 2 - Full event type reconciliation
-    Jobs->>CVX: internal.calendly.eventTypes.syncForTenant
+    Note over Admin,CAL: Phase 2 - Manual event type sync
+    Admin->>Next: Click Sync Event Types
+    Next->>CVX: api.calendly.eventTypes.syncMyTenantEventTypes
     CVX->>CAL: GET /event_types?organization=...&count=100
     CAL-->>CVX: collection + pagination.next_page
-    CVX->>CVX: Upsert eventTypeConfigs page
+    CVX->>CVX: Upsert eventTypeConfigs page with invite link metadata
     CVX->>CVX: Mark missing/deleted/stale states
-
-    Note over WH,CVX: Phase 4 - Incremental webhook signal
-    WH->>CVX: event_type.created/updated/deleted
-    CVX->>CVX: Persist rawWebhookEvents
-    CVX->>CVX: Upsert or mark deleted from Event Type payload
-    CVX->>Jobs: Schedule delayed reconciliation for tenant
-    Jobs->>CAL: GET /event_types?organization=...
-    Jobs->>CVX: Merge latest metadata
+    CVX-->>Next: total seen + created/updated/deleted/stale counts
 
     Note over Admin,Next: Phase 5 - Admin operations
     Admin->>Next: Open Settings > Event Types
     Next->>CVX: listEventTypeConfigs
     CVX-->>Next: Event types + sync status + portal readiness
-    Admin->>CVX: syncMyTenantEventTypes
-    CVX-->>Admin: created/updated/deleted/stale counts
 ```
 
 ---
@@ -145,14 +135,14 @@ That lazy discovery path is why the Settings UI currently says event types appea
 | `calendlyName` | Calendly | Updated on each sync from Calendly `name`. |
 | `displayName` | CRM | For new synced rows, initialize from Calendly. For existing/admin-edited rows, do not overwrite. |
 | `displayNameSource` | CRM/system | Set to `calendly_synced` for new sync rows, `webhook_discovered` for fallback rows, `admin_entered` when admin edits. |
-| `calendlySchedulingUrl` | Calendly | Raw `scheduling_url` from Calendly. Updated each sync. |
-| `bookingBaseUrl` | CRM with Calendly fallback | If empty, initialize from `scheduling_url` and set `bookingUrlSource = "calendly_synced"`. Do not overwrite `admin_entered` or `imported_sheet`. |
+| `calendlySchedulingUrl` | Calendly | Raw `scheduling_url` from Calendly; this is the Calendly invite link for the event type. Updated each sync after URL validation. |
+| `bookingBaseUrl` | CRM with Calendly fallback | CRM-owned base invite URL used by portal link generation. If empty, initialize from `scheduling_url` and set `bookingUrlSource = "calendly_synced"`. Do not overwrite `admin_entered` or `imported_sheet`. |
 | `paymentLinks` | CRM | Never overwritten by sync. |
 | `bookingProgram*` | CRM | Never overwritten by sync. |
 | `customFieldMappings` | CRM | Never overwritten by sync. |
 | `knownCustomFieldKeys` | CRM/system | Merge Calendly `custom_questions` and booking-observed questions. Never remove keys automatically. |
 | `linkPortalEnabled` | CRM | Never enabled by sync. Can be disabled if Calendly reports the event type deleted. |
-| `calendlyActive`, `calendlyDeletedAt`, `calendlySyncStatus` | Calendly/system | Updated by sync and event type deletion signals. |
+| `calendlyActive`, `calendlyDeletedAt`, `calendlySyncStatus` | Calendly/system | Updated by manual sync results. |
 
 > **Decision rationale:** Sync must be additive and conservative. Existing event type rows may already have production-critical program mappings and payment links. A full sync should make missing Calendly event types visible, not reconfigure sales workflows.
 
@@ -170,17 +160,24 @@ Rules:
 
 > **Migration decision:** Treat source-less existing rows as protected. We cannot know whether a production admin edited them, so the safe default is not to overwrite.
 
-### 4.4 Booking URL Policy
+### 4.4 Booking URL and Invite Link Policy
 
-`bookingBaseUrl` is used by the DM link portal and readiness checks. Calendly also returns `scheduling_url`.
+`bookingBaseUrl` is used by the DM link portal and readiness checks. Calendly returns `scheduling_url`, which is the raw invite link for the event type. The design intentionally stores both concepts:
+
+- `calendlySchedulingUrl`: Calendly-owned invite link exactly as returned by the Event Types API.
+- `bookingBaseUrl`: CRM-owned base URL used by the portal to generate copied links with UTM parameters.
+
+Do not add a separate `inviteLink` field for MVP. It would duplicate `calendlySchedulingUrl` without adding a new ownership boundary.
 
 Rules:
 
-1. Always store Calendly's value in `calendlySchedulingUrl`.
-2. If `bookingBaseUrl` is empty, set it to `scheduling_url` and set `bookingUrlSource = "calendly_synced"`.
-3. If `bookingUrlSource` is `"calendly_synced"`, future sync may update `bookingBaseUrl` when Calendly changes `scheduling_url`.
-4. If `bookingUrlSource` is `"admin_entered"` or `"imported_sheet"`, never overwrite `bookingBaseUrl`.
-5. Sync never sets `linkPortalEnabled = true`; admins must still publish event types intentionally.
+1. Validate `scheduling_url` as an absolute `http` or `https` URL before storing it or using it to seed CRM fields.
+2. Always store valid Calendly `scheduling_url` values in `calendlySchedulingUrl`.
+3. If `bookingBaseUrl` is empty, set it to `scheduling_url` and set `bookingUrlSource = "calendly_synced"`.
+4. If `bookingUrlSource` is `"calendly_synced"`, future sync may update `bookingBaseUrl` when Calendly changes `scheduling_url`.
+5. If `bookingUrlSource` is `"admin_entered"` or `"imported_sheet"`, never overwrite `bookingBaseUrl`.
+6. If Calendly omits or returns an invalid `scheduling_url`, do not store it in `calendlySchedulingUrl`. Preserve admin-entered or imported `bookingBaseUrl` values, but treat Calendly-synced base URLs as not portal-bookable until a later sync provides a valid invite link again.
+7. Sync never sets `linkPortalEnabled = true`; admins must still publish event types intentionally.
 
 > **Why not only use `calendlySchedulingUrl`?** Existing portal readiness and link-building code already reads `bookingBaseUrl`. Initializing `bookingBaseUrl` when empty removes manual work while preserving admin override semantics through `bookingUrlSource`.
 
@@ -190,8 +187,9 @@ Calendly's list endpoint returns `custom_questions`. The current CRM only discov
 
 - Read the custom question label from `custom_questions[].name`; do not invent labels from other fields.
 - Only enabled Calendly questions should be offered as current mapping candidates. Disabled questions can remain in historical field data if previously observed from bookings, but sync should not newly add disabled questions as active options.
-- Add enabled Calendly custom question labels to `knownCustomFieldKeys`.
-- Upsert `eventTypeFieldCatalog` rows using the same normalized field-key strategy used by `writeMeetingFormResponses`; set `valueType` from Calendly `custom_questions[].type` when present.
+- Add enabled Calendly custom question labels to `knownCustomFieldKeys` as labels, not normalized keys, because the existing Settings dialog validates mapping values against that array.
+- Deduplicate `knownCustomFieldKeys` and keep the array bounded. If an event type ever approaches the array limit, prefer the relational `eventTypeFieldCatalog` as the long-term source rather than growing the document indefinitely.
+- Upsert `eventTypeFieldCatalog` rows using the same normalized field-key and collision strategy used by `writeMeetingFormResponses`; set `valueType` from Calendly `custom_questions[].type` when present.
 - Never delete a known field key automatically, because historical bookings and existing field mappings may reference old labels.
 - If Calendly's custom question shape is missing `name`, skip the malformed question and log a structured warning.
 
@@ -206,6 +204,8 @@ export function normalizeFieldKey(question: string): string {
     .replace(/_+/g, "_") || "unknown";
 }
 ```
+
+Move the existing private normalization behavior out of `convex/lib/meetingFormResponses.ts` into this shared helper rather than maintaining two subtly different implementations. The sync path and booking-webhook path should produce the same `eventTypeFieldCatalog.fieldKey` for the same question label.
 
 ---
 
@@ -226,7 +226,7 @@ GET https://api.calendly.com/event_types?organization=<encoded-org-uri>&count=10
 Authorization: Bearer <access_token>
 ```
 
-Do not pass `active`, `admin_managed`, or `user` filters. Omitting these filters gives the broadest organization event type view Calendly exposes for the connected OAuth user.
+Do not pass `active`, `admin_managed`, or `user` filters. Omitting these filters gives the broadest organization event type view Calendly exposes for the connected OAuth user. Build only the first page URL; after that, follow Calendly's `pagination.next_page` URL exactly so the API owns `page_token` handling.
 
 The connected OAuth account still needs Calendly permission to read organization event types. Calendly's org-wide event type guidance assumes an owner/admin token for organization-wide access. If Calendly returns `403`, treat it as a connection permission problem, not as proof that the tenant has no event types.
 
@@ -234,20 +234,35 @@ The connected OAuth account still needs Calendly permission to read organization
 |---|---|---|
 | `organization` | Stored Calendly org URI | The requirement is all organization event types, not one user's event types. |
 | `count` | `100` | Calendly's documented maximum page size. |
-| `page_token` | From `pagination.next_page_token` or use `pagination.next_page` | Supports keyset pagination. |
+| `page_token` | Do not set directly on the first request; follow `pagination.next_page` for later pages. | Supports keyset pagination without reconstructing Calendly URLs. |
 | `active` | Omitted | Include both active and inactive event types. |
 | `admin_managed` | Omitted | Include admin-managed and non-admin-managed event types. |
 
+Minimum resource fields needed for a useful sync:
+
+| Calendly field | CRM use |
+|---|---|
+| `uri` | Stable join key in `calendlyEventTypeUri`. |
+| `name` | `calendlyName`, and initial `displayName` for new rows. |
+| `scheduling_url` | Raw Calendly invite link in `calendlySchedulingUrl`; seed `bookingBaseUrl` when safe. |
+| `active`, `deleted_at` | Portal safety and Settings status. |
+| `duration`, `kind`, `type`, `slug`, `booking_method`, `profile`, `secret`, `admin_managed`, `color`, `locale` | Settings metadata and diagnostics. |
+| `custom_questions` | Pre-booking field mapping options and `eventTypeFieldCatalog` rows. |
+
+The local Calendly Postman mirror includes `custom_questions` on `GET /event_types` collection resources. If Calendly ever omits `custom_questions` from the list response in production, core event type sync should still succeed and field-catalog import can fall back to `GET /event_types/{uuid}` for affected rows in a later hardening pass.
+
 ### 5.2 Action Runtime
 
-The sync must be a Node action because it performs external `fetch` calls and may call token refresh logic. It should batch database writes by page through internal mutations.
+The sync button should call one tenant-scoped Node action. The sync runtime performs external `fetch` calls, may call token refresh logic, and batches database writes by page through internal mutations.
+
+For MVP, the public admin action is the only trigger. If an internal action is kept for test/ops reuse, it must be reachable only after a public action has derived the tenant from the authenticated admin; do not introduce OAuth-completion, cron, or webhook-triggered sync.
 
 ```typescript
 // Path: convex/calendly/eventTypes.ts
 "use node";
 
 import { v } from "convex/values";
-import { action, internalAction } from "../_generated/server";
+import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { getValidAccessToken, refreshTenantTokenCore } from "./tokens";
@@ -281,7 +296,13 @@ export const syncForTenant = internalAction({
         `https://api.calendly.com/event_types?organization=${encodeURIComponent(
           tenant.organizationUri,
         )}&count=100`;
-      let totals = { created: 0, updated: 0, unchanged: 0, questionsMerged: 0 };
+      let totals = {
+        totalSeen: 0,
+        created: 0,
+        updated: 0,
+        unchanged: 0,
+        questionsMerged: 0,
+      };
 
       while (nextPage) {
         let response = await fetch(nextPage, {
@@ -299,24 +320,11 @@ export const syncForTenant = internalAction({
         }
 
         if (response.status === 429) {
-          const retryAfterMs = getCalendlyRetryDelayMs(response);
-          await ctx.runMutation(
-            internal.calendly.eventTypeMutations.completeEventTypeSync,
-            {
-              tenantId,
-              status: "skipped",
-              error: "Calendly rate limited event type sync; retry scheduled",
-            },
+          const retryAfterSeconds =
+            response.headers.get("X-RateLimit-Reset") ?? "60";
+          throw new Error(
+            `Calendly rate limited event type sync. Try again in ${retryAfterSeconds} seconds.`,
           );
-          await ctx.scheduler.runAfter(
-            retryAfterMs,
-            internal.calendly.eventTypes.syncForTenant,
-            { tenantId, reason: "rate_limited_retry" },
-          );
-          return {
-            status: "skipped" as const,
-            reason: "rate_limited_retry_scheduled" as const,
-          };
         }
         if (!response.ok) {
           throw new Error(
@@ -330,6 +338,7 @@ export const syncForTenant = internalAction({
           { tenantId, syncStartedAt: startedAt, collection: page.collection ?? [] },
         );
         totals = {
+          totalSeen: totals.totalSeen + (page.collection?.length ?? 0),
           created: totals.created + result.created,
           updated: totals.updated + result.updated,
           unchanged: totals.unchanged + result.unchanged,
@@ -364,19 +373,20 @@ export const syncForTenant = internalAction({
 
 > **Runtime decision:** The action owns API pagination and token refresh. Mutations own upsert transactions. This follows Convex's transaction model and avoids keeping an external API call inside a mutation.
 >
-> `completeEventTypeSync` must clear `eventTypeSyncLockUntil` for success, failure, and skipped retry states. The `401` path intentionally retries the current page at most once after `refreshTenantTokenCore`; do not loop on repeated `401`s. `getCalendlyRetryDelayMs` should prefer `X-RateLimit-Reset` seconds and fall back to bounded exponential backoff. If a tenant ever has enough event type pages that a sync can exceed the initial lock window, extend the lock per page or use a longer bounded lock duration so manual/cron/webhook syncs cannot overlap mid-run.
+> `completeEventTypeSync` must clear `eventTypeSyncLockUntil` for success and failure states, set `lastEventTypeSyncCount` from `totalSeen`, and persist the latest count summary. The `401` path intentionally retries the current page at most once after `refreshTenantTokenCore`; do not loop on repeated `401`s. On `429`, fail the manual sync with the `X-RateLimit-Reset` hint; do not schedule an automatic retry for MVP. If a tenant ever has enough event type pages that a sync can exceed the initial lock window, extend the lock per page or use a longer bounded lock duration so duplicate manual syncs cannot overlap mid-run.
 
 ### 5.3 Upsert Algorithm
 
 For each event type resource:
 
 1. Validate `uri` is a non-empty string. Skip malformed records.
-2. Query `eventTypeConfigs` by `by_tenantId_and_calendlyEventTypeUri`.
-3. If no row exists, insert a new config with CRM-safe defaults.
-4. If a row exists, patch only changed Calendly-owned fields and safe empty fallbacks.
-5. Merge enabled custom question labels into `knownCustomFieldKeys`.
-6. Upsert field catalog rows for synced enabled custom questions, including value type when Calendly provides it.
-7. Set `lastCalendlySeenAt` and `lastCalendlySyncedAt` to the sync start/current timestamp.
+2. Normalize and validate `scheduling_url` before using it as `calendlySchedulingUrl` or `bookingBaseUrl`.
+3. Query `eventTypeConfigs` by `by_tenantId_and_calendlyEventTypeUri`.
+4. If no row exists, insert a new config with CRM-safe defaults.
+5. If a row exists, patch only changed Calendly-owned fields and safe empty fallbacks.
+6. Merge enabled custom question labels into `knownCustomFieldKeys`.
+7. Upsert field catalog rows for synced enabled custom questions, including value type when Calendly provides it.
+8. Set `lastCalendlySeenAt` and `lastCalendlySyncedAt` to the sync start/current timestamp.
 
 ```typescript
 // Path: convex/calendly/eventTypeMutations.ts
@@ -478,25 +488,19 @@ const deletedPatch = {
 
 ---
 
-## 6. Phase 3: Sync Triggers and Operational State
+## 6. Phase 3: Manual Sync Trigger and Operational State
 
-### 6.1 OAuth Completion Trigger
+### 6.1 Button Contract
 
-After `exchangeCodeAndProvision` stores tokens and activates the tenant, schedule event type sync in parallel with org member sync.
+The Settings button is intentionally simple:
 
-```typescript
-// Path: convex/calendly/oauth.ts
-await ctx.scheduler.runAfter(0, internal.calendly.orgMembers.syncForTenant, {
-  tenantId,
-});
+1. It is visible only to tenant owners/admins and disabled when Calendly is disconnected or a sync is already running.
+2. It calls `api.calendly.eventTypes.syncMyTenantEventTypes` with no client-supplied tenant ID.
+3. The action fetches every `GET /event_types` page for the authenticated tenant's stored Calendly organization URI.
+4. The action returns `status`, `totalSeen`, `created`, `updated`, `unchanged`, `deleted`, `inactive`, `notReturned`, and `questionsMerged` counts.
+5. The UI shows a toast from that result and relies on existing Convex queries to refresh the Event Types and Field Mappings tabs.
 
-await ctx.scheduler.runAfter(0, internal.calendly.eventTypes.syncForTenant, {
-  tenantId,
-  reason: "oauth_connected",
-});
-```
-
-This ensures newly onboarded tenants see event types before any scheduling webhook arrives.
+No webhook setup, webhook repair, OAuth callback trigger, or cron is required for this contract.
 
 ### 6.2 Manual Admin Trigger
 
@@ -504,6 +508,12 @@ Expose a public Convex action guarded by current tenant admin role:
 
 ```typescript
 // Path: convex/calendly/eventTypes.ts
+import { internal } from "../_generated/api";
+import { action } from "../_generated/server";
+import { ADMIN_ROLES } from "../lib/roleMapping";
+import { getIdentityOrgId } from "../lib/identity";
+import { getCanonicalIdentityWorkosUserId } from "../lib/workosUserId";
+
 export const syncMyTenantEventTypes = action({
   args: {},
   handler: async (ctx) => {
@@ -512,33 +522,40 @@ export const syncMyTenantEventTypes = action({
       throw new Error("Not authenticated");
     }
 
-    const currentUser = await resolveCurrentAdminUser(ctx, identity);
-    return await syncTenantEventTypesCore(ctx, currentUser.tenantId, {
+    const workosUserId = getCanonicalIdentityWorkosUserId(identity);
+    if (!workosUserId) {
+      throw new Error("Missing WorkOS user ID");
+    }
+
+    const currentUser = await ctx.runQuery(
+      internal.users.queries.getCurrentUserInternal,
+      { workosUserId },
+    );
+    if (!currentUser || !ADMIN_ROLES.includes(currentUser.role)) {
+      throw new Error("Insufficient permissions");
+    }
+
+    const tenant = await ctx.runQuery(internal.tenants.getCalendlyTenant, {
+      tenantId: currentUser.tenantId,
+    });
+    const identityOrgId = getIdentityOrgId(identity);
+    if (!tenant || !identityOrgId || identityOrgId !== tenant.workosOrgId) {
+      throw new Error("Organization mismatch");
+    }
+
+    return await ctx.runAction(internal.calendly.eventTypes.syncForTenant, {
+      tenantId: currentUser.tenantId,
       reason: "manual_admin",
     });
   },
 });
 ```
 
-The implementation should follow the same authorization style as `syncMyTenantMembers` and `refreshMyTenantToken`.
+The implementation should follow the same authorization style as `syncMyTenantMembers` and `refreshMyTenantToken`. If the public action and full-sync implementation live in the same Node file, extracting a shared helper and calling it directly is preferred over action-to-action indirection; the authorization boundary remains the public action above.
 
-### 6.3 Recurring Reconciliation
+No OAuth-completion trigger and no cron are included in the MVP. Sync is intentionally explicit so admins control when Calendly metadata is imported.
 
-Add a daily cron that fans out active tenants, mirroring `sync-calendly-org-members`.
-
-```typescript
-// Path: convex/crons.ts
-crons.interval(
-  "sync-calendly-event-types",
-  { hours: 24 },
-  internal.calendly.eventTypes.syncAllTenants,
-  {},
-);
-```
-
-`syncAllTenants` should use `internal.calendly.tokenMutations.listActiveTenantIds` and schedule each tenant independently. If this app grows beyond one tenant, add staggered delays to avoid burst API traffic.
-
-### 6.4 Sync Lock and Latest Status
+### 6.3 Sync Lock and Latest Status
 
 Store lightweight sync state on `tenantCalendlyConnections`:
 
@@ -547,7 +564,8 @@ Store lightweight sync state on `tenantCalendlyConnections`:
 - `lastEventTypeSyncCompletedAt`
 - `lastEventTypeSyncStatus`
 - `lastEventTypeSyncError`
-- `lastEventTypeSyncCount`
+- `lastEventTypeSyncCount` (total Calendly event type resources seen in the last completed full sync)
+- `lastEventTypeSyncSummary` (optional structured counts for created, updated, unchanged, inactive, deleted, not returned, and questions merged)
 
 This is enough for the Settings UI and avoids an unbounded sync-run history table.
 
@@ -555,198 +573,19 @@ This is enough for the Settings UI and avoids an unbounded sync-run history tabl
 
 ---
 
-## 7. Phase 4: Event Type Webhook Reconciliation
+## 7. Phase 4: Manual Sync-Only Boundary
 
-### 7.1 Subscribe to Event Type Events
+Do not add Calendly `event_type.created`, `event_type.updated`, or `event_type.deleted` webhook subscriptions in the MVP.
 
-Add Calendly event type events to `SUBSCRIBED_EVENTS`:
+The existing scheduling webhooks stay in place for bookings, cancellations, no-shows, and routing form submissions. Event type metadata freshness is controlled by the admin clicking **Sync Event Types**. This avoids webhook subscription repair, event-type delivery idempotency, new raw webhook schema/index changes, and a second source of truth for event type metadata until the team has evidence that manual sync is not enough.
 
-```typescript
-// Path: convex/calendly/webhookSetup.ts
-const SUBSCRIBED_EVENTS = [
-  "invitee.created",
-  "invitee.canceled",
-  "invitee_no_show.created",
-  "invitee_no_show.deleted",
-  "routing_form_submission.created",
-  "event_type.created",
-  "event_type.updated",
-  "event_type.deleted",
-] as const;
-```
+The consequence is explicit and acceptable for MVP: if a Calendly admin changes an event type after the last sync, the CRM will not see that change until an admin clicks **Sync Event Types** again. Settings should display `lastEventTypeSyncCompletedAt` so admins can understand freshness.
 
-Calendly docs list these as valid for organization-scoped subscriptions with `event_types:read`.
+If event type webhooks are reconsidered later, design them as a separate phase with:
 
-### 7.2 Repair Existing Webhook Subscriptions
-
-Existing tenants already have an active webhook that lacks `event_type.*`. The health check must inspect the subscription's event list, not just its `state`.
-
-```typescript
-// Path: convex/calendly/healthCheck.ts
-type WebhookInspection =
-  | { state: "active"; eventsMatch: true }
-  | { state: "missing" | "disabled" | "events_mismatch"; eventsMatch: false };
-
-async function getWebhookSubscriptionState(accessToken: string, webhookUri: string) {
-  const webhookUuid = new URL(webhookUri).pathname
-    .split("/")
-    .filter(Boolean)
-    .pop();
-  if (!webhookUuid) {
-    throw new Error(`Invalid Calendly webhook URI: ${webhookUri}`);
-  }
-
-  const response = await fetch(`https://api.calendly.com/webhook_subscriptions/${webhookUuid}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (response.status === 404) {
-    return "missing";
-  }
-  if (!response.ok) {
-    throw new Error(
-      `Unable to inspect Calendly webhook subscription ${webhookUuid}: ${response.status} ${await response.text()}`,
-    );
-  }
-  const data = await response.json();
-  if (data.resource?.state === "disabled") {
-    return "disabled";
-  }
-  const events = new Set(data.resource?.events ?? []);
-  const eventsMatch = REQUIRED_WEBHOOK_EVENTS.every((event) => events.has(event));
-  return eventsMatch ? "active" : "events_mismatch";
-}
-```
-
-If events mismatch, replace the subscription without a delete-first gap:
-
-1. Create a replacement webhook first, using the same signing key and a versioned callback URL such as `/webhooks/calendly?tenantId=...&webhookVersion=<timestamp>`.
-2. Store the replacement `webhookUri` only after creation succeeds.
-3. Delete the old subscription after the new subscription is stored.
-4. If Calendly rejects replacement creation, leave the old subscription active and surface `events_mismatch` in health status.
-
-The HTTP handler should continue to trust only `tenantId` and signature verification; `webhookVersion` is only a callback URL differentiator so Calendly permits overlapping old/new subscriptions during repair.
-
-> **Blast radius:** Delete-first recreation can miss events that occur between delete and recreate, because Calendly cannot retry events that were never delivered to any active subscription. Creating the replacement before deleting the old subscription avoids that gap. A delete-first repair should be reserved for explicit maintenance when Calendly refuses overlapping callbacks and the operator accepts the delivery window.
-
-### 7.3 Process Event Type Webhooks
-
-The local Calendly docs now document the Event Type Webhook Payload for `event_type.created`, `event_type.updated`, and `event_type.deleted`. The payload shape materially matches the Event Type resource returned by `GET /event_types`, including:
-
-- `uri`
-- `name`
-- `active`
-- `scheduling_url`
-- `duration`
-- `duration_options`
-- `kind`
-- `type`
-- `pooling_type`
-- `profile`
-- `secret`
-- `booking_method`
-- `custom_questions`
-- `deleted_at`
-- `admin_managed`
-- `locations`
-- `position`
-- `locale`
-
-Process this payload immediately through the same normalization/upsert helper used by full sync. Then schedule a delayed tenant reconciliation as a backstop for burst edits, missed events, or any future Calendly payload drift.
-
-```typescript
-// Path: convex/pipeline/processor.ts
-case "event_type.created":
-case "event_type.updated":
-  await ctx.runMutation(
-    internal.calendly.eventTypeMutations.upsertEventTypeFromWebhook,
-    {
-      tenantId: rawEvent.tenantId,
-      payload,
-      receivedAt: rawEvent.receivedAt,
-    },
-  );
-  // Small delay coalesces bursts when an admin edits several Calendly event types.
-  await ctx.scheduler.runAfter(
-    5_000,
-    internal.calendly.eventTypes.syncForTenant,
-    {
-      tenantId: rawEvent.tenantId,
-      reason: rawEvent.eventType,
-    },
-  );
-  await ctx.runMutation(internal.pipeline.mutations.markProcessed, { rawEventId });
-  break;
-
-case "event_type.deleted":
-  await ctx.runMutation(
-    internal.calendly.eventTypeMutations.upsertEventTypeFromWebhook,
-    {
-      tenantId: rawEvent.tenantId,
-      payload,
-      receivedAt: rawEvent.receivedAt,
-    },
-  );
-  await ctx.scheduler.runAfter(
-    5_000,
-    internal.calendly.eventTypes.syncForTenant,
-    {
-      tenantId: rawEvent.tenantId,
-      reason: "event_type.deleted",
-    },
-  );
-  await ctx.runMutation(internal.pipeline.mutations.markProcessed, { rawEventId });
-  break;
-```
-
-```typescript
-// Path: convex/calendly/eventTypeMutations.ts
-export const upsertEventTypeFromWebhook = internalMutation({
-  args: {
-    tenantId: v.id("tenants"),
-    payload: v.any(),
-    receivedAt: v.number(),
-  },
-  handler: async (ctx, { tenantId, payload, receivedAt }) => {
-    const normalized = normalizeCalendlyEventTypeResource(payload);
-    if (!normalized) {
-      throw new Error("Malformed Calendly event type webhook payload");
-    }
-
-    return await upsertSingleEventTypeResource(ctx, {
-      tenantId,
-      normalized,
-      syncStartedAt: receivedAt,
-      source: "webhook",
-    });
-  },
-});
-```
-
-> **Decision rationale:** Webhook payloads give us low-latency updates without spending an API request per change. The delayed full sync remains valuable because it repairs any missed webhooks, handles subscription downtime, and reconciles rows that disappeared from Calendly responses.
-
-### 7.4 Raw Webhook Idempotency
-
-`convex/webhooks/calendly.ts` currently extracts an event URI from common payload fields and `persistRawEvent` dedupes by `(tenantId, eventType, calendlyEventUri)`. For event type webhooks, `payload.uri` is the event type resource URI, not a unique webhook delivery/event URI. Using it directly would drop every later `event_type.updated` for the same event type.
-
-Separate the webhook event key from the Calendly resource URI:
-
-```typescript
-// Path: convex/webhooks/calendly.ts
-function getCalendlyResourceUri(payload: unknown) {
-  const payloadBody = getPayloadBody(payload);
-  return payloadBody ? getNonEmptyString(payloadBody, "uri") : undefined;
-}
-
-function getWebhookEventKey(envelope: Record<string, unknown>) {
-  const eventType = getNonEmptyString(envelope, "event") ?? "unknown";
-  const createdAt = getNonEmptyString(envelope, "created_at") ?? Date.now().toString();
-  const resourceUri = getCalendlyResourceUri(envelope) ?? "unknown-resource";
-
-  return `${eventType}:${resourceUri}:${createdAt}`;
-}
-```
-
-For scheduling webhooks, the existing invitee/scheduled-event URI remains a stable dedupe key. For `event_type.*`, persist `webhookEventKey` for idempotency and `calendlyResourceUri = payload.uri` for debugging/support. `persistRawEvent` should dedupe on `by_tenantId_and_eventType_and_webhookEventKey` when `webhookEventKey` is present, falling back to the legacy `by_tenantId_and_eventType_and_calendlyEventUri` index for old callers. During rollout, keep writing the legacy `calendlyEventUri` field as the dedupe key if needed for existing indexes, but do not treat it as the resource URI for event type events.
+- A delivery idempotency key that does not collapse multiple `event_type.updated` deliveries for the same event type.
+- A replacement-first webhook subscription repair flow.
+- Explicit rollout and rollback steps for existing tenant subscriptions.
 
 ---
 
@@ -786,6 +625,7 @@ Update `EventTypeConfigList` to show:
 
 - CRM display name and Calendly name if different.
 - Active/inactive/deleted/not returned status.
+- Calendly invite link (`calendlySchedulingUrl`) and CRM portal base URL (`bookingBaseUrl`) when they differ.
 - Booking URL source.
 - Last synced time.
 - Existing portal readiness.
@@ -807,14 +647,21 @@ export function isCalendlyBookable(config: {
 
 export function isPortalBookable(config: {
   bookingBaseUrl?: string;
+  bookingUrlSource?: "admin_entered" | "imported_sheet" | "calendly_synced";
   bookingProgramId?: unknown;
   bookingProgramMappingStatus?: "mapped" | "unmapped";
+  calendlySchedulingUrl?: string;
   calendlySyncStatus?: "active" | "inactive" | "deleted" | "not_returned";
   linkPortalEnabled?: boolean;
 }) {
+  const hasTrustedBaseUrl =
+    config.bookingUrlSource !== "calendly_synced" ||
+    Boolean(config.calendlySchedulingUrl);
+
   return (
     config.linkPortalEnabled === true &&
     isCalendlyBookable(config) &&
+    hasTrustedBaseUrl &&
     Boolean(config.bookingBaseUrl) &&
     config.bookingProgramId !== undefined &&
     config.bookingProgramMappingStatus === "mapped"
@@ -876,18 +723,17 @@ Acceptable MVP shortcut for the single production tenant:
 
 | Scenario | Expected Result |
 |---|---|
-| Tenant connects Calendly | Event type sync is scheduled after webhook provisioning. |
+| Tenant connects Calendly | Existing Calendly connection and scheduling webhook provisioning remain unchanged; event type sync waits for an admin click. |
+| Admin clicks Sync Event Types | Public action derives tenant from auth, fetches all pages, and returns total seen plus merge counts. |
 | Manual sync with valid token | Creates missing `eventTypeConfigs`, updates metadata, preserves CRM fields. |
 | Manual sync with expired access token | `getValidAccessToken` refreshes token and sync continues. |
 | Calendly returns multiple pages | All pages are upserted; sync count equals total collection size. |
 | Existing admin display name | `displayName` is preserved; `calendlyName` updates. |
 | Existing admin booking URL | `bookingBaseUrl` is preserved; `calendlySchedulingUrl` updates. |
-| Empty booking URL | `bookingBaseUrl` initializes from `scheduling_url` with `bookingUrlSource = "calendly_synced"`. |
+| Empty booking URL | Valid `scheduling_url` is stored as `calendlySchedulingUrl` and initializes `bookingBaseUrl` with `bookingUrlSource = "calendly_synced"`. |
+| Invalid or missing `scheduling_url` | Row is still synced, no unsafe portal base URL is seeded, Calendly-synced base URLs are blocked from portal publishing, and readiness shows the missing invite link. |
 | New zero-booking event type with custom questions | Creates `eventTypeConfigs`, merges `knownCustomFieldKeys`, and creates `eventTypeFieldCatalog` rows. |
-| Deleted event type webhook | Row is marked deleted and `linkPortalEnabled` is set false. |
-| Multiple `event_type.updated` webhooks for the same URI | Each delivery is persisted and processed because dedupe uses `webhookEventKey`, not only `payload.uri`. |
-| Existing webhook lacks event type events | Health check detects mismatch, creates a replacement subscription, stores it, then deletes the old subscription. |
-| Webhook repair fails while creating replacement | Existing subscription remains active and health status reports `events_mismatch`. |
+| Deleted event type returned by manual sync | Row is marked deleted and `linkPortalEnabled` is set false. |
 
 ### 9.2 UI Verification
 
@@ -895,6 +741,7 @@ Acceptable MVP shortcut for the single production tenant:
 |---|---|
 | Settings > Calendly | Shows last event type sync status and manual sync button. |
 | Settings > Event Types | Shows all synced event types, including ones with zero bookings. |
+| Settings > Event Types URLs | Shows the Calendly invite link and the CRM portal base URL/source when available. |
 | Settings > Field Mappings | Shows synced custom questions before first booking when Calendly provides them. |
 | DM link portal | Does not show unpublished, deleted, inactive, or unmapped event types. |
 | DM link copy tracking | Rejects copied links for deleted, inactive, or not-returned event types even if the client has stale bootstrap data. |
@@ -906,9 +753,7 @@ Acceptable MVP shortcut for the single production tenant:
 2. Deploy event type sync functions and manual admin action.
 3. Trigger manual sync for the current production tenant.
 4. Verify event type counts against Calendly UI.
-5. Deploy webhook event subscription replacement repair and event type webhook processing.
-6. Run health check or reconnect flow to create a replacement tenant webhook with `event_type.*` events, verify it is stored, then delete the old subscription.
-7. Enable daily cron reconciliation.
+5. Keep existing scheduling webhook subscription unchanged.
 
 ---
 
@@ -958,7 +803,7 @@ eventTypeConfigs: defineTable({
       v.literal("webhook_discovered"),
     ),
   ),
-  calendlySchedulingUrl: v.optional(v.string()),
+  calendlySchedulingUrl: v.optional(v.string()), // Raw Calendly invite link from scheduling_url.
   calendlySlug: v.optional(v.string()),
   calendlyActive: v.optional(v.boolean()),
   calendlyDeletedAt: v.optional(v.string()), // Calendly ISO timestamp.
@@ -1039,6 +884,18 @@ tenantCalendlyConnections: defineTable({
   ),
   lastEventTypeSyncError: v.optional(v.string()),
   lastEventTypeSyncCount: v.optional(v.number()),
+  lastEventTypeSyncSummary: v.optional(
+    v.object({
+      totalSeen: v.number(),
+      created: v.number(),
+      updated: v.number(),
+      unchanged: v.number(),
+      inactive: v.number(),
+      deleted: v.number(),
+      notReturned: v.number(),
+      questionsMerged: v.number(),
+    }),
+  ),
 }).index("by_tenantId", ["tenantId"]),
 ```
 
@@ -1064,42 +921,7 @@ eventTypeFieldCatalog: defineTable({
   .index("by_tenantId_and_fieldKey", ["tenantId", "fieldKey"]),
 ```
 
-When rows are created from Calendly `custom_questions`, set `currentLabel` from `name`, `valueType` from `type`, and `lastSeenAt` from the sync/webhook timestamp. Booking-observed answers can continue to update labels using the existing `writeMeetingFormResponses` behavior.
-
-### 10.4 Modified: `rawWebhookEvents`
-
-Add optional fields to avoid conflating webhook delivery idempotency with Calendly resource identity:
-
-```typescript
-// Path: convex/schema.ts
-rawWebhookEvents: defineTable({
-  tenantId: v.id("tenants"),
-  calendlyEventUri: v.string(), // legacy dedupe key; keep for existing code during rollout.
-  webhookEventKey: v.optional(v.string()),
-  calendlyResourceUri: v.optional(v.string()),
-  eventType: v.string(),
-  payload: v.string(),
-  processed: v.boolean(),
-  receivedAt: v.number(),
-})
-  .index("by_tenantId_and_eventType", ["tenantId", "eventType"])
-  .index("by_tenantId_and_receivedAt", ["tenantId", "receivedAt"])
-  .index("by_calendlyEventUri", ["calendlyEventUri"])
-  .index("by_processed", ["processed"])
-  .index("by_processed_and_receivedAt", ["processed", "receivedAt"])
-  .index("by_tenantId_and_eventType_and_calendlyEventUri", [
-    "tenantId",
-    "eventType",
-    "calendlyEventUri",
-  ])
-  .index("by_tenantId_and_eventType_and_webhookEventKey", [
-    "tenantId",
-    "eventType",
-    "webhookEventKey",
-  ]),
-```
-
-For existing scheduling webhooks, `webhookEventKey` can equal the existing event/invitee URI. For `event_type.*`, `webhookEventKey` must include the root event type, resource URI, and root `created_at`; `calendlyResourceUri` stores `payload.uri`.
+When rows are created from Calendly `custom_questions`, set `currentLabel` from `name`, `valueType` from `type`, and `lastSeenAt` from the sync timestamp. Booking-observed answers can continue to update labels using the existing `writeMeetingFormResponses` behavior.
 
 ---
 
@@ -1108,15 +930,12 @@ For existing scheduling webhooks, `webhookEventKey` can equal the existing event
 ```text
 convex/
 |-- calendly/
-|   |-- eventTypes.ts                 # NEW - public/internal actions for full sync and fan-out
+|   |-- eventTypes.ts                 # NEW - public sync button action, optional internal action, and shared full-sync helper
 |   |-- eventTypeMutations.ts         # NEW - locks, upserts, status updates, deletion handling
 |   |-- connectionQueries.ts          # MODIFIED - expose latest event type sync state internally
 |   |-- oauthQueries.ts               # MODIFIED - expose latest event type sync state to Settings
-|   |-- oauth.ts                      # MODIFIED - schedule event type sync after OAuth completion
-|   |-- webhookSetup.ts               # MODIFIED - subscribe to event_type.* and expose required event list
-|   |-- healthCheck.ts                # MODIFIED - detect webhook event mismatch, repair subscription
 |   |-- tokens.ts                     # UNCHANGED - reused by event type sync
-|   `-- orgMembers.ts                 # REFERENCE - pattern for tenant sync fan-out and manual action
+|   `-- orgMembers.ts                 # REFERENCE - pattern for manual admin action authorization
 |-- eventTypeConfigs/
 |   |-- queries.ts                    # MODIFIED - return Calendly metadata and possibly paginate
 |   `-- mutations.ts                  # MODIFIED - mark displayNameSource/bookingUrlSource on admin edits
@@ -1124,13 +943,8 @@ convex/
 |   |-- tenantCalendlyConnection.ts   # MODIFIED - map new connection sync fields
 |   `-- eventTypeFields.ts            # NEW - shared question label normalization/catalog helpers
 |-- pipeline/
-|   |-- processor.ts                  # MODIFIED - handle event_type.* webhook events
 |   `-- inviteeCreated.ts             # MODIFIED - set displayNameSource on fallback inserts
-|-- webhooks/
-|   |-- calendly.ts                   # MODIFIED - separate webhook event key from Calendly resource URI
-|   `-- calendlyMutations.ts          # MODIFIED - dedupe by webhookEventKey when present
-|-- crons.ts                          # MODIFIED - daily sync-calendly-event-types
-`-- schema.ts                         # MODIFIED - optional metadata and webhook idempotency fields
+`-- schema.ts                         # MODIFIED - optional event type metadata fields
 ```
 
 ---
@@ -1158,7 +972,7 @@ The Settings page already uses workspace auth and `useRole().isAdmin` to redirec
 | Function | Type | Authorization |
 |---|---|---|
 | `api.calendly.eventTypes.syncMyTenantEventTypes` | public action | Current authenticated user must be `tenant_master` or `tenant_admin` in their tenant. |
-| `internal.calendly.eventTypes.syncForTenant` | internal action | Internal only; receives tenant ID from OAuth, cron, health check, or webhook processor. |
+| `internal.calendly.eventTypes.syncForTenant` | optional internal action/helper | Internal only; receives tenant ID from the authorized manual admin action or explicit operator/test code. |
 | `api.eventTypeConfigs.queries.listEventTypeConfigs` | query | Existing `requireTenantUser(ctx, ["tenant_master", "tenant_admin"])`. |
 | `api.eventTypeConfigs.mutations.upsertEventTypeConfig` | mutation | Existing `requireTenantUser(ctx, ["tenant_master", "tenant_admin"])`. |
 
@@ -1175,7 +989,7 @@ Never accept `tenantId` from the client for the public sync action. Derive it fr
 | Calendly access token | `tenantCalendlyConnections.calendlyAccessToken` | Never | Used only in Node actions. |
 | Calendly refresh token | `tenantCalendlyConnections.calendlyRefreshToken` | Never | Rotated by existing token refresh logic. |
 | Calendly client secret | Convex environment variable `CALENDLY_CLIENT_SECRET` | Never | Required for OAuth token exchange/refresh/introspection. |
-| Webhook signing key | `tenantCalendlyConnections.calendlyWebhookSigningKey` | Never | Used by webhook HTTP action to verify HMAC. |
+| Webhook signing key | `tenantCalendlyConnections.calendlyWebhookSigningKey` | Never | Existing scheduling webhook credential; not changed by this feature. |
 
 ### 13.2 Multi-Tenant Isolation
 
@@ -1183,7 +997,6 @@ Never accept `tenantId` from the client for the public sync action. Derive it fr
 - Event type upserts always include `tenantId`.
 - Queries use `by_tenantId` or `by_tenantId_and_calendlyEventTypeUri`.
 - Public admin action derives tenant from authenticated CRM user.
-- Webhook path includes tenant ID and verifies the tenant-specific signing key before persisting raw events.
 
 ### 13.3 Role-Based Data Access
 
@@ -1196,17 +1009,9 @@ Never accept `tenantId` from the client for the public sync action. Derive it fr
 | Calendly sync metadata | Full | Full | None unless included in meeting context | None |
 | Field mappings | Full | Full | None | None |
 
-### 13.4 Webhook Security
+### 13.4 Existing Webhook Security
 
-Existing webhook security remains unchanged:
-
-- Verify `Calendly-Webhook-Signature`.
-- HMAC-SHA256 over `timestamp.rawBody`.
-- Timing-safe comparison.
-- Reject stale timestamps outside the replay window.
-- Persist raw event only after signature passes.
-
-Event type webhooks go through the same path as scheduling webhooks.
+Existing scheduling webhook security remains unchanged. This feature does not add new webhook event subscriptions or change `convex/webhooks/calendly.ts`.
 
 ### 13.5 Rate Limit Awareness
 
@@ -1220,9 +1025,8 @@ This feature uses one request per event type page, usually one request per sync.
 
 - Use `count=100`.
 - Follow `pagination.next_page`.
-- On `429`, read `X-RateLimit-Reset` or default to a delayed retry.
+- On `429`, read `X-RateLimit-Reset` and show a clear retry-later message.
 - Avoid forcing a token refresh unless `getValidAccessToken` says the token is expiring soon.
-- Fan out tenants with a small stagger once there are multiple production tenants.
 
 ---
 
@@ -1237,7 +1041,7 @@ This feature uses one request per event type page, usually one request per sync.
 
 ### 14.2 Calendly User Lacks Org Event Type Permission
 
-**Scenario:** OAuth user can connect webhooks but cannot list organization event types.  
+**Scenario:** OAuth user can connect Calendly but cannot list organization event types.
 **Detection:** HTTP 403 with Calendly permission message.  
 **Recovery:** Same as missing scope: fail sync, preserve existing rows.  
 **User-facing behavior:** Admin sees failed sync status. Reconnect with an org admin account.
@@ -1253,8 +1057,8 @@ This feature uses one request per event type page, usually one request per sync.
 
 **Scenario:** Calendly returns 429.  
 **Detection:** HTTP 429 response.  
-**Recovery:** Schedule `syncForTenant` after `X-RateLimit-Reset` seconds or exponential backoff. Release sync lock before retry.  
-**User-facing behavior:** Manual sync toast says Calendly rate limited the request and retry is scheduled.
+**Recovery:** Mark latest status `failed`, clear the sync lock, and include the `X-RateLimit-Reset` hint if present.
+**User-facing behavior:** Manual sync toast says Calendly rate limited the request and tells the admin when to try again.
 
 ### 14.5 Partial Sync Failure
 
@@ -1263,17 +1067,17 @@ This feature uses one request per event type page, usually one request per sync.
 **Recovery:** Mark latest status `failed`. Do not run stale/missing marking because not all pages were seen.  
 **User-facing behavior:** Existing and newly upserted rows remain visible; stale states are not incorrectly applied.
 
-### 14.6 Concurrent Manual/Cron/Webhook Syncs
+### 14.6 Concurrent Manual Syncs
 
-**Scenario:** Admin clicks sync while cron or webhook-triggered sync is running.  
+**Scenario:** Admin clicks sync while another manual sync is running.
 **Detection:** `eventTypeSyncLockUntil` is active.  
 **Recovery:** Return `{ status: "skipped", reason: "lock_held" }` for the second caller.  
 **User-facing behavior:** Toast says a sync is already running.
 
 ### 14.7 Event Type Deleted in Calendly
 
-**Scenario:** Calendly sends `event_type.deleted` or full sync returns `deleted_at`.  
-**Detection:** Webhook event type or `deleted_at`.  
+**Scenario:** Manual sync returns `deleted_at`.
+**Detection:** `deleted_at` on the Event Type API resource.
 **Recovery:** Mark row deleted, disable `linkPortalEnabled`, preserve historical CRM config and references.  
 **User-facing behavior:** Settings row shows deleted; public portal hides it.
 
@@ -1305,12 +1109,12 @@ This feature uses one request per event type page, usually one request per sync.
 **Recovery:** Continue fetching pages until `next_page = null`.  
 **User-facing behavior:** All rows appear if UI query is paginated; otherwise a bounded-list warning must exist.
 
-### 14.12 Webhook Event Subscription Mismatch
+### 14.12 Missing or Invalid Invite Link
 
-**Scenario:** Existing webhook subscription lacks new `event_type.*` events.  
-**Detection:** Health check compares Calendly subscription events against required event list.  
-**Recovery:** Create a replacement subscription with the existing signing key and versioned callback URL, store it, then delete the old subscription. If replacement creation fails, keep the old subscription active and report `events_mismatch`.  
-**User-facing behavior:** No direct UI unless health card exposes repaired status.
+**Scenario:** Calendly returns an event type without `scheduling_url`, or the value is not a valid absolute `http`/`https` URL.
+**Detection:** URL validation fails during normalization.
+**Recovery:** Sync the event type metadata without storing `calendlySchedulingUrl`. Do not seed `bookingBaseUrl`; preserve admin-entered/imported URLs, and treat Calendly-synced base URLs as not portal-bookable until a valid invite link is seen again.
+**User-facing behavior:** Settings shows the row with missing invite-link readiness. The public portal does not publish a Calendly-synced base URL without a valid current `calendlySchedulingUrl`.
 
 ---
 
@@ -1322,12 +1126,11 @@ This is a schema widen only:
 
 - Add optional fields to `eventTypeConfigs`.
 - Add optional fields to `tenantCalendlyConnections`.
-- Add optional `webhookEventKey` and `calendlyResourceUri` fields to `rawWebhookEvents`, plus an index for `(tenantId, eventType, webhookEventKey)`.
 - Add one literal value, `"calendly_synced"`, to the optional `bookingUrlSource` union.
 
 No existing document becomes invalid. No required field is added. No field type changes. No data deletion.
 
-Per `convex-migration-helper`, no `@convex-dev/migrations` backfill is required for deployment. The first event type sync acts as an online backfill for Calendly metadata. Existing `rawWebhookEvents` do not need a backfill because `event_type.*` subscriptions are introduced by this feature and new webhook rows will write the separated keys.
+Per `convex-migration-helper`, no `@convex-dev/migrations` backfill is required for deployment. The first manual event type sync acts as an online backfill for Calendly metadata.
 
 ### 15.2 Application Blast Radius
 
@@ -1337,20 +1140,16 @@ Per `convex-migration-helper`, no `@convex-dev/migrations` backfill is required 
 | Link Portal | Auto-filled `bookingBaseUrl` could make a mapped event type ready sooner. | Keep `linkPortalEnabled` false unless admin explicitly publishes. Hide inactive/deleted rows. |
 | Field Mappings | Questions appear before first booking. | This is desired; keep booking-observed questions merged, not replaced. |
 | Meeting Detail / Calendar | `displayName` changes could confuse users. | Preserve source-less/admin-entered display names; use `calendlyName` separately. |
-| Webhook Delivery | Delete-first repair can miss events during the replacement window. | Create a replacement subscription with a versioned callback URL before deleting the old subscription; keep the same signing key and idempotent processing. |
-| Event Type Webhook Idempotency | Deduping `event_type.updated` by `payload.uri` drops future updates for the same event type. | Use `webhookEventKey` for delivery idempotency and keep `calendlyResourceUri` for the event type resource. |
-| API Rate Limits | Cron plus manual sync can overlap. | Lock per tenant and fan out with stagger. |
+| API Rate Limits | Admin can click manual sync repeatedly. | Lock per tenant and return a clear "sync already running" result. |
 | Existing Fallback Creation | Race can create row while sync is running. | Both paths upsert by `(tenantId, calendlyEventTypeUri)` and preserve metadata. |
 
 ### 15.3 Rollback
 
 If sync causes issues:
 
-1. Disable the new cron.
-2. Hide/remove the manual sync UI button.
-3. Leave optional metadata fields in schema; they do not affect existing behavior.
-4. Keep `invitee.created` fallback path running.
-5. If webhook event types cause noise, replace the subscription with one using the old event list.
+1. Hide/remove the manual sync UI button.
+2. Leave optional metadata fields in schema; they do not affect existing behavior.
+3. Keep `invitee.created` fallback path running.
 
 No rollback requires deleting data.
 
@@ -1363,7 +1162,7 @@ No rollback requires deleting data.
 | 1 | Should inactive event types be hidden by default in Settings? | Show them by default with an `Inactive` badge for transparency. Add filters later if noisy. |
 | 2 | Should deleted event types be shown forever? | Yes while referenced by meetings/opportunities/config. They are historical records and should not be deleted automatically. |
 | 3 | Should `bookingBaseUrl` auto-fill from Calendly `scheduling_url`? | Yes, only when empty or previously `calendly_synced`; never overwrite admin/imported values. |
-| 4 | ~~Should event type webhook payloads update rows directly?~~ | Resolved: yes. The local docs now document the full Event Type Webhook Payload. Still schedule delayed full sync as a reconciliation backstop. |
+| 4 | Should event type webhook payloads update rows directly? | No for MVP. Defer event type webhooks unless manual sync proves insufficient. |
 | 5 | Should sync use `organization` or per-user `user` queries? | Use `organization`; user queries would miss team/org event types and require more member fan-out. |
 | 6 | Should we add a sync-run history table? | Not in MVP. Latest status on the connection document is enough. |
 | 7 | Should `eventTypeConfigs` UI be fully paginated now? | Recommended if implementation time allows. A bounded 500-row MVP is acceptable for the current single tenant but should not be the long-term pattern. |
@@ -1382,7 +1181,7 @@ No rollback requires deleting data.
 
 | Package | Used For |
 |---|---|
-| `convex` | Actions, internal actions, queries, mutations, scheduler, crons. |
+| `convex` | Actions, internal actions, queries, mutations, and manual sync locking. |
 | `@convex-dev/migrations` | Not required for MVP; available if a future narrowing/backfill phase is added. |
 | `lucide-react` | Settings buttons and status icons. |
 | `sonner` | Admin sync result toasts. |
@@ -1396,15 +1195,13 @@ No rollback requires deleting data.
 | `NEXT_PUBLIC_CALENDLY_CLIENT_ID` | `.env.local` / deployment env | Fallback client ID source in existing code. |
 | `CALENDLY_CLIENT_SECRET` | Convex env / deployment env | OAuth token exchange, refresh, revoke/introspection. |
 | `NEXT_PUBLIC_APP_URL` | `.env.local` / deployment env | Calendly callback URL construction. |
-| `NEXT_PUBLIC_CONVEX_SITE_URL` | `.env.local` / deployment env | Webhook callback URL for Convex HTTP action. |
 | `NEXT_PUBLIC_CONVEX_URL` | `.env.local` / deployment env | Convex client and site URL fallback. |
 
 ### External Service Configuration
 
 | Service | Configuration |
 |---|---|
-| Calendly OAuth app | Current OAuth flow requests `event_types:read`, `webhooks:read`, and `webhooks:write`. No new app scope is required if the Calendly app is configured with those scopes. |
-| Calendly webhook subscription | Existing tenant subscription must be replaced or repaired to include `event_type.created`, `event_type.updated`, and `event_type.deleted`. |
+| Calendly OAuth app | Current OAuth flow already requests `event_types:read`. No new app scope is required for manual event type sync. |
 
 ---
 
@@ -1412,7 +1209,7 @@ No rollback requires deleting data.
 
 | Skill | When to Invoke | Phase(s) |
 |---|---|---|
-| `convex` | Any implementation of Convex actions, internal mutations, queries, crons, or webhook processors. | 2, 3, 4, 6 |
+| `convex` | Any implementation of Convex actions, internal mutations, queries, or sync locking. | 2, 3, 6 |
 | `convex-migration-helper` | If implementation changes from optional fields to required fields, type changes, or deletes/renames fields. | 1, 10, 15 |
 | `next-best-practices` | If Settings UI query contracts or server/client boundaries change significantly. | 5 |
 | `shadcn` | If adding or adjusting Settings UI controls, badges, buttons, or tabs. | 5 |

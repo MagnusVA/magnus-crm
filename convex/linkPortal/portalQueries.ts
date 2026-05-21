@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
+import { isPortalBookable } from "../lib/eventTypeBookability";
 
 export const getPortalBootstrapForSession = internalQuery({
 	args: {
@@ -45,7 +46,7 @@ export const getPortalBootstrapForSession = internalQuery({
 				ctx.db
 					.query("eventTypeConfigs")
 					.withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-					.take(100),
+					.take(500),
 			]);
 
 		const activeTeamById = new Map(
@@ -80,13 +81,7 @@ export const getPortalBootstrapForSession = internalQuery({
 					};
 				}),
 			bookablePrograms: eventTypeConfigs
-				.filter(
-					(config) =>
-						config.linkPortalEnabled === true &&
-						config.bookingBaseUrl &&
-						config.bookingProgramId &&
-						config.bookingProgramMappingStatus === "mapped",
-				)
+				.filter((config) => isPortalBookable(config))
 				.map((config) => ({
 					eventTypeConfigId: config._id,
 					eventTypeDisplayName: config.displayName,

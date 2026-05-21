@@ -2,8 +2,14 @@ import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
 
+const CALENDLY_EVENT_TYPE_WEBHOOK_PREFIX = "event_type";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isCalendlyEventTypeWebhook(eventType: string) {
+  return eventType.startsWith(`${CALENDLY_EVENT_TYPE_WEBHOOK_PREFIX}.`);
 }
 
 /**
@@ -105,9 +111,15 @@ export const processRawEvent = internalAction({
           break;
 
         default:
-          console.log(
-            `[Pipeline] Unhandled event type "${rawEvent.eventType}" for event ${rawEventId}`
-          );
+          if (isCalendlyEventTypeWebhook(rawEvent.eventType)) {
+            console.log(
+              `[Pipeline] Calendly event type webhook ignored for manual-sync MVP boundary: ${rawEvent.eventType} | rawEventId=${rawEventId}`,
+            );
+          } else {
+            console.log(
+              `[Pipeline] Unhandled event type "${rawEvent.eventType}" for event ${rawEventId}`,
+            );
+          }
           // Mark as processed to avoid retrying unknown event types
           await ctx.runMutation(internal.pipeline.mutations.markProcessed, {
             rawEventId,
