@@ -74,6 +74,7 @@ import type * as lib_constants from "../lib/constants.js";
 import type * as lib_domainEvents from "../lib/domainEvents.js";
 import type * as lib_domainEventsAction from "../lib/domainEventsAction.js";
 import type * as lib_domainEventsInternal from "../lib/domainEventsInternal.js";
+import type * as lib_eventTypeBookability from "../lib/eventTypeBookability.js";
 import type * as lib_eventTypeFields from "../lib/eventTypeFields.js";
 import type * as lib_formatMoney from "../lib/formatMoney.js";
 import type * as lib_identity from "../lib/identity.js";
@@ -311,6 +312,7 @@ declare const fullApi: ApiFromModules<{
   "lib/domainEvents": typeof lib_domainEvents;
   "lib/domainEventsAction": typeof lib_domainEventsAction;
   "lib/domainEventsInternal": typeof lib_domainEventsInternal;
+  "lib/eventTypeBookability": typeof lib_eventTypeBookability;
   "lib/eventTypeFields": typeof lib_eventTypeFields;
   "lib/formatMoney": typeof lib_formatMoney;
   "lib/identity": typeof lib_identity;

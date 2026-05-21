@@ -24,50 +24,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
-
-type PortalReadiness =
-  | "ready"
-  | "missing_url"
-  | "unmapped_program"
-  | "hidden";
+import {
+  READINESS_LABEL,
+  type PortalReadiness,
+  portalReadinessFor,
+  readinessBadgeVariant,
+} from "./portal-readiness";
 
 type EventTypeConfig = Doc<"eventTypeConfigs"> & {
   portalReadiness?: PortalReadiness;
 };
-
-const READINESS_LABEL: Record<PortalReadiness, string> = {
-  ready: "Ready",
-  missing_url: "Missing URL",
-  unmapped_program: "Unmapped program",
-  hidden: "Hidden",
-};
-
-function readinessFor(config: EventTypeConfig): PortalReadiness {
-  const hasMappedProgram =
-    config.bookingProgramId !== undefined &&
-    config.bookingProgramMappingStatus === "mapped";
-
-  if (config.linkPortalEnabled === true && config.bookingBaseUrl && hasMappedProgram) {
-    return "ready";
-  }
-  if (!config.bookingBaseUrl && hasMappedProgram) {
-    return "missing_url";
-  }
-  if (config.bookingBaseUrl && !hasMappedProgram) {
-    return "unmapped_program";
-  }
-  return "hidden";
-}
-
-function readinessBadgeVariant(readiness: PortalReadiness) {
-  if (readiness === "ready") {
-    return "secondary" as const;
-  }
-  if (readiness === "hidden") {
-    return "outline" as const;
-  }
-  return "destructive" as const;
-}
 
 export function PortalEventTypeReadinessCard({
   eventTypeConfigs,
@@ -111,7 +77,8 @@ export function PortalEventTypeReadinessCard({
       <CardHeader>
         <CardTitle>Portal Event Types</CardTitle>
         <CardDescription>
-          Publish only mapped Calendly event types with booking URLs.
+          Publish only mapped, currently bookable Calendly event types with
+          booking URLs.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -137,7 +104,8 @@ export function PortalEventTypeReadinessCard({
               </TableRow>
             ) : null}
             {eventTypeConfigs.map((config) => {
-              const readiness = config.portalReadiness ?? readinessFor(config);
+              const readiness =
+                config.portalReadiness ?? portalReadinessFor(config);
               const isPending = pendingConfigId === config._id;
               return (
                 <TableRow

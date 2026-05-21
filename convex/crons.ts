@@ -24,6 +24,7 @@ crons.interval(
   {},
 );
 
+// Event type metadata sync is manual-only for the MVP; do not add a recurring job here.
 crons.interval(
   "cleanup-expired-webhook-events",
   { hours: 24 },

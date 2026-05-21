@@ -435,14 +435,17 @@ export const completeEventTypeSync = internalMutation({
       return;
     }
 
-    await updateTenantCalendlyConnection(ctx, tenantId, {
-      eventTypeSyncLockUntil: undefined,
+    const patch = {
+      eventTypeSyncLockUntil:
+        status === "skipped" ? connection.eventTypeSyncLockUntil : undefined,
       lastEventTypeSyncCompletedAt: Date.now(),
       lastEventTypeSyncStatus: status,
       lastEventTypeSyncError: error,
       lastEventTypeSyncCount: totals?.totalSeen,
       lastEventTypeSyncSummary: totals,
-    });
+    };
+
+    await updateTenantCalendlyConnection(ctx, tenantId, patch);
 
     console.log("[Calendly:EventTypes] sync completed", {
       tenantId,

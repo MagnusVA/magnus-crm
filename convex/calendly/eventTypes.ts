@@ -4,11 +4,13 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
-import { internalAction } from "../_generated/server";
+import { action, internalAction } from "../_generated/server";
+import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 import { getValidAccessToken, refreshTenantTokenCore } from "./tokens";
 
 type TenantEventTypeSyncContext = {
   organizationUri?: string;
+  userUri?: string;
   tenantStatus: string;
 };
 
@@ -23,9 +25,22 @@ type EventTypeSyncTotals = {
   questionsMerged: number;
 };
 
+type ManualEventTypeSyncResult =
+  | ({ status: "success" } & EventTypeSyncTotals)
+  | {
+      status: "skipped";
+      reason: "lock_held";
+    };
+
 type CalendlyEventTypesPage = {
   collection: unknown[];
   nextPage: string | null;
+};
+
+type EventTypeSyncSource = {
+  kind: "organization" | "user";
+  userUri?: string;
+  firstPageUrl: string;
 };
 
 const EVENT_TYPE_SYNC_LOCK_MS = 5 * 60 * 1000;
@@ -76,6 +91,24 @@ function buildFirstEventTypesPageUrl(organizationUri: string) {
   )}&count=100`;
 }
 
+function buildFirstUserEventTypesPageUrl(
+  organizationUri: string,
+  userUri: string,
+) {
+  return `${CALENDLY_EVENT_TYPES_URL}?organization=${encodeURIComponent(
+    organizationUri,
+  )}&user=${encodeURIComponent(userUri)}&count=100`;
+}
+
+function getEventTypeResourceUri(value: unknown) {
+  if (!isRecord(value)) {
+    return null;
+  }
+  return typeof value.uri === "string" && value.uri.length > 0
+    ? value.uri
+    : null;
+}
+
 async function fetchEventTypesPage(
   url: string,
   accessToken: string,
@@ -86,6 +119,164 @@ async function fetchEventTypesPage(
       "Content-Type": "application/json",
     },
   });
+}
+
+async function fetchEventTypesPageWithRefresh(
+  ctx: ActionCtx,
+  tenantId: Id<"tenants">,
+  url: string,
+  accessToken: string,
+) {
+  let response = await fetchEventTypesPage(url, accessToken);
+  if (response.status !== 401) {
+    return { response, accessToken };
+  }
+
+  const refreshed = await refreshTenantTokenCore(ctx, tenantId);
+  if (!refreshed.refreshed) {
+    return { response, accessToken };
+  }
+
+  response = await fetchEventTypesPage(url, refreshed.accessToken);
+  return { response, accessToken: refreshed.accessToken };
+}
+
+function buildEventTypeSyncSources(args: {
+  organizationUri: string;
+  connectionUserUri?: string;
+  memberUserUris: string[];
+}) {
+  const sources: EventTypeSyncSource[] = [
+    {
+      kind: "organization",
+      firstPageUrl: buildFirstEventTypesPageUrl(args.organizationUri),
+    },
+  ];
+
+  const userUris = new Set<string>();
+  if (args.connectionUserUri) {
+    userUris.add(args.connectionUserUri);
+  }
+  for (const userUri of args.memberUserUris) {
+    userUris.add(userUri);
+  }
+
+  for (const userUri of userUris) {
+    sources.push({
+      kind: "user",
+      userUri,
+      firstPageUrl: buildFirstUserEventTypesPageUrl(
+        args.organizationUri,
+        userUri,
+      ),
+    });
+  }
+
+  return sources;
+}
+
+async function syncEventTypesSource(args: {
+  ctx: ActionCtx;
+  tenantId: Id<"tenants">;
+  syncStartedAt: number;
+  source: EventTypeSyncSource;
+  accessToken: string;
+  seenEventTypeUris: Set<string>;
+  totals: EventTypeSyncTotals;
+}) {
+  let accessToken = args.accessToken;
+  let nextPage: string | null = args.source.firstPageUrl;
+  const visitedPages = new Set<string>();
+
+  while (nextPage) {
+    if (visitedPages.has(nextPage)) {
+      throw new Error("Calendly event type pagination loop detected.");
+    }
+    visitedPages.add(nextPage);
+
+    console.log("[Calendly:EventTypes] fetching page", {
+      tenantId: args.tenantId,
+      source: args.source.kind,
+      userUri: args.source.userUri,
+      page: visitedPages.size,
+    });
+
+    const fetchResult = await fetchEventTypesPageWithRefresh(
+      args.ctx,
+      args.tenantId,
+      nextPage,
+      accessToken,
+    );
+    accessToken = fetchResult.accessToken;
+    const response = fetchResult.response;
+
+    if (response.status === 429) {
+      throw new Error(calendlyRateLimitMessage(response));
+    }
+    if (response.status === 403) {
+      throw new Error(
+        args.source.kind === "user"
+          ? `Calendly denied event type access for user ${args.source.userUri}.`
+          : "Calendly denied organization event type access. Reconnect Calendly with an owner or admin account.",
+      );
+    }
+    if (!response.ok) {
+      throw new Error(
+        `Calendly event type sync failed: ${response.status} ${await readCalendlyError(
+          response,
+        )}`,
+      );
+    }
+
+    const page = parseCalendlyEventTypesPage(await response.json());
+    const newResources: unknown[] = [];
+    for (const resource of page.collection) {
+      const resourceUri = getEventTypeResourceUri(resource);
+      if (!resourceUri) {
+        console.warn("[Calendly:EventTypes] skipping resource without uri", {
+          tenantId: args.tenantId,
+          source: args.source.kind,
+          userUri: args.source.userUri,
+        });
+        continue;
+      }
+      if (args.seenEventTypeUris.has(resourceUri)) {
+        continue;
+      }
+      args.seenEventTypeUris.add(resourceUri);
+      newResources.push(resource);
+    }
+
+    if (newResources.length > 0) {
+      const result: {
+        created: number;
+        updated: number;
+        unchanged: number;
+        inactive: number;
+        deleted: number;
+        questionsMerged: number;
+      } = await args.ctx.runMutation(
+        internal.calendly.eventTypeMutations.upsertEventTypesPage,
+        {
+          tenantId: args.tenantId,
+          syncStartedAt: args.syncStartedAt,
+          collection: newResources,
+        },
+      );
+
+      args.totals.totalSeen += newResources.length;
+      args.totals.created += result.created;
+      args.totals.updated += result.updated;
+      args.totals.unchanged += result.unchanged;
+      args.totals.inactive += result.inactive;
+      args.totals.deleted += result.deleted;
+      args.totals.questionsMerged += result.questionsMerged;
+    }
+
+    nextPage = page.nextPage;
+  }
+
+  return accessToken;
 }
 
 async function finalizeSuccessfulSync(
@@ -135,10 +326,17 @@ export const syncForTenant = internalAction({
         tenantId,
         lockUntil: lock.lockUntil,
       });
+      await ctx.runMutation(
+        internal.calendly.eventTypeMutations.completeEventTypeSync,
+        {
+          tenantId,
+          status: "skipped",
+          error: "An event type sync is already running.",
+        },
+      );
       return {
         status: "skipped" as const,
         reason: "lock_held" as const,
-        lockUntil: lock.lockUntil,
       };
     }
 
@@ -173,73 +371,33 @@ export const syncForTenant = internalAction({
         );
       }
 
-      let nextPage: string | null = buildFirstEventTypesPageUrl(
-        tenant.organizationUri,
+      const memberUserUris: string[] = await ctx.runQuery(
+        internal.calendly.orgMembersQueries.listMemberUserUrisForTenant,
+        { tenantId },
       );
-      const visitedPages = new Set<string>();
+      const sources = buildEventTypeSyncSources({
+        organizationUri: tenant.organizationUri,
+        connectionUserUri: tenant.userUri,
+        memberUserUris,
+      });
+      const seenEventTypeUris = new Set<string>();
 
-      while (nextPage) {
-        if (visitedPages.has(nextPage)) {
-          throw new Error("Calendly event type pagination loop detected.");
-        }
-        visitedPages.add(nextPage);
+      console.log("[Calendly:EventTypes] sync sources prepared", {
+        tenantId,
+        sourceCount: sources.length,
+        memberUserCount: memberUserUris.length,
+      });
 
-        console.log("[Calendly:EventTypes] fetching page", {
+      for (const source of sources) {
+        accessToken = await syncEventTypesSource({
+          ctx,
           tenantId,
-          page: visitedPages.size,
+          syncStartedAt: startedAt,
+          source,
+          accessToken,
+          seenEventTypeUris,
+          totals,
         });
-
-        let response = await fetchEventTypesPage(nextPage, accessToken);
-        if (response.status === 401) {
-          const refreshed = await refreshTenantTokenCore(ctx, tenantId);
-          if (refreshed.refreshed) {
-            accessToken = refreshed.accessToken;
-            response = await fetchEventTypesPage(nextPage, accessToken);
-          }
-        }
-
-        if (response.status === 429) {
-          throw new Error(calendlyRateLimitMessage(response));
-        }
-        if (response.status === 403) {
-          throw new Error(
-            "Calendly denied organization event type access. Reconnect Calendly with an owner or admin account.",
-          );
-        }
-        if (!response.ok) {
-          throw new Error(
-            `Calendly event type sync failed: ${response.status} ${await readCalendlyError(
-              response,
-            )}`,
-          );
-        }
-
-        const page = parseCalendlyEventTypesPage(await response.json());
-        const result: {
-          created: number;
-          updated: number;
-          unchanged: number;
-          inactive: number;
-          deleted: number;
-          questionsMerged: number;
-        } = await ctx.runMutation(
-          internal.calendly.eventTypeMutations.upsertEventTypesPage,
-          {
-            tenantId,
-            syncStartedAt: startedAt,
-            collection: page.collection,
-          },
-        );
-
-        totals.totalSeen += page.collection.length;
-        totals.created += result.created;
-        totals.updated += result.updated;
-        totals.unchanged += result.unchanged;
-        totals.inactive += result.inactive;
-        totals.deleted += result.deleted;
-        totals.questionsMerged += result.questionsMerged;
-
-        nextPage = page.nextPage;
       }
 
       return await finalizeSuccessfulSync(ctx, tenantId, startedAt, totals);
@@ -259,5 +417,47 @@ export const syncForTenant = internalAction({
       });
       throw error;
     }
+  },
+});
+
+/**
+ * Public manual event type sync trigger for tenant admins.
+ *
+ * OAuth completion, Calendly webhooks, and recurring jobs intentionally do not
+ * call the internal sync implementation in this MVP.
+ */
+export const syncMyTenantEventTypes = action({
+  args: {},
+  handler: async (ctx): Promise<ManualEventTypeSyncResult> => {
+    console.log("[Calendly:EventTypes] syncMyTenantEventTypes called");
+
+    const access = await requireTenantUserFromAction(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    const result: ManualEventTypeSyncResult = await ctx.runAction(
+      internal.calendly.eventTypes.syncForTenant,
+      {
+        tenantId: access.tenantId,
+        reason: "manual_admin",
+      },
+    );
+
+    if (result.status === "skipped") {
+      console.log("[Calendly:EventTypes] manual sync skipped", {
+        tenantId: access.tenantId,
+        reason: result.reason,
+      });
+      return result;
+    }
+
+    console.log("[Calendly:EventTypes] manual sync complete", {
+      tenantId: access.tenantId,
+      totalSeen: result.totalSeen,
+      created: result.created,
+      updated: result.updated,
+    });
+    return result;
   },
 });

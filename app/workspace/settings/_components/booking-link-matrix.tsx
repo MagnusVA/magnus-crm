@@ -12,40 +12,16 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
+import {
+  READINESS_LABEL,
+  type PortalReadiness,
+  portalReadinessFor,
+} from "./portal-readiness";
 
 type DmCloserRow = Doc<"dmClosers"> & { teamLabel: string };
-type PortalReadiness =
-  | "ready"
-  | "missing_url"
-  | "unmapped_program"
-  | "hidden";
 type EventTypeConfigRow = Doc<"eventTypeConfigs"> & {
   portalReadiness?: PortalReadiness;
 };
-
-const READINESS_LABEL: Record<PortalReadiness, string> = {
-  ready: "Ready",
-  missing_url: "Missing URL",
-  unmapped_program: "Unmapped program",
-  hidden: "Hidden",
-};
-
-function readinessFor(config: EventTypeConfigRow): PortalReadiness {
-  const hasMappedProgram =
-    config.bookingProgramId !== undefined &&
-    config.bookingProgramMappingStatus === "mapped";
-
-  if (config.linkPortalEnabled === true && config.bookingBaseUrl && hasMappedProgram) {
-    return "ready";
-  }
-  if (!config.bookingBaseUrl && hasMappedProgram) {
-    return "missing_url";
-  }
-  if (config.bookingBaseUrl && !hasMappedProgram) {
-    return "unmapped_program";
-  }
-  return "hidden";
-}
 
 export function BookingLinkMatrix({
   teams,
@@ -82,7 +58,8 @@ export function BookingLinkMatrix({
           </TableHeader>
           <TableBody>
             {eventTypeConfigs.map((config) => {
-              const readiness = config.portalReadiness ?? readinessFor(config);
+              const readiness =
+                config.portalReadiness ?? portalReadinessFor(config);
               return (
                 <TableRow
                   key={config._id}
@@ -100,13 +77,18 @@ export function BookingLinkMatrix({
                   <TableCell>
                     <Badge
                       variant={
-                        config.linkPortalEnabled === true
+                        config.linkPortalEnabled === true &&
+                        readiness === "ready"
                           ? "secondary"
-                          : "outline"
+                          : readiness === "hidden"
+                            ? "outline"
+                            : "destructive"
                       }
                     >
                       {config.linkPortalEnabled === true
-                        ? "Visible"
+                        ? readiness === "ready"
+                          ? "Visible"
+                          : READINESS_LABEL[readiness]
                         : READINESS_LABEL[readiness]}
                     </Badge>
                   </TableCell>

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
+import { isCalendlyBookable } from "../lib/eventTypeBookability";
 import { validateRequiredString } from "../lib/validation";
 import { requireTenantUser } from "../requireTenantUser";
 
@@ -234,6 +235,15 @@ export const setLinkPortalEnabled = mutation({
     }
 
     if (linkPortalEnabled) {
+      if (!isCalendlyBookable(config)) {
+        throw new Error("This Calendly event type is not currently bookable.");
+      }
+      if (
+        config.bookingUrlSource === "calendly_synced" &&
+        !config.calendlySchedulingUrl
+      ) {
+        throw new Error("Sync a valid Calendly invite link before publishing.");
+      }
       if (!config.bookingBaseUrl) {
         throw new Error("Add a booking URL before publishing this event type.");
       }

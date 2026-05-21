@@ -24,6 +24,7 @@ import {
   RefreshCwIcon,
   LinkIcon,
   UsersIcon,
+  CalendarSyncIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -40,6 +41,21 @@ interface ConnectionStatus {
   hasWebhookSigningKey: boolean;
   hasAccessToken: boolean;
   hasRefreshToken: boolean;
+  eventTypeSyncInProgress: boolean;
+  lastEventTypeSyncCompletedAt: number | null;
+  lastEventTypeSyncStatus: "success" | "failed" | "skipped" | null;
+  lastEventTypeSyncError: string | null;
+  lastEventTypeSyncCount: number | null;
+  lastEventTypeSyncSummary: {
+    totalSeen: number;
+    created: number;
+    updated: number;
+    unchanged: number;
+    inactive: number;
+    deleted: number;
+    notReturned: number;
+    questionsMerged: number;
+  } | null;
 }
 
 interface CalendlyConnectionProps {
@@ -51,8 +67,12 @@ export function CalendlyConnection({
 }: CalendlyConnectionProps) {
   const refreshToken = useAction(api.calendly.tokens.refreshMyTenantToken);
   const syncMembers = useAction(api.calendly.orgMembers.syncMyTenantMembers);
+  const syncEventTypes = useAction(
+    api.calendly.eventTypes.syncMyTenantEventTypes,
+  );
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isSyncingEventTypes, setIsSyncingEventTypes] = useState(false);
 
   if (!connectionStatus) {
     return null;
@@ -109,6 +129,29 @@ export function CalendlyConnection({
     }
   };
 
+  const handleSyncEventTypes = async () => {
+    setIsSyncingEventTypes(true);
+    try {
+      const result = await syncEventTypes();
+      posthog.capture("calendly_event_types_synced", result);
+
+      if (result.status === "skipped") {
+        toast.info("An event type sync is already running.");
+        return;
+      }
+
+      toast.success(
+        `Synced ${result.totalSeen} event types: ${result.created} new, ${result.updated} updated.`,
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Failed to sync event types",
+      );
+    } finally {
+      setIsSyncingEventTypes(false);
+    }
+  };
+
   const handleReconnect = () => {
     posthog.capture("calendly_reconnected", {
       was_connected: isConnected,
@@ -121,6 +164,10 @@ export function CalendlyConnection({
     });
     window.location.href = `/api/calendly/start?${params.toString()}`;
   };
+
+  const isEventTypeSyncing =
+    isSyncingEventTypes || connectionStatus.eventTypeSyncInProgress;
+  const syncSummary = connectionStatus.lastEventTypeSyncSummary;
 
   return (
     <Card>
@@ -193,7 +240,69 @@ export function CalendlyConnection({
           </div>
         )}
 
-        <div className="flex gap-2 pt-2">
+        <div className="border-t pt-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <div>
+              <p className="text-xs text-muted-foreground">
+                Last Event Type Sync
+              </p>
+              <p className="mt-1 text-sm font-medium">
+                {connectionStatus.lastEventTypeSyncCompletedAt
+                  ? formatCalendlyLastRefresh(
+                      connectionStatus.lastEventTypeSyncCompletedAt,
+                      now,
+                    )
+                  : "Never synced"}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Sync Status</p>
+              <div className="mt-1">
+                <Badge
+                  variant={
+                    connectionStatus.lastEventTypeSyncStatus === "failed"
+                      ? "destructive"
+                      : connectionStatus.lastEventTypeSyncStatus === "success"
+                        ? "secondary"
+                        : "outline"
+                  }
+                >
+                  {connectionStatus.lastEventTypeSyncStatus
+                    ? connectionStatus.lastEventTypeSyncStatus.replace(
+                        /_/g,
+                        " ",
+                      )
+                    : "Not run"}
+                </Badge>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Synced Count</p>
+              <p className="mt-1 text-sm font-medium">
+                {connectionStatus.lastEventTypeSyncCount ?? "-"}
+              </p>
+            </div>
+            {syncSummary ? (
+              <div>
+                <p className="text-xs text-muted-foreground">Last Summary</p>
+                <p className="mt-1 text-sm font-medium">
+                  {syncSummary.created} new, {syncSummary.updated} updated
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {syncSummary.inactive} inactive, {syncSummary.deleted}{" "}
+                  deleted, {syncSummary.notReturned} not returned
+                </p>
+              </div>
+            ) : null}
+          </div>
+          {connectionStatus.lastEventTypeSyncError ? (
+            <p className="mt-3 text-xs text-destructive">
+              {connectionStatus.lastEventTypeSyncError}
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex flex-wrap gap-2 pt-2">
           <Button
             variant="outline"
             size="sm"
@@ -219,6 +328,19 @@ export function CalendlyConnection({
               <UsersIcon data-icon="inline-start" />
             )}
             {isSyncing ? "Syncing Members..." : "Sync Members"}
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleSyncEventTypes}
+            disabled={isEventTypeSyncing || !isConnected}
+          >
+            {isEventTypeSyncing ? (
+              <Spinner data-icon="inline-start" />
+            ) : (
+              <CalendarSyncIcon data-icon="inline-start" />
+            )}
+            {isEventTypeSyncing ? "Syncing Event Types..." : "Sync Event Types"}
           </Button>
           <Button variant="outline" size="sm" onClick={handleReconnect}>
             <LinkIcon data-icon="inline-start" />
