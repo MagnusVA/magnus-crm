@@ -27,6 +27,7 @@ export function PipelineReportSkeleton() {
           <Skeleton key={i} className="h-9 w-24" />
         ))}
       </div>
+      <Skeleton className="h-36 rounded-lg" />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Skeleton className="h-[340px] rounded-lg" />
         <Skeleton className="h-[340px] rounded-lg" />

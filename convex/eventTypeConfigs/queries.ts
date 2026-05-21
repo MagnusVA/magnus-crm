@@ -2,6 +2,34 @@ import { v } from "convex/values";
 import { internalQuery, query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 
+type PortalReadiness =
+  | "ready"
+  | "missing_url"
+  | "unmapped_program"
+  | "hidden";
+
+function portalReadiness(config: {
+  linkPortalEnabled?: boolean;
+  bookingBaseUrl?: string;
+  bookingProgramId?: unknown;
+  bookingProgramMappingStatus?: "mapped" | "unmapped";
+}): PortalReadiness {
+  const hasMappedProgram =
+    config.bookingProgramId !== undefined &&
+    config.bookingProgramMappingStatus === "mapped";
+
+  if (config.linkPortalEnabled === true && config.bookingBaseUrl && hasMappedProgram) {
+    return "ready";
+  }
+  if (!config.bookingBaseUrl && hasMappedProgram) {
+    return "missing_url";
+  }
+  if (config.bookingBaseUrl && !hasMappedProgram) {
+    return "unmapped_program";
+  }
+  return "hidden";
+}
+
 export const getById = internalQuery({
   args: { eventTypeConfigId: v.id("eventTypeConfigs") },
   handler: async (ctx, { eventTypeConfigId }) => {
@@ -30,7 +58,10 @@ export const listEventTypeConfigs = query({
       .take(100);
 
     console.log("[EventTypeConfig] listEventTypeConfigs result", { count: configs.length });
-    return configs;
+    return configs.map((config) => ({
+      ...config,
+      portalReadiness: portalReadiness(config),
+    }));
   },
 });
 
@@ -77,6 +108,7 @@ export const getEventTypeConfigsWithStats = query({
 
         return {
           ...config,
+          portalReadiness: portalReadiness(config),
           bookingCount,
           lastBookingAt,
           fieldCount: config.knownCustomFieldKeys?.length ?? 0,

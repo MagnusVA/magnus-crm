@@ -106,10 +106,12 @@ export const upsertEventTypeConfig = mutation({
     calendlyEventTypeUri: v.string(),
     displayName: v.string(),
     paymentLinks: v.optional(v.array(paymentLinkValidator)),
+    bookingProgramId: v.optional(v.id("tenantPrograms")),
+    bookingBaseUrl: v.optional(v.string()),
   },
   handler: async (
     ctx,
-    { calendlyEventTypeUri, displayName, paymentLinks },
+    { calendlyEventTypeUri, displayName, paymentLinks, bookingProgramId, bookingBaseUrl },
   ) => {
     console.log("[EventTypeConfig] upsertEventTypeConfig called", { displayName, hasPaymentLinks: !!paymentLinks });
     const { tenantId } = await requireTenantUser(ctx, [
@@ -137,6 +139,37 @@ export const upsertEventTypeConfig = mutation({
     const normalizedEventTypeUri = calendlyEventTypeUri.trim();
     const normalizedDisplayName = displayName.trim();
     const normalizedPaymentLinks = normalizePaymentLinks(paymentLinks);
+    const program = bookingProgramId
+      ? await ctx.db.get(bookingProgramId)
+      : null;
+    if (
+      bookingProgramId &&
+      (!program || program.tenantId !== tenantId || program.archivedAt)
+    ) {
+      throw new Error("Booked program not found.");
+    }
+    const trimmedBookingBaseUrl = bookingBaseUrl?.trim() || undefined;
+    if (trimmedBookingBaseUrl) {
+      try {
+        const parsed = new URL(trimmedBookingBaseUrl);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          throw new Error("Invalid URL protocol");
+        }
+      } catch {
+        throw new Error("Booking base URL must be a valid http/https URL.");
+      }
+    }
+    const bookingProgramPatch = program
+      ? {
+          bookingProgramId: program._id,
+          bookingProgramName: program.name,
+          bookingProgramMappingStatus: "mapped" as const,
+        }
+      : {
+          bookingProgramId: undefined,
+          bookingProgramName: undefined,
+          bookingProgramMappingStatus: "unmapped" as const,
+        };
 
     const existing = await ctx.db
       .query("eventTypeConfigs")
@@ -155,6 +188,10 @@ export const upsertEventTypeConfig = mutation({
           normalizedPaymentLinks === undefined
             ? existing.paymentLinks
             : normalizedPaymentLinks,
+        ...bookingProgramPatch,
+        bookingBaseUrl: trimmedBookingBaseUrl,
+        bookingUrlSource: trimmedBookingBaseUrl ? "admin_entered" : undefined,
+        updatedAt: Date.now(),
       });
 
       console.log("[EventTypeConfig] upsertEventTypeConfig updated", { configId: existing._id });
@@ -166,11 +203,64 @@ export const upsertEventTypeConfig = mutation({
       calendlyEventTypeUri: normalizedEventTypeUri,
       displayName: normalizedDisplayName,
       paymentLinks: normalizedPaymentLinks,
+      ...bookingProgramPatch,
+      bookingBaseUrl: trimmedBookingBaseUrl,
+      bookingUrlSource: trimmedBookingBaseUrl ? "admin_entered" : undefined,
       createdAt: Date.now(),
+      updatedAt: Date.now(),
     });
 
     console.log("[EventTypeConfig] upsertEventTypeConfig created", { configId });
     return configId;
+  },
+});
+
+export const setLinkPortalEnabled = mutation({
+  args: {
+    eventTypeConfigId: v.id("eventTypeConfigs"),
+    linkPortalEnabled: v.boolean(),
+  },
+  handler: async (ctx, { eventTypeConfigId, linkPortalEnabled }) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    const config = await ctx.db.get(eventTypeConfigId);
+    if (!config || config.tenantId !== tenantId) {
+      throw new Error("Event type configuration not found.");
+    }
+
+    if (linkPortalEnabled) {
+      if (!config.bookingBaseUrl) {
+        throw new Error("Add a booking URL before publishing this event type.");
+      }
+      try {
+        const parsed = new URL(config.bookingBaseUrl);
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          throw new Error("Invalid URL protocol");
+        }
+      } catch {
+        throw new Error("Add a valid booking URL before publishing this event type.");
+      }
+
+      if (
+        !config.bookingProgramId ||
+        config.bookingProgramMappingStatus !== "mapped"
+      ) {
+        throw new Error("Map a booked program before publishing this event type.");
+      }
+    }
+
+    if (config.linkPortalEnabled === linkPortalEnabled) {
+      return eventTypeConfigId;
+    }
+
+    await ctx.db.patch(eventTypeConfigId, {
+      linkPortalEnabled,
+      updatedAt: Date.now(),
+    });
+    return eventTypeConfigId;
   },
 });
 

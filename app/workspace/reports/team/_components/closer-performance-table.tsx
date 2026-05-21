@@ -88,7 +88,7 @@ export function CloserPerformanceTable({
     <Table className="min-w-[76rem]">
       <TableHeader>
         <TableRow>
-          <TableHead>Closer</TableHead>
+          <TableHead>Phone closer</TableHead>
           <TableHead className="text-right">Booked</TableHead>
           <TableHead className="text-right">Canceled</TableHead>
           <TableHead className="text-right">No Shows</TableHead>
@@ -101,9 +101,9 @@ export function CloserPerformanceTable({
           <TableHead className="text-right">Showed</TableHead>
           <TableHead className="text-right">Show-Up Rate</TableHead>
           <TableHead className="border-l border-border/70 pl-4 text-right">
-            Sales
+            Payment sales
           </TableHead>
-          <TableHead className="text-right">Cash Collected</TableHead>
+          <TableHead className="text-right">Payment revenue</TableHead>
           <TableHead className="text-right">
             <Tooltip>
               <TooltipTrigger asChild>
@@ -124,8 +124,8 @@ export function CloserPerformanceTable({
               </TooltipContent>
             </Tooltip>
           </TableHead>
-          <TableHead className="text-right">Close Rate</TableHead>
-          <TableHead className="text-right">Avg Deal</TableHead>
+          <TableHead className="text-right">Payment close rate</TableHead>
+          <TableHead className="text-right">Avg payment deal</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>

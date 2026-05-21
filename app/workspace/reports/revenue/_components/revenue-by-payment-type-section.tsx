@@ -84,7 +84,8 @@ export function RevenueByPaymentTypeSection({
       <CardHeader>
         <CardTitle>Revenue by Payment Type</CardTitle>
         <CardDescription>
-          Totals per payment type across all selected slices and programs.
+          Totals per payment type across all selected slices and payment
+          programs.
         </CardDescription>
       </CardHeader>
       <CardContent>

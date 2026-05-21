@@ -269,6 +269,7 @@ export const getLeadDetail = query({
           followUps: [],
           mergeHistory: [],
           potentialDuplicates: [],
+          qualificationEvents: [],
         };
       }
 
@@ -284,6 +285,7 @@ export const getLeadDetail = query({
       followUps,
       mergeHistoryAsSource,
       mergeHistoryAsTarget,
+      rawQualificationEvents,
     ] = await Promise.all([
       ctx.db
         .query("leadIdentifiers")
@@ -312,6 +314,13 @@ export const getLeadDetail = query({
         .query("leadMergeHistory")
         .withIndex("by_targetLeadId", (q) => q.eq("targetLeadId", leadId))
         .take(20),
+      ctx.db
+        .query("slackQualificationEvents")
+        .withIndex("by_tenantId_and_leadId_and_submittedAt", (q) =>
+          q.eq("tenantId", tenantId).eq("leadId", leadId),
+        )
+        .order("desc")
+        .take(20),
     ]);
 
     const closerIds = new Set<Id<"users">>();
@@ -324,8 +333,11 @@ export const getLeadDetail = query({
         eventTypeConfigIds.add(opportunity.eventTypeConfigId);
       }
     }
+    const slackUserIds = [
+      ...new Set(rawQualificationEvents.map((event) => event.slackUserId)),
+    ];
 
-    const [closers, eventTypes] = await Promise.all([
+    const [closers, eventTypes, slackUsers] = await Promise.all([
       Promise.all(
         [...closerIds].map(async (closerId) => ({
           closerId,
@@ -336,6 +348,17 @@ export const getLeadDetail = query({
         [...eventTypeConfigIds].map(async (eventTypeConfigId) => ({
           eventTypeConfigId,
           eventType: await ctx.db.get(eventTypeConfigId),
+        })),
+      ),
+      Promise.all(
+        slackUserIds.map(async (slackUserId) => ({
+          slackUserId,
+          slackUser: await ctx.db
+            .query("slackUsers")
+            .withIndex("by_tenantId_and_slackUserId", (q) =>
+              q.eq("tenantId", tenantId).eq("slackUserId", slackUserId),
+            )
+            .first(),
         })),
       ),
     ]);
@@ -355,6 +378,16 @@ export const getLeadDetail = query({
         eventType?.displayName ?? null,
       ]),
     );
+    const slackUserById = new Map(
+      slackUsers.map(({ slackUserId, slackUser }) => [
+        slackUserId,
+        slackUser?.displayName?.trim() ||
+          slackUser?.realName?.trim() ||
+          slackUser?.username?.trim() ||
+          slackUser?.slackUserId ||
+          slackUserId,
+      ]),
+    );
 
     const opportunities: LeadDetailOpportunity[] = rawOpportunities.map(
       (opportunity) => ({
@@ -367,6 +400,17 @@ export const getLeadDetail = query({
           : null,
       }),
     );
+    const qualificationEvents = rawQualificationEvents.map((event) => ({
+      _id: event._id,
+      resultKind: event.resultKind,
+      slackUserId: event.slackUserId,
+      slackUserLabel: slackUserById.get(event.slackUserId) ?? event.slackUserId,
+      submittedAt: event.submittedAt,
+      opportunityId: event.opportunityId,
+      fullNameSnapshot: event.fullNameSnapshot,
+      platform: event.platform,
+      handleSnapshot: event.handleSnapshot,
+    }));
 
     const meetingsByOpportunity = await Promise.all(
       opportunities.map(async (opportunity) => {
@@ -490,6 +534,7 @@ export const getLeadDetail = query({
       followUpCount: followUps.length,
       mergeHistoryCount: mergeHistory.length,
       potentialDuplicateCount: potentialDuplicates.length,
+      qualificationEventCount: qualificationEvents.length,
     });
 
     return {
@@ -501,6 +546,7 @@ export const getLeadDetail = query({
       followUps,
       mergeHistory,
       potentialDuplicates,
+      qualificationEvents,
     };
   },
 });

@@ -18,6 +18,16 @@ const ACTION_REQUIRED_ERRORS = new Set([
   "not_in_channel",
 ]);
 
+type StaleOpportunityDigestRow = {
+  opportunityId: string;
+  createdAt: number;
+  leadFullName: string | null;
+  leadEmail: string | null;
+  platform: StaleLeadDigestEntry["platform"];
+  handle: string;
+  qualifiedBySlackUserId: string;
+};
+
 export const maybeRun = internalAction({
   args: {},
   handler: async (ctx) => {
@@ -78,7 +88,10 @@ export const postForTenant = internalAction({
       return;
     }
 
-    const stale = await ctx.runQuery(
+    const stale: {
+      opps: StaleOpportunityDigestRow[];
+      hasMore: boolean;
+    } = await ctx.runQuery(
       internal.slack.staleRemindersData.listStaleOpportunities,
       {
         tenantId: installation.tenantId,

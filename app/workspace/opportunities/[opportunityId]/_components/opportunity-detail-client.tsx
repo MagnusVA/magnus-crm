@@ -8,9 +8,11 @@ import {
   BellRingIcon,
   CalendarXIcon,
   MailIcon,
+  MessageSquareTextIcon,
   PhoneIcon,
   UserRoundIcon,
 } from "lucide-react";
+import { EntityAttributionCard } from "@/app/workspace/_components/entity-attribution-card";
 import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
 import { StatusBadge } from "@/components/status-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -100,6 +102,7 @@ export function OpportunityDetailClient({
     events,
     pendingStaleNudge,
     permissions,
+    attribution,
   } = data;
   const isSideDeal = opportunity.source === "side_deal";
   const displayName = lead?.fullName ?? lead?.email ?? "Unknown lead";
@@ -156,6 +159,19 @@ export function OpportunityDetailClient({
             This side-deal opportunity has been sitting with no activity.
             Record payment, mark it lost, or delete it if it was created by
             mistake.
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {attribution?.slackQualification ? (
+        <Alert>
+          <MessageSquareTextIcon aria-hidden="true" />
+          <AlertDescription>
+            Qualified via Slack by{" "}
+            <span className="font-medium">
+              {attribution.slackQualification.slackUserLabel}
+            </span>{" "}
+            on {formatDateTime(attribution.slackQualification.submittedAt)}.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -264,6 +280,10 @@ export function OpportunityDetailClient({
           </Card>
         </SectionErrorBoundary>
       </div>
+
+      <SectionErrorBoundary sectionName="Attribution">
+        <EntityAttributionCard attribution={attribution} />
+      </SectionErrorBoundary>
 
       <SectionErrorBoundary sectionName="Meetings">
         <Card>

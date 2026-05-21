@@ -1,5 +1,14 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import {
+  attributionResolutionValidator,
+  bookingProgramMappingStatusValidator,
+} from "./lib/attribution/validators";
+import {
+  slackQualificationResultKindValidator,
+} from "./operations/validators";
+import { opportunityStatusValidator } from "./opportunities/validators";
+import { portalPasswordHashParamsValidator } from "./lib/linkPortal/validators";
 import { paymentOriginValidator, paymentTypeValidator } from "./lib/paymentTypes";
 import { socialPlatformValidator } from "./lib/socialPlatform";
 import { utmParamsValidator } from "./lib/utmParams";
@@ -209,6 +218,112 @@ export default defineSchema({
     .index("by_targetLeadId", ["targetLeadId"]),
   // === End Feature C ===
 
+  attributionTeams: defineTable({
+    tenantId: v.id("tenants"),
+    slug: v.string(),
+    displayName: v.string(),
+    utmSource: v.string(),
+    normalizedUtmSource: v.string(),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_tenantId_and_slug", ["tenantId", "slug"])
+    .index("by_tenantId_and_normalizedUtmSource", [
+      "tenantId",
+      "normalizedUtmSource",
+    ]),
+
+  dmClosers: defineTable({
+    tenantId: v.id("tenants"),
+    teamId: v.id("attributionTeams"),
+    slug: v.string(),
+    displayName: v.string(),
+    utmMedium: v.string(),
+    normalizedUtmMedium: v.string(),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId_and_teamId", ["tenantId", "teamId"])
+    .index("by_tenantId_and_slug", ["tenantId", "slug"])
+    .index("by_tenantId_and_normalizedUtmMedium", [
+      "tenantId",
+      "normalizedUtmMedium",
+    ]),
+
+  linkPortalConfigs: defineTable({
+    tenantId: v.id("tenants"),
+    publicSlug: v.string(),
+    isEnabled: v.boolean(),
+    passwordHash: v.optional(v.string()),
+    passwordSalt: v.optional(v.string()),
+    passwordHashParams: v.optional(portalPasswordHashParamsValidator),
+    passwordSetAt: v.optional(v.number()),
+    passwordRotatedAt: v.optional(v.number()),
+    sessionVersion: v.number(),
+    sessionTtlSeconds: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_publicSlug", ["publicSlug"]),
+
+  linkPortalCampaignPresets: defineTable({
+    tenantId: v.id("tenants"),
+    slug: v.string(),
+    label: v.string(),
+    utmCampaign: v.string(),
+    normalizedUtmCampaign: v.string(),
+    isDefault: v.boolean(),
+    isActive: v.boolean(),
+    sortOrder: v.number(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_tenantId_and_isActive", ["tenantId", "isActive"])
+    .index("by_tenantId_and_normalizedUtmCampaign", [
+      "tenantId",
+      "normalizedUtmCampaign",
+    ]),
+
+  linkPortalAuthAttempts: defineTable({
+    tenantId: v.id("tenants"),
+    publicSlug: v.string(),
+    ipHash: v.string(),
+    failedCount: v.number(),
+    windowStartedAt: v.number(),
+    lockedUntil: v.optional(v.number()),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId_and_ipHash", ["tenantId", "ipHash"])
+    .index("by_publicSlug_and_ipHash", ["publicSlug", "ipHash"]),
+
+  linkPortalCopyEvents: defineTable({
+    tenantId: v.id("tenants"),
+    sessionIdHash: v.string(),
+    eventTypeConfigId: v.id("eventTypeConfigs"),
+    bookingProgramId: v.id("tenantPrograms"),
+    attributionTeamId: v.id("attributionTeams"),
+    dmCloserId: v.id("dmClosers"),
+    campaignPresetId: v.id("linkPortalCampaignPresets"),
+    utmCampaign: v.string(),
+    copiedAt: v.number(),
+  })
+    .index("by_tenantId_and_copiedAt", ["tenantId", "copiedAt"])
+    .index("by_tenantId_and_dmCloserId_and_copiedAt", [
+      "tenantId",
+      "dmCloserId",
+      "copiedAt",
+    ])
+    .index("by_tenantId_and_eventTypeConfigId_and_copiedAt", [
+      "tenantId",
+      "eventTypeConfigId",
+      "copiedAt",
+    ]),
+
   opportunities: defineTable({
     tenantId: v.id("tenants"),
     leadId: v.id("leads"),
@@ -273,6 +388,22 @@ export default defineSchema({
     // Subsequent follow-up bookings do NOT overwrite this field.
     // Undefined for opportunities created before UTM tracking was enabled.
     utmParams: v.optional(utmParamsValidator),
+    firstBookingProgramId: v.optional(v.id("tenantPrograms")),
+    firstBookingProgramName: v.optional(v.string()),
+    firstBookingProgramMappingStatus: v.optional(
+      bookingProgramMappingStatusValidator,
+    ),
+    soldProgramId: v.optional(v.id("tenantPrograms")),
+    soldProgramName: v.optional(v.string()),
+    attributionTeamId: v.optional(v.id("attributionTeams")),
+    dmCloserId: v.optional(v.id("dmClosers")),
+    attributionResolution: v.optional(attributionResolutionValidator),
+    attributionResolvedAt: v.optional(v.number()),
+    attributionResolutionVersion: v.optional(v.number()),
+    firstBookedAt: v.optional(v.number()),
+    firstMeetingId: v.optional(v.id("meetings")),
+    firstMeetingAt: v.optional(v.number()),
+    qualifiedAt: v.optional(v.number()),
 
     // === Feature E: Potential Duplicate Detection ===
     // When the pipeline detects a fuzzy match during identity resolution,
@@ -389,7 +520,33 @@ export default defineSchema({
         "status",
         "latestActivityAt",
       ],
-    ),
+    )
+    .index("by_tenantId_and_source_and_qualifiedAt", [
+      "tenantId",
+      "source",
+      "qualifiedAt",
+    ])
+    .index("by_tenantId_and_attributionTeamId_and_qualifiedAt", [
+      "tenantId",
+      "attributionTeamId",
+      "qualifiedAt",
+    ])
+    .index("by_tenantId_and_dmCloserId_and_qualifiedAt", [
+      "tenantId",
+      "dmCloserId",
+      "qualifiedAt",
+    ])
+    .index("by_tenantId_and_firstBookingProgramId_and_qualifiedAt", [
+      "tenantId",
+      "firstBookingProgramId",
+      "qualifiedAt",
+    ])
+    .index("by_tenantId_and_soldProgramId_and_qualifiedAt", [
+      "tenantId",
+      "soldProgramId",
+      "qualifiedAt",
+    ])
+    .index("by_tenantId_and_firstMeetingAt", ["tenantId", "firstMeetingAt"]),
 
   opportunitySearch: defineTable({
     tenantId: v.id("tenants"),
@@ -436,6 +593,142 @@ export default defineSchema({
         "activityDayKey",
         "activityWeekKey",
         "activityMonthKey",
+      ],
+    }),
+
+  slackQualificationEvents: defineTable({
+    tenantId: v.id("tenants"),
+    installationId: v.id("slackInstallations"),
+    leadId: v.optional(v.id("leads")),
+    opportunityId: v.optional(v.id("opportunities")),
+    resultKind: slackQualificationResultKindValidator,
+    qualifiedBy: v.object({
+      slackUserId: v.string(),
+      slackTeamId: v.string(),
+      submittedAt: v.number(),
+    }),
+    slackUserId: v.string(),
+    slackTeamId: v.string(),
+    fullNameSnapshot: v.string(),
+    platform: socialPlatformValidator,
+    handleSnapshot: v.string(),
+    submittedAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_tenantId_and_submittedAt", ["tenantId", "submittedAt"])
+    .index("by_tenantId_and_slackUserId_and_submittedAt", [
+      "tenantId",
+      "slackUserId",
+      "submittedAt",
+    ])
+    .index("by_tenantId_and_opportunityId", [
+      "tenantId",
+      "opportunityId",
+    ])
+    .index("by_tenantId_and_leadId_and_submittedAt", [
+      "tenantId",
+      "leadId",
+      "submittedAt",
+    ]),
+
+  operationsQualificationRows: defineTable({
+    tenantId: v.id("tenants"),
+    qualificationEventId: v.id("slackQualificationEvents"),
+    opportunityId: v.optional(v.id("opportunities")),
+    leadId: v.optional(v.id("leads")),
+    slackUserId: v.string(),
+    slackTeamId: v.string(),
+    resultKind: slackQualificationResultKindValidator,
+    opportunityStatus: v.optional(opportunityStatusValidator),
+    bookingProgramId: v.optional(v.id("tenantPrograms")),
+    bookingProgramName: v.optional(v.string()),
+    bookingProgramMappingStatus: v.optional(bookingProgramMappingStatusValidator),
+    soldProgramId: v.optional(v.id("tenantPrograms")),
+    soldProgramName: v.optional(v.string()),
+    qualifiedAt: v.number(),
+    firstBookedAt: v.optional(v.number()),
+    firstMeetingId: v.optional(v.id("meetings")),
+    firstMeetingAt: v.optional(v.number()),
+    assignedCloserId: v.optional(v.id("users")),
+    attributionTeamId: v.optional(v.id("attributionTeams")),
+    dmCloserId: v.optional(v.id("dmClosers")),
+    attributionResolution: attributionResolutionValidator,
+    searchText: v.string(),
+    updatedAt: v.number(),
+  })
+    .index("by_qualificationEventId", ["qualificationEventId"])
+    .index("by_tenantId_and_qualifiedAt", ["tenantId", "qualifiedAt"])
+    .index("by_tenantId_and_opportunityStatus_and_qualifiedAt", [
+      "tenantId",
+      "opportunityStatus",
+      "qualifiedAt",
+    ])
+    .index("by_tenantId_and_bookingProgramId_and_qualifiedAt", [
+      "tenantId",
+      "bookingProgramId",
+      "qualifiedAt",
+    ])
+    .index("by_tenantId_and_soldProgramId_and_qualifiedAt", [
+      "tenantId",
+      "soldProgramId",
+      "qualifiedAt",
+    ])
+    .index("by_tenantId_and_slackUserId_and_qualifiedAt", [
+      "tenantId",
+      "slackUserId",
+      "qualifiedAt",
+    ])
+    .index("by_tenantId_and_attributionTeamId_and_qualifiedAt", [
+      "tenantId",
+      "attributionTeamId",
+      "qualifiedAt",
+    ])
+    .index("by_tenantId_and_dmCloserId_and_qualifiedAt", [
+      "tenantId",
+      "dmCloserId",
+      "qualifiedAt",
+    ])
+    .index("by_tenantId_and_firstMeetingAt", ["tenantId", "firstMeetingAt"])
+    .index("by_tenantId_and_bookingProgramId_and_firstMeetingAt", [
+      "tenantId",
+      "bookingProgramId",
+      "firstMeetingAt",
+    ])
+    .index("by_tenantId_and_soldProgramId_and_firstMeetingAt", [
+      "tenantId",
+      "soldProgramId",
+      "firstMeetingAt",
+    ])
+    .index("by_tenantId_and_slackUserId_and_firstMeetingAt", [
+      "tenantId",
+      "slackUserId",
+      "firstMeetingAt",
+    ])
+    .index("by_tenantId_and_assignedCloserId_and_firstMeetingAt", [
+      "tenantId",
+      "assignedCloserId",
+      "firstMeetingAt",
+    ])
+    .index("by_tenantId_and_attributionTeamId_and_firstMeetingAt", [
+      "tenantId",
+      "attributionTeamId",
+      "firstMeetingAt",
+    ])
+    .index("by_tenantId_and_dmCloserId_and_firstMeetingAt", [
+      "tenantId",
+      "dmCloserId",
+      "firstMeetingAt",
+    ])
+    .searchIndex("search_qualification_rows", {
+      searchField: "searchText",
+      filterFields: [
+        "tenantId",
+        "opportunityStatus",
+        "bookingProgramId",
+        "soldProgramId",
+        "slackUserId",
+        "attributionTeamId",
+        "dmCloserId",
       ],
     }),
 
@@ -507,6 +800,18 @@ export default defineSchema({
     // Populated from the invitee.created webhook payload.
     // Undefined for meetings created before UTM tracking was enabled.
     utmParams: v.optional(utmParamsValidator),
+    bookingProgramId: v.optional(v.id("tenantPrograms")),
+    bookingProgramName: v.optional(v.string()),
+    bookingProgramMappingStatus: v.optional(bookingProgramMappingStatusValidator),
+    soldProgramId: v.optional(v.id("tenantPrograms")),
+    soldProgramName: v.optional(v.string()),
+    opportunityStatus: v.optional(opportunityStatusValidator),
+    attributionTeamId: v.optional(v.id("attributionTeams")),
+    dmCloserId: v.optional(v.id("dmClosers")),
+    attributionResolution: v.optional(attributionResolutionValidator),
+    attributionResolvedAt: v.optional(v.number()),
+    attributionResolutionVersion: v.optional(v.number()),
+    utmTruncated: v.optional(v.boolean()),
 
     // DEAD FIELD (as of meeting-comments feature — see plans/meeting-comments/).
     // All read and write code paths are deleted — no production code references
@@ -585,6 +890,7 @@ export default defineSchema({
     // Links this meeting back to the no-show meeting it reschedules.
     rescheduledFromMeetingId: v.optional(v.id("meetings")),
     // === End Feature B: Reschedule Chain ===
+    operationsStatsSyncedAt: v.optional(v.number()),
   })
     .index("by_opportunityId", ["opportunityId"])
     .index("by_tenantId_and_scheduledAt", ["tenantId", "scheduledAt"])
@@ -610,6 +916,58 @@ export default defineSchema({
       "tenantId",
       "assignedCloserId",
       "scheduledAt",
+    ])
+    .index("by_tenantId_and_attributionTeamId_and_scheduledAt", [
+      "tenantId",
+      "attributionTeamId",
+      "scheduledAt",
+    ])
+    .index("by_tenantId_and_dmCloserId_and_scheduledAt", [
+      "tenantId",
+      "dmCloserId",
+      "scheduledAt",
+    ])
+    .index("by_tenantId_and_bookingProgramId_and_scheduledAt", [
+      "tenantId",
+      "bookingProgramId",
+      "scheduledAt",
+    ])
+    .index("by_tenantId_and_soldProgramId_and_scheduledAt", [
+      "tenantId",
+      "soldProgramId",
+      "scheduledAt",
+    ])
+    .index("by_tenantId_and_opportunityStatus_and_scheduledAt", [
+      "tenantId",
+      "opportunityStatus",
+      "scheduledAt",
+    ]),
+
+  operationsMeetingDailyStats: defineTable({
+    tenantId: v.id("tenants"),
+    dayKey: v.string(),
+    assignedCloserId: v.id("users"),
+    bookingProgramId: v.optional(v.id("tenantPrograms")),
+    soldProgramId: v.optional(v.id("tenantPrograms")),
+    attributionTeamId: v.optional(v.id("attributionTeams")),
+    dmCloserId: v.optional(v.id("dmClosers")),
+    opportunityStatus: v.optional(opportunityStatusValidator),
+    meetingStatus: v.union(
+      v.literal("scheduled"),
+      v.literal("in_progress"),
+      v.literal("completed"),
+      v.literal("canceled"),
+      v.literal("no_show"),
+      v.literal("meeting_overran"),
+    ),
+    count: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId_and_dayKey", ["tenantId", "dayKey"])
+    .index("by_tenantId_and_assignedCloserId_and_dayKey", [
+      "tenantId",
+      "assignedCloserId",
+      "dayKey",
     ]),
 
   // Replaces the single-textarea meeting notes flow with a multi-user comment log.
@@ -766,12 +1124,25 @@ export default defineSchema({
     // Populates the dropdown options in the field mapping configuration dialog.
     knownCustomFieldKeys: v.optional(v.array(v.string())),
     // === End Feature F ===
+    bookingProgramId: v.optional(v.id("tenantPrograms")),
+    bookingProgramName: v.optional(v.string()),
+    bookingProgramMappingStatus: v.optional(bookingProgramMappingStatusValidator),
+    bookingBaseUrl: v.optional(v.string()),
+    bookingUrlSource: v.optional(
+      v.union(v.literal("admin_entered"), v.literal("imported_sheet")),
+    ),
+    linkPortalEnabled: v.optional(v.boolean()),
+    updatedAt: v.optional(v.number()),
   })
     .index("by_tenantId", ["tenantId"])
     .index(
       "by_tenantId_and_calendlyEventTypeUri",
       ["tenantId", "calendlyEventTypeUri"],
-    ),
+    )
+    .index("by_tenantId_and_bookingProgramId", [
+      "tenantId",
+      "bookingProgramId",
+    ]),
 
   tenantPrograms: defineTable({
     tenantId: v.id("tenants"),

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import { startOfMonth, endOfMonth } from "date-fns";
 import { api } from "@/convex/_generated/api";
@@ -11,7 +11,7 @@ import {
   type DateRange,
   type Granularity,
 } from "../../_components/report-date-controls";
-import { ReportProgramFilter } from "../../_components/report-program-filter";
+import { ReportProgramDimensionFilter } from "../../_components/report-program-dimension-filter";
 import {
   ReportPaymentTypeFilter,
   type PaymentType,
@@ -20,6 +20,7 @@ import {
   ReportRevenueSliceFilter,
   type RevenueSlice,
 } from "../../_components/report-revenue-slice-filter";
+import { useReportAnalytics } from "../../_components/use-report-analytics";
 import { RevenueReportSkeleton } from "./revenue-report-skeleton";
 import { RevenueByOriginChart } from "./revenue-by-origin-chart";
 import { RevenueTrendChart } from "./revenue-trend-chart";
@@ -29,6 +30,7 @@ import { TopDealsTable } from "./top-deals-table";
 import { RevenueKpiCards } from "./revenue-kpi-cards";
 import { RevenueByProgramSection } from "./revenue-by-program-section";
 import { RevenueByPaymentTypeSection } from "./revenue-by-payment-type-section";
+import { BookedVsSoldMatrix } from "./booked-vs-sold-matrix";
 import { Skeleton } from "@/components/ui/skeleton";
 
 function getDefaultDateRange(): DateRange {
@@ -41,12 +43,40 @@ function getDefaultDateRange(): DateRange {
 
 export function RevenueReportPageClient() {
   usePageTitle("Revenue");
+  const { captureViewed, captureFiltersChanged } =
+    useReportAnalytics("revenue");
 
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
   const [granularity, setGranularity] = useState<Granularity>("month");
   const [programId, setProgramId] = useState<Id<"tenantPrograms"> | undefined>();
   const [paymentType, setPaymentType] = useState<PaymentType | undefined>();
   const [revenueSlice, setRevenueSlice] = useState<RevenueSlice | undefined>();
+
+  useEffect(() => {
+    captureViewed();
+  }, [captureViewed]);
+
+  const captureFilterChange = useCallback(
+    (next?: {
+      programId?: Id<"tenantPrograms">;
+      paymentType?: PaymentType;
+      revenueSlice?: RevenueSlice;
+    }) => {
+      const nextProgramId =
+        next && "programId" in next ? next.programId : programId;
+      const nextPaymentType =
+        next && "paymentType" in next ? next.paymentType : paymentType;
+      const nextRevenueSlice =
+        next && "revenueSlice" in next ? next.revenueSlice : revenueSlice;
+      captureFiltersChanged({
+        date_range_preset: "custom",
+        has_payment_program_filter: Boolean(nextProgramId),
+        has_payment_type_filter: Boolean(nextPaymentType),
+        has_revenue_slice_filter: Boolean(nextRevenueSlice),
+      });
+    },
+    [captureFiltersChanged, paymentType, programId, revenueSlice],
+  );
 
   const queryFilters = {
     ...dateRange,
@@ -67,9 +97,21 @@ export function RevenueReportPageClient() {
     ...queryFilters,
     granularity,
   });
+  const bookedVsSold = useQuery(
+    api.reporting.bookedVsSold.getBookedVsSoldMatrix,
+    {
+      ...dateRange,
+      ...(programId ? { paymentProgramId: programId } : {}),
+      ...(paymentType ? { paymentType } : {}),
+      ...(revenueSlice ? { revenueSlice } : {}),
+    },
+  );
 
   const allLoading =
-    metrics === undefined && details === undefined && trend === undefined;
+    metrics === undefined &&
+    details === undefined &&
+    trend === undefined &&
+    bookedVsSold === undefined;
 
   if (allLoading) {
     return <RevenueReportSkeleton />;
@@ -90,28 +132,44 @@ export function RevenueReportPageClient() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Revenue</h1>
         <p className="text-sm text-muted-foreground">
-          Commissionable vs post-conversion revenue with program and payment
-          type breakdowns
+          Commissionable vs post-conversion revenue with payment-program and
+          payment-type breakdowns.
         </p>
       </div>
 
       <ReportDateControls
         value={dateRange}
-        onChange={setDateRange}
+        onChange={(next) => {
+          setDateRange(next);
+          captureFilterChange();
+        }}
         showGranularity
         granularity={granularity}
         onGranularityChange={setGranularity}
       />
 
       <div className="flex flex-wrap items-center gap-3">
-        <ReportProgramFilter value={programId} onChange={setProgramId} />
+        <ReportProgramDimensionFilter
+          dimension="payment_program"
+          value={programId}
+          onChange={(next) => {
+            setProgramId(next);
+            captureFilterChange({ programId: next });
+          }}
+        />
         <ReportPaymentTypeFilter
           value={paymentType}
-          onChange={setPaymentType}
+          onChange={(next) => {
+            setPaymentType(next);
+            captureFilterChange({ paymentType: next });
+          }}
         />
         <ReportRevenueSliceFilter
           value={revenueSlice}
-          onChange={setRevenueSlice}
+          onChange={(next) => {
+            setRevenueSlice(next);
+            captureFilterChange({ revenueSlice: next });
+          }}
         />
       </div>
 
@@ -152,6 +210,12 @@ export function RevenueReportPageClient() {
           <Skeleton className="h-64 rounded-lg" />
           <Skeleton className="h-64 rounded-lg" />
         </div>
+      )}
+
+      {bookedVsSold !== undefined ? (
+        <BookedVsSoldMatrix matrix={bookedVsSold} />
+      ) : (
+        <Skeleton className="h-72 rounded-lg" />
       )}
 
       {metrics !== undefined ? (

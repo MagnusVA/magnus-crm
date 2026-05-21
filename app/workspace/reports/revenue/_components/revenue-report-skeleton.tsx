@@ -20,6 +20,8 @@ export function RevenueReportSkeleton() {
         <Skeleton className="h-64 rounded-lg" />
         <Skeleton className="h-64 rounded-lg" />
       </div>
+      {/* Booked-to-sold matrix */}
+      <Skeleton className="h-72 rounded-lg" />
       {/* Top deals table */}
       <Skeleton className="h-48 rounded-lg" />
     </div>

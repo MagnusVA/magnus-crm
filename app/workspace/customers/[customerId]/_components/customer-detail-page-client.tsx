@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useQuery } from "convex/react";
+import { EntityAttributionCard } from "@/app/workspace/_components/entity-attribution-card";
 import { api } from "@/convex/_generated/api";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -75,6 +76,7 @@ export function CustomerDetailPageClient({
     totalPaid,
     currency,
     payments,
+    attribution,
   } = detail;
 
   return (
@@ -83,7 +85,7 @@ export function CustomerDetailPageClient({
       <div className="flex items-center justify-between">
         <Button variant="ghost" size="sm" asChild>
           <Link href="/workspace/customers">
-            <ArrowLeftIcon className="mr-1.5 h-4 w-4" />
+            <ArrowLeftIcon data-icon="inline-start" />
             Customers
           </Link>
         </Button>
@@ -118,7 +120,7 @@ export function CustomerDetailPageClient({
         <CardHeader>
           <CardTitle className="text-base">Relationships</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="flex flex-col gap-3">
           {/* Linked Lead */}
           {lead && (
             <Link
@@ -133,7 +135,7 @@ export function CustomerDetailPageClient({
           {/* Winning Opportunity */}
           {winningOpportunity && (
             <Link
-              href={`/workspace/pipeline?opp=${customer.winningOpportunityId}`}
+              href={`/workspace/opportunities/${customer.winningOpportunityId}`}
               className="block rounded-lg border p-3 transition-colors hover:bg-accent"
             >
               <p className="text-xs text-muted-foreground">Winning Opportunity</p>
@@ -160,6 +162,8 @@ export function CustomerDetailPageClient({
           )}
         </CardContent>
       </Card>
+
+      <EntityAttributionCard attribution={attribution} />
 
       {/* Conversion Details */}
       <Card>

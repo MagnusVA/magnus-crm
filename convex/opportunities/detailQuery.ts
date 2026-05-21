@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { query } from "../_generated/server";
+import { buildOpportunityAttributionPayload } from "../lib/attribution/detailPayload";
 import { isSideDealOrigin, normalizeOpportunitySource } from "../lib/sideDeals";
 import { requireTenantUser } from "../requireTenantUser";
 
@@ -29,6 +30,7 @@ export const getOpportunityDetail = query({
       opportunityEvents,
       pendingStaleNudge,
       attachedFollowUps,
+      attribution,
     ] = await Promise.all([
       ctx.db.get(opportunity.leadId),
       opportunity.assignedCloserId
@@ -75,6 +77,7 @@ export const getOpportunityDetail = query({
           q.eq("opportunityId", opportunityId),
         )
         .take(50),
+      buildOpportunityAttributionPayload(ctx, opportunity),
     ]);
 
     const payments = paymentRows.filter(
@@ -120,6 +123,10 @@ export const getOpportunityDetail = query({
         source,
         notes: opportunity.notes,
         assignedCloserId: opportunity.assignedCloserId,
+        firstBookingProgramId: opportunity.firstBookingProgramId,
+        firstBookingProgramName: opportunity.firstBookingProgramName,
+        soldProgramId: opportunity.soldProgramId,
+        soldProgramName: opportunity.soldProgramName,
         createdAt: opportunity.createdAt,
         updatedAt: opportunity.updatedAt,
         latestActivityAt: opportunity.latestActivityAt,
@@ -197,6 +204,7 @@ export const getOpportunityDetail = query({
           meetings.length === 0 &&
           hasOnlyStaleNudgeFollowUps,
       },
+      attribution,
     };
   },
 });

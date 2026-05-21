@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+import { OpportunitySourceBadge } from "@/app/workspace/opportunities/_components/opportunity-source-badge";
 import {
 	Table,
 	TableBody,
@@ -43,7 +45,7 @@ export function LeadOpportunitiesTab({
 			<Table>
 				<TableHeader>
 					<TableRow>
-						<TableHead>Status</TableHead>
+						<TableHead>Opportunity</TableHead>
 						<TableHead>Closer</TableHead>
 						<TableHead>Event Type</TableHead>
 						<TableHead>Created</TableHead>
@@ -57,18 +59,39 @@ export function LeadOpportunitiesTab({
 						return (
 							<TableRow key={opp._id}>
 								<TableCell>
-									{statusCfg ? (
-										<Badge
-											variant="secondary"
-											className={cn("text-xs", statusCfg.badgeClass)}
+									<div className="flex min-w-0 flex-col gap-2">
+										<Link
+											href={`/workspace/opportunities/${opp._id}`}
+											className="text-sm font-medium hover:underline"
 										>
-											{statusCfg.label}
-										</Badge>
-									) : (
-										<Badge variant="outline" className="text-xs">
-											{opp.status}
-										</Badge>
-									)}
+											{statusCfg?.label ?? opp.status.replace(/_/g, " ")}
+										</Link>
+										<div className="flex flex-wrap gap-2">
+											<OpportunitySourceBadge source={opp.source ?? "calendly"} />
+											{statusCfg ? (
+												<Badge
+													variant="secondary"
+													className={cn("text-xs", statusCfg.badgeClass)}
+												>
+													{statusCfg.label}
+												</Badge>
+											) : (
+												<Badge variant="outline" className="text-xs">
+													{opp.status}
+												</Badge>
+											)}
+											{opp.firstBookingProgramName ? (
+												<Badge variant="outline" className="text-xs">
+													Booked: {opp.firstBookingProgramName}
+												</Badge>
+											) : null}
+											{opp.soldProgramName ? (
+												<Badge variant="secondary" className="text-xs">
+													Sold: {opp.soldProgramName}
+												</Badge>
+											) : null}
+										</div>
+									</div>
 								</TableCell>
 								<TableCell>
 									{opp.closerName ?? (

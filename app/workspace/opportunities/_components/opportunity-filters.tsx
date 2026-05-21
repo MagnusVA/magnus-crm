@@ -74,6 +74,7 @@ export function OpportunityFilters({
           <ToggleGroupItem value="all">All sources</ToggleGroupItem>
           <ToggleGroupItem value="calendly">Calendly</ToggleGroupItem>
           <ToggleGroupItem value="side_deal">Side deals</ToggleGroupItem>
+          <ToggleGroupItem value="slack_qualified">Slack</ToggleGroupItem>
         </ToggleGroup>
 
         {isAdmin ? (
@@ -106,6 +107,7 @@ export function OpportunityFilters({
       >
         <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-3 lg:inline-flex lg:w-fit">
           <TabsTrigger value="all">All</TabsTrigger>
+          <TabsTrigger value="qualified_pending">Qualified</TabsTrigger>
           <TabsTrigger value="in_progress">In Progress</TabsTrigger>
           <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
           <TabsTrigger value="payment_received">Won</TabsTrigger>

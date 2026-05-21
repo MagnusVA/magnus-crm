@@ -88,6 +88,8 @@ export function AdminMeetingDetailClient({
     potentialDuplicate,
     reassignmentInfo,
     rescheduledFromMeeting,
+    attributionTeam,
+    dmCloser,
   } = detail;
 
   const statusKey = opportunity.status as OpportunityStatus;
@@ -202,6 +204,9 @@ export function AdminMeetingDetailClient({
             opportunity={opportunity}
             meeting={meeting}
             meetingHistory={meetingHistory}
+            attributionTeam={attributionTeam}
+            dmCloser={dmCloser}
+            meetingDetailBasePath="/workspace/pipeline/meetings"
           />
 
           {/* v2: Fathom Recording link — admin can save/update for any

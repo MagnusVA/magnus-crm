@@ -3,6 +3,7 @@
 import {
   AlertTriangleIcon,
   GaugeIcon,
+  ListChecksIcon,
   MessageSquareTextIcon,
   TargetIcon,
   UsersIcon,
@@ -25,6 +26,13 @@ type SetterQualificationSummaryCardsProps = {
     teamGoalAttainment: number | null;
     underGoalPeriods: number;
     setterCount: number;
+    qualificationEventCount: number;
+    uniqueSlackOpportunityCount: number;
+    createdOpportunityEvents: number;
+    duplicatePendingEvents: number;
+    alreadyBookedEvents: number;
+    unlinkedEvents: number;
+    legacyOpportunityAggregateCount: number;
   };
   filteredToSetter: boolean;
 };
@@ -37,22 +45,45 @@ export function SetterQualificationSummaryCards({
     !filteredToSetter && totals.expectedTeamQualified !== null;
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
       <Card size="sm">
         <CardHeader>
           <div className="flex items-center justify-between gap-3">
             <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Qualified
+              Qualification Events
             </CardTitle>
             <MessageSquareTextIcon className="size-4 text-muted-foreground" />
           </div>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold tabular-nums">
-            {totals.totalQualified.toLocaleString()}
+            {totals.qualificationEventCount.toLocaleString()}
           </div>
           <p className="text-xs text-muted-foreground">
-            Slack-sourced opportunities in range
+            All Slack submissions in range
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card size="sm">
+        <CardHeader>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Unique Opportunities
+            </CardTitle>
+            <ListChecksIcon className="size-4 text-muted-foreground" />
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold tabular-nums">
+            {totals.uniqueSlackOpportunityCount.toLocaleString()}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {totals.createdOpportunityEvents.toLocaleString()} created,{" "}
+            {(
+              totals.duplicatePendingEvents + totals.alreadyBookedEvents
+            ).toLocaleString()}{" "}
+            duplicate/already booked
           </p>
         </CardContent>
       </Card>
@@ -71,7 +102,8 @@ export function SetterQualificationSummaryCards({
             {formatNumber(totals.averagePerBusinessDay)}
           </div>
           <p className="text-xs text-muted-foreground">
-            Across {totals.businessDayCount.toLocaleString()} Honduras buckets
+            Events across {totals.businessDayCount.toLocaleString()} Honduras
+            buckets
           </p>
         </CardContent>
       </Card>
@@ -113,7 +145,7 @@ export function SetterQualificationSummaryCards({
               ? "All setters view only"
               : totals.expectedTeamQualified === null
                 ? "No team goal set"
-                : `${totals.expectedTeamQualified.toLocaleString()} expected`}
+                : `${totals.expectedTeamQualified.toLocaleString()} events expected`}
           </p>
         </CardContent>
       </Card>

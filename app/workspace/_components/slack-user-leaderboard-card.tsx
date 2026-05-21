@@ -35,7 +35,7 @@ export function SlackUserLeaderboardCard({
           <TrophyIcon className="size-4 text-muted-foreground" aria-hidden />
           Top Qualifiers
         </CardTitle>
-        <CardDescription>Slack users by submitted leads</CardDescription>
+        <CardDescription>Slack users by qualification events</CardDescription>
         <CardAction className="flex items-center gap-2">
           <Badge variant={breakdown.truncated ? "destructive" : "outline"}>
             {breakdown.truncated ? "Partial" : "Top 5"}
@@ -93,7 +93,7 @@ export function SlackUserLeaderboardCard({
                       {row.total}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {row.booked} booked
+                      {row.uniqueOpportunityCount} opps / {row.booked} booked
                     </p>
                   </div>
                 </li>

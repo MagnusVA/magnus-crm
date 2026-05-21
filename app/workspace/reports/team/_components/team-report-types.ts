@@ -4,6 +4,9 @@ import { api } from "@/convex/_generated/api";
 type TeamPerformanceMetrics = FunctionReturnType<
   typeof api.reporting.teamPerformance.getTeamPerformanceMetrics
 >;
+type TeamOperationsDimensionMetrics = FunctionReturnType<
+  typeof api.reporting.teamPerformance.getTeamOperationsDimensions
+>;
 type TeamOutcomeMixMetrics = FunctionReturnType<
   typeof api.reporting.teamOutcomes.getTeamOutcomeMix
 >;
@@ -14,6 +17,8 @@ export type MeetingTimeKpis =
   TeamPerformanceMetrics["closers"][number]["meetingTime"];
 export type CloserData = TeamPerformanceMetrics["closers"][number];
 export type TeamTotals = TeamPerformanceMetrics["teamTotals"];
+export type TeamOperationsDimensions = TeamOperationsDimensionMetrics;
+export type TeamProgramDimension = "booking_program" | "sold_program";
 export type DerivedOutcomes = TeamOutcomeMixMetrics["derived"];
 export type ActionsPerCloserMetrics = FunctionReturnType<
   typeof api.reporting.teamActions.getActionsPerCloserPerDay

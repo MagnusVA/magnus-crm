@@ -7,6 +7,7 @@ import {
   syncCustomerPaymentSummary,
 } from "../lib/paymentHelpers";
 import { isSideDeal, isSideDealOrigin } from "../lib/sideDeals";
+import { refreshSoldProgramCachesForOpportunity } from "../lib/soldProgramCache";
 import {
   applyPaymentStatsDelta,
   updateTenantStats,
@@ -65,6 +66,10 @@ export const voidPayment = mutation({
     await ctx.db.patch(paymentId, {
       status: "disputed",
       statusChangedAt: now,
+    });
+    await refreshSoldProgramCachesForOpportunity(ctx, {
+      tenantId,
+      opportunityId: payment.opportunityId,
     });
 
     await patchOpportunityLifecycle(ctx, payment.opportunityId, {

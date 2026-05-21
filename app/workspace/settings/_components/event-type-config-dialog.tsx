@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation } from "convex/react";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import {
   Dialog,
   DialogContent,
@@ -19,6 +20,14 @@ import {
 } from "@/components/ui/field";
 import { PaymentLinkEditor } from "./payment-link-editor";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "sonner";
 import posthog from "posthog-js";
 
@@ -33,6 +42,8 @@ interface EventTypeConfig {
   calendlyEventTypeUri: string;
   displayName: string;
   paymentLinks?: PaymentLink[];
+  bookingProgramId?: Id<"tenantPrograms">;
+  bookingBaseUrl?: string;
 }
 
 interface EventTypeConfigDialogProps {
@@ -52,11 +63,29 @@ export function EventTypeConfigDialog({
   const [paymentLinks, setPaymentLinks] = useState<PaymentLink[]>(
     config.paymentLinks || []
   );
+  const [bookingProgramId, setBookingProgramId] = useState<
+    Id<"tenantPrograms"> | undefined
+  >(config.bookingProgramId);
+  const [bookingBaseUrl, setBookingBaseUrl] = useState(
+    config.bookingBaseUrl ?? "",
+  );
   const [isSaving, setIsSaving] = useState(false);
+  const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
+    includeArchived: false,
+  });
 
   const upsertConfig = useMutation(
     api.eventTypeConfigs.mutations.upsertEventTypeConfig
   );
+
+  useEffect(() => {
+    if (open) {
+      setDisplayName(config.displayName);
+      setPaymentLinks(config.paymentLinks || []);
+      setBookingProgramId(config.bookingProgramId);
+      setBookingBaseUrl(config.bookingBaseUrl ?? "");
+    }
+  }, [config, open]);
 
   const handleSave = async () => {
     if (!displayName.trim()) {
@@ -70,6 +99,8 @@ export function EventTypeConfigDialog({
         calendlyEventTypeUri: config.calendlyEventTypeUri,
         displayName,
         paymentLinks: paymentLinks.length > 0 ? paymentLinks : undefined,
+        bookingProgramId,
+        bookingBaseUrl: bookingBaseUrl.trim() || undefined,
       });
 
       posthog.capture("event_type_config_saved", {
@@ -108,6 +139,48 @@ export function EventTypeConfigDialog({
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
                 disabled={isSaving}
+              />
+            </Field>
+
+            <Field>
+              <FieldLabel>Booked Program</FieldLabel>
+              <Select
+                value={bookingProgramId ?? "unmapped"}
+                onValueChange={(value) =>
+                  setBookingProgramId(
+                    value === "unmapped"
+                      ? undefined
+                      : (value as Id<"tenantPrograms">),
+                  )
+                }
+                disabled={isSaving || programs === undefined}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select booked program" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="unmapped">Unmapped</SelectItem>
+                    {programs?.map((program) => (
+                      <SelectItem key={program._id} value={program._id}>
+                        {program.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+
+            <Field>
+              <FieldLabel htmlFor="booking-base-url">
+                Booking Base URL
+              </FieldLabel>
+              <Input
+                id="booking-base-url"
+                value={bookingBaseUrl}
+                onChange={(event) => setBookingBaseUrl(event.target.value)}
+                disabled={isSaving}
+                placeholder="https://calendly.com/..."
               />
             </Field>
 

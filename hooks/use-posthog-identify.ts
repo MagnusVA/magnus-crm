@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import posthog from "posthog-js";
+import { isPostHogEnabled } from "@/lib/posthog-config";
 
 interface PostHogIdentityProps {
   workosUserId: string;
@@ -49,6 +50,10 @@ export function usePostHogIdentify({
   const identifiedRef = useRef<string | null>(null);
 
   useEffect(() => {
+    if (!isPostHogEnabled()) {
+      return;
+    }
+
     const rawUserId = extractRawWorkosUserId(workosUserId);
 
     // Skip if already identified with this workosUserId

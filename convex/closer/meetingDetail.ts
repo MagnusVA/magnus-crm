@@ -77,6 +77,14 @@ export const getMeetingDetail = query({
       throw new Error("Lead not found");
     }
 
+    const useMeetingAttribution = meeting.attributionResolution !== undefined;
+    const attributionTeamId = useMeetingAttribution
+      ? meeting.attributionTeamId
+      : meeting.attributionTeamId ?? opportunity.attributionTeamId;
+    const dmCloserId = useMeetingAttribution
+      ? meeting.dmCloserId
+      : meeting.dmCloserId ?? opportunity.dmCloserId;
+
     const [
       leadOpportunities,
       eventTypeConfig,
@@ -88,6 +96,8 @@ export const getMeetingDetail = query({
       originalMeeting,
       meetingReview,
       activeFollowUp,
+      attributionTeam,
+      dmCloser,
     ] = await Promise.all([
       ctx.db
         .query("opportunities")
@@ -125,6 +135,8 @@ export const getMeetingDetail = query({
         : Promise.resolve(null),
       meeting.reviewId ? ctx.db.get(meeting.reviewId) : Promise.resolve(null),
       loadActiveFollowUpSummary(ctx, opportunity._id),
+      attributionTeamId ? ctx.db.get(attributionTeamId) : Promise.resolve(null),
+      dmCloserId ? ctx.db.get(dmCloserId) : Promise.resolve(null),
     ]);
 
     const opportunityStatusById = new Map<
@@ -300,6 +312,7 @@ export const getMeetingDetail = query({
       hasPotentialDuplicate: !!potentialDuplicate,
       hasRescheduleChain: !!rescheduledFromMeeting,
       hasActiveFollowUp: !!activeFollowUp,
+      hasResolvedAttributionLabels: !!attributionTeam || !!dmCloser,
     });
     return {
       meeting,
@@ -314,6 +327,12 @@ export const getMeetingDetail = query({
       reassignmentInfo,
       potentialDuplicate,
       rescheduledFromMeeting,
+      attributionTeam:
+        attributionTeam && attributionTeam.tenantId === tenantId
+          ? attributionTeam
+          : null,
+      dmCloser:
+        dmCloser && dmCloser.tenantId === tenantId ? dmCloser : null,
       // v2: closer may have created a follow-up (scheduling link or manual
       // reminder) on a still-`meeting_overran` opportunity. The follow-up
       // mutations intentionally skip the status transition in that case,

@@ -20,18 +20,20 @@ interface ReportProgramFilterProps {
 	value?: Id<"tenantPrograms">;
 	onChange: (next: Id<"tenantPrograms"> | undefined) => void;
 	disabled?: boolean;
+	label?: string;
 }
 
 /**
- * Shared "Program" filter used across Revenue, Reminders, and Activity Feed
+ * Shared program-dimension filter used across Revenue, Reminders, and Activity Feed
  * reports. Fetches active + archived programs (reporting surfaces archived
  * programs per design §2.6 so historical slices remain accessible); caller
- * receives `undefined` when the user selects "All Programs".
+ * receives `undefined` when the user selects the all-programs option.
  */
 export function ReportProgramFilter({
 	value,
 	onChange,
 	disabled,
+	label = "Payment program",
 }: ReportProgramFilterProps) {
 	const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
 		includeArchived: true,
@@ -47,6 +49,7 @@ export function ReportProgramFilter({
 		programs?.filter((p) => p.archivedAt === undefined) ?? [];
 	const archivedPrograms =
 		programs?.filter((p) => p.archivedAt !== undefined) ?? [];
+	const allLabel = `All ${label.toLowerCase()}s`;
 
 	return (
 		<Select
@@ -60,14 +63,14 @@ export function ReportProgramFilter({
 			}}
 			disabled={disabled || isLoading}
 		>
-			<SelectTrigger className="w-[200px]" aria-label="Filter by program">
-				<SelectValue placeholder="Program" />
+			<SelectTrigger className="w-[200px]" aria-label={label}>
+				<SelectValue placeholder={label} />
 				{isLoading ? <Spinner className="ml-2 size-3" /> : null}
 			</SelectTrigger>
 			<SelectContent>
 				<SelectGroup>
-					<SelectLabel>Program</SelectLabel>
-					<SelectItem value={ALL_SENTINEL}>All Programs</SelectItem>
+					<SelectLabel>{label}</SelectLabel>
+					<SelectItem value={ALL_SENTINEL}>{allLabel}</SelectItem>
 				</SelectGroup>
 				{activePrograms.length > 0 ? (
 					<SelectGroup>

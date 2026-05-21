@@ -51,13 +51,16 @@ export function SetterContributionTable({
 
   return (
     <div className="overflow-x-auto rounded-md border">
-      <Table className="min-w-[42rem]">
+      <Table className="min-w-[56rem]">
         <TableHeader>
           <TableRow>
             <TableHead>Setter</TableHead>
-            <TableHead className="text-right">Qualified</TableHead>
+            <TableHead className="text-right">Events</TableHead>
+            <TableHead className="text-right">Unique opps</TableHead>
+            <TableHead className="text-right">Created</TableHead>
+            <TableHead className="text-right">Duplicate / booked</TableHead>
             <TableHead className="text-right">Share</TableHead>
-            <TableHead className="text-right">Last Qualified</TableHead>
+            <TableHead className="text-right">Last event</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -92,7 +95,18 @@ export function SetterContributionTable({
                 </div>
               </TableCell>
               <TableCell className="text-right font-medium tabular-nums">
-                {row.totalQualified.toLocaleString()}
+                {row.qualificationEventCount.toLocaleString()}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {row.uniqueSlackOpportunityCount.toLocaleString()}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {row.createdOpportunityEvents.toLocaleString()}
+              </TableCell>
+              <TableCell className="text-right tabular-nums">
+                {(
+                  row.duplicatePendingEvents + row.alreadyBookedEvents
+                ).toLocaleString()}
               </TableCell>
               <TableCell className="text-right tabular-nums">
                 {formatPercent(row.contributionShare)}

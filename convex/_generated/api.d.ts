@@ -17,6 +17,9 @@ import type * as admin_supportTickets from "../admin/supportTickets.js";
 import type * as admin_tenants from "../admin/tenants.js";
 import type * as admin_tenantsMutations from "../admin/tenantsMutations.js";
 import type * as admin_tenantsQueries from "../admin/tenantsQueries.js";
+import type * as attribution_backfills from "../attribution/backfills.js";
+import type * as attribution_dmClosers from "../attribution/dmClosers.js";
+import type * as attribution_teams from "../attribution/teams.js";
 import type * as auth from "../auth.js";
 import type * as calendly_connectionQueries from "../calendly/connectionQueries.js";
 import type * as calendly_healthCheck from "../calendly/healthCheck.js";
@@ -61,6 +64,10 @@ import type * as leads_queries from "../leads/queries.js";
 import type * as leads_searchTextBuilder from "../leads/searchTextBuilder.js";
 import type * as lib_activeFollowUp from "../lib/activeFollowUp.js";
 import type * as lib_attendanceChecks from "../lib/attendanceChecks.js";
+import type * as lib_attribution_detailPayload from "../lib/attribution/detailPayload.js";
+import type * as lib_attribution_normalize from "../lib/attribution/normalize.js";
+import type * as lib_attribution_resolveAttribution from "../lib/attribution/resolveAttribution.js";
+import type * as lib_attribution_validators from "../lib/attribution/validators.js";
 import type * as lib_constants from "../lib/constants.js";
 import type * as lib_domainEvents from "../lib/domainEvents.js";
 import type * as lib_domainEventsAction from "../lib/domainEventsAction.js";
@@ -69,6 +76,7 @@ import type * as lib_formatMoney from "../lib/formatMoney.js";
 import type * as lib_identity from "../lib/identity.js";
 import type * as lib_inviteToken from "../lib/inviteToken.js";
 import type * as lib_leadDisplay from "../lib/leadDisplay.js";
+import type * as lib_linkPortal_validators from "../lib/linkPortal/validators.js";
 import type * as lib_manualMeetingTimes from "../lib/manualMeetingTimes.js";
 import type * as lib_meetingFormResponses from "../lib/meetingFormResponses.js";
 import type * as lib_meetingLocation from "../lib/meetingLocation.js";
@@ -88,6 +96,7 @@ import type * as lib_slackBlockKit from "../lib/slackBlockKit.js";
 import type * as lib_slackOAuthState from "../lib/slackOAuthState.js";
 import type * as lib_slackSignature from "../lib/slackSignature.js";
 import type * as lib_socialPlatform from "../lib/socialPlatform.js";
+import type * as lib_soldProgramCache from "../lib/soldProgramCache.js";
 import type * as lib_staleOpportunityNudges from "../lib/staleOpportunityNudges.js";
 import type * as lib_statusTransitions from "../lib/statusTransitions.js";
 import type * as lib_syncCustomerSnapshot from "../lib/syncCustomerSnapshot.js";
@@ -100,10 +109,32 @@ import type * as lib_userLookup from "../lib/userLookup.js";
 import type * as lib_utmParams from "../lib/utmParams.js";
 import type * as lib_validation from "../lib/validation.js";
 import type * as lib_workosUserId from "../lib/workosUserId.js";
+import type * as linkPortal_authz from "../linkPortal/authz.js";
+import type * as linkPortal_campaignMutations from "../linkPortal/campaignMutations.js";
+import type * as linkPortal_campaignQueries from "../linkPortal/campaignQueries.js";
+import type * as linkPortal_configMutations from "../linkPortal/configMutations.js";
+import type * as linkPortal_configQueries from "../linkPortal/configQueries.js";
+import type * as linkPortal_copyActions from "../linkPortal/copyActions.js";
+import type * as linkPortal_copyMutations from "../linkPortal/copyMutations.js";
+import type * as linkPortal_copyQueries from "../linkPortal/copyQueries.js";
+import type * as linkPortal_passwordActions from "../linkPortal/passwordActions.js";
+import type * as linkPortal_portalActions from "../linkPortal/portalActions.js";
+import type * as linkPortal_portalQueries from "../linkPortal/portalQueries.js";
+import type * as linkPortal_rateLimitMutations from "../linkPortal/rateLimitMutations.js";
+import type * as linkPortal_sessionToken from "../linkPortal/sessionToken.js";
+import type * as linkPortal_slugActions from "../linkPortal/slugActions.js";
 import type * as meetings_maintenance from "../meetings/maintenance.js";
 import type * as migrations from "../migrations.js";
 import type * as onboarding_complete from "../onboarding/complete.js";
 import type * as onboarding_invite from "../onboarding/invite.js";
+import type * as operations_bookingHealth from "../operations/bookingHealth.js";
+import type * as operations_meetingStats from "../operations/meetingStats.js";
+import type * as operations_phoneSales from "../operations/phoneSales.js";
+import type * as operations_projections from "../operations/projections.js";
+import type * as operations_qualifications from "../operations/qualifications.js";
+import type * as operations_scheduling from "../operations/scheduling.js";
+import type * as operations_unmappedUtms from "../operations/unmappedUtms.js";
+import type * as operations_validators from "../operations/validators.js";
 import type * as opportunities_createManual from "../opportunities/createManual.js";
 import type * as opportunities_detailQuery from "../opportunities/detailQuery.js";
 import type * as opportunities_listQueries from "../opportunities/listQueries.js";
@@ -122,6 +153,7 @@ import type * as pipeline_slackJoinLookup from "../pipeline/slackJoinLookup.js";
 import type * as reporting_activityFeed from "../reporting/activityFeed.js";
 import type * as reporting_aggregates from "../reporting/aggregates.js";
 import type * as reporting_backfill from "../reporting/backfill.js";
+import type * as reporting_bookedVsSold from "../reporting/bookedVsSold.js";
 import type * as reporting_formResponseAnalytics from "../reporting/formResponseAnalytics.js";
 import type * as reporting_leadConversion from "../reporting/leadConversion.js";
 import type * as reporting_lib_eventLabels from "../reporting/lib/eventLabels.js";
@@ -129,6 +161,8 @@ import type * as reporting_lib_helpers from "../reporting/lib/helpers.js";
 import type * as reporting_lib_hondurasBusinessTime from "../reporting/lib/hondurasBusinessTime.js";
 import type * as reporting_lib_outcomeDerivation from "../reporting/lib/outcomeDerivation.js";
 import type * as reporting_lib_periodBucketing from "../reporting/lib/periodBucketing.js";
+import type * as reporting_lib_programDimensions from "../reporting/lib/programDimensions.js";
+import type * as reporting_lib_slackQualificationLedger from "../reporting/lib/slackQualificationLedger.js";
 import type * as reporting_meetingTime from "../reporting/meetingTime.js";
 import type * as reporting_pipelineHealth from "../reporting/pipelineHealth.js";
 import type * as reporting_remindersReporting from "../reporting/remindersReporting.js";
@@ -217,6 +251,9 @@ declare const fullApi: ApiFromModules<{
   "admin/tenants": typeof admin_tenants;
   "admin/tenantsMutations": typeof admin_tenantsMutations;
   "admin/tenantsQueries": typeof admin_tenantsQueries;
+  "attribution/backfills": typeof attribution_backfills;
+  "attribution/dmClosers": typeof attribution_dmClosers;
+  "attribution/teams": typeof attribution_teams;
   auth: typeof auth;
   "calendly/connectionQueries": typeof calendly_connectionQueries;
   "calendly/healthCheck": typeof calendly_healthCheck;
@@ -261,6 +298,10 @@ declare const fullApi: ApiFromModules<{
   "leads/searchTextBuilder": typeof leads_searchTextBuilder;
   "lib/activeFollowUp": typeof lib_activeFollowUp;
   "lib/attendanceChecks": typeof lib_attendanceChecks;
+  "lib/attribution/detailPayload": typeof lib_attribution_detailPayload;
+  "lib/attribution/normalize": typeof lib_attribution_normalize;
+  "lib/attribution/resolveAttribution": typeof lib_attribution_resolveAttribution;
+  "lib/attribution/validators": typeof lib_attribution_validators;
   "lib/constants": typeof lib_constants;
   "lib/domainEvents": typeof lib_domainEvents;
   "lib/domainEventsAction": typeof lib_domainEventsAction;
@@ -269,6 +310,7 @@ declare const fullApi: ApiFromModules<{
   "lib/identity": typeof lib_identity;
   "lib/inviteToken": typeof lib_inviteToken;
   "lib/leadDisplay": typeof lib_leadDisplay;
+  "lib/linkPortal/validators": typeof lib_linkPortal_validators;
   "lib/manualMeetingTimes": typeof lib_manualMeetingTimes;
   "lib/meetingFormResponses": typeof lib_meetingFormResponses;
   "lib/meetingLocation": typeof lib_meetingLocation;
@@ -288,6 +330,7 @@ declare const fullApi: ApiFromModules<{
   "lib/slackOAuthState": typeof lib_slackOAuthState;
   "lib/slackSignature": typeof lib_slackSignature;
   "lib/socialPlatform": typeof lib_socialPlatform;
+  "lib/soldProgramCache": typeof lib_soldProgramCache;
   "lib/staleOpportunityNudges": typeof lib_staleOpportunityNudges;
   "lib/statusTransitions": typeof lib_statusTransitions;
   "lib/syncCustomerSnapshot": typeof lib_syncCustomerSnapshot;
@@ -300,10 +343,32 @@ declare const fullApi: ApiFromModules<{
   "lib/utmParams": typeof lib_utmParams;
   "lib/validation": typeof lib_validation;
   "lib/workosUserId": typeof lib_workosUserId;
+  "linkPortal/authz": typeof linkPortal_authz;
+  "linkPortal/campaignMutations": typeof linkPortal_campaignMutations;
+  "linkPortal/campaignQueries": typeof linkPortal_campaignQueries;
+  "linkPortal/configMutations": typeof linkPortal_configMutations;
+  "linkPortal/configQueries": typeof linkPortal_configQueries;
+  "linkPortal/copyActions": typeof linkPortal_copyActions;
+  "linkPortal/copyMutations": typeof linkPortal_copyMutations;
+  "linkPortal/copyQueries": typeof linkPortal_copyQueries;
+  "linkPortal/passwordActions": typeof linkPortal_passwordActions;
+  "linkPortal/portalActions": typeof linkPortal_portalActions;
+  "linkPortal/portalQueries": typeof linkPortal_portalQueries;
+  "linkPortal/rateLimitMutations": typeof linkPortal_rateLimitMutations;
+  "linkPortal/sessionToken": typeof linkPortal_sessionToken;
+  "linkPortal/slugActions": typeof linkPortal_slugActions;
   "meetings/maintenance": typeof meetings_maintenance;
   migrations: typeof migrations;
   "onboarding/complete": typeof onboarding_complete;
   "onboarding/invite": typeof onboarding_invite;
+  "operations/bookingHealth": typeof operations_bookingHealth;
+  "operations/meetingStats": typeof operations_meetingStats;
+  "operations/phoneSales": typeof operations_phoneSales;
+  "operations/projections": typeof operations_projections;
+  "operations/qualifications": typeof operations_qualifications;
+  "operations/scheduling": typeof operations_scheduling;
+  "operations/unmappedUtms": typeof operations_unmappedUtms;
+  "operations/validators": typeof operations_validators;
   "opportunities/createManual": typeof opportunities_createManual;
   "opportunities/detailQuery": typeof opportunities_detailQuery;
   "opportunities/listQueries": typeof opportunities_listQueries;
@@ -322,6 +387,7 @@ declare const fullApi: ApiFromModules<{
   "reporting/activityFeed": typeof reporting_activityFeed;
   "reporting/aggregates": typeof reporting_aggregates;
   "reporting/backfill": typeof reporting_backfill;
+  "reporting/bookedVsSold": typeof reporting_bookedVsSold;
   "reporting/formResponseAnalytics": typeof reporting_formResponseAnalytics;
   "reporting/leadConversion": typeof reporting_leadConversion;
   "reporting/lib/eventLabels": typeof reporting_lib_eventLabels;
@@ -329,6 +395,8 @@ declare const fullApi: ApiFromModules<{
   "reporting/lib/hondurasBusinessTime": typeof reporting_lib_hondurasBusinessTime;
   "reporting/lib/outcomeDerivation": typeof reporting_lib_outcomeDerivation;
   "reporting/lib/periodBucketing": typeof reporting_lib_periodBucketing;
+  "reporting/lib/programDimensions": typeof reporting_lib_programDimensions;
+  "reporting/lib/slackQualificationLedger": typeof reporting_lib_slackQualificationLedger;
   "reporting/meetingTime": typeof reporting_meetingTime;
   "reporting/pipelineHealth": typeof reporting_pipelineHealth;
   "reporting/remindersReporting": typeof reporting_remindersReporting;
@@ -429,1430 +497,13 @@ export declare const internal: FilterApi<
 >;
 
 export declare const components: {
-  workOSAuthKit: {
-    lib: {
-      enqueueWebhookEvent: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          apiKey: string;
-          event: string;
-          eventId: string;
-          eventTypes?: Array<string>;
-          logLevel?: "DEBUG";
-          onEventHandle?: string;
-          updatedAt?: string;
-        },
-        any
-      >;
-      getAuthUser: FunctionReference<
-        "query",
-        "internal",
-        { id: string },
-        {
-          createdAt: string;
-          email: string;
-          emailVerified: boolean;
-          externalId?: null | string;
-          firstName?: null | string;
-          id: string;
-          lastName?: null | string;
-          lastSignInAt?: null | string;
-          locale?: null | string;
-          metadata: Record<string, any>;
-          profilePictureUrl?: null | string;
-          updatedAt: string;
-        } | null
-      >;
-    };
-  };
-  migrations: {
-    lib: {
-      cancel: FunctionReference<
-        "mutation",
-        "internal",
-        { name: string },
-        {
-          batchSize?: number;
-          cursor?: string | null;
-          error?: string;
-          isDone: boolean;
-          latestEnd?: number;
-          latestStart: number;
-          name: string;
-          next?: Array<string>;
-          processed: number;
-          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
-        }
-      >;
-      cancelAll: FunctionReference<
-        "mutation",
-        "internal",
-        { sinceTs?: number },
-        Array<{
-          batchSize?: number;
-          cursor?: string | null;
-          error?: string;
-          isDone: boolean;
-          latestEnd?: number;
-          latestStart: number;
-          name: string;
-          next?: Array<string>;
-          processed: number;
-          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
-        }>
-      >;
-      clearAll: FunctionReference<
-        "mutation",
-        "internal",
-        { before?: number },
-        null
-      >;
-      getStatus: FunctionReference<
-        "query",
-        "internal",
-        { limit?: number; names?: Array<string> },
-        Array<{
-          batchSize?: number;
-          cursor?: string | null;
-          error?: string;
-          isDone: boolean;
-          latestEnd?: number;
-          latestStart: number;
-          name: string;
-          next?: Array<string>;
-          processed: number;
-          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
-        }>
-      >;
-      migrate: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          batchSize?: number;
-          cursor?: string | null;
-          dryRun: boolean;
-          fnHandle: string;
-          name: string;
-          next?: Array<{ fnHandle: string; name: string }>;
-          oneBatchOnly?: boolean;
-          reset?: boolean;
-        },
-        {
-          batchSize?: number;
-          cursor?: string | null;
-          error?: string;
-          isDone: boolean;
-          latestEnd?: number;
-          latestStart: number;
-          name: string;
-          next?: Array<string>;
-          processed: number;
-          state: "inProgress" | "success" | "failed" | "canceled" | "unknown";
-        }
-      >;
-    };
-  };
-  meetingsByStatus: {
-    btree: {
-      aggregateBetween: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any },
-        { count: number; sum: number }
-      >;
-      aggregateBetweenBatch: FunctionReference<
-        "query",
-        "internal",
-        { queries: Array<{ k1?: any; k2?: any; namespace?: any }> },
-        Array<{ count: number; sum: number }>
-      >;
-      atNegativeOffset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any; offset: number },
-        { k: any; s: number; v: any }
-      >;
-      atOffset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any; offset: number },
-        { k: any; s: number; v: any }
-      >;
-      atOffsetBatch: FunctionReference<
-        "query",
-        "internal",
-        {
-          queries: Array<{
-            k1?: any;
-            k2?: any;
-            namespace?: any;
-            offset: number;
-          }>;
-        },
-        Array<{ k: any; s: number; v: any }>
-      >;
-      get: FunctionReference<
-        "query",
-        "internal",
-        { key: any; namespace?: any },
-        null | { k: any; s: number; v: any }
-      >;
-      offset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; key: any; namespace?: any },
-        number
-      >;
-      offsetUntil: FunctionReference<
-        "query",
-        "internal",
-        { k2?: any; key: any; namespace?: any },
-        number
-      >;
-      paginate: FunctionReference<
-        "query",
-        "internal",
-        {
-          cursor?: string;
-          k1?: any;
-          k2?: any;
-          limit: number;
-          namespace?: any;
-          order: "asc" | "desc";
-        },
-        {
-          cursor: string;
-          isDone: boolean;
-          page: Array<{ k: any; s: number; v: any }>;
-        }
-      >;
-      paginateNamespaces: FunctionReference<
-        "query",
-        "internal",
-        { cursor?: string; limit: number },
-        { cursor: string; isDone: boolean; page: Array<any> }
-      >;
-      validate: FunctionReference<
-        "query",
-        "internal",
-        { namespace?: any },
-        any
-      >;
-    };
-    inspect: {
-      display: FunctionReference<"query", "internal", { namespace?: any }, any>;
-      dump: FunctionReference<"query", "internal", { namespace?: any }, string>;
-      inspectNode: FunctionReference<
-        "query",
-        "internal",
-        { namespace?: any; node?: string },
-        null
-      >;
-      listTreeNodes: FunctionReference<
-        "query",
-        "internal",
-        { take?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          aggregate?: { count: number; sum: number };
-          items: Array<{ k: any; s: number; v: any }>;
-          subtrees: Array<string>;
-        }>
-      >;
-      listTrees: FunctionReference<
-        "query",
-        "internal",
-        { take?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          maxNodeSize: number;
-          namespace?: any;
-          root: string;
-        }>
-      >;
-    };
-    public: {
-      clear: FunctionReference<
-        "mutation",
-        "internal",
-        { maxNodeSize?: number; namespace?: any; rootLazy?: boolean },
-        null
-      >;
-      delete_: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any },
-        null
-      >;
-      deleteIfExists: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any },
-        any
-      >;
-      init: FunctionReference<
-        "mutation",
-        "internal",
-        { maxNodeSize?: number; namespace?: any; rootLazy?: boolean },
-        null
-      >;
-      insert: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any; summand?: number; value: any },
-        null
-      >;
-      makeRootLazy: FunctionReference<
-        "mutation",
-        "internal",
-        { namespace?: any },
-        null
-      >;
-      replace: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          currentKey: any;
-          namespace?: any;
-          newKey: any;
-          newNamespace?: any;
-          summand?: number;
-          value: any;
-        },
-        null
-      >;
-      replaceOrInsert: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          currentKey: any;
-          namespace?: any;
-          newKey: any;
-          newNamespace?: any;
-          summand?: number;
-          value: any;
-        },
-        any
-      >;
-    };
-  };
-  paymentSums: {
-    btree: {
-      aggregateBetween: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any },
-        { count: number; sum: number }
-      >;
-      aggregateBetweenBatch: FunctionReference<
-        "query",
-        "internal",
-        { queries: Array<{ k1?: any; k2?: any; namespace?: any }> },
-        Array<{ count: number; sum: number }>
-      >;
-      atNegativeOffset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any; offset: number },
-        { k: any; s: number; v: any }
-      >;
-      atOffset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any; offset: number },
-        { k: any; s: number; v: any }
-      >;
-      atOffsetBatch: FunctionReference<
-        "query",
-        "internal",
-        {
-          queries: Array<{
-            k1?: any;
-            k2?: any;
-            namespace?: any;
-            offset: number;
-          }>;
-        },
-        Array<{ k: any; s: number; v: any }>
-      >;
-      get: FunctionReference<
-        "query",
-        "internal",
-        { key: any; namespace?: any },
-        null | { k: any; s: number; v: any }
-      >;
-      offset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; key: any; namespace?: any },
-        number
-      >;
-      offsetUntil: FunctionReference<
-        "query",
-        "internal",
-        { k2?: any; key: any; namespace?: any },
-        number
-      >;
-      paginate: FunctionReference<
-        "query",
-        "internal",
-        {
-          cursor?: string;
-          k1?: any;
-          k2?: any;
-          limit: number;
-          namespace?: any;
-          order: "asc" | "desc";
-        },
-        {
-          cursor: string;
-          isDone: boolean;
-          page: Array<{ k: any; s: number; v: any }>;
-        }
-      >;
-      paginateNamespaces: FunctionReference<
-        "query",
-        "internal",
-        { cursor?: string; limit: number },
-        { cursor: string; isDone: boolean; page: Array<any> }
-      >;
-      validate: FunctionReference<
-        "query",
-        "internal",
-        { namespace?: any },
-        any
-      >;
-    };
-    inspect: {
-      display: FunctionReference<"query", "internal", { namespace?: any }, any>;
-      dump: FunctionReference<"query", "internal", { namespace?: any }, string>;
-      inspectNode: FunctionReference<
-        "query",
-        "internal",
-        { namespace?: any; node?: string },
-        null
-      >;
-      listTreeNodes: FunctionReference<
-        "query",
-        "internal",
-        { take?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          aggregate?: { count: number; sum: number };
-          items: Array<{ k: any; s: number; v: any }>;
-          subtrees: Array<string>;
-        }>
-      >;
-      listTrees: FunctionReference<
-        "query",
-        "internal",
-        { take?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          maxNodeSize: number;
-          namespace?: any;
-          root: string;
-        }>
-      >;
-    };
-    public: {
-      clear: FunctionReference<
-        "mutation",
-        "internal",
-        { maxNodeSize?: number; namespace?: any; rootLazy?: boolean },
-        null
-      >;
-      delete_: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any },
-        null
-      >;
-      deleteIfExists: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any },
-        any
-      >;
-      init: FunctionReference<
-        "mutation",
-        "internal",
-        { maxNodeSize?: number; namespace?: any; rootLazy?: boolean },
-        null
-      >;
-      insert: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any; summand?: number; value: any },
-        null
-      >;
-      makeRootLazy: FunctionReference<
-        "mutation",
-        "internal",
-        { namespace?: any },
-        null
-      >;
-      replace: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          currentKey: any;
-          namespace?: any;
-          newKey: any;
-          newNamespace?: any;
-          summand?: number;
-          value: any;
-        },
-        null
-      >;
-      replaceOrInsert: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          currentKey: any;
-          namespace?: any;
-          newKey: any;
-          newNamespace?: any;
-          summand?: number;
-          value: any;
-        },
-        any
-      >;
-    };
-  };
-  opportunityByStatus: {
-    btree: {
-      aggregateBetween: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any },
-        { count: number; sum: number }
-      >;
-      aggregateBetweenBatch: FunctionReference<
-        "query",
-        "internal",
-        { queries: Array<{ k1?: any; k2?: any; namespace?: any }> },
-        Array<{ count: number; sum: number }>
-      >;
-      atNegativeOffset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any; offset: number },
-        { k: any; s: number; v: any }
-      >;
-      atOffset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any; offset: number },
-        { k: any; s: number; v: any }
-      >;
-      atOffsetBatch: FunctionReference<
-        "query",
-        "internal",
-        {
-          queries: Array<{
-            k1?: any;
-            k2?: any;
-            namespace?: any;
-            offset: number;
-          }>;
-        },
-        Array<{ k: any; s: number; v: any }>
-      >;
-      get: FunctionReference<
-        "query",
-        "internal",
-        { key: any; namespace?: any },
-        null | { k: any; s: number; v: any }
-      >;
-      offset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; key: any; namespace?: any },
-        number
-      >;
-      offsetUntil: FunctionReference<
-        "query",
-        "internal",
-        { k2?: any; key: any; namespace?: any },
-        number
-      >;
-      paginate: FunctionReference<
-        "query",
-        "internal",
-        {
-          cursor?: string;
-          k1?: any;
-          k2?: any;
-          limit: number;
-          namespace?: any;
-          order: "asc" | "desc";
-        },
-        {
-          cursor: string;
-          isDone: boolean;
-          page: Array<{ k: any; s: number; v: any }>;
-        }
-      >;
-      paginateNamespaces: FunctionReference<
-        "query",
-        "internal",
-        { cursor?: string; limit: number },
-        { cursor: string; isDone: boolean; page: Array<any> }
-      >;
-      validate: FunctionReference<
-        "query",
-        "internal",
-        { namespace?: any },
-        any
-      >;
-    };
-    inspect: {
-      display: FunctionReference<"query", "internal", { namespace?: any }, any>;
-      dump: FunctionReference<"query", "internal", { namespace?: any }, string>;
-      inspectNode: FunctionReference<
-        "query",
-        "internal",
-        { namespace?: any; node?: string },
-        null
-      >;
-      listTreeNodes: FunctionReference<
-        "query",
-        "internal",
-        { take?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          aggregate?: { count: number; sum: number };
-          items: Array<{ k: any; s: number; v: any }>;
-          subtrees: Array<string>;
-        }>
-      >;
-      listTrees: FunctionReference<
-        "query",
-        "internal",
-        { take?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          maxNodeSize: number;
-          namespace?: any;
-          root: string;
-        }>
-      >;
-    };
-    public: {
-      clear: FunctionReference<
-        "mutation",
-        "internal",
-        { maxNodeSize?: number; namespace?: any; rootLazy?: boolean },
-        null
-      >;
-      delete_: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any },
-        null
-      >;
-      deleteIfExists: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any },
-        any
-      >;
-      init: FunctionReference<
-        "mutation",
-        "internal",
-        { maxNodeSize?: number; namespace?: any; rootLazy?: boolean },
-        null
-      >;
-      insert: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any; summand?: number; value: any },
-        null
-      >;
-      makeRootLazy: FunctionReference<
-        "mutation",
-        "internal",
-        { namespace?: any },
-        null
-      >;
-      replace: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          currentKey: any;
-          namespace?: any;
-          newKey: any;
-          newNamespace?: any;
-          summand?: number;
-          value: any;
-        },
-        null
-      >;
-      replaceOrInsert: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          currentKey: any;
-          namespace?: any;
-          newKey: any;
-          newNamespace?: any;
-          summand?: number;
-          value: any;
-        },
-        any
-      >;
-    };
-  };
-  leadTimeline: {
-    btree: {
-      aggregateBetween: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any },
-        { count: number; sum: number }
-      >;
-      aggregateBetweenBatch: FunctionReference<
-        "query",
-        "internal",
-        { queries: Array<{ k1?: any; k2?: any; namespace?: any }> },
-        Array<{ count: number; sum: number }>
-      >;
-      atNegativeOffset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any; offset: number },
-        { k: any; s: number; v: any }
-      >;
-      atOffset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any; offset: number },
-        { k: any; s: number; v: any }
-      >;
-      atOffsetBatch: FunctionReference<
-        "query",
-        "internal",
-        {
-          queries: Array<{
-            k1?: any;
-            k2?: any;
-            namespace?: any;
-            offset: number;
-          }>;
-        },
-        Array<{ k: any; s: number; v: any }>
-      >;
-      get: FunctionReference<
-        "query",
-        "internal",
-        { key: any; namespace?: any },
-        null | { k: any; s: number; v: any }
-      >;
-      offset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; key: any; namespace?: any },
-        number
-      >;
-      offsetUntil: FunctionReference<
-        "query",
-        "internal",
-        { k2?: any; key: any; namespace?: any },
-        number
-      >;
-      paginate: FunctionReference<
-        "query",
-        "internal",
-        {
-          cursor?: string;
-          k1?: any;
-          k2?: any;
-          limit: number;
-          namespace?: any;
-          order: "asc" | "desc";
-        },
-        {
-          cursor: string;
-          isDone: boolean;
-          page: Array<{ k: any; s: number; v: any }>;
-        }
-      >;
-      paginateNamespaces: FunctionReference<
-        "query",
-        "internal",
-        { cursor?: string; limit: number },
-        { cursor: string; isDone: boolean; page: Array<any> }
-      >;
-      validate: FunctionReference<
-        "query",
-        "internal",
-        { namespace?: any },
-        any
-      >;
-    };
-    inspect: {
-      display: FunctionReference<"query", "internal", { namespace?: any }, any>;
-      dump: FunctionReference<"query", "internal", { namespace?: any }, string>;
-      inspectNode: FunctionReference<
-        "query",
-        "internal",
-        { namespace?: any; node?: string },
-        null
-      >;
-      listTreeNodes: FunctionReference<
-        "query",
-        "internal",
-        { take?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          aggregate?: { count: number; sum: number };
-          items: Array<{ k: any; s: number; v: any }>;
-          subtrees: Array<string>;
-        }>
-      >;
-      listTrees: FunctionReference<
-        "query",
-        "internal",
-        { take?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          maxNodeSize: number;
-          namespace?: any;
-          root: string;
-        }>
-      >;
-    };
-    public: {
-      clear: FunctionReference<
-        "mutation",
-        "internal",
-        { maxNodeSize?: number; namespace?: any; rootLazy?: boolean },
-        null
-      >;
-      delete_: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any },
-        null
-      >;
-      deleteIfExists: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any },
-        any
-      >;
-      init: FunctionReference<
-        "mutation",
-        "internal",
-        { maxNodeSize?: number; namespace?: any; rootLazy?: boolean },
-        null
-      >;
-      insert: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any; summand?: number; value: any },
-        null
-      >;
-      makeRootLazy: FunctionReference<
-        "mutation",
-        "internal",
-        { namespace?: any },
-        null
-      >;
-      replace: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          currentKey: any;
-          namespace?: any;
-          newKey: any;
-          newNamespace?: any;
-          summand?: number;
-          value: any;
-        },
-        null
-      >;
-      replaceOrInsert: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          currentKey: any;
-          namespace?: any;
-          newKey: any;
-          newNamespace?: any;
-          summand?: number;
-          value: any;
-        },
-        any
-      >;
-    };
-  };
-  customerConversions: {
-    btree: {
-      aggregateBetween: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any },
-        { count: number; sum: number }
-      >;
-      aggregateBetweenBatch: FunctionReference<
-        "query",
-        "internal",
-        { queries: Array<{ k1?: any; k2?: any; namespace?: any }> },
-        Array<{ count: number; sum: number }>
-      >;
-      atNegativeOffset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any; offset: number },
-        { k: any; s: number; v: any }
-      >;
-      atOffset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any; offset: number },
-        { k: any; s: number; v: any }
-      >;
-      atOffsetBatch: FunctionReference<
-        "query",
-        "internal",
-        {
-          queries: Array<{
-            k1?: any;
-            k2?: any;
-            namespace?: any;
-            offset: number;
-          }>;
-        },
-        Array<{ k: any; s: number; v: any }>
-      >;
-      get: FunctionReference<
-        "query",
-        "internal",
-        { key: any; namespace?: any },
-        null | { k: any; s: number; v: any }
-      >;
-      offset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; key: any; namespace?: any },
-        number
-      >;
-      offsetUntil: FunctionReference<
-        "query",
-        "internal",
-        { k2?: any; key: any; namespace?: any },
-        number
-      >;
-      paginate: FunctionReference<
-        "query",
-        "internal",
-        {
-          cursor?: string;
-          k1?: any;
-          k2?: any;
-          limit: number;
-          namespace?: any;
-          order: "asc" | "desc";
-        },
-        {
-          cursor: string;
-          isDone: boolean;
-          page: Array<{ k: any; s: number; v: any }>;
-        }
-      >;
-      paginateNamespaces: FunctionReference<
-        "query",
-        "internal",
-        { cursor?: string; limit: number },
-        { cursor: string; isDone: boolean; page: Array<any> }
-      >;
-      validate: FunctionReference<
-        "query",
-        "internal",
-        { namespace?: any },
-        any
-      >;
-    };
-    inspect: {
-      display: FunctionReference<"query", "internal", { namespace?: any }, any>;
-      dump: FunctionReference<"query", "internal", { namespace?: any }, string>;
-      inspectNode: FunctionReference<
-        "query",
-        "internal",
-        { namespace?: any; node?: string },
-        null
-      >;
-      listTreeNodes: FunctionReference<
-        "query",
-        "internal",
-        { take?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          aggregate?: { count: number; sum: number };
-          items: Array<{ k: any; s: number; v: any }>;
-          subtrees: Array<string>;
-        }>
-      >;
-      listTrees: FunctionReference<
-        "query",
-        "internal",
-        { take?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          maxNodeSize: number;
-          namespace?: any;
-          root: string;
-        }>
-      >;
-    };
-    public: {
-      clear: FunctionReference<
-        "mutation",
-        "internal",
-        { maxNodeSize?: number; namespace?: any; rootLazy?: boolean },
-        null
-      >;
-      delete_: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any },
-        null
-      >;
-      deleteIfExists: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any },
-        any
-      >;
-      init: FunctionReference<
-        "mutation",
-        "internal",
-        { maxNodeSize?: number; namespace?: any; rootLazy?: boolean },
-        null
-      >;
-      insert: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any; summand?: number; value: any },
-        null
-      >;
-      makeRootLazy: FunctionReference<
-        "mutation",
-        "internal",
-        { namespace?: any },
-        null
-      >;
-      replace: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          currentKey: any;
-          namespace?: any;
-          newKey: any;
-          newNamespace?: any;
-          summand?: number;
-          value: any;
-        },
-        null
-      >;
-      replaceOrInsert: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          currentKey: any;
-          namespace?: any;
-          newKey: any;
-          newNamespace?: any;
-          summand?: number;
-          value: any;
-        },
-        any
-      >;
-    };
-  };
-  slackQualificationsByUser: {
-    btree: {
-      aggregateBetween: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any },
-        { count: number; sum: number }
-      >;
-      aggregateBetweenBatch: FunctionReference<
-        "query",
-        "internal",
-        { queries: Array<{ k1?: any; k2?: any; namespace?: any }> },
-        Array<{ count: number; sum: number }>
-      >;
-      atNegativeOffset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any; offset: number },
-        { k: any; s: number; v: any }
-      >;
-      atOffset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any; offset: number },
-        { k: any; s: number; v: any }
-      >;
-      atOffsetBatch: FunctionReference<
-        "query",
-        "internal",
-        {
-          queries: Array<{
-            k1?: any;
-            k2?: any;
-            namespace?: any;
-            offset: number;
-          }>;
-        },
-        Array<{ k: any; s: number; v: any }>
-      >;
-      get: FunctionReference<
-        "query",
-        "internal",
-        { key: any; namespace?: any },
-        null | { k: any; s: number; v: any }
-      >;
-      offset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; key: any; namespace?: any },
-        number
-      >;
-      offsetUntil: FunctionReference<
-        "query",
-        "internal",
-        { k2?: any; key: any; namespace?: any },
-        number
-      >;
-      paginate: FunctionReference<
-        "query",
-        "internal",
-        {
-          cursor?: string;
-          k1?: any;
-          k2?: any;
-          limit: number;
-          namespace?: any;
-          order: "asc" | "desc";
-        },
-        {
-          cursor: string;
-          isDone: boolean;
-          page: Array<{ k: any; s: number; v: any }>;
-        }
-      >;
-      paginateNamespaces: FunctionReference<
-        "query",
-        "internal",
-        { cursor?: string; limit: number },
-        { cursor: string; isDone: boolean; page: Array<any> }
-      >;
-      validate: FunctionReference<
-        "query",
-        "internal",
-        { namespace?: any },
-        any
-      >;
-    };
-    inspect: {
-      display: FunctionReference<"query", "internal", { namespace?: any }, any>;
-      dump: FunctionReference<"query", "internal", { namespace?: any }, string>;
-      inspectNode: FunctionReference<
-        "query",
-        "internal",
-        { namespace?: any; node?: string },
-        null
-      >;
-      listTreeNodes: FunctionReference<
-        "query",
-        "internal",
-        { take?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          aggregate?: { count: number; sum: number };
-          items: Array<{ k: any; s: number; v: any }>;
-          subtrees: Array<string>;
-        }>
-      >;
-      listTrees: FunctionReference<
-        "query",
-        "internal",
-        { take?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          maxNodeSize: number;
-          namespace?: any;
-          root: string;
-        }>
-      >;
-    };
-    public: {
-      clear: FunctionReference<
-        "mutation",
-        "internal",
-        { maxNodeSize?: number; namespace?: any; rootLazy?: boolean },
-        null
-      >;
-      delete_: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any },
-        null
-      >;
-      deleteIfExists: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any },
-        any
-      >;
-      init: FunctionReference<
-        "mutation",
-        "internal",
-        { maxNodeSize?: number; namespace?: any; rootLazy?: boolean },
-        null
-      >;
-      insert: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any; summand?: number; value: any },
-        null
-      >;
-      makeRootLazy: FunctionReference<
-        "mutation",
-        "internal",
-        { namespace?: any },
-        null
-      >;
-      replace: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          currentKey: any;
-          namespace?: any;
-          newKey: any;
-          newNamespace?: any;
-          summand?: number;
-          value: any;
-        },
-        null
-      >;
-      replaceOrInsert: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          currentKey: any;
-          namespace?: any;
-          newKey: any;
-          newNamespace?: any;
-          summand?: number;
-          value: any;
-        },
-        any
-      >;
-    };
-  };
-  slackQualificationsByTime: {
-    btree: {
-      aggregateBetween: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any },
-        { count: number; sum: number }
-      >;
-      aggregateBetweenBatch: FunctionReference<
-        "query",
-        "internal",
-        { queries: Array<{ k1?: any; k2?: any; namespace?: any }> },
-        Array<{ count: number; sum: number }>
-      >;
-      atNegativeOffset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any; offset: number },
-        { k: any; s: number; v: any }
-      >;
-      atOffset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; k2?: any; namespace?: any; offset: number },
-        { k: any; s: number; v: any }
-      >;
-      atOffsetBatch: FunctionReference<
-        "query",
-        "internal",
-        {
-          queries: Array<{
-            k1?: any;
-            k2?: any;
-            namespace?: any;
-            offset: number;
-          }>;
-        },
-        Array<{ k: any; s: number; v: any }>
-      >;
-      get: FunctionReference<
-        "query",
-        "internal",
-        { key: any; namespace?: any },
-        null | { k: any; s: number; v: any }
-      >;
-      offset: FunctionReference<
-        "query",
-        "internal",
-        { k1?: any; key: any; namespace?: any },
-        number
-      >;
-      offsetUntil: FunctionReference<
-        "query",
-        "internal",
-        { k2?: any; key: any; namespace?: any },
-        number
-      >;
-      paginate: FunctionReference<
-        "query",
-        "internal",
-        {
-          cursor?: string;
-          k1?: any;
-          k2?: any;
-          limit: number;
-          namespace?: any;
-          order: "asc" | "desc";
-        },
-        {
-          cursor: string;
-          isDone: boolean;
-          page: Array<{ k: any; s: number; v: any }>;
-        }
-      >;
-      paginateNamespaces: FunctionReference<
-        "query",
-        "internal",
-        { cursor?: string; limit: number },
-        { cursor: string; isDone: boolean; page: Array<any> }
-      >;
-      validate: FunctionReference<
-        "query",
-        "internal",
-        { namespace?: any },
-        any
-      >;
-    };
-    inspect: {
-      display: FunctionReference<"query", "internal", { namespace?: any }, any>;
-      dump: FunctionReference<"query", "internal", { namespace?: any }, string>;
-      inspectNode: FunctionReference<
-        "query",
-        "internal",
-        { namespace?: any; node?: string },
-        null
-      >;
-      listTreeNodes: FunctionReference<
-        "query",
-        "internal",
-        { take?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          aggregate?: { count: number; sum: number };
-          items: Array<{ k: any; s: number; v: any }>;
-          subtrees: Array<string>;
-        }>
-      >;
-      listTrees: FunctionReference<
-        "query",
-        "internal",
-        { take?: number },
-        Array<{
-          _creationTime: number;
-          _id: string;
-          maxNodeSize: number;
-          namespace?: any;
-          root: string;
-        }>
-      >;
-    };
-    public: {
-      clear: FunctionReference<
-        "mutation",
-        "internal",
-        { maxNodeSize?: number; namespace?: any; rootLazy?: boolean },
-        null
-      >;
-      delete_: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any },
-        null
-      >;
-      deleteIfExists: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any },
-        any
-      >;
-      init: FunctionReference<
-        "mutation",
-        "internal",
-        { maxNodeSize?: number; namespace?: any; rootLazy?: boolean },
-        null
-      >;
-      insert: FunctionReference<
-        "mutation",
-        "internal",
-        { key: any; namespace?: any; summand?: number; value: any },
-        null
-      >;
-      makeRootLazy: FunctionReference<
-        "mutation",
-        "internal",
-        { namespace?: any },
-        null
-      >;
-      replace: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          currentKey: any;
-          namespace?: any;
-          newKey: any;
-          newNamespace?: any;
-          summand?: number;
-          value: any;
-        },
-        null
-      >;
-      replaceOrInsert: FunctionReference<
-        "mutation",
-        "internal",
-        {
-          currentKey: any;
-          namespace?: any;
-          newKey: any;
-          newNamespace?: any;
-          summand?: number;
-          value: any;
-        },
-        any
-      >;
-    };
-  };
+  workOSAuthKit: import("@convex-dev/workos-authkit/_generated/component.js").ComponentApi<"workOSAuthKit">;
+  migrations: import("@convex-dev/migrations/_generated/component.js").ComponentApi<"migrations">;
+  meetingsByStatus: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"meetingsByStatus">;
+  paymentSums: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"paymentSums">;
+  opportunityByStatus: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"opportunityByStatus">;
+  leadTimeline: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"leadTimeline">;
+  customerConversions: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"customerConversions">;
+  slackQualificationsByUser: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"slackQualificationsByUser">;
+  slackQualificationsByTime: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"slackQualificationsByTime">;
 };

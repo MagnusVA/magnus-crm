@@ -199,7 +199,7 @@ export function ActivityFeedFilters({
         </SelectContent>
       </Select>
 
-      {/* Payment-scoped filters (program + payment type) — only rendered when
+      {/* Payment-scoped filters (payment program + payment type) — only rendered when
           the current entity/event-type filter makes payment rows relevant. */}
       {showPaymentFilters ? (
         <>
@@ -232,7 +232,7 @@ export function ActivityFeedFilters({
     </div>
       {showPaymentFilters ? (
         <p className="text-xs text-muted-foreground">
-          Program and Payment Type filters apply only to payment events
+          Payment Program and Payment Type filters apply only to payment events
           (payment.*, customer.paid, deal.*). Narrow to the Payment entity or
           a payment event type above to see richer payment-specific columns.
         </p>
