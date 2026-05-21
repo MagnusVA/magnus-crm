@@ -21,6 +21,7 @@ const HASH_PARAMS = {
   p: 1,
 };
 const SCRYPT_MAXMEM_BYTES = 64 * 1024 * 1024;
+const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_LENGTH = 256;
 const MAX_PORTAL_SLUG_LENGTH = 128;
 const GENERIC_PORTAL_AUTH_ERROR = "Portal unavailable or password invalid.";
@@ -47,7 +48,6 @@ type LinkPortalConfigForPassword = {
 type PortalPasswordRotationResult = {
   portalUrlPath: string;
   publicSlug: string;
-  plainPassword: string;
   passwordSetAt?: number;
   passwordRotatedAt?: number;
 };
@@ -118,7 +118,18 @@ function normalizeIpHash(ipHash: string) {
 }
 
 function isSubmittedPasswordAllowed(password: string) {
-  return password.length > 0 && password.length <= MAX_PASSWORD_LENGTH;
+  return (
+    password.length >= MIN_PASSWORD_LENGTH &&
+    password.length <= MAX_PASSWORD_LENGTH
+  );
+}
+
+function assertAdminSetPasswordAllowed(password: string) {
+  if (!isSubmittedPasswordAllowed(password)) {
+    throw new Error(
+      `Portal password must be between ${MIN_PASSWORD_LENGTH} and ${MAX_PASSWORD_LENGTH} characters.`,
+    );
+  }
 }
 
 function isSupportedHashParams(
@@ -134,18 +145,20 @@ function isSupportedHashParams(
 }
 
 export const rotatePortalPassword = action({
-  args: {},
-  handler: async (ctx): Promise<PortalPasswordRotationResult> => {
+  args: {
+    password: v.string(),
+  },
+  handler: async (ctx, args): Promise<PortalPasswordRotationResult> => {
     const access: TenantAdminPortalAccess = await ctx.runQuery(
       internal.linkPortal.authz.requireTenantAdminForPortal,
       {},
     );
+    assertAdminSetPasswordAllowed(args.password);
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const plainPassword = randomBytes(18).toString("base64url");
       const passwordSalt = randomBytes(16).toString("base64url");
       const passwordHash = await hashPortalPassword(
-        plainPassword,
+        args.password,
         passwordSalt,
         HASH_PARAMS,
       );
@@ -168,7 +181,6 @@ export const rotatePortalPassword = action({
         return {
           portalUrlPath: `/dm-links/${config.publicSlug}`,
           publicSlug: config.publicSlug,
-          plainPassword,
           passwordSetAt: config.passwordSetAt,
           passwordRotatedAt: config.passwordRotatedAt,
         };

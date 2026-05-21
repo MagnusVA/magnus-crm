@@ -31,13 +31,9 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import { OneTimePasswordDialog } from "./one-time-password-dialog";
+import { SetPortalPasswordDialog } from "./set-portal-password-dialog";
 
-type PendingAction = "toggle" | "slug" | "password" | "ttl" | null;
-type PasswordResult = {
-  portalUrlPath: string;
-  plainPassword: string;
-};
+type PendingAction = "toggle" | "slug" | "ttl" | null;
 
 function formatTimestamp(timestamp: number | undefined) {
   if (timestamp === undefined) {
@@ -78,14 +74,9 @@ export function PortalAccessCard() {
     api.linkPortal.configMutations.updateSessionTtl,
   );
   const rotateSlug = useAction(api.linkPortal.slugActions.rotatePortalSlug);
-  const rotatePassword = useAction(
-    api.linkPortal.passwordActions.rotatePortalPassword,
-  );
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
   const [ttlHours, setTtlHours] = useState("8");
-  const [passwordResult, setPasswordResult] = useState<PasswordResult | null>(
-    null,
-  );
+  const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
 
   useEffect(() => {
     setTtlHours(formatTtlHours(config?.sessionTtlSeconds));
@@ -128,24 +119,6 @@ export function PortalAccessCard() {
     } catch (error) {
       toast.error(
         error instanceof Error ? error.message : "Could not rotate portal path",
-      );
-    } finally {
-      setPendingAction(null);
-    }
-  }
-
-  async function handleRotatePassword() {
-    setPendingAction("password");
-    try {
-      const result = await rotatePassword({});
-      setPasswordResult({
-        portalUrlPath: result.portalUrlPath,
-        plainPassword: result.plainPassword,
-      });
-      toast.success("Portal password generated");
-    } catch (error) {
-      toast.error(
-        error instanceof Error ? error.message : "Could not rotate password",
       );
     } finally {
       setPendingAction(null);
@@ -196,7 +169,7 @@ export function PortalAccessCard() {
               <ShieldCheckIcon data-icon="inline-start" />
               <AlertTitle>Portal access is not configured</AlertTitle>
               <AlertDescription>
-                Generate a password to create the private portal path and access
+                Set a password to create the private portal path and access
                 credentials.
               </AlertDescription>
             </Alert>
@@ -306,29 +279,20 @@ export function PortalAccessCard() {
                 type="button"
                 variant="outline"
                 disabled={isBusy}
-                onClick={handleRotatePassword}
+                onClick={() => setPasswordDialogOpen(true)}
               >
-                {pendingAction === "password" ? (
-                  <Spinner data-icon="inline-start" />
-                ) : (
-                  <KeyRoundIcon data-icon="inline-start" />
-                )}
-                Generate or Rotate Password
+                <KeyRoundIcon data-icon="inline-start" />
+                {config?.passwordSetAt ? "Rotate Password" : "Set Password"}
               </Button>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <OneTimePasswordDialog
-        open={passwordResult !== null}
-        password={passwordResult?.plainPassword ?? ""}
-        portalUrlPath={passwordResult?.portalUrlPath ?? ""}
-        onOpenChange={(open) => {
-          if (!open) {
-            setPasswordResult(null);
-          }
-        }}
+      <SetPortalPasswordDialog
+        open={passwordDialogOpen}
+        hasExistingPassword={config?.passwordSetAt !== undefined}
+        onOpenChange={setPasswordDialogOpen}
       />
     </>
   );
