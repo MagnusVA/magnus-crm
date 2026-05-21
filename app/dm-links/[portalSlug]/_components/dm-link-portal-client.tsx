@@ -56,7 +56,6 @@ import { Progress } from "@/components/ui/progress";
 import { isPostHogEnabled } from "@/lib/posthog-config";
 import { cn } from "@/lib/utils";
 import {
-	formatEventTypeSummary,
 	groupBookablePrograms,
 	type BookableProgramEventType,
 } from "./group-bookable-programs";
@@ -237,6 +236,7 @@ function SelectableOption({
 	icon,
 	onClick,
 	disabled,
+	density = "default",
 }: {
 	selected: boolean;
 	title: string;
@@ -245,7 +245,10 @@ function SelectableOption({
 	icon: ReactNode;
 	onClick: () => void;
 	disabled?: boolean;
+	density?: "default" | "compact";
 }) {
+	const isCompact = density === "compact";
+
 	return (
 		<button
 			type="button"
@@ -253,16 +256,23 @@ function SelectableOption({
 			disabled={disabled}
 			onClick={onClick}
 			className={cn(
-				"flex min-h-24 min-w-0 flex-col rounded-lg border p-3 text-left transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
+				"flex min-w-0 flex-col rounded-lg border text-left transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
+				isCompact ? "min-h-12 p-1.5" : "min-h-24 p-3",
 				selected
 					? "border-primary bg-primary/5 ring-1 ring-primary/25"
 					: "border-border bg-background hover:bg-muted/60",
 			)}
 		>
-			<span className="flex min-w-0 items-start gap-3">
+			<span
+				className={cn(
+					"flex min-w-0 items-start",
+					isCompact ? "gap-1.5" : "gap-3",
+				)}
+			>
 				<span
 					className={cn(
-						"mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md",
+						"mt-0.5 flex shrink-0 items-center justify-center rounded-md",
+						isCompact ? "size-6" : "size-8",
 						selected
 							? "bg-primary text-primary-foreground"
 							: "bg-muted text-muted-foreground",
@@ -271,15 +281,36 @@ function SelectableOption({
 					{selected ? <CheckIcon aria-hidden="true" /> : icon}
 				</span>
 				<span className="min-w-0 flex-1">
-					<span className="block truncate font-medium">{title}</span>
+					<span
+						className={cn(
+							"block truncate font-medium",
+							isCompact ? "text-[13px] leading-tight" : "",
+						)}
+					>
+						{title}
+					</span>
 					{description ? (
-						<span className="mt-1 block text-sm leading-snug text-muted-foreground">
+						<span
+							className={cn(
+								"block truncate leading-snug text-muted-foreground",
+								isCompact ? "text-[11px]" : "mt-1 text-sm",
+							)}
+						>
 							{description}
 						</span>
 					) : null}
 				</span>
 			</span>
-			{meta ? <span className="mt-3 flex flex-wrap gap-2">{meta}</span> : null}
+			{meta ? (
+				<span
+					className={cn(
+						"flex min-w-0 flex-wrap",
+						isCompact ? "mt-1 gap-0.5" : "mt-3 gap-2",
+					)}
+				>
+					{meta}
+				</span>
+			) : null}
 		</button>
 	);
 }
@@ -365,6 +396,16 @@ function UnlockedPortal({
 		preparedLinks.status === "ready" &&
 		preparedLinks.readyLinks.length > 0;
 
+	function resetPortalState() {
+		setSelectedCloserId("");
+		setSelectedProgramId("");
+		setSelectedCampaignId("");
+		setCurrentStep("closer");
+		setGeneratedBatch(null);
+		setCopyStates({});
+		setNow(0);
+	}
+
 	useEffect(() => {
 		if (!generatedBatch) {
 			return;
@@ -383,16 +424,6 @@ function UnlockedPortal({
 			window.clearTimeout(timeoutId);
 		};
 	}, [generatedBatch]);
-
-	function resetPortalState() {
-		setSelectedCloserId("");
-		setSelectedProgramId("");
-		setSelectedCampaignId("");
-		setCurrentStep("closer");
-		setGeneratedBatch(null);
-		setCopyStates({});
-		setNow(0);
-	}
 
 	function resetGeneratedLinks() {
 		setGeneratedBatch(null);
@@ -504,7 +535,7 @@ function UnlockedPortal({
 			return;
 		}
 
-		if (!generatedBatch || Date.now() >= generatedBatch.expiresAt) {
+		if (!generatedBatch || remainingMs <= 0) {
 			resetPortalState();
 			return;
 		}
@@ -732,7 +763,7 @@ function UnlockedPortal({
 							</div>
 
 							{currentStep === "closer" ? (
-								<div className="grid gap-3 md:grid-cols-2">
+								<div className="grid grid-cols-2 gap-2">
 									{bootstrap.dmClosers.map((row) => (
 										<SelectableOption
 											key={row.id}
@@ -742,57 +773,30 @@ function UnlockedPortal({
 											icon={<UserIcon aria-hidden="true" />}
 											onClick={() => selectCloser(row.id)}
 											disabled={setupIncomplete}
-											meta={
-												<>
-													<Badge
-														variant="secondary"
-														className="max-w-full justify-start truncate"
-														title={`utm_source=${row.teamUtmSource}`}
-														translate="no"
-													>
-														source={row.teamUtmSource}
-													</Badge>
-													<Badge
-														variant="secondary"
-														className="max-w-full justify-start truncate"
-														title={`utm_medium=${row.utmMedium}`}
-														translate="no"
-													>
-														medium={row.utmMedium}
-													</Badge>
-												</>
-											}
+											density="compact"
 										/>
 									))}
 								</div>
 							) : null}
 
 							{currentStep === "program" ? (
-								<div className="grid gap-3 md:grid-cols-2">
+								<div className="grid grid-cols-2 gap-2">
 									{groupedPrograms.map((row) => (
 										<SelectableOption
 											key={row.bookingProgramId}
 											selected={selectedProgramId === row.bookingProgramId}
 											title={row.bookingProgramName}
-											description={formatEventTypeSummary(row.eventTypes)}
 											icon={<CalendarIcon aria-hidden="true" />}
 											onClick={() => selectProgram(row.bookingProgramId)}
 											disabled={setupIncomplete}
-											meta={
-												<Badge variant="outline">
-													{row.eventTypes.length}{" "}
-													{row.eventTypes.length === 1
-														? "event type"
-														: "event types"}
-												</Badge>
-											}
+											density="compact"
 										/>
 									))}
 								</div>
 							) : null}
 
 							{currentStep === "campaign" ? (
-								<div className="grid gap-3 md:grid-cols-2">
+								<div className="grid grid-cols-2 gap-2">
 									{bootstrap.campaignPresets.map((row) => (
 										<SelectableOption
 											key={row.id}
@@ -804,16 +808,7 @@ function UnlockedPortal({
 											icon={<TagIcon aria-hidden="true" />}
 											onClick={() => selectCampaign(row.id)}
 											disabled={setupIncomplete}
-											meta={
-												<Badge
-													variant="secondary"
-													className="max-w-full justify-start truncate"
-													title={`utm_campaign=${row.utmCampaign}`}
-													translate="no"
-												>
-													campaign={row.utmCampaign}
-												</Badge>
-											}
+											density="compact"
 										/>
 									))}
 								</div>
