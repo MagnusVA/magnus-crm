@@ -5,7 +5,6 @@ import {
 	useActionState,
 	useEffect,
 	useMemo,
-	useRef,
 	useState,
 } from "react";
 import posthog from "posthog-js";
@@ -56,7 +55,12 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { isPostHogEnabled } from "@/lib/posthog-config";
 import { cn } from "@/lib/utils";
-import { buildBookingUrl } from "./build-booking-url";
+import {
+	formatEventTypeSummary,
+	groupBookablePrograms,
+	type BookableProgramEventType,
+} from "./group-bookable-programs";
+import { prepareProgramLinks } from "./prepare-program-links";
 
 const initialUnlockState: PortalUnlockState = { status: "idle" };
 const LINK_EXPIRATION_MS = 60_000;
@@ -76,12 +80,21 @@ type ActiveGeneratedLink = {
 	generatedAt: number;
 	expiresAt: number;
 	eventTypeConfigId: string;
+	eventTypeDisplayName: string;
 	bookingProgramId: string;
 	dmCloserId: string;
 	teamId: string;
 	campaignPresetId: string;
 	campaign: string;
 };
+
+type GeneratedLinkBatch = {
+	generatedAt: number;
+	expiresAt: number;
+	links: ActiveGeneratedLink[];
+};
+
+type LinkCopyState = "idle" | "copying" | "copied" | "manual";
 
 type PortalBootstrap = {
 	tenantName: string;
@@ -99,13 +112,7 @@ type PortalBootstrap = {
 		teamDisplayName: string;
 		teamUtmSource: string;
 	}>;
-	bookablePrograms: Array<{
-		eventTypeConfigId: string;
-		eventTypeDisplayName: string;
-		bookingProgramId: string;
-		bookingProgramName: string;
-		bookingBaseUrl: string;
-	}>;
+	bookablePrograms: Array<BookableProgramEventType>;
 };
 
 type DmLinkPortalClientProps = {
@@ -292,46 +299,47 @@ function UnlockedPortal({
 	const [selectedProgramId, setSelectedProgramId] = useState("");
 	const [selectedCampaignId, setSelectedCampaignId] = useState("");
 	const [currentStep, setCurrentStep] = useState<PortalStep>("closer");
-	const [generatedLink, setGeneratedLink] =
-		useState<ActiveGeneratedLink | null>(null);
+	const [generatedBatch, setGeneratedBatch] =
+		useState<GeneratedLinkBatch | null>(null);
 	const [now, setNow] = useState(0);
-	const [linkExpired, setLinkExpired] = useState(false);
-	const [copyState, setCopyState] = useState<
-		"idle" | "copying" | "copied" | "manual"
-	>("idle");
-	const urlInputRef = useRef<HTMLInputElement>(null);
+	const [copyStates, setCopyStates] = useState<
+		Record<string, LinkCopyState>
+	>({});
+
+	const groupedPrograms = useMemo(
+		() => groupBookablePrograms(bootstrap.bookablePrograms),
+		[bootstrap.bookablePrograms],
+	);
 
 	const closer = bootstrap.dmClosers.find((row) => row.id === selectedCloserId);
-	const program = bootstrap.bookablePrograms.find(
-		(row) => row.eventTypeConfigId === selectedProgramId,
+	const program = groupedPrograms.find(
+		(row) => row.bookingProgramId === selectedProgramId,
 	);
 	const campaign = bootstrap.campaignPresets.find(
 		(row) => row.id === selectedCampaignId,
 	);
 
-	const preparedLink = useMemo(() => {
+	const preparedLinks = useMemo(() => {
 		if (!closer || !program || !campaign) {
-			return { status: "empty" as const, url: "" };
+			return { status: "empty" as const, links: [] };
 		}
 
-		try {
-			return {
-				status: "ready" as const,
-				url: buildBookingUrl({
-					bookingBaseUrl: program.bookingBaseUrl,
-					teamUtmSource: closer.teamUtmSource,
-					closerUtmMedium: closer.utmMedium,
-					campaign: campaign.utmCampaign,
-				}),
-			};
-		} catch {
-			return { status: "invalid_base_url" as const, url: "" };
-		}
+		return prepareProgramLinks({
+			closer,
+			campaign,
+			eventTypes: program.eventTypes,
+		});
 	}, [campaign, closer, program]);
+
+	const invalidEventTypes = useMemo(
+		() =>
+			preparedLinks.links.filter((link) => link.status === "invalid_base_url"),
+		[preparedLinks.links],
+	);
 
 	const setupIncomplete =
 		bootstrap.dmClosers.length === 0 ||
-		bootstrap.bookablePrograms.length === 0 ||
+		groupedPrograms.length === 0 ||
 		bootstrap.campaignPresets.length === 0;
 	const currentStepIndex = portalSteps.findIndex(
 		(step) => step.id === currentStep,
@@ -340,65 +348,75 @@ function UnlockedPortal({
 		Boolean(closer),
 		Boolean(program),
 		Boolean(campaign),
-		Boolean(generatedLink),
+		Boolean(generatedBatch),
 	].filter(Boolean).length;
 	const progressValue = (completedStepCount / portalSteps.length) * 100;
-	const remainingMs = generatedLink
-		? Math.max(0, generatedLink.expiresAt - now)
+	const remainingMs = generatedBatch
+		? Math.max(0, generatedBatch.expiresAt - now)
 		: 0;
-	const remainingSeconds = generatedLink
+	const remainingSeconds = generatedBatch
 		? Math.max(0, Math.ceil(remainingMs / 1000))
 		: LINK_EXPIRATION_SECONDS;
-	const timerProgress = generatedLink
+	const timerProgress = generatedBatch
 		? (remainingMs / LINK_EXPIRATION_MS) * 100
 		: 0;
 	const canGenerate =
-		!setupIncomplete && preparedLink.status === "ready" && Boolean(preparedLink.url);
+		!setupIncomplete &&
+		preparedLinks.status === "ready" &&
+		preparedLinks.readyLinks.length > 0;
 
 	useEffect(() => {
-		if (!generatedLink) {
+		if (!generatedBatch) {
 			return;
 		}
 
-		const expirationDelay = Math.max(0, generatedLink.expiresAt - Date.now());
+		const expirationDelay = Math.max(0, generatedBatch.expiresAt - Date.now());
 		const intervalId = window.setInterval(() => {
 			setNow(Date.now());
 		}, 1000);
 		const timeoutId = window.setTimeout(() => {
-			setGeneratedLink(null);
-			setCopyState("idle");
-			setLinkExpired(true);
+			resetPortalState();
 		}, expirationDelay);
 
 		return () => {
 			window.clearInterval(intervalId);
 			window.clearTimeout(timeoutId);
 		};
-	}, [generatedLink]);
+	}, [generatedBatch]);
 
-	function resetGeneratedLink() {
-		setGeneratedLink(null);
-		setCopyState("idle");
-		setLinkExpired(false);
+	function resetPortalState() {
+		setSelectedCloserId("");
+		setSelectedProgramId("");
+		setSelectedCampaignId("");
+		setCurrentStep("closer");
+		setGeneratedBatch(null);
+		setCopyStates({});
+		setNow(0);
+	}
+
+	function resetGeneratedLinks() {
+		setGeneratedBatch(null);
+		setCopyStates({});
+		setNow(0);
 	}
 
 	function selectCloser(value: string) {
 		if (value !== selectedCloserId) {
-			resetGeneratedLink();
+			resetGeneratedLinks();
 		}
 		setSelectedCloserId(value);
 	}
 
 	function selectProgram(value: string) {
 		if (value !== selectedProgramId) {
-			resetGeneratedLink();
+			resetGeneratedLinks();
 		}
 		setSelectedProgramId(value);
 	}
 
 	function selectCampaign(value: string) {
 		if (value !== selectedCampaignId) {
-			resetGeneratedLink();
+			resetGeneratedLinks();
 		}
 		setSelectedCampaignId(value);
 	}
@@ -413,7 +431,7 @@ function UnlockedPortal({
 		if (step === "campaign") {
 			return Boolean(campaign);
 		}
-		return Boolean(generatedLink);
+		return Boolean(generatedBatch);
 	}
 
 	function canOpenStep(step: PortalStep) {
@@ -449,49 +467,71 @@ function UnlockedPortal({
 		}
 	}
 
-	function generateLink() {
-		if (!closer || !program || !campaign || preparedLink.status !== "ready") {
+	function generateLinks() {
+		if (
+			!closer ||
+			!program ||
+			!campaign ||
+			preparedLinks.status !== "ready"
+		) {
 			return;
 		}
 
 		const generatedAt = Date.now();
 		setNow(generatedAt);
-		setLinkExpired(false);
-		setCopyState("idle");
-		setGeneratedLink({
-			url: preparedLink.url,
+		setCopyStates({});
+		setGeneratedBatch({
 			generatedAt,
 			expiresAt: generatedAt + LINK_EXPIRATION_MS,
-			eventTypeConfigId: program.eventTypeConfigId,
-			bookingProgramId: program.bookingProgramId,
-			dmCloserId: closer.id,
-			teamId: closer.teamId,
-			campaignPresetId: campaign.id,
-			campaign: campaign.utmCampaign,
+			links: preparedLinks.readyLinks.map((link) => ({
+				url: link.url,
+				generatedAt,
+				expiresAt: generatedAt + LINK_EXPIRATION_MS,
+				eventTypeConfigId: link.eventTypeConfigId,
+				eventTypeDisplayName: link.eventTypeDisplayName,
+				bookingProgramId: link.bookingProgramId,
+				dmCloserId: closer.id,
+				teamId: closer.teamId,
+				campaignPresetId: campaign.id,
+				campaign: campaign.utmCampaign,
+			})),
 		});
 	}
 
-	async function copyGeneratedUrl() {
-		const activeLink = generatedLink;
-		if (!activeLink || copyState === "copying") {
+	async function copyGeneratedUrl(activeLink: ActiveGeneratedLink) {
+		const copyState = copyStates[activeLink.eventTypeConfigId] ?? "idle";
+		if (copyState === "copying") {
 			return;
 		}
 
-		if (Date.now() >= activeLink.expiresAt) {
-			setGeneratedLink(null);
-			setCopyState("idle");
-			setLinkExpired(true);
+		if (!generatedBatch || Date.now() >= generatedBatch.expiresAt) {
+			resetPortalState();
 			return;
 		}
 
-		setCopyState("copying");
+		setCopyStates((current) => ({
+			...current,
+			[activeLink.eventTypeConfigId]: "copying",
+		}));
+
 		try {
 			await navigator.clipboard.writeText(activeLink.url);
-			setCopyState("copied");
+			setCopyStates((current) => ({
+				...current,
+				[activeLink.eventTypeConfigId]: "copied",
+			}));
 		} catch {
-			setCopyState("manual");
-			urlInputRef.current?.focus();
-			urlInputRef.current?.select();
+			const input = document.getElementById(
+				`generated-booking-url-${activeLink.eventTypeConfigId}`,
+			);
+			if (input instanceof HTMLInputElement) {
+				input.focus();
+				input.select();
+			}
+			setCopyStates((current) => ({
+				...current,
+				[activeLink.eventTypeConfigId]: "manual",
+			}));
 			return;
 		}
 
@@ -530,15 +570,16 @@ function UnlockedPortal({
 		},
 		program: {
 			title: "Choose the program",
-			description: "Select the Calendly event type the lead should book.",
+			description:
+				"Select the booking program. Every portal-ready event type for that program will be generated together.",
 		},
 		campaign: {
 			title: "Choose the campaign",
 			description: "Attach the campaign preset that should appear in Calendly UTMs.",
 		},
 		generate: {
-			title: "Generate the link",
-			description: `The generated URL is visible for ${LINK_EXPIRATION_SECONDS} seconds.`,
+			title: "Generate the links",
+			description: `All event types for the selected program appear here for ${LINK_EXPIRATION_SECONDS} seconds. Copy the one you need.`,
 		},
 	};
 
@@ -597,13 +638,27 @@ function UnlockedPortal({
 					</Alert>
 				) : null}
 
-				{preparedLink.status === "invalid_base_url" ? (
+				{preparedLinks.status === "all_invalid" ? (
 					<Alert variant="destructive">
 						<AlertCircleIcon aria-hidden="true" />
-						<AlertTitle>Booking URL Needs Admin Review</AlertTitle>
+						<AlertTitle>Booking URLs Need Admin Review</AlertTitle>
 						<AlertDescription>
-							This event type has an invalid booking URL. Select another program
-							or ask your workspace admin to update it.
+							Every event type for this program has an invalid booking URL. Select
+							another program or ask your workspace admin to update them.
+						</AlertDescription>
+					</Alert>
+				) : null}
+
+				{invalidEventTypes.length > 0 && preparedLinks.status === "ready" ? (
+					<Alert>
+						<AlertCircleIcon aria-hidden="true" />
+						<AlertTitle>Some Event Types Are Unavailable</AlertTitle>
+						<AlertDescription>
+							These event types have invalid booking URLs and will be skipped:{" "}
+							{invalidEventTypes
+								.map((eventType) => eventType.eventTypeDisplayName)
+								.join(", ")}
+							.
 						</AlertDescription>
 					</Alert>
 				) : null}
@@ -612,8 +667,8 @@ function UnlockedPortal({
 					<CardHeader>
 						<CardTitle>Booking Link Steps</CardTitle>
 						<CardDescription>
-							Move through each choice, then generate a short-lived Calendly
-							link.
+							Move through each choice, then generate short-lived Calendly links
+							for every event type in the program.
 						</CardDescription>
 						<CardAction>
 							<Badge variant="outline">
@@ -714,23 +769,21 @@ function UnlockedPortal({
 
 							{currentStep === "program" ? (
 								<div className="grid gap-3 md:grid-cols-2">
-									{bootstrap.bookablePrograms.map((row) => (
+									{groupedPrograms.map((row) => (
 										<SelectableOption
-											key={row.eventTypeConfigId}
-											selected={selectedProgramId === row.eventTypeConfigId}
+											key={row.bookingProgramId}
+											selected={selectedProgramId === row.bookingProgramId}
 											title={row.bookingProgramName}
-											description={row.eventTypeDisplayName}
+											description={formatEventTypeSummary(row.eventTypes)}
 											icon={<CalendarIcon aria-hidden="true" />}
-											onClick={() => selectProgram(row.eventTypeConfigId)}
+											onClick={() => selectProgram(row.bookingProgramId)}
 											disabled={setupIncomplete}
 											meta={
-												<Badge
-													variant="outline"
-													className="max-w-full justify-start truncate"
-													title={row.bookingBaseUrl}
-													translate="no"
-												>
-													{row.bookingBaseUrl}
+												<Badge variant="outline">
+													{row.eventTypes.length}{" "}
+													{row.eventTypes.length === 1
+														? "event type"
+														: "event types"}
 												</Badge>
 											}
 										/>
@@ -782,41 +835,35 @@ function UnlockedPortal({
 										))}
 									</div>
 
-									{linkExpired ? (
-										<Alert>
-											<AlertCircleIcon aria-hidden="true" />
-											<AlertTitle>Link Expired</AlertTitle>
-											<AlertDescription>
-												Generate a fresh link before copying or sharing.
-											</AlertDescription>
-										</Alert>
-									) : null}
-
 									<div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
 										<div className="min-w-0">
-											<p className="font-medium">Ready for a fresh link</p>
+											<p className="font-medium">Ready for fresh links</p>
 											<p className="text-sm text-muted-foreground">
-												Generating starts a {LINK_EXPIRATION_SECONDS}-second
-												copy window.
+												Generating starts a {LINK_EXPIRATION_SECONDS}-second copy
+												window for{" "}
+												{program?.eventTypes.length === 1
+													? "1 event type"
+													: `${program?.eventTypes.length ?? 0} event types`}
+												.
 											</p>
 										</div>
 										<Button
 											type="button"
-											onClick={generateLink}
+											onClick={generateLinks}
 											disabled={!canGenerate}
 											className="self-start sm:self-auto"
 										>
-											{generatedLink ? (
+											{generatedBatch ? (
 												<RefreshCwIcon data-icon="inline-start" aria-hidden="true" />
 											) : (
 												<LinkIcon data-icon="inline-start" aria-hidden="true" />
 											)}
-											{generatedLink ? "Regenerate Link" : "Generate Link"}
+											{generatedBatch ? "Regenerate Links" : "Generate Links"}
 										</Button>
 									</div>
 
-									{generatedLink ? (
-										<div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
+									{generatedBatch ? (
+										<div className="space-y-4 rounded-lg border border-primary/30 bg-primary/5 p-3">
 											<div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
 												<Badge
 													variant={remainingSeconds <= 10 ? "destructive" : "secondary"}
@@ -828,61 +875,82 @@ function UnlockedPortal({
 												<div className="min-w-40 flex-1 sm:max-w-64">
 													<Progress
 														value={timerProgress}
-														aria-label="Generated link time remaining"
+														aria-label="Generated links time remaining"
 													/>
 												</div>
 											</div>
 
-											<div className="flex min-w-0 flex-col gap-2 sm:flex-row">
-												<Input
-													ref={urlInputRef}
-													id="generated-booking-url"
-													value={generatedLink.url}
-													readOnly
-													onFocus={(event) => event.currentTarget.select()}
-													className="font-mono text-sm"
-													translate="no"
-												/>
-												<Tooltip>
-													<TooltipTrigger asChild>
-														<Button
-															type="button"
-															size="icon"
-															className="self-start sm:self-auto"
-															aria-label="Copy booking link"
-															disabled={copyState === "copying"}
-															onClick={copyGeneratedUrl}
+											<div className="space-y-3">
+												{generatedBatch.links.map((link) => {
+													const copyState =
+														copyStates[link.eventTypeConfigId] ?? "idle";
+
+													return (
+														<div
+															key={link.eventTypeConfigId}
+															className="space-y-2 rounded-lg border bg-background/80 p-3"
 														>
-															{copyState === "copied" ? (
-																<CheckCircle2Icon aria-hidden="true" />
-															) : copyState === "copying" ? (
-																<Spinner />
-															) : (
-																<CopyIcon aria-hidden="true" />
-															)}
-														</Button>
-													</TooltipTrigger>
-													<TooltipContent>Copy Booking Link</TooltipContent>
-												</Tooltip>
-											</div>
-											<div aria-live="polite">
-												{copyState === "copied" ? (
-													<FieldDescription>Copied.</FieldDescription>
-												) : null}
-												{copyState === "manual" ? (
-													<FieldDescription>
-														Clipboard access failed. The link is selected for
-														manual copy.
-													</FieldDescription>
-												) : null}
+															<p className="font-medium">
+																{link.eventTypeDisplayName}
+															</p>
+															<div className="flex min-w-0 flex-col gap-2 sm:flex-row">
+																<Input
+																	id={`generated-booking-url-${link.eventTypeConfigId}`}
+																	value={link.url}
+																	readOnly
+																	onFocus={(event) =>
+																		event.currentTarget.select()
+																	}
+																	className="font-mono text-sm"
+																	translate="no"
+																	aria-label={`Booking link for ${link.eventTypeDisplayName}`}
+																/>
+																<Tooltip>
+																	<TooltipTrigger asChild>
+																		<Button
+																			type="button"
+																			size="icon"
+																			className="self-start sm:self-auto"
+																			aria-label={`Copy booking link for ${link.eventTypeDisplayName}`}
+																			disabled={copyState === "copying"}
+																			onClick={() => copyGeneratedUrl(link)}
+																		>
+																			{copyState === "copied" ? (
+																				<CheckCircle2Icon aria-hidden="true" />
+																			) : copyState === "copying" ? (
+																				<Spinner />
+																			) : (
+																				<CopyIcon aria-hidden="true" />
+																			)}
+																		</Button>
+																	</TooltipTrigger>
+																	<TooltipContent>
+																		Copy {link.eventTypeDisplayName}
+																	</TooltipContent>
+																</Tooltip>
+															</div>
+															<div aria-live="polite">
+																{copyState === "copied" ? (
+																	<FieldDescription>Copied.</FieldDescription>
+																) : null}
+																{copyState === "manual" ? (
+																	<FieldDescription>
+																		Clipboard access failed. The link is selected
+																		for manual copy.
+																	</FieldDescription>
+																) : null}
+															</div>
+														</div>
+													);
+												})}
 											</div>
 										</div>
 									) : (
 										<div className="flex min-h-24 items-center gap-3 rounded-lg border border-dashed bg-muted/20 p-3 text-sm text-muted-foreground">
 											<LinkIcon className="size-5 shrink-0" aria-hidden="true" />
 											<span>
-												No active link. Generate one when the DM closer is ready
-												to copy it.
+												No active links. Generate them when the DM closer is ready
+												to copy.
 											</span>
 										</div>
 									)}
@@ -920,10 +988,7 @@ function UnlockedPortal({
 									<Button
 										type="button"
 										variant="outline"
-										onClick={() => {
-											resetGeneratedLink();
-											setCurrentStep("closer");
-										}}
+										onClick={resetPortalState}
 									>
 										<RefreshCwIcon data-icon="inline-start" aria-hidden="true" />
 										Start Over

@@ -1,15 +1,15 @@
 # Phase 5 — Settings UI and Admin Operations
 
-**Goal:** Surface event type sync status and synced event type metadata in Settings, add a manual sync control, update field mapping copy/counts, and centralize portal bookability rules so inactive/deleted event types are never exposed publicly.
+**Goal:** Surface event type sync status and synced event type metadata in Settings, add the manual sync button, update field mapping copy/counts, and centralize portal bookability rules so inactive/deleted/not-returned event types are never exposed publicly.
 
-**Prerequisite:** Phase 1 schema fields are generated. Phase 3 exposes `api.calendly.eventTypes.syncMyTenantEventTypes` and latest sync status through `api.calendly.oauthQueries.getConnectionStatus`. Phase 2 supplies metadata on `eventTypeConfigs`.
+**Prerequisite:** Phase 1 schema fields are generated. Phase 3 exposes `api.calendly.eventTypes.syncMyTenantEventTypes` and latest sync status through `api.calendly.oauthQueries.getConnectionStatus`. Phase 2 supplies Calendly metadata on `eventTypeConfigs`.
 
-**Runs in PARALLEL with:** Phase 4 webhook reconciliation can run independently. Phase 6 verification should wait for this phase because rollout includes UI and portal checks.
+**Runs in PARALLEL with:** Phase 4 boundary audit can run independently. Phase 6 verification should wait for this phase because rollout includes UI and portal checks.
 
 **Skills to invoke:**
 - `next-best-practices` — Settings stays a thin RSC plus client boundary with Convex hooks inside client components.
 - `frontend-design` — Settings is an operational workspace surface; keep dense, scannable controls and restrained status styling.
-- `shadcn` — Reuse existing Button, Badge, Card, Table, Alert, Tabs, Empty, Spinner, and Switch primitives.
+- `shadcn` — Reuse Button, Badge, Card, Alert, Tabs, Empty, Spinner, and Switch primitives.
 - `vercel-react-best-practices` — Avoid unnecessary bundle growth and keep dynamic dialog imports.
 
 **Acceptance Criteria:**
@@ -28,18 +28,18 @@
 ## Subphase Dependency Graph
 
 ```
-5A (Bookability helper + query shape) ──────┬── 5B (Calendly connection card)
-                                            ├── 5C (Event Types tab)
-                                            ├── 5D (Field Mappings tab)
-                                            └── 5E (Portal safety surfaces)
+5A (Bookability helper + queries) ──────┬── 5B (Calendly connection card)
+                                        ├── 5C (Event Types tab)
+                                        ├── 5D (Field Mappings tab)
+                                        └── 5E (Portal safety surfaces)
 
-5B + 5C + 5D + 5E complete ───────────────── 5F (Responsive/manual UI verification)
+5B + 5C + 5D + 5E complete ─────────────── 5F (Responsive/manual UI verification)
 ```
 
 **Optimal execution:**
-1. Start 5A first because all UI and portal surfaces should share the same readiness semantics.
+1. Start 5A first because all UI and portal surfaces should share readiness semantics.
 2. Run 5B, 5C, 5D, and 5E in parallel after 5A because they touch distinct components/modules.
-3. Finish with 5F in browser across desktop and mobile widths.
+3. Finish with 5F in the browser across desktop and mobile widths.
 
 **Estimated time:** 1-1.5 days
 
@@ -49,10 +49,10 @@
 
 ### 5A — Shared Bookability Helper and Query Shape
 
-**Type:** Backend
+**Type:** Backend  
 **Parallelizable:** No — downstream UI and portal code depend on this helper.
 
-**What:** Add a shared `isCalendlyBookable`, `isPortalBookable`, and `portalReadiness` helper, then update event type config queries to include sync metadata and a safer bounded result size or pagination.
+**What:** Add `isCalendlyBookable`, `isPortalBookable`, and `portalReadiness`, then update event type config queries to include sync metadata and a deliberate bounded result size.
 
 **Why:** Portal bootstrap, copy tracking, publish validation, and Settings badges currently duplicate readiness logic and would drift as sync statuses are introduced.
 
@@ -76,6 +76,7 @@ export type CalendlySyncStatus =
 export type PortalReadiness =
   | "ready"
   | "missing_url"
+  | "missing_current_calendly_url"
   | "unmapped_program"
   | "calendly_unavailable"
   | "hidden";
@@ -91,29 +92,42 @@ export function isCalendlyBookable(config: {
 
 export function isPortalBookable(config: {
   bookingBaseUrl?: string;
+  bookingUrlSource?: "admin_entered" | "imported_sheet" | "calendly_synced";
   bookingProgramId?: unknown;
   bookingProgramMappingStatus?: "mapped" | "unmapped";
+  calendlySchedulingUrl?: string;
   calendlySyncStatus?: CalendlySyncStatus;
   linkPortalEnabled?: boolean;
 }) {
+  const hasTrustedBaseUrl =
+    config.bookingUrlSource !== "calendly_synced" ||
+    Boolean(config.calendlySchedulingUrl);
+
   return (
     config.linkPortalEnabled === true &&
     isCalendlyBookable(config) &&
+    hasTrustedBaseUrl &&
     Boolean(config.bookingBaseUrl) &&
     config.bookingProgramId !== undefined &&
     config.bookingProgramMappingStatus === "mapped"
   );
 }
+```
 
-export function portalReadiness(config: {
-  bookingBaseUrl?: string;
-  bookingProgramId?: unknown;
-  bookingProgramMappingStatus?: "mapped" | "unmapped";
-  calendlySyncStatus?: CalendlySyncStatus;
-  linkPortalEnabled?: boolean;
-}): PortalReadiness {
+**Step 2: Add a readiness reason for Settings.**
+
+```typescript
+// Path: convex/lib/eventTypeBookability.ts
+
+export function portalReadiness(config: Parameters<typeof isPortalBookable>[0]): PortalReadiness {
   if (config.linkPortalEnabled === true && !isCalendlyBookable(config)) {
     return "calendly_unavailable";
+  }
+  if (
+    config.bookingUrlSource === "calendly_synced" &&
+    !config.calendlySchedulingUrl
+  ) {
+    return "missing_current_calendly_url";
   }
   if (isPortalBookable(config)) {
     return "ready";
@@ -131,7 +145,7 @@ export function portalReadiness(config: {
 }
 ```
 
-**Step 2: Use helper in `listEventTypeConfigs`.**
+**Step 3: Use helper in event type queries.**
 
 ```typescript
 // Path: convex/eventTypeConfigs/queries.ts
@@ -166,95 +180,83 @@ export const listEventTypeConfigs = query({
 });
 ```
 
-**Step 3: Keep `fieldCount` based on merged known keys.**
-
-```typescript
-// Path: convex/eventTypeConfigs/queries.ts
-
-return {
-  ...config,
-  portalReadiness: portalReadiness(config),
-  bookingCount,
-  lastBookingAt,
-  fieldCount: config.knownCustomFieldKeys?.length ?? 0,
-};
-```
-
 **Key implementation notes:**
-- Full pagination is preferred long-term, but `.take(500)` is acceptable for MVP and current single-tenant production state.
-- `calendlySyncStatus === undefined` remains bookable for legacy rows during rollout.
-- Add `calendly_unavailable` to readiness labels in UI components.
+- Pagination is the long-term preferred shape, but `.take(500)` is acceptable for the single production tenant MVP.
+- Keep sync statuses undefined-compatible during rollout.
+- `bookingUrlSource = "calendly_synced"` requires a current `calendlySchedulingUrl` to be portal-bookable.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/lib/eventTypeBookability.ts` | Create | Shared readiness/bookability helpers |
-| `convex/eventTypeConfigs/queries.ts` | Modify | Use helper and raise bounded list limit |
+| `convex/lib/eventTypeBookability.ts` | Create | Shared bookability/readiness rules |
+| `convex/eventTypeConfigs/queries.ts` | Modify | Include sync metadata and readiness |
 
 ---
 
-### 5B — Calendly Connection Card Sync Controls
+### 5B — Calendly Connection Card
 
-**Type:** Frontend
-**Parallelizable:** Yes — depends on Phase 3 public action/status fields.
+**Type:** Frontend  
+**Parallelizable:** Yes — depends on 3A action and 3B query shape.
 
-**What:** Add sync event type status and button to the existing `CalendlyConnection` card.
+**What:** Add latest event type sync status and the Sync Event Types button to the existing Calendly connection card.
 
-**Why:** Admins need a visible repair/backfill operation and feedback when sync succeeds, is skipped, or fails.
+**Why:** Admins need a clear, explicit operation for importing Calendly event types and seeing freshness.
 
 **Where:**
 - `app/workspace/settings/_components/calendly-connection.tsx` (modify)
 
 **How:**
 
-**Step 1: Extend the local `ConnectionStatus` type.**
-
-```tsx
-// Path: app/workspace/settings/_components/calendly-connection.tsx
-
-interface ConnectionStatus {
-  tenantId: string;
-  status: string;
-  needsReconnect: boolean;
-  lastTokenRefresh: number | null;
-  tokenExpiresAt: number | null;
-  calendlyWebhookUri: string | null;
-  hasWebhookSigningKey: boolean;
-  hasAccessToken: boolean;
-  hasRefreshToken: boolean;
-  lastEventTypeSyncStartedAt: number | null;
-  lastEventTypeSyncCompletedAt: number | null;
-  lastEventTypeSyncStatus: "success" | "failed" | "skipped" | null;
-  lastEventTypeSyncError: string | null;
-  lastEventTypeSyncCount: number | null;
-  eventTypeSyncInProgress: boolean;
-}
-```
-
-**Step 2: Add action hook and pending state.**
+**Step 1: Extend the prop type and action hook.**
 
 ```tsx
 // Path: app/workspace/settings/_components/calendly-connection.tsx
 
 import { CalendarSyncIcon } from "lucide-react";
 
+interface ConnectionStatus {
+  // existing fields...
+  eventTypeSyncInProgress: boolean;
+  lastEventTypeSyncCompletedAt: number | null;
+  lastEventTypeSyncStatus: "success" | "failed" | "skipped" | null;
+  lastEventTypeSyncError: string | null;
+  lastEventTypeSyncCount: number | null;
+  lastEventTypeSyncSummary: {
+    totalSeen: number;
+    created: number;
+    updated: number;
+    unchanged: number;
+    inactive: number;
+    deleted: number;
+    notReturned: number;
+    questionsMerged: number;
+  } | null;
+}
+
 const syncEventTypes = useAction(
   api.calendly.eventTypes.syncMyTenantEventTypes,
 );
 const [isSyncingEventTypes, setIsSyncingEventTypes] = useState(false);
+```
+
+**Step 2: Add the click handler.**
+
+```tsx
+// Path: app/workspace/settings/_components/calendly-connection.tsx
 
 const handleSyncEventTypes = async () => {
   setIsSyncingEventTypes(true);
   try {
     const result = await syncEventTypes();
-    if (result.status === "success") {
-      toast.success(
-        `Synced ${result.created + result.updated + result.unchanged} event type${result.created + result.updated + result.unchanged === 1 ? "" : "s"}`,
-      );
-    } else {
-      toast.info(`Event type sync skipped: ${result.reason.replace(/_/g, " ")}`);
+    if (result.status === "skipped") {
+      toast.info("An event type sync is already running.");
+      return;
     }
+
+    toast.success(
+      `Synced ${result.totalSeen} event types: ${result.created} new, ${result.updated} updated.`,
+    );
     posthog.capture("calendly_event_types_synced", result);
   } catch (error) {
     toast.error(
@@ -266,39 +268,26 @@ const handleSyncEventTypes = async () => {
 };
 ```
 
-**Step 3: Render status and button.**
+**Step 3: Add compact status and button UI.**
 
 ```tsx
 // Path: app/workspace/settings/_components/calendly-connection.tsx
 
-<div className="border-t pt-4">
-  <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
-    <div>
-      <p className="text-xs text-muted-foreground">Event Type Sync</p>
-      <p className="mt-1 text-sm font-medium">
-        {connectionStatus.lastEventTypeSyncStatus ?? "Not synced"}
-      </p>
-    </div>
-    <div>
-      <p className="text-xs text-muted-foreground">Last Event Type Sync</p>
-      <p className="mt-1 text-sm font-medium">
-        {connectionStatus.lastEventTypeSyncCompletedAt
-          ? formatCalendlyLastRefresh(connectionStatus.lastEventTypeSyncCompletedAt, now)
-          : "Never"}
-      </p>
-    </div>
-    <div>
-      <p className="text-xs text-muted-foreground">Event Types</p>
-      <p className="mt-1 text-sm font-medium">
-        {connectionStatus.lastEventTypeSyncCount ?? "-"}
-      </p>
-    </div>
-  </div>
-  {connectionStatus.lastEventTypeSyncError ? (
-    <p className="mt-3 text-sm text-destructive">
+<div>
+  <p className="text-xs text-muted-foreground">Last Event Type Sync</p>
+  <p className="mt-1 text-sm font-medium">
+    {connectionStatus.lastEventTypeSyncCompletedAt
+      ? formatCalendlyLastRefresh(
+          connectionStatus.lastEventTypeSyncCompletedAt,
+          Date.now(),
+        )
+      : "Never synced"}
+  </p>
+  {connectionStatus.lastEventTypeSyncError && (
+    <p className="mt-1 text-xs text-destructive">
       {connectionStatus.lastEventTypeSyncError}
     </p>
-  ) : null}
+  )}
 </div>
 
 <Button
@@ -323,39 +312,36 @@ const handleSyncEventTypes = async () => {
 ```
 
 **Key implementation notes:**
-- Keep the card dense; avoid adding explanatory marketing copy.
-- Use the existing `formatCalendlyLastRefresh` helper for relative times.
-- Capture PostHog events without sending tokens or raw error bodies.
+- Keep the button grouped with existing token/member operations.
+- Disable from both local state and server lock state.
+- Avoid large explanatory text; the card should remain an operational control surface.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `app/workspace/settings/_components/calendly-connection.tsx` | Modify | Event type sync status and manual button |
+| `app/workspace/settings/_components/calendly-connection.tsx` | Modify | Add event type sync status and button |
 
 ---
 
 ### 5C — Event Types Tab Metadata
 
-**Type:** Frontend
+**Type:** Frontend  
 **Parallelizable:** Yes — depends on 5A query shape.
 
-**What:** Update event type cards to show Calendly metadata, status badges, booking URL source, and last sync time while preserving edit behavior.
+**What:** Update event type rows to show Calendly metadata, sync status, URL source, and last synced time while keeping existing edit behavior.
 
-**Why:** Synced rows include zero-booking, inactive, deleted, and not-returned event types. Admins need to understand why a row is visible and whether it is portal-safe.
+**Why:** Synced zero-booking, inactive, deleted, and not-returned event types need to be visible to admins without affecting public portal availability.
 
 **Where:**
 - `app/workspace/settings/_components/event-type-config-list.tsx` (modify)
 
 **How:**
 
-**Step 1: Extend local config type and labels.**
+**Step 1: Extend the client row type.**
 
 ```tsx
 // Path: app/workspace/settings/_components/event-type-config-list.tsx
-
-type CalendlySyncStatus = "active" | "inactive" | "deleted" | "not_returned";
-type BookingUrlSource = "admin_entered" | "imported_sheet" | "calendly_synced";
 
 interface EventTypeConfig {
   _id: string;
@@ -363,186 +349,160 @@ interface EventTypeConfig {
   displayName: string;
   calendlyName?: string;
   calendlySchedulingUrl?: string;
-  calendlySyncStatus?: CalendlySyncStatus;
+  calendlySyncStatus?: "active" | "inactive" | "deleted" | "not_returned";
   lastCalendlySyncedAt?: number;
-  bookingUrlSource?: BookingUrlSource;
   paymentLinks?: PaymentLink[];
   bookingProgramName?: string;
   bookingProgramMappingStatus?: "mapped" | "unmapped";
   bookingBaseUrl?: string;
+  bookingUrlSource?: "admin_entered" | "imported_sheet" | "calendly_synced";
   linkPortalEnabled?: boolean;
   portalReadiness?: PortalReadiness;
 }
+```
 
-const SYNC_STATUS_LABEL: Record<CalendlySyncStatus, string> = {
+**Step 2: Add status badge labels.**
+
+```tsx
+// Path: app/workspace/settings/_components/event-type-config-list.tsx
+
+const SYNC_STATUS_LABEL: Record<
+  NonNullable<EventTypeConfig["calendlySyncStatus"]>,
+  string
+> = {
   active: "Active",
   inactive: "Inactive",
   deleted: "Deleted",
   not_returned: "Not returned",
 };
-
-const BOOKING_URL_SOURCE_LABEL: Record<BookingUrlSource, string> = {
-  admin_entered: "Admin URL",
-  imported_sheet: "Imported URL",
-  calendly_synced: "Calendly URL",
-};
 ```
 
-**Step 2: Show Calendly name divergence and sync status.**
+**Step 3: Render Calendly metadata and URLs.**
 
 ```tsx
 // Path: app/workspace/settings/_components/event-type-config-list.tsx
 
-<CardTitle className="min-w-0 text-base">
-  <span className="block truncate">{config.displayName}</span>
-  {config.calendlyName && config.calendlyName !== config.displayName ? (
-    <span className="mt-1 block truncate text-xs font-normal text-muted-foreground">
-      Calendly: {config.calendlyName}
-    </span>
-  ) : null}
-</CardTitle>
-
-{config.calendlySyncStatus ? (
-  <Badge
-    variant={
-      config.calendlySyncStatus === "active" ? "secondary" : "outline"
-    }
-  >
-    {SYNC_STATUS_LABEL[config.calendlySyncStatus]}
+<div className="flex flex-wrap items-center gap-2">
+  <Badge variant="outline">
+    {config.calendlySyncStatus
+      ? SYNC_STATUS_LABEL[config.calendlySyncStatus]
+      : "Legacy"}
   </Badge>
-) : null}
-```
-
-**Step 3: Show booking URL source and sync timestamp.**
-
-```tsx
-// Path: app/workspace/settings/_components/event-type-config-list.tsx
-
-<div>
-  <p className="text-xs text-muted-foreground">Booking URL</p>
-  <div className="mt-2 flex flex-wrap items-center gap-2">
-    {config.bookingUrlSource ? (
-      <Badge variant="outline">
-        {BOOKING_URL_SOURCE_LABEL[config.bookingUrlSource]}
-      </Badge>
-    ) : null}
-    {config.bookingBaseUrl ? (
-      <span className="max-w-full truncate font-mono text-xs text-muted-foreground">
-        {config.bookingBaseUrl}
-      </span>
-    ) : (
-      <span className="text-sm text-muted-foreground">None configured</span>
-    )}
-  </div>
+  {config.bookingUrlSource && (
+    <Badge variant="secondary">{config.bookingUrlSource.replace(/_/g, " ")}</Badge>
+  )}
 </div>
 
-{config.lastCalendlySyncedAt ? (
+{config.calendlyName && config.calendlyName !== config.displayName && (
   <p className="text-xs text-muted-foreground">
-    Synced {formatDistanceToNow(config.lastCalendlySyncedAt, { addSuffix: true })}
+    Calendly: {config.calendlyName}
   </p>
-) : null}
+)}
+
+{config.calendlySchedulingUrl && (
+  <span className="max-w-full truncate font-mono text-xs text-muted-foreground">
+    {config.calendlySchedulingUrl}
+  </span>
+)}
 ```
 
 **Key implementation notes:**
-- Keep `EventTypeConfigDialog` props compatible; pass the full config but only the existing editable fields are used.
-- Long URLs must truncate and not resize cards.
-- Deleted/not-returned rows should not disappear from Settings.
+- Deleted/not-returned rows remain visible in Settings.
+- Keep cards compact and avoid nested cards.
+- Use truncation for URLs so cards do not overflow on mobile.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `app/workspace/settings/_components/event-type-config-list.tsx` | Modify | Metadata/status display |
+| `app/workspace/settings/_components/event-type-config-list.tsx` | Modify | Show Calendly metadata and sync state |
 
 ---
 
-### 5D — Field Mappings Copy and Counts
+### 5D — Field Mappings Tab Copy and Counts
 
-**Type:** Frontend
-**Parallelizable:** Yes — depends on 5A query field counts.
+**Type:** Frontend / Backend  
+**Parallelizable:** Yes — depends on Phase 2 merged `knownCustomFieldKeys`.
 
-**What:** Update Field Mappings copy to reflect Calendly sync and ensure the field count includes synced custom questions.
+**What:** Update field mapping copy and ensure `fieldCount` counts merged known field labels, including Calendly custom questions before first booking.
 
-**Why:** The current UI says event types appear after first booking, which becomes false after full sync.
+**Why:** Admins can now map fields before the first booking, so existing "after first booking" copy is inaccurate.
 
 **Where:**
+- `convex/eventTypeConfigs/queries.ts` (verify / modify)
 - `app/workspace/settings/_components/field-mappings-tab.tsx` (modify)
-- `convex/eventTypeConfigs/queries.ts` (verify from 5A)
 
 **How:**
 
-**Step 1: Update empty state copy.**
+**Step 1: Keep `fieldCount` based on merged known keys.**
+
+```typescript
+// Path: convex/eventTypeConfigs/queries.ts
+
+return {
+  ...config,
+  portalReadiness: portalReadiness(config),
+  bookingCount,
+  lastBookingAt,
+  fieldCount: config.knownCustomFieldKeys?.length ?? 0,
+};
+```
+
+**Step 2: Update empty-state copy.**
 
 ```tsx
 // Path: app/workspace/settings/_components/field-mappings-tab.tsx
 
 <EmptyDescription>
   Event types and form questions sync from Calendly. Booking responses can add
-  additional observed fields after meetings are scheduled.
+  additional observed fields.
 </EmptyDescription>
 ```
 
-**Step 2: Update alert copy.**
+**Step 3: Update alert copy.**
 
 ```tsx
 // Path: app/workspace/settings/_components/field-mappings-tab.tsx
 
 <AlertDescription>
   Configure how your CRM identifies leads from booking form data. Event types
-  and current form questions sync from Calendly; booking responses can add
-  historical observed fields.
+  and form questions sync from Calendly; booking responses can add additional
+  observed fields.
 </AlertDescription>
 ```
 
-**Step 3: Keep configure disabled only when no known fields exist.**
-
-```tsx
-// Path: app/workspace/settings/_components/field-mappings-tab.tsx
-
-<Button
-  variant="outline"
-  size="sm"
-  onClick={() => handleConfigure(config)}
-  disabled={config.fieldCount === 0}
-  aria-label={`Configure field mappings for ${config.displayName}`}
->
-  <Settings2Icon className="mr-2 size-4" />
-  Configure
-</Button>
-```
-
 **Key implementation notes:**
-- `fieldCount` already comes from `knownCustomFieldKeys`; Phase 2 sync merges custom question labels there.
-- Keep booking count and last booking visible because they still matter for operational context.
-- Do not add long instructional text to each card.
+- Do not disable configuration just because `bookingCount` is zero; use `fieldCount`.
+- Existing field mapping dialog validation should continue to use `knownCustomFieldKeys`.
+- If Calendly omits `custom_questions`, zero-booking rows may still have `fieldCount = 0`.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `app/workspace/settings/_components/field-mappings-tab.tsx` | Modify | Copy and synced-field framing |
-| `convex/eventTypeConfigs/queries.ts` | Verify | Field count uses merged known keys |
+| `convex/eventTypeConfigs/queries.ts` | Verify / Modify | `fieldCount` counts known keys |
+| `app/workspace/settings/_components/field-mappings-tab.tsx` | Modify | Update copy |
 
 ---
 
 ### 5E — Portal Safety Surfaces
 
-**Type:** Full-Stack
+**Type:** Backend  
 **Parallelizable:** Yes — depends on 5A helper.
 
-**What:** Replace duplicated readiness checks in portal bootstrap, copy tracking, publish mutation, and readiness card with the shared helper.
+**What:** Use shared bookability rules in public portal bootstrap, copy tracking, publish validation, and Settings readiness.
 
-**Why:** Public portal links must not expose deleted, inactive, or not-returned Calendly event types even if stale client state exists.
+**Why:** Public portal data must not expose deleted, inactive, not-returned, or Calendly-synced rows that lack a current Calendly invite link.
 
 **Where:**
 - `convex/linkPortal/portalQueries.ts` (modify)
 - `convex/linkPortal/copyMutations.ts` (modify)
 - `convex/eventTypeConfigs/mutations.ts` (modify)
-- `app/workspace/settings/_components/portal-event-type-readiness-card.tsx` (modify)
+- `app/workspace/settings/_components/portal-event-type-readiness-card.tsx` (verify / modify)
 
 **How:**
 
-**Step 1: Filter public portal rows through `isPortalBookable`.**
+**Step 1: Filter portal bootstrap with the helper.**
 
 ```typescript
 // Path: convex/linkPortal/portalQueries.ts
@@ -560,7 +520,7 @@ bookablePrograms: eventTypeConfigs
   })),
 ```
 
-**Step 2: Reject stale copied links for unavailable rows.**
+**Step 2: Reject stale copy attempts.**
 
 ```typescript
 // Path: convex/linkPortal/copyMutations.ts
@@ -576,120 +536,96 @@ if (
 }
 ```
 
-**Step 3: Block publishing unavailable Calendly rows.**
+**Step 3: Block publish for unsafe states.**
 
 ```typescript
 // Path: convex/eventTypeConfigs/mutations.ts
 
-import { isCalendlyBookable } from "../lib/eventTypeBookability";
+import { isPortalBookable, isCalendlyBookable } from "../lib/eventTypeBookability";
 
-if (linkPortalEnabled) {
-  if (!isCalendlyBookable(config)) {
-    throw new Error(
-      "This Calendly event type is not currently bookable. Sync Calendly or choose an active event type before publishing.",
-    );
-  }
-  // Keep existing URL and booked-program checks after this.
+if (linkPortalEnabled && !isCalendlyBookable(config)) {
+  throw new Error("This Calendly event type is not currently bookable.");
+}
+if (
+  linkPortalEnabled &&
+  config.bookingUrlSource === "calendly_synced" &&
+  !config.calendlySchedulingUrl
+) {
+  throw new Error("Sync a valid Calendly invite link before publishing.");
 }
 ```
 
-**Step 4: Update readiness labels in the Settings readiness card.**
-
-```tsx
-// Path: app/workspace/settings/_components/portal-event-type-readiness-card.tsx
-
-type PortalReadiness =
-  | "ready"
-  | "missing_url"
-  | "unmapped_program"
-  | "calendly_unavailable"
-  | "hidden";
-
-const READINESS_LABEL: Record<PortalReadiness, string> = {
-  ready: "Ready",
-  missing_url: "Missing URL",
-  unmapped_program: "Unmapped program",
-  calendly_unavailable: "Calendly unavailable",
-  hidden: "Hidden",
-};
-```
-
 **Key implementation notes:**
-- Public portal should hide inactive/deleted/not-returned rows even if `linkPortalEnabled` is still true.
-- `setLinkPortalEnabled` should provide a clear error rather than silently toggling back.
-- Legacy rows with undefined `calendlySyncStatus` remain eligible during rollout.
+- Existing undefined sync status stays bookable for rollout compatibility.
+- Deleting in Calendly disables `linkPortalEnabled` during sync, but portal filters must still enforce safety for stale clients.
+- Public portal responses should not include Calendly sync metadata beyond what is needed to build links.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/linkPortal/portalQueries.ts` | Modify | Shared bookability filtering |
-| `convex/linkPortal/copyMutations.ts` | Modify | Server-side stale copy protection |
-| `convex/eventTypeConfigs/mutations.ts` | Modify | Block publishing unbookable Calendly rows |
-| `app/workspace/settings/_components/portal-event-type-readiness-card.tsx` | Modify | New readiness status label |
+| `convex/linkPortal/portalQueries.ts` | Modify | Filter with shared helper |
+| `convex/linkPortal/copyMutations.ts` | Modify | Reject stale/unsafe copy events |
+| `convex/eventTypeConfigs/mutations.ts` | Modify | Block unsafe publishing |
+| `app/workspace/settings/_components/portal-event-type-readiness-card.tsx` | Verify / Modify | Use shared readiness semantics |
 
 ---
 
-### 5F — Responsive UI and Type Verification
+### 5F — Responsive and Manual UI Verification
 
-**Type:** Manual
-**Parallelizable:** No — runs after 5A-5E.
+**Type:** Manual  
+**Parallelizable:** No — verifies full UI behavior.
 
-**What:** Verify TypeScript and inspect Settings/portal surfaces in a browser.
+**What:** Verify Settings and public portal behavior in browser with active, inactive, deleted, not-returned, and legacy event type states.
 
-**Why:** This phase changes dense Settings UI. Text truncation, disabled states, and status badges must remain usable across viewport sizes.
+**Why:** The UI changes affect admin operations and public booking-link availability.
 
 **Where:**
-- Local terminal verification
-- Local Next.js dev server
-- Browser at `/workspace/settings`
+- `app/workspace/settings/_components/calendly-connection.tsx` (verify)
+- `app/workspace/settings/_components/event-type-config-list.tsx` (verify)
+- `app/workspace/settings/_components/field-mappings-tab.tsx` (verify)
+- Public DM link portal route (verify)
 
 **How:**
 
-**Step 1: Run codegen and TypeScript.**
+**Step 1: Run compile gates.**
 
 ```bash
-// Path: terminal
-npx convex dev --once
+# Path: terminal
 pnpm tsc --noEmit
 ```
 
-**Step 2: Start the app and inspect Settings.**
+**Step 2: Run the app and inspect Settings.**
 
 ```bash
-// Path: terminal
+# Path: terminal
 pnpm dev
 ```
 
-Inspect:
-- `/workspace/settings?tab=calendly`
-- `/workspace/settings?tab=event-types`
-- `/workspace/settings?tab=field-mappings`
-- `/workspace/settings?tab=programs`
-
-**Step 3: Check status combinations.**
+**Step 3: Browser scenarios.**
 
 ```tsx
 // Path: app/workspace/settings/_components/event-type-config-list.tsx
 
-// Verify rows render cleanly for:
-// calendlySyncStatus: "active"
-// calendlySyncStatus: "inactive"
-// calendlySyncStatus: "deleted"
-// calendlySyncStatus: "not_returned"
-// calendlySyncStatus: undefined
+// Verify:
+// - Long URLs truncate inside cards.
+// - Deleted and not-returned rows show status badges.
+// - The edit button remains reachable.
+// - The sync button disables while the action is in flight.
+// - Mobile width does not overflow buttons or URL text.
 ```
 
 **Key implementation notes:**
-- Use a mobile-width viewport to ensure badges/buttons do not overlap or force horizontal scroll inside cards.
-- Confirm long booking URLs truncate.
-- Confirm manual sync button disabled state is understandable without adding explanatory paragraphs.
+- Use the in-app browser or Playwright for screenshots if layout is uncertain.
+- Keep status badges compact; this is a repeated operational list.
+- Confirm the public portal does not show inactive/deleted/not-returned event types.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/_generated/*` | Generate | Query/action type references |
+| Settings UI files | Verify | Manual browser verification |
+| Public portal route | Verify | Unsafe event types are hidden/rejected |
 
 ---
 
@@ -705,5 +641,4 @@ Inspect:
 | `convex/linkPortal/portalQueries.ts` | Modify | 5E |
 | `convex/linkPortal/copyMutations.ts` | Modify | 5E |
 | `convex/eventTypeConfigs/mutations.ts` | Modify | 5E |
-| `app/workspace/settings/_components/portal-event-type-readiness-card.tsx` | Modify | 5E |
-| `convex/_generated/*` | Generate | 5F |
+| `app/workspace/settings/_components/portal-event-type-readiness-card.tsx` | Verify / Modify | 5E |

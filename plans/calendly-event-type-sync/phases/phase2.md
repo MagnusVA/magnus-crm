@@ -1,47 +1,48 @@
 # Phase 2 — Full Calendly Event Type Sync
 
-**Goal:** Implement the core full reconciliation path that fetches all organization event types from Calendly, upserts metadata into `eventTypeConfigs`, merges custom questions into the field catalog, and marks missing/deleted/inactive states without overwriting CRM-owned configuration.
+**Goal:** Implement the core manual reconciliation runtime that fetches all organization event types from Calendly, upserts Calendly-owned metadata into `eventTypeConfigs`, merges enabled custom questions, and marks inactive/deleted/not-returned states without overwriting CRM-owned configuration.
 
-**Prerequisite:** Phase 1 is deployed or available locally so the optional metadata fields and connection sync state exist in generated Convex types. A tenant must already have a stored Calendly OAuth connection with `event_types:read`.
+**Prerequisite:** Phase 1 is deployed or available locally so optional metadata fields and connection sync state exist in generated Convex types. A tenant must already have a stored Calendly OAuth connection with `event_types:read`.
 
-**Runs in PARALLEL with:** Phase 5 can start UI mock work after 2A defines the query/result shape, but full UI wiring should wait for Phase 3 public trigger/status fields. Phase 4 webhook processing depends on the shared upsert helpers from this phase.
+**Runs in PARALLEL with:** Phase 5 can start UI mock work after 2A defines the result shape, but full UI wiring should wait for Phase 3 public trigger/status fields. Phase 4 can run as a boundary audit after Phase 2 introduces the internal sync.
 
 **Skills to invoke:**
-- `convex` — Node actions, internal mutations, validators, scheduler, and indexed query patterns.
-- `convex-migration-helper` — validate that full sync is the online backfill and does not require a separate migration job.
+- `convex` — Node actions, internal mutations, argument validators, token refresh, and indexed query patterns.
+- `convex-migration-helper` — validate that manual sync is the online metadata backfill and does not require a separate migration job.
 
 **Acceptance Criteria:**
-1. `internal.calendly.eventTypes.syncForTenant` fetches `GET /event_types?organization=<org>&count=100` and follows every Calendly page.
+1. `internal.calendly.eventTypes.syncForTenant` fetches `GET /event_types?organization=<org>&count=100` and follows every `pagination.next_page`.
 2. A new Calendly event type creates an `eventTypeConfigs` row with safe CRM defaults and `displayNameSource = "calendly_synced"`.
 3. Existing CRM-owned `displayName`, `bookingBaseUrl`, `paymentLinks`, `bookingProgram*`, `customFieldMappings`, and `linkPortalEnabled` are not overwritten by sync.
 4. Existing sync-owned or webhook-discovered display names can update from the latest Calendly name.
 5. Enabled Calendly `custom_questions` add labels to `knownCustomFieldKeys` and upsert `eventTypeFieldCatalog` rows.
 6. Deleted event types are marked `calendlySyncStatus = "deleted"` and `linkPortalEnabled = false`.
-7. Event types absent from a completed full sync are marked `calendlySyncStatus = "not_returned"` without being deleted.
-8. `401` responses refresh once and retry the current page; `429` responses release the lock and schedule a retry.
-9. Partial sync failure does not mark missing/stale rows.
-10. `pnpm tsc --noEmit` passes without errors.
+7. Previously synced event types absent from a completed full sync are marked `calendlySyncStatus = "not_returned"` without being deleted.
+8. `401` responses refresh once and retry the current page; repeated `401` fails the manual sync.
+9. `429` responses fail the manual sync with a retry-later message, clear the sync lock, and do not schedule an automatic retry.
+10. Partial sync failure does not mark missing/not-returned rows.
+11. `pnpm tsc --noEmit` passes without errors.
 
 ---
 
 ## Subphase Dependency Graph
 
 ```
-2A (Resource normalization) ──────┬── 2B (Single/page upsert)
+2A (Resource normalization) ──────┬── 2C (Page upsert + questions)
                                   │
-2C (Lock/status mutations) ───────┤
+2B (Lock/status mutations) ───────┤
                                   ├── 2D (Node sync action)
-2B + 2C complete ─────────────────┘
+2C complete ──────────────────────┘
 
-2D complete ───────────────────────── 2E (Error/rate-limit polish)
-2E complete ───────────────────────── 2F (Local verification)
+2D complete ───────────────────────── 2E (Missing/deleted finalization)
+2E complete ───────────────────────── 2F (Backend verification)
 ```
 
 **Optimal execution:**
-1. Start 2A and 2C in parallel after Phase 1 type generation.
-2. Implement 2B once 2A normalization is available.
+1. Start 2A and 2B in parallel after Phase 1 type generation.
+2. Implement 2C once normalization and shared field helpers are available.
 3. Implement 2D after 2B and 2C exist.
-4. Finish with 2E and 2F to verify failure semantics before exposing manual triggers.
+4. Finish with 2E and 2F to verify failure semantics before exposing the public manual trigger.
 
 **Estimated time:** 1.5-2.5 days
 
@@ -51,12 +52,12 @@
 
 ### 2A — Calendly Event Type Normalization
 
-**Type:** Backend
-**Parallelizable:** Yes — only depends on Phase 1 generated types.
+**Type:** Backend  
+**Parallelizable:** Yes — depends only on Phase 1 generated types.
 
-**What:** Add strict resource normalization for Calendly event type payloads from both API pages and future webhook payloads.
+**What:** Add strict resource normalization for Calendly event type collection resources, including safe URL validation and enabled custom-question extraction.
 
-**Why:** Calendly payloads are external input. Normalizing once keeps full sync and webhook reconciliation consistent and limits `v.any()` blast radius.
+**Why:** Calendly payloads are external input. Normalizing once limits `v.any()` blast radius and keeps sync writes conservative.
 
 **Where:**
 - `convex/calendly/eventTypeMutations.ts` (new)
@@ -77,7 +78,6 @@ import {
   normalizeFieldKey,
   upsertEventTypeFieldCatalogEntry,
 } from "../lib/eventTypeFields";
-import { updateTenantCalendlyConnection } from "../lib/tenantCalendlyConnection";
 
 type NormalizedCustomQuestion = {
   label: string;
@@ -105,21 +105,31 @@ function getString(record: Record<string, unknown>, key: string) {
     ? value.trim()
     : undefined;
 }
+```
 
-function getBoolean(record: Record<string, unknown>, key: string) {
-  const value = record[key];
-  return typeof value === "boolean" ? value : undefined;
-}
+**Step 2: Validate Calendly invite links before storing them.**
 
-function getNumber(record: Record<string, unknown>, key: string) {
-  const value = record[key];
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
+```typescript
+// Path: convex/calendly/eventTypeMutations.ts
+
+function normalizeHttpUrl(value: string | undefined) {
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      return undefined;
+    }
+    return parsed.toString();
+  } catch {
+    return undefined;
+  }
 }
 ```
 
-**Step 2: Normalize custom questions.**
+**Step 3: Normalize custom questions and resource metadata.**
 
 ```typescript
 // Path: convex/calendly/eventTypeMutations.ts
@@ -130,16 +140,12 @@ function normalizeCustomQuestions(value: unknown): NormalizedCustomQuestion[] {
   }
 
   const questions: NormalizedCustomQuestion[] = [];
-  const seenKeys = new Set<string>();
+  const usedKeys = new Set<string>();
 
   for (const item of value) {
-    if (!isRecord(item)) {
+    if (!isRecord(item) || item.enabled === false) {
       continue;
     }
-    if (getBoolean(item, "enabled") === false) {
-      continue;
-    }
-
     const label = getString(item, "name");
     if (!label) {
       console.warn("[Calendly:EventTypes] Skipping malformed custom question");
@@ -149,11 +155,11 @@ function normalizeCustomQuestions(value: unknown): NormalizedCustomQuestion[] {
     const baseKey = normalizeFieldKey(label);
     let fieldKey = baseKey;
     let suffix = 2;
-    while (seenKeys.has(fieldKey)) {
+    while (usedKeys.has(fieldKey)) {
       fieldKey = `${baseKey}_${suffix}`;
       suffix += 1;
     }
-    seenKeys.add(fieldKey);
+    usedKeys.add(fieldKey);
 
     questions.push({
       label,
@@ -164,12 +170,6 @@ function normalizeCustomQuestions(value: unknown): NormalizedCustomQuestion[] {
 
   return questions;
 }
-```
-
-**Step 3: Normalize the event type resource.**
-
-```typescript
-// Path: convex/calendly/eventTypeMutations.ts
 
 export function normalizeCalendlyEventTypeResource(
   value: unknown,
@@ -180,119 +180,224 @@ export function normalizeCalendlyEventTypeResource(
 
   const uri = getString(value, "uri");
   if (!uri) {
-    console.warn("[Calendly:EventTypes] Skipping malformed event type resource");
+    console.warn("[Calendly:EventTypes] Skipping event type without uri");
     return null;
   }
 
-  const name = getString(value, "name");
-  const schedulingUrl = getString(value, "scheduling_url");
-  const active = getBoolean(value, "active");
+  const schedulingUrl = normalizeHttpUrl(getString(value, "scheduling_url"));
   const deletedAt = getString(value, "deleted_at");
-  const profile = isRecord(value.profile) ? value.profile : undefined;
-
-  const calendlyPatch: Partial<Doc<"eventTypeConfigs">> = {
-    calendlyName: name,
-    calendlySchedulingUrl: schedulingUrl,
-    calendlySlug: getString(value, "slug"),
-    calendlyActive: active,
-    calendlyDeletedAt: deletedAt,
-    calendlyCreatedAt: getString(value, "created_at"),
-    calendlyUpdatedAt: getString(value, "updated_at"),
-    calendlyDurationMinutes: getNumber(value, "duration"),
-    calendlyKind: getString(value, "kind"),
-    calendlyType: getString(value, "type"),
-    calendlyBookingMethod: getString(value, "booking_method"),
-    calendlyPoolingType: getString(value, "pooling_type"),
-    calendlySecret: getBoolean(value, "secret"),
-    calendlyAdminManaged: getBoolean(value, "admin_managed"),
-    calendlyColor: getString(value, "color"),
-    calendlyLocale: getString(value, "locale"),
-    calendlyOwnerUri: profile ? getString(profile, "owner") : undefined,
-    calendlyProfileName: profile ? getString(profile, "name") : undefined,
-    calendlySyncStatus: deletedAt
-      ? "deleted"
-      : active === false
-        ? "inactive"
-        : "active",
-  };
+  const active = typeof value.active === "boolean" ? value.active : undefined;
 
   return {
     uri,
-    name,
+    name: getString(value, "name"),
     schedulingUrl,
     active,
     deletedAt,
     enabledCustomQuestions: normalizeCustomQuestions(value.custom_questions),
-    calendlyPatch,
+    calendlyPatch: {
+      calendlyName: getString(value, "name"),
+      calendlySchedulingUrl: schedulingUrl,
+      calendlySlug: getString(value, "slug"),
+      calendlyActive: active,
+      calendlyDeletedAt: deletedAt,
+      calendlyDurationMinutes:
+        typeof value.duration === "number" ? value.duration : undefined,
+      calendlyKind: getString(value, "kind"),
+      calendlyType: getString(value, "type"),
+      calendlyBookingMethod: getString(value, "booking_method"),
+      calendlySyncStatus: deletedAt
+        ? "deleted"
+        : active === false
+          ? "inactive"
+          : "active",
+    },
   };
 }
 ```
 
 **Key implementation notes:**
-- Do not throw for malformed records inside a page; skip and log so one bad Calendly row does not block the tenant.
-- Treat missing `active` as bookable only after Phase 5 helper review; for metadata status, default to `"active"` unless `deleted_at` or explicit `active = false`.
-- Keep Calendly snake_case confined to this normalization function.
+- Store `scheduling_url` only if it is an absolute `http` or `https` URL.
+- Skip malformed resources rather than failing the whole sync.
+- Do not add disabled Calendly questions to current mapping candidates.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/calendly/eventTypeMutations.ts` | Create | Normalizers and later mutation exports |
+| `convex/calendly/eventTypeMutations.ts` | Create | Normalization helpers live beside sync mutations |
 
 ---
 
-### 2B — Upsert Event Type Configs and Questions
+### 2B — Sync Lock and Status Mutations
 
-**Type:** Backend
-**Parallelizable:** No — depends on 2A normalized resource shape.
+**Type:** Backend  
+**Parallelizable:** Yes — independent of resource upsert logic.
 
-**What:** Implement single-resource and page-level upsert helpers that preserve CRM-owned fields and merge custom question catalog data.
+**What:** Add internal mutations to acquire/release the per-tenant event type sync lock and persist latest sync status.
 
-**Why:** Full sync, webhook reconciliation, and future repair jobs should all use one ownership-aware write path.
+**Why:** The manual button must not run overlapping syncs, and Settings needs latest operational state without a sync-run history table.
 
 **Where:**
 - `convex/calendly/eventTypeMutations.ts` (modify)
 
 **How:**
 
-**Step 1: Build the ownership-aware patch helper.**
+**Step 1: Acquire a bounded lock on the connection row.**
 
 ```typescript
 // Path: convex/calendly/eventTypeMutations.ts
 
+export const acquireEventTypeSyncLock = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    lockUntil: v.number(),
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, { tenantId, lockUntil, reason }) => {
+    const now = Date.now();
+    const connection = await ctx.db
+      .query("tenantCalendlyConnections")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .first();
+
+    if (!connection) {
+      throw new Error("Calendly connection not found.");
+    }
+    if (connection.eventTypeSyncLockUntil && connection.eventTypeSyncLockUntil > now) {
+      return { acquired: false as const };
+    }
+
+    await ctx.db.patch(connection._id, {
+      eventTypeSyncLockUntil: lockUntil,
+      lastEventTypeSyncStartedAt: now,
+      lastEventTypeSyncStatus: undefined,
+      lastEventTypeSyncError: undefined,
+    });
+
+    console.log("[Calendly:EventTypes] sync lock acquired", {
+      tenantId,
+      reason,
+      lockUntil,
+    });
+    return { acquired: true as const };
+  },
+});
+```
+
+**Step 2: Complete sync and always clear the lock.**
+
+```typescript
+// Path: convex/calendly/eventTypeMutations.ts
+
+export const completeEventTypeSync = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    status: v.union(
+      v.literal("success"),
+      v.literal("failed"),
+      v.literal("skipped"),
+    ),
+    error: v.optional(v.string()),
+    totals: v.optional(
+      v.object({
+        totalSeen: v.number(),
+        created: v.number(),
+        updated: v.number(),
+        unchanged: v.number(),
+        inactive: v.number(),
+        deleted: v.number(),
+        notReturned: v.number(),
+        questionsMerged: v.number(),
+      }),
+    ),
+  },
+  handler: async (ctx, { tenantId, status, error, totals }) => {
+    const connection = await ctx.db
+      .query("tenantCalendlyConnections")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .first();
+    if (!connection) {
+      return;
+    }
+
+    await ctx.db.patch(connection._id, {
+      eventTypeSyncLockUntil: undefined,
+      lastEventTypeSyncCompletedAt: Date.now(),
+      lastEventTypeSyncStatus: status,
+      lastEventTypeSyncError: error,
+      lastEventTypeSyncCount: totals?.totalSeen,
+      lastEventTypeSyncSummary: totals,
+    });
+  },
+});
+```
+
+**Key implementation notes:**
+- Clear the lock on both success and failure.
+- Do not keep unbounded sync run history for MVP.
+- If a tenant ever has enough pages to exceed the lock window, extend the lock per page.
+
+**Files touched:**
+
+| File | Action | Notes |
+|---|---|---|
+| `convex/calendly/eventTypeMutations.ts` | Modify | Lock and latest status mutations |
+
+---
+
+### 2C — Page Upsert and Custom Question Merge
+
+**Type:** Backend  
+**Parallelizable:** No — depends on 2A normalization and Phase 1 shared field helpers.
+
+**What:** Upsert each Calendly event type resource into `eventTypeConfigs`, merge enabled custom question labels, and update `eventTypeFieldCatalog`.
+
+**Why:** This is the core ownership boundary: sync fills Calendly metadata while preserving CRM-owned configuration.
+
+**Where:**
+- `convex/calendly/eventTypeMutations.ts` (modify)
+
+**How:**
+
+**Step 1: Build a conservative patch for existing rows.**
+
+```typescript
+// Path: convex/calendly/eventTypeMutations.ts
+
+function canSyncDisplayName(config: Doc<"eventTypeConfigs">) {
+  return (
+    config.displayNameSource === "calendly_synced" ||
+    config.displayNameSource === "webhook_discovered"
+  );
+}
+
 function buildEventTypeConfigSyncPatch(
   existing: Doc<"eventTypeConfigs">,
   normalized: NormalizedCalendlyEventType,
-  now: number,
+  syncStartedAt: number,
 ) {
   const patch: Partial<Doc<"eventTypeConfigs">> = {
     ...normalized.calendlyPatch,
-    lastCalendlySeenAt: now,
-    lastCalendlySyncedAt: now,
-    updatedAt: now,
+    lastCalendlySeenAt: syncStartedAt,
+    lastCalendlySyncedAt: Date.now(),
+    updatedAt: Date.now(),
   };
 
-  if (
-    normalized.name &&
-    (existing.displayNameSource === "calendly_synced" ||
-      existing.displayNameSource === "webhook_discovered")
-  ) {
+  if (normalized.name && canSyncDisplayName(existing)) {
     patch.displayName = normalized.name;
+    patch.displayNameSource = existing.displayNameSource ?? "calendly_synced";
   }
 
   if (
     normalized.schedulingUrl &&
-    (!existing.bookingBaseUrl ||
-      existing.bookingUrlSource === "calendly_synced")
+    (!existing.bookingBaseUrl || existing.bookingUrlSource === "calendly_synced")
   ) {
     patch.bookingBaseUrl = normalized.schedulingUrl;
     patch.bookingUrlSource = "calendly_synced";
   }
 
   if (normalized.deletedAt) {
-    patch.calendlyActive = false;
-    patch.calendlySyncStatus = "deleted";
-    patch.calendlyDeletedAt = normalized.deletedAt;
     patch.linkPortalEnabled = false;
   }
 
@@ -300,7 +405,7 @@ function buildEventTypeConfigSyncPatch(
 }
 ```
 
-**Step 2: Merge field keys and field catalog rows.**
+**Step 2: Merge known field labels and catalog rows.**
 
 ```typescript
 // Path: convex/calendly/eventTypeMutations.ts
@@ -310,7 +415,6 @@ async function mergeQuestionCatalog(
   args: {
     tenantId: Id<"tenants">;
     eventTypeConfigId: Id<"eventTypeConfigs">;
-    existingConfig: Doc<"eventTypeConfigs"> | null;
     questions: NormalizedCustomQuestion[];
     seenAt: number;
   },
@@ -319,115 +423,52 @@ async function mergeQuestionCatalog(
     return 0;
   }
 
-  const config = args.existingConfig ?? (await ctx.db.get(args.eventTypeConfigId));
-  const knownKeys = config?.knownCustomFieldKeys ?? [];
-  const knownSet = new Set(knownKeys);
-  const labelsToAdd = args.questions
-    .map((question) => question.label)
-    .filter((label) => !knownSet.has(label));
-
-  if (labelsToAdd.length > 0) {
-    await ctx.db.patch(args.eventTypeConfigId, {
-      knownCustomFieldKeys: [...knownKeys, ...labelsToAdd],
-      updatedAt: args.seenAt,
-    });
+  const config = await ctx.db.get(args.eventTypeConfigId);
+  if (!config) {
+    return 0;
   }
 
-  const catalogByKey = await loadFieldCatalogByKey(ctx, {
-    tenantId: args.tenantId,
-    eventTypeConfigId: args.eventTypeConfigId,
-  });
-
-  let changed = labelsToAdd.length;
-  for (const question of args.questions) {
-    const result = await upsertEventTypeFieldCatalogEntry(ctx, {
-      tenantId: args.tenantId,
-      eventTypeConfigId: args.eventTypeConfigId,
-      fieldKey: question.fieldKey,
-      questionLabel: question.label,
-      valueType: question.valueType,
-      seenAt: args.seenAt,
-      existingEntriesByFieldKey: catalogByKey,
-    });
-    if (result.action !== "unchanged") {
-      changed += 1;
+  const labels = args.questions.map((question) => question.label);
+  const knownKeys = new Set(config.knownCustomFieldKeys ?? []);
+  const mergedKeys = [...(config.knownCustomFieldKeys ?? [])];
+  for (const label of labels) {
+    if (!knownKeys.has(label)) {
+      knownKeys.add(label);
+      mergedKeys.push(label);
     }
   }
 
+  if (mergedKeys.length !== (config.knownCustomFieldKeys ?? []).length) {
+    await ctx.db.patch(args.eventTypeConfigId, {
+      knownCustomFieldKeys: mergedKeys.slice(0, 200),
+      updatedAt: Date.now(),
+    });
+  }
+
+  const catalog = await loadFieldCatalogByKey(ctx, args);
+  let changed = 0;
+  for (const question of args.questions) {
+    const action = await upsertEventTypeFieldCatalogEntry(ctx, {
+      existingEntriesByFieldKey: catalog,
+      tenantId: args.tenantId,
+      eventTypeConfigId: args.eventTypeConfigId,
+      fieldKey: question.fieldKey,
+      currentLabel: question.label,
+      valueType: question.valueType,
+      seenAt: args.seenAt,
+    });
+    if (action !== "unchanged") {
+      changed += 1;
+    }
+  }
   return changed;
 }
 ```
 
-**Step 3: Upsert a single resource and expose page mutation.**
+**Step 3: Upsert a Calendly page.**
 
 ```typescript
 // Path: convex/calendly/eventTypeMutations.ts
-
-async function upsertSingleEventTypeResource(
-  ctx: MutationCtx,
-  args: {
-    tenantId: Id<"tenants">;
-    normalized: NormalizedCalendlyEventType;
-    syncStartedAt: number;
-    source: "api" | "webhook";
-  },
-) {
-  const existing = await ctx.db
-    .query("eventTypeConfigs")
-    .withIndex("by_tenantId_and_calendlyEventTypeUri", (q) =>
-      q
-        .eq("tenantId", args.tenantId)
-        .eq("calendlyEventTypeUri", args.normalized.uri),
-    )
-    .unique();
-
-  let eventTypeConfigId: Id<"eventTypeConfigs">;
-  let action: "created" | "updated" | "unchanged";
-
-  if (!existing) {
-    eventTypeConfigId = await ctx.db.insert("eventTypeConfigs", {
-      tenantId: args.tenantId,
-      calendlyEventTypeUri: args.normalized.uri,
-      displayName: args.normalized.name ?? "Calendly Event Type",
-      displayNameSource:
-        args.source === "api" ? "calendly_synced" : "webhook_discovered",
-      bookingProgramMappingStatus: "unmapped",
-      bookingBaseUrl: args.normalized.schedulingUrl,
-      bookingUrlSource: args.normalized.schedulingUrl
-        ? "calendly_synced"
-        : undefined,
-      ...args.normalized.calendlyPatch,
-      knownCustomFieldKeys:
-        args.normalized.enabledCustomQuestions.length > 0
-          ? args.normalized.enabledCustomQuestions.map((question) => question.label)
-          : undefined,
-      lastCalendlySeenAt: args.syncStartedAt,
-      lastCalendlySyncedAt: args.syncStartedAt,
-      createdAt: args.syncStartedAt,
-      updatedAt: args.syncStartedAt,
-    });
-    action = "created";
-  } else {
-    eventTypeConfigId = existing._id;
-    const patch = buildEventTypeConfigSyncPatch(
-      existing,
-      args.normalized,
-      args.syncStartedAt,
-    );
-    await ctx.db.patch(existing._id, patch);
-    action = Object.keys(patch).length > 0 ? "updated" : "unchanged";
-  }
-
-  const questionsMerged = await mergeQuestionCatalog(ctx, {
-    tenantId: args.tenantId,
-    eventTypeConfigId,
-    existingConfig: existing,
-    questions: args.normalized.enabledCustomQuestions,
-    seenAt: args.syncStartedAt,
-  });
-
-  return { eventTypeConfigId, action, questionsMerged };
-}
 
 export const upsertEventTypesPage = internalMutation({
   args: {
@@ -446,16 +487,53 @@ export const upsertEventTypesPage = internalMutation({
       if (!normalized) {
         continue;
       }
-      const result = await upsertSingleEventTypeResource(ctx, {
+
+      const existing = await ctx.db
+        .query("eventTypeConfigs")
+        .withIndex("by_tenantId_and_calendlyEventTypeUri", (q) =>
+          q.eq("tenantId", tenantId).eq("calendlyEventTypeUri", normalized.uri),
+        )
+        .unique();
+
+      const now = Date.now();
+      const eventTypeConfigId = existing
+        ? existing._id
+        : await ctx.db.insert("eventTypeConfigs", {
+            tenantId,
+            calendlyEventTypeUri: normalized.uri,
+            displayName: normalized.name ?? "Calendly Event Type",
+            displayNameSource: "calendly_synced",
+            bookingProgramMappingStatus: "unmapped",
+            bookingBaseUrl: normalized.schedulingUrl,
+            bookingUrlSource: normalized.schedulingUrl
+              ? "calendly_synced"
+              : undefined,
+            knownCustomFieldKeys: normalized.enabledCustomQuestions.map(
+              (question) => question.label,
+            ),
+            ...normalized.calendlyPatch,
+            lastCalendlySeenAt: syncStartedAt,
+            lastCalendlySyncedAt: now,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+      if (existing) {
+        await ctx.db.patch(
+          existing._id,
+          buildEventTypeConfigSyncPatch(existing, normalized, syncStartedAt),
+        );
+        updated += 1;
+      } else {
+        created += 1;
+      }
+
+      questionsMerged += await mergeQuestionCatalog(ctx, {
         tenantId,
-        normalized,
-        syncStartedAt,
-        source: "api",
+        eventTypeConfigId,
+        questions: normalized.enabledCustomQuestions,
+        seenAt: syncStartedAt,
       });
-      if (result.action === "created") created += 1;
-      if (result.action === "updated") updated += 1;
-      if (result.action === "unchanged") unchanged += 1;
-      questionsMerged += result.questionsMerged;
     }
 
     return { created, updated, unchanged, questionsMerged };
@@ -464,195 +542,62 @@ export const upsertEventTypesPage = internalMutation({
 ```
 
 **Key implementation notes:**
-- Existing source-less display names are protected because only explicit sync/webhook sources may update `displayName`.
-- `paymentLinks`, `bookingProgram*`, `customFieldMappings`, and `linkPortalEnabled` are never set except deleted rows disabling portal visibility.
-- Always query by `by_tenantId_and_calendlyEventTypeUri`.
+- Sync never enables `linkPortalEnabled`.
+- `paymentLinks`, `bookingProgram*`, and `customFieldMappings` are never patched by sync.
+- Keep arrays bounded. If question labels approach the bound, favor the relational catalog long term.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/calendly/eventTypeMutations.ts` | Modify | Ownership-aware upsert helpers |
+| `convex/calendly/eventTypeMutations.ts` | Modify | Upsert page and merge questions |
 
 ---
 
-### 2C — Sync Lock, Completion, and Missing-State Mutations
+### 2D — Node Sync Action
 
-**Type:** Backend
-**Parallelizable:** Yes — can start after Phase 1 schema fields exist.
+**Type:** Backend  
+**Parallelizable:** No — depends on 2B lock/status and 2C page upsert.
 
-**What:** Add mutations for acquiring/releasing the per-tenant event type sync lock, recording latest status, and marking previously synced rows absent from a completed full sync.
+**What:** Add the internal Node action that owns Calendly API pagination, token refresh retry, and page-by-page writes.
 
-**Why:** Manual, cron, OAuth, and webhook-triggered syncs can overlap. A lock prevents concurrent stale marking and duplicate API work.
-
-**Where:**
-- `convex/calendly/eventTypeMutations.ts` (modify)
-
-**How:**
-
-**Step 1: Add lock mutation.**
-
-```typescript
-// Path: convex/calendly/eventTypeMutations.ts
-
-export const acquireEventTypeSyncLock = internalMutation({
-  args: {
-    tenantId: v.id("tenants"),
-    lockUntil: v.number(),
-    reason: v.optional(v.string()),
-  },
-  handler: async (ctx, { tenantId, lockUntil, reason }) => {
-    const connection = await ctx.db
-      .query("tenantCalendlyConnections")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .unique();
-    const now = Date.now();
-
-    if (connection?.eventTypeSyncLockUntil && connection.eventTypeSyncLockUntil > now) {
-      return { acquired: false as const, lockUntil: connection.eventTypeSyncLockUntil };
-    }
-
-    await updateTenantCalendlyConnection(ctx, tenantId, {
-      eventTypeSyncLockUntil: lockUntil,
-      lastEventTypeSyncStartedAt: now,
-      lastEventTypeSyncStatus: "skipped",
-      lastEventTypeSyncError: reason ? `Sync started: ${reason}` : undefined,
-    });
-
-    return { acquired: true as const, lockUntil };
-  },
-});
-```
-
-**Step 2: Mark rows not seen in a completed sync.**
-
-```typescript
-// Path: convex/calendly/eventTypeMutations.ts
-
-export const markMissingEventTypes = internalMutation({
-  args: {
-    tenantId: v.id("tenants"),
-    syncStartedAt: v.number(),
-  },
-  handler: async (ctx, { tenantId, syncStartedAt }) => {
-    const candidates = await ctx.db
-      .query("eventTypeConfigs")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .take(500);
-
-    let notReturned = 0;
-    for (const config of candidates) {
-      if (
-        config.displayNameSource === "calendly_synced" &&
-        (config.lastCalendlySeenAt ?? 0) < syncStartedAt &&
-        config.calendlySyncStatus !== "deleted"
-      ) {
-        await ctx.db.patch(config._id, {
-          calendlySyncStatus: "not_returned",
-          calendlyActive: false,
-          updatedAt: Date.now(),
-        });
-        notReturned += 1;
-      }
-    }
-
-    return { notReturned };
-  },
-});
-```
-
-**Step 3: Complete sync and release lock for every terminal path.**
-
-```typescript
-// Path: convex/calendly/eventTypeMutations.ts
-
-export const completeEventTypeSync = internalMutation({
-  args: {
-    tenantId: v.id("tenants"),
-    status: v.union(v.literal("success"), v.literal("failed"), v.literal("skipped")),
-    count: v.optional(v.number()),
-    error: v.optional(v.string()),
-  },
-  handler: async (ctx, { tenantId, status, count, error }) => {
-    await updateTenantCalendlyConnection(ctx, tenantId, {
-      eventTypeSyncLockUntil: undefined,
-      lastEventTypeSyncCompletedAt: Date.now(),
-      lastEventTypeSyncStatus: status,
-      lastEventTypeSyncError: error,
-      lastEventTypeSyncCount: count,
-    });
-  },
-});
-```
-
-**Key implementation notes:**
-- `markMissingEventTypes` should only run after the final page succeeds.
-- The initial `.take(500)` is acceptable for MVP but should be revisited before many tenants or very large Calendly orgs.
-- Lock release belongs in the completion mutation, including skipped retry cases.
-
-**Files touched:**
-
-| File | Action | Notes |
-|---|---|---|
-| `convex/calendly/eventTypeMutations.ts` | Modify | Sync lock/status/stale mutations |
-
----
-
-### 2D — Node Action for Full Sync
-
-**Type:** Backend
-**Parallelizable:** No — depends on 2B upsert and 2C lock/status mutations.
-
-**What:** Create the Node action that owns external Calendly API pagination, token refresh retry, rate-limit retry scheduling, and page-by-page internal mutation calls.
-
-**Why:** Convex mutations must not perform external API calls. The action can use `fetch`, call token helpers, and batch writes into transactions.
+**Why:** External API calls belong in actions, while database writes stay in mutations. This follows Convex transaction boundaries.
 
 **Where:**
 - `convex/calendly/eventTypes.ts` (new)
 
 **How:**
 
-**Step 1: Create retry-delay helper.**
+**Step 1: Create the Node action shell.**
 
 ```typescript
 // Path: convex/calendly/eventTypes.ts
+
 "use node";
 
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
-import { action, internalAction } from "../_generated/server";
-import { getIdentityOrgId } from "../lib/identity";
-import { ADMIN_ROLES } from "../lib/roleMapping";
+import type { ActionCtx } from "../_generated/server";
+import { internalAction } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
 import { getValidAccessToken, refreshTenantTokenCore } from "./tokens";
 
-function getCalendlyRetryDelayMs(response: Response) {
-  const retryAfter = Number.parseInt(response.headers.get("Retry-After") ?? "", 10);
-  if (Number.isFinite(retryAfter) && retryAfter > 0) {
-    return Math.min(retryAfter * 1000, 15 * 60 * 1000);
-  }
-
-  const reset = Number.parseInt(response.headers.get("X-RateLimit-Reset") ?? "", 10);
-  if (Number.isFinite(reset) && reset > 0) {
-    return Math.min(Math.max(reset * 1000 - Date.now(), 30_000), 15 * 60 * 1000);
-  }
-
-  return 60_000;
-}
-```
-
-**Step 2: Implement the internal tenant sync action.**
-
-```typescript
-// Path: convex/calendly/eventTypes.ts
-
 type EventTypeSyncTotals = {
+  totalSeen: number;
   created: number;
   updated: number;
   unchanged: number;
-  questionsMerged: number;
+  inactive: number;
+  deleted: number;
   notReturned: number;
+  questionsMerged: number;
 };
+```
+
+**Step 2: Fetch pages and write each page through an internal mutation.**
+
+```typescript
+// Path: convex/calendly/eventTypes.ts
 
 export const syncForTenant = internalAction({
   args: {
@@ -670,11 +615,14 @@ export const syncForTenant = internalAction({
     }
 
     const totals: EventTypeSyncTotals = {
+      totalSeen: 0,
       created: 0,
       updated: 0,
       unchanged: 0,
-      questionsMerged: 0,
+      inactive: 0,
+      deleted: 0,
       notReturned: 0,
+      questionsMerged: 0,
     };
 
     try {
@@ -708,34 +656,17 @@ export const syncForTenant = internalAction({
         }
 
         if (response.status === 429) {
-          const retryAfterMs = getCalendlyRetryDelayMs(response);
-          await ctx.runMutation(
-            internal.calendly.eventTypeMutations.completeEventTypeSync,
-            {
-              tenantId,
-              status: "skipped",
-              error: "Calendly rate limited event type sync; retry scheduled",
-            },
-          );
-          await ctx.scheduler.runAfter(
-            retryAfterMs,
-            internal.calendly.eventTypes.syncForTenant,
-            { tenantId, reason: "rate_limited_retry" },
-          );
-          return { status: "skipped" as const, reason: "rate_limited_retry_scheduled" as const };
+          const retryAt = response.headers.get("X-RateLimit-Reset") ?? "later";
+          throw new Error(`Calendly rate limited event type sync. Try again ${retryAt}.`);
         }
-
         if (!response.ok) {
           throw new Error(
             `Calendly event type sync failed: ${response.status} ${await response.text()}`,
           );
         }
 
-        const page = (await response.json()) as {
-          collection?: unknown[];
-          pagination?: { next_page?: string | null };
-        };
-        const pageResult = await ctx.runMutation(
+        const page = await response.json();
+        const result = await ctx.runMutation(
           internal.calendly.eventTypeMutations.upsertEventTypesPage,
           {
             tenantId,
@@ -743,29 +674,16 @@ export const syncForTenant = internalAction({
             collection: page.collection ?? [],
           },
         );
-        totals.created += pageResult.created;
-        totals.updated += pageResult.updated;
-        totals.unchanged += pageResult.unchanged;
-        totals.questionsMerged += pageResult.questionsMerged;
+
+        totals.totalSeen += page.collection?.length ?? 0;
+        totals.created += result.created;
+        totals.updated += result.updated;
+        totals.unchanged += result.unchanged;
+        totals.questionsMerged += result.questionsMerged;
         nextPage = page.pagination?.next_page ?? null;
       }
 
-      const stale = await ctx.runMutation(
-        internal.calendly.eventTypeMutations.markMissingEventTypes,
-        { tenantId, syncStartedAt: startedAt },
-      );
-      totals.notReturned = stale.notReturned;
-
-      await ctx.runMutation(
-        internal.calendly.eventTypeMutations.completeEventTypeSync,
-        {
-          tenantId,
-          status: "success",
-          count: totals.created + totals.updated + totals.unchanged,
-        },
-      );
-
-      return { status: "success" as const, ...totals };
+      return await finalizeSuccessfulSync(ctx, tenantId, startedAt, totals);
     } catch (error) {
       await ctx.runMutation(
         internal.calendly.eventTypeMutations.completeEventTypeSync,
@@ -782,142 +700,171 @@ export const syncForTenant = internalAction({
 ```
 
 **Key implementation notes:**
-- Keep `"use node"` at the top because this file performs external `fetch` and uses token helpers in the action runtime.
-- Retry a `401` at most once for the current page.
-- Do not call `markMissingEventTypes` if any page fails.
+- Follow `pagination.next_page` exactly; do not reconstruct `page_token`.
+- Retry the current page after a `401` at most once.
+- Do not schedule an automatic retry for `429` in MVP.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/calendly/eventTypes.ts` | Create | Internal action for full sync |
+| `convex/calendly/eventTypes.ts` | Create | Internal full-sync action |
 
 ---
 
-### 2E — Error Semantics and Logging
+### 2E — Missing, Deleted, and Final Status
 
-**Type:** Backend
-**Parallelizable:** No — depends on 2D.
+**Type:** Backend  
+**Parallelizable:** No — depends on completed page writes from 2D.
 
-**What:** Make errors distinguish permission problems, missing connection context, rate limits, and partial failures in logs and latest sync status.
+**What:** Finalize successful full syncs by marking previously synced rows not seen in the current run and persisting summary counts.
 
-**Why:** The Settings UI and rollout runbook need actionable status. A `403` means reconnect with a Calendly owner/admin token, not that the tenant has no event types.
+**Why:** Missing/not-returned marking is only correct after every Calendly page has been fetched. Partial failures must not make rows stale.
 
 **Where:**
-- `convex/calendly/eventTypes.ts` (modify)
 - `convex/calendly/eventTypeMutations.ts` (modify)
+- `convex/calendly/eventTypes.ts` (modify)
 
 **How:**
 
-**Step 1: Add response error formatter.**
+**Step 1: Mark missing rows only after success.**
 
 ```typescript
-// Path: convex/calendly/eventTypes.ts
+// Path: convex/calendly/eventTypeMutations.ts
 
-async function readCalendlyError(response: Response) {
-  const body = await response.text();
-  if (response.status === 403) {
-    return "Calendly refused event type sync. Reconnect with an owner/admin Calendly account that can read organization event types.";
-  }
-  return body || response.statusText;
-}
-```
+export const markMissingEventTypes = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    syncStartedAt: v.number(),
+  },
+  handler: async (ctx, { tenantId, syncStartedAt }) => {
+    let notReturned = 0;
+    const rows = ctx.db
+      .query("eventTypeConfigs")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId));
 
-**Step 2: Use structured log tags.**
+    for await (const config of rows) {
+      if (
+        config.lastCalendlySyncedAt !== undefined &&
+        config.lastCalendlySeenAt !== syncStartedAt &&
+        config.calendlySyncStatus !== "deleted"
+      ) {
+        await ctx.db.patch(config._id, {
+          calendlySyncStatus: "not_returned",
+          calendlyActive: false,
+          updatedAt: Date.now(),
+        });
+        notReturned += 1;
+      }
+    }
 
-```typescript
-// Path: convex/calendly/eventTypes.ts
-
-console.log("[Calendly:EventTypes] syncForTenant page synced", {
-  tenantId,
-  created: pageResult.created,
-  updated: pageResult.updated,
-  unchanged: pageResult.unchanged,
-  questionsMerged: pageResult.questionsMerged,
+    return { notReturned };
+  },
 });
 ```
 
-**Step 3: Store clear latest error text.**
+**Step 2: Finalize the successful sync from the action.**
 
 ```typescript
 // Path: convex/calendly/eventTypes.ts
 
-if (!response.ok) {
-  throw new Error(
-    `Calendly event type sync failed: ${response.status} ${await readCalendlyError(response)}`,
+async function finalizeSuccessfulSync(
+  ctx: ActionCtx,
+  tenantId: Id<"tenants">,
+  startedAt: number,
+  totals: EventTypeSyncTotals,
+) {
+  const stale = await ctx.runMutation(
+    internal.calendly.eventTypeMutations.markMissingEventTypes,
+    { tenantId, syncStartedAt: startedAt },
   );
+  const summary = { ...totals, ...stale };
+
+  await ctx.runMutation(
+    internal.calendly.eventTypeMutations.completeEventTypeSync,
+    { tenantId, status: "success", totals: summary },
+  );
+
+  return { status: "success" as const, ...summary };
 }
 ```
 
 **Key implementation notes:**
-- Keep error messages useful but avoid logging access tokens or refresh tokens.
-- Partial sync can create/update rows; the failure status should explain that stale marking was skipped.
-- Do not mark tenant disconnected on `403`; only existing token refresh logic should change tenant connection status.
+- Do not mark rows without `lastCalendlySyncedAt` as not returned; those may be old webhook fallback rows that have never been API-synced.
+- Deleted rows returned by Calendly are handled during page upsert and should also disable portal visibility.
+- If the loop could grow large, batch this mutation later. MVP tenant scale is small enough for tenant-bounded iteration.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/calendly/eventTypes.ts` | Modify | Error handling/logging |
-| `convex/calendly/eventTypeMutations.ts` | Modify | Completion status text if needed |
+| `convex/calendly/eventTypeMutations.ts` | Modify | Missing/not-returned finalization |
+| `convex/calendly/eventTypes.ts` | Modify | Success summary completion |
 
 ---
 
-### 2F — Local Sync Verification
+### 2F — Backend Verification
 
-**Type:** Manual
-**Parallelizable:** No — runs after 2A-2E.
+**Type:** Manual  
+**Parallelizable:** No — verifies the integrated sync runtime.
 
-**What:** Validate generated Convex references, TypeScript, and core sync behavior against a development tenant or mocked manual inspection.
+**What:** Compile the backend and run targeted sync scenarios against a dev tenant or mocked Calendly responses.
 
-**Why:** Phase 3 exposes this action to admins and crons; the internal sync should be proven before it is triggered automatically.
+**Why:** The most dangerous regressions are ownership overwrites and stale marking after partial failure.
 
 **Where:**
-- Local terminal verification
-- Convex dashboard or dev deployment
+- `convex/calendly/eventTypes.ts` (verify)
+- `convex/calendly/eventTypeMutations.ts` (verify)
+- Convex dashboard data (verify)
 
 **How:**
 
-**Step 1: Generate Convex API references.**
+**Step 1: Run compile gates.**
 
 ```bash
-// Path: terminal
+# Path: terminal
 npx convex dev --once
-```
-
-**Step 2: Run TypeScript.**
-
-```bash
-// Path: terminal
 pnpm tsc --noEmit
 ```
 
-**Step 3: Verify internal result shape in a dev run.**
+**Step 2: Verify preservation before and after sync.**
+
+```typescript
+// Path: convex/calendly/eventTypeMutations.ts
+
+// Seed or identify a config:
+// displayNameSource: "admin_entered"
+// bookingUrlSource: "admin_entered"
+// bookingBaseUrl: "https://example.com/custom"
+//
+// After sync:
+// displayName and bookingBaseUrl are unchanged.
+// calendlyName and calendlySchedulingUrl are updated from Calendly.
+```
+
+**Step 3: Verify failure behavior.**
 
 ```typescript
 // Path: convex/calendly/eventTypes.ts
 
-// Expected successful result:
-// {
-//   status: "success",
-//   created: number,
-//   updated: number,
-//   unchanged: number,
-//   questionsMerged: number,
-//   notReturned: number
-// }
+// Simulate:
+// - 401 once, then successful refresh and retry.
+// - 401 after refresh, resulting in failed sync.
+// - 429 response, resulting in failed sync and cleared lock.
+// - failure after page 1, with no markMissingEventTypes call.
 ```
 
 **Key implementation notes:**
-- Manual invocation of an internal action should be done only in dev or through a temporary local console flow.
-- Compare synced count against the Calendly UI for the tenant during Phase 6 rollout.
-- If the current tenant has no Calendly connection in dev, TypeScript and codegen are still required pass/fail gates.
+- Record created/updated/unchanged counts; they should add up to `totalSeen`.
+- Confirm `lastEventTypeSyncStatus` is `failed` when sync throws.
+- Confirm `eventTypeSyncLockUntil` clears after both success and failure.
 
 **Files touched:**
 
 | File | Action | Notes |
 |---|---|---|
-| `convex/_generated/*` | Generate | API references for new functions |
+| `convex/calendly/eventTypes.ts` | Verify | Pagination, token retry, failure handling |
+| `convex/calendly/eventTypeMutations.ts` | Verify | Upsert and status transitions |
 
 ---
 
@@ -925,6 +872,8 @@ pnpm tsc --noEmit
 
 | File | Action | Subphase |
 |---|---|---|
-| `convex/calendly/eventTypeMutations.ts` | Create | 2A, 2B, 2C, 2E |
-| `convex/calendly/eventTypes.ts` | Create | 2D, 2E |
-| `convex/_generated/*` | Generate | 2F |
+| `convex/calendly/eventTypeMutations.ts` | Create / Modify | 2A, 2B, 2C, 2E |
+| `convex/calendly/eventTypes.ts` | Create / Modify | 2D, 2E |
+| `convex/lib/eventTypeFields.ts` | Reference | 2C |
+| `convex/calendly/tokens.ts` | Reference | 2D |
+| `convex/calendly/connectionQueries.ts` | Reference | 2D |
