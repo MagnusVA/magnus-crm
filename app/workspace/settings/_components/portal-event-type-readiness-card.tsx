@@ -88,6 +88,7 @@ export function PortalEventTypeReadinessCard({
               <TableHead>Event Type</TableHead>
               <TableHead>Booked Program</TableHead>
               <TableHead>Base URL</TableHead>
+              <TableHead>Type</TableHead>
               <TableHead>Readiness</TableHead>
               <TableHead className="text-right">Visible</TableHead>
             </TableRow>
@@ -96,7 +97,7 @@ export function PortalEventTypeReadinessCard({
             {eventTypeConfigs.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={5}
+                  colSpan={6}
                   className="h-24 text-center text-muted-foreground"
                 >
                   No event type configurations are available.
@@ -120,6 +121,11 @@ export function PortalEventTypeReadinessCard({
                   </TableCell>
                   <TableCell className="max-w-80 truncate font-mono text-xs">
                     {config.bookingBaseUrl ?? "-"}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={config.isExtended ? "secondary" : "outline"}>
+                      {config.isExtended ? "Extended" : "Normal"}
+                    </Badge>
                   </TableCell>
                   <TableCell>
                     <Badge variant={readinessBadgeVariant(readiness)}>

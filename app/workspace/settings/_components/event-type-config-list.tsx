@@ -69,6 +69,7 @@ interface EventTypeConfig {
   bookingBaseUrl?: string;
   bookingUrlSource?: "admin_entered" | "imported_sheet" | "calendly_synced";
   linkPortalEnabled?: boolean;
+  isExtended?: boolean;
   portalReadiness?: PortalReadiness;
 }
 
@@ -264,6 +265,9 @@ export function EventTypeConfigList({
                             <Badge variant={readinessBadgeVariant(readiness)}>
                               {READINESS_LABEL[readiness]}
                             </Badge>
+                            {config.isExtended ? (
+                              <Badge variant="secondary">Extended</Badge>
+                            ) : null}
                           </div>
                         </TableCell>
                         <TableCell className="max-w-72">

@@ -88,6 +88,7 @@ export const getPortalBootstrapForSession = internalQuery({
 					bookingProgramId: config.bookingProgramId!,
 					bookingProgramName: config.bookingProgramName ?? config.displayName,
 					bookingBaseUrl: config.bookingBaseUrl!,
+					isExtended: config.isExtended === true,
 				})),
 		};
 	},

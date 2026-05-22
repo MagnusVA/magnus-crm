@@ -109,10 +109,18 @@ export const upsertEventTypeConfig = mutation({
     paymentLinks: v.optional(v.array(paymentLinkValidator)),
     bookingProgramId: v.optional(v.id("tenantPrograms")),
     bookingBaseUrl: v.optional(v.string()),
+    isExtended: v.optional(v.boolean()),
   },
   handler: async (
     ctx,
-    { calendlyEventTypeUri, displayName, paymentLinks, bookingProgramId, bookingBaseUrl },
+    {
+      calendlyEventTypeUri,
+      displayName,
+      paymentLinks,
+      bookingProgramId,
+      bookingBaseUrl,
+      isExtended,
+    },
   ) => {
     console.log("[EventTypeConfig] upsertEventTypeConfig called", { displayName, hasPaymentLinks: !!paymentLinks });
     const { tenantId } = await requireTenantUser(ctx, [
@@ -193,6 +201,7 @@ export const upsertEventTypeConfig = mutation({
         ...bookingProgramPatch,
         bookingBaseUrl: trimmedBookingBaseUrl,
         bookingUrlSource: trimmedBookingBaseUrl ? "admin_entered" : undefined,
+        ...(isExtended !== undefined ? { isExtended } : {}),
         updatedAt: Date.now(),
       });
 
@@ -209,6 +218,7 @@ export const upsertEventTypeConfig = mutation({
       ...bookingProgramPatch,
       bookingBaseUrl: trimmedBookingBaseUrl,
       bookingUrlSource: trimmedBookingBaseUrl ? "admin_entered" : undefined,
+      isExtended: isExtended ?? false,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     });

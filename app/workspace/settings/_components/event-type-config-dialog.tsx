@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   FieldGroup,
   Field,
@@ -44,6 +45,7 @@ interface EventTypeConfig {
   paymentLinks?: PaymentLink[];
   bookingProgramId?: Id<"tenantPrograms">;
   bookingBaseUrl?: string;
+  isExtended?: boolean;
 }
 
 interface EventTypeConfigDialogProps {
@@ -69,6 +71,7 @@ export function EventTypeConfigDialog({
   const [bookingBaseUrl, setBookingBaseUrl] = useState(
     config.bookingBaseUrl ?? "",
   );
+  const [isExtended, setIsExtended] = useState(config.isExtended === true);
   const [isSaving, setIsSaving] = useState(false);
   const programs = useQuery(api.tenantPrograms.queries.listPrograms, {
     includeArchived: false,
@@ -84,6 +87,7 @@ export function EventTypeConfigDialog({
       setPaymentLinks(config.paymentLinks || []);
       setBookingProgramId(config.bookingProgramId);
       setBookingBaseUrl(config.bookingBaseUrl ?? "");
+      setIsExtended(config.isExtended === true);
     }
   }, [config, open]);
 
@@ -101,6 +105,7 @@ export function EventTypeConfigDialog({
         paymentLinks: paymentLinks.length > 0 ? paymentLinks : undefined,
         bookingProgramId,
         bookingBaseUrl: bookingBaseUrl.trim() || undefined,
+        isExtended,
       });
 
       posthog.capture("event_type_config_saved", {
@@ -182,6 +187,24 @@ export function EventTypeConfigDialog({
                 disabled={isSaving}
                 placeholder="https://calendly.com/..."
               />
+            </Field>
+
+            <Field>
+              <div className="flex items-center justify-between gap-3">
+                <div className="space-y-1">
+                  <FieldLabel htmlFor="is-extended">Extended scheduling</FieldLabel>
+                  <p className="text-sm text-muted-foreground">
+                    Enable when this event type allows booking further in advance.
+                  </p>
+                </div>
+                <Switch
+                  id="is-extended"
+                  checked={isExtended}
+                  onCheckedChange={setIsExtended}
+                  disabled={isSaving}
+                  aria-label="Extended scheduling event type"
+                />
+              </div>
             </Field>
 
           </FieldGroup>
