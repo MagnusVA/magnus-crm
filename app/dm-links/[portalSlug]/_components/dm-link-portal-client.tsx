@@ -15,11 +15,11 @@ import {
 	CalendarIcon,
 	CheckCircle2Icon,
 	CheckIcon,
+	ClockIcon,
 	CopyIcon,
 	LinkIcon,
 	LogOutIcon,
 	RefreshCwIcon,
-	TagIcon,
 	TimerIcon,
 	UserIcon,
 } from "lucide-react";
@@ -56,8 +56,11 @@ import { Progress } from "@/components/ui/progress";
 import { isPostHogEnabled } from "@/lib/posthog-config";
 import { cn } from "@/lib/utils";
 import {
+	filterEventTypesBySchedulingMode,
 	groupBookablePrograms,
 	type BookableProgramEventType,
+	type SchedulingMode,
+	programHasSchedulingMode,
 } from "./group-bookable-programs";
 import { prepareProgramLinks } from "./prepare-program-links";
 
@@ -68,11 +71,28 @@ const LINK_EXPIRATION_SECONDS = LINK_EXPIRATION_MS / 1000;
 const portalSteps = [
 	{ id: "closer", label: "Closer", icon: UserIcon },
 	{ id: "program", label: "Program", icon: CalendarIcon },
-	{ id: "campaign", label: "Campaign", icon: TagIcon },
+	{ id: "scheduling", label: "Scheduling", icon: ClockIcon },
 	{ id: "generate", label: "Generate", icon: LinkIcon },
 ] as const;
 
 type PortalStep = (typeof portalSteps)[number]["id"];
+
+const schedulingModeOptions: Array<{
+	mode: SchedulingMode;
+	title: string;
+	description: string;
+}> = [
+	{
+		mode: "normal",
+		title: "Normal",
+		description: "Standard scheduling availability.",
+	},
+	{
+		mode: "extended",
+		title: "Extended",
+		description: "Book further out when near-term slots are full.",
+	},
+];
 
 type ActiveGeneratedLink = {
 	url: string;
@@ -85,6 +105,7 @@ type ActiveGeneratedLink = {
 	teamId: string;
 	campaignPresetId: string;
 	campaign: string;
+	schedulingMode: SchedulingMode;
 };
 
 type GeneratedLinkBatch = {
@@ -328,7 +349,8 @@ function UnlockedPortal({
 }) {
 	const [selectedCloserId, setSelectedCloserId] = useState("");
 	const [selectedProgramId, setSelectedProgramId] = useState("");
-	const [selectedCampaignId, setSelectedCampaignId] = useState("");
+	const [selectedSchedulingMode, setSelectedSchedulingMode] =
+		useState<SchedulingMode | "">("");
 	const [currentStep, setCurrentStep] = useState<PortalStep>("closer");
 	const [generatedBatch, setGeneratedBatch] =
 		useState<GeneratedLinkBatch | null>(null);
@@ -342,25 +364,40 @@ function UnlockedPortal({
 		[bootstrap.bookablePrograms],
 	);
 
+	const defaultCampaign = useMemo(
+		() =>
+			bootstrap.campaignPresets.find((row) => row.isDefault) ??
+			bootstrap.campaignPresets[0] ??
+			null,
+		[bootstrap.campaignPresets],
+	);
+
 	const closer = bootstrap.dmClosers.find((row) => row.id === selectedCloserId);
 	const program = groupedPrograms.find(
 		(row) => row.bookingProgramId === selectedProgramId,
 	);
-	const campaign = bootstrap.campaignPresets.find(
-		(row) => row.id === selectedCampaignId,
-	);
+	const selectedEventTypes = useMemo(() => {
+		if (!program || !selectedSchedulingMode) {
+			return [];
+		}
+
+		return filterEventTypesBySchedulingMode(
+			program.eventTypes,
+			selectedSchedulingMode,
+		);
+	}, [program, selectedSchedulingMode]);
 
 	const preparedLinks = useMemo(() => {
-		if (!closer || !program || !campaign) {
+		if (!closer || !defaultCampaign || selectedEventTypes.length === 0) {
 			return { status: "empty" as const, links: [] };
 		}
 
 		return prepareProgramLinks({
 			closer,
-			campaign,
-			eventTypes: program.eventTypes,
+			campaign: defaultCampaign,
+			eventTypes: selectedEventTypes,
 		});
-	}, [campaign, closer, program]);
+	}, [closer, defaultCampaign, selectedEventTypes]);
 
 	const invalidEventTypes = useMemo(
 		() =>
@@ -371,14 +408,14 @@ function UnlockedPortal({
 	const setupIncomplete =
 		bootstrap.dmClosers.length === 0 ||
 		groupedPrograms.length === 0 ||
-		bootstrap.campaignPresets.length === 0;
+		!defaultCampaign;
 	const currentStepIndex = portalSteps.findIndex(
 		(step) => step.id === currentStep,
 	);
 	const completedStepCount = [
 		Boolean(closer),
 		Boolean(program),
-		Boolean(campaign),
+		Boolean(selectedSchedulingMode),
 		Boolean(generatedBatch),
 	].filter(Boolean).length;
 	const progressValue = (completedStepCount / portalSteps.length) * 100;
@@ -399,7 +436,7 @@ function UnlockedPortal({
 	function resetPortalState() {
 		setSelectedCloserId("");
 		setSelectedProgramId("");
-		setSelectedCampaignId("");
+		setSelectedSchedulingMode("");
 		setCurrentStep("closer");
 		setGeneratedBatch(null);
 		setCopyStates({});
@@ -441,15 +478,16 @@ function UnlockedPortal({
 	function selectProgram(value: string) {
 		if (value !== selectedProgramId) {
 			resetGeneratedLinks();
+			setSelectedSchedulingMode("");
 		}
 		setSelectedProgramId(value);
 	}
 
-	function selectCampaign(value: string) {
-		if (value !== selectedCampaignId) {
+	function selectSchedulingMode(value: SchedulingMode) {
+		if (value !== selectedSchedulingMode) {
 			resetGeneratedLinks();
 		}
-		setSelectedCampaignId(value);
+		setSelectedSchedulingMode(value);
 	}
 
 	function isStepComplete(step: PortalStep) {
@@ -459,8 +497,8 @@ function UnlockedPortal({
 		if (step === "program") {
 			return Boolean(program);
 		}
-		if (step === "campaign") {
-			return Boolean(campaign);
+		if (step === "scheduling") {
+			return Boolean(selectedSchedulingMode);
 		}
 		return Boolean(generatedBatch);
 	}
@@ -472,10 +510,10 @@ function UnlockedPortal({
 		if (step === "program") {
 			return Boolean(closer);
 		}
-		if (step === "campaign") {
+		if (step === "scheduling") {
 			return Boolean(closer && program);
 		}
-		return Boolean(closer && program && campaign);
+		return Boolean(closer && program && selectedSchedulingMode);
 	}
 
 	function goToStep(step: PortalStep) {
@@ -501,8 +539,8 @@ function UnlockedPortal({
 	function generateLinks() {
 		if (
 			!closer ||
-			!program ||
-			!campaign ||
+			!defaultCampaign ||
+			!selectedSchedulingMode ||
 			preparedLinks.status !== "ready"
 		) {
 			return;
@@ -523,8 +561,9 @@ function UnlockedPortal({
 				bookingProgramId: link.bookingProgramId,
 				dmCloserId: closer.id,
 				teamId: closer.teamId,
-				campaignPresetId: campaign.id,
-				campaign: campaign.utmCampaign,
+				campaignPresetId: defaultCampaign.id,
+				campaign: defaultCampaign.utmCampaign,
+				schedulingMode: selectedSchedulingMode,
 			})),
 		});
 	}
@@ -585,6 +624,7 @@ function UnlockedPortal({
 				team_id: activeLink.teamId,
 				campaign_preset_id: activeLink.campaignPresetId,
 				campaign: activeLink.campaign,
+				scheduling_mode: activeLink.schedulingMode,
 				copy_audit_attempted: true,
 				copy_audit_recorded: auditResult.recorded,
 			});
@@ -601,23 +641,31 @@ function UnlockedPortal({
 		},
 		program: {
 			title: "Choose the program",
-			description:
-				"Select the booking program. Every portal-ready event type for that program will be generated together.",
+			description: "Select the booking program for this link.",
 		},
-		campaign: {
-			title: "Choose the campaign",
-			description: "Attach the campaign preset that should appear in Calendly UTMs.",
+		scheduling: {
+			title: "Choose scheduling type",
+			description:
+				"Pick normal for standard availability, or extended when near-term slots are full.",
 		},
 		generate: {
-			title: "Generate the links",
-			description: `All event types for the selected program appear here for ${LINK_EXPIRATION_SECONDS} seconds. Copy the one you need.`,
+			title: "Generate the link",
+			description: `The ${selectedSchedulingMode === "extended" ? "extended" : "normal"} booking link appears here for ${LINK_EXPIRATION_SECONDS} seconds.`,
 		},
 	};
 
 	const selectedSummary = [
 		{ label: "Closer", value: closer?.displayName ?? "Not selected" },
 		{ label: "Program", value: program?.bookingProgramName ?? "Not selected" },
-		{ label: "Campaign", value: campaign?.label ?? "Not selected" },
+		{
+			label: "Scheduling",
+			value:
+				selectedSchedulingMode === "extended"
+					? "Extended"
+					: selectedSchedulingMode === "normal"
+						? "Normal"
+						: "Not selected",
+		},
 	];
 
 	return (
@@ -674,8 +722,8 @@ function UnlockedPortal({
 						<AlertCircleIcon aria-hidden="true" />
 						<AlertTitle>Booking URLs Need Admin Review</AlertTitle>
 						<AlertDescription>
-							Every event type for this program has an invalid booking URL. Select
-							another program or ask your workspace admin to update them.
+							The selected scheduling type has an invalid booking URL. Choose
+							another option or ask your workspace admin to update it.
 						</AlertDescription>
 					</Alert>
 				) : null}
@@ -698,8 +746,8 @@ function UnlockedPortal({
 					<CardHeader>
 						<CardTitle>Booking Link Steps</CardTitle>
 						<CardDescription>
-							Move through each choice, then generate short-lived Calendly links
-							for every event type in the program.
+							Move through each choice, then generate a short-lived Calendly link
+							with the default campaign applied automatically.
 						</CardDescription>
 						<CardAction>
 							<Badge variant="outline">
@@ -795,22 +843,33 @@ function UnlockedPortal({
 								</div>
 							) : null}
 
-							{currentStep === "campaign" ? (
+							{currentStep === "scheduling" ? (
 								<div className="grid grid-cols-2 gap-2">
-									{bootstrap.campaignPresets.map((row) => (
-										<SelectableOption
-											key={row.id}
-											selected={selectedCampaignId === row.id}
-											title={row.label}
-											description={
-												row.isDefault ? "Default campaign preset" : undefined
-											}
-											icon={<TagIcon aria-hidden="true" />}
-											onClick={() => selectCampaign(row.id)}
-											disabled={setupIncomplete}
-											density="compact"
-										/>
-									))}
+									{schedulingModeOptions.map((option) => {
+										const available = program
+											? programHasSchedulingMode(
+													program.eventTypes,
+													option.mode,
+												)
+											: false;
+
+										return (
+											<SelectableOption
+												key={option.mode}
+												selected={selectedSchedulingMode === option.mode}
+												title={option.title}
+												description={
+													available
+														? option.description
+														: "Not configured for this program."
+												}
+												icon={<ClockIcon aria-hidden="true" />}
+												onClick={() => selectSchedulingMode(option.mode)}
+												disabled={setupIncomplete || !available}
+												density="compact"
+											/>
+										);
+									})}
 								</div>
 							) : null}
 
@@ -832,14 +891,18 @@ function UnlockedPortal({
 
 									<div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
 										<div className="min-w-0">
-											<p className="font-medium">Ready for fresh links</p>
+											<p className="font-medium">Ready for a fresh link</p>
 											<p className="text-sm text-muted-foreground">
 												Generating starts a {LINK_EXPIRATION_SECONDS}-second copy
 												window for{" "}
-												{program?.eventTypes.length === 1
+												{selectedEventTypes.length === 1
 													? "1 event type"
-													: `${program?.eventTypes.length ?? 0} event types`}
-												.
+													: `${selectedEventTypes.length} event types`}
+												. Campaign{" "}
+												<span className="font-medium">
+													{defaultCampaign?.label ?? "default"}
+												</span>{" "}
+												is applied automatically.
 											</p>
 										</div>
 										<Button
@@ -853,7 +916,7 @@ function UnlockedPortal({
 											) : (
 												<LinkIcon data-icon="inline-start" aria-hidden="true" />
 											)}
-											{generatedBatch ? "Regenerate Links" : "Generate Links"}
+											{generatedBatch ? "Regenerate Link" : "Generate Link"}
 										</Button>
 									</div>
 
@@ -944,13 +1007,13 @@ function UnlockedPortal({
 										<div className="flex min-h-24 items-center gap-3 rounded-lg border border-dashed bg-muted/20 p-3 text-sm text-muted-foreground">
 											<LinkIcon className="size-5 shrink-0" aria-hidden="true" />
 											<span>
-												No active links. Generate them when the DM closer is ready
+												No active link. Generate it when the DM closer is ready
 												to copy.
 											</span>
 										</div>
 									)}
 
-									{closer && campaign ? (
+									{closer && defaultCampaign ? (
 										<div
 											className="flex flex-wrap gap-2"
 											aria-label="Generated UTM values"
@@ -962,7 +1025,7 @@ function UnlockedPortal({
 												utm_medium={closer.utmMedium}
 											</Badge>
 											<Badge variant="secondary" translate="no">
-												utm_campaign={campaign.utmCampaign}
+												utm_campaign={defaultCampaign.utmCampaign}
 											</Badge>
 										</div>
 									) : null}

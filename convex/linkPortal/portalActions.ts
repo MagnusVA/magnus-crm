@@ -27,6 +27,7 @@ type PortalBootstrap = {
 		bookingProgramId: string;
 		bookingProgramName: string;
 		bookingBaseUrl: string;
+		isExtended: boolean;
 	}>;
 };
 

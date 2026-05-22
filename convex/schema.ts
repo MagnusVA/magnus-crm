@@ -1136,6 +1136,8 @@ export default defineSchema({
       ),
     ),
     linkPortalEnabled: v.optional(v.boolean()),
+    // Extended event types allow booking further in advance (e.g. 2-3 days out).
+    isExtended: v.optional(v.boolean()),
 
     // Calendly-owned metadata from GET /event_types. All fields remain
     // optional for widen-only rollout safety.

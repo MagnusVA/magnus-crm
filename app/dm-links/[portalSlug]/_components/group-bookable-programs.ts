@@ -4,13 +4,32 @@ export type BookableProgramEventType = {
 	bookingProgramId: string;
 	bookingProgramName: string;
 	bookingBaseUrl: string;
+	isExtended: boolean;
 };
+
+export type SchedulingMode = "normal" | "extended";
 
 export type GroupedBookableProgram = {
 	bookingProgramId: string;
 	bookingProgramName: string;
 	eventTypes: BookableProgramEventType[];
 };
+
+export function filterEventTypesBySchedulingMode(
+	eventTypes: BookableProgramEventType[],
+	mode: SchedulingMode,
+) {
+	return eventTypes.filter((eventType) =>
+		mode === "extended" ? eventType.isExtended : !eventType.isExtended,
+	);
+}
+
+export function programHasSchedulingMode(
+	eventTypes: BookableProgramEventType[],
+	mode: SchedulingMode,
+) {
+	return filterEventTypesBySchedulingMode(eventTypes, mode).length > 0;
+}
 
 export function groupBookablePrograms(
 	programs: BookableProgramEventType[],
