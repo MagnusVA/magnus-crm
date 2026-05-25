@@ -32,11 +32,17 @@ export function LeadGenFilterBar({
   teams: LeadGenTeamOption[] | undefined;
 }) {
   return (
-    <FieldGroup className="grid gap-4 rounded-lg border bg-card p-4 md:grid-cols-2 xl:grid-cols-5">
-      <Field>
-        <FieldLabel htmlFor="lead-gen-start-date">Start Day</FieldLabel>
+    <FieldGroup className="grid grid-cols-[repeat(auto-fit,minmax(8.75rem,1fr))] gap-2 rounded-lg border bg-card p-2">
+      <Field className="min-w-0 gap-1">
+        <FieldLabel
+          className="text-[11px] text-muted-foreground"
+          htmlFor="lead-gen-start-date"
+        >
+          Start
+        </FieldLabel>
         <Input
           autoComplete="off"
+          className="h-7 rounded-md text-xs md:text-xs"
           id="lead-gen-start-date"
           name="startDayKey"
           type="date"
@@ -50,10 +56,16 @@ export function LeadGenFilterBar({
         />
       </Field>
 
-      <Field>
-        <FieldLabel htmlFor="lead-gen-end-date">End Day</FieldLabel>
+      <Field className="min-w-0 gap-1">
+        <FieldLabel
+          className="text-[11px] text-muted-foreground"
+          htmlFor="lead-gen-end-date"
+        >
+          End
+        </FieldLabel>
         <Input
           autoComplete="off"
+          className="h-7 rounded-md text-xs md:text-xs"
           id="lead-gen-end-date"
           name="endDayKey"
           type="date"
@@ -67,8 +79,10 @@ export function LeadGenFilterBar({
         />
       </Field>
 
-      <Field>
-        <FieldLabel>Worker</FieldLabel>
+      <Field className="min-w-0 gap-1">
+        <FieldLabel className="text-[11px] text-muted-foreground">
+          Worker
+        </FieldLabel>
         <Select
           value={value.workerId ?? "all"}
           onValueChange={(nextValue) =>
@@ -81,7 +95,7 @@ export function LeadGenFilterBar({
             }))
           }
         >
-          <SelectTrigger>
+          <SelectTrigger className="h-7 w-full rounded-md text-xs" size="sm">
             <SelectValue placeholder="All workers" />
           </SelectTrigger>
           <SelectContent>
@@ -97,8 +111,10 @@ export function LeadGenFilterBar({
         </Select>
       </Field>
 
-      <Field>
-        <FieldLabel>Team</FieldLabel>
+      <Field className="min-w-0 gap-1">
+        <FieldLabel className="text-[11px] text-muted-foreground">
+          Team
+        </FieldLabel>
         <Select
           value={value.teamId ?? "all"}
           onValueChange={(nextValue) =>
@@ -111,7 +127,7 @@ export function LeadGenFilterBar({
             }))
           }
         >
-          <SelectTrigger>
+          <SelectTrigger className="h-7 w-full rounded-md text-xs" size="sm">
             <SelectValue placeholder="All teams" />
           </SelectTrigger>
           <SelectContent>
@@ -127,8 +143,10 @@ export function LeadGenFilterBar({
         </Select>
       </Field>
 
-      <Field>
-        <FieldLabel>Source</FieldLabel>
+      <Field className="min-w-0 gap-1">
+        <FieldLabel className="text-[11px] text-muted-foreground">
+          Source
+        </FieldLabel>
         <Select
           value={value.source ?? "all"}
           onValueChange={(nextValue) =>
@@ -141,7 +159,7 @@ export function LeadGenFilterBar({
             }))
           }
         >
-          <SelectTrigger>
+          <SelectTrigger className="h-7 w-full rounded-md text-xs" size="sm">
             <SelectValue placeholder="All sources" />
           </SelectTrigger>
           <SelectContent>

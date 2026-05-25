@@ -47,10 +47,12 @@ export function WorkerPerformanceTable({
   rows: PerformanceRow[] | undefined;
   workers: Doc<"leadGenWorkers">[] | undefined;
 }) {
-  const workerById = new Map((workers ?? []).map((worker) => [worker._id, worker]));
+  const workerById = new Map(
+    (workers ?? []).map((worker) => [worker._id, worker]),
+  );
 
   return (
-    <Card>
+    <Card className="min-w-0" size="sm">
       <CardHeader>
         <CardTitle>Worker Performance</CardTitle>
       </CardHeader>
@@ -65,23 +67,25 @@ export function WorkerPerformanceTable({
             <EmptyContent>No aggregate rows match these filters.</EmptyContent>
           </Empty>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
+          <div className="rounded-lg border">
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Worker</TableHead>
-                  <TableHead className="text-right">Submissions</TableHead>
+                  <TableHead className="w-[38%]">Worker</TableHead>
+                  <TableHead className="text-right">Subs</TableHead>
                   <TableHead className="text-right">Unique</TableHead>
-                  <TableHead className="text-right">Duplicates</TableHead>
-                  <TableHead className="text-right">Leads/Hour</TableHead>
+                  <TableHead className="text-right">Dupes</TableHead>
+                  <TableHead className="text-right">L/Hr</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((row) => {
-                  const worker = workerById.get(row.workerId as Doc<"leadGenWorkers">["_id"]);
+                  const worker = workerById.get(
+                    row.workerId as Doc<"leadGenWorkers">["_id"],
+                  );
                   return (
                     <TableRow key={row.workerId}>
-                      <TableCell className="min-w-52">
+                      <TableCell className="max-w-0">
                         <div className="flex min-w-0 flex-col gap-1">
                           <span className="truncate font-medium">
                             {worker?.displayName ?? worker?.email ?? row.workerId}

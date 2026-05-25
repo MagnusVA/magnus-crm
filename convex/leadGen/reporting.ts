@@ -5,8 +5,13 @@ import {
   addBusinessDays,
   businessDateToUtcStart,
   countBusinessDays,
+  timestampToBusinessDateKey,
 } from "../reporting/lib/hondurasBusinessTime";
 import { requireTenantUser } from "../requireTenantUser";
+import {
+  isRankableLeadGenOrigin,
+  normalizeLeadGenOrigin,
+} from "./normalization";
 import {
   getSharedDmTeam,
   type LeadGenTeamId,
@@ -16,9 +21,11 @@ import { leadGenSourceValidator } from "./validators";
 
 type LeadGenSource = Doc<"leadGenDailyStats">["source"];
 type DailyStatsRow = Doc<"leadGenDailyStats">;
+type SubmissionRow = Doc<"leadGenSubmissions">;
 
 const DAILY_STATS_READ_LIMIT = 500;
 const ORIGIN_STATS_READ_LIMIT = 500;
+const ORIGIN_SUBMISSIONS_READ_LIMIT = 5000;
 const MAX_REPORT_DAYS = 120;
 const MAX_TOP_ORIGINS = 25;
 const LEAD_GEN_SOURCES: LeadGenSource[] = ["instagram", "meta_business"];
@@ -97,6 +104,36 @@ function filterDailyStatsRows(
   });
 }
 
+function filterTopOriginSubmissionRows(
+  rows: SubmissionRow[],
+  args: {
+    teamId?: LeadGenTeamId;
+    workerId?: Id<"leadGenWorkers">;
+    source?: LeadGenSource;
+  },
+) {
+  return rows.filter((row) => {
+    if (row.voidedAt !== undefined) return false;
+    if (!row.originRankable || !row.originValue) return false;
+    if (!isRankableLeadGenOrigin(row.originKind)) return false;
+    if (args.teamId && row.teamId !== args.teamId) return false;
+    if (args.workerId && row.workerId !== args.workerId) return false;
+    if (args.source && row.source !== args.source) return false;
+    return true;
+  });
+}
+
+function normalizeTopOriginSubmission(row: SubmissionRow) {
+  try {
+    return normalizeLeadGenOrigin({
+      originKind: row.originKind,
+      originUrlOrLabel: row.originValue,
+    });
+  } catch {
+    return {};
+  }
+}
+
 async function readDailyStatsRows(
   ctx: QueryCtx,
   args: {
@@ -162,6 +199,75 @@ async function readDailyStatsRows(
   }
 
   return filterDailyStatsRows(rows, args);
+}
+
+async function readTopOriginSubmissionRows(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    startDayKey: string;
+    endDayKey: string;
+    teamId?: LeadGenTeamId;
+    workerId?: Id<"leadGenWorkers">;
+    source?: LeadGenSource;
+  },
+) {
+  const startTimestamp = businessDateToUtcStart(args.startDayKey);
+  const endTimestamp =
+    businessDateToUtcStart(addBusinessDays(args.endDayKey, 1)) - 1;
+  const readLimit = ORIGIN_SUBMISSIONS_READ_LIMIT + 1;
+  let rows: SubmissionRow[];
+
+  if (args.workerId) {
+    rows = await ctx.db
+      .query("leadGenSubmissions")
+      .withIndex("by_tenantId_and_workerId_and_submittedAt", (q) =>
+        q
+          .eq("tenantId", args.tenantId)
+          .eq("workerId", args.workerId!)
+          .gte("submittedAt", startTimestamp)
+          .lte("submittedAt", endTimestamp),
+      )
+      .take(readLimit);
+  } else if (args.teamId) {
+    rows = await ctx.db
+      .query("leadGenSubmissions")
+      .withIndex("by_tenantId_and_teamId_and_submittedAt", (q) =>
+        q
+          .eq("tenantId", args.tenantId)
+          .eq("teamId", args.teamId!)
+          .gte("submittedAt", startTimestamp)
+          .lte("submittedAt", endTimestamp),
+      )
+      .take(readLimit);
+  } else if (args.source) {
+    rows = await ctx.db
+      .query("leadGenSubmissions")
+      .withIndex("by_tenantId_and_source_and_submittedAt", (q) =>
+        q
+          .eq("tenantId", args.tenantId)
+          .eq("source", args.source!)
+          .gte("submittedAt", startTimestamp)
+          .lte("submittedAt", endTimestamp),
+      )
+      .take(readLimit);
+  } else {
+    rows = await ctx.db
+      .query("leadGenSubmissions")
+      .withIndex("by_tenantId_and_submittedAt", (q) =>
+        q
+          .eq("tenantId", args.tenantId)
+          .gte("submittedAt", startTimestamp)
+          .lte("submittedAt", endTimestamp),
+      )
+      .take(readLimit);
+  }
+
+  if (rows.length > ORIGIN_SUBMISSIONS_READ_LIMIT) {
+    throw new Error("Origin report range is too large. Narrow the filters.");
+  }
+
+  return filterTopOriginSubmissionRows(rows, args);
 }
 
 function summarizeRows(rows: DailyStatsRow[]) {
@@ -479,6 +585,8 @@ export const listTopOrigins = query({
   args: {
     startDayKey: v.string(),
     endDayKey: v.string(),
+    teamId: v.optional(v.id("attributionTeams")),
+    workerId: v.optional(v.id("leadGenWorkers")),
     source: v.optional(leadGenSourceValidator),
     limit: v.optional(v.number()),
   },
@@ -490,6 +598,64 @@ export const listTopOrigins = query({
     const limit = normalizeLimit(args.limit, MAX_TOP_ORIGINS);
 
     validateDayRange(args);
+    await validateFilterIds(ctx, { tenantId, ...args });
+
+    if (args.teamId || args.workerId) {
+      const rows = await readTopOriginSubmissionRows(ctx, {
+        tenantId,
+        ...args,
+      });
+      const byOrigin = new Map<
+        string,
+        {
+          originKey: string;
+          source: LeadGenSource;
+          originKind: Doc<"leadGenSubmissions">["originKind"];
+          originValue: string;
+          submissions: number;
+          uniqueProspectDayKeys: Set<string>;
+          dayKeys: Set<string>;
+        }
+      >();
+
+      for (const row of rows) {
+        const origin = normalizeTopOriginSubmission(row);
+        if (!origin.originKey || !origin.originValue) continue;
+
+        const key = `${row.source}:${origin.originKey}`;
+        const current =
+          byOrigin.get(key) ??
+          {
+            originKey: origin.originKey,
+            source: row.source,
+            originKind: row.originKind,
+            originValue: origin.originValue,
+            submissions: 0,
+            uniqueProspectDayKeys: new Set<string>(),
+            dayKeys: new Set<string>(),
+          };
+        const dayKey = timestampToBusinessDateKey(row.submittedAt);
+
+        current.submissions += 1;
+        current.uniqueProspectDayKeys.add(`${row.prospectId}:${dayKey}`);
+        current.dayKeys.add(dayKey);
+        byOrigin.set(key, current);
+      }
+
+      return [...byOrigin.values()]
+        .map((row) => ({
+          originKey: row.originKey,
+          source: row.source,
+          originKind: row.originKind,
+          originValue: row.originValue,
+          submissions: row.submissions,
+          uniqueProspects: row.uniqueProspectDayKeys.size,
+          dayCount: row.dayKeys.size,
+        }))
+        .sort((a, b) => b.submissions - a.submissions)
+        .slice(0, limit);
+    }
+
     const readLimit = ORIGIN_STATS_READ_LIMIT + 1;
     const rows = args.source
       ? await ctx.db
