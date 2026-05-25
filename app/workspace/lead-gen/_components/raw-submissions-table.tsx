@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { usePaginatedQuery } from "convex/react";
 import {
+  ChevronDownIcon,
   ClipboardListIcon,
   ExternalLinkIcon,
   InboxIcon,
@@ -20,6 +21,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import {
   Empty,
   EmptyContent,
   EmptyHeader,
@@ -36,6 +42,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { cn } from "@/lib/utils";
 import type { LeadGenFilters } from "./lead-gen-admin-page-client";
 import { VoidSubmissionDialog } from "./void-submission-dialog";
 
@@ -142,170 +149,218 @@ function buildRawQueryArgs(filters: LeadGenFilters) {
 }
 
 export function RawSubmissionsTable({ filters }: { filters: LeadGenFilters }) {
+  const [isOpen, setIsOpen] = useState(false);
   const queryArgs = useMemo(() => buildRawQueryArgs(filters), [filters]);
   const isValidRange = queryArgs !== "skip";
+  const paginatedQueryArgs = isOpen ? queryArgs : "skip";
   const {
     results,
     status: paginationStatus,
     loadMore,
   } = usePaginatedQuery(
     api.leadGen.exports.listRawSubmissionExportPage,
-    queryArgs,
+    paginatedQueryArgs,
     { initialNumItems: PAGE_SIZE },
   );
   const rows = results as RawSubmissionRow[];
   const isInitialLoading =
-    isValidRange && paginationStatus === "LoadingFirstPage";
+    isOpen && isValidRange && paginationStatus === "LoadingFirstPage";
   const isLoadingMore = paginationStatus === "LoadingMore";
+  const badgeLabel = !isOpen
+    ? "Not loaded"
+    : !isValidRange
+      ? "Invalid range"
+    : isInitialLoading
+      ? "Loading"
+      : `${rows.length} loaded`;
 
   return (
-    <Card className="min-w-0" size="sm">
-      <CardHeader>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex min-w-0 flex-col gap-1">
-            <CardTitle>Raw Submissions</CardTitle>
-            <CardDescription className="text-xs">
-              Source rows for the current filters, including voided audit state.
-            </CardDescription>
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <Card className="min-w-0" size="sm">
+        <CardHeader>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 flex-col gap-1">
+              <CardTitle>Raw Submissions</CardTitle>
+              <CardDescription className="text-xs">
+                Source rows for the current filters, including voided audit
+                state.
+              </CardDescription>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <Badge className="w-fit" variant="outline">
+                {badgeLabel}
+              </Badge>
+              <CollapsibleTrigger asChild>
+                <Button
+                  aria-label={
+                    isOpen
+                      ? "Collapse raw submissions"
+                      : "Expand raw submissions"
+                  }
+                  size="sm"
+                  variant="outline"
+                >
+                  <ChevronDownIcon
+                    aria-hidden="true"
+                    className={cn(
+                      "transition-transform",
+                      isOpen && "rotate-180",
+                    )}
+                    data-icon="inline-start"
+                  />
+                  {isOpen ? "Hide" : "Show"}
+                </Button>
+              </CollapsibleTrigger>
+            </div>
           </div>
-          <Badge className="w-fit" variant="outline">
-            {rows.length} loaded
-          </Badge>
-        </div>
-      </CardHeader>
-      <CardContent className="min-w-0">
-        {!isValidRange ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <InboxIcon aria-hidden="true" />
-              </EmptyMedia>
-              <EmptyTitle>Select a Valid Range</EmptyTitle>
-            </EmptyHeader>
-            <EmptyContent>
-              Raw submissions need a start day on or before an end day.
-            </EmptyContent>
-          </Empty>
-        ) : isInitialLoading ? (
-          <div aria-label="Loading raw submissions" role="status">
-            <Skeleton className="h-[420px] w-full" />
-          </div>
-        ) : rows.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <ClipboardListIcon aria-hidden="true" />
-              </EmptyMedia>
-              <EmptyTitle>No Raw Submissions</EmptyTitle>
-            </EmptyHeader>
-            <EmptyContent>No raw rows match these filters.</EmptyContent>
-          </Empty>
-        ) : (
-          <div className="flex flex-col gap-3">
-            <div className="rounded-lg border">
-              <Table className="table-fixed">
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-28">Submitted</TableHead>
-                    <TableHead className="w-[18%]">Prospect</TableHead>
-                    <TableHead className="w-[20%]">Worker / Team</TableHead>
-                    <TableHead>Origin</TableHead>
-                    <TableHead className="w-24">Status</TableHead>
-                    <TableHead className="w-12 text-right">Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {rows.map((row) => (
-                    <TableRow
-                      data-state={row.voidedAt ? "selected" : undefined}
-                      key={row.submissionId}
-                    >
-                      <TableCell className="tabular-nums">
-                        <time
-                          className="flex flex-col gap-0.5 text-xs leading-tight"
-                          dateTime={new Date(row.submittedAt).toISOString()}
+        </CardHeader>
+        <CollapsibleContent>
+          <CardContent className="min-w-0">
+            {!isValidRange ? (
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <InboxIcon aria-hidden="true" />
+                  </EmptyMedia>
+                  <EmptyTitle>Select a Valid Range</EmptyTitle>
+                </EmptyHeader>
+                <EmptyContent>
+                  Raw submissions need a start day on or before an end day.
+                </EmptyContent>
+              </Empty>
+            ) : isInitialLoading ? (
+              <div aria-label="Loading raw submissions" role="status">
+                <Skeleton className="h-[420px] w-full" />
+              </div>
+            ) : rows.length === 0 ? (
+              <Empty>
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <ClipboardListIcon aria-hidden="true" />
+                  </EmptyMedia>
+                  <EmptyTitle>No Raw Submissions</EmptyTitle>
+                </EmptyHeader>
+                <EmptyContent>No raw rows match these filters.</EmptyContent>
+              </Empty>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="rounded-lg border">
+                  <Table className="table-fixed">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="w-28">Submitted</TableHead>
+                        <TableHead className="w-[18%]">Prospect</TableHead>
+                        <TableHead className="w-[20%]">
+                          Worker / Team
+                        </TableHead>
+                        <TableHead>Origin</TableHead>
+                        <TableHead className="w-24">Status</TableHead>
+                        <TableHead className="w-12 text-right">
+                          Action
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {rows.map((row) => (
+                        <TableRow
+                          data-state={row.voidedAt ? "selected" : undefined}
+                          key={row.submissionId}
                         >
-                          <span>
-                            {submittedDateFormatter.format(row.submittedAt)}
-                          </span>
-                          <span className="text-muted-foreground">
-                            {submittedTimeFormatter.format(row.submittedAt)}
-                          </span>
-                        </time>
-                      </TableCell>
-                      <TableCell className="max-w-0">
-                        <ProspectCell row={row} />
-                      </TableCell>
-                      <TableCell className="max-w-0">
-                        <WorkerTeamCell row={row} />
-                      </TableCell>
-                      <TableCell className="max-w-0">
-                        <OriginCell row={row} />
-                      </TableCell>
-                      <TableCell className="max-w-0">
-                        <SubmissionStatus row={row} />
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {row.voidedAt ? (
-                          <span
-                            className="text-xs text-muted-foreground"
-                            title="No action"
-                          >
-                            -
-                          </span>
+                          <TableCell className="tabular-nums">
+                            <time
+                              className="flex flex-col gap-0.5 text-xs leading-tight"
+                              dateTime={new Date(
+                                row.submittedAt,
+                              ).toISOString()}
+                            >
+                              <span>
+                                {submittedDateFormatter.format(
+                                  row.submittedAt,
+                                )}
+                              </span>
+                              <span className="text-muted-foreground">
+                                {submittedTimeFormatter.format(
+                                  row.submittedAt,
+                                )}
+                              </span>
+                            </time>
+                          </TableCell>
+                          <TableCell className="max-w-0">
+                            <ProspectCell row={row} />
+                          </TableCell>
+                          <TableCell className="max-w-0">
+                            <WorkerTeamCell row={row} />
+                          </TableCell>
+                          <TableCell className="max-w-0">
+                            <OriginCell row={row} />
+                          </TableCell>
+                          <TableCell className="max-w-0">
+                            <SubmissionStatus row={row} />
+                          </TableCell>
+                          <TableCell className="text-right">
+                            {row.voidedAt ? (
+                              <span
+                                className="text-xs text-muted-foreground"
+                                title="No action"
+                              >
+                                -
+                              </span>
+                            ) : (
+                              <VoidSubmissionDialog
+                                compactTrigger
+                                prospectLabel={getProspectLabel(row)}
+                                submissionId={row.submissionId}
+                              />
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    Showing {rows.length} submission
+                    {rows.length === 1 ? "" : "s"}
+                    {paginationStatus === "Exhausted" ? " (all loaded)" : ""}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    {isLoadingMore ? (
+                      <div
+                        className="flex items-center gap-2 text-xs text-muted-foreground"
+                        role="status"
+                      >
+                        <Spinner data-icon="inline-start" />
+                        Loading more…
+                      </div>
+                    ) : null}
+                    {paginationStatus === "CanLoadMore" ? (
+                      <Button
+                        disabled={isLoadingMore}
+                        size="sm"
+                        variant="outline"
+                        onClick={() => loadMore(PAGE_SIZE)}
+                      >
+                        {isLoadingMore ? (
+                          <Spinner data-icon="inline-start" />
                         ) : (
-                          <VoidSubmissionDialog
-                            compactTrigger
-                            prospectLabel={getProspectLabel(row)}
-                            submissionId={row.submissionId}
+                          <LoaderCircleIcon
+                            aria-hidden="true"
+                            data-icon="inline-start"
                           />
                         )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <p className="text-xs text-muted-foreground">
-                Showing {rows.length} submission{rows.length === 1 ? "" : "s"}
-                {paginationStatus === "Exhausted" ? " (all loaded)" : ""}
-              </p>
-              <div className="flex items-center gap-2">
-                {isLoadingMore ? (
-                  <div
-                    className="flex items-center gap-2 text-xs text-muted-foreground"
-                    role="status"
-                  >
-                    <Spinner data-icon="inline-start" />
-                    Loading more…
+                        Load More
+                      </Button>
+                    ) : null}
                   </div>
-                ) : null}
-                {paginationStatus === "CanLoadMore" ? (
-                  <Button
-                    disabled={isLoadingMore}
-                    size="sm"
-                    variant="outline"
-                    onClick={() => loadMore(PAGE_SIZE)}
-                  >
-                    {isLoadingMore ? (
-                      <Spinner data-icon="inline-start" />
-                    ) : (
-                      <LoaderCircleIcon
-                        aria-hidden="true"
-                        data-icon="inline-start"
-                      />
-                    )}
-                    Load More
-                  </Button>
-                ) : null}
+                </div>
               </div>
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+            )}
+          </CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
   );
 }
 
