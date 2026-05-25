@@ -33,7 +33,7 @@ export function normalizeLeadGenProspectInput(args: {
     !normalizedHandle ||
     !INSTAGRAM_HANDLE_PATTERN.test(normalizedHandle)
   ) {
-    throw new Error("Enter an Instagram profile URL");
+    throw new Error("Enter an Instagram handle or profile URL");
   }
 
   return {
