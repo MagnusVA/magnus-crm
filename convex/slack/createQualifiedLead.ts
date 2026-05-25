@@ -70,6 +70,44 @@ export const create = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    async function scheduleLeadGenAuditMatch(params: {
+      resultKind:
+        | "created_opportunity"
+        | "duplicate_pending"
+        | "already_booked";
+      leadId: Id<"leads">;
+      opportunityId?: Id<"opportunities">;
+    }) {
+      if (args.platform !== "instagram") {
+        return;
+      }
+      if (params.resultKind === "already_booked") {
+        return;
+      }
+
+      try {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.leadGen.auditMatching.matchQualifiedLead,
+          {
+            tenantId: args.tenantId,
+            leadId: params.leadId,
+            opportunityId: params.opportunityId,
+            platform: "instagram",
+            rawHandle: args.handle,
+            matchSource: "slack_qualification",
+          },
+        );
+      } catch (error) {
+        console.error("[LeadGen:Audit] failed to schedule Slack audit match", {
+          tenantId: args.tenantId,
+          leadId: params.leadId,
+          opportunityId: params.opportunityId,
+          error,
+        });
+      }
+    }
+
     const resolution = await resolveLeadIdentity(ctx, {
       tenantId: args.tenantId,
       socialHandle: { platform: args.platform, rawValue: args.handle },
@@ -123,6 +161,11 @@ export const create = internalMutation({
         qualifiedBy: args.qualifiedBy,
         now,
       });
+      await scheduleLeadGenAuditMatch({
+        resultKind: "duplicate_pending",
+        leadId: resolution.leadId,
+        opportunityId: recent._id,
+      });
       return {
         duplicate: true as const,
         existingOpportunityId: recent._id,
@@ -143,20 +186,26 @@ export const create = internalMutation({
         opportunity.status !== "no_show",
     );
     if (alreadyBooked) {
+      const resultKind =
+        alreadyBooked.status === "qualified_pending"
+          ? "duplicate_pending"
+          : "already_booked";
       await insertQualificationEvent(ctx, {
         tenantId: args.tenantId,
         installationId: args.installationId,
         leadId: resolution.leadId,
         opportunityId: alreadyBooked._id,
-        resultKind:
-          alreadyBooked.status === "qualified_pending"
-            ? "duplicate_pending"
-            : "already_booked",
+        resultKind,
         fullName: args.fullName,
         platform: args.platform,
         handle: args.handle,
         qualifiedBy: args.qualifiedBy,
         now,
+      });
+      await scheduleLeadGenAuditMatch({
+        resultKind,
+        leadId: resolution.leadId,
+        opportunityId: alreadyBooked._id,
       });
       return {
         duplicate: true as const,
@@ -211,6 +260,11 @@ export const create = internalMutation({
       tenantId: args.tenantId,
       opportunityId,
       leadId: resolution.leadId,
+    });
+    await scheduleLeadGenAuditMatch({
+      resultKind: "created_opportunity",
+      leadId: resolution.leadId,
+      opportunityId,
     });
 
     console.log("[Slack:CreateQL] opportunity inserted", {

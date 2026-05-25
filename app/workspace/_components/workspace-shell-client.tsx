@@ -29,6 +29,7 @@ import {
   ActivityIcon,
   BarChart3Icon,
   ClipboardCheckIcon,
+  ClipboardListIcon,
   ClockIcon,
   ContactIcon,
   DollarSignIcon,
@@ -80,6 +81,7 @@ const adminNavItems: NavItem[] = [
   { href: "/workspace", label: "Overview", icon: LayoutDashboardIcon, exact: true },
   { href: "/workspace/operations", label: "Operations", icon: KanbanIcon },
   { href: "/workspace/reviews", label: "Reviews", icon: ClipboardCheckIcon },
+  { href: "/workspace/lead-gen", label: "Lead Gen", icon: ClipboardListIcon },
   { href: "/workspace/leads", label: "Leads", icon: ContactIcon },
   { href: "/workspace/customers", label: "Customers", icon: UsersRoundIcon },
   { href: "/workspace/opportunities", label: "Opportunities", icon: TargetIcon },
@@ -93,6 +95,11 @@ const closerNavItems: NavItem[] = [
   { href: "/workspace/leads", label: "Leads", icon: ContactIcon },
   { href: "/workspace/customers", label: "Customers", icon: UsersRoundIcon },
   { href: "/workspace/opportunities", label: "Opportunities", icon: TargetIcon },
+];
+
+const leadGeneratorNavItems: NavItem[] = [
+  { href: "/workspace/lead-gen/capture", label: "Capture", icon: TargetIcon, exact: true },
+  { href: "/workspace/lead-gen/my-activity", label: "My Activity", icon: ActivityIcon },
 ];
 
 const reportNavItems: NavItem[] = [
@@ -110,6 +117,18 @@ const reportNavItems: NavItem[] = [
     icon: MessageSquareTextIcon,
   },
 ];
+
+function navForRole(role: CrmRole, isAdmin: boolean) {
+  if (isAdmin) return adminNavItems;
+  if (role === "lead_generator") return leadGeneratorNavItems;
+  return closerNavItems;
+}
+
+function homeHrefForRole(role: CrmRole, isAdmin: boolean) {
+  if (isAdmin) return "/workspace";
+  if (role === "lead_generator") return "/workspace/lead-gen/capture";
+  return "/workspace/closer";
+}
 
 // ---------------------------------------------------------------------------
 // WorkspaceShellClient
@@ -186,7 +205,8 @@ function WorkspaceShellClientInner({
   const router = useRouter();
   const displayName = initialDisplayName || initialEmail;
 
-  const navItems = isAdmin ? adminNavItems : closerNavItems;
+  const navItems = navForRole(role, isAdmin);
+  const homeHref = homeHrefForRole(role, isAdmin);
 
   // Reactive pending review count — admin only (skipped for closers to avoid unnecessary queries)
   const pendingReviewCount = useQuery(
@@ -251,7 +271,7 @@ function WorkspaceShellClientInner({
       <Sidebar>
         <SidebarHeader>
           <Link
-            href={isAdmin ? "/workspace" : "/workspace/closer"}
+            href={homeHref}
             aria-label="MAGNUS CRM workspace home"
             className="group/brand flex min-h-10 items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1"
           >

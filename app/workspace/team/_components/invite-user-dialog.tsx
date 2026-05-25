@@ -31,6 +31,7 @@ import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -53,7 +54,7 @@ const inviteUserSchema = z
       .email("Please enter a valid email address"),
     firstName: z.string().min(1, "First name is required"),
     lastName: z.string().optional(),
-    role: z.enum(["closer", "tenant_admin"]),
+    role: z.enum(["closer", "tenant_admin", "lead_generator"]),
     calendlyMemberId: z.string().optional(),
   })
   .superRefine((data, ctx) => {
@@ -158,7 +159,8 @@ export function InviteUserDialog({ onSuccess }: InviteUserDialogProps) {
         <DialogHeader>
           <DialogTitle>Invite Team Member</DialogTitle>
           <DialogDescription>
-            Add a new member to your team. Closers require a Calendly link.
+            Add a new member to your team. Closers require a Calendly link;
+            lead generators do not receive CRM pipeline access.
           </DialogDescription>
         </DialogHeader>
 
@@ -253,8 +255,13 @@ export function InviteUserDialog({ onSuccess }: InviteUserDialogProps) {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="closer">Closer</SelectItem>
-                        <SelectItem value="tenant_admin">Admin</SelectItem>
+                        <SelectGroup>
+                          <SelectItem value="closer">Closer</SelectItem>
+                          <SelectItem value="lead_generator">
+                            Lead Generator
+                          </SelectItem>
+                          <SelectItem value="tenant_admin">Admin</SelectItem>
+                        </SelectGroup>
                       </SelectContent>
                     </Select>
                     <FormMessage />
@@ -284,11 +291,13 @@ export function InviteUserDialog({ onSuccess }: InviteUserDialogProps) {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {unmatchedMembers?.map((member) => (
-                            <SelectItem key={member._id} value={member._id}>
-                              {member.name ?? member.email} ({member.email})
-                            </SelectItem>
-                          ))}
+                          <SelectGroup>
+                            {unmatchedMembers?.map((member) => (
+                              <SelectItem key={member._id} value={member._id}>
+                                {member.name ?? member.email} ({member.email})
+                              </SelectItem>
+                            ))}
+                          </SelectGroup>
                         </SelectContent>
                       </Select>
                       <FormDescription>

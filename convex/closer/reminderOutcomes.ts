@@ -85,11 +85,13 @@ async function loadPendingReminderForPayment(
   userId: Id<"users">;
   role: "closer" | "tenant_master" | "tenant_admin";
 }> {
-  const { userId, tenantId, role } = await requireTenantUser(ctx, [
+  type ReminderPaymentRole = "closer" | "tenant_master" | "tenant_admin";
+  const { userId, tenantId, role: authorizedRole } = await requireTenantUser(ctx, [
     "closer",
     "tenant_master",
     "tenant_admin",
   ]);
+  const role = authorizedRole as ReminderPaymentRole;
 
   const followUp = await ctx.db.get(followUpId);
   if (!followUp) {

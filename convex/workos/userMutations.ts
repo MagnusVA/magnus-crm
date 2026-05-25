@@ -1,6 +1,10 @@
 import { ConvexError, v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalMutation, mutation } from "../_generated/server";
+import {
+  internalMutation,
+  mutation,
+  type MutationCtx,
+} from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
 import {
   canonicalizeWorkosUserId,
@@ -10,6 +14,37 @@ import {
 import { getIdentityOrgId } from "../lib/identity";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
+
+const crmRoleValidator = v.union(
+  v.literal("tenant_master"),
+  v.literal("tenant_admin"),
+  v.literal("closer"),
+  v.literal("lead_generator"),
+);
+
+async function unlinkCalendlyMemberForUser(
+  ctx: MutationCtx,
+  user: Pick<Doc<"users">, "_id" | "tenantId" | "calendlyUserUri">,
+) {
+  if (!user.calendlyUserUri) return;
+
+  const member = await ctx.db
+    .query("calendlyOrgMembers")
+    .withIndex("by_tenantId_and_calendlyUserUri", (q) =>
+      q.eq("tenantId", user.tenantId).eq("calendlyUserUri", user.calendlyUserUri!),
+    )
+    .unique();
+
+  if (member?.matchedUserId === user._id) {
+    await ctx.db.patch(member._id, { matchedUserId: undefined });
+  }
+}
+
+async function syncLeadGenWorkerProfile(ctx: MutationCtx, userId: Doc<"users">["_id"]) {
+  await ctx.runMutation(internal.leadGen.workers.syncWorkerProfileForUser, {
+    userId,
+  });
+}
 
 /**
  * Create a fully-provisioned CRM user record and link a Calendly org member.
@@ -30,11 +65,7 @@ export const createUserWithCalendlyLink = internalMutation({
     workosUserId: v.string(),
     email: v.string(),
     fullName: v.optional(v.string()),
-    role: v.union(
-      v.literal("tenant_master"),
-      v.literal("tenant_admin"),
-      v.literal("closer"),
-    ),
+    role: crmRoleValidator,
     calendlyUserUri: v.optional(v.string()),
     calendlyMemberId: v.optional(v.id("calendlyOrgMembers")),
   },
@@ -50,6 +81,10 @@ export const createUserWithCalendlyLink = internalMutation({
     const resolvedCalendlyUserUri =
       calendlyUserUri ?? calendlyMember?.calendlyUserUri;
     const resolvedCalendlyMemberName = calendlyMember?.name;
+    const shouldClearCalendly = role !== "closer";
+    if (calendlyMemberId && shouldClearCalendly) {
+      throw new Error("Only closers can be linked to Calendly members");
+    }
     const canonicalWorkosUserId = canonicalizeWorkosUserId(workosUserId);
     const legacyRawWorkosUserId = getRawWorkosUserId(workosUserId);
 
@@ -69,15 +104,25 @@ export const createUserWithCalendlyLink = internalMutation({
       const wasInactive = existing.isActive === false;
       const roleChanged = existing.role !== role;
       console.log("[WorkOS:Users] createUserWithCalendlyLink updating existing user", { userId: existing._id });
+      if (shouldClearCalendly) {
+        await unlinkCalendlyMemberForUser(ctx, existing);
+      }
       await ctx.db.patch(existing._id, {
         tenantId,
         workosUserId: canonicalWorkosUserId,
         email,
         fullName: fullName ?? existing.fullName,
         role,
-        calendlyUserUri: resolvedCalendlyUserUri ?? existing.calendlyUserUri,
+        calendlyUserUri: shouldClearCalendly
+          ? undefined
+          : (resolvedCalendlyUserUri ?? existing.calendlyUserUri),
         calendlyMemberName:
-          resolvedCalendlyMemberName ?? existing.calendlyMemberName,
+          shouldClearCalendly
+            ? undefined
+            : (resolvedCalendlyMemberName ?? existing.calendlyMemberName),
+        personalEventTypeUri: shouldClearCalendly
+          ? undefined
+          : existing.personalEventTypeUri,
         deletedAt: undefined,
         isActive: true,
       });
@@ -114,6 +159,7 @@ export const createUserWithCalendlyLink = internalMutation({
         });
       }
 
+      await syncLeadGenWorkerProfile(ctx, existing._id);
       return existing._id;
     }
 
@@ -124,8 +170,10 @@ export const createUserWithCalendlyLink = internalMutation({
       email,
       fullName,
       role,
-      calendlyUserUri: resolvedCalendlyUserUri,
-      calendlyMemberName: resolvedCalendlyMemberName,
+      calendlyUserUri: shouldClearCalendly ? undefined : resolvedCalendlyUserUri,
+      calendlyMemberName: shouldClearCalendly
+        ? undefined
+        : resolvedCalendlyMemberName,
       isActive: true,
     });
     await updateTenantStats(ctx, tenantId, {
@@ -151,6 +199,7 @@ export const createUserWithCalendlyLink = internalMutation({
       });
     }
 
+    await syncLeadGenWorkerProfile(ctx, userId);
     return userId;
   },
 });
@@ -174,11 +223,7 @@ export const createInvitedUser = internalMutation({
     workosUserId: v.string(),
     email: v.string(),
     fullName: v.optional(v.string()),
-    role: v.union(
-      v.literal("tenant_master"),
-      v.literal("tenant_admin"),
-      v.literal("closer"),
-    ),
+    role: crmRoleValidator,
     calendlyUserUri: v.optional(v.string()),
     calendlyMemberId: v.optional(v.id("calendlyOrgMembers")),
     invitationStatus: v.union(v.literal("pending"), v.literal("accepted")),
@@ -202,6 +247,10 @@ export const createInvitedUser = internalMutation({
     const resolvedCalendlyUserUri =
       calendlyUserUri ?? calendlyMember?.calendlyUserUri;
     const resolvedCalendlyMemberName = calendlyMember?.name;
+    const shouldClearCalendly = role !== "closer";
+    if (calendlyMemberId && shouldClearCalendly) {
+      throw new Error("Only closers can be linked to Calendly members");
+    }
 
     // Idempotency: check by email + tenant (not workosUserId, since it's a placeholder)
     const existing = await ctx.db
@@ -215,13 +264,23 @@ export const createInvitedUser = internalMutation({
       const wasInactive = existing.isActive === false;
       const roleChanged = existing.role !== role;
       console.log("[WorkOS:Users] createInvitedUser updating existing user", { userId: existing._id });
+      if (shouldClearCalendly) {
+        await unlinkCalendlyMemberForUser(ctx, existing);
+      }
       await ctx.db.patch(existing._id, {
         workosUserId,
         fullName: fullName ?? existing.fullName,
         role,
-        calendlyUserUri: resolvedCalendlyUserUri ?? existing.calendlyUserUri,
+        calendlyUserUri: shouldClearCalendly
+          ? undefined
+          : (resolvedCalendlyUserUri ?? existing.calendlyUserUri),
         calendlyMemberName:
-          resolvedCalendlyMemberName ?? existing.calendlyMemberName,
+          shouldClearCalendly
+            ? undefined
+            : (resolvedCalendlyMemberName ?? existing.calendlyMemberName),
+        personalEventTypeUri: shouldClearCalendly
+          ? undefined
+          : existing.personalEventTypeUri,
         invitationStatus,
         workosInvitationId,
         deletedAt: undefined,
@@ -257,6 +316,7 @@ export const createInvitedUser = internalMutation({
         await ctx.db.patch(calendlyMemberId, { matchedUserId: existing._id });
       }
 
+      await syncLeadGenWorkerProfile(ctx, existing._id);
       return existing._id;
     }
 
@@ -267,8 +327,10 @@ export const createInvitedUser = internalMutation({
       email,
       fullName,
       role,
-      calendlyUserUri: resolvedCalendlyUserUri,
-      calendlyMemberName: resolvedCalendlyMemberName,
+      calendlyUserUri: shouldClearCalendly ? undefined : resolvedCalendlyUserUri,
+      calendlyMemberName: shouldClearCalendly
+        ? undefined
+        : resolvedCalendlyMemberName,
       invitationStatus,
       workosInvitationId,
       isActive: true,
@@ -294,6 +356,7 @@ export const createInvitedUser = internalMutation({
       await ctx.db.patch(calendlyMemberId, { matchedUserId: userId });
     }
 
+    await syncLeadGenWorkerProfile(ctx, userId);
     return userId;
   },
 });
@@ -347,6 +410,7 @@ export const claimInvitedAccountByEmail = internalMutation({
         invitationStatus: pendingUser.invitationStatus,
       });
       if (pendingUser.workosUserId === workosUserId) {
+        await syncLeadGenWorkerProfile(ctx, pendingUser._id);
         return pendingUser;
       }
       return null;
@@ -367,6 +431,8 @@ export const claimInvitedAccountByEmail = internalMutation({
       isActive: true,
       deletedAt: undefined,
     });
+
+    await syncLeadGenWorkerProfile(ctx, pendingUser._id);
 
     const claimed = await ctx.db.get(pendingUser._id);
     console.log("[WorkOS:Users] claimInvitedAccountByEmail: claim complete", {
@@ -479,11 +545,7 @@ export const normalizeStoredWorkosUserIds = internalMutation({
 export const updateRole = internalMutation({
   args: {
     userId: v.id("users"),
-    role: v.union(
-      v.literal("tenant_master"),
-      v.literal("tenant_admin"),
-      v.literal("closer"),
-    ),
+    role: crmRoleValidator,
   },
   handler: async (ctx, { userId, role }) => {
     console.log("[WorkOS:Users] updateRole called", { userId, role });
@@ -491,7 +553,17 @@ export const updateRole = internalMutation({
     if (!existing) {
       throw new Error("User not found");
     }
-    await ctx.db.patch(userId, { role });
+    if (role !== "closer") {
+      await unlinkCalendlyMemberForUser(ctx, existing);
+    }
+    await ctx.db.patch(userId, {
+      role,
+      calendlyUserUri: role !== "closer" ? undefined : existing.calendlyUserUri,
+      calendlyMemberName:
+        role !== "closer" ? undefined : existing.calendlyMemberName,
+      personalEventTypeUri:
+        role !== "closer" ? undefined : existing.personalEventTypeUri,
+    });
     if (existing.role !== role) {
       await updateTenantStats(ctx, existing.tenantId, {
         totalClosers:
@@ -507,6 +579,7 @@ export const updateRole = internalMutation({
         toStatus: role,
       });
     }
+    await syncLeadGenWorkerProfile(ctx, userId);
     console.log("[WorkOS:Users] updateRole completed", { userId, role });
   },
 });
@@ -518,11 +591,7 @@ export const updateRole = internalMutation({
 export const updateRoleAndInvitation = internalMutation({
   args: {
     userId: v.id("users"),
-    role: v.union(
-      v.literal("tenant_master"),
-      v.literal("tenant_admin"),
-      v.literal("closer"),
-    ),
+    role: crmRoleValidator,
     workosInvitationId: v.string(),
   },
   handler: async (ctx, { userId, role, workosInvitationId }) => {
@@ -531,7 +600,18 @@ export const updateRoleAndInvitation = internalMutation({
     if (!existing) {
       throw new Error("User not found");
     }
-    await ctx.db.patch(userId, { role, workosInvitationId });
+    if (role !== "closer") {
+      await unlinkCalendlyMemberForUser(ctx, existing);
+    }
+    await ctx.db.patch(userId, {
+      role,
+      workosInvitationId,
+      calendlyUserUri: role !== "closer" ? undefined : existing.calendlyUserUri,
+      calendlyMemberName:
+        role !== "closer" ? undefined : existing.calendlyMemberName,
+      personalEventTypeUri:
+        role !== "closer" ? undefined : existing.personalEventTypeUri,
+    });
     if (existing.role !== role) {
       await updateTenantStats(ctx, existing.tenantId, {
         totalClosers:
@@ -547,6 +627,7 @@ export const updateRoleAndInvitation = internalMutation({
         toStatus: role,
       });
     }
+    await syncLeadGenWorkerProfile(ctx, userId);
     console.log("[WorkOS:Users] updateRoleAndInvitation completed", { userId, role });
   },
 });
@@ -627,6 +708,7 @@ export const removeUser = internalMutation({
       toStatus: "inactive",
       occurredAt: now,
     });
+    await syncLeadGenWorkerProfile(ctx, userId);
     console.log("[WorkOS:Users] removeUser soft deleted", { userId });
   },
 });

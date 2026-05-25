@@ -34,10 +34,13 @@ import {
 } from "@/components/ui/sidebar";
 import { Separator } from "@/components/ui/separator";
 import {
+  ActivityIcon,
+  ClipboardListIcon,
   KanbanIcon,
   LayoutDashboardIcon,
   LogOutIcon,
   SettingsIcon,
+  TargetIcon,
   type LucideIcon,
   UserCircleIcon,
   UsersIcon,
@@ -74,6 +77,7 @@ type NavItem = {
 
 const adminNavItems: NavItem[] = [
   { href: "/workspace", label: "Overview", icon: LayoutDashboardIcon, exact: true },
+  { href: "/workspace/lead-gen", label: "Lead Gen", icon: ClipboardListIcon },
   { href: "/workspace/team", label: "Team", icon: UsersIcon },
   { href: "/workspace/pipeline", label: "Pipeline", icon: KanbanIcon },
   { href: "/workspace/settings", label: "Settings", icon: SettingsIcon },
@@ -83,6 +87,23 @@ const closerNavItems: NavItem[] = [
   { href: "/workspace/closer", label: "Dashboard", icon: LayoutDashboardIcon, exact: true },
   { href: "/workspace/closer/pipeline", label: "My Pipeline", icon: KanbanIcon },
 ];
+
+const leadGeneratorNavItems: NavItem[] = [
+  { href: "/workspace/lead-gen/capture", label: "Capture", icon: TargetIcon, exact: true },
+  { href: "/workspace/lead-gen/my-activity", label: "My Activity", icon: ActivityIcon },
+];
+
+function navForRole(role: CrmRole, isAdmin: boolean) {
+  if (isAdmin) return adminNavItems;
+  if (role === "lead_generator") return leadGeneratorNavItems;
+  return closerNavItems;
+}
+
+function homeHrefForRole(role: CrmRole, isAdmin: boolean) {
+  if (isAdmin) return "/workspace";
+  if (role === "lead_generator") return "/workspace/lead-gen/capture";
+  return "/workspace/closer";
+}
 
 // ---------------------------------------------------------------------------
 // WorkspaceShell
@@ -152,7 +173,8 @@ function WorkspaceShellInner({
   const router = useRouter();
   const displayName = initialDisplayName || initialEmail;
 
-  const navItems = isAdmin ? adminNavItems : closerNavItems;
+  const navItems = navForRole(role, isAdmin);
+  const homeHref = homeHrefForRole(role, isAdmin);
 
   // Identify user in PostHog with full context
   usePostHogIdentify({
@@ -217,7 +239,7 @@ function WorkspaceShellInner({
       <Sidebar>
         <SidebarHeader>
           <Link
-            href={isAdmin ? "/workspace" : "/workspace/closer"}
+            href={homeHref}
             aria-label="MAGNUS CRM workspace home"
             className="flex min-h-10 items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sidebar-ring group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-1"
           >

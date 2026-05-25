@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Add Lead</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+<style>
+:root{--bg:#f5f5f3;--bg2:#fff;--bg3:#f0f0ec;--border:#e0e0da;--border2:#ddd;--text:#1a1a1a;--text2:#666;--text3:#888;--text4:#aaa;}
+body.dark{--bg:#141414;--bg2:#1e1e1e;--bg3:#252525;--border:#2a2a2a;--border2:#3a3a3a;--text:#f0f0f0;--text2:#aaa;--text3:#777;--text4:#555;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem;transition:background 0.3s,color 0.3s;}
+.wrap{width:100%;max-width:460px;}
+.top-fixed{position:fixed;top:1rem;right:1rem;display:flex;gap:8px;z-index:100;}
+.top-btn{background:var(--bg2);border:1px solid var(--border);color:var(--text3);padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all 0.2s;}
+.top-btn:hover{border-color:#185FA5;color:#185FA5;}
+.login-screen{text-align:center;}
+.login-logo{width:64px;height:64px;background:linear-gradient(135deg,#185FA5,#534AB7);border-radius:18px;display:flex;align-items:center;justify-content:center;margin:0 auto 1.25rem;}
+.login-title{font-size:22px;font-weight:500;margin-bottom:6px;color:var(--text);}
+.login-sub{font-size:14px;color:var(--text3);margin-bottom:1.75rem;}
+.names-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;}
+.name-btn{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:1rem;text-align:center;cursor:pointer;transition:border-color 0.15s;}
+.name-btn:hover{border-color:#185FA5;background:#E6F1FB;}
+.name-btn .avatar{width:42px;height:42px;border-radius:50%;background:var(--bg3);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:500;color:#185FA5;margin:0 auto 8px;}
+.name-btn:hover .avatar{background:#B5D4F4;color:#0C447C;}
+.name-btn .name{font-size:13px;font-weight:500;color:var(--text);}
+.name-btn .team-tag{font-size:10px;color:var(--text4);margin-top:3px;display:flex;align-items:center;justify-content:center;gap:3px;}
+.form-screen{display:none;}
+.form-header{background:linear-gradient(135deg,#185FA5,#534AB7);border-radius:16px;padding:1.25rem 1.5rem;color:white;margin-bottom:1.25rem;display:flex;align-items:center;justify-content:space-between;}
+.form-header .title{font-size:16px;font-weight:500;display:flex;align-items:center;gap:6px;}
+.form-header .user-pill{display:flex;align-items:center;gap:8px;}
+.form-header .av{width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,0.25);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;}
+.form-header .uname{font-size:13px;opacity:0.9;}
+.logout-btn{background:rgba(255,255,255,0.2);border:none;color:white;padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;}
+.logout-btn:hover{background:rgba(255,255,255,0.3);}
+.source-toggle{display:flex;gap:0;background:var(--bg3);border-radius:10px;padding:4px;margin-bottom:1.25rem;}
+.src-btn{flex:1;padding:9px;border:none;background:transparent;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;color:var(--text3);transition:all 0.2s;}
+.src-btn.active{background:var(--bg2);color:var(--text);box-shadow:0 1px 4px rgba(0,0,0,0.1);}
+.src-btn.ig.active{color:#185FA5;}
+.src-btn.meta.active{color:#1877F2;}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:1.5rem;}
+.field{margin-bottom:1.1rem;}
+.field label{font-size:13px;color:var(--text2);display:flex;align-items:center;gap:5px;margin-bottom:6px;}
+.field input[type=text]{width:100%;padding:10px 12px;border:1px solid var(--border2);border-radius:9px;font-size:14px;outline:none;background:var(--bg2);color:var(--text);transition:border-color 0.15s;}
+.field input[type=text]:focus{border-color:#185FA5;box-shadow:0 0 0 3px #185FA520;}
+.readonly-field{background:var(--bg3);border:1px solid var(--border);border-radius:9px;padding:10px 12px;font-size:14px;color:var(--text);min-height:40px;display:flex;align-items:center;}
+.auto-tag{font-size:11px;color:#1D9E75;margin-left:auto;}
+.btn-ig{background:linear-gradient(135deg,#185FA5,#534AB7);color:white;border:none;padding:12px 20px;border-radius:10px;font-size:15px;font-weight:500;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:8px;transition:opacity 0.15s;}
+.btn-meta{background:linear-gradient(135deg,#1877F2,#0d5db5);color:white;border:none;padding:12px 20px;border-radius:10px;font-size:15px;font-weight:500;cursor:pointer;width:100%;display:flex;align-items:center;justify-content:center;gap:8px;transition:opacity 0.15s;}
+.btn-ig:hover,.btn-meta:hover{opacity:0.92;}
+.success{background:#EAF3DE;color:#3B6D11;border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+.error-msg{background:#FCEBEB;color:#A32D2D;border-radius:10px;padding:10px 14px;font-size:13px;margin-bottom:10px;display:flex;align-items:center;gap:8px;}
+.meta-note{font-size:12px;color:var(--text4);background:var(--bg3);border-radius:8px;padding:8px 12px;margin-bottom:1rem;display:flex;align-items:center;gap:6px;}
+.counter{text-align:center;margin-top:1rem;font-size:13px;color:var(--text4);}
+.counter span{font-weight:500;color:#185FA5;}
+.admin-overlay{display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.6);z-index:500;align-items:center;justify-content:center;}
+.admin-overlay.open{display:flex;}
+.admin-modal{background:var(--bg2);border:1px solid var(--border);border-radius:16px;padding:1.5rem;width:100%;max-width:400px;max-height:90vh;overflow-y:auto;position:relative;}
+.admin-modal h2{font-size:16px;font-weight:500;color:var(--text);margin-bottom:4px;}
+.admin-modal p{font-size:13px;color:var(--text3);margin-bottom:1.25rem;}
+.pin-inputs{display:flex;gap:10px;justify-content:center;margin-bottom:1.25rem;}
+.pin-input{width:54px;height:60px;text-align:center;font-size:24px;font-weight:500;border:2px solid var(--border);border-radius:10px;background:var(--bg3);color:var(--text);outline:none;}
+.pin-input:focus{border-color:#185FA5;}
+.pin-error{color:#A32D2D;font-size:13px;text-align:center;margin-bottom:10px;min-height:18px;}
+.admin-btn-row{display:flex;gap:8px;}
+.admin-cancel{flex:1;background:transparent;border:1px solid var(--border2);color:var(--text3);padding:9px;border-radius:8px;font-size:13px;cursor:pointer;}
+.admin-confirm{flex:1;background:#185FA5;color:white;border:none;padding:9px;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500;}
+.admin-confirm:hover{background:#0C447C;}
+.admin-panel{display:none;}
+.admin-panel.open{display:block;}
+.user-manage-row{padding:10px 0;border-bottom:1px solid var(--border);}
+.user-manage-row:last-child{border-bottom:none;}
+.user-row-top{display:flex;align-items:center;justify-content:space-between;}
+.user-row-team{display:flex;align-items:center;gap:6px;margin-top:6px;padding-left:42px;}
+.user-row-team input{flex:1;padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px;background:var(--bg3);color:var(--text);outline:none;}
+.user-row-team input:focus{border-color:#185FA5;}
+.user-manage-name{font-size:14px;font-weight:500;color:var(--text);}
+.del-user-btn{background:transparent;border:none;color:var(--text4);cursor:pointer;padding:2px 6px;border-radius:6px;}
+.del-user-btn:hover{color:#A32D2D;background:#FCEBEB;}
+.add-user-row{display:flex;gap:8px;margin-top:10px;}
+.add-user-input{flex:1;padding:8px 10px;border:1px solid var(--border2);border-radius:8px;font-size:14px;background:var(--bg2);color:var(--text);outline:none;}
+.add-user-input:focus{border-color:#185FA5;}
+.add-user-btn{background:#185FA5;color:white;border:none;padding:8px 14px;border-radius:8px;font-size:13px;cursor:pointer;font-weight:500;}
+.add-user-btn:hover{background:#0C447C;}
+.admin-gear{position:fixed;bottom:1rem;right:1rem;background:var(--bg2);border:1px solid var(--border);color:var(--text3);width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;z-index:100;}
+.admin-gear:hover{border-color:#185FA5;color:#185FA5;}
+</style>
+</head>
+<body>
+
+<div class="top-fixed">
+  <button class="top-btn" onclick="toggleLang()"><i class="ti ti-language" style="font-size:13px;"></i> <span id="lang-lbl">ES</span></button>
+  <button class="top-btn" id="theme-btn" onclick="toggleTheme()"><i class="ti ti-moon" id="theme-icon" style="font-size:13px;"></i> <span id="theme-lbl">Dark mode</span></button>
+</div>
+
+<div class="wrap">
+
+  <!-- LOGIN -->
+  <div id="login-screen" class="login-screen">
+    <div class="login-logo"><i class="ti ti-brand-instagram" style="font-size:28px;color:white;"></i></div>
+    <div class="login-title" id="lbl-who">Who are you?</div>
+    <div class="login-sub" id="lbl-choose">Choose your name to add leads</div>
+    <div class="names-grid" id="names-grid"></div>
+  </div>
+
+  <!-- FORM -->
+  <div id="form-screen" class="form-screen">
+    <div class="form-header">
+      <div class="title"><i class="ti ti-brand-instagram"></i><span id="lbl-form-title">Add lead</span></div>
+      <div class="user-pill">
+        <div class="av" id="av-initials"></div>
+        <div class="uname" id="av-name"></div>
+        <button class="logout-btn" id="lbl-change-btn" onclick="logout()">Change</button>
+      </div>
+    </div>
+
+    <div class="source-toggle">
+      <button class="src-btn ig active" id="btn-ig" onclick="setSource('instagram')">
+        <i class="ti ti-brand-instagram" style="font-size:16px;"></i> Instagram
+      </button>
+      <button class="src-btn meta" id="btn-meta" onclick="setSource('meta')">
+        <i class="ti ti-brand-facebook" style="font-size:16px;"></i> Meta Business
+      </button>
+    </div>
+
+    <div class="card">
+      <div id="msg"></div>
+
+      <div class="meta-note" id="meta-note" style="display:none;">
+        <i class="ti ti-info-circle" style="font-size:14px;color:#1877F2;"></i>
+        <span id="lbl-meta-note">Enter username only. Instagram link is generated automatically.</span>
+      </div>
+
+      <div class="field" id="field-username-meta" style="display:none;">
+        <label><i class="ti ti-at" style="font-size:13px;"></i><span id="lbl-ig-username">Instagram username</span></label>
+        <input type="text" id="f-username" placeholder="@username" />
+      </div>
+
+      <div id="ig-fields">
+        <div class="field">
+          <label><i class="ti ti-link" style="font-size:13px;"></i><span id="lbl-profile">Instagram profile link</span></label>
+          <input type="text" id="f-profile" placeholder="https://instagram.com/username" oninput="extractUsername(this.value)" />
+        </div>
+        <div class="field">
+          <label><i class="ti ti-at" style="font-size:13px;"></i><span id="lbl-username">Username</span> <span class="auto-tag" id="auto-user-tag"></span></label>
+          <div class="readonly-field" id="f-user-display" style="color:var(--text4);">—</div>
+        </div>
+        <div class="field">
+          <label><i class="ti ti-player-play" style="font-size:13px;"></i><span id="lbl-post">Post or reel link</span></label>
+          <input type="text" id="f-post" placeholder="https://instagram.com/p/... or Follower / Application / Story Poll" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label><i class="ti ti-calendar" style="font-size:13px;"></i><span id="lbl-date">Date</span> <span class="auto-tag" id="lbl-auto">automatic</span></label>
+        <div class="readonly-field" id="f-date-display"></div>
+      </div>
+
+      <button class="btn-ig" id="submit-btn" onclick="addLead()">
+        <i class="ti ti-plus" style="font-size:16px;"></i><span id="submit-label">Add lead</span>
+      </button>
+    </div>
+    <div class="counter">
+      <span id="lbl-you-have">You have</span> <span id="my-count">0</span> <span id="lbl-leads-today">leads added today</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ADMIN GEAR -->
+<button class="admin-gear" onclick="openAdmin()" title="Admin"><i class="ti ti-settings" style="font-size:16px;"></i></button>
+
+<!-- ADMIN OVERLAY -->
+<div class="admin-overlay" id="admin-overlay">
+  <div class="admin-modal">
+
+    <!-- PIN -->
+    <div id="pin-screen">
+      <h2><i class="ti ti-lock" style="margin-right:6px;font-size:15px;vertical-align:-2px;"></i><span id="lbl-admin-title">Admin access</span></h2>
+      <p id="lbl-admin-sub">Enter PIN to manage users</p>
+      <div class="pin-inputs">
+        <input class="pin-input" id="pin1" type="password" maxlength="1" oninput="pinNext(this,'pin2')" onkeydown="pinBack(event,this,'')">
+        <input class="pin-input" id="pin2" type="password" maxlength="1" oninput="pinNext(this,'pin3')" onkeydown="pinBack(event,this,'pin1')">
+        <input class="pin-input" id="pin3" type="password" maxlength="1" oninput="pinNext(this,'pin4')" onkeydown="pinBack(event,this,'pin2')">
+        <input class="pin-input" id="pin4" type="password" maxlength="1" oninput="pinNext(this,null)" onkeydown="pinBack(event,this,'pin3')">
+      </div>
+      <div class="pin-error" id="pin-error"></div>
+      <div class="admin-btn-row">
+        <button class="admin-cancel" id="lbl-cancel-btn" onclick="closeAdmin()">Cancel</button>
+        <button class="admin-confirm" id="lbl-enter-btn" onclick="checkPin()">Enter</button>
+      </div>
+    </div>
+
+    <!-- PANEL -->
+    <div id="admin-panel" class="admin-panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">
+        <h2><i class="ti ti-users" style="margin-right:6px;font-size:15px;vertical-align:-2px;"></i><span id="lbl-manage-users">Manage users</span></h2>
+        <button onclick="closeAdmin()" style="background:transparent;border:none;color:var(--text3);cursor:pointer;font-size:20px;line-height:1;">×</button>
+      </div>
+      <div id="user-manage-list"></div>
+      <div class="add-user-row">
+        <input class="add-user-input" id="new-user-input" placeholder="New name...">
+        <button class="add-user-btn" onclick="addUser()"><i class="ti ti-plus" style="font-size:13px;"></i> <span id="lbl-add-btn">Add</span></button>
+      </div>
+      <div id="admin-msg" style="font-size:12px;color:var(--text3);margin-top:8px;min-height:16px;"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+var TF = {
+  en:{
+    who:'Who are you?',choose:'Choose your name to add leads',
+    formTitle:'Add lead',change:'Change',darkMode:'Dark mode',lightMode:'Light mode',
+    metaNote:'Enter username only. Instagram link is generated automatically.',
+    igUsername:'Instagram username',profileLink:'Instagram profile link',
+    username:'Username',detected:'\u2713 detected',postLink:'Post or reel link',
+    date:'Date',automatic:'automatic',addLeadBtn:'Add lead',addMetaBtn:'Add Meta lead',
+    youHave:'You have',leadsToday:'leads added today',
+    enterProfile:'Enter the profile link',noUsername:'Could not detect username from link',
+    enterUsername:'Enter the username',leadAdded:'Lead added',addedFrom:'added from',
+    adminTitle:'Admin access',adminSub:'Enter PIN to manage users',
+    wrongPIN:'Wrong PIN',cancel:'Cancel',enter:'Enter',
+    manageUsers:'Manage users',newName:'New name...',add:'Add',
+    mustHaveOne:'Must have at least one user.',alreadyExists:'That name already exists.',
+    removed:'removed.',added:'added.',
+    teamPlaceholder:'Team (optional)',noTeam:'No team',
+    scheduleLabel:'Hours/day schedule',
+    days:['Mon','Tue','Wed','Thu','Fri','Sat','Sun'],
+  },
+  es:{
+    who:'\u00bfQui\u00e9n sos?',choose:'Eleg\u00ed tu nombre para agregar leads',
+    formTitle:'Agregar lead',change:'Cambiar',darkMode:'Modo oscuro',lightMode:'Modo claro',
+    metaNote:'Solo ingres\u00e1 el username. El link de Instagram se genera autom\u00e1ticamente.',
+    igUsername:'Username de Instagram',profileLink:'Link del perfil de Instagram',
+    username:'Username',detected:'\u2713 detectado',postLink:'Link del post o reel',
+    date:'Fecha',automatic:'autom\u00e1tica',addLeadBtn:'Agregar lead',addMetaBtn:'Agregar lead de Meta',
+    youHave:'Llevas',leadsToday:'leads agregados hoy',
+    enterProfile:'Ingres\u00e1 el link del perfil',noUsername:'No se pudo detectar el username del link',
+    enterUsername:'Ingres\u00e1 el username',leadAdded:'Lead agregado',addedFrom:'agregado desde',
+    adminTitle:'Acceso de administrador',adminSub:'Ingres\u00e1 el PIN para gestionar usuarios',
+    wrongPIN:'PIN incorrecto',cancel:'Cancelar',enter:'Entrar',
+    manageUsers:'Gestionar usuarios',newName:'Nuevo nombre...',add:'Agregar',
+    mustHaveOne:'Debe haber al menos un usuario.',alreadyExists:'Ese nombre ya existe.',
+    removed:'eliminado.',added:'agregado.',
+    teamPlaceholder:'Equipo (opcional)',noTeam:'Sin equipo',
+    scheduleLabel:'Horas/día programadas',
+    days:['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'],
+  }
+};
+var FLANG = localStorage.getItem('ig_lang')||'en';
+function tf(k){ return (TF[FLANG]||TF.en)[k]||k; }
+
+var COLOR_POOL=[
+  {color:'#185FA5',bg:'#E6F1FB'},{color:'#0F6E56',bg:'#E1F5EE'},{color:'#993C1D',bg:'#FAECE7'},
+  {color:'#534AB7',bg:'#EEEDFE'},{color:'#854F0B',bg:'#FAEEDA'},{color:'#A32D2D',bg:'#FCEBEB'},
+  {color:'#3B6D11',bg:'#EAF3DE'},{color:'#0C6B8E',bg:'#E0F4FB'},{color:'#7B3FA0',bg:'#F3E8FA'},
+  {color:'#B05A00',bg:'#FEF0E0'},{color:'#1A6B4A',bg:'#E2F5EC'},{color:'#5C3A8A',bg:'#EDE3FA'},
+];
+function gc(i){return COLOR_POOL[i%COLOR_POOL.length].color;}
+function gb(i){return COLOR_POOL[i%COLOR_POOL.length].bg;}
+
+function getUsers(){try{return JSON.parse(localStorage.getItem('ig_users')||'null')||['Abner','Ingrid','Selvin','Yefry','Sarah','Jose','Daniel'];}catch{return['Abner','Ingrid','Selvin','Yefry','Sarah','Jose','Daniel'];}}
+function saveUsers(u){localStorage.setItem('ig_users',JSON.stringify(u));}
+function getTeams(){try{return JSON.parse(localStorage.getItem('ig_teams')||'{}');}catch{return{};}}
+function getSchedules(){try{return JSON.parse(localStorage.getItem('ig_schedules')||'{}');}catch{return{};}}
+function saveSchedules(s){localStorage.setItem('ig_schedules',JSON.stringify(s));}
+function saveTeams(t){localStorage.setItem('ig_teams',JSON.stringify(t));}
+function getLeads(){try{return JSON.parse(localStorage.getItem('ig_leads')||'[]');}catch{return[];}}
+function saveLeads(l){localStorage.setItem('ig_leads',JSON.stringify(l));}
+
+var currentUser=null, currentUsername='', currentSource='instagram';
+
+function applyLang(){
+  document.getElementById('lang-lbl').textContent=FLANG==='en'?'ES':'EN';
+  var dark=document.body.classList.contains('dark');
+  document.getElementById('theme-lbl').textContent=dark?tf('lightMode'):tf('darkMode');
+  document.getElementById('lbl-who').textContent=tf('who');
+  document.getElementById('lbl-choose').textContent=tf('choose');
+  document.getElementById('lbl-form-title').textContent=tf('formTitle');
+  document.getElementById('lbl-change-btn').textContent=tf('change');
+  document.getElementById('lbl-meta-note').textContent=tf('metaNote');
+  document.getElementById('lbl-ig-username').textContent=tf('igUsername');
+  document.getElementById('lbl-profile').textContent=tf('profileLink');
+  document.getElementById('lbl-username').textContent=tf('username');
+  document.getElementById('lbl-post').textContent=tf('postLink');
+  document.getElementById('lbl-date').textContent=tf('date');
+  document.getElementById('lbl-auto').textContent=tf('automatic');
+  document.getElementById('submit-label').textContent=currentSource==='instagram'?tf('addLeadBtn'):tf('addMetaBtn');
+  document.getElementById('lbl-you-have').textContent=tf('youHave');
+  document.getElementById('lbl-leads-today').textContent=tf('leadsToday');
+  document.getElementById('lbl-admin-title').textContent=tf('adminTitle');
+  document.getElementById('lbl-admin-sub').textContent=tf('adminSub');
+  document.getElementById('lbl-cancel-btn').textContent=tf('cancel');
+  document.getElementById('lbl-enter-btn').textContent=tf('enter');
+  document.getElementById('lbl-manage-users').textContent=tf('manageUsers');
+  document.getElementById('new-user-input').placeholder=tf('newName');
+  document.getElementById('lbl-add-btn').textContent=tf('add');
+}
+
+function toggleLang(){
+  FLANG=FLANG==='en'?'es':'en';
+  localStorage.setItem('ig_lang',FLANG);
+  applyLang();
+  initLogin();
+}
+
+function toggleTheme(){
+  var dark=document.body.classList.toggle('dark');
+  localStorage.setItem('ig_theme',dark?'dark':'light');
+  document.getElementById('theme-icon').className='ti '+(dark?'ti-sun':'ti-moon');
+  document.getElementById('theme-lbl').textContent=dark?tf('lightMode'):tf('darkMode');
+}
+
+function setSource(src){
+  currentSource=src;
+  var isIG=src==='instagram';
+  document.getElementById('btn-ig').classList.toggle('active',isIG);
+  document.getElementById('btn-meta').classList.toggle('active',!isIG);
+  document.getElementById('ig-fields').style.display=isIG?'block':'none';
+  document.getElementById('field-username-meta').style.display=isIG?'none':'block';
+  document.getElementById('meta-note').style.display=isIG?'none':'flex';
+  document.getElementById('submit-btn').className=isIG?'btn-ig':'btn-meta';
+  document.getElementById('submit-label').textContent=isIG?tf('addLeadBtn'):tf('addMetaBtn');
+  document.getElementById('msg').innerHTML='';
+}
+
+function initLogin(){
+  var users=getUsers();
+  var teams=getTeams();
+  document.getElementById('names-grid').innerHTML=users.map(function(n,i){
+    var team=teams[n]||'';
+    var teamTag=team?'<div class="team-tag"><i class="ti ti-users" style="font-size:10px;"></i>'+team+'</div>':'';
+    return '<button class="name-btn" onclick="login(\''+n+'\')"><div class="avatar" style="background:'+gb(i)+';color:'+gc(i)+';">'+n.substring(0,2).toUpperCase()+'</div><div class="name">'+n+'</div>'+teamTag+'</button>';
+  }).join('');
+}
+
+function login(name){
+  currentUser=name;
+  localStorage.setItem('ig_current_user',name);
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('form-screen').style.display='block';
+  document.getElementById('av-initials').textContent=name.substring(0,2).toUpperCase();
+  document.getElementById('av-name').textContent=name;
+  document.getElementById('f-date-display').textContent=getTodayStr();
+  updateCounter();
+}
+
+function logout(){
+  currentUser=null;
+  localStorage.removeItem('ig_current_user');
+  document.getElementById('login-screen').style.display='block';
+  document.getElementById('form-screen').style.display='none';
+}
+
+function extractUsername(url){
+  url=url.trim();
+  if(!url){currentUsername='';document.getElementById('f-user-display').textContent='—';document.getElementById('f-user-display').style.color='var(--text4)';document.getElementById('auto-user-tag').textContent='';return;}
+  var username='';
+  var reserved=['p','reel','reels','stories','explore','tv','accounts','about'];
+  var m1=url.match(/instagram\.com\/([A-Za-z0-9._]+)\/?(\?|$|#)/);
+  if(m1&&m1[1]&&!reserved.includes(m1[1]))username='@'+m1[1];
+  if(!username){var m2=url.match(/instagram\.com\/([A-Za-z0-9._]+)/);if(m2&&m2[1]&&!reserved.includes(m2[1]))username='@'+m2[1];}
+  if(!username&&url.includes('.com/')){try{var a=url.split('.com/')[1];var pt=a.split('?')[0].split('/')[0].split('#')[0];if(pt&&!reserved.includes(pt))username='@'+pt;}catch(e){}}
+  currentUsername=username;
+  var d=document.getElementById('f-user-display'),tg=document.getElementById('auto-user-tag');
+  if(username){d.textContent=username;d.style.color='var(--text)';tg.textContent=tf('detected');}
+  else{d.textContent='—';d.style.color='var(--text4)';tg.textContent='';}
+}
+
+function getTodayStr(){return new Date().toLocaleDateString('en',{day:'2-digit',month:'2-digit',year:'numeric'});}
+
+function updateCounter(){
+  var today=getTodayStr();
+  var cnt=getLeads().filter(function(l){return l.addedBy===currentUser&&l.date===today;}).length;
+  document.getElementById('my-count').textContent=cnt;
+}
+
+function addLead(){
+  var msg=document.getElementById('msg');
+  var user='',profile='',post='';
+  if(currentSource==='instagram'){
+    profile=document.getElementById('f-profile').value.trim();
+    post=document.getElementById('f-post').value.trim();
+    if(!profile){msg.innerHTML='<div class="error-msg"><i class="ti ti-alert-circle"></i>'+tf('enterProfile')+'</div>';return;}
+    if(!currentUsername){msg.innerHTML='<div class="error-msg"><i class="ti ti-alert-circle"></i>'+tf('noUsername')+'</div>';return;}
+    user=currentUsername;
+  } else {
+    var raw=document.getElementById('f-username').value.trim();
+    if(!raw){msg.innerHTML='<div class="error-msg"><i class="ti ti-alert-circle"></i>'+tf('enterUsername')+'</div>';return;}
+    if(raw.startsWith('@'))raw=raw.slice(1);
+    user='@'+raw;
+    profile='https://instagram.com/'+raw;
+    post='';
+  }
+  var leads=getLeads();
+  leads.push({user:user,profile:profile,post:post,date:getTodayStr(),ts:Date.now(),addedBy:currentUser,source:currentSource});
+  saveLeads(leads);
+  var srcLabel=currentSource==='instagram'?'Instagram':'Meta Business';
+  msg.innerHTML='<div class="success"><i class="ti ti-circle-check" style="font-size:16px;"></i>'+tf('leadAdded')+' — <strong>'+user+'</strong> '+tf('addedFrom')+' <strong>'+srcLabel+'</strong></div>';
+  document.getElementById('f-profile').value='';
+  document.getElementById('f-post').value='';
+  document.getElementById('f-username').value='';
+  document.getElementById('f-user-display').textContent='—';
+  document.getElementById('f-user-display').style.color='var(--text4)';
+  document.getElementById('auto-user-tag').textContent='';
+  currentUsername='';
+  updateCounter();
+  setTimeout(function(){msg.innerHTML='';},3000);
+}
+
+// ── ADMIN ──
+function openAdmin(){
+  document.getElementById('admin-overlay').classList.add('open');
+  document.getElementById('pin-screen').style.display='block';
+  document.getElementById('admin-panel').classList.remove('open');
+  document.getElementById('pin-error').textContent='';
+  ['pin1','pin2','pin3','pin4'].forEach(function(id){document.getElementById(id).value='';});
+  setTimeout(function(){document.getElementById('pin1').focus();},100);
+}
+function closeAdmin(){document.getElementById('admin-overlay').classList.remove('open');}
+function pinNext(el,nextId){if(el.value&&nextId)document.getElementById(nextId).focus();}
+function pinBack(e,el,prevId){if(e.key==='Backspace'&&!el.value&&prevId)document.getElementById(prevId).focus();if(e.key==='Enter')checkPin();}
+function checkPin(){
+  var pin=['pin1','pin2','pin3','pin4'].map(function(id){return document.getElementById(id).value;}).join('');
+  if(pin==='1995'){
+    document.getElementById('pin-screen').style.display='none';
+    document.getElementById('admin-panel').classList.add('open');
+    renderUserList();
+  } else {
+    document.getElementById('pin-error').textContent=tf('wrongPIN');
+    ['pin1','pin2','pin3','pin4'].forEach(function(id){document.getElementById(id).value='';});
+    document.getElementById('pin1').focus();
+  }
+}
+
+function renderUserList(){
+  var users=getUsers();
+  var teams=getTeams();
+  var schedules=getSchedules();
+  var dayKeys=['mon','tue','wed','thu','fri','sat','sun'];
+  var dayLabels=TF[FLANG].days||['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  var html='';
+  for(var i=0;i<users.length;i++){
+    var u=users[i];
+    var team=teams[u]||'';
+    var sched=schedules[u]||{};
+    var dayInputs=dayKeys.map(function(d,di){
+      var val=sched[d]||'';
+      return '<div style="display:flex;flex-direction:column;align-items:center;gap:3px;">'
+        +'<div style="font-size:10px;color:var(--text4);font-weight:500;">'+dayLabels[di]+'</div>'
+        +'<input type="number" min="0" max="24" step="0.5" value="'+val+'" data-user="'+u+'" data-day="'+d+'" onchange="saveScheduleInput(this)" style="width:40px;padding:4px;text-align:center;border:1px solid var(--border2);border-radius:6px;font-size:12px;background:var(--bg3);color:var(--text);outline:none;">'
+        +'</div>';
+    }).join('');
+    html+='<div class="user-manage-row">'
+      +'<div class="user-row-top">'
+      +'<div style="display:flex;align-items:center;gap:10px;">'
+      +'<div style="width:32px;height:32px;border-radius:50%;background:'+gb(i)+';display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:500;color:'+gc(i)+';">'+u.substring(0,2).toUpperCase()+'</div>'
+      +'<div class="user-manage-name">'+u+'</div>'
+      +'</div>'
+      +'<button class="del-user-btn" onclick="deleteUser('+i+')"><i class="ti ti-x" style="font-size:14px;"></i></button>'
+      +'</div>'
+      +'<div class="user-row-team">'
+      +'<i class="ti ti-users" style="font-size:13px;color:var(--text4);flex-shrink:0;"></i>'
+      +'<input type="text" placeholder="'+tf('teamPlaceholder')+'" value="'+team+'" data-user="'+u+'" onchange="saveTeamInput(this)" style="flex:1;padding:5px 8px;border:1px solid var(--border2);border-radius:6px;font-size:12px;background:var(--bg3);color:var(--text);outline:none;">'
+      +'</div>'
+      +'<div style="margin-top:8px;padding-left:0;">'
+      +'<div style="font-size:11px;color:var(--text4);margin-bottom:6px;display:flex;align-items:center;gap:4px;"><i class="ti ti-clock" style="font-size:11px;"></i>'+tf('scheduleLabel')+'</div>'
+      +'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+dayInputs+'</div>'
+      +'</div>'
+      +'</div>';
+  }
+  document.getElementById('user-manage-list').innerHTML=html;
+}
+
+function saveScheduleInput(input){
+  var u=input.getAttribute('data-user');
+  var day=input.getAttribute('data-day');
+  var val=parseFloat(input.value)||0;
+  var schedules=getSchedules();
+  if(!schedules[u]) schedules[u]={};
+  if(val>0) schedules[u][day]=val;
+  else delete schedules[u][day];
+  saveSchedules(schedules);
+}
+
+function saveTeamInput(input){
+  var u=input.getAttribute('data-user');
+  var val=input.value.trim();
+  var teams=getTeams();
+  if(val) teams[u]=val; else delete teams[u];
+  saveTeams(teams);
+  initLogin();
+}
+
+function deleteUser(idx){
+  var users=getUsers();
+  if(users.length<=1){document.getElementById('admin-msg').textContent=tf('mustHaveOne');return;}
+  var name=users[idx];
+  users.splice(idx,1);
+  saveUsers(users);
+  renderUserList();
+  initLogin();
+  document.getElementById('admin-msg').textContent=name+' '+tf('removed');
+  setTimeout(function(){document.getElementById('admin-msg').textContent='';},2000);
+}
+
+function addUser(){
+  var input=document.getElementById('new-user-input');
+  var name=input.value.trim();
+  if(!name)return;
+  var users=getUsers();
+  if(users.some(function(u){return u.toLowerCase()===name.toLowerCase();})){
+    document.getElementById('admin-msg').textContent=tf('alreadyExists');return;
+  }
+  users.push(name);
+  saveUsers(users);
+  input.value='';
+  renderUserList();
+  initLogin();
+  document.getElementById('admin-msg').textContent=name+' '+tf('added');
+  setTimeout(function(){document.getElementById('admin-msg').textContent='';},2000);
+}
+
+// ── INIT ──
+(function(){
+  var theme=localStorage.getItem('ig_theme');
+  if(theme==='dark'){document.body.classList.add('dark');document.getElementById('theme-icon').className='ti ti-sun';}
+  applyLang();
+  initLogin();
+  var saved=localStorage.getItem('ig_current_user');
+  if(saved&&getUsers().includes(saved))login(saved);
+  document.getElementById('f-date-display').textContent=getTodayStr();
+})();
+</script>
+</body>
+</html>

@@ -1,41 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
-import { normalizeUtmValue, slugifyAttributionLabel } from "../lib/attribution/normalize";
-import { validateRequiredString } from "../lib/validation";
+import { normalizeAttributionTeamInput } from "../lib/attribution/teamInput";
 import { requireTenantUser } from "../requireTenantUser";
-
-const RESERVED_UTM_SOURCE = "ptdom";
-
-function normalizeTeamInput(args: { displayName: string; utmSource: string }) {
-  const displayName = args.displayName.trim();
-  const utmSource = args.utmSource.trim();
-  const displayNameValidation = validateRequiredString(displayName, {
-    fieldName: "Team name",
-    maxLength: 120,
-  });
-  if (!displayNameValidation.valid) {
-    throw new Error(displayNameValidation.error);
-  }
-  const utmSourceValidation = validateRequiredString(utmSource, {
-    fieldName: "UTM source",
-    maxLength: 256,
-  });
-  if (!utmSourceValidation.valid) {
-    throw new Error(utmSourceValidation.error);
-  }
-  const normalizedUtmSource = normalizeUtmValue(utmSource);
-  if (!normalizedUtmSource) {
-    throw new Error("UTM source is required.");
-  }
-  if (normalizedUtmSource === RESERVED_UTM_SOURCE) {
-    throw new Error("UTM source ptdom is reserved for internal CRM links.");
-  }
-  const slug = slugifyAttributionLabel(displayName || utmSource);
-  if (!slug) {
-    throw new Error("Team name must contain at least one letter or number.");
-  }
-  return { displayName, utmSource, normalizedUtmSource, slug };
-}
 
 export const listTeams = query({
   args: {},
@@ -62,7 +28,7 @@ export const createTeam = mutation({
       "tenant_master",
       "tenant_admin",
     ]);
-    const normalized = normalizeTeamInput(args);
+    const normalized = normalizeAttributionTeamInput(args);
     const now = Date.now();
 
     const existingActive = await ctx.db
@@ -105,7 +71,7 @@ export const updateTeam = mutation({
     if (!team || team.tenantId !== tenantId) {
       throw new Error("Attribution team not found.");
     }
-    const normalized = normalizeTeamInput(args);
+    const normalized = normalizeAttributionTeamInput(args);
 
     const existingActive = await ctx.db
       .query("attributionTeams")

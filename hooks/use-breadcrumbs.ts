@@ -18,6 +18,10 @@ const SEGMENT_LABELS: Record<string, string> = {
   pipeline: "Pipeline",
   team: "Team",
   settings: "Settings",
+  "lead-gen": "Lead Gen Ops",
+  capture: "Capture",
+  "my-activity": "My Activity",
+  prospects: "Prospects",
   meetings: "Meetings",
   admin: "Admin",
 };

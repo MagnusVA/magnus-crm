@@ -23,6 +23,7 @@ import {
 	writeMeetingFormResponses,
 } from "../lib/meetingFormResponses";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { preserveQualificationAuditMatchForScheduledMeeting } from "../leadGen/auditMatching";
 import { isRecord, getString } from "../lib/payloadExtraction";
 import {
 	normalizeEmail,
@@ -1572,6 +1573,12 @@ export const process = internalMutation({
 					nextAssignedCloserId,
 				);
 			}
+			await preserveQualificationAuditMatchForScheduledMeeting(ctx, {
+				tenantId,
+				leadId: lead._id,
+				opportunityId,
+				now,
+			});
 			slackJoinEventOpportunityId = opportunityId;
 			console.log(
 				`[Pipeline:invitee.created] Slack-qualified opportunity joined | opportunityId=${opportunityId} leadId=${lead._id} slackOppCreatedAt=${new Date(slackQualifiedOpportunity.createdAt).toISOString()} qualifiedBy=${slackQualifiedOpportunity.qualifiedBy?.slackUserId ?? "unknown"}`,
@@ -1634,6 +1641,8 @@ export const process = internalMutation({
 				},
 			);
 		} else {
+			// Lead Gen Ops intentionally does not search prospect history for
+			// cold Calendly bookings; only Slack qualification creates matches.
 			opportunityId = await ctx.db.insert("opportunities", {
 				tenantId,
 				leadId: lead._id,

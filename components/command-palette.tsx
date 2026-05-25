@@ -14,7 +14,9 @@ import {
 } from "@/components/ui/command";
 import { Kbd } from "@/components/ui/kbd";
 import {
+  ActivityIcon,
   ClipboardCheckIcon,
+  ClipboardListIcon,
   ContactIcon,
   LayoutDashboardIcon,
   UsersIcon,
@@ -32,6 +34,8 @@ const adminPages = [
   { label: "Operations", href: "/workspace/operations", icon: KanbanIcon, shortcut: "2" },
   { label: "Reviews", href: "/workspace/reviews", icon: ClipboardCheckIcon, shortcut: "3" },
   { label: "Leads", href: "/workspace/leads", icon: ContactIcon, shortcut: "4" },
+  { label: "Lead Gen Ops", href: "/workspace/lead-gen", icon: ClipboardListIcon },
+  { label: "Lead Gen Settings", href: "/workspace/lead-gen/settings", icon: SettingsIcon },
   { label: "Opportunities", href: "/workspace/opportunities", icon: TargetIcon },
   { label: "Team", href: "/workspace/team", icon: UsersIcon },
   { label: "Settings", href: "/workspace/settings", icon: SettingsIcon },
@@ -44,9 +48,14 @@ const closerPages = [
   { label: "Opportunities", href: "/workspace/opportunities", icon: TargetIcon },
 ];
 
+const leadGenPages = [
+  { label: "Capture", href: "/workspace/lead-gen/capture", icon: TargetIcon, shortcut: "1" },
+  { label: "My Activity", href: "/workspace/lead-gen/my-activity", icon: ActivityIcon, shortcut: "2" },
+];
+
 export function CommandPalette() {
   const router = useRouter();
-  const { isAdmin } = useRole();
+  const { isAdmin, role } = useRole();
   const [open, setOpen] = useState(false);
 
   // Global keyboard shortcut: Cmd+K or Ctrl+K
@@ -69,7 +78,13 @@ export function CommandPalette() {
     [router],
   );
 
-  const pages = isAdmin ? adminPages : closerPages;
+  const pages = isAdmin
+    ? adminPages
+    : role === "lead_generator"
+      ? leadGenPages
+      : closerPages;
+  const showCreateOpportunity = isAdmin || role === "closer";
+  const showQuickActions = isAdmin || showCreateOpportunity;
 
   return (
     <CommandDialog
@@ -97,21 +112,27 @@ export function CommandPalette() {
             </CommandItem>
           ))}
         </CommandGroup>
-        <>
-          <CommandSeparator />
-          <CommandGroup heading="Quick Actions">
-            {isAdmin ? (
-              <CommandItem onSelect={() => navigate("/workspace/team")}>
-                <UsersIcon />
-                <span>Invite team member</span>
-              </CommandItem>
-            ) : null}
-            <CommandItem onSelect={() => navigate("/workspace/opportunities/new")}>
-              <PlusIcon />
-              <span>Create opportunity</span>
-            </CommandItem>
-          </CommandGroup>
-        </>
+        {showQuickActions ? (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Quick Actions">
+              {isAdmin ? (
+                <CommandItem onSelect={() => navigate("/workspace/team")}>
+                  <UsersIcon />
+                  <span>Invite team member</span>
+                </CommandItem>
+              ) : null}
+              {showCreateOpportunity ? (
+                <CommandItem
+                  onSelect={() => navigate("/workspace/opportunities/new")}
+                >
+                  <PlusIcon />
+                  <span>Create opportunity</span>
+                </CommandItem>
+              ) : null}
+            </CommandGroup>
+          </>
+        ) : null}
       </CommandList>
     </CommandDialog>
   );

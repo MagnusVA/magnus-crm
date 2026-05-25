@@ -1,16 +1,27 @@
-export type CrmRole = "tenant_master" | "tenant_admin" | "closer";
-export type WorkosSlug = "owner" | "tenant-admin" | "closer";
+export type CrmRole =
+  | "tenant_master"
+  | "tenant_admin"
+  | "closer"
+  | "lead_generator";
+
+export type WorkosSlug =
+  | "owner"
+  | "tenant-admin"
+  | "closer"
+  | "lead-generator";
 
 const CRM_TO_WORKOS_ROLE: Record<CrmRole, WorkosSlug> = {
   tenant_master: "owner",
   tenant_admin: "tenant-admin",
   closer: "closer",
+  lead_generator: "lead-generator",
 };
 
 const WORKOS_TO_CRM_ROLE: Record<string, CrmRole> = {
   owner: "tenant_master",
   "tenant-admin": "tenant_admin",
   closer: "closer",
+  "lead-generator": "lead_generator",
 };
 
 export const ADMIN_ROLES: CrmRole[] = ["tenant_master", "tenant_admin"];

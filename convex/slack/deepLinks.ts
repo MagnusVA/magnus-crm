@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
+import type { CrmRole } from "../lib/roleMapping";
 import { requireTenantUser } from "../requireTenantUser";
 
 type OpportunityOpenResolution =
@@ -14,8 +15,10 @@ type OpportunityOpenResolution =
       fallbackPath: string;
     };
 
-function fallbackForRole(role: "tenant_master" | "tenant_admin" | "closer") {
-  return role === "closer" ? "/workspace/closer" : "/workspace";
+function fallbackForRole(role: CrmRole) {
+  if (role === "closer") return "/workspace/closer";
+  if (role === "lead_generator") return "/workspace/lead-gen/capture";
+  return "/workspace";
 }
 
 function opportunityPath(opportunityId: Id<"opportunities">) {
