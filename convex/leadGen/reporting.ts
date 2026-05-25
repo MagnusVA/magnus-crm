@@ -17,6 +17,10 @@ import {
   type LeadGenTeamId,
   type SharedDmTeam,
 } from "./sharedTeams";
+import {
+  loadCurrentScheduledHoursByWorkerDay,
+  scheduledHoursForDailyStat,
+} from "./schedules";
 import { leadGenSourceValidator } from "./validators";
 
 type LeadGenSource = Doc<"leadGenDailyStats">["source"];
@@ -270,7 +274,10 @@ async function readTopOriginSubmissionRows(
   return filterTopOriginSubmissionRows(rows, args);
 }
 
-function summarizeRows(rows: DailyStatsRow[]) {
+function summarizeRows(
+  rows: DailyStatsRow[],
+  currentScheduledHoursByWorkerDay: Map<string, number>,
+) {
   const scheduledHoursByWorkerDay = new Map<string, number>();
   const totals = {
     submissions: 0,
@@ -285,7 +292,10 @@ function summarizeRows(rows: DailyStatsRow[]) {
 
     const scheduledKey = `${row.workerId}:${row.dayKey}`;
     if (!scheduledHoursByWorkerDay.has(scheduledKey)) {
-      scheduledHoursByWorkerDay.set(scheduledKey, row.scheduledHours);
+      scheduledHoursByWorkerDay.set(
+        scheduledKey,
+        scheduledHoursForDailyStat(row, currentScheduledHoursByWorkerDay),
+      );
     }
   }
 
@@ -347,8 +357,10 @@ export const getOverview = query({
       ...args,
       limit: DAILY_STATS_READ_LIMIT,
     });
+    const currentScheduledHoursByWorkerDay =
+      await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
 
-    return summarizeRows(rows);
+    return summarizeRows(rows, currentScheduledHoursByWorkerDay);
   },
 });
 
@@ -367,6 +379,8 @@ export const listWorkerPerformance = query({
       ...args,
       limit: DAILY_STATS_READ_LIMIT,
     });
+    const currentScheduledHoursByWorkerDay =
+      await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
 
     const byWorker = new Map<
       Id<"leadGenWorkers">,
@@ -399,7 +413,10 @@ export const listWorkerPerformance = query({
       const scheduledKey = `${row.workerId}:${row.dayKey}`;
       if (!current.scheduledKeys.has(scheduledKey)) {
         current.scheduledKeys.add(scheduledKey);
-        current.scheduledHours += row.scheduledHours;
+        current.scheduledHours += scheduledHoursForDailyStat(
+          row,
+          currentScheduledHoursByWorkerDay,
+        );
       }
 
       byWorker.set(row.workerId, current);
@@ -444,6 +461,8 @@ export const listTeamPerformance = query({
       ...args,
       limit: DAILY_STATS_READ_LIMIT,
     });
+    const currentScheduledHoursByWorkerDay =
+      await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
 
     const byTeam = new Map<
       string,
@@ -480,7 +499,10 @@ export const listTeamPerformance = query({
       const scheduledKey = `${teamKey}:${row.workerId}:${row.dayKey}`;
       if (!current.scheduledKeys.has(scheduledKey)) {
         current.scheduledKeys.add(scheduledKey);
-        current.scheduledHours += row.scheduledHours;
+        current.scheduledHours += scheduledHoursForDailyStat(
+          row,
+          currentScheduledHoursByWorkerDay,
+        );
       }
 
       byTeam.set(teamKey, current);
@@ -528,6 +550,8 @@ export const listSourcePerformance = query({
       ...args,
       limit: DAILY_STATS_READ_LIMIT,
     });
+    const currentScheduledHoursByWorkerDay =
+      await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
 
     const bySource = new Map<
       LeadGenSource,
@@ -565,7 +589,10 @@ export const listSourcePerformance = query({
       const scheduledKey = `${row.source}:${row.workerId}:${row.dayKey}`;
       if (!current.scheduledKeys.has(scheduledKey)) {
         current.scheduledKeys.add(scheduledKey);
-        current.scheduledHours += row.scheduledHours;
+        current.scheduledHours += scheduledHoursForDailyStat(
+          row,
+          currentScheduledHoursByWorkerDay,
+        );
       }
     }
 

@@ -13,6 +13,10 @@ import {
   type LeadGenTeamId,
   type SharedDmTeam,
 } from "./sharedTeams";
+import {
+  loadCurrentScheduledHoursByWorkerDay,
+  scheduledHoursForDailyStat,
+} from "./schedules";
 import { leadGenSourceValidator } from "./validators";
 
 type LeadGenSource = Doc<"leadGenDailyStats">["source"];
@@ -459,6 +463,8 @@ async function hydrateSummaryExportRows(
       ),
     ],
   );
+  const currentScheduledHoursByWorkerDay =
+    await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
 
   return rows.map((row) => {
     const worker = workers.get(row.workerId);
@@ -475,7 +481,10 @@ async function hydrateSummaryExportRows(
       submissions: row.submissions,
       uniqueProspects: row.uniqueProspectsSubmitted,
       duplicates: row.duplicateProspectSubmissions,
-      scheduledHours: row.scheduledHours,
+      scheduledHours: scheduledHoursForDailyStat(
+        row,
+        currentScheduledHoursByWorkerDay,
+      ),
     };
   });
 }
@@ -507,6 +516,8 @@ export const getWorkerExportRows = query({
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
     const rows = await readDailyStatsRows(ctx, { tenantId, ...args });
+    const currentScheduledHoursByWorkerDay =
+      await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
     const byWorker = new Map<
       Id<"leadGenWorkers">,
       {
@@ -537,7 +548,10 @@ export const getWorkerExportRows = query({
       const scheduledKey = `${row.workerId}:${row.dayKey}`;
       if (!current.scheduledKeys.has(scheduledKey)) {
         current.scheduledKeys.add(scheduledKey);
-        current.scheduledHours += row.scheduledHours;
+        current.scheduledHours += scheduledHoursForDailyStat(
+          row,
+          currentScheduledHoursByWorkerDay,
+        );
       }
       byWorker.set(row.workerId, current);
     }

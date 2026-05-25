@@ -2,6 +2,7 @@ import { Migrations } from "@convex-dev/migrations";
 import { components } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
+import { leadGenWeekdayForBusinessDate } from "./leadGen/schedules";
 import { upsertOpportunitySearchProjection } from "./lib/opportunitySearch";
 import {
   insertOperationsMeetingStats,
@@ -172,3 +173,28 @@ export const backfillMeetingOpportunityStatusAndOperationsStats =
       await insertOperationsMeetingStats(ctx, nextMeeting);
     },
   });
+
+export const backfillLeadGenDailyStatScheduledHours = migrations.define({
+  table: "leadGenDailyStats",
+  batchSize: 100,
+  migrateOne: async (ctx, stat) => {
+    const weekday = leadGenWeekdayForBusinessDate(stat.dayKey);
+    const schedule = await ctx.db
+      .query("leadGenWorkerSchedules")
+      .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
+        q
+          .eq("tenantId", stat.tenantId)
+          .eq("workerId", stat.workerId)
+          .eq("weekday", weekday),
+      )
+      .unique();
+    const scheduledHours = schedule?.scheduledHours ?? 0;
+
+    if (stat.scheduledHours !== scheduledHours) {
+      await ctx.db.patch(stat._id, {
+        scheduledHours,
+        updatedAt: Date.now(),
+      });
+    }
+  },
+});
