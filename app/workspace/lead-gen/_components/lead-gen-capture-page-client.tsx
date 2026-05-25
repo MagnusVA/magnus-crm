@@ -4,6 +4,7 @@ import { useMemo, useState, type ComponentType, type SVGProps } from "react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation, useQuery } from "convex/react";
 import {
+  AtSignIcon,
   CheckCircle2Icon,
   ClipboardCheckIcon,
   LinkIcon,
@@ -37,15 +38,31 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 const HONDURAS_TIME_ZONE = "America/Tegucigalpa";
 const BUSINESS_DAY_START_OFFSET_MS = 60 * 60 * 1000;
 
-const captureSchema = z.object({
-  source: z.enum(["instagram", "meta_business"]),
-  rawHandleOrProfileUrl: z
-    .string()
-    .trim()
-    .min(1, "Profile URL is required"),
-  originKind: z.enum(["post", "reel", "story_poll", "follower", "application"]),
-  originUrlOrLabel: z.string().trim().optional(),
-});
+const captureSchema = z
+  .object({
+    source: z.enum(["instagram", "meta_business"]),
+    rawHandleOrProfileUrl: z.string().trim(),
+    originKind: z.enum([
+      "post",
+      "reel",
+      "story_poll",
+      "follower",
+      "application",
+    ]),
+    originUrlOrLabel: z.string().trim().optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.rawHandleOrProfileUrl.length > 0) return;
+
+    ctx.addIssue({
+      code: "custom",
+      message:
+        values.source === "meta_business"
+          ? "Handle is required"
+          : "Profile URL is required",
+      path: ["rawHandleOrProfileUrl"],
+    });
+  });
 
 type CaptureValues = z.infer<typeof captureSchema>;
 
@@ -120,6 +137,12 @@ export function LeadGenCapturePageClient() {
   const originKind = form.watch("originKind");
   const isMetaBusinessSource = source === "meta_business";
   const originNeedsUrl = originKind === "post" || originKind === "reel";
+  const ProspectInputIcon = isMetaBusinessSource ? AtSignIcon : LinkIcon;
+  const prospectInputLabel = isMetaBusinessSource ? "Handle" : "Profile URL";
+  const prospectInputMode = isMetaBusinessSource ? "text" : "url";
+  const prospectInputPlaceholder = isMetaBusinessSource
+    ? "@prospect"
+    : "https://instagram.com/prospect...";
 
   const onSubmit = async (values: CaptureValues) => {
     setIsSubmitting(true);
@@ -244,11 +267,11 @@ export function LeadGenCapturePageClient() {
             name="rawHandleOrProfileUrl"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Profile URL</FormLabel>
+                <FormLabel>{prospectInputLabel}</FormLabel>
                 <FormControl>
                   <InputGroup className="h-11">
                     <InputGroupAddon>
-                      <LinkIcon aria-hidden="true" />
+                      <ProspectInputIcon aria-hidden="true" />
                     </InputGroupAddon>
                     <InputGroupInput
                       {...field}
@@ -256,9 +279,9 @@ export function LeadGenCapturePageClient() {
                       autoComplete="off"
                       autoCorrect="off"
                       disabled={isSubmitting}
-                      inputMode="url"
+                      inputMode={prospectInputMode}
                       name="rawHandleOrProfileUrl"
-                      placeholder="https://instagram.com/prospect..."
+                      placeholder={prospectInputPlaceholder}
                       spellCheck={false}
                       type="text"
                     />
