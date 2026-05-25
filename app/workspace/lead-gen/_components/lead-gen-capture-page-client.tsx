@@ -6,7 +6,7 @@ import { useMutation, useQuery } from "convex/react";
 import {
   CheckCircle2Icon,
   ClipboardCheckIcon,
-  AtSignIcon,
+  LinkIcon,
   RotateCcwIcon,
   SparklesIcon,
 } from "lucide-react";
@@ -42,7 +42,7 @@ const captureSchema = z.object({
   rawHandleOrProfileUrl: z
     .string()
     .trim()
-    .min(1, "Handle or profile URL is required"),
+    .min(1, "Profile URL is required"),
   originKind: z.enum(["post", "reel", "story_poll", "follower", "application"]),
   originUrlOrLabel: z.string().trim().optional(),
 });
@@ -244,15 +244,11 @@ export function LeadGenCapturePageClient() {
             name="rawHandleOrProfileUrl"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>
-                  {isMetaBusinessSource
-                    ? "Handle or URL"
-                    : "Handle or Profile URL"}
-                </FormLabel>
+                <FormLabel>Profile URL</FormLabel>
                 <FormControl>
                   <InputGroup className="h-11">
                     <InputGroupAddon>
-                      <AtSignIcon aria-hidden="true" />
+                      <LinkIcon aria-hidden="true" />
                     </InputGroupAddon>
                     <InputGroupInput
                       {...field}
@@ -262,8 +258,9 @@ export function LeadGenCapturePageClient() {
                       disabled={isSubmitting}
                       inputMode="url"
                       name="rawHandleOrProfileUrl"
-                      placeholder="@prospect or profile URL..."
+                      placeholder="https://instagram.com/prospect..."
                       spellCheck={false}
+                      type="text"
                     />
                   </InputGroup>
                 </FormControl>
@@ -285,7 +282,11 @@ export function LeadGenCapturePageClient() {
                         type="single"
                         value={field.value}
                         onValueChange={(value) => {
-                          if (value) field.onChange(value);
+                          if (!value) return;
+                          field.onChange(value);
+                          if (value !== "post" && value !== "reel") {
+                            form.setValue("originUrlOrLabel", "");
+                          }
                         }}
                         className="grid w-full grid-cols-2 sm:grid-cols-3"
                         variant="outline"
@@ -306,40 +307,36 @@ export function LeadGenCapturePageClient() {
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="originUrlOrLabel"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      {originNeedsUrl ? "Post or Reel URL" : "Origin Label"}
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        autoCapitalize="none"
-                        autoComplete="off"
-                        autoCorrect="off"
-                        disabled={isSubmitting}
-                        inputMode={originNeedsUrl ? "url" : "text"}
-                        name="originUrlOrLabel"
-                        placeholder={
-                          originNeedsUrl
-                            ? "https://instagram.com/p/..."
-                            : "Optional source label..."
-                        }
-                        spellCheck={false}
-                        type={originNeedsUrl ? "url" : "text"}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      Posts and reels are ranked in reports; other origins stay
-                      audit-only.
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
+              {originNeedsUrl ? (
+                <FormField
+                  control={form.control}
+                  name="originUrlOrLabel"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Post or Reel URL</FormLabel>
+                      <FormControl>
+                        <Input
+                          {...field}
+                          autoCapitalize="none"
+                          autoComplete="off"
+                          autoCorrect="off"
+                          disabled={isSubmitting}
+                          inputMode="url"
+                          name="originUrlOrLabel"
+                          placeholder="https://instagram.com/p/..."
+                          spellCheck={false}
+                          type="url"
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Posts and reels are ranked in reports; other origins stay
+                        audit-only.
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              ) : null}
             </>
           )}
 
