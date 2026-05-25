@@ -70,6 +70,17 @@ const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   timeStyle: "short",
 });
 
+const submittedDateFormatter = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  year: "2-digit",
+});
+
+const submittedTimeFormatter = new Intl.DateTimeFormat(undefined, {
+  hour: "numeric",
+  minute: "2-digit",
+});
+
 function parseDayKey(dayKey: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) return null;
 
@@ -148,12 +159,12 @@ export function RawSubmissionsTable({ filters }: { filters: LeadGenFilters }) {
   const isLoadingMore = paginationStatus === "LoadingMore";
 
   return (
-    <Card>
+    <Card className="min-w-0" size="sm">
       <CardHeader>
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 flex-col gap-1">
             <CardTitle>Raw Submissions</CardTitle>
-            <CardDescription>
+            <CardDescription className="text-xs">
               Source rows for the current filters, including voided audit state.
             </CardDescription>
           </div>
@@ -162,7 +173,7 @@ export function RawSubmissionsTable({ filters }: { filters: LeadGenFilters }) {
           </Badge>
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="min-w-0">
         {!isValidRange ? (
           <Empty>
             <EmptyHeader>
@@ -191,18 +202,16 @@ export function RawSubmissionsTable({ filters }: { filters: LeadGenFilters }) {
           </Empty>
         ) : (
           <div className="flex flex-col gap-3">
-            <div className="overflow-x-auto rounded-lg border">
-              <Table>
+            <div className="rounded-lg border">
+              <Table className="table-fixed">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Submitted</TableHead>
-                    <TableHead>Prospect</TableHead>
-                    <TableHead>Worker</TableHead>
-                    <TableHead>Team</TableHead>
-                    <TableHead>Source</TableHead>
+                    <TableHead className="w-28">Submitted</TableHead>
+                    <TableHead className="w-[18%]">Prospect</TableHead>
+                    <TableHead className="w-[20%]">Worker / Team</TableHead>
                     <TableHead>Origin</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
+                    <TableHead className="w-24">Status</TableHead>
+                    <TableHead className="w-12 text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -211,49 +220,42 @@ export function RawSubmissionsTable({ filters }: { filters: LeadGenFilters }) {
                       data-state={row.voidedAt ? "selected" : undefined}
                       key={row.submissionId}
                     >
-                      <TableCell className="whitespace-nowrap tabular-nums">
-                        <time dateTime={new Date(row.submittedAt).toISOString()}>
-                          {dateTimeFormatter.format(row.submittedAt)}
+                      <TableCell className="tabular-nums">
+                        <time
+                          className="flex flex-col gap-0.5 text-xs leading-tight"
+                          dateTime={new Date(row.submittedAt).toISOString()}
+                        >
+                          <span>
+                            {submittedDateFormatter.format(row.submittedAt)}
+                          </span>
+                          <span className="text-muted-foreground">
+                            {submittedTimeFormatter.format(row.submittedAt)}
+                          </span>
                         </time>
                       </TableCell>
-                      <TableCell className="min-w-56 max-w-72">
+                      <TableCell className="max-w-0">
                         <ProspectCell row={row} />
                       </TableCell>
-                      <TableCell className="min-w-48 max-w-64">
-                        <div className="flex min-w-0 flex-col gap-1">
-                          <span className="truncate font-medium">
-                            {row.workerDisplayName ?? row.workerEmail ?? "Worker"}
-                          </span>
-                          {row.workerEmail ? (
-                            <span className="truncate text-xs text-muted-foreground">
-                              {row.workerEmail}
-                            </span>
-                          ) : null}
-                        </div>
+                      <TableCell className="max-w-0">
+                        <WorkerTeamCell row={row} />
                       </TableCell>
-                      <TableCell className="min-w-36 max-w-56">
-                        <span className="block truncate">
-                          {row.teamName ?? "No Team"}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary">
-                          {formatSource(row.source)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="min-w-56 max-w-80">
+                      <TableCell className="max-w-0">
                         <OriginCell row={row} />
                       </TableCell>
-                      <TableCell className="min-w-48">
+                      <TableCell className="max-w-0">
                         <SubmissionStatus row={row} />
                       </TableCell>
                       <TableCell className="text-right">
                         {row.voidedAt ? (
-                          <span className="text-xs text-muted-foreground">
-                            No action
+                          <span
+                            className="text-xs text-muted-foreground"
+                            title="No action"
+                          >
+                            -
                           </span>
                         ) : (
                           <VoidSubmissionDialog
+                            compactTrigger
                             prospectLabel={getProspectLabel(row)}
                             submissionId={row.submissionId}
                           />
@@ -312,17 +314,19 @@ function ProspectCell({ row }: { row: RawSubmissionRow }) {
 
   if (!row.profileUrl) {
     return (
-      <div className="flex min-w-0 flex-col gap-1">
+      <div className="flex min-w-0 flex-col gap-1" title={row.prospectId}>
         <span className="truncate font-medium">{label}</span>
-        <span className="truncate text-xs text-muted-foreground">
-          {row.prospectId}
-        </span>
+        {row.rawHandle && row.rawHandle !== label ? (
+          <span className="truncate text-xs text-muted-foreground">
+            {row.rawHandle}
+          </span>
+        ) : null}
       </div>
     );
   }
 
   return (
-    <div className="flex min-w-0 flex-col gap-1">
+    <div className="flex min-w-0 flex-col gap-1" title={row.prospectId}>
       <a
         className="flex min-w-0 items-center gap-2 truncate font-medium underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         href={row.profileUrl}
@@ -332,21 +336,44 @@ function ProspectCell({ row }: { row: RawSubmissionRow }) {
         <span className="truncate">{label}</span>
         <ExternalLinkIcon aria-hidden="true" />
       </a>
+      {row.rawHandle && row.rawHandle !== label ? (
+        <span className="truncate text-xs text-muted-foreground">
+          {row.rawHandle}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function WorkerTeamCell({ row }: { row: RawSubmissionRow }) {
+  const workerLabel = row.workerDisplayName ?? row.workerEmail ?? "Worker";
+
+  return (
+    <div
+      className="flex min-w-0 flex-col gap-1"
+      title={row.workerEmail ?? undefined}
+    >
+      <span className="truncate font-medium">{workerLabel}</span>
       <span className="truncate text-xs text-muted-foreground">
-        {row.prospectId}
+        {row.teamName ?? "No Team"}
       </span>
     </div>
   );
 }
 
 function OriginCell({ row }: { row: RawSubmissionRow }) {
-  const originText = row.originValue ?? formatOrigin(row.originKind);
+  const originText = row.originValue
+    ? formatOriginValue(row.originValue)
+    : formatOrigin(row.originKind);
   const isExternalOrigin =
     typeof row.originValue === "string" && /^https?:\/\//.test(row.originValue);
 
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 items-center gap-1.5">
+        <Badge className="shrink-0" variant="secondary">
+          {formatSource(row.source)}
+        </Badge>
         <Badge className="shrink-0" variant="outline">
           {formatOrigin(row.originKind)}
         </Badge>
@@ -356,6 +383,7 @@ function OriginCell({ row }: { row: RawSubmissionRow }) {
             href={row.originValue ?? undefined}
             rel="noreferrer"
             target="_blank"
+            title={row.originValue ?? undefined}
           >
             <span className="truncate">{originText}</span>
             <ExternalLinkIcon aria-hidden="true" />
@@ -365,7 +393,7 @@ function OriginCell({ row }: { row: RawSubmissionRow }) {
         )}
       </div>
       {row.clientSubmissionKey ? (
-        <span className="truncate text-xs text-muted-foreground">
+        <span className="hidden truncate text-xs text-muted-foreground xl:block">
           Key: {row.clientSubmissionKey}
         </span>
       ) : null}
@@ -412,4 +440,13 @@ function formatOrigin(originKind: string) {
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function formatOriginValue(originValue: string) {
+  try {
+    const url = new URL(originValue);
+    return `${url.hostname.replace(/^www\./, "")}${url.pathname}`;
+  } catch {
+    return originValue;
+  }
 }

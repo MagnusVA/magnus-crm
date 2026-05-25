@@ -45,9 +45,11 @@ type VoidSubmissionFormValues = z.infer<typeof voidSubmissionSchema>;
 export function VoidSubmissionDialog({
   submissionId,
   prospectLabel,
+  compactTrigger = false,
 }: {
   submissionId: Id<"leadGenSubmissions">;
   prospectLabel?: string;
+  compactTrigger?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const voidSubmission = useMutation(api.leadGen.corrections.voidSubmission);
@@ -97,11 +99,11 @@ export function VoidSubmissionDialog({
       <AlertDialogTrigger asChild>
         <Button
           aria-label={`Void submission${prospectLabel ? ` for ${prospectLabel}` : ""}`}
-          size="sm"
+          size={compactTrigger ? "icon-sm" : "sm"}
           variant="destructive"
         >
           <BanIcon aria-hidden="true" data-icon="inline-start" />
-          Void
+          {compactTrigger ? null : "Void"}
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent className="sm:max-w-md">

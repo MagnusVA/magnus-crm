@@ -45,7 +45,7 @@ export function TeamPerformanceTable({
   rows: TeamRow[] | undefined;
 }) {
   return (
-    <Card>
+    <Card className="min-w-0" size="sm">
       <CardHeader>
         <CardTitle>Team Performance</CardTitle>
       </CardHeader>
@@ -60,22 +60,24 @@ export function TeamPerformanceTable({
             <EmptyContent>No aggregate rows match these filters.</EmptyContent>
           </Empty>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
+          <div className="rounded-lg border">
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Team</TableHead>
-                  <TableHead className="text-right">Submissions</TableHead>
+                  <TableHead className="w-[38%]">Team</TableHead>
+                  <TableHead className="text-right">Subs</TableHead>
                   <TableHead className="text-right">Unique</TableHead>
-                  <TableHead className="text-right">Duplicates</TableHead>
-                  <TableHead className="text-right">Leads/Hour</TableHead>
+                  <TableHead className="text-right">Dupes</TableHead>
+                  <TableHead className="text-right">L/Hr</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((row) => (
                   <TableRow key={row.teamId ?? "none"}>
-                    <TableCell className="min-w-48 font-medium">
-                      {row.teamName ?? "No Team"}
+                    <TableCell className="max-w-0 font-medium">
+                      <span className="block truncate">
+                        {row.teamName ?? "No Team"}
+                      </span>
                     </TableCell>
                     <NumberCell value={row.submissions} />
                     <NumberCell value={row.uniqueProspects} />

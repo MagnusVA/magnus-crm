@@ -38,7 +38,7 @@ export function SourcePerformanceTable({
   rows: SourceRow[] | undefined;
 }) {
   return (
-    <Card>
+    <Card className="min-w-0" size="sm">
       <CardHeader>
         <CardTitle>Source Split</CardTitle>
       </CardHeader>
@@ -53,14 +53,14 @@ export function SourcePerformanceTable({
             <EmptyContent>No aggregate rows match these filters.</EmptyContent>
           </Empty>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
+          <div className="rounded-lg border">
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Source</TableHead>
-                  <TableHead className="text-right">Submissions</TableHead>
+                  <TableHead className="w-[40%]">Source</TableHead>
+                  <TableHead className="text-right">Subs</TableHead>
                   <TableHead className="text-right">Unique</TableHead>
-                  <TableHead className="text-right">Duplicates</TableHead>
+                  <TableHead className="text-right">Dupes</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

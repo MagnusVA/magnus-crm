@@ -82,27 +82,25 @@ export function LeadGenAdminPageClient() {
     filters,
   );
   const origins = useQuery(api.leadGen.reporting.listTopOrigins, {
-    startDayKey: filters.startDayKey,
-    endDayKey: filters.endDayKey,
-    ...(filters.source ? { source: filters.source } : {}),
+    ...filters,
     limit: 10,
   });
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="sticky top-0 z-20 -mx-6 -mt-6 border-b bg-background/95 px-6 py-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+    <div className="flex min-w-0 flex-col gap-4">
+      <div className="sticky top-0 z-20 -mx-6 -mt-6 border-b bg-background/95 px-6 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="flex min-w-0 flex-col gap-1">
-            <h1 className="text-2xl font-semibold tracking-normal text-pretty">
+            <h1 className="text-xl font-semibold tracking-normal text-pretty">
               Lead Gen Ops
             </h1>
-            <p className="max-w-3xl text-sm text-muted-foreground">
+            <p className="max-w-3xl text-xs text-muted-foreground">
               Worker activity, source quality, top origins, and operational
               exports.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button asChild>
+            <Button asChild size="sm">
               <Link href="/workspace/lead-gen/settings">
                 <SettingsIcon data-icon="inline-start" />
                 Settings & Schedules
@@ -128,20 +126,20 @@ export function LeadGenAdminPageClient() {
 
       <LeadGenSummaryCards data={overview} />
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
-        <Tabs className="min-w-0" defaultValue="workers">
-          <TabsList>
+      <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_20rem]">
+        <Tabs className="min-w-0 overflow-hidden" defaultValue="workers">
+          <TabsList className="h-7">
             <TabsTrigger value="workers">Workers</TabsTrigger>
             <TabsTrigger value="teams">Teams</TabsTrigger>
             <TabsTrigger value="sources">Sources</TabsTrigger>
           </TabsList>
-          <TabsContent value="workers">
+          <TabsContent className="min-w-0" value="workers">
             <WorkerPerformanceTable rows={workerRows} workers={workers} />
           </TabsContent>
-          <TabsContent value="teams">
+          <TabsContent className="min-w-0" value="teams">
             <TeamPerformanceTable rows={teamRows} />
           </TabsContent>
-          <TabsContent value="sources">
+          <TabsContent className="min-w-0" value="sources">
             <SourcePerformanceTable rows={sourceRows} />
           </TabsContent>
         </Tabs>

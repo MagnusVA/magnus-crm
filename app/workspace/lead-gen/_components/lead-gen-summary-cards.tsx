@@ -38,7 +38,7 @@ export function LeadGenSummaryCards({ data }: { data: Overview | undefined }) {
       icon: ClipboardCheckIcon,
     },
     {
-      label: "Unique Prospects",
+      label: "Unique",
       value:
         data === undefined
           ? undefined
@@ -52,7 +52,7 @@ export function LeadGenSummaryCards({ data }: { data: Overview | undefined }) {
       icon: RotateCcwIcon,
     },
     {
-      label: "Leads/Hour",
+      label: "Leads/Hr",
       value:
         data === undefined
           ? undefined
@@ -64,18 +64,20 @@ export function LeadGenSummaryCards({ data }: { data: Overview | undefined }) {
   ];
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-4">
       {cards.map(({ label, value, icon: Icon }) => (
-        <Card key={label}>
-          <CardHeader className="flex flex-row items-center justify-between gap-3 pb-2">
-            <CardTitle className="text-sm font-medium">{label}</CardTitle>
+        <Card className="min-w-0" key={label} size="sm">
+          <CardHeader className="flex flex-row items-center justify-between gap-2 pb-0">
+            <CardTitle className="truncate text-xs font-medium text-muted-foreground">
+              {label}
+            </CardTitle>
             <Icon aria-hidden="true" className="text-muted-foreground" />
           </CardHeader>
-          <CardContent>
+          <CardContent className="pt-0">
             {value === undefined ? (
-              <Skeleton className="h-9 w-24" />
+              <Skeleton className="h-7 w-16" />
             ) : (
-              <p className="text-3xl font-semibold tracking-normal tabular-nums">
+              <p className="truncate text-2xl font-semibold tracking-normal tabular-nums">
                 {value}
               </p>
             )}

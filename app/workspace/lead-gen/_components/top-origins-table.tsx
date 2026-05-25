@@ -38,7 +38,7 @@ const numberFormatter = new Intl.NumberFormat(undefined, {
 
 export function TopOriginsTable({ rows }: { rows: OriginRow[] | undefined }) {
   return (
-    <Card className="min-w-0">
+    <Card className="min-w-0" size="sm">
       <CardHeader>
         <CardTitle>Top Posts & Reels</CardTitle>
       </CardHeader>
@@ -53,26 +53,29 @@ export function TopOriginsTable({ rows }: { rows: OriginRow[] | undefined }) {
             <EmptyContent>Post and reel submissions will rank here.</EmptyContent>
           </Empty>
         ) : (
-          <div className="overflow-x-auto">
-            <Table>
+          <div className="rounded-lg border">
+            <Table className="table-fixed">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Origin</TableHead>
+                  <TableHead className="w-[62%]">Origin</TableHead>
                   <TableHead>Kind</TableHead>
-                  <TableHead className="text-right">Submissions</TableHead>
+                  <TableHead className="text-right">Subs</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {rows.map((row) => (
                   <TableRow key={row._id ?? row.originKey}>
-                    <TableCell className="min-w-56 max-w-72">
+                    <TableCell className="max-w-0">
                       <a
                         className="flex min-w-0 items-center gap-2 truncate text-sm underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         href={row.originValue}
                         rel="noreferrer"
                         target="_blank"
+                        title={row.originValue}
                       >
-                        <span className="truncate">{row.originValue}</span>
+                        <span className="truncate">
+                          {formatOriginValue(row.originValue)}
+                        </span>
                         <ExternalLinkIcon aria-hidden="true" />
                       </a>
                     </TableCell>
@@ -95,4 +98,13 @@ export function TopOriginsTable({ rows }: { rows: OriginRow[] | undefined }) {
 
 function formatOrigin(originKind: string) {
   return originKind.charAt(0).toUpperCase() + originKind.slice(1);
+}
+
+function formatOriginValue(originValue: string) {
+  try {
+    const url = new URL(originValue);
+    return `${url.hostname.replace(/^www\./, "")}${url.pathname}`;
+  } catch {
+    return originValue;
+  }
 }

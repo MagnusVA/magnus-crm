@@ -166,7 +166,7 @@ export function LeadGenExportMenu({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button disabled={isExporting} variant="outline">
+        <Button disabled={isExporting} size="sm" variant="outline">
           {isExporting ? (
             <DownloadIcon data-icon="inline-start" />
           ) : (
