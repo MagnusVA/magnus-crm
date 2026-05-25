@@ -43,15 +43,7 @@ const captureSchema = z.object({
     .string()
     .trim()
     .min(1, "Handle or profile URL is required"),
-  originKind: z.enum([
-    "post",
-    "reel",
-    "story_poll",
-    "follower",
-    "application",
-    "meta_business",
-    "other",
-  ]),
+  originKind: z.enum(["post", "reel", "story_poll", "follower", "application"]),
   originUrlOrLabel: z.string().trim().optional(),
 });
 
@@ -70,9 +62,9 @@ const originOptions = [
   { value: "story_poll", label: "Story Poll" },
   { value: "follower", label: "Follower" },
   { value: "application", label: "Application" },
-  { value: "meta_business", label: "Meta Business" },
-  { value: "other", label: "Other" },
 ] as const;
+
+const META_BUSINESS_ORIGIN_KIND = "source_only";
 
 function makeClientSubmissionKey() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -124,7 +116,9 @@ export function LeadGenCapturePageClient() {
     },
   });
 
+  const source = form.watch("source");
   const originKind = form.watch("originKind");
+  const isMetaBusinessSource = source === "meta_business";
   const originNeedsUrl = originKind === "post" || originKind === "reel";
 
   const onSubmit = async (values: CaptureValues) => {
@@ -134,8 +128,14 @@ export function LeadGenCapturePageClient() {
       const result = await submit({
         source: values.source,
         rawHandleOrProfileUrl: values.rawHandleOrProfileUrl,
-        originKind: values.originKind,
-        originUrlOrLabel: values.originUrlOrLabel?.trim() || undefined,
+        originKind:
+          values.source === "meta_business"
+            ? META_BUSINESS_ORIGIN_KIND
+            : values.originKind,
+        originUrlOrLabel:
+          values.source === "meta_business"
+            ? undefined
+            : values.originUrlOrLabel?.trim() || undefined,
         clientSubmissionKey: makeClientSubmissionKey(),
       });
 
@@ -149,8 +149,12 @@ export function LeadGenCapturePageClient() {
       form.reset({
         source: values.source,
         rawHandleOrProfileUrl: "",
-        originKind: values.originKind,
-        originUrlOrLabel: values.originUrlOrLabel ?? "",
+        originKind:
+          values.source === "meta_business" ? "post" : values.originKind,
+        originUrlOrLabel:
+          values.source === "meta_business"
+            ? ""
+            : values.originUrlOrLabel ?? "",
       });
 
       toast.success(
@@ -213,7 +217,11 @@ export function LeadGenCapturePageClient() {
                     type="single"
                     value={field.value}
                     onValueChange={(value) => {
-                      if (value) field.onChange(value);
+                      if (!value) return;
+                      field.onChange(value);
+                      if (value === "meta_business") {
+                        form.setValue("originUrlOrLabel", "");
+                      }
                     }}
                     className="grid w-full grid-cols-2"
                     variant="outline"
@@ -236,7 +244,11 @@ export function LeadGenCapturePageClient() {
             name="rawHandleOrProfileUrl"
             render={({ field }) => (
               <FormItem>
-                <FormLabel>Handle or Profile URL</FormLabel>
+                <FormLabel>
+                  {isMetaBusinessSource
+                    ? "Handle or URL"
+                    : "Handle or Profile URL"}
+                </FormLabel>
                 <FormControl>
                   <InputGroup className="h-11">
                     <InputGroupAddon>
@@ -250,7 +262,7 @@ export function LeadGenCapturePageClient() {
                       disabled={isSubmitting}
                       inputMode="url"
                       name="rawHandleOrProfileUrl"
-                      placeholder="@prospect or instagram.com/prospect..."
+                      placeholder="@prospect or profile URL..."
                       spellCheck={false}
                     />
                   </InputGroup>
@@ -260,72 +272,76 @@ export function LeadGenCapturePageClient() {
             )}
           />
 
-          <FormField
-            control={form.control}
-            name="originKind"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Origin</FormLabel>
-                <FormControl>
-                  <ToggleGroup
-                    type="single"
-                    value={field.value}
-                    onValueChange={(value) => {
-                      if (value) field.onChange(value);
-                    }}
-                    className="grid w-full grid-cols-2 sm:grid-cols-4"
-                    variant="outline"
-                  >
-                    {originOptions.map((option) => (
-                      <ToggleGroupItem
-                        className="w-full min-w-0"
-                        key={option.value}
-                        value={option.value}
+          {isMetaBusinessSource ? null : (
+            <>
+              <FormField
+                control={form.control}
+                name="originKind"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Origin</FormLabel>
+                    <FormControl>
+                      <ToggleGroup
+                        type="single"
+                        value={field.value}
+                        onValueChange={(value) => {
+                          if (value) field.onChange(value);
+                        }}
+                        className="grid w-full grid-cols-2 sm:grid-cols-3"
+                        variant="outline"
                       >
-                        <span className="truncate">{option.label}</span>
-                      </ToggleGroupItem>
-                    ))}
-                  </ToggleGroup>
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+                        {originOptions.map((option) => (
+                          <ToggleGroupItem
+                            className="w-full min-w-0"
+                            key={option.value}
+                            value={option.value}
+                          >
+                            <span className="truncate">{option.label}</span>
+                          </ToggleGroupItem>
+                        ))}
+                      </ToggleGroup>
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-          <FormField
-            control={form.control}
-            name="originUrlOrLabel"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>
-                  {originNeedsUrl ? "Post or Reel URL" : "Origin Label"}
-                </FormLabel>
-                <FormControl>
-                  <Input
-                    {...field}
-                    autoCapitalize="none"
-                    autoComplete="off"
-                    autoCorrect="off"
-                    disabled={isSubmitting}
-                    inputMode={originNeedsUrl ? "url" : "text"}
-                    name="originUrlOrLabel"
-                    placeholder={
-                      originNeedsUrl
-                        ? "https://instagram.com/p/..."
-                        : "Optional source label..."
-                    }
-                    spellCheck={false}
-                    type={originNeedsUrl ? "url" : "text"}
-                  />
-                </FormControl>
-                <FormDescription>
-                  Posts and reels are ranked in reports; other origins stay
-                  audit-only.
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+              <FormField
+                control={form.control}
+                name="originUrlOrLabel"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {originNeedsUrl ? "Post or Reel URL" : "Origin Label"}
+                    </FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        autoCapitalize="none"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        disabled={isSubmitting}
+                        inputMode={originNeedsUrl ? "url" : "text"}
+                        name="originUrlOrLabel"
+                        placeholder={
+                          originNeedsUrl
+                            ? "https://instagram.com/p/..."
+                            : "Optional source label..."
+                        }
+                        spellCheck={false}
+                        type={originNeedsUrl ? "url" : "text"}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Posts and reels are ranked in reports; other origins stay
+                      audit-only.
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </>
+          )}
 
           <Button
             className="h-11 w-full touch-manipulation"
