@@ -405,6 +405,8 @@ function formatSource(source: RawSubmissionRow["source"]) {
 }
 
 function formatOrigin(originKind: string) {
+  if (originKind === "source_only") return "No Origin";
+
   return originKind
     .split("_")
     .filter(Boolean)

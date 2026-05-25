@@ -15,6 +15,16 @@ import {
 import { resolveLeadGenTeamIdForWrite } from "./sharedTeams";
 
 const MAX_CLIENT_SUBMISSION_KEY_LENGTH = 200;
+type LeadGenSource = Doc<"leadGenSubmissions">["source"];
+type LeadGenOriginKind = Doc<"leadGenSubmissions">["originKind"];
+
+const INSTAGRAM_CAPTURE_ORIGINS = new Set<LeadGenOriginKind>([
+  "post",
+  "reel",
+  "story_poll",
+  "follower",
+  "application",
+]);
 
 export const submit = mutation({
   args: leadGenSubmitArgsValidator,
@@ -55,9 +65,10 @@ export const submit = mutation({
       source: args.source,
       rawHandleOrProfileUrl: args.rawHandleOrProfileUrl,
     });
+    const submittedOrigin = resolveCaptureOrigin(args);
     const origin = normalizeLeadGenOrigin({
-      originKind: args.originKind,
-      originUrlOrLabel: args.originUrlOrLabel,
+      originKind: submittedOrigin.originKind,
+      originUrlOrLabel: submittedOrigin.originUrlOrLabel,
     });
 
     let prospect = await ctx.db
@@ -82,7 +93,7 @@ export const submit = mutation({
         firstCapturedAt: now,
         lastSubmittedByWorkerId: worker._id,
         lastSubmittedAt: now,
-        latestOriginKind: args.originKind,
+        latestOriginKind: submittedOrigin.originKind,
         latestOriginValue: origin.originValue,
         contactAttemptCount: 0,
         distinctWorkerCount: 0,
@@ -108,7 +119,9 @@ export const submit = mutation({
 
     const duplicateProspect = prospect.contactAttemptCount > 0;
     const isDistinctWorker = priorWorkerSubmission.length === 0;
-    const originRankable = isRankableLeadGenOrigin(args.originKind);
+    const originRankable = isRankableLeadGenOrigin(
+      submittedOrigin.originKind,
+    );
 
     const submissionId = await ctx.db.insert("leadGenSubmissions", {
       tenantId: access.tenantId,
@@ -117,7 +130,7 @@ export const submit = mutation({
       userId: access.userId,
       teamId: worker.teamId,
       source: args.source,
-      originKind: args.originKind,
+      originKind: submittedOrigin.originKind,
       originValue: origin.originValue,
       originRankable,
       clientSubmissionKey,
@@ -128,7 +141,7 @@ export const submit = mutation({
     await ctx.db.patch(prospect._id, {
       lastSubmittedByWorkerId: worker._id,
       lastSubmittedAt: now,
-      latestOriginKind: args.originKind,
+      latestOriginKind: submittedOrigin.originKind,
       latestOriginValue: origin.originValue,
       latestSource: args.source,
       contactAttemptCount: prospect.contactAttemptCount + 1,
@@ -150,7 +163,7 @@ export const submit = mutation({
       await updateLeadGenOriginStats(ctx, {
         tenantId: access.tenantId,
         source: args.source,
-        originKind: args.originKind,
+        originKind: submittedOrigin.originKind,
         originKey: origin.originKey,
         originValue: origin.originValue,
         prospectId: prospect._id,
@@ -166,6 +179,33 @@ export const submit = mutation({
     };
   },
 });
+
+function resolveCaptureOrigin(args: {
+  source: LeadGenSource;
+  originKind: LeadGenOriginKind;
+  originUrlOrLabel?: string;
+}): {
+  originKind: LeadGenOriginKind;
+  originUrlOrLabel?: string;
+} {
+  if (args.source === "meta_business") {
+    return {
+      originKind: "source_only" as const,
+      originUrlOrLabel: undefined,
+    };
+  }
+
+  if (!INSTAGRAM_CAPTURE_ORIGINS.has(args.originKind)) {
+    throw new Error(
+      "Choose Post, Reel, Story Poll, Follower, or Application for Instagram source",
+    );
+  }
+
+  return {
+    originKind: args.originKind,
+    originUrlOrLabel: args.originUrlOrLabel,
+  };
+}
 
 async function requireOperationalLeadGenWorker(
   ctx: MutationCtx,

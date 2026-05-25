@@ -205,6 +205,8 @@ function formatSource(source: ActivityRow["source"]) {
 }
 
 function formatOrigin(originKind: string) {
+  if (originKind === "source_only") return "No Origin";
+
   return originKind
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))

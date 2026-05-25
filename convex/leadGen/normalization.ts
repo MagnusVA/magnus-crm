@@ -47,6 +47,8 @@ export function normalizeLeadGenOrigin(args: {
   originKind: OriginKind;
   originUrlOrLabel?: string;
 }): NormalizedLeadGenOrigin {
+  if (args.originKind === "source_only") return {};
+
   const value = args.originUrlOrLabel?.trim();
   if (!value) return {};
 

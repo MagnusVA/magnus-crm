@@ -11,6 +11,8 @@ export const leadGenOriginKindValidator = v.union(
   v.literal("story_poll"),
   v.literal("follower"),
   v.literal("application"),
+  v.literal("source_only"),
+  // Legacy values retained so existing rows continue to validate.
   v.literal("meta_business"),
   v.literal("other"),
 );
