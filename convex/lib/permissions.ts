@@ -35,6 +35,15 @@ export const PERMISSIONS = {
   // === v0.6b Reporting ===
   "reports:view": ["tenant_master", "tenant_admin"],
   // === End v0.6b Reporting ===
+  // === Lead Gen Ops ===
+  "lead-gen:capture": ["lead_generator", "tenant_master", "tenant_admin"],
+  "lead-gen:view-own": ["lead_generator", "tenant_master", "tenant_admin"],
+  "lead-gen:view-all": ["tenant_master", "tenant_admin"],
+  "lead-gen:manage-workers": ["tenant_master", "tenant_admin"],
+  "lead-gen:manage-config": ["tenant_master", "tenant_admin"],
+  "lead-gen:correct": ["tenant_master", "tenant_admin"],
+  "lead-gen:export": ["tenant_master", "tenant_admin"],
+  // === End Lead Gen Ops ===
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;

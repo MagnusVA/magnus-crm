@@ -3,7 +3,7 @@ import { fetchQuery } from "convex/nextjs";
 import { notFound } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { verifySession } from "@/lib/auth";
+import { requirePermission } from "@/lib/auth";
 import { OpportunityDetailClient } from "./_components/opportunity-detail-client";
 import { OpportunityDetailSkeleton } from "./_components/opportunity-detail-skeleton";
 
@@ -15,12 +15,12 @@ export default async function OpportunityDetailPage({
   params: Promise<{ opportunityId: string }>;
 }) {
   const { opportunityId } = await params;
-  const { accessToken } = await verifySession();
+  const { session } = await requirePermission("pipeline:view-own");
   const typedOpportunityId = opportunityId as Id<"opportunities">;
   const detail = await fetchQuery(
     api.opportunities.detailQuery.getOpportunityDetail,
     { opportunityId: typedOpportunityId },
-    { token: accessToken },
+    { token: session.accessToken },
   );
 
   if (detail === null) {

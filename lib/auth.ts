@@ -7,6 +7,8 @@ import { api } from "@/convex/_generated/api";
 import { SYSTEM_ADMIN_ORG_ID } from "@/lib/system-admin-org";
 import type { Doc } from "@/convex/_generated/dataModel";
 import type { CrmRole } from "@/convex/lib/roleMapping";
+import type { Permission } from "@/convex/lib/permissions";
+import { hasPermission } from "@/convex/lib/permissions";
 
 type AuthResult = Awaited<ReturnType<typeof withAuth>>;
 
@@ -158,17 +160,35 @@ export async function requireWorkspaceUser() {
   }
 }
 
+function fallbackForRole(role: CrmRole) {
+  if (role === "closer") return "/workspace/closer";
+  if (role === "lead_generator") return "/workspace/lead-gen/capture";
+  return "/workspace";
+}
+
 /**
  * Require a workspace user with one of the specified CRM roles.
  * Redirects to a role-appropriate fallback if the user lacks permission.
  */
 export async function requireRole(allowedRoles: CrmRole[]) {
   const access = await requireWorkspaceUser();
-  const fallback =
-    access.crmUser.role === "closer" ? "/workspace/closer" : "/workspace";
 
   if (!allowedRoles.includes(access.crmUser.role)) {
-    redirect(fallback);
+    redirect(fallbackForRole(access.crmUser.role));
+  }
+
+  return access;
+}
+
+/**
+ * Require a workspace user whose CRM role has a specific app permission.
+ * Redirects to a role-appropriate fallback if the user lacks permission.
+ */
+export async function requirePermission(permission: Permission) {
+  const access = await requireWorkspaceUser();
+
+  if (!hasPermission(access.crmUser.role, permission)) {
+    redirect(fallbackForRole(access.crmUser.role));
   }
 
   return access;

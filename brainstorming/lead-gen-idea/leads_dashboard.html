@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Leads Dashboard</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+<style>
+:root{--bg:#f5f5f3;--bg2:#fff;--bg3:#f0f0ec;--border:#e0e0da;--border2:#ccc;--text:#1a1a1a;--text2:#666;--text3:#888;--text4:#aaa;}
+body.dark{--bg:#141414;--bg2:#1e1e1e;--bg3:#252525;--border:#2a2a2a;--border2:#3a3a3a;--text:#f0f0f0;--text2:#aaa;--text3:#777;--text4:#555;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);padding:2rem;transition:background 0.3s,color 0.3s;}
+.container{max-width:900px;margin:0 auto;}
+.top-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;gap:8px;flex-wrap:wrap;}
+.top-header h1{font-size:20px;font-weight:500;display:flex;align-items:center;gap:8px;}
+.top-btns{display:flex;align-items:center;gap:8px;}
+.top-btn{background:var(--bg2);border:1px solid var(--border);color:var(--text3);padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px;transition:all 0.2s;}
+.top-btn:hover{border-color:#185FA5;color:#185FA5;}
+.top-btn.spinning .ti-refresh{animation:spin 0.7s linear infinite;}
+@keyframes spin{from{transform:rotate(0deg);}to{transform:rotate(360deg);}}
+.tabs{display:flex;border-bottom:1px solid var(--border);margin-bottom:1.5rem;overflow-x:auto;}
+.tab{padding:10px 14px;font-size:13px;cursor:pointer;border:none;background:transparent;color:var(--text3);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;}
+.tab.active{color:var(--text);border-bottom:2px solid #185FA5;font-weight:500;}
+.panel{display:none;}.panel.active{display:block;}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:1.5rem;}
+.metric{background:var(--bg3);border-radius:8px;padding:1rem;}
+.metric .lbl{font-size:12px;color:var(--text3);margin-bottom:4px;}
+.metric .val{font-size:26px;font-weight:500;color:var(--text);}
+.tf{display:flex;gap:6px;margin-bottom:1.25rem;flex-wrap:wrap;}
+.tf button{font-size:12px;padding:5px 14px;border-radius:20px;border:1px solid var(--border2);background:var(--bg2);color:var(--text3);cursor:pointer;}
+.tf button.active{background:#185FA5;color:white;border-color:#185FA5;}
+.post-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:1rem 1.25rem;margin-bottom:10px;display:flex;align-items:center;gap:14px;}
+.rank{font-size:16px;font-weight:500;color:var(--text4);min-width:24px;}
+.post-preview{width:52px;height:52px;border-radius:8px;background:var(--bg3);border:1px solid var(--border);display:flex;flex-direction:column;align-items:center;justify-content:center;flex-shrink:0;text-decoration:none;transition:background 0.15s;}
+.post-preview:hover{background:#E6F1FB;}
+.ig-type{font-size:9px;color:var(--text4);margin-top:3px;text-transform:uppercase;letter-spacing:0.5px;}
+.post-info{flex:1;min-width:0;}
+.post-id{font-size:13px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.post-url-short{font-size:11px;color:var(--text4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px;}
+.bar-wrap{height:5px;background:var(--bg3);border-radius:3px;}
+.bar{height:5px;border-radius:3px;}
+.open-btn{font-size:11px;color:#185FA5;text-decoration:none;display:inline-flex;align-items:center;gap:3px;margin-top:4px;}
+.open-btn:hover{text-decoration:underline;}
+.va-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin-bottom:1.5rem;}
+.va-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:1rem 1.25rem;cursor:pointer;transition:border-color 0.15s;}
+.va-card:hover{border-color:#185FA5;}
+.va-top{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+.va-avatar{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:500;flex-shrink:0;}
+.va-name{font-size:14px;font-weight:500;color:var(--text);}
+.va-count{font-size:24px;font-weight:500;color:var(--text);}
+.va-sub{font-size:12px;color:var(--text4);}
+.va-bar-wrap{height:4px;background:var(--bg3);border-radius:2px;margin-top:8px;}
+.va-bar{height:4px;border-radius:2px;}
+.back-btn{font-size:12px;color:var(--text3);background:transparent;border:1px solid var(--border);border-radius:8px;padding:5px 10px;cursor:pointer;margin-bottom:1rem;display:inline-flex;align-items:center;gap:4px;}
+.back-btn:hover{color:var(--text);}
+.va-detail{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:1.25rem;margin-bottom:1rem;}
+.va-detail-header{display:flex;align-items:center;gap:12px;margin-bottom:1.25rem;padding-bottom:1rem;border-bottom:1px solid var(--border);}
+.va-detail-title{font-size:16px;font-weight:500;color:var(--text);}
+.va-detail-sub{font-size:13px;color:var(--text3);}
+.src-badge{font-size:11px;padding:3px 10px;border-radius:10px;font-weight:500;display:inline-flex;align-items:center;gap:4px;}
+.src-badge.ig{background:#E6F1FB;color:#185FA5;}
+.src-badge.meta{background:#E7F0FD;color:#1877F2;}
+.src-badge.ig-detail{background:linear-gradient(135deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888);color:white;}
+.source-breakdown{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
+.empty{text-align:center;padding:2.5rem 1rem;color:var(--text4);font-size:14px;}
+.lead-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);font-size:13px;}
+.lead-row:last-child{border-bottom:none;}
+.lead-user{font-weight:500;min-width:130px;color:var(--text);}
+.lead-date{color:var(--text4);min-width:90px;}
+.lead-link{color:#185FA5;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-decoration:none;}
+.lead-link:hover{text-decoration:underline;}
+.dot{width:7px;height:7px;border-radius:50%;background:#1D9E75;display:inline-block;animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.status{font-size:12px;color:var(--text4);display:flex;align-items:center;gap:6px;margin-top:1rem;}
+.section-title{font-size:14px;font-weight:500;margin-bottom:12px;color:var(--text);}
+.top-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;}
+.btn-danger{background:transparent;border:1px solid var(--border2);color:var(--text3);padding:5px 10px;border-radius:8px;font-size:12px;cursor:pointer;}
+.btn-danger:hover{background:#FCEBEB;color:#A32D2D;border-color:#F09595;}
+.report-hero{background:linear-gradient(135deg,#185FA5 0%,#534AB7 100%);border-radius:16px;padding:2rem;color:white;margin-bottom:1.5rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;}
+.report-hero h2{font-size:20px;font-weight:500;margin-bottom:4px;}
+.report-hero p{font-size:13px;opacity:0.8;}
+.dl-btn{background:white;color:#185FA5;border:none;padding:10px 22px;border-radius:10px;font-size:14px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:8px;}
+.dl-btn:hover{opacity:0.9;}
+.report-filters{display:flex;gap:6px;margin-bottom:1.5rem;flex-wrap:wrap;}
+.report-filters button{font-size:12px;padding:5px 14px;border-radius:20px;border:1px solid var(--border2);background:var(--bg2);color:var(--text3);cursor:pointer;}
+.report-filters button.active{background:#185FA5;color:white;border-color:#185FA5;}
+.report-preview{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:1.5rem;}
+.rp-section{margin-bottom:1.5rem;}
+.rp-section h3{font-size:12px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:1rem;}
+.rp-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:1rem;}
+.rp-metric{border-radius:10px;padding:1rem;text-align:center;}
+.rp-metric .num{font-size:28px;font-weight:500;}
+.rp-metric .lbl{font-size:12px;margin-top:2px;opacity:0.85;}
+.va-report-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--bg3);}
+.va-report-row:last-child{border-bottom:none;}
+.va-rep-av{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:500;flex-shrink:0;}
+.va-rep-name{font-weight:500;min-width:80px;font-size:14px;color:var(--text);}
+.va-rep-bar-wrap{flex:1;height:8px;background:var(--bg3);border-radius:4px;}
+.va-rep-bar{height:8px;border-radius:4px;}
+.va-rep-count{font-size:16px;font-weight:500;min-width:30px;text-align:right;}
+.post-rep-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--bg3);font-size:13px;}
+.post-rep-row:last-child{border-bottom:none;}
+.post-rep-rank{font-weight:500;color:var(--text4);min-width:22px;}
+.post-rep-info{flex:1;min-width:0;}
+.post-rep-url{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#185FA5;text-decoration:none;font-size:12px;display:block;}
+.post-rep-type{font-size:10px;background:#E6F1FB;color:#185FA5;padding:2px 7px;border-radius:10px;font-weight:500;}
+.date-range-wrap{position:relative;display:inline-block;}
+.date-range-btn{font-size:12px;padding:5px 14px;border-radius:20px;border:1px solid var(--border2);background:var(--bg2);color:var(--text3);cursor:pointer;display:inline-flex;align-items:center;gap:5px;}
+.date-range-btn.active{background:#185FA5;color:white;border-color:#185FA5;}
+.drp{display:none;position:absolute;top:calc(100% + 8px);left:0;background:var(--bg2);border:1px solid var(--border);border-radius:14px;padding:1rem;z-index:200;width:280px;box-shadow:0 8px 30px rgba(0,0,0,0.2);}
+.drp.open{display:block;}
+.drp-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.drp-month{font-size:14px;font-weight:500;color:var(--text);}
+.drp-nav{background:transparent;border:none;color:var(--text3);cursor:pointer;font-size:16px;padding:2px 6px;border-radius:6px;}
+.drp-nav:hover{background:var(--bg3);}
+.drp-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;}
+.drp-dow{font-size:11px;color:var(--text4);text-align:center;padding:4px 0;font-weight:500;}
+.drp-day{font-size:12px;text-align:center;padding:6px 2px;border-radius:6px;cursor:pointer;color:var(--text);transition:background 0.1s;}
+.drp-day:hover:not(.drp-empty){background:var(--bg3);}
+.drp-empty{cursor:default;}
+.drp-start,.drp-end{background:#185FA5!important;color:white!important;border-radius:6px;}
+.drp-in-range{background:#185FA520;border-radius:0;}
+.drp-start.drp-in-range{border-radius:6px 0 0 6px;}
+.drp-end.drp-in-range{border-radius:0 6px 6px 0;}
+.drp-today{font-weight:700;color:#185FA5;}
+.drp-start.drp-today,.drp-end.drp-today{color:white;}
+.drp-footer{display:flex;justify-content:space-between;align-items:center;margin-top:10px;padding-top:10px;border-top:1px solid var(--border);}
+.drp-hint{font-size:11px;color:var(--text4);}
+.drp-clear{font-size:12px;color:var(--text3);background:transparent;border:none;cursor:pointer;padding:4px 8px;border-radius:6px;}
+.drp-clear:hover{background:var(--bg3);}
+.drp-apply{font-size:12px;background:#185FA5;color:white;border:none;padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:500;}
+.drp-apply:hover{background:#0C447C;}
+.drp-apply:disabled{opacity:0.4;cursor:default;}
+</style>
+</head>
+<body>
+<div class="container">
+
+<div class="top-header">
+  <h1><i class="ti ti-brand-instagram" style="font-size:22px;color:#185FA5;"></i> <span id="h-title">Leads Dashboard</span></h1>
+  <div class="top-btns">
+    <button class="top-btn" onclick="toggleLang()"><i class="ti ti-language" style="font-size:13px;"></i> <span id="h-lang-lbl">ES</span></button>
+    <button class="top-btn" id="theme-btn" onclick="toggleTheme()"><i class="ti ti-moon" id="theme-icon" style="font-size:13px;"></i> <span id="h-theme-lbl">Dark mode</span></button>
+    <button class="top-btn" id="refresh-btn" onclick="refreshAll()"><i class="ti ti-refresh" style="font-size:13px;"></i> <span id="h-refresh-lbl">Refresh</span></button>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab active" onclick="showTab('posts',this)"><i class="ti ti-brand-instagram" style="margin-right:4px;"></i><span class="tab-lbl">IG Posts</span></button>
+  <button class="tab" onclick="showTab('vas',this)"><i class="ti ti-users" style="margin-right:4px;"></i><span class="tab-lbl">VAs</span></button>
+  <button class="tab" onclick="showTab('lista',this)"><i class="ti ti-list" style="margin-right:4px;"></i><span class="tab-lbl">All leads</span></button>
+  <button class="tab" onclick="showTab('reporte',this)"><i class="ti ti-file-download" style="margin-right:4px;"></i><span class="tab-lbl">Report</span></button>
+</div>
+
+<!-- POSTS -->
+<div id="tab-posts" class="panel active">
+  <div class="metrics">
+    <div class="metric"><div class="lbl" id="lbl-total-ig">Total IG leads</div><div class="val" id="m-total">0</div></div>
+    <div class="metric"><div class="lbl" id="lbl-unique-posts">Unique posts</div><div class="val" id="m-posts">0</div></div>
+    <div class="metric"><div class="lbl" id="lbl-best-post">Best post</div><div class="val" id="m-best">0</div></div>
+  </div>
+  <div id="team-breakdown" style="margin-bottom:1.5rem;display:none;">
+    <div style="font-size:13px;font-weight:500;color:var(--text);margin-bottom:10px;display:flex;align-items:center;gap:6px;"><i class="ti ti-users" style="font-size:14px;color:var(--text3);"></i><span id="lbl-by-team">By team</span></div>
+    <div id="team-breakdown-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;"></div>
+  </div>
+  <div class="tf" id="tf-posts">
+    <button class="active" onclick="setFilter('posts',24,this)"><span class="lbl-24">Last 24h</span></button>
+    <button onclick="setFilter('posts',48,this)"><span class="lbl-48">Last 48h</span></button>
+    <button onclick="setFilter('posts',168,this)"><span class="lbl-week">Last week</span></button>
+    <button onclick="setFilter('posts',0,this)"><span class="lbl-all">All</span></button>
+    <div class="date-range-wrap">
+      <button class="date-range-btn" id="drb-posts" onclick="toggleDatePicker('posts')"><i class="ti ti-calendar" style="font-size:12px;"></i> <span class="lbl-range">Date range</span></button>
+      <div class="drp" id="dp-posts">
+        <div class="drp-header"><button class="drp-nav" onclick="dpNav('posts',-1)">‹</button><div class="drp-month" id="dp-posts-title"></div><button class="drp-nav" onclick="dpNav('posts',1)">›</button></div>
+        <div class="drp-grid" id="dp-posts-grid"></div>
+        <div class="drp-footer"><span class="drp-hint" id="dp-posts-hint">Choose start date</span><div style="display:flex;gap:6px;"><button class="drp-clear" onclick="clearRange('posts')"><span class="lbl-clear">Clear</span></button><button class="drp-apply" id="dp-posts-apply" onclick="applyRange('posts')" disabled><span class="lbl-apply">Apply</span></button></div></div>
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+    <div class="section-title" id="lbl-posts-title" style="margin-bottom:0;">Posts with most leads</div>
+    <div style="display:flex;align-items:center;gap:6px;">
+      <i class="ti ti-users" style="font-size:14px;color:var(--text3);"></i>
+      <select id="filter-team-posts" onchange="renderPosts()" style="font-size:12px;padding:5px 10px;border-radius:20px;border:1px solid var(--border2);background:var(--bg2);color:var(--text3);cursor:pointer;outline:none;">
+        <option value="" id="opt-all-teams-posts">All teams</option>
+      </select>
+    </div>
+  </div>
+  <div id="rankings"></div>
+  <div class="status"><span class="dot"></span> <span id="lbl-ig-only">Instagram leads only</span></div>
+</div>
+
+<!-- VAs -->
+<div id="tab-vas" class="panel">
+  <div id="va-overview">
+    <div class="tf" id="tf-vas">
+      <button class="active" onclick="setFilter('vas',24,this)"><span class="lbl-24">Last 24h</span></button>
+      <button onclick="setFilter('vas',48,this)"><span class="lbl-48">Last 48h</span></button>
+      <button onclick="setFilter('vas',168,this)"><span class="lbl-week">Last week</span></button>
+      <button onclick="setFilter('vas',0,this)"><span class="lbl-all">All</span></button>
+      <div class="date-range-wrap">
+        <button class="date-range-btn" id="drb-vas" onclick="toggleDatePicker('vas')"><i class="ti ti-calendar" style="font-size:12px;"></i> <span class="lbl-range">Date range</span></button>
+        <div class="drp" id="dp-vas">
+          <div class="drp-header"><button class="drp-nav" onclick="dpNav('vas',-1)">‹</button><div class="drp-month" id="dp-vas-title"></div><button class="drp-nav" onclick="dpNav('vas',1)">›</button></div>
+          <div class="drp-grid" id="dp-vas-grid"></div>
+          <div class="drp-footer"><span class="drp-hint" id="dp-vas-hint">Choose start date</span><div style="display:flex;gap:6px;"><button class="drp-clear" onclick="clearRange('vas')"><span class="lbl-clear">Clear</span></button><button class="drp-apply" id="dp-vas-apply" onclick="applyRange('vas')" disabled><span class="lbl-apply">Apply</span></button></div></div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+      <div class="section-title" id="lbl-vas-title" style="margin-bottom:0;">Leads by VA (Instagram + Meta)</div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <i class="ti ti-users" style="font-size:14px;color:var(--text3);"></i>
+        <select id="filter-team" onchange="renderVAs()" style="font-size:12px;padding:5px 10px;border-radius:20px;border:1px solid var(--border2);background:var(--bg2);color:var(--text3);cursor:pointer;outline:none;">
+          <option value="" id="opt-all-teams">All teams</option>
+        </select>
+      </div>
+    </div>
+    <div class="va-grid" id="va-grid"></div>
+  </div>
+  <div id="va-detail-view" style="display:none;">
+    <button class="back-btn" onclick="showVaOverview()"><i class="ti ti-arrow-left" style="font-size:12px;"></i> <span id="lbl-back">Back</span></button>
+    <div class="va-detail">
+      <div class="va-detail-header">
+        <div class="va-avatar" id="detail-avatar" style="width:46px;height:46px;font-size:16px;"></div>
+        <div><div class="va-detail-title" id="detail-name"></div><div class="va-detail-sub" id="detail-sub"></div><div class="source-breakdown" id="detail-sources"></div></div>
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="lbl" id="lbl-d-total">Total leads</div><div class="val" id="d-total">0</div></div>
+        <div class="metric"><div class="lbl" id="lbl-d-ig">Instagram</div><div class="val" id="d-ig">0</div></div>
+        <div class="metric"><div class="lbl" id="lbl-d-meta">Meta Business</div><div class="val" id="d-meta">0</div></div>
+      </div>
+      <div id="ig-leads-title" style="font-size:14px;font-weight:500;margin-bottom:12px;color:var(--text);display:none;align-items:center;gap:6px;"><i class="ti ti-brand-instagram" style="font-size:15px;color:#C13584;margin-right:4px;"></i> <span id="lbl-ig-leads">Instagram leads</span></div>
+      <div id="detail-ig-leads"></div>
+      <div id="meta-leads-section" style="margin-top:1.5rem;display:none;">
+        <div style="font-size:14px;font-weight:500;margin-bottom:12px;color:var(--text);display:flex;align-items:center;gap:6px;"><i class="ti ti-brand-facebook" style="font-size:15px;color:#1877F2;"></i> <span id="lbl-meta-leads">Meta Business leads</span></div>
+        <div id="detail-meta-leads"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- LISTA -->
+<div id="tab-lista" class="panel">
+  <div class="top-bar">
+    <span class="section-title" id="lista-count" style="margin-bottom:0;">0 leads</span>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <select id="filter-va" onchange="renderLista()" style="font-size:13px;padding:5px 8px;border-radius:8px;border:1px solid var(--border2);background:var(--bg2);color:var(--text);"></select>
+      <select id="filter-team-lista" onchange="renderLista()" style="font-size:13px;padding:5px 8px;border-radius:8px;border:1px solid var(--border2);background:var(--bg2);color:var(--text);"></select>
+      <select id="filter-source" onchange="renderLista()" style="font-size:13px;padding:5px 8px;border-radius:8px;border:1px solid var(--border2);background:var(--bg2);color:var(--text);">
+        <option value="" id="opt-all-src">All sources</option>
+        <option value="instagram">Instagram</option>
+        <option value="meta">Meta Business</option>
+      </select>
+      <button class="btn-danger" onclick="clearAll()"><i class="ti ti-trash" style="margin-right:4px;"></i><span id="lbl-delete-all">Delete all</span></button>
+    </div>
+  </div>
+  <div id="leads-list"></div>
+</div>
+
+<!-- REPORTE -->
+<div id="tab-reporte" class="panel">
+  <div class="report-hero">
+    <div>
+      <h2><i class="ti ti-file-analytics" style="margin-right:8px;vertical-align:-3px;"></i><span id="lbl-report-title">Full report</span></h2>
+      <p id="report-subtitle">Team activity summary</p>
+    </div>
+    <button class="dl-btn" onclick="downloadReport()"><i class="ti ti-download" style="font-size:16px;"></i> <span id="lbl-download">Download report</span></button>
+  </div>
+  <div class="report-filters" id="tf-report">
+    <button class="active" onclick="setFilter('report',24,this)"><span class="lbl-24">Last 24h</span></button>
+    <button onclick="setFilter('report',48,this)"><span class="lbl-48">Last 48h</span></button>
+    <button onclick="setFilter('report',168,this)"><span class="lbl-week">Last week</span></button>
+    <button onclick="setFilter('report',0,this)"><span class="lbl-all">All</span></button>
+    <div class="date-range-wrap">
+      <button class="date-range-btn" id="drb-report" onclick="toggleDatePicker('report')"><i class="ti ti-calendar" style="font-size:12px;"></i> <span class="lbl-range">Date range</span></button>
+      <div class="drp" id="dp-report">
+        <div class="drp-header"><button class="drp-nav" onclick="dpNav('report',-1)">‹</button><div class="drp-month" id="dp-report-title"></div><button class="drp-nav" onclick="dpNav('report',1)">›</button></div>
+        <div class="drp-grid" id="dp-report-grid"></div>
+        <div class="drp-footer"><span class="drp-hint" id="dp-report-hint">Choose start date</span><div style="display:flex;gap:6px;"><button class="drp-clear" onclick="clearRange('report')"><span class="lbl-clear">Clear</span></button><button class="drp-apply" id="dp-report-apply" onclick="applyRange('report')" disabled><span class="lbl-apply">Apply</span></button></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="report-preview" id="report-preview"></div>
+</div>
+
+</div>
+<script>
+// ── TRANSLATIONS ──
+var TR = {
+  en: {
+    title:'Leads Dashboard', darkMode:'Dark mode', lightMode:'Light mode', refresh:'Refresh',
+    tab0:'IG Posts', tab1:'VAs', tab2:'All leads', tab3:'Report',
+    totalIG:'Total IG leads', uniquePosts:'Unique posts', bestPost:'Best post',
+    last24:'Last 24h', last48:'Last 48h', lastWeek:'Last week', all:'All',
+    range:'Date range', apply:'Apply', clear:'Clear',
+    chooseStart:'Choose start date', chooseEnd:'Choose end date',
+    postsTitle:'Posts with most leads', igOnly:'Instagram leads only',
+    vasTitle:'Leads by VA (Instagram + Meta)', vaLeads:'leads added',
+    igLeads:'Instagram leads', metaLeads:'Meta Business leads',
+    dTotal:'Total leads', dIG:'Instagram', dMeta:'Meta Business',
+    back:'Back', openIG:'Open in Instagram', leads:'leads',
+    noLeads:'No leads in this period', noLeadsYet:'No leads yet', noData:'No data',
+    allVAs:'All VAs', allSources:'All sources', deleteAll:'Delete all',
+    reportTitle:'Full report', reportSub:'Team activity summary', download:'Download report',
+    reportIG:'IG Leads', reportMeta:'Meta Leads', reportPosts:'Unique posts', reportVAs:'Active VAs',
+    vaSection:'Leads by VA', postsSection:'Top 5 posts (Instagram)', detailSection:'Lead detail (last 50)',
+    confirm:'Delete all leads? This cannot be undone.',
+    periodLeads:'leads in selected period',
+    generalSummary:'General summary',
+    allTeams:'All teams', team:'Team', noTeam:'No team',
+    teamFilter:'Filter by team',
+  },
+  es: {
+    title:'Dashboard de Leads', darkMode:'Modo oscuro', lightMode:'Modo claro', refresh:'Actualizar',
+    tab0:'Posts IG', tab1:'VAs', tab2:'Todos los leads', tab3:'Reporte',
+    totalIG:'Total leads IG', uniquePosts:'Posts únicos', bestPost:'Mejor post',
+    last24:'Últimas 24h', last48:'Últimas 48h', lastWeek:'Última semana', all:'Todo',
+    range:'Rango de fecha', apply:'Aplicar', clear:'Limpiar',
+    chooseStart:'Elegí fecha inicio', chooseEnd:'Elegí fecha fin',
+    postsTitle:'Posts con más leads', igOnly:'Solo leads de Instagram',
+    vasTitle:'Leads por VA (Instagram + Meta)', vaLeads:'leads agregados',
+    igLeads:'Leads de Instagram', metaLeads:'Leads de Meta Business',
+    dTotal:'Total leads', dIG:'Instagram', dMeta:'Meta Business',
+    back:'Volver', openIG:'Abrir en Instagram', leads:'leads',
+    noLeads:'No hay leads en este período', noLeadsYet:'No hay leads todavía', noData:'Sin datos',
+    allVAs:'Todos los VAs', allSources:'Todas las fuentes', deleteAll:'Borrar todo',
+    reportTitle:'Reporte completo', reportSub:'Resumen de actividad del equipo', download:'Descargar reporte',
+    reportIG:'Leads Instagram', reportMeta:'Leads Meta', reportPosts:'Posts únicos', reportVAs:'VAs activos',
+    vaSection:'Leads por VA', postsSection:'Top 5 posts (Instagram)', detailSection:'Detalle de leads (últimos 50)',
+    confirm:'¿Borrar todos los leads? Esta acción no se puede deshacer.',
+    periodLeads:'leads en el período seleccionado',
+    generalSummary:'Resumen general',
+    allTeams:'Todos los equipos', team:'Equipo', noTeam:'Sin equipo',
+    teamFilter:'Filtrar por equipo',
+  }
+};
+var LANG = localStorage.getItem('ig_lang') || 'en';
+function t(k){ return (TR[LANG]||TR.en)[k] || k; }
+
+function applyLang() {
+  document.getElementById('h-title').textContent = t('title');
+  document.getElementById('h-lang-lbl').textContent = LANG==='en'?'ES':'EN';
+  var dark = document.body.classList.contains('dark');
+  document.getElementById('h-theme-lbl').textContent = dark ? t('lightMode') : t('darkMode');
+  document.getElementById('h-refresh-lbl').textContent = t('refresh');
+  // tabs
+  var tabLbls = [t('tab0'),t('tab1'),t('tab2'),t('tab3')];
+  document.querySelectorAll('.tab .tab-lbl').forEach(function(el,i){ el.textContent = tabLbls[i]; });
+  // metric labels
+  document.getElementById('lbl-total-ig').textContent = t('totalIG');
+  document.getElementById('lbl-unique-posts').textContent = t('uniquePosts');
+  document.getElementById('lbl-best-post').textContent = t('bestPost');
+  document.getElementById('lbl-posts-title').textContent = t('postsTitle');
+  document.getElementById('lbl-ig-only').textContent = t('igOnly');
+  document.getElementById('lbl-vas-title').textContent = t('vasTitle');
+  document.getElementById('lbl-back').textContent = t('back');
+  document.getElementById('lbl-d-total').textContent = t('dTotal');
+  document.getElementById('lbl-d-ig').textContent = t('dIG');
+  document.getElementById('lbl-d-meta').textContent = t('dMeta');
+  document.getElementById('lbl-ig-leads').textContent = t('igLeads');
+  document.getElementById('lbl-meta-leads').textContent = t('metaLeads');
+  document.getElementById('lbl-delete-all').textContent = t('deleteAll');
+  document.getElementById('lbl-report-title').textContent = t('reportTitle');
+  document.getElementById('lbl-download').textContent = t('download');
+  // filter buttons
+  document.querySelectorAll('.lbl-24').forEach(function(el){ el.textContent = t('last24'); });
+  document.querySelectorAll('.lbl-48').forEach(function(el){ el.textContent = t('last48'); });
+  document.querySelectorAll('.lbl-week').forEach(function(el){ el.textContent = t('lastWeek'); });
+  document.querySelectorAll('.lbl-all').forEach(function(el){ el.textContent = t('all'); });
+  document.querySelectorAll('.lbl-range').forEach(function(el){ el.textContent = t('range'); });
+  document.querySelectorAll('.lbl-apply').forEach(function(el){ el.textContent = t('apply'); });
+  document.querySelectorAll('.lbl-clear').forEach(function(el){ el.textContent = t('clear'); });
+  // drp hints (only if not active range)
+  ['posts','vas','report'].forEach(function(tab){
+    var hint = document.getElementById('dp-'+tab+'-hint');
+    if(hint && !dateRanges[tab].from) hint.textContent = t('chooseStart');
+  });
+  // source filter
+  document.getElementById('opt-all-src').textContent = t('allSources');
+  // lista filter
+  var fva = document.getElementById('filter-va');
+  if(fva && fva.options[0]) fva.options[0].textContent = t('allVAs');
+}
+
+function toggleLang(){
+  LANG = LANG==='en'?'es':'en';
+  localStorage.setItem('ig_lang', LANG);
+  applyLang();
+  renderAll();
+}
+
+// ── COLORS ──
+var COLOR_POOL=[
+  {color:'#185FA5',bg:'#E6F1FB'},{color:'#0F6E56',bg:'#E1F5EE'},{color:'#993C1D',bg:'#FAECE7'},
+  {color:'#534AB7',bg:'#EEEDFE'},{color:'#854F0B',bg:'#FAEEDA'},{color:'#A32D2D',bg:'#FCEBEB'},
+  {color:'#3B6D11',bg:'#EAF3DE'},{color:'#0C6B8E',bg:'#E0F4FB'},{color:'#7B3FA0',bg:'#F3E8FA'},
+  {color:'#B05A00',bg:'#FEF0E0'},{color:'#1A6B4A',bg:'#E2F5EC'},{color:'#5C3A8A',bg:'#EDE3FA'},
+  {color:'#8A3A3A',bg:'#FAE8E8'},{color:'#2E6B8A',bg:'#E3F0FA'},{color:'#6B6B00',bg:'#F5F5E0'},
+];
+function getColor(i){ return COLOR_POOL[i%COLOR_POOL.length].color; }
+function getBg(i){ return COLOR_POOL[i%COLOR_POOL.length].bg; }
+
+// ── USERS ──
+function getStoredUsers(){ try{ return JSON.parse(localStorage.getItem('ig_users')||'null')||['Abner','Ingrid','Selvin','Yefry','Sarah','Jose','Daniel']; }catch{ return['Abner','Ingrid','Selvin','Yefry','Sarah','Jose','Daniel']; } }
+var USERS = getStoredUsers();
+
+// ── DATA ──
+function getLeads(){ try{ return JSON.parse(localStorage.getItem('ig_leads')||'[]'); }catch{ return[]; } }
+function getTeams(){ try{ return JSON.parse(localStorage.getItem('ig_teams')||'{}'); }catch{ return{}; } }
+function getSchedules(){ try{ return JSON.parse(localStorage.getItem('ig_schedules')||'{}'); }catch{ return{}; } }
+function saveLeads(l){ localStorage.setItem('ig_leads',JSON.stringify(l)); }
+
+var hours = {posts:24, vas:24, report:24};
+var dateRanges = {posts:{from:null,to:null}, vas:{from:null,to:null}, report:{from:null,to:null}};
+var currentVaDetail = null;
+
+function filteredLeadsForTab(tab){
+  var r = dateRanges[tab];
+  if(r && r.from && r.to){
+    var from = new Date(r.from).setHours(0,0,0,0);
+    var to = new Date(r.to).setHours(23,59,59,999);
+    return getLeads().filter(function(l){ return l.ts>=from && l.ts<=to; });
+  }
+  var h = hours[tab];
+  if(h===0) return getLeads();
+  var cutoff = Date.now() - h*3600000;
+  return getLeads().filter(function(l){ return l.ts>=cutoff; });
+}
+
+var KEYWORD_POSTS = ['follower','application','story poll'];
+function isKeyword(link){ if(!link) return false; return KEYWORD_POSTS.some(function(k){ return link.trim().toLowerCase()===k; }); }
+
+// Returns total scheduled hours for a user across the date range
+function calcScheduledHours(userName, fromTs, toTs){
+  var schedules=getSchedules();
+  var sched=schedules[userName];
+  if(!sched) return 0;
+  var dayKeys=['sun','mon','tue','wed','thu','fri','sat']; // JS getDay() 0=Sun
+  var total=0;
+  var d=new Date(fromTs); d.setHours(0,0,0,0);
+  var end=new Date(toTs); end.setHours(23,59,59,999);
+  while(d<=end){
+    var dayKey=dayKeys[d.getDay()];
+    total+=parseFloat(sched[dayKey]||0);
+    d.setDate(d.getDate()+1);
+  }
+  return total;
+}
+
+function getPostInfo(url){
+  if(!url||url==='Sin link') return null;
+  var type='post', code='';
+  var r=url.match(/instagram\.com\/reel(?:s)?\/([A-Za-z0-9_-]+)/);
+  var p=url.match(/instagram\.com\/p\/([A-Za-z0-9_-]+)/);
+  if(r){ type='reel'; code=r[1]; } else if(p){ type='post'; code=p[1]; }
+  else{ code=url.split('/').filter(Boolean).pop()||''; code=code.split('?')[0]; }
+  return{type:type,code:code,url:url};
+}
+
+function countByPost(leads){
+  var counts={};
+  for(var i=0;i<leads.length;i++){
+    var k=leads[i].post||'Sin link';
+    if(!counts[k]) counts[k]={count:0,link:leads[i].post};
+    counts[k].count++;
+  }
+  var sorted=Object.values(counts).sort(function(a,b){return b.count-a.count;});
+  var maxC=sorted[0]?sorted[0].count:1;
+  sorted.forEach(function(s){s.max=maxC;});
+  return sorted;
+}
+
+function postCardHTML(item,i,color){
+  var info=getPostInfo(item.link);
+  var icon=info?(info.type==='reel'?'ti-player-play':'ti-photo'):'ti-link';
+  var typeLabel=info?info.type.toUpperCase():'LINK';
+  var shortCode=info&&info.code?info.code.substring(0,10)+(info.code.length>10?'…':''):'';
+  var displayId=info&&info.code?((info.type==='reel'?'Reel':'Post')+' · '+shortCode):(item.link||'No link');
+  var shortUrl=item.link?item.link.replace('https://','').replace('www.','').substring(0,42)+'…':'No link';
+  var pct=Math.round((item.count/(item.max||item.count))*100);
+  var preview=item.link&&item.link!=='Sin link'
+    ?'<a class="post-preview" href="'+item.link+'" target="_blank"><i class="ti '+icon+'" style="font-size:20px;color:var(--text3);"></i><span class="ig-type">'+typeLabel+'</span></a>'
+    :'<div class="post-preview" style="cursor:default;"><i class="ti ti-link" style="font-size:18px;color:var(--text4);"></i><span class="ig-type">—</span></div>';
+  var openBtn=item.link&&item.link!=='Sin link'?'<a class="open-btn" href="'+item.link+'" target="_blank"><i class="ti ti-external-link" style="font-size:11px;"></i> '+t('openIG')+'</a>':'';
+  return '<div class="post-card"><div class="rank">#'+(i+1)+'</div>'+preview
+    +'<div class="post-info"><div class="post-id">'+displayId+'</div><div class="post-url-short">'+shortUrl+'</div>'
+    +'<div class="bar-wrap"><div class="bar" style="width:'+pct+'%;background:'+(color||'#185FA5')+';"></div></div>'
+    +openBtn+'</div>'
+    +'<div style="text-align:right;"><div style="font-size:20px;font-weight:500;color:var(--text);">'+item.count+'</div><div style="font-size:11px;color:var(--text4);">'+t('leads')+'</div></div></div>';
+}
+
+// ── TABS ──
+function showTab(id,btn){
+  document.querySelectorAll('.panel').forEach(function(p){p.classList.remove('active');});
+  document.querySelectorAll('.tab').forEach(function(b){b.classList.remove('active');});
+  document.getElementById('tab-'+id).classList.add('active');
+  btn.classList.add('active');
+  if(id==='posts') renderPosts();
+  if(id==='vas') renderVAs();
+  if(id==='lista'){ initListaFilter(); renderLista(); }
+  if(id==='reporte') renderReportPreview();
+}
+
+function setFilter(tab,h,btn){
+  hours[tab]=h;
+  document.querySelectorAll('#tf-'+tab+' button:not(.date-range-btn)').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+  // clear date range
+  dateRanges[tab]={from:null,to:null};
+  var drb=document.getElementById('drb-'+tab);
+  if(drb){ drb.classList.remove('active'); drb.querySelector('.lbl-range').textContent=t('range'); }
+  if(tab==='posts') renderPosts();
+  if(tab==='vas') renderVAs();
+  if(tab==='report') renderReportPreview();
+}
+
+function refreshAll(){
+  var btn=document.querySelector('#refresh-btn');
+  btn.classList.add('spinning');
+  setTimeout(function(){btn.classList.remove('spinning');},700);
+  renderAll();
+}
+
+function renderAll(){
+  USERS=getStoredUsers();
+  renderPosts();
+  renderVAs();
+  if(currentVaDetail && document.getElementById('va-detail-view').style.display!=='none') showVaDetail(currentVaDetail);
+  if(document.getElementById('tab-lista').classList.contains('active')) renderLista();
+  if(document.getElementById('tab-reporte').classList.contains('active')) renderReportPreview();
+}
+
+// ── RENDER POSTS ──
+function renderPosts(){
+  USERS=getStoredUsers();
+  var teams=getTeams();
+  // Populate team filter dropdown
+  var teamFilterSel=document.getElementById('filter-team-posts');
+  if(teamFilterSel){
+    var currentTeamFilter=teamFilterSel.value;
+    var teamSet={};
+    USERS.forEach(function(u){if(teams[u])teamSet[teams[u]]=true;});
+    var teamOpts=Object.keys(teamSet).sort();
+    teamFilterSel.innerHTML='<option value="">'+t('allTeams')+'</option>'+teamOpts.map(function(tm){return'<option value="'+tm+'"'+(tm===currentTeamFilter?' selected':'')+'>'+tm+'</option>';}).join('');
+  }
+  var selectedTeam=teamFilterSel?teamFilterSel.value:'';
+
+  var allData=filteredLeadsForTab('posts');
+  var data=allData.filter(function(l){
+    var teamOK=!selectedTeam||(teams[l.addedBy]||'')===selectedTeam;
+    return (l.source==='instagram'||!l.source)&&!isKeyword(l.post)&&teamOK;
+  });
+  var allDataIG=allData.filter(function(l){return (l.source==='instagram'||!l.source)&&!isKeyword(l.post);});
+  var sorted=countByPost(data);
+  document.getElementById('m-total').textContent=data.length;
+  document.getElementById('m-posts').textContent=sorted.length;
+  document.getElementById('m-best').textContent=sorted[0]?sorted[0].count:0;
+
+  // Team breakdown
+  var teamTotals={};
+  var bdAllData=selectedTeam?allData.filter(function(l){return (teams[l.addedBy]||'')===selectedTeam;}):allData;
+  var bdIGOnly=bdAllData.filter(function(l){return (l.source==='instagram'||!l.source)&&!isKeyword(l.post);});
+  bdIGOnly.forEach(function(l){
+    var team=teams[l.addedBy]||t('noTeam');
+    if(!teamTotals[team]) teamTotals[team]=0;
+    teamTotals[team]++;
+  });
+  var teamList=Object.keys(teamTotals).sort(function(a,b){return teamTotals[b]-teamTotals[a];});
+  var bdSection=document.getElementById('team-breakdown');
+  var bdGrid=document.getElementById('team-breakdown-grid');
+  document.getElementById('lbl-by-team').textContent=t('byTeam');
+  if(teamList.length>0){
+    bdSection.style.display='block';
+    var maxT=teamTotals[teamList[0]]||1;
+    bdGrid.innerHTML=teamList.map(function(team,i){
+      var cnt=teamTotals[team];
+      var pct=Math.round((cnt/maxT)*100);
+      var color=getColor(i); var bg=getBg(i);
+      return '<div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:0.875rem;">'
+        +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:6px;">'
+        +'<i class="ti ti-users" style="font-size:12px;color:'+color+';"></i>'
+        +'<div style="font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+team+'</div>'
+        +'</div>'
+        +'<div style="font-size:22px;font-weight:500;color:'+color+';">'+cnt+'</div>'
+        +'<div style="font-size:11px;color:var(--text4);margin-bottom:5px;">'+t('leads')+'</div>'
+        +'<div style="height:4px;background:var(--bg3);border-radius:2px;">'
+        +'<div style="height:4px;background:'+color+';border-radius:2px;width:'+pct+'%;"></div></div>'
+        +'</div>';
+    }).join('');
+  } else {
+    bdSection.style.display='none';
+  }
+
+  var c=document.getElementById('rankings');
+  if(!sorted.length){c.innerHTML='<div class="empty">'+t('noLeads')+'</div>';return;}
+  c.innerHTML=sorted.slice(0,10).map(function(item,i){return postCardHTML(item,i,'#185FA5');}).join('');
+}
+
+// ── RENDER VAs ──
+function renderVAs(){
+  USERS=getStoredUsers();
+  var data=filteredLeadsForTab('vas');
+  var maxLeads=Math.max.apply(null,USERS.map(function(u){return data.filter(function(l){return l.addedBy===u;}).length;}));
+  if(maxLeads<1) maxLeads=1;
+  document.getElementById('va-grid').innerHTML=USERS.map(function(u,idx){
+    var uLeads=data.filter(function(l){return l.addedBy===u;});
+    var igCount=uLeads.filter(function(l){return l.source==='instagram'||!l.source;}).length;
+    var metaCount=uLeads.filter(function(l){return l.source==='meta';}).length;
+    var pct=Math.round((uLeads.length/maxLeads)*100);
+    var badges=(igCount>0?'<span class="src-badge ig"><i class="ti ti-brand-instagram" style="font-size:10px;"></i>'+igCount+'</span>':'')
+      +(metaCount>0?'<span class="src-badge meta"><i class="ti ti-brand-facebook" style="font-size:10px;"></i>'+metaCount+'</span>':'');
+    return '<div class="va-card" onclick="showVaDetail(\''+u+'\')">'
+      +'<div class="va-top"><div class="va-avatar" style="background:'+getBg(idx)+';color:'+getColor(idx)+';">'+u.substring(0,2).toUpperCase()+'</div><div class="va-name">'+u+'</div></div>'
+      +'<div class="va-count">'+uLeads.length+'</div><div class="va-sub">'+t('vaLeads')+'</div>'
+      +'<div style="display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;">'+badges+'</div>'
+      +'<div class="va-bar-wrap" style="margin-top:8px;"><div class="va-bar" style="width:'+pct+'%;background:'+getColor(idx)+';"></div></div></div>';
+  }).join('');
+}
+
+function showVaDetail(name){
+  currentVaDetail=name;
+  var idx=USERS.indexOf(name);
+  var color=getColor(idx); var bg=getBg(idx);
+  var data=filteredLeadsForTab('vas').filter(function(l){return l.addedBy===name;});
+  var igData=data.filter(function(l){return l.source==='instagram'||!l.source;});
+  var metaData=data.filter(function(l){return l.source==='meta';});
+  var sorted=countByPost(igData);
+  document.getElementById('va-overview').style.display='none';
+  document.getElementById('va-detail-view').style.display='block';
+  var av=document.getElementById('detail-avatar');
+  av.textContent=name.substring(0,2).toUpperCase(); av.style.background=bg; av.style.color=color;
+  document.getElementById('detail-name').textContent=name;
+  var teamName=getTeams()[name]||'';
+  // Calculate leads/hour for this VA in the selected period
+  var periodFrom, periodTo;
+  var r=dateRanges['vas'];
+  if(r&&r.from&&r.to){
+    periodFrom=new Date(r.from).setHours(0,0,0,0);
+    periodTo=new Date(r.to).setHours(23,59,59,999);
+  } else {
+    var h=hours['vas'];
+    periodTo=Date.now();
+    periodFrom=h>0?periodTo-h*3600000:new Date(new Date().setFullYear(2020)).getTime();
+  }
+  var scheduledHours=calcScheduledHours(name,periodFrom,periodTo);
+  var lph=scheduledHours>0?(data.length/scheduledHours).toFixed(2):null;
+  var effStr=lph?(' · '+lph+' '+t('leadsPerHour')):'';
+  document.getElementById('detail-sub').textContent=data.length+' '+t('periodLeads')+(teamName?' · '+teamName:'')+effStr;
+  var detailName=document.getElementById('detail-name');
+  if(detailName){
+    detailName.innerHTML=name+(teamName?' <span style="font-size:12px;color:var(--text3);font-weight:400;"><i class=\"ti ti-users\" style=\"font-size:11px;\"></i> '+teamName+'</span>':'');
+  }
+  document.getElementById('detail-sources').innerHTML=
+    (igData.length>0?'<span class="src-badge ig"><i class="ti ti-brand-instagram" style="font-size:10px;"></i> '+igData.length+' Instagram</span>':'')+
+    (metaData.length>0?'<span class="src-badge meta"><i class="ti ti-brand-facebook" style="font-size:10px;"></i> '+metaData.length+' Meta</span>':'');
+  document.getElementById('d-total').textContent=data.length;
+  document.getElementById('d-ig').textContent=igData.length;
+  document.getElementById('d-meta').textContent=metaData.length;
+
+  // IG list
+  var igTitle=document.getElementById('ig-leads-title');
+  var igList=document.getElementById('detail-ig-leads');
+  if(igData.length>0){
+    igTitle.style.display='flex';
+    igList.innerHTML=igData.map(function(l){
+      var info=getPostInfo(l.post);
+      var typeLabel=info?info.type.toUpperCase():'POST';
+      return '<div class="lead-row">'
+        +'<span class="src-badge ig-detail" style="flex-shrink:0;font-size:10px;padding:3px 8px;border-radius:10px;font-weight:500;display:inline-flex;align-items:center;gap:3px;white-space:nowrap;"><i class="ti ti-brand-instagram" style="font-size:10px;"></i> '+typeLabel+'</span>'
+        +'<div class="lead-user">'+l.user+'</div>'
+        +'<div class="lead-date">'+l.date+'</div>'
+        +(l.post?'<a class="lead-link" href="'+l.post+'" target="_blank">'+l.post+'</a>':'<span class="lead-link" style="color:var(--text4)">No post</span>')
+        +'</div>';
+    }).join('');
+  } else {
+    igTitle.style.display='none';
+    igList.innerHTML='';
+  }
+
+  // Meta list
+  var metaSec=document.getElementById('meta-leads-section');
+  var metaList=document.getElementById('detail-meta-leads');
+  if(metaData.length>0){
+    metaSec.style.display='block';
+    metaList.innerHTML=metaData.map(function(l){
+      return '<div class="lead-row">'
+        +'<span class="src-badge meta" style="flex-shrink:0;"><i class="ti ti-brand-facebook" style="font-size:10px;"></i> Meta</span>'
+        +'<div class="lead-user">'+l.user+'</div>'
+        +'<div class="lead-date">'+l.date+'</div>'
+        +(l.profile?'<a class="lead-link" href="'+l.profile+'" target="_blank">'+l.profile+'</a>':'<span class="lead-link" style="color:var(--text4)">No profile</span>')
+        +'</div>';
+    }).join('');
+  } else {
+    metaSec.style.display='none';
+  }
+}
+
+function showVaOverview(){ currentVaDetail=null; document.getElementById('va-overview').style.display='block'; document.getElementById('va-detail-view').style.display='none'; }
+
+// ── LISTA ──
+function initListaFilter(){
+  USERS=getStoredUsers();
+  var teams=getTeams();
+  document.getElementById('filter-va').innerHTML='<option value="">'+t('allVAs')+'</option>'+USERS.map(function(u){return'<option value="'+u+'">'+u+'</option>';}).join('');
+  var teamSet={};
+  USERS.forEach(function(u){ if(teams[u]) teamSet[teams[u]]=true; });
+  var teamList=Object.keys(teamSet).sort();
+  var tsel=document.getElementById('filter-team-lista');
+  if(tsel) tsel.innerHTML='<option value=""><i class="ti ti-users"></i> '+t('allTeams')+'</option>'+teamList.map(function(tm){return'<option value="'+tm+'">👥 '+tm+'</option>';}).join('');
+}
+function renderLista(){
+  var va=document.getElementById('filter-va')?document.getElementById('filter-va').value:'';
+  var src=document.getElementById('filter-source')?document.getElementById('filter-source').value:'';
+  var filterTeamL=document.getElementById('filter-team-lista')?document.getElementById('filter-team-lista').value:'';
+  var teams=getTeams();
+  var leads=getLeads().slice().reverse();
+  if(va) leads=leads.filter(function(l){return l.addedBy===va;});
+  if(src) leads=leads.filter(function(l){return src==='meta'?l.source==='meta':(l.source==='instagram'||!l.source);});
+  if(filterTeamL) leads=leads.filter(function(l){return (teams[l.addedBy]||'')=== filterTeamL;});
+  document.getElementById('lista-count').textContent=leads.length+' '+t('leads');
+  var c=document.getElementById('leads-list');
+  if(!leads.length){c.innerHTML='<div class="empty">'+t('noLeadsYet')+'</div>';return;}
+  c.innerHTML=leads.map(function(l,i){
+    var isMeta=l.source==='meta';
+    var srcIcon=isMeta
+      ?'<span class="src-badge meta" style="font-size:10px;flex-shrink:0;"><i class="ti ti-brand-facebook" style="font-size:10px;"></i></span>'
+      :'<span class="src-badge ig" style="font-size:10px;flex-shrink:0;"><i class="ti ti-brand-instagram" style="font-size:10px;"></i></span>';
+    return '<div class="lead-row">'+srcIcon
+      +'<div class="lead-user">'+l.user+'</div>'
+      +'<div class="lead-date">'+l.date+'</div>'
+      +(l.post?'<a class="lead-link" href="'+l.post+'" target="_blank">'+l.post+'</a>':'<span class="lead-link" style="color:var(--text4)">'+(isMeta?'Meta Business':'No post')+'</span>')
+      +'<div style="font-size:11px;color:var(--text4);text-align:right;">'+( l.addedBy||'')+(getTeams()[l.addedBy]?'<br><span style="display:inline-flex;align-items:center;gap:2px;"><i class=\"ti ti-users\" style=\"font-size:10px;\"></i>'+getTeams()[l.addedBy]+'</span>':'')+'</div>'
+      +'<button class="btn-danger" onclick="deleteLead('+( leads.length-1-i)+')"><i class="ti ti-x"></i></button></div>';
+  }).join('');
+}
+function deleteLead(idx){ var leads=getLeads(); leads.splice(idx,1); saveLeads(leads); renderLista(); }
+function clearAll(){ if(confirm(t('confirm'))){ localStorage.removeItem('ig_leads'); renderLista(); renderPosts(); } }
+
+// ── REPORT ──
+function renderReportPreview(){
+  USERS=getStoredUsers();
+  var teams=getTeams();
+  var data=filteredLeadsForTab('report');
+  var igData=data.filter(function(l){return l.source==='instagram'||!l.source;});
+  var metaData=data.filter(function(l){return l.source==='meta';});
+  var sorted=countByPost(igData);
+  var maxLeads=Math.max.apply(null,USERS.map(function(u){return data.filter(function(l){return l.addedBy===u;}).length;}));
+  if(maxLeads<1) maxLeads=1;
+  var label=hours.report===0?t('all'):hours.report===24?t('last24'):hours.report===48?t('last48'):t('lastWeek');
+  if(dateRanges.report.from) label=formatDate(dateRanges.report.from)+' – '+formatDate(dateRanges.report.to);
+  document.getElementById('report-subtitle').textContent=t('reportSub')+' · '+label+' · '+data.length+' '+t('leads');
+  var mc=[{bg:'#E6F1FB',c:'#185FA5'},{bg:'#E7F0FD',c:'#1877F2'},{bg:'#EEEDFE',c:'#534AB7'},{bg:'#FAEEDA',c:'#854F0B'}];
+  var stats=[{num:igData.length,lbl:t('reportIG')},{num:metaData.length,lbl:t('reportMeta')},{num:sorted.length,lbl:t('reportPosts')},{num:USERS.filter(function(u){return data.some(function(l){return l.addedBy===u;});}).length,lbl:t('reportVAs')}];
+  var mHTML=stats.map(function(s,i){return'<div class="rp-metric" style="background:'+mc[i].bg+';color:'+mc[i].c+';"><div class="num">'+s.num+'</div><div class="lbl">'+s.lbl+'</div></div>';}).join('');
+  // Get period range for report
+  var rpFrom,rpTo;
+  var rr=dateRanges['report'];
+  if(rr&&rr.from&&rr.to){rpFrom=new Date(rr.from).setHours(0,0,0,0);rpTo=new Date(rr.to).setHours(23,59,59,999);}
+  else{var rh=hours['report'];rpTo=Date.now();rpFrom=rh>0?rpTo-rh*3600000:new Date(new Date().setFullYear(2020)).getTime();}
+
+  var vaHTML=USERS.map(function(u,idx){
+    var cnt=data.filter(function(l){return l.addedBy===u;}).length;
+    var igC=data.filter(function(l){return l.addedBy===u&&(l.source==='instagram'||!l.source);}).length;
+    var metaC=data.filter(function(l){return l.addedBy===u&&l.source==='meta';}).length;
+    var pct=Math.round((cnt/maxLeads)*100);
+    var schH=calcScheduledHours(u,rpFrom,rpTo);
+    var lphR=schH>0?(cnt/schH).toFixed(2):null;
+    return '<div class="va-report-row">'
+      +'<div class="va-rep-av" style="background:'+getBg(idx)+';color:'+getColor(idx)+';">'+u.substring(0,2).toUpperCase()+'</div>'
+      +'<div class="va-rep-name">'+u+'</div>'
+      +'<div style="flex:1;"><div class="va-rep-bar-wrap"><div class="va-rep-bar" style="width:'+pct+'%;background:'+getColor(idx)+';"></div></div>'
+      +'<div style="display:flex;gap:5px;margin-top:3px;flex-wrap:wrap;">'+(igC>0?'<span class="src-badge ig"><i class="ti ti-brand-instagram" style="font-size:9px;"></i>'+igC+'</span>':'')+(metaC>0?'<span class="src-badge meta"><i class="ti ti-brand-facebook" style="font-size:9px;"></i>'+metaC+'</span>':'')+(lphR?'<span style="font-size:10px;background:var(--bg3);color:var(--text3);padding:2px 7px;border-radius:10px;display:inline-flex;align-items:center;gap:3px;"><i class="ti ti-clock" style="font-size:9px;"></i>'+lphR+'/hr</span>':'')+'</div></div>'
+      +'<div class="va-rep-count" style="color:'+getColor(idx)+';">'+cnt+'</div></div>';
+  }).join('');
+  var postHTML=sorted.slice(0,5).map(function(item,i){
+    var info=getPostInfo(item.link);
+    var type=info?info.type:'post';
+    return '<div class="post-rep-row"><div class="post-rep-rank">#'+(i+1)+'</div><div class="post-rep-info">'
+      +'<div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;"><span class="post-rep-type">'+type.toUpperCase()+'</span></div>'
+      +(item.link?'<a class="post-rep-url" href="'+item.link+'" target="_blank">'+item.link+'</a>':'')
+      +'</div><div style="font-size:16px;font-weight:500;color:#185FA5;min-width:28px;text-align:right;">'+item.count+'</div></div>';
+  }).join('');
+  // Team breakdown
+  var teamTotals={};
+  var teamIGTotals={};
+  var teamMetaTotals={};
+  data.forEach(function(l){
+    var team=teams[l.addedBy]||t('noTeam');
+    if(!teamTotals[team]){teamTotals[team]=0;teamIGTotals[team]=0;teamMetaTotals[team]=0;}
+    teamTotals[team]++;
+    if(l.source==='meta') teamMetaTotals[team]++;
+    else teamIGTotals[team]++;
+  });
+  var teamList=Object.keys(teamTotals).sort(function(a,b){return teamTotals[b]-teamTotals[a];});
+  var maxTeam=teamList.length>0?teamTotals[teamList[0]]:1;
+  var teamHTML=teamList.map(function(team,i){
+    var cnt=teamTotals[team];
+    var igC=teamIGTotals[team]||0;
+    var metaC=teamMetaTotals[team]||0;
+    var pct=Math.round((cnt/maxTeam)*100);
+    var color=getColor(i); var bg=getBg(i);
+    return '<div class="va-report-row">'
+      +'<div class="va-rep-av" style="background:'+bg+';color:'+color+';"><i class="ti ti-users" style="font-size:14px;"></i></div>'
+      +'<div class="va-rep-name" style="font-weight:600;">'+team+'</div>'
+      +'<div style="flex:1;">'
+      +'<div class="va-rep-bar-wrap"><div class="va-rep-bar" style="width:'+pct+'%;background:'+color+';"></div></div>'
+      +'<div style="display:flex;gap:5px;margin-top:3px;">'
+      +(igC>0?'<span class="src-badge ig"><i class="ti ti-brand-instagram" style="font-size:9px;"></i>'+igC+'</span>':'')
+      +(metaC>0?'<span class="src-badge meta"><i class="ti ti-brand-facebook" style="font-size:9px;"></i>'+metaC+'</span>':'')
+      +'</div></div>'
+      +'<div class="va-rep-count" style="color:'+color+';">'+cnt+'</div></div>';
+  }).join('');
+
+  var empty='<div class="empty">'+t('noData')+'</div>';
+  document.getElementById('report-preview').innerHTML=
+    '<div class="rp-section"><h3>'+t('generalSummary')+'</h3><div class="rp-metrics">'+mHTML+'</div></div>'
+    +(teamList.length>0?'<div class="rp-section"><h3><i class="ti ti-users" style="font-size:12px;margin-right:4px;vertical-align:-1px;"></i>'+t('byTeam')+'</h3>'+teamHTML+'</div>':'')
+    +'<div class="rp-section"><h3>'+t('vaSection')+'</h3>'+(vaHTML||empty)+'</div>'
+    +'<div class="rp-section"><h3>'+t('postsSection')+'</h3>'+(postHTML||empty)+'</div>';
+}
+
+function downloadReport(){
+  var data=filteredLeadsForTab('report');
+  var igData=data.filter(function(l){return l.source==='instagram'||!l.source;});
+  var metaData=data.filter(function(l){return l.source==='meta';});
+  var sorted=countByPost(igData);
+  var maxLeads=Math.max.apply(null,USERS.map(function(u){return data.filter(function(l){return l.addedBy===u;}).length;}));
+  if(maxLeads<1) maxLeads=1;
+  var now=new Date().toLocaleDateString('en',{day:'2-digit',month:'2-digit',year:'numeric'});
+  // Team rows for download
+  var dlTeamTotals={};var dlTeamIG={};var dlTeamMeta={};
+  data.forEach(function(l){
+    var team=teams[l.addedBy]||'No team';
+    if(!dlTeamTotals[team]){dlTeamTotals[team]=0;dlTeamIG[team]=0;dlTeamMeta[team]=0;}
+    dlTeamTotals[team]++;
+    if(l.source==='meta')dlTeamMeta[team]++;else dlTeamIG[team]++;
+  });
+  var dlTeamList=Object.keys(dlTeamTotals).sort(function(a,b){return dlTeamTotals[b]-dlTeamTotals[a];});
+  var dlMaxTeam=dlTeamList.length>0?dlTeamTotals[dlTeamList[0]]:1;
+  var teamReportRows=dlTeamList.map(function(team,i){
+    var cnt=dlTeamTotals[team];
+    var igC=dlTeamIG[team]||0;var metaC=dlTeamMeta[team]||0;
+    var pct=Math.round((cnt/dlMaxTeam)*100);
+    return '<div style="display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid #f0f0f0;">'
+      +'<div style="width:40px;height:40px;border-radius:50%;background:'+getBg(i)+';color:'+getColor(i)+';display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">👥</div>'
+      +'<div style="font-weight:700;min-width:100px;font-size:15px;">'+team+'</div>'
+      +'<div style="flex:1;"><div style="height:10px;background:#f0f0f0;border-radius:5px;margin-bottom:5px;"><div style="width:'+pct+'%;height:10px;background:'+getColor(i)+';border-radius:5px;"></div></div>'
+      +'<div style="display:flex;gap:6px;">'+(igC>0?'<span style="font-size:11px;background:#E6F1FB;color:#185FA5;padding:2px 8px;border-radius:10px;font-weight:500;">📷 '+igC+' IG</span>':'')+(metaC>0?'<span style="font-size:11px;background:#E7F0FD;color:#1877F2;padding:2px 8px;border-radius:10px;font-weight:500;">👤 '+metaC+' Meta</span>':'')+'</div></div>'
+      +'<div style="font-size:22px;font-weight:700;color:'+getColor(i)+';min-width:30px;text-align:right;">'+cnt+'</div></div>';
+  }).join('');
+
+  var vaRows=USERS.map(function(u,idx){
+    var cnt=data.filter(function(l){return l.addedBy===u;}).length;
+    var igC=data.filter(function(l){return l.addedBy===u&&(l.source==='instagram'||!l.source);}).length;
+    var metaC=data.filter(function(l){return l.addedBy===u&&l.source==='meta';}).length;
+    var pct=Math.round((cnt/maxLeads)*100);
+    return '<div style="display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid #f0f0f0;">'
+      +'<div style="width:40px;height:40px;border-radius:50%;background:'+getBg(idx)+';color:'+getColor(idx)+';display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;flex-shrink:0;">'+u.substring(0,2).toUpperCase()+'</div>'
+      +'<div style="font-weight:600;min-width:80px;font-size:15px;">'+u+'</div>'
+      +'<div style="flex:1;"><div style="height:10px;background:#f0f0f0;border-radius:5px;margin-bottom:5px;"><div style="width:'+pct+'%;height:10px;background:'+getColor(idx)+';border-radius:5px;"></div></div>'
+      +'<div style="display:flex;gap:6px;">'+(igC>0?'<span style="font-size:11px;background:#E6F1FB;color:#185FA5;padding:2px 8px;border-radius:10px;font-weight:500;">📷 '+igC+' IG</span>':'')+(metaC>0?'<span style="font-size:11px;background:#E7F0FD;color:#1877F2;padding:2px 8px;border-radius:10px;font-weight:500;">👤 '+metaC+' Meta</span>':'')+'</div></div>'
+      +'<div style="font-size:20px;font-weight:700;color:'+getColor(idx)+';min-width:30px;text-align:right;">'+cnt+'</div></div>';
+  }).join('');
+  var postRows=sorted.slice(0,10).map(function(item,i){
+    var info=getPostInfo(item.link);
+    var type=info?info.type:'post';
+    var bgColor=i===0?'#185FA5':i===1?'#0F6E56':i===2?'#993C1D':'#888';
+    return '<tr style="border-bottom:1px solid #f5f5f5;">'
+      +'<td style="padding:12px 8px;font-weight:700;color:'+bgColor+';font-size:18px;">#'+(i+1)+'</td>'
+      +'<td style="padding:12px 8px;"><span style="background:'+bgColor+'22;color:'+bgColor+';padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;">'+type.toUpperCase()+'</span></td>'
+      +'<td style="padding:12px 8px;font-size:13px;max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(item.link?'<a href="'+item.link+'" style="color:#185FA5;text-decoration:none;">'+item.link+'</a>':'—')+'</td>'
+      +'<td style="padding:12px 8px;font-size:22px;font-weight:700;color:'+bgColor+';text-align:right;">'+item.count+'</td></tr>';
+  }).join('');
+  var leadsRows=data.slice().reverse().slice(0,50).map(function(l,i){
+    var idx=USERS.indexOf(l.addedBy); var color=idx>=0?getColor(idx):'#888';
+    var isMeta=l.source==='meta';
+    return '<tr style="background:'+(i%2===0?'#fafafa':'#fff')+';"><td style="padding:10px 12px;">'+(isMeta?'👤':'📷')+'</td>'
+      +'<td style="padding:10px 12px;font-weight:500;">'+l.user+'</td>'
+      +'<td style="padding:10px 12px;color:#888;font-size:13px;">'+l.date+'</td>'
+      +'<td style="padding:10px 12px;font-size:12px;max-width:250px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+(l.post?'<a href="'+l.post+'" style="color:#185FA5;">'+l.post+'</a>':(isMeta?'Meta Business':'—'))+'</td>'
+      +'<td style="padding:10px 12px;"><span style="background:'+color+'22;color:'+color+';padding:3px 10px;border-radius:10px;font-size:12px;font-weight:500;">'+(l.addedBy||'—')+'</span></td></tr>';
+  }).join('');
+  var statCards=[
+    {num:igData.length,lbl:'IG Leads',bg:'linear-gradient(135deg,#185FA5,#378ADD)',icon:'📷'},
+    {num:metaData.length,lbl:'Meta Leads',bg:'linear-gradient(135deg,#1877F2,#4299f7)',icon:'👤'},
+    {num:sorted[0]?sorted[0].count:0,lbl:'Best post',bg:'linear-gradient(135deg,#854F0B,#EF9F27)',icon:'🏆'},
+    {num:USERS.filter(function(u){return data.some(function(l){return l.addedBy===u;});}).length,lbl:'Active VAs',bg:'linear-gradient(135deg,#534AB7,#7F77DD)',icon:'⭐'},
+  ];
+  var html='<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Leads Report · '+now+'</title>'
+    +'<style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:-apple-system,BlinkMacSystemFont,\'Segoe UI\',sans-serif;background:#f5f5f3;color:#1a1a1a;padding:2rem;}.page{max-width:900px;margin:0 auto;}</style>'
+    +'</head><body><div class="page">'
+    +'<div style="background:linear-gradient(135deg,#185FA5 0%,#534AB7 100%);border-radius:20px;padding:2.5rem;color:white;margin-bottom:2rem;">'
+    +'<div style="font-size:13px;opacity:0.7;margin-bottom:8px;">📊 Generated '+now+'</div>'
+    +'<h1 style="font-size:28px;font-weight:700;margin-bottom:6px;">Leads Report</h1>'
+    +'<div style="font-size:15px;opacity:0.85;">'+data.length+' total leads (📷 '+igData.length+' IG + 👤 '+metaData.length+' Meta)</div></div>'
+    +'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:2rem;">'
+    +statCards.map(function(s){return'<div style="background:'+s.bg+';border-radius:14px;padding:1.25rem;color:white;text-align:center;"><div style="font-size:28px;margin-bottom:4px;">'+s.icon+'</div><div style="font-size:32px;font-weight:700;">'+s.num+'</div><div style="font-size:13px;opacity:0.85;margin-top:2px;">'+s.lbl+'</div></div>';}).join('')+'</div>'
+    +(teamReportRows?'<div style="background:#fff;border-radius:16px;padding:1.5rem;margin-bottom:1.5rem;border:1px solid #e0e0da;"><h2 style="font-size:12px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:1px;margin-bottom:1.25rem;">👥 Leads by team</h2>'+teamReportRows+'</div>':'')
+  +'<div style="background:#fff;border-radius:16px;padding:1.5rem;margin-bottom:1.5rem;border:1px solid #e0e0da;"><h2 style="font-size:12px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:1px;margin-bottom:1.25rem;">Leads by VA</h2>'+vaRows+'</div>'
+    +'<div style="background:#fff;border-radius:16px;padding:1.5rem;margin-bottom:1.5rem;border:1px solid #e0e0da;"><h2 style="font-size:12px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:1px;margin-bottom:1.25rem;">Top posts</h2><table style="width:100%;border-collapse:collapse;">'+postRows+'</table></div>'
+    +'<div style="background:#fff;border-radius:16px;padding:1.5rem;border:1px solid #e0e0da;"><h2 style="font-size:12px;font-weight:600;color:#aaa;text-transform:uppercase;letter-spacing:1px;margin-bottom:1.25rem;">Lead detail (last 50)</h2><table style="width:100%;border-collapse:collapse;"><thead><tr style="border-bottom:2px solid #e0e0da;"><th style="padding:10px 12px;text-align:left;font-size:12px;color:#aaa;">Src</th><th style="padding:10px 12px;text-align:left;font-size:12px;color:#aaa;">User</th><th style="padding:10px 12px;text-align:left;font-size:12px;color:#aaa;">Date</th><th style="padding:10px 12px;text-align:left;font-size:12px;color:#aaa;">Post/Profile</th><th style="padding:10px 12px;text-align:left;font-size:12px;color:#aaa;">Added by</th></tr></thead><tbody>'+leadsRows+'</tbody></table></div>'
+    +'<div style="text-align:center;padding:2rem 0;color:#aaa;font-size:12px;">Generated with Leads Dashboard</div>'
+    +'</div></body></html>';
+  var blob=new Blob([html],{type:'text/html'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='leads_report_'+new Date().toISOString().split('T')[0]+'.html'; a.click();
+}
+
+// ── DATE PICKER ──
+var MONTHS_EN=['January','February','March','April','May','June','July','August','September','October','November','December'];
+var MONTHS_ES=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+var DAYS_EN=['M','T','W','T','F','S','S'];
+var DAYS_ES=['L','M','M','J','V','S','D'];
+var dpState={};
+['posts','vas','report'].forEach(function(tab){
+  var now=new Date();
+  dpState[tab]={year:now.getFullYear(),month:now.getMonth()};
+});
+
+function toggleDatePicker(tab){
+  var dp=document.getElementById('dp-'+tab);
+  var isOpen=dp.classList.contains('open');
+  document.querySelectorAll('.drp').forEach(function(d){d.classList.remove('open');});
+  if(!isOpen){dp.classList.add('open'); renderDRP(tab);}
+}
+function dpNav(tab,dir){
+  var s=dpState[tab]; s.month+=dir;
+  if(s.month>11){s.month=0;s.year++;} if(s.month<0){s.month=11;s.year--;}
+  renderDRP(tab);
+}
+function renderDRP(tab){
+  var s=dpState[tab]; var r=dateRanges[tab];
+  var MONTHS=LANG==='en'?MONTHS_EN:MONTHS_ES;
+  var DAYS=LANG==='en'?DAYS_EN:DAYS_ES;
+  var today=new Date(); today.setHours(0,0,0,0);
+  document.getElementById('dp-'+tab+'-title').textContent=MONTHS[s.month]+' '+s.year;
+  var grid=document.getElementById('dp-'+tab+'-grid');
+  var html=DAYS.map(function(d){return'<div class="drp-dow">'+d+'</div>';}).join('');
+  var first=new Date(s.year,s.month,1);
+  var startDow=first.getDay(); startDow=startDow===0?6:startDow-1;
+  for(var i=0;i<startDow;i++) html+='<div class="drp-empty"></div>';
+  var daysInMonth=new Date(s.year,s.month+1,0).getDate();
+  var fromMs=r.from?new Date(r.from).getTime():null;
+  var toMs=r.to?new Date(r.to).getTime():null;
+  for(var d=1;d<=daysInMonth;d++){
+    var date=new Date(s.year,s.month,d);
+    var ms=date.getTime();
+    var isToday=ms===today.getTime();
+    var isStart=fromMs&&ms===fromMs;
+    var isEnd=toMs&&ms===toMs;
+    var inRange=fromMs&&toMs&&ms>fromMs&&ms<toMs;
+    var cls='drp-day';
+    if(isToday) cls+=' drp-today';
+    if(isStart) cls+=' drp-start'+(inRange||isEnd?' drp-in-range':'');
+    if(isEnd) cls+=' drp-end'+(inRange||isStart?' drp-in-range':'');
+    if(inRange&&!isStart&&!isEnd) cls+=' drp-in-range';
+    var y=s.year; var mo=String(s.month+1).padStart(2,'0'); var dd=String(d).padStart(2,'0');
+    html+='<div class="'+cls+'" data-tab="'+tab+'" data-date="'+y+'-'+mo+'-'+dd+'">'+d+'</div>';
+  }
+  grid.innerHTML=html;
+}
+function drpClick(tab,dateStr){
+  var r=dateRanges[tab];
+  var hint=document.getElementById('dp-'+tab+'-hint');
+  var applyBtn=document.getElementById('dp-'+tab+'-apply');
+  if(!r.from||r.to||(r.from&&dateStr<r.from)){
+    r.from=dateStr; r.to=null;
+    if(hint) hint.textContent=t('chooseEnd');
+    if(applyBtn) applyBtn.disabled=true;
+  } else {
+    if(dateStr===r.from){ r.from=null; r.to=null; if(hint) hint.textContent=t('chooseStart'); if(applyBtn) applyBtn.disabled=true; }
+    else{ r.to=dateStr; if(hint) hint.textContent=formatDate(r.from)+' → '+formatDate(r.to); if(applyBtn) applyBtn.disabled=false; }
+  }
+  renderDRP(tab);
+}
+function applyRange(tab){
+  var r=dateRanges[tab];
+  if(!r.from||!r.to) return;
+  hours[tab]=-1;
+  document.querySelectorAll('#tf-'+tab+' button:not(.date-range-btn)').forEach(function(b){b.classList.remove('active');});
+  var drb=document.getElementById('drb-'+tab);
+  drb.classList.add('active');
+  drb.querySelector('.lbl-range').textContent=formatDate(r.from)+' – '+formatDate(r.to);
+  document.getElementById('dp-'+tab).classList.remove('open');
+  if(tab==='posts') renderPosts();
+  if(tab==='vas') renderVAs();
+  if(tab==='report') renderReportPreview();
+}
+function clearRange(tab){
+  dateRanges[tab]={from:null,to:null};
+  hours[tab]=24;
+  var drb=document.getElementById('drb-'+tab);
+  drb.classList.remove('active');
+  drb.querySelector('.lbl-range').textContent=t('range');
+  var hint=document.getElementById('dp-'+tab+'-hint');
+  if(hint) hint.textContent=t('chooseStart');
+  var applyBtn=document.getElementById('dp-'+tab+'-apply');
+  if(applyBtn) applyBtn.disabled=true;
+  document.getElementById('dp-'+tab).classList.remove('open');
+  var firstBtn=document.querySelector('#tf-'+tab+' button:not(.date-range-btn)');
+  if(firstBtn) firstBtn.classList.add('active');
+  if(tab==='posts') renderPosts();
+  if(tab==='vas') renderVAs();
+  if(tab==='report') renderReportPreview();
+}
+function formatDate(str){ var p=str.split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
+
+document.addEventListener('click',function(e){
+  var day=e.target.closest('.drp-day');
+  if(day&&day.dataset.tab&&day.dataset.date){ e.stopPropagation(); drpClick(day.dataset.tab,day.dataset.date); return; }
+  if(!e.target.closest('.date-range-wrap')){ document.querySelectorAll('.drp').forEach(function(d){d.classList.remove('open');}); }
+});
+
+// ── THEME ──
+function toggleTheme(){
+  var dark=document.body.classList.toggle('dark');
+  localStorage.setItem('ig_theme',dark?'dark':'light');
+  document.getElementById('theme-icon').className='ti '+(dark?'ti-sun':'ti-moon');
+  document.getElementById('h-theme-lbl').textContent=dark?t('lightMode'):t('darkMode');
+}
+
+// ── STORAGE SYNC ──
+window.addEventListener('storage',function(e){
+  if(e.key==='ig_users'||e.key==='ig_leads'||e.key==='ig_teams'||e.key==='ig_schedules'){ USERS=getStoredUsers(); renderAll(); }
+});
+
+// ── INIT ──
+(function(){
+  var theme=localStorage.getItem('ig_theme');
+  if(theme==='dark'){ document.body.classList.add('dark'); document.getElementById('theme-icon').className='ti ti-sun'; }
+  applyLang();
+  renderAll();
+  setInterval(renderAll,60000);
+})();
+</script>
+</body>
+</html>

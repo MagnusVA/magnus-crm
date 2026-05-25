@@ -1,6 +1,13 @@
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
+  leadGenAuditMatchSourceValidator,
+  leadGenAuditMatchStatusValidator,
+  leadGenOriginKindValidator,
+  leadGenSourceValidator,
+  leadGenWeekdayValidator,
+} from "./leadGen/validators";
+import {
   attributionResolutionValidator,
   bookingProgramMappingStatusValidator,
 } from "./lib/attribution/validators";
@@ -58,6 +65,7 @@ export default defineSchema({
       v.literal("tenant_master"),
       v.literal("tenant_admin"),
       v.literal("closer"),
+      v.literal("lead_generator"),
     ),
     calendlyUserUri: v.optional(v.string()),
     calendlyMemberName: v.optional(v.string()), // Denormalized from calendlyOrgMembers for query efficiency
@@ -84,6 +92,249 @@ export default defineSchema({
     .index("by_tenantId_and_email", ["tenantId", "email"])
     .index("by_tenantId_and_calendlyUserUri", ["tenantId", "calendlyUserUri"])
     .index("by_tenantId_and_isActive", ["tenantId", "isActive"]),
+
+  leadGenSettings: defineTable({
+    tenantId: v.id("tenants"),
+    correctionWindowMinutes: v.optional(v.number()),
+    rawExportMaxRows: v.number(),
+    duplicateDisplayMode: v.union(
+      v.literal("show_all"),
+      v.literal("group_by_prospect"),
+    ),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_tenantId", ["tenantId"]),
+
+  leadGenWorkers: defineTable({
+    tenantId: v.id("tenants"),
+    userId: v.id("users"),
+    workosUserId: v.string(),
+    displayName: v.optional(v.string()),
+    email: v.string(),
+    teamId: v.optional(v.id("attributionTeams")),
+    isActive: v.boolean(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_tenantId_and_userId", ["tenantId", "userId"])
+    .index("by_tenantId_and_workosUserId", ["tenantId", "workosUserId"])
+    .index("by_tenantId_and_isActive", ["tenantId", "isActive"])
+    .index("by_tenantId_and_teamId", ["tenantId", "teamId"]),
+
+  leadGenWorkerSchedules: defineTable({
+    tenantId: v.id("tenants"),
+    workerId: v.id("leadGenWorkers"),
+    userId: v.id("users"),
+    weekday: leadGenWeekdayValidator,
+    scheduledHours: v.number(),
+    updatedByUserId: v.id("users"),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId_and_workerId", ["tenantId", "workerId"])
+    .index("by_tenantId_and_workerId_and_weekday", [
+      "tenantId",
+      "workerId",
+      "weekday",
+    ]),
+
+  leadGenProspects: defineTable({
+    tenantId: v.id("tenants"),
+    firstSource: leadGenSourceValidator,
+    latestSource: leadGenSourceValidator,
+    dedupeKey: v.string(),
+    normalizedHandle: v.string(),
+    rawHandle: v.string(),
+    profileUrl: v.string(),
+    firstCapturedByWorkerId: v.id("leadGenWorkers"),
+    firstCapturedAt: v.number(),
+    lastSubmittedByWorkerId: v.id("leadGenWorkers"),
+    lastSubmittedAt: v.number(),
+    latestOriginKind: leadGenOriginKindValidator,
+    latestOriginValue: v.optional(v.string()),
+    contactAttemptCount: v.number(),
+    distinctWorkerCount: v.number(),
+    currentAuditMatchId: v.optional(v.id("leadGenAuditMatches")),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_tenantId_and_dedupeKey", ["tenantId", "dedupeKey"])
+    .index("by_tenantId_and_normalizedHandle", [
+      "tenantId",
+      "normalizedHandle",
+    ])
+    .index("by_tenantId_and_latestSource", ["tenantId", "latestSource"])
+    .index("by_tenantId_and_lastSubmittedAt", [
+      "tenantId",
+      "lastSubmittedAt",
+    ])
+    .index("by_tenantId_and_firstCapturedByWorkerId", [
+      "tenantId",
+      "firstCapturedByWorkerId",
+    ])
+    .index("by_tenantId_and_currentAuditMatchId", [
+      "tenantId",
+      "currentAuditMatchId",
+    ]),
+
+  leadGenSubmissions: defineTable({
+    tenantId: v.id("tenants"),
+    prospectId: v.id("leadGenProspects"),
+    workerId: v.id("leadGenWorkers"),
+    userId: v.id("users"),
+    teamId: v.optional(v.id("attributionTeams")),
+    source: leadGenSourceValidator,
+    originKind: leadGenOriginKindValidator,
+    originValue: v.optional(v.string()),
+    originRankable: v.boolean(),
+    clientSubmissionKey: v.optional(v.string()),
+    submittedAt: v.number(),
+    createdAt: v.number(),
+    voidedAt: v.optional(v.number()),
+    voidedByUserId: v.optional(v.id("users")),
+    voidReason: v.optional(v.string()),
+  })
+    .index("by_tenantId_and_submittedAt", ["tenantId", "submittedAt"])
+    .index("by_tenantId_and_workerId_and_submittedAt", [
+      "tenantId",
+      "workerId",
+      "submittedAt",
+    ])
+    .index("by_tenantId_and_teamId_and_submittedAt", [
+      "tenantId",
+      "teamId",
+      "submittedAt",
+    ])
+    .index("by_tenantId_and_source_and_submittedAt", [
+      "tenantId",
+      "source",
+      "submittedAt",
+    ])
+    .index("by_tenantId_and_prospectId", ["tenantId", "prospectId"])
+    .index("by_tenantId_and_prospectId_and_submittedAt", [
+      "tenantId",
+      "prospectId",
+      "submittedAt",
+    ])
+    .index("by_tenantId_and_prospectId_and_workerId", [
+      "tenantId",
+      "prospectId",
+      "workerId",
+    ])
+    .index("by_tenantId_and_workerId_and_clientSubmissionKey", [
+      "tenantId",
+      "workerId",
+      "clientSubmissionKey",
+    ]),
+
+  leadGenDailyStats: defineTable({
+    tenantId: v.id("tenants"),
+    statKey: v.string(),
+    dayKey: v.string(),
+    workerId: v.id("leadGenWorkers"),
+    userId: v.id("users"),
+    teamId: v.optional(v.id("attributionTeams")),
+    source: leadGenSourceValidator,
+    submissions: v.number(),
+    uniqueProspectsSubmitted: v.number(),
+    duplicateProspectSubmissions: v.number(),
+    scheduledHours: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId_and_statKey", ["tenantId", "statKey"])
+    .index("by_tenantId_and_dayKey", ["tenantId", "dayKey"])
+    .index("by_tenantId_and_workerId_and_dayKey", [
+      "tenantId",
+      "workerId",
+      "dayKey",
+    ])
+    .index("by_tenantId_and_teamId_and_dayKey", [
+      "tenantId",
+      "teamId",
+      "dayKey",
+    ])
+    .index("by_tenantId_and_source_and_dayKey", [
+      "tenantId",
+      "source",
+      "dayKey",
+    ]),
+
+  leadGenOriginStats: defineTable({
+    tenantId: v.id("tenants"),
+    originKey: v.string(),
+    dayKey: v.string(),
+    source: leadGenSourceValidator,
+    originKind: leadGenOriginKindValidator,
+    originValue: v.string(),
+    submissions: v.number(),
+    uniqueProspectsSubmitted: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId_and_dayKey", ["tenantId", "dayKey"])
+    .index("by_tenantId_and_originKey_and_dayKey", [
+      "tenantId",
+      "originKey",
+      "dayKey",
+    ])
+    .index("by_tenantId_and_source_and_dayKey", [
+      "tenantId",
+      "source",
+      "dayKey",
+    ]),
+
+  leadGenAuditMatches: defineTable({
+    tenantId: v.id("tenants"),
+    prospectId: v.id("leadGenProspects"),
+    leadId: v.id("leads"),
+    opportunityId: v.optional(v.id("opportunities")),
+    matchSource: leadGenAuditMatchSourceValidator,
+    matchStatus: leadGenAuditMatchStatusValidator,
+    matchedVia: v.literal("social_handle"),
+    normalizedHandle: v.string(),
+    createdByUserId: v.optional(v.id("users")),
+    rejectedByUserId: v.optional(v.id("users")),
+    rejectedAt: v.optional(v.number()),
+    rejectionReason: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId_and_prospectId", ["tenantId", "prospectId"])
+    .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
+    .index("by_tenantId_and_opportunityId", ["tenantId", "opportunityId"])
+    .index("by_tenantId_and_matchStatus", ["tenantId", "matchStatus"])
+    .index("by_tenantId_and_prospectId_and_leadId", [
+      "tenantId",
+      "prospectId",
+      "leadId",
+    ]),
+
+  leadGenCorrectionEvents: defineTable({
+    tenantId: v.id("tenants"),
+    targetType: v.union(
+      v.literal("prospect"),
+      v.literal("submission"),
+      v.literal("audit_match"),
+    ),
+    targetId: v.string(),
+    correctionKind: v.union(
+      v.literal("edited"),
+      v.literal("voided"),
+      v.literal("match_rejected"),
+      v.literal("match_accepted"),
+    ),
+    reason: v.string(),
+    beforeSnapshot: v.string(),
+    afterSnapshot: v.string(),
+    correctedByUserId: v.id("users"),
+    correctedAt: v.number(),
+  })
+    .index("by_tenantId_and_correctedAt", ["tenantId", "correctedAt"])
+    .index("by_tenantId_and_targetType_and_targetId", [
+      "tenantId",
+      "targetType",
+      "targetId",
+    ]),
 
   rawWebhookEvents: defineTable({
     tenantId: v.id("tenants"),
@@ -218,6 +469,8 @@ export default defineSchema({
     .index("by_targetLeadId", ["targetLeadId"]),
   // === End Feature C ===
 
+  // Shared tenant DM team registry. The table name is retained for migration
+  // safety; it is used by both DM attribution links and Lead Gen Ops reporting.
   attributionTeams: defineTable({
     tenantId: v.id("tenants"),
     slug: v.string(),

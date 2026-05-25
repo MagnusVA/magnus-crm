@@ -49,7 +49,7 @@ interface TeamMember {
   _creationTime: number;
   email: string;
   fullName?: string;
-  role: "closer" | "tenant_admin" | "tenant_master";
+  role: "closer" | "tenant_admin" | "tenant_master" | "lead_generator";
   isActive: boolean;
   calendlyMemberName?: string;
   calendlyUserUri?: string;
@@ -70,6 +70,7 @@ interface TeamMembersTableProps {
 
 const roleLabels: Record<string, { label: string; variant: "default" | "secondary" | "outline" }> = {
   closer: { label: "Closer", variant: "default" },
+  lead_generator: { label: "Lead Generator", variant: "outline" },
   tenant_admin: { label: "Admin", variant: "secondary" },
   tenant_master: { label: "Owner", variant: "outline" },
 };

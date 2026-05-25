@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -35,15 +36,16 @@ import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 
 const roleEditSchema = z.object({
-  role: z.enum(["closer", "tenant_admin"]),
+  role: z.enum(["closer", "tenant_admin", "lead_generator"]),
 });
 
 type RoleEditFormValues = z.infer<typeof roleEditSchema>;
 
-type CrmRole = "tenant_admin" | "closer";
+type CrmRole = "tenant_admin" | "closer" | "lead_generator";
 
 const roleOptions: Array<{ value: CrmRole; label: string }> = [
   { value: "closer", label: "Closer" },
+  { value: "lead_generator", label: "Lead Generator" },
   { value: "tenant_admin", label: "Admin" },
 ];
 
@@ -141,11 +143,13 @@ export function RoleEditDialog({
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {roleOptions.map((option) => (
-                        <SelectItem key={option.value} value={option.value}>
-                          {option.label}
-                        </SelectItem>
-                      ))}
+                      <SelectGroup>
+                        {roleOptions.map((option) => (
+                          <SelectItem key={option.value} value={option.value}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
                     </SelectContent>
                   </Select>
                   <FormMessage />

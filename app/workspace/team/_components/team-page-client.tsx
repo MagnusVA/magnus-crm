@@ -82,7 +82,7 @@ type DialogState =
 export function TeamPageClient() {
   usePageTitle("Team");
   const router = useRouter();
-  const { isAdmin } = useRole();
+  const { isAdmin, role } = useRole();
   const members = useQuery(
     api.users.queries.listTeamMembers,
     isAdmin ? {} : "skip",
@@ -94,9 +94,13 @@ export function TeamPageClient() {
 
   useEffect(() => {
     if (!isAdmin) {
-      router.replace("/workspace/closer");
+      router.replace(
+        role === "lead_generator"
+          ? "/workspace/lead-gen/capture"
+          : "/workspace/closer",
+      );
     }
-  }, [isAdmin, router]);
+  }, [isAdmin, role, router]);
 
   // Single state replaces 12 useState calls
   const [dialog, setDialog] = useState<DialogState>({ type: null });

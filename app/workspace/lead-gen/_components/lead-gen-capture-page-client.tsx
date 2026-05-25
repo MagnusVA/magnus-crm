@@ -1,0 +1,388 @@
+"use client";
+
+import { useMemo, useState, type ComponentType, type SVGProps } from "react";
+import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
+import { useMutation, useQuery } from "convex/react";
+import {
+  CheckCircle2Icon,
+  ClipboardCheckIcon,
+  AtSignIcon,
+  RotateCcwIcon,
+  SparklesIcon,
+} from "lucide-react";
+import { useForm } from "react-hook-form";
+import { toast } from "sonner";
+import { z } from "zod";
+import { api } from "@/convex/_generated/api";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Form,
+  FormControl,
+  FormDescription,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
+import { Spinner } from "@/components/ui/spinner";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+
+const HONDURAS_TIME_ZONE = "America/Tegucigalpa";
+const BUSINESS_DAY_START_OFFSET_MS = 60 * 60 * 1000;
+
+const captureSchema = z.object({
+  source: z.enum(["instagram", "meta_business"]),
+  rawHandleOrProfileUrl: z
+    .string()
+    .trim()
+    .min(1, "Handle or profile URL is required"),
+  originKind: z.enum([
+    "post",
+    "reel",
+    "story_poll",
+    "follower",
+    "application",
+    "meta_business",
+    "other",
+  ]),
+  originUrlOrLabel: z.string().trim().optional(),
+});
+
+type CaptureValues = z.infer<typeof captureSchema>;
+
+type LastResult = {
+  duplicateProspect: boolean;
+  duplicateRetry: boolean;
+  submittedAt: number;
+  prospectId: string;
+};
+
+const originOptions = [
+  { value: "post", label: "Post" },
+  { value: "reel", label: "Reel" },
+  { value: "story_poll", label: "Story Poll" },
+  { value: "follower", label: "Follower" },
+  { value: "application", label: "Application" },
+  { value: "meta_business", label: "Meta Business" },
+  { value: "other", label: "Other" },
+] as const;
+
+function makeClientSubmissionKey() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}:${Math.random().toString(36).slice(2)}`;
+}
+
+function businessDayKey(timestamp: number) {
+  const shifted = new Date(timestamp - BUSINESS_DAY_START_OFFSET_MS);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: HONDURAS_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(shifted);
+
+  const year = parts.find((part) => part.type === "year")?.value;
+  const month = parts.find((part) => part.type === "month")?.value;
+  const day = parts.find((part) => part.type === "day")?.value;
+
+  return `${year}-${month}-${day}`;
+}
+
+function formatSubmittedAt(timestamp: number) {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(timestamp);
+}
+
+export function LeadGenCapturePageClient() {
+  const submit = useMutation(api.leadGen.capture.submit);
+  const todayKey = useMemo(() => businessDayKey(Date.now()), []);
+  const daySummary = useQuery(api.leadGen.activity.getMyDaySummary, {
+    dayKey: todayKey,
+  });
+  const [lastResult, setLastResult] = useState<LastResult | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const form = useForm({
+    resolver: standardSchemaResolver(captureSchema),
+    defaultValues: {
+      source: "instagram",
+      rawHandleOrProfileUrl: "",
+      originKind: "post",
+      originUrlOrLabel: "",
+    },
+  });
+
+  const originKind = form.watch("originKind");
+  const originNeedsUrl = originKind === "post" || originKind === "reel";
+
+  const onSubmit = async (values: CaptureValues) => {
+    setIsSubmitting(true);
+
+    try {
+      const result = await submit({
+        source: values.source,
+        rawHandleOrProfileUrl: values.rawHandleOrProfileUrl,
+        originKind: values.originKind,
+        originUrlOrLabel: values.originUrlOrLabel?.trim() || undefined,
+        clientSubmissionKey: makeClientSubmissionKey(),
+      });
+
+      setLastResult({
+        duplicateProspect: result.duplicateProspect,
+        duplicateRetry: result.duplicateRetry,
+        submittedAt: Date.now(),
+        prospectId: result.prospectId,
+      });
+
+      form.reset({
+        source: values.source,
+        rawHandleOrProfileUrl: "",
+        originKind: values.originKind,
+        originUrlOrLabel: values.originUrlOrLabel ?? "",
+      });
+
+      toast.success(
+        result.duplicateProspect
+          ? "Duplicate prospect attempt captured"
+          : "New prospect captured",
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Capture failed");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto flex w-full max-w-xl flex-col gap-5">
+      <div className="flex flex-col gap-1">
+        <h1 className="text-2xl font-semibold tracking-normal text-pretty">
+          Capture Prospect
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Submit Instagram and Meta Business prospects without entering worker
+          identity.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <CaptureMetric
+          label="Today"
+          value={daySummary?.submissions}
+          icon={ClipboardCheckIcon}
+        />
+        <CaptureMetric
+          label="Unique"
+          value={daySummary?.uniqueProspects}
+          icon={SparklesIcon}
+        />
+        <CaptureMetric
+          label="Dupes"
+          value={daySummary?.duplicates}
+          icon={RotateCcwIcon}
+        />
+      </div>
+
+      {lastResult ? <LastCaptureResult result={lastResult} /> : null}
+
+      <Form {...form}>
+        <form
+          className="flex flex-col gap-5"
+          onSubmit={form.handleSubmit(onSubmit)}
+        >
+          <FormField
+            control={form.control}
+            name="source"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Source</FormLabel>
+                <FormControl>
+                  <ToggleGroup
+                    type="single"
+                    value={field.value}
+                    onValueChange={(value) => {
+                      if (value) field.onChange(value);
+                    }}
+                    className="grid w-full grid-cols-2"
+                    variant="outline"
+                  >
+                    <ToggleGroupItem className="w-full" value="instagram">
+                      Instagram
+                    </ToggleGroupItem>
+                    <ToggleGroupItem className="w-full" value="meta_business">
+                      Meta Business
+                    </ToggleGroupItem>
+                  </ToggleGroup>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="rawHandleOrProfileUrl"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Handle or Profile URL</FormLabel>
+                <FormControl>
+                  <InputGroup className="h-11">
+                    <InputGroupAddon>
+                      <AtSignIcon aria-hidden="true" />
+                    </InputGroupAddon>
+                    <InputGroupInput
+                      {...field}
+                      autoCapitalize="none"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      disabled={isSubmitting}
+                      inputMode="url"
+                      name="rawHandleOrProfileUrl"
+                      placeholder="@prospect or instagram.com/prospect..."
+                      spellCheck={false}
+                    />
+                  </InputGroup>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="originKind"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>Origin</FormLabel>
+                <FormControl>
+                  <ToggleGroup
+                    type="single"
+                    value={field.value}
+                    onValueChange={(value) => {
+                      if (value) field.onChange(value);
+                    }}
+                    className="grid w-full grid-cols-2 sm:grid-cols-4"
+                    variant="outline"
+                  >
+                    {originOptions.map((option) => (
+                      <ToggleGroupItem
+                        className="w-full min-w-0"
+                        key={option.value}
+                        value={option.value}
+                      >
+                        <span className="truncate">{option.label}</span>
+                      </ToggleGroupItem>
+                    ))}
+                  </ToggleGroup>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="originUrlOrLabel"
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>
+                  {originNeedsUrl ? "Post or Reel URL" : "Origin Label"}
+                </FormLabel>
+                <FormControl>
+                  <Input
+                    {...field}
+                    autoCapitalize="none"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    disabled={isSubmitting}
+                    inputMode={originNeedsUrl ? "url" : "text"}
+                    name="originUrlOrLabel"
+                    placeholder={
+                      originNeedsUrl
+                        ? "https://instagram.com/p/..."
+                        : "Optional source label..."
+                    }
+                    spellCheck={false}
+                    type={originNeedsUrl ? "url" : "text"}
+                  />
+                </FormControl>
+                <FormDescription>
+                  Posts and reels are ranked in reports; other origins stay
+                  audit-only.
+                </FormDescription>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <Button
+            className="h-11 w-full touch-manipulation"
+            disabled={isSubmitting}
+            type="submit"
+          >
+            {isSubmitting ? (
+              <Spinner data-icon="inline-start" />
+            ) : (
+              <CheckCircle2Icon data-icon="inline-start" />
+            )}
+            {isSubmitting ? "Capturing..." : "Capture Prospect"}
+          </Button>
+        </form>
+      </Form>
+    </div>
+  );
+}
+
+function CaptureMetric({
+  label,
+  value,
+  icon: Icon,
+}: {
+  label: string;
+  value: number | undefined;
+  icon: ComponentType<SVGProps<SVGSVGElement>>;
+}) {
+  return (
+    <div className="flex min-h-20 min-w-0 flex-col justify-between rounded-lg border bg-card p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="truncate text-xs font-medium text-muted-foreground">
+          {label}
+        </span>
+        <Icon aria-hidden="true" className="text-muted-foreground" />
+      </div>
+      <span className="text-2xl font-semibold tabular-nums">
+        {value ?? "-"}
+      </span>
+    </div>
+  );
+}
+
+function LastCaptureResult({ result }: { result: LastResult }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-2 rounded-lg border bg-muted/30 p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant={result.duplicateProspect ? "outline" : "secondary"}>
+          {result.duplicateProspect ? "Duplicate Prospect" : "New Prospect"}
+        </Badge>
+        {result.duplicateRetry ? (
+          <Badge variant="outline">Retry Ignored</Badge>
+        ) : null}
+      </div>
+      <p className="min-w-0 truncate text-sm text-muted-foreground">
+        Last submission {formatSubmittedAt(result.submittedAt)}
+      </p>
+    </div>
+  );
+}

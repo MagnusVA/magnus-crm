@@ -32,6 +32,13 @@ type AdminContext = {
 	callerWorkosUserId: string;
 };
 
+const crmRoleValidator = v.union(
+	v.literal("tenant_master"),
+	v.literal("tenant_admin"),
+	v.literal("closer"),
+	v.literal("lead_generator"),
+);
+
 async function requireAdminContext(ctx: ActionCtx): Promise<AdminContext> {
 	const identity = await ctx.auth.getUserIdentity();
 	if (!identity) {
@@ -188,11 +195,7 @@ export const inviteUser = action({
 		email: v.string(),
 		firstName: v.string(),
 		lastName: v.optional(v.string()),
-		role: v.union(
-			v.literal("tenant_master"),
-			v.literal("tenant_admin"),
-			v.literal("closer"),
-		),
+		role: crmRoleValidator,
 		calendlyMemberId: v.optional(v.id("calendlyOrgMembers")),
 	},
 	handler: async (
@@ -405,11 +408,7 @@ async function sendOrResendInvitation(
 export const updateUserRole = action({
 	args: {
 		userId: v.id("users"),
-		newRole: v.union(
-			v.literal("tenant_master"),
-			v.literal("tenant_admin"),
-			v.literal("closer"),
-		),
+		newRole: crmRoleValidator,
 	},
 	handler: async (ctx, { userId, newRole }) => {
 		console.log("[WorkOS:Users] updateUserRole called", {

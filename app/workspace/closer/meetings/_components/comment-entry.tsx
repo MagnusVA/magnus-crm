@@ -28,7 +28,12 @@ type CommentEntryProps = {
     createdAt: number;
     editedAt: number | null;
     authorName: string;
-    authorRole: "tenant_master" | "tenant_admin" | "closer" | null;
+    authorRole:
+      | "tenant_master"
+      | "tenant_admin"
+      | "closer"
+      | "lead_generator"
+      | null;
     isOwn: boolean;
   };
   onDelete: (commentId: Id<"meetingComments">) => void;
@@ -41,6 +46,7 @@ const ROLE_LABEL: Record<
   tenant_master: "Owner",
   tenant_admin: "Admin",
   closer: "Closer",
+  lead_generator: "Lead Generator",
 };
 
 export function CommentEntry({ comment, onDelete }: CommentEntryProps) {
