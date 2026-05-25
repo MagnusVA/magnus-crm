@@ -2,30 +2,17 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, type MutationCtx } from "../_generated/server";
 
-const DEFAULT_PAGE_SIZE = 200;
-const MAX_PAGE_SIZE = 500;
-const MAX_TARGET_WORKERS_TO_LOAD = 500;
-
-type TargetWorkerArgs = {
-  tenantId: Id<"tenants">;
-  teamId: Id<"attributionTeams">;
-  workerIds?: Id<"leadGenWorkers">[];
-  workerEmails?: string[];
-  includeInactive?: boolean;
-};
+const DEFAULT_LIMIT = 500;
+const MAX_LIMIT = 1_000;
 
 type LeadGenSource = Doc<"leadGenDailyStats">["source"];
 
-function normalizeEmail(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function clampPageSize(value: number | undefined) {
-  if (value === undefined) return DEFAULT_PAGE_SIZE;
+function clampLimit(value: number | undefined) {
+  if (value === undefined) return DEFAULT_LIMIT;
   if (!Number.isFinite(value) || value < 1) {
     throw new Error("limit must be a positive number");
   }
-  return Math.min(Math.floor(value), MAX_PAGE_SIZE);
+  return Math.min(Math.floor(value), MAX_LIMIT);
 }
 
 function dailyStatKey(args: {
@@ -42,249 +29,109 @@ function dailyStatKey(args: {
   ].join(":");
 }
 
-function matchesWorkerFilters(
-  worker: Doc<"leadGenWorkers">,
-  args: TargetWorkerArgs,
-  workerIdFilter: Set<Id<"leadGenWorkers">> | null,
-  emailFilter: Set<string> | null,
-) {
-  if (worker.tenantId !== args.tenantId) return false;
-  if (!args.includeInactive && !worker.isActive) return false;
-  if (workerIdFilter && !workerIdFilter.has(worker._id)) return false;
-  if (emailFilter && !emailFilter.has(normalizeEmail(worker.email))) {
-    return false;
-  }
-  return true;
+async function loadWorkersById(ctx: MutationCtx, limit: number) {
+  const workers = await ctx.db.query("leadGenWorkers").take(limit);
+  return new Map(workers.map((worker) => [worker._id, worker]));
 }
 
-async function loadTargetWorkerIds(
-  ctx: MutationCtx,
-  args: TargetWorkerArgs,
+function getWorkerTeamId(
+  workerById: Map<Id<"leadGenWorkers">, Doc<"leadGenWorkers">>,
+  workerId: Id<"leadGenWorkers">,
 ) {
-  const workerIdFilter = args.workerIds?.length
-    ? new Set(args.workerIds)
-    : null;
-  const emailFilter = args.workerEmails?.length
-    ? new Set(args.workerEmails.map(normalizeEmail))
-    : null;
-  const targetWorkerIds = new Set<Id<"leadGenWorkers">>();
-
-  if (workerIdFilter) {
-    for (const workerId of workerIdFilter) {
-      const worker = await ctx.db.get(workerId);
-      if (!worker) {
-        throw new Error(`Lead-gen worker not found: ${workerId}`);
-      }
-      if (
-        matchesWorkerFilters(worker, args, workerIdFilter, emailFilter) &&
-        (worker.teamId === undefined || worker.teamId === args.teamId)
-      ) {
-        targetWorkerIds.add(worker._id);
-      }
-    }
-    return targetWorkerIds;
-  }
-
-  const workers = await ctx.db
-    .query("leadGenWorkers")
-    .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId))
-    .take(MAX_TARGET_WORKERS_TO_LOAD);
-
-  for (const worker of workers) {
-    if (
-      matchesWorkerFilters(worker, args, null, emailFilter) &&
-      (worker.teamId === undefined || worker.teamId === args.teamId)
-    ) {
-      targetWorkerIds.add(worker._id);
-    }
-  }
-
-  return targetWorkerIds;
-}
-
-async function validateTargetTeam(
-  ctx: MutationCtx,
-  args: { tenantId: Id<"tenants">; teamId: Id<"attributionTeams"> },
-) {
-  const tenant = await ctx.db.get(args.tenantId);
-  if (!tenant) {
-    throw new Error("Tenant not found");
-  }
-
-  const team = await ctx.db.get(args.teamId);
-  if (!team || team.tenantId !== args.tenantId) {
-    throw new Error("Team not found for tenant");
-  }
-  if (!team.isActive) {
-    throw new Error("Team must be active");
-  }
-
-  return team;
+  return workerById.get(workerId)?.teamId;
 }
 
 // Temporary operational backfill: intentionally public/non-auth-gated so it can
 // be run from the Convex CLI during the Lead Gen Ops rollout.
 export const backfillUnassignedWorkersToTeam = mutation({
   args: {
-    tenantId: v.id("tenants"),
-    teamId: v.id("attributionTeams"),
     dryRun: v.boolean(),
     limit: v.optional(v.number()),
-    workersCursor: v.optional(v.string()),
-    submissionsCursor: v.optional(v.string()),
-    dailyStatsCursor: v.optional(v.string()),
-    workerIds: v.optional(v.array(v.id("leadGenWorkers"))),
-    workerEmails: v.optional(v.array(v.string())),
-    includeInactive: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const team = await validateTargetTeam(ctx, args);
-    const pageSize = clampPageSize(args.limit);
-    const workerIdFilter = args.workerIds?.length
-      ? new Set(args.workerIds)
-      : null;
-    const emailFilter = args.workerEmails?.length
-      ? new Set(args.workerEmails.map(normalizeEmail))
-      : null;
-    const targetWorkerIds = await loadTargetWorkerIds(ctx, args);
+    const limit = clampLimit(args.limit);
     const now = Date.now();
+    const workerById = await loadWorkersById(ctx, limit);
 
-    const workersPage = await ctx.db
-      .query("leadGenWorkers")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId))
-      .paginate({
-        numItems: pageSize,
-        cursor: args.workersCursor ?? null,
-      });
-
-    const workers = {
-      scanned: workersPage.page.length,
-      matched: 0,
-      alreadyInTeam: 0,
-      skippedInactive: 0,
-      skippedDifferentTeam: 0,
-      updated: 0,
-      wouldUpdate: 0,
-    };
-
-    for (const worker of workersPage.page) {
-      if (!args.includeInactive && !worker.isActive) {
-        workers.skippedInactive += 1;
-        continue;
-      }
-      if (!matchesWorkerFilters(worker, args, workerIdFilter, emailFilter)) {
-        continue;
-      }
-      workers.matched += 1;
-
-      if (worker.teamId === args.teamId) {
-        workers.alreadyInTeam += 1;
-        continue;
-      }
-      if (worker.teamId !== undefined) {
-        workers.skippedDifferentTeam += 1;
-        continue;
-      }
-
-      if (args.dryRun) {
-        workers.wouldUpdate += 1;
-      } else {
-        await ctx.db.patch(worker._id, {
-          teamId: args.teamId,
-          updatedAt: now,
-        });
-        workers.updated += 1;
-      }
-    }
-
-    const submissionsPage = await ctx.db
+    const submissionRows = await ctx.db
       .query("leadGenSubmissions")
-      .withIndex("by_tenantId_and_submittedAt", (q) =>
-        q.eq("tenantId", args.tenantId),
-      )
-      .paginate({
-        numItems: pageSize,
-        cursor: args.submissionsCursor ?? null,
-      });
-
+      .take(limit);
     const submissions = {
-      scanned: submissionsPage.page.length,
-      missingTeam: 0,
-      skippedNoTargetWorker: 0,
-      skippedAlreadyAssigned: 0,
+      scanned: submissionRows.length,
+      alreadyCorrect: 0,
+      missingWorker: 0,
+      workerMissingTeam: 0,
       updated: 0,
       wouldUpdate: 0,
     };
 
-    for (const submission of submissionsPage.page) {
-      if (submission.teamId !== undefined) {
-        submissions.skippedAlreadyAssigned += 1;
+    for (const submission of submissionRows) {
+      const teamId = getWorkerTeamId(workerById, submission.workerId);
+      if (!workerById.has(submission.workerId)) {
+        submissions.missingWorker += 1;
         continue;
       }
-      submissions.missingTeam += 1;
-
-      if (!targetWorkerIds.has(submission.workerId)) {
-        submissions.skippedNoTargetWorker += 1;
+      if (teamId === undefined) {
+        submissions.workerMissingTeam += 1;
+        continue;
+      }
+      if (submission.teamId === teamId) {
+        submissions.alreadyCorrect += 1;
         continue;
       }
 
       if (args.dryRun) {
         submissions.wouldUpdate += 1;
       } else {
-        await ctx.db.patch(submission._id, {
-          teamId: args.teamId,
-        });
+        await ctx.db.patch(submission._id, { teamId });
         submissions.updated += 1;
       }
     }
 
-    const dailyStatsPage = await ctx.db
+    const dailyStatsRows = await ctx.db
       .query("leadGenDailyStats")
-      .withIndex("by_tenantId_and_dayKey", (q) =>
-        q.eq("tenantId", args.tenantId),
-      )
-      .paginate({
-        numItems: pageSize,
-        cursor: args.dailyStatsCursor ?? null,
-      });
-
+      .take(limit);
     const dailyStats = {
-      scanned: dailyStatsPage.page.length,
-      missingTeam: 0,
-      skippedNoTargetWorker: 0,
-      skippedAlreadyAssigned: 0,
+      scanned: dailyStatsRows.length,
+      alreadyCorrect: 0,
+      missingWorker: 0,
+      workerMissingTeam: 0,
       patched: 0,
       wouldPatch: 0,
       merged: 0,
       wouldMerge: 0,
     };
 
-    for (const stat of dailyStatsPage.page) {
-      if (stat.teamId !== undefined) {
-        dailyStats.skippedAlreadyAssigned += 1;
+    for (const stat of dailyStatsRows) {
+      const teamId = getWorkerTeamId(workerById, stat.workerId);
+      if (!workerById.has(stat.workerId)) {
+        dailyStats.missingWorker += 1;
         continue;
       }
-      dailyStats.missingTeam += 1;
-
-      if (!targetWorkerIds.has(stat.workerId)) {
-        dailyStats.skippedNoTargetWorker += 1;
+      if (teamId === undefined) {
+        dailyStats.workerMissingTeam += 1;
         continue;
       }
 
       const nextStatKey = dailyStatKey({
         dayKey: stat.dayKey,
         workerId: stat.workerId,
-        teamId: args.teamId,
+        teamId,
         source: stat.source,
       });
+      if (stat.teamId === teamId && stat.statKey === nextStatKey) {
+        dailyStats.alreadyCorrect += 1;
+        continue;
+      }
+
       const existing = await ctx.db
         .query("leadGenDailyStats")
         .withIndex("by_tenantId_and_statKey", (q) =>
-          q.eq("tenantId", args.tenantId).eq("statKey", nextStatKey),
+          q.eq("tenantId", stat.tenantId).eq("statKey", nextStatKey),
         )
         .unique();
 
-      if (existing) {
+      if (existing && existing._id !== stat._id) {
         if (args.dryRun) {
           dailyStats.wouldMerge += 1;
         } else {
@@ -312,7 +159,7 @@ export const backfillUnassignedWorkersToTeam = mutation({
         dailyStats.wouldPatch += 1;
       } else {
         await ctx.db.patch(stat._id, {
-          teamId: args.teamId,
+          teamId,
           statKey: nextStatKey,
           updatedAt: now,
         });
@@ -322,29 +169,10 @@ export const backfillUnassignedWorkersToTeam = mutation({
 
     return {
       dryRun: args.dryRun,
-      team: {
-        teamId: team._id,
-        displayName: team.displayName,
-      },
-      pageSize,
-      targetWorkersLoaded: targetWorkerIds.size,
-      workers,
+      limit,
+      workersLoaded: workerById.size,
       submissions,
       dailyStats,
-      cursors: {
-        workers: workersPage.isDone ? null : workersPage.continueCursor,
-        submissions: submissionsPage.isDone
-          ? null
-          : submissionsPage.continueCursor,
-        dailyStats: dailyStatsPage.isDone
-          ? null
-          : dailyStatsPage.continueCursor,
-      },
-      isDone: {
-        workers: workersPage.isDone,
-        submissions: submissionsPage.isDone,
-        dailyStats: dailyStatsPage.isDone,
-      },
     };
   },
 });
