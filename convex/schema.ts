@@ -283,6 +283,38 @@ export default defineSchema({
       "dayKey",
     ]),
 
+  leadGenTeamOriginStats: defineTable({
+    tenantId: v.id("tenants"),
+    statKey: v.string(),
+    dayKey: v.string(),
+    teamId: v.optional(v.id("attributionTeams")),
+    source: leadGenSourceValidator,
+    originKind: leadGenOriginKindValidator,
+    originKey: v.string(),
+    originValue: v.string(),
+    submissions: v.number(),
+    uniqueProspectsSubmitted: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId_and_statKey", ["tenantId", "statKey"])
+    .index("by_tenantId_and_dayKey", ["tenantId", "dayKey"])
+    .index("by_tenantId_and_teamId_and_dayKey", [
+      "tenantId",
+      "teamId",
+      "dayKey",
+    ])
+    .index("by_tenantId_and_source_and_dayKey", [
+      "tenantId",
+      "source",
+      "dayKey",
+    ])
+    .index("by_tenantId_and_teamId_and_source_and_dayKey", [
+      "tenantId",
+      "teamId",
+      "source",
+      "dayKey",
+    ]),
+
   leadGenAuditMatches: defineTable({
     tenantId: v.id("tenants"),
     prospectId: v.id("leadGenProspects"),

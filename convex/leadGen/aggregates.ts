@@ -38,6 +38,20 @@ function dailyStatKey(args: {
   ].join(":");
 }
 
+export function teamOriginStatKey(args: {
+  dayKey: string;
+  teamId?: LeadGenTeamId;
+  source: LeadGenSource;
+  originKey: string;
+}) {
+  return [
+    args.dayKey,
+    args.teamId ?? "none",
+    args.source,
+    args.originKey,
+  ].join(":");
+}
+
 function sortSubmissionsBySubmittedAt<T extends Doc<"leadGenSubmissions">>(
   rows: T[],
 ) {
@@ -143,6 +157,52 @@ async function patchOriginStatCounters(
       stat.uniqueProspectsSubmitted,
       args.uniqueProspectsDelta ?? 0,
       "leadGenOriginStats.uniqueProspectsSubmitted",
+    ),
+    updatedAt: Date.now(),
+  });
+}
+
+async function patchTeamOriginStatCounters(
+  ctx: MutationCtx,
+  args: {
+    submission: Doc<"leadGenSubmissions">;
+    originKey: string;
+    submissionsDelta?: number;
+    uniqueProspectsDelta?: number;
+  },
+) {
+  const dayKey = timestampToBusinessDateKey(args.submission.submittedAt);
+  const statKey = teamOriginStatKey({
+    dayKey,
+    teamId: args.submission.teamId,
+    source: args.submission.source,
+    originKey: args.originKey,
+  });
+  const stat = await ctx.db
+    .query("leadGenTeamOriginStats")
+    .withIndex("by_tenantId_and_statKey", (q) =>
+      q.eq("tenantId", args.submission.tenantId).eq("statKey", statKey),
+    )
+    .unique();
+
+  if (!stat) {
+    console.warn("[LeadGen:Corrections] missing team-origin aggregate row", {
+      submissionId: args.submission._id,
+      statKey,
+    });
+    return;
+  }
+
+  await ctx.db.patch(stat._id, {
+    submissions: clampCounter(
+      stat.submissions,
+      args.submissionsDelta ?? 0,
+      "leadGenTeamOriginStats.submissions",
+    ),
+    uniqueProspectsSubmitted: clampCounter(
+      stat.uniqueProspectsSubmitted,
+      args.uniqueProspectsDelta ?? 0,
+      "leadGenTeamOriginStats.uniqueProspectsSubmitted",
     ),
     updatedAt: Date.now(),
   });
@@ -309,6 +369,40 @@ async function isFirstActiveProspectSubmissionForOriginDay(
     : sameOriginRows.length === 0;
 }
 
+async function isFirstActiveProspectSubmissionForTeamOriginDay(
+  ctx: MutationCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    teamId?: LeadGenTeamId;
+    prospectId: Id<"leadGenProspects">;
+    source: LeadGenSource;
+    originKind: LeadGenOriginKind;
+    originValue: string;
+    submittedAt: number;
+  },
+) {
+  const rows = await getActiveProspectSubmissionsForDay(ctx, {
+    tenantId: args.tenantId,
+    prospectId: args.prospectId,
+    submittedAt: args.submittedAt,
+    maxRows: MAX_PROSPECT_DAY_ROWS_TO_CHECK,
+  });
+  const sameTeamOriginRows = rows.filter(
+    (row) =>
+      row.teamId === args.teamId &&
+      row.originRankable &&
+      row.originKind === args.originKind &&
+      row.originValue === args.originValue,
+  );
+  const currentAlreadyInserted = sameTeamOriginRows.some((row) =>
+    isCurrentSubmission(row, args),
+  );
+
+  return currentAlreadyInserted
+    ? sameTeamOriginRows.length === 1
+    : sameTeamOriginRows.length === 0;
+}
+
 export async function snapshotLeadGenScheduledHours(
   ctx: MutationCtx,
   args: {
@@ -459,6 +553,71 @@ export async function updateLeadGenOriginStats(
   });
 }
 
+export async function updateLeadGenTeamOriginStats(
+  ctx: MutationCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    teamId?: LeadGenTeamId;
+    source: LeadGenSource;
+    originKind: LeadGenOriginKind;
+    originKey: string;
+    originValue: string;
+    prospectId: Id<"leadGenProspects">;
+    submittedAt: number;
+  },
+) {
+  const dayKey = timestampToBusinessDateKey(args.submittedAt);
+  const statKey = teamOriginStatKey({
+    dayKey,
+    teamId: args.teamId,
+    source: args.source,
+    originKey: args.originKey,
+  });
+  const now = Date.now();
+  const existing = await ctx.db
+    .query("leadGenTeamOriginStats")
+    .withIndex("by_tenantId_and_statKey", (q) =>
+      q.eq("tenantId", args.tenantId).eq("statKey", statKey),
+    )
+    .unique();
+
+  const isUniqueForTeamOriginDay =
+    await isFirstActiveProspectSubmissionForTeamOriginDay(ctx, {
+      tenantId: args.tenantId,
+      teamId: args.teamId,
+      prospectId: args.prospectId,
+      source: args.source,
+      originKind: args.originKind,
+      originValue: args.originValue,
+      submittedAt: args.submittedAt,
+    });
+
+  if (existing) {
+    await ctx.db.patch(existing._id, {
+      submissions: existing.submissions + 1,
+      uniqueProspectsSubmitted:
+        existing.uniqueProspectsSubmitted +
+        (isUniqueForTeamOriginDay ? 1 : 0),
+      updatedAt: now,
+    });
+    return existing._id;
+  }
+
+  return await ctx.db.insert("leadGenTeamOriginStats", {
+    tenantId: args.tenantId,
+    statKey,
+    dayKey,
+    teamId: args.teamId,
+    source: args.source,
+    originKind: args.originKind,
+    originKey: args.originKey,
+    originValue: args.originValue,
+    submissions: 1,
+    uniqueProspectsSubmitted: isUniqueForTeamOriginDay ? 1 : 0,
+    updatedAt: now,
+  });
+}
+
 export async function applyLeadGenAggregateDelta(
   ctx: MutationCtx,
   args: {
@@ -530,6 +689,27 @@ export async function applyLeadGenAggregateDelta(
     submissionsDelta: -1,
     uniqueProspectsDelta:
       currentOwnsOriginUniqueCredit && !anotherSameOriginSubmissionExists
+        ? -1
+        : 0,
+  });
+
+  const activeSameTeamOriginRows = activeProspectRows.filter(
+    (row) =>
+      row.teamId === args.submission.teamId &&
+      originKeyForSubmission(row) === originKey,
+  );
+  const currentOwnsTeamOriginUniqueCredit =
+    activeSameTeamOriginRows[0]?._id === args.submission._id;
+  const anotherSameTeamOriginSubmissionExists =
+    activeSameTeamOriginRows.some((row) => row._id !== args.submission._id);
+
+  await patchTeamOriginStatCounters(ctx, {
+    submission: args.submission,
+    originKey,
+    submissionsDelta: -1,
+    uniqueProspectsDelta:
+      currentOwnsTeamOriginUniqueCredit &&
+      !anotherSameTeamOriginSubmissionExists
         ? -1
         : 0,
   });
