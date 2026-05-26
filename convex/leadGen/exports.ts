@@ -17,6 +17,7 @@ import {
   loadCurrentScheduledHoursByWorkerDay,
   scheduledHoursForDailyStat,
 } from "./schedules";
+import { buildExcelReportData } from "./reportBuilders";
 import { leadGenSourceValidator } from "./validators";
 
 type LeadGenSource = Doc<"leadGenDailyStats">["source"];
@@ -502,6 +503,30 @@ export const getSummaryExportRows = query({
     const rows = await readDailyStatsRows(ctx, { tenantId, ...args });
 
     return await hydrateSummaryExportRows(ctx, tenantId, rows);
+  },
+});
+
+export const getExcelReportData = query({
+  args: exportFiltersValidator,
+  handler: async (ctx, args) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    validateDayRange(args);
+    await validateFilterIds(ctx, { tenantId, ...args });
+    const rows = await readDailyStatsRows(ctx, { tenantId, ...args });
+    const currentScheduledHoursByWorkerDay =
+      await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
+
+    return await buildExcelReportData(ctx, {
+      tenantId,
+      filters: args,
+      dailyRows: rows,
+      currentScheduledHoursByWorkerDay,
+      topOriginLimit: 10,
+    });
   },
 });
 
