@@ -22,6 +22,7 @@ export function LeadGenAdminSkeleton() {
         <Skeleton className="h-[360px]" />
         <Skeleton className="h-[360px]" />
       </div>
+      <Skeleton className="h-[360px]" />
     </div>
   );
 }

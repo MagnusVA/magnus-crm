@@ -13,6 +13,7 @@ import { LeadGenFilterBar } from "./lead-gen-filter-bar";
 import { LeadGenSummaryCards } from "./lead-gen-summary-cards";
 import { RawSubmissionsTable } from "./raw-submissions-table";
 import { SourcePerformanceTable } from "./source-performance-table";
+import { TopOriginsByTeamTable } from "./top-origins-by-team-table";
 import { TeamPerformanceTable } from "./team-performance-table";
 import { TopOriginsTable } from "./top-origins-table";
 import { WorkerPerformanceTable } from "./worker-performance-table";
@@ -85,6 +86,13 @@ export function LeadGenAdminPageClient() {
     ...filters,
     limit: 10,
   });
+  const topOriginsByTeam = useQuery(
+    api.leadGen.reporting.listTopOriginsByTeam,
+    {
+      ...filters,
+      limitPerTeam: 3,
+    },
+  );
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -145,6 +153,8 @@ export function LeadGenAdminPageClient() {
         </Tabs>
         <TopOriginsTable rows={origins} />
       </div>
+
+      <TopOriginsByTeamTable rows={topOriginsByTeam} />
 
       <RawSubmissionsTable filters={filters} />
     </div>

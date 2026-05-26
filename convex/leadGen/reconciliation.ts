@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, query } from "../_generated/server";
 import {
   addBusinessDays,
@@ -6,13 +7,31 @@ import {
   timestampToBusinessDateKey,
 } from "../reporting/lib/hondurasBusinessTime";
 import { requireTenantUser } from "../requireTenantUser";
+import {
+  isRankableLeadGenOrigin,
+  normalizeLeadGenOrigin,
+} from "./normalization";
 
 const DEFAULT_AUDIT_ROW_LIMIT = 1000;
 const MAX_AUDIT_ROW_LIMIT = 5000;
 const AGGREGATE_ROW_LIMIT = 1000;
+const TEAM_ORIGIN_AUDIT_ROW_LIMIT = 1000;
+const TEAM_ORIGIN_AUDIT_DIFF_LIMIT = 100;
 const MAX_RECONCILIATION_RANGE_MS = 14 * 24 * 60 * 60 * 1000;
 const MIN_RECONCILIATION_REASON_LENGTH = 3;
 const MAX_RECONCILIATION_REASON_LENGTH = 1000;
+
+type LeadGenSource = Doc<"leadGenSubmissions">["source"];
+type TeamOriginGroup = {
+  statKey: string;
+  dayKey: string;
+  teamId: Id<"attributionTeams"> | null;
+  source: LeadGenSource;
+  originKey: string;
+  originValue: string;
+  submissions: number;
+  prospectIds: Set<Id<"leadGenProspects">>;
+};
 
 function validateTimestampRange(startTimestamp: number, endTimestamp: number) {
   if (
@@ -39,6 +58,58 @@ function normalizeReconciliationReason(reason: string) {
     );
   }
   return trimmed;
+}
+
+function validateBusinessDayRange(args: {
+  startDayKey: string;
+  endDayKey: string;
+}) {
+  businessDateToUtcStart(args.startDayKey);
+  businessDateToUtcStart(args.endDayKey);
+  if (args.startDayKey > args.endDayKey) {
+    throw new Error("Start date must be on or before end date");
+  }
+}
+
+function teamOriginAuditKey(args: {
+  dayKey: string;
+  teamId?: Id<"attributionTeams">;
+  source: LeadGenSource;
+  originKey: string;
+}) {
+  return [
+    args.dayKey,
+    args.teamId ?? "none",
+    args.source,
+    args.originKey,
+  ].join(":");
+}
+
+function getOrCreateTeamOriginGroup(
+  groups: Map<string, TeamOriginGroup>,
+  args: {
+    statKey: string;
+    dayKey: string;
+    teamId?: Id<"attributionTeams">;
+    source: LeadGenSource;
+    originKey: string;
+    originValue: string;
+  },
+) {
+  const current =
+    groups.get(args.statKey) ??
+    {
+      statKey: args.statKey,
+      dayKey: args.dayKey,
+      teamId: args.teamId ?? null,
+      source: args.source,
+      originKey: args.originKey,
+      originValue: args.originValue,
+      submissions: 0,
+      prospectIds: new Set<Id<"leadGenProspects">>(),
+    };
+  groups.set(args.statKey, current);
+  return current;
 }
 
 export const auditAggregateRange = query({
@@ -143,6 +214,166 @@ export const auditAggregateRange = query({
       uniqueProspectDelta: aggregateUniqueProspects - prospectIds.size,
       duplicateDelta: aggregateDuplicates - duplicateRows.length,
       note: "Phase 5 owns repair mutations. This Phase 3 query is read-only drift detection.",
+    };
+  },
+});
+
+export const auditTeamOriginStatsRange = query({
+  args: {
+    startDayKey: v.string(),
+    endDayKey: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    validateBusinessDayRange(args);
+
+    const startTimestamp = businessDateToUtcStart(args.startDayKey);
+    const endTimestamp =
+      businessDateToUtcStart(addBusinessDays(args.endDayKey, 1)) - 1;
+    const rawRows = await ctx.db
+      .query("leadGenSubmissions")
+      .withIndex("by_tenantId_and_submittedAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .gte("submittedAt", startTimestamp)
+          .lte("submittedAt", endTimestamp),
+      )
+      .take(TEAM_ORIGIN_AUDIT_ROW_LIMIT + 1);
+
+    if (rawRows.length > TEAM_ORIGIN_AUDIT_ROW_LIMIT) {
+      throw new Error("Team-origin raw audit range is too large.");
+    }
+
+    const aggregateRows = await ctx.db
+      .query("leadGenTeamOriginStats")
+      .withIndex("by_tenantId_and_dayKey", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .gte("dayKey", args.startDayKey)
+          .lte("dayKey", args.endDayKey),
+      )
+      .take(TEAM_ORIGIN_AUDIT_ROW_LIMIT + 1);
+
+    if (aggregateRows.length > TEAM_ORIGIN_AUDIT_ROW_LIMIT) {
+      throw new Error("Team-origin aggregate audit range is too large.");
+    }
+
+    const rawGroups = new Map<string, TeamOriginGroup>();
+    for (const row of rawRows) {
+      if (
+        row.voidedAt !== undefined ||
+        !row.originRankable ||
+        !row.originValue ||
+        !isRankableLeadGenOrigin(row.originKind)
+      ) {
+        continue;
+      }
+
+      const origin = normalizeLeadGenOrigin({
+        originKind: row.originKind,
+        originUrlOrLabel: row.originValue,
+      });
+      if (!origin.originKey || !origin.originValue) continue;
+
+      const dayKey = timestampToBusinessDateKey(row.submittedAt);
+      const statKey = teamOriginAuditKey({
+        dayKey,
+        teamId: row.teamId,
+        source: row.source,
+        originKey: origin.originKey,
+      });
+      const group = getOrCreateTeamOriginGroup(rawGroups, {
+        statKey,
+        dayKey,
+        teamId: row.teamId,
+        source: row.source,
+        originKey: origin.originKey,
+        originValue: origin.originValue,
+      });
+
+      group.submissions += 1;
+      group.prospectIds.add(row.prospectId);
+    }
+
+    const aggregateGroups = new Map<
+      string,
+      Omit<TeamOriginGroup, "prospectIds"> & { uniqueProspects: number }
+    >();
+    for (const row of aggregateRows) {
+      const current =
+        aggregateGroups.get(row.statKey) ??
+        {
+          statKey: row.statKey,
+          dayKey: row.dayKey,
+          teamId: row.teamId ?? null,
+          source: row.source,
+          originKey: row.originKey,
+          originValue: row.originValue,
+          submissions: 0,
+          uniqueProspects: 0,
+        };
+
+      current.submissions += row.submissions;
+      current.uniqueProspects += row.uniqueProspectsSubmitted;
+      aggregateGroups.set(row.statKey, current);
+    }
+
+    const allKeys = new Set([
+      ...rawGroups.keys(),
+      ...aggregateGroups.keys(),
+    ]);
+    const diffs = [...allKeys]
+      .map((statKey) => {
+        const raw = rawGroups.get(statKey);
+        const aggregate = aggregateGroups.get(statKey);
+        const template = raw ?? aggregate;
+        if (!template) return null;
+
+        const rawSubmissions = raw?.submissions ?? 0;
+        const rawUniqueProspects = raw?.prospectIds.size ?? 0;
+        const aggregateSubmissions = aggregate?.submissions ?? 0;
+        const aggregateUniqueProspects = aggregate?.uniqueProspects ?? 0;
+
+        if (
+          rawSubmissions === aggregateSubmissions &&
+          rawUniqueProspects === aggregateUniqueProspects
+        ) {
+          return null;
+        }
+
+        return {
+          statKey,
+          dayKey: template.dayKey,
+          teamId: template.teamId,
+          source: template.source,
+          originKey: template.originKey,
+          originValue: template.originValue,
+          rawSubmissions,
+          aggregateSubmissions,
+          submissionDelta: aggregateSubmissions - rawSubmissions,
+          rawUniqueProspects,
+          aggregateUniqueProspects,
+          uniqueProspectDelta:
+            aggregateUniqueProspects - rawUniqueProspects,
+        };
+      })
+      .filter((diff): diff is NonNullable<typeof diff> => diff !== null)
+      .sort((a, b) => a.statKey.localeCompare(b.statKey));
+
+    return {
+      startDayKey: args.startDayKey,
+      endDayKey: args.endDayKey,
+      rawRowsChecked: rawRows.length,
+      aggregateRowsChecked: aggregateRows.length,
+      rawGroupCount: rawGroups.size,
+      aggregateGroupCount: aggregateGroups.size,
+      diffCount: diffs.length,
+      diffs: diffs.slice(0, TEAM_ORIGIN_AUDIT_DIFF_LIMIT),
+      truncatedDiffs: diffs.length > TEAM_ORIGIN_AUDIT_DIFF_LIMIT,
     };
   },
 });

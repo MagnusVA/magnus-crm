@@ -11,6 +11,7 @@ import { leadGenSubmitArgsValidator } from "./validators";
 import {
   updateLeadGenDailyStats,
   updateLeadGenOriginStats,
+  updateLeadGenTeamOriginStats,
 } from "./aggregates";
 import { resolveLeadGenTeamIdForWrite } from "./sharedTeams";
 
@@ -162,6 +163,17 @@ export const submit = mutation({
     if (originRankable && origin.originKey && origin.originValue) {
       await updateLeadGenOriginStats(ctx, {
         tenantId: access.tenantId,
+        source: args.source,
+        originKind: submittedOrigin.originKind,
+        originKey: origin.originKey,
+        originValue: origin.originValue,
+        prospectId: prospect._id,
+        submittedAt: now,
+      });
+
+      await updateLeadGenTeamOriginStats(ctx, {
+        tenantId: access.tenantId,
+        teamId: worker.teamId,
         source: args.source,
         originKind: submittedOrigin.originKind,
         originKey: origin.originKey,

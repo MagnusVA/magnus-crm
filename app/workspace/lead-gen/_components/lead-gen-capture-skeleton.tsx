@@ -16,10 +16,19 @@ export function LeadGenCaptureSkeleton() {
         <Skeleton className="h-20" />
         <Skeleton className="h-20" />
       </div>
-      <Skeleton className="h-10 w-full" />
-      <Skeleton className="h-20 w-full" />
-      <Skeleton className="h-20 w-full" />
       <Skeleton className="h-11 w-full" />
+      <div className="flex flex-col gap-4 rounded-lg border bg-card p-4">
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-4 w-64 max-w-full" />
+        </div>
+        <Skeleton className="h-11 w-full" />
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <Skeleton className="h-10" />
+          <Skeleton className="h-10" />
+          <Skeleton className="h-10" />
+        </div>
+      </div>
     </div>
   );
 }
