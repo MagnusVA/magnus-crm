@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "convex/react";
+import { useCallback, useMemo, useState } from "react";
+import { useConvex } from "convex/react";
 import { DownloadIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -15,10 +15,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { serializeCsv } from "@/lib/csv";
+import { downloadLeadGenExcelReport } from "./lead-gen-excel-report";
 
-type ExportRequest =
-  | { kind: "summary"; nonce: number }
-  | { kind: "raw"; nonce: number };
+type ExportKind = "summary" | "raw" | "excel";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -60,8 +59,18 @@ export function LeadGenExportMenu({
   workerId?: Id<"leadGenWorkers">;
   source?: "instagram" | "meta_business";
 }) {
-  const [request, setRequest] = useState<ExportRequest | null>(null);
-  const completedRequestRef = useRef<number | null>(null);
+  const convex = useConvex();
+  const [exportingKind, setExportingKind] = useState<ExportKind | null>(null);
+  const exportFilters = useMemo(
+    () => ({
+      startDayKey,
+      endDayKey,
+      ...(teamId ? { teamId } : {}),
+      ...(workerId ? { workerId } : {}),
+      ...(source ? { source } : {}),
+    }),
+    [endDayKey, source, startDayKey, teamId, workerId],
+  );
   const rawRange = useMemo(
     () => ({
       startTimestamp: dayKeyToBusinessStartUtc(startDayKey),
@@ -74,121 +83,149 @@ export function LeadGenExportMenu({
     [endDayKey, source, startDayKey, teamId, workerId],
   );
 
-  const summaryRows = useQuery(
-    api.leadGen.exports.getSummaryExportRows,
-    request?.kind === "summary"
-      ? {
-          startDayKey,
-          endDayKey,
-          ...(teamId ? { teamId } : {}),
-          ...(workerId ? { workerId } : {}),
-          ...(source ? { source } : {}),
+  const handleExport = useCallback(
+    async (kind: ExportKind) => {
+      if (exportingKind) return;
+
+      setExportingKind(kind);
+      try {
+        if (kind === "summary") {
+          const summaryRows = await convex.query(
+            api.leadGen.exports.getSummaryExportRows,
+            exportFilters,
+          );
+          downloadCsv(`lead-gen-summary-${startDayKey}-${endDayKey}.csv`, [
+            [
+              "Day",
+              "Worker",
+              "Team",
+              "Source",
+              "Submissions",
+              "Unique Prospects",
+              "Duplicates",
+              "Scheduled Hours",
+            ],
+            ...summaryRows.map((row) => [
+              row.dayKey,
+              row.workerDisplayName ?? row.workerEmail ?? "Unknown worker",
+              row.teamName ?? "No Team",
+              row.source,
+              row.submissions,
+              row.uniqueProspects,
+              row.duplicates,
+              row.scheduledHours,
+            ]),
+          ]);
+          toast.success("Summary export ready");
+          return;
         }
-      : "skip",
+
+        if (kind === "raw") {
+          const rawRows = await convex.query(
+            api.leadGen.exports.getRawSubmissionExportRows,
+            rawRange,
+          );
+          downloadCsv(`lead-gen-raw-${startDayKey}-${endDayKey}.csv`, [
+            [
+              "Submitted At",
+              "Worker",
+              "Worker Email",
+              "Team",
+              "Prospect Handle",
+              "Raw Handle",
+              "Profile URL",
+              "Source",
+              "Origin Kind",
+              "Origin Value",
+              "Voided At",
+              "Void Reason",
+            ],
+            ...rawRows.map((row) => [
+              new Date(row.submittedAt).toISOString(),
+              row.workerDisplayName ?? row.workerEmail ?? "Unknown worker",
+              row.workerEmail ?? "",
+              row.teamName ?? "No Team",
+              row.normalizedHandle ? `@${row.normalizedHandle}` : row.prospectId,
+              row.rawHandle ?? "",
+              row.profileUrl ?? "",
+              row.source,
+              row.originKind,
+              row.originValue ?? "",
+              row.voidedAt ? new Date(row.voidedAt).toISOString() : "",
+              row.voidReason ?? "",
+            ]),
+          ]);
+          toast.success("Raw export ready");
+          return;
+        }
+
+        const excelReport = await convex.query(
+          api.leadGen.exports.getExcelReportData,
+          exportFilters,
+        );
+        downloadLeadGenExcelReport(excelReport);
+        toast.success("Excel report ready");
+      } catch (error) {
+        toast.error(getExportErrorMessage(error));
+      } finally {
+        setExportingKind(null);
+      }
+    },
+    [
+      convex,
+      endDayKey,
+      exportFilters,
+      exportingKind,
+      rawRange,
+      startDayKey,
+    ],
   );
-  const rawRows = useQuery(
-    api.leadGen.exports.getRawSubmissionExportRows,
-    request?.kind === "raw" ? rawRange : "skip",
-  );
 
-  useEffect(() => {
-    if (request?.kind !== "summary" || summaryRows === undefined) return;
-    if (completedRequestRef.current === request.nonce) return;
-    completedRequestRef.current = request.nonce;
-
-    downloadCsv(`lead-gen-summary-${startDayKey}-${endDayKey}.csv`, [
-      [
-        "Day",
-        "Worker",
-        "Team",
-        "Source",
-        "Submissions",
-        "Unique Prospects",
-        "Duplicates",
-        "Scheduled Hours",
-      ],
-      ...summaryRows.map((row) => [
-        row.dayKey,
-        row.workerDisplayName ?? row.workerEmail ?? "Unknown worker",
-        row.teamName ?? "No Team",
-        row.source,
-        row.submissions,
-        row.uniqueProspects,
-        row.duplicates,
-        row.scheduledHours,
-      ]),
-    ]);
-    toast.success("Summary export ready");
-  }, [endDayKey, request, startDayKey, summaryRows]);
-
-  useEffect(() => {
-    if (request?.kind !== "raw" || rawRows === undefined) return;
-    if (completedRequestRef.current === request.nonce) return;
-    completedRequestRef.current = request.nonce;
-
-    downloadCsv(`lead-gen-raw-${startDayKey}-${endDayKey}.csv`, [
-      [
-        "Submitted At",
-        "Worker",
-        "Worker Email",
-        "Team",
-        "Prospect Handle",
-        "Raw Handle",
-        "Profile URL",
-        "Source",
-        "Origin Kind",
-        "Origin Value",
-        "Voided At",
-        "Void Reason",
-      ],
-      ...rawRows.map((row) => [
-        new Date(row.submittedAt).toISOString(),
-        row.workerDisplayName ?? row.workerEmail ?? "Unknown worker",
-        row.workerEmail ?? "",
-        row.teamName ?? "No Team",
-        row.normalizedHandle ? `@${row.normalizedHandle}` : row.prospectId,
-        row.rawHandle ?? "",
-        row.profileUrl ?? "",
-        row.source,
-        row.originKind,
-        row.originValue ?? "",
-        row.voidedAt ? new Date(row.voidedAt).toISOString() : "",
-        row.voidReason ?? "",
-      ]),
-    ]);
-    toast.success("Raw export ready");
-  }, [endDayKey, rawRows, request, startDayKey]);
-
-  const isExporting =
-    (request?.kind === "summary" && summaryRows === undefined) ||
-    (request?.kind === "raw" && rawRows === undefined);
+  const isExporting = exportingKind !== null;
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button disabled={isExporting} size="sm" variant="outline">
-          {isExporting ? (
-            <DownloadIcon data-icon="inline-start" />
-          ) : (
-            <DownloadIcon data-icon="inline-start" />
-          )}
-          Export
+        <Button
+          aria-busy={isExporting}
+          disabled={isExporting}
+          size="sm"
+          variant="outline"
+        >
+          <DownloadIcon data-icon="inline-start" />
+          {isExporting ? "Exporting..." : "Export"}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
         <DropdownMenuGroup>
           <DropdownMenuItem
-            onSelect={() => setRequest({ kind: "summary", nonce: Date.now() })}
+            disabled={isExporting}
+            onSelect={() => void handleExport("summary")}
           >
             Summary CSV
           </DropdownMenuItem>
           <DropdownMenuItem
-            onSelect={() => setRequest({ kind: "raw", nonce: Date.now() })}
+            disabled={isExporting}
+            onSelect={() => void handleExport("raw")}
           >
             Raw Submissions CSV
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={isExporting}
+            onSelect={() => void handleExport("excel")}
+          >
+            Performance Excel
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+function getExportErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message.replace(/^Uncaught Error: /, "");
+  }
+
+  return "Export failed";
 }

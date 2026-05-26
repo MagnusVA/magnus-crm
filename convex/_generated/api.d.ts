@@ -69,6 +69,7 @@ import type * as leadGen_corrections from "../leadGen/corrections.js";
 import type * as leadGen_exports from "../leadGen/exports.js";
 import type * as leadGen_normalization from "../leadGen/normalization.js";
 import type * as leadGen_reconciliation from "../leadGen/reconciliation.js";
+import type * as leadGen_reportBuilders from "../leadGen/reportBuilders.js";
 import type * as leadGen_reporting from "../leadGen/reporting.js";
 import type * as leadGen_schedules from "../leadGen/schedules.js";
 import type * as leadGen_settings from "../leadGen/settings.js";
@@ -324,6 +325,7 @@ declare const fullApi: ApiFromModules<{
   "leadGen/exports": typeof leadGen_exports;
   "leadGen/normalization": typeof leadGen_normalization;
   "leadGen/reconciliation": typeof leadGen_reconciliation;
+  "leadGen/reportBuilders": typeof leadGen_reportBuilders;
   "leadGen/reporting": typeof leadGen_reporting;
   "leadGen/schedules": typeof leadGen_schedules;
   "leadGen/settings": typeof leadGen_settings;
