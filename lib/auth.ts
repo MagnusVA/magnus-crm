@@ -26,6 +26,7 @@ type CurrentTenant = {
     | "invite_expired";
   calendlyWebhookUri?: string;
   onboardingCompletedAt?: number;
+  billingOpsEnabled?: boolean;
 };
 
 export type VerifiedSession = AuthResult & {

@@ -56,6 +56,47 @@ export const getPrimarySocialIdentifier = internalQuery({
   },
 });
 
+export const getExistingOpportunityBumpForNotify = internalQuery({
+  args: {
+    tenantId: v.id("tenants"),
+    opportunityId: v.id("opportunities"),
+    leadId: v.id("leads"),
+    qualificationEventId: v.id("slackQualificationEvents"),
+  },
+  handler: async (ctx, args) => {
+    const [opportunity, lead, event] = await Promise.all([
+      ctx.db.get(args.opportunityId),
+      ctx.db.get(args.leadId),
+      ctx.db.get(args.qualificationEventId),
+    ]);
+
+    if (!opportunity || !lead || !event) {
+      return null;
+    }
+
+    if (
+      opportunity.tenantId !== args.tenantId ||
+      lead.tenantId !== args.tenantId ||
+      event.tenantId !== args.tenantId ||
+      opportunity.leadId !== args.leadId ||
+      event.leadId !== args.leadId ||
+      event.opportunityId !== args.opportunityId ||
+      event.resultKind !== "already_booked"
+    ) {
+      return null;
+    }
+
+    return {
+      leadFullName:
+        lead.fullName ?? lead.email ?? event.fullNameSnapshot ?? "Lead",
+      platform: event.platform,
+      handle: event.handleSnapshot,
+      opportunityStatus: opportunity.status,
+      bumpedBySlackUserId: event.slackUserId,
+    };
+  },
+});
+
 export const getQualificationGoalProgress = internalQuery({
   args: {
     tenantId: v.id("tenants"),

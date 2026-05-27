@@ -9,6 +9,7 @@ const BASE64URL_ALPHABET =
 type StatePayload = {
   tenantId: Id<"tenants">;
   workosUserId: string;
+  requestId?: string;
   nonce: string;
   iat: number;
   exp: number;
@@ -22,6 +23,7 @@ export type CreatedSlackOAuthState = {
 export type ValidatedSlackOAuthState = {
   tenantId: Id<"tenants">;
   workosUserId: string;
+  requestId?: string;
 };
 
 function bytesToBase64Url(bytes: Uint8Array): string {
@@ -120,6 +122,12 @@ async function sha256Hex(input: string): Promise<string> {
     .join("");
 }
 
+export async function fingerprintSlackOAuthStateToken(
+  token: string,
+): Promise<string> {
+  return (await sha256Hex(token)).slice(0, 12);
+}
+
 function randomHex(byteLength: number): string {
   const bytes = new Uint8Array(byteLength);
   crypto.getRandomValues(bytes);
@@ -141,6 +149,7 @@ export async function createSlackOAuthState(
   args: {
     tenantId: Id<"tenants">;
     workosUserId: string;
+    requestId?: string;
     ttlSeconds?: number;
     signingSecret?: string;
   },
@@ -153,6 +162,7 @@ export async function createSlackOAuthState(
   const payload: StatePayload = {
     tenantId: args.tenantId,
     workosUserId: args.workosUserId,
+    ...(args.requestId ? { requestId: args.requestId } : {}),
     nonce,
     iat: now,
     exp: expiresAt,
@@ -172,6 +182,16 @@ export async function createSlackOAuthState(
     expiresAt,
   });
 
+  console.log("[Slack:OAuthState] created", {
+    requestId: args.requestId,
+    tenantId: args.tenantId,
+    workosUserId: args.workosUserId,
+    stateFingerprint: await fingerprintSlackOAuthStateToken(token),
+    issuedAt: now,
+    expiresAt,
+    ttlMs: expiresAt - now,
+  });
+
   return { token, expiresAt };
 }
 
@@ -180,14 +200,23 @@ export async function validateAndConsumeSlackOAuthState(
   args: { token: string; signingSecret?: string },
 ): Promise<ValidatedSlackOAuthState | null> {
   const signingSecret = getSigningSecret(args.signingSecret);
+  const stateFingerprint = await fingerprintSlackOAuthStateToken(args.token);
+  console.log("[Slack:OAuthState] validate start", { stateFingerprint });
+
   const dotIndex = args.token.lastIndexOf(".");
   if (dotIndex < 0) {
+    console.warn("[Slack:OAuthState] validate failed: missing signature", {
+      stateFingerprint,
+    });
     return null;
   }
 
   const payloadEncoded = args.token.slice(0, dotIndex);
   const signature = args.token.slice(dotIndex + 1);
   if (!(await verifySignature(payloadEncoded, signature, signingSecret))) {
+    console.warn("[Slack:OAuthState] validate failed: signature mismatch", {
+      stateFingerprint,
+    });
     return null;
   }
 
@@ -195,17 +224,42 @@ export async function validateAndConsumeSlackOAuthState(
   try {
     payload = JSON.parse(base64urlDecodeToString(payloadEncoded)) as StatePayload;
   } catch {
+    console.warn("[Slack:OAuthState] validate failed: invalid payload JSON", {
+      stateFingerprint,
+    });
     return null;
   }
 
+  const now = Date.now();
   if (
     !payload ||
     typeof payload.tenantId !== "string" ||
     typeof payload.workosUserId !== "string" ||
+    (payload.requestId !== undefined && typeof payload.requestId !== "string") ||
     typeof payload.nonce !== "string" ||
     typeof payload.exp !== "number" ||
-    Date.now() >= payload.exp
+    now >= payload.exp
   ) {
+    console.warn("[Slack:OAuthState] validate failed: invalid or expired payload", {
+      stateFingerprint,
+      requestId:
+        payload && typeof payload.requestId === "string"
+          ? payload.requestId
+          : undefined,
+      tenantId:
+        payload && typeof payload.tenantId === "string"
+          ? payload.tenantId
+          : undefined,
+      workosUserId:
+        payload && typeof payload.workosUserId === "string"
+          ? payload.workosUserId
+          : undefined,
+      exp:
+        payload && typeof payload.exp === "number" ? payload.exp : undefined,
+      now,
+      expired:
+        payload && typeof payload.exp === "number" ? now >= payload.exp : null,
+    });
     return null;
   }
 
@@ -218,11 +272,27 @@ export async function validateAndConsumeSlackOAuthState(
   );
 
   if (!consumed) {
+    console.warn("[Slack:OAuthState] validate failed: state not consumable", {
+      stateFingerprint,
+      requestId: payload.requestId,
+      tenantId: payload.tenantId,
+      workosUserId: payload.workosUserId,
+      exp: payload.exp,
+    });
     return null;
   }
+
+  console.log("[Slack:OAuthState] validate success", {
+    stateFingerprint,
+    requestId: payload.requestId,
+    tenantId: payload.tenantId,
+    workosUserId: payload.workosUserId,
+    exp: payload.exp,
+  });
 
   return {
     tenantId: payload.tenantId,
     workosUserId: payload.workosUserId,
+    requestId: payload.requestId,
   };
 }

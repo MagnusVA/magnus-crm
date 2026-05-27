@@ -18,6 +18,7 @@ import {
   ClipboardCheckIcon,
   ClipboardListIcon,
   ContactIcon,
+  DollarSignIcon,
   LayoutDashboardIcon,
   UsersIcon,
   KanbanIcon,
@@ -41,6 +42,13 @@ const adminPages = [
   { label: "Settings", href: "/workspace/settings", icon: SettingsIcon },
 ];
 
+const billingPage = {
+  label: "Billing",
+  href: "/workspace/billing",
+  icon: DollarSignIcon,
+  shortcut: "4",
+};
+
 const closerPages = [
   { label: "Dashboard", href: "/workspace/closer", icon: LayoutDashboardIcon, shortcut: "1" },
   { label: "My Pipeline", href: "/workspace/closer/pipeline", icon: KanbanIcon, shortcut: "2" },
@@ -53,7 +61,11 @@ const leadGenPages = [
   { label: "My Activity", href: "/workspace/lead-gen/my-activity", icon: ActivityIcon, shortcut: "2" },
 ];
 
-export function CommandPalette() {
+export function CommandPalette({
+  billingOpsEnabled = false,
+}: {
+  billingOpsEnabled?: boolean;
+}) {
   const router = useRouter();
   const { isAdmin, role } = useRole();
   const [open, setOpen] = useState(false);
@@ -79,7 +91,17 @@ export function CommandPalette() {
   );
 
   const pages = isAdmin
-    ? adminPages
+    ? billingOpsEnabled
+      ? [
+          ...adminPages.slice(0, 3),
+          billingPage,
+          ...adminPages
+            .slice(3)
+            .map((page) =>
+              page.shortcut === "4" ? { ...page, shortcut: undefined } : page,
+            ),
+        ]
+      : adminPages
     : role === "lead_generator"
       ? leadGenPages
       : closerPages;

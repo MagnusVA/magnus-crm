@@ -16,18 +16,6 @@ const trackingArgsValidator = v.object({
   salesforce_uuid: v.optional(v.union(v.string(), v.null())),
 });
 
-type CalendlyEventTypeListResponse = {
-  collection?: Array<{
-    uri?: string;
-    name?: string;
-    active?: boolean;
-    kind?: string;
-    pooling_type?: string;
-    duration?: number;
-    scheduling_url?: string;
-  }>;
-};
-
 type CalendlyEventTypeDetailsResponse = {
   resource?: {
     uri?: string;
@@ -71,6 +59,7 @@ type CalendlyInviteeResponse = {
 };
 
 type EventTypeSummary = {
+  eventTypeConfigId?: Id<"eventTypeConfigs">;
   uri: string;
   name: string;
   active: boolean;
@@ -474,7 +463,7 @@ export const listEventTypes = internalAction({
     args,
   ): Promise<{
     tenantId: Id<"tenants">;
-    organizationUri: string;
+    organizationUri: string | null;
     count: number;
     eventTypes: EventTypeSummary[];
   }> => {
@@ -484,44 +473,24 @@ export const listEventTypes = internalAction({
       count: args.count ?? 100,
     });
 
-    const { accessToken, organizationUri } = await getTenantCalendlyAccess(
-      ctx,
-      args.tenantId,
-    );
-    if (!organizationUri) {
-      throw new Error(
-        `Tenant ${args.tenantId} has no stored Calendly organization URI.`,
-      );
-    }
-
-    const params = new URLSearchParams({
-      organization: organizationUri,
-      active: String(args.activeOnly ?? true),
-      count: String(args.count ?? 100),
-      sort: "name:asc",
-    });
-
-    const response = await fetch(
-      `https://api.calendly.com/event_types?${params.toString()}`,
+    const eventTypes: EventTypeSummary[] = await ctx.runQuery(
+      internal.eventTypeConfigs.queries.listForCalendlyTesting,
       {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
+        tenantId: args.tenantId,
+        activeOnly: args.activeOnly ?? true,
+        count: args.count ?? 100,
       },
     );
-    const payload = await readCalendlyJson<CalendlyEventTypeListResponse>(
-      response,
-      "Missing Calendly scope: event_types:read. Reconnect Calendly for this tenant with event type read access.",
+    const tenant: TenantCalendlyContext | null = await ctx.runQuery(
+      internal.calendly.connectionQueries.getTenantConnectionContext,
+      {
+        tenantId: args.tenantId,
+      },
     );
-
-    const eventTypes = (payload.collection ?? [])
-      .map(toEventTypeSummary)
-      .filter((eventType): eventType is EventTypeSummary => eventType !== null);
 
     return {
       tenantId: args.tenantId,
-      organizationUri,
+      organizationUri: tenant?.organizationUri ?? null,
       count: eventTypes.length,
       eventTypes,
     };

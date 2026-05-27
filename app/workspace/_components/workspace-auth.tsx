@@ -29,6 +29,7 @@ export async function WorkspaceAuth({ children }: { children: ReactNode }) {
           workosUserId={access.crmUser.workosUserId}
           workosOrgId={access.tenant.workosOrgId}
           tenantName={access.tenant.companyName}
+          billingOpsEnabled={access.tenant.billingOpsEnabled === true}
         >
           {children}
         </WorkspaceShellClient>

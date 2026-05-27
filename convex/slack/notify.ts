@@ -2,7 +2,10 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
 import { emitDomainEventInAction } from "../lib/domainEventsAction";
-import { buildQualifiedLeadConfirmation } from "../lib/slackBlockKit";
+import {
+  buildExistingOpportunityBump,
+  buildQualifiedLeadConfirmation,
+} from "../lib/slackBlockKit";
 import { getValidSlackBotToken } from "./tokens";
 import { slackApiPostJson } from "./webApi";
 
@@ -155,6 +158,149 @@ export const postConfirmation = internalAction({
         slackErr,
         channel: installation.notifyChannelId,
         opportunityId: args.opportunityId,
+      },
+    });
+  },
+});
+
+export const postExistingOpportunityBump = internalAction({
+  args: {
+    tenantId: v.id("tenants"),
+    opportunityId: v.id("opportunities"),
+    leadId: v.id("leads"),
+    qualificationEventId: v.id("slackQualificationEvents"),
+  },
+  handler: async (ctx, args) => {
+    const installation = await ctx.runQuery(
+      internal.slack.installations.byTenantId,
+      { tenantId: args.tenantId },
+    );
+    if (!installation || installation.status !== "active") {
+      console.log("[Slack:Notify] bump skipping - installation not active", {
+        tenantId: args.tenantId,
+        status: installation?.status,
+      });
+      return;
+    }
+    if (!installation.notifyChannelId) {
+      console.log("[Slack:Notify] bump skipping - no notify channel configured", {
+        tenantId: args.tenantId,
+      });
+      return;
+    }
+
+    const bump = await ctx.runQuery(
+      internal.slack.notifyData.getExistingOpportunityBumpForNotify,
+      {
+        tenantId: args.tenantId,
+        opportunityId: args.opportunityId,
+        leadId: args.leadId,
+        qualificationEventId: args.qualificationEventId,
+      },
+    );
+
+    if (!bump) {
+      console.warn("[Slack:Notify] missing bump notification data", {
+        tenantId: args.tenantId,
+        opportunityId: args.opportunityId,
+        leadId: args.leadId,
+        qualificationEventId: args.qualificationEventId,
+      });
+      return;
+    }
+
+    const appUrl = process.env.APP_URL;
+    if (!appUrl) {
+      console.warn("[Slack:Notify] APP_URL not configured for bump", {
+        tenantId: args.tenantId,
+        opportunityId: args.opportunityId,
+      });
+      await emitDomainEventInAction(ctx, {
+        tenantId: args.tenantId,
+        entityType: "slackInstallation",
+        entityId: installation._id,
+        eventType: "slack.notify.failed",
+        source: "system",
+        occurredAt: Date.now(),
+        metadata: {
+          slackErr: "app_url_not_configured",
+          channel: installation.notifyChannelId,
+          opportunityId: args.opportunityId,
+          notificationKind: "existing_opportunity_bump",
+        },
+      });
+      return;
+    }
+
+    const message = buildExistingOpportunityBump({
+      leadFullName: bump.leadFullName,
+      platform: bump.platform,
+      handle: bump.handle,
+      opportunityStatus: bump.opportunityStatus,
+      bumpedBySlackUserId: bump.bumpedBySlackUserId,
+      appUrl,
+      opportunityId: args.opportunityId,
+    });
+
+    let token: string;
+    try {
+      token = await getValidSlackBotToken(ctx, args.tenantId);
+    } catch (error) {
+      console.warn("[Slack:Notify] bump token unavailable", {
+        tenantId: args.tenantId,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+      return;
+    }
+
+    const response = await slackApiPostJson<{ channel?: string; ts?: string }>(
+      "chat.postMessage",
+      token,
+      {
+        channel: installation.notifyChannelId,
+        text: message.text,
+        blocks: message.blocks,
+        unfurl_links: false,
+        unfurl_media: false,
+      },
+    );
+
+    if (response.ok) {
+      console.log("[Slack:Notify] bump posted", {
+        tenantId: args.tenantId,
+        channel: installation.notifyChannelId,
+        opportunityId: args.opportunityId,
+      });
+      return;
+    }
+
+    const slackErr = response.error ?? "unknown";
+    console.warn("[Slack:Notify] bump post failed", {
+      tenantId: args.tenantId,
+      channel: installation.notifyChannelId,
+      slackErr,
+    });
+
+    if (ACTION_REQUIRED_ERRORS.has(slackErr)) {
+      await ctx.runMutation(internal.slack.notifyData.recordNotifyFailure, {
+        installationId: installation._id,
+        slackErr,
+        clearChannel: CLEAR_CHANNEL_ERRORS.has(slackErr),
+      });
+    }
+
+    await emitDomainEventInAction(ctx, {
+      tenantId: args.tenantId,
+      entityType: "slackInstallation",
+      entityId: installation._id,
+      eventType: "slack.notify.failed",
+      source: "system",
+      occurredAt: Date.now(),
+      metadata: {
+        slackErr,
+        channel: installation.notifyChannelId,
+        opportunityId: args.opportunityId,
+        notificationKind: "existing_opportunity_bump",
       },
     });
   },

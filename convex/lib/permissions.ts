@@ -44,6 +44,12 @@ export const PERMISSIONS = {
   "lead-gen:correct": ["tenant_master", "tenant_admin"],
   "lead-gen:export": ["tenant_master", "tenant_admin"],
   // === End Lead Gen Ops ===
+  // === Billing Ops ===
+  "billing:view": ["tenant_master", "tenant_admin"],
+  "billing:review": ["tenant_master", "tenant_admin"],
+  "billing:correct": ["tenant_master", "tenant_admin"],
+  "billing:export": ["tenant_master", "tenant_admin"],
+  // === End Billing Ops ===
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
