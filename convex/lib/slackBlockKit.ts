@@ -36,6 +36,16 @@ export type QualifiedLeadConfirmationArgs = {
   opportunityId: string;
 };
 
+export type ExistingOpportunityBumpArgs = {
+  leadFullName: string;
+  platform: SocialPlatform;
+  handle: string;
+  opportunityStatus: string;
+  bumpedBySlackUserId: string;
+  appUrl: string;
+  opportunityId: string;
+};
+
 export type StaleLeadDigestEntry = {
   leadFullName: string;
   platform: SocialPlatform;
@@ -73,7 +83,7 @@ export function buildQualifyLeadModal(
     callback_id: "qualify_lead_submit",
     private_metadata: JSON.stringify(meta),
     title: { type: "plain_text", text: "Qualify a Lead" },
-    submit: { type: "plain_text", text: "Create lead" },
+    submit: { type: "plain_text", text: "Submit" },
     close: { type: "plain_text", text: "Cancel" },
     blocks: [
       {
@@ -155,6 +165,47 @@ export function buildQualifiedLeadConfirmation(
     text:
       `${leadName} was qualified by <@${args.qualifiedBySlackUserId}>` +
       `${goalText ? `. Goal: ${goalText}` : ""}`,
+    blocks,
+  };
+}
+
+export function buildExistingOpportunityBump(args: ExistingOpportunityBumpArgs) {
+  const leadName = escapeSlackMrkdwn(args.leadFullName);
+  const handle = escapeSlackMrkdwn(args.handle);
+  const platformLabel = SOCIAL_PLATFORM_LABELS[args.platform];
+  const statusLabel = formatOpportunityStatusForSlack(args.opportunityStatus);
+  const fields = [
+    { type: "mrkdwn" as const, text: `*Name:*\n${leadName}` },
+    { type: "mrkdwn" as const, text: `*Platform:*\n${platformLabel}` },
+    { type: "mrkdwn" as const, text: `*Handle:*\n${handle}` },
+    { type: "mrkdwn" as const, text: `*Existing status:*\n${statusLabel}` },
+    {
+      type: "mrkdwn" as const,
+      text: `*Bumped by:*\n<@${args.bumpedBySlackUserId}>`,
+    },
+  ];
+
+  const blocks: KnownBlock[] = [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: "Existing Opportunity Bump",
+      },
+    },
+    {
+      type: "section",
+      fields,
+      accessory: {
+        type: "button",
+        text: { type: "plain_text", text: "Open" },
+        url: crmOpportunityUrl(args.appUrl, args.opportunityId),
+      },
+    },
+  ];
+
+  return {
+    text: `${leadName} was bumped by <@${args.bumpedBySlackUserId}> on an existing opportunity.`,
     blocks,
   };
 }
@@ -269,6 +320,13 @@ function crmOpportunityUrl(appUrl: string, opportunityId: string) {
   const url = new URL("/api/slack/open-opportunity", appUrl.replace(/\/$/, ""));
   url.searchParams.set("opportunityId", opportunityId);
   return url.toString();
+}
+
+function formatOpportunityStatusForSlack(status: string) {
+  return status
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function parseMetadata(value: unknown): QualifyLeadModalMetadata | null {

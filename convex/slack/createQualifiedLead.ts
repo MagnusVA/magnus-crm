@@ -167,7 +167,7 @@ export const create = internalMutation({
         opportunityId: recent._id,
       });
       return {
-        duplicate: true as const,
+        kind: "duplicate_pending" as const,
         existingOpportunityId: recent._id,
         priorQualifiedBy: recent.qualifiedBy ?? null,
       };
@@ -178,6 +178,7 @@ export const create = internalMutation({
       .withIndex("by_tenantId_and_leadId", (q) =>
         q.eq("tenantId", args.tenantId).eq("leadId", resolution.leadId),
       )
+      .order("desc")
       .take(20);
     const alreadyBooked = existingOppsForLead.find(
       (opportunity) =>
@@ -190,7 +191,7 @@ export const create = internalMutation({
         alreadyBooked.status === "qualified_pending"
           ? "duplicate_pending"
           : "already_booked";
-      await insertQualificationEvent(ctx, {
+      const qualificationEventId = await insertQualificationEvent(ctx, {
         tenantId: args.tenantId,
         installationId: args.installationId,
         leadId: resolution.leadId,
@@ -207,11 +208,37 @@ export const create = internalMutation({
         leadId: resolution.leadId,
         opportunityId: alreadyBooked._id,
       });
+
+      if (resultKind === "already_booked") {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.slack.notify.postExistingOpportunityBump,
+          {
+            tenantId: args.tenantId,
+            opportunityId: alreadyBooked._id,
+            leadId: resolution.leadId,
+            qualificationEventId,
+          },
+        );
+        console.log("[Slack:CreateQL] existing opportunity bumped", {
+          tenantId: args.tenantId,
+          leadId: resolution.leadId,
+          existingOpportunityId: alreadyBooked._id,
+          qualificationEventId,
+          status: alreadyBooked.status,
+        });
+        return {
+          kind: "existing_opportunity_bump" as const,
+          existingOpportunityId: alreadyBooked._id,
+          leadId: resolution.leadId,
+          qualificationEventId,
+        };
+      }
+
       return {
-        duplicate: true as const,
+        kind: "duplicate_pending" as const,
         existingOpportunityId: alreadyBooked._id,
         priorQualifiedBy: alreadyBooked.qualifiedBy ?? null,
-        alreadyBooked: alreadyBooked.status !== "qualified_pending",
       };
     }
 
@@ -275,7 +302,7 @@ export const create = internalMutation({
     });
 
     return {
-      duplicate: false as const,
+      kind: "created" as const,
       opportunityId,
       leadId: resolution.leadId,
       isNewLead: resolution.isNewLead,

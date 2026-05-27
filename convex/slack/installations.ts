@@ -84,14 +84,39 @@ export const byTeamIdAndAppId = internalQuery({
   args: {
     teamId: v.string(),
     appId: v.string(),
+    logContext: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    return await ctx.db
+    if (args.logContext) {
+      console.log("[Slack:Installations] byTeamIdAndAppId lookup", {
+        logContext: args.logContext,
+        teamId: args.teamId,
+        appId: args.appId,
+      });
+    }
+
+    const row = await ctx.db
       .query("slackInstallations")
       .withIndex("by_teamId_and_appId", (q) =>
         q.eq("teamId", args.teamId).eq("appId", args.appId),
       )
       .unique();
+
+    if (args.logContext) {
+      console.log("[Slack:Installations] byTeamIdAndAppId result", {
+        logContext: args.logContext,
+        found: Boolean(row),
+        installationId: row?._id,
+        tenantId: row?.tenantId,
+        status: row?.status,
+        hasNotifyChannel: Boolean(row?.notifyChannelId),
+        hasStaleReminderChannel: Boolean(row?.staleReminderChannelId),
+        tokenExpiresAt: row?.tokenExpiresAt,
+        uninstalledAt: row?.uninstalledAt,
+      });
+    }
+
+    return row;
   },
 });
 
@@ -126,8 +151,15 @@ export const verifyInstallerStillAdmin = internalQuery({
   args: {
     tenantId: v.id("tenants"),
     workosUserId: v.string(),
+    requestId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    console.log("[Slack:Installations] verifyInstallerStillAdmin lookup", {
+      requestId: args.requestId,
+      tenantId: args.tenantId,
+      workosUserId: args.workosUserId,
+    });
+
     const user = await ctx.db
       .query("users")
       .withIndex("by_workosUserId", (q) =>
@@ -135,12 +167,47 @@ export const verifyInstallerStillAdmin = internalQuery({
       )
       .unique();
 
-    if (!user) return null;
-    if (user.tenantId !== args.tenantId) return null;
-    if (user.isActive === false) return null;
-    if (user.role !== "tenant_master" && user.role !== "tenant_admin") {
+    if (!user) {
+      console.warn("[Slack:Installations] installer rejected: user missing", {
+        requestId: args.requestId,
+        tenantId: args.tenantId,
+        workosUserId: args.workosUserId,
+      });
       return null;
     }
+    if (user.tenantId !== args.tenantId) {
+      console.warn("[Slack:Installations] installer rejected: tenant mismatch", {
+        requestId: args.requestId,
+        expectedTenantId: args.tenantId,
+        actualTenantId: user.tenantId,
+        userId: user._id,
+      });
+      return null;
+    }
+    if (user.isActive === false) {
+      console.warn("[Slack:Installations] installer rejected: inactive user", {
+        requestId: args.requestId,
+        tenantId: args.tenantId,
+        userId: user._id,
+      });
+      return null;
+    }
+    if (user.role !== "tenant_master" && user.role !== "tenant_admin") {
+      console.warn("[Slack:Installations] installer rejected: non-admin role", {
+        requestId: args.requestId,
+        tenantId: args.tenantId,
+        userId: user._id,
+        role: user.role,
+      });
+      return null;
+    }
+
+    console.log("[Slack:Installations] installer verified", {
+      requestId: args.requestId,
+      tenantId: args.tenantId,
+      userId: user._id,
+      role: user.role,
+    });
 
     return { userId: user._id };
   },
@@ -160,14 +227,39 @@ export const upsertOnInstall = internalMutation({
     tokenExpiresAt: v.number(),
     scopes: v.array(v.string()),
     installedByWorkosUserId: v.string(),
+    requestId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    console.log("[Slack:Installations] upsertOnInstall start", {
+      requestId: args.requestId,
+      tenantId: args.tenantId,
+      teamId: args.teamId,
+      appId: args.appId,
+      botUserId: args.botUserId,
+      enterpriseIdPresent: Boolean(args.enterpriseId),
+      isEnterpriseInstall: args.isEnterpriseInstall,
+      scopeCount: args.scopes.length,
+      scopes: args.scopes,
+      tokenExpiresAt: args.tokenExpiresAt,
+    });
+
     const existing = await ctx.db
       .query("slackInstallations")
       .withIndex("by_teamId_and_appId", (q) =>
         q.eq("teamId", args.teamId).eq("appId", args.appId),
       )
       .unique();
+
+    console.log("[Slack:Installations] upsertOnInstall existing lookup", {
+      requestId: args.requestId,
+      found: Boolean(existing),
+      installationId: existing?._id,
+      existingTenantId: existing?.tenantId,
+      existingStatus: existing?.status,
+      hasNotifyChannel: Boolean(existing?.notifyChannelId),
+      hasStaleReminderChannel: Boolean(existing?.staleReminderChannelId),
+      uninstalledAt: existing?.uninstalledAt,
+    });
 
     const now = Date.now();
     const row = {
@@ -189,6 +281,14 @@ export const upsertOnInstall = internalMutation({
 
     if (existing) {
       if (existing.tenantId !== args.tenantId) {
+        console.error("[Slack:Installations] upsert rejected: tenant mismatch", {
+          requestId: args.requestId,
+          installationId: existing._id,
+          existingTenantId: existing.tenantId,
+          attemptingTenantId: args.tenantId,
+          teamId: args.teamId,
+          appId: args.appId,
+        });
         throw new Error("Slack workspace already linked to another tenant");
       }
       await ctx.db.patch(existing._id, {
@@ -198,10 +298,28 @@ export const upsertOnInstall = internalMutation({
         refreshLockAcquiredAt: undefined,
         uninstalledAt: undefined,
       });
+      console.log("[Slack:Installations] upsertOnInstall patched existing", {
+        requestId: args.requestId,
+        installationId: existing._id,
+        tenantId: args.tenantId,
+        previousStatus: existing.status,
+        installedAt: now,
+        tokenExpiresAt: args.tokenExpiresAt,
+      });
       return existing._id;
     }
 
-    return await ctx.db.insert("slackInstallations", row);
+    const id = await ctx.db.insert("slackInstallations", row);
+    console.log("[Slack:Installations] upsertOnInstall inserted", {
+      requestId: args.requestId,
+      installationId: id,
+      tenantId: args.tenantId,
+      teamId: args.teamId,
+      appId: args.appId,
+      installedAt: now,
+      tokenExpiresAt: args.tokenExpiresAt,
+    });
+    return id;
   },
 });
 
@@ -380,8 +498,38 @@ export const reactivate = internalMutation({
     tokenExpiresAt: v.number(),
     scopes: v.array(v.string()),
     installedByWorkosUserId: v.string(),
+    requestId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const existing = await ctx.db.get(args.id);
+    if (!existing) {
+      console.error("[Slack:Installations] reactivate failed: row missing", {
+        requestId: args.requestId,
+        installationId: args.id,
+      });
+      throw new Error("Slack installation missing during reactivation");
+    }
+
+    console.log("[Slack:Installations] reactivate start", {
+      requestId: args.requestId,
+      installationId: args.id,
+      tenantId: existing.tenantId,
+      teamId: existing.teamId,
+      appId: args.appId,
+      previousAppId: existing.appId,
+      previousStatus: existing.status,
+      previousTokenExpiresAt: existing.tokenExpiresAt,
+      previousLastRefreshedAt: existing.lastRefreshedAt,
+      previousUninstalledAt: existing.uninstalledAt,
+      hadNotifyChannel: Boolean(existing.notifyChannelId),
+      hadStaleReminderChannel: Boolean(existing.staleReminderChannelId),
+      enterpriseIdPresent: Boolean(args.enterpriseId),
+      isEnterpriseInstall: args.isEnterpriseInstall,
+      scopeCount: args.scopes.length,
+      scopes: args.scopes,
+      tokenExpiresAt: args.tokenExpiresAt,
+    });
+
     await ctx.db.patch(args.id, {
       teamName: args.teamName,
       enterpriseId: args.enterpriseId,
@@ -399,6 +547,17 @@ export const reactivate = internalMutation({
       refreshLockAcquiredAt: undefined,
       status: "active",
       uninstalledAt: undefined,
+    });
+
+    console.log("[Slack:Installations] reactivate complete", {
+      requestId: args.requestId,
+      installationId: args.id,
+      tenantId: existing.tenantId,
+      previousStatus: existing.status,
+      nextStatus: "active",
+      tokenExpiresAt: args.tokenExpiresAt,
+      preservedNotifyChannel: Boolean(existing.notifyChannelId),
+      preservedStaleReminderChannel: Boolean(existing.staleReminderChannelId),
     });
   },
 });

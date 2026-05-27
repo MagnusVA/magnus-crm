@@ -137,16 +137,7 @@ export const interactivity = httpAction(async (ctx, req) => {
     });
   }
 
-  if (result.duplicate) {
-    if ("alreadyBooked" in result && result.alreadyBooked) {
-      return jsonResponse({
-        response_action: "errors",
-        errors: {
-          handle: "This lead already has a booked or active opportunity.",
-        },
-      });
-    }
-
+  if (result.kind === "duplicate_pending") {
     const priorAt = result.priorQualifiedBy?.submittedAt;
     const elapsedDays = priorAt
       ? Math.floor((Date.now() - priorAt) / (24 * 60 * 60 * 1000))
@@ -163,6 +154,16 @@ export const interactivity = httpAction(async (ctx, req) => {
       response_action: "errors",
       errors: { handle: message },
     });
+  }
+
+  if (result.kind === "existing_opportunity_bump") {
+    console.log("[Slack:Int] view_submission bumped existing opportunity", {
+      tenantId: parsed.tenantId,
+      opportunityId: result.existingOpportunityId,
+      leadId: result.leadId,
+      qualificationEventId: result.qualificationEventId,
+    });
+    return new Response("", { status: 200 });
   }
 
   console.log("[Slack:Int] view_submission committed", {
@@ -245,17 +246,22 @@ function jsonResponse(body: unknown, status = 200) {
 
 type CreateQualifiedLeadResult =
   | {
-      duplicate: true;
+      kind: "duplicate_pending";
       existingOpportunityId: Id<"opportunities">;
       priorQualifiedBy: {
         slackUserId: string;
         slackTeamId: string;
         submittedAt: number;
       } | null;
-      alreadyBooked?: boolean;
     }
   | {
-      duplicate: false;
+      kind: "existing_opportunity_bump";
+      existingOpportunityId: Id<"opportunities">;
+      leadId: Id<"leads">;
+      qualificationEventId: Id<"slackQualificationEvents">;
+    }
+  | {
+      kind: "created";
       opportunityId: Id<"opportunities">;
       leadId: Id<"leads">;
       isNewLead: boolean;
