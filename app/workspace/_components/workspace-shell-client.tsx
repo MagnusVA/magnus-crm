@@ -89,6 +89,12 @@ const adminNavItems: NavItem[] = [
   { href: "/workspace/settings", label: "Settings", icon: SettingsIcon },
 ];
 
+const billingNavItem: NavItem = {
+  href: "/workspace/billing",
+  label: "Billing",
+  icon: DollarSignIcon,
+};
+
 const closerNavItems: NavItem[] = [
   { href: "/workspace/closer", label: "Dashboard", icon: LayoutDashboardIcon, exact: true },
   { href: "/workspace/closer/pipeline", label: "My Pipeline", icon: KanbanIcon },
@@ -118,8 +124,20 @@ const reportNavItems: NavItem[] = [
   },
 ];
 
-function navForRole(role: CrmRole, isAdmin: boolean) {
-  if (isAdmin) return adminNavItems;
+function navForRole(
+  role: CrmRole,
+  isAdmin: boolean,
+  billingOpsEnabled: boolean,
+) {
+  if (isAdmin) {
+    return billingOpsEnabled
+      ? [
+          ...adminNavItems.slice(0, 3),
+          billingNavItem,
+          ...adminNavItems.slice(3),
+        ]
+      : adminNavItems;
+  }
   if (role === "lead_generator") return leadGeneratorNavItems;
   return closerNavItems;
 }
@@ -141,6 +159,7 @@ interface WorkspaceShellClientProps {
   workosUserId: string;
   workosOrgId: string;
   tenantName: string;
+  billingOpsEnabled: boolean;
   children: ReactNode;
 }
 
@@ -166,6 +185,7 @@ export function WorkspaceShellClient({
   workosUserId,
   workosOrgId,
   tenantName,
+  billingOpsEnabled,
   children,
 }: WorkspaceShellClientProps) {
   return (
@@ -177,6 +197,7 @@ export function WorkspaceShellClient({
         workosUserId={workosUserId}
         workosOrgId={workosOrgId}
         tenantName={tenantName}
+        billingOpsEnabled={billingOpsEnabled}
       >
         {children}
       </WorkspaceShellClientInner>
@@ -197,6 +218,7 @@ function WorkspaceShellClientInner({
   workosUserId,
   workosOrgId,
   tenantName,
+  billingOpsEnabled,
   children,
 }: Omit<WorkspaceShellClientProps, "initialRole"> & { initialRole: CrmRole }) {
   const { isAdmin, role } = useRole();
@@ -205,7 +227,7 @@ function WorkspaceShellClientInner({
   const router = useRouter();
   const displayName = initialDisplayName || initialEmail;
 
-  const navItems = navForRole(role, isAdmin);
+  const navItems = navForRole(role, isAdmin, billingOpsEnabled);
   const homeHref = homeHrefForRole(role, isAdmin);
 
   // Reactive pending review count — admin only (skipped for closers to avoid unnecessary queries)
@@ -401,7 +423,7 @@ function WorkspaceShellClientInner({
       </SidebarInset>
 
       {/* Command palette — global overlay */}
-      <CommandPalette />
+      <CommandPalette billingOpsEnabled={billingOpsEnabled} />
     </>
   );
 }

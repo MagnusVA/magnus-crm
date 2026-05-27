@@ -1,6 +1,10 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import {
+  insertBillingPaymentAggregates,
+  replaceBillingPaymentAggregates,
+} from "../billing/aggregates";
+import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatiblePaymentCommissionable,
 } from "../lib/paymentTypes";
@@ -209,6 +213,7 @@ export async function insertPaymentAggregate(
   paymentId: Id<"paymentRecords">,
 ): Promise<Doc<"paymentRecords">> {
   const payment = await getPaymentOrThrow(ctx, paymentId);
+  await insertBillingPaymentAggregates(ctx, payment);
   if (isPaymentAggregateEligible(payment)) {
     await paymentSums.insert(ctx, payment);
   }
@@ -221,6 +226,8 @@ export async function replacePaymentAggregate(
   paymentId: Id<"paymentRecords">,
 ): Promise<Doc<"paymentRecords">> {
   const payment = await getPaymentOrThrow(ctx, paymentId);
+  await replaceBillingPaymentAggregates(ctx, oldPayment, payment);
+
   const oldEligible = isPaymentAggregateEligible(oldPayment);
   const nextEligible = isPaymentAggregateEligible(payment);
 

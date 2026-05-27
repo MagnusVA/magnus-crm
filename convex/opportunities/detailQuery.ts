@@ -103,9 +103,9 @@ export const getOpportunityDetail = query({
 
     const source = normalizeOpportunitySource(opportunity);
     const isSideDeal = source === "side_deal";
-    const recordedSideDealPayment = payments.find(
+    const activeSideDealPayment = payments.find(
       (payment) =>
-        payment.status === "recorded" && isSideDealOrigin(payment.origin),
+        payment.status !== "disputed" && isSideDealOrigin(payment.origin),
     );
     const hasOnlyStaleNudgeFollowUps =
       attachedFollowUps.length < 50 &&
@@ -195,8 +195,8 @@ export const getOpportunityDetail = query({
           isAdmin &&
           isSideDeal &&
           opportunity.status === "payment_received" &&
-          recordedSideDealPayment !== undefined,
-        voidablePaymentId: recordedSideDealPayment?._id,
+          activeSideDealPayment !== undefined,
+        voidablePaymentId: activeSideDealPayment?._id,
         canDeleteOpportunity:
           isSideDeal &&
           opportunity.status === "in_progress" &&

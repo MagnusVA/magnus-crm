@@ -35,6 +35,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   ActivityIcon,
+  DollarSignIcon,
   ClipboardListIcon,
   KanbanIcon,
   LayoutDashboardIcon,
@@ -83,6 +84,12 @@ const adminNavItems: NavItem[] = [
   { href: "/workspace/settings", label: "Settings", icon: SettingsIcon },
 ];
 
+const billingNavItem: NavItem = {
+  href: "/workspace/billing",
+  label: "Billing",
+  icon: DollarSignIcon,
+};
+
 const closerNavItems: NavItem[] = [
   { href: "/workspace/closer", label: "Dashboard", icon: LayoutDashboardIcon, exact: true },
   { href: "/workspace/closer/pipeline", label: "My Pipeline", icon: KanbanIcon },
@@ -93,8 +100,20 @@ const leadGeneratorNavItems: NavItem[] = [
   { href: "/workspace/lead-gen/my-activity", label: "My Activity", icon: ActivityIcon },
 ];
 
-function navForRole(role: CrmRole, isAdmin: boolean) {
-  if (isAdmin) return adminNavItems;
+function navForRole(
+  role: CrmRole,
+  isAdmin: boolean,
+  billingOpsEnabled: boolean,
+) {
+  if (isAdmin) {
+    return billingOpsEnabled
+      ? [
+          ...adminNavItems.slice(0, 1),
+          billingNavItem,
+          ...adminNavItems.slice(1),
+        ]
+      : adminNavItems;
+  }
   if (role === "lead_generator") return leadGeneratorNavItems;
   return closerNavItems;
 }
@@ -116,6 +135,7 @@ interface WorkspaceShellProps {
   workosUserId: string;
   workosOrgId: string;
   tenantName: string;
+  billingOpsEnabled?: boolean;
   children: ReactNode;
 }
 
@@ -126,6 +146,7 @@ export function WorkspaceShell({
   workosUserId,
   workosOrgId,
   tenantName,
+  billingOpsEnabled = false,
   children,
 }: WorkspaceShellProps) {
   return (
@@ -137,6 +158,7 @@ export function WorkspaceShell({
         workosUserId={workosUserId}
         workosOrgId={workosOrgId}
         tenantName={tenantName}
+        billingOpsEnabled={billingOpsEnabled}
       >
         {children}
       </WorkspaceShellInner>
@@ -157,6 +179,7 @@ function WorkspaceShellInner({
   workosUserId,
   workosOrgId,
   tenantName,
+  billingOpsEnabled,
   children,
 }: {
   initialDisplayName: string;
@@ -165,6 +188,7 @@ function WorkspaceShellInner({
   workosUserId: string;
   workosOrgId: string;
   tenantName: string;
+  billingOpsEnabled: boolean;
   children: ReactNode;
 }) {
   const { isAdmin, role } = useRole();
@@ -173,7 +197,7 @@ function WorkspaceShellInner({
   const router = useRouter();
   const displayName = initialDisplayName || initialEmail;
 
-  const navItems = navForRole(role, isAdmin);
+  const navItems = navForRole(role, isAdmin, billingOpsEnabled);
   const homeHref = homeHrefForRole(role, isAdmin);
 
   // Identify user in PostHog with full context
@@ -326,7 +350,7 @@ function WorkspaceShellInner({
           {children}
         </div>
       </SidebarInset>
-      <CommandPalette />
+      <CommandPalette billingOpsEnabled={billingOpsEnabled} />
     </SidebarProvider>
   );
 }

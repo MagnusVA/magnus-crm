@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "convex:dev": "convex dev",
-    "expose": "ngrok http --url=https://javelin-ethical-broadly.ngrok-free.app 3000"
+    "expose": "ngrok http --url=https://javelin-ethical-broadly.ngrok-free.app 3000",
+    "e2e:login-url": "node scripts/e2e-login-url.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",

@@ -49,6 +49,8 @@ export default defineSchema({
     // One tenant-wide count target for one Honduras 1am-to-1am business day.
     // Undefined means no team goal configured. Field name retained for migration safety.
     slackQualificationDailyTeamQuota: v.optional(v.number()),
+    // Phase 0 Billing Ops release gate. Undefined is treated as disabled.
+    billingOpsEnabled: v.optional(v.boolean()),
   })
     .index("by_contactEmail", ["contactEmail"])
     .index("by_workosOrgId", ["workosOrgId"])
@@ -910,6 +912,11 @@ export default defineSchema({
       "tenantId",
       "opportunityId",
     ])
+    .index("by_tenantId_and_opportunityId_and_submittedAt", [
+      "tenantId",
+      "opportunityId",
+      "submittedAt",
+    ])
     .index("by_tenantId_and_leadId_and_submittedAt", [
       "tenantId",
       "leadId",
@@ -1582,7 +1589,15 @@ export default defineSchema({
     // === End Feature D ===
   })
     .index("by_opportunityId", ["opportunityId"])
+    .index("by_opportunityId_and_recordedAt", [
+      "opportunityId",
+      "recordedAt",
+    ])
     .index("by_originatingOpportunityId", ["originatingOpportunityId"])
+    .index("by_originatingOpportunityId_and_recordedAt", [
+      "originatingOpportunityId",
+      "recordedAt",
+    ])
     .index("by_tenantId", ["tenantId"])
     .index("by_customerId", ["customerId"])
     .index("by_tenantId_and_recordedAt", ["tenantId", "recordedAt"])
@@ -1616,6 +1631,57 @@ export default defineSchema({
       "tenantId",
       "paymentType",
       "recordedAt",
+    ])
+    .index("by_tenantId_and_status_and_programId_and_recordedAt", [
+      "tenantId",
+      "status",
+      "programId",
+      "recordedAt",
+    ])
+    .index("by_tenantId_and_status_and_paymentType_and_recordedAt", [
+      "tenantId",
+      "status",
+      "paymentType",
+      "recordedAt",
+    ])
+    .index("by_tenantId_status_programId_paymentType_recordedAt", [
+      "tenantId",
+      "status",
+      "programId",
+      "paymentType",
+      "recordedAt",
+    ]),
+
+  billingExportEvents: defineTable({
+    tenantId: v.id("tenants"),
+    actorUserId: v.id("users"),
+    filtersJson: v.string(),
+    exactCount: v.number(),
+    exportedCount: v.number(),
+    truncated: v.boolean(),
+    createdAt: v.number(),
+  })
+    .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
+    .index("by_tenantId_and_actorUserId_and_createdAt", [
+      "tenantId",
+      "actorUserId",
+      "createdAt",
+    ]),
+
+  billingOpsReadinessChecks: defineTable({
+    tenantId: v.id("tenants"),
+    actorSubject: v.string(),
+    status: v.union(v.literal("passed"), v.literal("failed")),
+    checkedAt: v.number(),
+    aggregateBackfilledAt: v.optional(v.number()),
+    filtersJson: v.string(),
+    summaryJson: v.string(),
+  })
+    .index("by_tenantId_and_checkedAt", ["tenantId", "checkedAt"])
+    .index("by_tenantId_and_status_and_checkedAt", [
+      "tenantId",
+      "status",
+      "checkedAt",
     ]),
 
   followUps: defineTable({

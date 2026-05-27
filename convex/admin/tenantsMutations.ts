@@ -6,6 +6,8 @@ const CLEANUP_BATCH_SIZE = 128;
 
 const TENANT_SCOPED_BY_TENANT_ID_TABLES = [
   "calendlyOrgMembers",
+  "billingExportEvents",
+  "billingOpsReadinessChecks",
   "closerUnavailability",
   "customers",
   "eventTypeConfigs",

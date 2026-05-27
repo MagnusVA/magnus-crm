@@ -1,4 +1,4 @@
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import type { PaymentType } from "./paymentTypes";
 
@@ -26,6 +26,12 @@ export type PaymentStatsDelta = {
   wonDealDelta?: number;
   activeOpportunityDelta?: number;
 };
+
+type PaymentRevenueBucket =
+  | "totalCommissionableFinalRevenueMinor"
+  | "totalCommissionableDepositRevenueMinor"
+  | "totalNonCommissionableFinalRevenueMinor"
+  | "totalNonCommissionableDepositRevenueMinor";
 
 type TenantStatsField = keyof TenantStatsDelta;
 
@@ -59,6 +65,18 @@ export function isActiveOpportunityStatus(status: string): boolean {
   return ACTIVE_OPPORTUNITY_STATUSES.has(
     status as (typeof ACTIVE_OPPORTUNITY_STATUSES extends Set<infer T> ? T : never),
   );
+}
+
+function paymentRevenueBucket(payment: Doc<"paymentRecords">): PaymentRevenueBucket {
+  if (payment.commissionable) {
+    return payment.paymentType === "deposit"
+      ? "totalCommissionableDepositRevenueMinor"
+      : "totalCommissionableFinalRevenueMinor";
+  }
+
+  return payment.paymentType === "deposit"
+    ? "totalNonCommissionableDepositRevenueMinor"
+    : "totalNonCommissionableFinalRevenueMinor";
 }
 
 export async function updateTenantStats(
@@ -134,4 +152,33 @@ export async function applyPaymentStatsDelta(
     [bucketKey]: delta.amountMinorDelta,
     wonDeals: delta.wonDealDelta ?? 0,
   });
+}
+
+export async function replaceTenantPaymentStatsForCorrection(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  args: {
+    before: Doc<"paymentRecords">;
+    after: Doc<"paymentRecords">;
+  },
+): Promise<void> {
+  const beforeAmount =
+    args.before.status === "disputed" ? 0 : args.before.amountMinor;
+  const afterAmount =
+    args.after.status === "disputed" ? 0 : args.after.amountMinor;
+  const beforeBucket = paymentRevenueBucket(args.before);
+  const afterBucket = paymentRevenueBucket(args.after);
+
+  const delta: TenantStatsDelta = {
+    totalRevenueMinor: afterAmount - beforeAmount,
+  };
+
+  if (beforeBucket === afterBucket) {
+    delta[beforeBucket] = afterAmount - beforeAmount;
+  } else {
+    delta[beforeBucket] = -beforeAmount;
+    delta[afterBucket] = afterAmount;
+  }
+
+  await updateTenantStats(ctx, tenantId, delta);
 }

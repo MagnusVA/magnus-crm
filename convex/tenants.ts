@@ -106,6 +106,7 @@ export const getCurrentTenant = query({
       status: tenant.status,
       calendlyWebhookUri: connection?.webhookUri,
       onboardingCompletedAt: tenant.onboardingCompletedAt,
+      billingOpsEnabled: tenant.billingOpsEnabled === true,
     };
     console.log("[Tenants] getCurrentTenant result", {
       tenantId: result.tenantId,

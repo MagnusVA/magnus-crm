@@ -39,8 +39,8 @@ export const voidPayment = mutation({
     if (payment.status === "disputed") {
       throw new Error("Already voided.");
     }
-    if (payment.status !== "recorded") {
-      throw new Error("Only recorded side-deal payments can be voided here.");
+    if (payment.status !== "recorded" && payment.status !== "verified") {
+      throw new Error("Only active side-deal payments can be voided here.");
     }
     if (!payment.opportunityId) {
       throw new Error("Only opportunity payments can be voided here.");

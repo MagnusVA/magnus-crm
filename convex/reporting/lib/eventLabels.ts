@@ -112,13 +112,21 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "disputed a payment",
     iconHint: "circle-alert",
   },
+  "payment.corrected": {
+    verb: "corrected payment details",
+    iconHint: "pencil",
+  },
   "payment.recorded": {
     verb: "recorded a payment",
     iconHint: "dollar-sign",
   },
   "payment.verified": {
-    verb: "verified a payment",
+    verb: "marked payment reviewed",
     iconHint: "badge-check",
+  },
+  "payment.voided": {
+    verb: "voided a payment",
+    iconHint: "circle-x",
   },
   "user.created": {
     verb: "created a team member",
