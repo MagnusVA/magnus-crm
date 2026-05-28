@@ -110,7 +110,10 @@ export type OverviewDashboard = {
     rows: TopQualifierRow[];
     totalQualified: number;
   }>;
-  topDmClosers: SectionResult<{ rows: TopDmCloserRow[] }>;
+  topDmClosers: SectionResult<{
+    rows: TopDmCloserRow[];
+    totalScheduled: number;
+  }>;
   phoneCloserOperations: SectionResult<PhoneCloserOperations>;
   topOrigins: SectionResult<{ rows: TopOriginsByTeamRow[] }>;
 };
