@@ -97,7 +97,7 @@ export type TopOriginsByTeamRow = {
   isActive: boolean | null;
   totalUniqueProspects: number;
   totalSubmissions: number;
-  topOrigin: TopOriginRow | null;
+  origins: TopOriginRow[];
 };
 
 export type PublicOverviewRange = {

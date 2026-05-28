@@ -7,4 +7,4 @@ export const MAX_TOP_ORIGINS = 25;
 export const MAX_TOP_ORIGINS_PER_TEAM = 10;
 export const TOP_OVERVIEW_WORKER_LIMIT = 5;
 export const TOP_OVERVIEW_ORIGIN_LIMIT = 10;
-export const TOP_OVERVIEW_ORIGINS_PER_TEAM = 1;
+export const TOP_OVERVIEW_ORIGINS_PER_TEAM = 10;
