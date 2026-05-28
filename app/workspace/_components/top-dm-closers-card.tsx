@@ -11,7 +11,7 @@ import {
 	OverviewHelpTooltip,
 	overviewTooltips,
 } from "./overview-help-tooltip";
-import { formatRate, formatWholeNumber } from "./overview-formatters";
+import { formatWholeNumber } from "./overview-formatters";
 import {
 	OverviewCappedState,
 	OverviewEmptyState,
@@ -37,7 +37,7 @@ export function TopDmClosersCard({
 						Top DM Closers
 					</OverviewHelpTooltip>
 				</CardTitle>
-				<CardDescription>Ranked by booked-call attribution</CardDescription>
+				<CardDescription>Ranked by bookings made in range</CardDescription>
 			</CardHeader>
 			<CardContent className="flex flex-col gap-3">
 				{section.status === "capped" ? (
@@ -60,30 +60,23 @@ export function TopDmClosersCard({
 						</div>
 						<ol className="flex flex-col gap-0.5" aria-label="Top DM closers">
 							{section.data.rows.map((row, index) => (
-							<li
-								key={row.dmCloserId}
-								className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-2.5 rounded px-1.5 py-1.5 text-sm transition-colors hover:bg-muted/50"
-							>
-								<span className="text-center text-xs font-semibold tabular-nums text-muted-foreground/60">
-									{index + 1}
-								</span>
-								<div className="min-w-0">
-									<p className="truncate font-medium">{row.displayName}</p>
-									<p className="truncate text-xs text-muted-foreground">
-										{row.teamName ?? "No team"}&nbsp;·&nbsp;
-										<OverviewHelpTooltip
-											label="Show rate"
-											description={overviewTooltips.topDmClosers.showRate}
-											triggerClassName="text-xs text-muted-foreground"
-										>
-											{formatRate(row.showRate)} show
-										</OverviewHelpTooltip>
-									</p>
-								</div>
-								<span className="font-semibold tabular-nums">
-									{formatWholeNumber(row.scheduled)}
-								</span>
-							</li>
+								<li
+									key={row.dmCloserId}
+									className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-2.5 rounded px-1.5 py-1.5 text-sm transition-colors hover:bg-muted/50"
+								>
+									<span className="text-center text-xs font-semibold tabular-nums text-muted-foreground/60">
+										{index + 1}
+									</span>
+									<div className="min-w-0">
+										<p className="truncate font-medium">{row.displayName}</p>
+										<p className="truncate text-xs text-muted-foreground">
+											{row.teamName ?? "No team"}
+										</p>
+									</div>
+									<span className="font-semibold tabular-nums">
+										{formatWholeNumber(row.booked)}
+									</span>
+								</li>
 							))}
 						</ol>
 						<div className="mt-1 flex items-center justify-between border-t px-1.5 pt-2.5 text-sm">
@@ -95,7 +88,7 @@ export function TopDmClosersCard({
 								Total booked calls
 							</OverviewHelpTooltip>
 							<span className="font-semibold tabular-nums">
-								{formatWholeNumber(section.data.totalScheduled)}
+								{formatWholeNumber(section.data.totalBooked)}
 							</span>
 						</div>
 					</>

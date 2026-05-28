@@ -396,6 +396,9 @@ Use this after every test meeting is scheduled.
 
 - [ ] New opportunity visible in admin pipeline
 - [ ] Dashboard stats updated (if applicable)
+- [ ] Overview → Today → Top DM Closers total matches `meetings.createdAt` in the Honduras business-day window, grouped by `dmCloserId`; do not validate this card against `operationsMeetingDailyStats`
+- [ ] Overview custom date range → Top DM Closers uses bookings created in the selected range, excluding follow-up bookings and unattributed meetings
+- [ ] Phone Closer Operations still reflects meetings scheduled in the selected range
 - [ ] Correct closer shown as assignee
 
 ---

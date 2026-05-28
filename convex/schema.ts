@@ -1186,6 +1186,7 @@ export default defineSchema({
   })
     .index("by_opportunityId", ["opportunityId"])
     .index("by_tenantId_and_scheduledAt", ["tenantId", "scheduledAt"])
+    .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
     .index("by_tenantId_and_calendlyEventUri", ["tenantId", "calendlyEventUri"])
     .index("by_tenantId_and_status_and_scheduledAt", [
       "tenantId",

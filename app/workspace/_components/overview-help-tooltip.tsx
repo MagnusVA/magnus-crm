@@ -88,13 +88,11 @@ export const overviewTooltips = {
 	},
 	topDmClosers: {
 		section:
-			"DM closers ranked by booked calls attributed to them in the selected range.",
+			"DM closers ranked by bookings they created in the selected range.",
 		bookedCalls:
-			"Total booked calls attributed to this DM closer in the range.",
-		showRate:
-			"Completed calls divided by all booked calls attributed to this closer.",
+			"New bookings created in the selected range and attributed to this DM closer. Follow-up bookings are excluded.",
 		totalBookedCalls:
-			"Total booked calls attributed to all DM closers in the selected range, not only the ranked list.",
+			"Total new bookings created in the selected range and attributed to any DM closer, not only the ranked list.",
 	},
 	phoneCloserOperations: {
 		section:
