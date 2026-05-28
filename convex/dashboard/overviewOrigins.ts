@@ -26,9 +26,6 @@ function compareTopOriginRows(
   if (left.uniqueProspects !== right.uniqueProspects) {
     return right.uniqueProspects - left.uniqueProspects;
   }
-  if (left.submissions !== right.submissions) {
-    return right.submissions - left.submissions;
-  }
   return left.originValue.localeCompare(right.originValue);
 }
 
@@ -38,7 +35,6 @@ function groupByTeam(
 ): Array<{
   teamId: LeadGenTeamId | null;
   totalUniqueProspects: number;
-  totalSubmissions: number;
   origins: TopOriginRow[];
 }> {
   const byTeam = new Map<
@@ -46,7 +42,6 @@ function groupByTeam(
     {
       teamId: LeadGenTeamId | null;
       totalUniqueProspects: number;
-      totalSubmissions: number;
       origins: Map<string, TopOriginRow>;
     }
   >();
@@ -60,7 +55,6 @@ function groupByTeam(
       {
         teamId: row.teamId ?? null,
         totalUniqueProspects: 0,
-        totalSubmissions: 0,
         origins: new Map(),
       };
 
@@ -72,14 +66,11 @@ function groupByTeam(
         source: row.source,
         originKind: row.originKind,
         originValue: row.originValue,
-        submissions: 0,
         uniqueProspects: 0,
       };
 
-    currentOrigin.submissions += row.submissions;
     currentOrigin.uniqueProspects += row.uniqueProspectsSubmitted;
     currentTeam.totalUniqueProspects += row.uniqueProspectsSubmitted;
-    currentTeam.totalSubmissions += row.submissions;
     currentTeam.origins.set(originMapKey, currentOrigin);
     byTeam.set(teamKey, currentTeam);
   }
@@ -87,7 +78,6 @@ function groupByTeam(
   return [...byTeam.values()].map((team) => ({
     teamId: team.teamId,
     totalUniqueProspects: team.totalUniqueProspects,
-    totalSubmissions: team.totalSubmissions,
     origins: [...team.origins.values()]
       .sort(compareTopOriginRows)
       .slice(0, limitPerTeam),
@@ -119,14 +109,10 @@ export async function getTopOriginsOverviewSection(
         teamName: teamDoc?.name ?? "Unassigned",
         isActive: teamDoc?.isActive ?? (team.teamId ? false : null),
         totalUniqueProspects: team.totalUniqueProspects,
-        totalSubmissions: team.totalSubmissions,
         origins: team.origins,
       };
     })
     .sort((left, right) => {
-      if (left.totalSubmissions !== right.totalSubmissions) {
-        return right.totalSubmissions - left.totalSubmissions;
-      }
       if (left.totalUniqueProspects !== right.totalUniqueProspects) {
         return right.totalUniqueProspects - left.totalUniqueProspects;
       }

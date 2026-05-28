@@ -20,7 +20,7 @@ type OperationsTotals = {
 
 type PhoneCloserTotals = {
   scheduled: number;
-  noShows: number;
+  completed: number;
   callsShowed: number;
 };
 
@@ -45,7 +45,7 @@ function addOperationRow(totals: OperationsTotals, row: OperationsStatsRow) {
 function emptyPhoneCloserTotals(): PhoneCloserTotals {
   return {
     scheduled: 0,
-    noShows: 0,
+    completed: 0,
     callsShowed: 0,
   };
 }
@@ -55,7 +55,7 @@ function addPhoneCloserOperationRow(
   row: OperationsStatsRow,
 ) {
   totals.scheduled += row.count;
-  if (row.meetingStatus === "no_show") totals.noShows += row.count;
+  if (row.meetingStatus === "completed") totals.completed += row.count;
   if (
     row.meetingStatus === "completed" ||
     row.meetingStatus === "in_progress"
@@ -178,8 +178,7 @@ export async function getPhoneCloserOperationsOverviewSection(
       closerId,
       closerName,
       scheduled: totals.scheduled,
-      noShows: totals.noShows,
-      noShowRate: toRate(totals.noShows, totals.scheduled),
+      showRate: toRate(totals.completed, totals.scheduled),
       closeRate: toRate(paymentStats.dealCount, totals.callsShowed),
       cashCollectedMinor: paymentStats.revenueMinor,
     });
@@ -193,7 +192,7 @@ export async function getPhoneCloserOperationsOverviewSection(
   const operationTotals = [...byCloser.values()].reduce(
     (acc, totals) => ({
       scheduled: acc.scheduled + totals.scheduled,
-      noShows: acc.noShows + totals.noShows,
+      completed: acc.completed + totals.completed,
       callsShowed: acc.callsShowed + totals.callsShowed,
     }),
     emptyPhoneCloserTotals(),
@@ -212,8 +211,7 @@ export async function getPhoneCloserOperationsOverviewSection(
       rows: sortedRows,
       totals: {
         scheduled: operationTotals.scheduled,
-        noShows: operationTotals.noShows,
-        noShowRate: toRate(operationTotals.noShows, operationTotals.scheduled),
+        showRate: toRate(operationTotals.completed, operationTotals.scheduled),
         closeRate: toRate(totalDealCount, operationTotals.callsShowed),
         cashCollectedMinor: totalCashCollectedMinor,
       },

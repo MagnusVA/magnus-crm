@@ -17,6 +17,7 @@ export async function getTopQualifiersOverviewSection(
 
   return {
     data: {
+      totalQualified: breakdown.totalQualified,
       rows: breakdown.rows.map((row) => ({
         slackUserId: row.slackUserId,
         displayName: row.displayName,

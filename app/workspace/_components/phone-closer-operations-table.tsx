@@ -26,7 +26,7 @@ type ReadyData = Extract<
 export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 	return (
 		<div className="overflow-x-auto rounded-md border">
-			<Table className="min-w-[44rem]">
+			<Table className="min-w-[36rem]">
 				<TableHeader>
 					<TableRow className="bg-muted/40 hover:bg-muted/40">
 						<TableHead className="font-semibold text-foreground/80">
@@ -48,20 +48,11 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 						</TableHead>
 						<TableHead className="text-right font-semibold text-foreground/80">
 							<OverviewHelpTooltip
-								label="No shows"
-								description={overviewTooltips.phoneCloserOperations.noShows}
+								label="Show rate"
+								description={overviewTooltips.phoneCloserOperations.showRate}
 								triggerClassName="justify-end w-full"
 							>
-								No shows
-							</OverviewHelpTooltip>
-						</TableHead>
-						<TableHead className="text-right font-semibold text-foreground/80">
-							<OverviewHelpTooltip
-								label="No-show rate"
-								description={overviewTooltips.phoneCloserOperations.noShowRate}
-								triggerClassName="justify-end w-full"
-							>
-								No-show rate
+								Show rate
 							</OverviewHelpTooltip>
 						</TableHead>
 						<TableHead className="text-right font-semibold text-foreground/80">
@@ -93,8 +84,7 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 								{row.closerName}
 							</TableCell>
 							<NumericCell value={formatWholeNumber(row.scheduled)} />
-							<NumericCell value={formatWholeNumber(row.noShows)} />
-							<NumericCell value={formatRate(row.noShowRate)} />
+							<NumericCell value={formatRate(row.showRate)} />
 							<NumericCell value={formatRate(row.closeRate)} />
 							<NumericCell value={formatCurrency(row.cashCollectedMinor)} />
 						</TableRow>
@@ -102,8 +92,7 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 					<TableRow className="border-t-2 bg-muted/30 hover:bg-muted/30">
 						<TableCell className="font-semibold">Total</TableCell>
 						<NumericCell strong value={formatWholeNumber(data.totals.scheduled)} />
-						<NumericCell strong value={formatWholeNumber(data.totals.noShows)} />
-						<NumericCell strong value={formatRate(data.totals.noShowRate)} />
+						<NumericCell strong value={formatRate(data.totals.showRate)} />
 						<NumericCell strong value={formatRate(data.totals.closeRate)} />
 						<NumericCell
 							strong

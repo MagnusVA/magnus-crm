@@ -64,15 +64,6 @@ function TeamOriginsTable({ team }: { team: TeamRow }) {
 								</TableHead>
 								<TableHead className="text-right font-semibold text-foreground/80">
 									<OverviewHelpTooltip
-										label="Subs"
-										description={overviewTooltips.topOrigins.submissions}
-										triggerClassName="justify-end w-full"
-									>
-										Subs
-									</OverviewHelpTooltip>
-								</TableHead>
-								<TableHead className="text-right font-semibold text-foreground/80">
-									<OverviewHelpTooltip
 										label="Leads"
 										description={
 											overviewTooltips.topOrigins.uniqueProspects
@@ -94,9 +85,6 @@ function TeamOriginsTable({ team }: { team: TeamRow }) {
 										<Badge variant="outline">
 											{formatOriginKind(origin.originKind)}
 										</Badge>
-									</TableCell>
-									<TableCell className="text-right tabular-nums">
-										{formatWholeNumber(origin.submissions)}
 									</TableCell>
 									<TableCell className="text-right tabular-nums">
 										{formatWholeNumber(origin.uniqueProspects)}
