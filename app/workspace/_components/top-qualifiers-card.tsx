@@ -28,7 +28,9 @@ export function TopQualifiersCard({
 				<div className="flex items-start justify-between gap-3">
 					<div className="min-w-0">
 						<CardTitle className="flex items-center gap-2">
-							<MessageSquareCheckIcon aria-hidden="true" />
+							<span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+								<MessageSquareCheckIcon className="h-3.5 w-3.5" aria-hidden="true" />
+							</span>
 							Top Qualifiers
 						</CardTitle>
 						<CardDescription>Slack-qualified opportunity activity</CardDescription>
@@ -48,18 +50,18 @@ export function TopQualifiersCard({
 				) : (
 					<>
 						{section.truncated ? <OverviewTruncatedNote /> : null}
-						<ol className="flex flex-col gap-3" aria-label="Top Slack qualifiers">
+						<ol className="flex flex-col gap-0.5" aria-label="Top Slack qualifiers">
 							{section.data.rows.map((row, index) => (
 								<li
 									key={row.slackUserId}
-									className="grid grid-cols-[1.5rem_auto_minmax(0,1fr)_auto] items-center gap-2"
+									className="grid grid-cols-[1.25rem_auto_minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1.5 transition-colors hover:bg-muted/50"
 								>
-									<span className="text-sm text-muted-foreground tabular-nums">
+									<span className="text-center text-xs font-semibold tabular-nums text-muted-foreground/60">
 										{index + 1}
 									</span>
-									<Avatar className="size-7">
+									<Avatar className="size-6">
 										<AvatarImage src={row.avatarUrl ?? undefined} alt="" />
-										<AvatarFallback>
+										<AvatarFallback className="text-[10px]">
 											{(row.displayName ?? "?").slice(0, 1).toUpperCase()}
 										</AvatarFallback>
 									</Avatar>
@@ -68,11 +70,10 @@ export function TopQualifiersCard({
 											{row.displayName ?? row.slackUserId}
 										</p>
 										<p className="truncate text-xs text-muted-foreground">
-											{formatWholeNumber(row.booked)} booked /{" "}
-											{formatWholeNumber(row.uniqueOpportunityCount)} opps
+											{formatWholeNumber(row.booked)} booked&nbsp;·&nbsp;{formatWholeNumber(row.uniqueOpportunityCount)} opps
 										</p>
 									</div>
-									<span className="text-sm font-medium tabular-nums">
+									<span className="text-sm font-semibold tabular-nums">
 										{formatRate(row.ratio)}
 									</span>
 								</li>

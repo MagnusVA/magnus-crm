@@ -20,14 +20,28 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 		<div className="overflow-x-auto rounded-md border">
 			<Table className="min-w-[52rem]">
 				<TableHeader>
-					<TableRow>
-						<TableHead>Phone closer</TableHead>
-						<TableHead className="text-right">Booked calls</TableHead>
-						<TableHead className="text-right">Completed</TableHead>
-						<TableHead className="text-right">No shows</TableHead>
-						<TableHead className="text-right">Review req.</TableHead>
-						<TableHead className="text-right">Show rate</TableHead>
-						<TableHead className="text-right">No-show rate</TableHead>
+					<TableRow className="bg-muted/40 hover:bg-muted/40">
+						<TableHead className="font-semibold text-foreground/80">
+							Phone closer
+						</TableHead>
+						<TableHead className="text-right font-semibold text-foreground/80">
+							Booked calls
+						</TableHead>
+						<TableHead className="text-right font-semibold text-foreground/80">
+							Completed
+						</TableHead>
+						<TableHead className="text-right font-semibold text-foreground/80">
+							No shows
+						</TableHead>
+						<TableHead className="text-right font-semibold text-foreground/80">
+							Review req.
+						</TableHead>
+						<TableHead className="text-right font-semibold text-foreground/80">
+							Show rate
+						</TableHead>
+						<TableHead className="text-right font-semibold text-foreground/80">
+							No-show rate
+						</TableHead>
 					</TableRow>
 				</TableHeader>
 				<TableBody>
@@ -44,7 +58,7 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 							<NumericCell value={formatRate(row.noShowRate)} />
 						</TableRow>
 					))}
-					<TableRow className="bg-muted/40 hover:bg-muted/40">
+					<TableRow className="border-t-2 bg-muted/30 hover:bg-muted/30">
 						<TableCell className="font-semibold">Total</TableCell>
 						<NumericCell strong value={formatWholeNumber(data.totals.scheduled)} />
 						<NumericCell strong value={formatWholeNumber(data.totals.completed)} />

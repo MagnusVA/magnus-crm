@@ -20,7 +20,7 @@ export function PhoneCloserOperationsSection({
 }) {
 	return (
 		<Card>
-			<CardHeader>
+			<CardHeader className="pb-4">
 				<CardTitle>Phone Closer Operations</CardTitle>
 				<CardDescription>
 					Booked-call outcomes by assigned phone closer.

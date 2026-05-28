@@ -18,11 +18,17 @@ export function TopOriginsOverviewTable({ rows }: { rows: ReadyRows }) {
 		<div className="overflow-x-auto rounded-md border">
 			<Table className="min-w-[44rem] table-fixed">
 				<TableHeader>
-					<TableRow>
-						<TableHead className="w-[56%]">Origin</TableHead>
-						<TableHead>Kind</TableHead>
-						<TableHead className="text-right">Submissions</TableHead>
-						<TableHead className="text-right">Unique prospects</TableHead>
+					<TableRow className="bg-muted/40 hover:bg-muted/40">
+						<TableHead className="w-[56%] font-semibold text-foreground/80">
+							Origin
+						</TableHead>
+						<TableHead className="font-semibold text-foreground/80">Kind</TableHead>
+						<TableHead className="text-right font-semibold text-foreground/80">
+							Submissions
+						</TableHead>
+						<TableHead className="text-right font-semibold text-foreground/80">
+							Unique prospects
+						</TableHead>
 					</TableRow>
 				</TableHeader>
 				<TableBody>

@@ -43,13 +43,16 @@ export function DashboardPageClient() {
 	}
 
 	return (
-		<div className="mx-auto flex w-full max-w-[1500px] flex-col gap-5">
-			<header className="flex flex-col gap-3 border-b pb-4 lg:flex-row lg:items-end lg:justify-between">
-				<div className="min-w-0">
-					<h1 className="text-2xl font-semibold tracking-normal">Overview</h1>
-					<p className="mt-1 text-sm text-muted-foreground">
-						{overview.range.label}
-					</p>
+		<div className="mx-auto flex w-full max-w-[1500px] flex-col gap-6 pb-6">
+			<header className="flex flex-col gap-3 border-b pb-5 lg:flex-row lg:items-end lg:justify-between">
+				<div className="flex min-w-0 items-start gap-3">
+					<div className="mt-[3px] h-7 w-[3px] shrink-0 rounded-full bg-primary/75" />
+					<div>
+						<h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
+						<p className="mt-1 text-sm text-muted-foreground">
+							{overview.range.label}
+						</p>
+					</div>
 				</div>
 				<DashboardDateRangeFilter
 					value={range}

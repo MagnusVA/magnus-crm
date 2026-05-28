@@ -20,7 +20,7 @@ export function TopOriginsOverviewSection({
 }) {
 	return (
 		<Card>
-			<CardHeader>
+			<CardHeader className="pb-4">
 				<CardTitle>Top Posts & Reels</CardTitle>
 				<CardDescription>
 					Ranked by submissions for the selected range.
