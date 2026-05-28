@@ -52,6 +52,24 @@ export type BillingDmAttribution = {
   rawMedium: string | null;
 };
 
+export type BillingPaymentListRow = {
+  payment: {
+    id: Id<"paymentRecords">;
+    amountMinor: number;
+    currency: string;
+    recordedAt: number;
+    status: BillingPaymentStatus;
+    paymentType: PaymentType;
+    programName: string;
+    hasProofFile: boolean;
+  };
+  customer: {
+    fullName: string | null;
+    email: string | null;
+    phone: string | null;
+  };
+};
+
 export type BillingPaymentRow = {
   payment: {
     id: Id<"paymentRecords">;

@@ -9,6 +9,7 @@ import type {
   BillingDmAttribution,
   BillingPaymentDetail,
   BillingPaymentEvent,
+  BillingPaymentListRow,
   BillingPaymentRow,
   BillingSlackContributorTimelineEntry,
 } from "./types";
@@ -272,6 +273,56 @@ async function resolveBillingAttribution(
   };
 }
 
+async function enrichOneBillingPaymentListRow(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  payment: Doc<"paymentRecords">,
+): Promise<BillingPaymentListRow> {
+  if (payment.tenantId !== tenantId) {
+    throw new Error("Cross-tenant payment read blocked.");
+  }
+
+  const directCustomer = payment.customerId
+    ? tenantOwned(await ctx.db.get(payment.customerId), tenantId)
+    : null;
+
+  let customer = directCustomer;
+  if (!customer) {
+    const opportunity = await resolveBillingOpportunity(
+      ctx,
+      tenantId,
+      payment,
+      null,
+    );
+    const fallbackCustomer = await resolveCustomerFromOpportunity(
+      ctx,
+      tenantId,
+      opportunity,
+    );
+    customer = tenantOwned(fallbackCustomer, tenantId);
+  }
+
+  return {
+    payment: {
+      id: payment._id,
+      amountMinor: payment.amountMinor,
+      currency: payment.currency,
+      recordedAt: payment.recordedAt,
+      status: payment.status,
+      paymentType: payment.paymentType,
+      programName: payment.programName,
+      hasProofFile: payment.proofFileId !== undefined,
+    },
+    customer: customer
+      ? {
+          fullName: customer.fullName || null,
+          email: customer.email || null,
+          phone: customer.phone ?? null,
+        }
+      : { fullName: null, email: null, phone: null },
+  };
+}
+
 async function enrichOneBillingPaymentRow(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
@@ -414,6 +465,18 @@ async function loadPaymentEvents(
       metadata: event.metadata ?? null,
     };
   });
+}
+
+export async function enrichBillingPaymentListRows(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  payments: Array<Doc<"paymentRecords">>,
+): Promise<BillingPaymentListRow[]> {
+  return await Promise.all(
+    payments.map((payment) =>
+      enrichOneBillingPaymentListRow(ctx, tenantId, payment),
+    ),
+  );
 }
 
 export async function enrichBillingPaymentRows(

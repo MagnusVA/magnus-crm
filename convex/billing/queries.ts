@@ -5,6 +5,7 @@ import type { QueryCtx } from "../_generated/server";
 import { countBillingPayments } from "./aggregates";
 import {
   enrichBillingPaymentDetail,
+  enrichBillingPaymentListRows,
   enrichBillingPaymentRows,
 } from "./enrichment";
 import { normalizeExportLimit, toBillingExportRow } from "./export";
@@ -64,7 +65,7 @@ export const listPayments = query({
 
     return {
       ...page,
-      page: await enrichBillingPaymentRows(ctx, tenantId, page.page),
+      page: await enrichBillingPaymentListRows(ctx, tenantId, page.page),
       exactCount: await countBillingPayments(ctx, tenantId, args),
     };
   },
