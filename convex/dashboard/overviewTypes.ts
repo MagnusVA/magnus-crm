@@ -91,6 +91,15 @@ export type TopOriginRow = {
   uniqueProspects: number;
 };
 
+export type TopOriginsByTeamRow = {
+  teamId: Id<"attributionTeams"> | null;
+  teamName: string;
+  isActive: boolean | null;
+  totalUniqueProspects: number;
+  totalSubmissions: number;
+  topOrigin: TopOriginRow | null;
+};
+
 export type PublicOverviewRange = {
   startBusinessDate: string;
   endBusinessDateInclusive: string;
@@ -106,5 +115,5 @@ export type OverviewDashboard = {
   topQualifiers: SectionResult<{ rows: TopQualifierRow[] }>;
   topDmClosers: SectionResult<{ rows: TopDmCloserRow[] }>;
   phoneCloserOperations: SectionResult<PhoneCloserOperations>;
-  topOrigins: SectionResult<{ rows: TopOriginRow[] }>;
+  topOrigins: SectionResult<{ rows: TopOriginsByTeamRow[] }>;
 };

@@ -9,6 +9,10 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import type { TopQualifiersSection } from "./overview-dashboard-types";
+import {
+	OverviewHelpTooltip,
+	overviewTooltips,
+} from "./overview-help-tooltip";
 import { formatRate, formatWholeNumber } from "./overview-formatters";
 import {
 	OverviewCappedState,
@@ -31,12 +35,22 @@ export function TopQualifiersCard({
 							<span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
 								<MessageSquareCheckIcon className="h-3.5 w-3.5" aria-hidden="true" />
 							</span>
-							Top Qualifiers
+							<OverviewHelpTooltip
+								label="Top Qualifiers"
+								description={overviewTooltips.topQualifiers.section}
+							>
+								Top Qualifiers
+							</OverviewHelpTooltip>
 						</CardTitle>
 						<CardDescription>Slack-qualified opportunity activity</CardDescription>
 					</div>
 					{section.status === "ready" && section.truncated ? (
-						<Badge variant="secondary">Partial</Badge>
+						<OverviewHelpTooltip
+							label="Partial data"
+							description={overviewTooltips.topQualifiers.partial}
+						>
+							<Badge variant="secondary">Partial</Badge>
+						</OverviewHelpTooltip>
 					) : null}
 				</div>
 			</CardHeader>
@@ -50,6 +64,18 @@ export function TopQualifiersCard({
 				) : (
 					<>
 						{section.truncated ? <OverviewTruncatedNote /> : null}
+						<div className="grid grid-cols-[1.25rem_auto_minmax(0,1fr)_auto] items-center gap-2 px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+							<span aria-hidden="true" />
+							<span aria-hidden="true" />
+							<span>Qualifier</span>
+							<OverviewHelpTooltip
+								label="Conversion rate"
+								description={overviewTooltips.topQualifiers.conversionRate}
+								triggerClassName="justify-end text-[10px] font-semibold uppercase tracking-wider"
+							>
+								Conversion
+							</OverviewHelpTooltip>
+						</div>
 						<ol className="flex flex-col gap-0.5" aria-label="Top Slack qualifiers">
 							{section.data.rows.map((row, index) => (
 								<li
@@ -70,7 +96,23 @@ export function TopQualifiersCard({
 											{row.displayName ?? row.slackUserId}
 										</p>
 										<p className="truncate text-xs text-muted-foreground">
-											{formatWholeNumber(row.booked)} booked&nbsp;·&nbsp;{formatWholeNumber(row.uniqueOpportunityCount)} opps
+											<OverviewHelpTooltip
+												label="Booked"
+												description={overviewTooltips.topQualifiers.booked}
+												triggerClassName="text-xs text-muted-foreground"
+											>
+												{formatWholeNumber(row.booked)} booked
+											</OverviewHelpTooltip>
+											&nbsp;·&nbsp;
+											<OverviewHelpTooltip
+												label="Opportunities"
+												description={
+													overviewTooltips.topQualifiers.opportunities
+												}
+												triggerClassName="text-xs text-muted-foreground"
+											>
+												{formatWholeNumber(row.uniqueOpportunityCount)} opps
+											</OverviewHelpTooltip>
 										</p>
 									</div>
 									<span className="text-sm font-semibold tabular-nums">

@@ -7,6 +7,10 @@ import {
 } from "@/components/ui/card";
 import type { PhoneCloserOperationsSectionData } from "./overview-dashboard-types";
 import {
+	OverviewHelpTooltip,
+	overviewTooltips,
+} from "./overview-help-tooltip";
+import {
 	OverviewCappedState,
 	OverviewEmptyState,
 	OverviewErrorState,
@@ -21,7 +25,14 @@ export function PhoneCloserOperationsSection({
 	return (
 		<Card>
 			<CardHeader className="pb-4">
-				<CardTitle>Phone Closer Operations</CardTitle>
+				<CardTitle>
+					<OverviewHelpTooltip
+						label="Phone Closer Operations"
+						description={overviewTooltips.phoneCloserOperations.section}
+					>
+						Phone Closer Operations
+					</OverviewHelpTooltip>
+				</CardTitle>
 				<CardDescription>
 					Booked-call outcomes by assigned phone closer.
 				</CardDescription>

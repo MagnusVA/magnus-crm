@@ -29,8 +29,8 @@ export function OverviewDashboardSkeleton() {
 					</Card>
 				))}
 			</div>
-			<Skeleton className="h-[360px] w-full rounded-lg" />
 			<Skeleton className="h-[320px] w-full rounded-lg" />
+			<Skeleton className="h-[360px] w-full rounded-lg" />
 		</div>
 	);
 }
