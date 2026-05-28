@@ -68,19 +68,17 @@ export type PhoneCloserOperations = {
     closerId: Id<"users">;
     closerName: string;
     scheduled: number;
-    completed: number;
     noShows: number;
-    reviewRequired: number;
-    showRate: number | null;
     noShowRate: number | null;
+    closeRate: number | null;
+    cashCollectedMinor: number;
   }>;
   totals: {
     scheduled: number;
-    completed: number;
     noShows: number;
-    reviewRequired: number;
-    showRate: number | null;
     noShowRate: number | null;
+    closeRate: number | null;
+    cashCollectedMinor: number;
   };
 };
 

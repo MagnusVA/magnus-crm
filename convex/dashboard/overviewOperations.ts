@@ -1,5 +1,10 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
+import {
+  getNonDisputedPaymentsInRange,
+  splitPaymentsForRevenueReporting,
+  summarizeAttributedPayments,
+} from "../reporting/lib/helpers";
 import type { DerivedOverviewRange } from "./overviewRange";
 import type { PhoneCloserOperations, TopDmCloserRow } from "./overviewTypes";
 
@@ -11,6 +16,12 @@ type OperationsTotals = {
   completed: number;
   noShows: number;
   reviewRequired: number;
+};
+
+type PhoneCloserTotals = {
+  scheduled: number;
+  noShows: number;
+  callsShowed: number;
 };
 
 function emptyTotals(): OperationsTotals {
@@ -29,6 +40,32 @@ function addOperationRow(totals: OperationsTotals, row: OperationsStatsRow) {
   if (row.meetingStatus === "meeting_overran") {
     totals.reviewRequired += row.count;
   }
+}
+
+function emptyPhoneCloserTotals(): PhoneCloserTotals {
+  return {
+    scheduled: 0,
+    noShows: 0,
+    callsShowed: 0,
+  };
+}
+
+function addPhoneCloserOperationRow(
+  totals: PhoneCloserTotals,
+  row: OperationsStatsRow,
+) {
+  totals.scheduled += row.count;
+  if (row.meetingStatus === "no_show") totals.noShows += row.count;
+  if (
+    row.meetingStatus === "completed" ||
+    row.meetingStatus === "in_progress"
+  ) {
+    totals.callsShowed += row.count;
+  }
+}
+
+function toRate(numerator: number, denominator: number): number | null {
+  return denominator > 0 ? numerator / denominator : null;
 }
 
 async function readOperationsStatsRows(
@@ -104,12 +141,24 @@ export async function getPhoneCloserOperationsOverviewSection(
   tenantId: Id<"tenants">,
   range: DerivedOverviewRange,
 ): Promise<{ data: PhoneCloserOperations; isEmpty: boolean }> {
-  const rows = await readOperationsStatsRows(ctx, tenantId, range);
-  const byCloser = new Map<Id<"users">, OperationsTotals>();
+  const [rows, paymentScan] = await Promise.all([
+    readOperationsStatsRows(ctx, tenantId, range),
+    getNonDisputedPaymentsInRange(
+      ctx,
+      tenantId,
+      range.operationsStartDate,
+      range.operationsEndDate,
+    ),
+  ]);
+  const paymentSplit = splitPaymentsForRevenueReporting(paymentScan.payments);
+  const paymentSummary = summarizeAttributedPayments(
+    paymentSplit.commissionable.finalPayments,
+  );
+  const byCloser = new Map<Id<"users">, PhoneCloserTotals>();
 
   for (const row of rows) {
-    const current = byCloser.get(row.assignedCloserId) ?? emptyTotals();
-    addOperationRow(current, row);
+    const current = byCloser.get(row.assignedCloserId) ?? emptyPhoneCloserTotals();
+    addPhoneCloserOperationRow(current, row);
     byCloser.set(row.assignedCloserId, current);
   }
 
@@ -120,15 +169,19 @@ export async function getPhoneCloserOperationsOverviewSection(
       closer && closer.tenantId === tenantId
         ? (closer.fullName ?? closer.email)
         : "Removed closer";
+    const paymentStats = paymentSummary.byCloser.get(closerId) ?? {
+      dealCount: 0,
+      revenueMinor: 0,
+    };
 
     tableRows.push({
       closerId,
       closerName,
-      ...totals,
-      showRate:
-        totals.scheduled === 0 ? null : totals.completed / totals.scheduled,
-      noShowRate:
-        totals.scheduled === 0 ? null : totals.noShows / totals.scheduled,
+      scheduled: totals.scheduled,
+      noShows: totals.noShows,
+      noShowRate: toRate(totals.noShows, totals.scheduled),
+      closeRate: toRate(paymentStats.dealCount, totals.callsShowed),
+      cashCollectedMinor: paymentStats.revenueMinor,
     });
   }
 
@@ -137,25 +190,32 @@ export async function getPhoneCloserOperationsOverviewSection(
       right.scheduled - left.scheduled ||
       left.closerName.localeCompare(right.closerName),
   );
-  const totals = sortedRows.reduce(
-    (acc, row) => ({
-      scheduled: acc.scheduled + row.scheduled,
-      completed: acc.completed + row.completed,
-      noShows: acc.noShows + row.noShows,
-      reviewRequired: acc.reviewRequired + row.reviewRequired,
+  const operationTotals = [...byCloser.values()].reduce(
+    (acc, totals) => ({
+      scheduled: acc.scheduled + totals.scheduled,
+      noShows: acc.noShows + totals.noShows,
+      callsShowed: acc.callsShowed + totals.callsShowed,
     }),
-    emptyTotals(),
+    emptyPhoneCloserTotals(),
+  );
+  const totalCashCollectedMinor = sortedRows.reduce(
+    (sum, row) => sum + row.cashCollectedMinor,
+    0,
+  );
+  const totalDealCount = sortedRows.reduce(
+    (sum, row) => sum + (paymentSummary.byCloser.get(row.closerId)?.dealCount ?? 0),
+    0,
   );
 
   return {
     data: {
       rows: sortedRows,
       totals: {
-        ...totals,
-        showRate:
-          totals.scheduled === 0 ? null : totals.completed / totals.scheduled,
-        noShowRate:
-          totals.scheduled === 0 ? null : totals.noShows / totals.scheduled,
+        scheduled: operationTotals.scheduled,
+        noShows: operationTotals.noShows,
+        noShowRate: toRate(operationTotals.noShows, operationTotals.scheduled),
+        closeRate: toRate(totalDealCount, operationTotals.callsShowed),
+        cashCollectedMinor: totalCashCollectedMinor,
       },
     },
     isEmpty: sortedRows.length === 0,
