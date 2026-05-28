@@ -9,6 +9,10 @@ import {
 } from "@/components/ui/table";
 import type { PhoneCloserOperationsSectionData } from "./overview-dashboard-types";
 import {
+	OverviewHelpTooltip,
+	overviewTooltips,
+} from "./overview-help-tooltip";
+import {
 	formatCurrency,
 	formatRate,
 	formatWholeNumber,
@@ -26,22 +30,59 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 				<TableHeader>
 					<TableRow className="bg-muted/40 hover:bg-muted/40">
 						<TableHead className="font-semibold text-foreground/80">
-							Phone closer
+							<OverviewHelpTooltip
+								label="Phone closer"
+								description={overviewTooltips.phoneCloserOperations.closer}
+							>
+								Phone closer
+							</OverviewHelpTooltip>
 						</TableHead>
 						<TableHead className="text-right font-semibold text-foreground/80">
-							Booked calls
+							<OverviewHelpTooltip
+								label="Booked calls"
+								description={overviewTooltips.phoneCloserOperations.bookedCalls}
+								triggerClassName="justify-end w-full"
+							>
+								Booked calls
+							</OverviewHelpTooltip>
 						</TableHead>
 						<TableHead className="text-right font-semibold text-foreground/80">
-							No shows
+							<OverviewHelpTooltip
+								label="No shows"
+								description={overviewTooltips.phoneCloserOperations.noShows}
+								triggerClassName="justify-end w-full"
+							>
+								No shows
+							</OverviewHelpTooltip>
 						</TableHead>
 						<TableHead className="text-right font-semibold text-foreground/80">
-							No-show rate
+							<OverviewHelpTooltip
+								label="No-show rate"
+								description={overviewTooltips.phoneCloserOperations.noShowRate}
+								triggerClassName="justify-end w-full"
+							>
+								No-show rate
+							</OverviewHelpTooltip>
 						</TableHead>
 						<TableHead className="text-right font-semibold text-foreground/80">
-							Close rate
+							<OverviewHelpTooltip
+								label="Close rate"
+								description={overviewTooltips.phoneCloserOperations.closeRate}
+								triggerClassName="justify-end w-full"
+							>
+								Close rate
+							</OverviewHelpTooltip>
 						</TableHead>
 						<TableHead className="text-right font-semibold text-foreground/80">
-							Cash collected
+							<OverviewHelpTooltip
+								label="Cash collected"
+								description={
+									overviewTooltips.phoneCloserOperations.cashCollected
+								}
+								triggerClassName="justify-end w-full"
+							>
+								Cash collected
+							</OverviewHelpTooltip>
 						</TableHead>
 					</TableRow>
 				</TableHeader>

@@ -7,6 +7,10 @@ import {
 } from "@/components/ui/card";
 import type { TopOriginsSection } from "./overview-dashboard-types";
 import {
+	OverviewHelpTooltip,
+	overviewTooltips,
+} from "./overview-help-tooltip";
+import {
 	OverviewCappedState,
 	OverviewEmptyState,
 	OverviewErrorState,
@@ -21,7 +25,14 @@ export function TopOriginsOverviewSection({
 	return (
 		<Card>
 			<CardHeader className="pb-4">
-				<CardTitle>Top Posts & Reels</CardTitle>
+				<CardTitle>
+					<OverviewHelpTooltip
+						label="Top Posts & Reels"
+						description={overviewTooltips.topOrigins.section}
+					>
+						Top Posts & Reels
+					</OverviewHelpTooltip>
+				</CardTitle>
 				<CardDescription>
 					Ranked by submissions for the selected range.
 				</CardDescription>
