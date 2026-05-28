@@ -120,7 +120,7 @@ export async function getTopOriginsOverviewSection(
         isActive: teamDoc?.isActive ?? (team.teamId ? false : null),
         totalUniqueProspects: team.totalUniqueProspects,
         totalSubmissions: team.totalSubmissions,
-        topOrigin: team.origins[0] ?? null,
+        origins: team.origins,
       };
     })
     .sort((left, right) => {

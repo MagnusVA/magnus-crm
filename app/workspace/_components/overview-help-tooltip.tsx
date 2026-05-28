@@ -108,10 +108,9 @@ export const overviewTooltips = {
 	},
 	topOrigins: {
 		section:
-			"Each team's top Instagram or Meta Business post or reel by lead form submissions in the range.",
+			"Top 10 Instagram and Meta Business posts and reels per attribution team, ranked by unique prospects then submissions.",
 		team: "Attribution team assigned to the lead-gen submissions.",
-		origin:
-			"Source post or reel URL with the most submissions for this team in the range.",
+		origin: "Source post or reel URL where the submission originated.",
 		kind: "Content type for the origin — post or reel.",
 		submissions:
 			"Total form submissions attributed to this origin for the team in the range.",
