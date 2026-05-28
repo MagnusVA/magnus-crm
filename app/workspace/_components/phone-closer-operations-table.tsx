@@ -8,7 +8,11 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import type { PhoneCloserOperationsSectionData } from "./overview-dashboard-types";
-import { formatRate, formatWholeNumber } from "./overview-formatters";
+import {
+	formatCurrency,
+	formatRate,
+	formatWholeNumber,
+} from "./overview-formatters";
 
 type ReadyData = Extract<
 	PhoneCloserOperationsSectionData,
@@ -18,7 +22,7 @@ type ReadyData = Extract<
 export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 	return (
 		<div className="overflow-x-auto rounded-md border">
-			<Table className="min-w-[52rem]">
+			<Table className="min-w-[44rem]">
 				<TableHeader>
 					<TableRow className="bg-muted/40 hover:bg-muted/40">
 						<TableHead className="font-semibold text-foreground/80">
@@ -28,19 +32,16 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 							Booked calls
 						</TableHead>
 						<TableHead className="text-right font-semibold text-foreground/80">
-							Completed
-						</TableHead>
-						<TableHead className="text-right font-semibold text-foreground/80">
 							No shows
 						</TableHead>
 						<TableHead className="text-right font-semibold text-foreground/80">
-							Review req.
-						</TableHead>
-						<TableHead className="text-right font-semibold text-foreground/80">
-							Show rate
-						</TableHead>
-						<TableHead className="text-right font-semibold text-foreground/80">
 							No-show rate
+						</TableHead>
+						<TableHead className="text-right font-semibold text-foreground/80">
+							Close rate
+						</TableHead>
+						<TableHead className="text-right font-semibold text-foreground/80">
+							Cash collected
 						</TableHead>
 					</TableRow>
 				</TableHeader>
@@ -51,24 +52,22 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 								{row.closerName}
 							</TableCell>
 							<NumericCell value={formatWholeNumber(row.scheduled)} />
-							<NumericCell value={formatWholeNumber(row.completed)} />
 							<NumericCell value={formatWholeNumber(row.noShows)} />
-							<NumericCell value={formatWholeNumber(row.reviewRequired)} />
-							<NumericCell value={formatRate(row.showRate)} />
 							<NumericCell value={formatRate(row.noShowRate)} />
+							<NumericCell value={formatRate(row.closeRate)} />
+							<NumericCell value={formatCurrency(row.cashCollectedMinor)} />
 						</TableRow>
 					))}
 					<TableRow className="border-t-2 bg-muted/30 hover:bg-muted/30">
 						<TableCell className="font-semibold">Total</TableCell>
 						<NumericCell strong value={formatWholeNumber(data.totals.scheduled)} />
-						<NumericCell strong value={formatWholeNumber(data.totals.completed)} />
 						<NumericCell strong value={formatWholeNumber(data.totals.noShows)} />
+						<NumericCell strong value={formatRate(data.totals.noShowRate)} />
+						<NumericCell strong value={formatRate(data.totals.closeRate)} />
 						<NumericCell
 							strong
-							value={formatWholeNumber(data.totals.reviewRequired)}
+							value={formatCurrency(data.totals.cashCollectedMinor)}
 						/>
-						<NumericCell strong value={formatRate(data.totals.showRate)} />
-						<NumericCell strong value={formatRate(data.totals.noShowRate)} />
 					</TableRow>
 				</TableBody>
 			</Table>
