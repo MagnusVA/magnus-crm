@@ -38,7 +38,7 @@ export function LeadGenOverviewCard({
 					</OverviewHelpTooltip>
 				</CardTitle>
 				<CardDescription>
-					Submissions, uniqueness, and top generators
+					Submissions, throughput, and top generators
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="flex flex-col gap-4">
@@ -50,16 +50,11 @@ export function LeadGenOverviewCard({
 					<OverviewEmptyState message={section.message} />
 				) : (
 					<>
-						<div className="grid grid-cols-3 divide-x rounded-lg border bg-muted/30">
+						<div className="grid grid-cols-2 divide-x rounded-lg border bg-muted/30">
 							<Metric
 								label="Submissions"
 								description={overviewTooltips.leadGen.submissions}
 								value={formatWholeNumber(section.data.totalSubmissions)}
-							/>
-							<Metric
-								label="Unique"
-								description={overviewTooltips.leadGen.unique}
-								value={formatWholeNumber(section.data.uniqueProspects)}
 							/>
 							<Metric
 								label="Leads/hr"

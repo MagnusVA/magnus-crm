@@ -44,6 +44,11 @@ export async function buildSlackUserQualificationBreakdown(
     eventsBySlackUserId.set(event.slackUserId, current);
   }
 
+  const rangeSummary = summarizeQualificationEvents(
+    events.rows,
+    opportunityById,
+  );
+
   const rows: SlackUserQualificationBreakdownRow[] = [];
   for (const [slackUserId, userEvents] of eventsBySlackUserId) {
     const summary = summarizeQualificationEvents(userEvents, opportunityById);
@@ -89,6 +94,7 @@ export async function buildSlackUserQualificationBreakdown(
           ),
       )
       .slice(0, args.limit),
+    totalQualified: rangeSummary.uniqueSlackOpportunityCount,
     truncated: events.truncated,
   };
 }

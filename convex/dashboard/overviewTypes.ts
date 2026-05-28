@@ -28,7 +28,6 @@ export type SectionResult<T> =
 
 export type LeadGenOverview = {
   totalSubmissions: number;
-  uniqueProspects: number;
   duplicates: number;
   scheduledHours: number;
   leadsPerHour: number | null;
@@ -36,7 +35,6 @@ export type LeadGenOverview = {
     workerId: Id<"leadGenWorkers">;
     displayName: string;
     submissions: number;
-    uniqueProspects: number;
     leadsPerHour: number | null;
   }>;
 };
@@ -68,15 +66,13 @@ export type PhoneCloserOperations = {
     closerId: Id<"users">;
     closerName: string;
     scheduled: number;
-    noShows: number;
-    noShowRate: number | null;
+    showRate: number | null;
     closeRate: number | null;
     cashCollectedMinor: number;
   }>;
   totals: {
     scheduled: number;
-    noShows: number;
-    noShowRate: number | null;
+    showRate: number | null;
     closeRate: number | null;
     cashCollectedMinor: number;
   };
@@ -87,7 +83,6 @@ export type TopOriginRow = {
   source: "instagram" | "meta_business";
   originKind: "post" | "reel" | string;
   originValue: string;
-  submissions: number;
   uniqueProspects: number;
 };
 
@@ -96,7 +91,6 @@ export type TopOriginsByTeamRow = {
   teamName: string;
   isActive: boolean | null;
   totalUniqueProspects: number;
-  totalSubmissions: number;
   origins: TopOriginRow[];
 };
 
@@ -112,7 +106,10 @@ export type PublicOverviewRange = {
 export type OverviewDashboard = {
   range: PublicOverviewRange;
   leadGen: SectionResult<LeadGenOverview>;
-  topQualifiers: SectionResult<{ rows: TopQualifierRow[] }>;
+  topQualifiers: SectionResult<{
+    rows: TopQualifierRow[];
+    totalQualified: number;
+  }>;
   topDmClosers: SectionResult<{ rows: TopDmCloserRow[] }>;
   phoneCloserOperations: SectionResult<PhoneCloserOperations>;
   topOrigins: SectionResult<{ rows: TopOriginsByTeamRow[] }>;

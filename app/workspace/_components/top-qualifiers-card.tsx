@@ -97,21 +97,19 @@ export function TopQualifiersCard({
 										</p>
 										<p className="truncate text-xs text-muted-foreground">
 											<OverviewHelpTooltip
+												label="Qualified"
+												description={overviewTooltips.topQualifiers.qualified}
+												triggerClassName="text-xs text-muted-foreground"
+											>
+												{formatWholeNumber(row.uniqueOpportunityCount)} qualified
+											</OverviewHelpTooltip>
+											&nbsp;·&nbsp;
+											<OverviewHelpTooltip
 												label="Booked"
 												description={overviewTooltips.topQualifiers.booked}
 												triggerClassName="text-xs text-muted-foreground"
 											>
 												{formatWholeNumber(row.booked)} booked
-											</OverviewHelpTooltip>
-											&nbsp;·&nbsp;
-											<OverviewHelpTooltip
-												label="Opportunities"
-												description={
-													overviewTooltips.topQualifiers.opportunities
-												}
-												triggerClassName="text-xs text-muted-foreground"
-											>
-												{formatWholeNumber(row.uniqueOpportunityCount)} opps
 											</OverviewHelpTooltip>
 										</p>
 									</div>
@@ -121,6 +119,18 @@ export function TopQualifiersCard({
 								</li>
 							))}
 						</ol>
+						<div className="mt-1 flex items-center justify-between border-t px-1.5 pt-2.5 text-sm">
+							<OverviewHelpTooltip
+								label="Total qualified"
+								description={overviewTooltips.topQualifiers.totalQualified}
+								triggerClassName="font-medium text-muted-foreground"
+							>
+								Total qualified
+							</OverviewHelpTooltip>
+							<span className="font-semibold tabular-nums">
+								{formatWholeNumber(section.data.totalQualified)}
+							</span>
+						</div>
 					</>
 				)}
 			</CardContent>

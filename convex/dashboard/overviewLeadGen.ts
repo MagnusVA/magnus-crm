@@ -40,14 +40,12 @@ export async function getLeadGenOverviewSection(
       workerId: worker.workerId,
       displayName: worker.displayName,
       submissions: worker.submissions,
-      uniqueProspects: worker.uniqueProspects,
       leadsPerHour: worker.leadsPerHour,
     }));
 
   return {
     data: {
       totalSubmissions: summary.submissions,
-      uniqueProspects: summary.uniqueProspects,
       duplicates: summary.duplicates,
       scheduledHours: summary.scheduledHours,
       leadsPerHour: summary.leadsPerHour,

@@ -63,8 +63,6 @@ export const overviewTooltips = {
 			"Lead generation form activity for the selected business date range, including worker throughput and top performers.",
 		submissions:
 			"Total lead form submissions recorded by lead gen workers in the range.",
-		unique:
-			"Distinct prospects submitted in the range, excluding duplicate resubmissions from the same prospect.",
 		leadsPerHour:
 			"Submissions divided by scheduled lead gen hours across the range.",
 		topWorkers:
@@ -79,8 +77,10 @@ export const overviewTooltips = {
 			"This range hit the Slack event cap. Rankings use the available sample only.",
 		booked:
 			"Distinct Slack-sourced opportunities with at least one meeting booked.",
-		opportunities:
+		qualified:
 			"Distinct opportunities this Slack user qualified in the range.",
+		totalQualified:
+			"Total distinct Slack-qualified opportunities across all qualifiers in the range.",
 		conversionRate:
 			"Booked opportunities divided by unique qualified opportunities.",
 	},
@@ -99,8 +99,8 @@ export const overviewTooltips = {
 			"CRM user assigned to take the sales call.",
 		bookedCalls:
 			"All meetings scheduled in the range for this closer, across every status.",
-		noShows: "Meetings marked no-show.",
-		noShowRate: "No-shows divided by booked calls.",
+		showRate:
+			"Completed calls divided by all booked calls assigned to this closer.",
 		closeRate:
 			"Commissionable final payments attributed to the closer divided by calls that showed (completed or in progress).",
 		cashCollected:
@@ -108,12 +108,10 @@ export const overviewTooltips = {
 	},
 	topOrigins: {
 		section:
-			"Top 10 Instagram and Meta Business posts and reels per attribution team, ranked by unique prospects then submissions.",
+			"Top 10 Instagram and Meta Business posts and reels per attribution team, ranked by unique prospects.",
 		team: "Attribution team assigned to the lead-gen submissions.",
 		origin: "Source post or reel URL where the submission originated.",
 		kind: "Content type for the origin — post or reel.",
-		submissions:
-			"Total form submissions attributed to this origin for the team in the range.",
 		uniqueProspects:
 			"Distinct prospects who submitted from this origin for the team in the range.",
 	},
