@@ -1,0 +1,9 @@
+export const DAILY_STATS_READ_LIMIT = 500;
+export const ORIGIN_STATS_READ_LIMIT = 500;
+export const ORIGIN_SUBMISSIONS_READ_LIMIT = 5000;
+export const TEAM_ORIGIN_STATS_READ_LIMIT = 1000;
+export const MAX_REPORT_DAYS = 120;
+export const MAX_TOP_ORIGINS = 25;
+export const MAX_TOP_ORIGINS_PER_TEAM = 10;
+export const TOP_OVERVIEW_WORKER_LIMIT = 5;
+export const TOP_OVERVIEW_ORIGIN_LIMIT = 10;

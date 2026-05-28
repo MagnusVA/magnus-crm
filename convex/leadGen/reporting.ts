@@ -12,6 +12,16 @@ import {
   isRankableLeadGenOrigin,
   normalizeLeadGenOrigin,
 } from "./normalization";
+import { summarizeDailyRows } from "./reportBuilders";
+import {
+  DAILY_STATS_READ_LIMIT,
+  MAX_REPORT_DAYS,
+  MAX_TOP_ORIGINS,
+  MAX_TOP_ORIGINS_PER_TEAM,
+  ORIGIN_STATS_READ_LIMIT,
+  ORIGIN_SUBMISSIONS_READ_LIMIT,
+  TEAM_ORIGIN_STATS_READ_LIMIT,
+} from "./reportLimits";
 import {
   getSharedDmTeam,
   type LeadGenTeamId,
@@ -28,13 +38,6 @@ type DailyStatsRow = Doc<"leadGenDailyStats">;
 type SubmissionRow = Doc<"leadGenSubmissions">;
 type TeamOriginStatsRow = Doc<"leadGenTeamOriginStats">;
 
-const DAILY_STATS_READ_LIMIT = 500;
-const ORIGIN_STATS_READ_LIMIT = 500;
-const ORIGIN_SUBMISSIONS_READ_LIMIT = 5000;
-const TEAM_ORIGIN_STATS_READ_LIMIT = 1000;
-const MAX_REPORT_DAYS = 120;
-const MAX_TOP_ORIGINS = 25;
-const MAX_TOP_ORIGINS_PER_TEAM = 10;
 const LEAD_GEN_SOURCES: LeadGenSource[] = ["instagram", "meta_business"];
 
 const reportFiltersValidator = {
@@ -275,44 +278,6 @@ async function readTopOriginSubmissionRows(
   }
 
   return filterTopOriginSubmissionRows(rows, args);
-}
-
-function summarizeRows(
-  rows: DailyStatsRow[],
-  currentScheduledHoursByWorkerDay: Map<string, number>,
-) {
-  const scheduledHoursByWorkerDay = new Map<string, number>();
-  const totals = {
-    submissions: 0,
-    uniqueProspects: 0,
-    duplicates: 0,
-  };
-
-  for (const row of rows) {
-    totals.submissions += row.submissions;
-    totals.uniqueProspects += row.uniqueProspectsSubmitted;
-    totals.duplicates += row.duplicateProspectSubmissions;
-
-    const scheduledKey = `${row.workerId}:${row.dayKey}`;
-    if (!scheduledHoursByWorkerDay.has(scheduledKey)) {
-      scheduledHoursByWorkerDay.set(
-        scheduledKey,
-        scheduledHoursForDailyStat(row, currentScheduledHoursByWorkerDay),
-      );
-    }
-  }
-
-  const scheduledHours = [...scheduledHoursByWorkerDay.values()].reduce(
-    (sum, hours) => sum + hours,
-    0,
-  );
-
-  return {
-    ...totals,
-    scheduledHours,
-    leadsPerHour:
-      scheduledHours > 0 ? totals.submissions / scheduledHours : null,
-  };
 }
 
 async function loadWorkers(
@@ -664,7 +629,7 @@ export const getOverview = query({
     const currentScheduledHoursByWorkerDay =
       await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
 
-    return summarizeRows(rows, currentScheduledHoursByWorkerDay);
+    return summarizeDailyRows(rows, currentScheduledHoursByWorkerDay);
   },
 });
 

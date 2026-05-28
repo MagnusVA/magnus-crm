@@ -14,6 +14,10 @@ import {
   type LeadGenTeamId,
   type SharedDmTeam,
 } from "./sharedTeams";
+import {
+  ORIGIN_SUBMISSIONS_READ_LIMIT,
+  TEAM_ORIGIN_STATS_READ_LIMIT,
+} from "./reportLimits";
 import { scheduledHoursForDailyStat } from "./schedules";
 
 type LeadGenSource = Doc<"leadGenDailyStats">["source"];
@@ -23,8 +27,6 @@ type TeamOriginStatsRow = Doc<"leadGenTeamOriginStats">;
 type RankableOriginKind = "post" | "reel";
 
 const LEAD_GEN_SOURCES: LeadGenSource[] = ["instagram", "meta_business"];
-const ORIGIN_SUBMISSIONS_READ_LIMIT = 5000;
-const TEAM_ORIGIN_STATS_READ_LIMIT = 1000;
 
 export type ExcelReportFilters = {
   startDayKey: string;
