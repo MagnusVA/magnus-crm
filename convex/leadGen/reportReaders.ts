@@ -5,10 +5,15 @@ import {
   type LeadGenTeamId,
   type SharedDmTeam,
 } from "./sharedTeams";
-import { DAILY_STATS_READ_LIMIT, ORIGIN_STATS_READ_LIMIT } from "./reportLimits";
+import {
+  DAILY_STATS_READ_LIMIT,
+  ORIGIN_STATS_READ_LIMIT,
+  TEAM_ORIGIN_STATS_READ_LIMIT,
+} from "./reportLimits";
 
 type DailyStatsRow = Doc<"leadGenDailyStats">;
 type OriginStatsRow = Doc<"leadGenOriginStats">;
+type TeamOriginStatsRow = Doc<"leadGenTeamOriginStats">;
 
 export async function readLeadGenDailyRowsForDashboard(
   ctx: QueryCtx,
@@ -59,6 +64,35 @@ export async function readLeadGenOriginRowsForDashboard(
 
   if (rows.length > limit) {
     throw new Error("Top posts range is too large. Narrow the date range.");
+  }
+
+  return rows;
+}
+
+export async function readLeadGenTeamOriginRowsForDashboard(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    startDayKey: string;
+    endDayKey: string;
+    limit?: number;
+  },
+): Promise<TeamOriginStatsRow[]> {
+  const limit = args.limit ?? TEAM_ORIGIN_STATS_READ_LIMIT;
+  const rows = await ctx.db
+    .query("leadGenTeamOriginStats")
+    .withIndex("by_tenantId_and_dayKey", (q) =>
+      q
+        .eq("tenantId", args.tenantId)
+        .gte("dayKey", args.startDayKey)
+        .lte("dayKey", args.endDayKey),
+    )
+    .take(limit + 1);
+
+  if (rows.length > limit) {
+    throw new Error(
+      "Top posts by team range is too large. Narrow the date range.",
+    );
   }
 
   return rows;

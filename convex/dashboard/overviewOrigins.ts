@@ -1,28 +1,72 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import {
-  TOP_OVERVIEW_ORIGIN_LIMIT,
+  TOP_OVERVIEW_ORIGINS_PER_TEAM,
 } from "../leadGen/reportLimits";
-import { readLeadGenOriginRowsForDashboard } from "../leadGen/reportReaders";
+import {
+  loadLeadGenTeamsForRows,
+  readLeadGenTeamOriginRowsForDashboard,
+} from "../leadGen/reportReaders";
+import type { LeadGenTeamId } from "../leadGen/sharedTeams";
 import type { DerivedOverviewRange } from "./overviewRange";
-import type { TopOriginRow } from "./overviewTypes";
+import type { TopOriginRow, TopOriginsByTeamRow } from "./overviewTypes";
 
-type OriginStatsRow = Doc<"leadGenOriginStats">;
+type TeamOriginStatsRow = Doc<"leadGenTeamOriginStats">;
 
 function isRankableOriginKind(
-  originKind: OriginStatsRow["originKind"],
+  originKind: TeamOriginStatsRow["originKind"],
 ): originKind is "post" | "reel" {
   return originKind === "post" || originKind === "reel";
 }
 
-function groupByOrigin(rows: OriginStatsRow[]): TopOriginRow[] {
-  const byOrigin = new Map<string, TopOriginRow>();
+function compareTopOriginRows(
+  left: TopOriginRow,
+  right: TopOriginRow,
+) {
+  if (left.uniqueProspects !== right.uniqueProspects) {
+    return right.uniqueProspects - left.uniqueProspects;
+  }
+  if (left.submissions !== right.submissions) {
+    return right.submissions - left.submissions;
+  }
+  return left.originValue.localeCompare(right.originValue);
+}
+
+function groupByTeam(
+  rows: TeamOriginStatsRow[],
+  limitPerTeam: number,
+): Array<{
+  teamId: LeadGenTeamId | null;
+  totalUniqueProspects: number;
+  totalSubmissions: number;
+  origins: TopOriginRow[];
+}> {
+  const byTeam = new Map<
+    string,
+    {
+      teamId: LeadGenTeamId | null;
+      totalUniqueProspects: number;
+      totalSubmissions: number;
+      origins: Map<string, TopOriginRow>;
+    }
+  >();
 
   for (const row of rows) {
     if (!isRankableOriginKind(row.originKind)) continue;
-    const key = `${row.source}:${row.originKey}`;
-    const current =
-      byOrigin.get(key) ??
+
+    const teamKey = row.teamId ?? "unassigned";
+    const currentTeam =
+      byTeam.get(teamKey) ??
+      {
+        teamId: row.teamId ?? null,
+        totalUniqueProspects: 0,
+        totalSubmissions: 0,
+        origins: new Map(),
+      };
+
+    const originMapKey = `${row.source}:${row.originKey}`;
+    const currentOrigin =
+      currentTeam.origins.get(originMapKey) ??
       {
         originKey: row.originKey,
         source: row.source,
@@ -32,19 +76,22 @@ function groupByOrigin(rows: OriginStatsRow[]): TopOriginRow[] {
         uniqueProspects: 0,
       };
 
-    current.submissions += row.submissions;
-    current.uniqueProspects += row.uniqueProspectsSubmitted;
-    byOrigin.set(key, current);
+    currentOrigin.submissions += row.submissions;
+    currentOrigin.uniqueProspects += row.uniqueProspectsSubmitted;
+    currentTeam.totalUniqueProspects += row.uniqueProspectsSubmitted;
+    currentTeam.totalSubmissions += row.submissions;
+    currentTeam.origins.set(originMapKey, currentOrigin);
+    byTeam.set(teamKey, currentTeam);
   }
 
-  return [...byOrigin.values()]
-    .sort(
-      (left, right) =>
-        right.submissions - left.submissions ||
-        right.uniqueProspects - left.uniqueProspects ||
-        left.originValue.localeCompare(right.originValue),
-    )
-    .slice(0, TOP_OVERVIEW_ORIGIN_LIMIT);
+  return [...byTeam.values()].map((team) => ({
+    teamId: team.teamId,
+    totalUniqueProspects: team.totalUniqueProspects,
+    totalSubmissions: team.totalSubmissions,
+    origins: [...team.origins.values()]
+      .sort(compareTopOriginRows)
+      .slice(0, limitPerTeam),
+  }));
 }
 
 export async function getTopOriginsOverviewSection(
@@ -52,15 +99,42 @@ export async function getTopOriginsOverviewSection(
   tenantId: Id<"tenants">,
   range: DerivedOverviewRange,
 ) {
-  const rows = await readLeadGenOriginRowsForDashboard(ctx, {
+  const rows = await readLeadGenTeamOriginRowsForDashboard(ctx, {
     tenantId,
     startDayKey: range.startBusinessDate,
     endDayKey: range.endBusinessDateInclusive,
   });
-  const origins = groupByOrigin(rows);
+  const groupedTeams = groupByTeam(rows, TOP_OVERVIEW_ORIGINS_PER_TEAM);
+  const teams = await loadLeadGenTeamsForRows(
+    ctx,
+    tenantId,
+    groupedTeams.map((team) => ({ teamId: team.teamId ?? undefined })),
+  );
+
+  const teamRows: TopOriginsByTeamRow[] = groupedTeams
+    .map((team) => {
+      const teamDoc = team.teamId ? teams.get(team.teamId) : null;
+      return {
+        teamId: team.teamId,
+        teamName: teamDoc?.name ?? "Unassigned",
+        isActive: teamDoc?.isActive ?? (team.teamId ? false : null),
+        totalUniqueProspects: team.totalUniqueProspects,
+        totalSubmissions: team.totalSubmissions,
+        topOrigin: team.origins[0] ?? null,
+      };
+    })
+    .sort((left, right) => {
+      if (left.totalSubmissions !== right.totalSubmissions) {
+        return right.totalSubmissions - left.totalSubmissions;
+      }
+      if (left.totalUniqueProspects !== right.totalUniqueProspects) {
+        return right.totalUniqueProspects - left.totalUniqueProspects;
+      }
+      return left.teamName.localeCompare(right.teamName);
+    });
 
   return {
-    data: { rows: origins },
-    isEmpty: origins.length === 0,
+    data: { rows: teamRows },
+    isEmpty: teamRows.length === 0,
   };
 }

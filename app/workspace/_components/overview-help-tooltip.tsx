@@ -108,13 +108,14 @@ export const overviewTooltips = {
 	},
 	topOrigins: {
 		section:
-			"Instagram and Meta Business posts and reels ranked by lead form submissions in the range.",
+			"Each team's top Instagram or Meta Business post or reel by lead form submissions in the range.",
+		team: "Attribution team assigned to the lead-gen submissions.",
 		origin:
-			"Source post or reel URL where the submission originated.",
+			"Source post or reel URL with the most submissions for this team in the range.",
 		kind: "Content type for the origin — post or reel.",
 		submissions:
-			"Total form submissions attributed to this origin in the range.",
+			"Total form submissions attributed to this origin for the team in the range.",
 		uniqueProspects:
-			"Distinct prospects who submitted from this origin in the range.",
+			"Distinct prospects who submitted from this origin for the team in the range.",
 	},
 } as const;

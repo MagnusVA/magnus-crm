@@ -27,14 +27,15 @@ export function TopOriginsOverviewSection({
 			<CardHeader className="pb-4">
 				<CardTitle>
 					<OverviewHelpTooltip
-						label="Top Posts & Reels"
+						label="Top Posts by Team"
 						description={overviewTooltips.topOrigins.section}
 					>
-						Top Posts & Reels
+						Top Posts by Team
 					</OverviewHelpTooltip>
 				</CardTitle>
 				<CardDescription>
-					Ranked by submissions for the selected range.
+					Each team&apos;s top post or reel ranked by submissions for the
+					selected range.
 				</CardDescription>
 			</CardHeader>
 			<CardContent>
