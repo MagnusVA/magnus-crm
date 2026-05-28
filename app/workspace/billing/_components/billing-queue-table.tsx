@@ -72,15 +72,6 @@ function customerLabel(row: BillingPaymentRow) {
   );
 }
 
-function attributionLabel(row: BillingPaymentRow) {
-  return (
-    row.dmAttribution.teamName ||
-    row.dmAttribution.dmCloserName ||
-    row.dmAttribution.rawSource ||
-    row.dmAttribution.status
-  );
-}
-
 function BillingTableSkeleton() {
   return (
     <div aria-label="Loading billing rows" role="status">
@@ -149,16 +140,12 @@ export function BillingQueueTable({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="min-w-40">Paid at</TableHead>
-                <TableHead className="min-w-52">Customer</TableHead>
-                <TableHead className="min-w-32">Amount</TableHead>
-                <TableHead className="min-w-44">Program</TableHead>
-                <TableHead className="min-w-32">Type</TableHead>
-                <TableHead className="min-w-44">Entered by</TableHead>
-                <TableHead className="min-w-44">Phone closer</TableHead>
-                <TableHead className="min-w-44">DM attribution</TableHead>
-                <TableHead className="min-w-36">Slack</TableHead>
-                <TableHead className="min-w-32">Status</TableHead>
+                <TableHead className="min-w-36">Paid at</TableHead>
+                <TableHead className="min-w-44">Customer</TableHead>
+                <TableHead className="min-w-28">Amount</TableHead>
+                <TableHead className="max-w-40">Program</TableHead>
+                <TableHead className="min-w-28">Type</TableHead>
+                <TableHead className="min-w-28">Status</TableHead>
                 <TableHead className="w-16 text-right">Open</TableHead>
               </TableRow>
             </TableHeader>
@@ -186,35 +173,18 @@ export function BillingQueueTable({
                       row.payment.currency,
                     )}
                   </TableCell>
-                  <TableCell>
-                    <span className="line-clamp-2">
-                      {row.payment.programName}
-                    </span>
+                  <TableCell className="max-w-40">
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="block truncate">
+                          {row.payment.programName}
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>{row.payment.programName}</TooltipContent>
+                    </Tooltip>
                   </TableCell>
                   <TableCell>
                     {PAYMENT_TYPE_LABELS[row.payment.paymentType]}
-                  </TableCell>
-                  <TableCell>{row.enteredBy.name}</TableCell>
-                  <TableCell>{row.phoneCloser.name ?? "None"}</TableCell>
-                  <TableCell>
-                    <div className="flex min-w-0 flex-col">
-                      <span className="truncate">{attributionLabel(row)}</span>
-                      {row.dmAttribution.rawMedium ? (
-                        <span className="truncate text-xs text-muted-foreground">
-                          {row.dmAttribution.rawMedium}
-                        </span>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {row.slackContributorSummary.count > 0 ? (
-                      <span className="text-sm">
-                        {row.slackContributorSummary.latestLabel} (
-                        {row.slackContributorSummary.count})
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">None</span>
-                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
