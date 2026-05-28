@@ -54,11 +54,7 @@ export type TopDmCloserRow = {
   dmCloserId: Id<"dmClosers">;
   displayName: string;
   teamName: string | null;
-  scheduled: number;
-  completed: number;
-  noShows: number;
-  reviewRequired: number;
-  showRate: number | null;
+  booked: number;
 };
 
 export type PhoneCloserOperations = {
@@ -112,7 +108,7 @@ export type OverviewDashboard = {
   }>;
   topDmClosers: SectionResult<{
     rows: TopDmCloserRow[];
-    totalScheduled: number;
+    totalBooked: number;
   }>;
   phoneCloserOperations: SectionResult<PhoneCloserOperations>;
   topOrigins: SectionResult<{ rows: TopOriginsByTeamRow[] }>;

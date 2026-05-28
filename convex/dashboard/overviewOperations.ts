@@ -9,38 +9,14 @@ import type { DerivedOverviewRange } from "./overviewRange";
 import type { PhoneCloserOperations, TopDmCloserRow } from "./overviewTypes";
 
 export const OPERATIONS_STATS_ROW_LIMIT = 1000;
+export const TOP_DM_CLOSER_BOOKING_LIMIT = 5000;
 
 type OperationsStatsRow = Doc<"operationsMeetingDailyStats">;
-type OperationsTotals = {
-  scheduled: number;
-  completed: number;
-  noShows: number;
-  reviewRequired: number;
-};
-
 type PhoneCloserTotals = {
   scheduled: number;
   completed: number;
   callsShowed: number;
 };
-
-function emptyTotals(): OperationsTotals {
-  return {
-    scheduled: 0,
-    completed: 0,
-    noShows: 0,
-    reviewRequired: 0,
-  };
-}
-
-function addOperationRow(totals: OperationsTotals, row: OperationsStatsRow) {
-  totals.scheduled += row.count;
-  if (row.meetingStatus === "completed") totals.completed += row.count;
-  if (row.meetingStatus === "no_show") totals.noShows += row.count;
-  if (row.meetingStatus === "meeting_overran") {
-    totals.reviewRequired += row.count;
-  }
-}
 
 function emptyPhoneCloserTotals(): PhoneCloserTotals {
   return {
@@ -95,26 +71,44 @@ export async function getTopDmClosersOverviewSection(
   tenantId: Id<"tenants">,
   range: DerivedOverviewRange,
 ): Promise<{
-  data: { rows: TopDmCloserRow[]; totalScheduled: number };
+  data: { rows: TopDmCloserRow[]; totalBooked: number };
   isEmpty: boolean;
 }> {
-  const rows = await readOperationsStatsRows(ctx, tenantId, range);
-  const byDmCloser = new Map<Id<"dmClosers">, OperationsTotals>();
+  const meetings = await ctx.db
+    .query("meetings")
+    .withIndex("by_tenantId_and_createdAt", (q) =>
+      q
+        .eq("tenantId", tenantId)
+        .gte("createdAt", range.slackWindowStart)
+        .lt("createdAt", range.slackWindowEnd),
+    )
+    .take(TOP_DM_CLOSER_BOOKING_LIMIT + 1);
 
-  for (const row of rows) {
-    if (!row.dmCloserId) continue;
-    const current = byDmCloser.get(row.dmCloserId) ?? emptyTotals();
-    addOperationRow(current, row);
-    byDmCloser.set(row.dmCloserId, current);
+  if (meetings.length > TOP_DM_CLOSER_BOOKING_LIMIT) {
+    throw new Error(
+      "Top DM closer booking range is too large. Narrow the date range.",
+    );
   }
 
-  const totalScheduled = [...byDmCloser.values()].reduce(
-    (sum, totals) => sum + totals.scheduled,
+  const byDmCloser = new Map<Id<"dmClosers">, number>();
+
+  for (const meeting of meetings) {
+    if (!meeting.dmCloserId) continue;
+    // Legacy rows may lack a classification; only explicit follow-ups are excluded.
+    if (meeting.callClassification === "follow_up") continue;
+    byDmCloser.set(
+      meeting.dmCloserId,
+      (byDmCloser.get(meeting.dmCloserId) ?? 0) + 1,
+    );
+  }
+
+  const totalBooked = [...byDmCloser.values()].reduce(
+    (sum, booked) => sum + booked,
     0,
   );
 
   const enriched: TopDmCloserRow[] = [];
-  for (const [dmCloserId, totals] of byDmCloser) {
+  for (const [dmCloserId, booked] of byDmCloser) {
     const dmCloser = await ctx.db.get(dmCloserId);
     if (!dmCloser || dmCloser.tenantId !== tenantId) continue;
     const team = await ctx.db.get(dmCloser.teamId);
@@ -123,23 +117,20 @@ export async function getTopDmClosersOverviewSection(
       dmCloserId,
       displayName: dmCloser.displayName,
       teamName: team && team.tenantId === tenantId ? team.displayName : null,
-      ...totals,
-      showRate:
-        totals.scheduled === 0 ? null : totals.completed / totals.scheduled,
+      booked,
     });
   }
 
   const sortedRows = enriched
     .sort(
       (left, right) =>
-        right.scheduled - left.scheduled ||
-        right.completed - left.completed ||
+        right.booked - left.booked ||
         left.displayName.localeCompare(right.displayName),
     )
     .slice(0, 5);
 
   return {
-    data: { rows: sortedRows, totalScheduled },
+    data: { rows: sortedRows, totalBooked },
     isEmpty: sortedRows.length === 0,
   };
 }
