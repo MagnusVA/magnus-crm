@@ -1,0 +1,86 @@
+import { MessageSquareCheckIcon } from "lucide-react";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "@/components/ui/card";
+import type { TopQualifiersSection } from "./overview-dashboard-types";
+import { formatRate, formatWholeNumber } from "./overview-formatters";
+import {
+	OverviewCappedState,
+	OverviewEmptyState,
+	OverviewErrorState,
+	OverviewTruncatedNote,
+} from "./overview-section-state";
+
+export function TopQualifiersCard({
+	section,
+}: {
+	section: TopQualifiersSection;
+}) {
+	return (
+		<Card className="min-w-0" size="sm">
+			<CardHeader>
+				<div className="flex items-start justify-between gap-3">
+					<div className="min-w-0">
+						<CardTitle className="flex items-center gap-2">
+							<MessageSquareCheckIcon aria-hidden="true" />
+							Top Qualifiers
+						</CardTitle>
+						<CardDescription>Slack-qualified opportunity activity</CardDescription>
+					</div>
+					{section.status === "ready" && section.truncated ? (
+						<Badge variant="secondary">Partial</Badge>
+					) : null}
+				</div>
+			</CardHeader>
+			<CardContent className="flex flex-col gap-3">
+				{section.status === "capped" ? (
+					<OverviewCappedState message={section.message} />
+				) : section.status === "error" ? (
+					<OverviewErrorState message={section.message} />
+				) : section.status === "empty" ? (
+					<OverviewEmptyState message={section.message} />
+				) : (
+					<>
+						{section.truncated ? <OverviewTruncatedNote /> : null}
+						<ol className="flex flex-col gap-3" aria-label="Top Slack qualifiers">
+							{section.data.rows.map((row, index) => (
+								<li
+									key={row.slackUserId}
+									className="grid grid-cols-[1.5rem_auto_minmax(0,1fr)_auto] items-center gap-2"
+								>
+									<span className="text-sm text-muted-foreground tabular-nums">
+										{index + 1}
+									</span>
+									<Avatar className="size-7">
+										<AvatarImage src={row.avatarUrl ?? undefined} alt="" />
+										<AvatarFallback>
+											{(row.displayName ?? "?").slice(0, 1).toUpperCase()}
+										</AvatarFallback>
+									</Avatar>
+									<div className="min-w-0">
+										<p className="truncate text-sm font-medium">
+											{row.displayName ?? row.slackUserId}
+										</p>
+										<p className="truncate text-xs text-muted-foreground">
+											{formatWholeNumber(row.booked)} booked /{" "}
+											{formatWholeNumber(row.uniqueOpportunityCount)} opps
+										</p>
+									</div>
+									<span className="text-sm font-medium tabular-nums">
+										{formatRate(row.ratio)}
+									</span>
+								</li>
+							))}
+						</ol>
+					</>
+				)}
+			</CardContent>
+		</Card>
+	);
+}

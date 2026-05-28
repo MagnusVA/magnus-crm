@@ -11,6 +11,7 @@ import {
   loadOpportunityMapForQualificationEvents,
   summarizeQualificationEvents,
 } from "../reporting/lib/slackQualificationLedger";
+import { buildSlackUserQualificationBreakdown } from "../reporting/lib/slackQualificationBreakdown";
 import { requireTenantUser } from "../requireTenantUser";
 
 export const conversionMetrics = query({
@@ -81,63 +82,13 @@ export const perSlackUserBreakdown = query({
       "tenant_master",
       "tenant_admin",
     ]);
-    const events = await listQualificationEventsForRange(ctx, {
+
+    return await buildSlackUserQualificationBreakdown(ctx, {
       tenantId,
-      start: args.windowStart,
-      end: args.windowEnd,
+      windowStart: args.windowStart,
+      windowEnd: args.windowEnd,
+      limit: 25,
     });
-    const opportunityById = await loadOpportunityMapForQualificationEvents(
-      ctx,
-      events.rows,
-    );
-
-    const eventsBySlackUserId = new Map<string, typeof events.rows>();
-    for (const event of events.rows) {
-      const current = eventsBySlackUserId.get(event.slackUserId) ?? [];
-      current.push(event);
-      eventsBySlackUserId.set(event.slackUserId, current);
-    }
-
-    const rows = [];
-    for (const [slackUserId, userEvents] of eventsBySlackUserId) {
-      const summary = summarizeQualificationEvents(userEvents, opportunityById);
-      const uniqueSlackOpportunities = getUniqueSlackOpportunities(
-        userEvents,
-        opportunityById,
-      );
-      const booked = uniqueSlackOpportunities.filter(
-        (opportunity) => opportunity.latestMeetingId !== undefined,
-      ).length;
-      const user = await ctx.db
-        .query("slackUsers")
-        .withIndex("by_tenantId_and_slackUserId", (q) =>
-          q.eq("tenantId", tenantId).eq("slackUserId", slackUserId),
-        )
-        .unique();
-
-      rows.push({
-        slackUserId,
-        displayName:
-          user?.displayName ?? user?.realName ?? user?.username ?? null,
-        avatarUrl: user?.avatarUrl ?? null,
-        isDeleted: user?.isDeleted ?? false,
-        total: summary.qualificationEventCount,
-        qualificationEventCount: summary.qualificationEventCount,
-        uniqueOpportunityCount: summary.uniqueSlackOpportunityCount,
-        booked,
-        ratio:
-          summary.uniqueSlackOpportunityCount === 0
-            ? null
-            : booked / summary.uniqueSlackOpportunityCount,
-      });
-    }
-
-    rows.sort((a, b) => b.total - a.total || b.booked - a.booked);
-
-    return {
-      rows: rows.slice(0, 25),
-      truncated: events.truncated,
-    };
   },
 });
 
