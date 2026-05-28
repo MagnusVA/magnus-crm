@@ -39,7 +39,7 @@ export function TopDmClosersCard({
 				</CardTitle>
 				<CardDescription>Ranked by booked-call attribution</CardDescription>
 			</CardHeader>
-			<CardContent>
+			<CardContent className="flex flex-col gap-3">
 				{section.status === "capped" ? (
 					<OverviewCappedState message={section.message} />
 				) : section.status === "error" ? (
@@ -86,6 +86,18 @@ export function TopDmClosersCard({
 							</li>
 							))}
 						</ol>
+						<div className="mt-1 flex items-center justify-between border-t px-1.5 pt-2.5 text-sm">
+							<OverviewHelpTooltip
+								label="Total booked calls"
+								description={overviewTooltips.topDmClosers.totalBookedCalls}
+								triggerClassName="font-medium text-muted-foreground"
+							>
+								Total booked calls
+							</OverviewHelpTooltip>
+							<span className="font-semibold tabular-nums">
+								{formatWholeNumber(section.data.totalScheduled)}
+							</span>
+						</div>
 					</>
 				)}
 			</CardContent>

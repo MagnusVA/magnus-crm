@@ -95,6 +95,18 @@ export function LeadGenOverviewCard({
 								</li>
 							))}
 						</ol>
+						<div className="mt-1 flex items-center justify-between border-t px-1.5 pt-2.5 text-sm">
+							<OverviewHelpTooltip
+								label="Total submissions"
+								description={overviewTooltips.leadGen.totalSubmissions}
+								triggerClassName="font-medium text-muted-foreground"
+							>
+								Total submissions
+							</OverviewHelpTooltip>
+							<span className="font-semibold tabular-nums">
+								{formatWholeNumber(section.data.totalSubmissions)}
+							</span>
+						</div>
 					</>
 				)}
 			</CardContent>

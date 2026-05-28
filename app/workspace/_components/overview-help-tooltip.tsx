@@ -69,6 +69,8 @@ export const overviewTooltips = {
 			"Lead gen workers ranked by submission count for the selected range.",
 		workerSubmissions:
 			"Submission count for this worker in the selected range.",
+		totalSubmissions:
+			"Total lead form submissions across all workers in the selected range, not only the ranked list.",
 	},
 	topQualifiers: {
 		section:
@@ -91,6 +93,8 @@ export const overviewTooltips = {
 			"Total booked calls attributed to this DM closer in the range.",
 		showRate:
 			"Completed calls divided by all booked calls attributed to this closer.",
+		totalBookedCalls:
+			"Total booked calls attributed to all DM closers in the selected range, not only the ranked list.",
 	},
 	phoneCloserOperations: {
 		section:

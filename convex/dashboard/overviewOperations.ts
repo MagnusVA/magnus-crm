@@ -94,7 +94,10 @@ export async function getTopDmClosersOverviewSection(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   range: DerivedOverviewRange,
-): Promise<{ data: { rows: TopDmCloserRow[] }; isEmpty: boolean }> {
+): Promise<{
+  data: { rows: TopDmCloserRow[]; totalScheduled: number };
+  isEmpty: boolean;
+}> {
   const rows = await readOperationsStatsRows(ctx, tenantId, range);
   const byDmCloser = new Map<Id<"dmClosers">, OperationsTotals>();
 
@@ -104,6 +107,11 @@ export async function getTopDmClosersOverviewSection(
     addOperationRow(current, row);
     byDmCloser.set(row.dmCloserId, current);
   }
+
+  const totalScheduled = [...byDmCloser.values()].reduce(
+    (sum, totals) => sum + totals.scheduled,
+    0,
+  );
 
   const enriched: TopDmCloserRow[] = [];
   for (const [dmCloserId, totals] of byDmCloser) {
@@ -131,7 +139,7 @@ export async function getTopDmClosersOverviewSection(
     .slice(0, 5);
 
   return {
-    data: { rows: sortedRows },
+    data: { rows: sortedRows, totalScheduled },
     isEmpty: sortedRows.length === 0,
   };
 }
