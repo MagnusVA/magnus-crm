@@ -29,7 +29,15 @@ export const VALID_TRANSITIONS: Record<
   OpportunityStatus[]
 > = {
   qualified_pending: ["scheduled", "lost"],
-  scheduled: ["in_progress", "meeting_overran", "canceled", "no_show"],
+  scheduled: [
+    "payment_received",
+    "follow_up_scheduled",
+    "lost",
+    "no_show",
+    "canceled",
+  ],
+  // Migration-window compatibility only. These statuses stay readable until
+  // production data is repaired and the schema narrows in the final phase.
   in_progress: ["payment_received", "follow_up_scheduled", "no_show", "lost"],
   meeting_overran: [
     "payment_received",
@@ -66,10 +74,10 @@ export const MEETING_VALID_TRANSITIONS: Record<
   MeetingStatus,
   MeetingStatus[]
 > = {
-  scheduled: ["in_progress", "completed", "meeting_overran", "canceled", "no_show"],
+  scheduled: ["completed", "canceled", "no_show"],
+  // Migration-window compatibility only. Delete these keys after legacy rows
+  // are repaired and the status literals are narrowed.
   in_progress: ["completed", "no_show", "canceled"],
-  // v2: Closer can mark a flagged meeting's lead as no-show directly.
-  // "completed" remains the false-positive correction path.
   meeting_overran: ["completed", "no_show"],
   completed: [],
   canceled: [],

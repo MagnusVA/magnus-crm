@@ -128,6 +128,7 @@ import type * as lib_normalization from "../lib/normalization.js";
 import type * as lib_opportunityActivity from "../lib/opportunityActivity.js";
 import type * as lib_opportunityMeetingRefs from "../lib/opportunityMeetingRefs.js";
 import type * as lib_opportunitySearch from "../lib/opportunitySearch.js";
+import type * as lib_outcomeEligibility from "../lib/outcomeEligibility.js";
 import type * as lib_outcomeHelpers from "../lib/outcomeHelpers.js";
 import type * as lib_overranReviewGuards from "../lib/overranReviewGuards.js";
 import type * as lib_payloadExtraction from "../lib/payloadExtraction.js";
@@ -408,6 +409,7 @@ declare const fullApi: ApiFromModules<{
   "lib/opportunityActivity": typeof lib_opportunityActivity;
   "lib/opportunityMeetingRefs": typeof lib_opportunityMeetingRefs;
   "lib/opportunitySearch": typeof lib_opportunitySearch;
+  "lib/outcomeEligibility": typeof lib_outcomeEligibility;
   "lib/outcomeHelpers": typeof lib_outcomeHelpers;
   "lib/overranReviewGuards": typeof lib_overranReviewGuards;
   "lib/payloadExtraction": typeof lib_payloadExtraction;
