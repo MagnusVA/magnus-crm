@@ -189,8 +189,8 @@ export const getOpportunityDetail = query({
       permissions: {
         viewerUserId: userId,
         viewerRole: role,
-        canRecordPayment: isSideDeal && opportunity.status === "in_progress",
-        canMarkLost: isSideDeal && opportunity.status === "in_progress",
+        canRecordPayment: isSideDeal && opportunity.status === "scheduled",
+        canMarkLost: isSideDeal && opportunity.status === "scheduled",
         canVoidPayment:
           isAdmin &&
           isSideDeal &&
@@ -199,7 +199,7 @@ export const getOpportunityDetail = query({
         voidablePaymentId: activeSideDealPayment?._id,
         canDeleteOpportunity:
           isSideDeal &&
-          opportunity.status === "in_progress" &&
+          opportunity.status === "scheduled" &&
           payments.length === 0 &&
           meetings.length === 0 &&
           hasOnlyStaleNudgeFollowUps,

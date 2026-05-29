@@ -1,9 +1,12 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
-import { cancelMeetingAttendanceCheck } from "../lib/attendanceChecks";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { emitDomainEvent } from "../lib/domainEvents";
+import {
+  validateMeetingTransition,
+  validateTransition,
+} from "../lib/statusTransitions";
 import {
   replaceMeetingAggregate,
 } from "../reporting/writeHooks";
@@ -86,64 +89,41 @@ export const process = internalMutation({
     );
 
     const opportunity = await ctx.db.get(meeting.opportunityId);
-    if (meeting.status !== "meeting_overran") {
-      await cancelMeetingAttendanceCheck(
-        ctx,
-        meeting.attendanceCheckId,
-        "pipeline.inviteeNoShow",
-      );
-    }
-    if (opportunity?.status === "meeting_overran") {
-      const now = Date.now();
-      console.log("[Pipeline:no-show] IGNORED - opportunity is meeting_overran", {
-        opportunityId: opportunity._id,
-        meetingId: meeting._id,
-      });
-      await emitDomainEvent(ctx, {
-        tenantId,
-        entityType: "meeting",
-        entityId: meeting._id,
-        eventType: "meeting.webhook_ignored_overran",
-        source: "pipeline",
-        occurredAt: now,
-        metadata: {
-          webhookEventType: "invitee_no_show.created",
-          opportunityStatus: "meeting_overran",
-        },
-      });
-      await ctx.db.patch(rawEventId, { processed: true });
-      return;
-    }
 
     const now = Date.now();
     if (meeting.status !== "no_show") {
-      await ctx.db.patch(meeting._id, {
-        status: "no_show",
-        noShowSource: "calendly_webhook",
-        noShowMarkedAt: now,
-      });
-      await replaceMeetingAggregate(ctx, meeting, meeting._id);
-      await updateOpportunityMeetingRefs(ctx, meeting.opportunityId);
-      await emitDomainEvent(ctx, {
-        tenantId,
-        entityType: "meeting",
-        entityId: meeting._id,
-        eventType: "meeting.no_show",
-        source: "pipeline",
-        fromStatus: meeting.status,
-        toStatus: "no_show",
-        occurredAt: now,
-      });
-      console.log(`[Pipeline:no-show] Meeting status changed | ${meeting.status} -> no_show`);
+      if (validateMeetingTransition(meeting.status, "no_show")) {
+        await ctx.db.patch(meeting._id, {
+          status: "no_show",
+          noShowSource: "calendly_webhook",
+          noShowMarkedAt: now,
+        });
+        await replaceMeetingAggregate(ctx, meeting, meeting._id);
+        await updateOpportunityMeetingRefs(ctx, meeting.opportunityId);
+        await emitDomainEvent(ctx, {
+          tenantId,
+          entityType: "meeting",
+          entityId: meeting._id,
+          eventType: "meeting.no_show",
+          source: "pipeline",
+          fromStatus: meeting.status,
+          toStatus: "no_show",
+          occurredAt: now,
+        });
+        console.log(`[Pipeline:no-show] Meeting status changed | ${meeting.status} -> no_show`);
+      } else {
+        console.log(
+          `[Pipeline:no-show] Meeting transition skipped | ${meeting.status} -> no_show is invalid`,
+        );
+      }
     } else {
       console.log(`[Pipeline:no-show] Meeting already no_show, no change`);
     }
 
     if (
       opportunity &&
-      (opportunity.status === "scheduled" ||
-        opportunity.status === "in_progress" ||
-        opportunity.status === "no_show")
+      (opportunity.status === "no_show" ||
+        validateTransition(opportunity.status, "no_show"))
     ) {
       console.log(
         `[Pipeline:no-show] Opportunity status changed | opportunityId=${opportunity._id} ${opportunity.status} -> no_show`,
@@ -237,7 +217,6 @@ export const revert = internalMutation({
         status: "scheduled",
         noShowMarkedAt: undefined,
         noShowMarkedByUserId: undefined,
-        noShowWaitDurationMs: undefined,
         noShowReason: undefined,
         noShowNote: undefined,
         noShowSource: undefined,

@@ -37,10 +37,6 @@ import {
 	updateTenantStats,
 	isActiveOpportunityStatus,
 } from "../lib/tenantStatsHelper";
-import {
-	getMeetingAttendanceCheckTimestamp,
-	scheduleMeetingAttendanceCheck,
-} from "../lib/attendanceChecks";
 import { buildLeadSearchText } from "../leads/searchTextBuilder";
 import {
 	resolveExistingLeadIdentity,
@@ -1106,28 +1102,6 @@ export const process = internalMutation({
 						},
 						occurredAt: now,
 					});
-					const attendanceCheckId =
-						await scheduleMeetingAttendanceCheck(
-							ctx,
-							meetingId,
-							scheduledAt,
-							durationMinutes,
-						);
-					await ctx.db.patch(meetingId, { attendanceCheckId });
-					console.log(
-						"[Pipeline:invitee.created] Attendance check scheduled",
-						{
-							meetingId,
-							attendanceCheckId,
-							scheduledFireTime: new Date(
-								getMeetingAttendanceCheckTimestamp(
-									scheduledAt,
-									durationMinutes,
-								),
-							).toISOString(),
-						},
-					);
-
 					if (rescheduledFromMeetingId) {
 						console.log(
 							`[Pipeline:invitee.created] [Feature B] Reschedule chain linked | newMeetingId=${meetingId} rescheduledFrom=${rescheduledFromMeetingId}`,
@@ -1426,26 +1400,9 @@ export const process = internalMutation({
 				},
 				occurredAt: now,
 			});
-			const attendanceCheckId = await scheduleMeetingAttendanceCheck(
-				ctx,
-				meetingId,
-				scheduledAt,
-				durationMinutes,
-			);
-			await ctx.db.patch(meetingId, { attendanceCheckId });
-			console.log("[Pipeline:invitee.created] Attendance check scheduled", {
-				meetingId,
-				attendanceCheckId,
-				scheduledFireTime: new Date(
-					getMeetingAttendanceCheckTimestamp(
-						scheduledAt,
-						durationMinutes,
-					),
-				).toISOString(),
-			});
-			console.log(
-				`[Pipeline:invitee.created] [Feature B4] Meeting created | meetingId=${meetingId} rescheduledFrom=${rescheduledFromMeetingId ?? "none"}`,
-			);
+				console.log(
+					`[Pipeline:invitee.created] [Feature B4] Meeting created | meetingId=${meetingId} rescheduledFrom=${rescheduledFromMeetingId ?? "none"}`,
+				);
 
 			await updateOpportunityMeetingRefs(ctx, reschedOpportunityId);
 			await rebuildQualificationRowsForOpportunity(ctx, reschedOpportunityId);
@@ -1763,20 +1720,6 @@ export const process = internalMutation({
 				occurredAt: now,
 			});
 		}
-		const attendanceCheckId = await scheduleMeetingAttendanceCheck(
-			ctx,
-			meetingId,
-			scheduledAt,
-			durationMinutes,
-		);
-		await ctx.db.patch(meetingId, { attendanceCheckId });
-		console.log("[Pipeline:invitee.created] Attendance check scheduled", {
-			meetingId,
-			attendanceCheckId,
-			scheduledFireTime: new Date(
-				getMeetingAttendanceCheckTimestamp(scheduledAt, durationMinutes),
-			).toISOString(),
-		});
 		console.log(
 			`[Pipeline:invitee.created] Meeting created | meetingId=${meetingId} durationMinutes=${durationMinutes}`,
 		);

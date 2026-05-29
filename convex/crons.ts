@@ -40,13 +40,6 @@ crons.interval(
 );
 
 crons.interval(
-  "sweep-stale-scheduled-meetings",
-  { minutes: 5 },
-  internal.closer.meetingOverrunSweep.sweepStaleMeetings,
-  {},
-);
-
-crons.interval(
   "nudge-stale-side-deals",
   { hours: 6 },
   internal.opportunities.staleness.nudgeStaleSideDeals,

@@ -1,9 +1,11 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
-import { cancelMeetingAttendanceCheck } from "../lib/attendanceChecks";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
-import { validateTransition } from "../lib/statusTransitions";
+import {
+	validateMeetingTransition,
+	validateTransition,
+} from "../lib/statusTransitions";
 import { emitDomainEvent } from "../lib/domainEvents";
 import {
   replaceMeetingAggregate,
@@ -92,59 +94,34 @@ export const process = internalMutation({
 		);
 
 		const opportunity = await ctx.db.get(meeting.opportunityId);
-		if (meeting.status !== "meeting_overran") {
-			await cancelMeetingAttendanceCheck(
-				ctx,
-				meeting.attendanceCheckId,
-				"pipeline.inviteeCanceled",
-			);
-		}
-		if (opportunity?.status === "meeting_overran") {
-			const now = Date.now();
-			console.log(
-				"[Pipeline:invitee.canceled] IGNORED - opportunity is meeting_overran",
-				{
-					opportunityId: opportunity._id,
-					meetingId: meeting._id,
-				},
-			);
-			await emitDomainEvent(ctx, {
-				tenantId,
-				entityType: "meeting",
-				entityId: meeting._id,
-				eventType: "meeting.webhook_ignored_overran",
-				source: "pipeline",
-				occurredAt: now,
-				metadata: {
-					webhookEventType: "invitee.canceled",
-					opportunityStatus: "meeting_overran",
-				},
-			});
-			await ctx.db.patch(rawEventId, { processed: true });
-			return;
-		}
 
 		if (meeting.status !== "canceled") {
 			const now = Date.now();
-			await ctx.db.patch(meeting._id, {
-				status: "canceled",
-				canceledAt: now,
-			});
-			await replaceMeetingAggregate(ctx, meeting, meeting._id);
-			await updateOpportunityMeetingRefs(ctx, meeting.opportunityId);
-			await emitDomainEvent(ctx, {
-				tenantId,
-				entityType: "meeting",
-				entityId: meeting._id,
-				eventType: "meeting.canceled",
-				source: "pipeline",
-				fromStatus: meeting.status,
-				toStatus: "canceled",
-				occurredAt: now,
-			});
-			console.log(
-				`[Pipeline:invitee.canceled] Meeting status changed | ${meeting.status} -> canceled`,
-			);
+			if (validateMeetingTransition(meeting.status, "canceled")) {
+				await ctx.db.patch(meeting._id, {
+					status: "canceled",
+					canceledAt: now,
+				});
+				await replaceMeetingAggregate(ctx, meeting, meeting._id);
+				await updateOpportunityMeetingRefs(ctx, meeting.opportunityId);
+				await emitDomainEvent(ctx, {
+					tenantId,
+					entityType: "meeting",
+					entityId: meeting._id,
+					eventType: "meeting.canceled",
+					source: "pipeline",
+					fromStatus: meeting.status,
+					toStatus: "canceled",
+					occurredAt: now,
+				});
+				console.log(
+					`[Pipeline:invitee.canceled] Meeting status changed | ${meeting.status} -> canceled`,
+				);
+			} else {
+				console.log(
+					`[Pipeline:invitee.canceled] Meeting transition skipped | ${meeting.status} -> canceled is invalid`,
+				);
+			}
 		} else {
 			console.log(
 				`[Pipeline:invitee.canceled] Meeting already canceled, no change`,
