@@ -3,6 +3,13 @@ import type { QueryCtx } from "../../_generated/server";
 
 export const MAX_QUALIFICATION_EVENTS = 1000;
 
+/** Upper bound on same-day Slack events scanned when computing the goal counter. */
+export const MAX_DAILY_GOAL_EVENT_SCAN = 10_001;
+
+export const GOAL_ELIGIBLE_QUALIFICATION_RESULT_KINDS = new Set<
+  Doc<"slackQualificationEvents">["resultKind"]
+>(["created_opportunity", "already_booked"]);
+
 export type QualificationEventSummary = {
   qualificationEventCount: number;
   uniqueLinkedOpportunityCount: number;
@@ -12,6 +19,37 @@ export type QualificationEventSummary = {
   alreadyBookedEvents: number;
   unlinkedEvents: number;
 };
+
+export async function countGoalEligibleQualificationEvents(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    start: number;
+    end: number;
+  },
+): Promise<{ count: number; truncated: boolean }> {
+  const rows = await ctx.db
+    .query("slackQualificationEvents")
+    .withIndex("by_tenantId_and_submittedAt", (q) =>
+      q
+        .eq("tenantId", args.tenantId)
+        .gte("submittedAt", args.start)
+        .lt("submittedAt", args.end),
+    )
+    .take(MAX_DAILY_GOAL_EVENT_SCAN);
+
+  let count = 0;
+  for (const row of rows) {
+    if (GOAL_ELIGIBLE_QUALIFICATION_RESULT_KINDS.has(row.resultKind)) {
+      count += 1;
+    }
+  }
+
+  return {
+    count,
+    truncated: rows.length >= MAX_DAILY_GOAL_EVENT_SCAN,
+  };
+}
 
 export async function listQualificationEventsForRange(
   ctx: QueryCtx,
