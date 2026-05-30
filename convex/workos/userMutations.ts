@@ -652,8 +652,6 @@ export const removeUser = internalMutation({
 
     const activeStatuses = [
       "scheduled",
-      "in_progress",
-      "meeting_overran",
       "follow_up_scheduled",
       "reschedule_link_sent",
     ] as const;

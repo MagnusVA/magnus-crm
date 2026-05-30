@@ -11,8 +11,6 @@
 export const OPPORTUNITY_STATUSES = [
   "qualified_pending",
   "scheduled",
-  "in_progress",
-  "meeting_overran",
   "payment_received",
   "follow_up_scheduled",
   "reschedule_link_sent",
@@ -33,11 +31,9 @@ export function isValidOpportunityStatus(
 
 export const MEETING_STATUSES = [
   "scheduled",
-  "in_progress",
   "completed",
   "canceled",
   "no_show",
-  "meeting_overran",
 ] as const;
 
 export type MeetingStatus = (typeof MEETING_STATUSES)[number];
@@ -87,22 +83,6 @@ export const opportunityStatusConfig: Record<
     dotClass: "bg-blue-500",
     stripBg:
       "bg-blue-500/5 hover:bg-blue-500/10 border-blue-200/60 dark:border-blue-900/60",
-  },
-  in_progress: {
-    label: "In Progress",
-    badgeClass:
-      "bg-amber-500/10 text-amber-700 border-amber-200 dark:text-amber-400 dark:border-amber-900",
-    dotClass: "bg-amber-500",
-    stripBg:
-      "bg-amber-500/5 hover:bg-amber-500/10 border-amber-200/60 dark:border-amber-900/60",
-  },
-  meeting_overran: {
-    label: "Meeting Overran",
-    badgeClass:
-      "bg-yellow-500/10 text-yellow-700 border-yellow-200 dark:text-yellow-400 dark:border-yellow-900",
-    dotClass: "bg-yellow-500",
-    stripBg:
-      "bg-yellow-500/5 hover:bg-yellow-500/10 border-yellow-200/60 dark:border-yellow-900/60",
   },
   follow_up_scheduled: {
     label: "Follow-up",
@@ -166,11 +146,6 @@ export const meetingStatusConfig: Record<MeetingStatus, MeetingBlockConfig> = {
     blockClass: "bg-blue-500/10 border-l-blue-500",
     textClass: "text-blue-700 dark:text-blue-300",
   },
-  in_progress: {
-    label: "In Progress",
-    blockClass: "bg-amber-500/10 border-l-amber-500",
-    textClass: "text-amber-700 dark:text-amber-300",
-  },
   completed: {
     label: "Completed",
     blockClass: "bg-emerald-500/10 border-l-emerald-500",
@@ -185,11 +160,6 @@ export const meetingStatusConfig: Record<MeetingStatus, MeetingBlockConfig> = {
     label: "No Show",
     blockClass: "bg-orange-500/10 border-l-orange-500",
     textClass: "text-orange-700 dark:text-orange-300",
-  },
-  meeting_overran: {
-    label: "Meeting Overran",
-    blockClass: "bg-yellow-500/10 border-l-yellow-500",
-    textClass: "text-yellow-700 dark:text-yellow-400",
   },
 };
 
@@ -254,8 +224,6 @@ export const connectionStatusConfig = {
 export const PIPELINE_DISPLAY_ORDER: OpportunityStatus[] = [
   "qualified_pending",
   "scheduled",
-  "in_progress",
-  "meeting_overran",
   "follow_up_scheduled",
   "payment_received",
   "reschedule_link_sent",

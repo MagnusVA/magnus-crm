@@ -9,18 +9,7 @@ type MeetingPatch = Partial<
   Omit<Doc<"meetings">, "_id" | "_creationTime" | "status" | "completedAt">
 >;
 
-const FORBIDDEN_TIMING_PATCH_KEYS = new Set([
-  "startedAt",
-  "startedAtSource",
-  "stoppedAt",
-  "stoppedAtSource",
-  "lateStartDurationMs",
-  "exceededScheduledDurationMs",
-  "overranDurationMs",
-  "attendanceCheckId",
-  "overranDetectedAt",
-  "reviewId",
-  "noShowWaitDurationMs",
+const RESERVED_MEETING_OUTCOME_PATCH_KEYS = new Set([
   "status",
   "completedAt",
 ]);
@@ -31,7 +20,7 @@ function assertTimingFreePatch(patch: MeetingPatch | undefined): void {
   }
 
   for (const key of Object.keys(patch)) {
-    if (FORBIDDEN_TIMING_PATCH_KEYS.has(key)) {
+    if (RESERVED_MEETING_OUTCOME_PATCH_KEYS.has(key)) {
       throw new Error(`Meeting outcome patch cannot include "${key}"`);
     }
   }

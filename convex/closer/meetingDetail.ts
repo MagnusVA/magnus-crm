@@ -327,11 +327,6 @@ export const getMeetingDetail = query({
           : null,
       dmCloser:
         dmCloser && dmCloser.tenantId === tenantId ? dmCloser : null,
-      // v2: closer may have created a follow-up (scheduling link or manual
-      // reminder) on a still-`meeting_overran` opportunity. The follow-up
-      // mutations intentionally skip the status transition in that case,
-      // so the closer UI uses this signal to detect "already acted" and
-      // flip the banner/action-bar accordingly.
       activeFollowUp,
     };
   },

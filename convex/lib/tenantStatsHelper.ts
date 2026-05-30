@@ -55,8 +55,6 @@ const TENANT_STATS_FIELDS: TenantStatsField[] = [
 export const ACTIVE_OPPORTUNITY_STATUSES = new Set([
   "qualified_pending",
   "scheduled",
-  "in_progress",
-  "meeting_overran",
   "follow_up_scheduled",
   "reschedule_link_sent",
 ] as const);

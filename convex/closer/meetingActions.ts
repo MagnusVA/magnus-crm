@@ -2,10 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
-import {
-  assertCanRecordLegacyMeetingOutcome,
-  assertCanRecordMeetingOutcome,
-} from "../lib/outcomeEligibility";
+import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { requireTenantUser } from "../requireTenantUser";
@@ -33,34 +30,6 @@ export async function loadMeetingContext(
 
   return { meeting, opportunity };
 }
-
-/**
- * Temporary defensive stub for stale clients during the Phase 2/3 deploy
- * window. Joining is now a plain link and must not mutate Convex state.
- */
-export const startMeeting = mutation({
-  args: { meetingId: v.id("meetings") },
-  handler: async (): Promise<{
-    meetingJoinUrl: string | null;
-    lateStartDurationMs: number;
-  }> => {
-    throw new Error(
-      "Start Meeting has been removed. Use Join Meeting and record the outcome directly.",
-    );
-  },
-});
-
-export const stopMeeting = mutation({
-  args: { meetingId: v.id("meetings") },
-  handler: async (): Promise<{
-    exceededScheduledDurationMs: number;
-    exceededScheduledDuration: boolean;
-  }> => {
-    throw new Error(
-      "End Meeting has been removed. Record the meeting outcome directly.",
-    );
-  },
-});
 
 /**
  * OUTCOME MUTATION CONTRACT
@@ -112,21 +81,13 @@ export const markAsLost = mutation({
     console.log("[Closer:Meeting] markAsLost current status", { currentStatus: opportunity.status });
     const now = Date.now();
     if (meeting) {
-      const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+      assertCanRecordMeetingOutcome({
         meeting,
         opportunity,
         userId,
         role,
+        now,
       });
-      if (!handledAsLegacy) {
-        assertCanRecordMeetingOutcome({
-          meeting,
-          opportunity,
-          userId,
-          role,
-          now,
-        });
-      }
     }
     if (!validateTransition(opportunity.status, "lost")) {
       throw new Error(`Cannot mark as lost from status "${opportunity.status}"`);

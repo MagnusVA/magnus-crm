@@ -1,8 +1,6 @@
 export const OPPORTUNITY_STATUSES = [
   "qualified_pending",
   "scheduled",
-  "in_progress",
-  "meeting_overran",
   "payment_received",
   "follow_up_scheduled",
   "reschedule_link_sent",
@@ -15,11 +13,9 @@ export type OpportunityStatus = (typeof OPPORTUNITY_STATUSES)[number];
 
 export const MEETING_STATUSES = [
   "scheduled",
-  "in_progress",
   "completed",
   "canceled",
   "no_show",
-  "meeting_overran",
 ] as const;
 
 export type MeetingStatus = (typeof MEETING_STATUSES)[number];
@@ -35,15 +31,6 @@ export const VALID_TRANSITIONS: Record<
     "lost",
     "no_show",
     "canceled",
-  ],
-  // Migration-window compatibility only. These statuses stay readable until
-  // production data is repaired and the schema narrows in the final phase.
-  in_progress: ["payment_received", "follow_up_scheduled", "no_show", "lost"],
-  meeting_overran: [
-    "payment_received",
-    "follow_up_scheduled",
-    "no_show",
-    "lost",
   ],
   canceled: ["follow_up_scheduled", "scheduled"],
   no_show: ["follow_up_scheduled", "reschedule_link_sent", "scheduled"],
@@ -75,10 +62,6 @@ export const MEETING_VALID_TRANSITIONS: Record<
   MeetingStatus[]
 > = {
   scheduled: ["completed", "canceled", "no_show"],
-  // Migration-window compatibility only. Delete these keys after legacy rows
-  // are repaired and the status literals are narrowed.
-  in_progress: ["completed", "no_show", "canceled"],
-  meeting_overran: ["completed", "no_show"],
   completed: [],
   canceled: [],
   no_show: ["scheduled"], // Webhook reversal (Calendly no-show deletion)

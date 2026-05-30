@@ -9,8 +9,6 @@ export const opportunitySourceValidator = v.union(
 export const opportunityStatusValidator = v.union(
   v.literal("qualified_pending"),
   v.literal("scheduled"),
-  v.literal("in_progress"),
-  v.literal("meeting_overran"),
   v.literal("payment_received"),
   v.literal("follow_up_scheduled"),
   v.literal("reschedule_link_sent"),

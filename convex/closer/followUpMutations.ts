@@ -2,10 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation, mutation } from "../_generated/server";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
-import {
-  assertCanRecordLegacyMeetingOutcome,
-  assertCanRecordMeetingOutcome,
-} from "../lib/outcomeEligibility";
+import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { validateTransition } from "../lib/statusTransitions";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { requireTenantUser } from "../requireTenantUser";
@@ -288,21 +285,13 @@ export const confirmFollowUpScheduled = mutation({
     }
     const now = Date.now();
     if (meeting) {
-      const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+      assertCanRecordMeetingOutcome({
         meeting,
         opportunity,
         userId,
         role,
+        now,
       });
-      if (!handledAsLegacy) {
-        assertCanRecordMeetingOutcome({
-          meeting,
-          opportunity,
-          userId,
-          role,
-          now,
-        });
-      }
     }
     if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
       throw new Error(
@@ -382,21 +371,13 @@ export const createManualReminderFollowUpPublic = mutation({
       throw new Error("Reminder time must be in the future");
     }
     if (meeting) {
-      const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+      assertCanRecordMeetingOutcome({
         meeting,
         opportunity,
         userId,
         role,
+        now,
       });
-      if (!handledAsLegacy) {
-        assertCanRecordMeetingOutcome({
-          meeting,
-          opportunity,
-          userId,
-          role,
-          now,
-        });
-      }
     }
 
     const followUpId = await ctx.db.insert("followUps", {
