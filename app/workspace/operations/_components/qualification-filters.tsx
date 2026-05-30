@@ -53,8 +53,6 @@ type QualificationFiltersProps = {
 const STATUS_OPTIONS = [
   { id: "qualified_pending", name: "Qualified pending" },
   { id: "scheduled", name: "Scheduled" },
-  { id: "in_progress", name: "In progress" },
-  { id: "meeting_overran", name: "Meeting overran" },
   { id: "payment_received", name: "Payment received" },
   { id: "follow_up_scheduled", name: "Follow-up scheduled" },
   { id: "reschedule_link_sent", name: "Reschedule link sent" },

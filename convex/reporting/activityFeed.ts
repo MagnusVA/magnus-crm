@@ -274,12 +274,6 @@ export const getActivitySummary = query({
           const bucket = `reminder_${outcome}`;
           byOutcome[bucket] = (byOutcome[bucket] ?? 0) + 1;
         }
-      } else if (event.eventType === "meeting.overran_review_resolved") {
-        const resolutionAction = parsedMetadata?.resolutionAction;
-        if (typeof resolutionAction === "string") {
-          const bucket = `review_resolved_${resolutionAction}`;
-          byOutcome[bucket] = (byOutcome[bucket] ?? 0) + 1;
-        }
       }
 
       if (event.actorUserId) {

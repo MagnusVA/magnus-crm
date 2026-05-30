@@ -17,8 +17,6 @@ import {
 
 const ACTIVE_STATUSES = [
   "scheduled",
-  "in_progress",
-  "meeting_overran",
   "follow_up_scheduled",
   "reschedule_link_sent",
 ] as const;

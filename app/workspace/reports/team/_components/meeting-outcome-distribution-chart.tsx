@@ -34,7 +34,6 @@ const OUTCOME_META: Record<OutcomeKey, { label: string; color: string }> = {
   rescheduled: { label: "Rescheduled", color: "var(--chart-3)" },
   dq: { label: "Disqualified", color: "var(--chart-5)" },
   follow_up: { label: "Follow-Up", color: "var(--chart-4)" },
-  in_progress: { label: "In Progress", color: "var(--chart-2)" },
   scheduled: { label: "Scheduled", color: "var(--chart-5)" },
 };
 

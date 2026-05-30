@@ -44,10 +44,6 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "changed a lead status",
     iconHint: "git-branch",
   },
-  "meeting.admin_resolved": {
-    verb: "resolved a meeting as admin",
-    iconHint: "shield-check",
-  },
   "meeting.canceled": {
     verb: "canceled a meeting",
     iconHint: "calendar-x-2",
@@ -64,37 +60,9 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "reverted a no-show",
     iconHint: "rotate-ccw",
   },
-  "meeting.overran_closer_responded": {
-    verb: "responded to an overran meeting",
-    iconHint: "message-square",
-  },
-  "meeting.overran_detected": {
-    verb: "flagged a meeting as overran",
-    iconHint: "alert-triangle",
-  },
-  "meeting.overran_review_resolved": {
-    verb: "resolved an overran review",
-    iconHint: "gavel",
-  },
-  "meeting.started": {
-    verb: "started a meeting",
-    iconHint: "play",
-  },
   "meeting.status_changed": {
     verb: "changed a meeting status",
     iconHint: "arrow-right-left",
-  },
-  "meeting.stopped": {
-    verb: "ended a meeting",
-    iconHint: "square",
-  },
-  "meeting.times_manually_set": {
-    verb: "manually set meeting times",
-    iconHint: "clock-3",
-  },
-  "meeting.webhook_ignored_overran": {
-    verb: "ignored a late webhook for a flagged meeting",
-    iconHint: "filter",
   },
   "opportunity.created": {
     verb: "created an opportunity",

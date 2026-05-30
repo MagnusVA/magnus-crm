@@ -8,12 +8,11 @@ export type CallOutcome =
   | "rescheduled"
   | "dq"
   | "follow_up"
-  | "scheduled"
-  | "in_progress";
+  | "scheduled";
 
 /**
  * Priority order:
- * sold > lost > no_show > canceled > rescheduled > dq > follow_up > in_progress > scheduled
+ * sold > lost > no_show > canceled > rescheduled > dq > follow_up > scheduled
  */
 export function deriveCallOutcome(
   meeting: Doc<"meetings">,
@@ -30,10 +29,6 @@ export function deriveCallOutcome(
   }
 
   if (meeting.status === "no_show") {
-    return "no_show";
-  }
-
-  if (meeting.status === "meeting_overran") {
     return "no_show";
   }
 
@@ -66,14 +61,6 @@ export function deriveCallOutcome(
     opportunity.status === "follow_up_scheduled"
   ) {
     return "follow_up";
-  }
-
-  if (opportunity.status === "meeting_overran") {
-    return "in_progress";
-  }
-
-  if (meeting.status === "in_progress") {
-    return "in_progress";
   }
 
   return "scheduled";

@@ -102,9 +102,9 @@ export const overviewTooltips = {
 		bookedCalls:
 			"All meetings scheduled in the range for this closer, across every status.",
 		showRate:
-			"Completed calls divided by all booked calls assigned to this closer.",
+			"Completed calls divided by booked calls minus canceled calls.",
 		closeRate:
-			"Commissionable final payments attributed to the closer divided by calls that showed (completed or in progress).",
+			"Commissionable final payments attributed to the closer divided by completed calls.",
 		cashCollected:
 			"Total commissionable final payment revenue attributed to this closer. Excludes post-conversion and disputed payments.",
 	},

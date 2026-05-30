@@ -19,8 +19,6 @@ export type PipelinePeriod = TimePeriod | "all";
 const STATUS_OPTIONS = [
   { value: "all", label: "All" },
   { value: "scheduled", label: "Scheduled" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "meeting_overran", label: "Meeting Overran" },
   { value: "follow_up_scheduled", label: "Follow-up" },
   { value: "payment_received", label: "Won" },
   { value: "lost", label: "Lost" },
@@ -89,7 +87,7 @@ export function PipelineFilters({
             <div className="flex-1">
               <p className="mb-3 text-sm font-medium">Status</p>
               <Tabs value={statusFilter} onValueChange={onStatusChange}>
-                <TabsList className="grid h-auto w-full grid-cols-3 lg:grid-cols-9">
+                <TabsList className="grid h-auto w-full grid-cols-3 lg:grid-cols-7">
                   {STATUS_OPTIONS.map((status) => {
                     const count =
                       status.value === "all"

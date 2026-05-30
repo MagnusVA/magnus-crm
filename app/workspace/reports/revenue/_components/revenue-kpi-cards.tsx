@@ -76,7 +76,7 @@ export function RevenueKpiCards({ metrics }: RevenueKpiCardsProps) {
         icon={HandCoinsIcon}
         label="Commissionable Deposits"
         value={formatAmountMinor(commissionable.depositRevenueMinor, "USD")}
-        subtext="Deposits logged from meetings, reminders, reviews, side deals"
+        subtext="Deposits logged from meetings, reminders, and side deals"
       />
       <StatsCard
         icon={CoinsIcon}

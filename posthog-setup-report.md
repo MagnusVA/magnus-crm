@@ -35,7 +35,6 @@ Source map upload for PostHog Error Tracking is now wired into the Next.js build
 
 | Event | Description | File |
 |---|---|---|
-| `meeting_started` | Closer clicked Start Meeting and Zoom link was opened | `app/workspace/closer/meetings/_components/outcome-action-bar.tsx` |
 | `payment_logged` | Payment form submitted and opportunity closed as payment_received | `app/workspace/closer/meetings/_components/payment-form-dialog.tsx` |
 | `opportunity_marked_lost` | Closer confirmed marking an opportunity as lost | `app/workspace/closer/meetings/_components/mark-lost-dialog.tsx` |
 | `follow_up_link_generated` | Single-use Calendly follow-up link created for a lead | `app/workspace/closer/meetings/_components/follow-up-dialog.tsx` |
@@ -46,13 +45,28 @@ Source map upload for PostHog Error Tracking is now wired into the Next.js build
 | `calendly_reconnected` | Admin initiated a Calendly reconnect from settings | `app/workspace/settings/_components/calendly-connection.tsx` |
 | `pipeline_status_filter_changed` | Closer changed the status filter on their pipeline view | `app/workspace/closer/pipeline/_components/closer-pipeline-page-client.tsx` |
 
+## Phone Closer Overrun Refactor
+
+The app no longer emits `meeting_started` or
+`meeting_overran_context_submitted`. Join Meeting is now a passive external
+link and does not create a replacement analytics event.
+
+Manual PostHog console follow-up:
+
+- Re-anchor the Meeting to Payment funnel on an outcome event such as
+  `payment_logged` or `payment.recorded`.
+- Re-anchor the Meeting Churn funnel on an outcome event such as
+  `opportunity_marked_lost`.
+- Retire any dashboard cards or alerts that depend on
+  `meeting_overran_context_submitted`.
+
 ## Next steps
 
 We've built some insights and a dashboard for you to keep an eye on user behavior, based on the events we just instrumented:
 
 - **Dashboard:** [Analytics basics](https://us.posthog.com/project/371650/dashboard/1436788)
-- **Insight:** [Meeting to Payment Conversion Funnel](https://us.posthog.com/project/371650/insights/YF637txX) — conversion rate from `meeting_started` → `payment_logged` within 7 days
-- **Insight:** [Meeting Churn Funnel — Started to Lost](https://us.posthog.com/project/371650/insights/ytwhinJm) — how many started meetings result in `opportunity_marked_lost`
+- **Insight:** [Meeting to Payment Conversion Funnel](https://us.posthog.com/project/371650/insights/YF637txX) — update this to use the new outcome-based anchor described above.
+- **Insight:** [Meeting Churn Funnel — Started to Lost](https://us.posthog.com/project/371650/insights/ytwhinJm) — update this to use the new outcome-based anchor described above.
 - **Insight:** [Payments vs Lost Opportunities (Daily)](https://us.posthog.com/project/371650/insights/91qf549g) — daily win/churn comparison
 - **Insight:** [Follow-up Link Generated to Copied](https://us.posthog.com/project/371650/insights/jEsPec3m) — funnel showing whether closers actually share the links they generate
 - **Insight:** [Team Growth — Invites vs Removals](https://us.posthog.com/project/371650/insights/f73MsQSB) — weekly team size trend over 90 days

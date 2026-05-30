@@ -23,8 +23,6 @@ import {
 type OpportunityStatus =
   | "qualified_pending"
   | "scheduled"
-  | "in_progress"
-  | "meeting_overran"
   | "payment_received"
   | "follow_up_scheduled"
   | "reschedule_link_sent"

@@ -64,9 +64,7 @@ const SOURCE_CARDS = [
 const DAY_MS = 86_400_000;
 
 function formatOutcomeLabel(key: string) {
-  const [prefix, rawValue] = key.startsWith("review_resolved_")
-    ? (["Review", key.slice("review_resolved_".length)] as const)
-    : key.startsWith("reminder_")
+  const [prefix, rawValue] = key.startsWith("reminder_")
       ? (["Reminder", key.slice("reminder_".length)] as const)
       : (["Outcome", key] as const);
 
@@ -218,7 +216,7 @@ export function ActivitySummaryCards({
               Outcome Mix
             </CardTitle>
             <CardDescription>
-              Reminder completions and review resolutions with structured outcomes
+              Reminder completions with structured outcomes
             </CardDescription>
           </CardHeader>
           <CardContent>

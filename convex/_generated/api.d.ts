@@ -210,12 +210,10 @@ import type * as reporting_lib_periodBucketing from "../reporting/lib/periodBuck
 import type * as reporting_lib_programDimensions from "../reporting/lib/programDimensions.js";
 import type * as reporting_lib_slackQualificationBreakdown from "../reporting/lib/slackQualificationBreakdown.js";
 import type * as reporting_lib_slackQualificationLedger from "../reporting/lib/slackQualificationLedger.js";
-import type * as reporting_meetingTime from "../reporting/meetingTime.js";
 import type * as reporting_pipelineHealth from "../reporting/pipelineHealth.js";
 import type * as reporting_remindersReporting from "../reporting/remindersReporting.js";
 import type * as reporting_revenue from "../reporting/revenue.js";
 import type * as reporting_revenueTrend from "../reporting/revenueTrend.js";
-import type * as reporting_reviewsReporting from "../reporting/reviewsReporting.js";
 import type * as reporting_slackQualifications from "../reporting/slackQualifications.js";
 import type * as reporting_teamActions from "../reporting/teamActions.js";
 import type * as reporting_teamOutcomes from "../reporting/teamOutcomes.js";
@@ -492,12 +490,10 @@ declare const fullApi: ApiFromModules<{
   "reporting/lib/programDimensions": typeof reporting_lib_programDimensions;
   "reporting/lib/slackQualificationBreakdown": typeof reporting_lib_slackQualificationBreakdown;
   "reporting/lib/slackQualificationLedger": typeof reporting_lib_slackQualificationLedger;
-  "reporting/meetingTime": typeof reporting_meetingTime;
   "reporting/pipelineHealth": typeof reporting_pipelineHealth;
   "reporting/remindersReporting": typeof reporting_remindersReporting;
   "reporting/revenue": typeof reporting_revenue;
   "reporting/revenueTrend": typeof reporting_revenueTrend;
-  "reporting/reviewsReporting": typeof reporting_reviewsReporting;
   "reporting/slackQualifications": typeof reporting_slackQualifications;
   "reporting/teamActions": typeof reporting_teamActions;
   "reporting/teamOutcomes": typeof reporting_teamOutcomes;

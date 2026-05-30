@@ -30,7 +30,7 @@ interface ReportRevenueSliceFilterProps {
 /**
  * Shared "Revenue Slice" filter — slices payments by attribution scope.
  * Commissionable payments are attributed to a closer (from meeting / reminder /
- * review-resolution flows). Post-conversion payments are logged by admins
+ * legacy admin outcome flows). Post-conversion payments are logged by admins
  * against a customer after their deal closed and are not attributed.
  */
 export function ReportRevenueSliceFilter({
@@ -84,7 +84,7 @@ export function ReportRevenueSliceFilter({
 				<PopoverContent className="w-80 text-sm" align="start">
 					<p>
 						<strong>Commissionable</strong> revenue is attributed to a closer
-						(earned from a meeting, reminder, or review-resolution flow).
+						(earned from a meeting, reminder, or legacy admin outcome flow).
 					</p>
 					<p className="mt-2">
 						<strong>Post-Conversion</strong> revenue is logged by admins against

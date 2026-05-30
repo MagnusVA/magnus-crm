@@ -3,7 +3,14 @@
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type {
@@ -108,7 +115,6 @@ export function OpportunityFilters({
         <TabsList className="grid h-auto w-full grid-cols-2 sm:grid-cols-3 lg:inline-flex lg:w-fit">
           <TabsTrigger value="all">All</TabsTrigger>
           <TabsTrigger value="qualified_pending">Qualified</TabsTrigger>
-          <TabsTrigger value="in_progress">In Progress</TabsTrigger>
           <TabsTrigger value="scheduled">Scheduled</TabsTrigger>
           <TabsTrigger value="payment_received">Won</TabsTrigger>
           <TabsTrigger value="lost">Lost</TabsTrigger>

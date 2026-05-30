@@ -15,6 +15,7 @@ type OperationsStatsRow = Doc<"operationsMeetingDailyStats">;
 type PhoneCloserTotals = {
   scheduled: number;
   completed: number;
+  canceled: number;
   callsShowed: number;
 };
 
@@ -22,6 +23,7 @@ function emptyPhoneCloserTotals(): PhoneCloserTotals {
   return {
     scheduled: 0,
     completed: 0,
+    canceled: 0,
     callsShowed: 0,
   };
 }
@@ -32,10 +34,8 @@ function addPhoneCloserOperationRow(
 ) {
   totals.scheduled += row.count;
   if (row.meetingStatus === "completed") totals.completed += row.count;
-  if (
-    row.meetingStatus === "completed" ||
-    row.meetingStatus === "in_progress"
-  ) {
+  if (row.meetingStatus === "canceled") totals.canceled += row.count;
+  if (row.meetingStatus === "completed") {
     totals.callsShowed += row.count;
   }
 }
@@ -177,7 +177,7 @@ export async function getPhoneCloserOperationsOverviewSection(
       closerId,
       closerName,
       scheduled: totals.scheduled,
-      showRate: toRate(totals.completed, totals.scheduled),
+      showRate: toRate(totals.completed, totals.scheduled - totals.canceled),
       closeRate: toRate(paymentStats.dealCount, totals.callsShowed),
       cashCollectedMinor: paymentStats.revenueMinor,
     });
@@ -192,6 +192,7 @@ export async function getPhoneCloserOperationsOverviewSection(
     (acc, totals) => ({
       scheduled: acc.scheduled + totals.scheduled,
       completed: acc.completed + totals.completed,
+      canceled: acc.canceled + totals.canceled,
       callsShowed: acc.callsShowed + totals.callsShowed,
     }),
     emptyPhoneCloserTotals(),
@@ -210,7 +211,10 @@ export async function getPhoneCloserOperationsOverviewSection(
       rows: sortedRows,
       totals: {
         scheduled: operationTotals.scheduled,
-        showRate: toRate(operationTotals.completed, operationTotals.scheduled),
+        showRate: toRate(
+          operationTotals.completed,
+          operationTotals.scheduled - operationTotals.canceled,
+        ),
         closeRate: toRate(totalDealCount, operationTotals.callsShowed),
         cashCollectedMinor: totalCashCollectedMinor,
       },

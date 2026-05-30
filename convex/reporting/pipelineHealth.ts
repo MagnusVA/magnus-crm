@@ -8,8 +8,6 @@ import { assertValidDateRange, getUserDisplayName } from "./lib/helpers";
 const OPPORTUNITY_STATUSES = [
   "qualified_pending",
   "scheduled",
-  "in_progress",
-  "meeting_overran",
   "follow_up_scheduled",
   "reschedule_link_sent",
   "payment_received",
@@ -21,8 +19,6 @@ const OPPORTUNITY_STATUSES = [
 const ACTIVE_PIPELINE_STATUSES = [
   "qualified_pending",
   "scheduled",
-  "in_progress",
-  "meeting_overran",
   "follow_up_scheduled",
   "reschedule_link_sent",
 ] as const satisfies ReadonlyArray<Doc<"opportunities">["status"]>;
@@ -30,7 +26,6 @@ const ACTIVE_PIPELINE_STATUSES = [
 const MAX_STALE_OPPORTUNITIES = 20;
 const MAX_VELOCITY_ROWS = 500;
 const REPORT_ROW_CAP = 2000;
-const MAX_PENDING_REVIEW_SCAN_ROWS = REPORT_ROW_CAP + 1;
 const MAX_UNRESOLVED_REMINDER_SCAN_ROWS = REPORT_ROW_CAP + 1;
 const MAX_NO_SHOW_SCAN_ROWS = REPORT_ROW_CAP + 1;
 const MAX_LOSS_SCAN_ROWS = REPORT_ROW_CAP + 1;
@@ -40,6 +35,10 @@ const STALE_THRESHOLD_MS = 14 * 24 * 60 * 60 * 1000;
 type NoShowSource = "closer" | "calendly_webhook" | "none";
 type LossAttributionRole = "admin" | "closer" | "unknown";
 type ReminderCreatedSource = "closer" | "admin" | "system";
+
+function toRate(numerator: number, denominator: number): number | null {
+  return denominator > 0 ? numerator / denominator : null;
+}
 
 function emptyNoShowSourceSplit(): Record<NoShowSource, number> {
   return {
@@ -271,13 +270,6 @@ export const getPipelineBacklogAndLoss = query({
       "tenant_admin",
     ]);
 
-    const pendingReviewRows = await ctx.db
-      .query("meetingReviews")
-      .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
-        q.eq("tenantId", tenantId).eq("status", "pending"),
-      )
-      .take(MAX_PENDING_REVIEW_SCAN_ROWS);
-
     const pendingFollowUpRows = await ctx.db
       .query("followUps")
       .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
@@ -375,8 +367,6 @@ export const getPipelineBacklogAndLoss = query({
     }
 
     return {
-      pendingReviewsCount: Math.min(pendingReviewRows.length, REPORT_ROW_CAP),
-      isPendingReviewsTruncated: pendingReviewRows.length > REPORT_ROW_CAP,
       unresolvedRemindersCount: unresolvedManualReminders.length,
       unresolvedReminderSplit,
       isUnresolvedRemindersTruncated: pendingFollowUpRows.length > REPORT_ROW_CAP,
@@ -437,28 +427,29 @@ export const getSchedulingShowRateByOperationsDimensions = query({
 
     let scheduled = 0;
     let shown = 0;
+    let canceled = 0;
     let noShows = 0;
-    let reviewRequired = 0;
     for (const row of filtered) {
       scheduled += row.count;
       if (row.meetingStatus === "completed") {
         shown += row.count;
       }
+      if (row.meetingStatus === "canceled") {
+        canceled += row.count;
+      }
       if (row.meetingStatus === "no_show") {
         noShows += row.count;
       }
-      if (row.meetingStatus === "meeting_overran") {
-        reviewRequired += row.count;
-      }
     }
+    const denominator = scheduled - canceled;
 
     return {
       scheduled,
       shown,
+      canceled,
       noShows,
-      reviewRequired,
-      showRate: scheduled === 0 ? null : shown / scheduled,
-      noShowRate: scheduled === 0 ? null : noShows / scheduled,
+      showRate: toRate(shown, denominator),
+      noShowRate: toRate(noShows, denominator),
       truncated: rows.length > MAX_OPERATIONS_STATS_ROWS,
     };
   },
