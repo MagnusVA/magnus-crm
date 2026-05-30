@@ -6,9 +6,7 @@ import { assertValidDateRange } from "./lib/helpers";
 
 const MAX_MEETINGS_SCAN = 2000;
 
-const HISTOGRAM_BUCKETS = ["0", "1-5", "6-15", "16-30", "30+"] as const;
-
-type HistogramBucket = (typeof HISTOGRAM_BUCKETS)[number];
+type HistogramBucket = "0" | "1-5" | "6-15" | "16-30" | "30+";
 type BucketCounts = Record<HistogramBucket, number>;
 type StartedAtSource = "closer" | "admin_manual" | "none";
 type StoppedAtSource =
@@ -17,7 +15,7 @@ type StoppedAtSource =
   | "admin_manual"
   | "system"
   | "none";
-type NoShowSource = "closer" | "calendly_webhook" | "none";
+type NoShowSource = "closer" | "admin_manual" | "calendly_webhook" | "none";
 type SourceCounts<TKey extends string> = Record<TKey, number>;
 
 function emptyBuckets(): BucketCounts {
@@ -39,7 +37,7 @@ function emptyStoppedAtSource(): SourceCounts<StoppedAtSource> {
 }
 
 function emptyNoShowSource(): SourceCounts<NoShowSource> {
-  return { closer: 0, calendly_webhook: 0, none: 0 };
+  return { closer: 0, admin_manual: 0, calendly_webhook: 0, none: 0 };
 }
 
 /**
@@ -93,6 +91,8 @@ function toNoShowSource(source: Doc<"meetings">["noShowSource"]): NoShowSource {
   switch (source) {
     case "closer":
       return "closer";
+    case "admin_manual":
+      return "admin_manual";
     case "calendly_webhook":
       return "calendly_webhook";
     case undefined:

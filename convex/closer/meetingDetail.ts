@@ -94,7 +94,6 @@ export const getMeetingDetail = query({
       reassignedFromCloser,
       potentialDuplicateLead,
       originalMeeting,
-      meetingReview,
       activeFollowUp,
       attributionTeam,
       dmCloser,
@@ -133,7 +132,6 @@ export const getMeetingDetail = query({
       meeting.rescheduledFromMeetingId
         ? ctx.db.get(meeting.rescheduledFromMeetingId)
         : Promise.resolve(null),
-      meeting.reviewId ? ctx.db.get(meeting.reviewId) : Promise.resolve(null),
       loadActiveFollowUpSummary(ctx, opportunity._id),
       attributionTeamId ? ctx.db.get(attributionTeamId) : Promise.resolve(null),
       dmCloserId ? ctx.db.get(dmCloserId) : Promise.resolve(null),
@@ -299,9 +297,6 @@ export const getMeetingDetail = query({
     }
     // === End Feature B ===
 
-    const meetingReviewForTenant =
-      meetingReview && meetingReview.tenantId === tenantId ? meetingReview : null;
-
     console.log("[Closer:MeetingDetail] getMeetingDetail completed", {
       meetingId,
       meetingHistoryCount: meetingHistory.length,
@@ -323,7 +318,6 @@ export const getMeetingDetail = query({
       eventTypeName,
       paymentLinks,
       payments,
-      meetingReview: meetingReviewForTenant,
       reassignmentInfo,
       potentialDuplicate,
       rescheduledFromMeeting,

@@ -6,18 +6,17 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { LinkIcon } from "lucide-react";
+import { LinkIcon, UserXIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
 import { PaymentFormDialog } from "@/app/workspace/closer/meetings/_components/payment-form-dialog";
+import { MarkNoShowDialog } from "@/app/workspace/closer/meetings/_components/mark-no-show-dialog";
 import { AdminFollowUpDialog } from "./admin-follow-up-dialog";
 import { AdminMarkLostDialog } from "./admin-mark-lost-dialog";
-import { AdminResolveMeetingDialog } from "./admin-resolve-meeting-dialog";
 
 type AdminActionBarProps = {
   meeting: Doc<"meetings">;
   opportunity: Doc<"opportunities">;
-  payments: Array<{ amount: number }>;
   onRescheduleLinkCreated: (url: string) => void;
 };
 
@@ -26,8 +25,7 @@ type AdminActionBarProps = {
  *
  * | Status                 | Actions                                                |
  * |------------------------|--------------------------------------------------------|
- * | scheduled              | Resolve Meeting                                        |
- * | in_progress            | Log Payment, Follow-up, Mark Lost                      |
+ * | scheduled              | Log Payment, Follow-up, Mark No-Show, Mark Lost        |
  * | no_show                | Reschedule Link, Follow-up                             |
  * | canceled               | Follow-up                                              |
  * | follow_up_scheduled    | (view only)                                            |
@@ -38,10 +36,12 @@ type AdminActionBarProps = {
 export function AdminActionBar({
   meeting,
   opportunity,
-  payments,
   onRescheduleLinkCreated,
 }: AdminActionBarProps) {
+  const [showNoShowDialog, setShowNoShowDialog] = useState(false);
   const status = opportunity.status;
+  const isScheduledOutcome =
+    meeting.status === "scheduled" && status === "scheduled";
   const isTerminal = status === "payment_received" || status === "lost";
 
   if (isTerminal) {
@@ -50,31 +50,44 @@ export function AdminActionBar({
 
   return (
     <div className="flex flex-wrap items-center gap-3 border-t pt-4">
-      {/* Resolve Meeting — scheduled only (meeting happened but closer didn't start it) */}
-      {status === "scheduled" && (
-        <AdminResolveMeetingDialog
-          meetingId={meeting._id}
-          scheduledAt={meeting.scheduledAt}
-          durationMinutes={meeting.durationMinutes}
-        />
-      )}
+      {isScheduledOutcome ? (
+        <>
+          <PaymentFormDialog
+            opportunityId={opportunity._id}
+            meetingId={meeting._id}
+          />
 
-      {/* Log Payment — only in_progress */}
-      {status === "in_progress" && (
-        <PaymentFormDialog
-          opportunityId={opportunity._id}
-          meetingId={meeting._id}
-        />
-      )}
+          <AdminFollowUpDialog
+            opportunityId={opportunity._id}
+            meetingId={meeting._id}
+          />
 
-      {/* Schedule Follow-up — in_progress, no_show, canceled */}
-      {(status === "in_progress" ||
-        status === "no_show" ||
-        status === "canceled") && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowNoShowDialog(true)}
+          >
+            <UserXIcon data-icon="inline-start" />
+            Mark No-Show
+          </Button>
+          <MarkNoShowDialog
+            open={showNoShowDialog}
+            onOpenChange={setShowNoShowDialog}
+            meetingId={meeting._id}
+            mode="admin"
+          />
+
+          <AdminMarkLostDialog
+            opportunityId={opportunity._id}
+            meetingId={meeting._id}
+          />
+        </>
+      ) : null}
+
+      {(status === "no_show" || status === "canceled") && (
         <AdminFollowUpDialog opportunityId={opportunity._id} />
       )}
 
-      {/* Reschedule Link — no_show only */}
       {status === "no_show" && (
         <AdminRescheduleButton
           opportunityId={opportunity._id}
@@ -83,10 +96,6 @@ export function AdminActionBar({
         />
       )}
 
-      {/* Mark as Lost — in_progress only */}
-      {status === "in_progress" && (
-        <AdminMarkLostDialog opportunityId={opportunity._id} />
-      )}
     </div>
   );
 }
@@ -144,7 +153,7 @@ function AdminRescheduleButton({
       {isLoading ? (
         <>
           <Spinner data-icon="inline-start" />
-          Generating...
+          Generating…
         </>
       ) : (
         <>

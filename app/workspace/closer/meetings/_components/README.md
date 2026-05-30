@@ -140,10 +140,10 @@ This directory contains all UI components for the meeting detail page (`/workspa
 
 | Status | Action | Component |
 |---|---|---|
-| scheduled | Start Meeting | `startMeeting` mutation (Phase 6) |
-| in_progress | Log Payment | `<PaymentFormDialog>` (7D) |
-| in_progress | Schedule Follow-up | `<FollowUpDialog>` (7E) |
-| in_progress | Mark as Lost | `<MarkLostDialog>` (Phase 6) |
+| scheduled | Join Meeting | Plain external link |
+| scheduled | Log Payment | `<PaymentFormDialog>` (7D) |
+| scheduled | Schedule Follow-up | `<FollowUpDialog>` (7E) |
+| scheduled | Mark as Lost | `<MarkLostDialog>` (Phase 6) |
 | canceled, no_show | Schedule Follow-up | `<FollowUpDialog>` (7E) |
 
 **Terminal Statuses (No Actions):**
@@ -297,4 +297,3 @@ Both components follow WCAG Level AA standards:
 - **Phase 7 Design:** `/plans/closer-tenant-admin/phases/phase7.md`
 - **Parallelization Strategy:** `/plans/closer-tenant-admin/phases/parallelization-strategy.md`
 - **Completion Summary:** `/plans/closer-tenant-admin/PHASE7_COMPLETION.md`
-

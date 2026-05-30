@@ -231,7 +231,6 @@ export function AdminMeetingDetailClient({
       <AdminActionBar
         meeting={meeting}
         opportunity={opportunity}
-        payments={payments}
         onRescheduleLinkCreated={(url) => setRescheduleLinkUrl(url)}
       />
     </div>
