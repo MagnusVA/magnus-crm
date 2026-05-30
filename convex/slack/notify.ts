@@ -2,10 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
 import { emitDomainEventInAction } from "../lib/domainEventsAction";
-import {
-  buildExistingOpportunityBump,
-  buildQualifiedLeadConfirmation,
-} from "../lib/slackBlockKit";
+import { buildQualifiedLeadConfirmation } from "../lib/slackBlockKit";
 import { getValidSlackBotToken } from "./tokens";
 import { slackApiPostJson } from "./webApi";
 
@@ -232,12 +229,17 @@ export const postExistingOpportunityBump = internalAction({
       return;
     }
 
-    const message = buildExistingOpportunityBump({
+    const qualificationGoal = await ctx.runQuery(
+      internal.slack.notifyData.getQualificationGoalProgress,
+      { tenantId: args.tenantId, now: Date.now() },
+    );
+
+    const message = buildQualifiedLeadConfirmation({
       leadFullName: bump.leadFullName,
       platform: bump.platform,
       handle: bump.handle,
-      opportunityStatus: bump.opportunityStatus,
-      bumpedBySlackUserId: bump.bumpedBySlackUserId,
+      qualifiedBySlackUserId: bump.bumpedBySlackUserId,
+      qualificationGoal: qualificationGoal ?? undefined,
       appUrl,
       opportunityId: args.opportunityId,
     });

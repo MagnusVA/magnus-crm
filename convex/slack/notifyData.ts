@@ -1,12 +1,12 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { SOCIAL_PLATFORMS, type SocialPlatform } from "../lib/socialPlatform";
-import { slackQualificationsByTime } from "../reporting/aggregates";
 import {
   addBusinessDays,
   businessDateToUtcStart,
   timestampToBusinessDateKey,
 } from "../reporting/lib/hondurasBusinessTime";
+import { countGoalEligibleQualificationEvents } from "../reporting/lib/slackQualificationLedger";
 
 export const getOppForNotify = internalQuery({
   args: { opportunityId: v.id("opportunities") },
@@ -117,13 +117,20 @@ export const getQualificationGoalProgress = internalQuery({
     const businessDate = timestampToBusinessDateKey(args.now);
     const start = businessDateToUtcStart(businessDate);
     const end = businessDateToUtcStart(addBusinessDays(businessDate, 1));
-    const qualifiedCount = await slackQualificationsByTime.count(ctx, {
-      namespace: args.tenantId,
-      bounds: {
-        lower: { key: start, inclusive: true },
-        upper: { key: end, inclusive: false },
-      },
-    });
+    const { count: qualifiedCount, truncated } =
+      await countGoalEligibleQualificationEvents(ctx, {
+        tenantId: args.tenantId,
+        start,
+        end,
+      });
+
+    if (truncated) {
+      console.warn("[Slack:Notify] daily goal count truncated", {
+        tenantId: args.tenantId,
+        businessDate,
+        qualifiedCount,
+      });
+    }
 
     return {
       qualifiedCount,
