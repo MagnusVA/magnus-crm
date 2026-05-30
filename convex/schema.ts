@@ -622,8 +622,6 @@ export default defineSchema({
     status: v.union(
       v.literal("qualified_pending"),
       v.literal("scheduled"),
-      v.literal("in_progress"),
-      v.literal("meeting_overran"),
       v.literal("payment_received"),
       v.literal("follow_up_scheduled"),
       v.literal("reschedule_link_sent"),
@@ -848,8 +846,6 @@ export default defineSchema({
     status: v.union(
       v.literal("qualified_pending"),
       v.literal("scheduled"),
-      v.literal("in_progress"),
-      v.literal("meeting_overran"),
       v.literal("payment_received"),
       v.literal("follow_up_scheduled"),
       v.literal("reschedule_link_sent"),
@@ -1037,11 +1033,9 @@ export default defineSchema({
     durationMinutes: v.number(),
     status: v.union(
       v.literal("scheduled"),
-      v.literal("in_progress"),
       v.literal("completed"),
       v.literal("canceled"),
       v.literal("no_show"),
-      v.literal("meeting_overran"),
     ),
     // === v0.6: Call Classification ===
     // Set when a meeting is created or backfilled for historical records.
@@ -1064,30 +1058,6 @@ export default defineSchema({
     createdAt: v.number(),
     completedAt: v.optional(v.number()),
     canceledAt: v.optional(v.number()),
-    // === v0.6: Meeting Time Tracking ===
-    // When the closer explicitly ended the meeting.
-    // Distinct from completedAt, which may be set by other flows.
-    stoppedAt: v.optional(v.number()),
-    // Attribution for each explicit meeting timestamp.
-    // - "closer": closer used the Start/End Meeting lifecycle controls
-    // - "closer_no_show": closer marked a true no-show after waiting
-    // - "admin_manual": admin entered verified times during review resolution
-    // - "system": reserved for a future safety-net auto-close flow
-    startedAtSource: v.optional(
-      v.union(
-        v.literal("closer"),
-        v.literal("admin_manual"),
-      ),
-    ),
-    stoppedAtSource: v.optional(
-      v.union(
-        v.literal("closer"),
-        v.literal("closer_no_show"),
-        v.literal("admin_manual"),
-        v.literal("system"),
-      ),
-    ),
-    // === End v0.6: Meeting Time Tracking ===
     // UTM attribution data extracted from Calendly's tracking object.
     // Populated from the invitee.created webhook payload.
     // Undefined for meetings created before UTM tracking was enabled.
@@ -1120,8 +1090,7 @@ export default defineSchema({
         v.literal("ready_to_buy"),
       ),
     ),
-    // v2: Fathom recording link — proof of attendance.
-    // Available on all meetings. Checked by admin when reviewing flagged meetings.
+    // Optional Fathom recording link retained as a passive meeting artifact.
     fathomLink: v.optional(v.string()),
     fathomLinkSavedAt: v.optional(v.number()),
 
@@ -1131,32 +1100,9 @@ export default defineSchema({
     reassignedFromCloserId: v.optional(v.id("users")),
     // === End Feature H ===
 
-    // === Feature B: Meeting Start Time ===
-    // When the closer clicked "Start Meeting". Used to compute no-show wait duration.
-    // Undefined for meetings started before Feature B or webhook-driven no-shows.
-    startedAt: v.optional(v.number()),
-    // === v0.6: Meeting Time Tracking ===
-    // Computed when a closer starts a meeting after its scheduled time.
-    lateStartDurationMs: v.optional(v.number()),
-    // Legacy pre-v0.6b field name retained as optional so older production
-    // meetings remain schema-valid during the fresh-start rollout. New writes
-    // use `exceededScheduledDurationMs`.
-    overranDurationMs: v.optional(v.number()),
-    // Computed when the meeting ends after its scheduled duration.
-    exceededScheduledDurationMs: v.optional(v.number()),
-    // === End v0.6: Meeting Time Tracking ===
-    attendanceCheckId: v.optional(v.id("_scheduled_functions")),
-    overranDetectedAt: v.optional(v.number()),
-    // Links the meeting to its meeting-overran review record.
-    reviewId: v.optional(v.id("meetingReviews")),
-
-    // === End Feature B: Meeting Start Time ===
-
     // === Feature B: No-Show Tracking ===
     // When the no-show was recorded (by closer or webhook handler).
     noShowMarkedAt: v.optional(v.number()),
-    // How long the closer waited before marking no-show (ms).
-    noShowWaitDurationMs: v.optional(v.number()),
     // Structured reason for the no-show.
     noShowReason: v.optional(
       v.union(
@@ -1248,11 +1194,9 @@ export default defineSchema({
     opportunityStatus: v.optional(opportunityStatusValidator),
     meetingStatus: v.union(
       v.literal("scheduled"),
-      v.literal("in_progress"),
       v.literal("completed"),
       v.literal("canceled"),
       v.literal("no_show"),
-      v.literal("meeting_overran"),
     ),
     count: v.number(),
     updatedAt: v.number(),
@@ -1317,70 +1261,6 @@ export default defineSchema({
     .index("by_unavailabilityId", ["unavailabilityId"])
     .index("by_tenantId_and_reassignedAt", ["tenantId", "reassignedAt"]),
   // === End Feature H ===
-
-  // === Meeting Overran Review System ===
-  meetingReviews: defineTable({
-    tenantId: v.id("tenants"),
-    meetingId: v.id("meetings"),
-    opportunityId: v.id("opportunities"),
-    closerId: v.id("users"),
-    category: v.literal("meeting_overran"),
-    closerResponse: v.optional(
-      v.union(
-        v.literal("forgot_to_press"),
-        v.literal("did_not_attend"),
-      ),
-    ),
-    closerNote: v.optional(v.string()),
-    closerStatedOutcome: v.optional(
-      v.union(
-        v.literal("sale_made"),
-        v.literal("follow_up_needed"),
-        v.literal("lead_not_interested"),
-        v.literal("lead_no_show"),
-        v.literal("other"),
-      ),
-    ),
-    estimatedMeetingDurationMinutes: v.optional(v.number()),
-    closerRespondedAt: v.optional(v.number()),
-    status: v.union(
-      v.literal("pending"),
-      v.literal("resolved"),
-    ),
-    resolvedAt: v.optional(v.number()),
-    resolvedByUserId: v.optional(v.id("users")),
-    // Admin-entered actual meeting times captured while resolving
-    // forgot-to-press reviews.
-    manualStartedAt: v.optional(v.number()),
-    manualStoppedAt: v.optional(v.number()),
-    timesSetByUserId: v.optional(v.id("users")),
-    timesSetAt: v.optional(v.number()),
-    resolutionAction: v.optional(
-      v.union(
-        v.literal("log_payment"),
-        v.literal("schedule_follow_up"),
-        v.literal("mark_no_show"),
-        v.literal("mark_lost"),
-        v.literal("acknowledged"),
-        v.literal("disputed"),
-      ),
-    ),
-    resolutionNote: v.optional(v.string()),
-    createdAt: v.number(),
-  })
-    .index("by_tenantId_and_status_and_createdAt", [
-      "tenantId",
-      "status",
-      "createdAt",
-    ])
-    .index("by_meetingId", ["meetingId"])
-    .index("by_tenantId_and_closerId_and_createdAt", [
-      "tenantId",
-      "closerId",
-      "createdAt",
-    ])
-    .index("by_tenantId_and_resolvedAt", ["tenantId", "resolvedAt"]),
-  // === End Meeting Overran Review System ===
 
   eventTypeConfigs: defineTable({
     tenantId: v.id("tenants"),

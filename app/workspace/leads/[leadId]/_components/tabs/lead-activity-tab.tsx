@@ -117,7 +117,7 @@ function FollowUpEntry({ followUp }: { followUp: Doc<"followUps"> }) {
 		cancellation_follow_up: "Cancellation follow-up",
 		no_show_follow_up: "No-show follow-up",
 		admin_initiated: "Admin initiated",
-		overran_review_resolution: "Overran review resolution",
+		overran_review_resolution: "Legacy admin reminder",
 	};
 
 	return (

@@ -10,10 +10,7 @@ import {
   type CommissionableOrigin,
 } from "../lib/paymentHelpers";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
-import {
-  assertCanRecordLegacyMeetingOutcome,
-  assertCanRecordMeetingOutcome,
-} from "../lib/outcomeEligibility";
+import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
@@ -78,21 +75,13 @@ export const logPayment = mutation({
       throw new Error("Meeting does not belong to this opportunity");
     }
     const now = Date.now();
-    const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+    assertCanRecordMeetingOutcome({
       meeting,
       opportunity,
       userId,
       role,
+      now,
     });
-    if (!handledAsLegacy) {
-      assertCanRecordMeetingOutcome({
-        meeting,
-        opportunity,
-        userId,
-        role,
-        now,
-      });
-    }
     if (!validateTransition(opportunity.status, "payment_received")) {
       throw new Error(
         `Cannot log payment for opportunity with status "${opportunity.status}"`,

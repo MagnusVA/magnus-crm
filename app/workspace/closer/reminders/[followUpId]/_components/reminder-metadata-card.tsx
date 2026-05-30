@@ -77,7 +77,7 @@ function humaniseReason(reason: Doc<"followUps">["reason"]): string {
 		case "admin_initiated":
 			return "Admin created this reminder";
 		case "overran_review_resolution":
-			return "Created while resolving an overran review";
+			return "Legacy admin-created reminder";
 		case "stale_opportunity_nudge":
 			return "System nudge for a stale side-deal opportunity";
 	}

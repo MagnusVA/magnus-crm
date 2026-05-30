@@ -4,10 +4,7 @@ import { mutation } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateTransition } from "../lib/statusTransitions";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
-import {
-  assertCanRecordLegacyMeetingOutcome,
-  assertCanRecordMeetingOutcome,
-} from "../lib/outcomeEligibility";
+import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import {
@@ -60,21 +57,13 @@ export const adminMarkAsLost = mutation({
 
     const now = Date.now();
     if (meeting) {
-      const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+      assertCanRecordMeetingOutcome({
         meeting,
         opportunity,
         userId,
         role,
+        now,
       });
-      if (!handledAsLegacy) {
-        assertCanRecordMeetingOutcome({
-          meeting,
-          opportunity,
-          userId,
-          role,
-          now,
-        });
-      }
     }
 
     if (!validateTransition(opportunity.status, "lost")) {
@@ -245,21 +234,13 @@ export const adminConfirmFollowUp = mutation({
 
     const now = Date.now();
     if (meeting) {
-      const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+      assertCanRecordMeetingOutcome({
         meeting,
         opportunity,
         userId,
         role,
+        now,
       });
-      if (!handledAsLegacy) {
-        assertCanRecordMeetingOutcome({
-          meeting,
-          opportunity,
-          userId,
-          role,
-          now,
-        });
-      }
     }
 
     if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
@@ -347,21 +328,13 @@ export const adminCreateManualReminder = mutation({
       throw new Error("Reminder must be scheduled in the future");
     }
     if (meeting) {
-      const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+      assertCanRecordMeetingOutcome({
         meeting,
         opportunity,
         userId,
         role,
+        now,
       });
-      if (!handledAsLegacy) {
-        assertCanRecordMeetingOutcome({
-          meeting,
-          opportunity,
-          userId,
-          role,
-          now,
-        });
-      }
     }
 
     const closerId = opportunity.assignedCloserId;
@@ -466,21 +439,13 @@ export const adminMarkNoShow = mutation({
     }
 
     const now = Date.now();
-    const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+    assertCanRecordMeetingOutcome({
       meeting,
       opportunity,
       userId,
       role,
+      now,
     });
-    if (!handledAsLegacy) {
-      assertCanRecordMeetingOutcome({
-        meeting,
-        opportunity,
-        userId,
-        role,
-        now,
-      });
-    }
     if (!validateTransition(opportunity.status, "no_show")) {
       throw new Error(
         `Cannot transition opportunity from "${opportunity.status}" to "no_show"`,
@@ -662,20 +627,5 @@ export const adminCreateRescheduleLink = mutation({
     });
 
     return { schedulingLinkUrl, followUpId };
-  },
-});
-
-// Temporary defensive stub for stale admin clients during the Phase 2/3 deploy
-// window. Manual timing resolution has been removed.
-export const adminResolveMeeting = mutation({
-  args: {
-    meetingId: v.id("meetings"),
-    startedAt: v.number(),
-    stoppedAt: v.number(),
-  },
-  handler: async () => {
-    throw new Error(
-      "Manual meeting timing resolution has been removed. Record the meeting outcome directly.",
-    );
   },
 });

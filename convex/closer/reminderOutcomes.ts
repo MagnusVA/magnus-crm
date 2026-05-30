@@ -5,7 +5,6 @@ import { mutation } from "../_generated/server";
 import { executeConversion } from "../customers/conversion";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
-import { assertOverranReviewStillPending } from "../lib/overranReviewGuards";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import {
   assertPaymentRow,
@@ -68,10 +67,6 @@ async function assertOwnedPendingReminder(
   if (!opportunity || opportunity.tenantId !== tenantId) {
     throw new Error("Opportunity not found");
   }
-  if (opportunity.status === "meeting_overran") {
-    await assertOverranReviewStillPending(ctx, opportunity._id);
-  }
-
   return { followUp, opportunity, tenantId, userId };
 }
 
@@ -119,10 +114,6 @@ async function loadPendingReminderForPayment(
   if (!opportunity || opportunity.tenantId !== tenantId) {
     throw new Error("Opportunity not found");
   }
-  if (opportunity.status === "meeting_overran") {
-    await assertOverranReviewStillPending(ctx, opportunity._id);
-  }
-
   return { followUp, opportunity, tenantId, userId, role };
 }
 
@@ -426,10 +417,7 @@ export const markReminderNoResponse = mutation({
           : "no_response_close_only";
 
     if (nextStep === "schedule_new") {
-      if (
-        opportunity.status !== "follow_up_scheduled" &&
-        opportunity.status !== "meeting_overran"
-      ) {
+      if (opportunity.status !== "follow_up_scheduled") {
         throw new Error(
           `Cannot schedule a new reminder from status "${opportunity.status}"`,
         );

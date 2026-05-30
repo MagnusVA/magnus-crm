@@ -263,24 +263,6 @@ async function deleteMeetingReassignmentsBatch(
 	return rows.length;
 }
 
-async function deleteMeetingReviewsBatch(
-	ctx: MutationCtx,
-	tenantId: Id<"tenants">,
-): Promise<number> {
-	const rows = await ctx.db
-		.query("meetingReviews")
-		.withIndex("by_tenantId_and_status_and_createdAt", (q) =>
-			q.eq("tenantId", tenantId),
-		)
-		.take(CLEANUP_BATCH_SIZE);
-
-	for (const row of rows) {
-		await ctx.db.delete(row._id);
-	}
-
-	return rows.length;
-}
-
 async function deleteMeetingFormResponsesBatch(
 	ctx: MutationCtx,
 	tenantId: Id<"tenants">,
@@ -670,7 +652,6 @@ export const deleteFreshStartOperationalDataBatch = internalMutation({
 			ctx,
 			tenantId,
 		);
-		deletedCounts.meetingReviews = await deleteMeetingReviewsBatch(ctx, tenantId);
 		deletedCounts.meetingFormResponses = await deleteMeetingFormResponsesBatch(
 			ctx,
 			tenantId,
@@ -760,7 +741,11 @@ export const previewFreshStartFromRawWebhooks = action({
 			scheduledStartCutoffMs,
 		});
 
-		const { candidates: _candidates, ...preview } = plan;
+		const previewWithoutCandidates: Omit<ReplayPlan, "candidates"> & {
+			candidates?: ReplayCandidate[];
+		} = { ...plan };
+		delete previewWithoutCandidates.candidates;
+		const preview: ReplayPreview = previewWithoutCandidates;
 		return {
 			targetTenant,
 			...preview,

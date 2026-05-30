@@ -119,7 +119,7 @@ function PipelineCard({
       {/*
         Reserve 2 lines of label height (text-xs ≈ 1rem line-height → min-h-8)
         so cards with single‑line labels ("Lost") stay the same height as
-        wrapped two‑line labels ("Meeting Overran", "Reschedule Sent").
+        wrapped two‑line labels ("Reschedule Sent").
         Combined with mt-auto on the count, this keeps every number aligned
         on the same baseline across the row.
       */}

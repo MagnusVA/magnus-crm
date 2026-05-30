@@ -1,10 +1,7 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
-import {
-  assertCanRecordLegacyMeetingOutcome,
-  assertCanRecordMeetingOutcome,
-} from "../lib/outcomeEligibility";
+import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { validateTransition } from "../lib/statusTransitions";
 import { requireTenantUser } from "../requireTenantUser";
@@ -52,21 +49,13 @@ export const markNoShow = mutation({
       throw new Error("Opportunity not found");
     }
     const now = Date.now();
-    const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+    assertCanRecordMeetingOutcome({
       meeting,
       opportunity,
       userId,
       role,
+      now,
     });
-    if (!handledAsLegacy) {
-      assertCanRecordMeetingOutcome({
-        meeting,
-        opportunity,
-        userId,
-        role,
-        now,
-      });
-    }
     if (!validateTransition(opportunity.status, "no_show")) {
       throw new Error(
         `Cannot transition opportunity from "${opportunity.status}" to "no_show"`,

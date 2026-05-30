@@ -4,8 +4,6 @@ export const unstable_instant = false;
 
 const PHONE_SALES_STATUSES = new Set([
   "scheduled",
-  "in_progress",
-  "meeting_overran",
   "completed",
   "no_show",
 ]);

@@ -33,7 +33,6 @@ import {
   resolveLegacyCompatiblePaymentProgramName,
   resolveLegacyCompatibleRecordedByUserId,
   resolvePaymentType,
-  type PaymentType,
 } from "../lib/paymentTypes";
 import {
   ensureProgramForTenant,
@@ -46,7 +45,6 @@ const RAW_EVENT_BACKFILL_PAGE_SIZE = 25;
 const ACTIVE_OPPORTUNITY_STATUSES = new Set<Doc<"opportunities">["status"]>([
   "qualified_pending",
   "scheduled",
-  "in_progress",
   "follow_up_scheduled",
   "reschedule_link_sent",
 ]);

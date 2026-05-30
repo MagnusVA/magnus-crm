@@ -34,8 +34,6 @@ import type { Doc } from "@/convex/_generated/dataModel";
 const MEETING_BADGE_CLASS: Record<string, string> = {
   scheduled:
     "bg-blue-500/10 text-blue-700 border-blue-200 dark:text-blue-400 dark:border-blue-900",
-  in_progress:
-    "bg-amber-500/10 text-amber-700 border-amber-200 dark:text-amber-400 dark:border-amber-900",
   completed:
     "bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-900",
   canceled: "bg-muted text-muted-foreground border-border",

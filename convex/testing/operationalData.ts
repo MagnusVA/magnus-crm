@@ -7,7 +7,6 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "../_generated/server";
-import { cancelMeetingAttendanceCheck } from "../lib/attendanceChecks";
 
 const DESTRUCTIVE_CONFIRMATION = "DELETE_OPERATIONAL_DATA";
 const BATCH_SIZE = 64;
@@ -33,7 +32,6 @@ const OPERATIONAL_TABLES = [
   "meetingFormResponses",
   "meetingComments",
   "meetingReassignments",
-  "meetingReviews",
   "operationsMeetingDailyStats",
   "meetings",
   "followUps",
@@ -100,8 +98,10 @@ async function countTableDocuments(
   tableName: TableName,
 ): Promise<number> {
   let count = 0;
-  for await (const _doc of ctx.db.query(tableName)) {
-    count += 1;
+  for await (const row of ctx.db.query(tableName)) {
+    if (row._id) {
+      count += 1;
+    }
   }
   return count;
 }
@@ -120,11 +120,6 @@ async function deleteSimpleBatch(
 async function deleteMeetingsBatch(ctx: MutationCtx) {
   const rows = await ctx.db.query("meetings").take(BATCH_SIZE);
   for (const row of rows) {
-    await cancelMeetingAttendanceCheck(
-      ctx,
-      row.attendanceCheckId,
-      "testing.resetOperationalData",
-    );
     await ctx.db.delete(row._id);
   }
   return rows.length;
@@ -182,7 +177,6 @@ export const getSnapshot = internalQuery({
         ctx,
         "meetingReassignments",
       ),
-      meetingReviews: await countTableDocuments(ctx, "meetingReviews"),
       operationsMeetingDailyStats: await countTableDocuments(
         ctx,
         "operationsMeetingDailyStats",
@@ -277,7 +271,6 @@ export const deleteOperationalDataBatch = internalMutation({
       v.literal("meetingFormResponses"),
       v.literal("meetingComments"),
       v.literal("meetingReassignments"),
-      v.literal("meetingReviews"),
       v.literal("operationsMeetingDailyStats"),
       v.literal("meetings"),
       v.literal("followUps"),
@@ -377,7 +370,6 @@ export const resetOperationalData = internalAction({
       meetingFormResponses: 0,
       meetingComments: 0,
       meetingReassignments: 0,
-      meetingReviews: 0,
       operationsMeetingDailyStats: 0,
       meetings: 0,
       followUps: 0,

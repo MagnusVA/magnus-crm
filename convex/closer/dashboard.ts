@@ -5,8 +5,6 @@ import { requireTenantUser } from "../requireTenantUser";
 
 const PIPELINE_STATUSES = [
   "scheduled",
-  "in_progress",
-  "meeting_overran",
   "follow_up_scheduled",
   "reschedule_link_sent",
   "payment_received",
@@ -20,8 +18,6 @@ type PipelineStatus = (typeof PIPELINE_STATUSES)[number];
 function emptyCounts(): Record<PipelineStatus, number> {
   return {
     scheduled: 0,
-    in_progress: 0,
-    meeting_overran: 0,
     follow_up_scheduled: 0,
     reschedule_link_sent: 0,
     payment_received: 0,
