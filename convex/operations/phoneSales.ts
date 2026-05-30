@@ -4,28 +4,47 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import type { QueryCtx } from "../_generated/server";
 import { leadDisplayFromShape } from "../lib/leadDisplay";
-import { opportunityStatusValidator } from "../opportunities/validators";
 import { requireTenantUser } from "../requireTenantUser";
 import { meetingDayKey } from "./meetingStats";
 
 const meetingStatusValidator = v.union(
   v.literal("scheduled"),
-  v.literal("in_progress"),
   v.literal("completed"),
   v.literal("canceled"),
   v.literal("no_show"),
-  v.literal("meeting_overran"),
+);
+
+const phoneSalesOpportunityStatusValidator = v.union(
+  v.literal("qualified_pending"),
+  v.literal("scheduled"),
+  v.literal("payment_received"),
+  v.literal("follow_up_scheduled"),
+  v.literal("reschedule_link_sent"),
+  v.literal("lost"),
+  v.literal("canceled"),
+  v.literal("no_show"),
 );
 
 const PHONE_SALES_COUNTED_STATUSES = [
   "scheduled",
-  "in_progress",
   "completed",
+  "canceled",
   "no_show",
-  "meeting_overran",
 ] as const;
+const PHONE_SALES_COUNTED_STATUS_SET = new Set<string>(
+  PHONE_SALES_COUNTED_STATUSES,
+);
 
-type MeetingStatus = Doc<"meetings">["status"];
+type MeetingStatus = (typeof PHONE_SALES_COUNTED_STATUSES)[number];
+type OpportunityStatus =
+  | "qualified_pending"
+  | "scheduled"
+  | "payment_received"
+  | "follow_up_scheduled"
+  | "reschedule_link_sent"
+  | "lost"
+  | "canceled"
+  | "no_show";
 
 type PhoneSalesFilterArgs = {
   tenantId: Id<"tenants">;
@@ -33,7 +52,7 @@ type PhoneSalesFilterArgs = {
   bookingProgramId?: Id<"tenantPrograms">;
   soldProgramId?: Id<"tenantPrograms">;
   meetingStatus?: MeetingStatus;
-  opportunityStatus?: Doc<"opportunities">["status"];
+  opportunityStatus?: OpportunityStatus;
   attributionTeamId?: Id<"attributionTeams">;
   dmCloserId?: Id<"dmClosers">;
   scheduledFrom?: number;
@@ -323,7 +342,7 @@ export const listPhoneSalesMeetings = query({
     scheduledFrom: v.optional(v.number()),
     scheduledTo: v.optional(v.number()),
     meetingStatus: v.optional(meetingStatusValidator),
-    opportunityStatus: v.optional(opportunityStatusValidator),
+    opportunityStatus: v.optional(phoneSalesOpportunityStatusValidator),
     attributionTeamId: v.optional(v.id("attributionTeams")),
     dmCloserId: v.optional(v.id("dmClosers")),
   },
@@ -363,7 +382,7 @@ export const getPhoneSalesStats = query({
     bookingProgramId: v.optional(v.id("tenantPrograms")),
     soldProgramId: v.optional(v.id("tenantPrograms")),
     meetingStatus: v.optional(meetingStatusValidator),
-    opportunityStatus: v.optional(opportunityStatusValidator),
+    opportunityStatus: v.optional(phoneSalesOpportunityStatusValidator),
     attributionTeamId: v.optional(v.id("attributionTeams")),
     dmCloserId: v.optional(v.id("dmClosers")),
   },
@@ -421,24 +440,33 @@ export const getPhoneSalesStats = query({
       })) {
         continue;
       }
-      byStatus.set(row.meetingStatus, (byStatus.get(row.meetingStatus) ?? 0) + row.count);
+      if (!PHONE_SALES_COUNTED_STATUS_SET.has(row.meetingStatus)) {
+        continue;
+      }
+      const status = row.meetingStatus as MeetingStatus;
+      byStatus.set(status, (byStatus.get(status) ?? 0) + row.count);
       if (row.opportunityStatus === "payment_received") {
         won += row.count;
       }
     }
 
     const completed = byStatus.get("completed") ?? 0;
+    const canceled = byStatus.get("canceled") ?? 0;
     const noShows = byStatus.get("no_show") ?? 0;
+    const scheduled = PHONE_SALES_COUNTED_STATUSES.reduce(
+      (sum, status) => sum + (byStatus.get(status) ?? 0),
+      0,
+    );
+    const showRateDenominator = scheduled - canceled;
 
     return {
-      scheduled: PHONE_SALES_COUNTED_STATUSES.reduce(
-        (sum, status) => sum + (byStatus.get(status) ?? 0),
-        0,
-      ),
+      scheduled,
       completed,
+      canceled,
       noShows,
       won,
-      showRate: completed + noShows > 0 ? completed / (completed + noShows) : null,
+      showRate:
+        showRateDenominator > 0 ? completed / showRateDenominator : null,
       isPartial: rows.length >= 1000,
     };
   },

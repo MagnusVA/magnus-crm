@@ -26,7 +26,6 @@ function emptyOutcomeCounts(): OutcomeCounts {
     rescheduled: 0,
     dq: 0,
     follow_up: 0,
-    in_progress: 0,
     scheduled: 0,
   };
 }

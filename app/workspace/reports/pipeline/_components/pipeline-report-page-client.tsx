@@ -25,7 +25,6 @@ import {
 import { useReportAnalytics } from "../../_components/use-report-analytics";
 import { LossAttributionChart } from "./loss-attribution-chart";
 import { NoShowSourceSplitChart } from "./no-show-source-split-chart";
-import { PendingOverranReviewsCard } from "./pending-overran-reviews-card";
 import { StatusDistributionChart } from "./status-distribution-chart";
 import { VelocityMetricCard } from "./velocity-metric-card";
 import { PipelineAgingTable } from "./pipeline-aging-table";
@@ -131,15 +130,6 @@ export function PipelineReportPageClient() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {backlogAndLoss !== undefined ? (
-          <PendingOverranReviewsCard
-            count={backlogAndLoss.pendingReviewsCount}
-            isTruncated={backlogAndLoss.isPendingReviewsTruncated}
-          />
-        ) : (
-          <Skeleton className="h-28 rounded-lg" />
-        )}
-
-        {backlogAndLoss !== undefined ? (
           <UnresolvedRemindersCard
             count={backlogAndLoss.unresolvedRemindersCount}
             split={backlogAndLoss.unresolvedReminderSplit}
@@ -172,7 +162,7 @@ export function PipelineReportPageClient() {
               Range Diagnostics
             </h2>
             <p className="text-sm text-muted-foreground">
-              The charts below follow the selected range. The backlog cards
+              The charts below follow the selected range. The backlog card
               above stay real-time.
             </p>
           </div>
@@ -227,8 +217,8 @@ function SchedulingShowRateCard({
   stats: {
     scheduled: number;
     shown: number;
+    canceled: number;
     noShows: number;
-    reviewRequired: number;
     showRate: number | null;
     noShowRate: number | null;
     truncated: boolean;
@@ -251,9 +241,10 @@ function SchedulingShowRateCard({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
           <PipelineMetric label="Booked calls" value={stats.scheduled} />
           <PipelineMetric label="Shown" value={stats.shown} />
+          <PipelineMetric label="Canceled" value={stats.canceled} />
           <PipelineMetric label="No shows" value={stats.noShows} />
           <PipelineMetric
             label="Show rate"
@@ -264,12 +255,6 @@ function SchedulingShowRateCard({
             value={formatPercent(stats.noShowRate)}
           />
         </div>
-        {stats.reviewRequired > 0 ? (
-          <p className="mt-3 text-xs text-muted-foreground">
-            {stats.reviewRequired.toLocaleString()} meeting-overran rows are
-            waiting for review and remain visible in booked-call totals.
-          </p>
-        ) : null}
       </CardContent>
     </Card>
   );

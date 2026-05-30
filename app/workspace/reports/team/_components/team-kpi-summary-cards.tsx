@@ -109,9 +109,9 @@ export function TeamKpiSummaryCards({
             <span className="font-medium">Team Revenue</span> is now{" "}
             <span className="font-medium">Team Commissionable Revenue</span>.
             It shows only closer-attributed commissionable payments — deposits
-            and final sales logged from meetings, reminders, and review
-            resolutions. Post-conversion (customer-direct) payments now have
-            their own card below.
+            and final sales logged from meetings and reminders.
+            Post-conversion (customer-direct) payments now have their own card
+            below.
           </AlertDescription>
           <Button
             type="button"

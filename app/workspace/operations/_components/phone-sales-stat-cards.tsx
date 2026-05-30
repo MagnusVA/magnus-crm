@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 export type PhoneSalesStats = {
   scheduled: number;
   completed: number;
+  canceled: number;
   noShows: number;
   won: number;
   showRate: number | null;
@@ -33,8 +34,12 @@ export function PhoneSalesStatCards({
 }) {
   if (!stats) {
     return (
-      <div className="grid gap-3 sm:grid-cols-5" role="status" aria-label="Loading phone sales stats">
-        {Array.from({ length: 5 }).map((_, index) => (
+      <div
+        className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6"
+        role="status"
+        aria-label="Loading phone sales stats"
+      >
+        {Array.from({ length: 6 }).map((_, index) => (
           <Skeleton key={index} className="h-20 w-full" />
         ))}
       </div>
@@ -53,9 +58,10 @@ export function PhoneSalesStatCards({
           </AlertDescription>
         </Alert>
       ) : null}
-      <div className="grid gap-3 sm:grid-cols-5">
-        <Metric label="Scheduled" value={stats.scheduled} />
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        <Metric label="Booked" value={stats.scheduled} />
         <Metric label="Completed" value={stats.completed} />
+        <Metric label="Canceled" value={stats.canceled} />
         <Metric label="No-shows" value={stats.noShows} />
         <Metric label="Won" value={stats.won} />
         <Metric label="Show rate" value={formatPercent(stats.showRate)} />

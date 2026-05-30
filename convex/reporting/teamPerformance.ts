@@ -16,13 +16,10 @@ import {
 const CALL_CLASSIFICATIONS = ["new", "follow_up"] as const;
 const MEETING_STATUSES = [
   "scheduled",
-  "in_progress",
   "completed",
   "canceled",
   "no_show",
-  "meeting_overran",
 ] as const satisfies ReadonlyArray<Doc<"meetings">["status"]>;
-const MAX_MEETING_TIME_SCAN_ROWS = 2000;
 const MAX_OPERATIONS_STATS_ROWS = 1000;
 
 type CallClassification = (typeof CALL_CLASSIFICATIONS)[number];
@@ -38,101 +35,18 @@ type MeetingAggregateBounds = {
   };
 };
 type StatusCountMap = Record<MeetingStatus, number>;
-type MeetingTimeAccumulator = {
-  startedMeetingsCount: number;
-  onTimeStartCount: number;
-  lateStartCount: number;
-  totalLateStartMs: number;
-  completedWithDurationCount: number;
-  overranCount: number;
-  totalOverrunMs: number;
-  totalActualDurationMs: number;
-  scheduleAdherentCount: number;
-  manuallyCorrectedCount: number;
-};
 
 function emptyStatusCountMap(): StatusCountMap {
   return {
     scheduled: 0,
-    in_progress: 0,
     completed: 0,
     canceled: 0,
     no_show: 0,
-    meeting_overran: 0,
   };
 }
 
 function toRate(numerator: number, denominator: number): number | null {
   return denominator > 0 ? numerator / denominator : null;
-}
-
-function emptyMeetingTimeAccumulator(): MeetingTimeAccumulator {
-  return {
-    startedMeetingsCount: 0,
-    onTimeStartCount: 0,
-    lateStartCount: 0,
-    totalLateStartMs: 0,
-    completedWithDurationCount: 0,
-    overranCount: 0,
-    totalOverrunMs: 0,
-    totalActualDurationMs: 0,
-    scheduleAdherentCount: 0,
-    manuallyCorrectedCount: 0,
-  };
-}
-
-function addMeetingTime(
-  accumulator: MeetingTimeAccumulator,
-  meetingTime: MeetingTimeAccumulator,
-): MeetingTimeAccumulator {
-  return {
-    startedMeetingsCount:
-      accumulator.startedMeetingsCount + meetingTime.startedMeetingsCount,
-    onTimeStartCount: accumulator.onTimeStartCount + meetingTime.onTimeStartCount,
-    lateStartCount: accumulator.lateStartCount + meetingTime.lateStartCount,
-    totalLateStartMs: accumulator.totalLateStartMs + meetingTime.totalLateStartMs,
-    completedWithDurationCount:
-      accumulator.completedWithDurationCount + meetingTime.completedWithDurationCount,
-    overranCount: accumulator.overranCount + meetingTime.overranCount,
-    totalOverrunMs: accumulator.totalOverrunMs + meetingTime.totalOverrunMs,
-    totalActualDurationMs:
-      accumulator.totalActualDurationMs + meetingTime.totalActualDurationMs,
-    scheduleAdherentCount:
-      accumulator.scheduleAdherentCount + meetingTime.scheduleAdherentCount,
-    manuallyCorrectedCount:
-      accumulator.manuallyCorrectedCount + meetingTime.manuallyCorrectedCount,
-  };
-}
-
-function toMeetingTimeKpis(meetingTime: MeetingTimeAccumulator) {
-  return {
-    ...meetingTime,
-    onTimeStartRate: toRate(
-      meetingTime.onTimeStartCount,
-      meetingTime.startedMeetingsCount,
-    ),
-    avgLateStartMs:
-      meetingTime.lateStartCount > 0
-        ? meetingTime.totalLateStartMs / meetingTime.lateStartCount
-        : null,
-    overranRate: toRate(
-      meetingTime.overranCount,
-      meetingTime.completedWithDurationCount,
-    ),
-    avgOverrunMs:
-      meetingTime.overranCount > 0
-        ? meetingTime.totalOverrunMs / meetingTime.overranCount
-        : null,
-    avgActualDurationMs:
-      meetingTime.completedWithDurationCount > 0
-        ? meetingTime.totalActualDurationMs /
-          meetingTime.completedWithDurationCount
-        : null,
-    scheduleAdherenceRate: toRate(
-      meetingTime.scheduleAdherentCount,
-      meetingTime.completedWithDurationCount,
-    ),
-  };
 }
 
 export const getTeamPerformanceMetrics = query({
@@ -236,65 +150,6 @@ export const getTeamPerformanceMetrics = query({
           payment.amountMinor,
       );
     }
-    const meetingTimeRows = await ctx.db
-      .query("meetings")
-      .withIndex("by_tenantId_and_scheduledAt", (q) =>
-        q.eq("tenantId", tenantId).gte("scheduledAt", startDate).lt("scheduledAt", endDate),
-      )
-      .take(MAX_MEETING_TIME_SCAN_ROWS + 1);
-    const isMeetingTimeTruncated =
-      meetingTimeRows.length > MAX_MEETING_TIME_SCAN_ROWS;
-    const meetingsForMeetingTime = meetingTimeRows.slice(0, MAX_MEETING_TIME_SCAN_ROWS);
-    const meetingTimeByCloser = new Map<Id<"users">, MeetingTimeAccumulator>(
-      closers.map((closer) => [closer._id, emptyMeetingTimeAccumulator()]),
-    );
-
-    for (const meeting of meetingsForMeetingTime) {
-      if (meeting.status !== "completed" && meeting.status !== "meeting_overran") {
-        continue;
-      }
-
-      const current = meetingTimeByCloser.get(meeting.assignedCloserId) ??
-        emptyMeetingTimeAccumulator();
-      const next = { ...current };
-
-      if (meeting.startedAt !== undefined) {
-        next.startedMeetingsCount += 1;
-        const lateStartMs = meeting.lateStartDurationMs ?? 0;
-        if (lateStartMs === 0) {
-          next.onTimeStartCount += 1;
-        } else {
-          next.lateStartCount += 1;
-          next.totalLateStartMs += lateStartMs;
-        }
-      }
-
-      if (meeting.startedAt !== undefined && meeting.stoppedAt !== undefined) {
-        next.completedWithDurationCount += 1;
-        next.totalActualDurationMs += meeting.stoppedAt - meeting.startedAt;
-
-        const overrunMs = meeting.exceededScheduledDurationMs ?? 0;
-        if (overrunMs > 0) {
-          next.overranCount += 1;
-          next.totalOverrunMs += overrunMs;
-        }
-
-        const lateStartMs = meeting.lateStartDurationMs ?? 0;
-        if (lateStartMs === 0 && overrunMs === 0) {
-          next.scheduleAdherentCount += 1;
-        }
-      }
-
-      if (
-        meeting.startedAtSource === "admin_manual" ||
-        meeting.stoppedAtSource === "admin_manual"
-      ) {
-        next.manuallyCorrectedCount += 1;
-      }
-
-      meetingTimeByCloser.set(meeting.assignedCloserId, next);
-    }
-
     const closerResults = closers.map((closer) => {
       const closerCounts = statusCountsByCloser.get(closer._id) ?? {
         new: emptyStatusCountMap(),
@@ -313,17 +168,13 @@ export const getTeamPerformanceMetrics = query({
         );
         const canceledCalls = countsForClassification.canceled;
         const noShows = countsForClassification.no_show;
-        const reviewRequiredCalls = countsForClassification.meeting_overran;
-        const callsShowed =
-          countsForClassification.completed + countsForClassification.in_progress;
-        const confirmedAttendanceDenominator =
-          bookedCalls - canceledCalls - reviewRequiredCalls;
+        const callsShowed = countsForClassification.completed;
+        const confirmedAttendanceDenominator = bookedCalls - canceledCalls;
 
         return {
           bookedCalls,
           canceledCalls,
           noShows,
-          reviewRequiredCalls,
           callsShowed,
           confirmedAttendanceDenominator,
           showUpRate: toRate(callsShowed, confirmedAttendanceDenominator),
@@ -333,16 +184,12 @@ export const getTeamPerformanceMetrics = query({
       const newCalls = buildClassificationMetrics("new");
       const followUpCalls = buildClassificationMetrics("follow_up");
       const totalShowed = newCalls.callsShowed + followUpCalls.callsShowed;
-      const meetingTime = toMeetingTimeKpis(
-        meetingTimeByCloser.get(closer._id) ?? emptyMeetingTimeAccumulator(),
-      );
 
       return {
         closerId: closer._id,
         closerName: getUserDisplayName(closer),
         newCalls,
         followUpCalls,
-        meetingTime,
         sales: paymentStats.dealCount,
         cashCollectedMinor: paymentStats.revenueMinor,
         adminLoggedRevenueMinor:
@@ -360,16 +207,12 @@ export const getTeamPerformanceMetrics = query({
         newBookedCalls: acc.newBookedCalls + closer.newCalls.bookedCalls,
         newCanceled: acc.newCanceled + closer.newCalls.canceledCalls,
         newNoShows: acc.newNoShows + closer.newCalls.noShows,
-        newReviewRequired:
-          acc.newReviewRequired + closer.newCalls.reviewRequiredCalls,
         newShowed: acc.newShowed + closer.newCalls.callsShowed,
         followUpBookedCalls:
           acc.followUpBookedCalls + closer.followUpCalls.bookedCalls,
         followUpCanceled:
           acc.followUpCanceled + closer.followUpCalls.canceledCalls,
         followUpNoShows: acc.followUpNoShows + closer.followUpCalls.noShows,
-        followUpReviewRequired:
-          acc.followUpReviewRequired + closer.followUpCalls.reviewRequiredCalls,
         followUpShowed: acc.followUpShowed + closer.followUpCalls.callsShowed,
         totalSales: acc.totalSales + closer.sales,
         totalRevenue: acc.totalRevenue + closer.cashCollectedMinor,
@@ -380,21 +223,15 @@ export const getTeamPerformanceMetrics = query({
         newBookedCalls: 0,
         newCanceled: 0,
         newNoShows: 0,
-        newReviewRequired: 0,
         newShowed: 0,
         followUpBookedCalls: 0,
         followUpCanceled: 0,
         followUpNoShows: 0,
-        followUpReviewRequired: 0,
         followUpShowed: 0,
         totalSales: 0,
         totalRevenue: 0,
         totalAdminLoggedRevenueMinor: 0,
       },
-    );
-    const teamMeetingTimeTotals = closerResults.reduce(
-      (accumulator, closer) => addMeetingTime(accumulator, closer.meetingTime),
-      emptyMeetingTimeAccumulator(),
     );
 
     const visibleRevenueMinor = teamTotals.totalRevenue;
@@ -402,11 +239,8 @@ export const getTeamPerformanceMetrics = query({
     const totalBookedCalls =
       teamTotals.newBookedCalls + teamTotals.followUpBookedCalls;
     const totalCanceledCalls = teamTotals.newCanceled + teamTotals.followUpCanceled;
-    const totalReviewRequiredCalls =
-      teamTotals.newReviewRequired + teamTotals.followUpReviewRequired;
     const totalShowedCalls = teamTotals.newShowed + teamTotals.followUpShowed;
-    const overallConfirmedDenominator =
-      totalBookedCalls - totalCanceledCalls - totalReviewRequiredCalls;
+    const overallConfirmedDenominator = totalBookedCalls - totalCanceledCalls;
 
     return {
       closers: closerResults,
@@ -416,26 +250,17 @@ export const getTeamPerformanceMetrics = query({
         postConversionRevenueMinor:
           paymentSplit.nonCommissionable.finalRevenueMinor,
         newConfirmedAttendanceDenominator:
-          teamTotals.newBookedCalls -
-          teamTotals.newCanceled -
-          teamTotals.newReviewRequired,
+          teamTotals.newBookedCalls - teamTotals.newCanceled,
         newShowUpRate: toRate(
           teamTotals.newShowed,
-          teamTotals.newBookedCalls -
-            teamTotals.newCanceled -
-            teamTotals.newReviewRequired,
+          teamTotals.newBookedCalls - teamTotals.newCanceled,
         ),
         followUpConfirmedAttendanceDenominator:
-          teamTotals.followUpBookedCalls -
-          teamTotals.followUpCanceled -
-          teamTotals.followUpReviewRequired,
+          teamTotals.followUpBookedCalls - teamTotals.followUpCanceled,
         followUpShowUpRate: toRate(
           teamTotals.followUpShowed,
-          teamTotals.followUpBookedCalls -
-            teamTotals.followUpCanceled -
-            teamTotals.followUpReviewRequired,
+          teamTotals.followUpBookedCalls - teamTotals.followUpCanceled,
         ),
-        totalReviewRequired: totalReviewRequiredCalls,
         overallConfirmedDenominator,
         overallShowUpRate: toRate(totalShowedCalls, overallConfirmedDenominator),
         overallCloseRate: toRate(teamTotals.totalSales, totalShowedCalls),
@@ -448,9 +273,7 @@ export const getTeamPerformanceMetrics = query({
           paymentSummary.totalRevenueMinor - visibleRevenueMinor,
         excludedSales: paymentSummary.totalDealCount - visibleDealCount,
       },
-      teamMeetingTime: toMeetingTimeKpis(teamMeetingTimeTotals),
       isPaymentDataTruncated: paymentScan.isTruncated,
-      isMeetingTimeTruncated,
     };
   },
 });
@@ -494,8 +317,8 @@ export const getTeamOperationsDimensions = query({
       {
         scheduled: number;
         completed: number;
+        canceled: number;
         noShows: number;
-        reviewRequired: number;
       }
     >();
 
@@ -519,32 +342,33 @@ export const getTeamOperationsDimensions = query({
       const current = byCloser.get(row.assignedCloserId) ?? {
         scheduled: 0,
         completed: 0,
+        canceled: 0,
         noShows: 0,
-        reviewRequired: 0,
       };
       current.scheduled += row.count;
       if (row.meetingStatus === "completed") {
         current.completed += row.count;
       }
+      if (row.meetingStatus === "canceled") {
+        current.canceled += row.count;
+      }
       if (row.meetingStatus === "no_show") {
         current.noShows += row.count;
-      }
-      if (row.meetingStatus === "meeting_overran") {
-        current.reviewRequired += row.count;
       }
       byCloser.set(row.assignedCloserId, current);
     }
 
     const rows = [...byCloser.entries()]
-      .map(([closerId, totals]) => ({
-        closerId,
-        closerName: closerNameById.get(closerId) ?? "Removed closer",
-        ...totals,
-        showRate:
-          totals.scheduled === 0 ? null : totals.completed / totals.scheduled,
-        noShowRate:
-          totals.scheduled === 0 ? null : totals.noShows / totals.scheduled,
-      }))
+      .map(([closerId, totals]) => {
+        const denominator = totals.scheduled - totals.canceled;
+        return {
+          closerId,
+          closerName: closerNameById.get(closerId) ?? "Removed closer",
+          ...totals,
+          showRate: toRate(totals.completed, denominator),
+          noShowRate: toRate(totals.noShows, denominator),
+        };
+      })
       .sort(
         (left, right) =>
           right.scheduled - left.scheduled ||
@@ -555,20 +379,19 @@ export const getTeamOperationsDimensions = query({
       (acc, row) => ({
         scheduled: acc.scheduled + row.scheduled,
         completed: acc.completed + row.completed,
+        canceled: acc.canceled + row.canceled,
         noShows: acc.noShows + row.noShows,
-        reviewRequired: acc.reviewRequired + row.reviewRequired,
       }),
-      { scheduled: 0, completed: 0, noShows: 0, reviewRequired: 0 },
+      { scheduled: 0, completed: 0, canceled: 0, noShows: 0 },
     );
+    const denominator = totals.scheduled - totals.canceled;
 
     return {
       rows,
       totals: {
         ...totals,
-        showRate:
-          totals.scheduled === 0 ? null : totals.completed / totals.scheduled,
-        noShowRate:
-          totals.scheduled === 0 ? null : totals.noShows / totals.scheduled,
+        showRate: toRate(totals.completed, denominator),
+        noShowRate: toRate(totals.noShows, denominator),
       },
       truncated: statsRows.length > MAX_OPERATIONS_STATS_ROWS,
     };

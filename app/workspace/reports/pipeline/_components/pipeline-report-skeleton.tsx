@@ -12,9 +12,8 @@ export function PipelineReportSkeleton() {
         <Skeleton className="h-[300px] rounded-lg" />
         <Skeleton className="h-28 rounded-lg" />
       </div>
-      {/* Current backlog cards */}
+      {/* Current backlog card */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <Skeleton className="h-28 rounded-lg" />
         <Skeleton className="h-28 rounded-lg" />
       </div>
       {/* Aging table */}

@@ -13,8 +13,6 @@ type TeamOutcomeMixMetrics = FunctionReturnType<
 
 export type OutcomeKey = keyof TeamOutcomeMixMetrics["teamOutcome"];
 export type CallMetrics = TeamPerformanceMetrics["closers"][number]["newCalls"];
-export type MeetingTimeKpis =
-  TeamPerformanceMetrics["closers"][number]["meetingTime"];
 export type CloserData = TeamPerformanceMetrics["closers"][number];
 export type TeamTotals = TeamPerformanceMetrics["teamTotals"];
 export type TeamOperationsDimensions = TeamOperationsDimensionMetrics;

@@ -54,7 +54,7 @@ const ORIGIN_META = {
     color: "var(--chart-4)",
   },
   admin_review_resolution: {
-    label: "Admin-Logged · Review",
+    label: "Admin-Logged · Legacy Outcome",
     color: "var(--chart-5)",
   },
   closer_side_deal: {
@@ -132,7 +132,7 @@ export function RevenueByOriginChart({
                 <li>
                   <strong>Admin-Logged</strong> — an admin recorded the
                   payment on behalf of the closer (from a meeting, reminder,
-                  review resolution, or side deal). Useful for spotting when
+                  legacy outcome flow, or side deal). Useful for spotting when
                   admins are picking up the slack.
                 </li>
               </ul>

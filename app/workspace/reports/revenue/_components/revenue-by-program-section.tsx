@@ -120,7 +120,7 @@ export function RevenueByProgramSection({
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       <ProgramList
         title="Commissionable by Payment Program"
-        description="Meeting / reminder / review-resolution revenue per payment program"
+        description="Meeting, reminder, and legacy admin-outcome revenue per payment program"
         emptyMessage="No commissionable payment-program revenue in this period"
         rows={commissionable}
         accentClassName="bg-primary"

@@ -41,17 +41,13 @@ type FilterOption = {
 
 type MeetingStatus =
   | "scheduled"
-  | "in_progress"
   | "completed"
   | "canceled"
-  | "no_show"
-  | "meeting_overran";
+  | "no_show";
 
 type OpportunityStatus =
   | "qualified_pending"
   | "scheduled"
-  | "in_progress"
-  | "meeting_overran"
   | "payment_received"
   | "follow_up_scheduled"
   | "reschedule_link_sent"
@@ -94,18 +90,14 @@ export const PHONE_SALES_PRIMARY_FILTER_OPTIONS = [
 
 export const MEETING_STATUS_OPTIONS = [
   { id: "scheduled", name: "Scheduled" },
-  { id: "in_progress", name: "In progress" },
   { id: "completed", name: "Completed" },
   { id: "canceled", name: "Canceled" },
   { id: "no_show", name: "No show" },
-  { id: "meeting_overran", name: "Meeting overran" },
 ];
 
 export const OPPORTUNITY_STATUS_OPTIONS = [
   { id: "qualified_pending", name: "Qualified pending" },
   { id: "scheduled", name: "Scheduled" },
-  { id: "in_progress", name: "In progress" },
-  { id: "meeting_overran", name: "Meeting overran" },
   { id: "payment_received", name: "Payment received" },
   { id: "follow_up_scheduled", name: "Follow-up scheduled" },
   { id: "reschedule_link_sent", name: "Reschedule link sent" },

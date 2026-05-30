@@ -40,7 +40,6 @@ import {
 import { TeamKpiSummaryCards } from "./team-kpi-summary-cards";
 import { CloserPerformanceTable } from "./closer-performance-table";
 import { MeetingOutcomeDistributionChart } from "./meeting-outcome-distribution-chart";
-import { MeetingTimeSummary } from "./meeting-time-summary";
 import { TeamReportSkeleton } from "./team-report-skeleton";
 import { formatRate } from "./team-report-formatters";
 
@@ -109,12 +108,12 @@ export function TeamReportPageClient() {
     description: string;
   }> = [];
 
-  if (metrics.isMeetingTimeTruncated || outcomeMix.isTruncated) {
+  if (outcomeMix.isTruncated) {
     notices.push({
-      id: "meeting-cap",
+      id: "outcome-cap",
       title: "Meeting sample capped",
       description:
-        "Only showing first 2,000 meetings. Narrow the date range for full meeting-time and outcome reporting.",
+        "Only showing first 2,000 meetings. Narrow the date range for full outcome reporting.",
     });
   }
 
@@ -152,8 +151,8 @@ export function TeamReportPageClient() {
           Team Performance
         </h1>
         <p className="text-sm text-muted-foreground">
-          Per-closer attendance, commercial, outcome, and meeting-time KPIs for
-          the selected reporting range.
+          Per-closer attendance, commercial, and outcome KPIs for the selected
+          reporting range.
         </p>
       </div>
 
@@ -228,7 +227,6 @@ export function TeamReportPageClient() {
 
         <section className="flex flex-col gap-6">
           <MeetingOutcomeDistributionChart outcomeMix={outcomeMix.teamOutcome} />
-          <MeetingTimeSummary meetingTime={metrics.teamMeetingTime} />
         </section>
       </div>
     </div>
@@ -244,16 +242,16 @@ function PhoneCloserOperationsTable({
       closerName: string;
       scheduled: number;
       completed: number;
+      canceled: number;
       noShows: number;
-      reviewRequired: number;
       showRate: number | null;
       noShowRate: number | null;
     }>;
     totals: {
       scheduled: number;
       completed: number;
+      canceled: number;
       noShows: number;
-      reviewRequired: number;
       showRate: number | null;
       noShowRate: number | null;
     };
@@ -289,8 +287,8 @@ function PhoneCloserOperationsTable({
                   <TableHead>Phone closer</TableHead>
                   <TableHead className="text-right">Booked calls</TableHead>
                   <TableHead className="text-right">Completed</TableHead>
+                  <TableHead className="text-right">Canceled</TableHead>
                   <TableHead className="text-right">No shows</TableHead>
-                  <TableHead className="text-right">Review req.</TableHead>
                   <TableHead className="text-right">Show rate</TableHead>
                   <TableHead className="text-right">No-show rate</TableHead>
                 </TableRow>
@@ -308,10 +306,10 @@ function PhoneCloserOperationsTable({
                       {row.completed.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {row.noShows.toLocaleString()}
+                      {row.canceled.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
-                      {row.reviewRequired.toLocaleString()}
+                      {row.noShows.toLocaleString()}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatRate(row.showRate)}
@@ -330,10 +328,10 @@ function PhoneCloserOperationsTable({
                     {data.totals.completed.toLocaleString()}
                   </TableCell>
                   <TableCell className="text-right font-semibold tabular-nums">
-                    {data.totals.noShows.toLocaleString()}
+                    {data.totals.canceled.toLocaleString()}
                   </TableCell>
                   <TableCell className="text-right font-semibold tabular-nums">
-                    {data.totals.reviewRequired.toLocaleString()}
+                    {data.totals.noShows.toLocaleString()}
                   </TableCell>
                   <TableCell className="text-right font-semibold tabular-nums">
                     {formatRate(data.totals.showRate)}

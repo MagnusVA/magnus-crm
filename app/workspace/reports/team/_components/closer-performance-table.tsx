@@ -40,7 +40,6 @@ function getTeamFooterData(
       bookedCalls: teamTotals.newBookedCalls,
       canceledCalls: teamTotals.newCanceled,
       noShows: teamTotals.newNoShows,
-      reviewRequiredCalls: teamTotals.newReviewRequired,
       callsShowed: teamTotals.newShowed,
       showUpRate: teamTotals.newShowUpRate,
       confirmedAttendanceDenominator:
@@ -51,7 +50,6 @@ function getTeamFooterData(
     bookedCalls: teamTotals.followUpBookedCalls,
     canceledCalls: teamTotals.followUpCanceled,
     noShows: teamTotals.followUpNoShows,
-    reviewRequiredCalls: teamTotals.followUpReviewRequired,
     callsShowed: teamTotals.followUpShowed,
     showUpRate: teamTotals.followUpShowUpRate,
     confirmedAttendanceDenominator:
@@ -92,12 +90,6 @@ export function CloserPerformanceTable({
           <TableHead className="text-right">Booked</TableHead>
           <TableHead className="text-right">Canceled</TableHead>
           <TableHead className="text-right">No Shows</TableHead>
-          <TableHead
-            className="text-right"
-            title="Meetings flagged for review and excluded from show-up rate until resolved."
-          >
-            Review Req.
-          </TableHead>
           <TableHead className="text-right">Showed</TableHead>
           <TableHead className="text-right">Show-Up Rate</TableHead>
           <TableHead className="border-l border-border/70 pl-4 text-right">
@@ -144,9 +136,6 @@ export function CloserPerformanceTable({
                 {calls.noShows}
               </TableCell>
               <TableCell className="text-right tabular-nums">
-                {calls.reviewRequiredCalls}
-              </TableCell>
-              <TableCell className="text-right tabular-nums">
                 {calls.callsShowed}
               </TableCell>
               <TableCell className="text-right">
@@ -189,9 +178,6 @@ export function CloserPerformanceTable({
           </TableCell>
           <TableCell className="text-right font-bold tabular-nums">
             {footer.noShows}
-          </TableCell>
-          <TableCell className="text-right font-bold tabular-nums">
-            {footer.reviewRequiredCalls}
           </TableCell>
           <TableCell className="text-right font-bold tabular-nums">
             {footer.callsShowed}
