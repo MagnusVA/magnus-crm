@@ -3,16 +3,12 @@ import type { Doc } from "../_generated/dataModel";
 import { internalMutation, mutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
-import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { validateTransition } from "../lib/statusTransitions";
 import {
   isActiveOpportunityStatus,
   updateTenantStats,
 } from "../lib/tenantStatsHelper";
 import { requireTenantUser } from "../requireTenantUser";
-import {
-  replaceMeetingAggregate,
-} from "../reporting/writeHooks";
 
 const closerResponseValidator = v.union(
   v.literal("forgot_to_press"),
@@ -49,109 +45,11 @@ function getActiveOpportunityDelta(
 
 export const checkMeetingAttendance = internalMutation({
   args: { meetingId: v.id("meetings") },
-  handler: async (ctx, { meetingId }) => {
-    const meeting = await ctx.db.get(meetingId);
-    if (!meeting) {
-      console.warn("[MeetingOverrun] Meeting not found; skipping attendance check", {
-        meetingId,
-      });
-      return;
-    }
-
-    if (meeting.status !== "scheduled") {
-      console.log("[MeetingOverrun] Attendance check no-op; meeting already handled", {
-        meetingId,
-        meetingStatus: meeting.status,
-      });
-      return;
-    }
-
-    if (meeting.reviewId) {
-      console.log("[MeetingOverrun] Attendance check no-op; review already linked", {
-        meetingId,
-        reviewId: meeting.reviewId,
-      });
-      return;
-    }
-
-    const opportunity = await ctx.db.get(meeting.opportunityId);
-    if (!opportunity || opportunity.tenantId !== meeting.tenantId) {
-      console.error("[MeetingOverrun] Opportunity missing for attendance check", {
-        meetingId,
-        opportunityId: meeting.opportunityId,
-      });
-      return;
-    }
-
-    const shouldTransitionOpportunity = opportunity.status === "scheduled";
-    const now = Date.now();
-
-    const reviewId = await ctx.db.insert("meetingReviews", {
-      tenantId: meeting.tenantId,
+  handler: async (_ctx, { meetingId }) => {
+    console.log("[MeetingOverrun] Attendance check no-op shim", {
       meetingId,
-      opportunityId: opportunity._id,
-      closerId: meeting.assignedCloserId,
-      category: "meeting_overran",
-      status: "pending",
-      createdAt: now,
     });
-
-    await ctx.db.patch(meetingId, {
-      status: "meeting_overran",
-      overranDetectedAt: now,
-      reviewId,
-    });
-    await replaceMeetingAggregate(ctx, meeting, meetingId);
-
-    if (shouldTransitionOpportunity) {
-      await patchOpportunityLifecycle(ctx, opportunity._id, {
-        status: "meeting_overran",
-        updatedAt: now,
-      });
-    }
-
-    await updateOpportunityMeetingRefs(ctx, opportunity._id);
-
-    await emitDomainEvent(ctx, {
-      tenantId: meeting.tenantId,
-      entityType: "meeting",
-      entityId: meetingId,
-      eventType: "meeting.overran_detected",
-      source: "system",
-      occurredAt: now,
-      metadata: {
-        reviewId,
-        scheduledAt: meeting.scheduledAt,
-        durationMinutes: meeting.durationMinutes,
-        attendanceCheckId: meeting.attendanceCheckId,
-        opportunityStatusBeforeCheck: opportunity.status,
-      },
-    });
-
-    if (shouldTransitionOpportunity) {
-      await emitDomainEvent(ctx, {
-        tenantId: meeting.tenantId,
-        entityType: "opportunity",
-        entityId: opportunity._id,
-        eventType: "opportunity.status_changed",
-        source: "system",
-        fromStatus: "scheduled",
-        toStatus: "meeting_overran",
-        occurredAt: now,
-        metadata: {
-          reviewId,
-          trigger: "attendance_check",
-          meetingId,
-        },
-      });
-    }
-
-    console.log("[MeetingOverrun] Meeting flagged after unattended attendance check", {
-      meetingId,
-      reviewId,
-      opportunityId: opportunity._id,
-      opportunityTransitioned: shouldTransitionOpportunity,
-    });
+    return null;
   },
 });
 

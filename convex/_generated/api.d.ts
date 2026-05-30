@@ -124,6 +124,7 @@ import type * as lib_linkPortal_validators from "../lib/linkPortal/validators.js
 import type * as lib_manualMeetingTimes from "../lib/manualMeetingTimes.js";
 import type * as lib_meetingFormResponses from "../lib/meetingFormResponses.js";
 import type * as lib_meetingLocation from "../lib/meetingLocation.js";
+import type * as lib_meetingOutcomeCompletion from "../lib/meetingOutcomeCompletion.js";
 import type * as lib_normalization from "../lib/normalization.js";
 import type * as lib_opportunityActivity from "../lib/opportunityActivity.js";
 import type * as lib_opportunityMeetingRefs from "../lib/opportunityMeetingRefs.js";
@@ -405,6 +406,7 @@ declare const fullApi: ApiFromModules<{
   "lib/manualMeetingTimes": typeof lib_manualMeetingTimes;
   "lib/meetingFormResponses": typeof lib_meetingFormResponses;
   "lib/meetingLocation": typeof lib_meetingLocation;
+  "lib/meetingOutcomeCompletion": typeof lib_meetingOutcomeCompletion;
   "lib/normalization": typeof lib_normalization;
   "lib/opportunityActivity": typeof lib_opportunityActivity;
   "lib/opportunityMeetingRefs": typeof lib_opportunityMeetingRefs;

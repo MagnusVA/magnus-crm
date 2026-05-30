@@ -22,7 +22,7 @@ export const nudgeStaleSideDeals = internalMutation({
       .withIndex("by_source_and_status_and_createdAt", (q) =>
         q
           .eq("source", "side_deal")
-          .eq("status", "in_progress")
+          .eq("status", "scheduled")
           .lt("createdAt", cutoff),
       )
       .order("asc")
@@ -31,7 +31,7 @@ export const nudgeStaleSideDeals = internalMutation({
     let nudged = 0;
 
     for (const opportunity of page.page) {
-      if (!isSideDeal(opportunity) || opportunity.status !== "in_progress") {
+      if (!isSideDeal(opportunity) || opportunity.status !== "scheduled") {
         continue;
       }
       if (!opportunity.assignedCloserId) {

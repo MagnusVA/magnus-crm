@@ -2,17 +2,17 @@ import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateTransition } from "../lib/statusTransitions";
-import { cancelMeetingAttendanceCheck } from "../lib/attendanceChecks";
+import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
+import {
+  assertCanRecordLegacyMeetingOutcome,
+  assertCanRecordMeetingOutcome,
+} from "../lib/outcomeEligibility";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import {
   updateTenantStats,
   isActiveOpportunityStatus,
 } from "../lib/tenantStatsHelper";
-import {
-  replaceMeetingAggregate,
-} from "../reporting/writeHooks";
-import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 
 // ---------------------------------------------------------------------------
 // adminMarkAsLost — Mark opportunity as lost on behalf of closer
@@ -21,10 +21,11 @@ import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 export const adminMarkAsLost = mutation({
   args: {
     opportunityId: v.id("opportunities"),
+    meetingId: v.optional(v.id("meetings")),
     reason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { tenantId, userId } = await requireTenantUser(ctx, [
+    const { tenantId, userId, role } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
@@ -34,13 +35,41 @@ export const adminMarkAsLost = mutation({
       throw new Error("Opportunity not found");
     }
 
+    const meeting = args.meetingId ? await ctx.db.get(args.meetingId) : null;
+    if (
+      args.meetingId &&
+      (!meeting ||
+        meeting.tenantId !== tenantId ||
+        meeting.opportunityId !== args.opportunityId)
+    ) {
+      throw new Error("Meeting does not belong to this opportunity");
+    }
+
+    const now = Date.now();
+    if (meeting) {
+      const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+        meeting,
+        opportunity,
+        userId,
+        role,
+      });
+      if (!handledAsLegacy) {
+        assertCanRecordMeetingOutcome({
+          meeting,
+          opportunity,
+          userId,
+          role,
+          now,
+        });
+      }
+    }
+
     if (!validateTransition(opportunity.status, "lost")) {
       throw new Error(
         `Cannot mark as lost from status "${opportunity.status}"`,
       );
     }
 
-    const now = Date.now();
     const reason = args.reason?.trim() || undefined;
     const wasActive = isActiveOpportunityStatus(opportunity.status);
 
@@ -51,6 +80,14 @@ export const adminMarkAsLost = mutation({
       lostByUserId: userId,
       lostReason: reason,
     });
+    if (meeting) {
+      await completeMeetingForOutcome(ctx, {
+        meeting,
+        opportunity,
+        toMeetingStatus: "completed",
+        completedAt: now,
+      });
+    }
 
     await updateTenantStats(ctx, tenantId, {
       ...(wasActive ? { activeOpportunities: -1 } : {}),
@@ -165,9 +202,10 @@ export const adminCreateFollowUp = mutation({
 export const adminConfirmFollowUp = mutation({
   args: {
     opportunityId: v.id("opportunities"),
+    meetingId: v.optional(v.id("meetings")),
   },
   handler: async (ctx, args) => {
-    const { tenantId, userId } = await requireTenantUser(ctx, [
+    const { tenantId, userId, role } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
@@ -177,9 +215,38 @@ export const adminConfirmFollowUp = mutation({
       throw new Error("Opportunity not found");
     }
 
+    const meeting = args.meetingId ? await ctx.db.get(args.meetingId) : null;
+    if (
+      args.meetingId &&
+      (!meeting ||
+        meeting.tenantId !== tenantId ||
+        meeting.opportunityId !== args.opportunityId)
+    ) {
+      throw new Error("Meeting does not belong to this opportunity");
+    }
+
     // Idempotent: already transitioned
     if (opportunity.status === "follow_up_scheduled") {
       return;
+    }
+
+    const now = Date.now();
+    if (meeting) {
+      const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+        meeting,
+        opportunity,
+        userId,
+        role,
+      });
+      if (!handledAsLegacy) {
+        assertCanRecordMeetingOutcome({
+          meeting,
+          opportunity,
+          userId,
+          role,
+          now,
+        });
+      }
     }
 
     if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
@@ -188,13 +255,20 @@ export const adminConfirmFollowUp = mutation({
       );
     }
 
-    const now = Date.now();
     const wasActive = isActiveOpportunityStatus(opportunity.status);
 
     await patchOpportunityLifecycle(ctx, args.opportunityId, {
       status: "follow_up_scheduled",
       updatedAt: now,
     });
+    if (meeting) {
+      await completeMeetingForOutcome(ctx, {
+        meeting,
+        opportunity,
+        toMeetingStatus: "completed",
+        completedAt: now,
+      });
+    }
 
     await updateTenantStats(ctx, tenantId, {
       ...(!wasActive ? { activeOpportunities: 1 } : {}),
@@ -435,131 +509,17 @@ export const adminCreateRescheduleLink = mutation({
   },
 });
 
-// ---------------------------------------------------------------------------
-// adminResolveMeeting — Retroactively resolve a scheduled meeting's timing
-// ---------------------------------------------------------------------------
-// Quick-patch for the case where a closer didn't start their meeting (e.g.,
-// late start, forgot to press the button). The admin sets the actual start/end
-// times, which transitions meeting → completed and opportunity → in_progress,
-// unlocking outcome actions (Log Payment, Mark Lost, Follow-up). These manual
-// timestamps are attributed so the meeting detail audit trail stays complete.
-//
-// This remains a manual backfill tool alongside the meeting-overran review flow.
-// ---------------------------------------------------------------------------
-
+// Temporary defensive stub for stale admin clients during the Phase 2/3 deploy
+// window. Manual timing resolution has been removed.
 export const adminResolveMeeting = mutation({
   args: {
     meetingId: v.id("meetings"),
-    startedAt: v.number(), // Unix ms — when the closer actually joined
-    stoppedAt: v.number(), // Unix ms — when the meeting actually ended
+    startedAt: v.number(),
+    stoppedAt: v.number(),
   },
-  handler: async (ctx, args) => {
-    const { tenantId, userId } = await requireTenantUser(ctx, [
-      "tenant_master",
-      "tenant_admin",
-    ]);
-
-    // Load and validate meeting
-    const meeting = await ctx.db.get(args.meetingId);
-    if (!meeting || meeting.tenantId !== tenantId) {
-      throw new Error("Meeting not found");
-    }
-    if (meeting.status !== "scheduled") {
-      throw new Error(
-        `Cannot resolve a meeting with status "${meeting.status}". Only scheduled meetings can be resolved.`,
-      );
-    }
-
-    // Load and validate opportunity
-    const opportunity = await ctx.db.get(meeting.opportunityId);
-    if (!opportunity || opportunity.tenantId !== tenantId) {
-      throw new Error("Opportunity not found");
-    }
-    if (!validateTransition(opportunity.status, "in_progress")) {
-      throw new Error(
-        `Cannot resolve meeting: opportunity status "${opportunity.status}" cannot transition to in_progress.`,
-      );
-    }
-
-    // Validate timestamps
-    if (args.startedAt >= args.stoppedAt) {
-      throw new Error("Start time must be before end time");
-    }
-    if (args.stoppedAt > Date.now() + 60_000) {
-      throw new Error("End time cannot be in the future");
-    }
-
-    const now = Date.now();
-    const lateStartDurationMs = Math.max(0, args.startedAt - meeting.scheduledAt);
-    const scheduledEndMs =
-      meeting.scheduledAt + meeting.durationMinutes * 60_000;
-    const exceededScheduledDurationMs = Math.max(
-      0,
-      args.stoppedAt - scheduledEndMs,
+  handler: async () => {
+    throw new Error(
+      "Manual meeting timing resolution has been removed. Record the meeting outcome directly.",
     );
-    await cancelMeetingAttendanceCheck(
-      ctx,
-      meeting.attendanceCheckId,
-      "admin.adminResolveMeeting",
-    );
-
-    // Transition opportunity: scheduled → in_progress
-    await patchOpportunityLifecycle(ctx, opportunity._id, {
-      status: "in_progress",
-      updatedAt: now,
-    });
-
-    // Transition meeting: scheduled → completed (retroactive — it already happened)
-    const oldMeeting = meeting;
-    await ctx.db.patch(args.meetingId, {
-      status: "completed",
-      startedAt: args.startedAt,
-      startedAtSource: "admin_manual" as const,
-      stoppedAt: args.stoppedAt,
-      stoppedAtSource: "admin_manual" as const,
-      completedAt: args.stoppedAt,
-      lateStartDurationMs,
-      exceededScheduledDurationMs,
-    });
-    await replaceMeetingAggregate(ctx, oldMeeting, args.meetingId);
-    await updateOpportunityMeetingRefs(ctx, opportunity._id);
-
-    // Domain events — full audit trail
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "meeting",
-      entityId: args.meetingId,
-      eventType: "meeting.admin_resolved",
-      source: "admin",
-      actorUserId: userId,
-      fromStatus: "scheduled",
-      toStatus: "completed",
-      occurredAt: now,
-      metadata: {
-        retroactiveStartedAt: args.startedAt,
-        retroactiveStoppedAt: args.stoppedAt,
-        lateStartDurationMs,
-        exceededScheduledDurationMs,
-        resolvedAt: now,
-      },
-    });
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: opportunity._id,
-      eventType: "opportunity.status_changed",
-      source: "admin",
-      actorUserId: userId,
-      fromStatus: opportunity.status,
-      toStatus: "in_progress",
-      occurredAt: now,
-    });
-
-    console.log("[Admin] adminResolveMeeting completed", {
-      meetingId: args.meetingId,
-      opportunityId: opportunity._id,
-      startedAt: args.startedAt,
-      stoppedAt: args.stoppedAt,
-    });
   },
 });

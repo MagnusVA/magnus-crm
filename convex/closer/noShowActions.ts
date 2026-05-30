@@ -1,17 +1,14 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
-import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import {
-  validateMeetingTransition,
-  validateTransition,
-} from "../lib/statusTransitions";
-import { assertOverranReviewStillPending } from "../lib/overranReviewGuards";
+  assertCanRecordLegacyMeetingOutcome,
+  assertCanRecordMeetingOutcome,
+} from "../lib/outcomeEligibility";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { validateTransition } from "../lib/statusTransitions";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
-import {
-  replaceMeetingAggregate,
-} from "../reporting/writeHooks";
 import {
   isActiveOpportunityStatus,
   updateTenantStats,
@@ -30,11 +27,10 @@ function normalizeOptionalString(value: string | undefined) {
 }
 
 /**
- * Mark an in-progress meeting as no-show.
+ * Mark a scheduled meeting as no-show.
  *
- * Primary no-show creation path used by the closer while they are waiting for
- * the lead. Records the wait duration, structured reason, optional note, and
- * source, then transitions both the meeting and opportunity to "no_show".
+ * Records structured no-show metadata and transitions both the meeting and
+ * opportunity to "no_show" without writing actual meeting timing fields.
  */
 export const markNoShow = mutation({
   args: {
@@ -44,69 +40,60 @@ export const markNoShow = mutation({
   },
   handler: async (ctx, { meetingId, reason, note }) => {
     console.log("[Closer:NoShow] markNoShow called", { meetingId, reason });
-    const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
+    const { userId, tenantId, role } = await requireTenantUser(ctx, ["closer"]);
 
     const meeting = await ctx.db.get(meetingId);
     if (!meeting || meeting.tenantId !== tenantId) {
       throw new Error("Meeting not found");
-    }
-    if (meeting.status !== "in_progress" && meeting.status !== "meeting_overran") {
-      throw new Error(
-        `Can only mark no-show on in-progress or meeting-overran meetings (current: "${meeting.status}")`,
-      );
     }
 
     const opportunity = await ctx.db.get(meeting.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
-    if (opportunity.assignedCloserId !== userId) {
-      throw new Error("Not your meeting");
-    }
-    if (opportunity.status === "meeting_overran") {
-      await assertOverranReviewStillPending(ctx, opportunity._id);
+    const now = Date.now();
+    const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+      meeting,
+      opportunity,
+      userId,
+      role,
+    });
+    if (!handledAsLegacy) {
+      assertCanRecordMeetingOutcome({
+        meeting,
+        opportunity,
+        userId,
+        role,
+        now,
+      });
     }
     if (!validateTransition(opportunity.status, "no_show")) {
       throw new Error(
         `Cannot transition opportunity from "${opportunity.status}" to "no_show"`,
       );
     }
-    if (!validateMeetingTransition(meeting.status, "no_show")) {
-      throw new Error(
-        `Cannot transition meeting from "${meeting.status}" to "no_show"`,
-      );
-    }
 
-    const now = Date.now();
     const normalizedNote = normalizeOptionalString(note);
-    const waitDurationMs =
-      meeting.startedAt !== undefined
-        ? Math.max(0, now - meeting.startedAt)
-        : undefined;
-
-    await ctx.db.patch(meetingId, {
-      status: "no_show",
-      // The closer waited in the meeting and explicitly marked the no-show,
-      // so pinning the end timestamp here is accurate.
-      stoppedAt: now,
-      completedAt: now,
-      stoppedAtSource: "closer_no_show" as const,
-      noShowMarkedAt: now,
-      noShowWaitDurationMs: waitDurationMs,
-      noShowReason: reason,
-      noShowNote: normalizedNote,
-      noShowMarkedByUserId: userId,
-      noShowSource: "closer",
-    });
-    await replaceMeetingAggregate(ctx, meeting, meetingId);
 
     await patchOpportunityLifecycle(ctx, opportunity._id, {
       status: "no_show",
       noShowAt: now,
       updatedAt: now,
     });
+    await completeMeetingForOutcome(ctx, {
+      meeting,
+      opportunity,
+      toMeetingStatus: "no_show",
+      completedAt: now,
+      extraMeetingPatch: {
+        noShowMarkedAt: now,
+        noShowReason: reason,
+        noShowNote: normalizedNote,
+        noShowMarkedByUserId: userId,
+        noShowSource: "closer",
+      },
+    });
 
-    await updateOpportunityMeetingRefs(ctx, opportunity._id);
     await updateTenantStats(ctx, tenantId, {
       activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? -1 : 0,
     });
@@ -122,7 +109,6 @@ export const markNoShow = mutation({
       reason,
       metadata: {
         note: normalizedNote,
-        waitDurationMs,
       },
       occurredAt: now,
     });
@@ -144,9 +130,7 @@ export const markNoShow = mutation({
       opportunityId: opportunity._id,
       closerId: userId,
       reason,
-      waitDurationMs,
-      stoppedAt: now,
-      stoppedAtSource: "closer_no_show",
+      noShowMarkedAt: now,
     });
   },
 });

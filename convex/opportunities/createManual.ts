@@ -186,7 +186,7 @@ export const createManual = mutation({
       tenantId,
       leadId,
       assignedCloserId,
-      status: "in_progress",
+      status: "scheduled",
       source: "side_deal",
       manualCreationKey,
       notes,
@@ -222,7 +222,7 @@ export const createManual = mutation({
       eventType: "opportunity.created",
       source: isAdmin ? "admin" : "closer",
       actorUserId: userId,
-      toStatus: "in_progress",
+      toStatus: "scheduled",
       occurredAt: now,
       metadata: { source: "side_deal", assignedCloserId },
     });

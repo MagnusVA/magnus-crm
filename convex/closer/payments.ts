@@ -9,7 +9,11 @@ import {
   syncCustomerPaymentSummary,
   type CommissionableOrigin,
 } from "../lib/paymentHelpers";
-import { assertOverranReviewStillPending } from "../lib/overranReviewGuards";
+import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
+import {
+  assertCanRecordLegacyMeetingOutcome,
+  assertCanRecordMeetingOutcome,
+} from "../lib/outcomeEligibility";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
@@ -73,8 +77,21 @@ export const logPayment = mutation({
     ) {
       throw new Error("Meeting does not belong to this opportunity");
     }
-    if (opportunity.status === "meeting_overran") {
-      await assertOverranReviewStillPending(ctx, opportunity._id);
+    const now = Date.now();
+    const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+      meeting,
+      opportunity,
+      userId,
+      role,
+    });
+    if (!handledAsLegacy) {
+      assertCanRecordMeetingOutcome({
+        meeting,
+        opportunity,
+        userId,
+        role,
+        now,
+      });
     }
     if (!validateTransition(opportunity.status, "payment_received")) {
       throw new Error(
@@ -87,7 +104,6 @@ export const logPayment = mutation({
 
     const currency = validateCurrency(args.currency);
     const amountMinor = toAmountMinor(args.amount);
-    const now = Date.now();
     const program = await resolveProgramForWrite(ctx, tenantId, args.programId);
     const paymentType = resolvePaymentType(args.paymentType);
 
@@ -144,6 +160,12 @@ export const logPayment = mutation({
       status: "payment_received",
       paymentReceivedAt: now,
       updatedAt: now,
+    });
+    await completeMeetingForOutcome(ctx, {
+      meeting,
+      opportunity,
+      toMeetingStatus: "completed",
+      completedAt: now,
     });
     await applyPaymentStatsDelta(ctx, tenantId, {
       commissionable: true,

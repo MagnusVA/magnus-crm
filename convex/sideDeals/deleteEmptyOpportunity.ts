@@ -32,7 +32,7 @@ export const deleteEmptyOpportunity = mutation({
     if (!isSideDeal(opportunity)) {
       throw new Error("Only side-deal opportunities can be deleted.");
     }
-    if (opportunity.status !== "in_progress") {
+    if (opportunity.status !== "scheduled") {
       throw new Error(
         `Cannot delete an opportunity in "${opportunity.status}" status.`,
       );
