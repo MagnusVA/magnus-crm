@@ -1173,6 +1173,7 @@ export default defineSchema({
     noShowSource: v.optional(
       v.union(
         v.literal("closer"),
+        v.literal("admin_manual"),
         v.literal("calendly_webhook"),
       ),
     ),

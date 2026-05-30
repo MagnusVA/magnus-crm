@@ -347,12 +347,13 @@ export const confirmFollowUpScheduled = mutation({
 export const createManualReminderFollowUpPublic = mutation({
   args: {
     opportunityId: v.id("opportunities"),
+    meetingId: v.optional(v.id("meetings")),
     contactMethod: v.union(v.literal("call"), v.literal("text")),
     reminderScheduledAt: v.number(),
     reminderNote: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
+    const { userId, tenantId, role } = await requireTenantUser(ctx, ["closer"]);
 
     const opportunity = await ctx.db.get(args.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
@@ -360,6 +361,15 @@ export const createManualReminderFollowUpPublic = mutation({
     }
     if (opportunity.assignedCloserId !== userId) {
       throw new Error("Not your opportunity");
+    }
+    const meeting = args.meetingId ? await ctx.db.get(args.meetingId) : null;
+    if (
+      args.meetingId &&
+      (!meeting ||
+        meeting.tenantId !== tenantId ||
+        meeting.opportunityId !== args.opportunityId)
+    ) {
+      throw new Error("Meeting does not belong to this opportunity");
     }
     if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
       throw new Error(
@@ -370,6 +380,23 @@ export const createManualReminderFollowUpPublic = mutation({
     const now = Date.now();
     if (args.reminderScheduledAt <= now) {
       throw new Error("Reminder time must be in the future");
+    }
+    if (meeting) {
+      const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+        meeting,
+        opportunity,
+        userId,
+        role,
+      });
+      if (!handledAsLegacy) {
+        assertCanRecordMeetingOutcome({
+          meeting,
+          opportunity,
+          userId,
+          role,
+          now,
+        });
+      }
     }
 
     const followUpId = await ctx.db.insert("followUps", {
@@ -407,6 +434,14 @@ export const createManualReminderFollowUpPublic = mutation({
       status: "follow_up_scheduled",
       updatedAt: now,
     });
+    if (meeting) {
+      await completeMeetingForOutcome(ctx, {
+        meeting,
+        opportunity,
+        toMeetingStatus: "completed",
+        completedAt: now,
+      });
+    }
     await updateTenantStats(ctx, tenantId, {
       activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
     });
@@ -425,6 +460,7 @@ export const createManualReminderFollowUpPublic = mutation({
     console.log("[Closer:FollowUp] manual reminder follow-up created", {
       followUpId,
       opportunityId: args.opportunityId,
+      meetingId: args.meetingId,
       contactMethod: args.contactMethod,
       reminderScheduledAt: args.reminderScheduledAt,
     });

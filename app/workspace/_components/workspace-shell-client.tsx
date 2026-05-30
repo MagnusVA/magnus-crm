@@ -5,8 +5,6 @@ import dynamic from "next/dynamic";
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
-import { useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
 import type { CrmRole } from "@/convex/lib/roleMapping";
 import { RoleProvider, useRole } from "@/components/auth/role-context";
 import {
@@ -28,7 +26,6 @@ import {
   AlarmClockCheckIcon,
   ActivityIcon,
   BarChart3Icon,
-  ClipboardCheckIcon,
   ClipboardListIcon,
   ClockIcon,
   ContactIcon,
@@ -80,7 +77,6 @@ type NavItem = {
 const adminNavItems: NavItem[] = [
   { href: "/workspace", label: "Overview", icon: LayoutDashboardIcon, exact: true },
   { href: "/workspace/operations", label: "Operations", icon: KanbanIcon },
-  { href: "/workspace/reviews", label: "Reviews", icon: ClipboardCheckIcon },
   { href: "/workspace/lead-gen", label: "Lead Gen", icon: ClipboardListIcon },
   { href: "/workspace/leads", label: "Leads", icon: ContactIcon },
   { href: "/workspace/customers", label: "Customers", icon: UsersRoundIcon },
@@ -132,9 +128,9 @@ function navForRole(
   if (isAdmin) {
     return billingOpsEnabled
       ? [
-          ...adminNavItems.slice(0, 3),
+          ...adminNavItems.slice(0, 2),
           billingNavItem,
-          ...adminNavItems.slice(3),
+          ...adminNavItems.slice(2),
         ]
       : adminNavItems;
   }
@@ -230,12 +226,6 @@ function WorkspaceShellClientInner({
   const navItems = navForRole(role, isAdmin, billingOpsEnabled);
   const homeHref = homeHrefForRole(role, isAdmin);
 
-  // Reactive pending review count — admin only (skipped for closers to avoid unnecessary queries)
-  const pendingReviewCount = useQuery(
-    api.reviews.queries.getPendingReviewCount,
-    isAdmin ? {} : "skip",
-  );
-
   // Identify user in PostHog with full context
   usePostHogIdentify({
     workosUserId,
@@ -322,9 +312,7 @@ function WorkspaceShellClientInner({
                     ? pathname === item.href
                     : pathname.startsWith(item.href);
                   const badgeCount =
-                    item.href === "/workspace/reviews" && pendingReviewCount
-                      ? pendingReviewCount.count
-                      : 0;
+                    0;
                   return (
                     <SidebarMenuItem key={item.href}>
                       <SidebarMenuButton

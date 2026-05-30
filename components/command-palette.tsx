@@ -15,7 +15,6 @@ import {
 import { Kbd } from "@/components/ui/kbd";
 import {
   ActivityIcon,
-  ClipboardCheckIcon,
   ClipboardListIcon,
   ContactIcon,
   DollarSignIcon,
@@ -33,8 +32,7 @@ import { useRole } from "@/components/auth/role-context";
 const adminPages = [
   { label: "Overview", href: "/workspace", icon: LayoutDashboardIcon, shortcut: "1" },
   { label: "Operations", href: "/workspace/operations", icon: KanbanIcon, shortcut: "2" },
-  { label: "Reviews", href: "/workspace/reviews", icon: ClipboardCheckIcon, shortcut: "3" },
-  { label: "Leads", href: "/workspace/leads", icon: ContactIcon, shortcut: "4" },
+  { label: "Leads", href: "/workspace/leads", icon: ContactIcon, shortcut: "3" },
   { label: "Lead Gen Ops", href: "/workspace/lead-gen", icon: ClipboardListIcon },
   { label: "Lead Gen Settings", href: "/workspace/lead-gen/settings", icon: SettingsIcon },
   { label: "Opportunities", href: "/workspace/opportunities", icon: TargetIcon },
@@ -93,10 +91,10 @@ export function CommandPalette({
   const pages = isAdmin
     ? billingOpsEnabled
       ? [
-          ...adminPages.slice(0, 3),
+          ...adminPages.slice(0, 2),
           billingPage,
           ...adminPages
-            .slice(3)
+            .slice(2)
             .map((page) =>
               page.shortcut === "4" ? { ...page, shortcut: undefined } : page,
             ),
@@ -113,9 +111,9 @@ export function CommandPalette({
       open={open}
       onOpenChange={setOpen}
       title="Command Palette"
-      description="Search pages and actions..."
+      description="Search pages and actions…"
     >
-      <CommandInput placeholder="Search pages, actions..." />
+      <CommandInput placeholder="Search pages, actions…" />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup heading="Pages">

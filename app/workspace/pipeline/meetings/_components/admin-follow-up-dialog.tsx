@@ -50,6 +50,7 @@ import posthog from "posthog-js";
 
 type AdminFollowUpDialogProps = {
   opportunityId: Id<"opportunities">;
+  meetingId?: Id<"meetings">;
   onSuccess?: () => Promise<void>;
 };
 
@@ -61,6 +62,7 @@ type DialogPath = "selection" | "scheduling_link" | "manual_reminder";
  */
 export function AdminFollowUpDialog({
   opportunityId,
+  meetingId,
   onSuccess,
 }: AdminFollowUpDialogProps) {
   const [open, setOpen] = useState(false);
@@ -115,6 +117,7 @@ export function AdminFollowUpDialog({
         {path === "scheduling_link" && (
           <AdminSchedulingLinkForm
             opportunityId={opportunityId}
+            meetingId={meetingId}
             onSuccess={onSuccess}
             onClose={handleClose}
           />
@@ -123,6 +126,7 @@ export function AdminFollowUpDialog({
         {path === "manual_reminder" && (
           <AdminManualReminderForm
             opportunityId={opportunityId}
+            meetingId={meetingId}
             onSuccess={onSuccess}
             onClose={handleClose}
           />
@@ -194,10 +198,12 @@ function PathSelectionCards({
  */
 function AdminSchedulingLinkForm({
   opportunityId,
+  meetingId,
   onSuccess,
   onClose,
 }: {
   opportunityId: Id<"opportunities">;
+  meetingId?: Id<"meetings">;
   onSuccess?: () => Promise<void>;
   onClose: () => void;
 }) {
@@ -252,7 +258,7 @@ function AdminSchedulingLinkForm({
   const handleDone = async () => {
     setState("confirming");
     try {
-      await confirmFollowUp({ opportunityId });
+      await confirmFollowUp({ opportunityId, meetingId });
       await onSuccess?.();
       onClose();
     } catch (err: unknown) {
@@ -287,7 +293,7 @@ function AdminSchedulingLinkForm({
       <div className="flex flex-col items-center gap-3 py-4">
         <Spinner className="size-6" />
         <p className="text-sm text-muted-foreground">
-          Creating scheduling link...
+          Creating scheduling link…
         </p>
       </div>
     );
@@ -332,7 +338,7 @@ function AdminSchedulingLinkForm({
           {state === "confirming" ? (
             <>
               <Spinner data-icon="inline-start" />
-              Saving...
+              Saving…
             </>
           ) : (
             "Done"
@@ -378,10 +384,12 @@ type ReminderFormValues = z.infer<typeof reminderSchema>;
 
 function AdminManualReminderForm({
   opportunityId,
+  meetingId,
   onSuccess,
   onClose,
 }: {
   opportunityId: Id<"opportunities">;
+  meetingId?: Id<"meetings">;
   onSuccess?: () => Promise<void>;
   onClose: () => void;
 }) {
@@ -418,6 +426,7 @@ function AdminManualReminderForm({
 
       await createReminder({
         opportunityId,
+        meetingId,
         contactMethod: values.contactMethod,
         reminderScheduledAt,
         reminderNote: values.note || undefined,
@@ -426,6 +435,7 @@ function AdminManualReminderForm({
       await onSuccess?.();
       posthog.capture("admin_follow_up_reminder_created", {
         opportunity_id: opportunityId,
+        meeting_id: meetingId ?? null,
         contact_method: values.contactMethod,
       });
       toast.success("Reminder created");
@@ -524,7 +534,7 @@ function AdminManualReminderForm({
               <FormControl>
                 <Textarea
                   {...field}
-                  placeholder="e.g., Ask about scheduling availability..."
+                  placeholder="e.g., Ask about scheduling availability…"
                   rows={3}
                   disabled={isSubmitting}
                 />
@@ -543,7 +553,7 @@ function AdminManualReminderForm({
 
         <Button type="submit" disabled={isSubmitting} className="w-full">
           {isSubmitting && <Spinner data-icon="inline-start" />}
-          {isSubmitting ? "Creating..." : "Set Reminder"}
+          {isSubmitting ? "Creating…" : "Set Reminder"}
         </Button>
       </form>
     </Form>

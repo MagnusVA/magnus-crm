@@ -42,6 +42,7 @@ type MarkLostFormValues = z.infer<typeof markLostSchema>;
 
 type AdminMarkLostDialogProps = {
   opportunityId: Id<"opportunities">;
+  meetingId?: Id<"meetings">;
   onSuccess?: () => Promise<void>;
 };
 
@@ -51,6 +52,7 @@ type AdminMarkLostDialogProps = {
  */
 export function AdminMarkLostDialog({
   opportunityId,
+  meetingId,
   onSuccess,
 }: AdminMarkLostDialogProps) {
   const [open, setOpen] = useState(false);
@@ -70,11 +72,13 @@ export function AdminMarkLostDialog({
       const trimmedReason = values.reason?.trim() || undefined;
       await markAsLost({
         opportunityId,
+        meetingId,
         reason: trimmedReason,
       });
       await onSuccess?.();
       posthog.capture("admin_opportunity_marked_lost", {
         opportunity_id: opportunityId,
+        meeting_id: meetingId ?? null,
         has_reason: Boolean(trimmedReason),
       });
       toast.success("Opportunity marked as lost");
@@ -155,7 +159,7 @@ export function AdminMarkLostDialog({
                   {isLoading ? (
                     <>
                       <Spinner data-icon="inline-start" />
-                      Marking...
+                      Marking…
                     </>
                   ) : (
                     "Mark as Lost"

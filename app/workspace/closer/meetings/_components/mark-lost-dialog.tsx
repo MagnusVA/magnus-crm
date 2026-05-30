@@ -42,6 +42,7 @@ type MarkLostFormValues = z.infer<typeof markLostSchema>;
 
 type MarkLostDialogProps = {
   opportunityId: Id<"opportunities">;
+  meetingId?: Id<"meetings">;
   onSuccess?: () => Promise<void>;
 };
 
@@ -55,6 +56,7 @@ type MarkLostDialogProps = {
  */
 export function MarkLostDialog({
   opportunityId,
+  meetingId,
   onSuccess,
 }: MarkLostDialogProps) {
   const [open, setOpen] = useState(false);
@@ -74,11 +76,13 @@ export function MarkLostDialog({
       const trimmedReason = values.reason?.trim() || undefined;
       await markAsLost({
         opportunityId,
+        meetingId,
         reason: trimmedReason,
       });
       await onSuccess?.();
       posthog.capture("opportunity_marked_lost", {
         opportunity_id: opportunityId,
+        meeting_id: meetingId ?? null,
         has_reason: Boolean(trimmedReason),
       });
       toast.success("Opportunity marked as lost");
@@ -119,9 +123,7 @@ export function MarkLostDialog({
               <div className="flex-1">
                 <AlertDialogTitle>Mark as Lost?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This marks the opportunity as lost. If this meeting is
-                  under overran review, an admin may still dispute the
-                  outcome and revert the opportunity.
+                  This marks the opportunity as lost and completes the meeting.
                 </AlertDialogDescription>
               </div>
             </div>

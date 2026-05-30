@@ -34,7 +34,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { ClockIcon, UserXIcon } from "lucide-react";
+import { UserXIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
 
@@ -64,40 +64,20 @@ type MarkNoShowDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   meetingId: Id<"meetings">;
-  startedAt: number | undefined;
+  mode?: "closer" | "admin";
   onSuccess?: () => Promise<void>;
 };
-
-/** Format milliseconds as "X min Y sec" */
-function formatWaitTime(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  if (minutes === 0) return `${seconds} sec`;
-  return `${minutes} min ${seconds} sec`;
-}
 
 export function MarkNoShowDialog({
   open,
   onOpenChange,
   meetingId,
-  startedAt,
+  mode = "closer",
   onSuccess,
 }: MarkNoShowDialogProps) {
-  const markNoShow = useMutation(api.closer.noShowActions.markNoShow);
+  const closerMarkNoShow = useMutation(api.closer.noShowActions.markNoShow);
+  const adminMarkNoShow = useMutation(api.admin.meetingActions.adminMarkNoShow);
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  // Live-ticking wait time: updates every second while the dialog is open
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!open || !startedAt) return;
-    // Reset to current time when dialog opens
-    setNow(Date.now());
-    const interval = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(interval);
-  }, [open, startedAt]);
-
-  const waitMs = startedAt ? now - startedAt : undefined;
 
   // Do NOT pass an explicit generic to useForm — let the resolver infer types
   const form = useForm({
@@ -118,6 +98,8 @@ export function MarkNoShowDialog({
   const handleSubmit = async (values: MarkNoShowValues) => {
     setIsSubmitting(true);
     try {
+      const markNoShow =
+        mode === "admin" ? adminMarkNoShow : closerMarkNoShow;
       await markNoShow({
         meetingId,
         reason: values.reason,
@@ -127,7 +109,7 @@ export function MarkNoShowDialog({
       posthog.capture("meeting_marked_no_show", {
         meeting_id: meetingId,
         reason: values.reason,
-        wait_duration_ms: waitMs,
+        source: mode,
       });
 
       toast.success("Meeting marked as no-show");
@@ -155,23 +137,10 @@ export function MarkNoShowDialog({
           </AlertDialogDescription>
         </AlertDialogHeader>
 
-        {/* Wait time display — live-ticking when startedAt is available */}
-        {waitMs !== undefined && (
-          <div className="flex items-center gap-2 rounded-md border bg-muted/50 px-3 py-2">
-            <ClockIcon className="size-4 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">
-              You waited{" "}
-              <span className="font-semibold text-foreground">
-                {formatWaitTime(waitMs)}
-              </span>
-            </span>
-          </div>
-        )}
-
         <Form {...form}>
           <form
             onSubmit={form.handleSubmit(handleSubmit)}
-            className="space-y-4"
+            className="flex flex-col gap-4"
           >
             {/* Reason — required Select */}
             <FormField
@@ -189,7 +158,7 @@ export function MarkNoShowDialog({
                       disabled={isSubmitting}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select a reason..." />
+                        <SelectValue placeholder="Select a reason…" />
                       </SelectTrigger>
                       <SelectContent>
                         {NO_SHOW_REASONS.map((r) => (
@@ -215,7 +184,7 @@ export function MarkNoShowDialog({
                   <FormControl>
                     <Textarea
                       {...field}
-                      placeholder="Any additional context..."
+                      placeholder="Any additional context…"
                       disabled={isSubmitting}
                       rows={3}
                     />
@@ -237,7 +206,7 @@ export function MarkNoShowDialog({
                 {isSubmitting ? (
                   <>
                     <Spinner data-icon="inline-start" />
-                    Marking...
+                    Marking…
                   </>
                 ) : (
                   "Confirm No-Show"

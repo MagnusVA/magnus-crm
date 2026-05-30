@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import type { Doc } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateTransition } from "../lib/statusTransitions";
@@ -13,6 +14,18 @@ import {
   updateTenantStats,
   isActiveOpportunityStatus,
 } from "../lib/tenantStatsHelper";
+
+const noShowReasonValidator = v.union(
+  v.literal("no_response"),
+  v.literal("late_cancel"),
+  v.literal("technical_issues"),
+  v.literal("other"),
+);
+
+function normalizeOptionalString(value: string | undefined) {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+}
 
 // ---------------------------------------------------------------------------
 // adminMarkAsLost — Mark opportunity as lost on behalf of closer
@@ -298,12 +311,13 @@ export const adminConfirmFollowUp = mutation({
 export const adminCreateManualReminder = mutation({
   args: {
     opportunityId: v.id("opportunities"),
+    meetingId: v.optional(v.id("meetings")),
     contactMethod: v.union(v.literal("call"), v.literal("text")),
     reminderScheduledAt: v.number(),
     reminderNote: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { tenantId, userId } = await requireTenantUser(ctx, [
+    const { tenantId, userId, role } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
@@ -311,6 +325,15 @@ export const adminCreateManualReminder = mutation({
     const opportunity = await ctx.db.get(args.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
+    }
+    const meeting = args.meetingId ? await ctx.db.get(args.meetingId) : null;
+    if (
+      args.meetingId &&
+      (!meeting ||
+        meeting.tenantId !== tenantId ||
+        meeting.opportunityId !== args.opportunityId)
+    ) {
+      throw new Error("Meeting does not belong to this opportunity");
     }
 
     if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
@@ -322,6 +345,23 @@ export const adminCreateManualReminder = mutation({
     const now = Date.now();
     if (args.reminderScheduledAt <= now) {
       throw new Error("Reminder must be scheduled in the future");
+    }
+    if (meeting) {
+      const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+        meeting,
+        opportunity,
+        userId,
+        role,
+      });
+      if (!handledAsLegacy) {
+        assertCanRecordMeetingOutcome({
+          meeting,
+          opportunity,
+          userId,
+          role,
+          now,
+        });
+      }
     }
 
     const closerId = opportunity.assignedCloserId;
@@ -351,6 +391,14 @@ export const adminCreateManualReminder = mutation({
       status: "follow_up_scheduled",
       updatedAt: now,
     });
+    if (meeting) {
+      await completeMeetingForOutcome(ctx, {
+        meeting,
+        opportunity,
+        toMeetingStatus: "completed",
+        completedAt: now,
+      });
+    }
 
     await updateTenantStats(ctx, tenantId, {
       ...(!wasActive ? { activeOpportunities: 1 } : {}),
@@ -383,10 +431,118 @@ export const adminCreateManualReminder = mutation({
 
     console.log("[Admin] adminCreateManualReminder completed", {
       opportunityId: args.opportunityId,
+      meetingId: args.meetingId,
       followUpId,
     });
 
     return { followUpId };
+  },
+});
+
+// ---------------------------------------------------------------------------
+// adminMarkNoShow — Mark scheduled meeting no-show on behalf of a closer
+// ---------------------------------------------------------------------------
+
+export const adminMarkNoShow = mutation({
+  args: {
+    meetingId: v.id("meetings"),
+    reason: noShowReasonValidator,
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { tenantId, userId, role } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+
+    const meeting = await ctx.db.get(args.meetingId);
+    if (!meeting || meeting.tenantId !== tenantId) {
+      throw new Error("Meeting not found");
+    }
+
+    const opportunity = await ctx.db.get(meeting.opportunityId);
+    if (!opportunity || opportunity.tenantId !== tenantId) {
+      throw new Error("Opportunity not found");
+    }
+
+    const now = Date.now();
+    const handledAsLegacy = assertCanRecordLegacyMeetingOutcome({
+      meeting,
+      opportunity,
+      userId,
+      role,
+    });
+    if (!handledAsLegacy) {
+      assertCanRecordMeetingOutcome({
+        meeting,
+        opportunity,
+        userId,
+        role,
+        now,
+      });
+    }
+    if (!validateTransition(opportunity.status, "no_show")) {
+      throw new Error(
+        `Cannot transition opportunity from "${opportunity.status}" to "no_show"`,
+      );
+    }
+
+    const normalizedNote = normalizeOptionalString(args.note);
+    const wasActive = isActiveOpportunityStatus(opportunity.status);
+
+    await patchOpportunityLifecycle(ctx, opportunity._id, {
+      status: "no_show",
+      noShowAt: now,
+      updatedAt: now,
+    });
+    await completeMeetingForOutcome(ctx, {
+      meeting,
+      opportunity,
+      toMeetingStatus: "no_show",
+      completedAt: now,
+      extraMeetingPatch: {
+        noShowMarkedAt: now,
+        noShowReason: args.reason,
+        noShowNote: normalizedNote,
+        noShowMarkedByUserId: userId,
+        noShowSource: "admin_manual",
+      } satisfies Partial<Doc<"meetings">>,
+    });
+
+    await updateTenantStats(ctx, tenantId, {
+      ...(wasActive ? { activeOpportunities: -1 } : {}),
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "meeting",
+      entityId: args.meetingId,
+      eventType: "meeting.no_show",
+      source: "admin",
+      actorUserId: userId,
+      fromStatus: meeting.status,
+      toStatus: "no_show",
+      reason: args.reason,
+      metadata: { note: normalizedNote },
+      occurredAt: now,
+    });
+    await emitDomainEvent(ctx, {
+      tenantId,
+      entityType: "opportunity",
+      entityId: opportunity._id,
+      eventType: "opportunity.status_changed",
+      source: "admin",
+      actorUserId: userId,
+      fromStatus: opportunity.status,
+      toStatus: "no_show",
+      reason: args.reason,
+      occurredAt: now,
+    });
+
+    console.log("[Admin] adminMarkNoShow completed", {
+      meetingId: args.meetingId,
+      opportunityId: opportunity._id,
+      reason: args.reason,
+    });
   },
 });
 

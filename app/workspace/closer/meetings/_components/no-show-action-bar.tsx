@@ -50,8 +50,8 @@ export function NoShowActionBar({
   const sourceLabel =
     meeting.noShowSource === "calendly_webhook"
       ? "Marked by Calendly"
-      : meeting.noShowWaitDurationMs
-        ? `Waited ${Math.round(meeting.noShowWaitDurationMs / 60000)} min`
+      : meeting.noShowSource === "admin_manual"
+        ? "Marked by admin"
         : undefined;
 
   const handleRequestReschedule = async () => {
@@ -67,12 +67,12 @@ export function NoShowActionBar({
         opportunity_id: opportunity._id,
       });
 
-      // Lift the URL to page level -- the NoShowActionBar will unmount due to
+      // Lift the URL to page level. NoShowActionBar will unmount due to
       // reactivity (opportunity status is now reschedule_link_sent), but
       // RescheduleLinkDisplay will render the link at the page level.
       onRescheduleLinkCreated?.(result.schedulingLinkUrl);
 
-      toast.success("Reschedule link generated -- copy and send to the lead");
+      toast.success("Reschedule link generated. Copy and send it to the lead.");
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to create reschedule link",

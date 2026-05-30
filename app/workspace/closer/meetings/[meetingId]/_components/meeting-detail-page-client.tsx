@@ -8,7 +8,6 @@ import { usePreloadedQuery } from "convex/react";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import { usePageTitle } from "@/hooks/use-page-title";
-import { useInProgressMeetingGuard } from "@/hooks/use-in-progress-meeting-guard";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -19,18 +18,9 @@ import {
   EmptyTitle,
   EmptyDescription,
 } from "@/components/ui/empty";
-import {
-  AlertDialog,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
-import { ArrowLeftIcon, AlertCircleIcon, ShuffleIcon, AlertTriangleIcon } from "lucide-react";
+import { ArrowLeftIcon, AlertCircleIcon, ShuffleIcon } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   opportunityStatusConfig,
@@ -51,7 +41,6 @@ import {
   RescheduleLinkSentBanner,
 } from "../../_components/reschedule-link-display";
 import { RescheduleChainBanner } from "../../_components/reschedule-chain-banner";
-import { MeetingOverranBanner } from "../../_components/meeting-overran-banner";
 import { FathomLinkField } from "../../_components/fathom-link-field";
 
 type MeetingDetailData = FunctionReturnType<
@@ -75,23 +64,6 @@ export function MeetingDetailPageClient({
 
   const [rescheduleLinkUrl, setRescheduleLinkUrl] = useState<string | null>(null);
 
-  // Hard-block navigation away while the meeting is still in progress
-  // (started but not yet ended). The guard auto-disarms once `meeting.status`
-  // transitions out of "in_progress".
-  const isMeetingInProgress = detail?.meeting?.status === "in_progress";
-  const { blockBack, warningOpen, dismissWarning } =
-    useInProgressMeetingGuard({ active: isMeetingInProgress });
-
-  // Every time the warning is dismissed we bump `flashKey`, which the
-  // OutcomeActionBar subscribes to in order to wiggle its card and
-  // pulse-ring the End Meeting button — pointing the closer at the
-  // action they need to take before navigating away.
-  const [flashKey, setFlashKey] = useState(0);
-  const dismissAndFlash = () => {
-    dismissWarning();
-    setFlashKey((k) => k + 1);
-  };
-
   if (detail === undefined) {
     return <MeetingDetailSkeleton />;
   }
@@ -112,7 +84,6 @@ export function MeetingDetailPageClient({
     potentialDuplicate,
     reassignmentInfo,
     rescheduledFromMeeting,
-    meetingReview,
     activeFollowUp,
     attributionTeam,
     dmCloser,
@@ -131,7 +102,7 @@ export function MeetingDetailPageClient({
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => blockBack(() => router.back())}
+          onClick={() => router.back()}
         >
           <ArrowLeftIcon data-icon="inline-start" />
           Back
@@ -201,24 +172,6 @@ export function MeetingDetailPageClient({
         <RescheduleLinkSentBanner opportunityId={opportunity._id} />
       )}
 
-      {/* v2: Meeting Overran Banner — persistent whenever a review exists.
-          No longer gated on `opportunity.status === "meeting_overran"`: the
-          banner stays visible across the review lifecycle (pending → resolved)
-          so the closer always sees where the review sits.
-
-          `activeFollowUp` is passed so the banner flips to "Action Recorded —
-          Awaiting Admin Review" when the closer created a follow-up that
-          intentionally did NOT move the opportunity out of `meeting_overran`
-          (see `convex/closer/followUpMutations.ts` and overhaul-v2.md §14.6). */}
-      {meetingReview && (
-        <MeetingOverranBanner
-          meeting={meeting}
-          meetingReview={meetingReview}
-          opportunityStatus={opportunity.status}
-          activeFollowUp={activeFollowUp}
-        />
-      )}
-
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3 lg:grid-cols-4">
         <div className="md:col-span-1">
           <LeadInfoPanel lead={lead} meetingHistory={meetingHistory} />
@@ -241,10 +194,8 @@ export function MeetingDetailPageClient({
                   opportunity={opportunity}
                   viewerRole={viewerRole}
                   payments={outcomeActionBarPayments}
-                  meetingReview={meetingReview}
                   activeFollowUp={activeFollowUp}
                   onStatusChanged={refreshDetail}
-                  flashKey={flashKey}
                 />
               </div>
             </div>
@@ -282,34 +233,6 @@ export function MeetingDetailPageClient({
         </div>
       </div>
 
-      <AlertDialog
-        open={warningOpen}
-        onOpenChange={(value) => {
-          if (!value) dismissAndFlash();
-        }}
-      >
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogHeader>
-            <div className="flex items-start gap-3">
-              <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-destructive/10">
-                <AlertTriangleIcon className="size-4 text-destructive" />
-              </div>
-              <div className="flex-1">
-                <AlertDialogTitle>End the meeting first</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This meeting is still in progress. Press{" "}
-                  <span className="font-medium">End Meeting</span> before
-                  navigating away so the call duration is recorded correctly.
-                </AlertDialogDescription>
-              </div>
-            </div>
-          </AlertDialogHeader>
-
-          <AlertDialogFooter>
-            <AlertDialogCancel>Got it</AlertDialogCancel>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
