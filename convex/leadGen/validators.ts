@@ -9,6 +9,7 @@ export const leadGenOriginKindValidator = v.union(
   v.literal("post"),
   v.literal("reel"),
   v.literal("story_poll"),
+  v.literal("story"),
   v.literal("follower"),
   v.literal("application"),
   v.literal("source_only"),

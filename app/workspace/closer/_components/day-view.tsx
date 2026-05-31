@@ -109,6 +109,8 @@ export function DayView({ meetings, date }: DayViewProps) {
               status={m.meeting.status}
               leadName={m.leadName}
               eventTypeName={m.eventTypeName}
+              meetingJoinUrl={m.meeting.meetingJoinUrl}
+              zoomJoinUrl={m.meeting.zoomJoinUrl}
               style={{
                 top: getTopPx(m.meeting.scheduledAt, startHour),
                 height: getHeightPx(m.meeting.durationMinutes),
@@ -126,4 +128,3 @@ export function DayView({ meetings, date }: DayViewProps) {
     </ScrollArea>
   );
 }
-

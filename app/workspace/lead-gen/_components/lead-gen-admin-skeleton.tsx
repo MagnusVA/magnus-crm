@@ -18,7 +18,7 @@ export function LeadGenAdminSkeleton() {
         <Skeleton className="h-20" />
         <Skeleton className="h-20" />
       </div>
-      <div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_20rem]">
+      <div className="flex min-w-0 flex-col gap-4">
         <Skeleton className="h-[360px]" />
         <Skeleton className="h-[360px]" />
       </div>

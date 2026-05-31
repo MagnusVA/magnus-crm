@@ -11,11 +11,10 @@ import {
   isSameMonth,
   isToday,
 } from "date-fns";
-import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { meetingStatusConfig, type MeetingStatus } from "@/lib/status-config";
 
 import type { EnrichedMeeting } from "./calendar-utils";
+import { MeetingPill } from "./meeting-block";
 
 type MonthViewProps = {
   meetings: EnrichedMeeting[];
@@ -34,10 +33,8 @@ const MAX_DOTS = 3;
 /**
  * Month‑view calendar grid.
  *
- * Each day cell shows small coloured dots for meetings (up to 3) and a "+N"
- * overflow badge when there are more. Clicking a dot navigates to the
- * meeting detail page; clicking the day cell itself does nothing for now
- * (reserved for Phase 6 drill‑down).
+ * Each day cell shows compact meeting pills (up to 3) and a "+N" overflow
+ * badge when there are more. Clicking a pill opens the meeting detail dialog.
  */
 export function MonthView({ meetings, month }: MonthViewProps) {
   const calendarDays = useMemo(() => {
@@ -108,23 +105,18 @@ export function MonthView({ meetings, month }: MonthViewProps) {
               {/* Meeting dots / pills */}
               <div className="flex flex-col gap-0.5">
                 {dayMeetings.slice(0, MAX_DOTS).map((m) => {
-                  const config =
-                    meetingStatusConfig[m.meeting.status as MeetingStatus] ??
-                    meetingStatusConfig.scheduled;
                   return (
-                    <Link
+                    <MeetingPill
                       key={m.meeting._id}
-                      href={`/workspace/closer/meetings/${m.meeting._id}`}
-                      className={cn(
-                        "truncate rounded px-1 py-px text-[10px] leading-tight transition-opacity hover:opacity-80",
-                        config.blockClass,
-                        config.textClass,
-                      )}
-                      aria-label={`${m.leadName} at ${format(m.meeting.scheduledAt, "h:mm a")}`}
-                    >
-                      {format(m.meeting.scheduledAt, "h:mm")}{" "}
-                      {m.leadName}
-                    </Link>
+                      meetingId={m.meeting._id}
+                      scheduledAt={m.meeting.scheduledAt}
+                      durationMinutes={m.meeting.durationMinutes}
+                      status={m.meeting.status}
+                      leadName={m.leadName}
+                      eventTypeName={m.eventTypeName}
+                      meetingJoinUrl={m.meeting.meetingJoinUrl}
+                      zoomJoinUrl={m.meeting.zoomJoinUrl}
+                    />
                   );
                 })}
 

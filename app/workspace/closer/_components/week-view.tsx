@@ -106,7 +106,6 @@ export function WeekView({ meetings, startDate }: WeekViewProps) {
 
   const totalHeight = hours.length * HOUR_HEIGHT;
   const now = useCurrentTime();
-  const todayColumnIndex = days.findIndex((d) => isToday(d));
 
   return (
     <ScrollArea className="h-[calc(100dvh-20rem)] min-h-[400px] rounded-lg border">
@@ -188,6 +187,8 @@ export function WeekView({ meetings, startDate }: WeekViewProps) {
                     status={m.meeting.status}
                     leadName={m.leadName}
                     eventTypeName={m.eventTypeName}
+                    meetingJoinUrl={m.meeting.meetingJoinUrl}
+                    zoomJoinUrl={m.meeting.zoomJoinUrl}
                     style={{
                       top: getTopPx(m.meeting.scheduledAt, startHour),
                       height: getHeightPx(m.meeting.durationMinutes),

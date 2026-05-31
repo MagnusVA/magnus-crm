@@ -137,7 +137,7 @@ export function LeadGenAdminPageClient() {
 
 			<LeadGenSummaryCards data={overview} />
 
-			<div className="grid min-w-0 gap-4 2xl:grid-cols-[minmax(0,1fr)_20rem]">
+			<div className="flex min-w-0 flex-col gap-4">
 				<Tabs
 					className="min-w-0 overflow-hidden"
 					defaultValue="workers"

@@ -30,10 +30,9 @@ export function CalendarHeader({
   onViewModeChange,
 }: CalendarHeaderProps) {
   return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      {/* Left: navigation */}
-      <div className="flex items-center gap-2">
-        <div className="flex items-center">
+    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
+        <div className="flex shrink-0 items-center">
           <Button
             variant="outline"
             size="icon-sm"
@@ -56,10 +55,9 @@ export function CalendarHeader({
           Today
         </Button>
 
-        <h3 className="text-sm font-medium">{rangeLabel}</h3>
+        <h3 className="min-w-0 truncate text-sm font-medium">{rangeLabel}</h3>
       </div>
 
-      {/* Right: view mode toggle */}
       <Tabs
         value={viewMode}
         onValueChange={(v) => onViewModeChange(v as ViewMode)}
