@@ -16,14 +16,12 @@ export default function MeetingDetailLoading() {
 				</div>
 			</div>
 
-			{/* Packed 3-column workspace */}
-			<div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+			<div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
 				<div className="flex flex-col gap-4">
-					<Skeleton className="h-64 rounded-xl" />
-					<Skeleton className="h-40 rounded-xl" />
+					<Skeleton className="h-80 rounded-xl" />
+					<Skeleton className="h-12 rounded-xl" />
 				</div>
 				<div className="flex flex-col gap-4">
-					<Skeleton className="h-44 rounded-xl" />
 					<Skeleton className="h-40 rounded-xl" />
 				</div>
 				<div className="flex flex-col gap-4">

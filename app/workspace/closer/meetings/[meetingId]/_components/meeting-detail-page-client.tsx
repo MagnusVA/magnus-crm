@@ -44,7 +44,6 @@ import { PaymentLinksPanel } from "../../_components/payment-links-panel";
 import { OutcomeActionBar } from "../../_components/outcome-action-bar";
 import { BookingAnswersCard } from "../../_components/booking-answers-card";
 import { DealWonCard } from "../../_components/deal-won-card";
-import { AttributionCard } from "../../_components/attribution-card";
 import { PotentialDuplicateBanner } from "../../_components/potential-duplicate-banner";
 import { NoShowActionBar } from "../../_components/no-show-action-bar";
 import {
@@ -211,36 +210,31 @@ export function MeetingDetailPageClient({
         <RescheduleLinkSentBanner opportunityId={opportunity._id} />
       )}
 
-      {/* ── Packed 3-column workspace ────────────────────────────────────
-          1col on splitview/mobile · 2col on md · 3col on xl. Each column
-          groups related cards so everything is reachable with minimal scroll. */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {/* Column 1 — who & when */}
+      {/* ── Workspace: single column md–xl, 3 columns at xl+ ───────────── */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+        {/* Column 1 — lead, meeting, attribution, history */}
         <div className="flex min-w-0 flex-col gap-4">
           <MeetingOverviewCard
             lead={lead}
             meeting={meeting}
+            opportunity={opportunity}
             eventTypeName={eventTypeName}
             assignedCloser={assignedCloser}
+            attributionTeam={attributionTeam}
+            dmCloser={dmCloser}
           />
           <MeetingHistoryCard meetingHistory={meetingHistory} />
         </div>
 
-        {/* Column 2 — deal context */}
+        {/* Column 2 — booking context */}
         <div className="flex min-w-0 flex-col gap-4">
-          <AttributionCard
-            opportunity={opportunity}
-            meeting={meeting}
-            attributionTeam={attributionTeam}
-            dmCloser={dmCloser}
-          />
           <BookingAnswersCard customFields={lead.customFields} />
           {paymentLinks && paymentLinks.length > 0 && (
             <PaymentLinksPanel paymentLinks={paymentLinks} />
           )}
         </div>
 
-        {/* Column 3 — work surface: recording + conversation */}
+        {/* Column 3 — recording + conversation */}
         <div className="flex min-w-0 flex-col gap-4">
           <FathomLinkField
             meetingId={meeting._id}
@@ -302,13 +296,12 @@ function MeetingDetailSkeleton() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="flex flex-col gap-4">
-          <Skeleton className="h-64 rounded-xl" />
-          <Skeleton className="h-40 rounded-xl" />
+          <Skeleton className="h-80 rounded-xl" />
+          <Skeleton className="h-12 rounded-xl" />
         </div>
         <div className="flex flex-col gap-4">
-          <Skeleton className="h-44 rounded-xl" />
           <Skeleton className="h-40 rounded-xl" />
         </div>
         <div className="flex flex-col gap-4">
