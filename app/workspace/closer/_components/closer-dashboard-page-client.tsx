@@ -298,9 +298,10 @@ function DashboardSkeleton() {
             <Skeleton key={i} className="h-[78px] rounded-lg" />
           ))}
         </div>
-        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+        <Skeleton className="h-3 w-full rounded-full" />
+        <div className="flex flex-wrap gap-3">
           {Array.from({ length: 7 }).map((_, i) => (
-            <Skeleton key={i} className="h-[34px] rounded-md" />
+            <Skeleton key={i} className="h-3.5 w-20 rounded" />
           ))}
         </div>
       </div>

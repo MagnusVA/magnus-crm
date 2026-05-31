@@ -171,24 +171,122 @@ export function PipelineStrip({
           />
         </div>
 
-        {/* Condensed pipeline breakdown */}
-        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
-          {CLOSER_PIPELINE_ORDER.map((status) => {
-            const config = opportunityStatusConfig[status];
-            return (
-              <PipelineChip
-                key={status}
-                status={status}
-                label={config.label}
-                count={counts[status] ?? 0}
-                dotClass={config.dotClass}
-                help={STATUS_HELP[status]}
-              />
-            );
-          })}
-        </div>
+        {/* Condensed pipeline breakdown — a single stacked bar (100% = all
+            scoped opportunities) plus a compact, clickable legend. */}
+        <PipelineBar counts={counts} total={total} periodNoun={scopedText} />
       </section>
     </TooltipProvider>
+  );
+}
+
+const PERCENT_OF_TOTAL = new Intl.NumberFormat(undefined, {
+  style: "percent",
+  maximumFractionDigits: 0,
+});
+
+type PipelineBarProps = {
+  counts: Record<string, number>;
+  total: number;
+  periodNoun: string;
+};
+
+function PipelineBar({ counts, total, periodNoun }: PipelineBarProps) {
+  const segments = CLOSER_PIPELINE_ORDER.map((status) => {
+    const config = opportunityStatusConfig[status];
+    const count = counts[status] ?? 0;
+    return {
+      status,
+      label: config.label,
+      dotClass: config.dotClass,
+      help: STATUS_HELP[status],
+      count,
+      share: total > 0 ? count / total : 0,
+    };
+  });
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-2 px-0.5">
+        <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          Pipeline activity
+          <HelpDot label="pipeline activity">
+            Every opportunity with a meeting in the selected period, split by its
+            current status. The bar is the full 100%.
+          </HelpDot>
+        </span>
+        <span className="font-mono text-xs tabular-nums text-muted-foreground">
+          {total} total
+        </span>
+      </div>
+
+      {total === 0 ? (
+        <div className="flex h-3 w-full items-center overflow-hidden rounded-full bg-muted">
+          <span className="w-full px-2 text-center text-[10px] text-muted-foreground">
+            No activity {periodNoun}
+          </span>
+        </div>
+      ) : (
+        <div
+          className="flex h-3 w-full overflow-hidden rounded-full bg-muted ring-1 ring-inset ring-foreground/5"
+          role="img"
+          aria-label={`Pipeline breakdown: ${segments
+            .filter((s) => s.count > 0)
+            .map((s) => `${s.label} ${s.count}`)
+            .join(", ")}`}
+        >
+          {segments
+            .filter((s) => s.count > 0)
+            .map((s) => (
+              <Tooltip key={s.status}>
+                <TooltipTrigger asChild>
+                  <Link
+                    href={`/workspace/closer/pipeline?status=${s.status}`}
+                    className={cn(
+                      "h-full min-w-[3px] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      s.dotClass,
+                    )}
+                    style={{ width: `${s.share * 100}%` }}
+                    aria-label={`${s.label}: ${s.count} (${PERCENT_OF_TOTAL.format(
+                      s.share,
+                    )})`}
+                  />
+                </TooltipTrigger>
+                <TooltipContent>
+                  {s.label}: {s.count} · {PERCENT_OF_TOTAL.format(s.share)}
+                </TooltipContent>
+              </Tooltip>
+            ))}
+        </div>
+      )}
+
+      <ul className="flex flex-wrap gap-x-3 gap-y-1">
+        {segments.map((s) => (
+          <li key={s.status} className="min-w-0">
+            <Link
+              href={`/workspace/closer/pipeline?status=${s.status}`}
+              className={cn(
+                "group flex items-center gap-1.5 rounded px-0.5 py-0.5 text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                s.count === 0 && "opacity-50 hover:opacity-100",
+              )}
+              aria-label={`${s.label}: ${s.count} ${
+                s.count === 1 ? "opportunity" : "opportunities"
+              }`}
+            >
+              <span
+                className={cn("size-2 shrink-0 rounded-full", s.dotClass)}
+                aria-hidden="true"
+              />
+              <span className="truncate text-muted-foreground group-hover:text-foreground">
+                {s.label}
+              </span>
+              <span className="font-mono font-semibold tabular-nums">
+                {s.count}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -243,51 +341,6 @@ function KpiTile({
       </div>
       <p className="mt-1 truncate text-[11px] text-muted-foreground">{detail}</p>
     </div>
-  );
-}
-
-type PipelineChipProps = {
-  status: OpportunityStatus;
-  label: string;
-  count: number;
-  dotClass: string;
-  help: string;
-};
-
-function PipelineChip({
-  status,
-  label,
-  count,
-  dotClass,
-  help,
-}: PipelineChipProps) {
-  return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Link
-          href={`/workspace/closer/pipeline?status=${status}`}
-          className={cn(
-            "group flex min-w-0 items-center gap-2 rounded-md border bg-card px-2.5 py-1.5 transition-colors hover:border-primary/30 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            count === 0 && "opacity-60 hover:opacity-100",
-          )}
-          aria-label={`${label}: ${count} ${
-            count === 1 ? "opportunity" : "opportunities"
-          }`}
-        >
-          <span
-            className={cn("size-2 shrink-0 rounded-full", dotClass)}
-            aria-hidden="true"
-          />
-          <span className="min-w-0 flex-1 truncate text-xs font-medium leading-tight">
-            {label}
-          </span>
-          <span className="font-mono text-sm font-semibold tabular-nums">
-            {count}
-          </span>
-        </Link>
-      </TooltipTrigger>
-      <TooltipContent>{help}</TooltipContent>
-    </Tooltip>
   );
 }
 
