@@ -60,6 +60,12 @@ import {
 } from "./create-opportunity-schema";
 import { LeadCombobox } from "./lead-combobox";
 
+type CreateOpportunityResult = {
+	opportunityId: Id<"opportunities">;
+	leadId: Id<"leads">;
+	leadWasCreated: boolean;
+};
+
 const SOCIAL_PLATFORM_OPTIONS: Array<{
 	value: SocialPlatform;
 	label: string;
@@ -105,7 +111,19 @@ function extractSubmitErrorMessage(error: unknown) {
 	return sanitized || fallback;
 }
 
-export function CreateOpportunityPageClient() {
+export function CreateOpportunityPageClient({
+	backHref = "/workspace/opportunities",
+	backLabel = "Back to opportunities",
+	cancelHref = "/workspace/opportunities",
+	successHref = (result) => `/workspace/opportunities/${result.opportunityId}`,
+	title = "New opportunity",
+}: {
+	backHref?: string;
+	backLabel?: string;
+	cancelHref?: string;
+	successHref?: (result: CreateOpportunityResult) => string;
+	title?: string;
+}) {
 	const router = useRouter();
 	const searchParams = useSearchParams();
 	const { isAdmin } = useRole();
@@ -189,7 +207,7 @@ export function CreateOpportunityPageClient() {
 			});
 			toast.success("Opportunity created");
 			requestIdRef.current = crypto.randomUUID();
-			router.push(`/workspace/opportunities/${result.opportunityId}`);
+			router.push(successHref(result));
 		} catch (error) {
 			posthog.captureException(error);
 			const message = extractSubmitErrorMessage(error);
@@ -204,15 +222,15 @@ export function CreateOpportunityPageClient() {
 			<div className="flex flex-col gap-2">
 				<div>
 					<Button asChild variant="ghost" size="sm" className="-ml-2">
-						<Link href="/workspace/opportunities">
+						<Link href={backHref}>
 							<ChevronLeftIcon data-icon="inline-start" />
-							Back to opportunities
+							{backLabel}
 						</Link>
 					</Button>
 				</div>
 				<div className="flex flex-col gap-1">
 					<h1 className="text-2xl font-semibold tracking-tight">
-						New opportunity
+						{title}
 					</h1>
 					<p className="text-sm text-muted-foreground">
 						Create a side-deal opportunity, then record payment from its
@@ -502,7 +520,7 @@ export function CreateOpportunityPageClient() {
 
 					<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
 						<Button asChild variant="outline" type="button" disabled={isSubmitting}>
-							<Link href="/workspace/opportunities">Cancel</Link>
+							<Link href={cancelHref}>Cancel</Link>
 						</Button>
 						<Button type="submit" disabled={isSubmitting}>
 							{isSubmitting ? <Spinner data-icon="inline-start" /> : null}

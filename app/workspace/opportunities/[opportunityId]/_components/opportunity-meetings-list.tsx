@@ -45,9 +45,11 @@ function formatMeetingType(value: Meeting["callClassification"]) {
 export function OpportunityMeetingsList({
   meetings,
   meetingBasePath,
+  compact = false,
 }: {
   meetings: Meeting[];
   meetingBasePath: string;
+  compact?: boolean;
 }) {
   if (meetings.length === 0) {
     return (
@@ -72,8 +74,8 @@ export function OpportunityMeetingsList({
         <TableRow>
           <TableHead>Scheduled</TableHead>
           <TableHead>Status</TableHead>
-          <TableHead>Type</TableHead>
-          <TableHead>Duration</TableHead>
+          {compact ? null : <TableHead>Type</TableHead>}
+          {compact ? null : <TableHead>Duration</TableHead>}
           <TableHead className="text-right">Action</TableHead>
         </TableRow>
       </TableHeader>
@@ -84,8 +86,10 @@ export function OpportunityMeetingsList({
               {dateTimeFormatter.format(new Date(meeting.scheduledAt))}
             </TableCell>
             <TableCell>{meetingStatusConfig[meeting.status].label}</TableCell>
-            <TableCell>{formatMeetingType(meeting.callClassification)}</TableCell>
-            <TableCell>{meeting.durationMinutes} min</TableCell>
+            {compact ? null : (
+              <TableCell>{formatMeetingType(meeting.callClassification)}</TableCell>
+            )}
+            {compact ? null : <TableCell>{meeting.durationMinutes} min</TableCell>}
             <TableCell className="text-right">
               <Button
                 asChild
@@ -93,7 +97,11 @@ export function OpportunityMeetingsList({
                 size="sm"
                 aria-label="View meeting detail"
               >
-                <Link href={`${meetingBasePath}/${meeting._id}`}>
+                <Link
+                  href={`${meetingBasePath}/${meeting._id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
                   View
                   <ExternalLinkIcon aria-hidden="true" data-icon="inline-end" />
                 </Link>

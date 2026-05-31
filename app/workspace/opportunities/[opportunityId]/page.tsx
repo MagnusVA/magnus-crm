@@ -1,35 +1,32 @@
-import { Suspense } from "react";
 import { fetchQuery } from "convex/nextjs";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { requirePermission } from "@/lib/auth";
-import { OpportunityDetailClient } from "./_components/opportunity-detail-client";
-import { OpportunityDetailSkeleton } from "./_components/opportunity-detail-skeleton";
 
 export const unstable_instant = false;
 
-export default async function OpportunityDetailPage({
+export default async function LegacyOpportunityDetailPage({
   params,
 }: {
   params: Promise<{ opportunityId: string }>;
 }) {
   const { opportunityId } = await params;
   const { session } = await requirePermission("pipeline:view-own");
-  const typedOpportunityId = opportunityId as Id<"opportunities">;
-  const detail = await fetchQuery(
-    api.opportunities.detailQuery.getOpportunityDetail,
-    { opportunityId: typedOpportunityId },
-    { token: session.accessToken },
-  );
+  let target = null;
 
-  if (detail === null) {
-    notFound();
+  try {
+    target = await fetchQuery(
+      api.leadCustomers.redirects.resolveOpportunityRedirect,
+      { opportunityId: opportunityId as Id<"opportunities"> },
+      { token: session.accessToken },
+    );
+  } catch {
+    target = null;
   }
 
-  return (
-    <Suspense fallback={<OpportunityDetailSkeleton />}>
-      <OpportunityDetailClient opportunityId={typedOpportunityId} />
-    </Suspense>
+  if (!target) notFound();
+  redirect(
+    `/workspace/leads-customers/${target.leadId}?opportunityId=${target.opportunityId}`,
   );
 }

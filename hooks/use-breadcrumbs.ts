@@ -19,6 +19,8 @@ const SEGMENT_LABELS: Record<string, string> = {
   team: "Team",
   settings: "Settings",
   "lead-gen": "Lead Gen Ops",
+  "leads-customers": "Leads & Customers",
+  "new-opportunity": "New Side Deal",
   capture: "Capture",
   "my-activity": "My Activity",
   prospects: "Prospects",

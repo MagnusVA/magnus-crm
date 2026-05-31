@@ -84,6 +84,7 @@ import type * as leadCustomers_identifierResolution from "../leadCustomers/ident
 import type * as leadCustomers_permissions from "../leadCustomers/permissions.js";
 import type * as leadCustomers_projection from "../leadCustomers/projection.js";
 import type * as leadCustomers_queries from "../leadCustomers/queries.js";
+import type * as leadCustomers_redirects from "../leadCustomers/redirects.js";
 import type * as leadCustomers_searchText from "../leadCustomers/searchText.js";
 import type * as leadCustomers_types from "../leadCustomers/types.js";
 import type * as leadCustomers_validators from "../leadCustomers/validators.js";
@@ -366,6 +367,7 @@ declare const fullApi: ApiFromModules<{
   "leadCustomers/permissions": typeof leadCustomers_permissions;
   "leadCustomers/projection": typeof leadCustomers_projection;
   "leadCustomers/queries": typeof leadCustomers_queries;
+  "leadCustomers/redirects": typeof leadCustomers_redirects;
   "leadCustomers/searchText": typeof leadCustomers_searchText;
   "leadCustomers/types": typeof leadCustomers_types;
   "leadCustomers/validators": typeof leadCustomers_validators;

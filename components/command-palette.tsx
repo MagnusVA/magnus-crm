@@ -15,8 +15,8 @@ import {
 import { Kbd } from "@/components/ui/kbd";
 import {
   ActivityIcon,
-  ClipboardListIcon,
   ContactIcon,
+  ClipboardListIcon,
   DollarSignIcon,
   LayoutDashboardIcon,
   UsersIcon,
@@ -32,10 +32,9 @@ import { useRole } from "@/components/auth/role-context";
 const adminPages = [
   { label: "Overview", href: "/workspace", icon: LayoutDashboardIcon, shortcut: "1" },
   { label: "Operations", href: "/workspace/operations", icon: KanbanIcon, shortcut: "2" },
-  { label: "Leads", href: "/workspace/leads", icon: ContactIcon, shortcut: "3" },
+  { label: "Leads & Customers", href: "/workspace/leads-customers", icon: ContactIcon, shortcut: "3" },
   { label: "Lead Gen Ops", href: "/workspace/lead-gen", icon: ClipboardListIcon },
   { label: "Lead Gen Settings", href: "/workspace/lead-gen/settings", icon: SettingsIcon },
-  { label: "Opportunities", href: "/workspace/opportunities", icon: TargetIcon },
   { label: "Team", href: "/workspace/team", icon: UsersIcon },
   { label: "Settings", href: "/workspace/settings", icon: SettingsIcon },
 ];
@@ -50,8 +49,8 @@ const billingPage = {
 const closerPages = [
   { label: "Dashboard", href: "/workspace/closer", icon: LayoutDashboardIcon, shortcut: "1" },
   { label: "My Pipeline", href: "/workspace/closer/pipeline", icon: KanbanIcon, shortcut: "2" },
-  { label: "My Schedule", href: "/workspace/closer", icon: CalendarIcon, shortcut: "3" },
-  { label: "Opportunities", href: "/workspace/opportunities", icon: TargetIcon },
+  { label: "Leads & Customers", href: "/workspace/leads-customers", icon: ContactIcon, shortcut: "3" },
+  { label: "My Schedule", href: "/workspace/closer", icon: CalendarIcon },
 ];
 
 const leadGenPages = [
@@ -144,7 +143,7 @@ export function CommandPalette({
               ) : null}
               {showCreateOpportunity ? (
                 <CommandItem
-                  onSelect={() => navigate("/workspace/opportunities/new")}
+                  onSelect={() => navigate("/workspace/leads-customers/new-opportunity")}
                 >
                   <PlusIcon />
                   <span>Create opportunity</span>

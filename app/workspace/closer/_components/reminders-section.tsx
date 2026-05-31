@@ -81,7 +81,7 @@ export function RemindersSection() {
 									urgency={urgency}
 									href={
 										reminder.reason === "stale_opportunity_nudge"
-											? `/workspace/opportunities/${reminder.opportunityId}`
+											? `/workspace/leads-customers/${reminder.leadId}?opportunityId=${reminder.opportunityId}`
 											: `/workspace/closer/reminders/${reminder._id}`
 									}
 								/>
