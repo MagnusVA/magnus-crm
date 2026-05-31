@@ -20,6 +20,8 @@ export type EnrichedMeeting = {
     scheduledAt: number;
     durationMinutes: number;
     status: string;
+    meetingJoinUrl?: string;
+    zoomJoinUrl?: string;
   };
   leadName: string;
   eventTypeName?: string | null;

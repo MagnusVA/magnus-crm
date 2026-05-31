@@ -7,6 +7,7 @@ import {
   endOfMonth,
   endOfWeek,
   format,
+  isSameDay,
   startOfDay,
   startOfMonth,
   startOfWeek,
@@ -16,9 +17,16 @@ import { api } from "@/convex/_generated/api";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { usePollingQuery } from "@/hooks/use-polling-query";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
 import { useRole } from "@/components/auth/role-context";
 import { useRouter } from "next/navigation";
+import {
+  DashboardDateRangeFilter,
+  type DashboardRangeInput,
+} from "@/app/workspace/_components/dashboard-date-range-filter";
+import {
+  businessDateToCalendarDate,
+  validateCustomDashboardRange,
+} from "@/app/workspace/_components/dashboard-date-utils";
 import { UnmatchedBanner } from "./unmatched-banner";
 import { FeaturedMeetingCard } from "./featured-meeting-card";
 import { RemindersSection } from "./reminders-section";
@@ -36,18 +44,94 @@ type NextMeetingData =
     }
   | null;
 
+type DerivedStatsRange = {
+  startDate: number;
+  endDate: number;
+  label: string;
+  periodNoun: string;
+};
+
+function formatRangeLabel(start: Date, end: Date): string {
+  if (isSameDay(start, end)) {
+    return format(start, "MMM d, yyyy");
+  }
+  if (start.getFullYear() === end.getFullYear()) {
+    return `${format(start, "MMM d")} - ${format(end, "MMM d, yyyy")}`;
+  }
+  return `${format(start, "MMM d, yyyy")} - ${format(end, "MMM d, yyyy")}`;
+}
+
+function deriveStatsRange(range: DashboardRangeInput): DerivedStatsRange {
+  const now = new Date();
+  let start: Date;
+  let end: Date;
+  let periodNoun: string;
+
+  if (range.kind === "custom") {
+    start = startOfDay(businessDateToCalendarDate(range.startBusinessDate));
+    end = endOfDay(
+      businessDateToCalendarDate(range.endBusinessDateInclusive),
+    );
+    periodNoun = "selected range";
+  } else if (range.preset === "today") {
+    start = startOfDay(now);
+    end = endOfDay(now);
+    periodNoun = "today";
+  } else if (range.preset === "this_week") {
+    start = startOfWeek(now, { weekStartsOn: 1 });
+    end = endOfWeek(now, { weekStartsOn: 1 });
+    periodNoun = "this week";
+  } else {
+    start = startOfMonth(now);
+    end = endOfMonth(now);
+    periodNoun = "this month";
+  }
+
+  return {
+    startDate: start.getTime(),
+    endDate: end.getTime() + 1,
+    label: formatRangeLabel(start, end),
+    periodNoun,
+  };
+}
+
 export function CloserDashboardPageClient() {
   usePageTitle("My Dashboard");
   const router = useRouter();
   const { isAdmin } = useRole();
 
-  // ── Shared filter state (calendar + pipeline strip) ───────────────────
-  // Owned here so a single source of truth drives both the calendar query
-  // and the stats query. Defaults match the calendar's previous defaults.
+  // ── Performance period filter ──────────────────────────────────────────
+  // Matches the overview dashboard control, but stays independent from the
+  // schedule calendar so closers can inspect a week while reviewing month stats.
+  // Defaults to "this week": a single day usually reads as empty for a closer,
+  // and it lines up with the calendar's default week view.
+  const [statsRange, setStatsRange] = useState<DashboardRangeInput>({
+    kind: "preset",
+    preset: "this_week",
+  });
+  const [queryStatsRange, setQueryStatsRange] = useState<DashboardRangeInput>({
+    kind: "preset",
+    preset: "this_week",
+  });
+
+  const statsRangeValidationMessage =
+    statsRange.kind === "custom"
+      ? validateCustomDashboardRange({
+          startBusinessDate: statsRange.startBusinessDate,
+          endBusinessDateInclusive: statsRange.endBusinessDateInclusive,
+        })
+      : null;
+
+  const statsWindow = useMemo(
+    () => deriveStatsRange(queryStatsRange),
+    [queryStatsRange],
+  );
+
+  // ── Schedule calendar state ────────────────────────────────────────────
   const [viewMode, setViewMode] = useState<ViewMode>("week");
   const [currentDate, setCurrentDate] = useState(() => new Date());
 
-  const { startDate, endDate } = useMemo(() => {
+  const { scheduleStartDate, scheduleEndDate } = useMemo(() => {
     let start: Date;
     let end: Date;
 
@@ -63,10 +147,13 @@ export function CloserDashboardPageClient() {
       end = endOfWeek(endOfMonth(currentDate));
     }
 
-    return { startDate: start.getTime(), endDate: end.getTime() };
+    return {
+      scheduleStartDate: start.getTime(),
+      scheduleEndDate: end.getTime() + 1,
+    };
   }, [currentDate, viewMode]);
 
-  const rangeLabel = useMemo(() => {
+  const scheduleRangeLabel = useMemo(() => {
     if (viewMode === "day") {
       return format(currentDate, "EEEE, MMMM d, yyyy");
     }
@@ -84,7 +171,9 @@ export function CloserDashboardPageClient() {
   );
   const pipelineSummary = useQuery(
     api.closer.dashboard.getPipelineSummary,
-    isAdmin ? "skip" : { startDate, endDate },
+    isAdmin
+      ? "skip"
+      : { startDate: statsWindow.startDate, endDate: statsWindow.endDate },
   );
 
   const nextMeeting = usePollingQuery(
@@ -109,20 +198,44 @@ export function CloserDashboardPageClient() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight text-pretty">
-          My Dashboard
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Welcome back, {profile.fullName ?? profile.email}
-        </p>
-      </div>
+    <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 pb-6">
+      <header className="flex flex-col gap-3 border-b pb-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="mt-[3px] h-7 w-[3px] shrink-0 rounded-full bg-primary/75" />
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold text-pretty">
+              My Dashboard
+            </h1>
+            <p className="mt-1 truncate text-sm text-muted-foreground">
+              Welcome back, {profile.fullName ?? profile.email}
+            </p>
+          </div>
+        </div>
+        <DashboardDateRangeFilter
+          value={statsRange}
+          onChange={(nextRange) => {
+            setStatsRange(nextRange);
+            if (
+              nextRange.kind === "preset" ||
+              validateCustomDashboardRange({
+                startBusinessDate: nextRange.startBusinessDate,
+                endBusinessDateInclusive:
+                  nextRange.endBusinessDateInclusive,
+              }) === null
+            ) {
+              setQueryStatsRange(nextRange);
+            }
+          }}
+          validationMessage={statsRangeValidationMessage}
+        />
+      </header>
 
       {!profile.isCalendlyLinked && <UnmatchedBanner />}
 
-      {/* Next meeting + reminders — side by side on desktop */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_minmax(0,400px)]">
+      {/* Upcoming meeting + reminders. Auto-fit so that when there are no
+          reminders the meeting card reflows to fill the full width instead of
+          leaving a gap, and the pair stacks cleanly in split-view widths. */}
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,340px),1fr))] gap-3">
         {nextMeeting ? (
           <FeaturedMeetingCard
             meeting={nextMeeting.meeting}
@@ -132,29 +245,29 @@ export function CloserDashboardPageClient() {
         ) : (
           <CloserEmptyState
             title="No upcoming meetings"
-            description="You don't have any scheduled meetings. New meetings will appear here automatically when leads book through Calendly."
+            description="New meetings appear here automatically when leads book through Calendly."
           />
         )}
 
-        {/* Reminders panel — only renders when closer has active reminders */}
         <RemindersSection />
       </div>
 
       <PipelineStrip
         counts={pipelineSummary.counts}
         total={pipelineSummary.total}
-        rangeLabel={rangeLabel}
-        viewMode={viewMode}
+        rangeLabel={statsWindow.label}
+        periodNoun={statsWindow.periodNoun}
+        cashCollectedMinor={pipelineSummary.cashCollectedMinor}
+        cashPaymentCount={pipelineSummary.cashPaymentCount}
+        isPaymentDataTruncated={pipelineSummary.isPaymentDataTruncated}
       />
-
-      <Separator />
 
       <CalendarSection
         viewMode={viewMode}
         currentDate={currentDate}
-        startDate={startDate}
-        endDate={endDate}
-        rangeLabel={rangeLabel}
+        startDate={scheduleStartDate}
+        endDate={scheduleEndDate}
+        rangeLabel={scheduleRangeLabel}
         onViewModeChange={setViewMode}
         onCurrentDateChange={setCurrentDate}
       />
@@ -164,22 +277,36 @@ export function CloserDashboardPageClient() {
 
 function DashboardSkeleton() {
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-2">
-        <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-4 w-64" />
+    <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 pb-6">
+      <div className="flex flex-col gap-3 border-b pb-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-8 w-48" />
+          <Skeleton className="h-4 w-64" />
+        </div>
+        <Skeleton className="h-9 w-72 rounded-lg" />
       </div>
 
-      <Skeleton className="h-[180px] rounded-xl" />
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,340px),1fr))] gap-3">
+        <Skeleton className="h-[132px] rounded-xl" />
+        <Skeleton className="h-[132px] rounded-xl" />
+      </div>
 
-      <div className="flex flex-col gap-3">
-        <Skeleton className="h-4 w-24" />
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 lg:grid-cols-7">
+      <div className="flex flex-col gap-3 rounded-xl p-3 ring-1 ring-foreground/10">
+        <Skeleton className="h-4 w-40" />
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-[78px] rounded-lg" />
+          ))}
+        </div>
+        <Skeleton className="h-3 w-full rounded-full" />
+        <div className="flex flex-wrap gap-3">
           {Array.from({ length: 7 }).map((_, i) => (
-            <Skeleton key={i} className="h-[76px] rounded-lg" />
+            <Skeleton key={i} className="h-3.5 w-20 rounded" />
           ))}
         </div>
       </div>
+
+      <Skeleton className="h-[400px] rounded-xl" />
     </div>
   );
 }

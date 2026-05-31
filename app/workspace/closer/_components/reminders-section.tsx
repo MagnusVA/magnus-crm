@@ -56,10 +56,10 @@ export function RemindersSection() {
 	if (!reminders || reminders.length === 0) return null;
 
 	return (
-		<Card className="flex flex-col">
-			<CardHeader>
+		<Card size="sm" className="flex flex-col shadow-sm">
+			<CardHeader className="pb-0">
 				<div className="flex items-center gap-2">
-					<BellIcon className="text-muted-foreground size-4" />
+					<BellIcon className="size-4 text-muted-foreground" aria-hidden="true" />
 					<CardTitle>Reminders</CardTitle>
 				</div>
 				<CardAction>
@@ -67,7 +67,7 @@ export function RemindersSection() {
 				</CardAction>
 			</CardHeader>
 			<CardContent className="flex-1 p-0">
-				<div className="max-h-[280px] overflow-y-auto">
+				<div className="max-h-[220px] overflow-y-auto">
 					{reminders.map((reminder, index) => {
 						const urgency = getReminderUrgency(
 							reminder.reminderScheduledAt ?? 0,
@@ -132,7 +132,7 @@ function ReminderListItem({
 					: `Open reminder for ${reminder.leadName}`
 			}
 			className={cn(
-				"hover:bg-accent focus-visible:ring-ring flex w-full items-center gap-3 px-4 py-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset",
+				"hover:bg-accent focus-visible:ring-ring flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset",
 				urgency === "red" && "bg-red-50 dark:bg-red-950/20",
 				urgency === "amber" && "bg-amber-50 dark:bg-amber-950/20",
 			)}
@@ -173,7 +173,7 @@ function ReminderListItem({
 				}
 				className="shrink-0"
 			>
-				<MethodIcon className="mr-1 size-3" />
+				<MethodIcon className="mr-1 size-3" aria-hidden="true" />
 				{methodLabel}
 				{" · "}
 				{statusLabel}

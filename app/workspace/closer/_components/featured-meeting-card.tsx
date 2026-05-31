@@ -71,8 +71,9 @@ export function FeaturedMeetingCard({
 
   return (
     <Card
+      size="sm"
       className={cn(
-        "border-l-[3px]",
+        "border-l-[3px] shadow-sm",
         // Intentional raw colors — urgency signals (started/soon/normal)
         hasStarted
           ? "border-l-emerald-500"
@@ -81,13 +82,16 @@ export function FeaturedMeetingCard({
             : "border-l-primary",
       )}
     >
-      <CardHeader>
-        <div className="flex items-center gap-2.5">
-          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+      <CardHeader className="pb-0">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
             <UserIcon className="size-4 text-primary" />
           </div>
           <div className="min-w-0">
-            <CardTitle className="truncate">
+            <p className="text-[11px] font-medium uppercase text-muted-foreground">
+              Next Meeting
+            </p>
+            <CardTitle className="truncate text-base">
               {lead?.fullName ?? lead?.email ?? "Unknown Lead"}
             </CardTitle>
             {lead?.fullName && lead.email && (
@@ -123,18 +127,17 @@ export function FeaturedMeetingCard({
       </CardHeader>
 
       <CardContent>
-        <div className="flex flex-col gap-4">
-          {/* Meeting details */}
-          <div className="flex flex-col gap-1.5 text-sm text-muted-foreground">
+        <div className="flex flex-col gap-3">
+          <div className="grid gap-x-3 gap-y-1.5 text-sm text-muted-foreground md:grid-cols-2">
             {eventTypeName && (
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 <CalendarDaysIcon className="size-3.5 shrink-0" />
-                <span>{eventTypeName}</span>
+                <span className="truncate">{eventTypeName}</span>
               </div>
             )}
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 items-center gap-2">
               <ClockIcon className="size-3.5 shrink-0" />
-              <span>
+              <span className="truncate">
                 {format(meeting.scheduledAt, "EEEE, MMM d · h:mm a")}
                 {" · "}
                 {meeting.durationMinutes}&nbsp;min
@@ -142,10 +145,9 @@ export function FeaturedMeetingCard({
             </div>
           </div>
 
-          {/* Actions */}
           <div className="flex flex-wrap items-center gap-2">
             {(meeting.meetingJoinUrl ?? meeting.zoomJoinUrl) && (
-              <Button asChild>
+              <Button size="sm" asChild>
                 <a
                   href={meeting.meetingJoinUrl ?? meeting.zoomJoinUrl}
                   target="_blank"
@@ -156,7 +158,7 @@ export function FeaturedMeetingCard({
                 </a>
               </Button>
             )}
-            <Button variant="outline" asChild>
+            <Button size="sm" variant="outline" asChild>
               <Link href={`/workspace/closer/meetings/${meeting._id}`}>
                 View Details
                 <ArrowRightIcon data-icon="inline-end" />

@@ -12,6 +12,7 @@ import { useMutation, useQuery } from "convex/react";
 import {
   AtSignIcon,
   CheckCircle2Icon,
+  CircleDashedIcon,
   ClipboardCheckIcon,
   FileTextIcon,
   LinkIcon,
@@ -52,7 +53,11 @@ const HONDURAS_TIME_ZONE = "America/Tegucigalpa";
 const BUSINESS_DAY_START_OFFSET_MS = 60 * 60 * 1000;
 
 type CaptureSource = "instagram" | "meta_business";
-type NonRankableInstagramOrigin = "story_poll" | "follower" | "application";
+type NonRankableInstagramOrigin =
+  | "story_poll"
+  | "story"
+  | "follower"
+  | "application";
 
 type InstagramOriginSession =
   | {
@@ -123,6 +128,7 @@ const sourceOptions = [
 
 const nonRankableInstagramOrigins = [
   { value: "story_poll", label: "Story Poll", icon: MessageCircleIcon },
+  { value: "story", label: "Story", icon: CircleDashedIcon },
   { value: "follower", label: "Follower", icon: UsersIcon },
   { value: "application", label: "Application", icon: FileTextIcon },
 ] as const;
@@ -481,7 +487,7 @@ function InstagramOriginStep({
           Instagram Origin
         </h2>
         <p className="text-sm text-muted-foreground">
-          Post, reel, story poll, follower, or application batch.
+          Post, reel, story, story poll, follower, or application batch.
         </p>
       </div>
 
@@ -514,7 +520,7 @@ function InstagramOriginStep({
         ) : null}
       </div>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2">
         {nonRankableInstagramOrigins.map((option) => {
           const Icon = option.icon;
 

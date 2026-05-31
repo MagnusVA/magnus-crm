@@ -38,10 +38,14 @@ type CalendarSectionProps = {
  */
 export function CalendarSection(props: CalendarSectionProps) {
   return (
-    <div>
-      <h2 className="mb-3 text-lg font-semibold tracking-tight text-pretty">
-        My Schedule
-      </h2>
+    <div className="min-w-0">
+      <div className="mb-2">
+        <h2 className="text-lg font-semibold text-pretty">My Schedule</h2>
+        <p className="text-xs text-muted-foreground">
+          Switch between day, week and month. Click any meeting to see its
+          details and jump into the call.
+        </p>
+      </div>
       <CalendarView {...props} />
     </div>
   );

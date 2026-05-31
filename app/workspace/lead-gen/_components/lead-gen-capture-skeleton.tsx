@@ -23,7 +23,8 @@ export function LeadGenCaptureSkeleton() {
           <Skeleton className="h-4 w-64 max-w-full" />
         </div>
         <Skeleton className="h-11 w-full" />
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="grid grid-cols-2 gap-2">
+          <Skeleton className="h-10" />
           <Skeleton className="h-10" />
           <Skeleton className="h-10" />
           <Skeleton className="h-10" />

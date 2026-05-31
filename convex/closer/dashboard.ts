@@ -1,9 +1,12 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
+import type { QueryCtx } from "../_generated/server";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
+import { resolvePaymentType } from "../lib/paymentTypes";
 
 const PIPELINE_STATUSES = [
+  "qualified_pending",
   "scheduled",
   "follow_up_scheduled",
   "reschedule_link_sent",
@@ -14,9 +17,12 @@ const PIPELINE_STATUSES = [
 ] as const;
 
 type PipelineStatus = (typeof PIPELINE_STATUSES)[number];
+const MAX_CLOSER_PAYMENT_SCAN_ROWS = 2500;
+const PIPELINE_STATUS_SET = new Set<string>(PIPELINE_STATUSES);
 
 function emptyCounts(): Record<PipelineStatus, number> {
   return {
+    qualified_pending: 0,
     scheduled: 0,
     follow_up_scheduled: 0,
     reschedule_link_sent: 0,
@@ -24,6 +30,49 @@ function emptyCounts(): Record<PipelineStatus, number> {
     lost: 0,
     canceled: 0,
     no_show: 0,
+  };
+}
+
+async function getCashCollectedForCloserInRange(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    userId: Id<"users">;
+    startDate: number;
+    endDate: number;
+  },
+) {
+  const payments = await ctx.db
+    .query("paymentRecords")
+    .withIndex("by_tenantId_and_attributedCloserId_and_recordedAt", (q) =>
+      q
+        .eq("tenantId", args.tenantId)
+        .eq("attributedCloserId", args.userId)
+        .gte("recordedAt", args.startDate)
+        .lt("recordedAt", args.endDate),
+    )
+    .take(MAX_CLOSER_PAYMENT_SCAN_ROWS + 1);
+
+  let cashCollectedMinor = 0;
+  let cashPaymentCount = 0;
+
+  for (const payment of payments.slice(0, MAX_CLOSER_PAYMENT_SCAN_ROWS)) {
+    if (
+      payment.status === "disputed" ||
+      !payment.commissionable ||
+      resolvePaymentType(payment.paymentType) === "deposit"
+    ) {
+      continue;
+    }
+
+    cashCollectedMinor += payment.amountMinor;
+    cashPaymentCount += 1;
+  }
+
+  return {
+    cashCollectedMinor,
+    cashPaymentCount,
+    isPaymentDataTruncated: payments.length > MAX_CLOSER_PAYMENT_SCAN_ROWS,
   };
 }
 
@@ -96,10 +145,9 @@ export const getNextMeeting = query({
  *
  * **Date filtering** — when `startDate` and `endDate` are both provided,
  * counts are restricted to opportunities that have at least one meeting whose
- * `scheduledAt` falls inside [startDate, endDate). This mirrors the calendar
- * view's filter so the strip and the schedule below it always describe the
- * same time slice. When neither is provided (or the closer-pipeline page
- * calls without args), the original all-time behaviour applies.
+ * `scheduledAt` falls inside [startDate, endDate). The closer dashboard uses
+ * this for its period filter. When neither is provided (or the closer-pipeline
+ * page calls without args), the original all-time behaviour applies.
  */
 export const getPipelineSummary = query({
   args: {
@@ -147,16 +195,26 @@ export const getPipelineSummary = query({
         if (opportunity.assignedCloserId !== userId) {
           continue;
         }
+        if (!PIPELINE_STATUS_SET.has(opportunity.status)) {
+          continue;
+        }
         counts[opportunity.status as PipelineStatus] += 1;
         total += 1;
       }
+
+      const cash = await getCashCollectedForCloserInRange(ctx, {
+        tenantId,
+        userId,
+        startDate,
+        endDate,
+      });
 
       console.log("[Closer:Dashboard] getPipelineSummary (filtered) counts", {
         total,
         counts,
         meetingsScanned: opportunityIds.size,
       });
-      return { counts, total };
+      return { counts, total, ...cash };
     }
 
     // ── All-time mode (legacy / pipeline page) ─────────────────────────────
@@ -183,7 +241,13 @@ export const getPipelineSummary = query({
       total,
       counts,
     });
-    return { counts, total };
+    return {
+      counts,
+      total,
+      cashCollectedMinor: null,
+      cashPaymentCount: null,
+      isPaymentDataTruncated: false,
+    };
   },
 });
 

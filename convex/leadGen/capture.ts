@@ -23,6 +23,7 @@ const INSTAGRAM_CAPTURE_ORIGINS = new Set<LeadGenOriginKind>([
   "post",
   "reel",
   "story_poll",
+  "story",
   "follower",
   "application",
 ]);
@@ -209,7 +210,7 @@ function resolveCaptureOrigin(args: {
 
   if (!INSTAGRAM_CAPTURE_ORIGINS.has(args.originKind)) {
     throw new Error(
-      "Choose Post, Reel, Story Poll, Follower, or Application for Instagram source",
+      "Choose Post, Reel, Story, Story Poll, Follower, or Application for Instagram source",
     );
   }
 
