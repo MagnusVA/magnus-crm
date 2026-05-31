@@ -16,13 +16,18 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import {
+  CalendarCheckIcon,
   CalendarDaysIcon,
   ClockIcon,
   CopyIcon,
+  DollarSignIcon,
+  GlobeIcon,
   LinkIcon,
   MailIcon,
+  MegaphoneIcon,
   PhoneIcon,
   TagIcon,
+  TrendingUpIcon,
   UserIcon,
   VideoIcon,
 } from "lucide-react";
@@ -43,27 +48,41 @@ const MEETING_BADGE_CLASS: Record<string, string> = {
 type MeetingOverviewCardProps = {
   lead: Doc<"leads">;
   meeting: Doc<"meetings">;
+  opportunity: Doc<"opportunities">;
   eventTypeName: string | null;
   assignedCloser: { fullName?: string; email: string } | null;
+  attributionTeam?: Doc<"attributionTeams"> | null;
+  dmCloser?: Doc<"dmClosers"> | null;
 };
 
 /**
- * Combined lead + meeting overview.
+ * Combined lead, meeting, and attribution overview.
  *
- * Couples the lead's identity/contact details with the core meeting facts in a
- * single dense card so closers see "who + when + where" without scanning two
- * separate panels. Contact values are click-to-act (mailto/tel) and
- * copy-on-hover; the meeting link sits inline with the date grid.
+ * Packs identity, contact, schedule, join link, and attribution into one card so
+ * closers see "who + when + where + deal context" without scanning multiple panels.
  */
 export function MeetingOverviewCard({
   lead,
   meeting,
+  opportunity,
   eventTypeName,
   assignedCloser,
+  attributionTeam,
+  dmCloser,
 }: MeetingOverviewCardProps) {
   const statusKey = meeting.status as MeetingStatus;
   const statusCfg = meetingStatusConfig[statusKey];
   const meetingJoinUrl = meeting.meetingJoinUrl ?? meeting.zoomJoinUrl;
+
+  const utm = meeting.utmParams ?? opportunity.utmParams;
+  const bookedProgramName =
+    meeting.bookingProgramName ??
+    opportunity.firstBookingProgramName ??
+    "Unmapped";
+  const soldProgramName =
+    meeting.soldProgramName ?? opportunity.soldProgramName ?? "No payment yet";
+  const dmTeamName = attributionTeam?.displayName ?? utm?.utm_source ?? "None";
+  const dmCloserName = dmCloser?.displayName ?? utm?.utm_medium ?? "None";
 
   const initial = (lead.fullName ?? lead.email ?? "?").charAt(0).toUpperCase();
 
@@ -164,6 +183,34 @@ export function MeetingOverviewCard({
             </p>
           </div>
         )}
+
+        <Separator />
+
+        {/* ── Attribution ──────────────────────────────────────────── */}
+        <div>
+          <p className="mb-2.5 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <TrendingUpIcon className="size-3.5" aria-hidden />
+            Attribution
+          </p>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <AttrFact
+              icon={<CalendarCheckIcon />}
+              label="Booked Program"
+              value={bookedProgramName}
+            />
+            <AttrFact
+              icon={<DollarSignIcon />}
+              label="Sold Program"
+              value={soldProgramName}
+            />
+            <AttrFact icon={<GlobeIcon />} label="DM Team" value={dmTeamName} />
+            <AttrFact
+              icon={<MegaphoneIcon />}
+              label="DM Closer"
+              value={dmCloserName}
+            />
+          </dl>
+        </div>
       </CardContent>
     </Card>
   );
@@ -254,6 +301,28 @@ function Fact({
         {label}
       </dt>
       <dd className="min-w-0">{children}</dd>
+    </div>
+  );
+}
+
+function AttrFact({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <dt className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span className="[&>svg]:size-3">{icon}</span>
+        {label}
+      </dt>
+      <dd className="truncate text-sm font-medium" title={value}>
+        {value}
+      </dd>
     </div>
   );
 }
