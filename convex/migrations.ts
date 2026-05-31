@@ -3,6 +3,7 @@ import { components } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import { leadGenWeekdayForBusinessDate } from "./leadGen/schedules";
+import { rebuildLeadCustomerSearchRow } from "./leadCustomers/projection";
 import { upsertOpportunitySearchProjection } from "./lib/opportunitySearch";
 import {
   insertOperationsMeetingStats,
@@ -84,6 +85,56 @@ export const assertOpportunitySearchProjectionBackfilled = migrations.define({
       throw new Error(
         `Opportunity ${opportunity._id} has a stale opportunitySearch projection`,
       );
+    }
+  },
+});
+
+export const backfillLeadCustomerSearchRows = migrations.define({
+  table: "leads",
+  batchSize: 100,
+  migrateOne: async (ctx, lead) => {
+    await rebuildLeadCustomerSearchRow(ctx, lead.tenantId, lead._id);
+  },
+});
+
+export const assertLeadCustomerSearchRowsBackfilled = migrations.define({
+  table: "leads",
+  batchSize: 100,
+  migrateOne: async (ctx, lead) => {
+    const row = await ctx.db
+      .query("leadCustomerSearchRows")
+      .withIndex("by_tenantId_and_leadId", (q) =>
+        q.eq("tenantId", lead.tenantId).eq("leadId", lead._id),
+      )
+      .unique();
+
+    if (!row) {
+      throw new Error(`Lead ${lead._id} is missing leadCustomerSearchRows row`);
+    }
+    if (row.tenantId !== lead.tenantId || row.leadId !== lead._id) {
+      throw new Error(`Lead ${lead._id} has mismatched projection identity`);
+    }
+    if (row.leadStatus !== lead.status) {
+      throw new Error(`Lead ${lead._id} has stale leadStatus projection`);
+    }
+
+    const customer = await ctx.db
+      .query("customers")
+      .withIndex("by_tenantId_and_leadId", (q) =>
+        q.eq("tenantId", lead.tenantId).eq("leadId", lead._id),
+      )
+      .first();
+    const expectedLifecycle =
+      lead.status === "merged" ? "merged" : customer ? "customer" : "lead";
+
+    if (row.lifecycle !== expectedLifecycle) {
+      throw new Error(`Lead ${lead._id} has stale lifecycle projection`);
+    }
+    if (row.isSearchVisible !== (expectedLifecycle !== "merged")) {
+      throw new Error(`Lead ${lead._id} has invalid visibility projection`);
+    }
+    if (row.customerId !== customer?._id) {
+      throw new Error(`Lead ${lead._id} has stale customer projection`);
     }
   },
 });

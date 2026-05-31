@@ -9,6 +9,7 @@ import {
   type IdentifierType,
   type SocialPlatformType,
 } from "../lib/normalization";
+import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { insertLeadAggregate } from "../reporting/writeHooks";
@@ -545,6 +546,7 @@ export async function resolveLeadIdentity(
   await updateTenantStats(ctx, args.tenantId, {
     totalLeads: 1,
   });
+  await rebuildLeadCustomerSearchRow(ctx, args.tenantId, leadId);
 
   const potentialDuplicateLeadId = normalizedEmail
     ? await detectPotentialDuplicate(

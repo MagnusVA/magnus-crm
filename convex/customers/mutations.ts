@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
+import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
 import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
@@ -90,6 +91,7 @@ export const updateCustomerStatus = mutation({
       churnedAt: args.status === "churned" ? now : undefined,
       pausedAt: args.status === "paused" ? now : undefined,
     });
+    await rebuildLeadCustomerSearchRow(ctx, tenantId, customer.leadId);
     await emitDomainEvent(ctx, {
       tenantId,
       entityType: "customer",

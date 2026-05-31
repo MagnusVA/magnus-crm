@@ -12,6 +12,11 @@ import {
   bookingProgramMappingStatusValidator,
 } from "./lib/attribution/validators";
 import {
+  leadCustomerCustomerStatusValidator,
+  leadCustomerLeadStatusValidator,
+  leadCustomerLifecycleValidator,
+} from "./leadCustomers/validators";
+import {
   slackQualificationResultKindValidator,
 } from "./operations/validators";
 import { opportunityStatusValidator } from "./opportunities/validators";
@@ -502,6 +507,64 @@ export default defineSchema({
     .index("by_sourceLeadId", ["sourceLeadId"])
     .index("by_targetLeadId", ["targetLeadId"]),
   // === End Feature C ===
+
+  leadCustomerSearchRows: defineTable({
+    tenantId: v.id("tenants"),
+    leadId: v.id("leads"),
+    customerId: v.optional(v.id("customers")),
+    lifecycle: leadCustomerLifecycleValidator,
+    isSearchVisible: v.boolean(),
+    leadStatus: leadCustomerLeadStatusValidator,
+    customerStatus: v.optional(leadCustomerCustomerStatusValidator),
+    displayName: v.string(),
+    email: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    primaryIdentifier: v.optional(v.string()),
+    searchText: v.string(),
+    opportunityCount: v.number(),
+    wonOpportunityCount: v.number(),
+    meetingCount: v.number(),
+    latestMeetingAt: v.optional(v.number()),
+    latestActivityAt: v.number(),
+    firstSeenAt: v.number(),
+    convertedAt: v.optional(v.number()),
+    totalPaidMinor: v.optional(v.number()),
+    paymentCurrency: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
+    .index("by_tenantId_and_customerId", ["tenantId", "customerId"])
+    .index("by_tenantId_and_isSearchVisible_and_latestActivityAt", [
+      "tenantId",
+      "isSearchVisible",
+      "latestActivityAt",
+    ])
+    .index("by_tenantId_visible_lifecycle_latestActivityAt", [
+      "tenantId",
+      "isSearchVisible",
+      "lifecycle",
+      "latestActivityAt",
+    ])
+    .index("by_tenantId_and_leadStatus_and_latestActivityAt", [
+      "tenantId",
+      "leadStatus",
+      "latestActivityAt",
+    ])
+    .index("by_tenantId_and_customerStatus_and_latestActivityAt", [
+      "tenantId",
+      "customerStatus",
+      "latestActivityAt",
+    ])
+    .searchIndex("search_lead_customer_entities", {
+      searchField: "searchText",
+      filterFields: [
+        "tenantId",
+        "isSearchVisible",
+        "lifecycle",
+        "leadStatus",
+        "customerStatus",
+      ],
+    }),
 
   // Shared tenant DM team registry. The table name is retained for migration
   // safety; it is used by both DM attribution links and Lead Gen Ops reporting.

@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { buildLeadSearchText } from "../leads/searchTextBuilder";
 import { normalizeOpportunitySource } from "./sideDeals";
 
@@ -153,4 +154,5 @@ export async function refreshOpportunitySearchForLead(
     )) {
     await upsertOpportunitySearchProjection(ctx, opportunity._id);
   }
+  await rebuildLeadCustomerSearchRow(ctx, tenantId, leadId);
 }

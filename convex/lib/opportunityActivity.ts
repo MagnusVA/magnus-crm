@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { replaceOpportunityAggregate } from "../reporting/writeHooks";
 
 type ActivityShape = Pick<
@@ -49,5 +50,6 @@ export async function patchOpportunityLifecycle(
   if (!after) {
     throw new Error("Opportunity not found after patch");
   }
+  await rebuildLeadCustomerSearchRow(ctx, after.tenantId, after.leadId);
   return after;
 }
