@@ -70,7 +70,8 @@ export function FollowUpDialog({
   opportunityId,
   meetingId,
   onSuccess,
-}: FollowUpDialogProps) {
+  compact,
+}: FollowUpDialogProps & { compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const [path, setPath] = useState<DialogPath>("selection");
 
@@ -91,7 +92,7 @@ export function FollowUpDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="outline" size="lg">
+        <Button variant="outline" size={compact ? "sm" : "lg"}>
           <CalendarPlusIcon data-icon="inline-start" />
           Schedule Follow-up
         </Button>

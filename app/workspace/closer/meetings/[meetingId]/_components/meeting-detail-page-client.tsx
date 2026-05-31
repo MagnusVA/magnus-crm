@@ -12,22 +12,33 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Empty,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
   EmptyDescription,
 } from "@/components/ui/empty";
+import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
-import { ArrowLeftIcon, AlertCircleIcon, ShuffleIcon } from "lucide-react";
+import {
+  ArrowLeftIcon,
+  AlertCircleIcon,
+  ShuffleIcon,
+  TrophyIcon,
+} from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   opportunityStatusConfig,
   type OpportunityStatus,
 } from "@/lib/status-config";
-import { LeadInfoPanel } from "../../_components/lead-info-panel";
-import { MeetingInfoPanel } from "../../_components/meeting-info-panel";
+import { MeetingOverviewCard } from "../../_components/meeting-overview-card";
+import { MeetingHistoryCard } from "../../_components/meeting-history-card";
 import { MeetingComments } from "../../_components/meeting-comments";
 import { PaymentLinksPanel } from "../../_components/payment-links-panel";
 import { OutcomeActionBar } from "../../_components/outcome-action-bar";
@@ -63,6 +74,7 @@ export function MeetingDetailPageClient({
   };
 
   const [rescheduleLinkUrl, setRescheduleLinkUrl] = useState<string | null>(null);
+  const [showDealWon, setShowDealWon] = useState(false);
 
   if (detail === undefined) {
     return <MeetingDetailSkeleton />;
@@ -96,23 +108,61 @@ export function MeetingDetailPageClient({
     attributedCloserId: payment.attributedCloserId ?? undefined,
   })) as Doc<"paymentRecords">[];
 
+  const isDealWon =
+    opportunity.status === "payment_received" && payments.length > 0;
+
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => router.back()}
-        >
-          <ArrowLeftIcon data-icon="inline-start" />
-          Back
-        </Button>
-        <Badge variant="secondary" className={cn(statusCfg?.badgeClass)}>
-          {statusCfg?.label ?? opportunity.status}
-        </Badge>
+    <div className="flex flex-col gap-4">
+      {/* ── Command header: identity + status (left), actions (right) ───── */}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="-ml-2 shrink-0"
+            onClick={() => router.back()}
+          >
+            <ArrowLeftIcon data-icon="inline-start" />
+            Back
+          </Button>
+          <Separator orientation="vertical" className="h-5" />
+          <h1 className="min-w-0 truncate text-base font-semibold" title={lead.fullName ?? undefined}>
+            {lead.fullName ?? "Meeting"}
+          </h1>
+          <Badge
+            variant="secondary"
+            className={cn("shrink-0", statusCfg?.badgeClass)}
+          >
+            {statusCfg?.label ?? opportunity.status}
+          </Badge>
+        </div>
+
+        {/* Actions — top-right, horizontal, packed */}
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {isDealWon && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowDealWon(true)}
+              className="border-emerald-200 bg-emerald-50/50 text-emerald-700 hover:bg-emerald-100/80 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-400"
+            >
+              <TrophyIcon data-icon="inline-start" />
+              Deal Won
+            </Button>
+          )}
+          <OutcomeActionBar
+            meeting={meeting}
+            opportunity={opportunity}
+            viewerRole={viewerRole}
+            payments={outcomeActionBarPayments}
+            activeFollowUp={activeFollowUp}
+            onStatusChanged={refreshDetail}
+            compact
+          />
+        </div>
       </div>
 
-      {/* Feature E: Potential duplicate banner */}
+      {/* ── Banners & alerts ────────────────────────────────────────────── */}
       {potentialDuplicate && (
         <PotentialDuplicateBanner
           duplicateLead={potentialDuplicate}
@@ -122,33 +172,24 @@ export function MeetingDetailPageClient({
         />
       )}
 
-      {/* Feature H: Reassignment info alert */}
       {reassignmentInfo && (
-        <Alert className="mb-0">
+        <Alert className="py-2">
           <ShuffleIcon className="size-4" />
-          <AlertDescription>
-            This meeting was reassigned to you from{" "}
+          <AlertDescription className="text-sm">
+            Reassigned from{" "}
             <span className="font-medium">
               {reassignmentInfo.reassignedFromCloserName}
             </span>{" "}
-            on{" "}
-            {format(
-              new Date(reassignmentInfo.reassignedAt),
-              "MMM d, h:mm a",
-            )}{" "}
-            — {reassignmentInfo.reason}
+            on {format(new Date(reassignmentInfo.reassignedAt), "MMM d, h:mm a")} —{" "}
+            {reassignmentInfo.reason}
           </AlertDescription>
         </Alert>
       )}
 
-      {/* Feature B: Reschedule chain banner */}
       {rescheduledFromMeeting && (
-        <RescheduleChainBanner
-          rescheduledFromMeeting={rescheduledFromMeeting}
-        />
+        <RescheduleChainBanner rescheduledFromMeeting={rescheduledFromMeeting} />
       )}
 
-      {/* Feature B: No-Show Action Bar */}
       {viewerRole === "closer" && opportunity.status === "no_show" && (
         <NoShowActionBar
           meeting={meeting}
@@ -159,7 +200,6 @@ export function MeetingDetailPageClient({
         />
       )}
 
-      {/* Feature B: Reschedule Link Display (survives NoShowActionBar unmount) */}
       {rescheduleLinkUrl && (
         <RescheduleLinkDisplay
           url={rescheduleLinkUrl}
@@ -167,72 +207,60 @@ export function MeetingDetailPageClient({
         />
       )}
 
-      {/* Feature B: Reschedule Link Sent Banner (closer returned to page) */}
       {opportunity.status === "reschedule_link_sent" && !rescheduleLinkUrl && (
         <RescheduleLinkSentBanner opportunityId={opportunity._id} />
       )}
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-3 lg:grid-cols-4">
-        <div className="md:col-span-1">
-          <LeadInfoPanel lead={lead} meetingHistory={meetingHistory} />
+      {/* ── Packed 3-column workspace ────────────────────────────────────
+          1col on splitview/mobile · 2col on md · 3col on xl. Each column
+          groups related cards so everything is reachable with minimal scroll. */}
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {/* Column 1 — who & when */}
+        <div className="flex min-w-0 flex-col gap-4">
+          <MeetingOverviewCard
+            lead={lead}
+            meeting={meeting}
+            eventTypeName={eventTypeName}
+            assignedCloser={assignedCloser}
+          />
+          <MeetingHistoryCard meetingHistory={meetingHistory} />
         </div>
 
-        <div className="flex flex-col gap-6 md:col-span-2 lg:col-span-3">
-          {/* Meeting details + actions side by side */}
-          <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-3">
-            <div className="lg:col-span-2">
-              <MeetingInfoPanel
-                meeting={meeting}
-                eventTypeName={eventTypeName}
-                assignedCloser={assignedCloser}
-              />
-            </div>
-            <div className="lg:col-span-1">
-              <div className="sticky top-6 h-full">
-                <OutcomeActionBar
-                  meeting={meeting}
-                  opportunity={opportunity}
-                  viewerRole={viewerRole}
-                  payments={outcomeActionBarPayments}
-                  activeFollowUp={activeFollowUp}
-                  onStatusChanged={refreshDetail}
-                />
-              </div>
-            </div>
-          </div>
-          <BookingAnswersCard customFields={lead.customFields} />
-
-          {/* Deal Won Card — only when opportunity is won with payments */}
-          {opportunity.status === "payment_received" && payments.length > 0 && (
-            <DealWonCard payments={payments} />
-          )}
-
-          {/* Attribution Card — always shown */}
+        {/* Column 2 — deal context */}
+        <div className="flex min-w-0 flex-col gap-4">
           <AttributionCard
             opportunity={opportunity}
             meeting={meeting}
-            meetingHistory={meetingHistory}
             attributionTeam={attributionTeam}
             dmCloser={dmCloser}
           />
+          <BookingAnswersCard customFields={lead.customFields} />
+          {paymentLinks && paymentLinks.length > 0 && (
+            <PaymentLinksPanel paymentLinks={paymentLinks} />
+          )}
+        </div>
 
-          {/* v2: Fathom Recording link — available on every meeting,
-              not just flagged ones. Primary attendance artifact. */}
+        {/* Column 3 — work surface: recording + conversation */}
+        <div className="flex min-w-0 flex-col gap-4">
           <FathomLinkField
             meetingId={meeting._id}
             initialLink={meeting.fathomLink ?? ""}
             savedAt={meeting.fathomLinkSavedAt}
           />
-
-          {/* Comments */}
           <MeetingComments meetingId={meeting._id} />
-
-          {paymentLinks && paymentLinks.length > 0 && (
-            <PaymentLinksPanel paymentLinks={paymentLinks} />
-          )}
         </div>
       </div>
 
+      {/* ── Deal Won modal ──────────────────────────────────────────────── */}
+      {isDealWon && (
+        <Dialog open={showDealWon} onOpenChange={setShowDealWon}>
+          <DialogContent className="max-h-[80vh] max-w-lg overflow-y-auto p-0">
+            {/* DialogTitle required for a11y; DealWonCard provides the visual header */}
+            <DialogTitle className="sr-only">Deal Won Details</DialogTitle>
+            <DealWonCard payments={payments} />
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -261,29 +289,33 @@ function MeetingNotFound({ onBack }: { onBack: () => void }) {
 
 function MeetingDetailSkeleton() {
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <Skeleton className="h-9 w-20" />
-        <Skeleton className="h-5 w-24 rounded-full" />
+    <div className="flex flex-col gap-4" role="status" aria-label="Loading meeting details">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-2">
+          <Skeleton className="h-8 w-16" />
+          <Skeleton className="h-5 w-32" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-8 w-24 rounded-md" />
+          <Skeleton className="h-8 w-24 rounded-md" />
+          <Skeleton className="h-8 w-24 rounded-md" />
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-3 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         <div className="flex flex-col gap-4">
-          <Skeleton className="h-48 rounded-xl" />
+          <Skeleton className="h-64 rounded-xl" />
           <Skeleton className="h-40 rounded-xl" />
         </div>
-
-        <div className="flex flex-col gap-4 md:col-span-2 lg:col-span-3">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-            <Skeleton className="h-56 rounded-xl lg:col-span-2" />  {/* Meeting Info */}
-            <Skeleton className="h-56 rounded-xl lg:col-span-1" />  {/* Actions */}
-          </div>
-          <Skeleton className="h-32 rounded-xl" />  {/* Booking Answers */}
-          <Skeleton className="h-36 rounded-xl" />  {/* Attribution */}
-          <Skeleton className="h-52 rounded-xl" />  {/* Notes + Outcome */}
+        <div className="flex flex-col gap-4">
+          <Skeleton className="h-44 rounded-xl" />
+          <Skeleton className="h-40 rounded-xl" />
+        </div>
+        <div className="flex flex-col gap-4">
+          <Skeleton className="h-16 rounded-xl" />
+          <Skeleton className="h-80 rounded-xl" />
         </div>
       </div>
-
     </div>
   );
 }

@@ -108,6 +108,7 @@ type PaymentFormDialogProps = {
   opportunityId: Id<"opportunities">;
   meetingId: Id<"meetings">;
   onSuccess?: () => Promise<void>;
+  compact?: boolean;
 };
 
 /**
@@ -124,6 +125,7 @@ export function PaymentFormDialog({
   opportunityId,
   meetingId,
   onSuccess,
+  compact,
 }: PaymentFormDialogProps) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -239,7 +241,7 @@ export function PaymentFormDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="outline" size="lg">
+        <Button variant="outline" size={compact ? "sm" : "lg"}>
           <BanknoteIcon data-icon="inline-start" />
           Log Payment
         </Button>
