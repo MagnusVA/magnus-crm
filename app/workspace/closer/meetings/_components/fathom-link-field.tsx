@@ -21,9 +21,18 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from "@/components/ui/input-group";
 import { Label } from "@/components/ui/label";
 import { Spinner } from "@/components/ui/spinner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -130,51 +139,55 @@ export function FathomLinkField({
   const errorId = `fathom-link-error-${meetingId}`;
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
+    <Card size="sm">
+      <CardHeader>
         <div className="flex items-center justify-between gap-2">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <LinkIcon className="size-4" aria-hidden />
-            Fathom Recording
-          </CardTitle>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <CardTitle className="flex cursor-default items-center gap-2 text-sm">
+                <LinkIcon className="size-4 text-muted-foreground" aria-hidden />
+                Fathom Recording
+              </CardTitle>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              Paste the Fathom recording link for this meeting
+            </TooltipContent>
+          </Tooltip>
           <StatusIndicator status={saveStatus} savedAt={savedAt} />
         </div>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="space-y-2">
-          <Label htmlFor={inputId} className="sr-only">
-            Fathom recording URL
-          </Label>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <Input
-              id={inputId}
-              type="url"
-              inputMode="url"
-              placeholder="https://fathom.video/call/..."
-              value={value}
-              onChange={(e) => handleChange(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={saveStatus === "saving"}
-              aria-invalid={saveStatus === "error"}
-              aria-describedby={errorMessage ? errorId : undefined}
-              className={cn(
-                "font-mono text-sm",
-                saveStatus === "error" && "border-destructive",
-              )}
-            />
+      <CardContent>
+        <Label htmlFor={inputId} className="sr-only">
+          Fathom recording URL
+        </Label>
+        <InputGroup
+          className={cn(saveStatus === "error" && "border-destructive")}
+        >
+          <InputGroupInput
+            id={inputId}
+            type="url"
+            inputMode="url"
+            placeholder="https://fathom.video/call/..."
+            value={value}
+            onChange={(e) => handleChange(e.target.value)}
+            onKeyDown={handleKeyDown}
+            disabled={saveStatus === "saving"}
+            aria-invalid={saveStatus === "error"}
+            aria-describedby={errorMessage ? errorId : undefined}
+            className="font-mono text-xs"
+          />
+          <InputGroupAddon align="inline-end">
             <Button
               type="button"
+              size="sm"
+              className="h-6 px-2"
               onClick={handleSave}
               disabled={
                 saveStatus === "saving" || isEmpty || !hasUnsavedChanges
               }
-              className="sm:w-auto"
             >
               {saveStatus === "saving" ? (
-                <>
-                  <Spinner data-icon="inline-start" />
-                  Saving…
-                </>
+                <Spinner className="size-3.5" />
               ) : (
                 <>
                   <SaveIcon data-icon="inline-start" aria-hidden />
@@ -182,21 +195,18 @@ export function FathomLinkField({
                 </>
               )}
             </Button>
-          </div>
-          {errorMessage && (
-            <p
-              id={errorId}
-              role="alert"
-              className="flex items-center gap-1 text-xs text-destructive"
-            >
-              <AlertTriangleIcon className="size-3 shrink-0" aria-hidden />
-              {errorMessage}
-            </p>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Paste your Fathom recording link for this meeting.
+          </InputGroupAddon>
+        </InputGroup>
+        {errorMessage && (
+          <p
+            id={errorId}
+            role="alert"
+            className="mt-1.5 flex items-center gap-1 text-xs text-destructive"
+          >
+            <AlertTriangleIcon className="size-3 shrink-0" aria-hidden />
+            {errorMessage}
           </p>
-        </div>
+        )}
       </CardContent>
     </Card>
   );

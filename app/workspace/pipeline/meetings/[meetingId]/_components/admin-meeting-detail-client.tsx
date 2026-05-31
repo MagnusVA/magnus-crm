@@ -203,10 +203,8 @@ export function AdminMeetingDetailClient({
           <AttributionCard
             opportunity={opportunity}
             meeting={meeting}
-            meetingHistory={meetingHistory}
             attributionTeam={attributionTeam}
             dmCloser={dmCloser}
-            meetingDetailBasePath="/workspace/pipeline/meetings"
           />
 
           {/* v2: Fathom Recording link — admin can save/update for any

@@ -44,6 +44,8 @@ type OutcomeActionBarProps = {
   payments: Doc<"paymentRecords">[];
   activeFollowUp?: ActiveFollowUpSummary | null;
   onStatusChanged?: () => Promise<void>;
+  /** Render as a compact horizontal toolbar instead of a vertical card */
+  compact?: boolean;
 };
 
 export function OutcomeActionBar({
@@ -52,6 +54,7 @@ export function OutcomeActionBar({
   viewerRole,
   activeFollowUp = null,
   onStatusChanged,
+  compact = false,
 }: OutcomeActionBarProps) {
   const [showNoShowDialog, setShowNoShowDialog] = useState(false);
   const viewerIsCloser = viewerRole === "closer";
@@ -72,6 +75,61 @@ export function OutcomeActionBar({
     return null;
   }
 
+  // ── Compact horizontal toolbar ───────────────────────────────────────────
+  if (compact) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {joinUrl ? (
+          <Button asChild variant="outline" size="sm">
+            <a href={joinUrl} target="_blank" rel="noopener noreferrer">
+              <ExternalLinkIcon data-icon="inline-start" />
+              Join Meeting
+            </a>
+          </Button>
+        ) : null}
+
+        {canRecordScheduledOutcome ? (
+          <>
+            <PaymentFormDialog
+              opportunityId={opportunity._id}
+              meetingId={meeting._id}
+              onSuccess={onStatusChanged}
+              compact
+            />
+            <FollowUpDialog
+              opportunityId={opportunity._id}
+              meetingId={meeting._id}
+              onSuccess={onStatusChanged}
+              compact
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowNoShowDialog(true)}
+            >
+              <UserXIcon data-icon="inline-start" />
+              Mark No-Show
+            </Button>
+            <MarkLostDialog
+              opportunityId={opportunity._id}
+              meetingId={meeting._id}
+              onSuccess={onStatusChanged}
+              compact
+            />
+          </>
+        ) : null}
+
+        <MarkNoShowDialog
+          open={showNoShowDialog}
+          onOpenChange={setShowNoShowDialog}
+          meetingId={meeting._id}
+          onSuccess={onStatusChanged}
+        />
+      </div>
+    );
+  }
+
+  // ── Original vertical card layout ────────────────────────────────────────
   return (
     <Card className="h-full">
       <CardHeader>

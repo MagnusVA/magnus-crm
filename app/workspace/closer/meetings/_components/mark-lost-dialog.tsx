@@ -44,6 +44,7 @@ type MarkLostDialogProps = {
   opportunityId: Id<"opportunities">;
   meetingId?: Id<"meetings">;
   onSuccess?: () => Promise<void>;
+  compact?: boolean;
 };
 
 /**
@@ -58,6 +59,7 @@ export function MarkLostDialog({
   opportunityId,
   meetingId,
   onSuccess,
+  compact,
 }: MarkLostDialogProps) {
   const [open, setOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -100,7 +102,7 @@ export function MarkLostDialog({
 
   return (
     <>
-      <Button variant="destructive" size="lg" onClick={() => setOpen(true)}>
+      <Button variant="destructive" size={compact ? "sm" : "lg"} onClick={() => setOpen(true)}>
         <XCircleIcon data-icon="inline-start" />
         Mark as Lost
       </Button>

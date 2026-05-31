@@ -8,7 +8,6 @@ import {
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import {
   VideoIcon,
   CalendarDaysIcon,
@@ -73,88 +72,75 @@ export function MeetingInfoPanel({
 
   return (
     <Card>
-      <CardHeader>
-        <div className="flex items-start justify-between">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between gap-3">
           <CardTitle className="text-base">Meeting Details</CardTitle>
-          <Badge
-            variant="secondary"
-            className={cn(MEETING_BADGE_CLASS[meeting.status])}
-          >
-            {statusCfg?.label ?? meeting.status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge
+              variant="secondary"
+              className={cn(MEETING_BADGE_CLASS[meeting.status])}
+            >
+              {statusCfg?.label ?? meeting.status}
+            </Badge>
+            {/* Inline join button for quick access */}
+            {meetingJoinUrl && (
+              <div className="flex gap-1.5">
+                <Button asChild size="sm">
+                  <a href={meetingJoinUrl} target="_blank" rel="noopener noreferrer">
+                    <VideoIcon data-icon="inline-start" />
+                    Join
+                  </a>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="size-8"
+                  onClick={handleCopyMeetingLink}
+                  aria-label="Copy meeting link"
+                >
+                  <CopyIcon className="size-3.5" />
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
       </CardHeader>
 
-      <CardContent className="flex flex-col gap-4">
-        {/* Date & Time */}
-        <InfoRow icon={<CalendarDaysIcon />} label="Date & Time">
-          <p className="text-sm font-medium">
-            {format(meeting.scheduledAt, "EEEE, MMMM d, yyyy")}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            {format(meeting.scheduledAt, "h:mm a")}
-          </p>
-        </InfoRow>
-
-        {/* Duration */}
-        <InfoRow icon={<ClockIcon />} label="Duration">
-          <p className="text-sm font-medium">
-            {meeting.durationMinutes} minutes
-          </p>
-        </InfoRow>
-
-        {/* Event Type */}
-        {eventTypeName && (
-          <InfoRow icon={<TagIcon />} label="Event Type">
-            <p className="text-sm font-medium">{eventTypeName}</p>
-          </InfoRow>
-        )}
-
-        {/* Assigned Closer — visible context for all users */}
-        {assignedCloser && (
-          <InfoRow icon={<UserIcon />} label="Assigned Closer">
-            <p className="text-sm font-medium">
-              {assignedCloser.fullName ?? assignedCloser.email}
+      <CardContent className="pt-0">
+        {/* Compact grid of details */}
+        <dl className="grid grid-cols-2 gap-x-6 gap-y-2.5 sm:grid-cols-3">
+          <CompactField icon={<CalendarDaysIcon />} label="Date & Time">
+            <p className="text-sm font-medium leading-snug">
+              {format(meeting.scheduledAt, "MMM d, yyyy")}
             </p>
-            {assignedCloser.fullName && (
-              <p className="text-xs text-muted-foreground">
-                {assignedCloser.email}
+            <p className="text-xs text-muted-foreground">
+              {format(meeting.scheduledAt, "h:mm a")}
+            </p>
+          </CompactField>
+
+          <CompactField icon={<ClockIcon />} label="Duration">
+            <p className="text-sm font-medium">{meeting.durationMinutes} min</p>
+          </CompactField>
+
+          {eventTypeName && (
+            <CompactField icon={<TagIcon />} label="Event Type">
+              <p className="truncate text-sm font-medium" title={eventTypeName}>
+                {eventTypeName}
               </p>
-            )}
-          </InfoRow>
-        )}
+            </CompactField>
+          )}
 
-        <Separator />
+          {assignedCloser && (
+            <CompactField icon={<UserIcon />} label="Assigned Closer">
+              <p className="truncate text-sm font-medium">
+                {assignedCloser.fullName ?? assignedCloser.email}
+              </p>
+            </CompactField>
+          )}
+        </dl>
 
-        {/* Meeting Link */}
-        {meetingJoinUrl ? (
-          <div className="flex flex-col gap-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Meeting Link
-            </p>
-            <div className="flex gap-2">
-              <Button asChild className="flex-1">
-                <a
-                  href={meetingJoinUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <VideoIcon data-icon="inline-start" />
-                  Join Meeting
-                </a>
-              </Button>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={handleCopyMeetingLink}
-                aria-label="Copy meeting link"
-              >
-                <CopyIcon />
-              </Button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 rounded-lg bg-amber-500/10 p-3">
+        {!meetingJoinUrl && (
+          <div className="mt-3 flex items-center gap-2 rounded-lg bg-amber-500/10 p-2.5">
             <LinkIcon className="size-4 shrink-0 text-amber-600 dark:text-amber-400" />
             <p className="text-sm text-amber-700 dark:text-amber-400">
               No meeting link available
@@ -168,7 +154,7 @@ export function MeetingInfoPanel({
 
 // ─── Internal ────────────────────────────────────────────────────────────────
 
-function InfoRow({
+function CompactField({
   icon,
   label,
   children,
@@ -178,14 +164,12 @@ function InfoRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-start gap-3">
-      <div className="mt-0.5 text-muted-foreground [&>svg]:size-4">{icon}</div>
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          {label}
-        </p>
-        {children}
-      </div>
+    <div className="flex flex-col gap-0.5">
+      <dt className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span className="[&>svg]:size-3">{icon}</span>
+        {label}
+      </dt>
+      <dd>{children}</dd>
     </div>
   );
 }
