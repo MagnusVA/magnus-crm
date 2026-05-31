@@ -4,6 +4,7 @@ import {
   insertBillingPaymentAggregates,
   replaceBillingPaymentAggregates,
 } from "../billing/aggregates";
+import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatiblePaymentCommissionable,
@@ -145,6 +146,11 @@ export async function insertOpportunityAggregate(
     await slackQualificationsByTime.insert(ctx, opportunity);
   }
   await upsertOpportunitySearchProjection(ctx, opportunityId);
+  await rebuildLeadCustomerSearchRow(
+    ctx,
+    opportunity.tenantId,
+    opportunity.leadId,
+  );
   return opportunity;
 }
 
@@ -178,6 +184,11 @@ export async function replaceOpportunityAggregate(
   }
 
   await upsertOpportunitySearchProjection(ctx, opportunityId);
+  await rebuildLeadCustomerSearchRow(
+    ctx,
+    opportunity.tenantId,
+    opportunity.leadId,
+  );
   if (oldOpportunity.status !== opportunity.status) {
     await syncMeetingOpportunityStatusForOpportunity(ctx, opportunity);
   }

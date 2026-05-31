@@ -3,6 +3,7 @@ import { internal } from "../_generated/api";
 import { internalMutation } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { rebuildQualificationRowsForOpportunity } from "../operations/projections";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
@@ -484,7 +485,9 @@ async function updateLeadSearchText(
 	if (searchText !== lead.searchText) {
 		await ctx.db.patch(leadId, { searchText });
 		await refreshOpportunitySearchForLead(ctx, lead.tenantId, leadId);
+		return;
 	}
+	await rebuildLeadCustomerSearchRow(ctx, lead.tenantId, leadId);
 }
 
 function extractHostMembership(scheduledEvent: Record<string, unknown>) {

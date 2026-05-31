@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
+import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { isSideDeal } from "../lib/sideDeals";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
@@ -129,6 +130,7 @@ export const deleteEmptyOpportunity = mutation({
       activeOpportunities: -1,
     });
     await ctx.db.delete(opportunityId);
+    await rebuildLeadCustomerSearchRow(ctx, tenantId, opportunity.leadId);
 
     return null;
   },

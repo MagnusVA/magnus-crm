@@ -1,5 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { emitDomainEvent } from "./domainEvents";
 import { updateTenantStats } from "./tenantStatsHelper";
 import { deleteCustomerAggregate } from "../reporting/writeHooks";
@@ -106,6 +107,11 @@ export async function syncCustomerPaymentSummary(
     totalPaymentCount: nonDisputedPayments.length,
     paymentCurrency: currencies.length === 1 ? currencies[0] : undefined,
   });
+
+  const customer = await ctx.db.get(customerId);
+  if (customer) {
+    await rebuildLeadCustomerSearchRow(ctx, customer.tenantId, customer.leadId);
+  }
 }
 
 export async function expirePendingFollowUpsForOpportunity(
@@ -220,6 +226,10 @@ export async function rollbackCustomerConversionIfEmpty(
     },
     occurredAt: now,
   });
+
+  if (lead) {
+    await rebuildLeadCustomerSearchRow(ctx, lead.tenantId, lead._id);
+  }
 
   return { rolledBack: true };
 }

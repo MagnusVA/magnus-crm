@@ -1,5 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { computeLatestActivityAt } from "./opportunityActivity";
 import { upsertOpportunitySearchProjection } from "./opportunitySearch";
 
@@ -83,4 +84,9 @@ export async function updateOpportunityMeetingRefs(
     latestActivityAt: computeLatestActivityAt(nextOpportunity),
   });
   await upsertOpportunitySearchProjection(ctx, opportunityId);
+  await rebuildLeadCustomerSearchRow(
+    ctx,
+    opportunity.tenantId,
+    opportunity.leadId,
+  );
 }

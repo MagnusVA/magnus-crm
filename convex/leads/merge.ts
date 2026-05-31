@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
+import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { requireTenantUser } from "../requireTenantUser";
 import { buildLeadSearchText } from "./searchTextBuilder";
 import { emitDomainEvent } from "../lib/domainEvents";
@@ -254,6 +255,8 @@ async function executeMerge(
     opportunitiesMoved: sourceOpportunities.length,
     meetingsMoved,
   });
+  await rebuildLeadCustomerSearchRow(ctx, tenantId, targetLeadId);
+  await rebuildLeadCustomerSearchRow(ctx, tenantId, sourceLeadId);
 
   console.log("[Leads:Merge] executeMerge completed", {
     tenantId,

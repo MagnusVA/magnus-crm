@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
+import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { normalizeEmail } from "../lib/normalization";
 import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
 import { requireTenantUser } from "../requireTenantUser";
@@ -81,6 +82,7 @@ export const updateLead = mutation({
       leadId,
       leadDisplayString(updatedLead, identifiers),
     );
+    await rebuildLeadCustomerSearchRow(ctx, tenantId, leadId);
 
     console.log("[Leads:Mutation] updateLead completed", {
       leadId,

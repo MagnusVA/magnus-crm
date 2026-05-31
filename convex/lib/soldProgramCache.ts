@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { rebuildQualificationRowsForOpportunity } from "../operations/projections";
 
 export async function setSoldProgramCaches(
@@ -19,6 +20,11 @@ export async function setSoldProgramCaches(
       soldProgramName: args.programName,
     });
     await rebuildQualificationRowsForOpportunity(ctx, args.opportunityId);
+    await rebuildLeadCustomerSearchRow(
+      ctx,
+      opportunity.tenantId,
+      opportunity.leadId,
+    );
   }
 
   if (args.meetingId) {
@@ -85,6 +91,11 @@ async function refreshSoldProgramCachesFromPayments(
   if (opportunity && opportunity.tenantId === args.tenantId) {
     await ctx.db.patch(args.opportunityId, patch);
     await rebuildQualificationRowsForOpportunity(ctx, args.opportunityId);
+    await rebuildLeadCustomerSearchRow(
+      ctx,
+      opportunity.tenantId,
+      opportunity.leadId,
+    );
   }
 
   const meetings = await ctx.db
