@@ -108,7 +108,9 @@ export function ReminderOutcomeActionBar({
 						</AlertDescription>
 					</Alert>
 					<Button asChild>
-						<Link href={`/workspace/opportunities/${followUp.opportunityId}`}>
+						<Link
+							href={`/workspace/leads-customers/${followUp.leadId}?opportunityId=${followUp.opportunityId}`}
+						>
 							Open opportunity
 							<ArrowRightIcon data-icon="inline-end" />
 						</Link>

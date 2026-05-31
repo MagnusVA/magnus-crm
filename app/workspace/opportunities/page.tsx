@@ -1,16 +1,9 @@
-import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { requirePermission } from "@/lib/auth";
-import { OpportunitiesPageClient } from "./_components/opportunities-page-client";
-import { OpportunitiesPageSkeleton } from "./_components/skeletons/opportunities-page-skeleton";
 
 export const unstable_instant = false;
 
-export default async function OpportunitiesPage() {
+export default async function LegacyOpportunitiesPage() {
   await requirePermission("pipeline:view-own");
-
-  return (
-    <Suspense fallback={<OpportunitiesPageSkeleton />}>
-      <OpportunitiesPageClient />
-    </Suspense>
-  );
+  redirect("/workspace/leads-customers");
 }

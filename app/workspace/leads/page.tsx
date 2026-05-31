@@ -1,9 +1,17 @@
+import { redirect } from "next/navigation";
 import { requirePermission } from "@/lib/auth";
-import { LeadsPageClient } from "./_components/leads-page-client";
 
 export const unstable_instant = false;
 
-export default async function LeadsPage() {
+export default async function LegacyLeadsPage({
+	searchParams,
+}: {
+	searchParams: Promise<{ status?: string }>;
+}) {
 	await requirePermission("lead:view-all");
-	return <LeadsPageClient />;
+	const { status } = await searchParams;
+	const params = new URLSearchParams();
+	if (status === "converted") params.set("lifecycle", "customer");
+	const suffix = params.toString();
+	redirect(`/workspace/leads-customers${suffix ? `?${suffix}` : ""}`);
 }

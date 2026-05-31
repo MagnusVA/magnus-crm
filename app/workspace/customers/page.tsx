@@ -1,9 +1,9 @@
+import { redirect } from "next/navigation";
 import { requirePermission } from "@/lib/auth";
-import { CustomersPageClient } from "./_components/customers-page-client";
 
 export const unstable_instant = false;
 
-export default async function CustomersPage() {
+export default async function LegacyCustomersPage() {
 	await requirePermission("customer:view-own");
-	return <CustomersPageClient />;
+	redirect("/workspace/leads-customers?lifecycle=customer");
 }

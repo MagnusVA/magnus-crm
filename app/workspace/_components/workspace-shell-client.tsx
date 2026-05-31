@@ -40,7 +40,6 @@ import {
   type LucideIcon,
   UserCircleIcon,
   UsersIcon,
-  UsersRoundIcon,
 } from "lucide-react";
 import { WorkspaceBreadcrumbs } from "@/components/workspace-breadcrumbs";
 import { CommandPaletteTrigger } from "@/components/command-palette-trigger";
@@ -72,13 +71,17 @@ type NavItem = {
   exact?: boolean;
 };
 
+const leadsCustomersNavItem: NavItem = {
+  href: "/workspace/leads-customers",
+  label: "Leads & Customers",
+  icon: ContactIcon,
+};
+
 const adminNavItems: NavItem[] = [
   { href: "/workspace", label: "Overview", icon: LayoutDashboardIcon, exact: true },
   { href: "/workspace/operations", label: "Operations", icon: KanbanIcon },
   { href: "/workspace/lead-gen", label: "Lead Gen", icon: ClipboardListIcon },
-  { href: "/workspace/leads", label: "Leads", icon: ContactIcon },
-  { href: "/workspace/customers", label: "Customers", icon: UsersRoundIcon },
-  { href: "/workspace/opportunities", label: "Opportunities", icon: TargetIcon },
+  leadsCustomersNavItem,
   { href: "/workspace/team", label: "Team", icon: UsersIcon },
   { href: "/workspace/settings", label: "Settings", icon: SettingsIcon },
 ];
@@ -92,9 +95,7 @@ const billingNavItem: NavItem = {
 const closerNavItems: NavItem[] = [
   { href: "/workspace/closer", label: "Dashboard", icon: LayoutDashboardIcon, exact: true },
   { href: "/workspace/closer/pipeline", label: "My Pipeline", icon: KanbanIcon },
-  { href: "/workspace/leads", label: "Leads", icon: ContactIcon },
-  { href: "/workspace/customers", label: "Customers", icon: UsersRoundIcon },
-  { href: "/workspace/opportunities", label: "Opportunities", icon: TargetIcon },
+  leadsCustomersNavItem,
 ];
 
 const leadGeneratorNavItems: NavItem[] = [

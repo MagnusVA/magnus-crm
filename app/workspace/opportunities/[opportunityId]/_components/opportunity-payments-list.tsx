@@ -73,7 +73,86 @@ function formatOrigin(origin: string) {
   return ORIGIN_LABELS[origin] ?? origin.replaceAll("_", " ");
 }
 
-export function OpportunityPaymentsList({ payments }: { payments: Payment[] }) {
+export function OpportunityPaymentsList({
+  payments,
+  compact = false,
+}: {
+  payments: Payment[];
+  compact?: boolean;
+}) {
+  const content =
+    payments.length === 0 ? (
+      <Empty>
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <ReceiptTextIcon aria-hidden="true" />
+          </EmptyMedia>
+          <EmptyTitle>No payments recorded</EmptyTitle>
+          <EmptyDescription>
+            Payments will appear here after a closer or admin records one.
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    ) : (
+      <div className="overflow-x-auto">
+        <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Amount</TableHead>
+            <TableHead>Program</TableHead>
+            {compact ? null : <TableHead>Payment type</TableHead>}
+            {compact ? null : <TableHead>Origin</TableHead>}
+            <TableHead>Status</TableHead>
+            {compact ? null : <TableHead>Recorded</TableHead>}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {payments.map((payment) => (
+            <TableRow key={payment._id}>
+              <TableCell className="font-medium">
+                <span className="inline-flex items-center gap-2">
+                  <CreditCardIcon
+                    aria-hidden="true"
+                    className="size-4 text-muted-foreground"
+                  />
+                  {formatAmountMinor(payment.amountMinor, payment.currency)}
+                </span>
+              </TableCell>
+              <TableCell className="whitespace-normal">
+                {payment.programName}
+              </TableCell>
+              {compact ? null : (
+                <TableCell>{PAYMENT_TYPE_LABELS[payment.paymentType]}</TableCell>
+              )}
+              {compact ? null : <TableCell>{formatOrigin(payment.origin)}</TableCell>}
+              <TableCell>
+                <Badge variant="secondary">
+                  {PAYMENT_STATUS_LABELS[payment.status]}
+                </Badge>
+              </TableCell>
+              {compact ? null : (
+                <TableCell>
+                  {dateTimeFormatter.format(new Date(payment.recordedAt))}
+                </TableCell>
+              )}
+            </TableRow>
+          ))}
+        </TableBody>
+        </Table>
+      </div>
+    );
+
+  if (compact) {
+    return (
+      <section className="rounded-md border">
+        <div className="border-b p-3">
+          <h3 className="text-sm font-semibold">Payments</h3>
+        </div>
+        <div className="p-3">{content}</div>
+      </section>
+    );
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -82,64 +161,7 @@ export function OpportunityPaymentsList({ payments }: { payments: Payment[] }) {
           Commissionable payments recorded against this opportunity.
         </CardDescription>
       </CardHeader>
-      <CardContent>
-        {payments.length === 0 ? (
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <ReceiptTextIcon aria-hidden="true" />
-              </EmptyMedia>
-              <EmptyTitle>No payments recorded</EmptyTitle>
-              <EmptyDescription>
-                Payments will appear here after a closer or admin records one.
-              </EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        ) : (
-          <div className="overflow-x-auto">
-            <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Amount</TableHead>
-                <TableHead>Program</TableHead>
-                <TableHead>Payment type</TableHead>
-                <TableHead>Origin</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Recorded</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {payments.map((payment) => (
-                <TableRow key={payment._id}>
-                  <TableCell className="font-medium">
-                    <span className="inline-flex items-center gap-2">
-                      <CreditCardIcon
-                        aria-hidden="true"
-                        className="size-4 text-muted-foreground"
-                      />
-                      {formatAmountMinor(payment.amountMinor, payment.currency)}
-                    </span>
-                  </TableCell>
-                  <TableCell className="whitespace-normal">
-                    {payment.programName}
-                  </TableCell>
-                  <TableCell>{PAYMENT_TYPE_LABELS[payment.paymentType]}</TableCell>
-                  <TableCell>{formatOrigin(payment.origin)}</TableCell>
-                  <TableCell>
-                    <Badge variant="secondary">
-                      {PAYMENT_STATUS_LABELS[payment.status]}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {dateTimeFormatter.format(new Date(payment.recordedAt))}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-            </Table>
-          </div>
-        )}
-      </CardContent>
+      <CardContent>{content}</CardContent>
     </Card>
   );
 }

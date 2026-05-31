@@ -178,7 +178,13 @@ export function QualificationTable({
               <TableCell className="text-right">
                 {row.opportunityId ? (
                   <Button asChild variant="ghost" size="sm">
-                    <Link href={`/workspace/opportunities/${row.opportunityId}`}>
+                    <Link
+                      href={
+                        row.leadId
+                          ? `/workspace/leads-customers/${row.leadId}?opportunityId=${row.opportunityId}`
+                          : `/workspace/opportunities/${row.opportunityId}`
+                      }
+                    >
                       Open
                       <ArrowUpRightIcon data-icon="inline-end" />
                     </Link>

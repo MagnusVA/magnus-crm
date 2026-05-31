@@ -29,6 +29,7 @@ import { ExternalLinkIcon, InboxIcon } from "lucide-react";
 
 export interface PipelineOpportunity {
   _id: Id<"opportunities">;
+  leadId: Id<"leads">;
   status: OpportunityStatus;
   leadName: string;
   leadEmail?: string;
@@ -55,7 +56,7 @@ export interface OpportunitiesTableProps {
    * callers while opportunity detail becomes the primary destination.
    */
   meetingBasePath: string;
-  /** Base path for canonical opportunity detail links. */
+  /** @deprecated Opportunity rows now link to the lead-centric sheet route. */
   opportunityBasePath?: string;
   /** Optional custom empty state. Falls back to a generic "No opportunities" card. */
   emptyState?: React.ReactNode;
@@ -102,7 +103,6 @@ export function OpportunitiesTable({
   isLoadingMore = false,
   onLoadMore,
   showCloserColumn = false,
-  opportunityBasePath = "/workspace/opportunities",
   emptyState,
 }: OpportunitiesTableProps) {
   const [now, setNow] = useState(() => Date.now());
@@ -258,7 +258,9 @@ export function OpportunitiesTable({
                       asChild
                       aria-label={`View opportunity for ${opp.leadName}`}
                     >
-                      <Link href={`${opportunityBasePath}/${opp._id}`}>
+                      <Link
+                        href={`/workspace/leads-customers/${opp.leadId}?opportunityId=${opp._id}`}
+                      >
                         View
                         <ExternalLinkIcon
                           aria-hidden="true"
