@@ -1,48 +1,34 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
-import {
-  getNonDisputedPaymentsInRange,
-  splitPaymentsForRevenueReporting,
-  summarizeAttributedPayments,
-} from "../reporting/lib/helpers";
 import type { DerivedOverviewRange } from "./overviewRange";
 import type { PhoneCloserOperations, TopDmCloserRow } from "./overviewTypes";
-import {
-  dmCloserMemberIdentity,
-  unknownMemberIdentity,
-  userMemberIdentity,
-} from "../lib/memberIdentity";
 
 export const OPERATIONS_STATS_ROW_LIMIT = 1000;
-export const TOP_DM_CLOSER_BOOKING_LIMIT = 5000;
 
 type OperationsStatsRow = Doc<"operationsMeetingDailyStats">;
-type PhoneCloserTotals = {
+type OperationsTotals = {
   scheduled: number;
   completed: number;
-  canceled: number;
-  callsShowed: number;
+  noShows: number;
+  reviewRequired: number;
 };
 
-function emptyPhoneCloserTotals(): PhoneCloserTotals {
+function emptyOperationsTotals(): OperationsTotals {
   return {
     scheduled: 0,
     completed: 0,
-    canceled: 0,
-    callsShowed: 0,
+    noShows: 0,
+    reviewRequired: 0,
   };
 }
 
-function addPhoneCloserOperationRow(
-  totals: PhoneCloserTotals,
+function addOperationRow(
+  totals: OperationsTotals,
   row: OperationsStatsRow,
 ) {
   totals.scheduled += row.count;
   if (row.meetingStatus === "completed") totals.completed += row.count;
-  if (row.meetingStatus === "canceled") totals.canceled += row.count;
-  if (row.meetingStatus === "completed") {
-    totals.callsShowed += row.count;
-  }
+  if (row.meetingStatus === "no_show") totals.noShows += row.count;
 }
 
 function toRate(numerator: number, denominator: number): number | null {
@@ -76,70 +62,50 @@ export async function getTopDmClosersOverviewSection(
   tenantId: Id<"tenants">,
   range: DerivedOverviewRange,
 ): Promise<{
-  data: { rows: TopDmCloserRow[]; totalBooked: number };
+  data: { rows: TopDmCloserRow[]; totalScheduled: number };
   isEmpty: boolean;
 }> {
-  const meetings = await ctx.db
-    .query("meetings")
-    .withIndex("by_tenantId_and_createdAt", (q) =>
-      q
-        .eq("tenantId", tenantId)
-        .gte("createdAt", range.slackWindowStart)
-        .lt("createdAt", range.slackWindowEnd),
-    )
-    .take(TOP_DM_CLOSER_BOOKING_LIMIT + 1);
+  const rows = await readOperationsStatsRows(ctx, tenantId, range);
+  const byDmCloser = new Map<Id<"dmClosers">, OperationsTotals>();
 
-  if (meetings.length > TOP_DM_CLOSER_BOOKING_LIMIT) {
-    throw new Error(
-      "Top DM closer booking range is too large. Narrow the date range.",
-    );
+  for (const row of rows) {
+    if (!row.dmCloserId) continue;
+    const current = byDmCloser.get(row.dmCloserId) ?? emptyOperationsTotals();
+    addOperationRow(current, row);
+    byDmCloser.set(row.dmCloserId, current);
   }
 
-  const byDmCloser = new Map<Id<"dmClosers">, number>();
-
-  for (const meeting of meetings) {
-    if (!meeting.dmCloserId) continue;
-    // Legacy rows may lack a classification; only explicit follow-ups are excluded.
-    if (meeting.callClassification === "follow_up") continue;
-    byDmCloser.set(
-      meeting.dmCloserId,
-      (byDmCloser.get(meeting.dmCloserId) ?? 0) + 1,
-    );
-  }
-
-  const totalBooked = [...byDmCloser.values()].reduce(
-    (sum, booked) => sum + booked,
+  const totalScheduled = [...byDmCloser.values()].reduce(
+    (sum, totals) => sum + totals.scheduled,
     0,
   );
 
   const enriched: TopDmCloserRow[] = [];
-  for (const [dmCloserId, booked] of byDmCloser) {
+  for (const [dmCloserId, totals] of byDmCloser) {
     const dmCloser = await ctx.db.get(dmCloserId);
     if (!dmCloser || dmCloser.tenantId !== tenantId) continue;
     const team = await ctx.db.get(dmCloser.teamId);
-    const linkedUser = dmCloser.userId ? await ctx.db.get(dmCloser.userId) : null;
-    const validLinkedUser =
-      linkedUser && linkedUser.tenantId === tenantId ? linkedUser : null;
 
     enriched.push({
       dmCloserId,
-      dmCloser: await dmCloserMemberIdentity(ctx, dmCloser, validLinkedUser),
       displayName: dmCloser.displayName,
       teamName: team && team.tenantId === tenantId ? team.displayName : null,
-      booked,
+      ...totals,
+      showRate: toRate(totals.completed, totals.scheduled),
     });
   }
 
   const sortedRows = enriched
     .sort(
       (left, right) =>
-        right.booked - left.booked ||
+        right.scheduled - left.scheduled ||
+        right.completed - left.completed ||
         left.displayName.localeCompare(right.displayName),
     )
     .slice(0, 5);
 
   return {
-    data: { rows: sortedRows, totalBooked },
+    data: { rows: sortedRows, totalScheduled },
     isEmpty: sortedRows.length === 0,
   };
 }
@@ -149,24 +115,12 @@ export async function getPhoneCloserOperationsOverviewSection(
   tenantId: Id<"tenants">,
   range: DerivedOverviewRange,
 ): Promise<{ data: PhoneCloserOperations; isEmpty: boolean }> {
-  const [rows, paymentScan] = await Promise.all([
-    readOperationsStatsRows(ctx, tenantId, range),
-    getNonDisputedPaymentsInRange(
-      ctx,
-      tenantId,
-      range.operationsStartDate,
-      range.operationsEndDate,
-    ),
-  ]);
-  const paymentSplit = splitPaymentsForRevenueReporting(paymentScan.payments);
-  const paymentSummary = summarizeAttributedPayments(
-    paymentSplit.commissionable.finalPayments,
-  );
-  const byCloser = new Map<Id<"users">, PhoneCloserTotals>();
+  const rows = await readOperationsStatsRows(ctx, tenantId, range);
+  const byCloser = new Map<Id<"users">, OperationsTotals>();
 
   for (const row of rows) {
-    const current = byCloser.get(row.assignedCloserId) ?? emptyPhoneCloserTotals();
-    addPhoneCloserOperationRow(current, row);
+    const current = byCloser.get(row.assignedCloserId) ?? emptyOperationsTotals();
+    addOperationRow(current, row);
     byCloser.set(row.assignedCloserId, current);
   }
 
@@ -177,21 +131,13 @@ export async function getPhoneCloserOperationsOverviewSection(
     const closerName = validCloser
       ? (validCloser.fullName ?? validCloser.email)
       : "Removed closer";
-    const paymentStats = paymentSummary.byCloser.get(closerId) ?? {
-      dealCount: 0,
-      revenueMinor: 0,
-    };
 
     tableRows.push({
       closerId,
-      closer: validCloser
-        ? await userMemberIdentity(ctx, validCloser)
-        : unknownMemberIdentity("Removed closer", "unknown"),
       closerName,
-      scheduled: totals.scheduled,
-      showRate: toRate(totals.completed, totals.scheduled - totals.canceled),
-      closeRate: toRate(paymentStats.dealCount, totals.callsShowed),
-      cashCollectedMinor: paymentStats.revenueMinor,
+      ...totals,
+      showRate: toRate(totals.completed, totals.scheduled),
+      noShowRate: toRate(totals.noShows, totals.scheduled),
     });
   }
 
@@ -204,18 +150,10 @@ export async function getPhoneCloserOperationsOverviewSection(
     (acc, totals) => ({
       scheduled: acc.scheduled + totals.scheduled,
       completed: acc.completed + totals.completed,
-      canceled: acc.canceled + totals.canceled,
-      callsShowed: acc.callsShowed + totals.callsShowed,
+      noShows: acc.noShows + totals.noShows,
+      reviewRequired: acc.reviewRequired + totals.reviewRequired,
     }),
-    emptyPhoneCloserTotals(),
-  );
-  const totalCashCollectedMinor = sortedRows.reduce(
-    (sum, row) => sum + row.cashCollectedMinor,
-    0,
-  );
-  const totalDealCount = sortedRows.reduce(
-    (sum, row) => sum + (paymentSummary.byCloser.get(row.closerId)?.dealCount ?? 0),
-    0,
+    emptyOperationsTotals(),
   );
 
   return {
@@ -223,12 +161,11 @@ export async function getPhoneCloserOperationsOverviewSection(
       rows: sortedRows,
       totals: {
         scheduled: operationTotals.scheduled,
-        showRate: toRate(
-          operationTotals.completed,
-          operationTotals.scheduled - operationTotals.canceled,
-        ),
-        closeRate: toRate(totalDealCount, operationTotals.callsShowed),
-        cashCollectedMinor: totalCashCollectedMinor,
+        completed: operationTotals.completed,
+        noShows: operationTotals.noShows,
+        reviewRequired: operationTotals.reviewRequired,
+        showRate: toRate(operationTotals.completed, operationTotals.scheduled),
+        noShowRate: toRate(operationTotals.noShows, operationTotals.scheduled),
       },
     },
     isEmpty: sortedRows.length === 0,
