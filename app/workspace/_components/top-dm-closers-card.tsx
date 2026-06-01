@@ -92,7 +92,8 @@ export function TopDmClosersCard({
 											<div className="min-w-0">
 												<p className="truncate font-medium">{row.displayName}</p>
 												<p className="truncate text-xs text-muted-foreground">
-													{formatWholeNumber(row.booked)} booked
+													{formatWholeNumber(row.booked)} booked ·{" "}
+													{formatDecimal(row.scheduledHours)}h scheduled
 												</p>
 											</div>
 											<span className="font-semibold tabular-nums">
