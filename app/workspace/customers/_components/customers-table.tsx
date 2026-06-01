@@ -15,6 +15,8 @@ import { ChevronRightIcon } from "lucide-react";
 import { formatCurrency } from "@/lib/format-currency";
 import type { Id } from "@/convex/_generated/dataModel";
 import { CustomerStatusBadge } from "./customer-status-badge";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 interface Customer {
   _id: Id<"customers">;
@@ -25,6 +27,7 @@ interface Customer {
   currency: string;
   status: "active" | "churned" | "paused";
   convertedByName: string;
+  convertedBy: MemberAvatarIdentity;
 }
 
 interface CustomersTableProps {
@@ -106,8 +109,8 @@ export function CustomersTable({
                 <TableCell>
                   <CustomerStatusBadge status={customer.status} />
                 </TableCell>
-                <TableCell className="text-sm text-muted-foreground">
-                  {customer.convertedByName}
+                <TableCell>
+                  <MemberIdentity identity={customer.convertedBy} />
                 </TableCell>
                 <TableCell className="text-right">
                   <Button variant="ghost" size="sm" asChild>

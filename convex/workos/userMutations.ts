@@ -367,8 +367,20 @@ export const claimInvitedAccountByEmail = internalMutation({
     orgId: v.string(),
     email: v.string(),
     fullName: v.optional(v.string()),
+    profilePictureUrl: v.optional(v.string()),
+    profilePictureSyncedAt: v.optional(v.number()),
   },
-  handler: async (ctx, { workosUserId, orgId, email, fullName }) => {
+  handler: async (
+    ctx,
+    {
+      workosUserId,
+      orgId,
+      email,
+      fullName,
+      profilePictureUrl,
+      profilePictureSyncedAt,
+    },
+  ) => {
     const normalizedEmail = email.trim().toLowerCase();
 
     console.log("[WorkOS:Users] claimInvitedAccountByEmail called", {
@@ -428,6 +440,8 @@ export const claimInvitedAccountByEmail = internalMutation({
       workosUserId,
       invitationStatus: "accepted",
       fullName: pendingUser.fullName ?? fullName,
+      profilePictureUrl,
+      profilePictureSyncedAt,
       isActive: true,
       deletedAt: undefined,
     });

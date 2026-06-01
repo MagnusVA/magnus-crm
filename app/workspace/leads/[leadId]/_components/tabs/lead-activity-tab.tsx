@@ -7,14 +7,18 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Doc } from "@/convex/_generated/dataModel";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 type LeadDetailMeeting = Doc<"meetings"> & {
 	opportunityStatus: string;
 	closerName: string | null;
+	closer: MemberAvatarIdentity | null;
 };
 
 type LeadMergeHistoryEntry = Doc<"leadMergeHistory"> & {
 	mergedByUserName: string;
+	mergedByUser: MemberAvatarIdentity | null;
 	sourceLeadName: string;
 	targetLeadName: string;
 };
@@ -98,9 +102,10 @@ function formatTimestamp(ts: number): string {
 function MeetingEntry({ meeting }: { meeting: LeadDetailMeeting }) {
 	return (
 		<div>
-			<p className="text-sm font-medium">
-				Meeting{meeting.closerName ? ` with ${meeting.closerName}` : ""}
-			</p>
+			<div className="flex min-w-0 items-center gap-2">
+				<p className="text-sm font-medium">Meeting</p>
+				{meeting.closer ? <MemberIdentity identity={meeting.closer} /> : null}
+			</div>
 			<p className="text-xs text-muted-foreground">
 				Status: {meeting.opportunityStatus.replace(/_/g, " ")}
 				{meeting.status && meeting.status !== meeting.opportunityStatus
@@ -139,15 +144,29 @@ function MergeEntry({ merge }: { merge: LeadMergeHistoryEntry }) {
 			<p className="text-sm font-medium">
 				Lead merged: {merge.sourceLeadName} into {merge.targetLeadName}
 			</p>
-			<p className="text-xs text-muted-foreground">
-				By {merge.mergedByUserName}
-				{merge.meetingsMoved > 0 &&
-					` -- ${merge.meetingsMoved} meeting${merge.meetingsMoved === 1 ? "" : "s"} moved`}
-				{merge.identifiersMoved > 0 &&
-					`, ${merge.identifiersMoved} identifier${merge.identifiersMoved === 1 ? "" : "s"} moved`}
-				{merge.opportunitiesMoved > 0 &&
-					`, ${merge.opportunitiesMoved} opportunit${merge.opportunitiesMoved === 1 ? "y" : "ies"} moved`}
-			</p>
+			<div className="flex min-w-0 flex-wrap items-center gap-x-1 gap-y-1 text-xs text-muted-foreground">
+				<span>By</span>
+				{merge.mergedByUser ? (
+					<MemberIdentity identity={merge.mergedByUser} />
+				) : (
+					<span>{merge.mergedByUserName}</span>
+				)}
+				<span>
+					{[
+						merge.meetingsMoved > 0
+							? `${merge.meetingsMoved} meeting${merge.meetingsMoved === 1 ? "" : "s"} moved`
+							: null,
+						merge.identifiersMoved > 0
+							? `${merge.identifiersMoved} identifier${merge.identifiersMoved === 1 ? "" : "s"} moved`
+							: null,
+						merge.opportunitiesMoved > 0
+							? `${merge.opportunitiesMoved} opportunit${merge.opportunitiesMoved === 1 ? "y" : "ies"} moved`
+							: null,
+					]
+						.filter(Boolean)
+						.join(", ")}
+				</span>
+			</div>
 		</div>
 	);
 }

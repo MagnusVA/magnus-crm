@@ -26,6 +26,7 @@ export async function WorkspaceAuth({ children }: { children: ReactNode }) {
           initialRole={access.crmUser.role}
           initialDisplayName={access.crmUser.fullName ?? access.crmUser.email}
           initialEmail={access.crmUser.email}
+          initialAvatar={access.crmUser.avatar}
           workosUserId={access.crmUser.workosUserId}
           workosOrgId={access.tenant.workosOrgId}
           tenantName={access.tenant.companyName}

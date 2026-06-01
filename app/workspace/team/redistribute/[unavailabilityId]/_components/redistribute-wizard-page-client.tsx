@@ -41,6 +41,8 @@ import {
 	UserIcon,
 	XCircleIcon,
 } from "lucide-react";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -80,6 +82,7 @@ interface MeetingForRedistribution {
 interface AvailableCloser {
 	closerId: Id<"users">;
 	closerName: string;
+	closer: MemberAvatarIdentity;
 	isAvailable: boolean;
 	unavailabilityReason: string | null;
 	meetingsToday: number;
@@ -410,6 +413,10 @@ export function RedistributeWizardPageClient({
 						</>
 					)}
 				</p>
+				<MemberIdentity
+					identity={unavailability.closer}
+					className="pt-2"
+				/>
 			</div>
 
 			{/* ── Step Indicator ── */}
@@ -738,12 +745,11 @@ function DistributeStep({
 										disabled={!closer.isAvailable}
 										aria-label={`Select ${closer.closerName}`}
 									/>
-									<UserIcon className="size-4 shrink-0 text-muted-foreground" />
 									<div className="flex flex-1 items-center justify-between gap-2">
-										<div className="flex flex-col gap-0.5">
-											<span className="text-sm font-medium">
-												{closer.closerName}
-											</span>
+										<div className="flex min-w-0 flex-col gap-0.5">
+											<MemberIdentity
+												identity={closer.closer}
+											/>
 											{!closer.isAvailable &&
 												closer.unavailabilityReason && (
 													<span className="text-xs text-destructive">

@@ -9,6 +9,8 @@ import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useRole } from "@/components/auth/role-context";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -28,6 +30,7 @@ type CommentEntryProps = {
     createdAt: number;
     editedAt: number | null;
     authorName: string;
+    author: MemberAvatarIdentity;
     authorRole:
       | "tenant_master"
       | "tenant_admin"
@@ -92,18 +95,9 @@ export function CommentEntry({ comment, onDelete }: CommentEntryProps) {
 
   return (
     <div className="group flex gap-3 py-3">
-      <div
-        aria-hidden
-        className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-foreground"
-      >
-        {comment.authorName.charAt(0).toUpperCase()}
-      </div>
-
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-foreground">
-            {comment.authorName}
-          </span>
+          <MemberIdentity identity={comment.author} size="default" />
           {comment.authorRole && (
             <Badge variant="outline" className="px-1.5 py-0 text-[10px]">
               {ROLE_LABEL[comment.authorRole]}

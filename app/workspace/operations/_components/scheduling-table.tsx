@@ -20,6 +20,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 export type SchedulingRow = {
   _id: Id<"operationsQualificationRows">;
@@ -38,7 +40,10 @@ export type SchedulingRow = {
   slackUserLabel?: string;
   attributionTeamName?: string;
   dmCloserName?: string;
+  dmCloser?: MemberAvatarIdentity | null;
   assignedCloserName?: string;
+  assignedCloser: MemberAvatarIdentity;
+  slackUser: MemberAvatarIdentity;
 };
 
 const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
@@ -126,8 +131,12 @@ export function SchedulingTable({
               </TableCell>
               <TableCell>{formatDate(row.firstMeetingAt)}</TableCell>
               <TableCell>{formatDate(row.firstBookedAt)}</TableCell>
-              <TableCell>{row.slackUserLabel ?? row.slackUserId}</TableCell>
-              <TableCell>{row.assignedCloserName ?? "Unassigned"}</TableCell>
+              <TableCell>
+                <MemberIdentity identity={row.slackUser} />
+              </TableCell>
+              <TableCell>
+                <MemberIdentity identity={row.assignedCloser} />
+              </TableCell>
               <TableCell>
                 <Badge variant={row.opportunityStatus ? "secondary" : "outline"}>
                   {formatStatus(row.opportunityStatus)}
@@ -140,9 +149,19 @@ export function SchedulingTable({
               </TableCell>
               <TableCell>{row.soldProgramName ?? "-"}</TableCell>
               <TableCell>
-                <Badge variant={row.attributionResolution === "mapped" ? "secondary" : "outline"}>
-                  {attributionLabel(row)}
-                </Badge>
+                {row.dmCloser ? (
+                  <MemberIdentity identity={row.dmCloser} />
+                ) : (
+                  <Badge
+                    variant={
+                      row.attributionResolution === "mapped"
+                        ? "secondary"
+                        : "outline"
+                    }
+                  >
+                    {attributionLabel(row)}
+                  </Badge>
+                )}
               </TableCell>
               <TableCell className="text-right">
                 {row.firstMeetingId ? (

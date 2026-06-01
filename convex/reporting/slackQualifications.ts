@@ -20,6 +20,10 @@ import {
   summarizeQualificationEvents,
   type QualificationEventSummary,
 } from "./lib/slackQualificationLedger";
+import {
+  slackMemberIdentity,
+  type MemberAvatarIdentity,
+} from "../lib/memberIdentity";
 
 const MAX_SLACK_SETTERS = 500;
 const MAX_DAILY_TEAM_GOAL = 5000;
@@ -39,6 +43,7 @@ type SetterContributionRow = {
   slackTeamId: string;
   displayName: string;
   avatarUrl: string | null;
+  setter: MemberAvatarIdentity;
   isDeleted: boolean;
   totalQualified: number;
   qualificationEventCount: number;
@@ -255,6 +260,7 @@ function countUsersForRange(args: {
         slackTeamId: setter.slackTeamId,
         displayName: getSlackDisplayName(setter),
         avatarUrl: setter.avatarUrl ?? null,
+        setter: slackMemberIdentity(setter, `slack:${setter.slackUserId}`),
         isDeleted: setter.isDeleted,
         totalQualified: summary.qualificationEventCount,
         qualificationEventCount: summary.qualificationEventCount,

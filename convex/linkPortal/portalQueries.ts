@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
 import { isPortalBookable } from "../lib/eventTypeBookability";
+import { publicDmCloserIdentity } from "../lib/memberIdentity";
 
 export const getPortalBootstrapForSession = internalQuery({
 	args: {
@@ -74,6 +75,7 @@ export const getPortalBootstrapForSession = internalQuery({
 					return {
 						id: closer._id,
 						displayName: closer.displayName,
+						identity: publicDmCloserIdentity(closer),
 						utmMedium: closer.utmMedium,
 						teamId: team._id,
 						teamDisplayName: team.displayName,

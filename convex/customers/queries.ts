@@ -4,6 +4,11 @@ import type { QueryCtx } from "../_generated/server";
 import { query } from "../_generated/server";
 import { buildOpportunityAttributionPayload } from "../lib/attribution/detailPayload";
 import {
+  type MemberAvatarIdentity,
+  unknownMemberIdentity,
+  userMemberIdentity,
+} from "../lib/memberIdentity";
+import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatibleCustomerProgramName,
   resolveLegacyCompatibleRecordedByUserId,
@@ -18,7 +23,9 @@ type EnrichedPayment = Omit<
   amount: number;
   attributedCloserId: Id<"users"> | undefined;
   attributedCloserName: string | null;
+  attributedCloser: MemberAvatarIdentity | null;
   recordedByName: string | null;
+  recordedBy: MemberAvatarIdentity | null;
 };
 
 function resolveAttributedCloserId(
@@ -27,7 +34,7 @@ function resolveAttributedCloserId(
   return resolveLegacyCompatibleAttributedCloserId(payment);
 }
 
-async function loadPaymentUserNameById(
+async function loadPaymentUserMaps(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   payments: Array<Doc<"paymentRecords">>,
@@ -53,7 +60,7 @@ async function loadPaymentUserNameById(
     userIds.map(async (userId) => [userId, await ctx.db.get(userId)] as const),
   );
 
-  return new Map<Id<"users">, string | null>(
+  const userNameById = new Map<Id<"users">, string | null>(
     users.map(([userId, user]) => [
       userId,
       user && "tenantId" in user && user.tenantId === tenantId
@@ -61,6 +68,18 @@ async function loadPaymentUserNameById(
         : null,
     ]),
   );
+  const userIdentityById = new Map<Id<"users">, MemberAvatarIdentity | null>(
+    await Promise.all(
+      users.map(async ([userId, user]) => [
+        userId,
+        user && "tenantId" in user && user.tenantId === tenantId
+          ? await userMemberIdentity(ctx, user)
+          : null,
+      ] as const),
+    ),
+  );
+
+  return { userNameById, userIdentityById };
 }
 
 /**
@@ -116,17 +135,23 @@ export const listCustomers = query({
         converter?.fullName ?? converter?.email ?? "Unknown",
       ]),
     );
+    const converterById = new Map(
+      converters.map(({ converterId, converter }) => [converterId, converter]),
+    );
 
     return {
       ...paginatedResult,
-      page: paginatedResult.page.map((customer) => ({
+      page: await Promise.all(paginatedResult.page.map(async (customer) => ({
         ...customer,
         totalPaid: (customer.totalPaidMinor ?? 0) / 100,
         currency: customer.paymentCurrency ?? "USD",
         paymentCount: customer.totalPaymentCount ?? 0,
         convertedByName:
           converterNameById.get(customer.convertedByUserId) ?? "Unknown",
-      })),
+        convertedBy: converterById.get(customer.convertedByUserId)
+          ? await userMemberIdentity(ctx, converterById.get(customer.convertedByUserId))
+          : unknownMemberIdentity("Unknown", "unknown"),
+      }))),
     };
   },
 });
@@ -197,7 +222,10 @@ export const getCustomerDetail = query({
       .sort((a, b) => b.scheduledAt - a.scheduledAt)
       .slice(0, 20);
 
-    const paymentUserNameById = await loadPaymentUserNameById(
+    const {
+      userNameById: paymentUserNameById,
+      userIdentityById: paymentUserIdentityById,
+    } = await loadPaymentUserMaps(
       ctx,
       tenantId,
       paymentRecordsRaw,
@@ -206,6 +234,9 @@ export const getCustomerDetail = query({
       .filter((payment) => payment.tenantId === tenantId)
       .map((payment) => {
         const attributedCloserId = resolveAttributedCloserId(payment);
+        const recordedByUserId = resolveLegacyCompatibleRecordedByUserId(
+          payment,
+        );
         return {
           ...payment,
           amount: payment.amountMinor / 100,
@@ -213,14 +244,15 @@ export const getCustomerDetail = query({
           attributedCloserName: attributedCloserId
             ? (paymentUserNameById.get(attributedCloserId) ?? null)
             : null,
-          recordedByName: (() => {
-            const recordedByUserId = resolveLegacyCompatibleRecordedByUserId(
-              payment,
-            );
-            return recordedByUserId
-              ? (paymentUserNameById.get(recordedByUserId) ?? null)
-              : null;
-          })(),
+          attributedCloser: attributedCloserId
+            ? (paymentUserIdentityById.get(attributedCloserId) ?? null)
+            : null,
+          recordedByName: recordedByUserId
+            ? (paymentUserNameById.get(recordedByUserId) ?? null)
+            : null,
+          recordedBy: recordedByUserId
+            ? (paymentUserIdentityById.get(recordedByUserId) ?? null)
+            : null,
         };
       });
     payments.sort((a, b) => b.recordedAt - a.recordedAt);
@@ -257,7 +289,13 @@ export const getCustomerDetail = query({
       winningOpportunity,
       winningMeeting,
       closerName,
+      closer: assignedCloser
+        ? await userMemberIdentity(ctx, assignedCloser)
+        : null,
       convertedByName: converter?.fullName ?? converter?.email ?? "Unknown",
+      convertedBy: converter
+        ? await userMemberIdentity(ctx, converter)
+        : unknownMemberIdentity("Unknown", "unknown"),
       opportunities: opportunities.map((o) => ({
         _id: o._id,
         status: o.status,

@@ -7,6 +7,7 @@ import { api } from "@/convex/_generated/api";
 import { SYSTEM_ADMIN_ORG_ID } from "@/lib/system-admin-org";
 import type { Doc } from "@/convex/_generated/dataModel";
 import type { CrmRole } from "@/convex/lib/roleMapping";
+import type { MemberAvatarIdentity } from "@/convex/lib/memberIdentity";
 import type { Permission } from "@/convex/lib/permissions";
 import { hasPermission } from "@/convex/lib/permissions";
 
@@ -52,7 +53,7 @@ export type WorkspaceAccess =
       kind: "ready";
       session: VerifiedSession;
       tenant: CurrentTenant;
-      crmUser: Doc<"users">;
+      crmUser: Doc<"users"> & { avatar: MemberAvatarIdentity };
     };
 
 /**

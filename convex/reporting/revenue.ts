@@ -14,6 +14,7 @@ import {
   getActiveClosers,
   getNonDisputedPaymentsInRange,
   getUserDisplayName,
+  reportingUserIdentity,
   splitPaymentsForRevenueReporting,
 } from "./lib/helpers";
 
@@ -119,8 +120,8 @@ export const getRevenueMetrics = query({
       }
     }
 
-    const commissionableByCloser = closers
-      .map((closer) => {
+    const commissionableByCloser = (await Promise.all(closers
+      .map(async (closer) => {
         const closerPayments = split.commissionable.finalPayments.filter(
           (payment) => payment.effectiveCloserId === closer._id,
         );
@@ -132,11 +133,12 @@ export const getRevenueMetrics = query({
         return {
           closerId: closer._id,
           closerName: getUserDisplayName(closer),
+          closer: await reportingUserIdentity(ctx, closer),
           revenueMinor,
           dealCount,
           avgDealMinor: dealCount > 0 ? revenueMinor / dealCount : null,
         };
-      })
+      })))
       .sort(
         (left, right) =>
           right.revenueMinor - left.revenueMinor ||
@@ -259,28 +261,33 @@ export const getRevenueDetails = query({
     }
 
     return {
-      topDeals: topPayments.map((payment) => ({
-        paymentRecordId: payment._id,
-        amountMinor: payment.amountMinor,
-        currency: payment.currency,
-        attributedCloserId: payment.effectiveCloserId,
-        attributedCloserName:
-          getUserDisplayName(
-            payment.effectiveCloserId
-              ? closerById.get(payment.effectiveCloserId) ?? null
-              : null,
-          ) ?? "Unknown",
-        contextType: payment.contextType,
-        customerId: payment.customerId ?? null,
-        meetingId: payment.meetingId ?? null,
-        opportunityId: payment.opportunityId ?? null,
-        originatingOpportunityId: payment.originatingOpportunityId ?? null,
-        programId: payment.programId,
-        programName: payment.programName,
-        paymentType: payment.paymentType,
-        commissionable: payment.commissionable,
-        origin: payment.origin,
-        recordedAt: payment.recordedAt,
+      topDeals: await Promise.all(topPayments.map(async (payment) => {
+        const attributedCloser = payment.effectiveCloserId
+          ? closerById.get(payment.effectiveCloserId) ?? null
+          : null;
+        return {
+          paymentRecordId: payment._id,
+          amountMinor: payment.amountMinor,
+          currency: payment.currency,
+          attributedCloserId: payment.effectiveCloserId,
+          attributedCloserName: getUserDisplayName(attributedCloser) ?? "Unknown",
+          attributedCloser: await reportingUserIdentity(
+            ctx,
+            attributedCloser,
+            "Unknown closer",
+          ),
+          contextType: payment.contextType,
+          customerId: payment.customerId ?? null,
+          meetingId: payment.meetingId ?? null,
+          opportunityId: payment.opportunityId ?? null,
+          originatingOpportunityId: payment.originatingOpportunityId ?? null,
+          programId: payment.programId,
+          programName: payment.programName,
+          paymentType: payment.paymentType,
+          commissionable: payment.commissionable,
+          origin: payment.origin,
+          recordedAt: payment.recordedAt,
+        };
       })),
       dealSizeDistribution,
       isPaymentDataTruncated: paymentScan.isTruncated,

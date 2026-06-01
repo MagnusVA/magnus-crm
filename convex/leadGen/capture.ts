@@ -254,6 +254,8 @@ async function requireOperationalLeadGenWorker(
       workosUserId: user.workosUserId,
       email: user.email,
       displayName: displayNameForUser(user),
+      customProfilePictureStorageId: user.customProfilePictureStorageId,
+      profilePictureUrl: user.profilePictureUrl,
       isActive: true,
       updatedAt: now,
     });
@@ -270,6 +272,8 @@ async function requireOperationalLeadGenWorker(
     workosUserId: user.workosUserId,
     email: user.email,
     displayName: displayNameForUser(user),
+    customProfilePictureStorageId: user.customProfilePictureStorageId,
+    profilePictureUrl: user.profilePictureUrl,
     isActive: true,
     createdAt: now,
     updatedAt: now,

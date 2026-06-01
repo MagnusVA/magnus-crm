@@ -34,6 +34,8 @@ import {
 } from "@/components/ui/form";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 const roleEditSchema = z.object({
   role: z.enum(["closer", "tenant_admin", "lead_generator"]),
@@ -54,6 +56,7 @@ interface RoleEditDialogProps {
   onOpenChange: (open: boolean) => void;
   userId: Id<"users">;
   userName: string;
+  userIdentity?: MemberAvatarIdentity;
   currentRole: string;
   onSuccess?: () => void;
 }
@@ -63,6 +66,7 @@ export function RoleEditDialog({
   onOpenChange,
   userId,
   userName,
+  userIdentity,
   currentRole,
   onSuccess,
 }: RoleEditDialogProps) {
@@ -123,6 +127,7 @@ export function RoleEditDialog({
             next session.
           </DialogDescription>
         </DialogHeader>
+        {userIdentity ? <MemberIdentity identity={userIdentity} /> : null}
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)}>

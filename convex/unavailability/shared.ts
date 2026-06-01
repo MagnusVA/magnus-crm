@@ -1,6 +1,10 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
+  type MemberAvatarIdentity,
+  userMemberIdentity,
+} from "../lib/memberIdentity";
+import {
   getEffectiveRange,
   type UnavailabilityReason,
 } from "../lib/unavailabilityValidation";
@@ -29,6 +33,7 @@ export type BusyRange = {
 export type CloserSchedule = {
   closerId: Id<"users">;
   closerName: string;
+  closer: MemberAvatarIdentity;
   meetings: Array<{
     meetingId: Id<"meetings">;
     opportunityId: Id<"opportunities">;
@@ -144,6 +149,7 @@ export async function buildCloserSchedulesForDate(
     schedules.set(closerId, {
       closerId,
       closerName: getUserDisplayName(closer),
+      closer: await userMemberIdentity(ctx, closer),
       meetings: [],
       meetingsToday: 0,
       blockedRanges: [],

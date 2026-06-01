@@ -26,6 +26,8 @@ import { useTableSort } from "@/hooks/use-table-sort";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { OpportunityStatus } from "@/lib/status-config";
 import { ExternalLinkIcon, InboxIcon } from "lucide-react";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 export interface PipelineOpportunity {
   _id: Id<"opportunities">;
@@ -36,6 +38,7 @@ export interface PipelineOpportunity {
   /** Admin-only — present when `showCloserColumn` is true. */
   closerName?: string;
   closerEmail?: string;
+  closer?: MemberAvatarIdentity | null;
   hostCalendlyEmail?: string | null;
   nextMeetingId?: Id<"meetings"> | null;
   nextMeetingAt?: number | null;
@@ -231,14 +234,11 @@ export function OpportunitiesTable({
                           ) : null}
                         </div>
                       ) : (
-                        <div className="flex flex-col gap-0.5">
+                        opp.closer ? (
+                          <MemberIdentity identity={opp.closer} />
+                        ) : (
                           <span>{opp.closerName}</span>
-                          {opp.closerEmail ? (
-                            <span className="text-xs text-muted-foreground">
-                              {opp.closerEmail}
-                            </span>
-                          ) : null}
-                        </div>
+                        )
                       )}
                     </TableCell>
                   ) : null}

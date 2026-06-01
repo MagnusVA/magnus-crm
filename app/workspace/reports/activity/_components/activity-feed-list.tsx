@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ActivityEventRow } from "./activity-event-row";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 interface PaymentMetadata {
   programId: string | null;
@@ -25,6 +26,7 @@ interface ActivityFeedListProps {
     eventType: string;
     entityType: string;
     actorName: string | null;
+    actor: MemberAvatarIdentity | null;
     occurredAt: number;
     source: string;
     metadata: Record<string, unknown> | null;

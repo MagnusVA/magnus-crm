@@ -1,6 +1,8 @@
 import { v } from "convex/values";
-import { mutation, query } from "../_generated/server";
+import type { Doc, Id } from "../_generated/dataModel";
+import { mutation, query, type MutationCtx } from "../_generated/server";
 import { normalizeUtmValue, slugifyAttributionLabel } from "../lib/attribution/normalize";
+import { dmCloserMemberIdentity } from "../lib/memberIdentity";
 import { validateRequiredString } from "../lib/validation";
 import { requireTenantUser } from "../requireTenantUser";
 
@@ -35,6 +37,21 @@ function normalizeDmCloserInput(args: {
   return { displayName, utmMedium, normalizedUtmMedium, slug };
 }
 
+async function getLinkedUserForWrite(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  userId: Id<"users"> | null | undefined,
+) {
+  if (!userId) return null;
+
+  const user = await ctx.db.get(userId);
+  if (!user || user.tenantId !== tenantId) {
+    throw new Error("Linked user not found.");
+  }
+
+  return user;
+}
+
 export const listDmClosers = query({
   args: {},
   handler: async (ctx) => {
@@ -52,11 +69,38 @@ export const listDmClosers = query({
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
       .take(200);
     const teamById = new Map(teams.map((team) => [team._id, team]));
+    const linkedUserIds = [
+      ...new Set(
+        closers
+          .map((closer) => closer.userId)
+          .filter((userId): userId is Id<"users"> => Boolean(userId)),
+      ),
+    ];
+    const linkedUsers = await Promise.all(
+      linkedUserIds.map((userId) => ctx.db.get(userId)),
+    );
+    const linkedUserById = new Map(
+      linkedUsers
+        .filter(
+          (user): user is Doc<"users"> =>
+            user !== null && user.tenantId === tenantId,
+        )
+        .map((user) => [user._id, user]),
+    );
 
-    return closers.map((closer) => ({
-      ...closer,
-      teamLabel: teamById.get(closer.teamId)?.displayName ?? "Unknown team",
-    }));
+    return await Promise.all(
+      closers.map(async (closer) => {
+        const linkedUser = closer.userId
+          ? linkedUserById.get(closer.userId) ?? null
+          : null;
+
+        return {
+          ...closer,
+          teamLabel: teamById.get(closer.teamId)?.displayName ?? "Unknown team",
+          identity: await dmCloserMemberIdentity(ctx, closer, linkedUser),
+        };
+      }),
+    );
   },
 });
 
@@ -65,6 +109,7 @@ export const createDmCloser = mutation({
     teamId: v.id("attributionTeams"),
     displayName: v.string(),
     utmMedium: v.string(),
+    userId: v.optional(v.union(v.id("users"), v.null())),
   },
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [
@@ -75,6 +120,11 @@ export const createDmCloser = mutation({
     if (!team || team.tenantId !== tenantId) {
       throw new Error("Attribution team not found.");
     }
+    const linkedUser = await getLinkedUserForWrite(
+      ctx,
+      tenantId,
+      args.userId,
+    );
     const normalized = normalizeDmCloserInput(args);
     const now = Date.now();
 
@@ -97,6 +147,7 @@ export const createDmCloser = mutation({
       displayName: normalized.displayName,
       utmMedium: normalized.utmMedium,
       normalizedUtmMedium: normalized.normalizedUtmMedium,
+      userId: linkedUser?._id,
       isActive: true,
       createdAt: now,
       updatedAt: now,
@@ -110,6 +161,7 @@ export const updateDmCloser = mutation({
     teamId: v.id("attributionTeams"),
     displayName: v.string(),
     utmMedium: v.string(),
+    userId: v.optional(v.union(v.id("users"), v.null())),
   },
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [
@@ -124,6 +176,12 @@ export const updateDmCloser = mutation({
     if (!team || team.tenantId !== tenantId) {
       throw new Error("Attribution team not found.");
     }
+    const shouldPatchUserId = Object.hasOwn(args, "userId");
+    const linkedUser = await getLinkedUserForWrite(
+      ctx,
+      tenantId,
+      shouldPatchUserId ? args.userId : dmCloser.userId,
+    );
     const normalized = normalizeDmCloserInput(args);
     const existingActive = await ctx.db
       .query("dmClosers")
@@ -147,6 +205,7 @@ export const updateDmCloser = mutation({
       displayName: normalized.displayName,
       utmMedium: normalized.utmMedium,
       normalizedUtmMedium: normalized.normalizedUtmMedium,
+      userId: linkedUser?._id,
       updatedAt: Date.now(),
     });
     return args.dmCloserId;

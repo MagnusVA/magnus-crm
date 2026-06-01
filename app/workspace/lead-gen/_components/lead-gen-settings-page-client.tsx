@@ -37,6 +37,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { ArchiveIcon, PlusIcon, SaveIcon } from "lucide-react";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 
 const weekdays = [
   "monday",
@@ -334,8 +335,8 @@ export function LeadGenSettingsPageClient() {
 
                         return (
                           <TableRow key={worker._id}>
-                            <TableCell className="font-medium">
-                              {worker.displayName ?? worker.email}
+                            <TableCell>
+                              <MemberIdentity identity={worker.avatar} />
                             </TableCell>
                             <TableCell className="text-muted-foreground">
                               {worker.email}

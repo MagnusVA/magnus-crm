@@ -17,9 +17,12 @@ import {
 	type OpportunityStatus,
 } from "@/lib/status-config";
 import type { Doc } from "@/convex/_generated/dataModel";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 type LeadDetailOpportunity = Doc<"opportunities"> & {
 	closerName: string | null;
+	closer: MemberAvatarIdentity | null;
 	eventTypeName: string | null;
 };
 
@@ -94,7 +97,9 @@ export function LeadOpportunitiesTab({
 									</div>
 								</TableCell>
 								<TableCell>
-									{opp.closerName ?? (
+									{opp.closer ? (
+										<MemberIdentity identity={opp.closer} />
+									) : (
 										<span className="text-muted-foreground">Unassigned</span>
 									)}
 								</TableCell>

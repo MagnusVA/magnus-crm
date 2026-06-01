@@ -4,6 +4,12 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import type { QueryCtx } from "../_generated/server";
 import { leadDisplayFromShape } from "../lib/leadDisplay";
+import {
+  dmCloserMemberIdentity,
+  slackMemberIdentity,
+  unknownMemberIdentity,
+  userMemberIdentity,
+} from "../lib/memberIdentity";
 import { requireTenantUser } from "../requireTenantUser";
 import { meetingDayKey } from "./meetingStats";
 
@@ -267,13 +273,24 @@ async function enrichPhoneSalesRows(ctx: QueryCtx, meetings: Doc<"meetings">[]) 
   const dmCloserById = new Map(dmClosers.filter(isNonNull).map((closer) => [closer._id, closer]));
   const slackUserBySlackId = new Map(slackUsers.filter(isNonNull).map((user) => [user.slackUserId, user]));
 
-  return meetings.map((meeting) => {
+  return await Promise.all(meetings.map(async (meeting) => {
     const opportunity = opportunityById.get(meeting.opportunityId);
     const lead = opportunity ? leadById.get(opportunity.leadId) : undefined;
     const closer = closerById.get(meeting.assignedCloserId);
     const team = meeting.attributionTeamId ? teamById.get(meeting.attributionTeamId) : undefined;
     const dmCloser = meeting.dmCloserId ? dmCloserById.get(meeting.dmCloserId) : undefined;
     const slackUserId = opportunity?.qualifiedBy?.slackUserId;
+    const slackUser = slackUserId
+      ? slackUserBySlackId.get(slackUserId)
+      : undefined;
+    const linkedDmCloserUserCandidate =
+      dmCloser?.userId
+        ? (closerById.get(dmCloser.userId) ?? await ctx.db.get(dmCloser.userId))
+        : undefined;
+    const linkedDmCloserUser =
+      linkedDmCloserUserCandidate?.tenantId === tenantId
+        ? linkedDmCloserUserCandidate
+        : undefined;
     const leadName = lead
       ? leadDisplayFromShape({
           fullName: lead.fullName,
@@ -297,15 +314,24 @@ async function enrichPhoneSalesRows(ctx: QueryCtx, meetings: Doc<"meetings">[]) 
         null,
       soldProgramName: meeting.soldProgramName ?? opportunity?.soldProgramName ?? null,
       assignedCloserName: closer?.fullName ?? closer?.email ?? "Unknown closer",
+      assignedCloser: closer
+        ? await userMemberIdentity(ctx, closer)
+        : unknownMemberIdentity("Unknown closer", "unknown"),
       attributionResolution: meeting.attributionResolution ?? "none",
       attributionTeamName: team?.displayName ?? null,
       dmCloserName: dmCloser?.displayName ?? null,
+      dmCloser: dmCloser
+        ? await dmCloserMemberIdentity(ctx, dmCloser, linkedDmCloserUser)
+        : null,
       slackUserId: slackUserId ?? null,
       slackUserLabel: slackUserId
-        ? slackUserLabel(slackUserBySlackId.get(slackUserId)) ?? slackUserId
+        ? slackUserLabel(slackUser) ?? slackUserId
+        : null,
+      slackUser: slackUserId
+        ? slackMemberIdentity(slackUser, `slack:${slackUserId}`)
         : null,
     };
-  });
+  }));
 }
 
 function rowMatchesStatsFilter(

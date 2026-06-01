@@ -48,6 +48,7 @@ import {
 import { RescheduleChainBanner } from "@/app/workspace/closer/meetings/_components/reschedule-chain-banner";
 import { FathomLinkField } from "@/app/workspace/closer/meetings/_components/fathom-link-field";
 import { AdminActionBar } from "@/app/workspace/pipeline/meetings/_components/admin-action-bar";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 
 type MeetingDetailData = FunctionReturnType<
   typeof api.closer.meetingDetail.getMeetingDetail
@@ -90,6 +91,8 @@ export function AdminMeetingDetailClient({
     rescheduledFromMeeting,
     attributionTeam,
     dmCloser,
+    assignedCloserIdentity,
+    dmCloserIdentity,
   } = detail;
 
   const statusKey = opportunity.status as OpportunityStatus;
@@ -115,15 +118,18 @@ export function AdminMeetingDetailClient({
         <Alert className="mb-0">
           <UserIcon className="size-4" />
           <AlertDescription>
-            Assigned to{" "}
-            <span className="font-medium">
-              {assignedCloser.fullName ?? assignedCloser.email}
-            </span>
-            {assignedCloser.fullName && (
-              <span className="text-muted-foreground">
-                {" "}
-                ({assignedCloser.email})
-              </span>
+            <div className="flex items-center gap-2">
+              <span>Assigned to</span>
+              {assignedCloserIdentity ? (
+                <MemberIdentity identity={assignedCloserIdentity} />
+              ) : (
+                <span className="font-medium">
+                  {assignedCloser.fullName ?? assignedCloser.email}
+                </span>
+              )}
+            </div>
+            {!assignedCloserIdentity && assignedCloser.fullName && (
+              <span className="text-muted-foreground"> ({assignedCloser.email})</span>
             )}
           </AlertDescription>
         </Alert>
@@ -192,6 +198,7 @@ export function AdminMeetingDetailClient({
             meeting={meeting}
             eventTypeName={eventTypeName}
             assignedCloser={assignedCloser}
+            assignedCloserIdentity={assignedCloserIdentity}
           />
           <BookingAnswersCard customFields={lead.customFields} />
 
@@ -205,6 +212,7 @@ export function AdminMeetingDetailClient({
             meeting={meeting}
             attributionTeam={attributionTeam}
             dmCloser={dmCloser}
+            dmCloserIdentity={dmCloserIdentity}
           />
 
           {/* v2: Fathom Recording link — admin can save/update for any

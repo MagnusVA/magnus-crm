@@ -1,10 +1,17 @@
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
+import {
+  dmCloserMemberIdentity,
+  slackMemberIdentity,
+  type MemberAvatarIdentity,
+  userMemberIdentity,
+} from "../memberIdentity";
 
 export type EntityAttributionPayload = {
   slackQualification: {
     slackUserId: string;
     slackUserLabel: string;
+    slackUser: MemberAvatarIdentity;
     submittedAt: number;
     resultKind: Doc<"slackQualificationEvents">["resultKind"];
   } | null;
@@ -14,10 +21,11 @@ export type EntityAttributionPayload = {
     status: "mapped" | "unmapped" | "internal" | "none";
     teamName: string | null;
     dmCloserName: string | null;
+    dmCloser: MemberAvatarIdentity | null;
     rawSource: string | null;
     rawMedium: string | null;
   };
-  phoneCloser: { id: Id<"users">; name: string } | null;
+  phoneCloser: { id: Id<"users">; name: string; identity: MemberAvatarIdentity } | null;
   timeline: {
     qualifiedAt: number | null;
     firstBookedAt: number | null;
@@ -129,6 +137,10 @@ export async function buildOpportunityAttributionPayload(
         )
         .first()
     : null;
+  const linkedDmCloserUser =
+    dmCloser?.userId && dmCloser.tenantId === opportunity.tenantId
+      ? await ctx.db.get(dmCloser.userId)
+      : null;
 
   return {
     slackQualification: qualificationEvent
@@ -136,6 +148,10 @@ export async function buildOpportunityAttributionPayload(
           slackUserId: qualificationEvent.slackUserId,
           slackUserLabel:
             slackUserLabel(slackUser) ?? qualificationEvent.slackUserId,
+          slackUser: slackMemberIdentity(
+            slackUser,
+            `slack:${qualificationEvent.slackUserId}`,
+          ),
           submittedAt: qualificationEvent.submittedAt,
           resultKind: qualificationEvent.resultKind,
         }
@@ -153,6 +169,16 @@ export async function buildOpportunityAttributionPayload(
         dmCloser && dmCloser.tenantId === opportunity.tenantId
           ? dmCloser.displayName
           : null,
+      dmCloser:
+        dmCloser && dmCloser.tenantId === opportunity.tenantId
+          ? await dmCloserMemberIdentity(
+              ctx,
+              dmCloser,
+              linkedDmCloserUser?.tenantId === opportunity.tenantId
+                ? linkedDmCloserUser
+                : null,
+            )
+          : null,
       rawSource: rawUtmParams?.utm_source ?? null,
       rawMedium: rawUtmParams?.utm_medium ?? null,
     },
@@ -161,6 +187,7 @@ export async function buildOpportunityAttributionPayload(
         ? {
             id: phoneCloser._id,
             name: userDisplayName(phoneCloser) ?? "Unknown closer",
+            identity: await userMemberIdentity(ctx, phoneCloser),
           }
         : null,
     timeline: {

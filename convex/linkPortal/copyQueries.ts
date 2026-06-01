@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { query } from "../_generated/server";
+import { dmCloserMemberIdentity } from "../lib/memberIdentity";
 import { requireTenantUser } from "../requireTenantUser";
 
 const DEFAULT_RECENT_COPY_LIMIT = 25;
@@ -39,6 +40,12 @@ export const listRecentCopyEvents = query({
             ctx.db.get(row.dmCloserId),
             ctx.db.get(row.campaignPresetId),
           ]);
+        const linkedDmCloserUser =
+          dmCloser?.tenantId === tenantId && dmCloser.userId
+            ? await ctx.db.get(dmCloser.userId)
+            : null;
+        const validLinkedDmCloserUser =
+          linkedDmCloserUser?.tenantId === tenantId ? linkedDmCloserUser : null;
 
         return {
           id: row._id,
@@ -63,6 +70,10 @@ export const listRecentCopyEvents = query({
             dmCloser?.tenantId === tenantId
               ? dmCloser.displayName
               : "Unknown DM closer",
+          dmCloser:
+            dmCloser?.tenantId === tenantId
+              ? await dmCloserMemberIdentity(ctx, dmCloser, validLinkedDmCloserUser)
+              : null,
           campaignLabel:
             campaign?.tenantId === tenantId ? campaign.label : row.utmCampaign,
         };

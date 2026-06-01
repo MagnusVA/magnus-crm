@@ -14,6 +14,8 @@ import {
   MegaphoneIcon,
 } from "lucide-react";
 import type { Doc } from "@/convex/_generated/dataModel";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -22,6 +24,7 @@ type AttributionCardProps = {
   meeting: Doc<"meetings">;
   attributionTeam?: Doc<"attributionTeams"> | null;
   dmCloser?: Doc<"dmClosers"> | null;
+  dmCloserIdentity?: MemberAvatarIdentity | null;
 };
 
 // ─── Component ──────────────────────────────────────────────────────────────
@@ -39,6 +42,7 @@ export function AttributionCard({
   meeting,
   attributionTeam,
   dmCloser,
+  dmCloserIdentity,
 }: AttributionCardProps) {
   const utm = meeting.utmParams ?? opportunity.utmParams;
   const bookedProgramName =
@@ -75,6 +79,7 @@ export function AttributionCard({
             icon={<MegaphoneIcon />}
             label="DM Closer"
             value={dmCloserName}
+            identity={dmCloserIdentity}
           />
         </dl>
       </CardContent>
@@ -88,10 +93,12 @@ function UtmField({
   icon,
   label,
   value,
+  identity,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  identity?: MemberAvatarIdentity | null;
 }) {
   return (
     <div className="flex flex-col gap-1">
@@ -99,8 +106,8 @@ function UtmField({
         <span className="[&>svg]:size-3">{icon}</span>
         {label}
       </dt>
-      <dd className="truncate text-sm font-medium" title={value}>
-        {value}
+      <dd className="min-w-0 text-sm font-medium" title={value}>
+        {identity ? <MemberIdentity identity={identity} /> : value}
       </dd>
     </div>
   );

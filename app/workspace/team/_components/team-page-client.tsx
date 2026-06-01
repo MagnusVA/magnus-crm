@@ -17,6 +17,7 @@ import { DownloadIcon } from "lucide-react";
 import { downloadCSV } from "@/lib/export-csv";
 import { format } from "date-fns";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 // Lazy-load dialog components that are only shown on user interaction
 const InviteUserDialog = dynamic(() =>
@@ -52,7 +53,7 @@ const MarkUnavailableDialog = dynamic(() =>
 
 function TableSkeleton() {
   return (
-    <Card>
+    <Card role="status" aria-label="Loading team members">
       <CardContent className="pt-6">
         <div className="flex flex-col gap-4">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -68,16 +69,39 @@ function TableSkeleton() {
 
 type DialogState =
   | { type: null }
-  | { type: "remove"; userId: Id<"users">; userName: string; hasActiveAssignments: boolean }
-  | { type: "calendly"; userId: Id<"users">; userName: string }
-  | { type: "role"; userId: Id<"users">; userName: string; currentRole: string }
+  | {
+      type: "remove";
+      userId: Id<"users">;
+      userName: string;
+      userIdentity: MemberAvatarIdentity;
+      hasActiveAssignments: boolean;
+    }
+  | {
+      type: "calendly";
+      userId: Id<"users">;
+      userName: string;
+      userIdentity: MemberAvatarIdentity;
+    }
+  | {
+      type: "role";
+      userId: Id<"users">;
+      userName: string;
+      userIdentity: MemberAvatarIdentity;
+      currentRole: string;
+    }
   | {
       type: "event-type";
       userId: Id<"users">;
       userName: string;
+      userIdentity: MemberAvatarIdentity;
       currentUri?: string;
     }
-  | { type: "unavailability"; userId: Id<"users">; userName: string };
+  | {
+      type: "unavailability";
+      userId: Id<"users">;
+      userName: string;
+      userIdentity: MemberAvatarIdentity;
+    };
 
 export function TeamPageClient() {
   usePageTitle("Team");
@@ -115,6 +139,7 @@ export function TeamPageClient() {
         type: "role",
         userId: memberId,
         userName: member.fullName || member.email,
+        userIdentity: member.avatar,
         currentRole,
       });
     }
@@ -130,6 +155,7 @@ export function TeamPageClient() {
         type: "remove",
         userId: memberId,
         userName: member.fullName || member.email,
+        userIdentity: member.avatar,
         hasActiveAssignments,
       });
     }
@@ -142,6 +168,7 @@ export function TeamPageClient() {
         type: "calendly",
         userId: memberId,
         userName: member.fullName || member.email,
+        userIdentity: member.avatar,
       });
     }
   };
@@ -153,6 +180,7 @@ export function TeamPageClient() {
         type: "event-type",
         userId: memberId,
         userName: member.fullName || member.email,
+        userIdentity: member.avatar,
         currentUri: member.personalEventTypeUri,
       });
     }
@@ -165,6 +193,7 @@ export function TeamPageClient() {
         type: "unavailability",
         userId: memberId,
         userName: member.fullName || member.email,
+        userIdentity: member.avatar,
       });
     }
   };
@@ -238,6 +267,7 @@ export function TeamPageClient() {
           }}
           userId={dialog.userId}
           userName={dialog.userName}
+          userIdentity={dialog.userIdentity}
           hasActiveAssignments={dialog.hasActiveAssignments}
         />
       )}
@@ -250,6 +280,7 @@ export function TeamPageClient() {
           }}
           userId={dialog.userId}
           userName={dialog.userName}
+          userIdentity={dialog.userIdentity}
         />
       )}
 
@@ -261,6 +292,7 @@ export function TeamPageClient() {
           }}
           userId={dialog.userId}
           userName={dialog.userName}
+          userIdentity={dialog.userIdentity}
           currentRole={dialog.currentRole}
         />
       )}
@@ -273,6 +305,7 @@ export function TeamPageClient() {
           }}
           userId={dialog.userId}
           userName={dialog.userName}
+          userIdentity={dialog.userIdentity}
           currentUri={dialog.currentUri}
         />
       )}
@@ -285,6 +318,7 @@ export function TeamPageClient() {
           }}
           userId={dialog.userId}
           userName={dialog.userName}
+          userIdentity={dialog.userIdentity}
         />
       )}
     </div>

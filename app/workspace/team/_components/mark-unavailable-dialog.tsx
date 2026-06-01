@@ -41,6 +41,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { AlertCircleIcon } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -143,6 +145,7 @@ interface MarkUnavailableDialogProps {
   onOpenChange: (open: boolean) => void;
   userId: Id<"users">;
   userName: string;
+  userIdentity?: MemberAvatarIdentity;
 }
 
 /**
@@ -160,6 +163,7 @@ export function MarkUnavailableDialog({
   onOpenChange,
   userId,
   userName,
+  userIdentity,
 }: MarkUnavailableDialogProps) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -271,6 +275,7 @@ export function MarkUnavailableDialog({
             for redistribution.
           </DialogDescription>
         </DialogHeader>
+        {userIdentity ? <MemberIdentity identity={userIdentity} /> : null}
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)}>

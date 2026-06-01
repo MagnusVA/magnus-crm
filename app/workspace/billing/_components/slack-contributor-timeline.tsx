@@ -3,6 +3,7 @@
 import type { FunctionReturnType } from "convex/server";
 import { MessageSquareTextIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import { Badge } from "@/components/ui/badge";
 import {
 	Empty,
@@ -112,9 +113,11 @@ export function SlackContributorTimeline({
 							</div>
 							<div className="min-w-0">
 								<div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
-									<span className="text-xs font-medium text-foreground">
-										{event.label}
-									</span>
+									<MemberIdentity
+										identity={event.identity}
+										className="max-w-56 gap-1.5 text-xs"
+										textClassName="[&>p]:hidden"
+									/>
 									{event.resultKind ? (
 										<Badge
 											className="h-4 px-1 text-[0.6rem] font-normal uppercase tracking-wide"

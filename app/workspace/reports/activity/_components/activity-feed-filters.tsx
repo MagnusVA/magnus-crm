@@ -16,6 +16,8 @@ import {
   ReportPaymentTypeFilter,
   type PaymentType,
 } from "@/app/workspace/reports/_components/report-payment-type-filter";
+import { MemberIdentityOption } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 const ENTITY_TYPE_OPTIONS = [
   { label: "All", value: "__all__" },
@@ -63,6 +65,7 @@ interface ActivityFeedFiltersProps {
   actorBreakdown: Array<{
     actorUserId: string;
     actorName: string | null;
+    actor: MemberAvatarIdentity;
     count: number;
   }>;
 }
@@ -192,7 +195,12 @@ export function ActivityFeedFilters({
             <SelectItem value="__all__">All</SelectItem>
             {actorBreakdown.map((actor) => (
               <SelectItem key={actor.actorUserId} value={actor.actorUserId}>
-                {actor.actorName ?? "Unknown"} ({actor.count})
+                <div className="flex min-w-0 items-center justify-between gap-3">
+                  <MemberIdentityOption identity={actor.actor} />
+                  <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+                    {actor.count}
+                  </span>
+                </div>
               </SelectItem>
             ))}
           </SelectGroup>

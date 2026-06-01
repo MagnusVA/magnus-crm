@@ -15,11 +15,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 interface CloserRevenueTableProps {
   byCloser: Array<{
     closerId: string;
     closerName: string;
+    closer: MemberAvatarIdentity;
     revenueMinor: number;
     dealCount: number;
     avgDealMinor: number | null;
@@ -67,7 +70,9 @@ export function CloserRevenueTable({
             <TableBody>
               {byCloser.map((closer) => (
                 <TableRow key={closer.closerId}>
-                  <TableCell>{closer.closerName}</TableCell>
+                  <TableCell>
+                    <MemberIdentity identity={closer.closer} />
+                  </TableCell>
                   <TableCell className="text-right">
                     {formatCurrency(closer.revenueMinor)}
                   </TableCell>

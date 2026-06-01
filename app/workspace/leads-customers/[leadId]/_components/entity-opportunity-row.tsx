@@ -17,6 +17,7 @@ import type { EntityDetailOpportunity } from "./entity-detail-context";
 import { formatDate, formatMoneyMinor } from "./entity-detail-formatters";
 import { MetaDot, MetaRow } from "./entity-detail-ui";
 import { useOpportunitySheet } from "./opportunity-sheet-context";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 
 export function EntityOpportunityRow({
 	item,
@@ -70,9 +71,13 @@ export function EntityOpportunityRow({
 							</div>
 						</TruncatingTooltip>
 						<MetaRow>
-							<span className="truncate" translate="no">
-								Closer: {closerLabel}
-							</span>
+							{closer?.avatar ? (
+								<MemberIdentity identity={closer.avatar} />
+							) : (
+								<span className="truncate" translate="no">
+									Closer: {closerLabel}
+								</span>
+							)}
 							{opportunity.latestMeetingAt ? (
 								<>
 									<MetaDot />

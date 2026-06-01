@@ -17,6 +17,7 @@ import {
 	OverviewEmptyState,
 	OverviewErrorState,
 } from "./overview-section-state";
+import { MemberIdentity } from "./member-identity";
 
 export function LeadGenOverviewCard({
 	section,
@@ -86,9 +87,7 @@ export function LeadGenOverviewCard({
 									<span className="text-center text-xs font-semibold tabular-nums text-muted-foreground/60">
 										{index + 1}
 									</span>
-									<span className="truncate font-medium">
-										{worker.displayName}
-									</span>
+									<MemberIdentity identity={worker.worker} />
 									<span className="font-semibold tabular-nums">
 										{formatWholeNumber(worker.submissions)}
 									</span>

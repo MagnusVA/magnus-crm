@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { api } from "@/convex/_generated/api";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import { Button } from "@/components/ui/button";
 import { formatAmountMinor } from "@/lib/format-currency";
 import { cn } from "@/lib/utils";
@@ -310,10 +311,31 @@ export function BillingPaymentSummary({
 				</DetailBlock>
 
 				<DetailBlock title="Attribution">
-					<Field label="Entered by" value={detail.enteredBy.name} />
-					<Field label="Phone closer" value={detail.phoneCloser.name} />
+					<Field
+						label="Entered by"
+						value={<MemberIdentity identity={detail.enteredBy.identity} />}
+					/>
+					<Field
+						label="Phone closer"
+						value={
+							detail.phoneCloser.identity ? (
+								<MemberIdentity identity={detail.phoneCloser.identity} />
+							) : (
+								detail.phoneCloser.name
+							)
+						}
+					/>
 					<Field label="DM team" value={detail.dmAttribution.teamName} />
-					<Field label="DM closer" value={detail.dmAttribution.dmCloserName} />
+					<Field
+						label="DM closer"
+						value={
+							detail.dmAttribution.dmCloser ? (
+								<MemberIdentity identity={detail.dmAttribution.dmCloser} />
+							) : (
+								detail.dmAttribution.dmCloserName
+							)
+						}
+					/>
 					<Field
 						label="Slack"
 						value={
@@ -327,7 +349,16 @@ export function BillingPaymentSummary({
 				<DetailBlock title="Review">
 					<Field label="Program" value={detail.payment.programName} />
 					<Field label="Origin" value={detail.payment.origin} />
-					<Field label="Reviewer" value={detail.review.reviewerName} />
+					<Field
+						label="Reviewer"
+						value={
+							detail.review.reviewer ? (
+								<MemberIdentity identity={detail.review.reviewer} />
+							) : (
+								detail.review.reviewerName
+							)
+						}
+					/>
 					<Field label="Reviewed at" value={reviewedAt} />
 					<Field
 						label="Note"

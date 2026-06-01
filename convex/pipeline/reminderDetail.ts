@@ -3,6 +3,11 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { query } from "../_generated/server";
 import {
+  type MemberAvatarIdentity,
+  unknownMemberIdentity,
+  userMemberIdentity,
+} from "../lib/memberIdentity";
+import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatibleRecordedByUserId,
 } from "../lib/paymentTypes";
@@ -15,7 +20,9 @@ type EnrichedPayment = Omit<
   amount: number;
   attributedCloserId: Id<"users"> | undefined;
   attributedCloserName: string | null;
+  attributedCloser: MemberAvatarIdentity | null;
   recordedByName: string | null;
+  recordedBy: MemberAvatarIdentity | null;
   proofFileUrl: string | null;
   proofFileContentType: string | null;
   proofFileSize: number | null;
@@ -53,7 +60,7 @@ async function loadPaymentUserNameById(
     userIds.map(async (userId) => [userId, await ctx.db.get(userId)] as const),
   );
 
-  return new Map<Id<"users">, string | null>(
+  const userNameById = new Map<Id<"users">, string | null>(
     users.map(([userId, user]) => [
       userId,
       user && "tenantId" in user && user.tenantId === tenantId
@@ -61,6 +68,18 @@ async function loadPaymentUserNameById(
         : null,
     ]),
   );
+  const userIdentityById = new Map<Id<"users">, MemberAvatarIdentity | null>(
+    await Promise.all(
+      users.map(async ([userId, user]) => [
+        userId,
+        user && "tenantId" in user && user.tenantId === tenantId
+          ? await userMemberIdentity(ctx, user)
+          : null,
+      ] as const),
+    ),
+  );
+
+  return { userNameById, userIdentityById };
 }
 
 /**
@@ -97,7 +116,7 @@ export const getAdminReminderDetail = query({
       return null;
     }
 
-    const [latestMeeting, paymentRecordsRaw, eventTypeConfig] = await Promise.all([
+    const [latestMeeting, paymentRecordsRaw, eventTypeConfig, assignedCloserUser] = await Promise.all([
       opportunity.latestMeetingId
         ? ctx.db.get(opportunity.latestMeetingId)
         : Promise.resolve(null),
@@ -111,9 +130,15 @@ export const getAdminReminderDetail = query({
       opportunity.eventTypeConfigId
         ? ctx.db.get(opportunity.eventTypeConfigId)
         : Promise.resolve(null),
+      ctx.db.get(followUp.closerId),
     ]);
+    const assignedCloser =
+      assignedCloserUser && assignedCloserUser.tenantId === tenantId
+        ? await userMemberIdentity(ctx, assignedCloserUser)
+        : unknownMemberIdentity("Assigned closer", "unknown");
 
-    const paymentUserNameById = await loadPaymentUserNameById(
+    const { userNameById: paymentUserNameById, userIdentityById: paymentUserIdentityById } =
+      await loadPaymentUserNameById(
       ctx,
       tenantId,
       paymentRecordsRaw,
@@ -149,8 +174,14 @@ export const getAdminReminderDetail = query({
             attributedCloserName: attributedCloserId
               ? (paymentUserNameById.get(attributedCloserId) ?? null)
               : null,
+            attributedCloser: attributedCloserId
+              ? (paymentUserIdentityById.get(attributedCloserId) ?? null)
+              : null,
             recordedByName: recordedByUserId
               ? (paymentUserNameById.get(recordedByUserId) ?? null)
+              : null,
+            recordedBy: recordedByUserId
+              ? (paymentUserIdentityById.get(recordedByUserId) ?? null)
               : null,
             proofFileUrl,
             proofFileContentType,
@@ -178,6 +209,7 @@ export const getAdminReminderDetail = query({
       followUp,
       opportunity,
       lead,
+      assignedCloser,
       latestMeeting:
         latestMeeting && latestMeeting.tenantId === tenantId
           ? latestMeeting

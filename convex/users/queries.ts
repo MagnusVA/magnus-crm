@@ -6,6 +6,7 @@ import {
   getCanonicalIdentityWorkosUserId,
   getWorkosUserIdCandidates,
 } from "../lib/workosUserId";
+import { userMemberIdentity } from "../lib/memberIdentity";
 
 export const getCurrentUser = query({
   args: {},
@@ -63,7 +64,14 @@ export const getCurrentUser = query({
     if (user?.isActive === false) {
       return null;
     }
-    return user;
+    if (!user) {
+      return null;
+    }
+
+    return {
+      ...user,
+      avatar: await userMemberIdentity(ctx, user),
+    };
   },
 });
 
@@ -199,15 +207,18 @@ export const listTeamMembers = query({
     );
 
     console.log("[Users] listTeamMembers result", { count: users.length });
-    return users.map((user) => ({
-      ...user,
-      calendlyMemberName:
-        user.calendlyMemberName ??
-        (user.calendlyUserUri
-          ? calendlyMemberNameByUri.get(user.calendlyUserUri)
-          : undefined),
-      isPendingInvite: user.invitationStatus === "pending",
-    }));
+    return await Promise.all(
+      users.map(async (user) => ({
+        ...user,
+        avatar: await userMemberIdentity(ctx, user),
+        calendlyMemberName:
+          user.calendlyMemberName ??
+          (user.calendlyUserUri
+            ? calendlyMemberNameByUri.get(user.calendlyUserUri)
+            : undefined),
+        isPendingInvite: user.invitationStatus === "pending",
+      })),
+    );
   },
 });
 
@@ -226,13 +237,16 @@ export const listActiveClosers = query({
       )
       .take(200);
 
-    return users
-      .filter((user) => user.role === "closer")
-      .map((user) => ({
-        _id: user._id,
-        fullName: user.fullName,
-        email: user.email,
-      }));
+    return await Promise.all(
+      users
+        .filter((user) => user.role === "closer")
+        .map(async (user) => ({
+          _id: user._id,
+          fullName: user.fullName,
+          email: user.email,
+          avatar: await userMemberIdentity(ctx, user),
+        })),
+    );
   },
 });
 

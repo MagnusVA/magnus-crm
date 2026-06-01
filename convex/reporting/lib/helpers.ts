@@ -2,6 +2,10 @@ import type { Value } from "convex/values";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 import {
+  unknownMemberIdentity,
+  userMemberIdentity,
+} from "../../lib/memberIdentity";
+import {
   COMMISSIONABLE_ORIGINS,
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatiblePaymentCommissionable,
@@ -35,6 +39,16 @@ export function getUserDisplayName(
   return fullName && fullName.length > 0
     ? fullName
     : (user?.email ?? "Unknown");
+}
+
+export async function reportingUserIdentity(
+  ctx: QueryCtx,
+  user: Doc<"users"> | null | undefined,
+  fallbackLabel = "Removed user",
+) {
+  return user
+    ? await userMemberIdentity(ctx, user)
+    : unknownMemberIdentity(fallbackLabel, "unknown");
 }
 
 export async function getActiveClosers(

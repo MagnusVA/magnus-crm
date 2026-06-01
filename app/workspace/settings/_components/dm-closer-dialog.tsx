@@ -19,26 +19,40 @@ import {
   SelectContent,
   SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
+import { MemberIdentityOption } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 type DmCloserRow = Doc<"dmClosers"> & { teamLabel: string };
+type TeamMemberOption = {
+  _id: Id<"users">;
+  fullName?: string;
+  email: string;
+  role: Doc<"users">["role"];
+  isActive: boolean;
+  avatar: MemberAvatarIdentity;
+};
 
 export function DmCloserDialog({
   open,
   onOpenChange,
   dmCloser,
   teams,
+  teamMembers,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   dmCloser?: DmCloserRow;
   teams: Doc<"attributionTeams">[];
+  teamMembers: TeamMemberOption[];
 }) {
   const [teamId, setTeamId] = useState<Id<"attributionTeams"> | undefined>();
+  const [linkedUserId, setLinkedUserId] = useState<Id<"users"> | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [utmMedium, setUtmMedium] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -48,6 +62,7 @@ export function DmCloserDialog({
   useEffect(() => {
     if (open) {
       setTeamId(dmCloser?.teamId ?? teams[0]?._id);
+      setLinkedUserId(dmCloser?.userId ?? null);
       setDisplayName(dmCloser?.displayName ?? "");
       setUtmMedium(dmCloser?.utmMedium ?? "");
     }
@@ -66,9 +81,15 @@ export function DmCloserDialog({
           teamId,
           displayName,
           utmMedium,
+          userId: linkedUserId,
         });
       } else {
-        await createDmCloser({ teamId, displayName, utmMedium });
+        await createDmCloser({
+          teamId,
+          displayName,
+          utmMedium,
+          userId: linkedUserId,
+        });
       }
       toast.success(dmCloser ? "DM closer updated" : "DM closer created");
       onOpenChange(false);
@@ -89,7 +110,8 @@ export function DmCloserDialog({
             {dmCloser ? "Edit DM Closer" : "New DM Closer"}
           </DialogTitle>
           <DialogDescription>
-            DM closers are external attribution records, not CRM users.
+            DM closers are attribution records and can optionally link to a CRM
+            user for workspace avatar display.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>
@@ -133,6 +155,33 @@ export function DmCloserDialog({
               onChange={(event) => setUtmMedium(event.target.value)}
               disabled={isSaving}
             />
+          </Field>
+          <Field>
+            <FieldLabel>Linked CRM user</FieldLabel>
+            <Select
+              value={linkedUserId ?? "__none__"}
+              onValueChange={(value) =>
+                setLinkedUserId(
+                  value === "__none__" ? null : (value as Id<"users">),
+                )
+              }
+              disabled={isSaving}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="No linked user" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectLabel>CRM user</SelectLabel>
+                  <SelectItem value="__none__">No linked user</SelectItem>
+                  {teamMembers.map((member) => (
+                    <SelectItem key={member._id} value={member._id}>
+                      <MemberIdentityOption identity={member.avatar} />
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
           </Field>
         </FieldGroup>
         <div className="flex justify-end gap-2">

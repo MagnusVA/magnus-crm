@@ -21,6 +21,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 type PerformanceRow = {
   workerId: string;
@@ -29,6 +31,9 @@ type PerformanceRow = {
   duplicates: number;
   scheduledHours?: number;
   leadsPerHour?: number | null;
+};
+type LeadGenWorker = Doc<"leadGenWorkers"> & {
+  avatar: MemberAvatarIdentity;
 };
 
 const numberFormatter = new Intl.NumberFormat(undefined, {
@@ -45,7 +50,7 @@ export function WorkerPerformanceTable({
   workers,
 }: {
   rows: PerformanceRow[] | undefined;
-  workers: Doc<"leadGenWorkers">[] | undefined;
+  workers: LeadGenWorker[] | undefined;
 }) {
   const workerById = new Map(
     (workers ?? []).map((worker) => [worker._id, worker]),
@@ -86,16 +91,22 @@ export function WorkerPerformanceTable({
                   return (
                     <TableRow key={row.workerId}>
                       <TableCell className="max-w-0">
-                        <div className="flex min-w-0 flex-col gap-1">
+                        {worker?.avatar ? (
+                          <MemberIdentity
+                            identity={worker.avatar}
+                            badge={
+                              !worker.isActive ? (
+                                <Badge className="w-fit" variant="outline">
+                                  Inactive
+                                </Badge>
+                              ) : null
+                            }
+                          />
+                        ) : (
                           <span className="truncate font-medium">
-                            {worker?.displayName ?? worker?.email ?? row.workerId}
+                            {row.workerId}
                           </span>
-                          {worker && !worker.isActive ? (
-                            <Badge className="w-fit" variant="outline">
-                              Inactive
-                            </Badge>
-                          ) : null}
-                        </div>
+                        )}
                       </TableCell>
                       <NumberCell value={row.submissions} />
                       <NumberCell value={row.uniqueProspects} />

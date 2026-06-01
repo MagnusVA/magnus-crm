@@ -2,9 +2,8 @@
 
 import { WorkOS } from "@workos-inc/node";
 import { internal } from "../_generated/api";
+import type { Id } from "../_generated/dataModel";
 import { action } from "../_generated/server";
-import type { Doc } from "../_generated/dataModel";
-import { getIdentityOrgId } from "../lib/identity";
 import {
   getCanonicalIdentityWorkosUserId,
   getRawWorkosUserId,
@@ -26,56 +25,31 @@ function getDisplayName(user: {
   return fullName || undefined;
 }
 
-export const claimInvitedAccount = action({
+export const syncCurrentProfile = action({
   args: {},
-  handler: async (ctx): Promise<Doc<"users"> | null> => {
-    console.log("[WorkOS:Users] claimInvitedAccount action called");
-
+  handler: async (ctx): Promise<Id<"users"> | null> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
-      console.warn("[WorkOS:Users] claimInvitedAccount action: not authenticated");
-      return null;
+      throw new Error("Not authenticated");
     }
 
     const workosUserId = getCanonicalIdentityWorkosUserId(identity);
     if (!workosUserId) {
-      console.warn("[WorkOS:Users] claimInvitedAccount action: no workosUserId");
-      return null;
-    }
-
-    const orgId = getIdentityOrgId(identity);
-    if (!orgId) {
-      console.warn("[WorkOS:Users] claimInvitedAccount action: no orgId");
-      return null;
+      throw new Error("Missing WorkOS user ID");
     }
 
     const workosUser = await workos.userManagement.getUser(
       getRawWorkosUserId(workosUserId),
     );
-    const email = workosUser.email?.trim().toLowerCase();
-
-    if (!email) {
-      console.warn("[WorkOS:Users] claimInvitedAccount action: WorkOS user missing email", {
-        workosUserId,
-      });
-      return null;
-    }
-
-    console.log("[WorkOS:Users] claimInvitedAccount action: resolved WorkOS user", {
-      workosUserId,
-      orgId,
-      email,
-    });
 
     return await ctx.runMutation(
-      internal.workos.userMutations.claimInvitedAccountByEmail,
+      internal.workos.profileMutations.patchCurrentProfile,
       {
         workosUserId,
-        orgId,
-        email,
+        email: workosUser.email,
         fullName: getDisplayName(workosUser),
         profilePictureUrl: workosUser.profilePictureUrl ?? undefined,
-        profilePictureSyncedAt: Date.now(),
+        syncedAt: Date.now(),
       },
     );
   },

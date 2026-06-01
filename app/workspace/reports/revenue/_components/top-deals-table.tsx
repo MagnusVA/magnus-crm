@@ -15,6 +15,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 type PaymentTypeLiteral = "pif" | "split" | "monthly" | "deposit";
 
@@ -30,6 +32,7 @@ interface TopDealsTableProps {
     paymentRecordId: string;
     amountMinor: number;
     attributedCloserName: string;
+    attributedCloser: MemberAvatarIdentity;
     recordedAt: number;
     contextType: string;
     programId?: string | null;
@@ -91,7 +94,9 @@ export function TopDealsTable({ deals }: TopDealsTableProps) {
                   </TableCell>
                   <TableCell>{deal.programName ?? "\u2014"}</TableCell>
                   <TableCell>{formatPaymentType(deal.paymentType)}</TableCell>
-                  <TableCell>{deal.attributedCloserName}</TableCell>
+                  <TableCell>
+                    <MemberIdentity identity={deal.attributedCloser} />
+                  </TableCell>
                   <TableCell>
                     {format(deal.recordedAt, "MMM d, yyyy")}
                   </TableCell>

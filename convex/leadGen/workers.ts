@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
 import { internalMutation, mutation, query } from "../_generated/server";
+import { leadGenWorkerMemberIdentity } from "../lib/memberIdentity";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   listSharedDmTeams,
@@ -42,6 +43,8 @@ export const syncWorkerProfileForUser = internalMutation({
         workosUserId: user.workosUserId,
         email: user.email,
         displayName: displayNameForUser(user),
+        customProfilePictureStorageId: user.customProfilePictureStorageId,
+        profilePictureUrl: user.profilePictureUrl,
         isActive: shouldBeActive,
         createdAt: now,
         updatedAt: now,
@@ -52,6 +55,8 @@ export const syncWorkerProfileForUser = internalMutation({
       workosUserId: user.workosUserId,
       email: user.email,
       displayName: displayNameForUser(user),
+      customProfilePictureStorageId: user.customProfilePictureStorageId,
+      profilePictureUrl: user.profilePictureUrl,
       isActive: shouldBeActive,
       updatedAt: now,
     });
@@ -75,9 +80,15 @@ export const listWorkers = query({
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
       .take(250);
 
-    return rows
+    const filtered = rows
       .filter((worker) => args.includeInactive || worker.isActive)
       .sort((a, b) => a.email.localeCompare(b.email));
+    return await Promise.all(
+      filtered.map(async (worker) => ({
+        ...worker,
+        avatar: await leadGenWorkerMemberIdentity(ctx, worker),
+      })),
+    );
   },
 });
 

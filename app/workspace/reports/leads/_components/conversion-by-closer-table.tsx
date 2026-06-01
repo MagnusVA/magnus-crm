@@ -15,11 +15,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 interface ConversionByCloserTableProps {
   byCloser: Array<{
     closerId: string;
     closerName: string;
+    closer: MemberAvatarIdentity;
     conversions: number;
   }>;
   totalConversions: number;
@@ -53,7 +56,9 @@ export function ConversionByCloserTable({
             <TableBody>
               {sorted.map((row) => (
                 <TableRow key={row.closerId}>
-                  <TableCell>{row.closerName}</TableCell>
+                  <TableCell>
+                    <MemberIdentity identity={row.closer} />
+                  </TableCell>
                   <TableCell className="text-right">
                     {row.conversions}
                   </TableCell>

@@ -3,6 +3,7 @@
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { MemberIdentityOption } from "@/app/workspace/_components/member-identity";
 import {
   Select,
   SelectContent,
@@ -96,7 +97,7 @@ export function ReportAttributionFilters({
             <SelectItem value={ALL_SENTINEL}>All DM closers</SelectItem>
             {activeDmClosers.map((dmCloser) => (
               <SelectItem key={dmCloser._id} value={dmCloser._id}>
-                {dmCloser.displayName}
+                <MemberIdentityOption identity={dmCloser.identity} />
               </SelectItem>
             ))}
           </SelectGroup>

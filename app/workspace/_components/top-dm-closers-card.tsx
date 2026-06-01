@@ -17,6 +17,7 @@ import {
 	OverviewEmptyState,
 	OverviewErrorState,
 } from "./overview-section-state";
+import { MemberIdentity } from "./member-identity";
 
 export function TopDmClosersCard({
 	section,
@@ -67,12 +68,12 @@ export function TopDmClosersCard({
 									<span className="text-center text-xs font-semibold tabular-nums text-muted-foreground/60">
 										{index + 1}
 									</span>
-									<div className="min-w-0">
-										<p className="truncate font-medium">{row.displayName}</p>
-										<p className="truncate text-xs text-muted-foreground">
-											{row.teamName ?? "No team"}
-										</p>
-									</div>
+									<MemberIdentity
+										identity={{
+											...row.dmCloser,
+											secondaryLabel: row.teamName ?? "No team",
+										}}
+									/>
 									<span className="font-semibold tabular-nums">
 										{formatWholeNumber(row.booked)}
 									</span>
