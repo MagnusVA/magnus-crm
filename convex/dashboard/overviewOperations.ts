@@ -1,5 +1,9 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
+import {
+  unknownMemberIdentity,
+  userMemberIdentity,
+} from "../lib/memberIdentity";
 import { buildDmCloserEfficiencyRows } from "./overviewLeaderboardBuilders";
 import type { DerivedOverviewRange } from "./overviewRange";
 import type { PhoneCloserOperations } from "./overviewTypes";
@@ -34,6 +38,12 @@ function addOperationRow(
 
 function toRate(numerator: number, denominator: number): number | null {
   return denominator > 0 ? numerator / denominator : null;
+}
+
+function getIdentitySortLabel(
+  identity: PhoneCloserOperations["rows"][number]["closer"],
+) {
+  return identity.name ?? identity.email ?? "Unknown";
 }
 
 async function readOperationsStatsRows(
@@ -97,13 +107,13 @@ export async function getPhoneCloserOperationsOverviewSection(
   for (const [closerId, totals] of byCloser) {
     const closer = await ctx.db.get(closerId);
     const validCloser = closer && closer.tenantId === tenantId ? closer : null;
-    const closerName = validCloser
-      ? (validCloser.fullName ?? validCloser.email)
-      : "Removed closer";
+    const closerIdentity = validCloser
+      ? await userMemberIdentity(ctx, validCloser)
+      : unknownMemberIdentity("Removed closer", "unknown");
 
     tableRows.push({
       closerId,
-      closerName,
+      closer: closerIdentity,
       ...totals,
       showRate: toRate(totals.completed, totals.scheduled),
       noShowRate: toRate(totals.noShows, totals.scheduled),
@@ -113,7 +123,9 @@ export async function getPhoneCloserOperationsOverviewSection(
   const sortedRows = tableRows.sort(
     (left, right) =>
       right.scheduled - left.scheduled ||
-      left.closerName.localeCompare(right.closerName),
+      getIdentitySortLabel(left.closer).localeCompare(
+        getIdentitySortLabel(right.closer),
+      ),
   );
   const operationTotals = [...byCloser.values()].reduce(
     (acc, totals) => ({
