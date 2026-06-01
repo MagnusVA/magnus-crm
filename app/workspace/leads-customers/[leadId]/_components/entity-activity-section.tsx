@@ -1,9 +1,22 @@
 "use client";
 
+import { ActivityIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
+import {
+	LabelWithInfoTooltip,
+	leadsCustomersTooltips,
+} from "../../_components/entity-ui-tooltips";
 import { useEntityDetail } from "./entity-detail-context";
-import { formatDateTime, formatMoneyMinor, formatToken } from "./entity-detail-formatters";
+import {
+	formatDateTime,
+	formatMoneyMinor,
+	formatToken,
+} from "./entity-detail-formatters";
+import { SectionShell } from "./entity-detail-ui";
 
-function activityLabel(event: ReturnType<typeof useEntityDetail>["activity"][number]) {
+type ActivityEvent = ReturnType<typeof useEntityDetail>["activity"][number];
+
+function activityLabel(event: ActivityEvent) {
 	if (event.kind === "payment") {
 		return `Payment ${formatMoneyMinor(event.amountMinor, event.currency)}`;
 	}
@@ -16,36 +29,70 @@ function activityLabel(event: ReturnType<typeof useEntityDetail>["activity"][num
 	return `Opportunity ${formatToken(event.status)}`;
 }
 
+const ACTIVITY_DOT_CLASS: Record<ActivityEvent["kind"], string> = {
+	payment: "bg-emerald-500",
+	customer: "bg-primary",
+	meeting: "bg-blue-500",
+	opportunity_status: "bg-violet-500",
+};
+
 export function EntityActivitySection() {
 	const { activity, caps } = useEntityDetail();
 
 	return (
-		<section className="rounded-md border">
-			<div className="flex items-center justify-between gap-3 border-b p-3">
-				<h2 className="text-sm font-semibold">Activity</h2>
-				{caps.activity ? (
-					<span className="text-xs text-muted-foreground">
-						Showing latest {caps.maxActivity}
-					</span>
-				) : null}
-			</div>
+		<SectionShell
+			title="Activity"
+			icon={<ActivityIcon aria-hidden="true" />}
+			count={activity.length || undefined}
+			meta={
+				caps.activity ? (
+					<LabelWithInfoTooltip
+						label={`Latest ${caps.maxActivity}`}
+						description={leadsCustomersTooltips.listCap(
+							`${caps.maxActivity} activity events`,
+						)}
+					/>
+				) : null
+			}
+			bodyClassName="p-4"
+		>
 			{activity.length === 0 ? (
-				<div className="p-4 text-sm text-muted-foreground">No activity yet.</div>
+				<div className="text-sm text-muted-foreground">No activity yet.</div>
 			) : (
-				<div className="divide-y">
-					{activity.map((event) => (
-						<div
+				<ol className="relative flex flex-col">
+					{activity.map((event, index) => (
+						<li
 							key={`${event.kind}:${event.at}`}
-							className="grid gap-1 p-3 text-sm sm:grid-cols-[11rem_1fr]"
+							className="relative grid grid-cols-[auto_1fr] gap-x-3 pb-3.5 last:pb-0"
 						>
-							<div className="text-muted-foreground tabular-nums">
-								{formatDateTime(event.at)}
+							{index < activity.length - 1 ? (
+								<span
+									aria-hidden="true"
+									className="absolute top-3 left-[3.5px] h-full w-px bg-border/70"
+								/>
+							) : null}
+							<span
+								aria-hidden="true"
+								className={cn(
+									"relative z-10 mt-1 size-2 shrink-0 rounded-full ring-2 ring-card",
+									ACTIVITY_DOT_CLASS[event.kind],
+								)}
+							/>
+							<div className="flex min-w-0 flex-col gap-0.5">
+								<span className="text-sm font-medium" translate="no">
+									{activityLabel(event)}
+								</span>
+								<time
+									className="text-[11px] text-muted-foreground tabular-nums"
+									dateTime={new Date(event.at).toISOString()}
+								>
+									{formatDateTime(event.at)}
+								</time>
 							</div>
-							<div className="font-medium">{activityLabel(event)}</div>
-						</div>
+						</li>
 					))}
-				</div>
+				</ol>
 			)}
-		</section>
+		</SectionShell>
 	);
 }

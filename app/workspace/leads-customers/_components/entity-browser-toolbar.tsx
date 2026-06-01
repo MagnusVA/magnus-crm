@@ -5,18 +5,25 @@ import { PlusIcon, SearchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useEntityBrowser, type EntityLifecycleFilter } from "./entity-browser-context";
+import {
+	leadsCustomersTooltips,
+	SimpleTooltip,
+} from "./entity-ui-tooltips";
 import { useEntityResults } from "./use-entity-results";
 
-const lifecycleItems: Array<{ value: EntityLifecycleFilter; label: string }> = [
-	{ value: "all", label: "All" },
-	{ value: "lead", label: "Leads" },
-	{ value: "customer", label: "Customers" },
+const lifecycleItems: Array<{
+	value: EntityLifecycleFilter;
+	label: string;
+	tooltip: string;
+}> = [
+	{ value: "all", label: "All", tooltip: leadsCustomersTooltips.lifecycle.all },
+	{ value: "lead", label: "Leads", tooltip: leadsCustomersTooltips.lifecycle.lead },
+	{
+		value: "customer",
+		label: "Customers",
+		tooltip: leadsCustomersTooltips.lifecycle.customer,
+	},
 ];
 
 export function EntityBrowserToolbar() {
@@ -37,22 +44,31 @@ export function EntityBrowserToolbar() {
 						Find people by name, email, phone, handle, or known record ID.
 					</p>
 				</div>
-				<Button asChild size="sm" className="shrink-0">
-					<Link href="/workspace/leads-customers/new-opportunity">
-						<PlusIcon data-icon="inline-start" aria-hidden="true" />
-						New Side Deal
-					</Link>
-				</Button>
+				<SimpleTooltip content={leadsCustomersTooltips.newSideDeal} side="left">
+					<Button asChild size="sm" className="shrink-0">
+						<Link href="/workspace/leads-customers/new-opportunity">
+							<PlusIcon data-icon="inline-start" aria-hidden="true" />
+							New Side Deal
+						</Link>
+					</Button>
+				</SimpleTooltip>
 			</div>
 
 			<div className="rounded-md border bg-card p-3">
 				<div className="flex flex-col gap-3 lg:flex-row lg:items-center">
 					<label className="relative block min-w-0 flex-1">
 						<span className="sr-only">Search Leads & Customers</span>
-						<SearchIcon
-							aria-hidden="true"
-							className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-						/>
+						<SimpleTooltip
+							content={leadsCustomersTooltips.search}
+							side="bottom"
+						>
+							<span className="pointer-events-auto absolute left-3 top-1/2 z-10 -translate-y-1/2">
+								<SearchIcon
+									aria-hidden="true"
+									className="size-4 text-muted-foreground"
+								/>
+							</span>
+						</SimpleTooltip>
 						<Input
 							name="entity-search"
 							value={state.query}
@@ -65,27 +81,24 @@ export function EntityBrowserToolbar() {
 						/>
 					</label>
 					<div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between lg:justify-start">
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<ToggleGroup
-									type="single"
-									value={state.lifecycle}
-									onValueChange={(value) => {
-										if (value) actions.setLifecycle(value as EntityLifecycleFilter);
-									}}
-									aria-label="Filter lifecycle"
-									variant="outline"
-									size="sm"
-								>
-									{lifecycleItems.map((item) => (
-										<ToggleGroupItem key={item.value} value={item.value}>
-											{item.label}
-										</ToggleGroupItem>
-									))}
-								</ToggleGroup>
-							</TooltipTrigger>
-							<TooltipContent>Filter by lead or customer lifecycle</TooltipContent>
-						</Tooltip>
+						<ToggleGroup
+							type="single"
+							value={state.lifecycle}
+							onValueChange={(value) => {
+								if (value) actions.setLifecycle(value as EntityLifecycleFilter);
+							}}
+							aria-label="Filter lifecycle"
+							variant="outline"
+							size="sm"
+						>
+							{lifecycleItems.map((item) => (
+								<SimpleTooltip key={item.value} content={item.tooltip}>
+									<ToggleGroupItem value={item.value}>
+										{item.label}
+									</ToggleGroupItem>
+								</SimpleTooltip>
+							))}
+						</ToggleGroup>
 						<span
 							id="entity-search-status"
 							aria-live="polite"

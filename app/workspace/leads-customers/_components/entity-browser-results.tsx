@@ -20,6 +20,11 @@ import { useEntityBrowser } from "./entity-browser-context";
 import { EntityResultMobileCard } from "./entity-result-mobile-card";
 import { EntityResultRow } from "./entity-result-row";
 import { ResultsLoading } from "./entity-browser-results-loading";
+import {
+	LabelWithInfoTooltip,
+	leadsCustomersTooltips,
+	SimpleTooltip,
+} from "./entity-ui-tooltips";
 import { useEntityResults } from "./use-entity-results";
 
 export function EntityBrowserResults() {
@@ -77,10 +82,31 @@ export function EntityBrowserResults() {
 				<Table>
 					<TableHeader>
 						<TableRow>
-							<TableHead>Identity</TableHead>
-							<TableHead>State</TableHead>
-							<TableHead>Last Signal</TableHead>
-							<TableHead className="text-right">Related</TableHead>
+							<TableHead>
+								<LabelWithInfoTooltip
+									label="Identity"
+									description={leadsCustomersTooltips.columns.identity}
+								/>
+							</TableHead>
+							<TableHead>
+								<LabelWithInfoTooltip
+									label="State"
+									description={leadsCustomersTooltips.columns.state}
+								/>
+							</TableHead>
+							<TableHead>
+								<LabelWithInfoTooltip
+									label="Last Signal"
+									description={leadsCustomersTooltips.columns.lastSignal}
+								/>
+							</TableHead>
+							<TableHead className="text-right">
+								<LabelWithInfoTooltip
+									label="Related"
+									description={leadsCustomersTooltips.columns.related}
+									className="justify-end"
+								/>
+							</TableHead>
 						</TableRow>
 					</TableHeader>
 					<TableBody>
@@ -102,15 +128,17 @@ export function EntityBrowserResults() {
 					{rows.length} shown{mode === "search" ? " for this search" : ""}
 				</span>
 				{canLoadMore ? (
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={loadMore}
-						disabled={isLoadingMore}
-						className="w-fit"
-					>
-						{isLoadingMore ? "Loading…" : "Load More"}
-					</Button>
+					<SimpleTooltip content={leadsCustomersTooltips.loadMore}>
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={loadMore}
+							disabled={isLoadingMore}
+							className="w-fit"
+						>
+							{isLoadingMore ? "Loading…" : "Load More"}
+						</Button>
+					</SimpleTooltip>
 				) : null}
 			</div>
 		</div>
