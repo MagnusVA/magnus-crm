@@ -42,5 +42,5 @@ next-env.d.ts
 .env.local
 
 # plans
-# plans
+plans
 # /plans/archive/*
