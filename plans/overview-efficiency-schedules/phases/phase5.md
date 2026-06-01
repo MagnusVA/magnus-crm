@@ -1,5 +1,6 @@
 # Phase 5 — Dashboard Presentation, Rollout, and QA
 
+**Status:** Code complete; browser QA, production schedule coverage, and rollout decision pending (owner: user)
 **Goal:** Finish visible dashboard changes, update explanatory copy, verify all affected surfaces, and execute the manual schedule-coverage rollout gate. After this phase, the MVP can ship without breaking adjacent dashboard, settings, Lead Gen, Slack, or DM attribution surfaces.
 
 **Prerequisite:** Phases 1-4 complete. Schedule management UI is available for manual data entry.
@@ -24,6 +25,8 @@
 8. Existing Slack reporting and operations reporting routes still render.
 9. Convex function caps and subscription behavior match Phase 0 budgets.
 10. `pnpm tsc --noEmit` passes without errors.
+
+**Verification:** `pnpm tsc --noEmit`, `npx convex dev --once`, and targeted ESLint for touched overview/schedule files passed on 2026-06-01. Manual browser QA, role/range checks, production schedule coverage, and rollout decision remain pending for the user-run Phase 5 checklist.
 
 ---
 

@@ -68,17 +68,19 @@ export const overviewTooltips = {
 		duplicates:
 			"Duplicate prospect submissions recorded in the selected range.",
 		leadsPerHour:
-			"Submissions divided by scheduled lead gen hours across the range.",
+			"Submissions divided by scheduled lead gen hours across the range. Shows -- when no schedule is configured.",
 		topWorkers:
-			"Lead gen workers ranked by submission count for the selected range.",
+			"Lead gen workers ranked by leads per scheduled hour, then submission count. Workers without a schedule sort below configured actors.",
 		workerSubmissions:
-			"Submission count for this worker in the selected range.",
+			"Leads per scheduled hour for this worker. Raw submission count and scheduled hours appear below the rate.",
+		workerRate:
+			"Submissions divided by this worker's scheduled hours in the range.",
 		totalSubmissions:
 			"Total lead form submissions across all workers in the selected range, not only the ranked list.",
 	},
 	topQualifiers: {
 		section:
-			"Slack users who qualified opportunities in the selected range, ranked by qualification activity.",
+			"Slack qualifiers ranked by qualified opportunities per scheduled hour in the selected range.",
 		partial:
 			"This range hit the Slack event cap. Rankings use the available sample only.",
 		booked:
@@ -88,15 +90,17 @@ export const overviewTooltips = {
 		totalQualified:
 			"Total distinct Slack-qualified opportunities across all qualifiers in the range.",
 		conversionRate:
-			"Booked opportunities divided by unique qualified opportunities.",
+			"Qualified opportunities per scheduled hour. Shows -- when no schedule is configured.",
+		qualifiedPerHour:
+			"Unique qualified opportunities divided by scheduled qualifier hours.",
 	},
 	topDmClosers: {
 		section:
-			"DM closers ranked by booked-call attribution in operations rollups for the selected range.",
+			"DM closers ranked by booked meetings per scheduled hour for the selected range.",
 		scheduledCalls:
-			"Booked-call volume attributed to this DM closer in operations rollups.",
+			"Booked meetings per scheduled hour for this closer. Shows -- when no schedule is configured.",
 		totalScheduled:
-			"Total booked-call volume attributed to any DM closer, not only the ranked list.",
+			"Total booked meetings attributed to any DM closer, not only the ranked list.",
 	},
 	phoneCloserOperations: {
 		section:

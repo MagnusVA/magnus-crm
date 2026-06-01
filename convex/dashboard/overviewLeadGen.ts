@@ -1,16 +1,10 @@
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
-import {
-  buildWorkerPerformanceRows,
-  summarizeDailyRows,
-} from "../leadGen/reportBuilders";
 import { TOP_OVERVIEW_WORKER_LIMIT } from "../leadGen/reportLimits";
-import {
-  loadLeadGenTeamsForRows,
-  loadLeadGenWorkersForRows,
-  readLeadGenDailyRowsForDashboard,
-} from "../leadGen/reportReaders";
+import { summarizeDailyRows } from "../leadGen/reportBuilders";
+import { readLeadGenDailyRowsForDashboard } from "../leadGen/reportReaders";
 import { loadCurrentScheduledHoursByWorkerDay } from "../leadGen/schedules";
+import { buildLeadGenEfficiencyRows } from "./overviewLeaderboardBuilders";
 import type { DerivedOverviewRange } from "./overviewRange";
 import type { LeadGenOverview } from "./overviewTypes";
 
@@ -26,23 +20,12 @@ export async function getLeadGenOverviewSection(
   });
   const currentScheduledHoursByWorkerDay =
     await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
-  const workers = await loadLeadGenWorkersForRows(ctx, tenantId, rows);
-  const teams = await loadLeadGenTeamsForRows(ctx, tenantId, rows);
   const summary = summarizeDailyRows(rows, currentScheduledHoursByWorkerDay);
-  const topWorkerRows = buildWorkerPerformanceRows({
-    rows,
-    currentScheduledHoursByWorkerDay,
-    workers,
-    teams,
-  })
-    .slice(0, TOP_OVERVIEW_WORKER_LIMIT)
-    .map((worker) => ({
-      workerId: worker.workerId,
-      displayName: worker.displayName,
-      submissions: worker.submissions,
-      uniqueProspects: worker.uniqueProspects,
-      leadsPerHour: worker.leadsPerHour,
-    }));
+  const efficiencyRows = await buildLeadGenEfficiencyRows(ctx, {
+    tenantId,
+    range,
+    includeAllCandidates: false,
+  });
 
   return {
     data: {
@@ -51,8 +34,8 @@ export async function getLeadGenOverviewSection(
       duplicates: summary.duplicates,
       scheduledHours: summary.scheduledHours,
       leadsPerHour: summary.leadsPerHour,
-      topWorkers: topWorkerRows,
+      topWorkers: efficiencyRows.slice(0, TOP_OVERVIEW_WORKER_LIMIT),
     },
-    isEmpty: summary.submissions === 0,
+    isEmpty: summary.submissions === 0 && efficiencyRows.length === 0,
   };
 }

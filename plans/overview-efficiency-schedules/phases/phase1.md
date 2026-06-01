@@ -1,5 +1,6 @@
 # Phase 1 — Schedule Schema and Shared Work Schedule Library
 
+**Status:** Complete (2026-06-01)
 **Goal:** Add the additive Slack qualifier and DM closer weekly schedule tables, extract a shared weekday validator/helper, and preserve existing Lead Gen schedule behavior. After this phase, Convex generated types include the new schedule tables and all weekday math is centralized without changing existing Lead Gen data.
 
 **Prerequisite:** Phase 0 complete. The additive-table MVP path is accepted.
@@ -22,6 +23,8 @@
 8. New schedule table indexes support tenant list, actor list, and actor+weekday unique lookup patterns.
 9. `npx convex dev --once` or the project’s Convex type generation step completes without schema errors.
 10. `pnpm tsc --noEmit` passes without errors.
+
+**Verification:** `npx convex dev --once` passed on 2026-06-01. `pnpm tsc --noEmit` passed on 2026-06-01. The additive schedule tables do not require a migration job.
 
 ---
 

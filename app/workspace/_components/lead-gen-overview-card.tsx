@@ -6,7 +6,9 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
+import type { DashboardRangeInput } from "./dashboard-date-range-filter";
 import type { LeadGenOverviewSection } from "./overview-dashboard-types";
+import { OverviewExpandableLeaderboard } from "./overview-expandable-leaderboard";
 import {
 	OverviewHelpTooltip,
 	overviewTooltips,
@@ -20,9 +22,18 @@ import {
 
 export function LeadGenOverviewCard({
 	section,
+	range,
+	expanded,
+	onExpandedChange,
 }: {
 	section: LeadGenOverviewSection;
+	range: DashboardRangeInput;
+	expanded: boolean;
+	onExpandedChange: (open: boolean) => void;
 }) {
+	const canExpand =
+		section.status === "ready" || section.status === "empty";
+
 	return (
 		<Card className="min-w-0" size="sm">
 			<CardHeader>
@@ -67,44 +78,52 @@ export function LeadGenOverviewCard({
 								value={formatDecimal(section.data.leadsPerHour)}
 							/>
 						</div>
-						<div className="flex items-center justify-between px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-							<OverviewHelpTooltip
-								label="Top lead generators"
-								description={overviewTooltips.leadGen.topWorkers}
-							>
-								Top lead generators
-							</OverviewHelpTooltip>
-							<OverviewHelpTooltip
-								label="Submissions"
-								description={overviewTooltips.leadGen.workerSubmissions}
-								triggerClassName="text-[10px] font-semibold uppercase tracking-wider"
-							>
-								Submissions
-							</OverviewHelpTooltip>
-						</div>
-						<ol className="flex flex-col gap-0.5" aria-label="Top lead generators">
-							{section.data.topWorkers.map((worker, index) => (
-								<li
-									key={worker.workerId}
-									className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-2.5 rounded px-1.5 py-1.5 text-sm transition-colors hover:bg-muted/50"
+						{!expanded ? (
+							<>
+								<div className="flex items-center justify-between px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+									<OverviewHelpTooltip
+										label="Top lead generators"
+										description={overviewTooltips.leadGen.topWorkers}
+									>
+										Top lead generators
+									</OverviewHelpTooltip>
+									<OverviewHelpTooltip
+										label="Leads per hour"
+										description={overviewTooltips.leadGen.workerRate}
+										triggerClassName="text-[10px] font-semibold uppercase tracking-wider"
+									>
+										Leads/hr
+									</OverviewHelpTooltip>
+								</div>
+								<ol
+									className="flex flex-col gap-0.5"
+									aria-label="Top lead generators"
 								>
-									<span className="text-center text-xs font-semibold tabular-nums text-muted-foreground/60">
-										{index + 1}
-									</span>
-									<div className="min-w-0">
-										<p className="truncate font-medium">
-											{worker.displayName}
-										</p>
-										<p className="truncate text-xs text-muted-foreground">
-											{formatWholeNumber(worker.uniqueProspects)} unique
-										</p>
-									</div>
-									<span className="font-semibold tabular-nums">
-										{formatWholeNumber(worker.submissions)}
-									</span>
-								</li>
-							))}
-						</ol>
+									{section.data.topWorkers.map((worker, index) => (
+										<li
+											key={worker.workerId}
+											className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-2.5 rounded px-1.5 py-1.5 text-sm transition-colors hover:bg-muted/50"
+										>
+											<span className="text-center text-xs font-semibold tabular-nums text-muted-foreground/60">
+												{index + 1}
+											</span>
+											<div className="min-w-0">
+												<p className="truncate font-medium">
+													{worker.displayName}
+												</p>
+												<p className="truncate text-xs text-muted-foreground">
+													{formatWholeNumber(worker.submissions)} submissions ·{" "}
+													{formatDecimal(worker.scheduledHours)}h scheduled
+												</p>
+											</div>
+											<span className="font-semibold tabular-nums">
+												{formatDecimal(worker.leadsPerHour)}
+											</span>
+										</li>
+									))}
+								</ol>
+							</>
+						) : null}
 						<div className="mt-1 flex items-center justify-between border-t px-1.5 pt-2.5 text-sm">
 							<OverviewHelpTooltip
 								label="Duplicates"
@@ -119,6 +138,14 @@ export function LeadGenOverviewCard({
 						</div>
 					</>
 				)}
+				{canExpand ? (
+					<OverviewExpandableLeaderboard
+						kind="lead_gen"
+						range={range}
+						open={expanded}
+						onOpenChange={onExpandedChange}
+					/>
+				) : null}
 			</CardContent>
 		</Card>
 	);

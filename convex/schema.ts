@@ -24,6 +24,7 @@ import { portalPasswordHashParamsValidator } from "./lib/linkPortal/validators";
 import { paymentOriginValidator, paymentTypeValidator } from "./lib/paymentTypes";
 import { socialPlatformValidator } from "./lib/socialPlatform";
 import { utmParamsValidator } from "./lib/utmParams";
+import { weekdayValidator } from "./lib/workSchedule";
 
 export default defineSchema({
   tenants: defineTable({
@@ -151,6 +152,38 @@ export default defineSchema({
     .index("by_tenantId_and_workerId_and_weekday", [
       "tenantId",
       "workerId",
+      "weekday",
+    ]),
+
+  slackQualifierSchedules: defineTable({
+    tenantId: v.id("tenants"),
+    slackUserId: v.string(),
+    weekday: weekdayValidator,
+    scheduledHours: v.number(),
+    updatedByUserId: v.id("users"),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_tenantId_and_slackUserId", ["tenantId", "slackUserId"])
+    .index("by_tenantId_and_slackUserId_and_weekday", [
+      "tenantId",
+      "slackUserId",
+      "weekday",
+    ]),
+
+  dmCloserSchedules: defineTable({
+    tenantId: v.id("tenants"),
+    dmCloserId: v.id("dmClosers"),
+    weekday: weekdayValidator,
+    scheduledHours: v.number(),
+    updatedByUserId: v.id("users"),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId", ["tenantId"])
+    .index("by_tenantId_and_dmCloserId", ["tenantId", "dmCloserId"])
+    .index("by_tenantId_and_dmCloserId_and_weekday", [
+      "tenantId",
+      "dmCloserId",
       "weekday",
     ]),
 

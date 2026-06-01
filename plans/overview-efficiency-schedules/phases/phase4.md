@@ -1,5 +1,6 @@
 # Phase 4 — Expandable Leaderboard Query and Interaction
 
+**Status:** Code complete; browser interaction QA pending (2026-06-01)
 **Goal:** Add on-demand full leaderboards for the three efficiency cards without bloating the initial overview payload. After this phase, expanding one card opens one additional bounded Convex subscription for that card only.
 
 **Prerequisite:** Phase 3 shared builders exist. Phase 5 card copy can overlap after row types stabilize.
@@ -24,6 +25,8 @@
 8. Loading, empty, capped, and error states are scoped to the expanded area.
 9. The expanded area has stable max height and internal scrolling.
 10. `pnpm tsc --noEmit` passes without errors.
+
+**Verification:** `pnpm tsc --noEmit` passed on 2026-06-01. Targeted ESLint for Phase 4 touched files passed on 2026-06-01. Expanded DM closer cap handling now returns a scoped capped state instead of throwing through the whole card, and non-cap query failures are isolated by the expanded leaderboard error boundary.
 
 ---
 

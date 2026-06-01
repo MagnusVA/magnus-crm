@@ -6,12 +6,14 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
+import type { DashboardRangeInput } from "./dashboard-date-range-filter";
 import type { TopDmClosersSection } from "./overview-dashboard-types";
+import { OverviewExpandableLeaderboard } from "./overview-expandable-leaderboard";
 import {
 	OverviewHelpTooltip,
 	overviewTooltips,
 } from "./overview-help-tooltip";
-import { formatRate, formatWholeNumber } from "./overview-formatters";
+import { formatDecimal, formatWholeNumber } from "./overview-formatters";
 import {
 	OverviewCappedState,
 	OverviewEmptyState,
@@ -20,9 +22,18 @@ import {
 
 export function TopDmClosersCard({
 	section,
+	range,
+	expanded,
+	onExpandedChange,
 }: {
 	section: TopDmClosersSection;
+	range: DashboardRangeInput;
+	expanded: boolean;
+	onExpandedChange: (open: boolean) => void;
 }) {
+	const canExpand =
+		section.status === "ready" || section.status === "empty";
+
 	return (
 		<Card className="min-w-0" size="sm">
 			<CardHeader>
@@ -37,7 +48,7 @@ export function TopDmClosersCard({
 						Top DM Closers
 					</OverviewHelpTooltip>
 				</CardTitle>
-				<CardDescription>Ranked by booked-call attribution</CardDescription>
+				<CardDescription>Ranked by bookings per scheduled hour</CardDescription>
 			</CardHeader>
 			<CardContent className="flex flex-col gap-3">
 				{section.status === "capped" ? (
@@ -48,51 +59,64 @@ export function TopDmClosersCard({
 					<OverviewEmptyState message={section.message} />
 				) : (
 					<>
-						<div className="mb-1 flex items-center justify-between px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-							<span>DM closer</span>
-							<OverviewHelpTooltip
-								label="Scheduled calls"
-								description={overviewTooltips.topDmClosers.scheduledCalls}
-								triggerClassName="text-[10px] font-semibold uppercase tracking-wider"
-							>
-								Scheduled
-							</OverviewHelpTooltip>
-						</div>
-						<ol className="flex flex-col gap-0.5" aria-label="Top DM closers">
-							{section.data.rows.map((row, index) => (
-								<li
-									key={row.dmCloserId}
-									className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-2.5 rounded px-1.5 py-1.5 text-sm transition-colors hover:bg-muted/50"
-								>
-									<span className="text-center text-xs font-semibold tabular-nums text-muted-foreground/60">
-										{index + 1}
-									</span>
-									<div className="min-w-0">
-										<p className="truncate font-medium">{row.displayName}</p>
-										<p className="truncate text-xs text-muted-foreground">
-											{row.teamName ?? "No team"} - {formatRate(row.showRate)} show
-										</p>
-									</div>
-									<span className="font-semibold tabular-nums">
-										{formatWholeNumber(row.scheduled)}
-									</span>
-								</li>
-							))}
-						</ol>
+						{!expanded ? (
+							<>
+								<div className="mb-1 flex items-center justify-between px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+									<span>DM closer</span>
+									<OverviewHelpTooltip
+										label="Bookings per hour"
+										description={overviewTooltips.topDmClosers.scheduledCalls}
+										triggerClassName="text-[10px] font-semibold uppercase tracking-wider"
+									>
+										Bookings/hr
+									</OverviewHelpTooltip>
+								</div>
+								<ol className="flex flex-col gap-0.5" aria-label="Top DM closers">
+									{section.data.rows.map((row, index) => (
+										<li
+											key={row.dmCloserId}
+											className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-2.5 rounded px-1.5 py-1.5 text-sm transition-colors hover:bg-muted/50"
+										>
+											<span className="text-center text-xs font-semibold tabular-nums text-muted-foreground/60">
+												{index + 1}
+											</span>
+											<div className="min-w-0">
+												<p className="truncate font-medium">{row.displayName}</p>
+												<p className="truncate text-xs text-muted-foreground">
+													{formatWholeNumber(row.booked)} booked ·{" "}
+													{formatDecimal(row.scheduledHours)}h scheduled
+												</p>
+											</div>
+											<span className="font-semibold tabular-nums">
+												{formatDecimal(row.bookedPerHour)}
+											</span>
+										</li>
+									))}
+								</ol>
+							</>
+						) : null}
 						<div className="mt-1 flex items-center justify-between border-t px-1.5 pt-2.5 text-sm">
 							<OverviewHelpTooltip
-								label="Total scheduled"
+								label="Total booked"
 								description={overviewTooltips.topDmClosers.totalScheduled}
 								triggerClassName="font-medium text-muted-foreground"
 							>
-								Total scheduled
+								Total booked
 							</OverviewHelpTooltip>
 							<span className="font-semibold tabular-nums">
-								{formatWholeNumber(section.data.totalScheduled)}
+								{formatWholeNumber(section.data.totalBooked)}
 							</span>
 						</div>
 					</>
 				)}
+				{canExpand ? (
+					<OverviewExpandableLeaderboard
+						kind="dm_closers"
+						range={range}
+						open={expanded}
+						onOpenChange={onExpandedChange}
+					/>
+				) : null}
 			</CardContent>
 		</Card>
 	);

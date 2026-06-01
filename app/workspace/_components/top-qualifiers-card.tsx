@@ -12,12 +12,14 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
+import type { DashboardRangeInput } from "./dashboard-date-range-filter";
 import type { TopQualifiersSection } from "./overview-dashboard-types";
+import { OverviewExpandableLeaderboard } from "./overview-expandable-leaderboard";
 import {
 	OverviewHelpTooltip,
 	overviewTooltips,
 } from "./overview-help-tooltip";
-import { formatRate, formatWholeNumber } from "./overview-formatters";
+import { formatDecimal, formatWholeNumber } from "./overview-formatters";
 import {
 	OverviewCappedState,
 	OverviewEmptyState,
@@ -27,9 +29,18 @@ import {
 
 export function TopQualifiersCard({
 	section,
+	range,
+	expanded,
+	onExpandedChange,
 }: {
 	section: TopQualifiersSection;
+	range: DashboardRangeInput;
+	expanded: boolean;
+	onExpandedChange: (open: boolean) => void;
 }) {
+	const canExpand =
+		section.status === "ready" || section.status === "empty";
+
 	return (
 		<Card className="min-w-0" size="sm">
 			<CardHeader>
@@ -37,7 +48,10 @@ export function TopQualifiersCard({
 					<div className="min-w-0">
 						<CardTitle className="flex items-center gap-2">
 							<span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
-								<MessageSquareCheckIcon className="h-3.5 w-3.5" aria-hidden="true" />
+								<MessageSquareCheckIcon
+									className="h-3.5 w-3.5"
+									aria-hidden="true"
+								/>
 							</span>
 							<OverviewHelpTooltip
 								label="Top Qualifiers"
@@ -46,7 +60,9 @@ export function TopQualifiersCard({
 								Top Qualifiers
 							</OverviewHelpTooltip>
 						</CardTitle>
-						<CardDescription>Slack-qualified opportunity activity</CardDescription>
+						<CardDescription>
+							Ranked by qualified opportunities per scheduled hour
+						</CardDescription>
 					</div>
 					{section.status === "ready" && section.truncated ? (
 						<OverviewHelpTooltip
@@ -68,62 +84,62 @@ export function TopQualifiersCard({
 				) : (
 					<>
 						{section.truncated ? <OverviewTruncatedNote /> : null}
-						<div className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-2 px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-							<span aria-hidden="true" />
-							<span>Qualifier</span>
-							<OverviewHelpTooltip
-								label="Conversion rate"
-								description={overviewTooltips.topQualifiers.conversionRate}
-								triggerClassName="justify-end text-[10px] font-semibold uppercase tracking-wider"
-							>
-								Conversion
-							</OverviewHelpTooltip>
-						</div>
-						<ol className="flex flex-col gap-0.5" aria-label="Top Slack qualifiers">
-							{section.data.rows.map((row, index) => (
-								<li
-									key={row.slackUserId}
-									className="grid grid-cols-[1.25rem_auto_minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1.5 transition-colors hover:bg-muted/50"
+						{!expanded ? (
+							<>
+								<div className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-2 px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+									<span aria-hidden="true" />
+									<span>Qualifier</span>
+									<OverviewHelpTooltip
+										label="Qualified per hour"
+										description={
+											overviewTooltips.topQualifiers.qualifiedPerHour
+										}
+										triggerClassName="justify-end text-[10px] font-semibold uppercase tracking-wider"
+									>
+										Qualified/hr
+									</OverviewHelpTooltip>
+								</div>
+								<ol
+									className="flex flex-col gap-0.5"
+									aria-label="Top Slack qualifiers"
 								>
-									<span className="text-center text-xs font-semibold tabular-nums text-muted-foreground/60">
-										{index + 1}
-									</span>
-									<Avatar size="sm">
-										<AvatarImage src={row.avatarUrl ?? undefined} alt="" />
-										<AvatarFallback>
-											{(row.displayName ?? row.slackUserId)
-												.slice(0, 1)
-												.toUpperCase()}
-										</AvatarFallback>
-									</Avatar>
-									<div className="min-w-0">
-										<p className="truncate text-sm font-medium">
-											{row.displayName ?? row.slackUserId}
-										</p>
-										<p className="truncate text-xs text-muted-foreground">
-											<OverviewHelpTooltip
-												label="Qualified"
-												description={overviewTooltips.topQualifiers.qualified}
-												triggerClassName="text-xs text-muted-foreground"
-											>
-												{formatWholeNumber(row.uniqueOpportunityCount)} qualified
-											</OverviewHelpTooltip>
-											&nbsp;·&nbsp;
-											<OverviewHelpTooltip
-												label="Booked"
-												description={overviewTooltips.topQualifiers.booked}
-												triggerClassName="text-xs text-muted-foreground"
-											>
-												{formatWholeNumber(row.booked)} booked
-											</OverviewHelpTooltip>
-										</p>
-									</div>
-									<span className="text-sm font-semibold tabular-nums">
-										{formatRate(row.ratio)}
-									</span>
-								</li>
-							))}
-						</ol>
+									{section.data.rows.map((row, index) => (
+										<li
+											key={row.slackUserId}
+											className="grid grid-cols-[1.25rem_auto_minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1.5 transition-colors hover:bg-muted/50"
+										>
+											<span className="text-center text-xs font-semibold tabular-nums text-muted-foreground/60">
+												{index + 1}
+											</span>
+											<Avatar size="sm">
+												<AvatarImage
+													src={row.avatarUrl ?? undefined}
+													alt=""
+												/>
+												<AvatarFallback>
+													{(row.displayName ?? row.slackUserId)
+														.slice(0, 1)
+														.toUpperCase()}
+												</AvatarFallback>
+											</Avatar>
+											<div className="min-w-0">
+												<p className="truncate text-sm font-medium">
+													{row.displayName ?? row.slackUserId}
+												</p>
+												<p className="truncate text-xs text-muted-foreground">
+													{formatWholeNumber(row.uniqueOpportunityCount)}{" "}
+													qualified · {formatWholeNumber(row.booked)} booked ·{" "}
+													{formatDecimal(row.scheduledHours)}h scheduled
+												</p>
+											</div>
+											<span className="text-sm font-semibold tabular-nums">
+												{formatDecimal(row.qualifiedPerHour)}
+											</span>
+										</li>
+									))}
+								</ol>
+							</>
+						) : null}
 						<div className="mt-1 flex items-center justify-between border-t px-1.5 pt-2.5 text-sm">
 							<OverviewHelpTooltip
 								label="Total qualified"
@@ -138,6 +154,14 @@ export function TopQualifiersCard({
 						</div>
 					</>
 				)}
+				{canExpand ? (
+					<OverviewExpandableLeaderboard
+						kind="qualifiers"
+						range={range}
+						open={expanded}
+						onOpenChange={onExpandedChange}
+					/>
+				) : null}
 			</CardContent>
 		</Card>
 	);

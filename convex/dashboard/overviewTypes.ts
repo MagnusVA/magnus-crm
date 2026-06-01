@@ -37,6 +37,7 @@ export type LeadGenOverview = {
     displayName: string;
     submissions: number;
     uniqueProspects: number;
+    scheduledHours: number;
     leadsPerHour: number | null;
   }>;
 };
@@ -50,17 +51,17 @@ export type TopQualifierRow = {
   uniqueOpportunityCount: number;
   booked: number;
   ratio: number | null;
+  scheduledHours: number;
+  qualifiedPerHour: number | null;
 };
 
 export type TopDmCloserRow = {
   dmCloserId: Id<"dmClosers">;
   displayName: string;
   teamName: string | null;
-  scheduled: number;
-  completed: number;
-  noShows: number;
-  reviewRequired: number;
-  showRate: number | null;
+  booked: number;
+  scheduledHours: number;
+  bookedPerHour: number | null;
 };
 
 export type PhoneCloserOperations = {
@@ -111,8 +112,42 @@ export type OverviewDashboard = {
   }>;
   topDmClosers: SectionResult<{
     rows: TopDmCloserRow[];
-    totalScheduled: number;
+    totalBooked: number;
   }>;
   phoneCloserOperations: SectionResult<PhoneCloserOperations>;
   topOrigins: SectionResult<{ rows: TopOriginRow[] }>;
 };
+
+export type OverviewLeaderboardKind = "lead_gen" | "qualifiers" | "dm_closers";
+
+export type LeaderboardFilters = {
+  search?: string;
+  schedule?: "all" | "scheduled" | "unscheduled";
+  activity?: "all" | "with_activity" | "without_activity";
+};
+
+export type ExpandedOverviewLeaderboard =
+  | {
+      kind: "lead_gen";
+      rows: LeadGenOverview["topWorkers"];
+      totalRows: number;
+      filteredRows: number;
+      truncated: boolean;
+      cappedMessage: string | null;
+    }
+  | {
+      kind: "qualifiers";
+      rows: TopQualifierRow[];
+      totalRows: number;
+      filteredRows: number;
+      truncated: boolean;
+      cappedMessage: string | null;
+    }
+  | {
+      kind: "dm_closers";
+      rows: TopDmCloserRow[];
+      totalRows: number;
+      filteredRows: number;
+      truncated: boolean;
+      cappedMessage: string | null;
+    };

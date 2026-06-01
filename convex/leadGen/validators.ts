@@ -29,15 +29,7 @@ export const leadGenAuditMatchStatusValidator = v.union(
   v.literal("rejected"),
 );
 
-export const leadGenWeekdayValidator = v.union(
-  v.literal("monday"),
-  v.literal("tuesday"),
-  v.literal("wednesday"),
-  v.literal("thursday"),
-  v.literal("friday"),
-  v.literal("saturday"),
-  v.literal("sunday"),
-);
+export { weekdayValidator as leadGenWeekdayValidator } from "../lib/workSchedule";
 
 export const leadGenSubmitArgsValidator = {
   source: leadGenSourceValidator,

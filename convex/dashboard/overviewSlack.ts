@@ -1,6 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
-import { buildSlackUserQualificationBreakdown } from "../reporting/lib/slackQualificationBreakdown";
+import { buildQualifierEfficiencyRows } from "./overviewLeaderboardBuilders";
 import type { DerivedOverviewRange } from "./overviewRange";
 
 export async function getTopQualifiersOverviewSection(
@@ -8,28 +8,21 @@ export async function getTopQualifiersOverviewSection(
   tenantId: Id<"tenants">,
   range: DerivedOverviewRange,
 ) {
-  const breakdown = await buildSlackUserQualificationBreakdown(ctx, {
+  const { rows, truncated } = await buildQualifierEfficiencyRows(ctx, {
     tenantId,
-    windowStart: range.slackWindowStart,
-    windowEnd: range.slackWindowEnd,
-    limit: 5,
+    range,
+    includeAllCandidates: false,
   });
 
   return {
     data: {
-      totalQualified: breakdown.totalQualified,
-      rows: breakdown.rows.map((row) => ({
-        slackUserId: row.slackUserId,
-        displayName: row.displayName,
-        avatarUrl: row.avatarUrl,
-        isDeleted: row.isDeleted,
-        total: row.total,
-        uniqueOpportunityCount: row.uniqueOpportunityCount,
-        booked: row.booked,
-        ratio: row.ratio,
-      })),
+      totalQualified: rows.reduce(
+        (sum, row) => sum + row.uniqueOpportunityCount,
+        0,
+      ),
+      rows: rows.slice(0, 5),
     },
-    truncated: breakdown.truncated,
-    isEmpty: breakdown.rows.length === 0,
+    truncated,
+    isEmpty: rows.length === 0,
   };
 }

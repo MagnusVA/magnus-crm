@@ -73,7 +73,7 @@ export function DashboardPageClient() {
 				/>
 			</header>
 
-			<OverviewTopCards overview={overview} />
+			<OverviewTopCards overview={overview} queryRange={queryRange} />
 			<PhoneCloserOperationsSection section={overview.phoneCloserOperations} />
 			<TopOriginsOverviewSection section={overview.topOrigins} />
 		</div>

@@ -21,7 +21,7 @@ export function formatCompactNumber(value: number) {
 }
 
 export function formatDecimal(value: number | null, digits = 1) {
-	if (value === null || !Number.isFinite(value)) return "N/A";
+	if (value === null || !Number.isFinite(value)) return "--";
 	return value.toLocaleString(undefined, {
 		maximumFractionDigits: digits,
 		minimumFractionDigits: digits,
