@@ -15,6 +15,7 @@ import {
 } from "./overview-help-tooltip";
 import { MemberAvatar } from "./member-avatar";
 import { formatDecimal, formatWholeNumber } from "./overview-formatters";
+import { getScheduledHoursScopeLabel } from "./overview-scheduled-hours-label";
 import {
 	OverviewCappedState,
 	OverviewEmptyState,
@@ -34,6 +35,7 @@ export function LeadGenOverviewCard({
 }) {
 	const canExpand =
 		section.status === "ready" || section.status === "empty";
+	const scheduledHoursScopeLabel = getScheduledHoursScopeLabel(range);
 
 	return (
 		<Card className="min-w-0" size="sm">
@@ -105,7 +107,7 @@ export function LeadGenOverviewCard({
 												</p>
 												<p className="truncate text-xs text-muted-foreground">
 													{formatWholeNumber(worker.submissions)} submissions ·{" "}
-													{formatDecimal(worker.scheduledHours)}h scheduled
+													{`${formatDecimal(worker.scheduledHours)}h scheduled (${scheduledHoursScopeLabel})`}
 												</p>
 											</div>
 											<span className="font-semibold tabular-nums">
