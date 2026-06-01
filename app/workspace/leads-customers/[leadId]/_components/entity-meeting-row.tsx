@@ -93,7 +93,7 @@ export function EntityMeetingRow({
 					</SimpleTooltip>
 				) : null}
 			</div>
-			<EntityCommentsList comments={comments} />
+			<EntityCommentsList meetingId={meeting._id} comments={comments} />
 		</div>
 	);
 }
