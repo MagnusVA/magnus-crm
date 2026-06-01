@@ -20,6 +20,7 @@ import {
 	overviewTooltips,
 } from "./overview-help-tooltip";
 import { formatDecimal, formatWholeNumber } from "./overview-formatters";
+import { getScheduledHoursScopeLabel } from "./overview-scheduled-hours-label";
 import {
 	OverviewCappedState,
 	OverviewEmptyState,
@@ -40,6 +41,7 @@ export function TopQualifiersCard({
 }) {
 	const canExpand =
 		section.status === "ready" || section.status === "empty";
+	const scheduledHoursScopeLabel = getScheduledHoursScopeLabel(range);
 
 	return (
 		<Card className="min-w-0" size="sm">
@@ -129,7 +131,7 @@ export function TopQualifiersCard({
 												<p className="truncate text-xs text-muted-foreground">
 													{formatWholeNumber(row.uniqueOpportunityCount)}{" "}
 													qualified · {formatWholeNumber(row.booked)} booked ·{" "}
-													{formatDecimal(row.scheduledHours)}h scheduled
+													{`${formatDecimal(row.scheduledHours)}h scheduled (${scheduledHoursScopeLabel})`}
 												</p>
 											</div>
 											<span className="text-sm font-semibold tabular-nums">

@@ -24,6 +24,7 @@ import {
 	OverviewHelpTooltip,
 	overviewTooltips,
 } from "./overview-help-tooltip";
+import { getScheduledHoursScopeLabel } from "./overview-scheduled-hours-label";
 import {
 	OverviewCappedState,
 	OverviewEmptyState,
@@ -74,21 +75,28 @@ function ExpandedLeaderboardQuery({
 		return <OverviewEmptyState message="No leaderboard rows for this range." />;
 	}
 
+	const scheduledHoursScopeLabel = getScheduledHoursScopeLabel(range);
+
 	return (
 		<>
 			{data.truncated ? <OverviewTruncatedNote /> : null}
 			<p className="text-xs text-muted-foreground">
 				Showing all {formatWholeNumber(data.totalRows)}
 			</p>
-			<ExpandedLeaderboardRows data={data} />
+			<ExpandedLeaderboardRows
+				data={data}
+				scheduledHoursScopeLabel={scheduledHoursScopeLabel}
+			/>
 		</>
 	);
 }
 
 function ExpandedLeaderboardRows({
 	data,
+	scheduledHoursScopeLabel,
 }: {
 	data: ExpandedOverviewLeaderboard;
+	scheduledHoursScopeLabel: string;
 }) {
 	if (data.kind === "lead_gen") {
 		return (
@@ -129,7 +137,7 @@ function ExpandedLeaderboardRows({
 								<p className="truncate font-medium">{worker.displayName}</p>
 								<p className="truncate text-xs text-muted-foreground">
 									{formatWholeNumber(worker.submissions)} submissions ·{" "}
-									{formatDecimal(worker.scheduledHours)}h scheduled
+									{`${formatDecimal(worker.scheduledHours)}h scheduled (${scheduledHoursScopeLabel})`}
 								</p>
 							</div>
 							<span className="font-semibold tabular-nums">
@@ -180,7 +188,7 @@ function ExpandedLeaderboardRows({
 								<p className="truncate text-xs text-muted-foreground">
 									{formatWholeNumber(row.uniqueOpportunityCount)} qualified ·{" "}
 									{formatWholeNumber(row.booked)} booked ·{" "}
-									{formatDecimal(row.scheduledHours)}h scheduled
+									{`${formatDecimal(row.scheduledHours)}h scheduled (${scheduledHoursScopeLabel})`}
 								</p>
 							</div>
 							<span className="text-sm font-semibold tabular-nums">
@@ -226,7 +234,7 @@ function ExpandedLeaderboardRows({
 							<p className="truncate font-medium">{row.displayName}</p>
 							<p className="truncate text-xs text-muted-foreground">
 								{formatWholeNumber(row.booked)} booked ·{" "}
-								{formatDecimal(row.scheduledHours)}h scheduled
+								{`${formatDecimal(row.scheduledHours)}h scheduled (${scheduledHoursScopeLabel})`}
 							</p>
 						</div>
 						<span className="font-semibold tabular-nums">
