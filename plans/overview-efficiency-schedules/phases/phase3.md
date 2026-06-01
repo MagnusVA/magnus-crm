@@ -1,5 +1,6 @@
 # Phase 3 — Efficient Overview Efficiency Builders
 
+**Status:** Code complete; browser/production evidence pending (2026-06-01)
 **Goal:** Refactor overview backend builders so Lead Gen, Top Qualifiers, and Top DM Closers can rank by per-hour efficiency while keeping first-paint reads bounded. After this phase, `getOverviewDashboard` returns top-5 efficiency rows with raw counts and scheduled-hour context.
 
 **Prerequisite:** Phase 1 complete. Phase 2 can run concurrently but is not required for backend calculations.
@@ -22,6 +23,8 @@
 8. Scheduled zero-activity actors can be included by shared builders for expanded use.
 9. No new per-day schedule bucket table, cron, action, or data backfill is introduced.
 10. `pnpm tsc --noEmit` passes without errors.
+
+**Verification:** `pnpm tsc --noEmit` passed on 2026-06-01. Targeted ESLint for Phase 3 touched files passed on 2026-06-01. Convex schema/function generation passed with `npx convex dev --once` on 2026-06-01. No new schedule bucket, cron, action, aggregate, or backfill was introduced.
 
 ---
 

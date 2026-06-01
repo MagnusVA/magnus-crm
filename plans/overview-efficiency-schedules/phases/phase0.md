@@ -13,7 +13,7 @@
 
 | # | Criterion | Status | Evidence |
 |---|-----------|--------|----------|
-| 1 | Storage: keep `leadGenWorkerSchedules`; add `slackQualifierSchedules` + `dmCloserSchedules`; no master schedule table in MVP | **Locked** | Design §4.3; new tables absent from `convex/schema.ts` today (expected until Phase 1) |
+| 1 | Storage: keep `leadGenWorkerSchedules`; add `slackQualifierSchedules` + `dmCloserSchedules`; no master schedule table in MVP | **Locked** | Design §4.3; Phase 1 added only the planned additive schedule tables |
 | 2 | No manual per-day schedule bucket table in any phase plan | **Verified** | Grep across `plans/overview-efficiency-schedules/**` — only prohibitions, no bucket-table plans |
 | 3 | Every backend read path has table/index/cap strategy before coding | **Documented** | Query budget tables below (0B) |
 | 4 | Every frontend subscription accounted for (active vs skip) | **Documented** | Subscription budget (0D) |

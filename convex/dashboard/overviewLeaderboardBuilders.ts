@@ -233,13 +233,15 @@ export async function buildQualifierEfficiencyRows(
   ]);
 
   const candidateSlackUserIds = new Set<string>();
+  const scheduledSlackUserIds = new Set<string>();
   for (const schedule of qualifierSchedules) {
     candidateSlackUserIds.add(schedule.slackUserId);
+    scheduledSlackUserIds.add(schedule.slackUserId);
   }
   for (const event of events.rows) {
     candidateSlackUserIds.add(event.slackUserId);
   }
-  if (args.includeAllCandidates) {
+  if (args.includeAllCandidates || events.truncated) {
     for (const user of slackUsers) {
       candidateSlackUserIds.add(user.slackUserId);
     }
@@ -280,6 +282,15 @@ export async function buildQualifierEfficiencyRows(
     });
     const scheduledHours = scheduledHoursBySlackUserId.get(slackUserId) ?? 0;
     const booked = countBookedSlackOpportunities(userEvents, opportunityById);
+
+    if (
+      !args.includeAllCandidates &&
+      !scheduledSlackUserIds.has(slackUserId) &&
+      userEvents.length === 0 &&
+      uniqueOpportunityCount === 0
+    ) {
+      continue;
+    }
 
     rows.push({
       slackUserId,
@@ -519,7 +530,7 @@ async function applyLeaderboardFilters(
   rows: LeadGenOverview["topWorkers"] | TopQualifierRow[] | TopDmCloserRow[],
   filters?: LeaderboardFilters,
 ) {
-  let filtered = rows;
+  const filtered = rows;
 
   if (kind === "lead_gen") {
     let leadGenRows = filtered as LeadGenOverview["topWorkers"];
@@ -590,6 +601,7 @@ export async function buildExpandedOverviewLeaderboard(
         totalRows: allRows.length,
         filteredRows: rows.length,
         truncated: false,
+        cappedMessage: null,
       };
     }
     case "qualifiers": {
@@ -614,17 +626,35 @@ export async function buildExpandedOverviewLeaderboard(
         totalRows: allRows.length,
         filteredRows: rows.length,
         truncated,
+        cappedMessage: null,
       };
     }
     case "dm_closers": {
-      const { rows: allRows, truncated } = await buildDmCloserEfficiencyRows(
-        ctx,
-        {
+      let allRows: TopDmCloserRow[];
+      let truncated: boolean;
+      try {
+        const result = await buildDmCloserEfficiencyRows(ctx, {
           tenantId: args.tenantId,
           range: args.range,
           includeAllCandidates: true,
-        },
-      );
+        });
+        allRows = result.rows;
+        truncated = result.truncated;
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "Unknown leaderboard error";
+        if (/too large|cannot exceed|narrow/i.test(message)) {
+          return {
+            kind: "dm_closers",
+            rows: [],
+            totalRows: 0,
+            filteredRows: 0,
+            truncated: true,
+            cappedMessage: message,
+          };
+        }
+        throw error;
+      }
       const rows = (await applyLeaderboardFilters(
         ctx,
         args.tenantId,
@@ -638,6 +668,7 @@ export async function buildExpandedOverviewLeaderboard(
         totalRows: allRows.length,
         filteredRows: rows.length,
         truncated,
+        cappedMessage: null,
       };
     }
   }

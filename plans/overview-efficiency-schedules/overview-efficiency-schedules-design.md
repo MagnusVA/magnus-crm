@@ -1,7 +1,7 @@
 # Overview Efficiency Schedules - Design Specification
 
 **Version:** 0.1 (MVP)  
-**Status:** Draft  
+**Status:** Accepted; Phase 1-4 implementation verified locally; Phase 5 browser QA and rollout pending
 **Scope:** `/workspace` currently ranks Lead Gen, Top Qualifiers, and Top DM Closers primarily by raw quantity. End state: tenant admins can manually configure weekly scheduled hours for Slack qualifiers and DM closers, and the `/workspace` top cards rank lead generators, Slack qualifiers, and DM closers by per-hour efficiency with raw count and scheduled-hour context.  
 **Prerequisite:** Existing overview dashboard redesign, Lead Gen Ops schedules, Slack qualification ledger, DM closer attribution registry, and WorkOS AuthKit tenant auth.
 

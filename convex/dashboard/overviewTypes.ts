@@ -133,6 +133,7 @@ export type ExpandedOverviewLeaderboard =
       totalRows: number;
       filteredRows: number;
       truncated: boolean;
+      cappedMessage: string | null;
     }
   | {
       kind: "qualifiers";
@@ -140,6 +141,7 @@ export type ExpandedOverviewLeaderboard =
       totalRows: number;
       filteredRows: number;
       truncated: boolean;
+      cappedMessage: string | null;
     }
   | {
       kind: "dm_closers";
@@ -147,4 +149,5 @@ export type ExpandedOverviewLeaderboard =
       totalRows: number;
       filteredRows: number;
       truncated: boolean;
+      cappedMessage: string | null;
     };

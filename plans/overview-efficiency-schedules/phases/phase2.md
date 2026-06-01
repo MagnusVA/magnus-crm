@@ -1,5 +1,6 @@
 # Phase 2 — Schedule Management APIs and Settings UI
 
+**Status:** Code complete; browser QA pending (2026-06-01)
 **Goal:** Add tenant-admin schedule management for Slack qualifiers and DM closers. After this phase, admins can view actor registries, edit weekly scheduled hours, and save schedules without changing overview ranking yet.
 
 **Prerequisite:** Phase 1 complete and generated Convex types include `slackQualifierSchedules` and `dmCloserSchedules`.
@@ -23,6 +24,8 @@
 8. Saving a weekly schedule sends one Convex mutation and writes at most seven schedule rows for the selected actor.
 9. Existing settings tabs continue to work.
 10. `pnpm tsc --noEmit` passes without errors.
+
+**Verification:** `pnpm tsc --noEmit` passed on 2026-06-01. Targeted ESLint for Phase 2 touched files passed on 2026-06-01. Manual settings QA remains part of Phase 5 browser verification.
 
 ---
 

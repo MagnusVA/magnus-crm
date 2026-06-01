@@ -5,6 +5,7 @@ import { useQuery } from "convex/react";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
+import { SectionErrorBoundary } from "./section-error-boundary";
 import {
 	Collapsible,
 	CollapsibleContent,
@@ -17,7 +18,9 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { DashboardRangeInput } from "./dashboard-date-range-filter";
 import { OverviewExpandedLeaderboardTable } from "./overview-expanded-leaderboard-table";
 import {
+	OverviewCappedState,
 	OverviewEmptyState,
+	OverviewErrorState,
 	OverviewTruncatedNote,
 } from "./overview-section-state";
 
@@ -36,6 +39,53 @@ function ExpandedLeaderboardSkeleton() {
 			<Skeleton className="h-10 w-full" />
 			<Skeleton className="h-40 w-full" />
 		</div>
+	);
+}
+
+function ExpandedLeaderboardQuery({
+	kind,
+	range,
+	filters,
+}: {
+	kind: LeaderboardKind;
+	range: DashboardRangeInput;
+	filters:
+		| {
+				search?: string;
+				schedule?: ScheduleFilter;
+				activity?: ActivityFilter;
+		  }
+		| undefined;
+}) {
+	const data = useQuery(
+		api.dashboard.overviewLeaderboards.listOverviewLeaderboardRows,
+		filters ? { kind, range, filters } : { kind, range },
+	);
+
+	if (data === undefined) {
+		return <ExpandedLeaderboardSkeleton />;
+	}
+
+	if (data.cappedMessage) {
+		return <OverviewCappedState message={data.cappedMessage} />;
+	}
+
+	if (data.rows.length === 0) {
+		return <OverviewEmptyState message="No rows match the current filters." />;
+	}
+
+	return (
+		<>
+			{data.truncated ? <OverviewTruncatedNote /> : null}
+			<p className="text-xs text-muted-foreground">
+				Showing {data.filteredRows} of {data.totalRows}
+			</p>
+			<ScrollArea className="max-h-64 rounded-md border">
+				<div className="min-w-0 p-1">
+					<OverviewExpandedLeaderboardTable data={data} />
+				</div>
+			</ScrollArea>
+		</>
 	);
 }
 
@@ -67,11 +117,6 @@ export function OverviewExpandableLeaderboard({
 		if (activity !== "all") next.activity = activity;
 		return Object.keys(next).length > 0 ? next : undefined;
 	}, [deferredSearch, schedule, activity]);
-
-	const data = useQuery(
-		api.dashboard.overviewLeaderboards.listOverviewLeaderboardRows,
-		open ? { kind, range, filters } : "skip",
-	);
 
 	return (
 		<Collapsible open={open} onOpenChange={onOpenChange}>
@@ -148,23 +193,23 @@ export function OverviewExpandableLeaderboard({
 						</ToggleGroup>
 					</div>
 
-					{data === undefined ? (
-						<ExpandedLeaderboardSkeleton />
-					) : data.rows.length === 0 ? (
-						<OverviewEmptyState message="No rows match the current filters." />
-					) : (
-						<>
-							{data.truncated ? <OverviewTruncatedNote /> : null}
-							<p className="text-xs text-muted-foreground">
-								Showing {data.filteredRows} of {data.totalRows}
-							</p>
-							<ScrollArea className="max-h-64 rounded-md border">
-								<div className="min-w-0 p-1">
-									<OverviewExpandedLeaderboardTable data={data} />
-								</div>
-							</ScrollArea>
-						</>
-					)}
+					{open ? (
+						<SectionErrorBoundary
+							key={`${kind}:${JSON.stringify(range)}:${JSON.stringify(
+								filters ?? {},
+							)}`}
+							sectionName="expanded leaderboard"
+							fallback={
+								<OverviewErrorState message="This leaderboard could not be loaded." />
+							}
+						>
+							<ExpandedLeaderboardQuery
+								kind={kind}
+								range={range}
+								filters={filters}
+							/>
+						</SectionErrorBoundary>
+					) : null}
 				</div>
 			</CollapsibleContent>
 		</Collapsible>
