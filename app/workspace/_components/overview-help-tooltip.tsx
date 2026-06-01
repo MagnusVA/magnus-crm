@@ -61,18 +61,8 @@ export const overviewTooltips = {
 	leadGen: {
 		section:
 			"Lead generation form activity for the selected business date range, including worker throughput and top performers.",
-		submissions:
-			"Total lead form submissions recorded by lead gen workers in the range.",
-		uniqueProspects:
-			"Distinct prospects submitted by lead gen workers in the selected range.",
-		duplicates:
-			"Duplicate prospect submissions recorded in the selected range.",
-		leadsPerHour:
-			"Submissions divided by scheduled lead gen hours across the range. Shows -- when no schedule is configured.",
 		topWorkers:
 			"Lead gen workers ranked by leads per scheduled hour, then submission count. Workers without a schedule sort below configured actors.",
-		workerSubmissions:
-			"Leads per scheduled hour for this worker. Raw submission count and scheduled hours appear below the rate.",
 		workerRate:
 			"Submissions divided by this worker's scheduled hours in the range.",
 		totalSubmissions:

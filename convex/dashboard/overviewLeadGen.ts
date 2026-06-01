@@ -1,9 +1,7 @@
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { TOP_OVERVIEW_WORKER_LIMIT } from "../leadGen/reportLimits";
-import { summarizeDailyRows } from "../leadGen/reportBuilders";
 import { readLeadGenDailyRowsForDashboard } from "../leadGen/reportReaders";
-import { loadCurrentScheduledHoursByWorkerDay } from "../leadGen/schedules";
 import { buildLeadGenEfficiencyRows } from "./overviewLeaderboardBuilders";
 import type { DerivedOverviewRange } from "./overviewRange";
 import type { LeadGenOverview } from "./overviewTypes";
@@ -18,9 +16,7 @@ export async function getLeadGenOverviewSection(
     startDayKey: range.startBusinessDate,
     endDayKey: range.endBusinessDateInclusive,
   });
-  const currentScheduledHoursByWorkerDay =
-    await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
-  const summary = summarizeDailyRows(rows, currentScheduledHoursByWorkerDay);
+  const totalSubmissions = rows.reduce((sum, row) => sum + row.submissions, 0);
   const efficiencyRows = await buildLeadGenEfficiencyRows(ctx, {
     tenantId,
     range,
@@ -29,13 +25,9 @@ export async function getLeadGenOverviewSection(
 
   return {
     data: {
-      totalSubmissions: summary.submissions,
-      uniqueProspects: summary.uniqueProspects,
-      duplicates: summary.duplicates,
-      scheduledHours: summary.scheduledHours,
-      leadsPerHour: summary.leadsPerHour,
+      totalSubmissions,
       topWorkers: efficiencyRows.slice(0, TOP_OVERVIEW_WORKER_LIMIT),
     },
-    isEmpty: summary.submissions === 0 && efficiencyRows.length === 0,
+    isEmpty: totalSubmissions === 0 && efficiencyRows.length === 0,
   };
 }
