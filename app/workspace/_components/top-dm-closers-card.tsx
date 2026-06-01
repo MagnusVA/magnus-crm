@@ -13,6 +13,7 @@ import {
 	OverviewHelpTooltip,
 	overviewTooltips,
 } from "./overview-help-tooltip";
+import { MemberAvatar } from "./member-avatar";
 import { formatDecimal, formatWholeNumber } from "./overview-formatters";
 import {
 	OverviewCappedState,
@@ -75,11 +76,19 @@ export function TopDmClosersCard({
 									{section.data.rows.map((row, index) => (
 										<li
 											key={row.dmCloserId}
-											className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-2.5 rounded px-1.5 py-1.5 text-sm transition-colors hover:bg-muted/50"
+											className="grid grid-cols-[1.25rem_auto_minmax(0,1fr)_auto] items-center gap-2.5 rounded px-1.5 py-1.5 text-sm transition-colors hover:bg-muted/50"
 										>
 											<span className="text-center text-xs font-semibold tabular-nums text-muted-foreground/60">
 												{index + 1}
 											</span>
+											<MemberAvatar
+												identity={{
+													id: row.dmCloserId,
+													name: row.displayName,
+													source: "dm_closer",
+												}}
+												size="sm"
+											/>
 											<div className="min-w-0">
 												<p className="truncate font-medium">{row.displayName}</p>
 												<p className="truncate text-xs text-muted-foreground">
