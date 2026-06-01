@@ -1,33 +1,48 @@
 # Phase 0 — Preflight, Query Budget, and Blast Radius
 
-**Goal:** Lock the implementation guardrails before schema or UI work starts. After this phase, the team has an explicit query-budget target, migration decision, file ownership map, and blast-radius checklist for the overview efficiency schedules MVP.
+**Status:** Complete (2026-06-01)  
+**Goal:** Lock implementation guardrails before schema or UI work starts.
 
-**Prerequisite:** `plans/overview-efficiency-schedules/overview-efficiency-schedules-design.md` is accepted for MVP scope.
+**Prerequisite:** `plans/overview-efficiency-schedules/overview-efficiency-schedules-design.md` accepted for MVP scope.
 
 **Runs in PARALLEL with:** Nothing at the phase level. Phase 0 is a short foundation gate before implementation starts.
 
-**Skills to invoke:**
-- `convex-performance-audit` — classify hot paths, read sets, subscription cost, function budgets, and aggregate usage.
-- `convex-migration-helper` — confirm the additive-table path does not need `@convex-dev/migrations`, and document what would trigger one.
-- `next-best-practices` — confirm settings and overview changes stay inside existing App Router client/server boundaries.
-- `shadcn` — inventory existing UI primitives before adding new components.
-- `frontend-design` — keep settings and leaderboard UI dense, operational, and consistent with workspace conventions.
+---
 
-**Acceptance Criteria:**
-1. The storage decision is locked: keep `leadGenWorkerSchedules`, add `slackQualifierSchedules`, add `dmCloserSchedules`, and do not create a master schedule table in MVP.
-2. No new manual per-day schedule bucket table is introduced in any phase plan.
-3. Every backend read path has an explicit table/index/cap strategy before implementation begins.
-4. Every frontend subscription is accounted for, including when it is active and when it is skipped.
-5. A blast-radius table identifies every existing feature area touched or indirectly affected.
-6. Rollout sequencing explicitly prevents efficiency-first ranking from going live before schedule coverage is populated or clearly marked.
-7. The implementation plan does not require a data backfill for MVP.
-8. Any later aggregate/backfill idea is deferred behind a separate migration plan.
-9. `pnpm tsc --noEmit` is listed as the final gate for every implementation phase.
-10. `pnpm tsc --noEmit` passes without errors.
+## Acceptance criteria (Gate 0)
+
+| # | Criterion | Status | Evidence |
+|---|-----------|--------|----------|
+| 1 | Storage: keep `leadGenWorkerSchedules`; add `slackQualifierSchedules` + `dmCloserSchedules`; no master schedule table in MVP | **Locked** | Design §4.3; new tables absent from `convex/schema.ts` today (expected until Phase 1) |
+| 2 | No manual per-day schedule bucket table in any phase plan | **Verified** | Grep across `plans/overview-efficiency-schedules/**` — only prohibitions, no bucket-table plans |
+| 3 | Every backend read path has table/index/cap strategy before coding | **Documented** | Query budget tables below (0B) |
+| 4 | Every frontend subscription accounted for (active vs skip) | **Documented** | Subscription budget (0D) |
+| 5 | Blast-radius table for touched / indirect areas | **Documented** | Blast-radius lock (0E) |
+| 6 | Rollout prevents efficiency-first ranking before schedule coverage or null-rate messaging | **Documented** | Rollout gate (0F); Phase 5 owns final decision |
+| 7 | MVP does not require a data backfill | **Locked** | Additive empty tables; missing rows → 0 hours / null rate |
+| 8 | Aggregate/backfill ideas deferred to separate migration plan | **Locked** | Migration triggers (0C); DM aggregate only if cap fails |
+| 9 | `pnpm tsc --noEmit` listed as gate for every implementation phase | **Verified** | All phase plans include criterion; parallelization Gate 0–5 |
+| 10 | `pnpm tsc --noEmit` passes | **Passed** | `pnpm tsc --noEmit` exit 0 on 2026-06-01 |
+
+**Gate 0 decision:** Proceed to Phase 1 (schema + shared `workSchedule` library).
 
 ---
 
-## Subphase Dependency Graph
+## Skills invoked
+
+| Skill | Use in Phase 0 |
+|-------|----------------|
+| `convex-performance-audit` | Bounded reads, subscription cost, hot-path classification |
+| `convex-migration-helper` | Additive MVP vs migration triggers |
+| `next-best-practices` | RSC/client boundaries for settings + overview |
+| `shadcn` | Reuse Tabs, Table, Card, Field, Input, Select from Lead Gen settings |
+| `frontend-design` | Dense operational admin UI; match workspace patterns |
+
+**Convex contract:** `convex/_generated/ai/guidelines.md` overrides general Convex knowledge for all later phases.
+
+---
+
+## Subphase dependency graph
 
 ```
 0A (Source + docs inventory) ─────┬── 0B (Convex query budget) ──────────┐
@@ -36,300 +51,175 @@
                                  └── 0F (Rollout gate definition) ──────┘
 ```
 
-**Optimal execution:**
-1. Start 0A first so all later constraints cite actual files and docs.
-2. Run 0B, 0C, 0D, and 0F in parallel; they produce independent checklists.
-3. Finish with 0E, which combines backend, frontend, auth, data, and rollout risks into one blast-radius table.
-
-**Estimated time:** 0.5-1 day
+**Execution:** 0A → parallel 0B/0C/0D/0F → 0E consolidation.
 
 ---
 
-## Subphases
-
-### 0A — Source and Reference Inventory
-
-**Type:** Manual / Analysis  
-**Parallelizable:** No — this creates the shared context for all other Phase 0 work.
-
-**What:** Read the design doc, internal phase/parallelization docs, Convex guidelines, and relevant skills.
-
-**Why:** The implementation touches Convex schema, dashboard data builders, settings UI, overview UI, and manual rollout. Missing one source of truth can produce a correct-looking implementation that breaks another surface.
-
-**Where:**
-- `plans/overview-efficiency-schedules/overview-efficiency-schedules-design.md` (read)
-- `.docs/internal/phases-planification-creation.md` (read)
-- `.docs/internal/parallelization.md` (read)
-- `convex/_generated/ai/guidelines.md` (read before Convex code changes)
-- `.agents/skills/convex-performance-audit/**` (read)
-- `.agents/skills/convex-migration-helper/SKILL.md` (read)
-- `.agents/skills/next-best-practices/**` (read relevant App Router references)
-- `.agents/skills/shadcn/SKILL.md` (read)
-- `.agents/skills/frontend-design/SKILL.md` (read)
-
-**How:**
-
-**Step 1: Confirm source docs.**
-
-```bash
-rg -n "Schedule Storage Decision|Numerator Aggregation Strategy|Applicable Skills" \
-  plans/overview-efficiency-schedules/overview-efficiency-schedules-design.md
-```
-
-**Step 2: Confirm existing implementation surfaces.**
-
-```bash
-rg -n "leadGenWorkerSchedules|slackQualificationEvents|slackQualificationsByUser|meetingsByStatus|TopDmClosers" \
-  convex app/workspace components hooks
-```
-
-**Key implementation notes:**
-- Treat the design doc as the product contract.
-- Treat `convex/_generated/ai/guidelines.md` as the Convex implementation contract.
-- Do not use broad web searches for framework behavior unless local docs are missing.
-
-**Files touched:**
-
-| File | Action | Notes |
-|---|---|---|
-| None | Read only | Inventory phase only |
-
-### 0B — Convex Query Budget
-
-**Type:** Backend / Analysis  
-**Parallelizable:** Yes — can run after 0A while migration and frontend budget work proceeds.
-
-**What:** Assign efficient read strategies, caps, and subscription expectations for each Convex function.
-
-**Why:** The overview dashboard is reactive. Every extra document read increases query cost and invalidation scope. Expanded leaderboards must not broaden the first-paint dashboard query.
-
-**Where:**
-- `convex/dashboard/overviewBuilders.ts` (existing)
-- `convex/dashboard/overviewLeadGen.ts` (existing)
-- `convex/dashboard/overviewSlack.ts` (existing)
-- `convex/dashboard/overviewOperations.ts` (existing)
-- `convex/reporting/aggregates.ts` (existing)
-- `convex/reporting/lib/slackQualificationLedger.ts` (existing)
-- `convex/workSchedules.ts` (new in Phase 2)
-- `convex/dashboard/overviewLeaderboards.ts` (new in Phase 4)
-
-**How:**
-
-**Step 1: Record read budgets.**
-
-| Function / Helper | Source Tables | Index Strategy | Cap / Bound | Notes |
-|---|---|---|---|---|
-| `listSlackQualifierSchedules` | `slackUsers`, `slackQualifierSchedules` | `by_tenantId`, or compound actor index when filtered | `slackUsers.take(300)`, schedules max `300 * 7` | Return only schedule UI fields. |
-| `listDmCloserSchedules` | `dmClosers`, `attributionTeams`, `dmCloserSchedules` | `dmClosers.by_tenantId_and_teamId`, `dmCloserSchedules.by_tenantId` | `dmClosers.take(300)`, schedules max `300 * 7` | Reuse attribution list semantics. |
-| `getOverviewDashboard` | existing section sources | existing indexes and helpers | top 5 per card | Do not add expanded rows to this payload. |
-| `buildLeadGenEfficiencyRows` | `leadGenDailyStats`, `leadGenWorkers`, `leadGenWorkerSchedules` | `by_tenantId_and_dayKey`, `by_tenantId_and_workerId` | existing daily stat cap | Include scheduled zero-activity candidates only in builder output, then slice top 5. |
-| `buildQualifierEfficiencyRows` | `slackUsers`, `slackQualifierSchedules`, Slack aggregates, bounded event detail | aggregate bounds by `[slackUserId, submittedAt]` | registry cap 300; raw event cap preserved | Use aggregates for unique-opportunity numerator. |
-| `buildDmCloserEfficiencyRows` | `meetings`, `dmClosers`, `attributionTeams`, `dmCloserSchedules` | `meetings.by_tenantId_and_createdAt`, schedule actor indexes | existing booking cap | Defer new aggregate unless cap becomes a real issue. |
-| `listOverviewLeaderboardRows` | shared builders | same as top builders | registry-capped rows | Active only while one card is expanded. |
-
-**Step 2: Keep all reads bounded.**
-
-```typescript
-// Path: convex/workSchedules.ts
-const slackUsers = await ctx.db
-  .query("slackUsers")
-  .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-  .take(300);
-```
-
-**Step 3: Prohibit these patterns.**
-
-- No unbounded `.collect()`.
-- No Convex `.filter()` for database filtering.
-- No `.collect().length`.
-- No public query composition through `ctx.runQuery` when a plain helper can be called.
-- No new digest, daily bucket, or aggregate table without a separate migration/backfill plan.
-
-**Key implementation notes:**
-- Small registry scans are acceptable because the product already caps actors around 250-300.
-- Aggregate usage should reduce numerator reads, not force a migration in MVP.
-- If `npx convex insights --details` is available, capture a before/after snapshot during Phase 5.
-
-**Files touched:**
-
-| File | Action | Notes |
-|---|---|---|
-| None | Read only | Budget phase only |
-
-### 0C — Migration and Rollout Gate
-
-**Type:** Backend / Migration / Manual  
-**Parallelizable:** Yes — independent after 0A.
-
-**What:** Confirm the MVP path is additive and define what would require a migration.
-
-**Why:** Production has a test tenant. Breaking schema/data changes need an explicit widen-migrate-narrow plan.
-
-**Where:**
-- `convex/schema.ts` (future Phase 1 modify)
-- `convex/leadGen/validators.ts` (future Phase 1 modify)
-- `convex/lib/workSchedule.ts` (future Phase 1 create)
-
-**How:**
-
-**Step 1: Lock no-migration MVP conditions.**
-
-```text
-No migration job required only if:
-- `leadGenWorkerSchedules` remains unchanged except validator import aliasing.
-- `slackQualifierSchedules` and `dmCloserSchedules` are new tables.
-- Missing schedule rows produce zero scheduled hours and null per-hour rate.
-- No existing field becomes required.
-- No historical aggregate must be backfilled before reads switch.
-```
-
-**Step 2: Define migration triggers.**
-
-| Change | Requires Migration Plan? | Reason |
-|---|---:|---|
-| Add new schedule tables | No | New empty tables validate immediately. |
-| Add indexes to new schedule tables | No | No correctness issue with existing data. |
-| Move Lead Gen schedules to a master table | Yes | Existing Lead Gen schedule data must be copied and dual-read. |
-| Widen `leadGenWorkerSchedules` to polymorphic actor fields | Yes | Existing required fields and indexes change semantics. |
-| Add a DM closer booking aggregate and switch reads to it | Yes, if historical rows are needed | Requires aggregate component registration and backfill verification. |
-
-**Key implementation notes:**
-- Manual schedule population is an operational rollout step, not a Convex migration.
-- If the implementation deviates from additive tables, stop and create a separate migration plan before coding.
-
-**Files touched:**
-
-| File | Action | Notes |
-|---|---|---|
-| None | Read only | Gate definition only |
-
-### 0D — Frontend Subscription Budget
-
-**Type:** Frontend / Analysis  
-**Parallelizable:** Yes — independent after 0A.
-
-**What:** Define where `useQuery` subscriptions are allowed and where they must be skipped.
-
-**Why:** The dashboard is already one live overview subscription. Expanded leaderboards should not multiply live query cost until a card is opened.
-
-**Where:**
-- `app/workspace/_components/dashboard-page-client.tsx` (future modify)
-- `app/workspace/_components/overview-expandable-leaderboard.tsx` (future create)
-- `app/workspace/settings/_components/settings-page-client.tsx` (future modify)
-- `app/workspace/settings/_components/work-schedules-tab.tsx` (future create)
-
-**How:**
-
-**Step 1: Keep first paint to one overview query.**
-
-```tsx
-// Path: app/workspace/_components/dashboard-page-client.tsx
-const overview = useQuery(
-  api.dashboard.overview.getOverviewDashboard,
-  isAdmin ? { range: queryRange } : "skip",
-);
-```
-
-**Step 2: Only subscribe to expanded rows while open.**
-
-```tsx
-// Path: app/workspace/_components/overview-expandable-leaderboard.tsx
-const rows = useQuery(
-  api.dashboard.overviewLeaderboards.listOverviewLeaderboardRows,
-  open ? { kind, range: queryRange, filters } : "skip",
-);
-```
-
-**Step 3: Defer or debounce search.**
-
-```tsx
-// Path: app/workspace/_components/overview-expandable-leaderboard.tsx
-const deferredSearch = useDeferredValue(search);
-```
-
-**Key implementation notes:**
-- The settings schedules tab can subscribe to schedule lists because it is admin-only and not on the dashboard first paint.
-- Avoid per-row `useQuery` calls. Parent queries return enriched rows.
-- Keep `useSearchParams()` inside existing Suspense boundaries for settings.
-
-**Files touched:**
-
-| File | Action | Notes |
-|---|---|---|
-| None | Read only | Subscription plan only |
-
-### 0E — Blast Radius Lock
-
-**Type:** Full-Stack / QA  
-**Parallelizable:** No — consolidates 0B-0D and rollout constraints.
-
-**What:** Define what can break outside the immediate feature and how to detect it.
-
-**Why:** This work touches shared dashboard contracts, Lead Gen helpers, Slack reporting semantics, DM attribution, and settings navigation.
-
-**Where:**
-- `plans/overview-efficiency-schedules/phases/*` (new docs)
-
-**How:**
-
-| Feature Area | Why It Is In Radius | Guardrail |
-|---|---|---|
-| Lead Gen Ops reporting/export | Shared worker performance helpers and schedule validator aliasing | Keep existing report sort order and exports quantity-first unless product asks otherwise. |
-| Lead Gen capture aggregates | `leadGenDailyStats.scheduledHours` snapshots use weekday helpers | Sunday-first `getUTCDay()` mapping must match current helper. |
-| Slack qualification reports | Qualifier numerator may use aggregates while reports still use event details | Preserve existing ledger caps and do not change `getQualificationReport` semantics. |
-| DM attribution settings | DM closer registry is used by schedules and attribution config | Do not change `dmClosers` shape or active/inactive behavior. |
-| Phone closer operations | Existing operations cards and tables use `operationsMeetingDailyStats` | Do not change operations stats buckets for this feature. |
-| Overview dashboard | Shared `OverviewDashboard` type and top cards | Add fields compatibly and update all consuming cards together. |
-| Workspace settings | New tab inside existing admin settings route | Preserve existing tab query param behavior and Suspense boundary. |
-| Auth/RBAC | New functions are admin-only | Derive tenant/user via `requireTenantUser`; no client tenant/user args. |
-| Convex subscriptions | Extra expanded query can be expensive | Use `"skip"` while collapsed and return bounded rows. |
-| Production test tenant | Efficiency ranking can look wrong before schedules exist | Populate schedules or clearly mark null rates before enabling ranking. |
-
-**Key implementation notes:**
-- If a guardrail fails, do not continue into the next phase until the design or phase plan is updated.
-- The blast radius table must be revisited in Phase 5 during QA.
-
-**Files touched:**
-
-| File | Action | Notes |
-|---|---|---|
-| `plans/overview-efficiency-schedules/phases/phase0.md` | Create | This gate document |
-
-### 0F — Rollout Gate Definition
-
-**Type:** Manual / QA  
-**Parallelizable:** Yes — can run after 0A while other Phase 0 work proceeds.
-
-**What:** Define the manual production rollout sequence.
-
-**Why:** The feature is technically additive, but ranking quality depends on populated schedules.
-
-**Where:**
-- `plans/overview-efficiency-schedules/phases/phase5.md` (future QA plan)
-
-**How:**
-
-1. Deploy additive schema and schedule management UI.
-2. Populate Slack qualifier schedules for expected production test tenant actors.
-3. Populate DM closer schedules for expected production test tenant actors.
-4. Verify schedule coverage in the settings UI.
-5. Verify overview rows show raw counts and scheduled hours.
-6. Enable or accept efficiency-first ranking only after the team agrees null-rate rows are expected.
-
-**Key implementation notes:**
-- No automated migration job is part of this rollout.
-- Keep rollback simple: if ranking is confusing, revert the dashboard sort/display change while retaining schedule tables.
-
-**Files touched:**
-
-| File | Action | Notes |
-|---|---|---|
-| None | Read only | Rollout definition only |
+## 0A — Source and reference inventory (complete)
+
+### Design and internal docs
+
+| Document | Role |
+|----------|------|
+| `plans/overview-efficiency-schedules/overview-efficiency-schedules-design.md` | Product contract (§4.3 storage, §4.6 numerators, §17 skills) |
+| `plans/overview-efficiency-schedules/phases/parallelization-strategy.md` | Critical path, file ownership, quality gates |
+| `.docs/internal/phases-planification-creation.md` | Phase doc conventions |
+| `.docs/internal/parallelization.md` | Parallel execution patterns |
+| `convex/_generated/ai/guidelines.md` | Convex implementation contract |
+
+### Verified implementation surfaces (rg + file read)
+
+| Symbol / area | Primary locations | Notes |
+|---------------|-------------------|-------|
+| `leadGenWorkerSchedules` | `convex/schema.ts` (L141–155), `convex/leadGen/schedules.ts`, `convex/leadGen/workers.ts`, `app/workspace/lead-gen/_components/lead-gen-settings-page-client.tsx` | Weekday + hours; Sunday-first `WEEKDAYS[date.getUTCDay()]` in `schedules.ts` |
+| `slackQualificationEvents` | `convex/schema.ts`, `convex/reporting/lib/slackQualificationLedger.ts` | `MAX_QUALIFICATION_EVENTS = 1000` cap |
+| `slackQualificationsByUser` | `convex/convex.config.ts`, `convex/reporting/slackQualifications.ts` | Aggregate for report counts; overview breakdown still uses ledger today |
+| `meetingsByStatus` | `convex/convex.config.ts`, `convex/reporting/writeHooks.ts` | Phone-closer oriented aggregate; not DM booking `createdAt` |
+| Top DM closers (overview) | `convex/dashboard/overviewOperations.ts` → `getTopDmClosersOverviewSection` | **Today:** `operationsMeetingDailyStats` by `dayKey`, ranked by `scheduled` count |
+| Overview dashboard | `convex/dashboard/overview.ts`, `overviewBuilders.ts`, `app/workspace/_components/dashboard-page-client.tsx` | Single `useQuery(getOverviewDashboard)` for admins |
+| DM closer registry | `convex/attribution/dmClosers.ts` | `listDmClosers` uses `.take(300)` closers, `.take(200)` teams |
+| Settings shell | `app/workspace/settings/_components/settings-page-client.tsx` | `useSearchParams` inside Suspense; tabs: calendly, event-types, field-mappings, programs, integrations, attribution |
+
+### Not present yet (expected)
+
+- `slackQualifierSchedules`, `dmCloserSchedules` — Phase 1 schema
+- `convex/workSchedules.ts`, `convex/workSchedules/rangeHours.ts` — Phases 2–3
+- `convex/dashboard/overviewLeaderboards.ts` — Phase 4
+- `overview-expandable-leaderboard.tsx` — Phase 4
 
 ---
 
-## Phase Summary
+## 0B — Convex query budget (complete)
 
-| File | Action | Subphase |
-|---|---|---|
-| `plans/overview-efficiency-schedules/phases/phase0.md` | Create | 0A-0F |
+**Principles (from `convex-performance-audit`):** Registry scans ~300 actors are acceptable; prohibit unbounded `.collect()`, Convex `.filter()` for DB filtering, `.collect().length`, and public `ctx.runQuery` composition where helpers suffice. No new digest/daily-bucket/aggregate tables without a separate migration plan.
+
+### Planned functions (implementation phases)
+
+| Function / helper | Source tables | Index strategy | Cap / bound | Phase |
+|-----------------|---------------|----------------|-------------|-------|
+| `listSlackQualifierSchedules` | `slackUsers`, `slackQualifierSchedules` | `by_tenantId`; `by_tenantId_and_slackUserId` (+ weekday unique) | Users `.take(300)`; ≤7 schedule rows per actor | 2 |
+| `listDmCloserSchedules` | `dmClosers`, `attributionTeams`, `dmCloserSchedules` | `by_tenantId_and_teamId` / `by_tenantId`; actor+weekday | Closers `.take(300)` (match `listDmClosers`); teams `.take(200)`; ≤7 rows/actor | 2 |
+| `getOverviewDashboard` | existing section sources | existing indexes | Top 5 per leaderboard card only | 3–5 |
+| `buildLeadGenEfficiencyRows` | `leadGenDailyStats`, `leadGenWorkers`, `leadGenWorkerSchedules` | `by_tenantId_and_dayKey`, `by_tenantId_and_workerId` | `DAILY_STATS_READ_LIMIT = 500`; registry from rows | 3 |
+| `buildQualifierEfficiencyRows` | `slackUsers`, `slackQualifierSchedules`, aggregates, bounded ledger | `by_tenantId_and_submittedAt`; aggregate bounds `[slackUserId, submittedAt]` | Registry ≤300; ledger `MAX_QUALIFICATION_EVENTS = 1000` | 3 |
+| `buildDmCloserEfficiencyRows` | `meetings`, `dmClosers`, `dmCloserSchedules` | `meetings.by_tenantId_and_createdAt` (planned) | Bounded meeting scan per Phase 3 plan | 3 |
+| `listOverviewLeaderboardRows` | shared builders | same as above | Full registry-capped set | 4 |
+
+### Current vs planned (verified today)
+
+| Area | Current behavior | Planned change | Blast note |
+|------|------------------|----------------|------------|
+| Lead Gen top 5 | `buildWorkerPerformanceRows` → `compareWorkerPerformanceRows` sorts by **submissions** (`convex/leadGen/reportBuilders.ts` L111–119) | Dashboard-only efficiency sort in new builder; **do not** change `compareWorkerPerformanceRows` | Lead Gen Ops reports/exports stay quantity-first |
+| Top Qualifiers | `buildSlackUserQualificationBreakdown` sorts by **`total` events** (L94–101); ledger cap 1000 | Rank by unique Slack opportunities / hour; prefer `slackQualificationsByUser` for numerators | `getQualificationReport` semantics unchanged |
+| Top DM Closers | `operationsMeetingDailyStats` + `OPERATIONS_STATS_ROW_LIMIT = 1000` (`overviewOperations.ts`) | Phase 3: **`meetings` by `createdAt`**, exclude `follow_up`; **do not** use ops daily stats for booking-created metric | Phone closer ops section still uses same stats table |
+| Overview payload | Parallel sections in `overviewBuilders.ts`; no expanded rows | Add efficiency fields to types; keep top 5 only on first paint | Minimize RSC boundary growth |
+
+### Prohibited patterns (locked)
+
+- Unbounded `.collect()`, Convex `.filter()` on DB queries, `.collect().length`
+- Reusing `leadGenWorkerSchedules` for Slack/DM actors (would require migration + discriminated schema)
+- Master `workSchedules` polymorphic table in MVP
+- Persisted per-day schedule buckets or schedule-hour snapshots for Slack/DM
+- Efficiency sort inside `convex/leadGen/reportBuilders.ts` shared export paths
+
+---
+
+## 0C — Migration and rollout gate (complete)
+
+### No-migration MVP conditions (all must hold)
+
+| Condition | Verified |
+|-----------|----------|
+| `leadGenWorkerSchedules` unchanged except validator re-export path (Phase 1) | Yes — table shape stable in `schema.ts` |
+| `slackQualifierSchedules` + `dmCloserSchedules` are **new** tables | Yes — not in schema yet |
+| Missing schedule → 0 scheduled hours, `null` efficiency | Design + Phase 3 helpers |
+| No existing field becomes required | Yes |
+| No historical aggregate backfill before reads switch | Yes for MVP |
+
+**Operational note:** Manual schedule entry in settings is **not** a Convex migration job.
+
+### Migration triggers (if scope changes, stop and plan)
+
+| Change | Migration? | Reason |
+|--------|:----------:|--------|
+| Add new schedule tables | No | Empty tables deploy cleanly |
+| Add indexes on new tables | No | No correctness issue |
+| Move Lead Gen to master schedule table | **Yes** | Copy + dual-read |
+| Widen `leadGenWorkerSchedules` for polymorphic actors | **Yes** | Semantics + indexes change |
+| New DM booking aggregate + historical backfill | **Yes** | Component registration + verification |
+
+---
+
+## 0D — Frontend subscription budget (complete)
+
+| Surface | Query | When active | When skipped | Notes |
+|---------|-------|-------------|--------------|-------|
+| Overview dashboard | `api.dashboard.overview.getOverviewDashboard` | `isAdmin === true` | `"skip"` for non-admins | Verified `dashboard-page-client.tsx` L36–38 |
+| Expanded leaderboard (planned) | `api.dashboard.overviewLeaderboards.listOverviewLeaderboardRows` | Card `open === true` | `"skip"` when collapsed | One expanded card at a time (Phase 4) |
+| Expanded search (planned) | Same query args | Debounce via `useDeferredValue(search)` | — | Local filter only; no per-row `useQuery` |
+| Settings schedules tab (planned) | `listSlackQualifierSchedules`, `listDmCloserSchedules` | Admin on `/workspace/settings?tab=schedules` | Not on overview first paint | Add `schedules` to tab union without breaking existing tabs |
+| Settings (existing) | Calendly, event types, etc. | `isAdmin` | `"skip"` | Preserve Suspense + `useSearchParams` pattern |
+
+**Next.js:** Settings page already wraps content in `<Suspense>` (`settings-page-client.tsx`). New tab follows same pattern.
+
+**UI primitives (shadcn):** Reuse from `lead-gen-settings-page-client.tsx`: `Tabs`, `Table`, `Card`, `Input`, `Select`, `Field`, `Button`, `MemberIdentity`.
+
+---
+
+## 0E — Blast radius lock (complete)
+
+| Feature area | Why in radius | Guardrail | Key files |
+|--------------|---------------|-----------|-----------|
+| Lead Gen Ops reporting/export | Shared `buildWorkerPerformanceRows` / `compareWorkerPerformanceRows` | Efficiency sort only in **dashboard** builders; exports keep submission sort | `convex/leadGen/reportBuilders.ts`, `overviewLeadGen.ts` |
+| Lead Gen daily stats / aggregates | `scheduledHours` on `leadGenDailyStats` uses weekday helpers | Sunday-first `getUTCDay()` via shared `weekdayForBusinessDate` (Phase 1) | `convex/leadGen/schedules.ts`, `convex/leadGen/aggregates.ts` |
+| Slack qualification reports | Numerator may move to aggregates; reports use ledger | Do not change `getQualificationReport` caps/semantics | `convex/reporting/slackQualifications.ts`, `slackQualificationLedger.ts` |
+| DM attribution settings | Same `dmClosers` registry for schedules + UTM | No shape/active-flag changes | `convex/attribution/dmClosers.ts`, settings attribution tab |
+| Phone closer operations | Shares `operationsMeetingDailyStats` with DM card today | Do not change ops stats buckets for this feature; DM metric moves to `meetings` in Phase 3 | `overviewOperations.ts` |
+| Overview dashboard contract | Shared `OverviewDashboard` type + cards | Add fields compatibly; update all three cards together in Phase 5 | `overviewTypes.ts`, `overview-top-cards.tsx`, card components |
+| Workspace settings | New tab in existing route | Only register `tab=schedules`; preserve other tab query values | `settings-page-client.tsx` |
+| Auth/RBAC | New admin mutations/queries | `requireTenantUser(ctx, ["tenant_master", "tenant_admin"])`; no client tenant/user args | `convex/requireTenantUser.ts` |
+| Convex subscriptions | Second query when expanded | `"skip"` when collapsed; bounded row count | Phase 4 components |
+| Production test tenant | Ranking misleading with empty schedules | Populate schedules **or** show null-rate context before efficiency-first UX (Phase 5) | Manual rollout (0F) |
+
+**If a guardrail fails during implementation:** Stop the phase and update the design or phase plan before continuing.
+
+**Revisit:** Phase 5 QA must re-run this table.
+
+---
+
+## 0F — Rollout gate definition (complete)
+
+Manual production sequence (no automated migration):
+
+1. Deploy Phase 1–2: additive schema + schedule management UI.
+2. Populate Slack qualifier schedules for production test tenant actors.
+3. Populate DM closer schedules for expected actors.
+4. Verify coverage in `/workspace/settings?tab=schedules`.
+5. Deploy Phase 3–5: efficiency builders + UI; verify raw counts + scheduled hours visible.
+6. **Only then** enable or accept efficiency-first ranking (product sign-off). If confusing, revert sort/display while keeping schedule tables.
+
+**Rollback:** Revert dashboard sort/display (Phase 5) without dropping schedule tables.
+
+**Deferred:** Automated backfill, master schedule consolidation, DM booking aggregate (unless measured cap failure).
+
+---
+
+## Locked decisions summary
+
+1. **Storage:** Two new weekly schedule tables; Lead Gen table untouched physically.
+2. **Denominator:** Read-time sum from weekly rows × business dates in range; no per-day buckets.
+3. **Numerators:** Lead Gen `leadGenDailyStats`; Slack unique opportunities (aggregates preferred); DM `meetings` by `createdAt` (replacing ops-stats-based overview ranking in Phase 3).
+4. **Subscriptions:** One overview query on first paint; expanded query only while open.
+5. **Weekday math:** Sunday-first UTC lookup; Monday-first UI order (`leadGen/schedules.ts` pattern → `convex/lib/workSchedule.ts`).
+6. **Quality gate:** `pnpm tsc --noEmit` after every implementation phase.
+
+---
+
+## Phase summary
+
+| Artifact | Action | Subphase |
+|----------|--------|----------|
+| `plans/overview-efficiency-schedules/phases/phase0.md` | Complete | 0A–0F |
+| Production code | **No changes** | Phase 0 is analysis-only |
+
+**Next:** Phase 1 — `convex/lib/workSchedule.ts`, schema tables, lead-gen validator alias, `npx convex dev --once`, `pnpm tsc --noEmit`.

@@ -1,7 +1,8 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
+import { buildDmCloserEfficiencyRows } from "./overviewLeaderboardBuilders";
 import type { DerivedOverviewRange } from "./overviewRange";
-import type { PhoneCloserOperations, TopDmCloserRow } from "./overviewTypes";
+import type { PhoneCloserOperations } from "./overviewTypes";
 
 export const OPERATIONS_STATS_ROW_LIMIT = 1000;
 
@@ -61,52 +62,20 @@ export async function getTopDmClosersOverviewSection(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   range: DerivedOverviewRange,
-): Promise<{
-  data: { rows: TopDmCloserRow[]; totalScheduled: number };
-  isEmpty: boolean;
-}> {
-  const rows = await readOperationsStatsRows(ctx, tenantId, range);
-  const byDmCloser = new Map<Id<"dmClosers">, OperationsTotals>();
-
-  for (const row of rows) {
-    if (!row.dmCloserId) continue;
-    const current = byDmCloser.get(row.dmCloserId) ?? emptyOperationsTotals();
-    addOperationRow(current, row);
-    byDmCloser.set(row.dmCloserId, current);
-  }
-
-  const totalScheduled = [...byDmCloser.values()].reduce(
-    (sum, totals) => sum + totals.scheduled,
-    0,
-  );
-
-  const enriched: TopDmCloserRow[] = [];
-  for (const [dmCloserId, totals] of byDmCloser) {
-    const dmCloser = await ctx.db.get(dmCloserId);
-    if (!dmCloser || dmCloser.tenantId !== tenantId) continue;
-    const team = await ctx.db.get(dmCloser.teamId);
-
-    enriched.push({
-      dmCloserId,
-      displayName: dmCloser.displayName,
-      teamName: team && team.tenantId === tenantId ? team.displayName : null,
-      ...totals,
-      showRate: toRate(totals.completed, totals.scheduled),
-    });
-  }
-
-  const sortedRows = enriched
-    .sort(
-      (left, right) =>
-        right.scheduled - left.scheduled ||
-        right.completed - left.completed ||
-        left.displayName.localeCompare(right.displayName),
-    )
-    .slice(0, 5);
+) {
+  const { rows, truncated } = await buildDmCloserEfficiencyRows(ctx, {
+    tenantId,
+    range,
+    includeAllCandidates: false,
+  });
 
   return {
-    data: { rows: sortedRows, totalScheduled },
-    isEmpty: sortedRows.length === 0,
+    data: {
+      rows: rows.slice(0, 5),
+      totalBooked: rows.reduce((sum, row) => sum + row.booked, 0),
+    },
+    truncated,
+    isEmpty: rows.length === 0,
   };
 }
 
