@@ -16,8 +16,8 @@ import type { Doc } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { usePollingQuery } from "@/hooks/use-polling-query";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useRole } from "@/components/auth/role-context";
+import { CloserDashboardSkeleton } from "./closer-dashboard-skeleton";
 import { useRouter } from "next/navigation";
 import {
   DashboardDateRangeFilter,
@@ -194,7 +194,7 @@ export function CloserDashboardPageClient() {
     pipelineSummary === undefined ||
     nextMeeting === undefined
   ) {
-    return <DashboardSkeleton />;
+    return <CloserDashboardSkeleton />;
   }
 
   return (
@@ -275,38 +275,3 @@ export function CloserDashboardPageClient() {
   );
 }
 
-function DashboardSkeleton() {
-  return (
-    <div className="mx-auto flex w-full max-w-[1500px] flex-col gap-4 pb-6">
-      <div className="flex flex-col gap-3 border-b pb-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="flex flex-col gap-2">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-4 w-64" />
-        </div>
-        <Skeleton className="h-9 w-72 rounded-lg" />
-      </div>
-
-      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,340px),1fr))] gap-3">
-        <Skeleton className="h-[132px] rounded-xl" />
-        <Skeleton className="h-[132px] rounded-xl" />
-      </div>
-
-      <div className="flex flex-col gap-3 rounded-xl p-3 ring-1 ring-foreground/10">
-        <Skeleton className="h-4 w-40" />
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-[78px] rounded-lg" />
-          ))}
-        </div>
-        <Skeleton className="h-3 w-full rounded-full" />
-        <div className="flex flex-wrap gap-3">
-          {Array.from({ length: 7 }).map((_, i) => (
-            <Skeleton key={i} className="h-3.5 w-20 rounded" />
-          ))}
-        </div>
-      </div>
-
-      <Skeleton className="h-[400px] rounded-xl" />
-    </div>
-  );
-}

@@ -44,3 +44,10 @@ Pre-flight checklist created. Local static checks recorded on 2026-05-31 after t
 - [ ] `pnpm lint` - fails on pre-existing repo-wide issues outside Phase 5 touched files, including `.agents/skills/workos-widgets/references/scripts/query-spec.cjs`, existing React hook lint errors in settings/theme/polling files, and generated Convex eslint-disable warnings.
 - [x] `pnpm exec eslint app/workspace/_components/workspace-shell-client.tsx components/command-palette.tsx hooks/use-breadcrumbs.ts app/workspace/operations/_components/qualification-table.tsx app/workspace/operations/_components/scheduling-table.tsx app/workspace/closer/_components/reminders-section.tsx 'app/workspace/closer/reminders/[followUpId]/_components/reminder-outcome-action-bar.tsx' app/workspace/_components/pipeline/opportunities-table.tsx`
 - [x] `npx convex dev --once`
+
+## Local Migration Verification
+
+- [x] `npx convex run migrations:run '{"fn":"migrations:backfillLeadCustomerSearchRows","dryRun":true,"reset":true}'` - processed 9 leads; no changes committed.
+- [x] `npx convex run migrations:run '{"fn":"migrations:backfillLeadCustomerSearchRows","reset":true}'` - processed 9 leads.
+- [x] `npx convex run migrations:run '{"fn":"migrations:assertLeadCustomerSearchRowsBackfilled","dryRun":true,"reset":true}'` - processed 9 leads; no changes committed.
+- [x] `npx convex run migrations:run '{"fn":"migrations:assertLeadCustomerSearchRowsBackfilled","reset":true}'` - processed 9 leads.

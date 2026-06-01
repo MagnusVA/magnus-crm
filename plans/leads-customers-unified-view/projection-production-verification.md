@@ -2,7 +2,7 @@
 
 ## Status
 
-Not run. Per rollout instruction, production migration/assertion commands are listed for deployment time only.
+Production-test assertion run completed after Phase 5 deployment. Phase 1 backfill was already run previously, so only the Window 5 assertion pair was needed.
 
 ## Required Migration Commands
 
@@ -10,8 +10,8 @@ If the Phase 1 backfill already ran in the production test tenant, run only the 
 
 | Order | Command | Result | Notes |
 |---:|---|---|---|
-| 1 | `npx convex run migrations:run '{"fn":"assertLeadCustomerSearchRowsBackfilled","dryRun":true}'` | Not run | Production pre-flight dry assertion |
-| 2 | `npx convex run migrations:run '{"fn":"assertLeadCustomerSearchRowsBackfilled"}'` | Not run | Required before visible navigation flip |
+| 1 | `npx convex run --prod migrations:run '{"fn":"migrations:assertLeadCustomerSearchRowsBackfilled","dryRun":true,"reset":true}'` | Passed | Processed first 100 rows without committing changes. |
+| 2 | `npx convex run --prod migrations:run '{"fn":"migrations:assertLeadCustomerSearchRowsBackfilled","reset":true}'` | Passed | Completed with migration state `success`; processed 1,550 rows. |
 
 If the backfill has not run in the production test tenant, run the full sequence:
 
@@ -51,3 +51,17 @@ npx convex run leadCustomers/queries:searchEntities '{"searchTerm":"<redacted-di
 ## Failure Rule
 
 If assertion fails, do not flip navigation. Fix the projection/write-hook issue, rerun `backfillLeadCustomerSearchRows`, then rerun both assertion commands.
+
+## Production Assertion Evidence
+
+Status checked with:
+
+```bash
+npx convex run --prod --component migrations lib:getStatus '{"names":["migrations:assertLeadCustomerSearchRowsBackfilled"]}'
+```
+
+Result:
+
+| Name | State | Processed | latestStart | latestEnd |
+|---|---|---:|---|---|
+| `migrations:assertLeadCustomerSearchRowsBackfilled` | `success` | 1550 | `1780272213687` | `1780272222394` |

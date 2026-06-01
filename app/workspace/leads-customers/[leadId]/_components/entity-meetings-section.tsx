@@ -1,9 +1,15 @@
 "use client";
 
 import { useMemo } from "react";
+import { CalendarClockIcon } from "lucide-react";
 import type { Id } from "@/convex/_generated/dataModel";
+import {
+	LabelWithInfoTooltip,
+	leadsCustomersTooltips,
+} from "../../_components/entity-ui-tooltips";
 import { useEntityDetail } from "./entity-detail-context";
 import { EntityMeetingRow } from "./entity-meeting-row";
+import { SectionShell } from "./entity-detail-ui";
 
 export function EntityMeetingsSection() {
 	const { meetings, comments, caps } = useEntityDetail();
@@ -18,26 +24,31 @@ export function EntityMeetingsSection() {
 	}, [comments]);
 
 	return (
-		<section className="rounded-md border">
-			<div className="flex items-center justify-between gap-3 border-b p-3">
-				<h2 className="text-sm font-semibold">Meetings</h2>
-				{caps.meetings ? (
-					<span className="text-xs text-muted-foreground">Showing latest 50</span>
-				) : null}
-			</div>
+		<SectionShell
+			title="Meetings"
+			icon={<CalendarClockIcon aria-hidden="true" />}
+			count={meetings.length || undefined}
+			meta={
+				caps.meetings ? (
+					<LabelWithInfoTooltip
+						label="Latest 50"
+						description={leadsCustomersTooltips.listCap("50 meetings")}
+					/>
+				) : null
+			}
+			bodyClassName="divide-y divide-border/60"
+		>
 			{meetings.length === 0 ? (
 				<div className="p-4 text-sm text-muted-foreground">No meetings found.</div>
 			) : (
-				<div className="divide-y">
-					{meetings.map((meeting) => (
-						<EntityMeetingRow
-							key={meeting._id}
-							meeting={meeting}
-							comments={commentsByMeetingId.get(meeting._id) ?? []}
-						/>
-					))}
-				</div>
+				meetings.map((meeting) => (
+					<EntityMeetingRow
+						key={meeting._id}
+						meeting={meeting}
+						comments={commentsByMeetingId.get(meeting._id) ?? []}
+					/>
+				))
 			)}
-		</section>
+		</SectionShell>
 	);
 }

@@ -23,7 +23,7 @@ import { useOpportunitySheet } from "./opportunity-sheet-context";
 import { OpportunitySheetBody } from "./opportunity-sheet-body";
 
 const sheetClassName =
-	"w-full overflow-y-auto overscroll-contain p-0 data-[side=right]:sm:max-w-4xl";
+	"w-full overflow-y-auto overscroll-contain p-0 data-[side=right]:sm:max-w-3xl";
 
 function OpportunityUnavailableState() {
 	return (
@@ -70,10 +70,12 @@ export function OpportunityDetailSheet() {
 			}}
 		>
 			<SheetContent side="right" className={sheetClassName}>
-				<SheetHeader className="border-b px-4 py-3 pr-12 text-left">
-					<SheetTitle>Opportunity Detail</SheetTitle>
+				<SheetHeader className="border-b border-border/60 bg-muted/20 px-4 py-3 pr-12 text-left">
+					<SheetTitle className="font-heading text-base tracking-tight">
+						Opportunity Detail
+					</SheetTitle>
 					<SheetDescription>
-						Opportunity context for the selected lead or customer.
+						Meetings, payments, attribution &amp; activity for the selected deal.
 					</SheetDescription>
 				</SheetHeader>
 				{opportunityId ? (
