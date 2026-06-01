@@ -1,4 +1,5 @@
 import type { Id } from "../_generated/dataModel";
+import type { MemberAvatarIdentity } from "../lib/memberIdentity";
 
 export type SectionResult<T> =
   | {
@@ -62,7 +63,7 @@ export type TopDmCloserRow = {
 export type PhoneCloserOperations = {
   rows: Array<{
     closerId: Id<"users">;
-    closerName: string;
+    closer: MemberAvatarIdentity;
     scheduled: number;
     completed: number;
     noShows: number;

@@ -13,6 +13,7 @@ import {
 	overviewTooltips,
 } from "./overview-help-tooltip";
 import { formatRate, formatWholeNumber } from "./overview-formatters";
+import { MemberIdentity } from "./member-identity";
 
 type ReadyData = Extract<
 	PhoneCloserOperationsSectionData,
@@ -94,8 +95,8 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 				<TableBody>
 					{data.rows.map((row) => (
 						<TableRow key={row.closerId}>
-							<TableCell className="max-w-64 truncate font-medium">
-								{row.closerName}
+							<TableCell className="max-w-64">
+								<MemberIdentity identity={row.closer} />
 							</TableCell>
 							<NumericCell value={formatWholeNumber(row.scheduled)} />
 							<NumericCell value={formatWholeNumber(row.completed)} />
