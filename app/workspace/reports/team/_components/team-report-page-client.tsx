@@ -37,6 +37,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 import { TeamKpiSummaryCards } from "./team-kpi-summary-cards";
 import { CloserPerformanceTable } from "./closer-performance-table";
 import { MeetingOutcomeDistributionChart } from "./meeting-outcome-distribution-chart";
@@ -240,6 +242,7 @@ function PhoneCloserOperationsTable({
     rows: Array<{
       closerId: string;
       closerName: string;
+      closer: MemberAvatarIdentity;
       scheduled: number;
       completed: number;
       canceled: number;
@@ -296,8 +299,8 @@ function PhoneCloserOperationsTable({
               <TableBody>
                 {data.rows.map((row) => (
                   <TableRow key={row.closerId}>
-                    <TableCell className="font-medium">
-                      {row.closerName}
+                    <TableCell>
+                      <MemberIdentity identity={row.closer} />
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {row.scheduled.toLocaleString()}

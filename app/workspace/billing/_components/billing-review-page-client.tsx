@@ -29,6 +29,7 @@ import { BillingProofPreview } from "./billing-proof-preview";
 import { BillingReviewActions } from "./billing-review-actions";
 import { CopyBillingPayloadButton } from "./copy-billing-payload-button";
 import { CorrectionDialog } from "./correction-dialog";
+import { SlackContributorTimeline } from "./slack-contributor-timeline";
 
 function BillingMeetingComments({
 	meetingId,
@@ -148,6 +149,10 @@ export function BillingReviewPageClient({
 
 			<div className="border-t border-border pt-4">
 				<BillingEventHistory events={detail.events} />
+			</div>
+
+			<div className="border-t border-border pt-4">
+				<SlackContributorTimeline events={detail.slackContributorTimeline} />
 			</div>
 		</div>
 	);

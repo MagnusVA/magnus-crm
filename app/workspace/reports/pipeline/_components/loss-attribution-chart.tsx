@@ -25,6 +25,8 @@ import {
   EmptyHeader,
   EmptyTitle,
 } from "@/components/ui/empty";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 interface LossAttributionChartProps {
   lossAttribution: {
@@ -34,6 +36,7 @@ interface LossAttributionChartProps {
     byActor: Array<{
       userId: string;
       actorName: string;
+      actor: MemberAvatarIdentity;
       actorRole: "admin" | "closer" | "unknown";
       count: number;
     }>;
@@ -162,7 +165,7 @@ export function LossAttributionChart({
                     className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
                   >
                     <div className="min-w-0 flex items-center gap-2">
-                      <p className="truncate font-medium">{actor.actorName}</p>
+                      <MemberIdentity identity={actor.actor} />
                       <Badge variant="outline">
                         {formatRole(actor.actorRole)}
                       </Badge>

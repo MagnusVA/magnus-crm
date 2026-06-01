@@ -20,6 +20,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 export type PhoneSalesRow = {
   meetingId: Id<"meetings">;
@@ -33,11 +35,14 @@ export type PhoneSalesRow = {
   bookingProgramMappingStatus: string | null;
   soldProgramName: string | null;
   assignedCloserName: string;
+  assignedCloser: MemberAvatarIdentity;
   attributionResolution: "mapped" | "unmapped" | "internal" | "none";
   attributionTeamName: string | null;
   dmCloserName: string | null;
+  dmCloser: MemberAvatarIdentity | null;
   slackUserId: string | null;
   slackUserLabel: string | null;
+  slackUser: MemberAvatarIdentity | null;
 };
 
 const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
@@ -124,7 +129,9 @@ export function PhoneSalesTable({
                 <span className="truncate font-medium">{row.leadName}</span>
               </TableCell>
               <TableCell>{formatDate(row.scheduledAt)}</TableCell>
-              <TableCell>{row.assignedCloserName}</TableCell>
+              <TableCell>
+                <MemberIdentity identity={row.assignedCloser} />
+              </TableCell>
               <TableCell>
                 <Badge variant="secondary">{formatStatus(row.meetingStatus)}</Badge>
               </TableCell>
@@ -140,11 +147,27 @@ export function PhoneSalesTable({
               </TableCell>
               <TableCell>{row.soldProgramName ?? "-"}</TableCell>
               <TableCell>
-                <Badge variant={row.attributionResolution === "mapped" ? "secondary" : "outline"}>
-                  {attributionLabel(row)}
-                </Badge>
+                {row.dmCloser ? (
+                  <MemberIdentity identity={row.dmCloser} />
+                ) : (
+                  <Badge
+                    variant={
+                      row.attributionResolution === "mapped"
+                        ? "secondary"
+                        : "outline"
+                    }
+                  >
+                    {attributionLabel(row)}
+                  </Badge>
+                )}
               </TableCell>
-              <TableCell>{row.slackUserLabel ?? row.slackUserId ?? "-"}</TableCell>
+              <TableCell>
+                {row.slackUser ? (
+                  <MemberIdentity identity={row.slackUser} />
+                ) : (
+                  "-"
+                )}
+              </TableCell>
               <TableCell className="text-right">
                 <Button asChild variant="ghost" size="sm">
                   <Link href={`/workspace/pipeline/meetings/${row.meetingId}`}>

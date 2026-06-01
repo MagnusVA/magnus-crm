@@ -12,6 +12,8 @@ import { Badge } from "@/components/ui/badge";
 import { format } from "date-fns";
 import { formatCurrency } from "@/lib/format-currency";
 import type { Id } from "@/convex/_generated/dataModel";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 // Matches the Phase 5 shape of `getCustomerDetail.payments[N]`.
 interface Payment {
@@ -27,8 +29,10 @@ interface Payment {
   commissionable?: boolean;
   attributedCloserId?: Id<"users">;
   attributedCloserName?: string | null;
+  attributedCloser?: MemberAvatarIdentity | null;
   recordedByUserId?: Id<"users">;
   recordedByName?: string | null;
+  recordedBy?: MemberAvatarIdentity | null;
 }
 
 const statusConfig = {
@@ -124,9 +128,23 @@ export function PaymentHistoryTable({ payments }: PaymentHistoryTableProps) {
                           : "Commissionable"
                       }
                     >
-                      <div className="font-medium text-foreground">
-                        {payment.attributedCloserName ?? "—"}
-                      </div>
+                      {payment.attributedCloser ? (
+                        <MemberIdentity identity={payment.attributedCloser} />
+                      ) : (
+                        <div className="font-medium text-foreground">
+                          {payment.attributedCloserName ?? "—"}
+                        </div>
+                      )}
+                      {payment.recordedBy &&
+                      payment.recordedByUserId !== payment.attributedCloserId ? (
+                        <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+                          <span>Recorded by</span>
+                          <MemberIdentity
+                            identity={payment.recordedBy}
+                            className="max-w-44"
+                          />
+                        </div>
+                      ) : null}
                       <Badge
                         variant="outline"
                         className="mt-0.5 bg-muted/40 text-[10px] font-normal text-muted-foreground"

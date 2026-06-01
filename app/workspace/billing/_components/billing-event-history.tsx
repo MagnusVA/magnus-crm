@@ -3,6 +3,7 @@
 import type { FunctionReturnType } from "convex/server";
 import { ActivityIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import { getEventLabel } from "@/convex/reporting/lib/eventLabels";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -211,10 +212,14 @@ export function BillingEventHistory({
 									</Badge>
 								</div>
 								<div className="flex flex-wrap items-center gap-x-1.5 text-[0.68rem] text-muted-foreground">
-									{event.actorName ? (
-										<span className="text-foreground/80">
-											{event.actorName}
-										</span>
+									{event.actor ? (
+										<MemberIdentity
+											identity={event.actor}
+											className="max-w-52 gap-1.5 text-foreground/80"
+											textClassName="[&>p]:hidden"
+										/>
+									) : event.actorName ? (
+										<span className="text-foreground/80">{event.actorName}</span>
 									) : null}
 									{detail ? <span>{detail}</span> : null}
 								</div>

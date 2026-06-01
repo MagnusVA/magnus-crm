@@ -9,6 +9,7 @@ import {
   getNonDisputedPaymentsInRange,
   getUserDisplayName,
   makeTupleDateBounds,
+  reportingUserIdentity,
   splitPaymentsForRevenueReporting,
   summarizeAttributedPayments,
 } from "./lib/helpers";
@@ -150,7 +151,7 @@ export const getTeamPerformanceMetrics = query({
           payment.amountMinor,
       );
     }
-    const closerResults = closers.map((closer) => {
+    const closerResults = await Promise.all(closers.map(async (closer) => {
       const closerCounts = statusCountsByCloser.get(closer._id) ?? {
         new: emptyStatusCountMap(),
         follow_up: emptyStatusCountMap(),
@@ -188,6 +189,7 @@ export const getTeamPerformanceMetrics = query({
       return {
         closerId: closer._id,
         closerName: getUserDisplayName(closer),
+        closer: await reportingUserIdentity(ctx, closer),
         newCalls,
         followUpCalls,
         sales: paymentStats.dealCount,
@@ -200,7 +202,7 @@ export const getTeamPerformanceMetrics = query({
             ? paymentStats.revenueMinor / paymentStats.dealCount
             : null,
       };
-    });
+    }));
 
     const teamTotals = closerResults.reduce(
       (acc, closer) => ({
@@ -312,6 +314,7 @@ export const getTeamOperationsDimensions = query({
     const closerNameById = new Map(
       closers.map((closer) => [closer._id, getUserDisplayName(closer)]),
     );
+    const closerById = new Map(closers.map((closer) => [closer._id, closer]));
     const byCloser = new Map<
       Id<"users">,
       {
@@ -358,17 +361,23 @@ export const getTeamOperationsDimensions = query({
       byCloser.set(row.assignedCloserId, current);
     }
 
-    const rows = [...byCloser.entries()]
-      .map(([closerId, totals]) => {
+    const rows = (await Promise.all(
+      [...byCloser.entries()].map(async ([closerId, totals]) => {
         const denominator = totals.scheduled - totals.canceled;
         return {
           closerId,
           closerName: closerNameById.get(closerId) ?? "Removed closer",
+          closer: await reportingUserIdentity(
+            ctx,
+            closerById.get(closerId),
+            "Removed closer",
+          ),
           ...totals,
           showRate: toRate(totals.completed, denominator),
           noShowRate: toRate(totals.noShows, denominator),
         };
-      })
+      }),
+    ))
       .sort(
         (left, right) =>
           right.scheduled - left.scheduled ||

@@ -7,6 +7,11 @@ import {
 } from "../reporting/lib/helpers";
 import type { DerivedOverviewRange } from "./overviewRange";
 import type { PhoneCloserOperations, TopDmCloserRow } from "./overviewTypes";
+import {
+  dmCloserMemberIdentity,
+  unknownMemberIdentity,
+  userMemberIdentity,
+} from "../lib/memberIdentity";
 
 export const OPERATIONS_STATS_ROW_LIMIT = 1000;
 export const TOP_DM_CLOSER_BOOKING_LIMIT = 5000;
@@ -112,9 +117,13 @@ export async function getTopDmClosersOverviewSection(
     const dmCloser = await ctx.db.get(dmCloserId);
     if (!dmCloser || dmCloser.tenantId !== tenantId) continue;
     const team = await ctx.db.get(dmCloser.teamId);
+    const linkedUser = dmCloser.userId ? await ctx.db.get(dmCloser.userId) : null;
+    const validLinkedUser =
+      linkedUser && linkedUser.tenantId === tenantId ? linkedUser : null;
 
     enriched.push({
       dmCloserId,
+      dmCloser: await dmCloserMemberIdentity(ctx, dmCloser, validLinkedUser),
       displayName: dmCloser.displayName,
       teamName: team && team.tenantId === tenantId ? team.displayName : null,
       booked,
@@ -164,10 +173,10 @@ export async function getPhoneCloserOperationsOverviewSection(
   const tableRows: PhoneCloserOperations["rows"] = [];
   for (const [closerId, totals] of byCloser) {
     const closer = await ctx.db.get(closerId);
-    const closerName =
-      closer && closer.tenantId === tenantId
-        ? (closer.fullName ?? closer.email)
-        : "Removed closer";
+    const validCloser = closer && closer.tenantId === tenantId ? closer : null;
+    const closerName = validCloser
+      ? (validCloser.fullName ?? validCloser.email)
+      : "Removed closer";
     const paymentStats = paymentSummary.byCloser.get(closerId) ?? {
       dealCount: 0,
       revenueMinor: 0,
@@ -175,6 +184,9 @@ export async function getPhoneCloserOperationsOverviewSection(
 
     tableRows.push({
       closerId,
+      closer: validCloser
+        ? await userMemberIdentity(ctx, validCloser)
+        : unknownMemberIdentity("Removed closer", "unknown"),
       closerName,
       scheduled: totals.scheduled,
       showRate: toRate(totals.completed, totals.scheduled - totals.canceled),

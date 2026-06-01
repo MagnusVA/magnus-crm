@@ -19,6 +19,7 @@ import { CustomerStatusBadge } from "../../_components/customer-status-badge";
 import { CustomerStatusControl } from "../../_components/customer-status-control";
 import { PaymentHistoryTable } from "./payment-history-table";
 import { RecordPaymentDialog } from "./record-payment-dialog";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -71,8 +72,9 @@ export function CustomerDetailPageClient({
     lead,
     winningOpportunity,
     winningMeeting,
-    convertedByName,
+    convertedBy,
     closerName,
+    closer,
     totalPaid,
     currency,
     payments,
@@ -187,12 +189,16 @@ export function CustomerDetailPageClient({
             </div>
             <div>
               <p className="text-xs text-muted-foreground">Converted By</p>
-              <p className="text-sm font-medium">{convertedByName}</p>
+              <MemberIdentity identity={convertedBy} />
             </div>
             {closerName && (
               <div>
                 <p className="text-xs text-muted-foreground">Assigned Closer</p>
-                <p className="text-sm font-medium">{closerName}</p>
+                {closer ? (
+                  <MemberIdentity identity={closer} />
+                ) : (
+                  <p className="text-sm font-medium">{closerName}</p>
+                )}
               </div>
             )}
             {customer.programName && (

@@ -17,6 +17,8 @@ import {
   ShieldIcon,
   UserIcon,
 } from "lucide-react";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 interface ActivitySummaryCardsProps {
   summary: {
@@ -28,6 +30,7 @@ interface ActivitySummaryCardsProps {
     actorBreakdown: Array<{
       actorUserId: string;
       actorName: string;
+      actor: MemberAvatarIdentity;
       actorRole: string;
       count: number;
     }>;
@@ -255,9 +258,11 @@ export function ActivitySummaryCards({
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-lg font-bold">
-              {mostActiveCloser ? mostActiveCloser.actorName : "\u2014"}
-            </div>
+            {mostActiveCloser ? (
+              <MemberIdentity identity={mostActiveCloser.actor} />
+            ) : (
+              <div className="text-lg font-bold">{"\u2014"}</div>
+            )}
             <p className="text-xs text-muted-foreground">
               {mostActiveCloser
                 ? `${mostActiveCloser.count.toLocaleString()} actions in range`

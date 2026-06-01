@@ -4,6 +4,12 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import type { QueryCtx } from "../_generated/server";
 import { leadDisplayFromShape } from "../lib/leadDisplay";
+import {
+  dmCloserMemberIdentity,
+  slackMemberIdentity,
+  unknownMemberIdentity,
+  userMemberIdentity,
+} from "../lib/memberIdentity";
 import { requireTenantUser } from "../requireTenantUser";
 
 type SchedulingFilterArgs = {
@@ -192,11 +198,20 @@ async function enrichSchedulingRows(
   const userById = new Map(users.filter(isNonNull).map((user) => [user._id, user]));
   const slackUserBySlackId = new Map(slackUsers.filter(isNonNull).map((user) => [user.slackUserId, user]));
 
-  return rows.map((row) => {
+  return await Promise.all(rows.map(async (row) => {
     const lead = row.leadId ? leadById.get(row.leadId) : undefined;
     const team = row.attributionTeamId ? teamById.get(row.attributionTeamId) : undefined;
     const dmCloser = row.dmCloserId ? dmCloserById.get(row.dmCloserId) : undefined;
     const assignedCloser = row.assignedCloserId ? userById.get(row.assignedCloserId) : undefined;
+    const slackUser = slackUserBySlackId.get(row.slackUserId);
+    const linkedDmCloserUserCandidate =
+      dmCloser?.userId
+        ? (userById.get(dmCloser.userId) ?? await ctx.db.get(dmCloser.userId))
+        : undefined;
+    const linkedDmCloserUser =
+      linkedDmCloserUserCandidate?.tenantId === tenantId
+        ? linkedDmCloserUserCandidate
+        : undefined;
 
     return {
       ...row,
@@ -208,11 +223,18 @@ async function enrichSchedulingRows(
           })
         : "Unknown lead",
       slackUserLabel: slackUserLabel(slackUserBySlackId.get(row.slackUserId)),
+      slackUser: slackMemberIdentity(slackUser, `slack:${row.slackUserId}`),
       attributionTeamName: team?.displayName,
       dmCloserName: dmCloser?.displayName,
+      dmCloser: dmCloser
+        ? await dmCloserMemberIdentity(ctx, dmCloser, linkedDmCloserUser)
+        : null,
       assignedCloserName: assignedCloser?.fullName ?? assignedCloser?.email,
+      assignedCloser: assignedCloser
+        ? await userMemberIdentity(ctx, assignedCloser)
+        : unknownMemberIdentity("Unassigned", "unknown"),
     };
-  });
+  }));
 }
 
 export const listSchedulingQueue = query({

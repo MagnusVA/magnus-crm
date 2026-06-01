@@ -18,11 +18,14 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import { MemberIdentity } from "./member-identity";
+import type { MemberAvatarIdentity } from "./member-avatar";
 
 export type EntityAttribution = {
   slackQualification: {
     slackUserId: string;
     slackUserLabel: string;
+    slackUser: MemberAvatarIdentity;
     submittedAt: number;
     resultKind: string;
   } | null;
@@ -32,10 +35,11 @@ export type EntityAttribution = {
     status: "mapped" | "unmapped" | "internal" | "none";
     teamName: string | null;
     dmCloserName: string | null;
+    dmCloser: MemberAvatarIdentity | null;
     rawSource: string | null;
     rawMedium: string | null;
   };
-  phoneCloser: { name: string } | null;
+  phoneCloser: { name: string; identity: MemberAvatarIdentity } | null;
   timeline: {
     qualifiedAt: number | null;
     firstBookedAt: number | null;
@@ -119,6 +123,7 @@ export function EntityAttributionCard({
               attribution.slackQualification?.slackUserLabel ??
               "Not Slack-qualified"
             }
+            identity={attribution.slackQualification?.slackUser ?? null}
           />
           <AttributionField
             icon={<CalendarCheckIcon aria-hidden="true" />}
@@ -131,11 +136,16 @@ export function EntityAttributionCard({
             value={attribution.soldProgram?.name ?? "No payment yet"}
           />
           <AttributionField label="DM team" value={dmTeam} />
-          <AttributionField label="DM closer" value={dmCloser} />
+          <AttributionField
+            label="DM closer"
+            value={dmCloser}
+            identity={attribution.dmAttribution.dmCloser}
+          />
           <AttributionField
             icon={<PhoneCallIcon aria-hidden="true" />}
             label="Phone closer"
             value={attribution.phoneCloser?.name ?? "Unassigned"}
+            identity={attribution.phoneCloser?.identity ?? null}
           />
         </div>
 
@@ -169,10 +179,12 @@ function AttributionField({
   icon,
   label,
   value,
+  identity,
 }: {
   icon?: ReactNode;
   label: string;
   value: string;
+  identity?: MemberAvatarIdentity | null;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-1">
@@ -180,9 +192,13 @@ function AttributionField({
         {icon ? <span className="[&>svg]:size-3">{icon}</span> : null}
         {label}
       </p>
-      <p className="truncate text-sm font-medium" title={value}>
-        {value}
-      </p>
+      {identity ? (
+        <MemberIdentity identity={identity} />
+      ) : (
+        <p className="truncate text-sm font-medium" title={value}>
+          {value}
+        </p>
+      )}
     </div>
   );
 }

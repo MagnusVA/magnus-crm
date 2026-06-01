@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ export function AttributionTab() {
   const [dialog, setDialog] = useState<DialogState>(null);
   const teams = useQuery(api.attribution.teams.listTeams, {});
   const closers = useQuery(api.attribution.dmClosers.listDmClosers, {});
+  const teamMembers = useQuery(api.users.queries.listTeamMembers, {});
   const eventTypeConfigs = useQuery(
     api.eventTypeConfigs.queries.listEventTypeConfigs,
     {},
@@ -169,7 +171,9 @@ export function AttributionTab() {
                   <TableBody>
                     {closers.map((closer) => (
                       <TableRow key={closer._id}>
-                        <TableCell>{closer.displayName}</TableCell>
+                        <TableCell>
+                          <MemberIdentity identity={closer.identity} />
+                        </TableCell>
                         <TableCell>{closer.teamLabel}</TableCell>
                         <TableCell className="font-mono text-xs">
                           {closer.utmMedium}
@@ -229,6 +233,7 @@ export function AttributionTab() {
             onOpenChange={(open) => !open && setDialog(null)}
             dmCloser={selectedDmCloser}
             teams={teams}
+            teamMembers={teamMembers ?? []}
           />
         </>
       ) : (

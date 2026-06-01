@@ -2,6 +2,11 @@ import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
+import {
+  type MemberAvatarIdentity,
+  slackMemberIdentity,
+  userMemberIdentity,
+} from "../lib/memberIdentity";
 import { requireTenantUser } from "../requireTenantUser";
 
 const leadStatusValidator = v.union(
@@ -14,20 +19,24 @@ type LeadListItem = Doc<"leads"> & {
   opportunityCount: number;
   latestMeetingAt: number | null;
   assignedCloserName: string | null;
+  assignedCloser: MemberAvatarIdentity | null;
 };
 
 type LeadDetailOpportunity = Doc<"opportunities"> & {
   closerName: string | null;
+  closer: MemberAvatarIdentity | null;
   eventTypeName: string | null;
 };
 
 type LeadDetailMeeting = Doc<"meetings"> & {
   opportunityStatus: Doc<"opportunities">["status"];
   closerName: string | null;
+  closer: MemberAvatarIdentity | null;
 };
 
 type LeadMergeHistoryEntry = Doc<"leadMergeHistory"> & {
   mergedByUserName: string;
+  mergedByUser: MemberAvatarIdentity | null;
   sourceLeadName: string;
   targetLeadName: string;
 };
@@ -64,6 +73,7 @@ export const listLeads = query({
       .paginate(paginationOpts);
 
     const closerNameCache = new Map<Id<"users">, string | null>();
+    const closerIdentityCache = new Map<Id<"users">, MemberAvatarIdentity | null>();
     const enrichedPage = await Promise.all(
       rawResults.page.map(async (lead): Promise<LeadListItem> => {
         const opportunities = await ctx.db
@@ -76,6 +86,7 @@ export const listLeads = query({
 
         let latestMeetingAt: number | null = null;
         let assignedCloserName: string | null = null;
+        let assignedCloser: MemberAvatarIdentity | null = null;
 
         for (const opportunity of opportunities) {
           if (
@@ -98,10 +109,18 @@ export const listLeads = query({
                 ? closer.fullName ?? closer.email
                 : null,
             );
+            closerIdentityCache.set(
+              opportunity.assignedCloserId,
+              closer && closer.tenantId === tenantId
+                ? await userMemberIdentity(ctx, closer)
+                : null,
+            );
           }
 
           assignedCloserName =
             closerNameCache.get(opportunity.assignedCloserId) ?? null;
+          assignedCloser =
+            closerIdentityCache.get(opportunity.assignedCloserId) ?? null;
         }
 
         return {
@@ -109,6 +128,7 @@ export const listLeads = query({
           opportunityCount: opportunities.length,
           latestMeetingAt,
           assignedCloserName,
+          assignedCloser,
         };
       }),
     );
@@ -371,6 +391,16 @@ export const getLeadDetail = query({
           : null,
       ]),
     );
+    const closerIdentityById = new Map<Id<"users">, MemberAvatarIdentity | null>(
+      await Promise.all(
+        closers.map(async ({ closerId, closer }) => [
+          closerId,
+          closer && closer.tenantId === tenantId
+            ? await userMemberIdentity(ctx, closer)
+            : null,
+        ] as const),
+      ),
+    );
 
     const eventTypeById = new Map<Id<"eventTypeConfigs">, string | null>(
       eventTypes.map(({ eventTypeConfigId, eventType }) => [
@@ -388,12 +418,21 @@ export const getLeadDetail = query({
           slackUserId,
       ]),
     );
+    const slackUserIdentityById = new Map(
+      slackUsers.map(({ slackUserId, slackUser }) => [
+        slackUserId,
+        slackMemberIdentity(slackUser, `slack:${slackUserId}`),
+      ]),
+    );
 
     const opportunities: LeadDetailOpportunity[] = rawOpportunities.map(
       (opportunity) => ({
         ...opportunity,
         closerName: opportunity.assignedCloserId
           ? closerById.get(opportunity.assignedCloserId) ?? null
+          : null,
+        closer: opportunity.assignedCloserId
+          ? closerIdentityById.get(opportunity.assignedCloserId) ?? null
           : null,
         eventTypeName: opportunity.eventTypeConfigId
           ? eventTypeById.get(opportunity.eventTypeConfigId) ?? null
@@ -405,6 +444,8 @@ export const getLeadDetail = query({
       resultKind: event.resultKind,
       slackUserId: event.slackUserId,
       slackUserLabel: slackUserById.get(event.slackUserId) ?? event.slackUserId,
+      slackUser: slackUserIdentityById.get(event.slackUserId) ??
+        slackMemberIdentity(null, `slack:${event.slackUserId}`),
       submittedAt: event.submittedAt,
       opportunityId: event.opportunityId,
       fullNameSnapshot: event.fullNameSnapshot,
@@ -427,6 +468,7 @@ export const getLeadDetail = query({
             ...meeting,
             opportunityStatus: opportunity.status,
             closerName: opportunity.closerName,
+            closer: opportunity.closer,
           }),
         );
       }),
@@ -467,6 +509,19 @@ export const getLeadDetail = query({
     const mergeUserById = new Map<Id<"users">, string>(
       mergeUsers.map(({ userId, user }) => [userId, getDisplayName(user)]),
     );
+    const mergeUserIdentityById = new Map<
+      Id<"users">,
+      MemberAvatarIdentity | null
+    >(
+      await Promise.all(
+        mergeUsers.map(async ({ userId, user }) => [
+          userId,
+          user && user.tenantId === tenantId
+            ? await userMemberIdentity(ctx, user)
+            : null,
+        ] as const),
+      ),
+    );
 
     const mergeLeadById = new Map<
       Id<"leads">,
@@ -476,6 +531,7 @@ export const getLeadDetail = query({
     const mergeHistory: LeadMergeHistoryEntry[] = rawMergeHistory.map((entry) => ({
       ...entry,
       mergedByUserName: mergeUserById.get(entry.mergedByUserId) ?? "Unknown",
+      mergedByUser: mergeUserIdentityById.get(entry.mergedByUserId) ?? null,
       sourceLeadName: getDisplayName(
         mergeLeadById.get(entry.sourceLeadId) ?? null,
       ),

@@ -4,7 +4,6 @@ import type { FunctionReturnType } from "convex/server";
 import Link from "next/link";
 import { TrophyIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +15,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { MemberAvatar } from "./member-avatar";
 
 type UserBreakdown = FunctionReturnType<
   typeof api.slack.metrics.perSlackUserBreakdown
@@ -65,17 +65,7 @@ export function SlackUserLeaderboardCard({
                   key={row.slackUserId}
                   className="grid grid-cols-[auto_1fr_auto] items-center gap-3"
                 >
-                  <Avatar size="sm">
-                    <AvatarImage
-                      src={row.avatarUrl ?? undefined}
-                      alt=""
-                      width={24}
-                      height={24}
-                    />
-                    <AvatarFallback>
-                      {label.slice(0, 1).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
+                  <MemberAvatar identity={row.identity} />
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="truncate text-sm font-medium">

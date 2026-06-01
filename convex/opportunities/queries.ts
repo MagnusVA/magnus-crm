@@ -4,6 +4,10 @@ import { paginationOptsValidator } from "convex/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { internalQuery, query } from "../_generated/server";
+import {
+  type MemberAvatarIdentity,
+  userMemberIdentity,
+} from "../lib/memberIdentity";
 import { requireTenantUser } from "../requireTenantUser";
 
 const opportunityStatusValidator = v.union(
@@ -26,6 +30,7 @@ type UserSummary = {
   fullName?: string;
   email: string;
   role: Doc<"users">["role"];
+  avatar: MemberAvatarIdentity;
 };
 
 type MeetingSummary = {
@@ -268,6 +273,7 @@ export const listOpportunitiesForAdmin = query({
           fullName: closer.fullName,
           email: closer.email,
           role: closer.role,
+          avatar: await userMemberIdentity(ctx, closer),
         });
       }
     }
@@ -339,6 +345,7 @@ export const listOpportunitiesForAdmin = query({
           closerName:
             assignedCloser?.fullName ?? assignedCloser?.email ?? "Unassigned",
           closerEmail: assignedCloser?.email,
+          closer: assignedCloser?.avatar ?? null,
           hostCalendlyUserUri: opportunity.hostCalendlyUserUri ?? null,
           hostCalendlyEmail: opportunity.hostCalendlyEmail ?? null,
           hostCalendlyName: opportunity.hostCalendlyName ?? null,

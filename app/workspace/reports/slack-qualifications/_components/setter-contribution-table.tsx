@@ -3,7 +3,6 @@
 import type { FunctionReturnType } from "convex/server";
 import { UsersIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
   Empty,
@@ -20,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 
 type Report = FunctionReturnType<
   typeof api.reporting.slackQualifications.getQualificationReport
@@ -67,32 +67,14 @@ export function SetterContributionTable({
           {rows.map((row) => (
             <TableRow key={row.slackUserId}>
               <TableCell>
-                <div className="flex min-w-0 items-center gap-3">
-                  <Avatar size="sm">
-                    <AvatarImage
-                      src={row.avatarUrl ?? undefined}
-                      alt=""
-                      width={24}
-                      height={24}
-                    />
-                    <AvatarFallback>
-                      {row.displayName.slice(0, 1).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate font-medium">
-                        {row.displayName}
-                      </span>
-                      {row.isDeleted ? (
-                        <Badge variant="muted">Deactivated</Badge>
-                      ) : null}
-                    </div>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {row.slackUserId}
-                    </p>
-                  </div>
-                </div>
+                <MemberIdentity
+                  identity={row.setter}
+                  badge={
+                    row.isDeleted ? (
+                      <Badge variant="muted">Deactivated</Badge>
+                    ) : null
+                  }
+                />
               </TableCell>
               <TableCell className="text-right font-medium tabular-nums">
                 {row.qualificationEventCount.toLocaleString()}

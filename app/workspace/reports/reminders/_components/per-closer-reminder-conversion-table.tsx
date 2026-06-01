@@ -22,6 +22,7 @@ import {
   formatPercent,
   type ReminderReportData,
 } from "./reminders-report-config";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 
 interface PerCloserReminderConversionTableProps {
   data: ReminderReportData;
@@ -53,7 +54,9 @@ export function PerCloserReminderConversionTable({
           <TableBody>
             {data.perCloser.map((row) => (
               <TableRow key={row.closerId}>
-                <TableCell className="font-medium">{row.closerName}</TableCell>
+                <TableCell>
+                  <MemberIdentity identity={row.closer} />
+                </TableCell>
                 <TableCell className="text-right tabular-nums">
                   {formatCount(row.created)}
                 </TableCell>

@@ -17,21 +17,26 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { Doc } from "@/convex/_generated/dataModel";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 type LeadDetailOpportunity = Doc<"opportunities"> & {
 	closerName: string | null;
+	closer: MemberAvatarIdentity | null;
 	eventTypeName: string | null;
 };
 
 type LeadDetailMeeting = Doc<"meetings"> & {
 	opportunityStatus: string;
 	closerName: string | null;
+	closer: MemberAvatarIdentity | null;
 };
 
 type LeadQualificationEvent = {
 	_id: string;
 	resultKind: string;
 	slackUserLabel: string;
+	slackUser: MemberAvatarIdentity;
 	submittedAt: number;
 	opportunityId?: string;
 	fullNameSnapshot: string;
@@ -155,9 +160,7 @@ export function LeadOverviewTab({
 									className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between"
 								>
 									<div className="min-w-0">
-										<p className="truncate text-sm font-medium">
-											{event.slackUserLabel}
-										</p>
+										<MemberIdentity identity={event.slackUser} />
 										<p className="text-xs text-muted-foreground">
 											{DATE_TIME_FORMATTER.format(new Date(event.submittedAt))}
 										</p>

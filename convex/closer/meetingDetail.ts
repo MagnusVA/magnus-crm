@@ -2,6 +2,11 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import {
+  dmCloserMemberIdentity,
+  type MemberAvatarIdentity,
+  userMemberIdentity,
+} from "../lib/memberIdentity";
+import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatibleRecordedByUserId,
 } from "../lib/paymentTypes";
@@ -23,7 +28,9 @@ type EnrichedPayment = Omit<
   proofFileSize: number | null;
   attributedCloserId: Id<"users"> | null;
   attributedCloserName: string | null;
+  attributedCloser: MemberAvatarIdentity | null;
   recordedByName: string | null;
+  recordedBy: MemberAvatarIdentity | null;
 };
 
 /**
@@ -194,6 +201,21 @@ export const getMeetingDetail = query({
           : null,
       ]),
     );
+    const paymentUserIdentityById = new Map<
+      Id<"users">,
+      MemberAvatarIdentity | null
+    >(
+      await Promise.all(
+        paymentUsers.map(async ([paymentUserId, paymentUser]) => [
+          paymentUserId,
+          paymentUser &&
+          "tenantId" in paymentUser &&
+          paymentUser.tenantId === tenantId
+            ? await userMemberIdentity(ctx, paymentUser)
+            : null,
+        ] as const),
+      ),
+    );
 
     const payments: EnrichedPayment[] = await Promise.all(
       paymentRecordsRaw
@@ -231,8 +253,15 @@ export const getMeetingDetail = query({
               attributedCloserId !== null
                 ? (paymentUserNameById.get(attributedCloserId) ?? null)
                 : null,
+            attributedCloser:
+              attributedCloserId !== null
+                ? (paymentUserIdentityById.get(attributedCloserId) ?? null)
+                : null,
             recordedByName: recordedByUserId
               ? (paymentUserNameById.get(recordedByUserId) ?? null)
+              : null,
+            recordedBy: recordedByUserId
+              ? (paymentUserIdentityById.get(recordedByUserId) ?? null)
               : null,
           };
         }),
@@ -245,6 +274,21 @@ export const getMeetingDetail = query({
           ? { fullName: assignedCloser.fullName, email: assignedCloser.email }
           : { email: assignedCloser.email }
         : null;
+    const assignedCloserIdentity =
+      assignedCloser && assignedCloser.tenantId === tenantId
+        ? await userMemberIdentity(ctx, assignedCloser)
+        : null;
+    const validDmCloser =
+      dmCloser && dmCloser.tenantId === tenantId ? dmCloser : null;
+    const linkedDmCloserUser =
+      validDmCloser?.userId ? await ctx.db.get(validDmCloser.userId) : null;
+    const validLinkedDmCloserUser =
+      linkedDmCloserUser && linkedDmCloserUser.tenantId === tenantId
+        ? linkedDmCloserUser
+        : null;
+    const dmCloserIdentity = validDmCloser
+      ? await dmCloserMemberIdentity(ctx, validDmCloser, validLinkedDmCloserUser)
+      : null;
 
     // === Feature H: Load reassignment metadata ===
     let reassignmentInfo: {
@@ -321,12 +365,13 @@ export const getMeetingDetail = query({
       reassignmentInfo,
       potentialDuplicate,
       rescheduledFromMeeting,
+      assignedCloserIdentity,
       attributionTeam:
         attributionTeam && attributionTeam.tenantId === tenantId
           ? attributionTeam
           : null,
-      dmCloser:
-        dmCloser && dmCloser.tenantId === tenantId ? dmCloser : null,
+      dmCloser: validDmCloser,
+      dmCloserIdentity,
       activeFollowUp,
     };
   },

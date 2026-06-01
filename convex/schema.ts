@@ -89,6 +89,13 @@ export default defineSchema({
     // Personal Calendly booking page URL used for follow-up scheduling links.
     personalEventTypeUri: v.optional(v.string()),
 
+    // Team-member avatar fields. Optional by design: WorkOS profile pictures
+    // are not guaranteed and custom uploads are user-driven future state.
+    customProfilePictureStorageId: v.optional(v.id("_storage")),
+    customProfilePictureUploadedAt: v.optional(v.number()),
+    profilePictureUrl: v.optional(v.string()),
+    profilePictureSyncedAt: v.optional(v.number()),
+
     // === v0.5b: User Soft Delete ===
     deletedAt: v.optional(v.number()),
     isActive: v.boolean(),
@@ -119,6 +126,8 @@ export default defineSchema({
     displayName: v.optional(v.string()),
     email: v.string(),
     teamId: v.optional(v.id("attributionTeams")),
+    customProfilePictureStorageId: v.optional(v.id("_storage")),
+    profilePictureUrl: v.optional(v.string()),
     isActive: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -592,6 +601,7 @@ export default defineSchema({
     displayName: v.string(),
     utmMedium: v.string(),
     normalizedUtmMedium: v.string(),
+    userId: v.optional(v.id("users")),
     isActive: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
@@ -601,7 +611,8 @@ export default defineSchema({
     .index("by_tenantId_and_normalizedUtmMedium", [
       "tenantId",
       "normalizedUtmMedium",
-    ]),
+    ])
+    .index("by_tenantId_and_userId", ["tenantId", "userId"]),
 
   linkPortalConfigs: defineTable({
     tenantId: v.id("tenants"),

@@ -35,6 +35,8 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { getEventLabel } from "@/convex/reporting/lib/eventLabels";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 const ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
   activity: Activity,
@@ -91,6 +93,7 @@ interface ActivityEventRowProps {
     eventType: string;
     entityType: string;
     actorName: string | null;
+    actor: MemberAvatarIdentity | null;
     occurredAt: number;
     source: string;
     fromStatus?: string;
@@ -132,10 +135,14 @@ export function ActivityEventRow({ event }: ActivityEventRowProps) {
       </div>
 
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="text-sm">
-          <span className="font-medium">{event.actorName ?? "System"}</span>{" "}
-          {label.verb}
-        </p>
+        <div className="flex flex-wrap items-center gap-1.5 text-sm">
+          {event.actor ? (
+            <MemberIdentity identity={event.actor} />
+          ) : (
+            <span className="font-medium">System</span>
+          )}
+          <span>{label.verb}</span>
+        </div>
 
         {fromStatus && toStatus && (
           <p className="text-xs text-muted-foreground">

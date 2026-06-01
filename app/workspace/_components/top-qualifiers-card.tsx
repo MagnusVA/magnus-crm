@@ -1,5 +1,4 @@
 import { MessageSquareCheckIcon } from "lucide-react";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import {
 	Card,
@@ -20,6 +19,7 @@ import {
 	OverviewErrorState,
 	OverviewTruncatedNote,
 } from "./overview-section-state";
+import { MemberIdentity } from "./member-identity";
 
 export function TopQualifiersCard({
 	section,
@@ -64,8 +64,7 @@ export function TopQualifiersCard({
 				) : (
 					<>
 						{section.truncated ? <OverviewTruncatedNote /> : null}
-						<div className="grid grid-cols-[1.25rem_auto_minmax(0,1fr)_auto] items-center gap-2 px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-							<span aria-hidden="true" />
+						<div className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-2 px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
 							<span aria-hidden="true" />
 							<span>Qualifier</span>
 							<OverviewHelpTooltip
@@ -80,21 +79,13 @@ export function TopQualifiersCard({
 							{section.data.rows.map((row, index) => (
 								<li
 									key={row.slackUserId}
-									className="grid grid-cols-[1.25rem_auto_minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1.5 transition-colors hover:bg-muted/50"
+									className="grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-2 rounded px-1.5 py-1.5 transition-colors hover:bg-muted/50"
 								>
 									<span className="text-center text-xs font-semibold tabular-nums text-muted-foreground/60">
 										{index + 1}
 									</span>
-									<Avatar className="size-6">
-										<AvatarImage src={row.avatarUrl ?? undefined} alt="" />
-										<AvatarFallback className="text-[10px]">
-											{(row.displayName ?? "?").slice(0, 1).toUpperCase()}
-										</AvatarFallback>
-									</Avatar>
 									<div className="min-w-0">
-										<p className="truncate text-sm font-medium">
-											{row.displayName ?? row.slackUserId}
-										</p>
+										<MemberIdentity identity={row.qualifier} />
 										<p className="truncate text-xs text-muted-foreground">
 											<OverviewHelpTooltip
 												label="Qualified"

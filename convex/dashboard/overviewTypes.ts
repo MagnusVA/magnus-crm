@@ -1,4 +1,5 @@
 import type { Id } from "../_generated/dataModel";
+import type { MemberAvatarIdentity } from "../lib/memberIdentity";
 
 export type SectionResult<T> =
   | {
@@ -33,6 +34,7 @@ export type LeadGenOverview = {
   leadsPerHour: number | null;
   topWorkers: Array<{
     workerId: Id<"leadGenWorkers">;
+    worker: MemberAvatarIdentity;
     displayName: string;
     submissions: number;
     leadsPerHour: number | null;
@@ -43,6 +45,7 @@ export type TopQualifierRow = {
   slackUserId: string;
   displayName: string | null;
   avatarUrl: string | null;
+  qualifier: MemberAvatarIdentity;
   isDeleted: boolean;
   total: number;
   uniqueOpportunityCount: number;
@@ -52,6 +55,7 @@ export type TopQualifierRow = {
 
 export type TopDmCloserRow = {
   dmCloserId: Id<"dmClosers">;
+  dmCloser: MemberAvatarIdentity;
   displayName: string;
   teamName: string | null;
   booked: number;
@@ -60,6 +64,7 @@ export type TopDmCloserRow = {
 export type PhoneCloserOperations = {
   rows: Array<{
     closerId: Id<"users">;
+    closer: MemberAvatarIdentity;
     closerName: string;
     scheduled: number;
     showRate: number | null;

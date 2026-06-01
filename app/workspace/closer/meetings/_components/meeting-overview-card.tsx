@@ -34,6 +34,8 @@ import {
 import { cn } from "@/lib/utils";
 import { meetingStatusConfig, type MeetingStatus } from "@/lib/status-config";
 import type { Doc } from "@/convex/_generated/dataModel";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 const MEETING_BADGE_CLASS: Record<string, string> = {
   scheduled:
@@ -51,8 +53,10 @@ type MeetingOverviewCardProps = {
   opportunity: Doc<"opportunities">;
   eventTypeName: string | null;
   assignedCloser: { fullName?: string; email: string } | null;
+  assignedCloserIdentity?: MemberAvatarIdentity | null;
   attributionTeam?: Doc<"attributionTeams"> | null;
   dmCloser?: Doc<"dmClosers"> | null;
+  dmCloserIdentity?: MemberAvatarIdentity | null;
 };
 
 /**
@@ -67,8 +71,10 @@ export function MeetingOverviewCard({
   opportunity,
   eventTypeName,
   assignedCloser,
+  assignedCloserIdentity,
   attributionTeam,
   dmCloser,
+  dmCloserIdentity,
 }: MeetingOverviewCardProps) {
   const statusKey = meeting.status as MeetingStatus;
   const statusCfg = meetingStatusConfig[statusKey];
@@ -157,9 +163,13 @@ export function MeetingOverviewCard({
 
           {assignedCloser && (
             <Fact icon={<UserIcon />} label="Closer">
-              <p className="truncate text-sm font-medium">
-                {assignedCloser.fullName ?? assignedCloser.email}
-              </p>
+              {assignedCloserIdentity ? (
+                <MemberIdentity identity={assignedCloserIdentity} />
+              ) : (
+                <p className="truncate text-sm font-medium">
+                  {assignedCloser.fullName ?? assignedCloser.email}
+                </p>
+              )}
             </Fact>
           )}
         </dl>
@@ -208,6 +218,7 @@ export function MeetingOverviewCard({
               icon={<MegaphoneIcon />}
               label="DM Closer"
               value={dmCloserName}
+              identity={dmCloserIdentity}
             />
           </dl>
         </div>
@@ -309,10 +320,12 @@ function AttrFact({
   icon,
   label,
   value,
+  identity,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
+  identity?: MemberAvatarIdentity | null;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5">
@@ -320,8 +333,8 @@ function AttrFact({
         <span className="[&>svg]:size-3">{icon}</span>
         {label}
       </dt>
-      <dd className="truncate text-sm font-medium" title={value}>
-        {value}
+      <dd className="min-w-0 text-sm font-medium" title={value}>
+        {identity ? <MemberIdentity identity={identity} /> : value}
       </dd>
     </div>
   );

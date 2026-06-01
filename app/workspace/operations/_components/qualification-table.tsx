@@ -20,6 +20,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 export type QualificationRow = {
   _id: Id<"operationsQualificationRows">;
@@ -45,9 +47,12 @@ export type QualificationRow = {
   handleSnapshot: string;
   platform: string;
   slackUserLabel?: string;
+  slackUser: MemberAvatarIdentity;
   attributionTeamName?: string;
   dmCloserName?: string;
+  dmCloser?: MemberAvatarIdentity | null;
   assignedCloserName?: string;
+  assignedCloser: MemberAvatarIdentity;
 };
 
 type QualificationTableProps = {
@@ -151,7 +156,7 @@ export function QualificationTable({
               </TableCell>
               <TableCell>
                 <div className="flex flex-col gap-1">
-                  <span>{row.slackUserLabel ?? row.slackUserId}</span>
+                  <MemberIdentity identity={row.slackUser} />
                   <span className="text-xs text-muted-foreground">
                     {formatDate(row.qualifiedAt)}
                   </span>
@@ -171,9 +176,19 @@ export function QualificationTable({
               <TableCell>{row.soldProgramName ?? "-"}</TableCell>
               <TableCell>{formatDate(row.firstMeetingAt)}</TableCell>
               <TableCell>
-                <Badge variant={row.attributionResolution === "mapped" ? "secondary" : "outline"}>
-                  {attributionLabel(row) || row.attributionResolution}
-                </Badge>
+                {row.dmCloser ? (
+                  <MemberIdentity identity={row.dmCloser} />
+                ) : (
+                  <Badge
+                    variant={
+                      row.attributionResolution === "mapped"
+                        ? "secondary"
+                        : "outline"
+                    }
+                  >
+                    {attributionLabel(row) || row.attributionResolution}
+                  </Badge>
+                )}
               </TableCell>
               <TableCell className="text-right">
                 {row.opportunityId ? (

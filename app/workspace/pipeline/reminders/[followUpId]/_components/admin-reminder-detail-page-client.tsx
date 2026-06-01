@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Preloaded } from "convex/react";
-import { usePreloadedQuery, useQuery } from "convex/react";
+import { usePreloadedQuery } from "convex/react";
 import posthog from "posthog-js";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -68,11 +68,6 @@ export function AdminReminderDetailPageClient({
 }: Props) {
   const router = useRouter();
   const detail = usePreloadedQuery(preloadedDetail);
-  // Team roster gives us the assigned closer's display name for the
-  // admin-on-behalf banner. The query is admin-only (matches our auth
-  // surface) and already cached/subscribed by other admin pages.
-  const teamMembers = useQuery(api.users.queries.listTeamMembers, {});
-
   usePageTitle(
     detail?.lead?.fullName
       ? `${detail.lead.fullName} — Admin`
@@ -133,15 +128,6 @@ export function AdminReminderDetailPageClient({
   } = detail;
   const isAlreadyCompleted = followUp.status !== "pending";
 
-  // Resolve the closer display name for the "acting on behalf" banner.
-  // Falls back gracefully if the team roster hasn't loaded yet or the
-  // closer has been deactivated.
-  const assignedCloser = teamMembers?.find(
-    (member) => member._id === followUp.closerId,
-  );
-  const assignedCloserName =
-    assignedCloser?.fullName ?? assignedCloser?.email ?? "the assigned closer";
-
   const onCompleted = () => router.push("/workspace/pipeline");
 
   return (
@@ -180,7 +166,7 @@ export function AdminReminderDetailPageClient({
           <AdminReminderOutcomeActionBar
             followUp={followUp}
             opportunity={opportunity}
-            assignedCloserName={assignedCloserName}
+            assignedCloser={detail.assignedCloser}
             disabled={isAlreadyCompleted}
             onCompleted={onCompleted}
           />

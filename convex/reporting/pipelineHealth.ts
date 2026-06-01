@@ -3,7 +3,11 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { opportunityByStatus } from "./aggregates";
-import { assertValidDateRange, getUserDisplayName } from "./lib/helpers";
+import {
+  assertValidDateRange,
+  getUserDisplayName,
+  reportingUserIdentity,
+} from "./lib/helpers";
 
 const OPPORTUNITY_STATUSES = [
   "qualified_pending",
@@ -236,21 +240,31 @@ export const getPipelineAging = query({
       agingByStatus,
       velocityDays: velocityCount > 0 ? velocityTotalDays / velocityCount : null,
       staleCount,
-      staleOpps: staleOpportunities.map(({ opportunity, ageDays, nextMeetingAt }) => ({
-        opportunityId: opportunity._id,
-        status: opportunity.status,
-        ageDays: Math.round(ageDays * 10) / 10,
-        nextMeetingAt,
-        assignedCloserId: opportunity.assignedCloserId ?? null,
-        assignedCloserName: opportunity.assignedCloserId
-          ? getUserDisplayName(closerById.get(opportunity.assignedCloserId) ?? null)
-          : null,
-        leadId: opportunity.leadId,
-        leadName:
-          leadById.get(opportunity.leadId)?.fullName ??
-          leadById.get(opportunity.leadId)?.email ??
-          null,
-      })),
+      staleOpps: await Promise.all(staleOpportunities.map(
+        async ({ opportunity, ageDays, nextMeetingAt }) => {
+          const assignedCloser = opportunity.assignedCloserId
+            ? closerById.get(opportunity.assignedCloserId)
+            : null;
+          return {
+            opportunityId: opportunity._id,
+            status: opportunity.status,
+            ageDays: Math.round(ageDays * 10) / 10,
+            nextMeetingAt,
+            assignedCloserId: opportunity.assignedCloserId ?? null,
+            assignedCloserName: assignedCloser
+              ? getUserDisplayName(assignedCloser)
+              : null,
+            assignedCloser: assignedCloser
+              ? await reportingUserIdentity(ctx, assignedCloser, "Removed closer")
+              : null,
+            leadId: opportunity.leadId,
+            leadName:
+              leadById.get(opportunity.leadId)?.fullName ??
+              leadById.get(opportunity.leadId)?.email ??
+              null,
+          };
+        },
+      )),
       isAgingTruncated: false,
       isVelocityTruncated: velocityRows.length > MAX_VELOCITY_ROWS,
     };
@@ -339,16 +353,17 @@ export const getPipelineBacklogAndLoss = query({
     );
     const actorById = new Map(actorDocs);
 
-    const byActor = actorIds
-      .map((actorId) => {
+    const byActor = (await Promise.all(actorIds
+      .map(async (actorId) => {
         const actor = actorById.get(actorId);
         return {
           userId: actorId,
           actorName: actor ? getUserDisplayName(actor) : "Removed user",
+          actor: await reportingUserIdentity(ctx, actor, "Removed user"),
           actorRole: toLossAttributionRole(actor?.role),
           count: lossCountsByActor.get(actorId) ?? 0,
         };
-      })
+      })))
       .sort(
         (left, right) =>
           right.count - left.count ||

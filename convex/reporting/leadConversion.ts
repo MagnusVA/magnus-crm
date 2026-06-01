@@ -8,6 +8,7 @@ import {
   getActiveClosers,
   getUserDisplayName,
   makeDateBounds,
+  reportingUserIdentity,
 } from "./lib/helpers";
 
 const MAX_CONVERSION_SCAN_ROWS = 2500;
@@ -109,12 +110,13 @@ export const getLeadConversionMetrics = query({
       );
     }
 
-    const byCloser = closers
-      .map((closer) => ({
+    const byCloser = (await Promise.all(closers
+      .map(async (closer) => ({
         closerId: closer._id,
         closerName: getUserDisplayName(closer),
+        closer: await reportingUserIdentity(ctx, closer),
         conversions: conversionsByCloser.get(closer._id) ?? 0,
-      }))
+      }))))
       .sort(
         (left, right) =>
           right.conversions - left.conversions ||

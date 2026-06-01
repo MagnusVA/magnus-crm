@@ -1,4 +1,5 @@
 import type { Doc, Id } from "../_generated/dataModel";
+import type { MemberAvatarIdentity } from "../lib/memberIdentity";
 import type { PaymentType } from "../lib/paymentTypes";
 
 export type BillingPaymentStatus = "recorded" | "verified" | "disputed";
@@ -48,6 +49,7 @@ export type BillingDmAttribution = {
   status: "mapped" | "unmapped" | "internal" | "none";
   teamName: string | null;
   dmCloserName: string | null;
+  dmCloser: MemberAvatarIdentity | null;
   rawSource: string | null;
   rawMedium: string | null;
 };
@@ -103,8 +105,16 @@ export type BillingPaymentRow = {
     scheduledAt: number | null;
     fathomLink: string | null;
   };
-  enteredBy: { id: Id<"users"> | null; name: string };
-  phoneCloser: { id: Id<"users"> | null; name: string | null };
+  enteredBy: {
+    id: Id<"users"> | null;
+    name: string;
+    identity: MemberAvatarIdentity;
+  };
+  phoneCloser: {
+    id: Id<"users"> | null;
+    name: string | null;
+    identity: MemberAvatarIdentity | null;
+  };
   dmAttribution: BillingDmAttribution;
   slackContributorSummary: {
     firstLabel: string | null;
@@ -114,6 +124,7 @@ export type BillingPaymentRow = {
   review: {
     reviewedAt: number | null;
     reviewerName: string | null;
+    reviewer: MemberAvatarIdentity | null;
   };
 };
 
@@ -124,6 +135,7 @@ export type BillingPaymentEvent = {
   source: Doc<"domainEvents">["source"];
   actorUserId: Id<"users"> | null;
   actorName: string | null;
+  actor: MemberAvatarIdentity | null;
   fromStatus: string | null;
   toStatus: string | null;
   reason: string | null;
@@ -133,6 +145,7 @@ export type BillingPaymentEvent = {
 export type BillingSlackContributorTimelineEntry = {
   slackUserId: string;
   label: string;
+  identity: MemberAvatarIdentity;
   submittedAt: number;
   resultKind: Doc<"slackQualificationEvents">["resultKind"] | null;
 };

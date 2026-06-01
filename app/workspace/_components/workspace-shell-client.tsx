@@ -49,6 +49,8 @@ import { MagnusBrand } from "@/components/magnus-brand";
 import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
 import { usePostHogIdentify } from "@/hooks/use-posthog-identify";
 import posthog from "posthog-js";
+import { MemberIdentity } from "./member-identity";
+import type { MemberAvatarIdentity } from "./member-avatar";
 
 // Dynamic import for command palette (vercel-react-best-practices: bundle-dynamic-imports)
 const CommandPalette = dynamic(
@@ -149,6 +151,7 @@ interface WorkspaceShellClientProps {
   initialRole: CrmRole;
   initialDisplayName: string;
   initialEmail: string;
+  initialAvatar: MemberAvatarIdentity;
   workosUserId: string;
   workosOrgId: string;
   tenantName: string;
@@ -175,6 +178,7 @@ export function WorkspaceShellClient({
   initialRole,
   initialDisplayName,
   initialEmail,
+  initialAvatar,
   workosUserId,
   workosOrgId,
   tenantName,
@@ -186,6 +190,7 @@ export function WorkspaceShellClient({
       <WorkspaceShellClientInner
         initialDisplayName={initialDisplayName}
         initialEmail={initialEmail}
+        initialAvatar={initialAvatar}
         initialRole={initialRole}
         workosUserId={workosUserId}
         workosOrgId={workosOrgId}
@@ -207,6 +212,7 @@ export function WorkspaceShellClient({
 function WorkspaceShellClientInner({
   initialDisplayName,
   initialEmail,
+  initialAvatar,
   initialRole,
   workosUserId,
   workosOrgId,
@@ -291,11 +297,15 @@ function WorkspaceShellClientInner({
             />
           </Link>
           <Separator className="mx-2" />
-          <div className="flex flex-col gap-1 px-2 py-1.5">
-            <p className="truncate text-sm font-medium">{displayName}</p>
-            <p className="text-xs capitalize text-sidebar-foreground/70">
-              {role.replace(/_/g, " ")}
-            </p>
+          <div className="px-2 py-1.5 group-data-[collapsible=icon]:hidden">
+            <MemberIdentity
+              identity={{
+                ...initialAvatar,
+                name: displayName,
+                email: initialEmail,
+                secondaryLabel: role.replace(/_/g, " "),
+              }}
+            />
           </div>
         </SidebarHeader>
         <SidebarContent>

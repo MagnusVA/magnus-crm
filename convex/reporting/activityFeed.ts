@@ -6,6 +6,7 @@ import { requireTenantUser } from "../requireTenantUser";
 import {
   assertValidDateRange,
   getUserDisplayName,
+  reportingUserIdentity,
 } from "./lib/helpers";
 
 const MAX_ACTIVITY_FEED_LIMIT = 100;
@@ -216,14 +217,23 @@ export const getActivityFeed = query({
     );
     const actorById = new Map(actorDocs);
 
-    return events.map(({ event, parsedMetadata, paymentMetadata }) => ({
-      ...event,
-      actorName: event.actorUserId
-        ? getUserDisplayName(actorById.get(event.actorUserId) ?? null)
-        : null,
-      metadata: parsedMetadata,
-      paymentMetadata,
-    }));
+    return await Promise.all(
+      events.map(async ({ event, parsedMetadata, paymentMetadata }) => ({
+        ...event,
+        actorName: event.actorUserId
+          ? getUserDisplayName(actorById.get(event.actorUserId) ?? null)
+          : null,
+        actor: event.actorUserId
+          ? await reportingUserIdentity(
+              ctx,
+              actorById.get(event.actorUserId),
+              "Removed user",
+            )
+          : null,
+        metadata: parsedMetadata,
+        paymentMetadata,
+      })),
+    );
   },
 });
 
@@ -296,16 +306,17 @@ export const getActivitySummary = query({
       bySource,
       byEntity,
       byActor: Object.fromEntries(actorCounts.entries()),
-      actorBreakdown: [...actorCounts.entries()]
-        .map(([actorUserId, count]) => {
+      actorBreakdown: (await Promise.all([...actorCounts.entries()]
+        .map(async ([actorUserId, count]) => {
           const actor = actorById.get(actorUserId) ?? null;
           return {
             actorUserId,
             actorName: getUserDisplayName(actor),
+            actor: await reportingUserIdentity(ctx, actor, "Removed user"),
             actorRole: actor?.role ?? "unknown",
             count,
           };
-        })
+        })))
         .sort((left, right) => right.count - left.count),
       byEventType,
       byOutcome,

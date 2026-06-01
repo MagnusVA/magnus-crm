@@ -27,6 +27,8 @@ import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircleIcon } from "lucide-react";
 import { toast } from "sonner";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 const eventTypeSchema = z.object({
   personalEventTypeUri: z
@@ -45,6 +47,7 @@ type EventTypeAssignmentDialogProps = {
   onOpenChange: (open: boolean) => void;
   userId: Id<"users">;
   userName: string;
+  userIdentity?: MemberAvatarIdentity;
   currentUri?: string;
 };
 
@@ -53,6 +56,7 @@ export function EventTypeAssignmentDialog({
   onOpenChange,
   userId,
   userName,
+  userIdentity,
   currentUri,
 }: EventTypeAssignmentDialogProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -108,6 +112,7 @@ export function EventTypeAssignmentDialog({
             used to generate scheduling links for follow-ups.
           </DialogDescription>
         </DialogHeader>
+        {userIdentity ? <MemberIdentity identity={userIdentity} /> : null}
 
         <Form {...form}>
           <form

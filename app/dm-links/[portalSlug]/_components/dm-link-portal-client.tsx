@@ -53,6 +53,10 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
+import {
+	getMemberInitials,
+	type MemberAvatarIdentity,
+} from "@/app/workspace/_components/member-avatar";
 import { isPostHogEnabled } from "@/lib/posthog-config";
 import { cn } from "@/lib/utils";
 import {
@@ -127,6 +131,7 @@ type PortalBootstrap = {
 	dmClosers: Array<{
 		id: string;
 		displayName: string;
+		identity: MemberAvatarIdentity;
 		utmMedium: string;
 		teamId: string;
 		teamDisplayName: string;
@@ -333,6 +338,17 @@ function SelectableOption({
 				</span>
 			) : null}
 		</button>
+	);
+}
+
+function PublicCloserInitials({ identity }: { identity: MemberAvatarIdentity }) {
+	return (
+		<span
+			aria-hidden="true"
+			className="flex size-full items-center justify-center rounded-md text-[0.65rem] font-semibold uppercase"
+		>
+			{getMemberInitials(identity.name, null)}
+		</span>
 	);
 }
 
@@ -818,7 +834,7 @@ function UnlockedPortal({
 											selected={selectedCloserId === row.id}
 											title={row.displayName}
 											description={row.teamDisplayName}
-											icon={<UserIcon aria-hidden="true" />}
+											icon={<PublicCloserInitials identity={row.identity} />}
 											onClick={() => selectCloser(row.id)}
 											disabled={setupIncomplete}
 											density="compact"

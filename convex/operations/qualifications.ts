@@ -4,6 +4,12 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import type { QueryCtx } from "../_generated/server";
 import { leadDisplayFromShape } from "../lib/leadDisplay";
+import {
+  dmCloserMemberIdentity,
+  slackMemberIdentity,
+  unknownMemberIdentity,
+  userMemberIdentity,
+} from "../lib/memberIdentity";
 import { opportunityStatusValidator } from "../opportunities/validators";
 import { requireTenantUser } from "../requireTenantUser";
 
@@ -211,7 +217,7 @@ async function enrichQualificationRows(
       .map((user) => [user.slackUserId, user]),
   );
 
-  return rows.map((row) => {
+  return await Promise.all(rows.map(async (row) => {
     const event = eventById.get(row.qualificationEventId);
     const lead = row.leadId ? leadById.get(row.leadId) : undefined;
     const team = row.attributionTeamId
@@ -223,6 +229,15 @@ async function enrichQualificationRows(
     const assignedCloser = row.assignedCloserId
       ? userById.get(row.assignedCloserId)
       : undefined;
+    const slackUser = slackUserBySlackId.get(row.slackUserId);
+    const linkedDmCloserUserCandidate =
+      dmCloser?.userId
+        ? (userById.get(dmCloser.userId) ?? await ctx.db.get(dmCloser.userId))
+        : undefined;
+    const linkedDmCloserUser =
+      linkedDmCloserUserCandidate?.tenantId === tenantId
+        ? linkedDmCloserUserCandidate
+        : undefined;
 
     return {
       ...row,
@@ -236,13 +251,20 @@ async function enrichQualificationRows(
             leadId: lead._id,
           })
         : event?.fullNameSnapshot ?? "Unknown lead",
-      slackUserLabel: slackUserLabel(slackUserBySlackId.get(row.slackUserId)),
+      slackUserLabel: slackUserLabel(slackUser),
+      slackUser: slackMemberIdentity(slackUser, `slack:${row.slackUserId}`),
       attributionTeamName: team?.displayName,
       dmCloserName: dmCloser?.displayName,
+      dmCloser: dmCloser
+        ? await dmCloserMemberIdentity(ctx, dmCloser, linkedDmCloserUser)
+        : null,
       assignedCloserName:
         assignedCloser?.fullName ?? assignedCloser?.email ?? undefined,
+      assignedCloser: assignedCloser
+        ? await userMemberIdentity(ctx, assignedCloser)
+        : unknownMemberIdentity("Unassigned", "unknown"),
     };
-  });
+  }));
 }
 
 export const listQualificationQueue = query({
@@ -385,19 +407,32 @@ export const listQualificationFilterOptions = query({
       slackUsers: slackUsers.map((user) => ({
         id: user.slackUserId,
         name: slackUserLabel(user) ?? user.slackUserId,
+        identity: slackMemberIdentity(user, `slack:${user.slackUserId}`),
       })),
       attributionTeams: attributionTeams
         .filter((team) => team.isActive)
         .map((team) => ({ id: team._id, name: team.displayName })),
-      dmClosers: dmClosers
+      dmClosers: await Promise.all(dmClosers
         .filter((closer) => closer.isActive)
-        .map((closer) => ({ id: closer._id, name: closer.displayName })),
-      closers: closers
+        .map(async (closer) => {
+          const linkedUser = closer.userId ? await ctx.db.get(closer.userId) : null;
+          return {
+            id: closer._id,
+            name: closer.displayName,
+            identity: await dmCloserMemberIdentity(
+              ctx,
+              closer,
+              linkedUser?.tenantId === tenantId ? linkedUser : null,
+            ),
+          };
+        })),
+      closers: await Promise.all(closers
         .filter((user) => user.role === "closer")
-        .map((user) => ({
+        .map(async (user) => ({
           id: user._id,
           name: user.fullName ?? user.email,
-        })),
+          identity: await userMemberIdentity(ctx, user),
+        }))),
     };
   },
 });

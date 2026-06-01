@@ -19,12 +19,15 @@ import { Spinner } from "@/components/ui/spinner";
 import { AlertCircleIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 interface RemoveUserDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userId: Id<"users">;
   userName: string;
+  userIdentity?: MemberAvatarIdentity;
   hasActiveAssignments?: boolean;
   onSuccess?: () => void;
 }
@@ -34,6 +37,7 @@ export function RemoveUserDialog({
   onOpenChange,
   userId,
   userName,
+  userIdentity,
   hasActiveAssignments = false,
   onSuccess,
 }: RemoveUserDialogProps) {
@@ -74,6 +78,7 @@ export function RemoveUserDialog({
             (meetings, payments, opportunities) will be preserved.
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {userIdentity ? <MemberIdentity identity={userIdentity} /> : null}
 
         {hasActiveAssignments && (
           <Alert variant="destructive">

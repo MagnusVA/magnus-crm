@@ -23,6 +23,8 @@ import { LeadStatusBadge } from "./lead-status-badge";
 import { SearchIcon, InboxIcon } from "lucide-react";
 import { format } from "date-fns";
 import type { Id } from "@/convex/_generated/dataModel";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 type LeadRow = {
 	_id: Id<"leads">;
@@ -34,6 +36,7 @@ type LeadRow = {
 	opportunityCount?: number;
 	latestMeetingAt?: number | null;
 	assignedCloserName?: string | null;
+	assignedCloser?: MemberAvatarIdentity | null;
 };
 
 interface LeadsTableProps {
@@ -176,7 +179,11 @@ export function LeadsTable({
 										: "\u2014"}
 								</TableCell>
 								<TableCell className="hidden text-muted-foreground lg:table-cell">
-									{lead.assignedCloserName ?? "\u2014"}
+									{lead.assignedCloser ? (
+										<MemberIdentity identity={lead.assignedCloser} />
+									) : (
+										lead.assignedCloserName ?? "\u2014"
+									)}
 								</TableCell>
 							</TableRow>
 						))}

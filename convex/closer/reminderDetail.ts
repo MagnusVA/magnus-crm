@@ -3,6 +3,10 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { query } from "../_generated/server";
 import {
+  type MemberAvatarIdentity,
+  userMemberIdentity,
+} from "../lib/memberIdentity";
+import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatibleRecordedByUserId,
 } from "../lib/paymentTypes";
@@ -15,7 +19,9 @@ type EnrichedPayment = Omit<
   amount: number;
   attributedCloserId: Id<"users"> | undefined;
   attributedCloserName: string | null;
+  attributedCloser: MemberAvatarIdentity | null;
   recordedByName: string | null;
+  recordedBy: MemberAvatarIdentity | null;
   proofFileUrl: string | null;
   proofFileContentType: string | null;
   proofFileSize: number | null;
@@ -27,7 +33,7 @@ function resolveAttributedCloserId(
   return resolveLegacyCompatibleAttributedCloserId(payment);
 }
 
-async function loadPaymentUserNameById(
+async function loadPaymentUserMaps(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   payments: Array<Doc<"paymentRecords">>,
@@ -53,7 +59,7 @@ async function loadPaymentUserNameById(
     userIds.map(async (userId) => [userId, await ctx.db.get(userId)] as const),
   );
 
-  return new Map<Id<"users">, string | null>(
+  const userNameById = new Map<Id<"users">, string | null>(
     users.map(([userId, user]) => [
       userId,
       user && "tenantId" in user && user.tenantId === tenantId
@@ -61,6 +67,18 @@ async function loadPaymentUserNameById(
         : null,
     ]),
   );
+  const userIdentityById = new Map<Id<"users">, MemberAvatarIdentity | null>(
+    await Promise.all(
+      users.map(async ([userId, user]) => [
+        userId,
+        user && "tenantId" in user && user.tenantId === tenantId
+          ? await userMemberIdentity(ctx, user)
+          : null,
+      ] as const),
+    ),
+  );
+
+  return { userNameById, userIdentityById };
 }
 
 export const getReminderDetail = query({
@@ -109,7 +127,10 @@ export const getReminderDetail = query({
         : Promise.resolve(null),
     ]);
 
-    const paymentUserNameById = await loadPaymentUserNameById(
+    const {
+      userNameById: paymentUserNameById,
+      userIdentityById: paymentUserIdentityById,
+    } = await loadPaymentUserMaps(
       ctx,
       tenantId,
       paymentRecordsRaw,
@@ -145,8 +166,14 @@ export const getReminderDetail = query({
             attributedCloserName: attributedCloserId
               ? (paymentUserNameById.get(attributedCloserId) ?? null)
               : null,
+            attributedCloser: attributedCloserId
+              ? (paymentUserIdentityById.get(attributedCloserId) ?? null)
+              : null,
             recordedByName: recordedByUserId
               ? (paymentUserNameById.get(recordedByUserId) ?? null)
+              : null,
+            recordedBy: recordedByUserId
+              ? (paymentUserIdentityById.get(recordedByUserId) ?? null)
               : null,
             proofFileUrl,
             proofFileContentType,

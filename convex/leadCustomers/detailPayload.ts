@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { buildOpportunityAttributionPayload } from "../lib/attribution/detailPayload";
+import { userMemberIdentity } from "../lib/memberIdentity";
 import type { CrmRole } from "../lib/roleMapping";
 import { normalizeOpportunitySource } from "../lib/sideDeals";
 import { buildEntityActivity } from "./activity";
@@ -173,20 +174,20 @@ export async function buildEntityDetailPayload(
       ),
     ]);
 
-  const closerById = new Map<
-    Id<"users">,
-    Pick<Doc<"users">, "_id" | "fullName" | "email"> | null
-  >(
-    closers.map(({ closerId, closer }) => [
-      closerId,
-      closer && closer.tenantId === input.tenantId
-        ? {
-            _id: closer._id,
-            fullName: closer.fullName,
-            email: closer.email,
-          }
-        : null,
-    ]),
+  const closerById = new Map(
+    await Promise.all(
+      closers.map(async ({ closerId, closer }) => [
+        closerId,
+        closer && closer.tenantId === input.tenantId
+          ? {
+              _id: closer._id,
+              fullName: closer.fullName,
+              email: closer.email,
+              avatar: await userMemberIdentity(ctx, closer),
+            }
+          : null,
+      ] as const),
+    ),
   );
 
   const rawMeetings = meetingBatches

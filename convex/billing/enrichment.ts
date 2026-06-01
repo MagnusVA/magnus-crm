@@ -2,6 +2,12 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { buildOpportunityAttributionPayload } from "../lib/attribution/detailPayload";
 import {
+  dmCloserMemberIdentity,
+  slackMemberIdentity,
+  unknownMemberIdentity,
+  userMemberIdentity,
+} from "../lib/memberIdentity";
+import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatibleRecordedByUserId,
 } from "../lib/paymentTypes";
@@ -141,6 +147,7 @@ async function resolveDirectDmAttribution(
       status: "none",
       teamName: null,
       dmCloserName: null,
+      dmCloser: null,
       rawSource: null,
       rawMedium: null,
     };
@@ -152,12 +159,21 @@ async function resolveDirectDmAttribution(
       : Promise.resolve(null),
     source.dmCloserId ? ctx.db.get(source.dmCloserId) : Promise.resolve(null),
   ]);
+  const tenantDmCloser = dmCloser && dmCloser.tenantId === tenantId ? dmCloser : null;
+  const linkedUser =
+    tenantDmCloser?.userId !== undefined
+      ? await ctx.db.get(tenantDmCloser.userId)
+      : null;
+  const tenantLinkedUser =
+    linkedUser && linkedUser.tenantId === tenantId ? linkedUser : null;
 
   return {
     status: source.attributionResolution ?? "none",
     teamName: team && team.tenantId === tenantId ? team.displayName : null,
-    dmCloserName:
-      dmCloser && dmCloser.tenantId === tenantId ? dmCloser.displayName : null,
+    dmCloserName: tenantDmCloser ? tenantDmCloser.displayName : null,
+    dmCloser: tenantDmCloser
+      ? await dmCloserMemberIdentity(ctx, tenantDmCloser, tenantLinkedUser)
+      : null,
     rawSource: source.utmParams?.utm_source ?? null,
     rawMedium: source.utmParams?.utm_medium ?? null,
   };
@@ -187,25 +203,46 @@ async function resolveSlackContributorTimeline(
         label:
           event.fullNameSnapshot.trim() ||
           (await resolveSlackUserLabel(ctx, tenantId, event.slackUserId)),
+        identity: slackMemberIdentity(
+          await ctx.db
+            .query("slackUsers")
+            .withIndex("by_tenantId_and_slackUserId", (q) =>
+              q.eq("tenantId", tenantId).eq("slackUserId", event.slackUserId),
+            )
+            .first(),
+          `slack:${event.slackUserId}`,
+        ),
         submittedAt: event.submittedAt,
         resultKind: event.resultKind,
       })),
     );
   }
 
-  if (!opportunity.qualifiedBy) {
+  const qualifiedBy = opportunity.qualifiedBy;
+  if (!qualifiedBy) {
     return [];
   }
 
   return [
     {
-      slackUserId: opportunity.qualifiedBy.slackUserId,
+      slackUserId: qualifiedBy.slackUserId,
       label: await resolveSlackUserLabel(
         ctx,
         tenantId,
-        opportunity.qualifiedBy.slackUserId,
+        qualifiedBy.slackUserId,
       ),
-      submittedAt: opportunity.qualifiedBy.submittedAt,
+      identity: slackMemberIdentity(
+        await ctx.db
+          .query("slackUsers")
+          .withIndex("by_tenantId_and_slackUserId", (q) =>
+            q
+              .eq("tenantId", tenantId)
+              .eq("slackUserId", qualifiedBy.slackUserId),
+          )
+          .first(),
+        `slack:${qualifiedBy.slackUserId}`,
+      ),
+      submittedAt: qualifiedBy.submittedAt,
       resultKind: null,
     },
   ];
@@ -250,13 +287,15 @@ async function resolveBillingAttribution(
       ? {
           id: tenantFallbackCloser._id,
           name: userDisplayName(tenantFallbackCloser),
+          identity: await userMemberIdentity(ctx, tenantFallbackCloser),
         }
       : payload?.phoneCloser
         ? {
             id: payload.phoneCloser.id,
             name: payload.phoneCloser.name,
+            identity: payload.phoneCloser.identity,
           }
-        : { id: null, name: null };
+        : { id: null, name: null, identity: null };
 
   return {
     phoneCloser,
@@ -266,6 +305,7 @@ async function resolveBillingAttribution(
         status: "none" as const,
         teamName: null,
         dmCloserName: null,
+        dmCloser: null,
         rawSource: null,
         rawMedium: null,
       },
@@ -409,6 +449,9 @@ async function enrichOneBillingPaymentRow(
     enteredBy: {
       id: tenantEnteredBy?._id ?? null,
       name: tenantEnteredBy ? userDisplayName(tenantEnteredBy) : "Missing user",
+      identity: tenantEnteredBy
+        ? await userMemberIdentity(ctx, tenantEnteredBy)
+        : unknownMemberIdentity("Missing user", "unknown"),
     },
     phoneCloser: attribution.phoneCloser,
     dmAttribution: attribution.dmAttribution,
@@ -416,6 +459,9 @@ async function enrichOneBillingPaymentRow(
     review: {
       reviewedAt: payment.verifiedAt ?? null,
       reviewerName: nullableUserDisplayName(tenantReviewer),
+      reviewer: tenantReviewer
+        ? await userMemberIdentity(ctx, tenantReviewer)
+        : null,
     },
   };
 }
@@ -448,7 +494,7 @@ async function loadPaymentEvents(
   );
   const actorById = new Map(actorPairs);
 
-  return events.map((event) => {
+  return await Promise.all(events.map(async (event) => {
     const actor = event.actorUserId
       ? tenantOwned(actorById.get(event.actorUserId) ?? null, tenantId)
       : null;
@@ -459,12 +505,13 @@ async function loadPaymentEvents(
       source: event.source,
       actorUserId: event.actorUserId ?? null,
       actorName: nullableUserDisplayName(actor),
+      actor: actor ? await userMemberIdentity(ctx, actor) : null,
       fromStatus: event.fromStatus ?? null,
       toStatus: event.toStatus ?? null,
       reason: event.reason ?? null,
       metadata: event.metadata ?? null,
     };
-  });
+  }));
 }
 
 export async function enrichBillingPaymentListRows(

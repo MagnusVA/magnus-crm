@@ -43,6 +43,8 @@ import {
 import { cn } from "@/lib/utils";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useTableSort } from "@/hooks/use-table-sort";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 interface TeamMember {
   _id: Id<"users">;
@@ -51,6 +53,7 @@ interface TeamMember {
   fullName?: string;
   role: "closer" | "tenant_admin" | "tenant_master" | "lead_generator";
   isActive: boolean;
+  avatar: MemberAvatarIdentity;
   calendlyMemberName?: string;
   calendlyUserUri?: string;
   personalEventTypeUri?: string;
@@ -201,15 +204,20 @@ export function TeamMembersTable({
                 key={member._id}
                 className={cn(!member.isActive && "opacity-50")}
               >
-                <TableCell className="font-medium">
-                  <div className="flex items-center gap-2">
-                    {member.fullName || member.email}
-                    {!member.isActive && (
-                      <Badge variant="outline" className="text-xs text-muted-foreground">
-                        Deactivated
-                      </Badge>
-                    )}
-                  </div>
+                <TableCell>
+                  <MemberIdentity
+                    identity={member.avatar}
+                    badge={
+                      !member.isActive ? (
+                        <Badge
+                          variant="outline"
+                          className="text-xs text-muted-foreground"
+                        >
+                          Deactivated
+                        </Badge>
+                      ) : null
+                    }
+                  />
                 </TableCell>
                 <TableCell className="text-sm text-muted-foreground">
                   {member.email}

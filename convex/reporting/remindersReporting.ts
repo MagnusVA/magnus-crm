@@ -6,6 +6,7 @@ import { requireTenantUser } from "../requireTenantUser";
 import {
   assertValidDateRange,
   getUserDisplayName,
+  reportingUserIdentity,
   splitPaymentsForRevenueReporting,
 } from "./lib/helpers";
 
@@ -196,10 +197,15 @@ export const getReminderOutcomeFunnel = query({
     );
     const closerById = new Map(closerDocs);
 
-    const perCloserRows = [...perCloser.entries()]
-      .map(([closerId, bucket]) => ({
+    const perCloserRows = (await Promise.all([...perCloser.entries()]
+      .map(async ([closerId, bucket]) => ({
         closerId,
         closerName: getUserDisplayName(closerById.get(closerId) ?? null),
+        closer: await reportingUserIdentity(
+          ctx,
+          closerById.get(closerId),
+          "Removed closer",
+        ),
         created: bucket.created,
         completed: bucket.completed,
         completionRate: toRate(bucket.completed, bucket.created),
@@ -212,7 +218,7 @@ export const getReminderOutcomeFunnel = query({
           no_response_given_up: bucket.no_response_given_up,
           no_response_close_only: bucket.no_response_close_only,
         },
-      }))
+      }))))
       .sort(
         (left, right) =>
           right.paymentReceivedCount - left.paymentReceivedCount ||

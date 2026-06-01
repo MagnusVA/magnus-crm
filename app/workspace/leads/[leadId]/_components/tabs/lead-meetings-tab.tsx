@@ -16,10 +16,13 @@ import {
 	type OpportunityStatus,
 } from "@/lib/status-config";
 import type { Doc } from "@/convex/_generated/dataModel";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 type LeadDetailMeeting = Doc<"meetings"> & {
 	opportunityStatus: string;
 	closerName: string | null;
+	closer: MemberAvatarIdentity | null;
 };
 
 interface LeadMeetingsTabProps {
@@ -80,7 +83,9 @@ export function LeadMeetingsTab({ meetings }: LeadMeetingsTabProps) {
 									</span>
 								</TableCell>
 								<TableCell>
-									{mtg.closerName ?? (
+									{mtg.closer ? (
+										<MemberIdentity identity={mtg.closer} />
+									) : (
 										<span className="text-muted-foreground">Unassigned</span>
 									)}
 								</TableCell>

@@ -20,6 +20,7 @@ import {
   formatCompactCurrency,
   formatRate,
 } from "./team-report-formatters";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 
 interface CloserPerformanceTableProps {
   closers: CloserData[];
@@ -125,7 +126,9 @@ export function CloserPerformanceTable({
           const calls = getCallMetrics(closer, callType);
           return (
             <TableRow key={closer.closerId}>
-              <TableCell className="font-medium">{closer.closerName}</TableCell>
+              <TableCell>
+                <MemberIdentity identity={closer.closer} />
+              </TableCell>
               <TableCell className="text-right tabular-nums">
                 {calls.bookedCalls}
               </TableCell>

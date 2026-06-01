@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
 import { getEffectiveRange } from "../lib/unavailabilityValidation";
@@ -8,6 +8,10 @@ import {
   getUserDisplayName,
   listAffectedMeetingsForCloserInRange,
 } from "./shared";
+import {
+  unknownMemberIdentity,
+  userMemberIdentity,
+} from "../lib/memberIdentity";
 
 export const getUnavailabilityWithMeetings = query({
   args: { unavailabilityId: v.id("closerUnavailability") },
@@ -84,7 +88,9 @@ export const getUnavailabilityWithMeetings = query({
       unavailability: {
         ...unavailability,
         closerName: getUserDisplayName(closer),
+        closer: await userMemberIdentity(ctx, closer),
         createdByName: getUserDisplayName(createdBy),
+        createdBy: await userMemberIdentity(ctx, createdBy),
       },
       affectedMeetings: result,
       rangeStart,
@@ -128,6 +134,7 @@ export const getAvailableClosersForDate = query({
       .map((schedule) => ({
         closerId: schedule.closerId,
         closerName: schedule.closerName,
+        closer: schedule.closer,
         isAvailable: schedule.isAvailable,
         unavailabilityReason: schedule.unavailabilityReason,
         meetingsToday: schedule.meetingsToday,
@@ -177,10 +184,7 @@ export const getRecentReassignments = query({
       meetingIds.add(reassignment.meetingId);
     }
 
-    const usersById = new Map<
-      Id<"users">,
-      { fullName?: string; email: string }
-    >();
+    const usersById = new Map<Id<"users">, Doc<"users">>();
     for (const userId of userIds) {
       const user = await ctx.db.get(userId);
       if (user && user.tenantId === tenantId) {
@@ -205,21 +209,29 @@ export const getRecentReassignments = query({
       }
     }
 
-    return reassignments.map((reassignment) => {
+    return await Promise.all(reassignments.map(async (reassignment) => {
       const meeting = meetingsById.get(reassignment.meetingId);
+      const fromCloser = usersById.get(reassignment.fromCloserId);
+      const toCloser = usersById.get(reassignment.toCloserId);
+      const reassignedBy = usersById.get(reassignment.reassignedByUserId);
 
       return {
         ...reassignment,
-        fromCloserName: getUserDisplayName(
-          usersById.get(reassignment.fromCloserId),
-        ),
-        toCloserName: getUserDisplayName(usersById.get(reassignment.toCloserId)),
-        reassignedByName: getUserDisplayName(
-          usersById.get(reassignment.reassignedByUserId),
-        ),
+        fromCloserName: getUserDisplayName(fromCloser),
+        fromCloser: fromCloser
+          ? await userMemberIdentity(ctx, fromCloser)
+          : unknownMemberIdentity("Removed closer", "unknown"),
+        toCloserName: getUserDisplayName(toCloser),
+        toCloser: toCloser
+          ? await userMemberIdentity(ctx, toCloser)
+          : unknownMemberIdentity("Removed closer", "unknown"),
+        reassignedByName: getUserDisplayName(reassignedBy),
+        reassignedBy: reassignedBy
+          ? await userMemberIdentity(ctx, reassignedBy)
+          : unknownMemberIdentity("Removed user", "unknown"),
         meetingScheduledAt: meeting?.scheduledAt,
         leadName: meeting?.leadName,
       };
-    });
+    }));
   },
 });

@@ -6,6 +6,7 @@ import {
   assertValidDateRange,
   getActiveClosers,
   getUserDisplayName,
+  reportingUserIdentity,
 } from "./lib/helpers";
 import {
   deriveCallOutcome,
@@ -131,11 +132,12 @@ export const getTeamOutcomeMix = query({
 
     return {
       teamOutcome,
-      closerOutcomes: closers.map((closer) => ({
+      closerOutcomes: await Promise.all(closers.map(async (closer) => ({
         closerId: closer._id,
         closerName: getUserDisplayName(closer),
+        closer: await reportingUserIdentity(ctx, closer),
         outcomes: perCloser.get(closer._id) ?? emptyOutcomeCounts(),
-      })),
+      }))),
       derived: {
         lostDeals: teamOutcome.lost,
         rebookRate,

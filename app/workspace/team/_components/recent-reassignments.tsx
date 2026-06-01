@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ShuffleIcon } from "lucide-react";
 import { format } from "date-fns";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 
 export function RecentReassignments() {
   const reassignments = useQuery(
@@ -66,11 +67,11 @@ export function RecentReassignments() {
                       )
                     : "—"}
                 </TableCell>
-                <TableCell className="text-sm">
-                  {r.fromCloserName}
+                <TableCell>
+                  <MemberIdentity identity={r.fromCloser} />
                 </TableCell>
-                <TableCell className="text-sm">
-                  {r.toCloserName}
+                <TableCell>
+                  <MemberIdentity identity={r.toCloser} />
                 </TableCell>
                 <TableCell className="text-sm">
                   {r.leadName ?? "—"}
@@ -80,8 +81,8 @@ export function RecentReassignments() {
                     {r.reason}
                   </Badge>
                 </TableCell>
-                <TableCell className="text-xs text-muted-foreground">
-                  {r.reassignedByName}
+                <TableCell>
+                  <MemberIdentity identity={r.reassignedBy} />
                 </TableCell>
               </TableRow>
             ))}
@@ -94,11 +95,11 @@ export function RecentReassignments() {
 
 function ReassignmentsSkeleton() {
   return (
-    <Card>
+    <Card role="status" aria-label="Loading recent reassignments">
       <CardHeader>
         <Skeleton className="h-5 w-48" />
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="flex flex-col gap-2">
         <Skeleton className="h-8 w-full" />
         <Skeleton className="h-8 w-full" />
         <Skeleton className="h-8 w-full" />

@@ -32,6 +32,7 @@ import {
   scheduledHoursForDailyStat,
 } from "./schedules";
 import { leadGenSourceValidator } from "./validators";
+import { leadGenWorkerMemberIdentity } from "../lib/memberIdentity";
 
 type LeadGenSource = Doc<"leadGenDailyStats">["source"];
 type DailyStatsRow = Doc<"leadGenDailyStats">;
@@ -692,11 +693,12 @@ export const listWorkerPerformance = query({
     }
 
     const workers = await loadWorkers(ctx, tenantId, [...byWorker.keys()]);
-    return [...byWorker.values()]
-      .map((row) => {
+    return (await Promise.all([...byWorker.values()]
+      .map(async (row) => {
         const worker = workers.get(row.workerId);
         return {
           workerId: row.workerId,
+          worker: await leadGenWorkerMemberIdentity(ctx, worker),
           displayName: worker?.displayName ?? worker?.email ?? "Unknown worker",
           email: worker?.email ?? null,
           teamId: worker?.teamId ?? null,
@@ -710,7 +712,7 @@ export const listWorkerPerformance = query({
               ? row.submissions / row.scheduledHours
               : null,
         };
-      })
+      })))
       .sort((a, b) => b.submissions - a.submissions);
   },
 });

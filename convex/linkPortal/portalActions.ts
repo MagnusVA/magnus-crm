@@ -3,6 +3,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { action } from "../_generated/server";
+import type { MemberAvatarIdentity } from "../lib/memberIdentity";
 import { verifyPortalSessionToken } from "./sessionToken";
 
 type PortalBootstrap = {
@@ -16,6 +17,7 @@ type PortalBootstrap = {
 	dmClosers: Array<{
 		id: string;
 		displayName: string;
+		identity: MemberAvatarIdentity;
 		utmMedium: string;
 		teamId: string;
 		teamDisplayName: string;

@@ -2,6 +2,7 @@
 
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import {
   Card,
   CardContent,
@@ -79,7 +80,11 @@ export function PortalUsageCard() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="max-w-48 truncate">{event.dmCloserName}</div>
+                    {event.dmCloser ? (
+                      <MemberIdentity identity={event.dmCloser} className="max-w-48" />
+                    ) : (
+                      <div className="max-w-48 truncate">{event.dmCloserName}</div>
+                    )}
                     <div className="max-w-48 truncate text-xs text-muted-foreground">
                       {event.attributionTeamName}
                     </div>

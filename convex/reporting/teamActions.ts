@@ -2,7 +2,11 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
-import { assertValidDateRange, getUserDisplayName } from "./lib/helpers";
+import {
+  assertValidDateRange,
+  getUserDisplayName,
+  reportingUserIdentity,
+} from "./lib/helpers";
 
 const MAX_EVENTS_SCAN = 5000;
 const DAY_MS = 86_400_000;
@@ -50,6 +54,7 @@ export const getActionsPerCloserPerDay = query({
         return {
           userId,
           actorName: getUserDisplayName(user),
+          actor: await reportingUserIdentity(ctx, user, "Removed user"),
           count,
         };
       }),

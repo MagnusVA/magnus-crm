@@ -1,5 +1,6 @@
 "use client";
 
+import type { ReactNode } from "react";
 import { AlertTriangleIcon } from "lucide-react";
 import {
   Alert,
@@ -15,6 +16,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import type { QualificationRow } from "./qualification-table";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 
 type QualificationRepairSheetProps = {
   row: QualificationRow | null;
@@ -26,7 +28,7 @@ const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
   timeStyle: "short",
 });
 
-function DetailRow({ label, value }: { label: string; value?: string | number }) {
+function DetailRow({ label, value }: { label: string; value?: ReactNode }) {
   return (
     <div className="grid grid-cols-[8rem_1fr] gap-3 text-sm">
       <span className="text-muted-foreground">{label}</span>
@@ -71,7 +73,10 @@ export function QualificationRepairSheet({
               <DetailRow label="Lead snapshot" value={row.fullNameSnapshot} />
               <DetailRow label="Handle" value={row.handleSnapshot} />
               <DetailRow label="Platform" value={row.platform} />
-              <DetailRow label="Slack user" value={row.slackUserLabel ?? row.slackUserId} />
+              <DetailRow
+                label="Slack user"
+                value={<MemberIdentity identity={row.slackUser} />}
+              />
               <DetailRow label="Slack team" value={row.slackTeamId} />
               <DetailRow
                 label="Submitted"

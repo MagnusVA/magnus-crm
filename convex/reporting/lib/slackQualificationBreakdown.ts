@@ -1,6 +1,10 @@
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
 import {
+  slackMemberIdentity,
+  type MemberAvatarIdentity,
+} from "../../lib/memberIdentity";
+import {
   listQualificationEventsForRange,
   loadOpportunityMapForQualificationEvents,
   summarizeQualificationEvents,
@@ -10,6 +14,7 @@ export type SlackUserQualificationBreakdownRow = {
   slackUserId: string;
   displayName: string | null;
   avatarUrl: string | null;
+  identity: MemberAvatarIdentity;
   isDeleted: boolean;
   total: number;
   qualificationEventCount: number;
@@ -71,6 +76,7 @@ export async function buildSlackUserQualificationBreakdown(
       displayName:
         user?.displayName ?? user?.realName ?? user?.username ?? null,
       avatarUrl: user?.avatarUrl ?? null,
+      identity: slackMemberIdentity(user, `slack:${slackUserId}`),
       isDeleted: user?.isDeleted ?? false,
       total: summary.qualificationEventCount,
       qualificationEventCount: summary.qualificationEventCount,

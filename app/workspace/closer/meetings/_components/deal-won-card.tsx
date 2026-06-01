@@ -28,6 +28,8 @@ import {
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { formatCurrency } from "@/lib/format-currency";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 type EnrichedPayment = {
   _id: string;
@@ -45,8 +47,10 @@ type EnrichedPayment = {
   origin?: string;
   attributedCloserId?: string | null;
   attributedCloserName?: string | null;
+  attributedCloser?: MemberAvatarIdentity | null;
   recordedByUserId?: string;
   recordedByName?: string | null;
+  recordedBy?: MemberAvatarIdentity | null;
 };
 
 type DealWonCardProps = {
@@ -164,9 +168,15 @@ export function DealWonCard({ payments }: DealWonCardProps) {
                     <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                       Attributed To
                     </dt>
-                    <dd className="flex items-center gap-1.5 text-sm font-medium">
-                      <UserIcon className="size-3.5 text-muted-foreground" />
-                      {payment.attributedCloserName}
+                    <dd className="text-sm font-medium">
+                      {payment.attributedCloser ? (
+                        <MemberIdentity identity={payment.attributedCloser} />
+                      ) : (
+                        <span className="flex items-center gap-1.5">
+                          <UserIcon className="size-3.5 text-muted-foreground" />
+                          {payment.attributedCloserName}
+                        </span>
+                      )}
                     </dd>
                   </div>
                 )}
@@ -190,12 +200,19 @@ export function DealWonCard({ payments }: DealWonCardProps) {
                 payment.attributedCloserId &&
                 payment.recordedByUserId &&
                 payment.attributedCloserId !== payment.recordedByUserId && (
-                  <p className="mt-2 text-xs italic text-muted-foreground">
-                    Logged on behalf by{" "}
-                    <span className="font-medium">
-                      {payment.recordedByName ?? "an admin"}
-                    </span>
-                  </p>
+                  <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                    <span className="italic">Logged on behalf by</span>
+                    {payment.recordedBy ? (
+                      <MemberIdentity
+                        identity={payment.recordedBy}
+                        className="max-w-48"
+                      />
+                    ) : (
+                      <span className="font-medium">
+                        {payment.recordedByName ?? "an admin"}
+                      </span>
+                    )}
+                  </div>
                 )}
 
               {payment.proofFileUrl && (

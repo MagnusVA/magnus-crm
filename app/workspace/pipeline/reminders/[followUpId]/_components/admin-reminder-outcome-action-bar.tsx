@@ -2,6 +2,8 @@
 
 import dynamic from "next/dynamic";
 import type { Doc } from "@/convex/_generated/dataModel";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 import {
   Card,
   CardContent,
@@ -41,7 +43,7 @@ const TERMINAL_OPPORTUNITY_STATUSES = new Set<OpportunityStatus>([
 type Props = {
   followUp: Doc<"followUps">;
   opportunity: Doc<"opportunities">;
-  assignedCloserName: string;
+  assignedCloser: MemberAvatarIdentity;
   disabled: boolean;
   onCompleted: () => void;
 };
@@ -65,7 +67,7 @@ type Props = {
 export function AdminReminderOutcomeActionBar({
   followUp,
   opportunity,
-  assignedCloserName,
+  assignedCloser,
   disabled,
   onCompleted,
 }: Props) {
@@ -125,11 +127,13 @@ export function AdminReminderOutcomeActionBar({
       <CardContent className="flex flex-col gap-3 [&_button]:w-full">
         <Alert>
           <InfoIcon />
-          <AlertDescription>
-            Acting on behalf of{" "}
-            <span className="font-medium">{assignedCloserName}</span>. Any
-            payment you record here will be attributed to them for
-            commission.
+          <AlertDescription className="space-y-2">
+            <span>Acting on behalf of:</span>
+            <MemberIdentity identity={assignedCloser} />
+            <span className="block">
+              Any payment you record here will be attributed to them for
+              commission.
+            </span>
           </AlertDescription>
         </Alert>
 

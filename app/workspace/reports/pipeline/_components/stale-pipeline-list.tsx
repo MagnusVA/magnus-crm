@@ -25,6 +25,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 function formatStatus(status: string): string {
   return status
@@ -42,6 +44,7 @@ interface StalePipelineListProps {
     nextMeetingAt: number | null;
     assignedCloserId: string | null;
     assignedCloserName: string | null;
+    assignedCloser: MemberAvatarIdentity | null;
     leadId: string;
     leadName: string | null;
   }>;
@@ -102,7 +105,11 @@ export function StalePipelineList({
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    {opp.assignedCloserName || "Unassigned"}
+                    {opp.assignedCloser ? (
+                      <MemberIdentity identity={opp.assignedCloser} />
+                    ) : (
+                      "Unassigned"
+                    )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {opp.ageDays} days

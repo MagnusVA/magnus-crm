@@ -22,12 +22,15 @@ import {
 import { FieldGroup, Field, FieldLabel } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 interface CalendlyLinkDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userId: Id<"users">;
   userName: string;
+  userIdentity?: MemberAvatarIdentity;
   onSuccess?: () => void;
 }
 
@@ -36,6 +39,7 @@ export function CalendlyLinkDialog({
   onOpenChange,
   userId,
   userName,
+  userIdentity,
   onSuccess,
 }: CalendlyLinkDialogProps) {
   const [calendlyMemberId, setCalendlyMemberId] = useState("");
@@ -84,6 +88,7 @@ export function CalendlyLinkDialog({
             Select a Calendly member to link with {userName}
           </DialogDescription>
         </DialogHeader>
+        {userIdentity ? <MemberIdentity identity={userIdentity} /> : null}
 
         <FieldGroup>
           <Field>

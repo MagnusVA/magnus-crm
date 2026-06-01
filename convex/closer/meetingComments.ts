@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
+import { userMemberIdentity } from "../lib/memberIdentity";
 import { requireTenantUser } from "../requireTenantUser";
 import { getUserDisplayName } from "../reporting/lib/helpers";
 import { loadMeetingContext } from "./meetingActions";
@@ -173,7 +174,7 @@ export const getComments = query({
     );
     const authorById = new Map(authorEntries);
 
-    return activeComments.map((comment) => {
+    return await Promise.all(activeComments.map(async (comment) => {
       const author = authorById.get(comment.authorId);
       return {
         _id: comment._id,
@@ -182,9 +183,13 @@ export const getComments = query({
         editedAt: comment.editedAt ?? null,
         authorId: comment.authorId,
         authorName: getUserDisplayName(author),
+        author: await userMemberIdentity(
+          ctx,
+          author && author.tenantId === tenantId ? author : null,
+        ),
         authorRole: author?.role ?? null,
         isOwn: comment.authorId === userId,
       };
-    });
+    }));
   },
 });

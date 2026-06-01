@@ -22,6 +22,7 @@ export async function getTopQualifiersOverviewSection(
         slackUserId: row.slackUserId,
         displayName: row.displayName,
         avatarUrl: row.avatarUrl,
+        qualifier: row.identity,
         isDeleted: row.isDeleted,
         total: row.total,
         uniqueOpportunityCount: row.uniqueOpportunityCount,

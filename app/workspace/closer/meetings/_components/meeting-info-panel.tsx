@@ -25,6 +25,8 @@ import {
   type MeetingStatus,
 } from "@/lib/status-config";
 import type { Doc } from "@/convex/_generated/dataModel";
+import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 /**
  * Badge styling per meeting status — mirrors the centralised colour palette
@@ -44,6 +46,7 @@ type MeetingInfoPanelProps = {
   meeting: Doc<"meetings">;
   eventTypeName: string | null;
   assignedCloser: { fullName?: string; email: string } | null;
+  assignedCloserIdentity?: MemberAvatarIdentity | null;
 };
 
 /**
@@ -57,6 +60,7 @@ export function MeetingInfoPanel({
   meeting,
   eventTypeName,
   assignedCloser,
+  assignedCloserIdentity,
 }: MeetingInfoPanelProps) {
   const statusKey = meeting.status as MeetingStatus;
   const statusCfg = meetingStatusConfig[statusKey];
@@ -132,9 +136,13 @@ export function MeetingInfoPanel({
 
           {assignedCloser && (
             <CompactField icon={<UserIcon />} label="Assigned Closer">
-              <p className="truncate text-sm font-medium">
-                {assignedCloser.fullName ?? assignedCloser.email}
-              </p>
+              {assignedCloserIdentity ? (
+                <MemberIdentity identity={assignedCloserIdentity} />
+              ) : (
+                <p className="truncate text-sm font-medium">
+                  {assignedCloser.fullName ?? assignedCloser.email}
+                </p>
+              )}
             </CompactField>
           )}
         </dl>
