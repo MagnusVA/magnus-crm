@@ -2,21 +2,39 @@ import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
+import {
+  deriveOverviewRange,
+  overviewRangeValidator,
+  toPublicOverviewRange,
+} from "../dashboard/overviewRange";
 import type { CrmRole } from "../lib/roleMapping";
 import { requireTenantUser } from "../requireTenantUser";
+import { summarizeDailyRows } from "./reportBuilders";
+import { DAILY_STATS_READ_LIMIT } from "./reportLimits";
+import { loadCurrentScheduledHoursByWorkerDay } from "./schedules";
 
 export const listMyRecentSubmissions = query({
-  args: { paginationOpts: paginationOptsValidator },
+  args: {
+    paginationOpts: paginationOptsValidator,
+    range: v.optional(overviewRangeValidator),
+  },
   handler: async (ctx, args) => {
     const access = await resolveOwnLeadGenWorker(ctx);
     if (!access) {
       return { page: [], isDone: true, continueCursor: "" };
     }
+    const range = args.range ? deriveOverviewRange(args.range, Date.now()) : null;
 
     const page = await ctx.db
       .query("leadGenSubmissions")
       .withIndex("by_tenantId_and_workerId_and_submittedAt", (q) =>
-        q.eq("tenantId", access.tenantId).eq("workerId", access.workerId),
+        range
+          ? q
+              .eq("tenantId", access.tenantId)
+              .eq("workerId", access.workerId)
+              .gte("submittedAt", range.slackWindowStart)
+              .lt("submittedAt", range.slackWindowEnd)
+          : q.eq("tenantId", access.tenantId).eq("workerId", access.workerId),
       )
       .order("desc")
       .paginate(args.paginationOpts);
@@ -24,6 +42,52 @@ export const listMyRecentSubmissions = query({
     return {
       ...page,
       page: await hydrateSubmissionProspects(ctx, access.tenantId, page.page),
+    };
+  },
+});
+
+export const getMyActivitySummary = query({
+  args: { range: overviewRangeValidator },
+  handler: async (ctx, { range }) => {
+    const derivedRange = deriveOverviewRange(range, Date.now());
+    const publicRange = toPublicOverviewRange(derivedRange);
+    const access = await resolveOwnLeadGenWorker(ctx);
+    if (!access) {
+      return {
+        range: publicRange,
+        submissions: 0,
+        scheduledHours: 0,
+        leadsPerHour: null,
+      };
+    }
+
+    const rows = await ctx.db
+      .query("leadGenDailyStats")
+      .withIndex("by_tenantId_and_workerId_and_dayKey", (q) =>
+        q
+          .eq("tenantId", access.tenantId)
+          .eq("workerId", access.workerId)
+          .gte("dayKey", derivedRange.startBusinessDate)
+          .lte("dayKey", derivedRange.endBusinessDateInclusive),
+      )
+      .take(DAILY_STATS_READ_LIMIT + 1);
+
+    if (rows.length > DAILY_STATS_READ_LIMIT) {
+      throw new Error("Lead Gen activity range is too large. Narrow the range.");
+    }
+
+    const currentScheduledHoursByWorkerDay =
+      await loadCurrentScheduledHoursByWorkerDay(ctx, {
+        tenantId: access.tenantId,
+        rows,
+      });
+    const summary = summarizeDailyRows(rows, currentScheduledHoursByWorkerDay);
+
+    return {
+      range: publicRange,
+      submissions: summary.submissions,
+      scheduledHours: summary.scheduledHours,
+      leadsPerHour: summary.leadsPerHour,
     };
   },
 });

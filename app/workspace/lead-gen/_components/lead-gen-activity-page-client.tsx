@@ -1,15 +1,19 @@
 "use client";
 
-import { useMemo, type ComponentType, type SVGProps } from "react";
+import { useState, type ComponentType, type SVGProps } from "react";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import {
   ClipboardCheckIcon,
-  RotateCcwIcon,
-  SparklesIcon,
+  GaugeIcon,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DashboardDateRangeFilter,
+  type DashboardRangeInput,
+} from "../../_components/dashboard-date-range-filter";
+import { validateCustomDashboardRange } from "../../_components/dashboard-date-utils";
 import {
   Empty,
   EmptyContent,
@@ -27,9 +31,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-const HONDURAS_TIME_ZONE = "America/Tegucigalpa";
-const BUSINESS_DAY_START_OFFSET_MS = 60 * 60 * 1000;
-
 type ActivityRow = {
   _id: string;
   submittedAt: number;
@@ -43,36 +44,36 @@ type ActivityRow = {
   } | null;
 };
 
-function businessDayKey(timestamp: number) {
-  const shifted = new Date(timestamp - BUSINESS_DAY_START_OFFSET_MS);
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: HONDURAS_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(shifted);
-
-  const year = parts.find((part) => part.type === "year")?.value;
-  const month = parts.find((part) => part.type === "month")?.value;
-  const day = parts.find((part) => part.type === "day")?.value;
-
-  return `${year}-${month}-${day}`;
-}
-
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
   timeStyle: "short",
 });
-const currentBusinessDayKey = businessDayKey(Date.now());
+const wholeNumberFormatter = new Intl.NumberFormat(undefined, {
+  maximumFractionDigits: 0,
+});
 
 export function LeadGenActivityPageClient() {
-  const todayKey = useMemo(() => currentBusinessDayKey, []);
-  const daySummary = useQuery(api.leadGen.activity.getMyDaySummary, {
-    dayKey: todayKey,
+  const [range, setRange] = useState<DashboardRangeInput>({
+    kind: "preset",
+    preset: "today",
+  });
+  const [queryRange, setQueryRange] = useState<DashboardRangeInput>({
+    kind: "preset",
+    preset: "today",
+  });
+  const rangeValidationMessage =
+    range.kind === "custom"
+      ? validateCustomDashboardRange({
+          startBusinessDate: range.startBusinessDate,
+          endBusinessDateInclusive: range.endBusinessDateInclusive,
+        })
+      : null;
+  const summary = useQuery(api.leadGen.activity.getMyActivitySummary, {
+    range: queryRange,
   });
   const recent = usePaginatedQuery(
     api.leadGen.activity.listMyRecentSubmissions,
-    {},
+    { range: queryRange },
     { initialNumItems: 25 },
   );
   const rows = recent.results as ActivityRow[];
@@ -80,30 +81,43 @@ export function LeadGenActivityPageClient() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-normal text-pretty">
-          My Activity
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Your recent Lead Gen Ops submissions and duplicate signals.
-        </p>
-      </div>
+      <header className="flex flex-col gap-3 border-b pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-2xl font-semibold tracking-normal text-pretty">
+            My Activity
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {summary?.range.label ?? "Loading activity range"}
+          </p>
+        </div>
+        <DashboardDateRangeFilter
+          value={range}
+          onChange={(nextRange) => {
+            setRange(nextRange);
+            if (
+              nextRange.kind === "preset" ||
+              validateCustomDashboardRange({
+                startBusinessDate: nextRange.startBusinessDate,
+                endBusinessDateInclusive: nextRange.endBusinessDateInclusive,
+              }) === null
+            ) {
+              setQueryRange(nextRange);
+            }
+          }}
+          validationMessage={rangeValidationMessage}
+        />
+      </header>
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <ActivityMetric
-          label="Today"
-          value={daySummary?.submissions}
+          label="Raw Leads"
+          value={formatWholeNumber(summary?.submissions)}
           icon={ClipboardCheckIcon}
         />
         <ActivityMetric
-          label="Unique"
-          value={daySummary?.uniqueProspects}
-          icon={SparklesIcon}
-        />
-        <ActivityMetric
-          label="Duplicates"
-          value={daySummary?.duplicates}
-          icon={RotateCcwIcon}
+          label="Leads/hr"
+          value={formatLeadsPerHour(summary?.leadsPerHour)}
+          icon={GaugeIcon}
         />
       </div>
 
@@ -115,7 +129,7 @@ export function LeadGenActivityPageClient() {
             <EmptyMedia variant="icon">
               <ClipboardCheckIcon aria-hidden="true" />
             </EmptyMedia>
-            <EmptyTitle>No Submissions Yet</EmptyTitle>
+            <EmptyTitle>No Submissions In This Range</EmptyTitle>
           </EmptyHeader>
           <EmptyContent>Captured prospects will appear here.</EmptyContent>
         </Empty>
@@ -182,7 +196,7 @@ function ActivityMetric({
   icon: Icon,
 }: {
   label: string;
-  value: number | undefined;
+  value: string | undefined;
   icon: ComponentType<SVGProps<SVGSVGElement>>;
 }) {
   return (
@@ -198,6 +212,19 @@ function ActivityMetric({
       </span>
     </div>
   );
+}
+
+function formatWholeNumber(value: number | undefined) {
+  return value === undefined ? undefined : wholeNumberFormatter.format(value);
+}
+
+function formatLeadsPerHour(value: number | null | undefined) {
+  if (value === undefined) return undefined;
+  if (value === null || !Number.isFinite(value)) return "N/A";
+  return value.toLocaleString(undefined, {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: 1,
+  });
 }
 
 function formatSource(source: ActivityRow["source"]) {
