@@ -111,7 +111,6 @@ export function OverviewExpandedLeaderboardTable({
 					<TableHead>Name</TableHead>
 					<TableHead className="text-right">Rate</TableHead>
 					<TableHead className="text-right">Booked</TableHead>
-					<TableHead className="text-right">Hours</TableHead>
 				</TableRow>
 			</TableHeader>
 			<TableBody>
@@ -133,9 +132,6 @@ export function OverviewExpandedLeaderboardTable({
 						</TableCell>
 						<TableCell className="text-right tabular-nums">
 							{formatWholeNumber(row.booked)}
-						</TableCell>
-						<TableCell className="text-right tabular-nums">
-							{formatDecimal(row.scheduledHours)}h
 						</TableCell>
 					</TableRow>
 				))}
