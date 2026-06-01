@@ -63,6 +63,10 @@ export const overviewTooltips = {
 			"Lead generation form activity for the selected business date range, including worker throughput and top performers.",
 		submissions:
 			"Total lead form submissions recorded by lead gen workers in the range.",
+		uniqueProspects:
+			"Distinct prospects submitted by lead gen workers in the selected range.",
+		duplicates:
+			"Duplicate prospect submissions recorded in the selected range.",
 		leadsPerHour:
 			"Submissions divided by scheduled lead gen hours across the range.",
 		topWorkers:
@@ -88,33 +92,38 @@ export const overviewTooltips = {
 	},
 	topDmClosers: {
 		section:
-			"DM closers ranked by bookings they created in the selected range.",
-		bookedCalls:
-			"New bookings created in the selected range and attributed to this DM closer. Follow-up bookings are excluded.",
-		totalBookedCalls:
-			"Total new bookings created in the selected range and attributed to any DM closer, not only the ranked list.",
+			"DM closers ranked by booked-call attribution in operations rollups for the selected range.",
+		scheduledCalls:
+			"Booked-call volume attributed to this DM closer in operations rollups.",
+		totalScheduled:
+			"Total booked-call volume attributed to any DM closer, not only the ranked list.",
 	},
 	phoneCloserOperations: {
 		section:
-			"Booked-call volume and commercial outcomes for each assigned phone closer in the range.",
+			"Booked-call outcomes for each assigned phone closer in operations rollups.",
 		closer:
 			"CRM user assigned to take the sales call.",
 		bookedCalls:
 			"All meetings scheduled in the range for this closer, across every status.",
+		completed:
+			"Meetings marked completed for this closer in the selected range.",
+		noShows:
+			"Meetings marked no-show for this closer in the selected range.",
+		reviewRequired:
+			"Meetings requiring operations review in the selected range.",
 		showRate:
-			"Completed calls divided by booked calls minus canceled calls.",
-		closeRate:
-			"Commissionable final payments attributed to the closer divided by completed calls.",
-		cashCollected:
-			"Total commissionable final payment revenue attributed to this closer. Excludes post-conversion and disputed payments.",
+			"Completed calls divided by booked calls.",
+		noShowRate:
+			"No-show calls divided by booked calls.",
 	},
 	topOrigins: {
 		section:
-			"Top 10 Instagram and Meta Business posts and reels per attribution team, ranked by unique prospects.",
-		team: "Attribution team assigned to the lead-gen submissions.",
+			"Top Instagram and Meta Business posts and reels ranked by submissions.",
 		origin: "Source post or reel URL where the submission originated.",
 		kind: "Content type for the origin — post or reel.",
+		submissions:
+			"Lead form submissions attributed to this post or reel in the range.",
 		uniqueProspects:
-			"Distinct prospects who submitted from this origin for the team in the range.",
+			"Distinct prospects who submitted from this post or reel in the range.",
 	},
 } as const;

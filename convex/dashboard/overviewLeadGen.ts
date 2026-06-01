@@ -13,7 +13,6 @@ import {
 import { loadCurrentScheduledHoursByWorkerDay } from "../leadGen/schedules";
 import type { DerivedOverviewRange } from "./overviewRange";
 import type { LeadGenOverview } from "./overviewTypes";
-import { leadGenWorkerMemberIdentity } from "../lib/memberIdentity";
 
 export async function getLeadGenOverviewSection(
   ctx: QueryCtx,
@@ -37,25 +36,22 @@ export async function getLeadGenOverviewSection(
     teams,
   })
     .slice(0, TOP_OVERVIEW_WORKER_LIMIT)
-    .map(async (worker) => ({
+    .map((worker) => ({
       workerId: worker.workerId,
-      worker: await leadGenWorkerMemberIdentity(
-        ctx,
-        workers.get(worker.workerId),
-      ),
       displayName: worker.displayName,
       submissions: worker.submissions,
+      uniqueProspects: worker.uniqueProspects,
       leadsPerHour: worker.leadsPerHour,
     }));
-  const topWorkers = await Promise.all(topWorkerRows);
 
   return {
     data: {
       totalSubmissions: summary.submissions,
+      uniqueProspects: summary.uniqueProspects,
       duplicates: summary.duplicates,
       scheduledHours: summary.scheduledHours,
       leadsPerHour: summary.leadsPerHour,
-      topWorkers,
+      topWorkers: topWorkerRows,
     },
     isEmpty: summary.submissions === 0,
   };

@@ -11,13 +11,12 @@ import {
 	OverviewHelpTooltip,
 	overviewTooltips,
 } from "./overview-help-tooltip";
-import { formatWholeNumber } from "./overview-formatters";
+import { formatRate, formatWholeNumber } from "./overview-formatters";
 import {
 	OverviewCappedState,
 	OverviewEmptyState,
 	OverviewErrorState,
 } from "./overview-section-state";
-import { MemberIdentity } from "./member-identity";
 
 export function TopDmClosersCard({
 	section,
@@ -38,7 +37,7 @@ export function TopDmClosersCard({
 						Top DM Closers
 					</OverviewHelpTooltip>
 				</CardTitle>
-				<CardDescription>Ranked by bookings made in range</CardDescription>
+				<CardDescription>Ranked by booked-call attribution</CardDescription>
 			</CardHeader>
 			<CardContent className="flex flex-col gap-3">
 				{section.status === "capped" ? (
@@ -52,11 +51,11 @@ export function TopDmClosersCard({
 						<div className="mb-1 flex items-center justify-between px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
 							<span>DM closer</span>
 							<OverviewHelpTooltip
-								label="Booked calls"
-								description={overviewTooltips.topDmClosers.bookedCalls}
+								label="Scheduled calls"
+								description={overviewTooltips.topDmClosers.scheduledCalls}
 								triggerClassName="text-[10px] font-semibold uppercase tracking-wider"
 							>
-								Booked calls
+								Scheduled
 							</OverviewHelpTooltip>
 						</div>
 						<ol className="flex flex-col gap-0.5" aria-label="Top DM closers">
@@ -68,28 +67,28 @@ export function TopDmClosersCard({
 									<span className="text-center text-xs font-semibold tabular-nums text-muted-foreground/60">
 										{index + 1}
 									</span>
-									<MemberIdentity
-										identity={{
-											...row.dmCloser,
-											secondaryLabel: row.teamName ?? "No team",
-										}}
-									/>
+									<div className="min-w-0">
+										<p className="truncate font-medium">{row.displayName}</p>
+										<p className="truncate text-xs text-muted-foreground">
+											{row.teamName ?? "No team"} - {formatRate(row.showRate)} show
+										</p>
+									</div>
 									<span className="font-semibold tabular-nums">
-										{formatWholeNumber(row.booked)}
+										{formatWholeNumber(row.scheduled)}
 									</span>
 								</li>
 							))}
 						</ol>
 						<div className="mt-1 flex items-center justify-between border-t px-1.5 pt-2.5 text-sm">
 							<OverviewHelpTooltip
-								label="Total booked calls"
-								description={overviewTooltips.topDmClosers.totalBookedCalls}
+								label="Total scheduled"
+								description={overviewTooltips.topDmClosers.totalScheduled}
 								triggerClassName="font-medium text-muted-foreground"
 							>
-								Total booked calls
+								Total scheduled
 							</OverviewHelpTooltip>
 							<span className="font-semibold tabular-nums">
-								{formatWholeNumber(section.data.totalBooked)}
+								{formatWholeNumber(section.data.totalScheduled)}
 							</span>
 						</div>
 					</>

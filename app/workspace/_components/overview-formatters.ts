@@ -34,13 +34,6 @@ export function formatRate(value: number | null) {
 		: rateFormatter.format(value);
 }
 
-export function formatCurrency(minorUnits: number) {
-	return `$${(minorUnits / 100).toLocaleString(undefined, {
-		minimumFractionDigits: 2,
-		maximumFractionDigits: 2,
-	})}`;
-}
-
 export function formatOriginValue(originValue: string) {
 	try {
 		const url = new URL(originValue);

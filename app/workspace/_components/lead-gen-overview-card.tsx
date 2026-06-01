@@ -17,7 +17,6 @@ import {
 	OverviewEmptyState,
 	OverviewErrorState,
 } from "./overview-section-state";
-import { MemberIdentity } from "./member-identity";
 
 export function LeadGenOverviewCard({
 	section,
@@ -51,11 +50,16 @@ export function LeadGenOverviewCard({
 					<OverviewEmptyState message={section.message} />
 				) : (
 					<>
-						<div className="grid grid-cols-2 divide-x rounded-lg border bg-muted/30">
+						<div className="grid grid-cols-3 divide-x rounded-lg border bg-muted/30">
 							<Metric
 								label="Submissions"
 								description={overviewTooltips.leadGen.submissions}
 								value={formatWholeNumber(section.data.totalSubmissions)}
+							/>
+							<Metric
+								label="Unique"
+								description={overviewTooltips.leadGen.uniqueProspects}
+								value={formatWholeNumber(section.data.uniqueProspects)}
 							/>
 							<Metric
 								label="Leads/hr"
@@ -87,7 +91,14 @@ export function LeadGenOverviewCard({
 									<span className="text-center text-xs font-semibold tabular-nums text-muted-foreground/60">
 										{index + 1}
 									</span>
-									<MemberIdentity identity={worker.worker} />
+									<div className="min-w-0">
+										<p className="truncate font-medium">
+											{worker.displayName}
+										</p>
+										<p className="truncate text-xs text-muted-foreground">
+											{formatWholeNumber(worker.uniqueProspects)} unique
+										</p>
+									</div>
 									<span className="font-semibold tabular-nums">
 										{formatWholeNumber(worker.submissions)}
 									</span>
@@ -96,14 +107,14 @@ export function LeadGenOverviewCard({
 						</ol>
 						<div className="mt-1 flex items-center justify-between border-t px-1.5 pt-2.5 text-sm">
 							<OverviewHelpTooltip
-								label="Total submissions"
-								description={overviewTooltips.leadGen.totalSubmissions}
+								label="Duplicates"
+								description={overviewTooltips.leadGen.duplicates}
 								triggerClassName="font-medium text-muted-foreground"
 							>
-								Total submissions
+								Duplicates
 							</OverviewHelpTooltip>
 							<span className="font-semibold tabular-nums">
-								{formatWholeNumber(section.data.totalSubmissions)}
+								{formatWholeNumber(section.data.duplicates)}
 							</span>
 						</div>
 					</>

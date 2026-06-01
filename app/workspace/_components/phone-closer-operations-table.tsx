@@ -12,12 +12,7 @@ import {
 	OverviewHelpTooltip,
 	overviewTooltips,
 } from "./overview-help-tooltip";
-import {
-	formatCurrency,
-	formatRate,
-	formatWholeNumber,
-} from "./overview-formatters";
-import { MemberIdentity } from "./member-identity";
+import { formatRate, formatWholeNumber } from "./overview-formatters";
 
 type ReadyData = Extract<
 	PhoneCloserOperationsSectionData,
@@ -27,7 +22,7 @@ type ReadyData = Extract<
 export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 	return (
 		<div className="overflow-x-auto rounded-md border">
-			<Table className="min-w-[36rem]">
+			<Table className="min-w-[52rem]">
 				<TableHeader>
 					<TableRow className="bg-muted/40 hover:bg-muted/40">
 						<TableHead className="font-semibold text-foreground/80">
@@ -49,6 +44,35 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 						</TableHead>
 						<TableHead className="text-right font-semibold text-foreground/80">
 							<OverviewHelpTooltip
+								label="Completed"
+								description={overviewTooltips.phoneCloserOperations.completed}
+								triggerClassName="justify-end w-full"
+							>
+								Completed
+							</OverviewHelpTooltip>
+						</TableHead>
+						<TableHead className="text-right font-semibold text-foreground/80">
+							<OverviewHelpTooltip
+								label="No shows"
+								description={overviewTooltips.phoneCloserOperations.noShows}
+								triggerClassName="justify-end w-full"
+							>
+								No shows
+							</OverviewHelpTooltip>
+						</TableHead>
+						<TableHead className="text-right font-semibold text-foreground/80">
+							<OverviewHelpTooltip
+								label="Review required"
+								description={
+									overviewTooltips.phoneCloserOperations.reviewRequired
+								}
+								triggerClassName="justify-end w-full"
+							>
+								Review req.
+							</OverviewHelpTooltip>
+						</TableHead>
+						<TableHead className="text-right font-semibold text-foreground/80">
+							<OverviewHelpTooltip
 								label="Show rate"
 								description={overviewTooltips.phoneCloserOperations.showRate}
 								triggerClassName="justify-end w-full"
@@ -58,22 +82,11 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 						</TableHead>
 						<TableHead className="text-right font-semibold text-foreground/80">
 							<OverviewHelpTooltip
-								label="Close rate"
-								description={overviewTooltips.phoneCloserOperations.closeRate}
+								label="No-show rate"
+								description={overviewTooltips.phoneCloserOperations.noShowRate}
 								triggerClassName="justify-end w-full"
 							>
-								Close rate
-							</OverviewHelpTooltip>
-						</TableHead>
-						<TableHead className="text-right font-semibold text-foreground/80">
-							<OverviewHelpTooltip
-								label="Cash collected"
-								description={
-									overviewTooltips.phoneCloserOperations.cashCollected
-								}
-								triggerClassName="justify-end w-full"
-							>
-								Cash collected
+								No-show rate
 							</OverviewHelpTooltip>
 						</TableHead>
 					</TableRow>
@@ -81,24 +94,28 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 				<TableBody>
 					{data.rows.map((row) => (
 						<TableRow key={row.closerId}>
-							<TableCell className="max-w-64">
-								<MemberIdentity identity={row.closer} />
+							<TableCell className="max-w-64 truncate font-medium">
+								{row.closerName}
 							</TableCell>
 							<NumericCell value={formatWholeNumber(row.scheduled)} />
+							<NumericCell value={formatWholeNumber(row.completed)} />
+							<NumericCell value={formatWholeNumber(row.noShows)} />
+							<NumericCell value={formatWholeNumber(row.reviewRequired)} />
 							<NumericCell value={formatRate(row.showRate)} />
-							<NumericCell value={formatRate(row.closeRate)} />
-							<NumericCell value={formatCurrency(row.cashCollectedMinor)} />
+							<NumericCell value={formatRate(row.noShowRate)} />
 						</TableRow>
 					))}
 					<TableRow className="border-t-2 bg-muted/30 hover:bg-muted/30">
 						<TableCell className="font-semibold">Total</TableCell>
 						<NumericCell strong value={formatWholeNumber(data.totals.scheduled)} />
-						<NumericCell strong value={formatRate(data.totals.showRate)} />
-						<NumericCell strong value={formatRate(data.totals.closeRate)} />
+						<NumericCell strong value={formatWholeNumber(data.totals.completed)} />
+						<NumericCell strong value={formatWholeNumber(data.totals.noShows)} />
 						<NumericCell
 							strong
-							value={formatCurrency(data.totals.cashCollectedMinor)}
+							value={formatWholeNumber(data.totals.reviewRequired)}
 						/>
+						<NumericCell strong value={formatRate(data.totals.showRate)} />
+						<NumericCell strong value={formatRate(data.totals.noShowRate)} />
 					</TableRow>
 				</TableBody>
 			</Table>
