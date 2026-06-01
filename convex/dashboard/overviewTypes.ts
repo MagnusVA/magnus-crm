@@ -28,15 +28,10 @@ export type SectionResult<T> =
 
 export type LeadGenOverview = {
   totalSubmissions: number;
-  uniqueProspects: number;
-  duplicates: number;
-  scheduledHours: number;
-  leadsPerHour: number | null;
   topWorkers: Array<{
     workerId: Id<"leadGenWorkers">;
     displayName: string;
     submissions: number;
-    uniqueProspects: number;
     scheduledHours: number;
     leadsPerHour: number | null;
   }>;

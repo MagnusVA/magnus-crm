@@ -16,8 +16,21 @@ export function OverviewTopCards({
 	overview: OverviewDashboard;
 	queryRange: DashboardRangeInput;
 }) {
-	const [expandedKind, setExpandedKind] =
-		useState<ExpandedLeaderboardKind | null>(null);
+	const [expanded, setExpanded] = useState<
+		Record<ExpandedLeaderboardKind, boolean>
+	>({
+		lead_gen: false,
+		qualifiers: false,
+		dm_closers: false,
+	});
+
+	const setCardExpanded =
+		(kind: ExpandedLeaderboardKind) => (open: boolean) => {
+			setExpanded((current) => ({
+				...current,
+				[kind]: open,
+			}));
+		};
 
 	return (
 		<section
@@ -27,26 +40,20 @@ export function OverviewTopCards({
 			<LeadGenOverviewCard
 				section={overview.leadGen}
 				range={queryRange}
-				expanded={expandedKind === "lead_gen"}
-				onExpandedChange={(open) =>
-					setExpandedKind(open ? "lead_gen" : null)
-				}
+				expanded={expanded.lead_gen}
+				onExpandedChange={setCardExpanded("lead_gen")}
 			/>
 			<TopQualifiersCard
 				section={overview.topQualifiers}
 				range={queryRange}
-				expanded={expandedKind === "qualifiers"}
-				onExpandedChange={(open) =>
-					setExpandedKind(open ? "qualifiers" : null)
-				}
+				expanded={expanded.qualifiers}
+				onExpandedChange={setCardExpanded("qualifiers")}
 			/>
 			<TopDmClosersCard
 				section={overview.topDmClosers}
 				range={queryRange}
-				expanded={expandedKind === "dm_closers"}
-				onExpandedChange={(open) =>
-					setExpandedKind(open ? "dm_closers" : null)
-				}
+				expanded={expanded.dm_closers}
+				onExpandedChange={setCardExpanded("dm_closers")}
 			/>
 		</section>
 	);

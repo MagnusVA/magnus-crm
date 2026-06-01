@@ -50,10 +50,10 @@ export function LeadGenOverviewCard({
 					</OverviewHelpTooltip>
 				</CardTitle>
 				<CardDescription>
-					Submissions, throughput, and top generators
+					Ranked by leads per scheduled hour
 				</CardDescription>
 			</CardHeader>
-			<CardContent className="flex flex-col gap-4">
+			<CardContent className="flex flex-col gap-3">
 				{section.status === "capped" ? (
 					<OverviewCappedState message={section.message} />
 				) : section.status === "error" ? (
@@ -62,23 +62,6 @@ export function LeadGenOverviewCard({
 					<OverviewEmptyState message={section.message} />
 				) : (
 					<>
-						<div className="grid grid-cols-3 divide-x rounded-lg border bg-muted/30">
-							<Metric
-								label="Submissions"
-								description={overviewTooltips.leadGen.submissions}
-								value={formatWholeNumber(section.data.totalSubmissions)}
-							/>
-							<Metric
-								label="Unique"
-								description={overviewTooltips.leadGen.uniqueProspects}
-								value={formatWholeNumber(section.data.uniqueProspects)}
-							/>
-							<Metric
-								label="Leads/hr"
-								description={overviewTooltips.leadGen.leadsPerHour}
-								value={formatDecimal(section.data.leadsPerHour)}
-							/>
-						</div>
 						{!expanded ? (
 							<>
 								<div className="flex items-center justify-between px-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -135,14 +118,14 @@ export function LeadGenOverviewCard({
 						) : null}
 						<div className="mt-1 flex items-center justify-between border-t px-1.5 pt-2.5 text-sm">
 							<OverviewHelpTooltip
-								label="Duplicates"
-								description={overviewTooltips.leadGen.duplicates}
+								label="Total submissions"
+								description={overviewTooltips.leadGen.totalSubmissions}
 								triggerClassName="font-medium text-muted-foreground"
 							>
-								Duplicates
+								Total submissions
 							</OverviewHelpTooltip>
 							<span className="font-semibold tabular-nums">
-								{formatWholeNumber(section.data.duplicates)}
+								{formatWholeNumber(section.data.totalSubmissions)}
 							</span>
 						</div>
 					</>
@@ -157,30 +140,5 @@ export function LeadGenOverviewCard({
 				) : null}
 			</CardContent>
 		</Card>
-	);
-}
-
-function Metric({
-	label,
-	description,
-	value,
-}: {
-	label: string;
-	description: string;
-	value: string;
-}) {
-	return (
-		<div className="min-w-0 px-3 py-2.5">
-			<OverviewHelpTooltip
-				label={label}
-				description={description}
-				triggerClassName="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-			>
-				{label}
-			</OverviewHelpTooltip>
-			<p className="mt-0.5 text-xl font-semibold tabular-nums tracking-tight">
-				{value}
-			</p>
-		</div>
 	);
 }

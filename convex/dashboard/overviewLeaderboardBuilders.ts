@@ -189,7 +189,6 @@ export async function buildLeadGenEfficiencyRows(
         worker?.email ??
         "Unknown worker",
       submissions,
-      uniqueProspects: performance?.uniqueProspects ?? 0,
       scheduledHours,
       leadsPerHour:
         scheduledHours > 0 ? submissions / scheduledHours : null,
