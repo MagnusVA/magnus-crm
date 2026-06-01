@@ -11,8 +11,7 @@ export function LeadGenActivitySkeleton() {
         <Skeleton className="h-8 w-36" />
         <Skeleton className="h-4 w-80 max-w-full" />
       </div>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <Skeleton className="h-20" />
+      <div className="grid gap-3 sm:grid-cols-2">
         <Skeleton className="h-20" />
         <Skeleton className="h-20" />
       </div>
