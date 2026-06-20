@@ -413,7 +413,7 @@ The file ownership table is the most important section for preventing merge conf
 ### 4. Quality Gates are Deployment Checkpoints
 
 Each quality gate verifies that the system is in a known-good state before proceeding. The gate checks should be:
-- **Automated where possible:** `npx convex dev`, `pnpm tsc --noEmit`, test suite
+- **Automated where possible:** `npx convex dev --once`, `pnpm tsc --noEmit`, test suite
 - **Manual where necessary:** "Navigate to `/workspace`, verify layout renders"
 - **Feature-specific:** "Invite a test user, verify CRM record is created before they log in"
 

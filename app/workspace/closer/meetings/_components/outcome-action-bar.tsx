@@ -57,6 +57,7 @@ export function OutcomeActionBar({
   compact = false,
 }: OutcomeActionBarProps) {
   const [showNoShowDialog, setShowNoShowDialog] = useState(false);
+  const [followUpDialogOpen, setFollowUpDialogOpen] = useState(false);
   const viewerIsCloser = viewerRole === "closer";
   const isAdmin =
     viewerRole === "tenant_master" || viewerRole === "tenant_admin";
@@ -70,8 +71,10 @@ export function OutcomeActionBar({
     (viewerIsCloser || isAdmin) &&
     (isAdmin || eligible) &&
     !hasActiveFollowUp;
+  const shouldKeepFollowUpDialogMounted =
+    canRecordScheduledOutcome || followUpDialogOpen;
 
-  if (isNoShow || (!joinUrl && !canRecordScheduledOutcome)) {
+  if (isNoShow || (!joinUrl && !shouldKeepFollowUpDialogMounted)) {
     return null;
   }
 
@@ -89,19 +92,28 @@ export function OutcomeActionBar({
         ) : null}
 
         {canRecordScheduledOutcome ? (
+          <PaymentFormDialog
+            opportunityId={opportunity._id}
+            meetingId={meeting._id}
+            onSuccess={onStatusChanged}
+            compact
+          />
+        ) : null}
+
+        {shouldKeepFollowUpDialogMounted ? (
+          <FollowUpDialog
+            key="follow-up-dialog"
+            opportunityId={opportunity._id}
+            meetingId={meeting._id}
+            open={followUpDialogOpen}
+            onOpenChange={setFollowUpDialogOpen}
+            onSuccess={onStatusChanged}
+            compact
+          />
+        ) : null}
+
+        {canRecordScheduledOutcome ? (
           <>
-            <PaymentFormDialog
-              opportunityId={opportunity._id}
-              meetingId={meeting._id}
-              onSuccess={onStatusChanged}
-              compact
-            />
-            <FollowUpDialog
-              opportunityId={opportunity._id}
-              meetingId={meeting._id}
-              onSuccess={onStatusChanged}
-              compact
-            />
             <Button
               variant="outline"
               size="sm"
@@ -147,38 +159,50 @@ export function OutcomeActionBar({
 
         {joinUrl && canRecordScheduledOutcome ? <Separator /> : null}
 
-        {canRecordScheduledOutcome ? (
+        {shouldKeepFollowUpDialogMounted ? (
           <div className="flex flex-col gap-2">
-            <PaymentFormDialog
-              opportunityId={opportunity._id}
-              meetingId={meeting._id}
-              onSuccess={onStatusChanged}
-            />
+            {canRecordScheduledOutcome ? (
+              <PaymentFormDialog
+                opportunityId={opportunity._id}
+                meetingId={meeting._id}
+                onSuccess={onStatusChanged}
+              />
+            ) : null}
 
             <FollowUpDialog
+              key="follow-up-dialog"
               opportunityId={opportunity._id}
               meetingId={meeting._id}
+              open={followUpDialogOpen}
+              onOpenChange={setFollowUpDialogOpen}
               onSuccess={onStatusChanged}
             />
 
-            <Separator />
+            {canRecordScheduledOutcome ? <Separator /> : null}
 
-            <Button variant="outline" onClick={() => setShowNoShowDialog(true)}>
-              <UserXIcon data-icon="inline-start" />
-              Mark No-Show
-            </Button>
-            <MarkNoShowDialog
-              open={showNoShowDialog}
-              onOpenChange={setShowNoShowDialog}
-              meetingId={meeting._id}
-              onSuccess={onStatusChanged}
-            />
+            {canRecordScheduledOutcome ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowNoShowDialog(true)}
+                >
+                  <UserXIcon data-icon="inline-start" />
+                  Mark No-Show
+                </Button>
+                <MarkNoShowDialog
+                  open={showNoShowDialog}
+                  onOpenChange={setShowNoShowDialog}
+                  meetingId={meeting._id}
+                  onSuccess={onStatusChanged}
+                />
 
-            <MarkLostDialog
-              opportunityId={opportunity._id}
-              meetingId={meeting._id}
-              onSuccess={onStatusChanged}
-            />
+                <MarkLostDialog
+                  opportunityId={opportunity._id}
+                  meetingId={meeting._id}
+                  onSuccess={onStatusChanged}
+                />
+              </>
+            ) : null}
           </div>
         ) : null}
       </CardContent>
