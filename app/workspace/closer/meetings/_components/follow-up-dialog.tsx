@@ -51,6 +51,8 @@ import posthog from "posthog-js";
 type FollowUpDialogProps = {
   opportunityId: Id<"opportunities">;
   meetingId?: Id<"meetings">;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   onSuccess?: () => Promise<void>;
 };
 
@@ -69,27 +71,33 @@ type DialogPath = "selection" | "scheduling_link" | "manual_reminder";
 export function FollowUpDialog({
   opportunityId,
   meetingId,
+  open: controlledOpen,
+  onOpenChange,
   onSuccess,
   compact,
 }: FollowUpDialogProps & { compact?: boolean }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
   const [path, setPath] = useState<DialogPath>("selection");
+  const open = controlledOpen ?? internalOpen;
+
+  const handleOpenChange = (value: boolean) => {
+    if (controlledOpen === undefined) {
+      setInternalOpen(value);
+    }
+    onOpenChange?.(value);
+    if (!value) {
+      setTimeout(() => setPath("selection"), 200);
+    }
+  };
 
   const handleClose = () => {
-    setOpen(false);
-    // Reset to selection after close animation completes
-    setTimeout(() => setPath("selection"), 200);
+    handleOpenChange(false);
   };
 
   return (
     <Dialog
       open={open}
-      onOpenChange={(value) => {
-        setOpen(value);
-        if (!value) {
-          setTimeout(() => setPath("selection"), 200);
-        }
-      }}
+      onOpenChange={handleOpenChange}
     >
       <DialogTrigger asChild>
         <Button variant="outline" size={compact ? "sm" : "lg"}>
