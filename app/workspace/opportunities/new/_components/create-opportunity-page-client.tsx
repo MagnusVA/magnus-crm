@@ -66,6 +66,8 @@ type CreateOpportunityResult = {
 	leadWasCreated: boolean;
 };
 
+type SuccessRedirectTarget = "opportunity" | "leadCustomer";
+
 const SOCIAL_PLATFORM_OPTIONS: Array<{
 	value: SocialPlatform;
 	label: string;
@@ -111,17 +113,28 @@ function extractSubmitErrorMessage(error: unknown) {
 	return sanitized || fallback;
 }
 
+function getSuccessHref(
+	result: CreateOpportunityResult,
+	target: SuccessRedirectTarget,
+) {
+	if (target === "leadCustomer") {
+		return `/workspace/leads-customers/${result.leadId}?opportunityId=${result.opportunityId}`;
+	}
+
+	return `/workspace/opportunities/${result.opportunityId}`;
+}
+
 export function CreateOpportunityPageClient({
 	backHref = "/workspace/opportunities",
 	backLabel = "Back to opportunities",
 	cancelHref = "/workspace/opportunities",
-	successHref = (result) => `/workspace/opportunities/${result.opportunityId}`,
+	successRedirectTarget = "opportunity",
 	title = "New opportunity",
 }: {
 	backHref?: string;
 	backLabel?: string;
 	cancelHref?: string;
-	successHref?: (result: CreateOpportunityResult) => string;
+	successRedirectTarget?: SuccessRedirectTarget;
 	title?: string;
 }) {
 	const router = useRouter();
@@ -207,7 +220,7 @@ export function CreateOpportunityPageClient({
 			});
 			toast.success("Opportunity created");
 			requestIdRef.current = crypto.randomUUID();
-			router.push(successHref(result));
+			router.push(getSuccessHref(result, successRedirectTarget));
 		} catch (error) {
 			posthog.captureException(error);
 			const message = extractSubmitErrorMessage(error);
