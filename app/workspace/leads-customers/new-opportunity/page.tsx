@@ -14,9 +14,7 @@ export default async function NewLeadCustomerOpportunityPage() {
 				backHref="/workspace/leads-customers"
 				backLabel="Back to Leads & Customers"
 				cancelHref="/workspace/leads-customers"
-				successHref={(result) =>
-					`/workspace/leads-customers/${result.leadId}?opportunityId=${result.opportunityId}`
-				}
+				successRedirectTarget="leadCustomer"
 				title="New Side Deal"
 			/>
 		</Suspense>
