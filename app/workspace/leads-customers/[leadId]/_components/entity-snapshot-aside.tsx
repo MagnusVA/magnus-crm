@@ -3,17 +3,24 @@
 import {
 	FingerprintIcon,
 	ListTreeIcon,
+	MegaphoneIcon,
 	SlidersHorizontalIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { InitialSourceBadge } from "@/app/workspace/_components/initial-source-badge";
 import {
 	LabelWithInfoTooltip,
 	leadsCustomersTooltips,
+	SimpleTooltip,
 	TruncatingTooltip,
 } from "../../_components/entity-ui-tooltips";
 import { useEntityDetail } from "./entity-detail-context";
 import { formatToken } from "./entity-detail-formatters";
 import { MicroLabel, SectionShell } from "./entity-detail-ui";
+
+const incomeFormatter = new Intl.NumberFormat("en-US", {
+	maximumFractionDigits: 0,
+});
 
 export function EntitySnapshotAside() {
 	const { lead, customer, opportunities, identifiers } = useEntityDetail();
@@ -55,6 +62,37 @@ export function EntitySnapshotAside() {
 						description={leadsCustomersTooltips.identityChain}
 					/>
 				</p>
+			</SectionShell>
+
+			<SectionShell
+				title="DM Portal"
+				icon={<MegaphoneIcon aria-hidden="true" />}
+				bodyClassName="p-4"
+			>
+				<dl className="flex flex-col gap-3">
+					<div className="flex flex-col gap-1">
+						<dt>
+							<MicroLabel>Initial Source</MicroLabel>
+						</dt>
+						<dd>
+							<InitialSourceBadge source={lead.initialSource ?? null} />
+						</dd>
+					</div>
+					<div className="flex flex-col gap-1">
+						<dt>
+							<MicroLabel>Self-Reported Income</MicroLabel>
+						</dt>
+						<dd>
+							<SimpleTooltip content="Self-reported by the lead — entered via the DM portal.">
+								<span className="cursor-default text-sm font-medium tabular-nums">
+									{lead.selfReportedIncome === undefined
+										? "—"
+										: incomeFormatter.format(lead.selfReportedIncome)}
+								</span>
+							</SimpleTooltip>
+						</dd>
+					</div>
+				</dl>
 			</SectionShell>
 
 			<SectionShell

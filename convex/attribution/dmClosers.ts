@@ -212,6 +212,47 @@ export const updateDmCloser = mutation({
   },
 });
 
+// NIM-17: cap for the per-DM-closer hourly contract rate in minor units
+// (10,000,000 minor units = 100,000.00 in major units per hour).
+const MAX_HOURLY_RATE_MINOR = 10_000_000;
+
+// NIM-17: set or clear a DM closer's hourly contract rate in minor currency
+// units (e.g. cents). Pass null to clear the rate.
+export const setDmCloserHourlyRate = mutation({
+  args: {
+    dmCloserId: v.id("dmClosers"),
+    hourlyRateMinor: v.union(v.number(), v.null()),
+  },
+  returns: v.id("dmClosers"),
+  handler: async (ctx, args) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+    const dmCloser = await ctx.db.get(args.dmCloserId);
+    if (!dmCloser || dmCloser.tenantId !== tenantId) {
+      throw new Error("DM closer not found.");
+    }
+
+    if (
+      args.hourlyRateMinor !== null &&
+      (!Number.isInteger(args.hourlyRateMinor) ||
+        args.hourlyRateMinor < 0 ||
+        args.hourlyRateMinor > MAX_HOURLY_RATE_MINOR)
+    ) {
+      throw new Error(
+        `Hourly rate must be an integer between 0 and ${MAX_HOURLY_RATE_MINOR} minor units.`,
+      );
+    }
+
+    await ctx.db.patch(args.dmCloserId, {
+      hourlyRateMinor: args.hourlyRateMinor ?? undefined,
+      updatedAt: Date.now(),
+    });
+    return args.dmCloserId;
+  },
+});
+
 export const setDmCloserActive = mutation({
   args: {
     dmCloserId: v.id("dmClosers"),

@@ -23,13 +23,10 @@ export default async function LegacyPipelinePage({
   const period = firstString(params.period);
 
   if (status && PHONE_SALES_STATUSES.has(status)) {
-    const next = new URLSearchParams({
-      tab: "phone-sales",
-      status,
-    });
+    const next = new URLSearchParams({ status });
     if (closer) next.set("closerId", closer);
     if (period) next.set("period", period);
-    redirect(`/workspace/operations?${next.toString()}`);
+    redirect(`/workspace/operations/sales-calls?${next.toString()}`);
   }
 
   const next = new URLSearchParams();

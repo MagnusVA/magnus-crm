@@ -33,7 +33,7 @@ const adminPages = [
   { label: "Overview", href: "/workspace", icon: LayoutDashboardIcon, shortcut: "1" },
   { label: "Operations", href: "/workspace/operations", icon: KanbanIcon, shortcut: "2" },
   { label: "Leads & Customers", href: "/workspace/leads-customers", icon: ContactIcon, shortcut: "3" },
-  { label: "Lead Gen Ops", href: "/workspace/lead-gen", icon: ClipboardListIcon },
+  { label: "Lead Gen Ops", href: "/workspace/operations/lead-gen", icon: ClipboardListIcon },
   { label: "Lead Gen Settings", href: "/workspace/lead-gen/settings", icon: SettingsIcon },
   { label: "Team", href: "/workspace/team", icon: UsersIcon },
   { label: "Settings", href: "/workspace/settings", icon: SettingsIcon },

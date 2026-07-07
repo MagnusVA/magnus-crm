@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
 import { usePathname, useRouter } from "next/navigation";
@@ -19,21 +19,33 @@ import {
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Separator } from "@/components/ui/separator";
 import {
   AlarmClockCheckIcon,
   ActivityIcon,
   BarChart3Icon,
-  ClipboardListIcon,
+  CalendarCheckIcon,
+  ChevronRightIcon,
+  ClipboardCheckIcon,
   ClockIcon,
   ContactIcon,
   DollarSignIcon,
   KanbanIcon,
   LayoutDashboardIcon,
   LogOutIcon,
+  MegaphoneIcon,
   MessageSquareTextIcon,
+  PhoneCallIcon,
   SettingsIcon,
   TargetIcon,
   TrendingUpIcon,
@@ -71,6 +83,7 @@ type NavItem = {
   label: string;
   icon: LucideIcon;
   exact?: boolean;
+  children?: NavItem[];
 };
 
 const leadsCustomersNavItem: NavItem = {
@@ -79,10 +92,37 @@ const leadsCustomersNavItem: NavItem = {
   icon: ContactIcon,
 };
 
+const operationsNavItem: NavItem = {
+  href: "/workspace/operations",
+  label: "Operations",
+  icon: KanbanIcon,
+  children: [
+    {
+      href: "/workspace/operations/lead-gen",
+      label: "Lead Gen",
+      icon: MegaphoneIcon,
+    },
+    {
+      href: "/workspace/operations/qualifications",
+      label: "Qualifications",
+      icon: ClipboardCheckIcon,
+    },
+    {
+      href: "/workspace/operations/booked-calls",
+      label: "Booked Calls",
+      icon: CalendarCheckIcon,
+    },
+    {
+      href: "/workspace/operations/sales-calls",
+      label: "Sales Calls",
+      icon: PhoneCallIcon,
+    },
+  ],
+};
+
 const adminNavItems: NavItem[] = [
   { href: "/workspace", label: "Overview", icon: LayoutDashboardIcon, exact: true },
-  { href: "/workspace/operations", label: "Operations", icon: KanbanIcon },
-  { href: "/workspace/lead-gen", label: "Lead Gen", icon: ClipboardListIcon },
+  operationsNavItem,
   leadsCustomersNavItem,
   { href: "/workspace/team", label: "Team", icon: UsersIcon },
   { href: "/workspace/settings", label: "Settings", icon: SettingsIcon },
@@ -135,6 +175,60 @@ function navForRole(
   }
   if (role === "lead_generator") return leadGeneratorNavItems;
   return closerNavItems;
+}
+
+/**
+ * Sidebar nav item with a collapsible submenu (shadcn sidebar pattern:
+ * Collapsible wrapping SidebarMenuItem, trigger on the parent button).
+ * Forced open while the pathname is inside the section; otherwise the
+ * user can toggle it freely (default closed).
+ */
+function CollapsibleNavItem({
+  item,
+  pathname,
+}: {
+  item: NavItem & { children: NavItem[] };
+  pathname: string;
+}) {
+  const isSectionActive = pathname.startsWith(item.href);
+  const [userOpen, setUserOpen] = useState(isSectionActive);
+  const open = isSectionActive || userOpen;
+
+  return (
+    <Collapsible
+      asChild
+      open={open}
+      onOpenChange={setUserOpen}
+      className="group/collapsible"
+    >
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
+          <SidebarMenuButton tooltip={item.label} isActive={isSectionActive}>
+            <item.icon />
+            <span>{item.label}</span>
+            <ChevronRightIcon className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90" />
+          </SidebarMenuButton>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            {item.children.map((child) => (
+              <SidebarMenuSubItem key={child.href}>
+                <SidebarMenuSubButton
+                  asChild
+                  isActive={pathname.startsWith(child.href)}
+                >
+                  <Link href={child.href}>
+                    <child.icon />
+                    <span>{child.label}</span>
+                  </Link>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
+  );
 }
 
 function homeHrefForRole(role: CrmRole, isAdmin: boolean) {
@@ -315,6 +409,15 @@ function WorkspaceShellClientInner({
             <SidebarGroupContent>
               <SidebarMenu>
                 {navItems.map((item) => {
+                  if (item.children) {
+                    return (
+                      <CollapsibleNavItem
+                        key={item.href}
+                        item={{ ...item, children: item.children }}
+                        pathname={pathname}
+                      />
+                    );
+                  }
                   const isActive = item.exact
                     ? pathname === item.href
                     : pathname.startsWith(item.href);

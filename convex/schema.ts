@@ -493,6 +493,18 @@ export default defineSchema({
     searchText: v.optional(v.string()),
     // === End Feature C ===
     // === End Feature E ===
+
+    // === NIM-17: Operations redesign ===
+    // Manual classification of where the lead originally came from.
+    // Set by DM closers in the link portal (Phase 5), shown in Booked Calls
+    // booking rows and lead detail pages.
+    initialSource: v.optional(
+      v.union(v.literal("cta"), v.literal("inbound"), v.literal("wechat")),
+    ),
+    // The lead's self-reported income, entered by DM closers in the portal.
+    // Plain numeric field; unrelated to paymentRecords / cash collected.
+    selfReportedIncome: v.optional(v.number()),
+    // === End NIM-17 ===
   })
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_email", ["tenantId", "email"])
@@ -549,6 +561,26 @@ export default defineSchema({
     .index("by_sourceLeadId", ["sourceLeadId"])
     .index("by_targetLeadId", ["targetLeadId"]),
   // === End Feature C ===
+
+  // === NIM-17: Lead notes ===
+  // Free-form notes on a lead. Written by DM closers from the link portal
+  // (authorKind "dm_closer" + dmCloserId) today; authorKind "user" + userId
+  // keeps the door open for workspace-side notes later. Soft-deleted via
+  // deletedAt so portal edits/deletions stay auditable.
+  leadNotes: defineTable({
+    tenantId: v.id("tenants"),
+    leadId: v.id("leads"),
+    content: v.string(),
+    createdAt: v.number(),
+    editedAt: v.optional(v.number()),
+    deletedAt: v.optional(v.number()),
+    authorKind: v.union(v.literal("dm_closer"), v.literal("user")),
+    dmCloserId: v.optional(v.id("dmClosers")),
+    userId: v.optional(v.id("users")),
+  })
+    .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
+    .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"]),
+  // === End NIM-17 ===
 
   leadCustomerSearchRows: defineTable({
     tenantId: v.id("tenants"),
@@ -617,6 +649,9 @@ export default defineSchema({
     utmSource: v.string(),
     normalizedUtmSource: v.string(),
     isActive: v.boolean(),
+    // NIM-17: per-team daily booked-calls goal for the Booked Calls page.
+    // Cleared (undefined) when no goal is configured.
+    bookingDailyQuota: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -636,6 +671,9 @@ export default defineSchema({
     normalizedUtmMedium: v.string(),
     userId: v.optional(v.id("users")),
     isActive: v.boolean(),
+    // NIM-17: per-DM-closer hourly contract rate in minor currency units
+    // (e.g. cents). Used for booked/hr cost columns on the Booked Calls page.
+    hourlyRateMinor: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
@@ -717,6 +755,20 @@ export default defineSchema({
       "eventTypeConfigId",
       "copiedAt",
     ]),
+
+  // NIM-17 Phase 5: audit trail + rate-limit window for lead profile edits
+  // (initialSource / selfReportedIncome) made from the shared-password DM
+  // closer portal. sessionIdHash mirrors linkPortalCopyEvents auditing.
+  linkPortalLeadEdits: defineTable({
+    tenantId: v.id("tenants"),
+    leadId: v.id("leads"),
+    dmCloserId: v.id("dmClosers"),
+    sessionIdHash: v.string(),
+    createdAt: v.number(),
+    changedFields: v.array(v.string()),
+  })
+    .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
+    .index("by_tenantId_and_leadId", ["tenantId", "leadId"]),
 
   opportunities: defineTable({
     tenantId: v.id("tenants"),

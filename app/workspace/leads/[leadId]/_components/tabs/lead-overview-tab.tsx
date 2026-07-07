@@ -1,9 +1,12 @@
 "use client";
 
+import type { ReactNode } from "react";
 import {
+	BanknoteIcon,
 	CalendarIcon,
 	FingerprintIcon,
 	LayersIcon,
+	MegaphoneIcon,
 	MessageSquareTextIcon,
 	UsersIcon,
 } from "lucide-react";
@@ -15,8 +18,14 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { Doc } from "@/convex/_generated/dataModel";
+import { InitialSourceBadge } from "@/app/workspace/_components/initial-source-badge";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
@@ -71,6 +80,10 @@ const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	timeStyle: "short",
 });
 
+const INCOME_FORMATTER = new Intl.NumberFormat("en-US", {
+	maximumFractionDigits: 0,
+});
+
 function formatToken(value: string) {
 	return value.replace(/_/g, " ");
 }
@@ -94,7 +107,11 @@ export function LeadOverviewTab({
 				year: "numeric",
 			});
 
-	const stats = [
+	const stats: Array<{
+		label: string;
+		value: ReactNode;
+		icon: typeof CalendarIcon;
+	}> = [
 		{
 			label: "First Seen",
 			value: firstSeenDate,
@@ -115,21 +132,46 @@ export function LeadOverviewTab({
 			value: String(identifiers.length),
 			icon: FingerprintIcon,
 		},
+		{
+			label: "Initial Source",
+			value: <InitialSourceBadge source={lead.initialSource ?? null} />,
+			icon: MegaphoneIcon,
+		},
+		{
+			label: "Self-Reported Income",
+			value: (
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<span className="cursor-default tabular-nums">
+							{lead.selfReportedIncome === undefined
+								? "—"
+								: INCOME_FORMATTER.format(lead.selfReportedIncome)}
+						</span>
+					</TooltipTrigger>
+					<TooltipContent className="max-w-xs text-pretty">
+						Self-reported by the lead — entered via the DM portal.
+					</TooltipContent>
+				</Tooltip>
+			),
+			icon: BanknoteIcon,
+		},
 	];
 
 	return (
 		<div className="flex flex-col gap-6">
 			{/* Summary stats */}
-			<div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+			<div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-6">
 				{stats.map((stat) => (
 					<Card key={stat.label}>
 						<CardContent className="flex items-center gap-3 p-4">
 							<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted">
 								<stat.icon className="h-5 w-5 text-muted-foreground" />
 							</div>
-							<div>
-								<p className="text-sm text-muted-foreground">{stat.label}</p>
-								<p className="text-lg font-semibold">{stat.value}</p>
+							<div className="min-w-0">
+								<p className="truncate text-sm text-muted-foreground">
+									{stat.label}
+								</p>
+								<div className="text-lg font-semibold">{stat.value}</div>
 							</div>
 						</CardContent>
 					</Card>

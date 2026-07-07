@@ -2,7 +2,15 @@ import { fetchAction } from "convex/nextjs";
 import { cookies } from "next/headers";
 import { api } from "@/convex/_generated/api";
 import { DmLinkPortalClient } from "./_components/dm-link-portal-client";
-import { logoutPortal, recordPortalCopy, unlockPortal } from "./actions";
+import {
+	addPortalLeadNote,
+	listPortalLeadNotes,
+	logoutPortal,
+	recordPortalCopy,
+	searchPortalLeads,
+	unlockPortal,
+	updatePortalLeadProfile,
+} from "./actions";
 import {
 	normalizePortalSlugParam,
 	portalSessionCookieName,
@@ -37,6 +45,10 @@ export default async function DmLinksPage({ params }: Props) {
 			unlockPortal={unlockPortal}
 			logoutPortal={logoutPortal}
 			recordPortalCopy={recordPortalCopy}
+			searchPortalLeads={searchPortalLeads}
+			updatePortalLeadProfile={updatePortalLeadProfile}
+			addPortalLeadNote={addPortalLeadNote}
+			listPortalLeadNotes={listPortalLeadNotes}
 		/>
 	);
 }

@@ -3,6 +3,9 @@ import { mutation, query } from "../_generated/server";
 import { normalizeAttributionTeamInput } from "../lib/attribution/teamInput";
 import { requireTenantUser } from "../requireTenantUser";
 
+// Matches MAX_DAILY_TEAM_GOAL in reporting/slackQualifications.ts.
+const MAX_BOOKING_DAILY_QUOTA = 5000;
+
 export const listTeams = query({
   args: {},
   handler: async (ctx) => {
@@ -94,6 +97,43 @@ export const updateTeam = mutation({
       displayName: normalized.displayName,
       utmSource: normalized.utmSource,
       normalizedUtmSource: normalized.normalizedUtmSource,
+      updatedAt: Date.now(),
+    });
+    return args.teamId;
+  },
+});
+
+// NIM-17: set or clear the per-team daily booked-calls goal shown on the
+// Booked Calls page. Pass null to clear the goal.
+export const setTeamBookingQuota = mutation({
+  args: {
+    teamId: v.id("attributionTeams"),
+    bookingDailyQuota: v.union(v.number(), v.null()),
+  },
+  returns: v.id("attributionTeams"),
+  handler: async (ctx, args) => {
+    const { tenantId } = await requireTenantUser(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+    const team = await ctx.db.get(args.teamId);
+    if (!team || team.tenantId !== tenantId) {
+      throw new Error("Attribution team not found.");
+    }
+
+    if (
+      args.bookingDailyQuota !== null &&
+      (!Number.isInteger(args.bookingDailyQuota) ||
+        args.bookingDailyQuota < 0 ||
+        args.bookingDailyQuota > MAX_BOOKING_DAILY_QUOTA)
+    ) {
+      throw new Error(
+        `Daily booking goal must be an integer between 0 and ${MAX_BOOKING_DAILY_QUOTA}.`,
+      );
+    }
+
+    await ctx.db.patch(args.teamId, {
+      bookingDailyQuota: args.bookingDailyQuota ?? undefined,
       updatedAt: Date.now(),
     });
     return args.teamId;
