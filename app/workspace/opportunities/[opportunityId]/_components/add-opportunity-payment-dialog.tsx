@@ -285,15 +285,15 @@ export function AddOpportunityPaymentDialog({
                   )}
                 />
 
-                <FormItem>
-                  <FormLabel>Program</FormLabel>
+                <div className="flex flex-col gap-2">
+                  <span className="text-sm font-medium">Program</span>
                   <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
                     {programName ?? "—"}
                   </div>
-                  <FormDescription>
+                  <p className="text-sm text-muted-foreground">
                     Payments inherit the program this opportunity was won under.
-                  </FormDescription>
-                </FormItem>
+                  </p>
+                </div>
 
                 <FormField
                   control={form.control}

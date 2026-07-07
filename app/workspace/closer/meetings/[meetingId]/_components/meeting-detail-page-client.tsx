@@ -43,6 +43,7 @@ import { MeetingComments } from "../../_components/meeting-comments";
 import { PaymentLinksPanel } from "../../_components/payment-links-panel";
 import { OutcomeActionBar } from "../../_components/outcome-action-bar";
 import { BookingAnswersCard } from "../../_components/booking-answers-card";
+import { LeadNotesCard } from "../../_components/lead-notes-card";
 import { DealWonCard } from "../../_components/deal-won-card";
 import { PotentialDuplicateBanner } from "../../_components/potential-duplicate-banner";
 import { NoShowActionBar } from "../../_components/no-show-action-bar";
@@ -232,6 +233,7 @@ export function MeetingDetailPageClient({
 
         {/* Column 2 — booking context */}
         <div className="flex min-w-0 flex-col gap-4">
+          <LeadNotesCard leadId={lead._id} />
           <BookingAnswersCard customFields={lead.customFields} />
           {paymentLinks && paymentLinks.length > 0 && (
             <PaymentLinksPanel paymentLinks={paymentLinks} />
