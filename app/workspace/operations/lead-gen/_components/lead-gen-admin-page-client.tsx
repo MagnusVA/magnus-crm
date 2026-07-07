@@ -6,6 +6,7 @@ import { useQuery } from "convex/react";
 import { SettingsIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
+import { DashboardDateRangeFilter } from "@/app/workspace/_components/dashboard-date-range-filter";
 import { dashboardRangeToDayKeys } from "@/app/workspace/_components/dashboard-date-utils";
 import { useDashboardRange } from "@/app/workspace/_components/use-dashboard-range";
 import { LeadGenExportMenu } from "./lead-gen-export-menu";
@@ -51,17 +52,20 @@ export function LeadGenAdminPageClient() {
 
 	return (
 		<div className="flex min-w-0 flex-col gap-4">
-			<div className="sticky top-0 z-20 -mx-6 -mt-6 border-b bg-background/95 px-6 py-3 backdrop-blur supports-backdrop-filter:bg-background/80">
-				<div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-					<div className="flex min-w-0 flex-col gap-1">
-						<h1 className="text-xl font-semibold tracking-normal text-pretty">
+			<header className="flex flex-col gap-4 border-b pb-5 lg:flex-row lg:items-end lg:justify-between">
+				<div className="flex min-w-0 items-start gap-3">
+					<div className="mt-[3px] h-7 w-[3px] shrink-0 rounded-full bg-primary/75" />
+					<div className="min-w-0">
+						<h1 className="text-2xl font-semibold tracking-tight">
 							Lead Gen Ops
 						</h1>
-						<p className="max-w-3xl text-xs text-muted-foreground">
+						<p className="mt-1 max-w-3xl text-sm text-muted-foreground">
 							Lead gen specialist activity, source quality, top origins,
 							and operational exports.
 						</p>
 					</div>
+				</div>
+				<div className="flex flex-col items-start gap-3 lg:items-end">
 					<div className="flex flex-wrap items-center gap-2">
 						<Button asChild size="sm">
 							<Link href="/workspace/lead-gen/settings">
@@ -75,15 +79,17 @@ export function LeadGenAdminPageClient() {
 							startDayKey={filters.startDayKey}
 						/>
 					</div>
+					<DashboardDateRangeFilter
+						validationMessage={validationMessage}
+						value={range}
+						onChange={setRange}
+					/>
 				</div>
-			</div>
+			</header>
 
 			<LeadGenFilterBar
-				range={range}
 				rangeLabel={rangeLabel}
 				source={source}
-				validationMessage={validationMessage}
-				onRangeChange={setRange}
 				onSourceChange={setSource}
 			/>
 

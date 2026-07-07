@@ -41,6 +41,7 @@ import { MarkSideDealLostDialog } from "./mark-side-deal-lost-dialog";
 import { OpportunityActivityTimeline } from "./opportunity-activity-timeline";
 import { OpportunityDetailSkeleton } from "./opportunity-detail-skeleton";
 import { OpportunityMeetingsList } from "./opportunity-meetings-list";
+import { AddOpportunityPaymentDialog } from "./add-opportunity-payment-dialog";
 import { OpportunityPaymentsList } from "./opportunity-payments-list";
 import { SideDealPaymentDialog } from "./side-deal-payment-dialog";
 import { VoidPaymentDialog } from "./void-payment-dialog";
@@ -138,6 +139,12 @@ export function OpportunityDetailClient({
           <div className="flex flex-wrap items-center gap-2">
             {permissions.canRecordPayment ? (
               <SideDealPaymentDialog opportunityId={opportunity._id} />
+            ) : null}
+            {permissions.canRecordAdditionalPayment ? (
+              <AddOpportunityPaymentDialog
+                opportunityId={opportunity._id}
+                programName={opportunity.soldProgramName ?? null}
+              />
             ) : null}
             {permissions.canMarkLost ? (
               <MarkSideDealLostDialog opportunityId={opportunity._id} />

@@ -87,6 +87,7 @@ export type BillingPaymentRow = {
     referenceCode: string | null;
     note: string | null;
     hasProofFile: boolean;
+    fathomLink: string | null;
     commissionable: boolean;
   };
   customer: {

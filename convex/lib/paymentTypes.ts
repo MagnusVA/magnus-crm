@@ -9,6 +9,10 @@ export const COMMISSIONABLE_ORIGINS = [
   "admin_review_resolution",
   "closer_side_deal",
   "admin_side_deal",
+  // Additional commissionable payments recorded against an already-won
+  // opportunity (a customer making a further/installment payment).
+  "closer_additional",
+  "admin_additional",
 ] as const;
 
 export const NON_COMMISSIONABLE_ORIGINS = [
@@ -59,6 +63,8 @@ export const commissionableOriginValidator = v.union(
   v.literal("admin_review_resolution"),
   v.literal("closer_side_deal"),
   v.literal("admin_side_deal"),
+  v.literal("closer_additional"),
+  v.literal("admin_additional"),
 );
 
 export const nonCommissionableOriginValidator = v.union(
@@ -74,6 +80,8 @@ export const paymentOriginValidator = v.union(
   v.literal("admin_review_resolution"),
   v.literal("closer_side_deal"),
   v.literal("admin_side_deal"),
+  v.literal("closer_additional"),
+  v.literal("admin_additional"),
   v.literal("customer_direct"),
   v.literal("bookkeeper_direct"),
 );

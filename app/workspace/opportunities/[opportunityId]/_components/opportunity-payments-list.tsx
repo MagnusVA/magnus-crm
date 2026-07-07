@@ -1,6 +1,9 @@
 import {
+  ArrowUpRightIcon,
   CreditCardIcon,
+  PaperclipIcon,
   ReceiptTextIcon,
+  VideoIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -37,6 +40,8 @@ type Payment = {
   origin: string;
   status: "recorded" | "verified" | "disputed";
   recordedAt: number;
+  fathomLink?: string | null;
+  hasProofFile?: boolean;
 };
 
 const dateTimeFormatter = new Intl.DateTimeFormat("en-US", {
@@ -65,6 +70,8 @@ const ORIGIN_LABELS: Record<string, string> = {
   admin_review_resolution: "Admin review",
   closer_side_deal: "Closer side deal",
   admin_side_deal: "Admin side deal",
+  closer_additional: "Additional (closer)",
+  admin_additional: "Additional (admin)",
   customer_direct: "Customer direct",
   bookkeeper_direct: "Bookkeeper direct",
 };
@@ -103,6 +110,7 @@ export function OpportunityPaymentsList({
             {compact ? null : <TableHead>Payment type</TableHead>}
             {compact ? null : <TableHead>Origin</TableHead>}
             <TableHead>Status</TableHead>
+            {compact ? null : <TableHead>Evidence</TableHead>}
             {compact ? null : <TableHead>Recorded</TableHead>}
           </TableRow>
         </TableHeader>
@@ -130,6 +138,39 @@ export function OpportunityPaymentsList({
                   {PAYMENT_STATUS_LABELS[payment.status]}
                 </Badge>
               </TableCell>
+              {compact ? null : (
+                <TableCell>
+                  <div className="flex items-center gap-2">
+                    {payment.fathomLink ? (
+                      <a
+                        href={payment.fathomLink}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-sm underline decoration-muted-foreground/30 underline-offset-2 hover:decoration-foreground"
+                      >
+                        <VideoIcon aria-hidden="true" className="size-3.5" />
+                        Fathom
+                        <ArrowUpRightIcon
+                          aria-hidden="true"
+                          className="size-3 text-muted-foreground"
+                        />
+                      </a>
+                    ) : null}
+                    {payment.hasProofFile ? (
+                      <span
+                        className="inline-flex items-center gap-1 text-sm text-muted-foreground"
+                        title="Proof file attached"
+                      >
+                        <PaperclipIcon aria-hidden="true" className="size-3.5" />
+                        Proof
+                      </span>
+                    ) : null}
+                    {!payment.fathomLink && !payment.hasProofFile ? (
+                      <span className="text-sm text-muted-foreground">—</span>
+                    ) : null}
+                  </div>
+                </TableCell>
+              )}
               {compact ? null : (
                 <TableCell>
                   {dateTimeFormatter.format(new Date(payment.recordedAt))}

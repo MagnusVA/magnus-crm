@@ -168,6 +168,8 @@ export const getOpportunityDetail = query({
         origin: payment.origin,
         status: payment.status,
         recordedAt: payment.recordedAt,
+        fathomLink: payment.fathomLink ?? null,
+        hasProofFile: payment.proofFileId !== undefined,
       })),
       events: events.map((event) => ({
         _id: event._id,
@@ -190,6 +192,14 @@ export const getOpportunityDetail = query({
         viewerUserId: userId,
         viewerRole: role,
         canRecordPayment: isSideDeal && opportunity.status === "scheduled",
+        // Additional payments on an already-won opportunity. The query above
+        // already restricts viewers to the assigned closer or an admin, so a
+        // closer seeing this flag is always the self-crediting assigned closer.
+        canRecordAdditionalPayment:
+          opportunity.status === "payment_received" &&
+          opportunity.soldProgramId !== undefined &&
+          (role === "closer" ||
+            (isAdmin && opportunity.assignedCloserId !== undefined)),
         canMarkLost: isSideDeal && opportunity.status === "scheduled",
         canVoidPayment:
           isAdmin &&

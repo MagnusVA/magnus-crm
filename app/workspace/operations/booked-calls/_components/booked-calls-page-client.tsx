@@ -108,17 +108,20 @@ export function BookedCallsPageClient() {
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <div className="sticky top-0 z-20 -mx-6 -mt-6 border-b bg-background/95 px-6 py-3 backdrop-blur supports-backdrop-filter:bg-background/80">
-        <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-3 gap-y-2">
-          <div className="flex min-w-0 flex-col gap-1">
-            <h1 className="text-xl font-semibold tracking-normal text-pretty">
+      <header className="flex flex-col gap-4 border-b pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="mt-[3px] h-7 w-[3px] shrink-0 rounded-full bg-primary/75" />
+          <div className="min-w-0">
+            <h1 className="text-2xl font-semibold tracking-tight">
               Booked Calls
             </h1>
-            <p className="max-w-3xl text-xs text-muted-foreground">
+            <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
               DM Closer Operations — booked-call throughput, team booking
               goals, closer contributions, and booking details.
             </p>
           </div>
+        </div>
+        <div className="flex flex-col items-start gap-3 lg:items-end">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -135,19 +138,18 @@ export function BookedCallsPageClient() {
               DM teams, booking goals, closers, and hourly contract rates.
             </TooltipContent>
           </Tooltip>
+          <DashboardDateRangeFilter
+            validationMessage={validationMessage}
+            value={range}
+            onChange={setRange}
+          />
+          <p className="text-xs text-muted-foreground">
+            Showing: {rangeLabel}
+          </p>
         </div>
-      </div>
+      </header>
 
       <OperationsHealthBanner />
-
-      <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-3 gap-y-2">
-        <p className="text-xs text-muted-foreground">Showing: {rangeLabel}</p>
-        <DashboardDateRangeFilter
-          validationMessage={validationMessage}
-          value={range}
-          onChange={setRange}
-        />
-      </div>
 
       {dashboard?.capped ? (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">

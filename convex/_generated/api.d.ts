@@ -48,6 +48,7 @@ import type * as calendly_tokenMutations from "../calendly/tokenMutations.js";
 import type * as calendly_tokens from "../calendly/tokens.js";
 import type * as calendly_webhookSetup from "../calendly/webhookSetup.js";
 import type * as calendly_webhookSetupMutations from "../calendly/webhookSetupMutations.js";
+import type * as closer_additionalPayment from "../closer/additionalPayment.js";
 import type * as closer_calendar from "../closer/calendar.js";
 import type * as closer_dashboard from "../closer/dashboard.js";
 import type * as closer_followUp from "../closer/followUp.js";
@@ -351,6 +352,7 @@ declare const fullApi: ApiFromModules<{
   "calendly/tokens": typeof calendly_tokens;
   "calendly/webhookSetup": typeof calendly_webhookSetup;
   "calendly/webhookSetupMutations": typeof calendly_webhookSetupMutations;
+  "closer/additionalPayment": typeof closer_additionalPayment;
   "closer/calendar": typeof closer_calendar;
   "closer/dashboard": typeof closer_dashboard;
   "closer/followUp": typeof closer_followUp;

@@ -1603,6 +1603,11 @@ export default defineSchema({
     paymentType: paymentTypeValidator,
     referenceCode: v.optional(v.string()),
     proofFileId: v.optional(v.id("_storage")),
+    // Optional Fathom call-recording link captured as evidence for a payment.
+    // Unlike `meetings.fathomLink`, this lives on the payment itself so
+    // additional payments on a won opportunity (which may have no new meeting)
+    // can still carry a recording link. Stored as a validated http/https URL.
+    fathomLink: v.optional(v.string()),
     // Optional free-form note captured by the admin at the time of logging.
     // Used for audit context on post-conversion payments
     // (e.g. "re-enrollment after 6-month gap", "partial chargeback resolved").
