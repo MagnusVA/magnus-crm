@@ -5,7 +5,6 @@ import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
 import {
   assertPaymentRow,
-  resolveProgramForWrite,
   syncCustomerPaymentSummary,
   type CommissionableOrigin,
 } from "../lib/paymentHelpers";
@@ -34,7 +33,6 @@ export const recordAdditionalPayment = mutation({
     opportunityId: v.id("opportunities"),
     amount: v.number(),
     currency: v.string(),
-    programId: v.id("tenantPrograms"),
     paymentType: paymentTypeValidator,
     proofFileId: v.optional(v.id("_storage")),
     fathomLink: v.optional(v.string()),
@@ -89,7 +87,20 @@ export const recordAdditionalPayment = mutation({
 
     const currency = validateCurrency(args.currency);
     const amountMinor = toAmountMinor(args.amount);
-    const program = await resolveProgramForWrite(ctx, tenantId, args.programId);
+
+    // The program is inherited from the opportunity's sold program — the
+    // closer does not pick it. We read it directly (rather than via
+    // resolveProgramForWrite) so a later-archived program does not block
+    // legitimate follow-on payments on an already-won deal.
+    if (!opportunity.soldProgramId) {
+      throw new Error(
+        "This opportunity has no sold program on record to attribute the payment to.",
+      );
+    }
+    const program = await ctx.db.get(opportunity.soldProgramId);
+    if (!program || program.tenantId !== tenantId) {
+      throw new Error("Sold program for this opportunity was not found.");
+    }
     const paymentType = resolvePaymentType(args.paymentType);
 
     // Validate the optional Fathom link the same way the codebase validates

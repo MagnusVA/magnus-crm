@@ -197,6 +197,7 @@ export const getOpportunityDetail = query({
         // closer seeing this flag is always the self-crediting assigned closer.
         canRecordAdditionalPayment:
           opportunity.status === "payment_received" &&
+          opportunity.soldProgramId !== undefined &&
           (role === "closer" ||
             (isAdmin && opportunity.assignedCloserId !== undefined)),
         canMarkLost: isSideDeal && opportunity.status === "scheduled",

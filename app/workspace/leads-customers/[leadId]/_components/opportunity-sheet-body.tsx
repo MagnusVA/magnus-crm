@@ -84,6 +84,7 @@ export function OpportunitySheetBody({
 						<div className="flex justify-end">
 							<AddOpportunityPaymentDialog
 								opportunityId={detail.opportunity._id}
+								programName={detail.opportunity.soldProgramName ?? null}
 							/>
 						</div>
 					) : null}

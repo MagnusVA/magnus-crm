@@ -141,7 +141,10 @@ export function OpportunityDetailClient({
               <SideDealPaymentDialog opportunityId={opportunity._id} />
             ) : null}
             {permissions.canRecordAdditionalPayment ? (
-              <AddOpportunityPaymentDialog opportunityId={opportunity._id} />
+              <AddOpportunityPaymentDialog
+                opportunityId={opportunity._id}
+                programName={opportunity.soldProgramName ?? null}
+              />
             ) : null}
             {permissions.canMarkLost ? (
               <MarkSideDealLostDialog opportunityId={opportunity._id} />

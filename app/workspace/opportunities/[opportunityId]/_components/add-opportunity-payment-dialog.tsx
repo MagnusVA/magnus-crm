@@ -8,7 +8,6 @@ import posthog from "posthog-js";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
-import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -78,7 +77,6 @@ const paymentSchema = z.object({
       return Number.isFinite(amount) && amount > 0;
     }, "Amount must be greater than 0"),
   currency: z.enum(CURRENCIES),
-  programId: z.string().min(1, "Please select a program"),
   paymentType: z.enum(PAYMENT_TYPES, {
     error: "Please select a payment type",
   }),
@@ -111,8 +109,11 @@ type PaymentValues = z.infer<typeof paymentSchema>;
 
 export function AddOpportunityPaymentDialog({
   opportunityId,
+  programName,
 }: {
   opportunityId: Id<"opportunities">;
+  /** The opportunity's sold program — payments always inherit it (read-only). */
+  programName: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -127,7 +128,6 @@ export function AddOpportunityPaymentDialog({
     defaultValues: {
       amount: "",
       currency: "USD",
-      programId: "",
       paymentType: undefined,
       proofFile: undefined,
       fathomLink: "",
@@ -169,7 +169,6 @@ export function AddOpportunityPaymentDialog({
         opportunityId,
         amount: Number(values.amount),
         currency: values.currency,
-        programId: values.programId as Id<"tenantPrograms">,
         paymentType: values.paymentType,
         proofFileId,
         fathomLink: trimmedFathomLink || undefined,
@@ -286,28 +285,15 @@ export function AddOpportunityPaymentDialog({
                   )}
                 />
 
-                <FormField
-                  control={form.control}
-                  name="programId"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        Program <span className="text-destructive">*</span>
-                      </FormLabel>
-                      <FormControl>
-                        <ProgramSelect
-                          value={field.value || undefined}
-                          onChange={field.onChange}
-                          disabled={isSubmitting}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Attribute this payment to the correct tenant program.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                <FormItem>
+                  <FormLabel>Program</FormLabel>
+                  <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                    {programName ?? "—"}
+                  </div>
+                  <FormDescription>
+                    Payments inherit the program this opportunity was won under.
+                  </FormDescription>
+                </FormItem>
 
                 <FormField
                   control={form.control}
