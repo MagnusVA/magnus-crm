@@ -65,6 +65,14 @@ const ORIGIN_META = {
     label: "Admin-Logged · Side Deal",
     color: "var(--chart-3)",
   },
+  closer_additional: {
+    label: "Closer-Logged · Additional",
+    color: "var(--chart-2)",
+  },
+  admin_additional: {
+    label: "Admin-Logged · Additional",
+    color: "var(--chart-4)",
+  },
 } satisfies Record<RevenueOrigin, { label: string; color: string }>;
 
 const chartConfig = {

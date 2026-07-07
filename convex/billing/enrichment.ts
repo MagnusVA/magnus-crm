@@ -422,6 +422,7 @@ async function enrichOneBillingPaymentRow(
       referenceCode: payment.referenceCode ?? null,
       note: payment.note ?? null,
       hasProofFile: payment.proofFileId !== undefined,
+      fathomLink: payment.fathomLink ?? null,
       commissionable: payment.commissionable,
     },
     customer: customer

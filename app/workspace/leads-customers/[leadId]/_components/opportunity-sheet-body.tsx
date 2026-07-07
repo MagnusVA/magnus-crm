@@ -4,6 +4,7 @@ import type { FunctionReturnType } from "convex/server";
 import { CalendarClockIcon, CalendarXIcon, TagsIcon } from "lucide-react";
 import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
 import type { EntityAttribution } from "@/app/workspace/_components/entity-attribution-card";
+import { AddOpportunityPaymentDialog } from "@/app/workspace/opportunities/[opportunityId]/_components/add-opportunity-payment-dialog";
 import { OpportunityActivityTimeline } from "@/app/workspace/opportunities/[opportunityId]/_components/opportunity-activity-timeline";
 import { OpportunityMeetingsList } from "@/app/workspace/opportunities/[opportunityId]/_components/opportunity-meetings-list";
 import { OpportunityPaymentsList } from "@/app/workspace/opportunities/[opportunityId]/_components/opportunity-payments-list";
@@ -78,7 +79,16 @@ export function OpportunitySheetBody({
 				</SectionShell>
 			</SectionErrorBoundary>
 			<SectionErrorBoundary sectionName="opportunity payments">
-				<OpportunityPaymentsList payments={detail.payments} compact />
+				<div className="flex flex-col gap-2">
+					{detail.permissions.canRecordAdditionalPayment ? (
+						<div className="flex justify-end">
+							<AddOpportunityPaymentDialog
+								opportunityId={detail.opportunity._id}
+							/>
+						</div>
+					) : null}
+					<OpportunityPaymentsList payments={detail.payments} compact />
+				</div>
 			</SectionErrorBoundary>
 			<SectionErrorBoundary sectionName="opportunity activity">
 				<OpportunityActivityTimeline events={detail.events} compact />

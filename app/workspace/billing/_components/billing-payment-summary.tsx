@@ -34,6 +34,24 @@ const PAYMENT_TYPE_LABELS: Record<
 	deposit: "Deposit",
 };
 
+const ORIGIN_LABELS: Record<string, string> = {
+	closer_meeting: "Closer meeting",
+	closer_reminder: "Closer reminder",
+	admin_meeting: "Admin meeting",
+	admin_reminder: "Admin reminder",
+	admin_review_resolution: "Admin review",
+	closer_side_deal: "Closer side deal",
+	admin_side_deal: "Admin side deal",
+	closer_additional: "Additional (closer)",
+	admin_additional: "Additional (admin)",
+	customer_direct: "Customer direct",
+	bookkeeper_direct: "Bookkeeper direct",
+};
+
+function formatOrigin(origin: string) {
+	return ORIGIN_LABELS[origin] ?? origin.replaceAll("_", " ");
+}
+
 const STATUS_TONE: Record<
 	PaymentStatus,
 	{ label: string; dot: string; text: string; ring: string }
@@ -164,11 +182,17 @@ export function BillingPaymentSummary({
 	const paidAt = formatDateTime(detail.payment.recordedAt);
 	const meetingAt = formatDateTime(detail.meeting.scheduledAt);
 	const reviewedAt = formatDateTime(detail.review.reviewedAt);
+	// Prefer the payment's own Fathom link (e.g. additional payments on a won
+	// opportunity, which may have no associated meeting); fall back to the
+	// meeting's link for payments logged from a meeting outcome.
 	const fathomLink =
-		typeof detail.meeting.fathomLink === "string" &&
-		detail.meeting.fathomLink.trim().length > 0
-			? detail.meeting.fathomLink
-			: null;
+		typeof detail.payment.fathomLink === "string" &&
+		detail.payment.fathomLink.trim().length > 0
+			? detail.payment.fathomLink
+			: typeof detail.meeting.fathomLink === "string" &&
+					detail.meeting.fathomLink.trim().length > 0
+				? detail.meeting.fathomLink
+				: null;
 	const proofContentTypeLabel = detail.proof.contentType ?? "file";
 
 	return (
@@ -348,7 +372,7 @@ export function BillingPaymentSummary({
 
 				<DetailBlock title="Review">
 					<Field label="Program" value={detail.payment.programName} />
-					<Field label="Origin" value={detail.payment.origin} />
+					<Field label="Origin" value={formatOrigin(detail.payment.origin)} />
 					<Field
 						label="Reviewer"
 						value={
