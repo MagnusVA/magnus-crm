@@ -218,7 +218,10 @@ function slackUserLabel(user: Doc<"slackUsers"> | null | undefined) {
   );
 }
 
-async function enrichPhoneSalesRows(ctx: QueryCtx, meetings: Doc<"meetings">[]) {
+export async function enrichPhoneSalesRows(
+  ctx: QueryCtx,
+  meetings: Doc<"meetings">[],
+) {
   const opportunityIds = [...new Set(meetings.map((meeting) => meeting.opportunityId))];
   const closerIds = [...new Set(meetings.map((meeting) => meeting.assignedCloserId))];
   const teamIds = [

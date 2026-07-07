@@ -20,12 +20,19 @@ import {
 	LinkIcon,
 	LogOutIcon,
 	RefreshCwIcon,
+	SearchIcon,
 	TimerIcon,
 	UserIcon,
 } from "lucide-react";
 import type {
 	PortalCopyInput,
 	PortalCopyResult,
+	PortalLeadNoteInput,
+	PortalLeadNoteResult,
+	PortalLeadNotesResult,
+	PortalLeadProfileInput,
+	PortalLeadProfileResult,
+	PortalLeadSearchResult,
 	PortalUnlockState,
 } from "../actions";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -47,6 +54,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
 	Tooltip,
 	TooltipContent,
@@ -66,6 +74,7 @@ import {
 	type SchedulingMode,
 	programHasSchedulingMode,
 } from "./group-bookable-programs";
+import { PortalLeadsPanel } from "./portal-leads-panel";
 import { prepareProgramLinks } from "./prepare-program-links";
 
 const initialUnlockState: PortalUnlockState = { status: "idle" };
@@ -153,6 +162,22 @@ type DmLinkPortalClientProps = {
 		portalSlug: string,
 		input: PortalCopyInput,
 	) => Promise<PortalCopyResult>;
+	searchPortalLeads: (
+		portalSlug: string,
+		searchTerm: string,
+	) => Promise<PortalLeadSearchResult>;
+	updatePortalLeadProfile: (
+		portalSlug: string,
+		input: PortalLeadProfileInput,
+	) => Promise<PortalLeadProfileResult>;
+	addPortalLeadNote: (
+		portalSlug: string,
+		input: PortalLeadNoteInput,
+	) => Promise<PortalLeadNoteResult>;
+	listPortalLeadNotes: (
+		portalSlug: string,
+		leadId: string,
+	) => Promise<PortalLeadNotesResult>;
 };
 
 function PasswordScreen({
@@ -237,6 +262,10 @@ export function DmLinkPortalClient({
 	unlockPortal,
 	logoutPortal,
 	recordPortalCopy,
+	searchPortalLeads,
+	updatePortalLeadProfile,
+	addPortalLeadNote,
+	listPortalLeadNotes,
 }: DmLinkPortalClientProps) {
 	if (!bootstrap) {
 		return (
@@ -250,6 +279,10 @@ export function DmLinkPortalClient({
 			bootstrap={bootstrap}
 			logoutPortal={logoutPortal}
 			recordPortalCopy={recordPortalCopy}
+			searchPortalLeads={searchPortalLeads}
+			updatePortalLeadProfile={updatePortalLeadProfile}
+			addPortalLeadNote={addPortalLeadNote}
+			listPortalLeadNotes={listPortalLeadNotes}
 		/>
 	);
 }
@@ -357,12 +390,21 @@ function UnlockedPortal({
 	bootstrap,
 	logoutPortal,
 	recordPortalCopy,
+	searchPortalLeads,
+	updatePortalLeadProfile,
+	addPortalLeadNote,
+	listPortalLeadNotes,
 }: {
 	portalSlug: string;
 	bootstrap: PortalBootstrap;
 	logoutPortal: DmLinkPortalClientProps["logoutPortal"];
 	recordPortalCopy: DmLinkPortalClientProps["recordPortalCopy"];
+	searchPortalLeads: DmLinkPortalClientProps["searchPortalLeads"];
+	updatePortalLeadProfile: DmLinkPortalClientProps["updatePortalLeadProfile"];
+	addPortalLeadNote: DmLinkPortalClientProps["addPortalLeadNote"];
+	listPortalLeadNotes: DmLinkPortalClientProps["listPortalLeadNotes"];
 }) {
+	const [activeView, setActiveView] = useState<"links" | "leads">("links");
 	const [selectedCloserId, setSelectedCloserId] = useState("");
 	const [selectedProgramId, setSelectedProgramId] = useState("");
 	const [selectedSchedulingMode, setSelectedSchedulingMode] =
@@ -733,6 +775,23 @@ function UnlockedPortal({
 					</Alert>
 				) : null}
 
+				<Tabs
+					value={activeView}
+					onValueChange={(value) => setActiveView(value as "links" | "leads")}
+					className="gap-4"
+				>
+					<TabsList className="w-full sm:w-fit">
+						<TabsTrigger value="links">
+							<LinkIcon aria-hidden="true" />
+							Booking Links
+						</TabsTrigger>
+						<TabsTrigger value="leads">
+							<SearchIcon aria-hidden="true" />
+							Leads
+						</TabsTrigger>
+					</TabsList>
+
+					<TabsContent value="links" className="flex flex-col gap-4">
 				{preparedLinks.status === "all_invalid" ? (
 					<Alert variant="destructive">
 						<AlertCircleIcon aria-hidden="true" />
@@ -1081,6 +1140,61 @@ function UnlockedPortal({
 						</div>
 					</CardContent>
 				</Card>
+					</TabsContent>
+
+					<TabsContent
+						value="leads"
+						forceMount
+						className="flex flex-col gap-4 data-[state=inactive]:hidden"
+					>
+						{closer ? (
+							<PortalLeadsPanel
+								key={closer.id}
+								portalSlug={portalSlug}
+								closerId={closer.id}
+								closerName={closer.displayName}
+								searchPortalLeads={searchPortalLeads}
+								updatePortalLeadProfile={updatePortalLeadProfile}
+								addPortalLeadNote={addPortalLeadNote}
+								listPortalLeadNotes={listPortalLeadNotes}
+							/>
+						) : (
+							<Card className="rounded-lg">
+								<CardHeader>
+									<CardTitle>Choose Who You Are First</CardTitle>
+									<CardDescription>
+										Lead updates and notes are attributed to you, so pick your
+										name before searching leads.
+									</CardDescription>
+								</CardHeader>
+								<CardContent>
+									{bootstrap.dmClosers.length === 0 ? (
+										<p className="text-sm text-muted-foreground">
+											No active DM closers are configured yet. Ask your
+											workspace admin to add you.
+										</p>
+									) : (
+										<div className="grid grid-cols-2 gap-2">
+											{bootstrap.dmClosers.map((row) => (
+												<SelectableOption
+													key={row.id}
+													selected={selectedCloserId === row.id}
+													title={row.displayName}
+													description={row.teamDisplayName}
+													icon={
+														<PublicCloserInitials identity={row.identity} />
+													}
+													onClick={() => selectCloser(row.id)}
+													density="compact"
+												/>
+											))}
+										</div>
+									)}
+								</CardContent>
+							</Card>
+						)}
+					</TabsContent>
+				</Tabs>
 			</main>
 		</>
 	);

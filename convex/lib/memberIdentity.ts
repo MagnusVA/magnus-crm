@@ -1,3 +1,4 @@
+import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
@@ -11,6 +12,32 @@ export type MemberAvatarIdentity = {
   isActive?: boolean | null;
   source: "crm_user" | "slack" | "dm_closer" | "system" | "unknown";
 };
+
+// Canonical runtime validator for MemberAvatarIdentity. Kept next to the
+// type so the two cannot drift — dashboards embed this in `returns`
+// validators, and a field mismatch there throws at runtime via returns
+// validation. Must stay field-for-field identical to the type above.
+export const memberAvatarIdentityValidator = v.object({
+  id: v.string(),
+  name: v.union(v.string(), v.null()),
+  email: v.optional(v.union(v.string(), v.null())),
+  imageUrl: v.optional(v.union(v.string(), v.null())),
+  imageSource: v.union(
+    v.literal("custom_storage"),
+    v.literal("workos"),
+    v.literal("slack"),
+    v.literal("none"),
+  ),
+  secondaryLabel: v.optional(v.union(v.string(), v.null())),
+  isActive: v.optional(v.union(v.boolean(), v.null())),
+  source: v.union(
+    v.literal("crm_user"),
+    v.literal("slack"),
+    v.literal("dm_closer"),
+    v.literal("system"),
+    v.literal("unknown"),
+  ),
+});
 
 function nonEmptyString(value: string | null | undefined) {
   const trimmed = value?.trim();

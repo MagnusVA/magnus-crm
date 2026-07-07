@@ -11,6 +11,11 @@ import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
 import { syncLeadMeetingNames } from "../lib/syncLeadMeetingNames";
 import { leadDisplayString } from "../lib/leadDisplay";
 
+// NIM-17: bounded reparent of the source lead's portal notes during a merge.
+// Far above realistic per-lead note counts; if the read comes back full we
+// log a warning instead of looping unbounded inside the merge transaction.
+const LEAD_NOTE_REPARENT_LIMIT = 200;
+
 const SOCIAL_IDENTIFIER_TYPES = new Set<Doc<"leadIdentifiers">["type"]>([
   "instagram",
   "tiktok",
@@ -75,6 +80,7 @@ export const mergeLead = mutation({
     sourceLeadId: v.id("leads"),
     targetLeadId: v.id("leads"),
   },
+  returns: v.object({ targetLeadId: v.id("leads") }),
   handler: async (ctx, { sourceLeadId, targetLeadId }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [
       "tenant_master",
@@ -175,6 +181,45 @@ async function executeMerge(
     await ctx.db.delete(identifier._id);
   }
 
+  // === NIM-17: portal data must not be orphaned by a merge ===
+  // (a) Reparent the source lead's notes (portal DM-closer notes today) to
+  // the target so they stay visible after the source is marked merged.
+  const sourceNotes = await ctx.db
+    .query("leadNotes")
+    .withIndex("by_tenantId_and_leadId", (q) =>
+      q.eq("tenantId", tenantId).eq("leadId", sourceLeadId),
+    )
+    .take(LEAD_NOTE_REPARENT_LIMIT);
+  if (sourceNotes.length === LEAD_NOTE_REPARENT_LIMIT) {
+    console.warn(
+      "[Leads:Merge] lead note reparent hit its bound; more notes may remain on the source lead",
+      { tenantId, sourceLeadId, targetLeadId, limit: LEAD_NOTE_REPARENT_LIMIT },
+    );
+  }
+  for (const note of sourceNotes) {
+    await ctx.db.patch(note._id, { leadId: targetLeadId });
+  }
+
+  // (b) Carry over the portal-entered profile fields, but only where the
+  // target doesn't already have a value — the target's data wins.
+  const profileCarryOver: {
+    initialSource?: Doc<"leads">["initialSource"];
+    selfReportedIncome?: number;
+  } = {};
+  if (
+    targetLead.initialSource === undefined &&
+    sourceLead.initialSource !== undefined
+  ) {
+    profileCarryOver.initialSource = sourceLead.initialSource;
+  }
+  if (
+    targetLead.selfReportedIncome === undefined &&
+    sourceLead.selfReportedIncome !== undefined
+  ) {
+    profileCarryOver.selfReportedIncome = sourceLead.selfReportedIncome;
+  }
+  // === End NIM-17 ===
+
   const allTargetIdentifiers = await ctx.db
     .query("leadIdentifiers")
     .withIndex("by_leadId", (q) => q.eq("leadId", targetLeadId))
@@ -196,6 +241,9 @@ async function executeMerge(
   await ctx.db.patch(targetLeadId, {
     socialHandles,
     searchText,
+    // NIM-17: portal profile fields carried over from the source lead only
+    // where the target had no value (computed above).
+    ...profileCarryOver,
     updatedAt: now,
   });
   await refreshOpportunitySearchForLead(ctx, tenantId, targetLeadId);
@@ -273,6 +321,7 @@ export const dismissDuplicateFlag = mutation({
   args: {
     opportunityId: v.id("opportunities"),
   },
+  returns: v.object({ opportunityId: v.id("opportunities") }),
   handler: async (ctx, { opportunityId }) => {
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",

@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { usePageTitle } from "@/hooks/use-page-title";
 import {
-  businessDateToUtcStart,
+  getInclusiveEndBusinessDate,
   getInitialSlackQualificationFilters,
   getRangeValidationMessage,
   type SlackQualificationFilters,
@@ -66,16 +66,11 @@ export function SlackQualificationReportPageClient() {
 
   const operationsHref = useMemo(() => {
     const params = new URLSearchParams({
-      tab: "qualifications",
-      qualifiedAfter: String(businessDateToUtcStart(filters.startBusinessDate)),
-      qualifiedBefore: String(
-        businessDateToUtcStart(filters.endBusinessDateExclusive),
-      ),
+      range: "custom",
+      from: filters.startBusinessDate,
+      to: getInclusiveEndBusinessDate(filters.endBusinessDateExclusive),
     });
-    if (filters.slackUserId) {
-      params.set("slackUserId", filters.slackUserId);
-    }
-    return `/workspace/operations?${params.toString()}`;
+    return `/workspace/operations/qualifications?${params.toString()}`;
   }, [filters]);
 
   if (report === undefined && !rangeError) {

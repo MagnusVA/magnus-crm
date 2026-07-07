@@ -24,6 +24,7 @@ import { LeadMeetingsTab } from "./tabs/lead-meetings-tab";
 import { LeadOpportunitiesTab } from "./tabs/lead-opportunities-tab";
 import { LeadActivityTab } from "./tabs/lead-activity-tab";
 import { LeadCustomFieldsTab } from "./tabs/lead-custom-fields-tab";
+import { LeadNotesTab } from "./tabs/lead-notes-tab";
 import { ConvertToCustomerDialog } from "./convert-to-customer-dialog";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -167,6 +168,7 @@ export function LeadDetailPageClient() {
 						Opps ({detail.opportunities.length})
 					</TabsTrigger>
 					<TabsTrigger value="activity">Activity</TabsTrigger>
+					<TabsTrigger value="notes">Notes</TabsTrigger>
 					<TabsTrigger value="fields">Fields</TabsTrigger>
 				</TabsList>
 
@@ -194,6 +196,10 @@ export function LeadDetailPageClient() {
 						followUps={detail.followUps}
 						mergeHistory={detail.mergeHistory}
 					/>
+				</TabsContent>
+
+				<TabsContent value="notes">
+					<LeadNotesTab leadId={leadId} />
 				</TabsContent>
 
 				<TabsContent value="fields">

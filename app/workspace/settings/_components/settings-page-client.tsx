@@ -1,6 +1,7 @@
 "use client";
 
 import { Suspense, useEffect } from "react";
+import Link from "next/link";
 import { type Preloaded, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -113,7 +114,19 @@ function SettingsContent({ preloadedSlackStatus }: SettingsPageClientProps) {
         </TabsContent>
 
         <TabsContent value="attribution" className="mt-6">
-          <AttributionTab />
+          <div className="flex flex-col gap-4">
+            <p className="text-xs text-muted-foreground">
+              Also available in{" "}
+              <Link
+                className="underline underline-offset-2 hover:text-foreground"
+                href="/workspace/operations/booked-calls"
+              >
+                Operations → Booked Calls
+              </Link>{" "}
+              under Configuration.
+            </p>
+            <AttributionTab />
+          </div>
         </TabsContent>
 
         <TabsContent value="schedules" className="mt-6">

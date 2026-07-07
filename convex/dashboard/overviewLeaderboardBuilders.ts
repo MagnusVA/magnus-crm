@@ -99,10 +99,11 @@ function countBookedSlackOpportunities(
   }).length;
 }
 
-function countBookedMeetingsByDmCloser(
+function countBookedMeetings(
   meetings: Doc<"meetings">[],
 ) {
   const byDmCloser = new Map<Id<"dmClosers">, number>();
+  const byAttributionTeam = new Map<Id<"attributionTeams">, number>();
   for (const meeting of meetings) {
     if (!meeting.dmCloserId) continue;
     if (meeting.callClassification === "follow_up") continue;
@@ -110,8 +111,14 @@ function countBookedMeetingsByDmCloser(
       meeting.dmCloserId,
       (byDmCloser.get(meeting.dmCloserId) ?? 0) + 1,
     );
+    if (meeting.attributionTeamId) {
+      byAttributionTeam.set(
+        meeting.attributionTeamId,
+        (byAttributionTeam.get(meeting.attributionTeamId) ?? 0) + 1,
+      );
+    }
   }
-  return byDmCloser;
+  return { byDmCloser, byAttributionTeam };
 }
 
 export async function buildLeadGenEfficiencyRows(
@@ -329,7 +336,15 @@ export async function buildDmCloserEfficiencyRows(
     range: DerivedOverviewRange;
     includeAllCandidates: boolean;
   },
-): Promise<{ rows: TopDmCloserRow[]; truncated: boolean }> {
+): Promise<{
+  rows: TopDmCloserRow[];
+  truncated: boolean;
+  // Booked (new-classification, DM-closer-attributed) meetings in range,
+  // grouped by the meeting's resolved attributionTeamId. Same population as
+  // the per-closer `booked` counts; meetings without an attributionTeamId
+  // count toward totalBooked but no team.
+  bookedByTeam: Map<Id<"attributionTeams">, number>;
+}> {
   const meetings = await ctx.db
     .query("meetings")
     .withIndex("by_tenantId_and_createdAt", (q) =>
@@ -347,7 +362,7 @@ export async function buildDmCloserEfficiencyRows(
     );
   }
 
-  const byDmCloser = countBookedMeetingsByDmCloser(meetings);
+  const { byDmCloser, byAttributionTeam } = countBookedMeetings(meetings);
 
   const [dmClosers, dmCloserSchedules] = await Promise.all([
     ctx.db
@@ -415,7 +430,7 @@ export async function buildDmCloserEfficiencyRows(
     }),
   );
 
-  return { rows, truncated: false };
+  return { rows, truncated: false, bookedByTeam: byAttributionTeam };
 }
 
 function normalizeSearchQuery(search: string) {

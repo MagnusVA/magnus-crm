@@ -9,15 +9,25 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { formatOriginValue, formatWholeNumber } from "./overview-formatters";
-import type { TopOriginsSection } from "./overview-dashboard-types";
 import {
 	OverviewHelpTooltip,
 	overviewTooltips,
 } from "./overview-help-tooltip";
 
-type ReadyRows = Extract<TopOriginsSection, { status: "ready" }>["data"]["rows"];
+export type TopOriginOverviewRow = {
+	originKey: string;
+	source: string;
+	originKind: string;
+	originValue: string;
+	submissions: number;
+	uniqueProspects: number;
+};
 
-export function TopOriginsOverviewTable({ rows }: { rows: ReadyRows }) {
+export function TopOriginsOverviewTable({
+	rows,
+}: {
+	rows: TopOriginOverviewRow[];
+}) {
 	return (
 		<div className="overflow-x-auto rounded-md border">
 			<Table className="min-w-[44rem] table-fixed">
