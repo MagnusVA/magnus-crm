@@ -109,29 +109,3 @@ export const setSlackNotifyChannels = mutation({
   },
 });
 
-export const disconnectSlack = mutation({
-  args: {},
-  handler: async (ctx) => {
-    const { tenantId } = await requireTenantUser(ctx, ["tenant_master"]);
-
-    const installation = await ctx.db
-      .query("slackInstallations")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .first();
-    if (!installation) return;
-
-    await ctx.db.patch(installation._id, {
-      status: "uninstalled",
-      uninstalledAt: Date.now(),
-      botAccessToken: "",
-      refreshToken: "",
-      refreshLockHolder: undefined,
-      refreshLockAcquiredAt: undefined,
-    });
-
-    console.log("[Slack:Channels] disconnected", {
-      tenantId,
-      installationId: installation._id,
-    });
-  },
-});

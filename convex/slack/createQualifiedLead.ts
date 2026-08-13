@@ -5,7 +5,8 @@ import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { resolveLeadIdentity } from "../leads/identityResolution";
 import { emitDomainEvent } from "../lib/domainEvents";
-import { socialPlatformValidator, type SocialPlatform } from "../lib/socialPlatform";
+import { leadTypeValidator } from "../lib/leadType";
+import type { SocialPlatform } from "../lib/socialPlatform";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { rebuildQualificationRow } from "../operations/projections";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
@@ -60,8 +61,9 @@ export const create = internalMutation({
     tenantId: v.id("tenants"),
     installationId: v.id("slackInstallations"),
     fullName: v.string(),
-    platform: socialPlatformValidator,
     handle: v.string(),
+    country: v.string(),
+    leadType: leadTypeValidator,
     qualifiedBy: v.object({
       slackUserId: v.string(),
       slackTeamId: v.string(),
@@ -70,6 +72,7 @@ export const create = internalMutation({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
+    const platform: SocialPlatform = "instagram";
     async function scheduleLeadGenAuditMatch(params: {
       resultKind:
         | "created_opportunity"
@@ -78,9 +81,6 @@ export const create = internalMutation({
       leadId: Id<"leads">;
       opportunityId?: Id<"opportunities">;
     }) {
-      if (args.platform !== "instagram") {
-        return;
-      }
       if (params.resultKind === "already_booked") {
         return;
       }
@@ -110,12 +110,18 @@ export const create = internalMutation({
 
     const resolution = await resolveLeadIdentity(ctx, {
       tenantId: args.tenantId,
-      socialHandle: { platform: args.platform, rawValue: args.handle },
+      socialHandle: { platform, rawValue: args.handle },
       fullName: args.fullName,
       identifierSource: "slack_qualified",
       createIfMissing: true,
       createIdentifiers: true,
       createdAt: now,
+    });
+
+    await ctx.db.patch(resolution.leadId, {
+      country: args.country.trim(),
+      leadType: args.leadType,
+      updatedAt: now,
     });
 
     await upsertSlackUserOnSubmission(ctx, {
@@ -156,7 +162,7 @@ export const create = internalMutation({
         opportunityId: recent._id,
         resultKind: "duplicate_pending",
         fullName: args.fullName,
-        platform: args.platform,
+        platform,
         handle: args.handle,
         qualifiedBy: args.qualifiedBy,
         now,
@@ -198,7 +204,7 @@ export const create = internalMutation({
         opportunityId: alreadyBooked._id,
         resultKind,
         fullName: args.fullName,
-        platform: args.platform,
+        platform,
         handle: args.handle,
         qualifiedBy: args.qualifiedBy,
         now,
@@ -261,7 +267,7 @@ export const create = internalMutation({
       opportunityId,
       resultKind: "created_opportunity",
       fullName: args.fullName,
-      platform: args.platform,
+      platform,
       handle: args.handle,
       qualifiedBy: args.qualifiedBy,
       now,

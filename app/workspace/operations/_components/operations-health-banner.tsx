@@ -31,7 +31,9 @@ export function OperationsHealthBanner() {
           {bookingIssueCount} recent invitee.created webhooks are unprocessed.
         </span>
         <Button asChild variant="outline" size="sm">
-          <Link href="/workspace/settings?tab=attribution">Review mappings</Link>
+          <Link href="/workspace/operations/booked-calls/attribution?section=diagnostics">
+            Review mappings
+          </Link>
         </Button>
       </AlertDescription>
     </Alert>

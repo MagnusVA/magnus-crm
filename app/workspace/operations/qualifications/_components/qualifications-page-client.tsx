@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
-import { TriangleAlertIcon } from "lucide-react";
+import { ClockIcon, TriangleAlertIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePageTitle } from "@/hooks/use-page-title";
@@ -15,6 +16,7 @@ import { useDashboardRange } from "@/app/workspace/_components/use-dashboard-ran
 import { TeamGoalDialog } from "@/app/workspace/reports/slack-qualifications/_components/team-goal-dialog";
 import { OperationsHealthBanner } from "../../_components/operations-health-banner";
 import { QualificationSubmissionsList } from "./qualification-submissions-list";
+import { QualifierSchedulesDialog } from "./qualifier-schedules-dialog";
 import { SetterContributionsTable } from "./setter-contributions-table";
 
 function GoalRingSkeleton() {
@@ -41,6 +43,7 @@ export function QualificationsPageClient() {
       defaultRange: { kind: "preset", preset: "this_week" },
     });
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
+  const [schedulesOpen, setSchedulesOpen] = useState(false);
 
   const dashboard = useQuery(
     api.operations.qualificationsDashboard.getQualificationsDashboard,
@@ -86,6 +89,15 @@ export function QualificationsPageClient() {
           </div>
         </div>
         <div className="flex flex-col items-start gap-3 lg:items-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setSchedulesOpen(true)}
+          >
+            <ClockIcon data-icon="inline-start" aria-hidden="true" />
+            Schedules
+          </Button>
           <DashboardDateRangeFilter
             validationMessage={validationMessage}
             value={range}
@@ -141,6 +153,10 @@ export function QualificationsPageClient() {
         currentGoal={dashboard?.goal.dailyQuota ?? null}
         open={goalDialogOpen}
         onOpenChange={setGoalDialogOpen}
+      />
+      <QualifierSchedulesDialog
+        open={schedulesOpen}
+        onOpenChange={setSchedulesOpen}
       />
     </div>
   );

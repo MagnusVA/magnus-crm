@@ -29,7 +29,7 @@ import {
   type PortalReadiness,
   portalReadinessFor,
   readinessBadgeVariant,
-} from "./portal-readiness";
+} from "@/app/workspace/_components/portal-readiness";
 
 type EventTypeConfig = Doc<"eventTypeConfigs"> & {
   portalReadiness?: PortalReadiness;

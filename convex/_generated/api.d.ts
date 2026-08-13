@@ -133,6 +133,7 @@ import type * as lib_formatMoney from "../lib/formatMoney.js";
 import type * as lib_identity from "../lib/identity.js";
 import type * as lib_inviteToken from "../lib/inviteToken.js";
 import type * as lib_leadDisplay from "../lib/leadDisplay.js";
+import type * as lib_leadType from "../lib/leadType.js";
 import type * as lib_linkPortal_validators from "../lib/linkPortal/validators.js";
 import type * as lib_meetingFormResponses from "../lib/meetingFormResponses.js";
 import type * as lib_meetingLocation from "../lib/meetingLocation.js";
@@ -437,6 +438,7 @@ declare const fullApi: ApiFromModules<{
   "lib/identity": typeof lib_identity;
   "lib/inviteToken": typeof lib_inviteToken;
   "lib/leadDisplay": typeof lib_leadDisplay;
+  "lib/leadType": typeof lib_leadType;
   "lib/linkPortal/validators": typeof lib_linkPortal_validators;
   "lib/meetingFormResponses": typeof lib_meetingFormResponses;
   "lib/meetingLocation": typeof lib_meetingLocation;

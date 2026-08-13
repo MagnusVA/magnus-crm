@@ -39,7 +39,7 @@ import {
   type PortalReadiness,
   portalReadinessFor,
   readinessBadgeVariant,
-} from "./portal-readiness";
+} from "@/app/workspace/_components/portal-readiness";
 
 // Lazy-load dialog component that is only shown on user interaction
 const EventTypeConfigDialog = dynamic(() =>
@@ -52,6 +52,12 @@ interface PaymentLink {
   provider: string;
   label: string;
   url: string;
+}
+
+interface CustomFieldMappings {
+  socialHandleField?: string;
+  socialHandleType?: "instagram" | "tiktok" | "twitter" | "other_social";
+  phoneField?: string;
 }
 
 interface EventTypeConfig {
@@ -71,6 +77,21 @@ interface EventTypeConfig {
   linkPortalEnabled?: boolean;
   isExtended?: boolean;
   portalReadiness?: PortalReadiness;
+  customFieldMappings?: CustomFieldMappings;
+  knownCustomFieldKeys?: string[];
+  fieldCount?: number;
+  bookingCount?: number;
+  lastBookingAt?: number;
+}
+
+function hasFieldMappings(config: EventTypeConfig): boolean {
+  const mappings = config.customFieldMappings;
+  return Boolean(
+    mappings &&
+      (mappings.socialHandleField ||
+        mappings.socialHandleType ||
+        mappings.phoneField),
+  );
 }
 
 const SYNC_STATUS_LABEL: Record<
@@ -245,6 +266,17 @@ export function EventTypeConfigList({
                                 Calendly: {config.calendlyName}
                               </p>
                             ) : null}
+                            {config.bookingCount !== undefined ? (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {config.bookingCount} booking
+                                {config.bookingCount === 1 ? "" : "s"}
+                                {(config.fieldCount ?? 0) > 0
+                                  ? ` · ${config.fieldCount} form field${
+                                      config.fieldCount === 1 ? "" : "s"
+                                    }`
+                                  : ""}
+                              </p>
+                            ) : null}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -267,6 +299,9 @@ export function EventTypeConfigList({
                             </Badge>
                             {config.isExtended ? (
                               <Badge variant="secondary">Extended</Badge>
+                            ) : null}
+                            {hasFieldMappings(config) ? (
+                              <Badge variant="muted">Fields mapped</Badge>
                             ) : null}
                           </div>
                         </TableCell>

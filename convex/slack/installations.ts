@@ -415,6 +415,36 @@ export const markTokenExpired = internalMutation({
   },
 });
 
+export const disconnectByTenant = internalMutation({
+  args: { tenantId: v.id("tenants") },
+  returns: v.object({ disconnected: v.boolean() }),
+  handler: async (ctx, args) => {
+    const installation = await ctx.db
+      .query("slackInstallations")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId))
+      .first();
+    if (!installation || installation.status === "uninstalled") {
+      return { disconnected: false };
+    }
+
+    await ctx.db.patch(installation._id, {
+      status: "uninstalled",
+      uninstalledAt: Date.now(),
+      botAccessToken: "",
+      refreshToken: "",
+      refreshLockHolder: undefined,
+      refreshLockAcquiredAt: undefined,
+    });
+
+    console.log("[Slack:Installations] disconnected", {
+      tenantId: args.tenantId,
+      installationId: installation._id,
+    });
+
+    return { disconnected: true };
+  },
+});
+
 export const markUninstalled = internalMutation({
   args: {
     teamId: v.string(),

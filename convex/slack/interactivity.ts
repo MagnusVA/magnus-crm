@@ -101,6 +101,9 @@ export const interactivity = httpAction(async (ctx, req) => {
   if (parsed.fullName.length === 0) {
     fieldErrors.full_name = "Required";
   }
+  if (parsed.country.length === 0) {
+    fieldErrors.country = "Required";
+  }
   if (parsed.handle.length === 0) {
     fieldErrors.handle = "Required";
   }
@@ -118,8 +121,9 @@ export const interactivity = httpAction(async (ctx, req) => {
       tenantId: parsed.tenantId,
       installationId: installation._id,
       fullName: parsed.fullName,
-      platform: parsed.platform,
       handle: parsed.handle,
+      country: parsed.country,
+      leadType: parsed.leadType,
       qualifiedBy: {
         slackUserId: parsed.slackUserId,
         slackTeamId: parsed.teamId,
