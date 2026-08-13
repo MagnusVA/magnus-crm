@@ -1,4 +1,6 @@
+import { v } from "convex/values";
 import { action } from "../_generated/server";
+import { internal } from "../_generated/api";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 import { getValidSlackBotToken } from "./tokens";
 import { slackApiGet } from "./webApi";
@@ -21,6 +23,75 @@ type ConversationsListChannel = {
   is_member?: boolean;
   is_archived?: boolean;
 };
+
+export const disconnectSlack = action({
+  args: {},
+  returns: v.object({
+    disconnected: v.boolean(),
+    revokedInSlack: v.boolean(),
+  }),
+  handler: async (
+    ctx,
+  ): Promise<{ disconnected: boolean; revokedInSlack: boolean }> => {
+    const { tenantId } = await requireTenantUserFromAction(ctx, [
+      "tenant_master",
+    ]);
+
+    const installation = await ctx.runQuery(
+      internal.slack.installations.byTenantId,
+      { tenantId },
+    );
+    if (!installation || installation.status === "uninstalled") {
+      return { disconnected: false, revokedInSlack: false };
+    }
+
+    // Best-effort remote revocation. auth.revoke invalidates the bot token on
+    // Slack's side; removing the app from the workspace itself still requires
+    // a Slack admin, hence the revokedInSlack flag for honest UI copy.
+    let revokedInSlack = false;
+    try {
+      let token: string;
+      try {
+        token = await getValidSlackBotToken(ctx, tenantId);
+      } catch {
+        if (!installation.botAccessToken) {
+          throw new Error("no usable bot token");
+        }
+        token = installation.botAccessToken;
+      }
+      const response = await slackApiGet<{ revoked?: boolean }>(
+        "auth.revoke",
+        token,
+        {},
+      );
+      if (response.ok) {
+        revokedInSlack = true;
+      } else {
+        console.warn("[Slack:Channels] auth.revoke failed", {
+          tenantId,
+          error: response.error ?? "unknown",
+        });
+      }
+    } catch (error) {
+      console.warn("[Slack:Channels] auth.revoke failed", {
+        tenantId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    const result: { disconnected: boolean } = await ctx.runMutation(
+      internal.slack.installations.disconnectByTenant,
+      { tenantId },
+    );
+
+    console.log("[Slack:Channels] disconnected", {
+      tenantId,
+      revokedInSlack,
+    });
+
+    return { disconnected: result.disconnected, revokedInSlack };
+  },
+});
 
 export const listInstalledChannels = action({
   args: {},

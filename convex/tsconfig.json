@@ -11,6 +11,10 @@
     "jsx": "react-jsx",
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
+    /* TypeScript 7 (tsgo) does not auto-include @types packages from a
+     * parent directory's node_modules, so "node" must be listed explicitly
+     * for process.env access in Convex functions. */
+    "types": ["node"],
 
     /* These compiler options are required by Convex */
     "target": "ESNext",

@@ -1,8 +1,8 @@
 import { v } from "convex/values";
 
 /**
- * Social-platform identifiers shared by leadIdentifiers.type and the Slack
- * qualify-lead modal. Keep labels and validators aligned with this list.
+ * Social-platform identifiers shared by leadIdentifiers.type and Slack
+ * qualification messages. Keep labels and validators aligned with this list.
  */
 export const SOCIAL_PLATFORMS = [
   "instagram",

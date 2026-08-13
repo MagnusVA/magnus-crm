@@ -29,11 +29,19 @@ const weekdayLabels: Record<Weekday, string> = {
   sunday: "Sunday",
 };
 
+export function weeklyTotalHours(draft: ScheduleDraft): number {
+  return weekdays.reduce((total, weekday) => {
+    const hours = Number(draft[weekday] || 0);
+    return total + (Number.isFinite(hours) ? hours : 0);
+  }, 0);
+}
+
 export function WeeklyScheduleEditor(props: {
   value: ScheduleDraft;
   onChange: (next: ScheduleDraft) => void;
-  onSave: () => void;
-  isSaving: boolean;
+  onSave?: () => void;
+  isSaving?: boolean;
+  showTotal?: boolean;
 }) {
   return (
     <FieldGroup>
@@ -61,14 +69,24 @@ export function WeeklyScheduleEditor(props: {
           </Field>
         ))}
       </div>
-      <Button type="button" onClick={props.onSave} disabled={props.isSaving}>
-        {props.isSaving ? (
-          <Spinner data-icon="inline-start" />
-        ) : (
-          <SaveIcon data-icon="inline-start" />
-        )}
-        Save schedule
-      </Button>
+      {props.showTotal ? (
+        <p className="text-sm text-muted-foreground">
+          Total:{" "}
+          <span className="font-medium text-foreground">
+            {weeklyTotalHours(props.value)} h/week
+          </span>
+        </p>
+      ) : null}
+      {props.onSave ? (
+        <Button type="button" onClick={props.onSave} disabled={props.isSaving}>
+          {props.isSaving ? (
+            <Spinner data-icon="inline-start" />
+          ) : (
+            <SaveIcon data-icon="inline-start" />
+          )}
+          Save schedule
+        </Button>
+      ) : null}
     </FieldGroup>
   );
 }

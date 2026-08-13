@@ -21,6 +21,7 @@ import {
 } from "./operations/validators";
 import { opportunityStatusValidator } from "./opportunities/validators";
 import { portalPasswordHashParamsValidator } from "./lib/linkPortal/validators";
+import { leadTypeValidator } from "./lib/leadType";
 import { paymentOriginValidator, paymentTypeValidator } from "./lib/paymentTypes";
 import { socialPlatformValidator } from "./lib/socialPlatform";
 import { utmParamsValidator } from "./lib/utmParams";
@@ -457,6 +458,9 @@ export default defineSchema({
     email: v.optional(v.string()),
     fullName: v.optional(v.string()),
     phone: v.optional(v.string()),
+    // Captured by Slack qualification. Optional for existing and non-Slack leads.
+    country: v.optional(v.string()),
+    leadType: v.optional(leadTypeValidator),
     customFields: v.optional(v.record(v.string(), v.string())),
     firstSeenAt: v.number(),
     updatedAt: v.number(),

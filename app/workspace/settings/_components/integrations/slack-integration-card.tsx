@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { type Preloaded, useMutation, usePreloadedQuery } from "convex/react";
+import { type Preloaded, useAction, usePreloadedQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
@@ -57,7 +57,7 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
-  const disconnectSlack = useMutation(api.slack.channels.disconnectSlack);
+  const disconnectSlack = useAction(api.slack.channelsActions.disconnectSlack);
 
   useEffect(() => {
     if (
@@ -72,8 +72,14 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
   async function handleDisconnect() {
     setDisconnecting(true);
     try {
-      await disconnectSlack({});
-      toast.success("Slack disconnected.");
+      const result = await disconnectSlack({});
+      if (result.revokedInSlack) {
+        toast.success("Slack disconnected and access revoked.");
+      } else {
+        toast.warning(
+          "Slack disconnected. Slack did not confirm the token revocation — remove the Magnus app from your Slack workspace to fully revoke access.",
+        );
+      }
       setDisconnectOpen(false);
     } catch (error) {
       toast.error(
@@ -233,8 +239,11 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>Disconnect Slack?</AlertDialogTitle>
             <AlertDialogDescription>
-              Future Slack qualifications will ask users to contact an admin.
-              Existing Slack-qualified opportunities stay in the CRM.
+              This revokes the bot token and stops channel notifications,
+              stale-lead digests, and{" "}
+              <span translate="no">/qualify-lead</span>. Existing
+              Slack-qualified opportunities stay in the CRM. Reconnecting
+              requires running the Slack connection again.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

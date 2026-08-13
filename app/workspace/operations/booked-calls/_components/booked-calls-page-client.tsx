@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useQuery } from "convex/react";
-import { Settings2Icon, TriangleAlertIcon } from "lucide-react";
+import { ClockIcon, Settings2Icon, TriangleAlertIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -19,10 +20,10 @@ import { OpsBarChartCard } from "@/app/workspace/_components/ops-bar-chart-card"
 import { formatWholeNumber } from "@/app/workspace/_components/overview-formatters";
 import { useDashboardRange } from "@/app/workspace/_components/use-dashboard-range";
 import { OperationsHealthBanner } from "../../_components/operations-health-banner";
-import { BookedCallsConfigSheet } from "./booked-calls-config-sheet";
 import { BookedCallsDetailsList } from "./booked-calls-details-list";
 import { BookingGoalsDialog } from "./booking-goals-dialog";
 import { DmCloserContributionsTable } from "./dm-closer-contributions-table";
+import { DmCloserSchedulesDialog } from "./dm-closer-schedules-dialog";
 
 function GoalRingSkeleton() {
   return (
@@ -48,7 +49,7 @@ export function BookedCallsPageClient() {
       defaultRange: { kind: "preset", preset: "this_week" },
     });
   const [goalsDialogOpen, setGoalsDialogOpen] = useState(false);
-  const [configSheetOpen, setConfigSheetOpen] = useState(false);
+  const [schedulesOpen, setSchedulesOpen] = useState(false);
 
   const dashboard = useQuery(
     api.operations.bookedCallsDashboard.getBookedCallsDashboard,
@@ -122,22 +123,30 @@ export function BookedCallsPageClient() {
           </div>
         </div>
         <div className="flex flex-col items-start gap-3 lg:items-end">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setConfigSheetOpen(true)}
-              >
-                <Settings2Icon data-icon="inline-start" aria-hidden="true" />
-                Configuration
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent className="max-w-xs text-pretty" side="bottom">
-              DM teams, booking goals, closers, and hourly contract rates.
-            </TooltipContent>
-          </Tooltip>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setSchedulesOpen(true)}
+            >
+              <ClockIcon data-icon="inline-start" aria-hidden="true" />
+              Schedules
+            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href="/workspace/operations/booked-calls/attribution">
+                    <Settings2Icon data-icon="inline-start" aria-hidden="true" />
+                    Configuration
+                  </Link>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-xs text-pretty" side="bottom">
+                DM teams, booking goals, closers, and hourly contract rates.
+              </TooltipContent>
+            </Tooltip>
+          </div>
           <DashboardDateRangeFilter
             validationMessage={validationMessage}
             value={range}
@@ -197,9 +206,9 @@ export function BookedCallsPageClient() {
         open={goalsDialogOpen}
         onOpenChange={setGoalsDialogOpen}
       />
-      <BookedCallsConfigSheet
-        open={configSheetOpen}
-        onOpenChange={setConfigSheetOpen}
+      <DmCloserSchedulesDialog
+        open={schedulesOpen}
+        onOpenChange={setSchedulesOpen}
       />
     </div>
   );

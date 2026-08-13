@@ -37,6 +37,11 @@ const adminPages = [
   { label: "Lead Gen Settings", href: "/workspace/lead-gen/settings", icon: SettingsIcon },
   { label: "Team", href: "/workspace/team", icon: UsersIcon },
   { label: "Settings", href: "/workspace/settings", icon: SettingsIcon },
+  {
+    label: "Attribution",
+    href: "/workspace/operations/booked-calls/attribution",
+    icon: TargetIcon,
+  },
 ];
 
 const billingPage = {

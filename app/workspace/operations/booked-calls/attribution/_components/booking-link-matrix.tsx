@@ -16,7 +16,7 @@ import {
   READINESS_LABEL,
   type PortalReadiness,
   portalReadinessFor,
-} from "./portal-readiness";
+} from "@/app/workspace/_components/portal-readiness";
 
 type DmCloserRow = Doc<"dmClosers"> & { teamLabel: string };
 type EventTypeConfigRow = Doc<"eventTypeConfigs"> & {

@@ -1,9 +1,13 @@
 import type { KnownBlock, ModalView } from "@slack/types";
 import type { Id } from "../_generated/dataModel";
 import {
-  isSocialPlatform,
+  isLeadType,
+  LEAD_TYPE_LABELS,
+  LEAD_TYPES,
+  type LeadType,
+} from "./leadType";
+import {
   SOCIAL_PLATFORM_LABELS,
-  SOCIAL_PLATFORMS,
   type SocialPlatform,
 } from "./socialPlatform";
 
@@ -19,8 +23,9 @@ export type QualifyLeadModalMetadata = {
 
 export type ParsedQualifyLeadSubmission = QualifyLeadModalMetadata & {
   fullName: string;
-  platform: SocialPlatform;
   handle: string;
+  country: string;
+  leadType: LeadType;
 };
 
 export type QualifiedLeadConfirmationArgs = {
@@ -88,18 +93,29 @@ export function buildQualifyLeadModal(
       },
       {
         type: "input",
-        block_id: "platform",
-        label: { type: "plain_text", text: "Social platform" },
+        block_id: "country",
+        label: { type: "plain_text", text: "Country" },
+        element: {
+          type: "plain_text_input",
+          action_id: "v",
+          placeholder: { type: "plain_text", text: "e.g. United States" },
+          max_length: 100,
+        },
+      },
+      {
+        type: "input",
+        block_id: "lead_type",
+        label: { type: "plain_text", text: "Type" },
         element: {
           type: "static_select",
           action_id: "v",
           placeholder: { type: "plain_text", text: "Pick one" },
-          options: SOCIAL_PLATFORMS.map((platform) => ({
+          options: LEAD_TYPES.map((leadType) => ({
             text: {
               type: "plain_text",
-              text: SOCIAL_PLATFORM_LABELS[platform],
+              text: LEAD_TYPE_LABELS[leadType],
             },
-            value: platform,
+            value: leadType,
           })),
         },
       },
@@ -246,18 +262,20 @@ export function parseQualifyLeadSubmission(
 
   const values = view.state?.values;
   const fullName = getStringValue(values, "full_name")?.trim() ?? "";
-  const platformRaw = values?.platform?.v?.selected_option?.value;
+  const country = getStringValue(values, "country")?.trim() ?? "";
+  const leadTypeRaw = values?.lead_type?.v?.selected_option?.value;
   const handle = getStringValue(values, "handle")?.trim() ?? "";
 
-  if (!isSocialPlatform(platformRaw)) {
+  if (!isLeadType(leadTypeRaw)) {
     return null;
   }
 
   return {
     ...meta,
     fullName,
-    platform: platformRaw,
     handle,
+    country,
+    leadType: leadTypeRaw,
   };
 }
 
