@@ -32,6 +32,8 @@ export type QualifiedLeadConfirmationArgs = {
   leadFullName: string;
   platform: SocialPlatform;
   handle: string;
+  country?: string;
+  leadType?: LeadType;
   qualifiedBySlackUserId: string;
   qualificationGoal?: {
     qualifiedCount: number;
@@ -140,11 +142,21 @@ export function buildQualifiedLeadConfirmation(
   const leadName = escapeSlackMrkdwn(args.leadFullName);
   const handle = escapeSlackMrkdwn(args.handle);
   const platformLabel = SOCIAL_PLATFORM_LABELS[args.platform];
+  const country = args.country ? escapeSlackMrkdwn(args.country) : null;
+  const leadTypeLabel = args.leadType
+    ? LEAD_TYPE_LABELS[args.leadType]
+    : null;
   const goalText = args.qualificationGoal
     ? `${args.qualificationGoal.qualifiedCount}/${args.qualificationGoal.dailyTeamQualificationGoal} qualified`
     : null;
   const fields = [
     { type: "mrkdwn" as const, text: `*Name:*\n${leadName}` },
+    ...(leadTypeLabel
+      ? [{ type: "mrkdwn" as const, text: `*Type:*\n${leadTypeLabel}` }]
+      : []),
+    ...(country
+      ? [{ type: "mrkdwn" as const, text: `*Country:*\n${country}` }]
+      : []),
     { type: "mrkdwn" as const, text: `*Platform:*\n${platformLabel}` },
     { type: "mrkdwn" as const, text: `*Handle:*\n${handle}` },
     {

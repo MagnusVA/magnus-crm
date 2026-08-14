@@ -30,6 +30,8 @@ export const getLeadForNotify = internalQuery({
       _id: lead._id,
       fullName: lead.fullName,
       email: lead.email,
+      country: lead.country,
+      leadType: lead.leadType,
     };
   },
 });
@@ -91,6 +93,8 @@ export const getExistingOpportunityBumpForNotify = internalQuery({
         lead.fullName ?? lead.email ?? event.fullNameSnapshot ?? "Lead",
       platform: event.platform,
       handle: event.handleSnapshot,
+      country: lead.country,
+      leadType: lead.leadType,
       opportunityStatus: opportunity.status,
       bumpedBySlackUserId: event.slackUserId,
     };
