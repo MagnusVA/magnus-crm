@@ -7,7 +7,6 @@ import type { ReportKind, ReportFormat, ReportPurpose } from "./contracts";
 
 const MAX_PAGES_PER_STEP = 20;
 const STEP_BUDGET_MS = 40_000;
-const CURRENCY_ERROR = "This report contains a non-USD payment. Download Raw Payments CSV to review currencies; monetary dashboards and reports currently support USD only.";
 
 export function sourcesForReport(job: { reportKind: ReportKind; purpose: ReportPurpose; format?: ReportFormat }) {
   const sources = REPORT_SOURCE_ORDER[job.reportKind];
@@ -56,7 +55,6 @@ export const run = internalAction({
             startDayKey: job.range.startDayKey, endDayKeyExclusive: job.range.endDayKeyExclusive,
             sourceFilter: job.sourceFilter, teamId: null, workerId: null, cursor: checkpoint?.cursor ?? null,
           });
-          if (job.reportKind === "sales-calls" && job.format !== "payments_csv" && page.page.some(row => row.kind === "sales_payment" && row.currency.toLowerCase() !== "usd")) throw new Error(CURRENCY_ERROR);
           const contributions = reduceReportSourcePage({ sourceKey, range: job.range, rows: page.page }).filter((contribution) =>
             !contribution.section.startsWith("raw_") || (job.purpose === "export" && (job.format === "raw_csv" || job.format === "payments_csv")),
           );
@@ -102,7 +100,7 @@ export const run = internalAction({
     } catch (error) {
       console.error("[Operations:Reports] worker failed", { jobId, message: error instanceof Error ? error.message : String(error) });
       await ctx.runMutation(internal.operations.reports.jobs.failJob, {
-        ...fence, category: error instanceof Error && error.message === CURRENCY_ERROR ? "unsupported_currency" : "processing_error", message: error instanceof Error && error.message === CURRENCY_ERROR ? CURRENCY_ERROR : "The report could not be completed. Retry the report or choose a smaller date range.", retryable: !(error instanceof Error && error.message === CURRENCY_ERROR),
+        ...fence, category: "processing_error", message: "The report could not be completed. Retry the report or choose a smaller date range.", retryable: true,
       });
     }
     return null;

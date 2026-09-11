@@ -16,18 +16,10 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { OverviewHelpTooltip } from "@/app/workspace/_components/overview-help-tooltip";
 import { formatAmountMinor } from "@/lib/format-currency";
-
-export type SalesCallsStats = {
-  totalCalls: number;
-  showed: number;
-  canceled: number;
-  noShows: number;
-  showUpRate: number | null;
-  cashCollectedMinor: number;
-  paymentSalesCount: number;
-  closeRate: number | null;
-  avgCashPerSaleMinor: number | null;
-};
+import {
+  summaryMoneyForCurrency,
+  type SalesCallsStats,
+} from "./sales-calls-data";
 
 const numberFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 0,
@@ -51,9 +43,14 @@ function formatRateOrDash(value: number | null) {
  */
 export function SalesCallsStatCards({
   stats,
+  currency,
 }: {
   stats: SalesCallsStats | undefined;
+  currency: string;
 }) {
+  const money = stats
+    ? summaryMoneyForCurrency(stats, currency)
+    : undefined;
   const cards = [
     {
       label: "Total Calls",
@@ -76,18 +73,18 @@ export function SalesCallsStatCards({
     {
       label: "Cash Collected",
       description:
-        "Commissionable final payments recorded in the range — deposits and disputed payments excluded, matching the Revenue report.",
+        `Commissionable final payments recorded in ${currency} — deposits and disputed payments excluded, matching the Revenue report.`,
       value:
-        stats === undefined
+        money === undefined
           ? undefined
-          : formatAmountMinor(stats.cashCollectedMinor, "USD"),
+          : formatAmountMinor(money.cashCollectedMinor, currency),
       icon: BanknoteIcon,
     },
     {
       label: "Close Rate",
       description:
-        "Payment sales ÷ showed calls. Shows — when no calls showed in the range.",
-      value: stats === undefined ? undefined : formatRateOrDash(stats.closeRate),
+        `Payment sales recorded in ${currency} ÷ showed calls. Shows — when no calls showed in the range.`,
+      value: money === undefined ? undefined : formatRateOrDash(money.closeRate),
       icon: TargetIcon,
     },
   ];
@@ -121,7 +118,7 @@ export function SalesCallsStatCards({
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-0">
           <CardTitle className="min-w-0 truncate text-xs font-medium text-muted-foreground">
             <OverviewHelpTooltip
-              description="Cash collected divided by the number of commissionable final payments in the range. Shows — when there are no payment sales."
+              description={`Cash collected in ${currency} divided by the number of commissionable final payments in ${currency}. Shows — when there are no payment sales.`}
               label="AVG Cash Collected"
             >
               AVG Cash Collected
@@ -130,26 +127,26 @@ export function SalesCallsStatCards({
           <CalculatorIcon aria-hidden="true" className="text-muted-foreground" />
         </CardHeader>
         <CardContent className="pt-0">
-          {stats === undefined ? (
+          {money === undefined ? (
             <Skeleton className="h-7 w-28" />
           ) : (
             <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
               <p className="truncate text-2xl font-semibold tracking-normal tabular-nums">
-                {stats.avgCashPerSaleMinor === null
+                {money.avgCashPerSaleMinor === null
                   ? "—"
                   : formatAmountMinor(
-                      Math.round(stats.avgCashPerSaleMinor),
-                      "USD",
+                      Math.round(money.avgCashPerSaleMinor),
+                      currency,
                     )}
               </p>
               <p className="text-xs text-muted-foreground">
                 total sales ÷ sales quantity
-                {stats.paymentSalesCount > 0 ? (
+                {money.paymentSalesCount > 0 ? (
                   <span className="tabular-nums">
-                    {" "}
-                    — {formatAmountMinor(stats.cashCollectedMinor, "USD")} ÷{" "}
-                    {numberFormatter.format(stats.paymentSalesCount)} payment
-                    sale{stats.paymentSalesCount === 1 ? "" : "s"}
+                    {" — "}
+                    {formatAmountMinor(money.cashCollectedMinor, currency)} ÷{" "}
+                    {numberFormatter.format(money.paymentSalesCount)} payment
+                    sale{money.paymentSalesCount === 1 ? "" : "s"}
                   </span>
                 ) : null}
               </p>

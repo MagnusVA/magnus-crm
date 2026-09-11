@@ -20,7 +20,6 @@ import {
   getUserDisplayName,
   reportingUserIdentity,
   splitPaymentsForRevenueReporting,
-  summarizeAttributedPayments,
 } from "../reporting/lib/helpers";
 import { requireTenantUser } from "../requireTenantUser";
 import { enrichPhoneSalesRows } from "./phoneSales";
@@ -40,16 +39,21 @@ const meetingStatusValidator = v.union(
   v.literal("no_show"),
 );
 
+const moneyBucketValidator = v.object({
+  currency: v.string(),
+  paymentSales: v.number(),
+  paymentRevenueMinor: v.number(),
+  paymentCloseRate: v.union(v.number(), v.null()),
+  avgPaymentDealMinor: v.union(v.number(), v.null()),
+});
+
 const closerTotalsFields = {
   booked: v.number(),
   canceled: v.number(),
   noShows: v.number(),
   showed: v.number(),
   showUpRate: v.union(v.number(), v.null()),
-  paymentSales: v.number(),
-  paymentRevenueMinor: v.number(),
-  paymentCloseRate: v.union(v.number(), v.null()),
-  avgPaymentDealMinor: v.union(v.number(), v.null()),
+  moneyByCurrency: v.array(moneyBucketValidator),
 };
 
 const closerRowValidator = v.object({
@@ -93,6 +97,11 @@ type MeetingTotals = {
   showed: number;
 };
 
+type PaymentTotals = {
+  paymentSales: number;
+  paymentRevenueMinor: number;
+};
+
 function emptyMeetingTotals(): MeetingTotals {
   return { booked: 0, canceled: 0, noShows: 0, showed: 0 };
 }
@@ -108,19 +117,77 @@ function toRate(numerator: number, denominator: number): number | null {
   return denominator > 0 ? numerator / denominator : null;
 }
 
-function withRates(totals: MeetingTotals & { paymentSales: number; paymentRevenueMinor: number }) {
-  // Show-up rate: completed / (all counted meetings - canceled), the exact
-  // getPhoneSalesStats formula (= teamPerformance's confirmed-attendance
-  // denominator). Close rate: payment sales / showed, teamPerformance's
-  // overallCloseRate definition.
+function withMeetingRates(totals: MeetingTotals) {
   return {
     ...totals,
     showUpRate: toRate(totals.showed, totals.booked - totals.canceled),
-    paymentCloseRate: toRate(totals.paymentSales, totals.showed),
-    avgPaymentDealMinor:
-      totals.paymentSales > 0
-        ? totals.paymentRevenueMinor / totals.paymentSales
-        : null,
+  };
+}
+
+function normalizeCurrency(currency: string) {
+  return currency.trim().toUpperCase() || "UNKNOWN";
+}
+
+function addPayment(
+  totalsByCurrency: Map<string, PaymentTotals>,
+  currency: string,
+  amountMinor: number,
+) {
+  const key = normalizeCurrency(currency);
+  const totals = totalsByCurrency.get(key) ?? {
+    paymentSales: 0,
+    paymentRevenueMinor: 0,
+  };
+  totals.paymentSales += 1;
+  totals.paymentRevenueMinor += amountMinor;
+  totalsByCurrency.set(key, totals);
+}
+
+function moneyByCurrency(
+  totalsByCurrency: Map<string, PaymentTotals> | undefined,
+  showed: number,
+) {
+  return [...(totalsByCurrency?.entries() ?? [])]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([currency, totals]) => ({
+      currency,
+      ...totals,
+      paymentCloseRate: toRate(totals.paymentSales, showed),
+      avgPaymentDealMinor: toRate(
+        totals.paymentRevenueMinor,
+        totals.paymentSales,
+      ),
+    }));
+}
+
+function summaryMoneyByCurrency(
+  totalsByCurrency: Map<string, PaymentTotals>,
+  showed: number,
+) {
+  return moneyByCurrency(totalsByCurrency, showed).map((bucket) => ({
+    currency: bucket.currency,
+    paymentSalesCount: bucket.paymentSales,
+    cashCollectedMinor: bucket.paymentRevenueMinor,
+    closeRate: bucket.paymentCloseRate,
+    avgCashPerSaleMinor: bucket.avgPaymentDealMinor,
+  }));
+}
+
+function emptyDashboard(start: number, end: number) {
+  return {
+    stats: {
+      totalCalls: 0,
+      showed: 0,
+      canceled: 0,
+      noShows: 0,
+      showUpRate: null,
+      moneyByCurrency: [],
+    },
+    perProgram: [],
+    closers: [],
+    teamTotal: { ...withMeetingRates(emptyMeetingTotals()), moneyByCurrency: [] },
+    window: { start, end },
+    capped: true,
   };
 }
 
@@ -170,10 +237,13 @@ export const getSalesCallsDashboard = query({
       canceled: v.number(),
       noShows: v.number(),
       showUpRate: v.union(v.number(), v.null()),
-      cashCollectedMinor: v.number(),
-      paymentSalesCount: v.number(),
-      closeRate: v.union(v.number(), v.null()),
-      avgCashPerSaleMinor: v.union(v.number(), v.null()),
+      moneyByCurrency: v.array(v.object({
+        currency: v.string(),
+        paymentSalesCount: v.number(),
+        cashCollectedMinor: v.number(),
+        closeRate: v.union(v.number(), v.null()),
+        avgCashPerSaleMinor: v.union(v.number(), v.null()),
+      })),
     }),
     perProgram: v.array(
       v.object({
@@ -181,8 +251,10 @@ export const getSalesCallsDashboard = query({
         label: v.string(),
         calls: v.number(),
         showed: v.number(),
-        paymentSales: v.number(),
-        paymentRevenueMinor: v.number(),
+        canceled: v.number(),
+        noShows: v.number(),
+        showUpRate: v.union(v.number(), v.null()),
+        moneyByCurrency: v.array(moneyBucketValidator),
       }),
     ),
     closers: v.array(closerRowValidator),
@@ -237,32 +309,10 @@ export const getSalesCallsDashboard = query({
         paymentScan.isTruncated ||
         activeUserScan.capped
       ) {
-        const emptyTotals = {
-          ...emptyMeetingTotals(),
-          paymentSales: 0,
-          paymentRevenueMinor: 0,
-        };
-        return {
-          stats: {
-            totalCalls: 0,
-            showed: 0,
-            canceled: 0,
-            noShows: 0,
-            showUpRate: null,
-            cashCollectedMinor: 0,
-            paymentSalesCount: 0,
-            closeRate: null,
-            avgCashPerSaleMinor: null,
-          },
-          perProgram: [],
-          closers: [],
-          teamTotal: withRates(emptyTotals),
-          window: {
-            start: range.operationsStartDate,
-            end: range.operationsEndDate,
-          },
-          capped: true,
-        };
+        return emptyDashboard(
+          range.operationsStartDate,
+          range.operationsEndDate,
+        );
       }
       const activeClosers = activeUserRows.filter(
         (user) => user.role === "closer",
@@ -271,37 +321,6 @@ export const getSalesCallsDashboard = query({
         paymentScan.payments,
       );
       const finalPayments = paymentSplit.commissionable.finalPayments;
-      if (
-        finalPayments.some(
-          (payment) => payment.currency.toLowerCase() !== "usd",
-        )
-      ) {
-        return {
-          stats: {
-            totalCalls: 0,
-            showed: 0,
-            canceled: 0,
-            noShows: 0,
-            showUpRate: null,
-            cashCollectedMinor: 0,
-            paymentSalesCount: 0,
-            closeRate: null,
-            avgCashPerSaleMinor: null,
-          },
-          perProgram: [],
-          closers: [],
-          teamTotal: withRates({
-            ...emptyMeetingTotals(),
-            paymentSales: 0,
-            paymentRevenueMinor: 0,
-          }),
-          window: {
-            start: range.operationsStartDate,
-            end: range.operationsEndDate,
-          },
-          capped: true,
-        };
-      }
 
       // One rollup read powers the stat cards, the per-program meeting counts,
       // and the per-closer meeting counts, so the three sections can never
@@ -327,28 +346,37 @@ export const getSalesCallsDashboard = query({
         meetingsByProgram.set(programKey, programTotals);
       }
 
-      // Cash collected: non-disputed, commissionable, final (non-deposit)
-      // payments — the same slice teamPerformance and the closer dashboard
-      // call cash collected, and reporting/revenue.ts calls
-      // commissionable.finalRevenueMinor.
-      const paymentSummary = summarizeAttributedPayments(finalPayments);
-
       // Per-program payments use the payment's own programId (the "payment
       // program" dimension, exactly like the Revenue report's byProgram).
       const paymentsByProgram = new Map<
         Id<"tenantPrograms">,
-        { sales: number; revenueMinor: number; fallbackName: string | null }
+        { byCurrency: Map<string, PaymentTotals>; fallbackName: string | null }
       >();
+      const paymentsByCloser = new Map<
+        Id<"users">,
+        Map<string, PaymentTotals>
+      >();
+      const allPaymentsByCurrency = new Map<string, PaymentTotals>();
+      const attributedPaymentsByCurrency = new Map<string, PaymentTotals>();
       for (const payment of finalPayments) {
+        addPayment(allPaymentsByCurrency, payment.currency, payment.amountMinor);
         const current = paymentsByProgram.get(payment.programId) ?? {
-          sales: 0,
-          revenueMinor: 0,
+          byCurrency: new Map<string, PaymentTotals>(),
           fallbackName: null,
         };
-        current.sales += 1;
-        current.revenueMinor += payment.amountMinor;
+        addPayment(current.byCurrency, payment.currency, payment.amountMinor);
         current.fallbackName = current.fallbackName ?? payment.programName ?? null;
         paymentsByProgram.set(payment.programId, current);
+        if (payment.effectiveCloserId) {
+          const closerPayments = paymentsByCloser.get(payment.effectiveCloserId) ?? new Map<string, PaymentTotals>();
+          addPayment(closerPayments, payment.currency, payment.amountMinor);
+          paymentsByCloser.set(payment.effectiveCloserId, closerPayments);
+          addPayment(
+            attributedPaymentsByCurrency,
+            payment.currency,
+            payment.amountMinor,
+          );
+        }
       }
 
       // Program labels — bounded by the tenant's program registry.
@@ -357,62 +385,20 @@ export const getSalesCallsDashboard = query({
         ...paymentsByProgram.keys(),
       ]);
       if (programIds.length > LIVE_DIMENSION_LIMIT) {
-        return {
-          stats: {
-            totalCalls: 0,
-            showed: 0,
-            canceled: 0,
-            noShows: 0,
-            showUpRate: null,
-            cashCollectedMinor: 0,
-            paymentSalesCount: 0,
-            closeRate: null,
-            avgCashPerSaleMinor: null,
-          },
-          perProgram: [],
-          closers: [],
-          teamTotal: withRates({
-            ...emptyMeetingTotals(),
-            paymentSales: 0,
-            paymentRevenueMinor: 0,
-          }),
-          window: {
-            start: range.operationsStartDate,
-            end: range.operationsEndDate,
-          },
-          capped: true,
-        };
+        return emptyDashboard(
+          range.operationsStartDate,
+          range.operationsEndDate,
+        );
       }
       const programScan = await readLiveDocuments(
         programIds,
         async (id) => await ctx.db.get(id),
       );
       if (programScan.capped) {
-        return {
-          stats: {
-            totalCalls: 0,
-            showed: 0,
-            canceled: 0,
-            noShows: 0,
-            showUpRate: null,
-            cashCollectedMinor: 0,
-            paymentSalesCount: 0,
-            closeRate: null,
-            avgCashPerSaleMinor: null,
-          },
-          perProgram: [],
-          closers: [],
-          teamTotal: withRates({
-            ...emptyMeetingTotals(),
-            paymentSales: 0,
-            paymentRevenueMinor: 0,
-          }),
-          window: {
-            start: range.operationsStartDate,
-            end: range.operationsEndDate,
-          },
-          capped: true,
-        };
+        return emptyDashboard(
+          range.operationsStartDate,
+          range.operationsEndDate,
+        );
       }
       const programNameById = new Map(
         programScan.rows
@@ -429,6 +415,7 @@ export const getSalesCallsDashboard = query({
           const meetings = meetingsByProgram.get(programId);
           const payments =
             programId === null ? undefined : paymentsByProgram.get(programId);
+          const meetingTotals = meetings ?? emptyMeetingTotals();
           return {
             programId,
             label:
@@ -437,15 +424,22 @@ export const getSalesCallsDashboard = query({
                 : (programNameById.get(programId) ??
                   payments?.fallbackName ??
                   "Unknown program"),
-            calls: meetings?.booked ?? 0,
-            showed: meetings?.showed ?? 0,
-            paymentSales: payments?.sales ?? 0,
-            paymentRevenueMinor: payments?.revenueMinor ?? 0,
+            calls: meetingTotals.booked,
+            showed: meetingTotals.showed,
+            canceled: meetingTotals.canceled,
+            noShows: meetingTotals.noShows,
+            showUpRate: toRate(
+              meetingTotals.showed,
+              meetingTotals.booked - meetingTotals.canceled,
+            ),
+            moneyByCurrency: moneyByCurrency(
+              payments?.byCurrency,
+              meetingTotals.showed,
+            ),
           };
         })
         .sort(
           (left, right) =>
-            right.paymentRevenueMinor - left.paymentRevenueMinor ||
             right.calls - left.calls ||
             compareLabels(left.label, right.label),
         );
@@ -460,34 +454,13 @@ export const getSalesCallsDashboard = query({
       const closerIds = new Set<Id<"users">>([
         ...userById.keys(),
         ...meetingsByCloser.keys(),
-        ...paymentSummary.byCloser.keys(),
+        ...paymentsByCloser.keys(),
       ]);
       if (closerIds.size > LIVE_DIMENSION_LIMIT) {
-        return {
-          stats: {
-            totalCalls: 0,
-            showed: 0,
-            canceled: 0,
-            noShows: 0,
-            showUpRate: null,
-            cashCollectedMinor: 0,
-            paymentSalesCount: 0,
-            closeRate: null,
-            avgCashPerSaleMinor: null,
-          },
-          perProgram: [],
-          closers: [],
-          teamTotal: withRates({
-            ...emptyMeetingTotals(),
-            paymentSales: 0,
-            paymentRevenueMinor: 0,
-          }),
-          window: {
-            start: range.operationsStartDate,
-            end: range.operationsEndDate,
-          },
-          capped: true,
-        };
+        return emptyDashboard(
+          range.operationsStartDate,
+          range.operationsEndDate,
+        );
       }
       const missingCloserIds = [...closerIds].filter(
         (closerId) => !userById.has(closerId),
@@ -497,31 +470,10 @@ export const getSalesCallsDashboard = query({
         async (closerId) => await ctx.db.get(closerId),
       );
       if (missingUserScan.capped) {
-        return {
-          stats: {
-            totalCalls: 0,
-            showed: 0,
-            canceled: 0,
-            noShows: 0,
-            showUpRate: null,
-            cashCollectedMinor: 0,
-            paymentSalesCount: 0,
-            closeRate: null,
-            avgCashPerSaleMinor: null,
-          },
-          perProgram: [],
-          closers: [],
-          teamTotal: withRates({
-            ...emptyMeetingTotals(),
-            paymentSales: 0,
-            paymentRevenueMinor: 0,
-          }),
-          window: {
-            start: range.operationsStartDate,
-            end: range.operationsEndDate,
-          },
-          capped: true,
-        };
+        return emptyDashboard(
+          range.operationsStartDate,
+          range.operationsEndDate,
+        );
       }
       for (const user of missingUserScan.rows) {
         if (user && user.tenantId === tenantId) {
@@ -533,46 +485,35 @@ export const getSalesCallsDashboard = query({
         [...closerIds].map(async (closerId) => {
           const user = userById.get(closerId) ?? null;
           const meetings = meetingsByCloser.get(closerId) ?? emptyMeetingTotals();
-          const payments = paymentSummary.byCloser.get(closerId) ?? {
-            dealCount: 0,
-            revenueMinor: 0,
-          };
 
           return {
             closerId,
             label: user ? getUserDisplayName(user) : "Removed closer",
             avatar: await reportingUserIdentity(ctx, user, "Removed closer"),
-            ...withRates({
-              ...meetings,
-              paymentSales: payments.dealCount,
-              paymentRevenueMinor: payments.revenueMinor,
-            }),
+            ...withMeetingRates(meetings),
+            moneyByCurrency: moneyByCurrency(
+              paymentsByCloser.get(closerId),
+              meetings.showed,
+            ),
           };
         }),
       );
       closers.sort(
         (left, right) =>
-          right.paymentRevenueMinor - left.paymentRevenueMinor ||
           right.booked - left.booked ||
           compareLabels(left.label, right.label),
       );
 
-      // Team total: sums of the closer rows, rates recomputed from the sums.
+      // Team total meeting counts come from the closer rows; money includes
+      // only closer-attributed payments and remains split by currency.
       const teamSums = closers.reduce(
         (acc, closer) => ({
           booked: acc.booked + closer.booked,
           canceled: acc.canceled + closer.canceled,
           noShows: acc.noShows + closer.noShows,
           showed: acc.showed + closer.showed,
-          paymentSales: acc.paymentSales + closer.paymentSales,
-          paymentRevenueMinor:
-            acc.paymentRevenueMinor + closer.paymentRevenueMinor,
         }),
-        {
-          ...emptyMeetingTotals(),
-          paymentSales: 0,
-          paymentRevenueMinor: 0,
-        },
+        emptyMeetingTotals(),
       );
 
       // Stat cards: meeting counts are the tenant-wide rollup totals;
@@ -591,17 +532,20 @@ export const getSalesCallsDashboard = query({
             showed,
             overallMeetings.booked - overallMeetings.canceled,
           ),
-          cashCollectedMinor: paymentSummary.totalRevenueMinor,
-          paymentSalesCount: paymentSummary.totalDealCount,
-          closeRate: toRate(paymentSummary.totalDealCount, showed),
-          avgCashPerSaleMinor:
-            paymentSummary.totalDealCount > 0
-              ? paymentSummary.totalRevenueMinor / paymentSummary.totalDealCount
-              : null,
+          moneyByCurrency: summaryMoneyByCurrency(
+            allPaymentsByCurrency,
+            showed,
+          ),
         },
         perProgram,
         closers,
-        teamTotal: withRates(teamSums),
+        teamTotal: {
+          ...withMeetingRates(teamSums),
+          moneyByCurrency: moneyByCurrency(
+            attributedPaymentsByCurrency,
+            teamSums.showed,
+          ),
+        },
         window: {
           start: range.operationsStartDate,
           end: range.operationsEndDate,

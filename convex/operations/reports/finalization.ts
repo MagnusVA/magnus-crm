@@ -15,7 +15,7 @@ const summaryDefaults: Record<string, ScalarRecord> = {
   lead_gen_summary: { submissions: 0, uniqueProspects: 0, duplicates: 0, scheduledHours: 0, workersActive: 0 },
   qualifications_summary: { totalQualified: 0, dailyQuota: null, target: null },
   booked_calls_summary: { totalBooked: 0, totalTarget: null },
-  sales_calls_summary: { booked: 0, showed: 0, canceled: 0, noShows: 0, paymentSalesCount: 0, cashCollectedMinor: 0 },
+  sales_calls_summary: { booked: 0, showed: 0, canceled: 0, noShows: 0 },
 };
 
 export const readFinalizationPage = internalQuery({
@@ -36,15 +36,45 @@ export const readFinalizationPage = internalQuery({
       const dimensionSections: Record<string, string> = {
         lead_gen_worker: "lead_gen_worker_dimension", lead_gen_team: "team_dimension",
         qualification_opener: "slack_user_dimension", booked_closer: "dm_closer_dimension",
+        booking_team: "team_dimension",
         sales_closer: "user_dimension", sales_program: "program_dimension",
       };
       const dimension = dimensionSections[args.section] ? await related(ctx, args.jobId, dimensionSections[args.section], row.rowKey) : {};
-      const fields = { ...(summaryDefaults[args.section] ?? {}), ...dimension, ...row.fields };
+      const fields = args.section === "lead_gen_worker"
+        ? { ...(summaryDefaults[args.section] ?? {}), ...row.fields, ...dimension }
+        : { ...(summaryDefaults[args.section] ?? {}), ...dimension, ...row.fields };
       let relatedFields: ScalarRecord | undefined;
+      if (args.section === "qualification_opener") {
+        fields.label ??= fields.slackUserId ?? "Unknown qualifier";
+        fields.slackUsername ??= null;
+      }
       if (args.section === "booked_closer") {
+        fields.label ??= fields.dmCloserId ?? "Unknown closer";
+        fields.hourlyRateMinor ??= null;
         relatedFields = await related(ctx, args.jobId, "booked_closer_schedule", row.rowKey);
         const team = await related(ctx, args.jobId, "team_dimension", fields.teamId);
         fields.teamLabel = team.label ?? "Unassigned";
+      }
+      if (args.section === "booking_team") {
+        // The live dashboard only includes teams present in the current registry.
+        // Unattributed bookings and bookings attributed to deleted teams still
+        // contribute to the global total, but do not create goal-team rows.
+        if (typeof fields.teamId !== "string") continue;
+      }
+      if (args.section === "sales_summary_money") {
+        relatedFields = await related(ctx, args.jobId, "sales_calls_summary", "main");
+      }
+      if (args.section === "sales_closer_money") {
+        const closerId = fields.closerId;
+        const closer = await related(ctx, args.jobId, "user_dimension", closerId);
+        Object.assign(fields, closer, row.fields);
+        relatedFields = await related(ctx, args.jobId, "sales_closer", closerId);
+      }
+      if (args.section === "sales_program_money") {
+        const programId = fields.programId;
+        const program = await related(ctx, args.jobId, "program_dimension", programId);
+        Object.assign(fields, program, row.fields);
+        relatedFields = await related(ctx, args.jobId, "sales_program", programId);
       }
       if (["lead_gen_worker", "lead_gen_team_worker", "lead_gen_team_source", "lead_gen_team_origin", "lead_gen_daily_summary", "raw_submission"].includes(args.section)) {
         const team = await related(ctx, args.jobId, "team_dimension", fields.teamId);
@@ -64,6 +94,8 @@ export const readFinalizationPage = internalQuery({
       const result = finalizeAggregateRecord({ section: args.section, rowKey: row.rowKey, fields, range: job.range, ...(relatedFields ? { relatedFields } : {}) });
       if (!result) continue;
       if (["lead_gen_team_worker", "lead_gen_team_source", "lead_gen_team_origin"].includes(args.section)) result.groupKey = String(fields.teamId ?? "unassigned");
+      if (args.section === "sales_closer_money") result.groupKey = String(fields.closerId ?? "unknown");
+      if (args.section === "sales_program_money") result.groupKey = String(fields.programId ?? "none");
       if (args.section === "booking_team" && typeof result.payload.target === "number") contributions.push({ section: "booked_calls_summary", rowKey: "main", field: "totalTarget", operation: "sum", value: result.payload.target });
       rows.push(result);
     }

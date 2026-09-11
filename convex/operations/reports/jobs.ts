@@ -127,6 +127,7 @@ const resultRowValidator = v.object({
   section: v.string(),
   rowKey: v.string(),
   payload: scalarRecordValidator,
+  groupKey: v.optional(v.string()),
   sortValue: v.optional(v.number()),
 });
 
@@ -199,16 +200,17 @@ export const getReportJob = query({
 
 export const getDashboardReportSummary = query({
   args: { jobId: v.id("operationsReportJobs") },
-  returns: v.object({
+  returns: v.union(v.null(), v.object({
     jobId: v.id("operationsReportJobs"),
     reportKind: reportKindValidator,
     range: normalizedReportRangeValidator,
     sourceFilter: reportSourceFilterValidator,
     generatedAt: v.number(),
     payload: scalarRecordValidator,
-  }),
+  })),
   handler: async (ctx, args) => {
     const job = await requireOwnedJob(ctx, args.jobId);
+    if (job.definitionVersion !== REPORT_DEFINITION_VERSION) return null;
     assertReadyDashboard(job);
     const summary = await ctx.db
       .query("operationsReportRows")
@@ -490,6 +492,14 @@ export const claimJob = internalMutation({
       return { kind: "skip" as const, reason: "Job is not queued." };
     }
     const now = Date.now();
+    if (job.definitionVersion !== REPORT_DEFINITION_VERSION) {
+      await markJobFailed(ctx, job, now, {
+        category: "definition_version",
+        message: "This report was created with an older definition. Regenerate the report.",
+        retryable: false,
+      });
+      return { kind: "skip" as const, reason: "Report definition is outdated." };
+    }
     if (job.createdAt + REPORT_MAX_AGE_MS <= now) {
       await markJobFailed(ctx, job, now, {
         category: "resource_limit",
@@ -1138,6 +1148,9 @@ async function requireOwnedJob(
 }
 
 function assertReadyDashboard(job: Doc<"operationsReportJobs">) {
+  if (job.definitionVersion !== REPORT_DEFINITION_VERSION) {
+    throw new Error("This report uses an older definition. Regenerate the report.");
+  }
   if (job.purpose !== "dashboard" || job.status !== "ready") {
     throw new Error("Dashboard report is not ready.");
   }
@@ -1358,6 +1371,7 @@ function sanitizeFailureText(value: string, maxLength: number) {
 }
 
 function toPublicJob(job: Doc<"operationsReportJobs">) {
+  const definitionOutdated = job.definitionVersion !== REPORT_DEFINITION_VERSION;
   return {
     jobId: job._id,
     purpose: job.purpose,
@@ -1367,7 +1381,7 @@ function toPublicJob(job: Doc<"operationsReportJobs">) {
     sourceFilter: job.sourceFilter,
     requestKey: job.requestKey,
     definitionVersion: job.definitionVersion,
-    status: job.status,
+    status: definitionOutdated ? ("failed" as const) : job.status,
     phase: job.phase,
     rowsProcessed: job.rowsProcessed,
     pagesProcessed: job.pagesProcessed,
@@ -1377,7 +1391,13 @@ function toPublicJob(job: Doc<"operationsReportJobs">) {
     startedAt: job.startedAt,
     completedAt: job.completedAt,
     expiresAt: job.expiresAt,
-    failure: job.failure,
+    failure: definitionOutdated
+      ? {
+          category: "definition_version",
+          message: "This report was created with an older definition. Regenerate the report.",
+          retryable: false,
+        }
+      : job.failure,
   };
 }
 
@@ -1426,6 +1446,7 @@ function toPublicResultRow(row: Doc<"operationsReportRows">) {
     section: row.section,
     rowKey: row.rowKey,
     payload: row.payload,
+    groupKey: row.groupKey,
     sortValue: row.sortValue,
   };
 }

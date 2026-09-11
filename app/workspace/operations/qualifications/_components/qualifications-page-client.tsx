@@ -18,18 +18,16 @@ import { OpsBarChartCard } from "@/app/workspace/_components/ops-bar-chart-card"
 import { formatWholeNumber } from "@/app/workspace/_components/overview-formatters";
 import { useDashboardRange } from "@/app/workspace/_components/use-dashboard-range";
 import { TeamGoalDialog } from "@/app/workspace/reports/slack-qualifications/_components/team-goal-dialog";
+import {
+  qualificationDashboardFromLive,
+  qualificationDashboardFromSnapshot,
+} from "@/lib/operations-reports/qualification-dashboard";
 import { OperationsHealthBanner } from "../../_components/operations-health-banner";
 import { OperationsReportExportMenu } from "../../_components/operations-report-export-menu";
 import { OperationsReportJobStatus } from "../../_components/report-job-status";
 import {
-  numberField,
-  nullableNumberField,
-  OperationsReportSnapshotTable,
-  textField,
-} from "../../_components/report-snapshot-table";
-import {
   useOperationsDashboardReport,
-  useOperationsReportRows,
+  useAllOperationsReportRows,
 } from "../../_components/use-operations-report-job";
 import { QualificationSubmissionsList } from "./qualification-submissions-list";
 import { QualifierSchedulesDialog } from "./qualifier-schedules-dialog";
@@ -76,12 +74,39 @@ export function QualificationsPageClient() {
     range: queryRange,
     enabled: needsSnapshot,
   });
-  const openerSnapshot = useOperationsReportRows({
+  const openerSnapshot = useAllOperationsReportRows({
     jobId: snapshot.jobId,
     section: "qualification_opener",
     enabled: snapshot.summary !== undefined,
   });
-  const displayDashboard = needsSnapshot ? undefined : dashboard;
+  const snapshotDashboard = useMemo(() => {
+    if (
+      !needsSnapshot ||
+      !snapshot.summary ||
+      openerSnapshot.isLoading ||
+      openerSnapshot.error ||
+      openerSnapshot.rows === undefined
+    ) {
+      return undefined;
+    }
+    return qualificationDashboardFromSnapshot({
+      summary: snapshot.summary,
+      openers: openerSnapshot.rows,
+    });
+  }, [
+    needsSnapshot,
+    openerSnapshot.error,
+    openerSnapshot.isLoading,
+    openerSnapshot.rows,
+    snapshot.summary,
+  ]);
+  const displayDashboard = useMemo(() => {
+    if (needsSnapshot) return snapshotDashboard?.data ?? undefined;
+    return dashboard === undefined
+      ? undefined
+      : qualificationDashboardFromLive(dashboard);
+  }, [dashboard, needsSnapshot, snapshotDashboard]);
+  const snapshotError = openerSnapshot.error ?? snapshotDashboard?.error ?? null;
 
   const barData = useMemo(
     () =>
@@ -153,104 +178,49 @@ export function QualificationsPageClient() {
 
       {needsSnapshot ? (
         <OperationsReportJobStatus
-          state={snapshot.job?.status ?? (snapshot.requestError ? "failed" : "queued")}
+          state={snapshotError ? "failed" : snapshot.job?.status ?? (snapshot.requestError ? "failed" : "queued")}
           generatedAt={snapshot.summary?.generatedAt ?? null}
-          errorMessage={snapshot.requestError ?? snapshot.job?.failure?.message ?? null}
+          errorMessage={snapshotError ?? snapshot.requestError ?? snapshot.job?.failure?.message ?? null}
           onCancel={() => void snapshot.cancel()}
           onRefresh={snapshot.refresh}
           onRetry={snapshot.retry}
         />
       ) : null}
 
-      {!needsSnapshot ? (
-        <div className="grid min-w-0 gap-4 lg:grid-cols-3">
-          <OpsBarChartCard
-            className="min-w-0 lg:col-span-2"
-            title="Qualified per Opener"
-            description={`Accepted qualification events per opener — ${rangeLabel}`}
-            data={barData}
-            valueLabel="Qualified"
-            loading={displayDashboard === undefined}
-            emptyMessage="No qualification events in this range."
-          />
-          {displayDashboard === undefined ? (
-            <GoalRingSkeleton />
-          ) : (
-            <GoalProgressRing
-              goal={displayDashboard.goal.target ?? undefined}
-              progress={displayDashboard.goal.progress}
-              label="Qualified"
-              sublabel={goalSublabel}
-              onEdit={() => setGoalDialogOpen(true)}
-            />
-          )}
-        </div>
-      ) : snapshot.summary ? (
-        <GoalProgressRing
-          goal={nullableNumberField(snapshot.summary.payload, "target") ?? undefined}
-          progress={numberField(snapshot.summary.payload, "progress")}
-          label="Qualified"
-          sublabel={rangeLabel}
-          onEdit={() => setGoalDialogOpen(true)}
+      <div className="grid min-w-0 gap-4 lg:grid-cols-3">
+        <OpsBarChartCard
+          className="min-w-0 lg:col-span-2"
+          title="Qualified per Opener"
+          description={`Accepted qualification events per opener — ${rangeLabel}`}
+          data={barData}
+          valueLabel="Qualified"
+          loading={displayDashboard === undefined}
+          emptyMessage="No qualification events in this range."
         />
-      ) : null}
+        {displayDashboard === undefined ? (
+          <GoalRingSkeleton />
+        ) : (
+          <GoalProgressRing
+            goal={displayDashboard.goal.target ?? undefined}
+            progress={displayDashboard.goal.progress}
+            label="Qualified"
+            sublabel={goalSublabel}
+            onEdit={() => setGoalDialogOpen(true)}
+          />
+        )}
+      </div>
 
-      {snapshot.summary ? (
-        <>
-          <OperationsReportSnapshotTable
-            title="Historical qualification summary"
-            description={`Materialized for ${rangeLabel}.`}
-            columns={[
-              { key: "totalQualified", label: "Qualified", align: "right" },
-              { key: "dailyQuota", label: "Daily quota", align: "right" },
-              { key: "target", label: "Target", align: "right" },
-              { key: "businessDayCount", label: "Business days", align: "right" },
-            ]}
-            rows={[{ rowKey: "main", payload: snapshot.summary.payload }]}
-          />
-          <OperationsReportSnapshotTable
-            title="Qualifier contributions"
-            description="Completed historical report; use the arrows to page through qualifiers."
-            columns={[
-              {
-                key: "label",
-                label: "Qualifier",
-                render: (value) => textField({ label: value }, "label"),
-              },
-              { key: "qualified", label: "Qualified", align: "right" },
-              { key: "scheduledHours", label: "Scheduled hours", align: "right" },
-              { key: "qualifiedPerHour", label: "Qualified/hour", align: "right" },
-            ]}
-            rows={openerSnapshot.rows}
-            isLoading={openerSnapshot.isLoading}
-            hasPreviousPage={openerSnapshot.hasPreviousPage}
-            hasNextPage={openerSnapshot.hasNextPage}
-            onPreviousPage={openerSnapshot.previousPage}
-            onNextPage={openerSnapshot.nextPage}
-          />
-        </>
-      ) : (
-        <SetterContributionsTable rows={displayDashboard?.openers} />
-      )}
+      <SetterContributionsTable rows={displayDashboard?.openers} />
 
       <QualificationSubmissionsList
         eventWindow={
-          snapshot.summary &&
-          typeof snapshot.summary.payload.qualifiedAfter === "number" &&
-          typeof snapshot.summary.payload.qualifiedBefore === "number"
-            ? {
-                qualifiedAfter: numberField(snapshot.summary.payload, "qualifiedAfter"),
-                qualifiedBefore: numberField(snapshot.summary.payload, "qualifiedBefore"),
-              }
-            : displayDashboard?.window
+          displayDashboard?.window
         }
       />
 
       <TeamGoalDialog
         currentGoal={
-          snapshot.summary
-            ? nullableNumberField(snapshot.summary.payload, "dailyQuota")
-            : (displayDashboard?.goal.dailyQuota ?? null)
+          displayDashboard?.goal.dailyQuota ?? null
         }
         open={goalDialogOpen}
         onOpenChange={setGoalDialogOpen}

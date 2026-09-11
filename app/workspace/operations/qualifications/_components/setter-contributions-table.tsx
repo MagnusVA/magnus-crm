@@ -1,7 +1,6 @@
 "use client";
 
-import type { FunctionReturnType } from "convex/server";
-import { api } from "@/convex/_generated/api";
+import type { QualificationOpenerViewModel } from "@/lib/operations-reports/qualification-dashboard";
 import {
   Card,
   CardContent,
@@ -26,10 +25,6 @@ import {
 } from "@/components/ui/table";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import { OverviewHelpTooltip } from "@/app/workspace/_components/overview-help-tooltip";
-
-type SetterRow = FunctionReturnType<
-  typeof api.operations.qualificationsDashboard.getQualificationsDashboard
->["openers"][number];
 
 const numberFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 0,
@@ -67,7 +62,7 @@ function formatLastEvent(value: number | null) {
 export function SetterContributionsTable({
   rows,
 }: {
-  rows: SetterRow[] | undefined;
+  rows: QualificationOpenerViewModel[] | undefined;
 }) {
   return (
     <Card className="min-w-0" size="sm">

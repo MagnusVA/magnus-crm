@@ -3,6 +3,13 @@ import { v } from "convex/values";
 import { internalQuery, type QueryCtx } from "../../_generated/server";
 import { leadDisplayFromShape } from "../../lib/leadDisplay";
 import {
+  dmCloserMemberIdentity,
+  leadGenWorkerMemberIdentity,
+  slackMemberIdentity,
+  userMemberIdentity,
+  type MemberAvatarIdentity,
+} from "../../lib/memberIdentity";
+import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatiblePaymentCommissionable,
   resolvePaymentType,
@@ -66,6 +73,19 @@ function syntheticPage(rows: ReportSourceRow[], cursor: string | null): ReportSo
     rowsRead: cursor === null ? rows.length : 0,
     estimatedBytes:
       cursor === null ? new TextEncoder().encode(JSON.stringify(rows)).byteLength : 2,
+  };
+}
+
+function flattenIdentity(identity: MemberAvatarIdentity) {
+  return {
+    identityId: identity.id,
+    identityName: identity.name,
+    identityEmail: identity.email ?? null,
+    identityImageUrl: identity.imageUrl ?? null,
+    identityImageSource: identity.imageSource,
+    identitySecondaryLabel: identity.secondaryLabel ?? null,
+    identityIsActive: identity.isActive ?? null,
+    identitySource: identity.source,
   };
 }
 
@@ -245,7 +265,11 @@ async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promi
   const opts = pagination(args.cursor);
   if (args.sourceKey === "lead_gen_workers") {
     const result = await ctx.db.query("leadGenWorkers").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
-    return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "lead_gen_worker", workerId: row._id, userId: row.userId, teamId: row.teamId ?? null, label: row.displayName ?? row.email, email: row.email, isActive: row.isActive })));
+    const page = await Promise.all(result.page.map(async (row): Promise<ReportSourceRow> => {
+      const identity = await leadGenWorkerMemberIdentity(ctx, row);
+      return { kind: "lead_gen_worker", workerId: row._id, userId: row.userId, teamId: row.teamId ?? null, label: identity.name ?? row.email, email: row.email, isActive: row.isActive, ...flattenIdentity(identity) };
+    }));
+    return projectedPage(result, page);
   }
   if (args.sourceKey === "lead_gen_sources") {
     const sources = (["instagram", "meta_business"] as const)
@@ -263,15 +287,26 @@ async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promi
   }
   if (args.sourceKey === "slack_users") {
     const result = await ctx.db.query("slackUsers").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
-    return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "slack_user", slackUserId: row.slackUserId, label: row.displayName?.trim() || row.realName?.trim() || row.username?.trim() || row.slackUserId })));
+    return projectedPage(result, result.page.map((row): ReportSourceRow => {
+      const identity = slackMemberIdentity(row, row.slackUserId);
+      return { kind: "slack_user", slackUserId: row.slackUserId, label: identity.name ?? row.slackUserId, slackUsername: row.username?.trim() || null, ...flattenIdentity(identity) };
+    }));
   }
   if (args.sourceKey === "qualifier_schedules") {
     const result = await ctx.db.query("slackQualifierSchedules").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
     return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "qualifier_schedule", slackUserId: row.slackUserId, weekday: row.weekday, scheduledHours: row.scheduledHours })));
   }
   if (args.sourceKey === "dm_closers") {
-    const result = await ctx.db.query("dmClosers").withIndex("by_tenantId_and_teamId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
-    return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "dm_closer", dmCloserId: row._id, userId: row.userId ?? null, teamId: row.teamId, label: row.displayName, isActive: row.isActive, hourlyRateMinor: row.hourlyRateMinor ?? null })));
+    // Each primary row can hydrate one linked user (including a storage URL),
+    // so keep the fan-out well below the action transaction byte budget.
+    const result = await ctx.db.query("dmClosers").withIndex("by_tenantId_and_teamId", (q) => q.eq("tenantId", args.tenantId)).paginate(pagination(args.cursor, 4));
+    const page = await Promise.all(result.page.map(async (row): Promise<ReportSourceRow> => {
+      const linked = row.userId ? await ctx.db.get(row.userId) : null;
+      const linkedUser = linked?.tenantId === args.tenantId ? linked : null;
+      const identity = await dmCloserMemberIdentity(ctx, row, linkedUser);
+      return { kind: "dm_closer", dmCloserId: row._id, userId: row.userId ?? null, teamId: row.teamId, label: row.displayName, isActive: row.isActive, hourlyRateMinor: row.hourlyRateMinor ?? null, ...flattenIdentity(identity) };
+    }));
+    return projectedPage(result, page);
   }
   if (args.sourceKey === "dm_closer_schedules") {
     const result = await ctx.db.query("dmCloserSchedules").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
@@ -279,7 +314,11 @@ async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promi
   }
   if (args.sourceKey === "users") {
     const result = await ctx.db.query("users").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
-    return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "user", userId: row._id, label: row.fullName ?? row.email, role: row.role, isActive: row.isActive })));
+    const page = await Promise.all(result.page.map(async (row): Promise<ReportSourceRow> => {
+      const identity = await userMemberIdentity(ctx, row);
+      return { kind: "user", userId: row._id, label: identity.name ?? row.email, role: row.role, isActive: row.isActive, ...flattenIdentity(identity) };
+    }));
+    return projectedPage(result, page);
   }
   if (args.sourceKey === "programs") {
     const result = await ctx.db.query("tenantPrograms").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);

@@ -23,17 +23,16 @@ import { GoalProgressRing } from "@/app/workspace/_components/goal-progress-ring
 import { OpsBarChartCard } from "@/app/workspace/_components/ops-bar-chart-card";
 import { formatWholeNumber } from "@/app/workspace/_components/overview-formatters";
 import { useDashboardRange } from "@/app/workspace/_components/use-dashboard-range";
+import {
+  bookedCallsDashboardFromLive,
+  bookedCallsDashboardFromSnapshot,
+} from "@/lib/operations-reports/booked-dashboard";
 import { OperationsHealthBanner } from "../../_components/operations-health-banner";
 import { OperationsReportExportMenu } from "../../_components/operations-report-export-menu";
 import { OperationsReportJobStatus } from "../../_components/report-job-status";
 import {
-  nullableNumberField,
-  numberField,
-  OperationsReportSnapshotTable,
-} from "../../_components/report-snapshot-table";
-import {
   useOperationsDashboardReport,
-  useOperationsReportRows,
+  useAllOperationsReportRows,
 } from "../../_components/use-operations-report-job";
 import { BookedCallsDetailsList } from "./booked-calls-details-list";
 import { BookingGoalsDialog } from "./booking-goals-dialog";
@@ -81,17 +80,50 @@ export function BookedCallsPageClient() {
     range: queryRange,
     enabled: needsSnapshot,
   });
-  const closerSnapshot = useOperationsReportRows({
+  const closerSnapshot = useAllOperationsReportRows({
     jobId: snapshot.jobId,
     section: "booked_closer",
     enabled: snapshot.summary !== undefined,
   });
-  const teamSnapshot = useOperationsReportRows({
+  const teamSnapshot = useAllOperationsReportRows({
     jobId: snapshot.jobId,
     section: "booking_team",
     enabled: snapshot.summary !== undefined,
   });
-  const dashboardData = needsSnapshot ? undefined : dashboard;
+  const snapshotDashboard = useMemo(() => {
+    if (
+      !needsSnapshot ||
+      !snapshot.summary ||
+      closerSnapshot.isLoading ||
+      closerSnapshot.error ||
+      closerSnapshot.rows === undefined ||
+      teamSnapshot.isLoading ||
+      teamSnapshot.error ||
+      teamSnapshot.rows === undefined
+    ) {
+      return undefined;
+    }
+    return bookedCallsDashboardFromSnapshot({
+      summary: snapshot.summary,
+      dmClosers: closerSnapshot.rows,
+      teams: teamSnapshot.rows,
+    });
+  }, [
+    closerSnapshot.error,
+    closerSnapshot.isLoading,
+    closerSnapshot.rows,
+    needsSnapshot,
+    snapshot.summary,
+    teamSnapshot.error,
+    teamSnapshot.isLoading,
+    teamSnapshot.rows,
+  ]);
+  const dashboardData = useMemo(() => {
+    if (needsSnapshot) return snapshotDashboard?.data ?? undefined;
+    return dashboard === undefined ? undefined : bookedCallsDashboardFromLive(dashboard);
+  }, [dashboard, needsSnapshot, snapshotDashboard]);
+  const snapshotError =
+    closerSnapshot.error ?? teamSnapshot.error ?? snapshotDashboard?.error ?? null;
 
   const barData = useMemo(
     () =>
@@ -204,65 +236,16 @@ export function BookedCallsPageClient() {
 
       {needsSnapshot ? (
         <OperationsReportJobStatus
-          state={snapshot.job?.status ?? (snapshot.requestError ? "failed" : "queued")}
+          state={snapshotError ? "failed" : snapshot.job?.status ?? (snapshot.requestError ? "failed" : "queued")}
           generatedAt={snapshot.summary?.generatedAt ?? null}
-          errorMessage={snapshot.requestError ?? snapshot.job?.failure?.message ?? null}
+          errorMessage={snapshotError ?? snapshot.requestError ?? snapshot.job?.failure?.message ?? null}
           onCancel={() => void snapshot.cancel()}
           onRefresh={snapshot.refresh}
           onRetry={snapshot.retry}
         />
       ) : null}
 
-      {snapshot.summary ? (
-        <>
-          <OperationsReportSnapshotTable
-            title="Historical booked-call summary"
-            description={`Materialized for ${rangeLabel}.`}
-            columns={[
-              { key: "totalBooked", label: "Booked", align: "right" },
-              { key: "totalTarget", label: "Target", align: "right" },
-              { key: "progress", label: "Progress", align: "right" },
-              { key: "businessDayCount", label: "Business days", align: "right" },
-            ]}
-            rows={[{ rowKey: "main", payload: snapshot.summary.payload }]}
-          />
-          <OperationsReportSnapshotTable
-            title="DM closer contributions"
-            description="Completed historical report; use the arrows to page through closers."
-            columns={[
-              { key: "label", label: "DM closer" },
-              { key: "booked", label: "Booked", align: "right" },
-              { key: "scheduledHours", label: "Scheduled hours", align: "right" },
-              { key: "bookedPerHour", label: "Booked/hour", align: "right" },
-            ]}
-            rows={closerSnapshot.rows}
-            isLoading={closerSnapshot.isLoading}
-            hasPreviousPage={closerSnapshot.hasPreviousPage}
-            hasNextPage={closerSnapshot.hasNextPage}
-            onPreviousPage={closerSnapshot.previousPage}
-            onNextPage={closerSnapshot.nextPage}
-          />
-          <OperationsReportSnapshotTable
-            title="Team goal progress"
-            description="Completed historical report; use the arrows to page through teams."
-            columns={[
-              { key: "label", label: "Team" },
-              { key: "dailyQuota", label: "Daily quota", align: "right" },
-              { key: "target", label: "Target", align: "right" },
-              { key: "progress", label: "Booked", align: "right" },
-            ]}
-            rows={teamSnapshot.rows}
-            isLoading={teamSnapshot.isLoading}
-            hasPreviousPage={teamSnapshot.hasPreviousPage}
-            hasNextPage={teamSnapshot.hasNextPage}
-            onPreviousPage={teamSnapshot.previousPage}
-            onNextPage={teamSnapshot.nextPage}
-          />
-        </>
-      ) : null}
-
-      {!needsSnapshot ? (
-        <div className="grid min-w-0 gap-4 lg:grid-cols-3">
+      <div className="grid min-w-0 gap-4 lg:grid-cols-3">
         <OpsBarChartCard
           className="min-w-0 lg:col-span-2"
           title="Booked per DM Closer"
@@ -284,31 +267,13 @@ export function BookedCallsPageClient() {
             onEdit={() => setGoalsDialogOpen(true)}
           />
         )}
-        </div>
-      ) : snapshot.summary ? (
-        <GoalProgressRing
-          goal={nullableNumberField(snapshot.summary.payload, "totalTarget") ?? undefined}
-          progress={numberField(snapshot.summary.payload, "progress")}
-          label="Booked"
-          sublabel={rangeLabel}
-          onEdit={() => setGoalsDialogOpen(true)}
-        />
-      ) : null}
+      </div>
 
-      {!needsSnapshot ? (
-        <DmCloserContributionsTable rows={dashboardData?.dmClosers} />
-      ) : null}
+      <DmCloserContributionsTable rows={dashboardData?.dmClosers} />
 
       <BookedCallsDetailsList
         window={
-          snapshot.summary &&
-          typeof snapshot.summary.payload.start === "number" &&
-          typeof snapshot.summary.payload.end === "number"
-            ? {
-                start: snapshot.summary.payload.start,
-                end: snapshot.summary.payload.end,
-              }
-            : dashboardData?.window
+          dashboardData?.window
         }
         dmCloserOptions={dmCloserOptions}
       />

@@ -1,5 +1,13 @@
 import * as XLSX from "xlsx-js-style";
-import { assertRenderBudget, type ReportDocument } from "./document";
+import { getCurrencyFractionDigits } from "../format-currency";
+import { assertRenderBudget, currencyForCell, type ReportDocument } from "./document";
+
+function moneyNumberFormat(currency: string) {
+  const decimals = getCurrencyFractionDigits(currency);
+  const fraction = decimals > 0 ? `.${"0".repeat(decimals)}` : "";
+  const label = currency.toUpperCase().replaceAll('"', '""');
+  return `"${label}" #,##0${fraction}`;
+}
 
 export function renderReportWorkbook(report: ReportDocument): Uint8Array {
   assertRenderBudget(report, "xlsx");
@@ -31,7 +39,13 @@ export function renderReportWorkbook(report: ReportDocument): Uint8Array {
         if (!cell) return;
         if (rowIndex % 2 === 0) cell.s = { fill: { fgColor: { rgb: "F2F7F5" }, patternType: "solid" } };
         if (typeof cell.v === "number") {
-          cell.z = column.format === "money" ? '"$"#,##0.00' : column.format === "percent" ? "0.0%" : column.format === "decimal" ? "#,##0.00" : "#,##0.##";
+          cell.z = column.format === "money"
+            ? moneyNumberFormat(currencyForCell(table.rows[rowIndex], column))
+            : column.format === "percent"
+              ? "0.0%"
+              : column.format === "decimal"
+                ? "#,##0.00"
+                : "#,##0.##";
         }
       });
     });

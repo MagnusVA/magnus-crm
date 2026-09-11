@@ -38,6 +38,17 @@ export type ReportAggregateRecord = {
 
 export type ReportResultRecord = ReportAggregateRecord;
 
+type ReportIdentityFields = {
+  identityId: string;
+  identityName: string | null;
+  identityEmail: string | null;
+  identityImageUrl: string | null;
+  identityImageSource: string;
+  identitySecondaryLabel: string | null;
+  identityIsActive: boolean | null;
+  identitySource: string;
+};
+
 export type ReportSourceRow =
   | {
       kind: "lead_gen_daily";
@@ -101,7 +112,7 @@ export type ReportSourceRow =
       kind: "lead_gen_source_dimension";
       source: LeadGenSource;
     }
-  | {
+  | ({
       kind: "lead_gen_worker";
       workerId: string;
       userId: string;
@@ -109,7 +120,7 @@ export type ReportSourceRow =
       label: string;
       email: string;
       isActive: boolean;
-    }
+    } & ReportIdentityFields)
   | {
       kind: "lead_gen_schedule";
       workerId: string;
@@ -140,11 +151,12 @@ export type ReportSourceRow =
       opportunityId: string | null;
       resultKind: string;
     }
-  | {
+  | ({
       kind: "slack_user";
       slackUserId: string;
       label: string;
-    }
+      slackUsername: string | null;
+    } & ReportIdentityFields)
   | {
       kind: "qualifier_schedule";
       slackUserId: string;
@@ -171,7 +183,7 @@ export type ReportSourceRow =
       dmCloserId: string;
       dmCloserLabel: string | null;
     }
-  | {
+  | ({
       kind: "dm_closer";
       dmCloserId: string;
       userId: string | null;
@@ -179,7 +191,7 @@ export type ReportSourceRow =
       label: string;
       isActive: boolean;
       hourlyRateMinor: number | null;
-    }
+    } & ReportIdentityFields)
   | {
       kind: "dm_closer_schedule";
       dmCloserId: string;
@@ -219,13 +231,13 @@ export type ReportSourceRow =
       programName: string;
       effectiveCloserId: string | null;
     }
-  | {
+  | ({
       kind: "user";
       userId: string;
       label: string;
       role: string;
       isActive: boolean;
-    }
+    } & ReportIdentityFields)
   | {
       kind: "program";
       programId: string;

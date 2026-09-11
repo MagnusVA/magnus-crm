@@ -4,7 +4,7 @@ import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import schema from "../../schema";
 import { convexTestModules } from "../../test.setup";
-import { normalizeReportRange } from "./contracts";
+import { normalizeReportRange, REPORT_DEFINITION_VERSION } from "./contracts";
 
 const dashboardRequest = {
   reportKind: "lead-gen" as const,
@@ -362,7 +362,7 @@ async function insertJob(
     sourceFilter: "all",
     requestToken: args.requestToken,
     requestKey: `${args.requestToken}-key`,
-    definitionVersion: "security-test-v1",
+    definitionVersion: REPORT_DEFINITION_VERSION,
     status: args.status,
     phase: args.phase,
     rowsProcessed: 0,
@@ -468,7 +468,7 @@ async function insertRevocationJobFixture(
       sourceFilter: "all",
       requestToken: "fixture-token",
       requestKey: "fixture-key",
-      definitionVersion: "fixture-v1",
+      definitionVersion: REPORT_DEFINITION_VERSION,
       status,
       phase: overrides.phase ?? "queued",
       rowsProcessed: 0,
