@@ -10,6 +10,11 @@ import {
 } from "../dashboard/overviewRange";
 import { leadDisplayFromShape } from "../lib/leadDisplay";
 import {
+  LIVE_QUERY_BYTE_BUDGET,
+  readLiveDocuments,
+  readLiveQueryRows,
+} from "../lib/liveQueryBounds";
+import {
   dmCloserMemberIdentity,
   memberAvatarIdentityValidator,
   unknownMemberIdentity,
@@ -24,12 +29,6 @@ const DM_CLOSER_REGISTRY_LIMIT = 300;
 const SEARCH_OPPORTUNITY_LIMIT = 30;
 const MEETINGS_PER_OPPORTUNITY_LIMIT = 25;
 const SEARCH_RESULT_LIMIT = 50;
-// Details window upper bound: the dashboard window is capped at
-// MAX_OVERVIEW_CUSTOM_DAYS (120) business days, which is always under a year
-// of wall-clock time. Rejecting anything larger keeps client-supplied epoch-ms
-// bounds from turning into an unbounded index range.
-const MAX_DETAILS_WINDOW_MS = 366 * 24 * 60 * 60 * 1000;
-
 const dmCloserRowValidator = v.object({
   key: v.string(),
   label: v.string(),
@@ -115,9 +114,6 @@ function validateWindow(start: number, end: number) {
   }
   if (end <= start) {
     throw new Error("Booked-calls window end must be after its start.");
-  }
-  if (end - start > MAX_DETAILS_WINDOW_MS) {
-    throw new Error("Booked-calls window is too large. Narrow the date range.");
   }
   return { start, end };
 }
@@ -299,27 +295,93 @@ export const getBookedCallsDashboard = query({
         throw error;
       }
       const { rows, truncated, bookedByTeam } = builderResult;
+      if (truncated) {
+        return {
+          totalBooked: 0,
+          dmClosers: [],
+          goal: {
+            totalTarget: null,
+            progress: 0,
+            businessDayCount: range.dayCount,
+            teams: [],
+          },
+          window: {
+            start: range.slackWindowStart,
+            end: range.slackWindowEnd,
+          },
+          capped: true,
+        };
+      }
       const totalBooked = rows.reduce((sum, row) => sum + row.booked, 0);
 
-      const [registryClosers, teams] = await Promise.all([
-        ctx.db
-          .query("dmClosers")
-          .withIndex("by_tenantId_and_teamId", (q) => q.eq("tenantId", tenantId))
-          .take(DM_CLOSER_REGISTRY_LIMIT),
-        ctx.db
-          .query("attributionTeams")
-          .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-          .take(TEAM_REGISTRY_LIMIT),
+      const [registryCloserScan, teamScan] = await Promise.all([
+        readLiveQueryRows(
+          ctx.db
+            .query("dmClosers")
+            .withIndex("by_tenantId_and_teamId", (q) =>
+              q.eq("tenantId", tenantId),
+            ),
+          DM_CLOSER_REGISTRY_LIMIT,
+        ),
+        readLiveQueryRows(
+          ctx.db
+            .query("attributionTeams")
+            .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)),
+          TEAM_REGISTRY_LIMIT,
+        ),
       ]);
+      const registryClosers = registryCloserScan.rows;
+      const teams = teamScan.rows;
 
       const closerById = new Map(
         registryClosers.map((closer) => [closer._id, closer]),
       );
+      if (
+        registryCloserScan.capped ||
+        teamScan.capped
+      ) {
+        return {
+          totalBooked: 0,
+          dmClosers: [],
+          goal: {
+            totalTarget: null,
+            progress: 0,
+            businessDayCount: range.dayCount,
+            teams: [],
+          },
+          window: {
+            start: range.slackWindowStart,
+            end: range.slackWindowEnd,
+          },
+          capped: true,
+        };
+      }
       // Rows can reference closers beyond the registry cap; fetch the misses
       // individually (bounded by rows.length).
-      for (const row of rows) {
-        if (closerById.has(row.dmCloserId)) continue;
-        const closer = await ctx.db.get(row.dmCloserId);
+      const missingCloserScan = await readLiveDocuments(
+        rows
+          .map((row) => row.dmCloserId)
+          .filter((id) => !closerById.has(id)),
+        async (id) => await ctx.db.get(id),
+      );
+      if (missingCloserScan.capped) {
+        return {
+          totalBooked: 0,
+          dmClosers: [],
+          goal: {
+            totalTarget: null,
+            progress: 0,
+            businessDayCount: range.dayCount,
+            teams: [],
+          },
+          window: {
+            start: range.slackWindowStart,
+            end: range.slackWindowEnd,
+          },
+          capped: true,
+        };
+      }
+      for (const closer of missingCloserScan.rows) {
         if (closer && closer.tenantId === tenantId) {
           closerById.set(closer._id, closer);
         }
@@ -328,12 +390,29 @@ export const getBookedCallsDashboard = query({
       const linkedUserIds = uniqueIds(
         rows.map((row) => closerById.get(row.dmCloserId)?.userId),
       );
-      const linkedUsers = await Promise.all(
-        linkedUserIds.map((id) => ctx.db.get(id)),
+      const linkedUserScan = await readLiveDocuments(
+        linkedUserIds,
+        async (id) => await ctx.db.get(id),
       );
+      if (linkedUserScan.capped) {
+        return {
+          totalBooked: 0,
+          dmClosers: [],
+          goal: {
+            totalTarget: null,
+            progress: 0,
+            businessDayCount: range.dayCount,
+            teams: [],
+          },
+          window: {
+            start: range.slackWindowStart,
+            end: range.slackWindowEnd,
+          },
+          capped: true,
+        };
+      }
       const linkedUserById = new Map(
-        linkedUsers
-          .filter(isNonNull)
+        linkedUserScan.rows
           .filter((user) => user.tenantId === tenantId)
           .map((user) => [user._id, user]),
       );
@@ -403,10 +482,7 @@ export const getBookedCallsDashboard = query({
           start: range.slackWindowStart,
           end: range.slackWindowEnd,
         },
-        capped:
-          truncated ||
-          registryClosers.length >= DM_CLOSER_REGISTRY_LIMIT ||
-          teams.length >= TEAM_REGISTRY_LIMIT,
+        capped: false,
       };
     } catch (error) {
       console.error("[Operations:BookedCalls] getBookedCallsDashboard failed", {
@@ -460,7 +536,12 @@ export const listBookedCallsDetails = query({
           q.eq("tenantId", tenantId).gte("createdAt", start).lt("createdAt", end),
         )
         .order("desc")
-        .paginate(args.paginationOpts);
+        .paginate({
+          cursor: args.paginationOpts.cursor,
+          numItems: Math.min(args.paginationOpts.numItems, 2),
+          maximumRowsRead: 2,
+          maximumBytesRead: LIVE_QUERY_BYTE_BUDGET,
+        });
 
       // Follow-up and non-DM-attributed meetings are excluded post-read within
       // the page (there is no createdAt index carrying those dimensions), so

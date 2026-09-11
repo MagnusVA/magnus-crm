@@ -10,9 +10,12 @@ import {
   bookingProgramMappingStatusValidator,
 } from "../lib/attribution/validators";
 import { memberAvatarIdentityValidator } from "../lib/memberIdentity";
+import {
+  readLiveDocuments,
+  readLiveQueryRows,
+} from "../lib/liveQueryBounds";
 import { opportunityStatusValidator } from "../opportunities/validators";
 import {
-  getActiveClosers,
   getNonDisputedPaymentsInRange,
   getUserDisplayName,
   reportingUserIdentity,
@@ -25,16 +28,11 @@ import { enrichPhoneSalesRows } from "./phoneSales";
 // Matches getPhoneSalesStats / overviewOperations: the daily-stats rollup read
 // is bounded and the result is flagged as capped past this many rows.
 const MAX_OPERATIONS_STATS_ROWS = 1000;
+const LIVE_DIMENSION_LIMIT = 300;
 // Search fan-out bounds — same values as bookedCallsDashboard.
 const SEARCH_OPPORTUNITY_LIMIT = 30;
 const MEETINGS_PER_OPPORTUNITY_LIMIT = 25;
 const SEARCH_RESULT_LIMIT = 50;
-// The dashboard window is capped at MAX_OVERVIEW_CUSTOM_DAYS (120) business
-// days, which is always under a year of wall-clock time. Rejecting anything
-// larger keeps client-supplied epoch-ms bounds from turning into an unbounded
-// index range.
-const MAX_DETAILS_WINDOW_MS = 366 * 24 * 60 * 60 * 1000;
-
 const meetingStatusValidator = v.union(
   v.literal("scheduled"),
   v.literal("completed"),
@@ -126,10 +124,6 @@ function withRates(totals: MeetingTotals & { paymentSales: number; paymentRevenu
   };
 }
 
-function isNonNull<T>(value: T | null): value is T {
-  return value !== null;
-}
-
 function uniqueIds<T extends string>(ids: Array<T | undefined>): T[] {
   return [...new Set(ids.filter((id): id is T => id !== undefined))];
 }
@@ -144,9 +138,6 @@ function validateWindow(start: number, end: number) {
   }
   if (end <= start) {
     throw new Error("Sales-calls window end must be after its start.");
-  }
-  if (end - start > MAX_DETAILS_WINDOW_MS) {
-    throw new Error("Sales-calls window is too large. Narrow the date range.");
   }
   return { start, end };
 }
@@ -211,17 +202,26 @@ export const getSalesCallsDashboard = query({
     try {
       const range = deriveOverviewRange(args.range, Date.now());
 
-      const [rawStatsRows, activeClosers, paymentScan] = await Promise.all([
-        ctx.db
-          .query("operationsMeetingDailyStats")
-          .withIndex("by_tenantId_and_dayKey", (q) =>
-            q
-              .eq("tenantId", tenantId)
-              .gte("dayKey", range.operationsStartDayKey)
-              .lt("dayKey", range.operationsEndDayKeyExclusive),
-          )
-          .take(MAX_OPERATIONS_STATS_ROWS + 1),
-        getActiveClosers(ctx, tenantId),
+      const [statsScan, activeUserScan, paymentScan] = await Promise.all([
+        readLiveQueryRows(
+          ctx.db
+            .query("operationsMeetingDailyStats")
+            .withIndex("by_tenantId_and_dayKey", (q) =>
+              q
+                .eq("tenantId", tenantId)
+                .gte("dayKey", range.operationsStartDayKey)
+                .lt("dayKey", range.operationsEndDayKeyExclusive),
+            ),
+          MAX_OPERATIONS_STATS_ROWS,
+        ),
+        readLiveQueryRows(
+          ctx.db
+            .query("users")
+            .withIndex("by_tenantId_and_isActive", (q) =>
+              q.eq("tenantId", tenantId).eq("isActive", true),
+            ),
+          LIVE_DIMENSION_LIMIT,
+        ),
         getNonDisputedPaymentsInRange(
           ctx,
           tenantId,
@@ -229,9 +229,79 @@ export const getSalesCallsDashboard = query({
           range.operationsEndDate,
         ),
       ]);
+      const statsRows = statsScan.rows;
+      const activeUserRows = activeUserScan.rows;
 
-      const statsTruncated = rawStatsRows.length > MAX_OPERATIONS_STATS_ROWS;
-      const statsRows = rawStatsRows.slice(0, MAX_OPERATIONS_STATS_ROWS);
+      if (
+        statsScan.capped ||
+        paymentScan.isTruncated ||
+        activeUserScan.capped
+      ) {
+        const emptyTotals = {
+          ...emptyMeetingTotals(),
+          paymentSales: 0,
+          paymentRevenueMinor: 0,
+        };
+        return {
+          stats: {
+            totalCalls: 0,
+            showed: 0,
+            canceled: 0,
+            noShows: 0,
+            showUpRate: null,
+            cashCollectedMinor: 0,
+            paymentSalesCount: 0,
+            closeRate: null,
+            avgCashPerSaleMinor: null,
+          },
+          perProgram: [],
+          closers: [],
+          teamTotal: withRates(emptyTotals),
+          window: {
+            start: range.operationsStartDate,
+            end: range.operationsEndDate,
+          },
+          capped: true,
+        };
+      }
+      const activeClosers = activeUserRows.filter(
+        (user) => user.role === "closer",
+      );
+      const paymentSplit = splitPaymentsForRevenueReporting(
+        paymentScan.payments,
+      );
+      const finalPayments = paymentSplit.commissionable.finalPayments;
+      if (
+        finalPayments.some(
+          (payment) => payment.currency.toLowerCase() !== "usd",
+        )
+      ) {
+        return {
+          stats: {
+            totalCalls: 0,
+            showed: 0,
+            canceled: 0,
+            noShows: 0,
+            showUpRate: null,
+            cashCollectedMinor: 0,
+            paymentSalesCount: 0,
+            closeRate: null,
+            avgCashPerSaleMinor: null,
+          },
+          perProgram: [],
+          closers: [],
+          teamTotal: withRates({
+            ...emptyMeetingTotals(),
+            paymentSales: 0,
+            paymentRevenueMinor: 0,
+          }),
+          window: {
+            start: range.operationsStartDate,
+            end: range.operationsEndDate,
+          },
+          capped: true,
+        };
+      }
 
       // One rollup read powers the stat cards, the per-program meeting counts,
       // and the per-closer meeting counts, so the three sections can never
@@ -261,8 +331,6 @@ export const getSalesCallsDashboard = query({
       // payments — the same slice teamPerformance and the closer dashboard
       // call cash collected, and reporting/revenue.ts calls
       // commissionable.finalRevenueMinor.
-      const paymentSplit = splitPaymentsForRevenueReporting(paymentScan.payments);
-      const finalPayments = paymentSplit.commissionable.finalPayments;
       const paymentSummary = summarizeAttributedPayments(finalPayments);
 
       // Per-program payments use the payment's own programId (the "payment
@@ -288,12 +356,66 @@ export const getSalesCallsDashboard = query({
         ...[...meetingsByProgram.keys()].map((id) => id ?? undefined),
         ...paymentsByProgram.keys(),
       ]);
-      const programDocs = await Promise.all(
-        programIds.map((id) => ctx.db.get(id)),
+      if (programIds.length > LIVE_DIMENSION_LIMIT) {
+        return {
+          stats: {
+            totalCalls: 0,
+            showed: 0,
+            canceled: 0,
+            noShows: 0,
+            showUpRate: null,
+            cashCollectedMinor: 0,
+            paymentSalesCount: 0,
+            closeRate: null,
+            avgCashPerSaleMinor: null,
+          },
+          perProgram: [],
+          closers: [],
+          teamTotal: withRates({
+            ...emptyMeetingTotals(),
+            paymentSales: 0,
+            paymentRevenueMinor: 0,
+          }),
+          window: {
+            start: range.operationsStartDate,
+            end: range.operationsEndDate,
+          },
+          capped: true,
+        };
+      }
+      const programScan = await readLiveDocuments(
+        programIds,
+        async (id) => await ctx.db.get(id),
       );
+      if (programScan.capped) {
+        return {
+          stats: {
+            totalCalls: 0,
+            showed: 0,
+            canceled: 0,
+            noShows: 0,
+            showUpRate: null,
+            cashCollectedMinor: 0,
+            paymentSalesCount: 0,
+            closeRate: null,
+            avgCashPerSaleMinor: null,
+          },
+          perProgram: [],
+          closers: [],
+          teamTotal: withRates({
+            ...emptyMeetingTotals(),
+            paymentSales: 0,
+            paymentRevenueMinor: 0,
+          }),
+          window: {
+            start: range.operationsStartDate,
+            end: range.operationsEndDate,
+          },
+          capped: true,
+        };
+      }
       const programNameById = new Map(
-        programDocs
-          .filter(isNonNull)
+        programScan.rows
           .filter((program) => program.tenantId === tenantId)
           .map((program) => [program._id, program.name]),
       );
@@ -340,9 +462,68 @@ export const getSalesCallsDashboard = query({
         ...meetingsByCloser.keys(),
         ...paymentSummary.byCloser.keys(),
       ]);
-      for (const closerId of closerIds) {
-        if (userById.has(closerId)) continue;
-        const user = await ctx.db.get(closerId);
+      if (closerIds.size > LIVE_DIMENSION_LIMIT) {
+        return {
+          stats: {
+            totalCalls: 0,
+            showed: 0,
+            canceled: 0,
+            noShows: 0,
+            showUpRate: null,
+            cashCollectedMinor: 0,
+            paymentSalesCount: 0,
+            closeRate: null,
+            avgCashPerSaleMinor: null,
+          },
+          perProgram: [],
+          closers: [],
+          teamTotal: withRates({
+            ...emptyMeetingTotals(),
+            paymentSales: 0,
+            paymentRevenueMinor: 0,
+          }),
+          window: {
+            start: range.operationsStartDate,
+            end: range.operationsEndDate,
+          },
+          capped: true,
+        };
+      }
+      const missingCloserIds = [...closerIds].filter(
+        (closerId) => !userById.has(closerId),
+      );
+      const missingUserScan = await readLiveDocuments(
+        missingCloserIds,
+        async (closerId) => await ctx.db.get(closerId),
+      );
+      if (missingUserScan.capped) {
+        return {
+          stats: {
+            totalCalls: 0,
+            showed: 0,
+            canceled: 0,
+            noShows: 0,
+            showUpRate: null,
+            cashCollectedMinor: 0,
+            paymentSalesCount: 0,
+            closeRate: null,
+            avgCashPerSaleMinor: null,
+          },
+          perProgram: [],
+          closers: [],
+          teamTotal: withRates({
+            ...emptyMeetingTotals(),
+            paymentSales: 0,
+            paymentRevenueMinor: 0,
+          }),
+          window: {
+            start: range.operationsStartDate,
+            end: range.operationsEndDate,
+          },
+          capped: true,
+        };
+      }
+      for (const user of missingUserScan.rows) {
         if (user && user.tenantId === tenantId) {
           userById.set(user._id, user);
         }
@@ -425,7 +606,7 @@ export const getSalesCallsDashboard = query({
           start: range.operationsStartDate,
           end: range.operationsEndDate,
         },
-        capped: statsTruncated || paymentScan.isTruncated,
+        capped: false,
       };
     } catch (error) {
       console.error("[Operations:SalesCalls] getSalesCallsDashboard failed", {

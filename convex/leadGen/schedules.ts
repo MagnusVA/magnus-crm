@@ -1,6 +1,11 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { businessDateToUtcStart } from "../reporting/lib/hondurasBusinessTime";
+import {
+  createLiveReadState,
+  readLiveQueryRows,
+  type LiveReadState,
+} from "../lib/liveQueryBounds";
 
 type LeadGenWeekday = Doc<"leadGenWorkerSchedules">["weekday"];
 type DailyStatScheduleRow = Pick<
@@ -56,6 +61,7 @@ export async function loadCurrentScheduledHoursByWorkerDay(
   args: {
     tenantId: Id<"tenants">;
     rows: DailyStatScheduleRow[];
+    liveReadState?: LiveReadState;
   },
 ) {
   const workerIds = [...new Set(args.rows.map((row) => row.workerId))];
@@ -65,15 +71,20 @@ export async function loadCurrentScheduledHoursByWorkerDay(
   );
   const scheduledHoursByWorkerWeekday = new Map<string, number>();
 
+  const state = args.liveReadState ?? createLiveReadState();
   for (const workerId of workerIds) {
-    const schedules = await ctx.db
-      .query("leadGenWorkerSchedules")
-      .withIndex("by_tenantId_and_workerId", (q) =>
-        q.eq("tenantId", args.tenantId).eq("workerId", workerId),
-      )
-      .take(7);
+    const scan = await readLiveQueryRows(
+      ctx.db
+        .query("leadGenWorkerSchedules")
+        .withIndex("by_tenantId_and_workerId", (q) =>
+          q.eq("tenantId", args.tenantId).eq("workerId", workerId),
+        ),
+      7,
+      state,
+    );
+    if (scan.capped) break;
 
-    for (const schedule of schedules) {
+    for (const schedule of scan.rows) {
       scheduledHoursByWorkerWeekday.set(
         `${workerId}:${schedule.weekday}`,
         schedule.scheduledHours,

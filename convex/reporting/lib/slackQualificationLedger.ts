@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
+import { readLiveQueryRows } from "../../lib/liveQueryBounds";
 
 export const MAX_QUALIFICATION_EVENTS = 1000;
 
@@ -79,10 +80,10 @@ export async function listQualificationEventsForRange(
             .lt("submittedAt", args.end),
         );
 
-  const rows = await query.take(MAX_QUALIFICATION_EVENTS + 1);
+  const result = await readLiveQueryRows(query, MAX_QUALIFICATION_EVENTS);
   return {
-    rows: rows.slice(0, MAX_QUALIFICATION_EVENTS),
-    truncated: rows.length > MAX_QUALIFICATION_EVENTS,
+    rows: result.rows,
+    truncated: result.capped,
   };
 }
 

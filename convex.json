@@ -27,5 +27,9 @@
         "corsOrigins": ["https://magnus-crm-drab.vercel.app"]
       }
     }
+  },
+  "node": {
+    "externalPackages": ["@react-pdf/renderer", "react"],
+    "nodeVersion": "24"
   }
 }

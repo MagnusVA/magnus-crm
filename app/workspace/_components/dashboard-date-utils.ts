@@ -5,6 +5,19 @@ const HOUR_MS = 60 * 60 * 1000;
 const BUSINESS_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 export const MAX_DASHBOARD_CUSTOM_DAYS = 120;
 
+/**
+ * Dashboard date validation is shared by several workspace surfaces. Most of
+ * them retain the conservative 120-day limit, while Operations reports can
+ * request a bounded asynchronous snapshot for longer historical ranges.
+ */
+export type DashboardRangeValidationOptions = {
+	/** `null` permits an unbounded calendar range for a snapshot-backed view. */
+	maxDays?: number | null;
+};
+
+export const OPERATIONS_DASHBOARD_RANGE_VALIDATION: DashboardRangeValidationOptions =
+	{ maxDays: null };
+
 // Honduras business days start at 01:00 local time (UTC-6, no DST), i.e.
 // 07:00 UTC. Mirrors BUSINESS_DAY_UTC_START_HOUR in
 // convex/reporting/lib/hondurasBusinessTime.ts so preset conversions below
@@ -60,6 +73,17 @@ export function dashboardRangeToDayKeys(
 	}
 }
 
+/**
+ * Operations dashboards use their reactive readers only for a small current
+ * range. Larger selections are materialized by the report-job flow so a
+ * client subscription never asks an existing capped reader to scan history.
+ */
+export function requiresOperationsReportSnapshot(range: DashboardRangeInput) {
+	const { startDayKey, endDayKey } = dashboardRangeToDayKeys(range);
+	const days = countCalendarDaysInclusive(startDayKey, endDayKey);
+	return days === null || days > 7;
+}
+
 export function calendarDateToBusinessDate(date: Date) {
 	return [
 		date.getFullYear(),
@@ -86,7 +110,7 @@ export function countCalendarDaysInclusive(start: string, end: string) {
 export function validateCustomDashboardRange(args: {
 	startBusinessDate?: string;
 	endBusinessDateInclusive?: string;
-}) {
+}, options: DashboardRangeValidationOptions = {}) {
 	if (!args.startBusinessDate || !args.endBusinessDateInclusive) {
 		return "Choose a start and end date.";
 	}
@@ -99,8 +123,12 @@ export function validateCustomDashboardRange(args: {
 		args.endBusinessDateInclusive,
 	);
 	if (days === null) return "Choose valid calendar dates.";
-	if (days > MAX_DASHBOARD_CUSTOM_DAYS) {
-		return `Choose ${MAX_DASHBOARD_CUSTOM_DAYS} days or fewer.`;
+	const maxDays =
+		options.maxDays === undefined
+			? MAX_DASHBOARD_CUSTOM_DAYS
+			: options.maxDays;
+	if (maxDays !== null && days > maxDays) {
+		return `Choose ${maxDays} days or fewer.`;
 	}
 
 	return null;

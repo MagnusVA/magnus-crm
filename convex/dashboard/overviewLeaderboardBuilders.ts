@@ -19,6 +19,11 @@ import {
   loadSlackQualifierScheduledHoursForRange,
 } from "../workSchedules/rangeHours";
 import { compareNullableEfficiency } from "./efficiencySort";
+import {
+  createLiveReadState,
+  readLiveDocuments,
+  readLiveQueryRows,
+} from "../lib/liveQueryBounds";
 import type { DerivedOverviewRange } from "./overviewRange";
 import type {
   ExpandedOverviewLeaderboard,
@@ -31,6 +36,7 @@ import type {
 
 const SLACK_USER_REGISTRY_LIMIT = 300;
 const DM_CLOSER_REGISTRY_LIMIT = 300;
+const DM_CLOSER_LIVE_CANDIDATE_LIMIT = 100;
 const LEAD_GEN_WORKER_REGISTRY_LIMIT = 250;
 
 async function countSlackQualifiedForUser(
@@ -345,37 +351,42 @@ export async function buildDmCloserEfficiencyRows(
   // count toward totalBooked but no team.
   bookedByTeam: Map<Id<"attributionTeams">, number>;
 }> {
-  const meetings = await ctx.db
-    .query("meetings")
-    .withIndex("by_tenantId_and_createdAt", (q) =>
-      q
-        .eq("tenantId", args.tenantId)
-        .gte("createdAt", args.range.slackWindowStart)
-        .lt("createdAt", args.range.slackWindowEnd),
-    )
-    .take(TOP_DM_CLOSER_BOOKING_LIMIT + 1);
-
-  const truncated = meetings.length > TOP_DM_CLOSER_BOOKING_LIMIT;
-  if (truncated) {
-    throw new Error(
-      "DM closer booking range is too large. Narrow the date range.",
-    );
+  const meetingScan = await readLiveQueryRows(
+    ctx.db
+      .query("meetings")
+      .withIndex("by_tenantId_and_createdAt", (q) =>
+        q
+          .eq("tenantId", args.tenantId)
+          .gte("createdAt", args.range.slackWindowStart)
+          .lt("createdAt", args.range.slackWindowEnd),
+      ),
+    TOP_DM_CLOSER_BOOKING_LIMIT,
+  );
+  if (meetingScan.capped) {
+    return { rows: [], truncated: true, bookedByTeam: new Map() };
   }
+  const meetings = meetingScan.rows;
 
   const { byDmCloser, byAttributionTeam } = countBookedMeetings(meetings);
 
-  const [dmClosers, dmCloserSchedules] = await Promise.all([
-    ctx.db
-      .query("dmClosers")
-      .withIndex("by_tenantId_and_teamId", (q) =>
-        q.eq("tenantId", args.tenantId),
-      )
-      .take(DM_CLOSER_REGISTRY_LIMIT),
-    ctx.db
-      .query("dmCloserSchedules")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId))
-      .take(2_100),
+  const [dmCloserScan, dmCloserScheduleScan] = await Promise.all([
+    readLiveQueryRows(
+      ctx.db
+        .query("dmClosers")
+        .withIndex("by_tenantId_and_teamId", (q) =>
+          q.eq("tenantId", args.tenantId),
+        ),
+      DM_CLOSER_REGISTRY_LIMIT,
+    ),
+    readLiveQueryRows(
+      ctx.db
+        .query("dmCloserSchedules")
+        .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)),
+      2_100,
+    ),
   ]);
+  const dmClosers = dmCloserScan.rows;
+  const dmCloserSchedules = dmCloserScheduleScan.rows;
 
   const candidateDmCloserIds = new Set<Id<"dmClosers">>();
   for (const dmCloserId of byDmCloser.keys()) {
@@ -388,7 +399,20 @@ export async function buildDmCloserEfficiencyRows(
     for (const closer of dmClosers) candidateDmCloserIds.add(closer._id);
   }
 
+  if (
+    dmCloserScan.capped ||
+    dmCloserScheduleScan.capped ||
+    candidateDmCloserIds.size > DM_CLOSER_LIVE_CANDIDATE_LIMIT
+  ) {
+    return {
+      rows: [],
+      truncated: true,
+      bookedByTeam: byAttributionTeam,
+    };
+  }
+
   const dmCloserById = new Map(dmClosers.map((closer) => [closer._id, closer]));
+  const scheduleReadState = createLiveReadState();
   const scheduledHoursByDmCloser = await loadDmCloserScheduledHoursForRange(
     ctx,
     {
@@ -396,16 +420,42 @@ export async function buildDmCloserEfficiencyRows(
       dmCloserIds: [...candidateDmCloserIds],
       startBusinessDate: args.range.startBusinessDate,
       endBusinessDateInclusive: args.range.endBusinessDateInclusive,
+      liveReadState: scheduleReadState,
     },
+  );
+  if (scheduleReadState.capped) {
+    return { rows: [], truncated: true, bookedByTeam: byAttributionTeam };
+  }
+
+  const missingCloserScan = await readLiveDocuments(
+    [...candidateDmCloserIds].filter((id) => !dmCloserById.has(id)),
+    async (id) => await ctx.db.get(id),
+  );
+  if (missingCloserScan.capped) {
+    return { rows: [], truncated: true, bookedByTeam: byAttributionTeam };
+  }
+  for (const closer of missingCloserScan.rows) {
+    if (closer.tenantId === args.tenantId) dmCloserById.set(closer._id, closer);
+  }
+  const teamScan = await readLiveDocuments(
+    [...new Set([...dmCloserById.values()].map((closer) => closer.teamId))],
+    async (id) => await ctx.db.get(id),
+  );
+  if (teamScan.capped) {
+    return { rows: [], truncated: true, bookedByTeam: byAttributionTeam };
+  }
+  const teamById = new Map(
+    teamScan.rows
+      .filter((team) => team.tenantId === args.tenantId)
+      .map((team) => [team._id, team]),
   );
 
   const rows: TopDmCloserRow[] = [];
   for (const dmCloserId of candidateDmCloserIds) {
-    const closer =
-      dmCloserById.get(dmCloserId) ?? (await ctx.db.get(dmCloserId));
+    const closer = dmCloserById.get(dmCloserId);
     if (!closer || closer.tenantId !== args.tenantId) continue;
 
-    const team = await ctx.db.get(closer.teamId);
+    const team = teamById.get(closer.teamId);
     const booked = byDmCloser.get(dmCloserId) ?? 0;
     const scheduledHours = scheduledHoursByDmCloser.get(dmCloserId) ?? 0;
 

@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import type { DashboardRangeInput } from "./dashboard-date-range-filter";
 import {
 	businessDateToCalendarDate,
+	type DashboardRangeValidationOptions,
 	validateCustomDashboardRange,
 } from "./dashboard-date-utils";
 
@@ -12,6 +13,7 @@ const DEFAULT_RANGE: DashboardRangeInput = {
 	kind: "preset",
 	preset: "today",
 };
+const DEFAULT_VALIDATION_OPTIONS: DashboardRangeValidationOptions = {};
 
 const PRESET_LABELS: Record<
 	Extract<DashboardRangeInput, { kind: "preset" }>["preset"],
@@ -46,7 +48,7 @@ function formatCustomRangeLabel(
 
 function parseRangeFromSearchParams(params: {
 	get(name: string): string | null;
-}): DashboardRangeInput | null {
+}, validationOptions: DashboardRangeValidationOptions): DashboardRangeInput | null {
 	const raw = params.get("range");
 	if (raw === "today" || raw === "this_week" || raw === "this_month") {
 		return { kind: "preset", preset: raw };
@@ -60,7 +62,7 @@ function parseRangeFromSearchParams(params: {
 			validateCustomDashboardRange({
 				startBusinessDate: from,
 				endBusinessDateInclusive: to,
-			}) === null
+			}, validationOptions) === null
 		) {
 			return {
 				kind: "custom",
@@ -82,6 +84,8 @@ export type UseDashboardRangeOptions = {
 	urlSync?: boolean;
 	/** Range used when there is no (valid) URL state. Defaults to `today`. */
 	defaultRange?: DashboardRangeInput;
+	/** Keep the default policy for most dashboards; Operations permits jobs for long ranges. */
+	validationOptions?: DashboardRangeValidationOptions;
 };
 
 export type UseDashboardRangeResult = {
@@ -108,14 +112,20 @@ export type UseDashboardRangeResult = {
 export function useDashboardRange(
 	options: UseDashboardRangeOptions = {},
 ): UseDashboardRangeResult {
-	const { urlSync = false, defaultRange = DEFAULT_RANGE } = options;
+	const {
+		urlSync = false,
+		defaultRange = DEFAULT_RANGE,
+		validationOptions = DEFAULT_VALIDATION_OPTIONS,
+	} = options;
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
 
 	const [range, setRangeState] = useState<DashboardRangeInput>(
 		() =>
-			(urlSync ? parseRangeFromSearchParams(searchParams) : null) ??
+			(urlSync
+				? parseRangeFromSearchParams(searchParams, validationOptions)
+				: null) ??
 			defaultRange,
 	);
 	const [queryRange, setQueryRange] = useState<DashboardRangeInput>(range);
@@ -128,7 +138,7 @@ export function useDashboardRange(
 				validateCustomDashboardRange({
 					startBusinessDate: next.startBusinessDate,
 					endBusinessDateInclusive: next.endBusinessDateInclusive,
-				}) === null;
+				}, validationOptions) === null;
 			if (!isCommittable) {
 				return;
 			}
@@ -148,7 +158,7 @@ export function useDashboardRange(
 			}
 			router.replace(`${pathname}?${params.toString()}`, { scroll: false });
 		},
-		[urlSync, searchParams, pathname, router],
+		[urlSync, searchParams, pathname, router, validationOptions],
 	);
 
 	const validationMessage =
@@ -156,7 +166,7 @@ export function useDashboardRange(
 			? validateCustomDashboardRange({
 					startBusinessDate: range.startBusinessDate,
 					endBusinessDateInclusive: range.endBusinessDateInclusive,
-				})
+				}, validationOptions)
 			: null;
 
 	const rangeLabel = useMemo(() => {
@@ -169,5 +179,11 @@ export function useDashboardRange(
 		);
 	}, [queryRange]);
 
-	return { range, setRange, queryRange, rangeLabel, validationMessage };
+	return {
+		range,
+		setRange,
+		queryRange,
+		rangeLabel,
+		validationMessage,
+	};
 }

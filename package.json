@@ -9,7 +9,9 @@
     "lint": "eslint",
     "convex:dev": "convex dev",
     "expose": "ngrok http --url=https://javelin-ethical-broadly.ngrok-free.app 3000",
-    "e2e:login-url": "node scripts/e2e-login-url.mjs"
+    "e2e:login-url": "node scripts/e2e-login-url.mjs",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
@@ -19,13 +21,14 @@
     "@convex-dev/workos-authkit": "^0.1.7",
     "@hookform/resolvers": "^5.2.2",
     "@posthog/nextjs-config": "^1.9.4",
+    "@react-pdf/renderer": "^4.9.0",
     "@slack/types": "^2.20.1",
     "@workos-inc/authkit-nextjs": "^3.0.0",
     "@workos-inc/node": "^8.10.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
-    "convex": "^1.34.1",
+    "convex": "^1.45.0",
     "date-fns": "^4.1.0",
     "embla-carousel-react": "^8.6.0",
     "input-otp": "^1.4.2",
@@ -51,14 +54,18 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^24.13.4",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "convex-test": "^0.0.57",
     "eslint": "^9",
     "eslint-config-next": "16.3.0",
     "react-scan": "^0.5.3",
     "tailwindcss": "^4",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vite": "7.3.1",
+    "vitest": "^5.0.0"
   }
 }
