@@ -2,6 +2,11 @@ import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { addBusinessDays } from "../reporting/lib/hondurasBusinessTime";
 import { type Weekday, weekdayForBusinessDate } from "../lib/workSchedule";
+import {
+  createLiveReadState,
+  readLiveQueryRows,
+  type LiveReadState,
+} from "../lib/liveQueryBounds";
 
 export function businessDatesInInclusiveRange(args: {
   startBusinessDate: string;
@@ -36,19 +41,25 @@ export async function loadLeadGenScheduledHoursForRange(
     workerIds: Id<"leadGenWorkers">[];
     startBusinessDate: string;
     endBusinessDateInclusive: string;
+    liveReadState?: LiveReadState;
   },
 ) {
   const businessDates = businessDatesInInclusiveRange(args);
   const result = new Map<Id<"leadGenWorkers">, number>();
 
+  const state = args.liveReadState ?? createLiveReadState();
   for (const workerId of args.workerIds) {
-    const rows = await ctx.db
-      .query("leadGenWorkerSchedules")
-      .withIndex("by_tenantId_and_workerId", (q) =>
-        q.eq("tenantId", args.tenantId).eq("workerId", workerId),
-      )
-      .take(7);
-    result.set(workerId, sumHoursForWeekdayRows(rows, businessDates));
+    const scan = await readLiveQueryRows(
+      ctx.db
+        .query("leadGenWorkerSchedules")
+        .withIndex("by_tenantId_and_workerId", (q) =>
+          q.eq("tenantId", args.tenantId).eq("workerId", workerId),
+        ),
+      7,
+      state,
+    );
+    if (scan.capped) break;
+    result.set(workerId, sumHoursForWeekdayRows(scan.rows, businessDates));
   }
 
   return result;
@@ -61,19 +72,25 @@ export async function loadSlackQualifierScheduledHoursForRange(
     slackUserIds: string[];
     startBusinessDate: string;
     endBusinessDateInclusive: string;
+    liveReadState?: LiveReadState;
   },
 ) {
   const businessDates = businessDatesInInclusiveRange(args);
   const result = new Map<string, number>();
 
+  const state = args.liveReadState ?? createLiveReadState();
   for (const slackUserId of args.slackUserIds) {
-    const rows = await ctx.db
-      .query("slackQualifierSchedules")
-      .withIndex("by_tenantId_and_slackUserId", (q) =>
-        q.eq("tenantId", args.tenantId).eq("slackUserId", slackUserId),
-      )
-      .take(7);
-    result.set(slackUserId, sumHoursForWeekdayRows(rows, businessDates));
+    const scan = await readLiveQueryRows(
+      ctx.db
+        .query("slackQualifierSchedules")
+        .withIndex("by_tenantId_and_slackUserId", (q) =>
+          q.eq("tenantId", args.tenantId).eq("slackUserId", slackUserId),
+        ),
+      7,
+      state,
+    );
+    if (scan.capped) break;
+    result.set(slackUserId, sumHoursForWeekdayRows(scan.rows, businessDates));
   }
 
   return result;
@@ -86,19 +103,25 @@ export async function loadDmCloserScheduledHoursForRange(
     dmCloserIds: Id<"dmClosers">[];
     startBusinessDate: string;
     endBusinessDateInclusive: string;
+    liveReadState?: LiveReadState;
   },
 ) {
   const businessDates = businessDatesInInclusiveRange(args);
   const result = new Map<Id<"dmClosers">, number>();
 
+  const state = args.liveReadState ?? createLiveReadState();
   for (const dmCloserId of args.dmCloserIds) {
-    const rows = await ctx.db
-      .query("dmCloserSchedules")
-      .withIndex("by_tenantId_and_dmCloserId", (q) =>
-        q.eq("tenantId", args.tenantId).eq("dmCloserId", dmCloserId),
-      )
-      .take(7);
-    result.set(dmCloserId, sumHoursForWeekdayRows(rows, businessDates));
+    const scan = await readLiveQueryRows(
+      ctx.db
+        .query("dmCloserSchedules")
+        .withIndex("by_tenantId_and_dmCloserId", (q) =>
+          q.eq("tenantId", args.tenantId).eq("dmCloserId", dmCloserId),
+        ),
+      7,
+      state,
+    );
+    if (scan.capped) break;
+    result.set(dmCloserId, sumHoursForWeekdayRows(scan.rows, businessDates));
   }
 
   return result;

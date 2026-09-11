@@ -26,8 +26,10 @@ import { paymentOriginValidator, paymentTypeValidator } from "./lib/paymentTypes
 import { socialPlatformValidator } from "./lib/socialPlatform";
 import { utmParamsValidator } from "./lib/utmParams";
 import { weekdayValidator } from "./lib/workSchedule";
+import { operationsReportTables } from "./operations/reports/schema";
 
 export default defineSchema({
+  ...operationsReportTables,
   tenants: defineTable({
     // Identity
     companyName: v.string(),

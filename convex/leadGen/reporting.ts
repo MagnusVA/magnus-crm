@@ -33,6 +33,10 @@ import {
 } from "./schedules";
 import { leadGenSourceValidator } from "./validators";
 import { leadGenWorkerMemberIdentity } from "../lib/memberIdentity";
+import {
+  createLiveReadState,
+  readLiveQueryRows,
+} from "../lib/liveQueryBounds";
 
 type LeadGenSource = Doc<"leadGenDailyStats">["source"];
 type DailyStatsRow = Doc<"leadGenDailyStats">;
@@ -40,6 +44,7 @@ type SubmissionRow = Doc<"leadGenSubmissions">;
 type TeamOriginStatsRow = Doc<"leadGenTeamOriginStats">;
 
 const LEAD_GEN_SOURCES: LeadGenSource[] = ["instagram", "meta_business"];
+const LIVE_WORKER_HYDRATION_LIMIT = 100;
 
 const reportFiltersValidator = {
   startDayKey: v.string(),
@@ -157,59 +162,160 @@ async function readDailyStatsRows(
     limit: number;
   },
 ) {
-  const readLimit = args.limit + 1;
-  let rows: DailyStatsRow[];
-
-  if (args.workerId) {
-    rows = await ctx.db
-      .query("leadGenDailyStats")
-      .withIndex("by_tenantId_and_workerId_and_dayKey", (q) =>
-        q
-          .eq("tenantId", args.tenantId)
-          .eq("workerId", args.workerId!)
-          .gte("dayKey", args.startDayKey)
-          .lte("dayKey", args.endDayKey),
-      )
-      .take(readLimit);
-  } else if (args.teamId) {
-    rows = await ctx.db
-      .query("leadGenDailyStats")
-      .withIndex("by_tenantId_and_teamId_and_dayKey", (q) =>
-        q
-          .eq("tenantId", args.tenantId)
-          .eq("teamId", args.teamId!)
-          .gte("dayKey", args.startDayKey)
-          .lte("dayKey", args.endDayKey),
-      )
-      .take(readLimit);
-  } else if (args.source) {
-    rows = await ctx.db
-      .query("leadGenDailyStats")
-      .withIndex("by_tenantId_and_source_and_dayKey", (q) =>
-        q
-          .eq("tenantId", args.tenantId)
-          .eq("source", args.source!)
-          .gte("dayKey", args.startDayKey)
-          .lte("dayKey", args.endDayKey),
-      )
-      .take(readLimit);
-  } else {
-    rows = await ctx.db
-      .query("leadGenDailyStats")
-      .withIndex("by_tenantId_and_dayKey", (q) =>
-        q
-          .eq("tenantId", args.tenantId)
-          .gte("dayKey", args.startDayKey)
-          .lte("dayKey", args.endDayKey),
-      )
-      .take(readLimit);
-  }
-
-  if (rows.length > args.limit) {
+  const result = await readDailyStatsRowsBounded(ctx, args);
+  if (result.capped) {
     throw new Error("Report range is too large. Narrow the filters.");
   }
+  return result.rows;
+}
 
-  return filterDailyStatsRows(rows, args);
+async function readDailyStatsRowsBounded(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    startDayKey: string;
+    endDayKey: string;
+    teamId?: LeadGenTeamId;
+    workerId?: Id<"leadGenWorkers">;
+    source?: LeadGenSource;
+    limit: number;
+  },
+) {
+  let result: { rows: DailyStatsRow[]; capped: boolean };
+
+  if (args.workerId) {
+    result = await readLiveQueryRows(
+      ctx.db
+        .query("leadGenDailyStats")
+        .withIndex("by_tenantId_and_workerId_and_dayKey", (q) =>
+          q
+            .eq("tenantId", args.tenantId)
+            .eq("workerId", args.workerId!)
+            .gte("dayKey", args.startDayKey)
+            .lte("dayKey", args.endDayKey),
+        ),
+      args.limit,
+    );
+  } else if (args.teamId) {
+    result = await readLiveQueryRows(
+      ctx.db
+        .query("leadGenDailyStats")
+        .withIndex("by_tenantId_and_teamId_and_dayKey", (q) =>
+          q
+            .eq("tenantId", args.tenantId)
+            .eq("teamId", args.teamId!)
+            .gte("dayKey", args.startDayKey)
+            .lte("dayKey", args.endDayKey),
+        ),
+      args.limit,
+    );
+  } else if (args.source) {
+    result = await readLiveQueryRows(
+      ctx.db
+        .query("leadGenDailyStats")
+        .withIndex("by_tenantId_and_source_and_dayKey", (q) =>
+          q
+            .eq("tenantId", args.tenantId)
+            .eq("source", args.source!)
+            .gte("dayKey", args.startDayKey)
+            .lte("dayKey", args.endDayKey),
+        ),
+      args.limit,
+    );
+  } else {
+    result = await readLiveQueryRows(
+      ctx.db
+        .query("leadGenDailyStats")
+        .withIndex("by_tenantId_and_dayKey", (q) =>
+          q
+            .eq("tenantId", args.tenantId)
+            .gte("dayKey", args.startDayKey)
+            .lte("dayKey", args.endDayKey),
+        ),
+      args.limit,
+    );
+  }
+
+  return {
+    rows: filterDailyStatsRows(result.rows, args),
+    capped: result.capped,
+  };
+}
+
+/**
+ * Cheap preflight for the legacy top-origins query. The overview exposes one
+ * fallback bit for the whole live dashboard, so the client can avoid starting
+ * a secondary query that would exceed its bounded scan.
+ */
+async function isTopOriginsReadCapped(
+  ctx: QueryCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    startDayKey: string;
+    endDayKey: string;
+    teamId?: LeadGenTeamId;
+    workerId?: Id<"leadGenWorkers">;
+    source?: LeadGenSource;
+  },
+) {
+  const limit = ORIGIN_STATS_READ_LIMIT;
+  if (args.teamId || args.workerId) {
+    const startTimestamp = businessDateToUtcStart(args.startDayKey);
+    const endTimestamp =
+      businessDateToUtcStart(addBusinessDays(args.endDayKey, 1)) - 1;
+    const result = args.workerId
+      ? await readLiveQueryRows(
+          ctx.db
+          .query("leadGenSubmissions")
+          .withIndex("by_tenantId_and_workerId_and_submittedAt", (q) =>
+            q
+              .eq("tenantId", args.tenantId)
+              .eq("workerId", args.workerId!)
+              .gte("submittedAt", startTimestamp)
+              .lte("submittedAt", endTimestamp),
+          ),
+          limit,
+        )
+      : await readLiveQueryRows(
+          ctx.db
+          .query("leadGenSubmissions")
+          .withIndex("by_tenantId_and_teamId_and_submittedAt", (q) =>
+            q
+              .eq("tenantId", args.tenantId)
+              .eq("teamId", args.teamId!)
+              .gte("submittedAt", startTimestamp)
+              .lte("submittedAt", endTimestamp),
+          ),
+          limit,
+        );
+    return result.capped;
+  }
+
+  const result = args.source
+    ? await readLiveQueryRows(
+        ctx.db
+        .query("leadGenOriginStats")
+        .withIndex("by_tenantId_and_source_and_dayKey", (q) =>
+          q
+            .eq("tenantId", args.tenantId)
+            .eq("source", args.source!)
+            .gte("dayKey", args.startDayKey)
+            .lte("dayKey", args.endDayKey),
+        ),
+        limit,
+      )
+    : await readLiveQueryRows(
+        ctx.db
+        .query("leadGenOriginStats")
+        .withIndex("by_tenantId_and_dayKey", (q) =>
+          q
+            .eq("tenantId", args.tenantId)
+            .gte("dayKey", args.startDayKey)
+            .lte("dayKey", args.endDayKey),
+        ),
+        limit,
+      );
+  return result.capped;
 }
 
 async function readTopOriginSubmissionRows(
@@ -622,15 +728,44 @@ export const getOverview = query({
 
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
-    const rows = await readDailyStatsRows(ctx, {
-      tenantId,
-      ...args,
-      limit: DAILY_STATS_READ_LIMIT,
-    });
+    const [dailyResult, originsCapped] = await Promise.all([
+      readDailyStatsRowsBounded(ctx, {
+        tenantId,
+        ...args,
+        limit: DAILY_STATS_READ_LIMIT,
+      }),
+      isTopOriginsReadCapped(ctx, { tenantId, ...args }),
+    ]);
+    const workerCount = new Set(dailyResult.rows.map((row) => row.workerId)).size;
+    if (
+      dailyResult.capped ||
+      originsCapped ||
+      workerCount > LIVE_WORKER_HYDRATION_LIMIT
+    ) {
+      return {
+        ...summarizeDailyRows([], new Map()),
+        capped: true,
+      };
+    }
+    const rows = dailyResult.rows;
+    const scheduleReadState = createLiveReadState();
     const currentScheduledHoursByWorkerDay =
-      await loadCurrentScheduledHoursByWorkerDay(ctx, { tenantId, rows });
+      await loadCurrentScheduledHoursByWorkerDay(ctx, {
+        tenantId,
+        rows,
+        liveReadState: scheduleReadState,
+      });
+    if (scheduleReadState.capped) {
+      return {
+        ...summarizeDailyRows([], new Map()),
+        capped: true,
+      };
+    }
 
-    return summarizeDailyRows(rows, currentScheduledHoursByWorkerDay);
+    return {
+      ...summarizeDailyRows(rows, currentScheduledHoursByWorkerDay),
+      capped: false,
+    };
   },
 });
 

@@ -1,6 +1,7 @@
 import type { Value } from "convex/values";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { QueryCtx } from "../../_generated/server";
+import { readLiveQueryRows } from "../../lib/liveQueryBounds";
 import {
   unknownMemberIdentity,
   userMemberIdentity,
@@ -194,17 +195,18 @@ export async function getNonDisputedPaymentsInRange(
 }> {
   assertValidDateRange(startDate, endDate);
 
-  const payments = await ctx.db
+  const result = await readLiveQueryRows(
+    ctx.db
     .query("paymentRecords")
     .withIndex("by_tenantId_and_recordedAt", (q) =>
       q.eq("tenantId", tenantId).gte("recordedAt", startDate).lt("recordedAt", endDate),
-    )
-    .take(MAX_PAYMENT_SCAN_ROWS + 1);
+    ),
+    MAX_PAYMENT_SCAN_ROWS,
+  );
 
   return {
-    isTruncated: payments.length > MAX_PAYMENT_SCAN_ROWS,
-    payments: payments
-      .slice(0, MAX_PAYMENT_SCAN_ROWS)
+    isTruncated: result.capped,
+    payments: result.rows
       .filter((payment) => payment.status !== "disputed"),
   };
 }

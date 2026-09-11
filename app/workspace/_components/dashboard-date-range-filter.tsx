@@ -15,6 +15,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import {
 	businessDateToCalendarDate,
 	calendarDateToBusinessDate,
+	type DashboardRangeValidationOptions,
 	validateCustomDashboardRange,
 } from "./dashboard-date-utils";
 
@@ -30,12 +31,14 @@ type Props = {
 	value: DashboardRangeInput;
 	onChange: (value: DashboardRangeInput) => void;
 	validationMessage: string | null;
+	validationOptions?: DashboardRangeValidationOptions;
 };
 
 export function DashboardDateRangeFilter({
 	value,
 	onChange,
 	validationMessage,
+	validationOptions,
 }: Props) {
 	const isMobile = useIsMobile();
 	const [open, setOpen] = useState(false);
@@ -59,7 +62,10 @@ export function DashboardDateRangeFilter({
 		}),
 		[draftRange],
 	);
-	const draftError = validateCustomDashboardRange(draftBusinessRange);
+	const draftError = validateCustomDashboardRange(
+		draftBusinessRange,
+		validationOptions,
+	);
 
 	return (
 		<div className="flex min-w-0 flex-col items-start gap-2 sm:items-end">

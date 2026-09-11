@@ -4,6 +4,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import type { QueryCtx } from "../_generated/server";
 import { leadDisplayFromShape } from "../lib/leadDisplay";
+import { LIVE_QUERY_BYTE_BUDGET } from "../lib/liveQueryBounds";
 import {
   dmCloserMemberIdentity,
   slackMemberIdentity,
@@ -297,7 +298,12 @@ export const listQualificationQueue = query({
       qualifiedBefore: args.qualifiedBefore,
     })
       .order("desc")
-      .paginate(args.paginationOpts);
+      .paginate({
+        cursor: args.paginationOpts.cursor,
+        numItems: Math.min(args.paginationOpts.numItems, 1),
+        maximumRowsRead: 1,
+        maximumBytesRead: LIVE_QUERY_BYTE_BUDGET,
+      });
 
     return {
       ...result,

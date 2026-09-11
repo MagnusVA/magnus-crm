@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "convex/react";
-import { ClockIcon, Settings2Icon, TriangleAlertIcon } from "lucide-react";
+import { ClockIcon, Settings2Icon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -15,11 +15,26 @@ import {
 } from "@/components/ui/tooltip";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { DashboardDateRangeFilter } from "@/app/workspace/_components/dashboard-date-range-filter";
+import {
+  OPERATIONS_DASHBOARD_RANGE_VALIDATION,
+  requiresOperationsReportSnapshot,
+} from "@/app/workspace/_components/dashboard-date-utils";
 import { GoalProgressRing } from "@/app/workspace/_components/goal-progress-ring";
 import { OpsBarChartCard } from "@/app/workspace/_components/ops-bar-chart-card";
 import { formatWholeNumber } from "@/app/workspace/_components/overview-formatters";
 import { useDashboardRange } from "@/app/workspace/_components/use-dashboard-range";
 import { OperationsHealthBanner } from "../../_components/operations-health-banner";
+import { OperationsReportExportMenu } from "../../_components/operations-report-export-menu";
+import { OperationsReportJobStatus } from "../../_components/report-job-status";
+import {
+  nullableNumberField,
+  numberField,
+  OperationsReportSnapshotTable,
+} from "../../_components/report-snapshot-table";
+import {
+  useOperationsDashboardReport,
+  useOperationsReportRows,
+} from "../../_components/use-operations-report-job";
 import { BookedCallsDetailsList } from "./booked-calls-details-list";
 import { BookingGoalsDialog } from "./booking-goals-dialog";
 import { DmCloserContributionsTable } from "./dm-closer-contributions-table";
@@ -47,39 +62,61 @@ export function BookedCallsPageClient() {
     useDashboardRange({
       urlSync: true,
       defaultRange: { kind: "preset", preset: "this_week" },
+      validationOptions: OPERATIONS_DASHBOARD_RANGE_VALIDATION,
     });
   const [goalsDialogOpen, setGoalsDialogOpen] = useState(false);
   const [schedulesOpen, setSchedulesOpen] = useState(false);
+  const requiresSnapshot = useMemo(
+    () => requiresOperationsReportSnapshot(queryRange),
+    [queryRange],
+  );
 
   const dashboard = useQuery(
     api.operations.bookedCallsDashboard.getBookedCallsDashboard,
-    { range: queryRange },
+    requiresSnapshot ? "skip" : { range: queryRange },
   );
+  const needsSnapshot = requiresSnapshot || dashboard?.capped === true;
+  const snapshot = useOperationsDashboardReport({
+    reportKind: "booked-calls",
+    range: queryRange,
+    enabled: needsSnapshot,
+  });
+  const closerSnapshot = useOperationsReportRows({
+    jobId: snapshot.jobId,
+    section: "booked_closer",
+    enabled: snapshot.summary !== undefined,
+  });
+  const teamSnapshot = useOperationsReportRows({
+    jobId: snapshot.jobId,
+    section: "booking_team",
+    enabled: snapshot.summary !== undefined,
+  });
+  const dashboardData = needsSnapshot ? undefined : dashboard;
 
   const barData = useMemo(
     () =>
-      (dashboard?.dmClosers ?? []).map((closer) => ({
+      (dashboardData?.dmClosers ?? []).map((closer) => ({
         key: closer.key,
         label: closer.label,
         value: closer.booked,
       })),
-    [dashboard?.dmClosers],
+    [dashboardData?.dmClosers],
   );
 
   const dmCloserOptions = useMemo(
     () =>
-      dashboard?.dmClosers.map((closer) => ({
+      dashboardData?.dmClosers.map((closer) => ({
         key: closer.key,
         label: closer.label,
       })),
-    [dashboard?.dmClosers],
+    [dashboardData?.dmClosers],
   );
 
   const goalSublabel = useMemo(() => {
-    if (!dashboard) {
+    if (!dashboardData) {
       return undefined;
     }
-    const { businessDayCount, teams } = dashboard.goal;
+    const { businessDayCount, teams } = dashboardData.goal;
     const teamsWithQuota = teams.filter((team) => team.dailyQuota !== null);
     if (teamsWithQuota.length === 0) {
       return rangeLabel;
@@ -93,18 +130,18 @@ export function BookedCallsPageClient() {
     )} team${teamsWithQuota.length === 1 ? "" : "s"} × ${formatWholeNumber(
       businessDayCount,
     )} business day${businessDayCount === 1 ? "" : "s"} — ${rangeLabel}`;
-  }, [dashboard, rangeLabel]);
+  }, [dashboardData, rangeLabel]);
 
   const goalBreakdown = useMemo(
     () =>
-      dashboard?.goal.teams
+      dashboardData?.goal.teams
         .filter((team) => team.target !== null || team.progress > 0)
         .map((team) => ({
           label: team.label,
           goal: team.target ?? 0,
           progress: team.progress,
         })),
-    [dashboard?.goal.teams],
+    [dashboardData?.goal.teams],
   );
 
   return (
@@ -146,8 +183,13 @@ export function BookedCallsPageClient() {
                 DM teams, booking goals, closers, and hourly contract rates.
               </TooltipContent>
             </Tooltip>
+            <OperationsReportExportMenu
+              reportKind="booked-calls"
+              range={queryRange}
+            />
           </div>
           <DashboardDateRangeFilter
+            validationOptions={OPERATIONS_DASHBOARD_RANGE_VALIDATION}
             validationMessage={validationMessage}
             value={range}
             onChange={setRange}
@@ -160,45 +202,114 @@ export function BookedCallsPageClient() {
 
       <OperationsHealthBanner />
 
-      {dashboard?.capped ? (
-        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <TriangleAlertIcon
-            aria-hidden="true"
-            className="size-3.5 shrink-0 text-amber-500"
-          />
-          This range hit the event sample cap, so totals reflect the loaded
-          sample only. Narrow the range for exact counts.
-        </p>
+      {needsSnapshot ? (
+        <OperationsReportJobStatus
+          state={snapshot.job?.status ?? (snapshot.requestError ? "failed" : "queued")}
+          generatedAt={snapshot.summary?.generatedAt ?? null}
+          errorMessage={snapshot.requestError ?? snapshot.job?.failure?.message ?? null}
+          onCancel={() => void snapshot.cancel()}
+          onRefresh={snapshot.refresh}
+          onRetry={snapshot.retry}
+        />
       ) : null}
 
-      <div className="grid min-w-0 gap-4 lg:grid-cols-3">
+      {snapshot.summary ? (
+        <>
+          <OperationsReportSnapshotTable
+            title="Historical booked-call summary"
+            description={`Materialized for ${rangeLabel}.`}
+            columns={[
+              { key: "totalBooked", label: "Booked", align: "right" },
+              { key: "totalTarget", label: "Target", align: "right" },
+              { key: "progress", label: "Progress", align: "right" },
+              { key: "businessDayCount", label: "Business days", align: "right" },
+            ]}
+            rows={[{ rowKey: "main", payload: snapshot.summary.payload }]}
+          />
+          <OperationsReportSnapshotTable
+            title="DM closer contributions"
+            description="Completed historical report; use the arrows to page through closers."
+            columns={[
+              { key: "label", label: "DM closer" },
+              { key: "booked", label: "Booked", align: "right" },
+              { key: "scheduledHours", label: "Scheduled hours", align: "right" },
+              { key: "bookedPerHour", label: "Booked/hour", align: "right" },
+            ]}
+            rows={closerSnapshot.rows}
+            isLoading={closerSnapshot.isLoading}
+            hasPreviousPage={closerSnapshot.hasPreviousPage}
+            hasNextPage={closerSnapshot.hasNextPage}
+            onPreviousPage={closerSnapshot.previousPage}
+            onNextPage={closerSnapshot.nextPage}
+          />
+          <OperationsReportSnapshotTable
+            title="Team goal progress"
+            description="Completed historical report; use the arrows to page through teams."
+            columns={[
+              { key: "label", label: "Team" },
+              { key: "dailyQuota", label: "Daily quota", align: "right" },
+              { key: "target", label: "Target", align: "right" },
+              { key: "progress", label: "Booked", align: "right" },
+            ]}
+            rows={teamSnapshot.rows}
+            isLoading={teamSnapshot.isLoading}
+            hasPreviousPage={teamSnapshot.hasPreviousPage}
+            hasNextPage={teamSnapshot.hasNextPage}
+            onPreviousPage={teamSnapshot.previousPage}
+            onNextPage={teamSnapshot.nextPage}
+          />
+        </>
+      ) : null}
+
+      {!needsSnapshot ? (
+        <div className="grid min-w-0 gap-4 lg:grid-cols-3">
         <OpsBarChartCard
           className="min-w-0 lg:col-span-2"
           title="Booked per DM Closer"
           description={`Booked calls attributed per DM closer — ${rangeLabel}`}
           data={barData}
           valueLabel="Booked"
-          loading={dashboard === undefined}
+          loading={dashboardData === undefined}
           emptyMessage="No booked calls in this range."
         />
-        {dashboard === undefined ? (
+        {dashboardData === undefined ? (
           <GoalRingSkeleton />
         ) : (
           <GoalProgressRing
-            goal={dashboard.goal.totalTarget ?? undefined}
-            progress={dashboard.goal.progress}
+            goal={dashboardData.goal.totalTarget ?? undefined}
+            progress={dashboardData.goal.progress}
             label="Booked"
             sublabel={goalSublabel}
             breakdown={goalBreakdown}
             onEdit={() => setGoalsDialogOpen(true)}
           />
         )}
-      </div>
+        </div>
+      ) : snapshot.summary ? (
+        <GoalProgressRing
+          goal={nullableNumberField(snapshot.summary.payload, "totalTarget") ?? undefined}
+          progress={numberField(snapshot.summary.payload, "progress")}
+          label="Booked"
+          sublabel={rangeLabel}
+          onEdit={() => setGoalsDialogOpen(true)}
+        />
+      ) : null}
 
-      <DmCloserContributionsTable rows={dashboard?.dmClosers} />
+      {!needsSnapshot ? (
+        <DmCloserContributionsTable rows={dashboardData?.dmClosers} />
+      ) : null}
 
       <BookedCallsDetailsList
-        window={dashboard?.window}
+        window={
+          snapshot.summary &&
+          typeof snapshot.summary.payload.start === "number" &&
+          typeof snapshot.summary.payload.end === "number"
+            ? {
+                start: snapshot.summary.payload.start,
+                end: snapshot.summary.payload.end,
+              }
+            : dashboardData?.window
+        }
         dmCloserOptions={dmCloserOptions}
       />
 

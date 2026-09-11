@@ -10,12 +10,17 @@ import {
   slackMemberIdentity,
   type MemberAvatarIdentity,
 } from "../lib/memberIdentity";
+import {
+  createLiveReadState,
+  readLiveQueryRows,
+} from "../lib/liveQueryBounds";
 import { listQualificationEventsForRange } from "../reporting/lib/slackQualificationLedger";
 import { requireTenantUser } from "../requireTenantUser";
 import { loadSlackQualifierScheduledHoursForRange } from "../workSchedules/rangeHours";
 
 const SLACK_USER_REGISTRY_LIMIT = 300;
 const SLACK_QUALIFIER_SCHEDULE_LIMIT = 2_100;
+const LIVE_QUALIFIER_CANDIDATE_LIMIT = 300;
 
 const openerRowValidator = v.object({
   key: v.string(),
@@ -87,21 +92,50 @@ export const getQualificationsDashboard = query({
         throw new Error("Tenant not found.");
       }
 
-      const [slackUsers, qualifierSchedules, events] = await Promise.all([
-        ctx.db
-          .query("slackUsers")
-          .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-          .take(SLACK_USER_REGISTRY_LIMIT),
-        ctx.db
-          .query("slackQualifierSchedules")
-          .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-          .take(SLACK_QUALIFIER_SCHEDULE_LIMIT),
+      const [slackUserScan, qualifierScheduleScan, events] = await Promise.all([
+        readLiveQueryRows(
+          ctx.db
+            .query("slackUsers")
+            .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)),
+          SLACK_USER_REGISTRY_LIMIT,
+        ),
+        readLiveQueryRows(
+          ctx.db
+            .query("slackQualifierSchedules")
+            .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)),
+          SLACK_QUALIFIER_SCHEDULE_LIMIT,
+        ),
         listQualificationEventsForRange(ctx, {
           tenantId,
           start: range.slackWindowStart,
           end: range.slackWindowEnd,
         }),
       ]);
+      const slackUsers = slackUserScan.rows;
+      const qualifierSchedules = qualifierScheduleScan.rows;
+
+      const capped =
+        events.truncated ||
+        slackUserScan.capped ||
+        qualifierScheduleScan.capped;
+      if (capped) {
+        const dailyQuota = tenant.slackQualificationDailyTeamQuota ?? null;
+        return {
+          totalQualified: 0,
+          openers: [],
+          goal: {
+            dailyQuota,
+            target: dailyQuota === null ? null : dailyQuota * range.dayCount,
+            progress: 0,
+            businessDayCount: range.dayCount,
+          },
+          capped: true,
+          window: {
+            qualifiedAfter: range.slackWindowStart,
+            qualifiedBefore: range.slackWindowEnd,
+          },
+        };
+      }
 
       const slackUserById = new Map(
         slackUsers.map((user) => [user.slackUserId, user]),
@@ -125,13 +159,52 @@ export const getQualificationsDashboard = query({
         eventsBySlackUserId.set(event.slackUserId, current);
       }
 
+      if (candidateSlackUserIds.size > LIVE_QUALIFIER_CANDIDATE_LIMIT) {
+        const dailyQuota = tenant.slackQualificationDailyTeamQuota ?? null;
+        return {
+          totalQualified: 0,
+          openers: [],
+          goal: {
+            dailyQuota,
+            target: dailyQuota === null ? null : dailyQuota * range.dayCount,
+            progress: 0,
+            businessDayCount: range.dayCount,
+          },
+          capped: true,
+          window: {
+            qualifiedAfter: range.slackWindowStart,
+            qualifiedBefore: range.slackWindowEnd,
+          },
+        };
+      }
+
+      const scheduleReadState = createLiveReadState();
       const scheduledHoursBySlackUserId =
         await loadSlackQualifierScheduledHoursForRange(ctx, {
           tenantId,
           slackUserIds: [...candidateSlackUserIds],
           startBusinessDate: range.startBusinessDate,
           endBusinessDateInclusive: range.endBusinessDateInclusive,
+          liveReadState: scheduleReadState,
         });
+      if (scheduleReadState.capped) {
+        const dailyQuota = tenant.slackQualificationDailyTeamQuota ?? null;
+        return {
+          totalQualified: 0,
+          openers: [],
+          goal: {
+            dailyQuota,
+            target: dailyQuota === null ? null : dailyQuota * range.dayCount,
+            progress: 0,
+            businessDayCount: range.dayCount,
+          },
+          capped: true,
+          window: {
+            qualifiedAfter: range.slackWindowStart,
+            qualifiedBefore: range.slackWindowEnd,
+          },
+        };
+      }
 
       const openers: OpenerRow[] = [];
       for (const slackUserId of candidateSlackUserIds) {
@@ -184,10 +257,7 @@ export const getQualificationsDashboard = query({
           progress: totalQualified,
           businessDayCount: range.dayCount,
         },
-        capped:
-          events.truncated ||
-          slackUsers.length >= SLACK_USER_REGISTRY_LIMIT ||
-          qualifierSchedules.length >= SLACK_QUALIFIER_SCHEDULE_LIMIT,
+        capped: false,
         window: {
           qualifiedAfter: range.slackWindowStart,
           qualifiedBefore: range.slackWindowEnd,

@@ -2,6 +2,7 @@ import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
+import { LIVE_QUERY_BYTE_BUDGET } from "../lib/liveQueryBounds";
 import {
   addBusinessDays,
   businessDateToUtcStart,
@@ -288,6 +289,12 @@ async function paginateSubmissionRows(
     };
   },
 ) {
+  const paginationOpts = {
+    cursor: args.paginationOpts.cursor,
+    numItems: Math.min(args.paginationOpts.numItems, 2),
+    maximumRowsRead: 2,
+    maximumBytesRead: LIVE_QUERY_BYTE_BUDGET,
+  };
   if (args.workerId) {
     return await ctx.db
       .query("leadGenSubmissions")
@@ -298,7 +305,7 @@ async function paginateSubmissionRows(
           .gte("submittedAt", args.startTimestamp)
           .lte("submittedAt", args.endTimestamp),
       )
-      .paginate(args.paginationOpts);
+      .paginate(paginationOpts);
   }
 
   if (args.teamId) {
@@ -311,7 +318,7 @@ async function paginateSubmissionRows(
           .gte("submittedAt", args.startTimestamp)
           .lte("submittedAt", args.endTimestamp),
       )
-      .paginate(args.paginationOpts);
+      .paginate(paginationOpts);
   }
 
   if (args.source) {
@@ -324,7 +331,7 @@ async function paginateSubmissionRows(
           .gte("submittedAt", args.startTimestamp)
           .lte("submittedAt", args.endTimestamp),
       )
-      .paginate(args.paginationOpts);
+      .paginate(paginationOpts);
   }
 
   return await ctx.db
@@ -335,7 +342,7 @@ async function paginateSubmissionRows(
         .gte("submittedAt", args.startTimestamp)
         .lte("submittedAt", args.endTimestamp),
     )
-    .paginate(args.paginationOpts);
+    .paginate(paginationOpts);
 }
 
 async function loadWorkers(
