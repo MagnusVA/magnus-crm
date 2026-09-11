@@ -1,11 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useConvex, useMutation, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { DashboardRangeInput } from "@/app/workspace/_components/dashboard-date-range-filter";
+import { collectDashboardPages } from "@/lib/operations-reports/dashboard-pages";
 
 export type OperationsReportKind =
   | "lead-gen"
@@ -188,11 +189,57 @@ export function useOperationsDashboardReport(args: {
   return {
     jobId,
     job,
-    summary,
+    summary: summary ?? undefined,
     requestError,
     retry,
     refresh: retry,
     cancel,
+  };
+}
+
+/**
+ * Loads complete, immutable aggregate dimensions for the existing dashboard UI.
+ * Each request is bounded; raw ledgers continue to use their own paginated lists.
+ * Obsolete range requests never publish partial or stale data to the components.
+ */
+export function useAllOperationsReportRows(args: {
+  jobId: Id<"operationsReportJobs"> | null;
+  section: string;
+  enabled: boolean;
+}) {
+  const convex = useConvex();
+  type Row = FunctionReturnType<typeof api.operations.reports.jobs.listDashboardReportRows>["page"][number];
+  const { jobId, section, enabled } = args;
+  const scopeKey = `${jobId ?? "none"}:${section}`;
+  const [result, setResult] = useState<{
+    scopeKey: string;
+    rows?: Row[];
+    error: string | null;
+  }>({ scopeKey: "", error: null });
+
+  useEffect(() => {
+    if (!enabled || jobId === null) return;
+    let canceled = false;
+    void collectDashboardPages(
+      (cursor) => convex.query(api.operations.reports.jobs.listDashboardReportRows, {
+        jobId,
+        section,
+        paginationOpts: { cursor, numItems: REPORT_PAGE_SIZE },
+      }),
+      () => canceled,
+    ).then((rows) => {
+      if (!canceled && rows !== undefined) setResult({ scopeKey, rows, error: null });
+    }).catch((error: unknown) => {
+      if (!canceled) setResult({ scopeKey, error: getErrorMessage(error) });
+    });
+    return () => { canceled = true; };
+  }, [convex, jobId, section, enabled, scopeKey]);
+
+  const current = enabled && result.scopeKey === scopeKey ? result : undefined;
+  return {
+    rows: current?.rows,
+    error: current?.error ?? null,
+    isLoading: enabled && current?.rows === undefined && !current?.error,
   };
 }
 

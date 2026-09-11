@@ -15,10 +15,10 @@ import {
 import { useDashboardRange } from "@/app/workspace/_components/use-dashboard-range";
 import { OperationsReportExportMenu } from "../../_components/operations-report-export-menu";
 import { OperationsReportJobStatus } from "../../_components/report-job-status";
-import { OperationsReportSnapshotTable } from "../../_components/report-snapshot-table";
+import { leadDashboardOverview, leadDashboardWorkers, leadDashboardTeams, leadDashboardOrigins } from "@/lib/operations-reports/lead-dashboard";
 import {
 	useOperationsDashboardReport,
-	useOperationsReportRows,
+	useAllOperationsReportRows,
 } from "../../_components/use-operations-report-job";
 import { LeadGenFilterBar } from "./lead-gen-filter-bar";
 import { LeadGenSummaryCards } from "./lead-gen-summary-cards";
@@ -57,7 +57,7 @@ export function LeadGenAdminPageClient() {
 		requiresSnapshot ? "skip" : filters,
 	);
 	const needsSnapshot = requiresSnapshot || overview?.capped === true;
-	const teams = useQuery(api.leadGen.workers.listTeams, {
+	const teams = useQuery(api.leadGen.workers.listTeams, needsSnapshot ? "skip" : {
 		includeInactive: true,
 	});
 	const specialistRows = useQuery(
@@ -74,26 +74,30 @@ export function LeadGenAdminPageClient() {
 		sourceFilter: filters.source,
 		enabled: needsSnapshot,
 	});
-	const workerSnapshot = useOperationsReportRows({
+	const workerSnapshot = useAllOperationsReportRows({
 		jobId: snapshot.jobId,
 		section: "lead_gen_worker",
 		enabled: snapshot.summary !== undefined,
 	});
-	const teamSnapshot = useOperationsReportRows({
-		jobId: snapshot.jobId,
-		section: "lead_gen_team",
-		enabled: snapshot.summary !== undefined,
-	});
-	const sourceSnapshot = useOperationsReportRows({
-		jobId: snapshot.jobId,
-		section: "lead_gen_source",
-		enabled: snapshot.summary !== undefined,
-	});
-	const originSnapshot = useOperationsReportRows({
+	const originSnapshot = useAllOperationsReportRows({
 		jobId: snapshot.jobId,
 		section: "lead_gen_origin",
 		enabled: snapshot.summary !== undefined,
 	});
+
+	const displayOverview = needsSnapshot
+		? snapshot.summary ? leadDashboardOverview(snapshot.summary.payload) : undefined
+		: overview;
+	const displayWorkers = useMemo(() => needsSnapshot
+		? workerSnapshot.rows ? leadDashboardWorkers(workerSnapshot.rows) : undefined
+		: specialistRows, [needsSnapshot, workerSnapshot.rows, specialistRows]);
+	const displayTeams = useMemo(() => needsSnapshot
+		? workerSnapshot.rows ? leadDashboardTeams(workerSnapshot.rows) : undefined
+		: teams, [needsSnapshot, workerSnapshot.rows, teams]);
+	const displayOrigins = useMemo(() => needsSnapshot
+		? originSnapshot.rows ? leadDashboardOrigins(originSnapshot.rows) : undefined
+		: origins, [needsSnapshot, originSnapshot.rows, origins]);
+	const resultError = workerSnapshot.error ?? originSnapshot.error;
 
 	return (
 		<div className="flex min-w-0 flex-col gap-4">
@@ -141,108 +145,18 @@ export function LeadGenAdminPageClient() {
 
 			{needsSnapshot ? (
 				<OperationsReportJobStatus
-					state={snapshot.job?.status ?? (snapshot.requestError ? "failed" : "queued")}
+					state={resultError ? "failed" : snapshot.job?.status ?? (snapshot.requestError ? "failed" : "queued")}
 					generatedAt={snapshot.summary?.generatedAt ?? null}
-					errorMessage={snapshot.requestError ?? snapshot.job?.failure?.message ?? null}
+					errorMessage={resultError ?? snapshot.requestError ?? snapshot.job?.failure?.message ?? null}
 					onCancel={() => void snapshot.cancel()}
 					onRefresh={snapshot.refresh}
 					onRetry={snapshot.retry}
 				/>
 			) : null}
 
-			{snapshot.summary ? (
-				<>
-					<OperationsReportSnapshotTable
-						title="Historical lead-gen summary"
-						description={`Materialized for ${rangeLabel}.`}
-						columns={[
-							{ key: "submissions", label: "Submissions", align: "right" },
-							{ key: "uniqueProspects", label: "Unique prospects", align: "right" },
-							{ key: "duplicates", label: "Duplicates", align: "right" },
-							{ key: "scheduledHours", label: "Scheduled hours", align: "right" },
-							{ key: "leadsPerHour", label: "Leads/hour", align: "right" },
-						]}
-						rows={[{ rowKey: "main", payload: snapshot.summary.payload }]}
-					/>
-					<OperationsReportSnapshotTable
-						title="Specialist performance"
-						description="Completed historical report; use the arrows to page through specialists."
-						columns={[
-							{ key: "label", label: "Specialist" },
-							{ key: "submissions", label: "Submissions", align: "right" },
-							{ key: "uniqueProspects", label: "Unique prospects", align: "right" },
-							{ key: "scheduledHours", label: "Scheduled hours", align: "right" },
-							{ key: "leadsPerHour", label: "Leads/hour", align: "right" },
-						]}
-						rows={workerSnapshot.rows}
-						isLoading={workerSnapshot.isLoading}
-						hasPreviousPage={workerSnapshot.hasPreviousPage}
-						hasNextPage={workerSnapshot.hasNextPage}
-						onPreviousPage={workerSnapshot.previousPage}
-						onNextPage={workerSnapshot.nextPage}
-					/>
-					<OperationsReportSnapshotTable
-						title="Team performance"
-						description="Completed historical report; use the arrows to page through teams."
-						columns={[
-							{ key: "label", label: "Team" },
-							{ key: "submissions", label: "Submissions", align: "right" },
-							{ key: "uniqueProspects", label: "Unique prospects", align: "right" },
-							{ key: "scheduledHours", label: "Scheduled hours", align: "right" },
-							{ key: "leadsPerHour", label: "Leads/hour", align: "right" },
-						]}
-						rows={teamSnapshot.rows}
-						isLoading={teamSnapshot.isLoading}
-						hasPreviousPage={teamSnapshot.hasPreviousPage}
-						hasNextPage={teamSnapshot.hasNextPage}
-						onPreviousPage={teamSnapshot.previousPage}
-						onNextPage={teamSnapshot.nextPage}
-					/>
-					<OperationsReportSnapshotTable
-						title="Source performance"
-						description="Completed historical report by source."
-						columns={[
-							{ key: "source", label: "Source" },
-							{ key: "submissions", label: "Submissions", align: "right" },
-							{ key: "uniqueProspects", label: "Unique prospects", align: "right" },
-							{ key: "leadsPerHour", label: "Leads/hour", align: "right" },
-						]}
-						rows={sourceSnapshot.rows}
-						isLoading={sourceSnapshot.isLoading}
-						hasPreviousPage={sourceSnapshot.hasPreviousPage}
-						hasNextPage={sourceSnapshot.hasNextPage}
-						onPreviousPage={sourceSnapshot.previousPage}
-						onNextPage={sourceSnapshot.nextPage}
-					/>
-					<OperationsReportSnapshotTable
-						title="Top origins"
-						description="Completed historical report; use the arrows to page through origins."
-						columns={[
-							{ key: "originValue", label: "Origin" },
-							{ key: "source", label: "Source" },
-							{ key: "submissions", label: "Submissions", align: "right" },
-							{ key: "uniqueProspects", label: "Unique prospects", align: "right" },
-						]}
-						rows={originSnapshot.rows}
-						isLoading={originSnapshot.isLoading}
-						hasPreviousPage={originSnapshot.hasPreviousPage}
-						hasNextPage={originSnapshot.hasNextPage}
-						onPreviousPage={originSnapshot.previousPage}
-						onNextPage={originSnapshot.nextPage}
-					/>
-				</>
-			) : null}
-
-			{overview !== undefined && !overview.capped ? (
-				<>
-					<LeadGenSummaryCards
-						data={overview}
-						specialistCount={specialistRows?.length}
-					/>
-					<SpecialistPerformanceTable rows={specialistRows} teams={teams} />
-					<TopOriginsTable rows={origins} />
-				</>
-			) : null}
+			<LeadGenSummaryCards data={displayOverview} specialistCount={displayWorkers?.length} />
+			<SpecialistPerformanceTable rows={displayWorkers} teams={displayTeams} />
+			<TopOriginsTable rows={displayOrigins} />
 
 			<RawSubmissionsTable filters={filters} />
 		</div>

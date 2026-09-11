@@ -55,17 +55,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { OverviewHelpTooltip } from "@/app/workspace/_components/overview-help-tooltip";
-import { formatAmountMinor } from "@/lib/format-currency";
-
-export type PerProgramRow = {
-  /** `tenantPrograms` id as a string, or null for meetings with no program. */
-  programId: string | null;
-  label: string;
-  calls: number;
-  showed: number;
-  paymentSales: number;
-  paymentRevenueMinor: number;
-};
+import {
+  formatAmountMinor,
+  formatCompactAmountMinor,
+} from "@/lib/format-currency";
+import {
+  performanceMoneyForCurrency,
+  type SalesProgramRow,
+} from "./sales-calls-data";
 
 type ProgramView = "bar" | "pie" | "table";
 
@@ -76,13 +73,6 @@ const Y_AXIS_TICK_MAX_CHARS = 16;
 
 const numberFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 0,
-});
-
-const compactCurrencyFormatter = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
-  notation: "compact",
-  maximumFractionDigits: 1,
 });
 
 const VIEW_OPTIONS: Array<{
@@ -111,7 +101,12 @@ const VIEW_OPTIONS: Array<{
   },
 ];
 
-type ProgramDatum = PerProgramRow & { key: string; fill: string };
+type ProgramDatum = Omit<SalesProgramRow, "moneyByCurrency"> & {
+  key: string;
+  fill: string;
+  paymentSales: number;
+  paymentRevenueMinor: number;
+};
 
 function TooltipMetricRow({
   label,
@@ -130,13 +125,19 @@ function TooltipMetricRow({
   );
 }
 
-function ProgramTooltipBody({ datum }: { datum: ProgramDatum }) {
+function ProgramTooltipBody({
+  datum,
+  currency,
+}: {
+  datum: ProgramDatum;
+  currency: string;
+}) {
   return (
     <div className="flex min-w-[10rem] flex-col gap-1">
       <span className="font-medium text-foreground">{datum.label}</span>
       <TooltipMetricRow
         label="Revenue"
-        value={formatAmountMinor(datum.paymentRevenueMinor, "USD")}
+        value={formatAmountMinor(datum.paymentRevenueMinor, currency)}
       />
       <TooltipMetricRow label="Calls" value={numberFormatter.format(datum.calls)} />
       <TooltipMetricRow
@@ -156,14 +157,16 @@ function ProgramTooltipBody({ datum }: { datum: ProgramDatum }) {
  * per hover, so the "formatter" renders the full metric block (revenue, calls,
  * showed, payment sales) for the hovered program.
  */
-function programTooltipFormatter(
-  _value: unknown,
-  _name: unknown,
-  item: { payload?: { payload?: ProgramDatum } & ProgramDatum } | undefined,
-) {
-  const datum = item?.payload?.payload ?? item?.payload;
-  if (!datum) return null;
-  return <ProgramTooltipBody datum={datum} />;
+function programTooltipFormatter(currency: string) {
+  return function ProgramTooltipFormatter(
+    _value: unknown,
+    _name: unknown,
+    item: { payload?: { payload?: ProgramDatum } & ProgramDatum } | undefined,
+  ) {
+    const datum = item?.payload?.payload ?? item?.payload;
+    if (!datum) return null;
+    return <ProgramTooltipBody datum={datum} currency={currency} />;
+  };
 }
 
 function truncateTick(value: string) {
@@ -180,20 +183,27 @@ function truncateTick(value: string) {
 export function PerProgramStatCard({
   data,
   rangeLabel,
+  currency,
 }: {
-  data: PerProgramRow[] | undefined;
+  data: SalesProgramRow[] | undefined;
   rangeLabel: string;
+  currency: string;
 }) {
   const [view, setView] = useState<ProgramView>("bar");
 
   const chartData = useMemo<ProgramDatum[]>(
     () =>
-      (data ?? []).map((row, index) => ({
-        ...row,
-        key: row.programId ?? "no-program",
-        fill: `var(--chart-${(index % CHART_COLOR_COUNT) + 1})`,
-      })),
-    [data],
+      (data ?? []).map((row, index) => {
+        const money = performanceMoneyForCurrency(row, currency);
+        return {
+          ...row,
+          paymentSales: money.paymentSales,
+          paymentRevenueMinor: money.paymentRevenueMinor,
+          key: row.programId ?? "no-program",
+          fill: `var(--chart-${(index % CHART_COLOR_COUNT) + 1})`,
+        };
+      }),
+    [currency, data],
   );
 
   const totalRevenueMinor = useMemo(
@@ -206,14 +216,14 @@ export function PerProgramStatCard({
 
   const chartConfig = useMemo<ChartConfig>(() => {
     const config: ChartConfig = {
-      paymentRevenueMinor: { label: "Revenue" },
+      paymentRevenueMinor: { label: `Revenue (${currency})` },
       calls: { label: "Calls" },
     };
     for (const row of chartData) {
       config[row.label] = { label: row.label, color: row.fill };
     }
     return config;
-  }, [chartData]);
+  }, [chartData, currency]);
 
   const barChartHeight = Math.max(
     MIN_CHART_HEIGHT,
@@ -225,14 +235,14 @@ export function PerProgramStatCard({
       <CardHeader>
         <CardTitle>
           <OverviewHelpTooltip
-            description="Sales-call and payment performance broken down by program. Calls and showed use the meeting's booked program; payment sales and revenue use the payment's own program."
+            description={`Sales-call and payment performance broken down by program. Calls and showed use the meeting's booked program; payment sales and revenue show ${currency} payments against the payment's own program.`}
             label="Per Program Statistic"
           >
             Per Program Statistic
           </OverviewHelpTooltip>
         </CardTitle>
         <CardDescription className="text-xs">
-          Calls, show-ups, payment sales, and revenue per program —{" "}
+          Calls, show-ups, and {currency} payment performance per program —{" "}
           {rangeLabel}.
         </CardDescription>
         <CardAction>
@@ -308,7 +318,7 @@ export function PerProgramStatCard({
                 content={
                   <ChartTooltipContent
                     hideLabel
-                    formatter={programTooltipFormatter}
+                    formatter={programTooltipFormatter(currency)}
                   />
                 }
               />
@@ -324,7 +334,7 @@ export function PerProgramStatCard({
                   fontSize={12}
                   formatter={(value) =>
                     typeof value === "number"
-                      ? compactCurrencyFormatter.format(value / 100)
+                      ? formatCompactAmountMinor(value, currency)
                       : value
                   }
                 />
@@ -343,7 +353,7 @@ export function PerProgramStatCard({
                     <ChartTooltipContent
                       hideLabel
                       nameKey="label"
-                      formatter={programTooltipFormatter}
+                      formatter={programTooltipFormatter(currency)}
                     />
                   }
                 />
@@ -396,7 +406,7 @@ export function PerProgramStatCard({
                   </TableHead>
                   <TableHead className="text-right font-semibold text-foreground/80">
                     <OverviewHelpTooltip
-                      description="Commissionable final payments recorded against this program in the range."
+                      description={`Commissionable final payments in ${currency} recorded against this program in the range.`}
                       label="Payment Sales"
                       triggerClassName="w-full justify-end"
                     >
@@ -405,11 +415,11 @@ export function PerProgramStatCard({
                   </TableHead>
                   <TableHead className="w-[18%] text-right font-semibold text-foreground/80">
                     <OverviewHelpTooltip
-                      description="Sum of those payments' amounts."
+                      description={`Sum of those payments' amounts in ${currency}.`}
                       label="Revenue"
                       triggerClassName="w-full justify-end"
                     >
-                      Revenue
+                      Revenue ({currency})
                     </OverviewHelpTooltip>
                   </TableHead>
                 </TableRow>
@@ -439,7 +449,7 @@ export function PerProgramStatCard({
                       {numberFormatter.format(row.paymentSales)}
                     </TableCell>
                     <TableCell className="text-right text-sm font-semibold tabular-nums">
-                      {formatAmountMinor(row.paymentRevenueMinor, "USD")}
+                      {formatAmountMinor(row.paymentRevenueMinor, currency)}
                     </TableCell>
                   </TableRow>
                 ))}

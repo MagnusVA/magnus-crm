@@ -1,10 +1,10 @@
 import { convexTest } from "convex-test";
 import { describe, expect, it, vi } from "vitest";
-import { internal } from "../../_generated/api";
+import { api, internal } from "../../_generated/api";
 import type { Id } from "../../_generated/dataModel";
 import schema from "../../schema";
 import { convexTestModules } from "../../test.setup";
-import { normalizeReportRange } from "./contracts";
+import { normalizeReportRange, REPORT_DEFINITION_VERSION } from "./contracts";
 
 const modules = convexTestModules;
 
@@ -310,6 +310,7 @@ async function insertJobFixture(
     phase: "queued" | "ready";
     completedAt: number;
     expiresAt: number;
+    definitionVersion: string;
   }> = {},
 ) {
   return await t.run(async (ctx) => {
@@ -343,7 +344,7 @@ async function insertJobFixture(
       sourceFilter: "all",
       requestToken: "fixture-token",
       requestKey: "fixture-key",
-      definitionVersion: "fixture-v1",
+      definitionVersion: overrides.definitionVersion ?? REPORT_DEFINITION_VERSION,
       status,
       phase: overrides.phase ?? "queued",
       rowsProcessed: 0,
@@ -361,6 +362,60 @@ async function insertJobFixture(
     return { tenantId, userId, jobId };
   });
 }
+
+it("fails an outdated queued job before a worker can resume its checkpoints", async () => {
+  const t = createHarness();
+  const { jobId } = await insertJobFixture(t, {
+    definitionVersion: "operations-reports-v1",
+  });
+
+  const claim = await t.mutation(internal.operations.reports.jobs.claimJob, {
+    jobId,
+    workerId: "worker-one",
+  });
+
+  expect(claim).toEqual({
+    kind: "skip",
+    reason: "Report definition is outdated.",
+  });
+  const job = await t.run(async (ctx) => await ctx.db.get(jobId));
+  expect(job).toMatchObject({
+    status: "failed",
+    failure: {
+      category: "definition_version",
+      message: "This report was created with an older definition. Regenerate the report.",
+      retryable: false,
+    },
+  });
+});
+
+it("projects an outdated ready dashboard as failed and suppresses its summary", async () => {
+  const t = createHarness();
+  const { jobId } = await insertJobFixture(t, {
+    status: "ready",
+    phase: "ready",
+    completedAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    definitionVersion: "operations-reports-v1",
+  });
+  const authed = t.withIdentity({
+    subject: "user_fixture",
+    org_id: "org_fixture",
+  });
+
+  expect(await authed.query(api.operations.reports.jobs.getReportJob, { jobId }))
+    .toMatchObject({
+      status: "failed",
+      failure: {
+        category: "definition_version",
+        retryable: false,
+      },
+    });
+  expect(await authed.query(
+    api.operations.reports.jobs.getDashboardReportSummary,
+    { jobId },
+  )).toBeNull();
+});
 
 
 it("drains multiple expiration, cleanup, and purge batches through scheduled continuations", async () => {

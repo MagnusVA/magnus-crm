@@ -4,7 +4,7 @@ import * as XLSX from "xlsx-js-style";
 import { csvCell, renderCsv } from "./csv";
 import { renderReportPdf } from "./pdf";
 import { renderReportWorkbook } from "./xlsx";
-import { assertRenderBudget, type ReportDocument } from "./document";
+import { assertRenderBudget, formatCell, type ReportDocument } from "./document";
 import { buildLeadGenWorkbook } from "./lead-gen-workbook";
 import { exportSectionDefinition } from "./presentation";
 
@@ -35,14 +35,48 @@ describe("report formats", () => {
     const oversized = { ...report, tables: [{ ...report.tables[0], rows: Array.from({ length: 501 }, () => ({ count: 1 })) }] };
     expect(() => assertRenderBudget(oversized, "pdf")).toThrow("rendering budget");
   });
-  it("keeps Excel money and rates numeric with their intended units", () => {
-    const definition = exportSectionDefinition("sales_closer", "xlsx");
-    const book = XLSX.read(renderReportWorkbook({ ...report, tables: [{ ...definition, rows: [{ label: "Ana", paymentRevenueMinor: 125050, paymentCloseRate: 1.25 }] }] }), { type: "array", cellNF: true });
+  it("keeps mixed-currency Excel money and rates numeric with row currency labels", () => {
+    const definition = exportSectionDefinition("sales_closer_money", "xlsx");
+    const book = XLSX.read(renderReportWorkbook({ ...report, tables: [{ ...definition, rows: [
+      { label: "Ana", currency: "USD", paymentRevenueMinor: 125050, paymentCloseRate: 1.25 },
+      { label: "Jo", currency: "JPY", paymentRevenueMinor: 125050, paymentCloseRate: 0.5 },
+    ] }] }), { type: "array", cellNF: true });
     const sheet = book.Sheets[book.SheetNames[1]];
-    const cellFor = (key: string) => sheet[XLSX.utils.encode_cell({ r: 1, c: definition.columns.findIndex(column => column.key === key) })];
-    expect(cellFor("paymentRevenueMinor")).toMatchObject({ t: "n", v: 1250.5, z: '"$"#,##0.00' });
+    const cellFor = (key: string, row = 1) => sheet[XLSX.utils.encode_cell({ r: row, c: definition.columns.findIndex(column => column.key === key) })];
+    expect(cellFor("paymentRevenueMinor")).toMatchObject({ t: "n", v: 1250.5, z: '"USD" #,##0.00' });
+    expect(cellFor("paymentRevenueMinor", 2)).toMatchObject({ t: "n", v: 1250.5, z: '"JPY" #,##0' });
     expect(cellFor("paymentCloseRate")).toMatchObject({ t: "n", v: 1.25, z: "0.0%" });
-    expect(exportSectionDefinition("sales_closer", "summary_csv").columns.find(column => column.key === "paymentRevenueMinor")?.label).toContain("USD cents");
+    expect(exportSectionDefinition("sales_closer_money", "summary_csv").columns.find(column => column.key === "paymentRevenueMinor")?.label).toContain("stored hundredths");
+  });
+  it("keeps malformed currency buckets visible instead of throwing", () => {
+    expect(formatCell(12345, "money", "bad code")).toBe("123.45 BAD CODE");
+  });
+  it("labels mixed-currency CSV rows and renders them in PDF", async () => {
+    const csvDefinition = exportSectionDefinition(
+      "sales_summary_money",
+      "summary_csv",
+    );
+    const rows = [
+      { currency: "EUR", cashCollectedMinor: 45000 },
+      { currency: "USD", cashCollectedMinor: 125050 },
+    ];
+    const csv = new TextDecoder().decode(
+      renderCsv(csvDefinition.columns, rows),
+    );
+    expect(csv).toContain("Currency");
+    expect(csv).toContain("Cash Collected (stored hundredths)");
+    expect(csv).toContain("EUR");
+    expect(csv).toContain("USD");
+
+    const pdfDefinition = exportSectionDefinition(
+      "sales_summary_money",
+      "pdf",
+    );
+    const pdf = await renderReportPdf({
+      ...report,
+      tables: [{ ...pdfDefinition, rows }],
+    });
+    expect(new TextDecoder().decode(pdf.slice(0, 5))).toBe("%PDF-");
   });
   it("preserves existing Lead Gen team workbook sections", () => {
     const worker = { displayName: "Ana", email: "ana@example.test", teamName: "Team A", isActive: true, submissions: 12, uniqueProspects: 10, duplicates: 2, scheduledHours: 4, leadsPerHour: 3 };

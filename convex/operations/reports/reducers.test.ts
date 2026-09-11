@@ -180,7 +180,7 @@ describe("operations report reducers", () => {
     ).toMatchObject({ submissions: 2, uniqueProspects: 1, dayCount: 1 });
   });
 
-  it("derives null-safe rates and keeps legitimate rates above one", () => {
+  it("derives null-safe show-up rates and keeps legitimate rates above one", () => {
     const result = finalizeAggregateRecord({
       section: "sales_calls_summary",
       rowKey: "main",
@@ -188,16 +188,81 @@ describe("operations report reducers", () => {
         booked: 5,
         showed: 2,
         canceled: 4,
-        paymentSalesCount: 3,
-        cashCollectedMinor: 60_000,
       },
       range: { ...range, boundary: "utc_day" },
     });
     expect(result?.payload).toMatchObject({
       totalCalls: 5,
       showUpRate: 2,
-      closeRate: 1.5,
-      avgCashPerSaleMinor: 20_000,
+    });
+  });
+
+  it("keeps sales money in separate normalized currency buckets", () => {
+    const payment = (
+      paymentId: string,
+      currency: string,
+      amountMinor: number,
+    ): ReportSourceRow => ({
+      kind: "sales_payment",
+      paymentId,
+      recordedAt: range.startTimestamp,
+      opportunityId: "opportunity",
+      amountMinor,
+      currency,
+      paymentType: "final",
+      programId: "program",
+      programName: "Program",
+      effectiveCloserId: "closer",
+    });
+    const records = applyContributions([
+      reduceReportSourcePage({
+        sourceKey: "sales_payments",
+        range,
+        rows: [
+          payment("usd-one", "usd", 10_000),
+          payment("eur-one", "EUR", 20_000),
+        ],
+      }),
+    ]);
+
+    expect(records.get("sales_calls_summary/main")).toBeUndefined();
+    expect(records.get("sales_summary_money/USD")).toMatchObject({
+      currency: "USD",
+      paymentSalesCount: 1,
+      cashCollectedMinor: 10_000,
+    });
+    expect(records.get("sales_summary_money/EUR")).toMatchObject({
+      currency: "EUR",
+      paymentSalesCount: 1,
+      cashCollectedMinor: 20_000,
+    });
+    expect(records.get("sales_program_money/program:USD")).toMatchObject({
+      programId: "program",
+      currency: "USD",
+      paymentSales: 1,
+      paymentRevenueMinor: 10_000,
+    });
+    expect(records.get("sales_closer_money/closer:EUR")).toMatchObject({
+      closerId: "closer",
+      currency: "EUR",
+      paymentSales: 1,
+      paymentRevenueMinor: 20_000,
+    });
+
+    expect(
+      finalizeAggregateRecord({
+        section: "sales_summary_money",
+        rowKey: "USD",
+        fields: records.get("sales_summary_money/USD") ?? {},
+        relatedFields: { showed: 2 },
+        range: { ...range, boundary: "utc_day" },
+      })?.payload,
+    ).toMatchObject({
+      currency: "USD",
+      paymentSalesCount: 1,
+      cashCollectedMinor: 10_000,
+      closeRate: 0.5,
+      avgCashPerSaleMinor: 10_000,
     });
   });
 

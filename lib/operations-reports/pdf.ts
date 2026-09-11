@@ -1,6 +1,6 @@
 import { createElement as h } from "react";
 import { Document, Page, Text, View, StyleSheet, renderToBuffer } from "@react-pdf/renderer";
-import { assertRenderBudget, formatCell, type ReportDocument } from "./document";
+import { assertRenderBudget, currencyForCell, formatCell, type ReportDocument } from "./document";
 
 const styles = StyleSheet.create({
   page: { paddingTop: 42, paddingBottom: 44, paddingHorizontal: 34, fontFamily: "Helvetica", fontSize: 8, color: "#17252b" },
@@ -33,7 +33,11 @@ export async function renderReportPdf(report: ReportDocument): Promise<Uint8Arra
       h(Text, { style: styles.tableTitle }, table.title),
       h(View, { style: [styles.row, styles.header], wrap: false }, ...table.columns.map((column) => h(Text, { key: column.key, style: [styles.cell, { width: `${100 / table.columns.length}%` }] }, column.label))),
       ...rows.map((row, index) => h(View, { key: index, style: styles.row, wrap: false }, ...table.columns.map((column) => {
-        const text = formatCell(row[column.key], column.format);
+        const text = formatCell(
+          row[column.key],
+          column.format,
+          currencyForCell(row, column),
+        );
         return h(Text, { key: column.key, style: [styles.cell, { width: `${100 / table.columns.length}%` }] }, text.length > 72 ? `${text.slice(0, 69)}…` : text);
       }))),
       rows.length === 0 ? h(Text, { style: styles.meta }, "No activity in this period.") : null,

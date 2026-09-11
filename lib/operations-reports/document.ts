@@ -1,9 +1,12 @@
+import { formatAmountMinor } from "../format-currency";
+
 export type ReportCell = string | number | boolean | null;
 export type ReportRecord = Record<string, ReportCell>;
 export type ReportColumn = {
   key: string;
   label: string;
   format?: "number" | "decimal" | "percent" | "money" | "timestamp";
+  currencyKey?: string;
 };
 export type ReportTable = {
   title: string;
@@ -27,14 +30,26 @@ export const MAX_RENDER_CELLS = 40_000;
 export const MAX_PDF_ROWS = 300;
 export const MAX_XLSX_ROWS = 2_000;
 
-export function formatCell(value: ReportCell | undefined, format?: ReportColumn["format"]) {
+export function formatCell(
+  value: ReportCell | undefined,
+  format?: ReportColumn["format"],
+  currency = "USD",
+) {
   if (value === null || value === undefined) return "—";
   if (typeof value !== "number") return String(value);
   if (format === "timestamp") return new Date(value).toISOString();
   if (format === "percent") return `${(value * 100).toFixed(1)}%`;
-  if (format === "money") return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value / 100);
+  if (format === "money") return formatAmountMinor(value, currency);
   if (format === "decimal") return value.toFixed(2);
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+}
+
+export function currencyForCell(row: ReportRecord, column: ReportColumn) {
+  if (!column.currencyKey) return "USD";
+  const currency = row[column.currencyKey];
+  return typeof currency === "string" && currency.trim()
+    ? currency.trim().toUpperCase()
+    : "USD";
 }
 
 export function assertRenderBudget(document: ReportDocument, format: "pdf" | "xlsx") {

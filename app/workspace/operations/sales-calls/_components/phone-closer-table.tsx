@@ -1,7 +1,6 @@
 "use client";
 
-import type { FunctionReturnType } from "convex/server";
-import { api } from "@/convex/_generated/api";
+import { useMemo } from "react";
 import {
   Card,
   CardContent,
@@ -28,12 +27,13 @@ import {
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import { OverviewHelpTooltip } from "@/app/workspace/_components/overview-help-tooltip";
 import { formatAmountMinor } from "@/lib/format-currency";
+import {
+  performanceMoneyForCurrency,
+  type SalesCloserRow,
+  type SalesTeamTotal,
+} from "./sales-calls-data";
 
-type SalesCallsDashboard = FunctionReturnType<
-  typeof api.operations.salesCallsDashboard.getSalesCallsDashboard
->;
-type CloserRow = SalesCallsDashboard["closers"][number];
-type TeamTotal = SalesCallsDashboard["teamTotal"];
+type PerformanceRow = SalesCloserRow | SalesTeamTotal;
 
 const numberFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 0,
@@ -54,17 +54,15 @@ function formatRate(value: number | null) {
     : percentFormatter.format(value);
 }
 
-function formatMoney(value: number) {
-  return formatAmountMinor(Math.round(value), "USD");
+function formatMoney(value: number, currency: string) {
+  return formatAmountMinor(Math.round(value), currency);
 }
 
-function formatMoneyOrDash(value: number | null) {
-  return value === null ? "—" : formatMoney(value);
+function formatMoneyOrDash(value: number | null, currency: string) {
+  return value === null ? "—" : formatMoney(value, currency);
 }
 
 const tooltips = {
-  section:
-    "Phone closers ranked by payment revenue in the selected range. Active closers appear even with zero calls; removed closers keep their history.",
   closer: "CRM user assigned to take the sales call.",
   booked: "Meetings scheduled for this closer in the range, across every status.",
   canceled: "Meetings marked canceled for this closer in the range.",
@@ -81,69 +79,81 @@ const tooltips = {
     "Sums of the closer rows above, with rates recomputed from the sums. Payments not attributed to any closer are excluded here, so the Cash Collected card can exceed this revenue total.",
 } as const;
 
-const NUMERIC_COLUMNS: Array<{
+function numericColumns(currency: string): Array<{
   key: string;
   label: string;
   tooltip: string;
-  render: (totals: CloserRow | TeamTotal) => string;
+  render: (totals: PerformanceRow) => string;
   emphasized?: boolean;
-}> = [
-  {
-    key: "booked",
-    label: "Booked",
-    tooltip: tooltips.booked,
-    render: (t) => formatCount(t.booked),
-  },
-  {
-    key: "canceled",
-    label: "Canceled",
-    tooltip: tooltips.canceled,
-    render: (t) => formatCount(t.canceled),
-  },
-  {
-    key: "noShows",
-    label: "No Shows",
-    tooltip: tooltips.noShows,
-    render: (t) => formatCount(t.noShows),
-  },
-  {
-    key: "showed",
-    label: "Showed",
-    tooltip: tooltips.showed,
-    render: (t) => formatCount(t.showed),
-  },
-  {
-    key: "showUpRate",
-    label: "Show-Up Rate",
-    tooltip: tooltips.showUpRate,
-    render: (t) => formatRate(t.showUpRate),
-  },
-  {
-    key: "paymentSales",
-    label: "Payment Sales",
-    tooltip: tooltips.paymentSales,
-    render: (t) => formatCount(t.paymentSales),
-  },
-  {
-    key: "paymentRevenueMinor",
-    label: "Payment Revenue",
-    tooltip: tooltips.paymentRevenue,
-    render: (t) => formatMoney(t.paymentRevenueMinor),
-    emphasized: true,
-  },
-  {
-    key: "paymentCloseRate",
-    label: "Payment Close Rate",
-    tooltip: tooltips.paymentCloseRate,
-    render: (t) => formatRate(t.paymentCloseRate),
-  },
-  {
-    key: "avgPaymentDealMinor",
-    label: "Avg Payment Deal",
-    tooltip: tooltips.avgPaymentDeal,
-    render: (t) => formatMoneyOrDash(t.avgPaymentDealMinor),
-  },
-];
+}> {
+  return [
+    {
+      key: "booked",
+      label: "Booked",
+      tooltip: tooltips.booked,
+      render: (t) => formatCount(t.booked),
+    },
+    {
+      key: "canceled",
+      label: "Canceled",
+      tooltip: tooltips.canceled,
+      render: (t) => formatCount(t.canceled),
+    },
+    {
+      key: "noShows",
+      label: "No Shows",
+      tooltip: tooltips.noShows,
+      render: (t) => formatCount(t.noShows),
+    },
+    {
+      key: "showed",
+      label: "Showed",
+      tooltip: tooltips.showed,
+      render: (t) => formatCount(t.showed),
+    },
+    {
+      key: "showUpRate",
+      label: "Show-Up Rate",
+      tooltip: tooltips.showUpRate,
+      render: (t) => formatRate(t.showUpRate),
+    },
+    {
+      key: "paymentSales",
+      label: "Payment Sales",
+      tooltip: `${tooltips.paymentSales} Showing ${currency}.`,
+      render: (t) =>
+        formatCount(performanceMoneyForCurrency(t, currency).paymentSales),
+    },
+    {
+      key: "paymentRevenueMinor",
+      label: `Payment Revenue (${currency})`,
+      tooltip: `${tooltips.paymentRevenue} Showing ${currency}.`,
+      render: (t) =>
+        formatMoney(
+          performanceMoneyForCurrency(t, currency).paymentRevenueMinor,
+          currency,
+        ),
+      emphasized: true,
+    },
+    {
+      key: "paymentCloseRate",
+      label: "Payment Close Rate",
+      tooltip: `${tooltips.paymentCloseRate} Showing ${currency}.`,
+      render: (t) =>
+        formatRate(performanceMoneyForCurrency(t, currency).paymentCloseRate),
+    },
+    {
+      key: "avgPaymentDealMinor",
+      label: "Avg Payment Deal",
+      tooltip: `${tooltips.avgPaymentDeal} Showing ${currency}.`,
+      render: (t) =>
+        formatMoneyOrDash(
+          performanceMoneyForCurrency(t, currency).avgPaymentDealMinor,
+          currency,
+        ),
+    },
+  ];
+}
 
 /**
  * Phone-closer performance table for the Phone Sales Ops page, with an
@@ -152,16 +162,29 @@ const NUMERIC_COLUMNS: Array<{
 export function PhoneCloserTable({
   rows,
   teamTotal,
+  currency,
 }: {
-  rows: CloserRow[] | undefined;
-  teamTotal: TeamTotal | undefined;
+  rows: SalesCloserRow[] | undefined;
+  teamTotal: SalesTeamTotal | undefined;
+  currency: string;
 }) {
+  const columns = useMemo(() => numericColumns(currency), [currency]);
+  const displayedRows = useMemo(
+    () =>
+      rows && [...rows].sort(
+        (left, right) =>
+          performanceMoneyForCurrency(right, currency).paymentRevenueMinor -
+            performanceMoneyForCurrency(left, currency).paymentRevenueMinor ||
+          left.label.localeCompare(right.label),
+      ),
+    [currency, rows],
+  );
   return (
     <Card className="min-w-0" size="sm">
       <CardHeader>
         <CardTitle>
           <OverviewHelpTooltip
-            description={tooltips.section}
+            description={`Phone closers ranked by payment revenue in ${currency} for the selected range. Active closers appear even with zero calls; removed closers keep their history.`}
             label="Phone Closers"
           >
             Phone Closers
@@ -173,9 +196,9 @@ export function PhoneCloserTable({
         </CardDescription>
       </CardHeader>
       <CardContent>
-        {rows === undefined || teamTotal === undefined ? (
+        {displayedRows === undefined || teamTotal === undefined ? (
           <Skeleton className="h-[280px] w-full" />
-        ) : rows.length === 0 ? (
+        ) : displayedRows.length === 0 ? (
           <Empty>
             <EmptyHeader>
               <EmptyTitle>No Phone Closer Activity</EmptyTitle>
@@ -197,7 +220,7 @@ export function PhoneCloserTable({
                       Phone Closer
                     </OverviewHelpTooltip>
                   </TableHead>
-                  {NUMERIC_COLUMNS.map((column) => (
+                  {columns.map((column) => (
                     <TableHead
                       key={column.key}
                       className="text-right font-semibold text-foreground/80"
@@ -214,12 +237,12 @@ export function PhoneCloserTable({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {rows.map((row) => (
+                {displayedRows.map((row) => (
                   <TableRow key={row.closerId}>
                     <TableCell>
                       <MemberIdentity identity={row.avatar} />
                     </TableCell>
-                    {NUMERIC_COLUMNS.map((column) => (
+                    {columns.map((column) => (
                       <TableCell
                         key={column.key}
                         className={
@@ -244,7 +267,7 @@ export function PhoneCloserTable({
                       <span className="text-sm font-semibold">Team Total</span>
                     </OverviewHelpTooltip>
                   </TableCell>
-                  {NUMERIC_COLUMNS.map((column) => (
+                  {columns.map((column) => (
                     <TableCell
                       key={column.key}
                       className="text-right text-sm font-semibold tabular-nums"

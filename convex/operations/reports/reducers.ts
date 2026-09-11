@@ -399,34 +399,40 @@ function reduceSalesMeetingStats(rows: ReportSourceRow[]) {
 }
 
 function reduceSalesPayment(row: Extract<ReportSourceRow, { kind: "sales_payment" }>) {
+  const currency = row.currency.trim().toUpperCase() || "UNKNOWN";
+  const programMoneyKey = `${row.programId}:${currency}`;
   const contributions: ReportContribution[] = [
-    metric("sales_calls_summary", "main", "paymentSalesCount", "sum", 1),
+    metric("sales_summary_money", currency, "paymentSalesCount", "sum", 1),
     metric(
-      "sales_calls_summary",
-      "main",
+      "sales_summary_money",
+      currency,
       "cashCollectedMinor",
       "sum",
       row.amountMinor,
     ),
-    metric("sales_program", row.programId, "paymentSales", "sum", 1),
+    set("sales_summary_money", currency, "currency", currency),
+    metric("sales_program_money", programMoneyKey, "paymentSales", "sum", 1),
     metric(
-      "sales_program",
-      row.programId,
+      "sales_program_money",
+      programMoneyKey,
       "paymentRevenueMinor",
       "sum",
       row.amountMinor,
     ),
+    set("sales_program_money", programMoneyKey, "programId", row.programId),
+    set("sales_program_money", programMoneyKey, "label", row.programName),
+    set("sales_program_money", programMoneyKey, "currency", currency),
     set("sales_program", row.programId, "programId", row.programId),
     set("sales_program", row.programId, "label", row.programName),
-    metric("sales_reconciliation", row.currency, "paymentSales", "sum", 1),
+    metric("sales_reconciliation", currency, "paymentSales", "sum", 1),
     metric(
       "sales_reconciliation",
-      row.currency,
+      currency,
       "paymentRevenueMinor",
       "sum",
       row.amountMinor,
     ),
-    set("sales_reconciliation", row.currency, "currency", row.currency),
+    set("sales_reconciliation", currency, "currency", currency),
     ...fieldsToSetContributions("raw_payment", row.paymentId, {
       paymentId: row.paymentId,
       recordedAt: row.recordedAt,
@@ -441,25 +447,28 @@ function reduceSalesPayment(row: Extract<ReportSourceRow, { kind: "sales_payment
   ];
   const attributionField = row.effectiveCloserId ? "attributed" : "unattributed";
   contributions.push(
-    metric("sales_reconciliation", row.currency, `${attributionField}Sales`, "sum", 1),
+    metric("sales_reconciliation", currency, `${attributionField}Sales`, "sum", 1),
     metric(
       "sales_reconciliation",
-      row.currency,
+      currency,
       `${attributionField}RevenueMinor`,
       "sum",
       row.amountMinor,
     ),
   );
   if (row.effectiveCloserId) {
+    const closerMoneyKey = `${row.effectiveCloserId}:${currency}`;
     contributions.push(
-      metric("sales_closer", row.effectiveCloserId, "paymentSales", "sum", 1),
+      metric("sales_closer_money", closerMoneyKey, "paymentSales", "sum", 1),
       metric(
-        "sales_closer",
-        row.effectiveCloserId,
+        "sales_closer_money",
+        closerMoneyKey,
         "paymentRevenueMinor",
         "sum",
         row.amountMinor,
       ),
+      set("sales_closer_money", closerMoneyKey, "closerId", row.effectiveCloserId),
+      set("sales_closer_money", closerMoneyKey, "currency", currency),
       set("sales_closer", row.effectiveCloserId, "closerId", row.effectiveCloserId),
     );
   }
@@ -499,10 +508,19 @@ export function reduceReportSourcePage(args: {
         result.push(
           ...fieldsToSetContributions("lead_gen_worker_dimension", row.workerId, {
             workerId: row.workerId,
+            userId: row.userId,
             label: row.label,
             email: row.email,
             teamId: row.teamId,
             isActive: row.isActive,
+            identityId: row.identityId,
+            identityName: row.identityName,
+            identityEmail: row.identityEmail,
+            identityImageUrl: row.identityImageUrl,
+            identityImageSource: row.identityImageSource,
+            identitySecondaryLabel: row.identitySecondaryLabel,
+            identityIsActive: row.identityIsActive,
+            identitySource: row.identitySource,
           }),
         );
         break;
@@ -569,8 +587,19 @@ export function reduceReportSourcePage(args: {
         break;
       case "slack_user":
         result.push(
-          set("slack_user_dimension", row.slackUserId, "slackUserId", row.slackUserId),
-          set("slack_user_dimension", row.slackUserId, "label", row.label),
+          ...fieldsToSetContributions("slack_user_dimension", row.slackUserId, {
+            slackUserId: row.slackUserId,
+            label: row.label,
+            slackUsername: row.slackUsername,
+            identityId: row.identityId,
+            identityName: row.identityName,
+            identityEmail: row.identityEmail,
+            identityImageUrl: row.identityImageUrl,
+            identityImageSource: row.identityImageSource,
+            identitySecondaryLabel: row.identitySecondaryLabel,
+            identityIsActive: row.identityIsActive,
+            identitySource: row.identitySource,
+          }),
         );
         break;
       case "qualifier_schedule": {
@@ -599,6 +628,14 @@ export function reduceReportSourcePage(args: {
             teamId: row.teamId,
             isActive: row.isActive,
             hourlyRateMinor: row.hourlyRateMinor,
+            identityId: row.identityId,
+            identityName: row.identityName,
+            identityEmail: row.identityEmail,
+            identityImageUrl: row.identityImageUrl,
+            identityImageSource: row.identityImageSource,
+            identitySecondaryLabel: row.identitySecondaryLabel,
+            identityIsActive: row.identityIsActive,
+            identitySource: row.identitySource,
           }),
         );
         break;
@@ -638,20 +675,26 @@ export function reduceReportSourcePage(args: {
         result.push(...reduceSalesPayment(row));
         break;
       case "user":
-        if (row.role === "closer") {
+        result.push(
+          ...fieldsToSetContributions("user_dimension", row.userId, {
+            closerId: row.userId,
+            label: row.label,
+            isActive: row.isActive,
+            identityId: row.identityId,
+            identityName: row.identityName,
+            identityEmail: row.identityEmail,
+            identityImageUrl: row.identityImageUrl,
+            identityImageSource: row.identityImageSource,
+            identitySecondaryLabel: row.identitySecondaryLabel,
+            identityIsActive: row.identityIsActive,
+            identitySource: row.identitySource,
+          }),
+        );
+        if (row.role === "closer" && row.isActive) {
           result.push(
-            ...fieldsToSetContributions("user_dimension", row.userId, {
-              closerId: row.userId,
-              label: row.label,
-              isActive: row.isActive,
-            }),
+            set("sales_closer", row.userId, "closerId", row.userId),
+            set("sales_closer", row.userId, "isActive", true),
           );
-          if (row.isActive) {
-            result.push(
-              set("sales_closer", row.userId, "closerId", row.userId),
-              set("sales_closer", row.userId, "isActive", true),
-            );
-          }
         }
         break;
       case "program":
@@ -746,42 +789,54 @@ export function finalizeAggregateRecord(args: {
       const booked = numberField(payload, "booked");
       const canceled = numberField(payload, "canceled");
       const showed = numberField(payload, "showed");
-      const paymentSales = numberField(payload, "paymentSalesCount");
-      const revenue = numberField(payload, "cashCollectedMinor");
       payload.totalCalls = booked;
       payload.showUpRate = nullableRate(showed, booked - canceled);
-      payload.closeRate = nullableRate(paymentSales, showed);
-      payload.avgCashPerSaleMinor = nullableRate(revenue, paymentSales);
       payload.start = args.range.startTimestamp;
       payload.end = args.range.endTimestampExclusive;
+      break;
+    }
+    case "sales_summary_money": {
+      const paymentSales = numberField(payload, "paymentSalesCount");
+      const revenue = numberField(payload, "cashCollectedMinor");
+      const showed = numberField(args.relatedFields ?? {}, "showed");
+      payload.paymentSalesCount = paymentSales;
+      payload.cashCollectedMinor = revenue;
+      payload.closeRate = nullableRate(paymentSales, showed);
+      payload.avgCashPerSaleMinor = nullableRate(revenue, paymentSales);
       break;
     }
     case "sales_closer": {
       const booked = numberField(payload, "booked");
       const canceled = numberField(payload, "canceled");
       const showed = numberField(payload, "showed");
-      const paymentSales = numberField(payload, "paymentSales");
-      const revenue = numberField(payload, "paymentRevenueMinor");
       payload.booked = booked;
       payload.canceled = canceled;
       payload.noShows = numberField(payload, "noShows");
       payload.showed = showed;
-      payload.paymentSales = paymentSales;
-      payload.paymentRevenueMinor = revenue;
       payload.showUpRate = nullableRate(showed, booked - canceled);
-      payload.paymentCloseRate = nullableRate(paymentSales, showed);
-      payload.avgPaymentDealMinor = nullableRate(revenue, paymentSales);
       break;
     }
     case "sales_program": {
       const booked = numberField(payload, "booked");
+      const canceled = numberField(payload, "canceled");
+      const showed = numberField(payload, "showed");
       payload.booked = booked;
       payload.calls = booked;
-      payload.showed = numberField(payload, "showed");
-      payload.canceled = numberField(payload, "canceled");
+      payload.showed = showed;
+      payload.canceled = canceled;
       payload.noShows = numberField(payload, "noShows");
-      payload.paymentSales = numberField(payload, "paymentSales");
-      payload.paymentRevenueMinor = numberField(payload, "paymentRevenueMinor");
+      payload.showUpRate = nullableRate(showed, booked - canceled);
+      break;
+    }
+    case "sales_closer_money":
+    case "sales_program_money": {
+      const paymentSales = numberField(payload, "paymentSales");
+      const revenue = numberField(payload, "paymentRevenueMinor");
+      const showed = numberField(args.relatedFields ?? {}, "showed");
+      payload.paymentSales = paymentSales;
+      payload.paymentRevenueMinor = revenue;
+      payload.paymentCloseRate = nullableRate(paymentSales, showed);
+      payload.avgPaymentDealMinor = nullableRate(revenue, paymentSales);
       break;
     }
     case "sales_reconciliation":

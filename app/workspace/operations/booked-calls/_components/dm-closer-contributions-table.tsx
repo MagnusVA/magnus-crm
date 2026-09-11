@@ -1,7 +1,6 @@
 "use client";
 
-import type { FunctionReturnType } from "convex/server";
-import { api } from "@/convex/_generated/api";
+import type { DmCloserViewModel } from "@/lib/operations-reports/booked-dashboard";
 import {
   Card,
   CardContent,
@@ -27,10 +26,6 @@ import {
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import { OverviewHelpTooltip } from "@/app/workspace/_components/overview-help-tooltip";
 import { formatAmountMinor } from "@/lib/format-currency";
-
-type DmCloserRow = FunctionReturnType<
-  typeof api.operations.bookedCallsDashboard.getBookedCallsDashboard
->["dmClosers"][number];
 
 const numberFormatter = new Intl.NumberFormat(undefined, {
   maximumFractionDigits: 0,
@@ -63,7 +58,7 @@ function formatHourlyRate(value: number | null) {
 export function DmCloserContributionsTable({
   rows,
 }: {
-  rows: DmCloserRow[] | undefined;
+  rows: DmCloserViewModel[] | undefined;
 }) {
   return (
     <Card className="min-w-0" size="sm">
