@@ -1,3 +1,4 @@
+import { ReportSizeLimit } from "./limits";
 import { formatAmountMinor } from "../format-currency";
 
 export type ReportCell = string | number | boolean | null;
@@ -19,16 +20,16 @@ export type ReportDocument = {
   generatedAt: number;
   boundary: string;
   filters: string;
-  part: number;
+  part?: number;
   summary: { label: string; value: string }[];
   tables: ReportTable[];
 };
 
 export const MAX_ARTIFACT_BYTES = 16 * 1024 * 1024;
 export const MAX_RENDER_INPUT_BYTES = 4 * 1024 * 1024;
-export const MAX_RENDER_CELLS = 40_000;
-export const MAX_PDF_ROWS = 300;
-export const MAX_XLSX_ROWS = 2_000;
+export const MAX_RENDER_CELLS = 200_000;
+export const MAX_PDF_ROWS = 5_000;
+export const MAX_XLSX_ROWS = 20_000;
 
 export function formatCell(
   value: ReportCell | undefined,
@@ -61,6 +62,6 @@ export function assertRenderBudget(document: ReportDocument, format: "pdf" | "xl
   }
   if (cells > MAX_RENDER_CELLS || rows > (format === "pdf" ? MAX_PDF_ROWS : MAX_XLSX_ROWS) ||
     new TextEncoder().encode(JSON.stringify(document)).byteLength > MAX_RENDER_INPUT_BYTES) {
-    throw new Error("Report part exceeds its rendering budget. Split it into smaller parts.");
+    throw new ReportSizeLimit();
   }
 }

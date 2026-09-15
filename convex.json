@@ -29,7 +29,7 @@
     }
   },
   "node": {
-    "externalPackages": ["@react-pdf/renderer", "react"],
+    "externalPackages": ["pdfkit"],
     "nodeVersion": "24"
   }
 }

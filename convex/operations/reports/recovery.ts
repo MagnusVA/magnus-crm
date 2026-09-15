@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { internal } from "../../_generated/api";
+import { releaseAdmission, scheduleWorker } from "./admission";
 import type { Doc } from "../../_generated/dataModel";
 import {
   internalMutation,
@@ -24,6 +24,7 @@ export const recoverJob = internalMutation({
   handler: async (ctx, args) => {
     const job = await ctx.db.get(args.jobId);
     const now = Date.now();
+    if (job?.executionVersion === 2) return { recovered: false, reason: "Recovery is owned by maintenance." };
     if (
       !job ||
       (job.status !== "running" && job.status !== "rendering") ||
@@ -65,6 +66,10 @@ export const recoverStaleReports = internalMutation({
 
     let recovered = 0;
     for (const job of jobs) {
+      if (job.executionVersion === 2 && job.scheduledFunctionId) {
+        const invocation = await ctx.db.system.get(job.scheduledFunctionId);
+        if (invocation?.state.kind === "pending" || invocation?.state.kind === "inProgress") continue;
+      }
       const result =
         job.status === "queued"
           ? await recoverQueuedJob(ctx, job, now)
@@ -123,11 +128,7 @@ async function requeue(
 ) {
   const retryCount = job.retryCount + 1;
   const delayMs = Math.min(60_000, 1_000 * 2 ** (retryCount - 1));
-  const scheduledFunctionId = await ctx.scheduler.runAfter(
-    delayMs,
-    internal.operations.reports.worker.run,
-    { jobId: job._id },
-  );
+  const scheduledFunctionId = await scheduleWorker(ctx, job._id, delayMs);
   await ctx.db.patch(job._id, {
     status: "queued",
     queuedAt: now,
@@ -151,6 +152,7 @@ async function failRecovery(
   now: number,
   message: string,
 ) {
+  await releaseAdmission(ctx, job);
   await ctx.db.patch(job._id, {
     status: "failed",
     phase: "cleanup",
@@ -172,6 +174,7 @@ async function cancelRecovery(
   job: Doc<"operationsReportJobs">,
   now: number,
 ) {
+  await releaseAdmission(ctx, job);
   await ctx.db.patch(job._id, {
     status: "canceled",
     phase: "cleanup",

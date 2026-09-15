@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import type {
   NormalizedReportRange,
   ReportContribution,
-  ScalarRecord,
 } from "./contracts";
 import type { ReportSourceRow } from "./model";
 import { finalizeAggregateRecord, reduceReportSourcePage } from "./reducers";
+import { ReportAggregate } from "./aggregate";
 
 const range: NormalizedReportRange = {
   input: {
@@ -26,34 +26,11 @@ const range: NormalizedReportRange = {
 };
 
 function applyContributions(pages: ReportContribution[][]) {
-  const records = new Map<string, ScalarRecord>();
-  const dedupe = new Set<string>();
-  for (const contributions of pages) {
-    for (const contribution of contributions) {
-      const key = `${contribution.section}/${contribution.rowKey}`;
-      const fields = records.get(key) ?? {};
-      if (contribution.operation === "set") {
-        fields[contribution.field] = contribution.value;
-      } else if (contribution.operation === "max") {
-        const previous = fields[contribution.field];
-        fields[contribution.field] =
-          typeof previous === "number"
-            ? Math.max(previous, contribution.value)
-            : contribution.value;
-      } else {
-        if (contribution.operation === "uniqueSum") {
-          const uniqueKey = `${key}/${contribution.field}/${contribution.dedupeKey}`;
-          if (dedupe.has(uniqueKey)) continue;
-          dedupe.add(uniqueKey);
-        }
-        const previous = fields[contribution.field];
-        fields[contribution.field] =
-          (typeof previous === "number" ? previous : 0) + contribution.value;
-      }
-      records.set(key, fields);
-    }
-  }
-  return records;
+  const aggregate = new ReportAggregate();
+  for (const contributions of pages) aggregate.apply(contributions);
+  return new Map([...aggregate.sections].flatMap(([section, rows]) =>
+    [...rows].map(([key, fields]) => [`${section}/${key}`, fields] as const),
+  ));
 }
 
 describe("operations report reducers", () => {

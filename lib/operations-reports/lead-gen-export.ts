@@ -12,11 +12,11 @@ const source = (row: ScalarRecord): "instagram" | "meta_business" => row.source 
 const origin = (row: ScalarRecord) => ({ originKind: row.originKind === "reel" ? "reel" as const : "post" as const, originValue: label(row, "originValue"), source: source(row), uniqueProspects: number(row, "uniqueProspects"), submissions: number(row, "submissions"), dayCount: number(row, "dayCount") });
 
 export function renderLeadGenExport(args: {
-  generatedAt: number; startDate: string; endDate: string; sourceFilter: "all" | "instagram" | "meta_business"; part: number;
+  generatedAt: number; startDate: string; endDate: string; sourceFilter: "all" | "instagram" | "meta_business"; part?: number;
   rows: { section: string; payload: ScalarRecord }[]; teams: TeamContext[];
 }): Uint8Array {
   const data: LeadGenExcelReportData = {
-    generatedAt: args.generatedAt, reportTitle: `Lead Gen Performance · Part ${args.part} · Detail continues in numbered parts when needed`,
+    generatedAt: args.generatedAt, reportTitle: `Lead Gen Performance${args.part ? ` · Part ${args.part}` : ""}`,
     filters: { startDayKey: args.startDate, endDayKey: args.endDate, source: args.sourceFilter === "all" ? null : args.sourceFilter, teamName: null, workerName: null },
     sheets: args.teams.map(team => {
       const rows = args.rows.filter(row => String(row.payload.teamId ?? "unassigned") === team.teamKey);

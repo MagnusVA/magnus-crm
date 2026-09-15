@@ -3,7 +3,6 @@ import {
   paginationResultValidator,
 } from "convex/server";
 import { v } from "convex/values";
-import { internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import {
   internalMutation,
@@ -13,6 +12,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "../../_generated/server";
+import { releaseAdmission, scheduleWorker } from "./admission";
 import { requireTenantUser } from "../../requireTenantUser";
 import {
   REPORT_DEFINITION_VERSION,
@@ -107,6 +107,7 @@ const reportJobInternalValidator = v.object({
   leaseOwner: v.optional(v.string()),
   leaseExpiresAt: v.optional(v.number()),
   retryCount: v.number(),
+  executionVersion: v.optional(v.literal(2)),
   createdAt: v.number(),
   startedAt: v.optional(v.number()),
 });
@@ -359,6 +360,7 @@ export const cancelReport = mutation({
       await ctx.scheduler.cancel(job.scheduledFunctionId);
     }
     const now = Date.now();
+    await releaseAdmission(ctx, job);
     await ctx.db.patch(job._id, {
       status: "canceled",
       phase: "cleanup",
@@ -520,21 +522,6 @@ export const claimJob = internalMutation({
       )
       .first();
     if (interruptedArtifact) {
-      const reconcileDelayMs = Math.max(
-        0,
-        interruptedArtifact.reservationExpiresAt - now,
-      );
-      await ctx.scheduler.runAfter(
-        reconcileDelayMs,
-        internal.operations.reports.cleanup.reconcileOrphanReservations,
-        {},
-      );
-      const scheduledFunctionId = await scheduleWorker(
-        ctx,
-        job._id,
-        reconcileDelayMs + 2_000,
-      );
-      await ctx.db.patch(job._id, { scheduledFunctionId, queuedAt: now });
       return {
         kind: "skip" as const,
         reason: "An interrupted artifact upload is being reconciled.",
@@ -546,11 +533,6 @@ export const claimJob = internalMutation({
     }
     const leaseGeneration = job.leaseGeneration + 1;
     const leaseExpiresAt = now + REPORT_LEASE_MS;
-    const watchdogId = await ctx.scheduler.runAt(
-      leaseExpiresAt,
-      internal.operations.reports.recovery.recoverJob,
-      { jobId: job._id, leaseGeneration },
-    );
     const status =
       job.phase === "rendering"
         ? ("rendering" as const)
@@ -562,7 +544,6 @@ export const claimJob = internalMutation({
       leaseGeneration,
       leaseOwner: workerId,
       leaseExpiresAt,
-      scheduledFunctionId: watchdogId,
     });
     console.log("[Operations:Reports] claimed", {
       jobId: job._id,
@@ -595,15 +576,10 @@ export const heartbeatLease = internalMutation({
       await markJobCanceledForRevocation(ctx, job, now);
       return { renewed: false };
     }
+    if (job.leaseExpiresAt! - now > 60_000) return { renewed: true, leaseExpiresAt: job.leaseExpiresAt };
     const leaseExpiresAt = now + REPORT_LEASE_MS;
-    const watchdogId = await ctx.scheduler.runAt(
-      leaseExpiresAt,
-      internal.operations.reports.recovery.recoverJob,
-      { jobId: job._id, leaseGeneration: job.leaseGeneration },
-    );
     await ctx.db.patch(job._id, {
       leaseExpiresAt,
-      scheduledFunctionId: watchdogId,
     });
     return { renewed: true, leaseExpiresAt };
   },
@@ -925,8 +901,9 @@ export const attachArtifact = internalMutation({
       storageId: args.storageId,
       byteSize: metadata.size,
       attachedAt: now,
-      // Keep ownership discoverable until every possible upload has settled.
-      reconciliationComplete: false,
+      // New workers upload once per reservation; only legacy replays need
+      // a post-attachment scan for possible duplicate uploads.
+      reconciliationComplete: job.executionVersion === 2,
       reconciliationCursor: undefined,
       updatedAt: now,
     });
@@ -975,6 +952,7 @@ export const completeJob = internalMutation({
     const sequence = job.checkpointSequence + 1;
     const expiresAt = now + REPORT_READY_LIFETIME_MS;
     await recordLifecycleCommit(ctx, job, args.commitKey, sequence, now);
+    await releaseAdmission(ctx, job);
     await ctx.db.patch(job._id, {
       checkpointSequence: sequence,
       status: "ready",
@@ -1075,26 +1053,16 @@ async function requestReport(
     return { jobId: tokenMatch._id, requestKey: tokenMatch.requestKey };
   }
 
-  const equivalent = await findActiveEquivalent(
-    ctx,
-    auth.tenantId,
-    auth.userId,
-    requestKey,
-  );
-  if (equivalent) {
-    return { jobId: equivalent._id, requestKey: equivalent.requestKey };
+  let admission = await ctx.db.query("operationsReportAdmission").withIndex("by_tenantId", q => q.eq("tenantId", auth.tenantId)).unique();
+  if (!admission) {
+    const legacy = await listActiveJobsForTenant(ctx, auth.tenantId, 3);
+    const id = await ctx.db.insert("operationsReportAdmission", { tenantId: auth.tenantId, slots: legacy.map(job => ({ jobId: job._id, userId: job.requestedByUserId, purpose: job.purpose, requestKey: job.requestKey })) });
+    admission = (await ctx.db.get(id))!;
   }
-
-  const [userActive, tenantActive] = await Promise.all([
-    listActiveJobsForUser(ctx, auth.tenantId, auth.userId, args.purpose, 2),
-    listActiveJobsForTenant(ctx, auth.tenantId, 3),
-  ]);
-  if (userActive.length >= 1) {
-    throw new Error(`You already have an active ${args.purpose} report.`);
-  }
-  if (tenantActive.length >= 2) {
-    throw new Error("This workspace already has two active reports.");
-  }
+  const equivalent = admission.slots.find(slot => slot.userId === auth.userId && slot.requestKey === requestKey);
+  if (equivalent) return { jobId: equivalent.jobId, requestKey };
+  if (admission.slots.some(slot => slot.userId === auth.userId && slot.purpose === args.purpose)) throw new Error(`You already have an active ${args.purpose} report.`);
+  if (admission.slots.length >= 2) throw new Error("This workspace already has two active reports.");
 
   const jobId = await ctx.db.insert("operationsReportJobs", {
     tenantId: auth.tenantId,
@@ -1107,6 +1075,7 @@ async function requestReport(
     requestToken,
     requestKey,
     definitionVersion: REPORT_DEFINITION_VERSION,
+    executionVersion: 2,
     status: "queued",
     phase: "queued",
     rowsProcessed: 0,
@@ -1119,6 +1088,7 @@ async function requestReport(
     queuedAt: now,
     createdAt: now,
   });
+  await ctx.db.patch(admission._id, { slots: [...admission.slots, { jobId, userId: auth.userId, purpose: args.purpose, requestKey }] });
   const scheduledFunctionId = await scheduleWorker(ctx, jobId);
   await ctx.db.patch(jobId, { scheduledFunctionId });
   console.log("[Operations:Reports] queued", {
@@ -1156,53 +1126,6 @@ function assertReadyDashboard(job: Doc<"operationsReportJobs">) {
   }
 }
 
-async function findActiveEquivalent(
-  ctx: MutationCtx,
-  tenantId: Id<"tenants">,
-  userId: Id<"users">,
-  requestKey: string,
-) {
-  for (const status of activeReportStatuses) {
-    const job = await ctx.db
-      .query("operationsReportJobs")
-      .withIndex("by_tenantId_and_requestedByUserId_and_requestKey_and_status", (q) =>
-        q
-          .eq("tenantId", tenantId)
-          .eq("requestedByUserId", userId)
-          .eq("requestKey", requestKey)
-          .eq("status", status),
-      )
-      .first();
-    if (job) return job;
-  }
-  return null;
-}
-
-async function listActiveJobsForUser(
-  ctx: MutationCtx,
-  tenantId: Id<"tenants">,
-  userId: Id<"users">,
-  purpose: ReportPurpose,
-  limit: number,
-) {
-  const jobs: Doc<"operationsReportJobs">[] = [];
-  for (const status of activeReportStatuses) {
-    const matches = await ctx.db
-      .query("operationsReportJobs")
-      .withIndex("by_tenantId_and_requestedByUserId_and_purpose_and_status", (q) =>
-        q
-          .eq("tenantId", tenantId)
-          .eq("requestedByUserId", userId)
-          .eq("purpose", purpose)
-          .eq("status", status),
-      )
-      .take(limit - jobs.length);
-    jobs.push(...matches);
-    if (jobs.length >= limit) break;
-  }
-  return jobs;
-}
-
 async function listActiveJobsForTenant(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
@@ -1220,18 +1143,6 @@ async function listActiveJobsForTenant(
     if (jobs.length >= limit) break;
   }
   return jobs;
-}
-
-async function scheduleWorker(
-  ctx: MutationCtx,
-  jobId: Id<"operationsReportJobs">,
-  delayMs = 0,
-) {
-  return await ctx.scheduler.runAfter(
-    delayMs,
-    internal.operations.reports.worker.run,
-    { jobId },
-  );
 }
 
 function fencedTransitionArgs() {
@@ -1318,6 +1229,7 @@ async function markJobFailed(
   now: number,
   failure: { category: string; message: string; retryable: boolean },
 ) {
+  await releaseAdmission(ctx, job);
   await ctx.db.patch(job._id, {
     status: "failed",
     phase: "cleanup",
@@ -1344,6 +1256,7 @@ async function markJobCanceledForRevocation(
   job: Doc<"operationsReportJobs">,
   now: number,
 ) {
+  await releaseAdmission(ctx, job);
   await ctx.db.patch(job._id, {
     status: "canceled",
     phase: "cleanup",
@@ -1422,6 +1335,7 @@ function toInternalJob(job: Doc<"operationsReportJobs">) {
     leaseOwner: job.leaseOwner,
     leaseExpiresAt: job.leaseExpiresAt,
     retryCount: job.retryCount,
+    executionVersion: job.executionVersion,
     createdAt: job.createdAt,
     startedAt: job.startedAt,
   };
@@ -1502,3 +1416,18 @@ function assertExpectedSha256(value: string) {
     throw new Error("Artifact SHA-256 must use the storage metadata base64 format.");
   }
 }
+
+export const updateExportProgress = internalMutation({
+  args: { jobId: v.id("operationsReportJobs"), workerId: v.string(), leaseGeneration: v.number(), rowsProcessed: v.number(), pagesProcessed: v.number() },
+  returns: v.object({ updated: v.boolean() }),
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get(args.jobId);
+    if (!job || !hasActiveLease(job, { ...args, now: Date.now() })) return { updated: false };
+    if (!(await ownerCanRunReport(ctx, job))) {
+      await markJobCanceledForRevocation(ctx, job, Date.now());
+      return { updated: false };
+    }
+    await ctx.db.patch(job._id, { rowsProcessed: args.rowsProcessed, pagesProcessed: args.pagesProcessed });
+    return { updated: true };
+  },
+});
