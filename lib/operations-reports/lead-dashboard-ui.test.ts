@@ -20,6 +20,8 @@ vi.mock("@/app/workspace/operations/_components/use-operations-report-job", () =
 
 import { LeadGenAdminPageClient } from "@/app/workspace/operations/lead-gen/_components/lead-gen-admin-page-client";
 
+import { TopOriginsTable } from "@/app/workspace/operations/lead-gen/_components/top-origins-table";
+
 describe("Lead Gen historical UI", () => {
   it("keeps original KPI cards, team performance, and Top Posts & Reels", () => {
     const html = renderToStaticMarkup(createElement(TooltipProvider, null, createElement(LeadGenAdminPageClient)));
@@ -29,5 +31,27 @@ describe("Lead Gen historical UI", () => {
     expect(html).toContain("Specialist Performance");
     expect(html).toContain("Top Posts &amp; Reels");
     expect(html).not.toContain("Historical lead-gen summary");
+  });
+});
+
+describe("Top Posts & Reels by team", () => {
+  it("renders separate named team sections for the same post", () => {
+    const origin = { originKey: "shared", source: "instagram", originKind: "post", originValue: "https://instagram.com/p/shared", submissions: 3, uniqueProspects: 2 };
+    const html = renderToStaticMarkup(createElement(TooltipProvider, null, createElement(TopOriginsTable, {
+      groups: [
+        { teamId: "a", teamName: "Team A", totalSubmissions: 3, origins: [origin] },
+        { teamId: "b", teamName: "Team B", totalSubmissions: 1, origins: [{ ...origin, submissions: 1, uniqueProspects: 1 }] },
+      ],
+    })));
+    expect(html).toContain('aria-label="Team A top posts and reels"');
+    expect(html).toContain('aria-label="Team B top posts and reels"');
+    expect(html.match(/href="https:\/\/instagram.com\/p\/shared"/g)).toHaveLength(2);
+    expect(html).toContain("Top 10 per team");
+  });
+
+  it("shows loading and empty states", () => {
+    const render = (groups: [] | undefined) => renderToStaticMarkup(createElement(TooltipProvider, null, createElement(TopOriginsTable, { groups })));
+    expect(render(undefined)).toContain('aria-label="Loading top posts and reels by team"');
+    expect(render([])).toContain("No Rankable Origins");
   });
 });

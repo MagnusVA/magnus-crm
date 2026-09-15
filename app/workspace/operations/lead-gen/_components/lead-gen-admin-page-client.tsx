@@ -15,7 +15,13 @@ import {
 import { useDashboardRange } from "@/app/workspace/_components/use-dashboard-range";
 import { OperationsReportExportMenu } from "../../_components/operations-report-export-menu";
 import { OperationsReportJobStatus } from "../../_components/report-job-status";
-import { leadDashboardOverview, leadDashboardWorkers, leadDashboardTeams, leadDashboardOrigins } from "@/lib/operations-reports/lead-dashboard";
+import {
+	leadDashboardOverview,
+	leadDashboardWorkers,
+	leadDashboardTeams,
+	leadDashboardOriginsByTeam,
+	sortLeadDashboardOriginTeams,
+} from "@/lib/operations-reports/lead-dashboard";
 import {
 	useOperationsDashboardReport,
 	useAllOperationsReportRows,
@@ -65,8 +71,8 @@ export function LeadGenAdminPageClient() {
 		needsSnapshot || overview === undefined ? "skip" : filters,
 	);
 	const origins = useQuery(
-		api.leadGen.reporting.listTopOrigins,
-		needsSnapshot || overview === undefined ? "skip" : { ...filters, limit: 10 },
+		api.leadGen.reporting.listTopOriginsByTeam,
+		needsSnapshot || overview === undefined ? "skip" : { ...filters, limitPerTeam: 10, sortBy: "submissions" },
 	);
 	const snapshot = useOperationsDashboardReport({
 		reportKind: "lead-gen",
@@ -81,7 +87,7 @@ export function LeadGenAdminPageClient() {
 	});
 	const originSnapshot = useAllOperationsReportRows({
 		jobId: snapshot.jobId,
-		section: "lead_gen_origin",
+		section: "lead_gen_team_origin",
 		enabled: snapshot.summary !== undefined,
 	});
 
@@ -95,8 +101,8 @@ export function LeadGenAdminPageClient() {
 		? workerSnapshot.rows ? leadDashboardTeams(workerSnapshot.rows) : undefined
 		: teams, [needsSnapshot, workerSnapshot.rows, teams]);
 	const displayOrigins = useMemo(() => needsSnapshot
-		? originSnapshot.rows ? leadDashboardOrigins(originSnapshot.rows) : undefined
-		: origins, [needsSnapshot, originSnapshot.rows, origins]);
+		? originSnapshot.rows ? leadDashboardOriginsByTeam(originSnapshot.rows) : undefined
+		: origins ? sortLeadDashboardOriginTeams(origins) : undefined, [needsSnapshot, originSnapshot.rows, origins]);
 	const resultError = workerSnapshot.error ?? originSnapshot.error;
 
 	return (
@@ -156,7 +162,7 @@ export function LeadGenAdminPageClient() {
 
 			<LeadGenSummaryCards data={displayOverview} specialistCount={displayWorkers?.length} />
 			<SpecialistPerformanceTable rows={displayWorkers} teams={displayTeams} />
-			<TopOriginsTable rows={displayOrigins} />
+			<TopOriginsTable groups={displayOrigins} />
 
 			<RawSubmissionsTable filters={filters} />
 		</div>

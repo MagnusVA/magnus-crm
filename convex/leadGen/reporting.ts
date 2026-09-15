@@ -242,11 +242,7 @@ async function readDailyStatsRowsBounded(
   };
 }
 
-/**
- * Cheap preflight for the legacy top-origins query. The overview exposes one
- * fallback bit for the whole live dashboard, so the client can avoid starting
- * a secondary query that would exceed its bounded scan.
- */
+/** Check the same team-origin scan used by the live dashboard before it starts. */
 async function isTopOriginsReadCapped(
   ctx: QueryCtx,
   args: {
@@ -258,63 +254,29 @@ async function isTopOriginsReadCapped(
     source?: LeadGenSource;
   },
 ) {
-  const limit = ORIGIN_STATS_READ_LIMIT;
-  if (args.teamId || args.workerId) {
+  if (args.workerId) {
     const startTimestamp = businessDateToUtcStart(args.startDayKey);
     const endTimestamp =
       businessDateToUtcStart(addBusinessDays(args.endDayKey, 1)) - 1;
-    const result = args.workerId
-      ? await readLiveQueryRows(
-          ctx.db
-          .query("leadGenSubmissions")
-          .withIndex("by_tenantId_and_workerId_and_submittedAt", (q) =>
-            q
-              .eq("tenantId", args.tenantId)
-              .eq("workerId", args.workerId!)
-              .gte("submittedAt", startTimestamp)
-              .lte("submittedAt", endTimestamp),
-          ),
-          limit,
-        )
-      : await readLiveQueryRows(
-          ctx.db
-          .query("leadGenSubmissions")
-          .withIndex("by_tenantId_and_teamId_and_submittedAt", (q) =>
-            q
-              .eq("tenantId", args.tenantId)
-              .eq("teamId", args.teamId!)
-              .gte("submittedAt", startTimestamp)
-              .lte("submittedAt", endTimestamp),
-          ),
-          limit,
-        );
+    const result = await readLiveQueryRows(
+      ctx.db
+        .query("leadGenSubmissions")
+        .withIndex("by_tenantId_and_workerId_and_submittedAt", (q) =>
+          q
+            .eq("tenantId", args.tenantId)
+            .eq("workerId", args.workerId!)
+            .gte("submittedAt", startTimestamp)
+            .lte("submittedAt", endTimestamp),
+        ),
+      ORIGIN_STATS_READ_LIMIT,
+    );
     return result.capped;
   }
 
-  const result = args.source
-    ? await readLiveQueryRows(
-        ctx.db
-        .query("leadGenOriginStats")
-        .withIndex("by_tenantId_and_source_and_dayKey", (q) =>
-          q
-            .eq("tenantId", args.tenantId)
-            .eq("source", args.source!)
-            .gte("dayKey", args.startDayKey)
-            .lte("dayKey", args.endDayKey),
-        ),
-        limit,
-      )
-    : await readLiveQueryRows(
-        ctx.db
-        .query("leadGenOriginStats")
-        .withIndex("by_tenantId_and_dayKey", (q) =>
-          q
-            .eq("tenantId", args.tenantId)
-            .gte("dayKey", args.startDayKey)
-            .lte("dayKey", args.endDayKey),
-        ),
-        limit,
-      );
+  const result = await readTeamOriginStatRowsBounded(ctx, {
+    ...args,
+    limit: TEAM_ORIGIN_STATS_READ_LIMIT,
+  });
   return result.capped;
 }
 
@@ -434,7 +396,11 @@ function compareTopOriginRows(
     submissions: number;
     originValue: string;
   },
+  sortBy: "uniqueProspects" | "submissions" = "uniqueProspects",
 ) {
+  if (sortBy === "submissions" && a.submissions !== b.submissions) {
+    return b.submissions - a.submissions;
+  }
   if (a.uniqueProspects !== b.uniqueProspects) {
     return b.uniqueProspects - a.uniqueProspects;
   }
@@ -444,7 +410,7 @@ function compareTopOriginRows(
   return a.originValue.localeCompare(b.originValue);
 }
 
-async function readTeamOriginStatRows(
+async function readTeamOriginStatRowsBounded(
   ctx: QueryCtx,
   args: {
     tenantId: Id<"tenants">;
@@ -455,62 +421,63 @@ async function readTeamOriginStatRows(
     limit: number;
   },
 ) {
-  const readLimit = args.limit + 1;
-  let rows: TeamOriginStatsRow[];
+  let result: { rows: TeamOriginStatsRow[]; capped: boolean };
 
   if (args.teamId && args.source) {
-    rows = await ctx.db
-      .query("leadGenTeamOriginStats")
-      .withIndex("by_tenantId_and_teamId_and_source_and_dayKey", (q) =>
-        q
-          .eq("tenantId", args.tenantId)
-          .eq("teamId", args.teamId!)
-          .eq("source", args.source!)
-          .gte("dayKey", args.startDayKey)
-          .lte("dayKey", args.endDayKey),
-      )
-      .take(readLimit);
+    result = await readLiveQueryRows(
+      ctx.db
+        .query("leadGenTeamOriginStats")
+        .withIndex("by_tenantId_and_teamId_and_source_and_dayKey", (q) =>
+          q
+            .eq("tenantId", args.tenantId)
+            .eq("teamId", args.teamId!)
+            .eq("source", args.source!)
+            .gte("dayKey", args.startDayKey)
+            .lte("dayKey", args.endDayKey),
+        ),
+      args.limit,
+    );
   } else if (args.teamId) {
-    rows = await ctx.db
-      .query("leadGenTeamOriginStats")
-      .withIndex("by_tenantId_and_teamId_and_dayKey", (q) =>
-        q
-          .eq("tenantId", args.tenantId)
-          .eq("teamId", args.teamId!)
-          .gte("dayKey", args.startDayKey)
-          .lte("dayKey", args.endDayKey),
-      )
-      .take(readLimit);
+    result = await readLiveQueryRows(
+      ctx.db
+        .query("leadGenTeamOriginStats")
+        .withIndex("by_tenantId_and_teamId_and_dayKey", (q) =>
+          q
+            .eq("tenantId", args.tenantId)
+            .eq("teamId", args.teamId!)
+            .gte("dayKey", args.startDayKey)
+            .lte("dayKey", args.endDayKey),
+        ),
+      args.limit,
+    );
   } else if (args.source) {
-    rows = await ctx.db
-      .query("leadGenTeamOriginStats")
-      .withIndex("by_tenantId_and_source_and_dayKey", (q) =>
-        q
-          .eq("tenantId", args.tenantId)
-          .eq("source", args.source!)
-          .gte("dayKey", args.startDayKey)
-          .lte("dayKey", args.endDayKey),
-      )
-      .take(readLimit);
+    result = await readLiveQueryRows(
+      ctx.db
+        .query("leadGenTeamOriginStats")
+        .withIndex("by_tenantId_and_source_and_dayKey", (q) =>
+          q
+            .eq("tenantId", args.tenantId)
+            .eq("source", args.source!)
+            .gte("dayKey", args.startDayKey)
+            .lte("dayKey", args.endDayKey),
+        ),
+      args.limit,
+    );
   } else {
-    rows = await ctx.db
-      .query("leadGenTeamOriginStats")
-      .withIndex("by_tenantId_and_dayKey", (q) =>
-        q
-          .eq("tenantId", args.tenantId)
-          .gte("dayKey", args.startDayKey)
-          .lte("dayKey", args.endDayKey),
-      )
-      .take(readLimit);
-  }
-
-  if (rows.length > args.limit) {
-    throw new Error(
-      "Posts by team report is too large. Narrow the filters.",
+    result = await readLiveQueryRows(
+      ctx.db
+        .query("leadGenTeamOriginStats")
+        .withIndex("by_tenantId_and_dayKey", (q) =>
+          q
+            .eq("tenantId", args.tenantId)
+            .gte("dayKey", args.startDayKey)
+            .lte("dayKey", args.endDayKey),
+        ),
+      args.limit,
     );
   }
 
-  return rows.filter((row) => isRankableOriginKind(row.originKind));
+  return result;
 }
 
 async function groupTeamOriginRows(
@@ -519,6 +486,7 @@ async function groupTeamOriginRows(
     tenantId: Id<"tenants">;
     rows: TeamOriginStatsRow[];
     limitPerTeam: number;
+    sortBy?: "uniqueProspects" | "submissions";
   },
 ) {
   const byTeam = new Map<
@@ -543,7 +511,7 @@ async function groupTeamOriginRows(
   >();
 
   for (const row of args.rows) {
-    if (!isRankableOriginKind(row.originKind)) continue;
+    if (!isRankableOriginKind(row.originKind) || row.submissions <= 0) continue;
 
     const teamKey = row.teamId ?? "unassigned";
     const currentTeam =
@@ -592,7 +560,7 @@ async function groupTeamOriginRows(
         totalUniqueProspects: row.totalUniqueProspects,
         totalSubmissions: row.totalSubmissions,
         origins: [...row.origins.values()]
-          .sort(compareTopOriginRows)
+          .sort((a, b) => compareTopOriginRows(a, b, args.sortBy))
           .slice(0, args.limitPerTeam),
       };
     })
@@ -617,6 +585,7 @@ async function listTopOriginsByTeamFromBoundedSubmissions(
     workerId?: Id<"leadGenWorkers">;
     source?: LeadGenSource;
     limitPerTeam: number;
+    sortBy?: "uniqueProspects" | "submissions";
   },
 ) {
   const rows = await readTopOriginSubmissionRows(ctx, args);
@@ -690,7 +659,7 @@ async function listTopOriginsByTeamFromBoundedSubmissions(
           submissions: origin.submissions,
           dayCount: origin.dayKeys.size,
         }))
-        .sort(compareTopOriginRows);
+        .sort((a, b) => compareTopOriginRows(a, b, args.sortBy));
 
       return {
         teamId: row.teamId,
@@ -1162,7 +1131,24 @@ export const listTopOriginsByTeam = query({
     workerId: v.optional(v.id("leadGenWorkers")),
     source: v.optional(leadGenSourceValidator),
     limitPerTeam: v.optional(v.number()),
+    sortBy: v.optional(v.union(v.literal("uniqueProspects"), v.literal("submissions"))),
   },
+  returns: v.array(v.object({
+    teamId: v.union(v.id("attributionTeams"), v.null()),
+    teamName: v.string(),
+    isActive: v.union(v.boolean(), v.null()),
+    totalUniqueProspects: v.number(),
+    totalSubmissions: v.number(),
+    origins: v.array(v.object({
+      originKey: v.string(),
+      source: leadGenSourceValidator,
+      originKind: v.union(v.literal("post"), v.literal("reel")),
+      originValue: v.string(),
+      uniqueProspects: v.number(),
+      submissions: v.number(),
+      dayCount: v.number(),
+    })),
+  })),
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
@@ -1184,16 +1170,20 @@ export const listTopOriginsByTeam = query({
       });
     }
 
-    const rows = await readTeamOriginStatRows(ctx, {
+    const result = await readTeamOriginStatRowsBounded(ctx, {
       tenantId,
       ...args,
       limit: TEAM_ORIGIN_STATS_READ_LIMIT,
     });
+    if (result.capped) {
+      throw new Error("Posts by team report is too large. Narrow the filters.");
+    }
 
     return await groupTeamOriginRows(ctx, {
       tenantId,
-      rows,
+      rows: result.rows.filter((row) => isRankableOriginKind(row.originKind)),
       limitPerTeam,
+      sortBy: args.sortBy,
     });
   },
 });
