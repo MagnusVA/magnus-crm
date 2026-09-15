@@ -1,27 +1,13 @@
 import { v } from "convex/values";
 import { internal } from "../../_generated/api";
 import { internalAction } from "../../_generated/server";
-import { REPORT_FINALIZATION_ORDER, REPORT_SOURCE_ORDER } from "./catalog";
+import { REPORT_FINALIZATION_ORDER } from "./catalog";
 import { reduceReportSourcePage } from "./reducers";
-import type { ReportKind, ReportFormat, ReportPurpose } from "./contracts";
+import { sourcesForReport } from "./sources";
+export { sourcesForReport } from "./sources";
 
 const MAX_PAGES_PER_STEP = 20;
 const STEP_BUDGET_MS = 40_000;
-
-export function sourcesForReport(job: { reportKind: ReportKind; purpose: ReportPurpose; format?: ReportFormat }) {
-  const sources = REPORT_SOURCE_ORDER[job.reportKind];
-  if (job.purpose === "dashboard" || job.format === "pdf" || job.format === "xlsx") {
-    return sources.filter((key) => key !== "lead_gen_submissions" && key !== "sales_calls");
-  }
-  if (job.format === "summary_csv") return sources.filter((key) => key !== "lead_gen_submissions" && key !== "sales_calls");
-  const keep: Record<ReportKind, string[]> = {
-    "lead-gen": ["lead_gen_workers", "teams", "lead_gen_submissions"],
-    qualifications: ["slack_users", "qualification_events"],
-    "booked-calls": ["teams", "dm_closers", "booked_meetings"],
-    "sales-calls": ["users", "programs", job.format === "payments_csv" ? "sales_payments" : "sales_calls"],
-  };
-  return sources.filter((key) => keep[job.reportKind].includes(key));
-}
 
 export const run = internalAction({
   args: { jobId: v.id("operationsReportJobs") },
@@ -45,7 +31,6 @@ export const run = internalAction({
         let checkpoint: { completed: boolean; cursor?: string } | null = await ctx.runQuery(internal.operations.reports.jobs.getCheckpoint, { jobId, sourceKey });
         if (checkpoint?.completed) continue;
         while (!checkpoint?.completed) {
-          if (!(await ctx.runMutation(internal.operations.reports.jobs.heartbeatLease, fence)).renewed) return null;
           // One-shot scans never supply endCursor. Even a byte-limited
           // SplitRequired page is complete through its returned continueCursor.
           // Committing splitCursor instead would replay already counted rows.
@@ -77,7 +62,6 @@ export const run = internalAction({
         let checkpoint: { completed: boolean; cursor?: string } | null = await ctx.runQuery(internal.operations.reports.jobs.getCheckpoint, { jobId, sourceKey });
         if (checkpoint?.completed) continue;
         while (!checkpoint?.completed) {
-          if (!(await ctx.runMutation(internal.operations.reports.jobs.heartbeatLease, fence)).renewed) return null;
           const page = await ctx.runQuery(internal.operations.reports.finalization.readFinalizationPage, { jobId, section, cursor: checkpoint?.cursor ?? null });
           pages += 1;
           const scheduleNext = pages >= MAX_PAGES_PER_STEP || Date.now() - started >= STEP_BUDGET_MS;

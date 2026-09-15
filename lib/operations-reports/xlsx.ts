@@ -14,7 +14,7 @@ export function renderReportWorkbook(report: ReportDocument): Uint8Array {
   const workbook = XLSX.utils.book_new();
   const summary = XLSX.utils.aoa_to_sheet([
     [report.title], [report.period], [report.boundary], [report.filters],
-    [`Generated ${new Date(report.generatedAt).toISOString()} · Part ${report.part}`], [],
+    [`Generated ${new Date(report.generatedAt).toISOString()}${report.part ? ` · Part ${report.part}` : ""}`], [],
     ["Metric", "Value"], ...report.summary.map((item) => [item.label, item.value]),
   ]);
   summary["!cols"] = [{ wch: 42 }, { wch: 30 }];

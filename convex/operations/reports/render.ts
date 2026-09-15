@@ -9,8 +9,9 @@ import { renderCsv } from "../../../lib/operations-reports/csv";
 import { renderReportPdf } from "../../../lib/operations-reports/pdf";
 import { renderReportWorkbook } from "../../../lib/operations-reports/xlsx";
 import { renderLeadGenExport } from "../../../lib/operations-reports/lead-gen-export";
-import { exportSectionDefinition, exportSections, reportTitles, sectionDefinitions } from "../../../lib/operations-reports/presentation";
-import { formatCell, MAX_ARTIFACT_BYTES, MAX_PDF_ROWS, MAX_XLSX_ROWS, type ReportColumn, type ReportDocument, type ReportTable } from "../../../lib/operations-reports/document";
+import { exportSectionDefinition, exportSections, reportTitles } from "../../../lib/operations-reports/presentation";
+import { MAX_ARTIFACT_BYTES, MAX_PDF_ROWS, MAX_XLSX_ROWS, type ReportColumn, type ReportDocument, type ReportTable } from "../../../lib/operations-reports/document";
+import { summaryCards } from "../../../lib/operations-reports/summary";
 import type { ScalarRecord } from "./contracts";
 
 type RenderPosition = { sectionIndex: number; cursor: string | null; partNumber: number };
@@ -29,16 +30,6 @@ function decodePosition(cursor?: string): RenderPosition {
 async function summaryForReport(ctx: ActionCtx, jobId: Id<"operationsReportJobs">, kind: string) {
   const result = await ctx.runQuery(jobs.listResultRowsInternal, { jobId, section: `${kind.replaceAll("-", "_")}_summary`, rowType: "result", paginationOpts: { cursor: null, numItems: 1, maximumRowsRead: 1, maximumBytesRead: 256 * 1024 } });
   return result.page[0]?.payload ?? {};
-}
-
-function summaryCards(kind: string, fields: ScalarRecord) {
-  const keys: Record<string, ReportColumn[]> = {
-    "lead-gen": [{ key: "submissions", label: "Submissions" }, { key: "scheduledHours", label: "Scheduled Hours", format: "decimal" }, { key: "leadsPerHour", label: "Leads/Hr", format: "decimal" }],
-    qualifications: sectionDefinitions.qualifications_summary.columns,
-    "booked-calls": sectionDefinitions.booked_calls_summary.columns,
-    "sales-calls": [{ key: "totalCalls", label: "Calls" }, { key: "showed", label: "Showed" }, { key: "canceled", label: "Canceled" }, { key: "noShows", label: "No Shows" }, { key: "showUpRate", label: "Show-up Rate", format: "percent" }],
-  };
-  return (keys[kind] ?? []).map((column) => ({ label: column.label, value: formatCell(fields[column.key], column.format) }));
 }
 
 export const run = internalAction({

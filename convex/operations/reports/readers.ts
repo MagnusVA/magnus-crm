@@ -216,7 +216,7 @@ async function readLeadGenOrigins(ctx: QueryCtx, args: ReportSourcePageRequest, 
 
 async function readLeadGenSubmissions(ctx: QueryCtx, args: ReportSourcePageRequest) {
   const needsHydration = args.sourceKey === "lead_gen_submissions";
-  const opts = pagination(args.cursor, needsHydration ? 2 : REPORT_PAGE_SIZE);
+  const opts = pagination(args.cursor, needsHydration ? 8 : REPORT_PAGE_SIZE);
   const result = args.workerId
     ? await ctx.db.query("leadGenSubmissions").withIndex("by_tenantId_and_workerId_and_submittedAt", (q) => q.eq("tenantId", args.tenantId).eq("workerId", args.workerId!).gte("submittedAt", args.startTimestamp).lt("submittedAt", args.endTimestampExclusive)).paginate(opts)
     : args.teamId
@@ -239,18 +239,15 @@ async function readLeadGenSubmissions(ctx: QueryCtx, args: ReportSourcePageReque
         createdAt: row.createdAt,
       };
     }
-    const [prospect, worker, team] = await Promise.all([
-      ctx.db.get(row.prospectId),
-      ctx.db.get(row.workerId),
-      row.teamId ? ctx.db.get(row.teamId) : Promise.resolve(null),
-    ]);
+    // Registry dimensions supply worker/team labels during finalization. Eight
+    // prospects plus the 1 MiB primary page stay below the 16 MiB read limit,
+    // even if every related document reaches Convex's 1 MiB document limit.
+    const prospect = await ctx.db.get(row.prospectId);
     const tenantProspect = prospect?.tenantId === args.tenantId ? prospect : null;
-    const tenantWorker = worker?.tenantId === args.tenantId ? worker : null;
-    const tenantTeam = team?.tenantId === args.tenantId ? team : null;
     return {
       kind: "lead_gen_submission", submissionId: row._id, prospectId: row.prospectId,
-      workerId: row.workerId, workerDisplayName: tenantWorker?.displayName ?? tenantWorker?.email ?? "Unknown worker", workerEmail: tenantWorker?.email ?? "",
-      userId: row.userId, teamId: row.teamId ?? null, teamName: tenantTeam?.displayName ?? null,
+      workerId: row.workerId, workerDisplayName: "", workerEmail: "",
+      userId: row.userId, teamId: row.teamId ?? null, teamName: null,
       source: row.source, originKind: row.originKind, originValue: row.originValue ?? null,
       originRankable: row.originRankable, submittedAt: row.submittedAt, voidedAt: row.voidedAt ?? null,
       voidedByUserId: row.voidedByUserId ?? null, voidReason: row.voidReason ?? null,

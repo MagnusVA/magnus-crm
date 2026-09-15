@@ -14,9 +14,14 @@ import {
 } from "./contracts";
 
 export const operationsReportTables = {
+  operationsReportAdmission: defineTable({
+    tenantId: v.id("tenants"),
+    slots: v.array(v.object({ jobId: v.id("operationsReportJobs"), userId: v.id("users"), purpose: reportPurposeValidator, requestKey: v.string() })),
+  }).index("by_tenantId", ["tenantId"]),
   operationsReportJobs: defineTable({
     tenantId: v.id("tenants"),
     requestedByUserId: v.id("users"),
+    executionVersion: v.optional(v.literal(2)),
     purpose: reportPurposeValidator,
     reportKind: reportKindValidator,
     format: v.optional(reportFormatValidator),

@@ -418,7 +418,7 @@ it("projects an outdated ready dashboard as failed and suppresses its summary", 
 });
 
 
-it("drains multiple expiration, cleanup, and purge batches through scheduled continuations", async () => {
+it("drains multiple expiration, cleanup, and purge batches through bounded sweeps", async () => {
   vi.useFakeTimers();
   try {
     const t = createHarness();
@@ -439,7 +439,10 @@ it("drains multiple expiration, cleanup, and purge batches through scheduled con
     }
     expect(await t.mutation(internal.operations.reports.cleanup.expireReadyJobs, {}))
       .toEqual({ expired: 50 });
-    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    await t.mutation(internal.operations.reports.cleanup.expireReadyJobs, {});
+    for (const jobId of jobIds) {
+      for (let batch = 0; batch < 3; batch++) await t.mutation(internal.operations.reports.cleanup.cleanupTerminalJobs, { jobId });
+    }
     const cleaned = await t.run(async (ctx) =>
       await Promise.all(jobIds.map(jobId => ctx.db.get(jobId))),
     );
@@ -450,7 +453,7 @@ it("drains multiple expiration, cleanup, and purge batches through scheduled con
     }
     expect(await t.mutation(internal.operations.reports.cleanup.purgeExpiredMetadata, {}))
       .toEqual({ examined: 50, purged: 50 });
-    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    await t.mutation(internal.operations.reports.cleanup.purgeExpiredMetadata, {});
     const remaining = await t.run(async (ctx) =>
       await Promise.all(jobIds.map(jobId => ctx.db.get(jobId))),
     );

@@ -20,6 +20,7 @@ describe("report formats", () => {
     expect(csvCell('hello,"world"\nnext')).toBe('"hello,""world""\nnext"');
     expect(csvCell(" =HYPERLINK(\"x\")")).toBe('"\' =HYPERLINK(""x"")"');
     expect(csvCell(-42)).toBe("-42");
+    expect(renderCsv(report.tables[0].columns, [], false)).toHaveLength(0);
     const csv = new TextDecoder().decode(renderCsv(report.tables[0].columns, report.tables[0].rows));
     expect(csv).toContain('"Ana, María",8400\r\n');
   });
@@ -32,7 +33,7 @@ describe("report formats", () => {
     expect(pdf.length).toBeGreaterThan(1000);
   });
   it("rejects oversized render input before allocating workbook or PDF layout", () => {
-    const oversized = { ...report, tables: [{ ...report.tables[0], rows: Array.from({ length: 501 }, () => ({ count: 1 })) }] };
+    const oversized = { ...report, tables: [{ ...report.tables[0], rows: Array.from({ length: 5_001 }, () => ({ count: 1 })) }] };
     expect(() => assertRenderBudget(oversized, "pdf")).toThrow("rendering budget");
   });
   it("keeps mixed-currency Excel money and rates numeric with row currency labels", () => {

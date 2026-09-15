@@ -65,11 +65,11 @@ it.each(["immediate", "late"] as const)("recovers an unattached %s upload withou
     });
     if (reservation.kind === "stale") throw new Error("Reservation unexpectedly rejected.");
     if (timing === "late") {
-      vi.setSystemTime(now + 2 * REPORT_LEASE_MS + 1);
+      vi.setSystemTime(now + 2 * 60_000 + 1);
       await t.run(async (ctx) => {
         await ctx.db.patch(jobId, { status: "queued", leaseOwner: undefined, leaseExpiresAt: undefined });
         // Exercise reservations persisted under the former two-minute deadline.
-        await ctx.db.patch(reservation.artifactId, { reservationExpiresAt: now + 2 * REPORT_LEASE_MS });
+        await ctx.db.patch(reservation.artifactId, { reservationExpiresAt: now + 2 * 60_000 });
       });
       await t.mutation(internal.operations.reports.cleanup.reconcileOrphanReservations, {});
       expect(await t.run(async (ctx) => ctx.db.get(reservation.artifactId))).toMatchObject({
@@ -77,7 +77,7 @@ it.each(["immediate", "late"] as const)("recovers an unattached %s upload withou
         reservationExpiresAt: now + REPORT_UPLOAD_SETTLE_MS,
       });
       // The expired worker's store() completes after the old orphan scan deadline.
-      vi.setSystemTime(now + 3 * REPORT_LEASE_MS);
+      vi.setSystemTime(now + 3 * 60_000);
     }
     const files = await t.run(async (ctx) => ({
       report: await ctx.storage.store(new Blob([content], { type: reservation.ownershipContentType })),

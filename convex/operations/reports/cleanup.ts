@@ -1,8 +1,8 @@
 import { v } from "convex/values";
-import { internal } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import {
   internalMutation,
+  internalQuery,
   type MutationCtx,
 } from "../../_generated/server";
 import {
@@ -39,10 +39,6 @@ export const expireReadyJobs = internalMutation({
       });
       expired += 1;
     }
-    if (expired > 0) await scheduleCleanupContinuation(ctx);
-    if (jobs.length === REPORT_CLEANUP_BATCH_SIZE) {
-      await ctx.scheduler.runAfter(0, internal.operations.reports.cleanup.expireReadyJobs, {});
-    }
     return { expired };
   },
 });
@@ -69,8 +65,6 @@ export const reconcileOrphanReservations = internalMutation({
         reconciliationCursor: undefined,
         updatedAt: now,
       });
-      await scheduleReconciliationContinuation(ctx, settleAt - now);
-      await scheduleReconciliationContinuation(ctx);
       return { examined: 1, progressed: true };
     }
 
@@ -85,10 +79,6 @@ export const reconcileOrphanReservations = internalMutation({
         reservationExpiresAt: job.leaseExpiresAt + 1_000,
         updatedAt: now,
       });
-      await scheduleReconciliationContinuation(
-        ctx,
-        job.leaseExpiresAt + 1_000 - now,
-      );
       return { examined: 1, progressed: true };
     }
 
@@ -142,30 +132,27 @@ export const reconcileOrphanReservations = internalMutation({
           artifactCount: job.artifactCount + 1,
         });
       }
-      await scheduleReconciliationContinuation(ctx);
       return { examined: 1, progressed: true };
     }
 
     if (page.isDone) {
       await ctx.db.delete(artifact._id);
-      await scheduleReconciliationContinuation(ctx);
     } else {
       await ctx.db.patch(artifact._id, {
         reconciliationCursor: page.continueCursor,
         updatedAt: now,
       });
-      await scheduleReconciliationContinuation(ctx);
     }
     return { examined: 1, progressed: true };
   },
 });
 
 export const cleanupTerminalJobs = internalMutation({
-  args: {},
+  args: { jobId: v.optional(v.id("operationsReportJobs")) },
   returns: v.object({ examined: v.number(), deletedChildren: v.number() }),
-  handler: async (ctx) => {
+  handler: async (ctx, args) => {
     const now = Date.now();
-    const job = await ctx.db
+    const job = args.jobId ? await ctx.db.get(args.jobId) : await ctx.db
       .query("operationsReportJobs")
       .withIndex("by_cleanupPending_and_cleanupNextAttemptAt", (q) =>
         q
@@ -174,7 +161,7 @@ export const cleanupTerminalJobs = internalMutation({
           .lte("cleanupNextAttemptAt", now),
       )
       .first();
-    if (!job) return { examined: 0, deletedChildren: 0 };
+    if (!job || !job.cleanupPending || (job.cleanupNextAttemptAt ?? Infinity) > now) return { examined: 0, deletedChildren: 0 };
 
     const artifacts = await ctx.db
       .query("operationsReportArtifacts")
@@ -202,14 +189,7 @@ export const cleanupTerminalJobs = internalMutation({
       }
       if (deleted === 0) {
         await ctx.db.patch(job._id, { cleanupNextAttemptAt: now + 60_000 });
-        await scheduleCleanupContinuation(ctx, 60_000);
-        await ctx.scheduler.runAfter(
-          0,
-          internal.operations.reports.cleanup.reconcileOrphanReservations,
-          {},
-        );
       }
-      await scheduleCleanupContinuation(ctx);
       return { examined: 1, deletedChildren: deleted };
     }
 
@@ -219,7 +199,6 @@ export const cleanupTerminalJobs = internalMutation({
       .take(REPORT_CLEANUP_BATCH_SIZE);
     if (rows.length > 0) {
       for (const row of rows) await ctx.db.delete(row._id);
-      await scheduleCleanupContinuation(ctx);
       return { examined: 1, deletedChildren: rows.length };
     }
 
@@ -229,7 +208,6 @@ export const cleanupTerminalJobs = internalMutation({
       .take(REPORT_CLEANUP_BATCH_SIZE);
     if (checkpoints.length > 0) {
       for (const checkpoint of checkpoints) await ctx.db.delete(checkpoint._id);
-      await scheduleCleanupContinuation(ctx);
       return { examined: 1, deletedChildren: checkpoints.length };
     }
 
@@ -238,7 +216,6 @@ export const cleanupTerminalJobs = internalMutation({
       cleanupNextAttemptAt: undefined,
       cleanupCompletedAt: now,
     });
-    await scheduleCleanupContinuation(ctx);
     return { examined: 1, deletedChildren: 0 };
   },
 });
@@ -264,10 +241,6 @@ export const purgeExpiredMetadata = internalMutation({
       if (child) continue;
       await ctx.db.delete(job._id);
       purged += 1;
-    }
-    // Continue only after progress so malformed metadata cannot cause a busy loop.
-    if (jobs.length === REPORT_CLEANUP_BATCH_SIZE && purged > 0) {
-      await ctx.scheduler.runAfter(0, internal.operations.reports.cleanup.purgeExpiredMetadata, {});
     }
     return { examined: jobs.length, purged };
   },
@@ -318,21 +291,9 @@ function sanitizeDeleteError(error: unknown) {
   return message.replace(/[\r\n\t]+/g, " ").slice(0, 300);
 }
 
-async function scheduleCleanupContinuation(ctx: MutationCtx, delayMs = 0) {
-  await ctx.scheduler.runAfter(
-    delayMs,
-    internal.operations.reports.cleanup.cleanupTerminalJobs,
-    {},
-  );
-}
 
-async function scheduleReconciliationContinuation(
-  ctx: MutationCtx,
-  delayMs = 0,
-) {
-  await ctx.scheduler.runAfter(
-    Math.max(0, delayMs),
-    internal.operations.reports.cleanup.reconcileOrphanReservations,
-    {},
-  );
-}
+export const pendingCleanupJobs = internalQuery({
+  args: { now: v.number() },
+  returns: v.array(v.id("operationsReportJobs")),
+  handler: async (ctx, { now }) => (await ctx.db.query("operationsReportJobs").withIndex("by_cleanupPending_and_cleanupNextAttemptAt", q => q.eq("cleanupPending", true).gt("cleanupNextAttemptAt", 0).lte("cleanupNextAttemptAt", now)).take(REPORT_CLEANUP_BATCH_SIZE)).map(job => job._id),
+});

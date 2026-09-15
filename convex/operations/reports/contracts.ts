@@ -9,7 +9,7 @@ import {
 
 export const REPORT_DEFINITION_VERSION = "operations-reports-v2";
 
-export const REPORT_LEASE_MS = 60_000;
+export const REPORT_LEASE_MS = 11 * 60_000;
 // Assumes the ten-minute Node action limit, plus one minute for upload settlement.
 // A worker lease can expire while its action is still uploading.
 export const REPORT_UPLOAD_SETTLE_MS = 11 * 60 * 1_000;

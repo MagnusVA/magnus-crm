@@ -8,9 +8,10 @@ export function csvCell(value: ReportCell | undefined): string {
   return /[",\r\n]/u.test(text) ? `"${text.replace(/"/gu, '""')}"` : text;
 }
 
-export function renderCsv(columns: readonly ReportColumn[], rows: readonly ReportRecord[]): Uint8Array {
-  return new TextEncoder().encode("\uFEFF" + [
-    columns.map((column) => csvCell(column.label)).join(","),
+export function renderCsv(columns: readonly ReportColumn[], rows: readonly ReportRecord[], header = true): Uint8Array {
+  if (!header && rows.length === 0) return new Uint8Array();
+  return new TextEncoder().encode((header ? "\uFEFF" : "") + [
+    ...(header ? [columns.map((column) => csvCell(column.label)).join(",")] : []),
     ...rows.map((row) => columns.map((column) => csvCell(
       column.format === "timestamp" && typeof row[column.key] === "number"
         ? new Date(row[column.key] as number).toISOString()

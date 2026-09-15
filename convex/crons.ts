@@ -68,37 +68,9 @@ crons.interval(
 );
 
 crons.interval(
-  "recover-stale-operations-reports",
+  "maintain-operations-reports",
   { minutes: 10 },
-  internal.operations.reports.recovery.recoverStaleReports,
-  {},
-);
-
-crons.interval(
-  "expire-ready-operations-reports",
-  { minutes: 10 },
-  internal.operations.reports.cleanup.expireReadyJobs,
-  {},
-);
-
-crons.interval(
-  "reconcile-operations-report-artifacts",
-  { minutes: 10 },
-  internal.operations.reports.cleanup.reconcileOrphanReservations,
-  {},
-);
-
-crons.interval(
-  "cleanup-terminal-operations-reports",
-  { minutes: 10 },
-  internal.operations.reports.cleanup.cleanupTerminalJobs,
-  {},
-);
-
-crons.interval(
-  "purge-operations-report-metadata",
-  { minutes: 10 },
-  internal.operations.reports.cleanup.purgeExpiredMetadata,
+  internal.operations.reports.maintenance.run,
   {},
 );
 
