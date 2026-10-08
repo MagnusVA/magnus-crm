@@ -122,7 +122,7 @@ export const getAdminReminderDetail = query({
         : Promise.resolve(null),
       ctx.db
         .query("paymentRecords")
-        .withIndex("by_opportunityId", (q) =>
+        .withIndex("by_opportunityId_and_recordedAt", (q) =>
           q.eq("opportunityId", opportunity._id),
         )
         .order("desc")

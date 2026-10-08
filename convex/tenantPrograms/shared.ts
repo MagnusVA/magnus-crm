@@ -24,7 +24,7 @@ export async function listProgramsForTenant(
 ): Promise<Array<Doc<"tenantPrograms">>> {
   return await ctx.db
     .query("tenantPrograms")
-    .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+    .withIndex("by_tenantId_and_archivedAt", (q) => q.eq("tenantId", tenantId))
     .take(MAX_TENANT_PROGRAMS);
 }
 

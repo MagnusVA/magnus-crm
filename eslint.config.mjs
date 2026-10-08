@@ -60,7 +60,6 @@ const eslintConfig = defineConfig([
         "error",
         { pattern: `^(${CONVEX_ACCESS_GUARDS.join("|")})$` },
       ],
-      "@convex-dev/no-duplicate-indexes": "off",
     },
   },
   {

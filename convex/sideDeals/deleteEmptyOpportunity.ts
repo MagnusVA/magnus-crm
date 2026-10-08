@@ -46,7 +46,7 @@ export const deleteEmptyOpportunity = mutation({
       await Promise.all([
         ctx.db
           .query("paymentRecords")
-          .withIndex("by_opportunityId", (q) =>
+          .withIndex("by_opportunityId_and_recordedAt", (q) =>
             q.eq("opportunityId", opportunityId),
           )
           .first(),
@@ -58,19 +58,19 @@ export const deleteEmptyOpportunity = mutation({
           .first(),
         ctx.db
           .query("followUps")
-          .withIndex("by_opportunityId_and_status", (q) =>
+          .withIndex("by_opportunityId_and_status_and_reason", (q) =>
             q.eq("opportunityId", opportunityId).eq("status", "booked"),
           )
           .first(),
         ctx.db
           .query("followUps")
-          .withIndex("by_opportunityId_and_status", (q) =>
+          .withIndex("by_opportunityId_and_status_and_reason", (q) =>
             q.eq("opportunityId", opportunityId).eq("status", "completed"),
           )
           .first(),
         ctx.db
           .query("followUps")
-          .withIndex("by_opportunityId", (q) =>
+          .withIndex("by_opportunityId_and_status_and_reason", (q) =>
             q.eq("opportunityId", opportunityId),
           )
           .take(50),

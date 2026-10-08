@@ -11,7 +11,7 @@ export const listCampaignPresetsForSettings = query({
 
     const presets = await ctx.db
       .query("linkPortalCampaignPresets")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .withIndex("by_tenantId_and_isActive", (q) => q.eq("tenantId", tenantId))
       .take(100);
     return presets.sort((left, right) => left.sortOrder - right.sortOrder);
   },

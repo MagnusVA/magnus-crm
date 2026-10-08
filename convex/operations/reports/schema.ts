@@ -97,8 +97,7 @@ export const operationsReportTables = {
     lastCommitKey: v.optional(v.string()),
     updatedAt: v.number(),
   })
-    .index("by_jobId_and_sourceKey", ["jobId", "sourceKey"])
-    .index("by_jobId", ["jobId"]),
+    .index("by_jobId_and_sourceKey", ["jobId", "sourceKey"]),
 
   operationsReportRows: defineTable({
     tenantId: v.id("tenants"),
@@ -143,8 +142,7 @@ export const operationsReportTables = {
       "groupKey",
       "sortValue",
     ])
-    .index("by_jobId_and_rowType", ["jobId", "rowType"])
-    .index("by_jobId", ["jobId"]),
+    .index("by_jobId_and_rowType", ["jobId", "rowType"]),
 
   operationsReportArtifacts: defineTable({
     tenantId: v.id("tenants"),

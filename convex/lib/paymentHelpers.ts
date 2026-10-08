@@ -86,7 +86,7 @@ export async function syncCustomerPaymentSummary(
 ): Promise<void> {
   const payments = await ctx.db
     .query("paymentRecords")
-    .withIndex("by_customerId", (q) => q.eq("customerId", customerId))
+    .withIndex("by_customerId_and_recordedAt", (q) => q.eq("customerId", customerId))
     .take(100);
 
   const nonDisputedPayments = payments.filter(
@@ -118,7 +118,7 @@ export async function expirePendingFollowUpsForOpportunity(
 ): Promise<number> {
   const pendingFollowUps = await ctx.db
     .query("followUps")
-    .withIndex("by_opportunityId_and_status", (q) =>
+    .withIndex("by_opportunityId_and_status_and_reason", (q) =>
       q.eq("opportunityId", opportunityId).eq("status", "pending"),
     )
     .take(50);
@@ -158,7 +158,7 @@ export async function rollbackCustomerConversionIfEmpty(
 
   const payments = await ctx.db
     .query("paymentRecords")
-    .withIndex("by_customerId", (q) => q.eq("customerId", args.customerId))
+    .withIndex("by_customerId_and_recordedAt", (q) => q.eq("customerId", args.customerId))
     .take(100);
   const nonDisputedPayments = payments.filter(
     (payment) => payment.status !== "disputed",

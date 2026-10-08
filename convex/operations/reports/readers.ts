@@ -167,7 +167,7 @@ async function readLeadGenDaily(ctx: QueryCtx, args: ReportSourcePageRequest) {
   for (const workerId of [...new Set(filtered.map((row) => row.workerId))]) {
     const schedules = await ctx.db
       .query("leadGenWorkerSchedules")
-      .withIndex("by_tenantId_and_workerId", (q) =>
+      .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
         q.eq("tenantId", args.tenantId).eq("workerId", workerId),
       )
       .take(7);
@@ -261,7 +261,7 @@ async function readLeadGenSubmissions(ctx: QueryCtx, args: ReportSourcePageReque
 async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promise<ReportSourcePage | null> {
   const opts = pagination(args.cursor);
   if (args.sourceKey === "lead_gen_workers") {
-    const result = await ctx.db.query("leadGenWorkers").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
+    const result = await ctx.db.query("leadGenWorkers").withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
     const page = await Promise.all(result.page.map(async (row): Promise<ReportSourceRow> => {
       const identity = await leadGenWorkerMemberIdentity(ctx, row);
       return { kind: "lead_gen_worker", workerId: row._id, userId: row.userId, teamId: row.teamId ?? null, label: identity.name ?? row.email, email: row.email, isActive: row.isActive, ...flattenIdentity(identity) };
@@ -279,7 +279,7 @@ async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promi
     return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "team", teamId: row._id, label: row.displayName, isActive: row.isActive, bookingDailyQuota: row.bookingDailyQuota ?? null })));
   }
   if (args.sourceKey === "lead_gen_worker_schedules") {
-    const result = await ctx.db.query("leadGenWorkerSchedules").withIndex("by_tenantId_and_workerId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
+    const result = await ctx.db.query("leadGenWorkerSchedules").withIndex("by_tenantId_and_workerId_and_weekday", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
     return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "lead_gen_schedule", workerId: row.workerId, weekday: row.weekday, scheduledHours: row.scheduledHours })));
   }
   if (args.sourceKey === "slack_users") {
@@ -290,7 +290,7 @@ async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promi
     }));
   }
   if (args.sourceKey === "qualifier_schedules") {
-    const result = await ctx.db.query("slackQualifierSchedules").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
+    const result = await ctx.db.query("slackQualifierSchedules").withIndex("by_tenantId_and_slackUserId_and_weekday", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
     return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "qualifier_schedule", slackUserId: row.slackUserId, weekday: row.weekday, scheduledHours: row.scheduledHours })));
   }
   if (args.sourceKey === "dm_closers") {
@@ -306,7 +306,7 @@ async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promi
     return projectedPage(result, page);
   }
   if (args.sourceKey === "dm_closer_schedules") {
-    const result = await ctx.db.query("dmCloserSchedules").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
+    const result = await ctx.db.query("dmCloserSchedules").withIndex("by_tenantId_and_dmCloserId_and_weekday", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
     return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "dm_closer_schedule", dmCloserId: row.dmCloserId, weekday: row.weekday, scheduledHours: row.scheduledHours })));
   }
   if (args.sourceKey === "users") {
@@ -318,7 +318,7 @@ async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promi
     return projectedPage(result, page);
   }
   if (args.sourceKey === "programs") {
-    const result = await ctx.db.query("tenantPrograms").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
+    const result = await ctx.db.query("tenantPrograms").withIndex("by_tenantId_and_archivedAt", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
     return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "program", programId: row._id, label: row.name })));
   }
   return null;

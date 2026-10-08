@@ -54,7 +54,7 @@ async function latestSoldProgramForOpportunity(
 ) {
   const payments = await ctx.db
     .query("paymentRecords")
-    .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunityId))
+    .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", opportunityId))
     .order("desc")
     .take(25);
   return payments.find((payment) => payment.status !== "disputed");

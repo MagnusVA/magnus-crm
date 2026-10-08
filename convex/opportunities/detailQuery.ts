@@ -45,7 +45,7 @@ export const getOpportunityDetail = query({
         .take(20),
       ctx.db
         .query("paymentRecords")
-        .withIndex("by_opportunityId", (q) =>
+        .withIndex("by_opportunityId_and_recordedAt", (q) =>
           q.eq("opportunityId", opportunityId),
         )
         .order("desc")
@@ -73,7 +73,7 @@ export const getOpportunityDetail = query({
         .first(),
       ctx.db
         .query("followUps")
-        .withIndex("by_opportunityId", (q) =>
+        .withIndex("by_opportunityId_and_status_and_reason", (q) =>
           q.eq("opportunityId", opportunityId),
         )
         .take(50),

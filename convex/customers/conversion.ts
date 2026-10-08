@@ -74,7 +74,7 @@ export async function executeConversion(
   const winningPayment = (
     await ctx.db
       .query("paymentRecords")
-      .withIndex("by_opportunityId", (q) =>
+      .withIndex("by_opportunityId_and_recordedAt", (q) =>
         q.eq("opportunityId", winningOpportunityId),
       )
       .order("desc")
@@ -170,7 +170,7 @@ export async function executeConversion(
   for (const candidateOpportunity of leadOpportunities) {
     const payments = await ctx.db
       .query("paymentRecords")
-      .withIndex("by_opportunityId", (q) =>
+      .withIndex("by_opportunityId_and_recordedAt", (q) =>
         q.eq("opportunityId", candidateOpportunity._id),
       )
       .take(50);

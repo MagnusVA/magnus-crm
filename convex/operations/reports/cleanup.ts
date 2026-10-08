@@ -195,7 +195,7 @@ export const cleanupTerminalJobs = internalMutation({
 
     const rows = await ctx.db
       .query("operationsReportRows")
-      .withIndex("by_jobId", (q) => q.eq("jobId", job._id))
+      .withIndex("by_jobId_and_section_and_rowKey", (q) => q.eq("jobId", job._id))
       .take(REPORT_CLEANUP_BATCH_SIZE);
     if (rows.length > 0) {
       for (const row of rows) await ctx.db.delete("operationsReportRows", row._id);
@@ -204,7 +204,7 @@ export const cleanupTerminalJobs = internalMutation({
 
     const checkpoints = await ctx.db
       .query("operationsReportCheckpoints")
-      .withIndex("by_jobId", (q) => q.eq("jobId", job._id))
+      .withIndex("by_jobId_and_sourceKey", (q) => q.eq("jobId", job._id))
       .take(REPORT_CLEANUP_BATCH_SIZE);
     if (checkpoints.length > 0) {
       for (const checkpoint of checkpoints) await ctx.db.delete("operationsReportCheckpoints", checkpoint._id);
@@ -276,12 +276,12 @@ async function firstJobChild(
   if (artifact) return true;
   const row = await ctx.db
     .query("operationsReportRows")
-    .withIndex("by_jobId", (q) => q.eq("jobId", jobId))
+    .withIndex("by_jobId_and_section_and_rowKey", (q) => q.eq("jobId", jobId))
     .first();
   if (row) return true;
   const checkpoint = await ctx.db
     .query("operationsReportCheckpoints")
-    .withIndex("by_jobId", (q) => q.eq("jobId", jobId))
+    .withIndex("by_jobId_and_sourceKey", (q) => q.eq("jobId", jobId))
     .first();
   return Boolean(checkpoint);
 }

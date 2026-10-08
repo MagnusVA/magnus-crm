@@ -42,7 +42,7 @@ export const listSlackQualifierSchedules = query({
         .take(300),
       ctx.db
         .query("slackQualifierSchedules")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+        .withIndex("by_tenantId_and_slackUserId_and_weekday", (q) => q.eq("tenantId", tenantId))
         .take(2_100),
     ]);
 
@@ -130,7 +130,7 @@ export const listDmCloserSchedules = query({
         .take(300),
       ctx.db
         .query("dmCloserSchedules")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+        .withIndex("by_tenantId_and_dmCloserId_and_weekday", (q) => q.eq("tenantId", tenantId))
         .take(2_100),
     ]);
 

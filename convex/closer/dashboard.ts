@@ -225,7 +225,7 @@ export const getPipelineSummary = query({
       let count = 0;
       for await (const opportunity of ctx.db
         .query("opportunities")
-        .withIndex("by_tenantId_and_assignedCloserId_and_status", (q) =>
+        .withIndex("by_tenantId_and_assignedCloserId_and_status_and_createdAt", (q) =>
           q
             .eq("tenantId", tenantId)
             .eq("assignedCloserId", userId)

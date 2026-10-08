@@ -131,7 +131,7 @@ export const markFollowUpBooked = internalMutation({
     let previousStatus: "pending" | "booked" | "completed" | "expired" | null = null;
     for await (const followUp of ctx.db
       .query("followUps")
-      .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunityId))) {
+      .withIndex("by_opportunityId_and_status_and_reason", (q) => q.eq("opportunityId", opportunityId))) {
       if (followUp.status === "pending") {
         followUpId = followUp._id;
         pendingFollowUpTenantId = followUp.tenantId;

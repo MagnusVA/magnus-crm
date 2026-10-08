@@ -63,6 +63,7 @@ export default defineSchema({
   })
     .index("by_contactEmail", ["contactEmail"])
     .index("by_workosOrgId", ["workosOrgId"])
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: the admin tenant list paginates newest first
     .index("by_status", ["status"])
     .index("by_inviteTokenHash", ["inviteTokenHash"])
     .index("by_status_and_inviteExpiresAt", ["status", "inviteExpiresAt"]),
@@ -105,6 +106,7 @@ export default defineSchema({
     isActive: v.boolean(),
     // === End v0.5b: User Soft Delete ===
   })
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: the team list shows users in creation order
     .index("by_tenantId", ["tenantId"])
     .index("by_workosUserId", ["workosUserId"])
     .index("by_tenantId_and_email", ["tenantId", "email"])
@@ -136,7 +138,6 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_userId", ["tenantId", "userId"])
     .index("by_tenantId_and_workosUserId", ["tenantId", "workosUserId"])
     .index("by_tenantId_and_isActive", ["tenantId", "isActive"])
@@ -151,7 +152,6 @@ export default defineSchema({
     updatedByUserId: v.id("users"),
     updatedAt: v.number(),
   })
-    .index("by_tenantId_and_workerId", ["tenantId", "workerId"])
     .index("by_tenantId_and_workerId_and_weekday", [
       "tenantId",
       "workerId",
@@ -166,8 +166,6 @@ export default defineSchema({
     updatedByUserId: v.id("users"),
     updatedAt: v.number(),
   })
-    .index("by_tenantId", ["tenantId"])
-    .index("by_tenantId_and_slackUserId", ["tenantId", "slackUserId"])
     .index("by_tenantId_and_slackUserId_and_weekday", [
       "tenantId",
       "slackUserId",
@@ -182,8 +180,6 @@ export default defineSchema({
     updatedByUserId: v.id("users"),
     updatedAt: v.number(),
   })
-    .index("by_tenantId", ["tenantId"])
-    .index("by_tenantId_and_dmCloserId", ["tenantId", "dmCloserId"])
     .index("by_tenantId_and_dmCloserId_and_weekday", [
       "tenantId",
       "dmCloserId",
@@ -210,7 +206,6 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_dedupeKey", ["tenantId", "dedupeKey"])
     .index("by_tenantId_and_normalizedHandle", [
       "tenantId",
@@ -263,7 +258,6 @@ export default defineSchema({
       "source",
       "submittedAt",
     ])
-    .index("by_tenantId_and_prospectId", ["tenantId", "prospectId"])
     .index("by_tenantId_and_prospectId_and_submittedAt", [
       "tenantId",
       "prospectId",
@@ -383,6 +377,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: the audit view takes the 25 newest matches
     .index("by_tenantId_and_prospectId", ["tenantId", "prospectId"])
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
     .index("by_tenantId_and_opportunityId", ["tenantId", "opportunityId"])
@@ -428,10 +423,10 @@ export default defineSchema({
     processed: v.boolean(),
     receivedAt: v.number(),
   })
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: maintenance reads the newest event per scheduled event first
     .index("by_tenantId_and_eventType", ["tenantId", "eventType"])
     .index("by_tenantId_and_receivedAt", ["tenantId", "receivedAt"])
     .index("by_calendlyEventUri", ["calendlyEventUri"])
-    .index("by_processed", ["processed"])
     .index("by_processed_and_receivedAt", ["processed", "receivedAt"])
     .index("by_tenantId_and_eventType_and_calendlyEventUri", [
       "tenantId",
@@ -448,7 +443,6 @@ export default defineSchema({
     matchedUserId: v.optional(v.id("users")),
     lastSyncedAt: v.number(),
   })
-    .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_calendlyUserUri", ["tenantId", "calendlyUserUri"])
     .index("by_tenantId_and_matchedUserId", ["tenantId", "matchedUserId"])
     .index("by_tenantId_and_lastSyncedAt", ["tenantId", "lastSyncedAt"]),
@@ -512,6 +506,7 @@ export default defineSchema({
     selfReportedIncome: v.optional(v.number()),
     // === End NIM-17 ===
   })
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: identity resolution scans the 50 newest leads
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_email", ["tenantId", "email"])
     .index("by_tenantId_and_status", ["tenantId", "status"])
@@ -661,6 +656,7 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: team lists show teams in creation order
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_slug", ["tenantId", "slug"])
     .index("by_tenantId_and_normalizedUtmSource", [
@@ -720,7 +716,6 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   })
-    .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_isActive", ["tenantId", "isActive"])
     .index("by_tenantId_and_normalizedUtmCampaign", [
       "tenantId",
@@ -863,7 +858,9 @@ export default defineSchema({
     potentialDuplicateLeadId: v.optional(v.id("leads")),
     // === End Feature E ===
   })
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: the opportunity list paginates newest first
     .index("by_tenantId", ["tenantId"])
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: lead views take the newest opportunities first
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
     .index("by_tenantId_and_leadId_and_source_and_status_and_createdAt", [
       "tenantId",
@@ -871,13 +868,6 @@ export default defineSchema({
       "source",
       "status",
       "createdAt",
-    ])
-    .index("by_tenantId_and_assignedCloserId", ["tenantId", "assignedCloserId"])
-    .index("by_tenantId_and_status", ["tenantId", "status"])
-    .index("by_tenantId_and_assignedCloserId_and_status", [
-      "tenantId",
-      "assignedCloserId",
-      "status",
     ])
     .index("by_tenantId_and_potentialDuplicateLeadId", [
       "tenantId",
@@ -1069,6 +1059,7 @@ export default defineSchema({
       "slackUserId",
       "submittedAt",
     ])
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: attribution reads the newest event
     .index("by_tenantId_and_opportunityId", [
       "tenantId",
       "opportunityId",
@@ -1296,6 +1287,7 @@ export default defineSchema({
     // === End Feature B: Reschedule Chain ===
     operationsStatsSyncedAt: v.optional(v.number()),
   })
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: booking and detail views take the newest meetings first
     .index("by_opportunityId", ["opportunityId"])
     .index("by_tenantId_and_scheduledAt", ["tenantId", "scheduledAt"])
     .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
@@ -1316,7 +1308,6 @@ export default defineSchema({
       "opportunityId",
       "scheduledAt",
     ])
-    .index("by_tenantId_and_status", ["tenantId", "status"])
     .index("by_tenantId_and_assignedCloserId_and_scheduledAt", [
       "tenantId",
       "assignedCloserId",
@@ -1419,7 +1410,6 @@ export default defineSchema({
     reassignedByUserId: v.id("users"),
     reassignedAt: v.number(),
   })
-    .index("by_tenantId", ["tenantId"])
     .index("by_meetingId", ["meetingId"])
     .index("by_toCloserId", ["toCloserId"])
     .index("by_fromCloserId", ["fromCloserId"])
@@ -1517,6 +1507,7 @@ export default defineSchema({
     lastCalendlySyncedAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
   })
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: event type lists show configs in creation order
     .index("by_tenantId", ["tenantId"])
     .index(
       "by_tenantId_and_calendlyEventTypeUri",
@@ -1538,7 +1529,6 @@ export default defineSchema({
     createdByUserId: v.id("users"),
     updatedAt: v.number(),
   })
-    .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_archivedAt", ["tenantId", "archivedAt"])
     .index("by_tenantId_and_normalizedName", [
       "tenantId",
@@ -1579,15 +1569,12 @@ export default defineSchema({
     pausedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: the customer list paginates newest first
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
     .index("by_tenantId_and_status", ["tenantId", "status"])
     .index("by_tenantId_and_convertedAt", ["tenantId", "convertedAt"])
     .index("by_tenantId_and_programId", ["tenantId", "programId"])
-    .index("by_tenantId_and_convertedByUserId", [
-      "tenantId",
-      "convertedByUserId",
-    ])
     .index("by_tenantId_and_convertedByUserId_and_status", [
       "tenantId",
       "convertedByUserId",
@@ -1640,18 +1627,14 @@ export default defineSchema({
     origin: paymentOriginValidator,
     // === End Feature D ===
   })
-    .index("by_opportunityId", ["opportunityId"])
     .index("by_opportunityId_and_recordedAt", [
       "opportunityId",
       "recordedAt",
     ])
-    .index("by_originatingOpportunityId", ["originatingOpportunityId"])
     .index("by_originatingOpportunityId_and_recordedAt", [
       "originatingOpportunityId",
       "recordedAt",
     ])
-    .index("by_tenantId", ["tenantId"])
-    .index("by_customerId", ["customerId"])
     .index("by_tenantId_and_recordedAt", ["tenantId", "recordedAt"])
     .index("by_tenantId_and_status_and_recordedAt", [
       "tenantId",
@@ -1790,9 +1773,6 @@ export default defineSchema({
       ),
     ),
   })
-    .index("by_tenantId", ["tenantId"])
-    .index("by_opportunityId", ["opportunityId"])
-    .index("by_tenantId_and_closerId", ["tenantId", "closerId"])
     .index(
       "by_tenantId_and_closerId_and_status",
       ["tenantId", "closerId", "status"],
@@ -1820,7 +1800,6 @@ export default defineSchema({
       "createdSource",
       "createdAt",
     ])
-    .index("by_opportunityId_and_status", ["opportunityId", "status"])
     .index("by_opportunityId_and_status_and_reason", [
       "opportunityId",
       "status",
@@ -2041,7 +2020,6 @@ export default defineSchema({
     uninstalledAt: v.optional(v.number()),
   })
     .index("by_tenantId", ["tenantId"])
-    .index("by_teamId", ["teamId"])
     .index("by_teamId_and_appId", ["teamId", "appId"])
     .index("by_status_and_tokenExpiresAt", ["status", "tokenExpiresAt"]),
 
@@ -2090,6 +2068,7 @@ export default defineSchema({
       "slackTeamId",
       "slackUserId",
     ])
+    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: qualifier lists show users in creation order
     .index("by_tenantId", ["tenantId"]),
 
   /**
@@ -2110,7 +2089,6 @@ export default defineSchema({
     processingError: v.optional(v.string()),
   })
     .index("by_tenantId_and_processed", ["tenantId", "processed"])
-    .index("by_teamId", ["teamId"])
     .index("by_teamId_and_apiAppId", ["teamId", "apiAppId"])
     .index("by_requestHash", ["requestHash"])
     .index("by_expiresAt", ["expiresAt"]),

@@ -172,7 +172,7 @@ it.each(["raw_csv", "summary_csv", "xlsx", "pdf"] as const)(
         .take(2);
       const rows = await ctx.db
         .query("operationsReportRows")
-        .withIndex("by_jobId", (q) => q.eq("jobId", jobId))
+        .withIndex("by_jobId_and_section_and_rowKey", (q) => q.eq("jobId", jobId))
         .first();
       const admission = await ctx.db
         .query("operationsReportAdmission")

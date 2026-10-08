@@ -162,7 +162,7 @@ export const getPipelineAging = query({
       // the active pipeline rows instead of relying on the capped sample list.
       for await (const opportunity of ctx.db
         .query("opportunities")
-        .withIndex("by_tenantId_and_status", (q) =>
+        .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
           q.eq("tenantId", tenantId).eq("status", status),
         )) {
         opportunityCount += 1;
@@ -304,7 +304,7 @@ export const getPipelineBacklogAndLoss = query({
 
     const lostOpportunityRows = await ctx.db
       .query("opportunities")
-      .withIndex("by_tenantId_and_status", (q) =>
+      .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
         q.eq("tenantId", tenantId).eq("status", "lost"),
       )
       .take(MAX_LOSS_SCAN_ROWS);

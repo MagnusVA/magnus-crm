@@ -131,7 +131,7 @@ async function buildPaginatedOpportunityQuery(
   if (statusFilter && assignedCloserId) {
     return ctx.db
       .query("opportunities")
-      .withIndex("by_tenantId_and_assignedCloserId_and_status", (q) =>
+      .withIndex("by_tenantId_and_assignedCloserId_and_status_and_createdAt", (q) =>
         q
           .eq("tenantId", tenantId)
           .eq("assignedCloserId", assignedCloserId)
@@ -145,7 +145,7 @@ async function buildPaginatedOpportunityQuery(
   if (statusFilter) {
     return ctx.db
       .query("opportunities")
-      .withIndex("by_tenantId_and_status", (q) =>
+      .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
         q.eq("tenantId", tenantId).eq("status", statusFilter),
       )
       .order("desc")
@@ -156,7 +156,7 @@ async function buildPaginatedOpportunityQuery(
   if (assignedCloserId) {
     return ctx.db
       .query("opportunities")
-      .withIndex("by_tenantId_and_assignedCloserId", (q) =>
+      .withIndex("by_tenantId_and_assignedCloserId_and_createdAt", (q) =>
         q
           .eq("tenantId", tenantId)
           .eq("assignedCloserId", assignedCloserId),

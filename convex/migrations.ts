@@ -163,7 +163,7 @@ export const backfillSlackQualificationEvents = migrations.define({
     const lead = await ctx.db.get("leads", opportunity.leadId);
     const installations = await ctx.db
       .query("slackInstallations")
-      .withIndex("by_teamId", (q) =>
+      .withIndex("by_teamId_and_appId", (q) =>
         q.eq("teamId", opportunity.qualifiedBy!.slackTeamId),
       )
       .take(10);

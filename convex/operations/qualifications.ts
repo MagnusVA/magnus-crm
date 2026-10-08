@@ -384,7 +384,7 @@ export const listQualificationFilterOptions = query({
     const [programs, slackUsers, attributionTeams, dmClosers, closers] = await Promise.all([
       ctx.db
         .query("tenantPrograms")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+        .withIndex("by_tenantId_and_archivedAt", (q) => q.eq("tenantId", tenantId))
         .take(200),
       ctx.db
         .query("slackUsers")

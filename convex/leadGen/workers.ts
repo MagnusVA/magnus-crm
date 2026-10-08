@@ -77,7 +77,7 @@ export const listWorkers = query({
 
     const rows = await ctx.db
       .query("leadGenWorkers")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", tenantId))
       .take(250);
 
     const filtered = rows
@@ -127,7 +127,7 @@ export const listWorkerSchedules = query({
 
       return await ctx.db
         .query("leadGenWorkerSchedules")
-        .withIndex("by_tenantId_and_workerId", (q) =>
+        .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
           q.eq("tenantId", tenantId).eq("workerId", args.workerId!),
         )
         .take(7);
@@ -135,14 +135,14 @@ export const listWorkerSchedules = query({
 
     const workers = await ctx.db
       .query("leadGenWorkers")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", tenantId))
       .take(250);
 
     const schedules = [];
     for (const worker of workers) {
       const rows = await ctx.db
         .query("leadGenWorkerSchedules")
-        .withIndex("by_tenantId_and_workerId", (q) =>
+        .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
           q.eq("tenantId", tenantId).eq("workerId", worker._id),
         )
         .take(7);

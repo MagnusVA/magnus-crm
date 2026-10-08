@@ -567,7 +567,7 @@ export const seedTenantStatsInternal = internalMutation({
 
     const payments = await ctx.db
       .query("paymentRecords")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .withIndex("by_tenantId_and_recordedAt", (q) => q.eq("tenantId", tenantId))
       .collect();
     const nonDisputedPayments = payments.filter(
       (payment) => payment.status !== "disputed",
@@ -1039,7 +1039,7 @@ async function inferOpportunityAssignedCloserId(
 
   const followUps = await ctx.db
     .query("followUps")
-    .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunity._id))
+    .withIndex("by_opportunityId_and_status_and_reason", (q) => q.eq("opportunityId", opportunity._id))
     .collect();
   for (const followUp of followUps) {
     collectCandidateCloser(
@@ -1052,7 +1052,7 @@ async function inferOpportunityAssignedCloserId(
 
   const payments = await ctx.db
     .query("paymentRecords")
-    .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunity._id))
+    .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", opportunity._id))
     .collect();
   for (const payment of payments) {
     collectCandidateCloser(
@@ -1341,7 +1341,7 @@ export const backfillCustomerTotals = mutation({
     for (const customer of customers) {
       const payments = await ctx.db
         .query("paymentRecords")
-        .withIndex("by_customerId", (q) => q.eq("customerId", customer._id))
+        .withIndex("by_customerId_and_recordedAt", (q) => q.eq("customerId", customer._id))
         .collect();
       const nonDisputedPayments = payments.filter(
         (payment) => payment.status !== "disputed",
@@ -2397,7 +2397,7 @@ export const auditPaymentCurrencies = query({
     for await (const tenant of ctx.db.query("tenants")) {
       const payments = await ctx.db
         .query("paymentRecords")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenant._id))
+        .withIndex("by_tenantId_and_recordedAt", (q) => q.eq("tenantId", tenant._id))
         .collect();
       if (payments.length === 0) {
         continue;
@@ -2530,7 +2530,7 @@ export const purgePhase6BlockerRecords = mutation({
       // 4. followUps
       const followUps = await ctx.db
         .query("followUps")
-        .withIndex("by_opportunityId", (q) => q.eq("opportunityId", oppId))
+        .withIndex("by_opportunityId_and_status_and_reason", (q) => q.eq("opportunityId", oppId))
         .collect();
       for (const fu of followUps) {
         await ctx.db.delete("followUps", fu._id);
@@ -2540,7 +2540,7 @@ export const purgePhase6BlockerRecords = mutation({
       // 5. paymentRecords (opportunity-scoped) + proof files
       const oppPayments = await ctx.db
         .query("paymentRecords")
-        .withIndex("by_opportunityId", (q) => q.eq("opportunityId", oppId))
+        .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", oppId))
         .collect();
       for (const p of oppPayments) {
         if (p.proofFileId) {
@@ -2609,7 +2609,7 @@ export const purgePhase6BlockerRecords = mutation({
           // Delete customer-scoped payment records first
           const custPayments = await ctx.db
             .query("paymentRecords")
-            .withIndex("by_customerId", (q) =>
+            .withIndex("by_customerId_and_recordedAt", (q) =>
               q.eq("customerId", customer._id),
             )
             .collect();

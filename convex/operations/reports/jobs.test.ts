@@ -223,7 +223,7 @@ describe("operations report job lifecycle", () => {
       job: await ctx.db.get("operationsReportJobs", jobId),
       row: await ctx.db
         .query("operationsReportRows")
-        .withIndex("by_jobId", (q) => q.eq("jobId", jobId))
+        .withIndex("by_jobId_and_section_and_rowKey", (q) => q.eq("jobId", jobId))
         .first(),
     }));
     expect(state.row).toBeNull();
@@ -290,7 +290,7 @@ describe("operations report job lifecycle", () => {
     const remaining = await t.run(async (ctx) =>
       await ctx.db
         .query("operationsReportRows")
-        .withIndex("by_jobId", (q) => q.eq("jobId", eligible.jobId))
+        .withIndex("by_jobId_and_section_and_rowKey", (q) => q.eq("jobId", eligible.jobId))
         .first(),
     );
     expect(remaining).toBeNull();

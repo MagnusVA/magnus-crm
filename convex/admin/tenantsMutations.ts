@@ -1,32 +1,34 @@
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
+import type { DataModel, Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 
 const CLEANUP_BATCH_SIZE = 128;
 
-const TENANT_SCOPED_BY_TENANT_ID_TABLES = [
-  "calendlyOrgMembers",
-  "billingExportEvents",
-  "billingOpsReadinessChecks",
-  "closerUnavailability",
-  "customers",
-  "eventTypeConfigs",
-  "followUps",
-  "leadIdentifiers",
-  "leadMergeHistory",
-  "leads",
-  "meetingReassignments",
-  "meetings",
-  "opportunities",
-  "paymentRecords",
-  "rawWebhookEvents",
-  "tenantCalendlyConnections",
-  "tenantStats",
-  "users",
-] as const;
+// Each tenant-scoped table, with an index whose first field is tenantId.
+const TENANT_INDEX_BY_TABLE = {
+  calendlyOrgMembers: "by_tenantId_and_calendlyUserUri",
+  billingExportEvents: "by_tenantId_and_createdAt",
+  billingOpsReadinessChecks: "by_tenantId_and_checkedAt",
+  closerUnavailability: "by_tenantId_and_date",
+  customers: "by_tenantId",
+  eventTypeConfigs: "by_tenantId",
+  followUps: "by_tenantId_and_closerId_and_status",
+  leadIdentifiers: "by_tenantId_and_value",
+  leadMergeHistory: "by_tenantId",
+  leads: "by_tenantId",
+  meetingReassignments: "by_tenantId_and_reassignedAt",
+  meetings: "by_tenantId_and_scheduledAt",
+  opportunities: "by_tenantId",
+  paymentRecords: "by_tenantId_and_recordedAt",
+  rawWebhookEvents: "by_tenantId_and_receivedAt",
+  tenantCalendlyConnections: "by_tenantId",
+  tenantStats: "by_tenantId",
+  users: "by_tenantId",
+} as const satisfies {
+  [T in keyof DataModel]?: keyof DataModel[T]["indexes"];
+};
 
-type TenantScopedByTenantIdTable =
-  (typeof TENANT_SCOPED_BY_TENANT_ID_TABLES)[number];
+type TenantScopedTable = keyof typeof TENANT_INDEX_BY_TABLE;
 
 async function deletePaymentRecordsBatch(
   ctx: MutationCtx,
@@ -34,8 +36,7 @@ async function deletePaymentRecordsBatch(
 ) {
   const rows = await ctx.db
     .query("paymentRecords")
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .withIndex("by_tenantId", (q: any) => q.eq("tenantId", tenantId))
+    .withIndex("by_tenantId_and_recordedAt", (q) => q.eq("tenantId", tenantId))
     .take(CLEANUP_BATCH_SIZE);
 
   for (const row of rows) {
@@ -48,7 +49,7 @@ async function deletePaymentRecordsBatch(
   return rows.length;
 }
 
-async function deleteByTenantIdBatch<TableName extends TenantScopedByTenantIdTable>(
+async function deleteByTenantIdBatch<TableName extends TenantScopedTable>(
   ctx: MutationCtx,
   tableName: TableName,
   tenantId: Id<"tenants">,
@@ -56,7 +57,9 @@ async function deleteByTenantIdBatch<TableName extends TenantScopedByTenantIdTab
   const rows = await ctx.db
     .query(tableName)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .withIndex("by_tenantId", (q: any) => q.eq("tenantId", tenantId))
+    .withIndex(TENANT_INDEX_BY_TABLE[tableName], (q: any) =>
+      q.eq("tenantId", tenantId),
+    )
     .take(CLEANUP_BATCH_SIZE);
 
   for (const row of rows) {
@@ -139,7 +142,9 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
       tenantId,
     );
 
-    for (const table of TENANT_SCOPED_BY_TENANT_ID_TABLES) {
+    for (const table of Object.keys(
+      TENANT_INDEX_BY_TABLE,
+    ) as TenantScopedTable[]) {
       if (table === "paymentRecords") {
         continue;
       }

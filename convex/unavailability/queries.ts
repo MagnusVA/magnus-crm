@@ -170,7 +170,7 @@ export const getRecentReassignments = query({
     const boundedLimit = Math.max(1, Math.min(limit ?? 20, 50));
     const reassignments = await ctx.db
       .query("meetingReassignments")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .withIndex("by_tenantId_and_reassignedAt", (q) => q.eq("tenantId", tenantId))
       .order("desc")
       .take(boundedLimit);
 

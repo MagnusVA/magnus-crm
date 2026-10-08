@@ -23,7 +23,7 @@ async function listCampaignsByTenant(
 ) {
   return await ctx.db
     .query("linkPortalCampaignPresets")
-    .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+    .withIndex("by_tenantId_and_isActive", (q) => q.eq("tenantId", tenantId))
     .take(100);
 }
 

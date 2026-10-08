@@ -217,14 +217,14 @@ export const getOpportunitySnapshot = internalQuery({
 
 		const followUps = await ctx.db
 			.query("followUps")
-			.withIndex("by_opportunityId", (q) =>
+			.withIndex("by_opportunityId_and_status_and_reason", (q) =>
 				q.eq("opportunityId", opportunity._id),
 			)
 			.take(20);
 
 		const payments = await ctx.db
 			.query("paymentRecords")
-			.withIndex("by_opportunityId", (q) =>
+			.withIndex("by_opportunityId_and_recordedAt", (q) =>
 				q.eq("opportunityId", opportunity._id),
 			)
 			.take(20);

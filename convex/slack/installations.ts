@@ -125,7 +125,7 @@ export const byTeamId = internalQuery({
   handler: async (ctx, args) => {
     return await ctx.db
       .query("slackInstallations")
-      .withIndex("by_teamId", (q) => q.eq("teamId", args.teamId))
+      .withIndex("by_teamId_and_appId", (q) => q.eq("teamId", args.teamId))
       .take(10);
   },
 });

@@ -102,7 +102,7 @@ export const getQualificationsDashboard = query({
         readLiveQueryRows(
           ctx.db
             .query("slackQualifierSchedules")
-            .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)),
+            .withIndex("by_tenantId_and_slackUserId_and_weekday", (q) => q.eq("tenantId", tenantId)),
           SLACK_QUALIFIER_SCHEDULE_LIMIT,
         ),
         listQualificationEventsForRange(ctx, {

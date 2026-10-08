@@ -306,7 +306,7 @@ export const verifyBillingOpsReadiness = mutation({
     const now = Date.now();
     const programRows = await ctx.db
       .query("tenantPrograms")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId))
+      .withIndex("by_tenantId_and_archivedAt", (q) => q.eq("tenantId", args.tenantId))
       .take(VERIFY_PROGRAM_LIMIT + 1);
     const programScanTruncated = programRows.length > VERIFY_PROGRAM_LIMIT;
     const programs = programRows.slice(0, VERIFY_PROGRAM_LIMIT);
