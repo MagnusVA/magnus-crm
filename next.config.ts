@@ -19,8 +19,11 @@ if (process.env.NODE_ENV === "production" && !posthogSourcemapsEnabled) {
 
 const nextConfig: NextConfig = {
 	cacheComponents: true,
+	partialPrefetching: true,
 	experimental: {
-		optimizePackageImports: ["lucide-react", "date-fns", "recharts", "zod"],
+		agentUpgrade: "security",
+		// lucide-react, date-fns, and recharts are optimized by default.
+		optimizePackageImports: ["zod"],
 	},
 	async rewrites() {
 		return [
