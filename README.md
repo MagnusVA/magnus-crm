@@ -164,7 +164,6 @@ Next.js reads `.env.local` locally and the Vercel project settings in production
 | `LINK_PORTAL_IP_HASH_SECRET` | In production | Hashes client IPs for DM portal rate limiting; development falls back to a built-in secret |
 | `NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN`, `NEXT_PUBLIC_POSTHOG_HOST` | No | PostHog; analytics only run in production builds |
 | `POSTHOG_API_KEY`, `POSTHOG_PROJECT_ID` | No | Upload source maps to PostHog during production builds |
-| `E2E_AUTH_ENABLED`, `E2E_AUTH_TOKEN_SECRET`, `E2E_AUTH_ALLOWED_ORIGINS`, `E2E_TEST_TENANT_WORKOS_ORG_ID`, `E2E_TENANT_OWNER_EMAIL`, `E2E_CLOSER1_EMAIL`, `TEST_USERS_PASSWORD` | No | Enable the test-only sign-in route at `/api/testing/auth/login` |
 
 ### Convex deployment
 

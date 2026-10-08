@@ -38,7 +38,6 @@ One WorkOS organization is one tenant, linked by `tenants.workosOrgId`. A tenant
 - `users.workosUserId` holds either the canonical or the raw WorkOS ID, so look users up with every value from `getWorkosUserIdCandidates` (`convex/lib/workosUserId.ts`).
 - `getIdentityOrgId(identity)` (`convex/lib/identity.ts`) reads the org claim under each name WorkOS uses.
 
-## Routing and test sign-in
+## Routing
 
 - `proxy.ts` is Next.js 16's replacement for middleware: it runs AuthKit, gates `/admin`, and lists unauthenticated routes in `PUBLIC_PREFIXES`. Add new public routes there.
-- `/api/testing/auth/login` trades an HMAC-signed token for a real AuthKit session when `E2E_AUTH_ENABLED=1` (`lib/testing/e2e-auth.ts`). The agent testing workflow around it is being reworked.
