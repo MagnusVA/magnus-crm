@@ -73,6 +73,7 @@ export function CalendlyConnection({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isSyncingEventTypes, setIsSyncingEventTypes] = useState(false);
+  const [now] = useState(() => Date.now());
 
   if (!connectionStatus) {
     return null;
@@ -80,7 +81,6 @@ export function CalendlyConnection({
 
   const isConnected =
     connectionStatus.hasAccessToken && !connectionStatus.needsReconnect;
-  const now = Date.now();
   const { isExpired, isExpiringSoon } = getCalendlyTokenTiming(
     connectionStatus.tokenExpiresAt,
     now,
@@ -162,6 +162,7 @@ export function CalendlyConnection({
       mode: "reconnect",
       returnTo: "/workspace/settings",
     });
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- /api/calendly/start is a route handler and needs a full page load
     window.location.href = `/api/calendly/start?${params.toString()}`;
   };
 

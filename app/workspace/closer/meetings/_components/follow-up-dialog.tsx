@@ -437,6 +437,7 @@ function ManualReminderForm({
         `${values.reminderDate}T${values.reminderTime}`
       ).getTime();
 
+      // eslint-disable-next-line react-hooks/purity -- runs on submit; the compiler can't see past form.handleSubmit
       if (isNaN(reminderScheduledAt) || reminderScheduledAt <= Date.now()) {
         setSubmitError("Reminder time must be in the future.");
         setIsSubmitting(false);

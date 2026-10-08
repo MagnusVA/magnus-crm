@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState } from "react";
 import { useConvex } from "convex/react";
 import type {
 	FunctionReference,
@@ -19,7 +19,7 @@ import type {
  * @param queryRef — Convex query function reference
  * @param args — Query arguments, or "skip" to disable
  * @param options.intervalMs — Polling interval in ms (0 = no polling, just one-shot)
- * @returns Data from the query, or undefined while loading. Exposes refetch for manual re-fetches.
+ * @returns Data from the query, or undefined while loading or skipped.
  *
  * @example
  * // One-shot fetch on mount:
@@ -30,14 +30,11 @@ import type {
  *
  * // Skip fetch (conditional):
  * const data = usePollingQuery(api.foo.getBar, user ? { id: user._id } : "skip");
- *
- * // Manual refetch (e.g., for action buttons):
- * const { data, refetch } = usePollingQuery(api.foo.getBar, { id: "123" });
  */
 export function usePollingQuery<Query extends FunctionReference<"query">>(
 	queryRef: Query,
 	args: FunctionArgs<Query> | "skip",
-	options?: { intervalMs?: number; exposeRefetch?: boolean },
+	options?: { intervalMs?: number },
 ): FunctionReturnType<Query> | undefined {
 	const convex = useConvex();
 	const [data, setData] = useState<FunctionReturnType<Query> | undefined>(
@@ -48,21 +45,13 @@ export function usePollingQuery<Query extends FunctionReference<"query">>(
 	// Stable serialized args for dependency tracking
 	const argsKey = args === "skip" ? "skip" : JSON.stringify(args);
 
-	const fetchData = useCallback(async () => {
-		if (args === "skip") return;
-		try {
-			const result = await convex.query(queryRef, args);
-			setData(result);
-		} catch (err) {
-			console.error(`[usePollingQuery] Failed to fetch`, err);
-		}
-	}, [convex, queryRef, argsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+	// Drop stale data while skipped.
+	if (args === "skip" && data !== undefined) {
+		setData(undefined);
+	}
 
 	useEffect(() => {
-		if (args === "skip") {
-			setData(undefined);
-			return;
-		}
+		if (args === "skip") return;
 
 		let cancelled = false;
 

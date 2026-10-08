@@ -72,13 +72,19 @@ export function CampaignPresetDialog({
     },
   });
 
+  // Clear any previous error each time the dialog opens.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setSubmitError(null);
+  }
+
   useEffect(() => {
     if (open) {
       form.reset({
         label: campaign?.label ?? "",
         utmCampaign: campaign?.utmCampaign ?? "",
       });
-      setSubmitError(null);
     }
   }, [campaign, form, open]);
 

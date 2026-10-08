@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { type Preloaded, useAction, usePreloadedQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { useSearchParams } from "next/navigation";
@@ -54,20 +54,21 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
   const status = usePreloadedQuery(preloadedStatus);
   const searchParams = useSearchParams();
   const { role } = useRole();
+  // Returning from the Slack OAuth flow with `pickChannel=true` opens the
+  // channel picker.
+  const shouldAutoOpenPicker =
+    status.kind === "connected" &&
+    searchParams.get("slack") === "connected" &&
+    searchParams.get("pickChannel") === "true";
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [autoOpenedPicker, setAutoOpenedPicker] = useState(false);
+  if (shouldAutoOpenPicker !== autoOpenedPicker) {
+    setAutoOpenedPicker(shouldAutoOpenPicker);
+    if (shouldAutoOpenPicker) setPickerOpen(true);
+  }
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const disconnectSlack = useAction(api.slack.channelsActions.disconnectSlack);
-
-  useEffect(() => {
-    if (
-      status.kind === "connected" &&
-      searchParams.get("slack") === "connected" &&
-      searchParams.get("pickChannel") === "true"
-    ) {
-      setPickerOpen(true);
-    }
-  }, [searchParams, status.kind]);
 
   async function handleDisconnect() {
     setDisconnecting(true);

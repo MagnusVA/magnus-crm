@@ -6,10 +6,7 @@ import { updateTenantStats } from "./tenantStatsHelper";
 import { deleteCustomerAggregate } from "../reporting/writeHooks";
 import {
   type AssertablePaymentShape,
-  type CommissionableOrigin,
   isNonCommissionableOrigin,
-  type NonCommissionableOrigin,
-  type PaymentType,
 } from "./paymentTypes";
 
 export type {

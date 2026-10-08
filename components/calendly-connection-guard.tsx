@@ -176,6 +176,7 @@ export function CalendlyConnectionGuard({
         mode: "reconnect",
         returnTo: pathname,
       });
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- /api/calendly/start is a route handler and needs a full page load
       window.location.href = `/api/calendly/start?${params.toString()}`;
     } catch (error) {
       console.error("CalendlyConnectionGuard: Failed to start OAuth:", error);

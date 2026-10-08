@@ -1,7 +1,7 @@
 "use client";
 
 import { ShieldAlertIcon, Trash2Icon, WebhookIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import type { Doc } from "@/convex/_generated/dataModel";
 import { Badge } from "@/components/ui/badge";
@@ -65,11 +65,13 @@ export function ResetTenantDialog({
   const [confirmation, setConfirmation] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    if (open) {
-      setConfirmation("");
-    }
-  }, [open, tenant?._id]);
+  // Clear the confirmation each time the dialog opens for a tenant.
+  const sessionKey = open ? (tenant?._id ?? null) : null;
+  const [loadedSessionKey, setLoadedSessionKey] = useState<string | null>(null);
+  if (sessionKey !== loadedSessionKey) {
+    setLoadedSessionKey(sessionKey);
+    setConfirmation("");
+  }
 
   if (!tenant) {
     return null;

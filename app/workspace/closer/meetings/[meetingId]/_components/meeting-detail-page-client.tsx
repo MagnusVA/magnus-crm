@@ -210,7 +210,7 @@ export function MeetingDetailPageClient({
       )}
 
       {opportunity.status === "reschedule_link_sent" && !rescheduleLinkUrl && (
-        <RescheduleLinkSentBanner opportunityId={opportunity._id} />
+        <RescheduleLinkSentBanner />
       )}
 
       {/* ── Workspace: single column md–xl, 3 columns at xl+ ───────────── */}

@@ -18,6 +18,7 @@ interface LeadSearchInputProps {
  */
 export function LeadSearchInput({ value, onChange }: LeadSearchInputProps) {
 	const [localValue, setLocalValue] = useState(value);
+	const [syncedValue, setSyncedValue] = useState(value);
 	const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	const handleChange = useCallback(
@@ -32,9 +33,10 @@ export function LeadSearchInput({ value, onChange }: LeadSearchInputProps) {
 	);
 
 	// Sync external value changes (e.g., programmatic reset)
-	useEffect(() => {
+	if (value !== syncedValue) {
+		setSyncedValue(value);
 		setLocalValue(value);
-	}, [value]);
+	}
 
 	// Cleanup on unmount
 	useEffect(() => {

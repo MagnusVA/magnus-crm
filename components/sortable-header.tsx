@@ -21,11 +21,14 @@ export function SortableHeader<K extends string>({
 }: SortableHeaderProps<K>) {
   const isActive = sort.key === sortKey;
   return (
-    <TableHead className={className}>
+    <TableHead
+      className={className}
+      aria-sort={isActive ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
+    >
       <button
+        type="button"
         className="flex items-center gap-1 text-left font-semibold"
         onClick={() => onToggle(sortKey)}
-        aria-sort={isActive ? (sort.direction === "asc" ? "ascending" : "descending") : "none"}
       >
         {label}
         {isActive && sort.direction === "asc" && <ChevronUpIcon className="size-3" />}

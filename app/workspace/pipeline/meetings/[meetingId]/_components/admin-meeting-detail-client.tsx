@@ -181,7 +181,7 @@ export function AdminMeetingDetailClient({
 
       {/* Feature B: Reschedule Link Sent Banner */}
       {opportunity.status === "reschedule_link_sent" && !rescheduleLinkUrl && (
-        <RescheduleLinkSentBanner opportunityId={opportunity._id} />
+        <RescheduleLinkSentBanner />
       )}
 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3 lg:grid-cols-4">

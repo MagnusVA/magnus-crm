@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   CopyIcon,
@@ -75,12 +75,19 @@ export function PortalAccessCard() {
   );
   const rotateSlug = useAction(api.linkPortal.slugActions.rotatePortalSlug);
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
-  const [ttlHours, setTtlHours] = useState("8");
+  const [ttlHours, setTtlHours] = useState(() =>
+    formatTtlHours(config?.sessionTtlSeconds),
+  );
+  const [syncedTtlSeconds, setSyncedTtlSeconds] = useState(
+    config?.sessionTtlSeconds,
+  );
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
 
-  useEffect(() => {
+  // Reload the TTL input whenever the saved TTL changes.
+  if (config?.sessionTtlSeconds !== syncedTtlSeconds) {
+    setSyncedTtlSeconds(config?.sessionTtlSeconds);
     setTtlHours(formatTtlHours(config?.sessionTtlSeconds));
-  }, [config?.sessionTtlSeconds]);
+  }
 
   const portalPath = config ? `/dm-links/${config.publicSlug}` : "";
   const ttlSecondsFromInput = useMemo(() => {

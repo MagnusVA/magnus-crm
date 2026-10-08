@@ -40,6 +40,7 @@ export function SystemHealth() {
   );
   const refreshToken = useAction(api.calendly.tokens.refreshMyTenantToken);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [now] = useState(() => Date.now());
 
   if (connectionStatus === undefined) {
     return (
@@ -61,7 +62,6 @@ export function SystemHealth() {
 
   const isConnected =
     connectionStatus.hasAccessToken && !connectionStatus.needsReconnect;
-  const now = Date.now();
   const { isExpired, isExpiringSoon } = getCalendlyTokenTiming(
     connectionStatus.tokenExpiresAt,
     now,
@@ -91,6 +91,7 @@ export function SystemHealth() {
       mode: "reconnect",
       returnTo: pathname,
     });
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- /api/calendly/start is a route handler and needs a full page load
     window.location.href = `/api/calendly/start?${params.toString()}`;
   };
 

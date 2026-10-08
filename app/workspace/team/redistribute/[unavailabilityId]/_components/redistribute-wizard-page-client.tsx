@@ -161,7 +161,7 @@ export function RedistributeWizardPageClient({
 	);
 
 	// ── Derived data ──
-	const meetings = data?.affectedMeetings ?? [];
+	const meetings = useMemo(() => data?.affectedMeetings ?? [], [data]);
 	const pendingMeetings = useMemo(
 		() => meetings.filter((m) => !m.alreadyReassigned),
 		[meetings],
@@ -171,7 +171,10 @@ export function RedistributeWizardPageClient({
 		[meetings],
 	);
 
-	const typedClosers = (availableClosers ?? []) as AvailableCloser[];
+	const typedClosers = useMemo(
+		() => (availableClosers ?? []) as AvailableCloser[],
+		[availableClosers],
+	);
 	const enabledClosers = useMemo(
 		() => typedClosers.filter((c) => c.isAvailable),
 		[typedClosers],

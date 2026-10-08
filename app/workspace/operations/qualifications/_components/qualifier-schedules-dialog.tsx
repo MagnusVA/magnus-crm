@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -42,32 +42,32 @@ export function QualifierSchedulesDialog({
     [data],
   );
 
-  useEffect(() => {
-    if (open && !selectedId && options[0]) {
-      setSelectedId(options[0].id);
-    }
-  }, [open, options, selectedId]);
+  // Show the first option until the user picks one.
+  const activeId = selectedId ?? options[0]?.id ?? null;
 
   const savedDraft = useMemo(
     () =>
       draftFromSchedules(
         data?.schedules.filter(
-          (schedule) => schedule.slackUserId === selectedId,
+          (schedule) => schedule.slackUserId === activeId,
         ) ?? [],
       ),
-    [data, selectedId],
+    [data, activeId],
   );
 
-  useEffect(() => {
+  // Reload the draft whenever the saved schedule changes.
+  const [draftSource, setDraftSource] = useState<ScheduleDraft | null>(null);
+  if (savedDraft !== draftSource) {
+    setDraftSource(savedDraft);
     setDraft(savedDraft);
-  }, [savedDraft]);
+  }
 
   const handleSave = async () => {
-    if (!selectedId) return;
+    if (!activeId) return;
     setIsSaving(true);
     try {
       await setWeeklySchedule({
-        slackUserId: selectedId,
+        slackUserId: activeId,
         scheduledHours: draftToScheduledHours(draft),
       });
       toast.success("Slack qualifier schedule saved.");
@@ -94,7 +94,7 @@ export function QualifierSchedulesDialog({
         description:
           "Connect Slack and sync members before configuring schedules.",
       }}
-      selectedId={selectedId}
+      selectedId={activeId}
       onSelect={setSelectedId}
       draft={draft}
       onDraftChange={setDraft}

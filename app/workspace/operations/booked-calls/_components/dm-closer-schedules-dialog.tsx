@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -44,32 +44,32 @@ export function DmCloserSchedulesDialog({
     }));
   }, [data]);
 
-  useEffect(() => {
-    if (open && !selectedId && options[0]) {
-      setSelectedId(options[0].id);
-    }
-  }, [open, options, selectedId]);
+  // Show the first option until the user picks one.
+  const activeId = selectedId ?? options[0]?.id ?? null;
 
   const savedDraft = useMemo(
     () =>
       draftFromSchedules(
         data?.schedules.filter(
-          (schedule) => schedule.dmCloserId === selectedId,
+          (schedule) => schedule.dmCloserId === activeId,
         ) ?? [],
       ),
-    [data, selectedId],
+    [data, activeId],
   );
 
-  useEffect(() => {
+  // Reload the draft whenever the saved schedule changes.
+  const [draftSource, setDraftSource] = useState<ScheduleDraft | null>(null);
+  if (savedDraft !== draftSource) {
+    setDraftSource(savedDraft);
     setDraft(savedDraft);
-  }, [savedDraft]);
+  }
 
   const handleSave = async () => {
-    if (!selectedId) return;
+    if (!activeId) return;
     setIsSaving(true);
     try {
       await setWeeklySchedule({
-        dmCloserId: selectedId,
+        dmCloserId: activeId,
         scheduledHours: draftToScheduledHours(draft),
       });
       toast.success("DM closer schedule saved.");
@@ -96,7 +96,7 @@ export function DmCloserSchedulesDialog({
         description:
           "Add DM closers under Configuration before setting schedules.",
       }}
-      selectedId={selectedId}
+      selectedId={activeId}
       onSelect={(id) => setSelectedId(id as Id<"dmClosers">)}
       draft={draft}
       onDraftChange={setDraft}

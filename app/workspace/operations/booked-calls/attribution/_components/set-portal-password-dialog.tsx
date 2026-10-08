@@ -81,10 +81,16 @@ export function SetPortalPasswordDialog({
     },
   });
 
+  // Clear any error once the dialog closes.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (!open) setSubmitError(null);
+  }
+
   useEffect(() => {
     if (!open) {
       form.reset();
-      setSubmitError(null);
     }
   }, [open, form]);
 

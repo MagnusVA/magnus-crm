@@ -49,6 +49,7 @@ function useAuthFromAuthKit() {
       toast.error("Your session has expired. Please sign in again.", {
         action: {
           label: "Sign In",
+          // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- /sign-in is a route handler and needs a full page load
           onClick: () => window.location.assign("/sign-in"),
         },
         duration: Infinity, // Don't auto-dismiss — user must act
