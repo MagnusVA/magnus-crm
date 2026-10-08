@@ -2,7 +2,7 @@
 
 import { randomBytes, createHash } from "crypto";
 import { v } from "convex/values";
-import { action } from "../_generated/server";
+import { action, env } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { getIdentityOrgId } from "../lib/identity";
 import { getCanonicalIdentityWorkosUserId } from "../lib/workosUserId";
@@ -16,17 +16,15 @@ type CalendlyTokenRevocationStatus =
   | "failed";
 
 function getCalendlyClientId() {
-  return (
-    process.env.CALENDLY_CLIENT_ID ?? process.env.NEXT_PUBLIC_CALENDLY_CLIENT_ID
-  );
+  return env.CALENDLY_CLIENT_ID;
 }
 
 function getCalendlyClientSecret() {
-  return process.env.CALENDLY_CLIENT_SECRET;
+  return env.CALENDLY_CLIENT_SECRET;
 }
 
 function getCalendlyRedirectUri() {
-  return `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/callback/calendly`;
+  return `${env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/callback/calendly`;
 }
 
 async function revokeCalendlyToken(
@@ -299,7 +297,7 @@ export const exchangeCodeAndProvision = action({
       );
 
       const clientId = getCalendlyClientId();
-      const clientSecret = process.env.CALENDLY_CLIENT_SECRET;
+      const clientSecret = env.CALENDLY_CLIENT_SECRET;
       if (!clientId || !clientSecret) {
         console.error(
           `[Calendly:OAuth] exchangeCodeAndProvision: missing OAuth config, hasClientId=${Boolean(clientId)}, hasClientSecret=${Boolean(clientSecret)}`,

@@ -4,4 +4,5 @@
  * All consumers — Convex functions AND Next.js routes — must
  * import from here (directly or via re-export).
  */
+// eslint-disable-next-line @convex-dev/no-process-env -- also imported by Next.js, which has its own environment
 export const SYSTEM_ADMIN_ORG_ID = process.env.SYSTEM_ADMIN_ORG_ID!;

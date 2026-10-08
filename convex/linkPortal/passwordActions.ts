@@ -9,7 +9,7 @@ import type { ScryptOptions } from "node:crypto";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { action } from "../_generated/server";
+import { action, env } from "../_generated/server";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 import { issuePortalSessionToken } from "./sessionToken";
 
@@ -81,7 +81,7 @@ async function hashPortalPassword(
   salt: string,
   hashParams: HashParams,
 ) {
-  const pepper = process.env.LINK_PORTAL_PASSWORD_PEPPER ?? "";
+  const pepper = env.LINK_PORTAL_PASSWORD_PEPPER ?? "";
   const derived = (await scrypt(
     `${password}${pepper}`,
     salt,

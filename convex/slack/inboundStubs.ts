@@ -1,4 +1,4 @@
-import { httpAction } from "../_generated/server";
+import { httpAction, env } from "../_generated/server";
 import { verifySlackSignature } from "../lib/slackSignature";
 
 const SIG_HEADER = "x-slack-signature";
@@ -12,8 +12,8 @@ async function verifyInboundSlackRequest(
     rawBody,
     timestamp: req.headers.get(TS_HEADER) ?? "",
     signature: req.headers.get(SIG_HEADER) ?? "",
-    signingSecret: process.env.SLACK_SIGNING_SECRET ?? "",
-    previousSigningSecret: process.env.SLACK_SIGNING_SECRET_PREVIOUS,
+    signingSecret: env.SLACK_SIGNING_SECRET ?? "",
+    previousSigningSecret: env.SLACK_SIGNING_SECRET_PREVIOUS,
   });
 }
 

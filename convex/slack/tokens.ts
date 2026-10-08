@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
-import { internalAction } from "../_generated/server";
+import { internalAction, env } from "../_generated/server";
 
 const REFRESH_BUFFER_MS = 60_000;
 const PROACTIVE_BUFFER_MS = 2 * 60 * 60 * 1000;
@@ -34,8 +34,8 @@ export class SlackTokenRefreshContentionError extends Error {
   }
 }
 
-function getRequiredEnv(name: string): string {
-  const value = process.env[name];
+function getRequiredEnv(name: keyof typeof env): string {
+  const value = env[name];
   if (!value) {
     throw new Error(`${name} not set`);
   }

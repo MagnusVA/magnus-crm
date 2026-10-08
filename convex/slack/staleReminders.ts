@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction } from "../_generated/server";
+import { internalAction, env } from "../_generated/server";
 import { emitDomainEventInAction } from "../lib/domainEventsAction";
 import {
   buildStaleDigest,
@@ -107,7 +107,7 @@ export const postForTenant = internalAction({
       return;
     }
 
-    const appUrl = process.env.APP_URL;
+    const appUrl = env.APP_URL;
     if (!appUrl) {
       console.warn("[Slack:Stale] APP_URL not configured", {
         tenantId: installation.tenantId,

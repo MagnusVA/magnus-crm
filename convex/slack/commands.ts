@@ -1,5 +1,5 @@
 import { internal } from "../_generated/api";
-import { httpAction } from "../_generated/server";
+import { httpAction, env } from "../_generated/server";
 import { buildQualifyLeadModal } from "../lib/slackBlockKit";
 import { verifySlackSignature } from "../lib/slackSignature";
 import { getValidSlackBotToken } from "./tokens";
@@ -144,8 +144,8 @@ async function verifyInboundSlackRequest(
     rawBody,
     timestamp: req.headers.get(TS_HEADER) ?? "",
     signature: req.headers.get(SIG_HEADER) ?? "",
-    signingSecret: process.env.SLACK_SIGNING_SECRET ?? "",
-    previousSigningSecret: process.env.SLACK_SIGNING_SECRET_PREVIOUS,
+    signingSecret: env.SLACK_SIGNING_SECRET ?? "",
+    previousSigningSecret: env.SLACK_SIGNING_SECRET_PREVIOUS,
   });
 }
 

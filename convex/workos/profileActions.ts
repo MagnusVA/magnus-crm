@@ -3,15 +3,15 @@
 import { WorkOS } from "@workos-inc/node";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { action } from "../_generated/server";
+import { action, env } from "../_generated/server";
 import {
   getCanonicalIdentityWorkosUserId,
   getRawWorkosUserId,
 } from "../lib/workosUserId";
 import { requireIdentity } from "../requireIdentity";
 
-const workos = new WorkOS(process.env.WORKOS_API_KEY!, {
-  clientId: process.env.WORKOS_CLIENT_ID!,
+const workos = new WorkOS(env.WORKOS_API_KEY, {
+  clientId: env.WORKOS_CLIENT_ID,
 });
 
 function getDisplayName(user: {

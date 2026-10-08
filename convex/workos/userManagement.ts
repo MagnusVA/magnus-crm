@@ -4,7 +4,7 @@ import { WorkOS } from "@workos-inc/node";
 import { ConvexError, v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
-import { action, type ActionCtx } from "../_generated/server";
+import { action, type ActionCtx, env } from "../_generated/server";
 import { getIdentityOrgId } from "../lib/identity";
 import { ADMIN_ROLES, mapCrmRoleToWorkosSlug } from "../lib/roleMapping";
 import { validateEmail, validateRequiredString } from "../lib/validation";
@@ -13,8 +13,8 @@ import {
 	getRawWorkosUserId,
 } from "../lib/workosUserId";
 
-const workos = new WorkOS(process.env.WORKOS_API_KEY!, {
-	clientId: process.env.WORKOS_CLIENT_ID!,
+const workos = new WorkOS(env.WORKOS_API_KEY, {
+	clientId: env.WORKOS_CLIENT_ID,
 });
 
 type TenantSummary = {
