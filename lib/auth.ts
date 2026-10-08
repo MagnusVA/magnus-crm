@@ -1,6 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { redirect } from "next/navigation";
+import { connection } from "next/server";
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { fetchAction, fetchQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
@@ -62,6 +63,10 @@ export type WorkspaceAccess =
  * Cached per-request via React's cache() function.
  */
 export const verifySession = cache(async (): Promise<VerifiedSession> => {
+  // withAuth unseals the session with iron-session, which checks expiry
+  // against Date.now(). Wait for the request so Cache Components doesn't
+  // flag that as an unstable value during prerendering.
+  await connection();
   const auth = await withAuth({ ensureSignedIn: true });
 
   if (!auth.user || !auth.accessToken || !auth.organizationId) {
