@@ -1,6 +1,10 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { mutation, type MutationCtx } from "../_generated/server";
+import {
+  internalMutation,
+  mutation,
+  type MutationCtx,
+} from "../_generated/server";
 import {
   addBusinessDays,
   businessDateToUtcStart,
@@ -177,9 +181,9 @@ function groupSubmissionsIntoTeamOriginStats(
   }));
 }
 
-// Temporary operational backfill: intentionally public/non-auth-gated so it can
-// be run from the Convex CLI during the Lead Gen Ops rollout.
-export const backfillUnassignedWorkersToTeam = mutation({
+// Temporary operational backfill for the Lead Gen Ops rollout. Run it with
+// `npx convex run leadGen/backfills:backfillUnassignedWorkersToTeam`.
+export const backfillUnassignedWorkersToTeam = internalMutation({
   args: {
     dryRun: v.boolean(),
     limit: v.optional(v.number()),

@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "../_generated/server";
+import { internalMutation, internalQuery } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { attributionPatch, isInternalUtm, resolveAttributionForTenant } from "../lib/attribution/resolveAttribution";
@@ -60,7 +60,7 @@ async function latestSoldProgramForOpportunity(
   return payments.find((payment) => payment.status !== "disputed");
 }
 
-export const backfillMeetingAttribution = mutation({
+export const backfillMeetingAttribution = internalMutation({
   args: {
     dryRun: v.boolean(),
     limit: v.optional(v.number()),
@@ -133,7 +133,7 @@ export const backfillMeetingAttribution = mutation({
   },
 });
 
-export const backfillOpportunityAttribution = mutation({
+export const backfillOpportunityAttribution = internalMutation({
   args: {
     dryRun: v.boolean(),
     limit: v.optional(v.number()),
@@ -237,7 +237,7 @@ export const backfillOpportunityAttribution = mutation({
   },
 });
 
-export const verifyAttributionBackfill = query({
+export const verifyAttributionBackfill = internalQuery({
   args: {
     limit: v.optional(v.number()),
   },
