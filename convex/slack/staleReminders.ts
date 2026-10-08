@@ -42,7 +42,7 @@ export const maybeRun = internalAction({
 
     if (hourInNY !== 8) return;
 
-    console.log("[Slack:Stale] cron fired (08:00 NY)");
+    console.log("[Slack:Stale] cron fired (8 AM NY)");
     await ctx.scheduler.runAfter(0, internal.slack.staleReminders.fanOut, {});
   },
 });

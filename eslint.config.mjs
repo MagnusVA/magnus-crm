@@ -1,3 +1,4 @@
+import convexPlugin from "@convex-dev/eslint-plugin";
 import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
@@ -18,6 +19,33 @@ const eslintConfig = defineConfig([
           ignoreRestSiblings: true,
         },
       ],
+    },
+  },
+  ...convexPlugin.configs.recommended,
+  {
+    files: ["convex/**/*.ts"],
+    languageOptions: {
+      // Type-aware rules (explicit-table-ids, no-collect-in-query) need type
+      // information; each file resolves to convex/tsconfig.json.
+      parserOptions: {
+        projectService: true,
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      "@convex-dev/no-filter-in-query": "error",
+      "@convex-dev/no-top-of-hour-crons": "error",
+      "@convex-dev/no-collect-in-query": "error",
+      "@convex-dev/explicit-table-ids": "off",
+      "@convex-dev/no-process-env": "off",
+      "@convex-dev/no-duplicate-indexes": "off",
+    },
+  },
+  {
+    // One-off migrations scan whole tables on purpose.
+    files: ["convex/admin/migrations.ts"],
+    rules: {
+      "@convex-dev/no-collect-in-query": "off",
     },
   },
   // Override default ignores of eslint-config-next.
