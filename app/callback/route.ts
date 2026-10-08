@@ -25,9 +25,9 @@ function getOnboardingOrgId(state: string | undefined) {
  * Detect whether this callback originated from a WorkOS invitation email
  * rather than from our app's normal sign-in / sign-up flow.
  *
- * Normal flow: getSignInUrl/getSignUpUrl stores a PKCE cookie
- * (`wos-auth-verifier`) and appends a `state` param. Both are expected
- * on the callback.
+ * Normal flow: getSignInUrl/getSignUpUrl stores a per-flow PKCE cookie
+ * (`wos-auth-verifier-<hash>`) and appends a `state` param. Both are
+ * expected on the callback.
  *
  * Invitation flow: The user clicks an email link that goes directly to
  * WorkOS AuthKit, so there is no app-generated `state` param to validate
@@ -40,6 +40,19 @@ function isInvitationCallback(request: NextRequest): boolean {
 
 	// Invitation callbacks arrive with a code but without app-managed state.
 	return hasCode && !hasState;
+}
+
+/**
+ * AuthKit names each PKCE verifier cookie `wos-auth-verifier-<hash>`, one per
+ * sign-in flow, so match on the prefix.
+ */
+const PKCE_COOKIE_PREFIX = "wos-auth-verifier";
+
+function getPkceCookieNames(request: NextRequest): string[] {
+	return request.cookies
+		.getAll()
+		.map((cookie) => cookie.name)
+		.filter((name) => name.startsWith(PKCE_COOKIE_PREFIX));
 }
 
 /**
@@ -117,7 +130,8 @@ async function handleInvitationCallback(
 ): Promise<NextResponse> {
 	const code = request.nextUrl.searchParams.get("code")!;
 	const workos = getWorkOS();
-	const hadPkceCookie = request.cookies.has("wos-auth-verifier");
+	const pkceCookieNames = getPkceCookieNames(request);
+	const hadPkceCookie = pkceCookieNames.length > 0;
 
 	console.log("[AuthDebug:Callback] invitation callback detected", {
 		code: `${code.slice(0, 8)}...`,
@@ -205,8 +219,10 @@ async function handleInvitationCallback(
 	const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 	const response = NextResponse.redirect(new URL("/workspace", appUrl));
 
-	// Clean up any stale PKCE verifier so it cannot interfere with later auth flows.
-	response.cookies.delete("wos-auth-verifier");
+	// Clean up any stale PKCE verifiers so they cannot interfere with later auth flows.
+	for (const name of pkceCookieNames) {
+		response.cookies.delete(name);
+	}
 
 	return response;
 }
@@ -218,33 +234,6 @@ async function handleInvitationCallback(
 const standardAuthHandler = handleAuth({
 	onSuccess: async ({ refreshToken, user, organizationId, state }) => {
 		const onboardingOrgId = getOnboardingOrgId(state);
-		// #region agent log
-		fetch(
-			"http://127.0.0.1:7558/ingest/9b7221bc-3886-480d-9572-12346f2530bc",
-			{
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					"X-Debug-Session-Id": "78a0ba",
-				},
-				body: JSON.stringify({
-					sessionId: "78a0ba",
-					runId: "initial",
-					hypothesisId: "H2",
-					location: "app/callback/route.ts:169",
-					message: "callback onSuccess received auth context",
-					data: {
-						hasRefreshToken: Boolean(refreshToken),
-						hasState: Boolean(state),
-						organizationId: organizationId ?? null,
-						onboardingOrgId: onboardingOrgId ?? null,
-						hasUser: Boolean(user),
-					},
-					timestamp: Date.now(),
-				}),
-			},
-		).catch(() => {});
-		// #endregion
 		console.log("[AuthDebug:Callback] onSuccess", {
 			userId: user.id,
 			email: user.email,

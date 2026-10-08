@@ -1,11 +1,12 @@
 /**
  * The project compiles with TypeScript 7 (native, tsgo), whose JS compiler
  * API is unavailable until TS 7.1. typescript-eslint still needs the JS API,
- * so pin the ESLint toolchain to a JS-based TypeScript 5.9 instance by
+ * so pin the ESLint toolchain to a JS-based TypeScript 6.0 instance (the newest
+ * version typescript-eslint accepts: `>=4.8.4 <6.1.0`) by
  * converting its `typescript` peer dependency into a regular dependency.
  * Remove this once typescript-eslint supports TypeScript 7.
  */
-const TS5_CONSUMERS = new Set([
+const TS6_CONSUMERS = new Set([
 	"@typescript-eslint/parser",
 	"@typescript-eslint/typescript-estree",
 	"@typescript-eslint/tsconfig-utils",
@@ -18,11 +19,11 @@ const TS5_CONSUMERS = new Set([
 ]);
 
 function readPackage(pkg) {
-	if (TS5_CONSUMERS.has(pkg.name)) {
+	if (TS6_CONSUMERS.has(pkg.name)) {
 		if (pkg.peerDependencies) {
 			delete pkg.peerDependencies.typescript;
 		}
-		pkg.dependencies = { ...pkg.dependencies, typescript: "5.9.3" };
+		pkg.dependencies = { ...pkg.dependencies, typescript: "6.0.3" };
 	}
 	return pkg;
 }

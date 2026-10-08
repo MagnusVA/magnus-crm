@@ -18,7 +18,7 @@ The package manager is pnpm. Install with `pnpm install`, and run scripts with `
 | `pnpm test` | Runs Vitest over `convex/**/*.test.ts` and `lib/operations-reports/**/*.test.ts` |
 | `pnpm expose` | Opens an ngrok tunnel from a fixed public URL to `localhost:3000` |
 
-TypeScript 7 has no JavaScript compiler API yet, so `.pnpmfile.cjs` pins the typescript-eslint packages to TypeScript 5.9.3. Keep that pin when upgrading dependencies, or `pnpm lint` breaks.
+TypeScript 7 has no JavaScript compiler API yet, so `.pnpmfile.cjs` pins the typescript-eslint packages to TypeScript 6.0.3, the newest version they accept. Keep that pin when upgrading dependencies, or `pnpm lint` breaks. Next.js and the Convex CLI both type-check with the TypeScript 7 `tsc`.
 
 The Convex CLI inspects backend state:
 
