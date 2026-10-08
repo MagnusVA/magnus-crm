@@ -44,7 +44,7 @@ async function getLinkedUserForWrite(
 ) {
   if (!userId) return null;
 
-  const user = await ctx.db.get(userId);
+  const user = await ctx.db.get("users", userId);
   if (!user || user.tenantId !== tenantId) {
     throw new Error("Linked user not found.");
   }
@@ -77,7 +77,7 @@ export const listDmClosers = query({
       ),
     ];
     const linkedUsers = await Promise.all(
-      linkedUserIds.map((userId) => ctx.db.get(userId)),
+      linkedUserIds.map((userId) => ctx.db.get("users", userId)),
     );
     const linkedUserById = new Map(
       linkedUsers
@@ -116,7 +116,7 @@ export const createDmCloser = mutation({
       "tenant_master",
       "tenant_admin",
     ]);
-    const team = await ctx.db.get(args.teamId);
+    const team = await ctx.db.get("attributionTeams", args.teamId);
     if (!team || team.tenantId !== tenantId) {
       throw new Error("Attribution team not found.");
     }
@@ -168,11 +168,11 @@ export const updateDmCloser = mutation({
       "tenant_master",
       "tenant_admin",
     ]);
-    const dmCloser = await ctx.db.get(args.dmCloserId);
+    const dmCloser = await ctx.db.get("dmClosers", args.dmCloserId);
     if (!dmCloser || dmCloser.tenantId !== tenantId) {
       throw new Error("DM closer not found.");
     }
-    const team = await ctx.db.get(args.teamId);
+    const team = await ctx.db.get("attributionTeams", args.teamId);
     if (!team || team.tenantId !== tenantId) {
       throw new Error("Attribution team not found.");
     }
@@ -199,7 +199,7 @@ export const updateDmCloser = mutation({
       throw new Error("An active DM closer already uses this UTM medium.");
     }
 
-    await ctx.db.patch(args.dmCloserId, {
+    await ctx.db.patch("dmClosers", args.dmCloserId, {
       teamId: args.teamId,
       slug: normalized.slug,
       displayName: normalized.displayName,
@@ -229,7 +229,7 @@ export const setDmCloserHourlyRate = mutation({
       "tenant_master",
       "tenant_admin",
     ]);
-    const dmCloser = await ctx.db.get(args.dmCloserId);
+    const dmCloser = await ctx.db.get("dmClosers", args.dmCloserId);
     if (!dmCloser || dmCloser.tenantId !== tenantId) {
       throw new Error("DM closer not found.");
     }
@@ -245,7 +245,7 @@ export const setDmCloserHourlyRate = mutation({
       );
     }
 
-    await ctx.db.patch(args.dmCloserId, {
+    await ctx.db.patch("dmClosers", args.dmCloserId, {
       hourlyRateMinor: args.hourlyRateMinor ?? undefined,
       updatedAt: Date.now(),
     });
@@ -263,11 +263,11 @@ export const setDmCloserActive = mutation({
       "tenant_master",
       "tenant_admin",
     ]);
-    const dmCloser = await ctx.db.get(dmCloserId);
+    const dmCloser = await ctx.db.get("dmClosers", dmCloserId);
     if (!dmCloser || dmCloser.tenantId !== tenantId) {
       throw new Error("DM closer not found.");
     }
-    await ctx.db.patch(dmCloserId, { isActive, updatedAt: Date.now() });
+    await ctx.db.patch("dmClosers", dmCloserId, { isActive, updatedAt: Date.now() });
     return dmCloserId;
   },
 });

@@ -32,7 +32,7 @@ export const convertLeadToCustomer = mutation({
       "tenant_admin",
     ]);
 
-    const opportunity = await ctx.db.get(args.winningOpportunityId);
+    const opportunity = await ctx.db.get("opportunities", args.winningOpportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
@@ -80,13 +80,13 @@ export const updateCustomerStatus = mutation({
       "tenant_admin",
     ]);
 
-    const customer = await ctx.db.get(args.customerId);
+    const customer = await ctx.db.get("customers", args.customerId);
     if (!customer || customer.tenantId !== tenantId) {
       throw new Error("Customer not found");
     }
 
     const now = Date.now();
-    await ctx.db.patch(args.customerId, {
+    await ctx.db.patch("customers", args.customerId, {
       status: args.status,
       churnedAt: args.status === "churned" ? now : undefined,
       pausedAt: args.status === "paused" ? now : undefined,
@@ -136,7 +136,7 @@ export const recordCustomerPayment = mutation({
       "tenant_admin",
     ]);
 
-    const customer = await ctx.db.get(args.customerId);
+    const customer = await ctx.db.get("customers", args.customerId);
     if (!customer || customer.tenantId !== tenantId) {
       throw new Error("Customer not found");
     }

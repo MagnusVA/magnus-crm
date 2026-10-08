@@ -188,11 +188,11 @@ async function enrichQualificationRows(
   const slackUserIds = [...new Set(rows.map((row) => row.slackUserId))];
 
   const [events, leads, teams, dmClosers, users, slackUsers] = await Promise.all([
-    Promise.all(eventIds.map((id) => ctx.db.get(id))),
-    Promise.all(leadIds.map((id) => ctx.db.get(id))),
-    Promise.all(teamIds.map((id) => ctx.db.get(id))),
-    Promise.all(dmCloserIds.map((id) => ctx.db.get(id))),
-    Promise.all(userIds.map((id) => ctx.db.get(id))),
+    Promise.all(eventIds.map((id) => ctx.db.get("slackQualificationEvents", id))),
+    Promise.all(leadIds.map((id) => ctx.db.get("leads", id))),
+    Promise.all(teamIds.map((id) => ctx.db.get("attributionTeams", id))),
+    Promise.all(dmCloserIds.map((id) => ctx.db.get("dmClosers", id))),
+    Promise.all(userIds.map((id) => ctx.db.get("users", id))),
     Promise.all(
       slackUserIds.map((slackUserId) =>
         ctx.db
@@ -233,7 +233,7 @@ async function enrichQualificationRows(
     const slackUser = slackUserBySlackId.get(row.slackUserId);
     const linkedDmCloserUserCandidate =
       dmCloser?.userId
-        ? (userById.get(dmCloser.userId) ?? await ctx.db.get(dmCloser.userId))
+        ? (userById.get(dmCloser.userId) ?? await ctx.db.get("users", dmCloser.userId))
         : undefined;
     const linkedDmCloserUser =
       linkedDmCloserUserCandidate?.tenantId === tenantId
@@ -384,7 +384,7 @@ export const listQualificationFilterOptions = query({
     const [programs, slackUsers, attributionTeams, dmClosers, closers] = await Promise.all([
       ctx.db
         .query("tenantPrograms")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+        .withIndex("by_tenantId_and_archivedAt", (q) => q.eq("tenantId", tenantId))
         .take(200),
       ctx.db
         .query("slackUsers")
@@ -421,7 +421,7 @@ export const listQualificationFilterOptions = query({
       dmClosers: await Promise.all(dmClosers
         .filter((closer) => closer.isActive)
         .map(async (closer) => {
-          const linkedUser = closer.userId ? await ctx.db.get(closer.userId) : null;
+          const linkedUser = closer.userId ? await ctx.db.get("users", closer.userId) : null;
           return {
             id: closer._id,
             name: closer.displayName,

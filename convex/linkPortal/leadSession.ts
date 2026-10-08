@@ -50,12 +50,12 @@ export async function requirePortalDmCloser(
     dmCloserId: Id<"dmClosers">;
   },
 ): Promise<Doc<"dmClosers">> {
-  const dmCloser = await ctx.db.get(args.dmCloserId);
+  const dmCloser = await ctx.db.get("dmClosers", args.dmCloserId);
   if (!dmCloser || dmCloser.tenantId !== args.tenantId || !dmCloser.isActive) {
     throw new Error("DM closer is not available.");
   }
 
-  const team = await ctx.db.get(dmCloser.teamId);
+  const team = await ctx.db.get("attributionTeams", dmCloser.teamId);
   if (!team || team.tenantId !== args.tenantId || !team.isActive) {
     throw new Error("Attribution team is not available.");
   }
@@ -74,7 +74,7 @@ export async function requirePortalLead(
     leadId: Id<"leads">;
   },
 ): Promise<Doc<"leads">> {
-  const lead = await ctx.db.get(args.leadId);
+  const lead = await ctx.db.get("leads", args.leadId);
   if (!lead || lead.tenantId !== args.tenantId || lead.status === "merged") {
     throw new Error("Lead is not available.");
   }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
@@ -59,14 +59,18 @@ export function DmCloserDialog({
   const createDmCloser = useMutation(api.attribution.dmClosers.createDmCloser);
   const updateDmCloser = useMutation(api.attribution.dmClosers.updateDmCloser);
 
-  useEffect(() => {
+  // Load the fields each time the dialog opens or targets another DM closer.
+  const sessionKey = open ? (dmCloser?._id ?? "new") : null;
+  const [loadedSessionKey, setLoadedSessionKey] = useState<string | null>(null);
+  if (sessionKey !== loadedSessionKey) {
+    setLoadedSessionKey(sessionKey);
     if (open) {
       setTeamId(dmCloser?.teamId ?? teams[0]?._id);
       setLinkedUserId(dmCloser?.userId ?? null);
       setDisplayName(dmCloser?.displayName ?? "");
       setUtmMedium(dmCloser?.utmMedium ?? "");
     }
-  }, [dmCloser, open, teams]);
+  }
 
   async function handleSave() {
     if (!teamId) {

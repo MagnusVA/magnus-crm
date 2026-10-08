@@ -39,7 +39,7 @@ async function resolveAssignedCloserId(
     )
     .unique();
   if (orgMember?.matchedUserId) {
-    const matchedUser = await ctx.db.get(orgMember.matchedUserId);
+    const matchedUser = await ctx.db.get("users", orgMember.matchedUserId);
     if (matchedUser?.role === "closer") {
       return matchedUser._id;
     }
@@ -125,7 +125,7 @@ export const repairAssignmentsFromCalendlyHosts = internalMutation({
       );
 
       const currentAssignedUser = opportunity.assignedCloserId
-        ? await ctx.db.get(opportunity.assignedCloserId)
+        ? await ctx.db.get("users", opportunity.assignedCloserId)
         : null;
       const hasInvalidAssignedCloser =
         Boolean(opportunity.assignedCloserId) &&
@@ -135,7 +135,7 @@ export const repairAssignmentsFromCalendlyHosts = internalMutation({
         continue;
       }
 
-      await ctx.db.patch(opportunity._id, {
+      await ctx.db.patch("opportunities", opportunity._id, {
         assignedCloserId,
         hostCalendlyUserUri: hostDetails?.hostCalendlyUserUri,
         hostCalendlyEmail: hostDetails?.hostCalendlyEmail,

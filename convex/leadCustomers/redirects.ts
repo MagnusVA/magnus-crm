@@ -13,11 +13,11 @@ export const resolveLeadRedirect = query({
 	args: { leadId: v.id("leads") },
 	handler: async (ctx, { leadId }) => {
 		const { tenantId } = await requireTenantUser(ctx, LEGACY_ROUTE_ROLES);
-		const lead = await ctx.db.get(leadId);
+		const lead = await ctx.db.get("leads", leadId);
 		if (!lead || lead.tenantId !== tenantId) return null;
 
 		if (lead.status === "merged" && lead.mergedIntoLeadId) {
-			const target = await ctx.db.get(lead.mergedIntoLeadId);
+			const target = await ctx.db.get("leads", lead.mergedIntoLeadId);
 			if (target?.tenantId === tenantId) return { leadId: target._id };
 			return null;
 		}
@@ -30,14 +30,14 @@ export const resolveCustomerRedirect = query({
 	args: { customerId: v.id("customers") },
 	handler: async (ctx, { customerId }) => {
 		const { tenantId } = await requireTenantUser(ctx, LEGACY_ROUTE_ROLES);
-		const customer = await ctx.db.get(customerId);
+		const customer = await ctx.db.get("customers", customerId);
 		if (!customer || customer.tenantId !== tenantId) return null;
 
-		const lead = await ctx.db.get(customer.leadId);
+		const lead = await ctx.db.get("leads", customer.leadId);
 		if (!lead || lead.tenantId !== tenantId) return null;
 
 		if (lead.status === "merged" && lead.mergedIntoLeadId) {
-			const target = await ctx.db.get(lead.mergedIntoLeadId);
+			const target = await ctx.db.get("leads", lead.mergedIntoLeadId);
 			if (target?.tenantId === tenantId) {
 				return { leadId: target._id, customerId: customer._id };
 			}
@@ -55,17 +55,17 @@ export const resolveOpportunityRedirect = query({
 			ctx,
 			LEGACY_ROUTE_ROLES,
 		);
-		const opportunity = await ctx.db.get(opportunityId);
+		const opportunity = await ctx.db.get("opportunities", opportunityId);
 		if (!opportunity || opportunity.tenantId !== tenantId) return null;
 
 		const isAdmin = role === "tenant_master" || role === "tenant_admin";
 		if (!isAdmin && opportunity.assignedCloserId !== userId) return null;
 
-		const lead = await ctx.db.get(opportunity.leadId);
+		const lead = await ctx.db.get("leads", opportunity.leadId);
 		if (!lead || lead.tenantId !== tenantId) return null;
 
 		if (lead.status === "merged" && lead.mergedIntoLeadId) {
-			const target = await ctx.db.get(lead.mergedIntoLeadId);
+			const target = await ctx.db.get("leads", lead.mergedIntoLeadId);
 			if (target?.tenantId === tenantId) {
 				return {
 					leadId: target._id,

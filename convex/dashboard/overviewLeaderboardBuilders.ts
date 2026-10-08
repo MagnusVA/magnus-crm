@@ -63,14 +63,14 @@ async function loadLeadGenWorkerSchedulesForTenant(
 ) {
   const workers = await ctx.db
     .query("leadGenWorkers")
-    .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+    .withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", tenantId))
     .take(LEAD_GEN_WORKER_REGISTRY_LIMIT);
 
   const schedules: Doc<"leadGenWorkerSchedules">[] = [];
   for (const worker of workers) {
     const rows = await ctx.db
       .query("leadGenWorkerSchedules")
-      .withIndex("by_tenantId_and_workerId", (q) =>
+      .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
         q.eq("tenantId", tenantId).eq("workerId", worker._id),
       )
       .take(7);
@@ -163,7 +163,7 @@ export async function buildLeadGenEfficiencyRows(
   }
   for (const workerId of candidateWorkerIds) {
     if (workerDocs.has(workerId)) continue;
-    const worker = await ctx.db.get(workerId);
+    const worker = await ctx.db.get("leadGenWorkers", workerId);
     if (worker && worker.tenantId === args.tenantId) {
       workerDocs.set(worker._id, worker);
     }
@@ -235,7 +235,7 @@ export async function buildQualifierEfficiencyRows(
       .take(SLACK_USER_REGISTRY_LIMIT),
     ctx.db
       .query("slackQualifierSchedules")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId))
+      .withIndex("by_tenantId_and_slackUserId_and_weekday", (q) => q.eq("tenantId", args.tenantId))
       .take(2_100),
     listQualificationEventsForRange(ctx, {
       tenantId: args.tenantId,
@@ -381,7 +381,7 @@ export async function buildDmCloserEfficiencyRows(
     readLiveQueryRows(
       ctx.db
         .query("dmCloserSchedules")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)),
+        .withIndex("by_tenantId_and_dmCloserId_and_weekday", (q) => q.eq("tenantId", args.tenantId)),
       2_100,
     ),
   ]);
@@ -429,7 +429,7 @@ export async function buildDmCloserEfficiencyRows(
 
   const missingCloserScan = await readLiveDocuments(
     [...candidateDmCloserIds].filter((id) => !dmCloserById.has(id)),
-    async (id) => await ctx.db.get(id),
+    async (id) => await ctx.db.get("dmClosers", id),
   );
   if (missingCloserScan.capped) {
     return { rows: [], truncated: true, bookedByTeam: byAttributionTeam };
@@ -439,7 +439,7 @@ export async function buildDmCloserEfficiencyRows(
   }
   const teamScan = await readLiveDocuments(
     [...new Set([...dmCloserById.values()].map((closer) => closer.teamId))],
-    async (id) => await ctx.db.get(id),
+    async (id) => await ctx.db.get("attributionTeams", id),
   );
   if (teamScan.capped) {
     return { rows: [], truncated: true, bookedByTeam: byAttributionTeam };
@@ -547,7 +547,7 @@ async function applySearchFilterForLeadGen(
   const emailByWorkerId = new Map<Id<"leadGenWorkers">, string | null>();
   for (const row of rows) {
     if (emailByWorkerId.has(row.workerId)) continue;
-    const worker = await ctx.db.get(row.workerId);
+    const worker = await ctx.db.get("leadGenWorkers", row.workerId);
     emailByWorkerId.set(
       row.workerId,
       worker && worker.tenantId === tenantId ? (worker.email ?? null) : null,

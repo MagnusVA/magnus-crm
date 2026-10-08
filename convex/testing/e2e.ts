@@ -150,7 +150,7 @@ export const getBookingResultByInviteeEmail = internalQuery({
 			.sort((a, b) => b._creationTime - a._creationTime)[0] ?? null;
 
 		const assignedCloser = opportunity.assignedCloserId
-			? await ctx.db.get(opportunity.assignedCloserId)
+			? await ctx.db.get("users", opportunity.assignedCloserId)
 			: null;
 
 		return {
@@ -205,7 +205,7 @@ export const getBookingResultByInviteeEmail = internalQuery({
 export const getOpportunitySnapshot = internalQuery({
 	args: { opportunityId: v.id("opportunities") },
 	handler: async (ctx, { opportunityId }) => {
-		const opportunity = await ctx.db.get(opportunityId);
+		const opportunity = await ctx.db.get("opportunities", opportunityId);
 		if (!opportunity) return null;
 
 		const meetings = await ctx.db
@@ -217,14 +217,14 @@ export const getOpportunitySnapshot = internalQuery({
 
 		const followUps = await ctx.db
 			.query("followUps")
-			.withIndex("by_opportunityId", (q) =>
+			.withIndex("by_opportunityId_and_status_and_reason", (q) =>
 				q.eq("opportunityId", opportunity._id),
 			)
 			.take(20);
 
 		const payments = await ctx.db
 			.query("paymentRecords")
-			.withIndex("by_opportunityId", (q) =>
+			.withIndex("by_opportunityId_and_recordedAt", (q) =>
 				q.eq("opportunityId", opportunity._id),
 			)
 			.take(20);
@@ -299,10 +299,10 @@ export const getOpportunitySnapshot = internalQuery({
 export const getMeetingSnapshot = internalQuery({
 	args: { meetingId: v.id("meetings") },
 	handler: async (ctx, { meetingId }) => {
-		const meeting = await ctx.db.get(meetingId);
+		const meeting = await ctx.db.get("meetings", meetingId);
 		if (!meeting) return null;
 
-		const opportunity = await ctx.db.get(meeting.opportunityId);
+		const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
 
 		return {
 			meeting: {

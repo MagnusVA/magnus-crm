@@ -26,7 +26,7 @@ export const expireReadyJobs = internalMutation({
     let expired = 0;
     for (const job of jobs) {
       if (job.status !== "ready") continue;
-      await ctx.db.patch(job._id, {
+      await ctx.db.patch("operationsReportJobs", job._id, {
         status: "expired",
         phase: "cleanup",
         cleanupPending: true,
@@ -60,7 +60,7 @@ export const reconcileOrphanReservations = internalMutation({
     // Lease expiry cannot prove that an in-flight storage upload has finished.
     const settleAt = artifact.reservedAt + REPORT_UPLOAD_SETTLE_MS;
     if (settleAt > now) {
-      await ctx.db.patch(artifact._id, {
+      await ctx.db.patch("operationsReportArtifacts", artifact._id, {
         reservationExpiresAt: settleAt,
         reconciliationCursor: undefined,
         updatedAt: now,
@@ -68,14 +68,14 @@ export const reconcileOrphanReservations = internalMutation({
       return { examined: 1, progressed: true };
     }
 
-    const job = await ctx.db.get(artifact.jobId);
+    const job = await ctx.db.get("operationsReportJobs", artifact.jobId);
     if (
       job &&
       (job.status === "running" || job.status === "rendering") &&
       job.leaseExpiresAt !== undefined &&
       job.leaseExpiresAt > now
     ) {
-      await ctx.db.patch(artifact._id, {
+      await ctx.db.patch("operationsReportArtifacts", artifact._id, {
         reservationExpiresAt: job.leaseExpiresAt + 1_000,
         updatedAt: now,
       });
@@ -118,7 +118,7 @@ export const reconcileOrphanReservations = internalMutation({
     }
 
     if (preservePrimary && primaryStorageId !== undefined) {
-      await ctx.db.patch(artifact._id, {
+      await ctx.db.patch("operationsReportArtifacts", artifact._id, {
         state: "attached",
         storageId: primaryStorageId,
         byteSize: artifact.expectedByteSize,
@@ -128,7 +128,7 @@ export const reconcileOrphanReservations = internalMutation({
         updatedAt: now,
       });
       if (attachedByReconciliation && job) {
-        await ctx.db.patch(job._id, {
+        await ctx.db.patch("operationsReportJobs", job._id, {
           artifactCount: job.artifactCount + 1,
         });
       }
@@ -136,9 +136,9 @@ export const reconcileOrphanReservations = internalMutation({
     }
 
     if (page.isDone) {
-      await ctx.db.delete(artifact._id);
+      await ctx.db.delete("operationsReportArtifacts", artifact._id);
     } else {
-      await ctx.db.patch(artifact._id, {
+      await ctx.db.patch("operationsReportArtifacts", artifact._id, {
         reconciliationCursor: page.continueCursor,
         updatedAt: now,
       });
@@ -152,7 +152,7 @@ export const cleanupTerminalJobs = internalMutation({
   returns: v.object({ examined: v.number(), deletedChildren: v.number() }),
   handler: async (ctx, args) => {
     const now = Date.now();
-    const job = args.jobId ? await ctx.db.get(args.jobId) : await ctx.db
+    const job = args.jobId ? await ctx.db.get("operationsReportJobs", args.jobId) : await ctx.db
       .query("operationsReportJobs")
       .withIndex("by_cleanupPending_and_cleanupNextAttemptAt", (q) =>
         q
@@ -175,7 +175,7 @@ export const cleanupTerminalJobs = internalMutation({
           try {
             await ctx.storage.delete(artifact.storageId);
           } catch (error) {
-            await ctx.db.patch(artifact._id, {
+            await ctx.db.patch("operationsReportArtifacts", artifact._id, {
               state: "delete_failed",
               deleteAttempts: artifact.deleteAttempts + 1,
               lastDeleteError: sanitizeDeleteError(error),
@@ -184,34 +184,34 @@ export const cleanupTerminalJobs = internalMutation({
             continue;
           }
         }
-        await ctx.db.delete(artifact._id);
+        await ctx.db.delete("operationsReportArtifacts", artifact._id);
         deleted += 1;
       }
       if (deleted === 0) {
-        await ctx.db.patch(job._id, { cleanupNextAttemptAt: now + 60_000 });
+        await ctx.db.patch("operationsReportJobs", job._id, { cleanupNextAttemptAt: now + 60_000 });
       }
       return { examined: 1, deletedChildren: deleted };
     }
 
     const rows = await ctx.db
       .query("operationsReportRows")
-      .withIndex("by_jobId", (q) => q.eq("jobId", job._id))
+      .withIndex("by_jobId_and_section_and_rowKey", (q) => q.eq("jobId", job._id))
       .take(REPORT_CLEANUP_BATCH_SIZE);
     if (rows.length > 0) {
-      for (const row of rows) await ctx.db.delete(row._id);
+      for (const row of rows) await ctx.db.delete("operationsReportRows", row._id);
       return { examined: 1, deletedChildren: rows.length };
     }
 
     const checkpoints = await ctx.db
       .query("operationsReportCheckpoints")
-      .withIndex("by_jobId", (q) => q.eq("jobId", job._id))
+      .withIndex("by_jobId_and_sourceKey", (q) => q.eq("jobId", job._id))
       .take(REPORT_CLEANUP_BATCH_SIZE);
     if (checkpoints.length > 0) {
-      for (const checkpoint of checkpoints) await ctx.db.delete(checkpoint._id);
+      for (const checkpoint of checkpoints) await ctx.db.delete("operationsReportCheckpoints", checkpoint._id);
       return { examined: 1, deletedChildren: checkpoints.length };
     }
 
-    await ctx.db.patch(job._id, {
+    await ctx.db.patch("operationsReportJobs", job._id, {
       cleanupPending: false,
       cleanupNextAttemptAt: undefined,
       cleanupCompletedAt: now,
@@ -239,7 +239,7 @@ export const purgeExpiredMetadata = internalMutation({
       if (job.cleanupPending || job.cleanupCompletedAt === undefined) continue;
       const child = await firstJobChild(ctx, job._id);
       if (child) continue;
-      await ctx.db.delete(job._id);
+      await ctx.db.delete("operationsReportJobs", job._id);
       purged += 1;
     }
     return { examined: jobs.length, purged };
@@ -276,12 +276,12 @@ async function firstJobChild(
   if (artifact) return true;
   const row = await ctx.db
     .query("operationsReportRows")
-    .withIndex("by_jobId", (q) => q.eq("jobId", jobId))
+    .withIndex("by_jobId_and_section_and_rowKey", (q) => q.eq("jobId", jobId))
     .first();
   if (row) return true;
   const checkpoint = await ctx.db
     .query("operationsReportCheckpoints")
-    .withIndex("by_jobId", (q) => q.eq("jobId", jobId))
+    .withIndex("by_jobId_and_sourceKey", (q) => q.eq("jobId", jobId))
     .first();
   return Boolean(checkpoint);
 }

@@ -7,6 +7,7 @@ import {
   getCanonicalIdentityWorkosUserId,
   getWorkosUserIdCandidates,
 } from "../lib/workosUserId";
+import { requireIdentity } from "../requireIdentity";
 import { internal } from "../_generated/api";
 
 export const redeemInviteAndCreateUser = mutation({
@@ -23,11 +24,7 @@ export const redeemInviteAndCreateUser = mutation({
     }
 
     const normalizedWorkosOrgId = workosOrgId.trim();
-    const identity = await ctx.auth.getUserIdentity();
-    console.log("[Onboarding] identity check", { hasIdentity: !!identity });
-    if (!identity) {
-      throw new Error("Not authenticated");
-    }
+    const identity = await requireIdentity(ctx);
 
     const workosUserId = getCanonicalIdentityWorkosUserId(identity) ?? "";
     const userIdValidation = validateRequiredString(workosUserId, {
@@ -97,7 +94,7 @@ export const redeemInviteAndCreateUser = mutation({
         userPatch.deletedAt = undefined;
       }
       if (Object.keys(userPatch).length > 0) {
-        await ctx.db.patch(existingUser._id, userPatch);
+        await ctx.db.patch("users", existingUser._id, userPatch);
       }
     }
 
@@ -120,7 +117,7 @@ export const redeemInviteAndCreateUser = mutation({
 
     if (Object.keys(tenantPatch).length > 0) {
       console.log("[Onboarding] patching tenant", { tenantId: tenant._id, patchKeys: Object.keys(tenantPatch) });
-      await ctx.db.patch(tenant._id, tenantPatch);
+      await ctx.db.patch("tenants", tenant._id, tenantPatch);
     }
 
     if (tenant.status === "pending_signup" || tenant.tenantOwnerId !== userId) {

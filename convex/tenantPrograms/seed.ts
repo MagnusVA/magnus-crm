@@ -11,12 +11,12 @@ export const ensureInitialProgramForTenant = internalMutation({
     defaultCurrency: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const tenant = await ctx.db.get(args.tenantId);
+    const tenant = await ctx.db.get("tenants", args.tenantId);
     if (!tenant) {
       throw new Error("Tenant not found");
     }
 
-    const creator = await ctx.db.get(args.createdByUserId);
+    const creator = await ctx.db.get("users", args.createdByUserId);
     if (!creator || creator.tenantId !== args.tenantId) {
       throw new Error("Program creator not found");
     }

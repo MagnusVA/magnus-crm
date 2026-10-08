@@ -30,6 +30,22 @@ import type { DataModel } from "./dataModel.js";
 type Env = {
   readonly CONVEX_CLOUD_URL: string;
   readonly CONVEX_SITE_URL: string;
+  readonly APP_URL: string | undefined;
+  readonly CALENDLY_CLIENT_ID: string;
+  readonly CALENDLY_CLIENT_SECRET: string;
+  readonly INVITE_SIGNING_SECRET: string;
+  readonly LINK_PORTAL_PASSWORD_PEPPER: string | undefined;
+  readonly LINK_PORTAL_SESSION_SECRET: string | undefined;
+  readonly NEXT_PUBLIC_APP_URL: string | undefined;
+  readonly SLACK_CLIENT_ID: string | undefined;
+  readonly SLACK_CLIENT_SECRET: string | undefined;
+  readonly SLACK_REDIRECT_URI: string | undefined;
+  readonly SLACK_SIGNING_SECRET: string | undefined;
+  readonly SLACK_SIGNING_SECRET_PREVIOUS: string | undefined;
+  readonly SLACK_STATE_SIGNING_SECRET: string | undefined;
+  readonly SYSTEM_ADMIN_ORG_ID: string;
+  readonly WORKOS_API_KEY: string;
+  readonly WORKOS_CLIENT_ID: string;
 };
 
 /**

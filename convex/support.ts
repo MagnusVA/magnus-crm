@@ -31,6 +31,7 @@ function optionalText(value: string | undefined, label: string, maxLength: numbe
   return trimmed;
 }
 
+// eslint-disable-next-line @convex-dev/require-access-control -- public support form; a honeypot field and length limits guard it
 export const submitSupportRequest = mutation({
   args: {
     name: v.string(),

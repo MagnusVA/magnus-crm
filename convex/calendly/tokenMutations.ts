@@ -12,7 +12,7 @@ export const acquireTokenRefreshLock = internalMutation({
     console.log(
       `[token-refresh] acquireTokenRefreshLock: attempting for tenant ${tenantId}, lockUntil=${new Date(lockUntil).toISOString()}`,
     );
-    const tenant = await ctx.db.get(tenantId);
+    const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant) {
       console.error(
         `[token-refresh] acquireTokenRefreshLock: tenant ${tenantId} not found`,

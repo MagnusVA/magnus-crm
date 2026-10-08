@@ -30,7 +30,7 @@ export const patchCurrentProfile = internalMutation({
       return null;
     }
 
-    await ctx.db.patch(user._id, {
+    await ctx.db.patch("users", user._id, {
       email: args.email.trim().toLowerCase(),
       fullName: args.fullName ?? user.fullName,
       profilePictureUrl: args.profilePictureUrl?.trim() || undefined,
@@ -53,7 +53,7 @@ export const patchBackfilledProfile = internalMutation({
     dryRun: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const user = await ctx.db.get(args.userId);
+    const user = await ctx.db.get("users", args.userId);
     if (
       !user ||
       user.isActive === false ||
@@ -73,7 +73,7 @@ export const patchBackfilledProfile = internalMutation({
       } as const;
     }
 
-    await ctx.db.patch(user._id, {
+    await ctx.db.patch("users", user._id, {
       profilePictureUrl,
       profilePictureSyncedAt: args.syncedAt,
     });

@@ -103,7 +103,7 @@ async function patchDailyStatCounters(
     throw new Error("Aggregate row not found for correction");
   }
 
-  await ctx.db.patch(stat._id, {
+  await ctx.db.patch("leadGenDailyStats", stat._id, {
     submissions: clampCounter(
       stat.submissions,
       args.submissionsDelta ?? 0,
@@ -147,7 +147,7 @@ async function patchOriginStatCounters(
     throw new Error("Origin aggregate row not found for correction");
   }
 
-  await ctx.db.patch(stat._id, {
+  await ctx.db.patch("leadGenOriginStats", stat._id, {
     submissions: clampCounter(
       stat.submissions,
       args.submissionsDelta ?? 0,
@@ -193,7 +193,7 @@ async function patchTeamOriginStatCounters(
     return;
   }
 
-  await ctx.db.patch(stat._id, {
+  await ctx.db.patch("leadGenTeamOriginStats", stat._id, {
     submissions: clampCounter(
       stat.submissions,
       args.submissionsDelta ?? 0,
@@ -464,7 +464,7 @@ export async function updateLeadGenDailyStats(
   });
 
   if (existing) {
-    await ctx.db.patch(existing._id, {
+    await ctx.db.patch("leadGenDailyStats", existing._id, {
       submissions: existing.submissions + 1,
       uniqueProspectsSubmitted:
         existing.uniqueProspectsSubmitted + (isUniqueForDay ? 1 : 0),
@@ -530,7 +530,7 @@ export async function updateLeadGenOriginStats(
     });
 
   if (existing) {
-    await ctx.db.patch(existing._id, {
+    await ctx.db.patch("leadGenOriginStats", existing._id, {
       submissions: existing.submissions + 1,
       uniqueProspectsSubmitted:
         existing.uniqueProspectsSubmitted +
@@ -593,7 +593,7 @@ export async function updateLeadGenTeamOriginStats(
     });
 
   if (existing) {
-    await ctx.db.patch(existing._id, {
+    await ctx.db.patch("leadGenTeamOriginStats", existing._id, {
       submissions: existing.submissions + 1,
       uniqueProspectsSubmitted:
         existing.uniqueProspectsSubmitted +

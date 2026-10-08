@@ -14,10 +14,13 @@ export function OpportunitySearchInput({
   onChange,
 }: OpportunitySearchInputProps) {
   const [draft, setDraft] = useState(value);
+  const [syncedValue, setSyncedValue] = useState(value);
 
-  useEffect(() => {
+  // Adopt external changes to the search value, such as a reset.
+  if (value !== syncedValue) {
+    setSyncedValue(value);
     setDraft(value);
-  }, [value]);
+  }
 
   useEffect(() => {
     const timeout = window.setTimeout(() => onChange(draft), 300);

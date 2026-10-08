@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import type { Id } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -78,13 +77,7 @@ export function RescheduleLinkDisplay({
  * Shown when opportunity.status === "reschedule_link_sent" but the closer
  * doesn't have the link URL in local state (navigated away and came back).
  */
-type RescheduleLinkSentBannerProps = {
-  opportunityId: Id<"opportunities">;
-};
-
-export function RescheduleLinkSentBanner({
-  opportunityId,
-}: RescheduleLinkSentBannerProps) {
+export function RescheduleLinkSentBanner() {
   return (
     <Alert className="border-blue-200 bg-blue-50 dark:border-blue-800/40 dark:bg-blue-950/20">
       <ClockIcon className="size-4 text-blue-600 dark:text-blue-400" />

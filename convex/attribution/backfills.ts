@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { mutation, query } from "../_generated/server";
+import { internalMutation, internalQuery } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { attributionPatch, isInternalUtm, resolveAttributionForTenant } from "../lib/attribution/resolveAttribution";
@@ -54,13 +54,13 @@ async function latestSoldProgramForOpportunity(
 ) {
   const payments = await ctx.db
     .query("paymentRecords")
-    .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunityId))
+    .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", opportunityId))
     .order("desc")
     .take(25);
   return payments.find((payment) => payment.status !== "disputed");
 }
 
-export const backfillMeetingAttribution = mutation({
+export const backfillMeetingAttribution = internalMutation({
   args: {
     dryRun: v.boolean(),
     limit: v.optional(v.number()),
@@ -85,9 +85,9 @@ export const backfillMeetingAttribution = mutation({
         if (meeting.utmTruncated) {
           tenantReport.truncatedUtmCount += 1;
         }
-        const opportunity = await ctx.db.get(meeting.opportunityId);
+        const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
         const config = opportunity?.eventTypeConfigId
-          ? await ctx.db.get(opportunity.eventTypeConfigId)
+          ? await ctx.db.get("eventTypeConfigs", opportunity.eventTypeConfigId)
           : null;
         const resolved = await resolveAttributionForTenant(ctx, {
           tenantId,
@@ -122,7 +122,7 @@ export const backfillMeetingAttribution = mutation({
         if (changed) {
           tenantReport.rowsChanged += 1;
           if (!dryRun) {
-            await ctx.db.patch(meeting._id, patch);
+            await ctx.db.patch("meetings", meeting._id, patch);
           }
         }
       }
@@ -133,7 +133,7 @@ export const backfillMeetingAttribution = mutation({
   },
 });
 
-export const backfillOpportunityAttribution = mutation({
+export const backfillOpportunityAttribution = internalMutation({
   args: {
     dryRun: v.boolean(),
     limit: v.optional(v.number()),
@@ -156,7 +156,7 @@ export const backfillOpportunityAttribution = mutation({
       for (const opportunity of opportunities) {
         tenantReport.rowsScanned += 1;
         const firstMeeting = opportunity.firstMeetingId
-          ? await ctx.db.get(opportunity.firstMeetingId)
+          ? await ctx.db.get("meetings", opportunity.firstMeetingId)
           : (
               await ctx.db
                 .query("meetings")
@@ -181,7 +181,7 @@ export const backfillOpportunityAttribution = mutation({
           tenantReport.truncatedUtmCount += 1;
         }
         const config = opportunity.eventTypeConfigId
-          ? await ctx.db.get(opportunity.eventTypeConfigId)
+          ? await ctx.db.get("eventTypeConfigs", opportunity.eventTypeConfigId)
           : null;
         const soldPayment = await latestSoldProgramForOpportunity(
           ctx,
@@ -225,7 +225,7 @@ export const backfillOpportunityAttribution = mutation({
         if (changed) {
           tenantReport.rowsChanged += 1;
           if (!dryRun) {
-            await ctx.db.patch(opportunity._id, patch);
+            await ctx.db.patch("opportunities", opportunity._id, patch);
             await rebuildQualificationRowsForOpportunity(ctx, opportunity._id);
           }
         }
@@ -237,7 +237,7 @@ export const backfillOpportunityAttribution = mutation({
   },
 });
 
-export const verifyAttributionBackfill = query({
+export const verifyAttributionBackfill = internalQuery({
   args: {
     limit: v.optional(v.number()),
   },

@@ -2,11 +2,11 @@
 
 import { WorkOS } from "@workos-inc/node";
 import { v } from "convex/values";
-import { internalAction } from "../_generated/server";
+import { internalAction, env } from "../_generated/server";
 import { getRawWorkosUserId } from "../lib/workosUserId";
 
-const workos = new WorkOS(process.env.WORKOS_API_KEY!, {
-  clientId: process.env.WORKOS_CLIENT_ID!,
+const workos = new WorkOS(env.WORKOS_API_KEY, {
+  clientId: env.WORKOS_CLIENT_ID,
 });
 
 /**

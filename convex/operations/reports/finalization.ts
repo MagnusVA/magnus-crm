@@ -15,7 +15,7 @@ export const readFinalizationPage = internalQuery({
   args: { jobId: v.id("operationsReportJobs"), section: v.string(), cursor: v.union(v.string(), v.null()) },
   returns: v.object({ rows: v.array(reportResultWriteValidator), contributions: v.array(reportContributionValidator), continueCursor: v.string(), isDone: v.boolean() }),
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId);
+    const job = await ctx.db.get("operationsReportJobs", args.jobId);
     if (!job) throw new Error("Report job not found.");
     // Four primary rows leave room for up to three related records per row.
     const page = await ctx.db.query("operationsReportRows")

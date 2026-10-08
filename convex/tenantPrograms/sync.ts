@@ -11,7 +11,7 @@ export const syncRenamedProgram = internalMutation({
     customerCursor: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const program = await ctx.db.get(args.programId);
+    const program = await ctx.db.get("tenantPrograms", args.programId);
     if (!program) {
       return { syncedPayments: 0, syncedCustomers: 0, hasMore: false };
     }
@@ -42,7 +42,7 @@ export const syncRenamedProgram = internalMutation({
       if (payment.programName === program.name) {
         continue;
       }
-      await ctx.db.patch(payment._id, {
+      await ctx.db.patch("paymentRecords", payment._id, {
         programName: program.name,
       });
       syncedPayments += 1;
@@ -53,7 +53,7 @@ export const syncRenamedProgram = internalMutation({
       if (customer.programName === program.name) {
         continue;
       }
-      await ctx.db.patch(customer._id, {
+      await ctx.db.patch("customers", customer._id, {
         programName: program.name,
       });
       syncedCustomers += 1;

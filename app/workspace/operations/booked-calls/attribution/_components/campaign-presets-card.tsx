@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { PencilIcon, PlusIcon, StarIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -44,7 +44,7 @@ export function CampaignPresetsCard() {
   const setDefault = useMutation(
     api.linkPortal.campaignMutations.setCampaignPresetDefault,
   );
-  const [seedRequested, setSeedRequested] = useState(false);
+  const seedRequestedRef = useRef(false);
   const [pendingCampaignId, setPendingCampaignId] =
     useState<Id<"linkPortalCampaignPresets"> | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -52,10 +52,10 @@ export function CampaignPresetsCard() {
     useState<CampaignPreset | null>(null);
 
   useEffect(() => {
-    if (campaigns === undefined || seedRequested) {
+    if (campaigns === undefined || seedRequestedRef.current) {
       return;
     }
-    setSeedRequested(true);
+    seedRequestedRef.current = true;
     void ensureDefaults({}).catch((error) => {
       toast.error(
         error instanceof Error
@@ -63,7 +63,7 @@ export function CampaignPresetsCard() {
           : "Could not seed campaign presets",
       );
     });
-  }, [campaigns, ensureDefaults, seedRequested]);
+  }, [campaigns, ensureDefaults]);
 
   if (campaigns === undefined) {
     return <Skeleton className="h-72 w-full" />;

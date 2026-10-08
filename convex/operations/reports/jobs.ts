@@ -13,7 +13,10 @@ import {
   type QueryCtx,
 } from "../../_generated/server";
 import { releaseAdmission, scheduleWorker } from "./admission";
-import { requireTenantUser } from "../../requireTenantUser";
+import {
+  requireTenantUser,
+  type TenantUserResult,
+} from "../../requireTenantUser";
 import {
   REPORT_DEFINITION_VERSION,
   REPORT_JOB_METADATA_RETENTION_MS,
@@ -160,14 +163,16 @@ export const requestDashboardReport = mutation({
     requestToken: v.string(),
   },
   returns: requestResultValidator,
-  handler: async (ctx, args) =>
-    await requestReport(ctx, {
+  handler: async (ctx, args) => {
+    const auth = await requireTenantUser(ctx, [...ADMIN_ROLES]);
+    return await requestReport(ctx, auth, {
       purpose: "dashboard",
       reportKind: args.reportKind,
       range: args.range,
       sourceFilter: args.sourceFilter ?? "all",
       requestToken: args.requestToken,
-    }),
+    });
+  },
 });
 
 export const requestExport = mutation({
@@ -179,15 +184,17 @@ export const requestExport = mutation({
     requestToken: v.string(),
   },
   returns: requestResultValidator,
-  handler: async (ctx, args) =>
-    await requestReport(ctx, {
+  handler: async (ctx, args) => {
+    const auth = await requireTenantUser(ctx, [...ADMIN_ROLES]);
+    return await requestReport(ctx, auth, {
       purpose: "export",
       reportKind: args.reportKind,
       format: args.format,
       range: args.range,
       sourceFilter: args.sourceFilter ?? "all",
       requestToken: args.requestToken,
-    }),
+    });
+  },
 });
 
 export const getReportJob = query({
@@ -324,7 +331,7 @@ export const requestReportDownload = mutation({
     ) {
       throw new Error("This report download is no longer available.");
     }
-    const artifact = await ctx.db.get(args.artifactId);
+    const artifact = await ctx.db.get("operationsReportArtifacts", args.artifactId);
     if (
       !artifact ||
       artifact.jobId !== job._id ||
@@ -361,7 +368,7 @@ export const cancelReport = mutation({
     }
     const now = Date.now();
     await releaseAdmission(ctx, job);
-    await ctx.db.patch(job._id, {
+    await ctx.db.patch("operationsReportJobs", job._id, {
       status: "canceled",
       phase: "cleanup",
       canceledAt: now,
@@ -384,7 +391,7 @@ export const getJobState = internalQuery({
   args: { jobId: v.id("operationsReportJobs") },
   returns: v.union(v.null(), reportJobInternalValidator),
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId);
+    const job = await ctx.db.get("operationsReportJobs", args.jobId);
     return job ? toInternalJob(job) : null;
   },
 });
@@ -410,7 +417,7 @@ export const listResultRowsInternal = internalQuery({
   },
   returns: paginationResultValidator(resultRowValidator),
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId);
+    const job = await ctx.db.get("operationsReportJobs", args.jobId);
     if (!job) {
       throw new Error("Report job not found.");
     }
@@ -489,7 +496,7 @@ export const claimJob = internalMutation({
   ),
   handler: async (ctx, args) => {
     const workerId = assertBoundedIdentifier(args.workerId, "Worker ID");
-    const job = await ctx.db.get(args.jobId);
+    const job = await ctx.db.get("operationsReportJobs", args.jobId);
     if (!job || job.status !== "queued") {
       return { kind: "skip" as const, reason: "Job is not queued." };
     }
@@ -537,7 +544,7 @@ export const claimJob = internalMutation({
       job.phase === "rendering"
         ? ("rendering" as const)
         : ("running" as const);
-    await ctx.db.patch(job._id, {
+    await ctx.db.patch("operationsReportJobs", job._id, {
       status,
       phase: job.phase === "queued" ? "reading" : job.phase,
       startedAt: job.startedAt ?? now,
@@ -567,7 +574,7 @@ export const heartbeatLease = internalMutation({
   },
   returns: v.object({ renewed: v.boolean(), leaseExpiresAt: v.optional(v.number()) }),
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId);
+    const job = await ctx.db.get("operationsReportJobs", args.jobId);
     const now = Date.now();
     if (!job || !hasActiveLease(job, { ...args, now })) {
       return { renewed: false };
@@ -578,7 +585,7 @@ export const heartbeatLease = internalMutation({
     }
     if (job.leaseExpiresAt! - now > 60_000) return { renewed: true, leaseExpiresAt: job.leaseExpiresAt };
     const leaseExpiresAt = now + REPORT_LEASE_MS;
-    await ctx.db.patch(job._id, {
+    await ctx.db.patch("operationsReportJobs", job._id, {
       leaseExpiresAt,
     });
     return { renewed: true, leaseExpiresAt };
@@ -605,7 +612,7 @@ export const commitCheckpoint = internalMutation({
     assertNonNegativeInteger(args.rowsProcessed, "Rows processed");
     const commitKey = assertBoundedIdentifier(args.commitKey, "Commit key");
     const sourceKey = assertBoundedIdentifier(args.sourceKey, "Source key");
-    const job = await ctx.db.get(args.jobId);
+    const job = await ctx.db.get("operationsReportJobs", args.jobId);
     const now = Date.now();
     if (!job || !hasActiveLease(job, { ...args, now })) {
       return staleCommit(job, "Worker does not hold the active lease.");
@@ -632,7 +639,7 @@ export const commitCheckpoint = internalMutation({
       updatedAt: now,
     };
     if (checkpoint) {
-      await ctx.db.patch(checkpoint._id, checkpointPatch);
+      await ctx.db.patch("operationsReportCheckpoints", checkpoint._id, checkpointPatch);
     } else {
       await ctx.db.insert("operationsReportCheckpoints", {
         tenantId: job.tenantId,
@@ -644,7 +651,7 @@ export const commitCheckpoint = internalMutation({
     const scheduledFunctionId = args.scheduleNext
       ? await scheduleWorker(ctx, job._id)
       : undefined;
-    await ctx.db.patch(job._id, {
+    await ctx.db.patch("operationsReportJobs", job._id, {
       checkpointSequence: sequence,
       rowsProcessed: job.rowsProcessed + args.rowsProcessed,
       pagesProcessed: job.pagesProcessed + 1,
@@ -680,7 +687,7 @@ export const commitResultRows = internalMutation({
     assertBatchSize(args.contributions ?? [], "Finalizer contribution batch");
     const commitKey = assertBoundedIdentifier(args.commitKey, "Commit key");
     const sourceKey = assertBoundedIdentifier(args.sourceKey, "Source key");
-    const job = await ctx.db.get(args.jobId);
+    const job = await ctx.db.get("operationsReportJobs", args.jobId);
     const now = Date.now();
     if (!job || !hasActiveLease(job, { ...args, now })) {
       return staleCommit(job, "Worker does not hold the active lease.");
@@ -708,7 +715,7 @@ export const commitResultRows = internalMutation({
       updatedAt: now,
     };
     if (checkpoint) {
-      await ctx.db.patch(checkpoint._id, checkpointPatch);
+      await ctx.db.patch("operationsReportCheckpoints", checkpoint._id, checkpointPatch);
     } else {
       await ctx.db.insert("operationsReportCheckpoints", {
         tenantId: job.tenantId,
@@ -720,7 +727,7 @@ export const commitResultRows = internalMutation({
     const scheduledFunctionId = args.scheduleNext
       ? await scheduleWorker(ctx, job._id)
       : undefined;
-    await ctx.db.patch(job._id, {
+    await ctx.db.patch("operationsReportJobs", job._id, {
       checkpointSequence: sequence,
       status: args.scheduleNext ? "queued" : job.status,
       phase: "reducing",
@@ -781,7 +788,7 @@ export const reserveArtifact = internalMutation({
     const mimeType = assertMimeType(args.mimeType);
     assertExpectedSha256(args.expectedSha256);
     const ownershipToken = assertOwnershipToken(args.ownershipToken);
-    const job = await ctx.db.get(args.jobId);
+    const job = await ctx.db.get("operationsReportJobs", args.jobId);
     const now = Date.now();
     if (!job || !hasActiveLease(job, { ...args, now })) {
       return staleCommit(job, "Worker does not hold the active lease.");
@@ -801,7 +808,7 @@ export const reserveArtifact = internalMutation({
         throw new Error("Artifact part was reserved with different content.");
       }
       // A replay may start another upload, so reopen and extend its ownership scan.
-      await ctx.db.patch(existing._id, {
+      await ctx.db.patch("operationsReportArtifacts", existing._id, {
         reservationExpiresAt: now + REPORT_UPLOAD_SETTLE_MS,
         reconciliationComplete: false,
         reconciliationCursor: undefined,
@@ -847,7 +854,7 @@ export const reserveArtifact = internalMutation({
     });
     const sequence = job.checkpointSequence + 1;
     await recordLifecycleCommit(ctx, job, args.commitKey, sequence, now);
-    await ctx.db.patch(job._id, { checkpointSequence: sequence });
+    await ctx.db.patch("operationsReportJobs", job._id, { checkpointSequence: sequence });
     return {
       kind: "reserved" as const,
       artifactId,
@@ -865,12 +872,12 @@ export const attachArtifact = internalMutation({
   },
   returns: commitResultValidator,
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId);
+    const job = await ctx.db.get("operationsReportJobs", args.jobId);
     const now = Date.now();
     if (!job || !hasActiveLease(job, { ...args, now })) {
       return staleCommit(job, "Worker does not hold the active lease.");
     }
-    const artifact = await ctx.db.get(args.artifactId);
+    const artifact = await ctx.db.get("operationsReportArtifacts", args.artifactId);
     if (!artifact || artifact.jobId !== job._id || artifact.tenantId !== job.tenantId) {
       throw new Error("Artifact reservation not found.");
     }
@@ -896,7 +903,7 @@ export const attachArtifact = internalMutation({
       throw new Error("Stored artifact does not match its reservation.");
     }
     const sequence = job.checkpointSequence + 1;
-    await ctx.db.patch(artifact._id, {
+    await ctx.db.patch("operationsReportArtifacts", artifact._id, {
       state: "attached",
       storageId: args.storageId,
       byteSize: metadata.size,
@@ -908,7 +915,7 @@ export const attachArtifact = internalMutation({
       updatedAt: now,
     });
     await recordLifecycleCommit(ctx, job, args.commitKey, sequence, now);
-    await ctx.db.patch(job._id, {
+    await ctx.db.patch("operationsReportJobs", job._id, {
       checkpointSequence: sequence,
       artifactCount: job.artifactCount + 1,
     });
@@ -924,7 +931,7 @@ export const completeJob = internalMutation({
   returns: commitResultValidator,
   handler: async (ctx, args) => {
     assertNonNegativeInteger(args.expectedArtifactCount, "Expected artifact count");
-    const job = await ctx.db.get(args.jobId);
+    const job = await ctx.db.get("operationsReportJobs", args.jobId);
     const now = Date.now();
     if (job?.status === "ready") {
       return {
@@ -953,7 +960,7 @@ export const completeJob = internalMutation({
     const expiresAt = now + REPORT_READY_LIFETIME_MS;
     await recordLifecycleCommit(ctx, job, args.commitKey, sequence, now);
     await releaseAdmission(ctx, job);
-    await ctx.db.patch(job._id, {
+    await ctx.db.patch("operationsReportJobs", job._id, {
       checkpointSequence: sequence,
       status: "ready",
       phase: "ready",
@@ -988,7 +995,7 @@ export const failJob = internalMutation({
   },
   returns: v.object({ failed: v.boolean() }),
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId);
+    const job = await ctx.db.get("operationsReportJobs", args.jobId);
     if (
       !job ||
       (job.status !== "running" && job.status !== "rendering") ||
@@ -1008,6 +1015,7 @@ export const failJob = internalMutation({
 
 async function requestReport(
   ctx: MutationCtx,
+  auth: TenantUserResult,
   args: {
     purpose: ReportPurpose;
     reportKind: ReportKind;
@@ -1017,7 +1025,6 @@ async function requestReport(
     requestToken: string;
   },
 ) {
-  const auth = await requireTenantUser(ctx, [...ADMIN_ROLES]);
   const requestToken = assertBoundedIdentifier(args.requestToken, "Request token");
   assertValidSourceFilter(args.reportKind, args.sourceFilter);
   if (args.format) {
@@ -1057,7 +1064,7 @@ async function requestReport(
   if (!admission) {
     const legacy = await listActiveJobsForTenant(ctx, auth.tenantId, 3);
     const id = await ctx.db.insert("operationsReportAdmission", { tenantId: auth.tenantId, slots: legacy.map(job => ({ jobId: job._id, userId: job.requestedByUserId, purpose: job.purpose, requestKey: job.requestKey })) });
-    admission = (await ctx.db.get(id))!;
+    admission = (await ctx.db.get("operationsReportAdmission", id))!;
   }
   const equivalent = admission.slots.find(slot => slot.userId === auth.userId && slot.requestKey === requestKey);
   if (equivalent) return { jobId: equivalent.jobId, requestKey };
@@ -1088,9 +1095,9 @@ async function requestReport(
     queuedAt: now,
     createdAt: now,
   });
-  await ctx.db.patch(admission._id, { slots: [...admission.slots, { jobId, userId: auth.userId, purpose: args.purpose, requestKey }] });
+  await ctx.db.patch("operationsReportAdmission", admission._id, { slots: [...admission.slots, { jobId, userId: auth.userId, purpose: args.purpose, requestKey }] });
   const scheduledFunctionId = await scheduleWorker(ctx, jobId);
-  await ctx.db.patch(jobId, { scheduledFunctionId });
+  await ctx.db.patch("operationsReportJobs", jobId, { scheduledFunctionId });
   console.log("[Operations:Reports] queued", {
     jobId,
     purpose: args.purpose,
@@ -1106,7 +1113,7 @@ async function requireOwnedJob(
   jobId: Id<"operationsReportJobs">,
 ) {
   const auth = await requireTenantUser(ctx, [...ADMIN_ROLES]);
-  const job = await ctx.db.get(jobId);
+  const job = await ctx.db.get("operationsReportJobs", jobId);
   if (
     !job ||
     job.tenantId !== auth.tenantId ||
@@ -1166,7 +1173,7 @@ async function transitionUnderLease(
   },
   patch: { status: "rendering"; phase: "rendering" },
 ) {
-  const job = await ctx.db.get(args.jobId);
+  const job = await ctx.db.get("operationsReportJobs", args.jobId);
   const now = Date.now();
   if (!job || !hasActiveLease(job, { ...args, now })) {
     return staleCommit(job, "Worker does not hold the active lease.");
@@ -1183,7 +1190,7 @@ async function transitionUnderLease(
   }
   const sequence = job.checkpointSequence + 1;
   await recordLifecycleCommit(ctx, job, args.commitKey, sequence, now);
-  await ctx.db.patch(job._id, { ...patch, checkpointSequence: sequence });
+  await ctx.db.patch("operationsReportJobs", job._id, { ...patch, checkpointSequence: sequence });
   return { kind: "committed" as const, sequence };
 }
 
@@ -1204,7 +1211,7 @@ async function recordLifecycleCommit(
     updatedAt: now,
   };
   if (checkpoint) {
-    await ctx.db.patch(checkpoint._id, patch);
+    await ctx.db.patch("operationsReportCheckpoints", checkpoint._id, patch);
   } else {
     await ctx.db.insert("operationsReportCheckpoints", {
       tenantId: job.tenantId,
@@ -1230,7 +1237,7 @@ async function markJobFailed(
   failure: { category: string; message: string; retryable: boolean },
 ) {
   await releaseAdmission(ctx, job);
-  await ctx.db.patch(job._id, {
+  await ctx.db.patch("operationsReportJobs", job._id, {
     status: "failed",
     phase: "cleanup",
     failure,
@@ -1257,7 +1264,7 @@ async function markJobCanceledForRevocation(
   now: number,
 ) {
   await releaseAdmission(ctx, job);
-  await ctx.db.patch(job._id, {
+  await ctx.db.patch("operationsReportJobs", job._id, {
     status: "canceled",
     phase: "cleanup",
     failure: {
@@ -1421,13 +1428,13 @@ export const updateExportProgress = internalMutation({
   args: { jobId: v.id("operationsReportJobs"), workerId: v.string(), leaseGeneration: v.number(), rowsProcessed: v.number(), pagesProcessed: v.number() },
   returns: v.object({ updated: v.boolean() }),
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId);
+    const job = await ctx.db.get("operationsReportJobs", args.jobId);
     if (!job || !hasActiveLease(job, { ...args, now: Date.now() })) return { updated: false };
     if (!(await ownerCanRunReport(ctx, job))) {
       await markJobCanceledForRevocation(ctx, job, Date.now());
       return { updated: false };
     }
-    await ctx.db.patch(job._id, { rowsProcessed: args.rowsProcessed, pagesProcessed: args.pagesProcessed });
+    await ctx.db.patch("operationsReportJobs", job._id, { rowsProcessed: args.rowsProcessed, pagesProcessed: args.pagesProcessed });
     return { updated: true };
   },
 });

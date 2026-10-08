@@ -134,11 +134,11 @@ it.each(["2026-09-15", "2026-09-30"])("matches live team rankings after the back
   });
   for (let step = 0; step < 30; step++) {
     await t.action(internal.operations.reports.worker.run, { jobId });
-    const job = await t.run(async (ctx) => await ctx.db.get(jobId));
+    const job = await t.run(async (ctx) => await ctx.db.get("operationsReportJobs", jobId));
     if (job?.status === "ready") break;
     expect(job?.status).toBe("queued");
   }
-  expect((await t.run(async (ctx) => await ctx.db.get(jobId)))?.status).toBe("ready");
+  expect((await t.run(async (ctx) => await ctx.db.get("operationsReportJobs", jobId)))?.status).toBe("ready");
   const rows = [];
   let cursor: string | null = null;
   for (;;) {

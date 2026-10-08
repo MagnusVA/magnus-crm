@@ -110,7 +110,7 @@ export const autoDistributeMeetings = mutation({
       "tenant_admin",
     ]);
 
-    const unavailability = await ctx.db.get(args.unavailabilityId);
+    const unavailability = await ctx.db.get("closerUnavailability", args.unavailabilityId);
     if (!unavailability || unavailability.tenantId !== tenantId) {
       throw new Error("Unavailability record not found");
     }
@@ -142,7 +142,7 @@ export const autoDistributeMeetings = mutation({
     }> = [];
 
     for (const meetingId of [...new Set(args.meetingIds)]) {
-      const meeting = await ctx.db.get(meetingId);
+      const meeting = await ctx.db.get("meetings", meetingId);
       if (!meeting || meeting.tenantId !== tenantId) {
         unassigned.push({
           meetingId,
@@ -159,7 +159,7 @@ export const autoDistributeMeetings = mutation({
         continue;
       }
 
-      const opportunity = await ctx.db.get(meeting.opportunityId);
+      const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
       if (!opportunity || opportunity.tenantId !== tenantId) {
         unassigned.push({
           meetingId,
@@ -234,7 +234,7 @@ export const autoDistributeMeetings = mutation({
         continue;
       }
 
-      const oldOpportunity = await ctx.db.get(meeting.opportunityId);
+      const oldOpportunity = await ctx.db.get("opportunities", meeting.opportunityId);
       if (!oldOpportunity || oldOpportunity.tenantId !== tenantId) {
         unassigned.push({
           meetingId: meeting.meetingId,
@@ -243,7 +243,7 @@ export const autoDistributeMeetings = mutation({
         continue;
       }
 
-      await ctx.db.patch(meeting.opportunityId, {
+      await ctx.db.patch("opportunities", meeting.opportunityId, {
         assignedCloserId: bestCandidate.closerId,
         updatedAt: now,
       });
@@ -257,7 +257,7 @@ export const autoDistributeMeetings = mutation({
         meeting.opportunityId,
         bestCandidate.closerId,
       );
-      await ctx.db.patch(meeting.meetingId, {
+      await ctx.db.patch("meetings", meeting.meetingId, {
         reassignedFromCloserId: meeting.fromCloserId,
       });
       await ctx.db.insert("meetingReassignments", {
@@ -316,17 +316,17 @@ export const manuallyResolveMeeting = mutation({
       "tenant_admin",
     ]);
 
-    const meeting = await ctx.db.get(args.meetingId);
+    const meeting = await ctx.db.get("meetings", args.meetingId);
     if (!meeting || meeting.tenantId !== tenantId) {
       throw new Error("Meeting not found");
     }
 
-    const opportunity = await ctx.db.get(meeting.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
 
-    const unavailability = await ctx.db.get(args.unavailabilityId);
+    const unavailability = await ctx.db.get("closerUnavailability", args.unavailabilityId);
     if (!unavailability || unavailability.tenantId !== tenantId) {
       throw new Error("Unavailability record not found");
     }
@@ -377,7 +377,7 @@ export const manuallyResolveMeeting = mutation({
         }
       }
 
-      await ctx.db.patch(opportunity._id, {
+      await ctx.db.patch("opportunities", opportunity._id, {
         assignedCloserId: targetCloser._id,
         updatedAt: now,
       });
@@ -387,7 +387,7 @@ export const manuallyResolveMeeting = mutation({
         opportunity._id,
         targetCloser._id,
       );
-      await ctx.db.patch(args.meetingId, {
+      await ctx.db.patch("meetings", args.meetingId, {
         reassignedFromCloserId: unavailability.closerId,
       });
       await ctx.db.insert("meetingReassignments", {
@@ -422,7 +422,7 @@ export const manuallyResolveMeeting = mutation({
     }
 
     if (meeting.status !== "canceled") {
-      await ctx.db.patch(args.meetingId, { status: "canceled" });
+      await ctx.db.patch("meetings", args.meetingId, { status: "canceled" });
       await replaceMeetingAggregate(ctx, meeting, args.meetingId);
       await updateOpportunityMeetingRefs(ctx, opportunity._id);
     }

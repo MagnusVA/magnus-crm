@@ -26,7 +26,7 @@ export const markLost = mutation({
     const now = Date.now();
     const isAdmin = role === "tenant_master" || role === "tenant_admin";
 
-    const opportunity = await ctx.db.get(opportunityId);
+    const opportunity = await ctx.db.get("opportunities", opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found.");
     }

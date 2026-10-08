@@ -117,6 +117,13 @@ export function ProgramFormDialog({
     },
   });
 
+  // Clear any previous error each time the dialog opens.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setSubmitError(null);
+  }
+
   // Externally controlled dialog — reset form state whenever it re-opens so
   // the fields always match the currently-targeted program.
   useEffect(() => {
@@ -126,7 +133,6 @@ export function ProgramFormDialog({
         description: program?.description ?? "",
         defaultCurrency: program?.defaultCurrency ?? NONE_CURRENCY,
       });
-      setSubmitError(null);
     }
   }, [open, program, form]);
 

@@ -9,7 +9,7 @@ export const getMember = internalQuery({
   args: { memberId: v.id("calendlyOrgMembers") },
   handler: async (ctx, { memberId }) => {
     console.log(`[org-sync] getMember: looking up memberId=${memberId}`);
-    const member = await ctx.db.get(memberId);
+    const member = await ctx.db.get("calendlyOrgMembers", memberId);
     console.log(`[org-sync] getMember: memberId=${memberId}, found=${Boolean(member)}`);
     return member;
   },
@@ -20,7 +20,7 @@ export const listMemberUserUrisForTenant = internalQuery({
   handler: async (ctx, { tenantId }) => {
     const members = await ctx.db
       .query("calendlyOrgMembers")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .withIndex("by_tenantId_and_calendlyUserUri", (q) => q.eq("tenantId", tenantId))
       .take(500);
 
     if (members.length >= 500) {

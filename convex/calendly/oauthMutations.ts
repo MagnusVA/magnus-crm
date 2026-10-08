@@ -117,7 +117,7 @@ export const clearTenantConnection = internalMutation({
       lastHealthCheckAt: undefined,
       webhookProvisioningStartedAt: undefined,
     });
-    await ctx.db.patch(tenantId, {
+    await ctx.db.patch("tenants", tenantId, {
       status,
     });
 

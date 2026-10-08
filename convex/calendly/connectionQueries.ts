@@ -5,7 +5,7 @@ import { getTenantCalendlyConnectionState } from "../lib/tenantCalendlyConnectio
 export const getTenantConnectionContext = internalQuery({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
-    const tenant = await ctx.db.get(tenantId);
+    const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant) {
       return null;
     }

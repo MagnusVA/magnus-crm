@@ -22,7 +22,7 @@ export const deleteExpiredEvents = internalMutation({
       .take(limit);
 
     for (const event of expired) {
-      await ctx.db.delete(event._id);
+      await ctx.db.delete("rawWebhookEvents", event._id);
     }
 
     console.log(`[webhook-cleanup] deleteExpiredEvents: deleted ${expired.length} events`);

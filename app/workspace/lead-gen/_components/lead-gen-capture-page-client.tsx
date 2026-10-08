@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  useMemo,
   useReducer,
   useState,
   type ComponentType,
@@ -212,7 +211,7 @@ function rankableOriginFromDetection(
 
 export function LeadGenCapturePageClient() {
   const submit = useMutation(api.leadGen.capture.submit);
-  const todayKey = useMemo(() => businessDayKey(Date.now()), []);
+  const [todayKey] = useState(() => businessDayKey(Date.now()));
   const daySummary = useQuery(api.leadGen.activity.getMyDaySummary, {
     dayKey: todayKey,
   });
@@ -321,6 +320,7 @@ export function LeadGenCapturePageClient() {
       setLastResult({
         duplicateProspect: result.duplicateProspect,
         duplicateRetry: result.duplicateRetry,
+        // eslint-disable-next-line react-hooks/purity -- runs on submit; the compiler can't see past form.handleSubmit
         submittedAt: Date.now(),
         prospectId: result.prospectId,
       });

@@ -59,7 +59,7 @@ export const updateSettings = mutation({
 
     const now = Date.now();
     if (existing) {
-      await ctx.db.patch(existing._id, { ...args, updatedAt: now });
+      await ctx.db.patch("leadGenSettings", existing._id, { ...args, updatedAt: now });
       return existing._id;
     }
 

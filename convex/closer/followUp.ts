@@ -7,6 +7,7 @@ import { internal } from "../_generated/api";
 import { getValidAccessToken } from "../calendly/tokens";
 import { validateTransition } from "../lib/statusTransitions";
 import { getIdentityOrgId } from "../lib/identity";
+import { requireIdentity } from "../requireIdentity";
 
 type SchedulingLinkPayload = {
   resource?: {
@@ -52,10 +53,7 @@ export const createFollowUp = action({
   ): Promise<{ bookingUrl: string }> => {
     console.log("[Closer:FollowUp] createFollowUp called", { opportunityId, eventTypeUriProvided: !!eventTypeUri });
     // ==== Step 1: Validate caller ====
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Not authenticated");
-    }
+    const identity = await requireIdentity(ctx);
 
     const orgId = getIdentityOrgId(identity);
     if (!orgId) {

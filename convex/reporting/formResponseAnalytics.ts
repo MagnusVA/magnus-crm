@@ -33,7 +33,7 @@ export const getFieldCatalog = query({
 				async (eventTypeConfigId) =>
 					[
 						eventTypeConfigId,
-						await ctx.db.get(eventTypeConfigId),
+						await ctx.db.get("eventTypeConfigs", eventTypeConfigId),
 					] as const,
 			),
 		);

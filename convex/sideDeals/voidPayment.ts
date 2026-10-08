@@ -32,7 +32,7 @@ export const voidPayment = mutation({
       throw new Error("Void reason is required.");
     }
 
-    const payment = await ctx.db.get(paymentId);
+    const payment = await ctx.db.get("paymentRecords", paymentId);
     if (!payment || payment.tenantId !== tenantId) {
       throw new Error("Payment not found.");
     }
@@ -49,7 +49,7 @@ export const voidPayment = mutation({
       throw new Error("Only side-deal payments can be voided via this mutation.");
     }
 
-    const opportunity = await ctx.db.get(payment.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", payment.opportunityId);
     if (
       !opportunity ||
       opportunity.tenantId !== tenantId ||
@@ -63,7 +63,7 @@ export const voidPayment = mutation({
       );
     }
 
-    await ctx.db.patch(paymentId, {
+    await ctx.db.patch("paymentRecords", paymentId, {
       status: "disputed",
       statusChangedAt: now,
     });

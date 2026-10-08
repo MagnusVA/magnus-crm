@@ -13,10 +13,12 @@ The package manager is pnpm. Install with `pnpm install`, and run scripts with `
 | `pnpm dev` | Starts the Next.js dev server on `localhost:3000` |
 | `pnpm convex:dev` | Syncs `convex/` to the dev deployment, pushes the schema, and regenerates `convex/_generated` |
 | `pnpm build` / `pnpm start` | Builds and serves production Next.js |
-| `pnpm typecheck` | Runs TypeScript 7 (`tsgo`) with `--noEmit` |
+| `pnpm typecheck` | Generates Next.js route types, then runs TypeScript 7 (`tsgo`) with `--noEmit` on the app and on `convex/tsconfig.json` |
 | `pnpm lint` | Runs ESLint with the Next.js core web vitals and TypeScript configs |
 | `pnpm test` | Runs Vitest over `convex/**/*.test.ts` and `lib/operations-reports/**/*.test.ts` |
 | `pnpm expose` | Opens an ngrok tunnel from a fixed public URL to `localhost:3000` |
+
+CI (`.github/workflows/ci.yml`) runs `pnpm lint`, `pnpm typecheck`, and `pnpm test` as parallel jobs on every pull request and every push to `main`. Lint warnings don't fail the build; errors do.
 
 TypeScript 7 has no JavaScript compiler API yet, so `.pnpmfile.cjs` pins the typescript-eslint packages to TypeScript 6.0.3, the newest version they accept. Keep that pin when upgrading dependencies, or `pnpm lint` breaks. Next.js and the Convex CLI both type-check with the TypeScript 7 `tsc`.
 

@@ -1,11 +1,12 @@
 "use node";
 
 import { v } from "convex/values";
-import { action } from "../_generated/server";
+import { action, env } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { hashInviteToken, validateInviteToken } from "../lib/inviteToken";
 
+// eslint-disable-next-line @convex-dev/require-access-control -- runs before sign-up; the signed invite token is the credential
 export const validateInvite = action({
   args: { token: v.string() },
   handler: async (
@@ -31,7 +32,7 @@ export const validateInvite = action({
       }
   > => {
     console.log("[Onboarding:Invite] validateInvite called", { tokenExists: !!token });
-    const signingSecret = process.env.INVITE_SIGNING_SECRET;
+    const signingSecret = env.INVITE_SIGNING_SECRET;
     if (!signingSecret) {
       throw new Error("Missing INVITE_SIGNING_SECRET");
     }

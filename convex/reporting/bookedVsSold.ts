@@ -63,7 +63,7 @@ export const getBookedVsSoldMatrix = query({
       ),
     ];
     const opportunities = await Promise.all(
-      opportunityIds.map(async (opportunityId) => ctx.db.get(opportunityId)),
+      opportunityIds.map(async (opportunityId) => ctx.db.get("opportunities", opportunityId)),
     );
     const opportunityById = new Map(
       opportunities
@@ -112,7 +112,7 @@ export const getBookedVsSoldMatrix = query({
     }
 
     const programs = await Promise.all(
-      [...programIds].map(async (programId) => ctx.db.get(programId)),
+      [...programIds].map(async (programId) => ctx.db.get("tenantPrograms", programId)),
     );
     const programNameById = new Map<Id<"tenantPrograms">, string>();
     for (const program of programs) {

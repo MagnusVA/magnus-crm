@@ -56,6 +56,10 @@ Find an existing mutation that writes the same table and match its side-effect c
 - **Slack**: `convex/lib/slackSignature.ts` verifies requests and accepts `SLACK_SIGNING_SECRET_PREVIOUS` during secret rotation. Events are stored redacted in `rawSlackEvents`, and the tenant comes from `team_id` through `slackInstallations`. CI requires token rotation to stay on in `slack-manifest.prod.yaml`; `runbooks/slack-token-refresh-write-failure.md` covers failed token refreshes.
 - **WorkOS**: `authKit.registerRoutes(http)` in `convex/http.ts` mounts the AuthKit component's routes.
 
+## Environment variables
+
+Read environment variables through `env` from `_generated/server`, not `process.env`; ESLint enforces this. Declare each variable in `convex/convex.config.ts`. A deploy fails if a required variable isn't set, so set a new required variable on every deployment before deploying code that declares it. `convex/auth.config.ts` and `convex/lib/constants.ts`, which Next.js also imports, still read `process.env`.
+
 ## Logging
 
 Prefix `console` calls with a PascalCase `[Domain:Sub]` tag, such as `[Pipeline]`, `[Slack:OAuth]`, or `[WorkOS:Users]`.

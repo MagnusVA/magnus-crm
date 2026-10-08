@@ -2,11 +2,12 @@
 
 import { v } from "convex/values";
 import type { ActionCtx } from "../_generated/server";
-import { action, internalAction } from "../_generated/server";
+import { action, internalAction, env } from "../_generated/server";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { getIdentityOrgId } from "../lib/identity";
 import { ADMIN_ROLES } from "../lib/roleMapping";
+import { requireIdentity } from "../requireIdentity";
 
 type TenantConnectionContext = {
   accessToken?: string;
@@ -40,13 +41,11 @@ type RefreshOutcome =
 const TOKEN_REFRESH_STAGGER_MS = 100;
 
 function getCalendlyClientId() {
-  return (
-    process.env.CALENDLY_CLIENT_ID ?? process.env.NEXT_PUBLIC_CALENDLY_CLIENT_ID
-  );
+  return env.CALENDLY_CLIENT_ID;
 }
 
 function getCalendlyClientSecret() {
-  return process.env.CALENDLY_CLIENT_SECRET;
+  return env.CALENDLY_CLIENT_SECRET;
 }
 
 async function releaseRefreshLock(ctx: ActionCtx, tenantId: Id<"tenants">) {
@@ -363,10 +362,7 @@ export const refreshMyTenantToken = action({
   handler: async (ctx): Promise<RefreshOutcome> => {
     console.log(`[token-refresh] refreshMyTenantToken: called`);
 
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Not authenticated");
-    }
+    const identity = await requireIdentity(ctx);
 
     const workosUserId = identity.tokenIdentifier ?? identity.subject;
     if (!workosUserId) {

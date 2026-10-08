@@ -23,7 +23,7 @@ async function listCampaignsByTenant(
 ) {
   return await ctx.db
     .query("linkPortalCampaignPresets")
-    .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+    .withIndex("by_tenantId_and_isActive", (q) => q.eq("tenantId", tenantId))
     .take(100);
 }
 
@@ -102,7 +102,7 @@ async function clearOtherDefaults(
           campaign._id !== defaultCampaignPresetId && campaign.isDefault,
       )
       .map((campaign) =>
-        ctx.db.patch(campaign._id, {
+        ctx.db.patch("linkPortalCampaignPresets", campaign._id, {
           isDefault: false,
           updatedAt: now,
         }),
@@ -132,7 +132,7 @@ export const ensureDefaultCampaignPresets = mutation({
     if (activeDefaults.length > 1) {
       await Promise.all(
         activeDefaults.slice(1).map((row) =>
-          ctx.db.patch(row._id, {
+          ctx.db.patch("linkPortalCampaignPresets", row._id, {
             isDefault: false,
             updatedAt: now,
           }),
@@ -146,7 +146,7 @@ export const ensureDefaultCampaignPresets = mutation({
         (existingOrganic?.isActive ? existingOrganic : undefined) ??
         existing.find((row) => row.isActive);
       if (defaultCandidate) {
-        await ctx.db.patch(defaultCandidate._id, {
+        await ctx.db.patch("linkPortalCampaignPresets", defaultCandidate._id, {
           isDefault: true,
           updatedAt: now,
         });
@@ -245,7 +245,7 @@ export const updateCampaignPreset = mutation({
       "tenant_master",
       "tenant_admin",
     ]);
-    const campaign = await ctx.db.get(args.campaignPresetId);
+    const campaign = await ctx.db.get("linkPortalCampaignPresets", args.campaignPresetId);
     if (!campaign || campaign.tenantId !== tenantId) {
       throw new Error("Campaign preset not found.");
     }
@@ -257,7 +257,7 @@ export const updateCampaignPreset = mutation({
       excludeCampaignPresetId: args.campaignPresetId,
     });
 
-    await ctx.db.patch(args.campaignPresetId, {
+    await ctx.db.patch("linkPortalCampaignPresets", args.campaignPresetId, {
       slug: normalized.slug,
       label: normalized.label,
       utmCampaign: normalized.utmCampaign,
@@ -278,7 +278,7 @@ export const setCampaignPresetActive = mutation({
       "tenant_master",
       "tenant_admin",
     ]);
-    const campaign = await ctx.db.get(campaignPresetId);
+    const campaign = await ctx.db.get("linkPortalCampaignPresets", campaignPresetId);
     if (!campaign || campaign.tenantId !== tenantId) {
       throw new Error("Campaign preset not found.");
     }
@@ -306,11 +306,11 @@ export const setCampaignPresetActive = mutation({
         defaultAfterDisable._id,
         now,
       );
-      await ctx.db.patch(defaultAfterDisable._id, {
+      await ctx.db.patch("linkPortalCampaignPresets", defaultAfterDisable._id, {
         isDefault: true,
         updatedAt: now,
       });
-      await ctx.db.patch(campaignPresetId, {
+      await ctx.db.patch("linkPortalCampaignPresets", campaignPresetId, {
         isActive: false,
         isDefault: false,
         updatedAt: now,
@@ -321,7 +321,7 @@ export const setCampaignPresetActive = mutation({
     const activeDefault = campaigns.find(
       (candidate) => candidate.isActive && candidate.isDefault,
     );
-    await ctx.db.patch(campaignPresetId, {
+    await ctx.db.patch("linkPortalCampaignPresets", campaignPresetId, {
       isActive: true,
       isDefault: activeDefault === undefined,
       updatedAt: now,
@@ -339,7 +339,7 @@ export const setCampaignPresetDefault = mutation({
       "tenant_master",
       "tenant_admin",
     ]);
-    const campaign = await ctx.db.get(campaignPresetId);
+    const campaign = await ctx.db.get("linkPortalCampaignPresets", campaignPresetId);
     if (!campaign || campaign.tenantId !== tenantId) {
       throw new Error("Campaign preset not found.");
     }
@@ -350,7 +350,7 @@ export const setCampaignPresetDefault = mutation({
     const campaigns = await listCampaignsByTenant(ctx, tenantId);
     const now = Date.now();
     await clearOtherDefaults(ctx, campaigns, campaignPresetId, now);
-    await ctx.db.patch(campaignPresetId, {
+    await ctx.db.patch("linkPortalCampaignPresets", campaignPresetId, {
       isDefault: true,
       updatedAt: now,
     });

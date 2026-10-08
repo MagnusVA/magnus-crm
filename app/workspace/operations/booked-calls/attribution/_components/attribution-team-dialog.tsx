@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
@@ -32,12 +32,16 @@ export function AttributionTeamDialog({
   const createTeam = useMutation(api.attribution.teams.createTeam);
   const updateTeam = useMutation(api.attribution.teams.updateTeam);
 
-  useEffect(() => {
+  // Load the fields each time the dialog opens or targets another team.
+  const sessionKey = open ? (team?._id ?? "new") : null;
+  const [loadedSessionKey, setLoadedSessionKey] = useState<string | null>(null);
+  if (sessionKey !== loadedSessionKey) {
+    setLoadedSessionKey(sessionKey);
     if (open) {
       setDisplayName(team?.displayName ?? "");
       setUtmSource(team?.utmSource ?? "");
     }
-  }, [open, team]);
+  }
 
   async function handleSave() {
     setIsSaving(true);

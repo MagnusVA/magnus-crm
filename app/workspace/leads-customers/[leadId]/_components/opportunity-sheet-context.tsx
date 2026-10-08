@@ -4,11 +4,11 @@ import {
 	createContext,
 	use,
 	useCallback,
-	useEffect,
 	useMemo,
 	useState,
 	type ReactNode,
 } from "react";
+import { useSearchParams } from "next/navigation";
 import type { Id } from "@/convex/_generated/dataModel";
 
 type OpportunitySheetActions = {
@@ -24,12 +24,6 @@ type OpportunitySheetContextValue = {
 const OpportunitySheetContext =
 	createContext<OpportunitySheetContextValue | null>(null);
 
-function readOpportunityIdFromLocation(): Id<"opportunities"> | null {
-	if (typeof window === "undefined") return null;
-	const value = new URLSearchParams(window.location.search).get("opportunityId");
-	return value ? (value as Id<"opportunities">) : null;
-}
-
 function syncOpportunityIdInUrl(opportunityId: Id<"opportunities"> | null) {
 	if (typeof window === "undefined") return;
 	const url = new URL(window.location.href);
@@ -43,14 +37,13 @@ function syncOpportunityIdInUrl(opportunityId: Id<"opportunities"> | null) {
 }
 
 export function OpportunitySheetProvider({ children }: { children: ReactNode }) {
+	const searchParams = useSearchParams();
+	// A `?opportunityId=` link opens the sheet on arrival.
 	const [opportunityId, setOpportunityId] = useState<Id<"opportunities"> | null>(
-		null,
+		() =>
+			(searchParams.get("opportunityId") as Id<"opportunities"> | null) ||
+			null,
 	);
-
-	useEffect(() => {
-		const fromUrl = readOpportunityIdFromLocation();
-		if (fromUrl) setOpportunityId(fromUrl);
-	}, []);
 
 	const openOpportunity = useCallback((id: Id<"opportunities">) => {
 		setOpportunityId(id);

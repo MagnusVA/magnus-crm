@@ -36,7 +36,7 @@ async function unlinkCalendlyMemberForUser(
     .unique();
 
   if (member?.matchedUserId === user._id) {
-    await ctx.db.patch(member._id, { matchedUserId: undefined });
+    await ctx.db.patch("calendlyOrgMembers", member._id, { matchedUserId: undefined });
   }
 }
 
@@ -76,7 +76,7 @@ export const createUserWithCalendlyLink = internalMutation({
       calendlyUserUri, calendlyMemberId,
     } = args;
     const calendlyMember = calendlyMemberId
-      ? await ctx.db.get(calendlyMemberId)
+      ? await ctx.db.get("calendlyOrgMembers", calendlyMemberId)
       : null;
     const resolvedCalendlyUserUri =
       calendlyUserUri ?? calendlyMember?.calendlyUserUri;
@@ -107,7 +107,7 @@ export const createUserWithCalendlyLink = internalMutation({
       if (shouldClearCalendly) {
         await unlinkCalendlyMemberForUser(ctx, existing);
       }
-      await ctx.db.patch(existing._id, {
+      await ctx.db.patch("users", existing._id, {
         tenantId,
         workosUserId: canonicalWorkosUserId,
         email,
@@ -154,7 +154,7 @@ export const createUserWithCalendlyLink = internalMutation({
 
       if (calendlyMemberId) {
         console.log("[WorkOS:Users] createUserWithCalendlyLink linking calendly member to existing user", { calendlyMemberId, userId: existing._id });
-        await ctx.db.patch(calendlyMemberId, {
+        await ctx.db.patch("calendlyOrgMembers", calendlyMemberId, {
           matchedUserId: existing._id,
         });
       }
@@ -194,7 +194,7 @@ export const createUserWithCalendlyLink = internalMutation({
     // Link the Calendly org member to this user (if selected during invite)
     if (calendlyMemberId) {
       console.log("[WorkOS:Users] createUserWithCalendlyLink linking calendly member", { calendlyMemberId, userId });
-      await ctx.db.patch(calendlyMemberId, {
+      await ctx.db.patch("calendlyOrgMembers", calendlyMemberId, {
         matchedUserId: userId,
       });
     }
@@ -242,7 +242,7 @@ export const createInvitedUser = internalMutation({
       invitationStatus, workosInvitationId,
     } = args;
     const calendlyMember = calendlyMemberId
-      ? await ctx.db.get(calendlyMemberId)
+      ? await ctx.db.get("calendlyOrgMembers", calendlyMemberId)
       : null;
     const resolvedCalendlyUserUri =
       calendlyUserUri ?? calendlyMember?.calendlyUserUri;
@@ -267,7 +267,7 @@ export const createInvitedUser = internalMutation({
       if (shouldClearCalendly) {
         await unlinkCalendlyMemberForUser(ctx, existing);
       }
-      await ctx.db.patch(existing._id, {
+      await ctx.db.patch("users", existing._id, {
         workosUserId,
         fullName: fullName ?? existing.fullName,
         role,
@@ -313,7 +313,7 @@ export const createInvitedUser = internalMutation({
       }
 
       if (calendlyMemberId) {
-        await ctx.db.patch(calendlyMemberId, { matchedUserId: existing._id });
+        await ctx.db.patch("calendlyOrgMembers", calendlyMemberId, { matchedUserId: existing._id });
       }
 
       await syncLeadGenWorkerProfile(ctx, existing._id);
@@ -353,7 +353,7 @@ export const createInvitedUser = internalMutation({
     // Link the Calendly org member to this user (if selected during invite)
     if (calendlyMemberId) {
       console.log("[WorkOS:Users] createInvitedUser linking calendly member", { calendlyMemberId, userId });
-      await ctx.db.patch(calendlyMemberId, { matchedUserId: userId });
+      await ctx.db.patch("calendlyOrgMembers", calendlyMemberId, { matchedUserId: userId });
     }
 
     await syncLeadGenWorkerProfile(ctx, userId);
@@ -436,7 +436,7 @@ export const claimInvitedAccountByEmail = internalMutation({
       hasCalendlyLink: !!pendingUser.calendlyUserUri,
     });
 
-    await ctx.db.patch(pendingUser._id, {
+    await ctx.db.patch("users", pendingUser._id, {
       workosUserId,
       invitationStatus: "accepted",
       fullName: pendingUser.fullName ?? fullName,
@@ -448,7 +448,7 @@ export const claimInvitedAccountByEmail = internalMutation({
 
     await syncLeadGenWorkerProfile(ctx, pendingUser._id);
 
-    const claimed = await ctx.db.get(pendingUser._id);
+    const claimed = await ctx.db.get("users", pendingUser._id);
     console.log("[WorkOS:Users] claimInvitedAccountByEmail: claim complete", {
       userId: pendingUser._id,
       role: pendingUser.role,
@@ -475,6 +475,7 @@ export const claimInvitedAccountByEmail = internalMutation({
  *
  * Returns null if no pending record is found (genuine "not provisioned" state).
  */
+// eslint-disable-next-line @convex-dev/require-access-control -- returns null when signed out; claims only the caller's invite
 export const claimInvitedAccount = mutation({
   args: {},
   handler: async (ctx): Promise<Doc<"users"> | null> => {
@@ -530,7 +531,7 @@ export const normalizeStoredWorkosUserIds = internalMutation({
         continue;
       }
 
-      await ctx.db.patch(user._id, {
+      await ctx.db.patch("users", user._id, {
         workosUserId: canonicalWorkosUserId,
       });
       updatedUsers.push({
@@ -563,14 +564,14 @@ export const updateRole = internalMutation({
   },
   handler: async (ctx, { userId, role }) => {
     console.log("[WorkOS:Users] updateRole called", { userId, role });
-    const existing = await ctx.db.get(userId);
+    const existing = await ctx.db.get("users", userId);
     if (!existing) {
       throw new Error("User not found");
     }
     if (role !== "closer") {
       await unlinkCalendlyMemberForUser(ctx, existing);
     }
-    await ctx.db.patch(userId, {
+    await ctx.db.patch("users", userId, {
       role,
       calendlyUserUri: role !== "closer" ? undefined : existing.calendlyUserUri,
       calendlyMemberName:
@@ -610,14 +611,14 @@ export const updateRoleAndInvitation = internalMutation({
   },
   handler: async (ctx, { userId, role, workosInvitationId }) => {
     console.log("[WorkOS:Users] updateRoleAndInvitation called", { userId, role, workosInvitationId });
-    const existing = await ctx.db.get(userId);
+    const existing = await ctx.db.get("users", userId);
     if (!existing) {
       throw new Error("User not found");
     }
     if (role !== "closer") {
       await unlinkCalendlyMemberForUser(ctx, existing);
     }
-    await ctx.db.patch(userId, {
+    await ctx.db.patch("users", userId, {
       role,
       workosInvitationId,
       calendlyUserUri: role !== "closer" ? undefined : existing.calendlyUserUri,
@@ -654,7 +655,7 @@ export const removeUser = internalMutation({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
     console.log("[WorkOS:Users] removeUser called", { userId });
-    const user = await ctx.db.get(userId);
+    const user = await ctx.db.get("users", userId);
     if (!user) {
       console.warn("[WorkOS:Users] removeUser user not found", { userId });
       return;
@@ -672,7 +673,7 @@ export const removeUser = internalMutation({
     for (const status of activeStatuses) {
       const opportunities = await ctx.db
         .query("opportunities")
-        .withIndex("by_tenantId_and_assignedCloserId_and_status", (q) =>
+        .withIndex("by_tenantId_and_assignedCloserId_and_status_and_createdAt", (q) =>
           q
             .eq("tenantId", user.tenantId)
             .eq("assignedCloserId", userId)
@@ -698,11 +699,11 @@ export const removeUser = internalMutation({
         .unique();
       if (member) {
         console.log("[WorkOS:Users] removeUser unlinking calendly member", { memberId: member._id });
-        await ctx.db.patch(member._id, { matchedUserId: undefined });
+        await ctx.db.patch("calendlyOrgMembers", member._id, { matchedUserId: undefined });
       }
     }
 
-    await ctx.db.patch(userId, {
+    await ctx.db.patch("users", userId, {
       deletedAt: now,
       isActive: false,
     });

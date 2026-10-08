@@ -67,12 +67,12 @@ it.each(["immediate", "late"] as const)("recovers an unattached %s upload withou
     if (timing === "late") {
       vi.setSystemTime(now + 2 * 60_000 + 1);
       await t.run(async (ctx) => {
-        await ctx.db.patch(jobId, { status: "queued", leaseOwner: undefined, leaseExpiresAt: undefined });
+        await ctx.db.patch("operationsReportJobs", jobId, { status: "queued", leaseOwner: undefined, leaseExpiresAt: undefined });
         // Exercise reservations persisted under the former two-minute deadline.
-        await ctx.db.patch(reservation.artifactId, { reservationExpiresAt: now + 2 * 60_000 });
+        await ctx.db.patch("operationsReportArtifacts", reservation.artifactId, { reservationExpiresAt: now + 2 * 60_000 });
       });
       await t.mutation(internal.operations.reports.cleanup.reconcileOrphanReservations, {});
-      expect(await t.run(async (ctx) => ctx.db.get(reservation.artifactId))).toMatchObject({
+      expect(await t.run(async (ctx) => ctx.db.get("operationsReportArtifacts", reservation.artifactId))).toMatchObject({
         state: "reserved", reconciliationComplete: false,
         reservationExpiresAt: now + REPORT_UPLOAD_SETTLE_MS,
       });
@@ -88,18 +88,18 @@ it.each(["immediate", "late"] as const)("recovers an unattached %s upload withou
     // platform field while retaining its real store/hash/get/delete behavior.
     await t.run(async (ctx) => {
       const db: GenericDatabaseWriter<GenericDataModel> = ctx.db;
-      await db.patch(files.report, { contentType: reservation.ownershipContentType });
-      await db.patch(files.unrelated, { contentType: "text/csv; report-token=unrelated-token" });
+      await db.patch("_storage", files.report, { contentType: reservation.ownershipContentType });
+      await db.patch("_storage", files.unrelated, { contentType: "text/csv; report-token=unrelated-token" });
     });
     // Simulate a crash after store() and before attachArtifact(), then recovery.
     vi.setSystemTime(now + REPORT_UPLOAD_SETTLE_MS + 1);
     await t.run(async (ctx) => {
-      await ctx.db.patch(jobId, { status: "queued", leaseOwner: undefined, leaseExpiresAt: undefined });
+      await ctx.db.patch("operationsReportJobs", jobId, { status: "queued", leaseOwner: undefined, leaseExpiresAt: undefined });
     });
     await t.mutation(internal.operations.reports.cleanup.reconcileOrphanReservations, {});
     const recovered = await t.run(async (ctx) => ({
-      artifact: await ctx.db.get(reservation.artifactId),
-      job: await ctx.db.get(jobId),
+      artifact: await ctx.db.get("operationsReportArtifacts", reservation.artifactId),
+      job: await ctx.db.get("operationsReportJobs", jobId),
       report: await (await ctx.storage.get(files.report))?.text() ?? null,
       unrelated: await (await ctx.storage.get(files.unrelated))?.text() ?? null,
     }));
@@ -109,15 +109,15 @@ it.each(["immediate", "late"] as const)("recovers an unattached %s upload withou
     expect(recovered.unrelated).toBe(content);
 
     await t.run(async (ctx) => {
-      await ctx.db.patch(jobId, { status: "failed", phase: "cleanup", expiresAt: Date.now(), cleanupPending: true, cleanupNextAttemptAt: Date.now() });
+      await ctx.db.patch("operationsReportJobs", jobId, { status: "failed", phase: "cleanup", expiresAt: Date.now(), cleanupPending: true, cleanupNextAttemptAt: Date.now() });
     });
     // Artifacts, lifecycle checkpoint, then completion are separate bounded batches.
     for (let batch = 0; batch < 3; batch += 1) {
       await t.mutation(internal.operations.reports.cleanup.cleanupTerminalJobs, {});
     }
     const cleaned = await t.run(async (ctx) => ({
-      artifact: await ctx.db.get(reservation.artifactId),
-      job: await ctx.db.get(jobId),
+      artifact: await ctx.db.get("operationsReportArtifacts", reservation.artifactId),
+      job: await ctx.db.get("operationsReportJobs", jobId),
       report: await (await ctx.storage.get(files.report))?.text() ?? null,
       unrelated: await (await ctx.storage.get(files.unrelated))?.text() ?? null,
     }));

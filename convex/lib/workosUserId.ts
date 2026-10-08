@@ -1,10 +1,12 @@
+import { env } from "../_generated/server";
+
 type WorkosIdentityLike = {
   subject?: string | null;
   tokenIdentifier?: string | null;
 };
 
 function getUserManagementIssuer() {
-  const clientId = process.env.WORKOS_CLIENT_ID;
+  const clientId = env.WORKOS_CLIENT_ID;
   if (!clientId) {
     throw new Error("Missing WORKOS_CLIENT_ID");
   }

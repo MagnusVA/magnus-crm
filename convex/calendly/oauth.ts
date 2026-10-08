@@ -2,10 +2,11 @@
 
 import { randomBytes, createHash } from "crypto";
 import { v } from "convex/values";
-import { action } from "../_generated/server";
+import { action, env } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { getIdentityOrgId } from "../lib/identity";
 import { getCanonicalIdentityWorkosUserId } from "../lib/workosUserId";
+import { requireIdentity } from "../requireIdentity";
 import { provisionWebhookSubscription } from "./webhookSetup";
 
 type CalendlyTokenRevocationStatus =
@@ -15,17 +16,15 @@ type CalendlyTokenRevocationStatus =
   | "failed";
 
 function getCalendlyClientId() {
-  return (
-    process.env.CALENDLY_CLIENT_ID ?? process.env.NEXT_PUBLIC_CALENDLY_CLIENT_ID
-  );
+  return env.CALENDLY_CLIENT_ID;
 }
 
 function getCalendlyClientSecret() {
-  return process.env.CALENDLY_CLIENT_SECRET;
+  return env.CALENDLY_CLIENT_SECRET;
 }
 
 function getCalendlyRedirectUri() {
-  return `${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/callback/calendly`;
+  return `${env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/callback/calendly`;
 }
 
 async function revokeCalendlyToken(
@@ -80,11 +79,7 @@ export const startOAuth = action({
   handler: async (ctx, { tenantId }) => {
     console.log(`[Calendly:OAuth] startOAuth called for tenant ${tenantId}`);
 
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      console.error(`[Calendly:OAuth] startOAuth: not authenticated`);
-      throw new Error("Not authenticated");
-    }
+    const identity = await requireIdentity(ctx);
 
     const tenant = await ctx.runQuery(internal.tenants.getCalendlyTenant, {
       tenantId,
@@ -173,11 +168,7 @@ export const prepareReconnect = action({
       `[Calendly:OAuth] prepareReconnect called for tenant ${tenantId}`,
     );
 
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      console.error("[Calendly:OAuth] prepareReconnect: not authenticated");
-      throw new Error("Not authenticated");
-    }
+    const identity = await requireIdentity(ctx);
 
     const workosUserId = getCanonicalIdentityWorkosUserId(identity);
     if (!workosUserId) {
@@ -258,44 +249,39 @@ export const exchangeCodeAndProvision = action({
     console.log(
       `[Calendly:OAuth] exchangeCodeAndProvision called for tenant ${tenantId}`,
     );
-    let rollbackStatus: "pending_calendly" | "calendly_disconnected" =
-      "pending_calendly";
+
+    // Authorize before the try block so a rejected caller can't trigger the
+    // rollback below, which clears the PKCE verifier and resets the status.
+    const identity = await requireIdentity(ctx);
+    console.log(
+      `[Calendly:OAuth] exchangeCodeAndProvision: auth check passed`,
+    );
+
+    const tenant = await ctx.runQuery(internal.tenants.getCalendlyTenant, {
+      tenantId,
+    });
+    if (!tenant) {
+      console.error(
+        `[Calendly:OAuth] exchangeCodeAndProvision: tenant ${tenantId} not found`,
+      );
+      throw new Error("Tenant not found");
+    }
+    console.log(
+      `[Calendly:OAuth] exchangeCodeAndProvision: tenant found, status=${tenant.status}`,
+    );
+
+    const identityOrgId = getIdentityOrgId(identity);
+    if (!identityOrgId || identityOrgId !== tenant.workosOrgId) {
+      console.error(`[Calendly:OAuth] exchangeCodeAndProvision: org mismatch`);
+      throw new Error("Not authorized");
+    }
+
+    const rollbackStatus: "pending_calendly" | "calendly_disconnected" =
+      tenant.status === "calendly_disconnected"
+        ? "calendly_disconnected"
+        : "pending_calendly";
 
     try {
-      const identity = await ctx.auth.getUserIdentity();
-      if (!identity) {
-        console.error(
-          `[Calendly:OAuth] exchangeCodeAndProvision: not authenticated`,
-        );
-        throw new Error("Not authenticated");
-      }
-      console.log(
-        `[Calendly:OAuth] exchangeCodeAndProvision: auth check passed`,
-      );
-
-      const tenant = await ctx.runQuery(internal.tenants.getCalendlyTenant, {
-        tenantId,
-      });
-      if (!tenant) {
-        console.error(
-          `[Calendly:OAuth] exchangeCodeAndProvision: tenant ${tenantId} not found`,
-        );
-        throw new Error("Tenant not found");
-      }
-      console.log(
-        `[Calendly:OAuth] exchangeCodeAndProvision: tenant found, status=${tenant.status}`,
-      );
-      rollbackStatus =
-        tenant.status === "calendly_disconnected"
-          ? "calendly_disconnected"
-          : "pending_calendly";
-
-      const identityOrgId = getIdentityOrgId(identity);
-      if (!identityOrgId || identityOrgId !== tenant.workosOrgId) {
-        console.error(`[Calendly:OAuth] exchangeCodeAndProvision: org mismatch`);
-        throw new Error("Not authorized");
-      }
-
       const tenantData = await ctx.runQuery(
         internal.calendly.oauthMutations.getPkceVerifier,
         { tenantId },
@@ -311,7 +297,7 @@ export const exchangeCodeAndProvision = action({
       );
 
       const clientId = getCalendlyClientId();
-      const clientSecret = process.env.CALENDLY_CLIENT_SECRET;
+      const clientSecret = env.CALENDLY_CLIENT_SECRET;
       if (!clientId || !clientSecret) {
         console.error(
           `[Calendly:OAuth] exchangeCodeAndProvision: missing OAuth config, hasClientId=${Boolean(clientId)}, hasClientSecret=${Boolean(clientSecret)}`,

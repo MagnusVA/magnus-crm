@@ -69,7 +69,7 @@ export const getQualificationReport = query({
       "tenant_admin",
     ]);
 
-    const tenant = await ctx.db.get(tenantId);
+    const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant) {
       throw new Error("Tenant not found.");
     }
@@ -189,7 +189,7 @@ export const setTeamDailyGoal = mutation({
       );
     }
 
-    await ctx.db.patch(tenantId, {
+    await ctx.db.patch("tenants", tenantId, {
       slackQualificationDailyTeamQuota:
         args.dailyTeamQualificationGoal ?? undefined,
     });

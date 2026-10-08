@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState, useSyncExternalStore } from "react";
 import { useMutation } from "convex/react";
 import { CornerDownLeftIcon, SendIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -22,28 +22,43 @@ type CommentInputProps = {
 const ENTER_BEHAVIOR_KEY = "meeting-comment-enter-behavior";
 type EnterBehavior = "send" | "newline";
 
+// The preference lives in localStorage and is read through
+// `useSyncExternalStore`; the server snapshot keeps hydration matching.
+function subscribeToStorage(callback: () => void): () => void {
+  window.addEventListener("storage", callback);
+  return () => window.removeEventListener("storage", callback);
+}
+
+function getEnterBehaviorSnapshot(): EnterBehavior {
+  try {
+    const stored = localStorage.getItem(ENTER_BEHAVIOR_KEY);
+    if (stored === "send" || stored === "newline") return stored;
+  } catch {}
+  return "send";
+}
+
+function getEnterBehaviorServerSnapshot(): EnterBehavior {
+  return "send";
+}
+
 export function CommentInput({ meetingId }: CommentInputProps) {
   const [content, setContent] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [enterBehavior, setEnterBehavior] = useState<EnterBehavior>("send");
+  const enterBehavior = useSyncExternalStore(
+    subscribeToStorage,
+    getEnterBehaviorSnapshot,
+    getEnterBehaviorServerSnapshot,
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const addComment = useMutation(api.closer.meetingComments.addComment);
 
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(ENTER_BEHAVIOR_KEY) as EnterBehavior | null;
-      if (stored === "send" || stored === "newline") setEnterBehavior(stored);
-    } catch {}
-  }, []);
-
   const toggleEnterBehavior = useCallback(() => {
-    setEnterBehavior((prev) => {
-      const next: EnterBehavior = prev === "send" ? "newline" : "send";
-      try { localStorage.setItem(ENTER_BEHAVIOR_KEY, next); } catch {}
-      return next;
-    });
-  }, []);
+    const next: EnterBehavior = enterBehavior === "send" ? "newline" : "send";
+    try { localStorage.setItem(ENTER_BEHAVIOR_KEY, next); } catch {}
+    // The native `storage` event only fires in other tabs, so notify this one.
+    window.dispatchEvent(new StorageEvent("storage"));
+  }, [enterBehavior]);
 
   const handleSubmit = useCallback(async () => {
     const trimmed = content.trim();

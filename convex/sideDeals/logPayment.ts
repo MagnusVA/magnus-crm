@@ -47,7 +47,7 @@ export const logPayment = mutation({
     const now = Date.now();
     const isAdmin = role === "tenant_master" || role === "tenant_admin";
 
-    const opportunity = await ctx.db.get(args.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", args.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found.");
     }
@@ -152,7 +152,7 @@ export const logPayment = mutation({
     }
 
     if (customerId) {
-      await ctx.db.patch(paymentId, { customerId });
+      await ctx.db.patch("paymentRecords", paymentId, { customerId });
       await replacePaymentAggregate(ctx, paymentBeforeCustomerLink, paymentId);
       await syncCustomerPaymentSummary(ctx, customerId);
     }

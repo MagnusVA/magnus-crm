@@ -101,7 +101,7 @@ describe("operations report job lifecycle", () => {
     });
 
     const snapshot = await t.run(async (ctx) => {
-      const job = await ctx.db.get(jobId);
+      const job = await ctx.db.get("operationsReportJobs", jobId);
       const row = await ctx.db
         .query("operationsReportRows")
         .withIndex("by_jobId_and_section_and_rowKey", (q) =>
@@ -130,7 +130,7 @@ describe("operations report job lifecycle", () => {
     });
     if (claim.kind !== "claimed") throw new Error("Expected a claimed job.");
     await t.run(async (ctx) => {
-      await ctx.db.patch(jobId, { leaseGeneration: claim.leaseGeneration + 1 });
+      await ctx.db.patch("operationsReportJobs", jobId, { leaseGeneration: claim.leaseGeneration + 1 });
     });
     const result = await t.mutation(
       internal.operations.reports.jobs.commitCheckpoint,
@@ -220,10 +220,10 @@ describe("operations report job lifecycle", () => {
     );
 
     const state = await t.run(async (ctx) => ({
-      job: await ctx.db.get(jobId),
+      job: await ctx.db.get("operationsReportJobs", jobId),
       row: await ctx.db
         .query("operationsReportRows")
-        .withIndex("by_jobId", (q) => q.eq("jobId", jobId))
+        .withIndex("by_jobId_and_section_and_rowKey", (q) => q.eq("jobId", jobId))
         .first(),
     }));
     expect(state.row).toBeNull();
@@ -240,7 +240,7 @@ describe("operations report job lifecycle", () => {
     const eligible = await insertJobFixture(t);
     await t.run(async (ctx) => {
       const now = Date.now();
-      await ctx.db.patch(blocked.jobId, {
+      await ctx.db.patch("operationsReportJobs", blocked.jobId, {
         status: "failed",
         phase: "cleanup",
         expiresAt: now - 2,
@@ -266,7 +266,7 @@ describe("operations report job lifecycle", () => {
         deleteAttempts: 0,
         updatedAt: now,
       });
-      await ctx.db.patch(eligible.jobId, {
+      await ctx.db.patch("operationsReportJobs", eligible.jobId, {
         status: "failed",
         phase: "cleanup",
         expiresAt: now - 1,
@@ -290,7 +290,7 @@ describe("operations report job lifecycle", () => {
     const remaining = await t.run(async (ctx) =>
       await ctx.db
         .query("operationsReportRows")
-        .withIndex("by_jobId", (q) => q.eq("jobId", eligible.jobId))
+        .withIndex("by_jobId_and_section_and_rowKey", (q) => q.eq("jobId", eligible.jobId))
         .first(),
     );
     expect(remaining).toBeNull();
@@ -378,7 +378,7 @@ it("fails an outdated queued job before a worker can resume its checkpoints", as
     kind: "skip",
     reason: "Report definition is outdated.",
   });
-  const job = await t.run(async (ctx) => await ctx.db.get(jobId));
+  const job = await t.run(async (ctx) => await ctx.db.get("operationsReportJobs", jobId));
   expect(job).toMatchObject({
     status: "failed",
     failure: {
@@ -430,7 +430,7 @@ it("drains multiple expiration, cleanup, and purge batches through bounded sweep
       });
       jobIds.push(jobId);
       await t.run(async (ctx) => {
-        await ctx.db.patch(jobId, { purgeAt: now - 1 });
+        await ctx.db.patch("operationsReportJobs", jobId, { purgeAt: now - 1 });
         await ctx.db.insert("operationsReportRows", {
           tenantId, jobId, rowType: "result", section: "lead_gen_summary",
           rowKey: "main", payload: { submissions: 1 }, updatedAt: now,
@@ -444,7 +444,7 @@ it("drains multiple expiration, cleanup, and purge batches through bounded sweep
       for (let batch = 0; batch < 3; batch++) await t.mutation(internal.operations.reports.cleanup.cleanupTerminalJobs, { jobId });
     }
     const cleaned = await t.run(async (ctx) =>
-      await Promise.all(jobIds.map(jobId => ctx.db.get(jobId))),
+      await Promise.all(jobIds.map(jobId => ctx.db.get("operationsReportJobs", jobId))),
     );
     expect(cleaned).toHaveLength(51);
     for (const job of cleaned) {
@@ -455,7 +455,7 @@ it("drains multiple expiration, cleanup, and purge batches through bounded sweep
       .toEqual({ examined: 50, purged: 50 });
     await t.mutation(internal.operations.reports.cleanup.purgeExpiredMetadata, {});
     const remaining = await t.run(async (ctx) =>
-      await Promise.all(jobIds.map(jobId => ctx.db.get(jobId))),
+      await Promise.all(jobIds.map(jobId => ctx.db.get("operationsReportJobs", jobId))),
     );
     expect(remaining.every(job => job === null)).toBe(true);
   } finally {

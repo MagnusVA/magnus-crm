@@ -18,12 +18,12 @@ export async function loadMeetingContext(
   meetingId: Id<"meetings">,
   tenantId: Id<"tenants">,
 ) {
-  const meeting = await ctx.db.get(meetingId);
+  const meeting = await ctx.db.get("meetings", meetingId);
   if (!meeting || meeting.tenantId !== tenantId) {
     throw new Error("Meeting not found");
   }
 
-  const opportunity = await ctx.db.get(meeting.opportunityId);
+  const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
   if (!opportunity || opportunity.tenantId !== tenantId) {
     throw new Error("Opportunity not found");
   }
@@ -58,7 +58,7 @@ export const markAsLost = mutation({
     const { userId, tenantId, role } = await requireTenantUser(ctx, ["closer"]);
     console.log("[Closer:Meeting] markAsLost auth check passed", { userId });
 
-    const opportunity = await ctx.db.get(opportunityId);
+    const opportunity = await ctx.db.get("opportunities", opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
@@ -67,7 +67,7 @@ export const markAsLost = mutation({
       throw new Error("Not your opportunity");
     }
 
-    const meeting = meetingId ? await ctx.db.get(meetingId) : null;
+    const meeting = meetingId ? await ctx.db.get("meetings", meetingId) : null;
     if (
       meetingId &&
       (!meeting ||
@@ -159,7 +159,7 @@ export const saveFathomLink = mutation({
     }
 
     const now = Date.now();
-    await ctx.db.patch(meetingId, {
+    await ctx.db.patch("meetings", meetingId, {
       fathomLink,
       fathomLinkSavedAt: now,
     });

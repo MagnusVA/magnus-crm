@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction } from "../_generated/server";
+import { internalAction, env } from "../_generated/server";
 import { emitDomainEventInAction } from "../lib/domainEventsAction";
 import {
   buildStaleDigest,
@@ -42,7 +42,7 @@ export const maybeRun = internalAction({
 
     if (hourInNY !== 8) return;
 
-    console.log("[Slack:Stale] cron fired (08:00 NY)");
+    console.log("[Slack:Stale] cron fired (8 AM NY)");
     await ctx.scheduler.runAfter(0, internal.slack.staleReminders.fanOut, {});
   },
 });
@@ -107,7 +107,7 @@ export const postForTenant = internalAction({
       return;
     }
 
-    const appUrl = process.env.APP_URL;
+    const appUrl = env.APP_URL;
     if (!appUrl) {
       console.warn("[Slack:Stale] APP_URL not configured", {
         tenantId: installation.tenantId,

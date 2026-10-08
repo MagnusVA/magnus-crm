@@ -106,7 +106,7 @@ export const backfillMeetingLinks = internalMutation({
       if (normalized.meetingJoinUrl) {
         recoverable += 1;
         if (!dryRun) {
-          await ctx.db.patch(meeting._id, {
+          await ctx.db.patch("meetings", meeting._id, {
             meetingJoinUrl: normalized.meetingJoinUrl,
             meetingLocationType: normalized.meetingLocationType,
             ...(normalized.zoomJoinUrl && !meeting.zoomJoinUrl

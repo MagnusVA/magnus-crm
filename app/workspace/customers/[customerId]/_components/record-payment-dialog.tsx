@@ -177,6 +177,13 @@ export function RecordPaymentDialog({
     },
   });
 
+  // Clear any previous error each time the dialog opens.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setSubmitError(null);
+  }
+
   // Reset form whenever the dialog opens. We re-seed here (rather than in
   // `defaultValues`) so the preselect reflects the latest `customer` prop
   // every time the admin reopens the dialog — the dialog is externally
@@ -193,7 +200,6 @@ export function RecordPaymentDialog({
       referenceCode: "",
       note: "",
     });
-    setSubmitError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, customer.programId, customer.programName, customer.currency]);
 
@@ -238,6 +244,7 @@ export function RecordPaymentDialog({
         payment_type: values.paymentType,
         has_reference: !!values.referenceCode?.trim(),
         has_note: !!trimmedNote,
+        // eslint-disable-next-line react-hooks/purity -- runs on submit; the compiler can't see past form.handleSubmit
         is_backdated: paidAtMs < Date.now() - 24 * 60 * 60 * 1000,
         preseeded_from_customer_program:
           customerProgramIsActive &&

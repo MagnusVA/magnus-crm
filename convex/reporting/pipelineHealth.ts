@@ -162,7 +162,7 @@ export const getPipelineAging = query({
       // the active pipeline rows instead of relying on the capped sample list.
       for await (const opportunity of ctx.db
         .query("opportunities")
-        .withIndex("by_tenantId_and_status", (q) =>
+        .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
           q.eq("tenantId", tenantId).eq("status", status),
         )) {
         opportunityCount += 1;
@@ -228,9 +228,9 @@ export const getPipelineAging = query({
       ),
     ];
     const [leadDocs, closerDocs] = await Promise.all([
-      Promise.all(leadIds.map(async (leadId) => [leadId, await ctx.db.get(leadId)] as const)),
+      Promise.all(leadIds.map(async (leadId) => [leadId, await ctx.db.get("leads", leadId)] as const)),
       Promise.all(
-        closerIds.map(async (closerId) => [closerId, await ctx.db.get(closerId)] as const),
+        closerIds.map(async (closerId) => [closerId, await ctx.db.get("users", closerId)] as const),
       ),
     ]);
     const leadById = new Map(leadDocs);
@@ -304,7 +304,7 @@ export const getPipelineBacklogAndLoss = query({
 
     const lostOpportunityRows = await ctx.db
       .query("opportunities")
-      .withIndex("by_tenantId_and_status", (q) =>
+      .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
         q.eq("tenantId", tenantId).eq("status", "lost"),
       )
       .take(MAX_LOSS_SCAN_ROWS);
@@ -349,7 +349,7 @@ export const getPipelineBacklogAndLoss = query({
 
     const actorIds = [...lossCountsByActor.keys()];
     const actorDocs = await Promise.all(
-      actorIds.map(async (actorId) => [actorId, await ctx.db.get(actorId)] as const),
+      actorIds.map(async (actorId) => [actorId, await ctx.db.get("users", actorId)] as const),
     );
     const actorById = new Map(actorDocs);
 

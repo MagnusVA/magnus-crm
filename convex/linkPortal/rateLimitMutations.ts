@@ -58,7 +58,7 @@ export const recordFailedAttempt = internalMutation({
       return;
     }
 
-    await ctx.db.patch(existing._id, {
+    await ctx.db.patch("linkPortalAuthAttempts", existing._id, {
       publicSlug,
       failedCount,
       windowStartedAt: inWindow ? existing.windowStartedAt : now,
@@ -82,7 +82,7 @@ export const clearFailedAttempts = internalMutation({
       .unique();
 
     if (existing) {
-      await ctx.db.delete(existing._id);
+      await ctx.db.delete("linkPortalAuthAttempts", existing._id);
     }
   },
 });

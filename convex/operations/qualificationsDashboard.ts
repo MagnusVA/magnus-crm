@@ -87,7 +87,7 @@ export const getQualificationsDashboard = query({
     try {
       const range = deriveOverviewRange(args.range, Date.now());
 
-      const tenant = await ctx.db.get(tenantId);
+      const tenant = await ctx.db.get("tenants", tenantId);
       if (!tenant) {
         throw new Error("Tenant not found.");
       }
@@ -102,7 +102,7 @@ export const getQualificationsDashboard = query({
         readLiveQueryRows(
           ctx.db
             .query("slackQualifierSchedules")
-            .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)),
+            .withIndex("by_tenantId_and_slackUserId_and_weekday", (q) => q.eq("tenantId", tenantId)),
           SLACK_QUALIFIER_SCHEDULE_LIMIT,
         ),
         listQualificationEventsForRange(ctx, {

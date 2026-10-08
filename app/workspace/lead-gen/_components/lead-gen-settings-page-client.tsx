@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
@@ -117,16 +117,10 @@ export function LeadGenSettingsPageClient() {
     return rows;
   }, [schedules]);
 
-  useEffect(() => {
-    if (!selectedWorkerId && workers?.[0]) {
-      setSelectedWorkerId(workers[0]._id);
-    }
-  }, [selectedWorkerId, workers]);
+  const savedScheduleDraft = useMemo(() => {
+    if (!selectedWorker) return null;
 
-  useEffect(() => {
-    if (!selectedWorker) return;
-
-    const nextDraft = weekdays.reduce(
+    return weekdays.reduce(
       (draft, weekday) => {
         draft[weekday] = String(
           scheduleByWorkerDay.get(`${selectedWorker._id}:${weekday}`) ?? 0,
@@ -135,11 +129,22 @@ export function LeadGenSettingsPageClient() {
       },
       {} as Record<Weekday, string>,
     );
-    setScheduleDraft(nextDraft);
   }, [scheduleByWorkerDay, selectedWorker]);
 
-  useEffect(() => {
-    if (!settings) return;
+  // Reload the schedule draft whenever the saved schedule or worker changes.
+  const [scheduleDraftSource, setScheduleDraftSource] = useState<Record<
+    Weekday,
+    string
+  > | null>(null);
+  if (savedScheduleDraft && savedScheduleDraft !== scheduleDraftSource) {
+    setScheduleDraftSource(savedScheduleDraft);
+    setScheduleDraft(savedScheduleDraft);
+  }
+
+  // Reload the settings form whenever the saved settings change.
+  const [settingsSource, setSettingsSource] = useState<typeof settings>();
+  if (settings && settings !== settingsSource) {
+    setSettingsSource(settings);
     const correctionWindow =
       "correctionWindowMinutes" in settings
         ? settings.correctionWindowMinutes
@@ -151,7 +156,7 @@ export function LeadGenSettingsPageClient() {
         : String(correctionWindow),
     );
     setDuplicateDisplayMode(settings.duplicateDisplayMode);
-  }, [settings]);
+  }
 
   const handleCreateTeam = async () => {
     const name = newTeamName.trim();

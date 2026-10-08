@@ -98,7 +98,7 @@ describe("operations report public API security", () => {
 
     expect(
       await fixture.t.run(async (ctx) =>
-        (await ctx.db.get(fixture.queuedJobId))?.status,
+        (await ctx.db.get("operationsReportJobs", fixture.queuedJobId))?.status,
       ),
     ).toBe("queued");
   });
@@ -119,7 +119,7 @@ describe("operations report public API security", () => {
 
     expect(
       await fixture.t.run(async (ctx) =>
-        (await ctx.db.get(fixture.exportJobId))?.status,
+        (await ctx.db.get("operationsReportJobs", fixture.exportJobId))?.status,
       ),
     ).toBe("ready");
   });
@@ -127,7 +127,7 @@ describe("operations report public API security", () => {
   it("cancels a queued job before claiming it when its owner is revoked", async () => {
     const fixture = await createFixture();
     await fixture.t.run(async (ctx) => {
-      await ctx.db.patch(fixture.ownerId, { isActive: false });
+      await ctx.db.patch("users", fixture.ownerId, { isActive: false });
     });
 
     await expect(
@@ -139,7 +139,7 @@ describe("operations report public API security", () => {
 
     expect(
       await fixture.t.run(async (ctx) => {
-        const job = await ctx.db.get(fixture.queuedJobId);
+        const job = await ctx.db.get("operationsReportJobs", fixture.queuedJobId);
         return {
           status: job?.status,
           phase: job?.phase,
@@ -162,7 +162,7 @@ describe("operations report public API security", () => {
   it("rejects reuse of an idempotency token for a different request", async () => {
     const fixture = await createFixture();
     await fixture.t.run(async (ctx) => {
-      await ctx.db.patch(fixture.queuedJobId, {
+      await ctx.db.patch("operationsReportJobs", fixture.queuedJobId, {
         status: "canceled",
         phase: "cleanup",
       });
@@ -393,7 +393,7 @@ it.each(["heartbeat", "completion"] as const)(
       });
       if (claim.kind !== "claimed") throw new Error("Expected claimed job.");
       await t.run(async (ctx) => {
-        await ctx.db.patch(userId, { role: "closer" });
+        await ctx.db.patch("users", userId, { role: "closer" });
       });
       const fence = { jobId, workerId: "worker-one", leaseGeneration: claim.leaseGeneration };
       if (transition === "heartbeat") {
@@ -406,7 +406,7 @@ it.each(["heartbeat", "completion"] as const)(
         });
         expect(result.kind).toBe("stale");
       }
-      const job = await t.run(async (ctx) => await ctx.db.get(jobId));
+      const job = await t.run(async (ctx) => await ctx.db.get("operationsReportJobs", jobId));
       expect(job).toMatchObject({
         status: "canceled", phase: "cleanup", cleanupPending: true,
         failure: { category: "authorization", retryable: false },

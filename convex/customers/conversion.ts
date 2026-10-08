@@ -37,7 +37,7 @@ export async function executeConversion(
     notes,
   } = args;
 
-  const lead = await ctx.db.get(leadId);
+  const lead = await ctx.db.get("leads", leadId);
   if (!lead || lead.tenantId !== tenantId) {
     throw new Error("Lead not found");
   }
@@ -63,7 +63,7 @@ export async function executeConversion(
     );
   }
 
-  const opportunity = await ctx.db.get(winningOpportunityId);
+  const opportunity = await ctx.db.get("opportunities", winningOpportunityId);
   if (!opportunity || opportunity.tenantId !== tenantId) {
     throw new Error("Winning opportunity not found");
   }
@@ -74,7 +74,7 @@ export async function executeConversion(
   const winningPayment = (
     await ctx.db
       .query("paymentRecords")
-      .withIndex("by_opportunityId", (q) =>
+      .withIndex("by_opportunityId_and_recordedAt", (q) =>
         q.eq("opportunityId", winningOpportunityId),
       )
       .order("desc")
@@ -89,7 +89,7 @@ export async function executeConversion(
     );
   }
 
-  const program = await ctx.db.get(winningPayment.programId);
+  const program = await ctx.db.get("tenantPrograms", winningPayment.programId);
   if (!program || program.tenantId !== tenantId) {
     throw new Error("Program not found on winning payment");
   }
@@ -122,7 +122,7 @@ export async function executeConversion(
 
   await insertCustomerAggregate(ctx, customerId);
 
-  await ctx.db.patch(leadId, {
+  await ctx.db.patch("leads", leadId, {
     status: "converted",
     updatedAt: now,
   });
@@ -170,7 +170,7 @@ export async function executeConversion(
   for (const candidateOpportunity of leadOpportunities) {
     const payments = await ctx.db
       .query("paymentRecords")
-      .withIndex("by_opportunityId", (q) =>
+      .withIndex("by_opportunityId_and_recordedAt", (q) =>
         q.eq("opportunityId", candidateOpportunity._id),
       )
       .take(50);
@@ -187,7 +187,7 @@ export async function executeConversion(
         patch.programName = resolvedProgramName;
       }
       if (Object.keys(patch).length > 0) {
-        await ctx.db.patch(payment._id, patch);
+        await ctx.db.patch("paymentRecords", payment._id, patch);
         backfilledCount += 1;
       }
     }

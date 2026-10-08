@@ -36,7 +36,7 @@ async function syncLeadGenWorkerProfile(
     return;
   }
 
-  await ctx.db.patch(worker._id, {
+  await ctx.db.patch("leadGenWorkers", worker._id, {
     customProfilePictureStorageId,
     updatedAt: Date.now(),
   });
@@ -75,7 +75,7 @@ export const saveProfilePicture = mutation({
       throw new Error("Profile picture must be 2 MB or smaller.");
     }
 
-    const user = await ctx.db.get(userId);
+    const user = await ctx.db.get("users", userId);
     if (!user || user.tenantId !== tenantId) {
       throw new Error("User not found.");
     }
@@ -83,7 +83,7 @@ export const saveProfilePicture = mutation({
     const previousStorageId = user.customProfilePictureStorageId;
     const now = Date.now();
 
-    await ctx.db.patch(userId, {
+    await ctx.db.patch("users", userId, {
       customProfilePictureStorageId: storageId,
       customProfilePictureUploadedAt: now,
     });
@@ -104,14 +104,14 @@ export const removeProfilePicture = mutation({
     const { userId, tenantId } = await requireTenantUser(ctx, [
       ...avatarRoles,
     ]);
-    const user = await ctx.db.get(userId);
+    const user = await ctx.db.get("users", userId);
     if (!user || user.tenantId !== tenantId) {
       throw new Error("User not found.");
     }
 
     const previousStorageId = user.customProfilePictureStorageId;
 
-    await ctx.db.patch(userId, {
+    await ctx.db.patch("users", userId, {
       customProfilePictureStorageId: undefined,
       customProfilePictureUploadedAt: undefined,
     });

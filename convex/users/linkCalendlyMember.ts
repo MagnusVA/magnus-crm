@@ -17,7 +17,7 @@ export const linkCloserToCalendlyMember = mutation({
     console.log("[Users:CalendlyLink] linkCloserToCalendlyMember called", { userId, calendlyMemberId });
     const { tenantId } = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
 
-    const user = await ctx.db.get(userId);
+    const user = await ctx.db.get("users", userId);
     console.log("[Users:CalendlyLink] user validation", { found: !!user, role: user?.role, currentCalendlyUri: !!user?.calendlyUserUri });
     if (!user || user.tenantId !== tenantId) {
       console.error("[Users:CalendlyLink] Invalid user", { userId });
@@ -38,21 +38,21 @@ export const linkCloserToCalendlyMember = mutation({
         .unique();
       if (prevMember) {
         console.log("[Users:CalendlyLink] unlinking previous member", { prevMemberId: prevMember._id });
-        await ctx.db.patch(prevMember._id, { matchedUserId: undefined });
+        await ctx.db.patch("calendlyOrgMembers", prevMember._id, { matchedUserId: undefined });
       }
     }
 
     if (calendlyMemberId === null) {
       console.log("[Users:CalendlyLink] unlinking user (no new member)", { userId });
       // Clear both the URI and the denormalized name when unlinking
-      await ctx.db.patch(userId, {
+      await ctx.db.patch("users", userId, {
         calendlyUserUri: undefined,
         calendlyMemberName: undefined,
       });
       return;
     }
 
-    const member = await ctx.db.get(calendlyMemberId);
+    const member = await ctx.db.get("calendlyOrgMembers", calendlyMemberId);
     if (!member || member.tenantId !== tenantId) {
       console.error("[Users:CalendlyLink] Invalid Calendly member", { calendlyMemberId });
       throw new Error("Invalid Calendly member");
@@ -68,11 +68,11 @@ export const linkCloserToCalendlyMember = mutation({
     // Link the new Calendly member to the user
     // Denormalize the Calendly member's name onto the user document to avoid
     // double-table scans in queries like listTeamMembers
-    await ctx.db.patch(userId, {
+    await ctx.db.patch("users", userId, {
       calendlyUserUri: member.calendlyUserUri,
       calendlyMemberName: member.name,
     });
-    await ctx.db.patch(calendlyMemberId, { matchedUserId: userId });
+    await ctx.db.patch("calendlyOrgMembers", calendlyMemberId, { matchedUserId: userId });
     console.log("[Users:CalendlyLink] linked successfully", { userId, calendlyMemberId, calendlyUserUri: member.calendlyUserUri, calendlyMemberName: member.name });
   },
 });

@@ -313,7 +313,7 @@ export async function ensureTenantCalendlyConnection(
     return existing;
   }
 
-  const tenant = await ctx.db.get(tenantId);
+  const tenant = await ctx.db.get("tenants", tenantId);
   if (!tenant) {
     throw new Error("Tenant not found");
   }
@@ -331,7 +331,7 @@ export async function ensureTenantCalendlyConnection(
       }),
   });
 
-  const created = await ctx.db.get(connectionId);
+  const created = await ctx.db.get("tenantCalendlyConnections", connectionId);
   if (!created) {
     throw new Error("Failed to create tenant Calendly connection");
   }
@@ -350,5 +350,5 @@ export async function updateTenantCalendlyConnection(
   }
 
   const connection = await ensureTenantCalendlyConnection(ctx, tenantId);
-  await ctx.db.patch(connection._id, storedPatch);
+  await ctx.db.patch("tenantCalendlyConnections", connection._id, storedPatch);
 }

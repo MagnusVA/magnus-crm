@@ -28,7 +28,7 @@ export const upsertMember = internalMutation({
 
     if (existing) {
       console.log(`[org-sync] upsertMember: updating existing member ${existing._id} for tenant ${args.tenantId}, matchedUser=${Boolean(matchedUser)}`);
-      await ctx.db.patch(existing._id, {
+      await ctx.db.patch("calendlyOrgMembers", existing._id, {
         email: args.email,
         name: args.name,
         calendlyRole: args.calendlyRole,
@@ -37,7 +37,7 @@ export const upsertMember = internalMutation({
       });
 
       if (linkedUserId) {
-        await ctx.db.patch(linkedUserId, {
+        await ctx.db.patch("users", linkedUserId, {
           calendlyUserUri: args.calendlyUserUri,
           calendlyMemberName: args.name,
         });
@@ -57,7 +57,7 @@ export const upsertMember = internalMutation({
     });
 
     if (linkedUserId) {
-      await ctx.db.patch(linkedUserId, {
+      await ctx.db.patch("users", linkedUserId, {
         calendlyUserUri: args.calendlyUserUri,
         calendlyMemberName: args.name,
       });
@@ -84,7 +84,7 @@ export const deleteStaleMembers = internalMutation({
         .take(128);
 
       for (const member of staleMembers) {
-        await ctx.db.delete(member._id);
+        await ctx.db.delete("calendlyOrgMembers", member._id);
         deleted++;
       }
 

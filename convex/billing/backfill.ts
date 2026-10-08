@@ -24,7 +24,7 @@ export const backfillBillingPaymentAggregates = internalMutation({
 
     const result = await ctx.db
       .query("paymentRecords")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .withIndex("by_tenantId_and_recordedAt", (q) => q.eq("tenantId", tenantId))
       .paginate({
         numItems: BACKFILL_BATCH_SIZE,
         cursor: cursor ?? null,

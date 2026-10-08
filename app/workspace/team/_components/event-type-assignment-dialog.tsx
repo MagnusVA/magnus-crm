@@ -73,11 +73,17 @@ export function EventTypeAssignmentDialog({
     },
   });
 
+  // Clear any previous error each time the dialog opens.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) setSubmitError(null);
+  }
+
   // Reset form when dialog opens with new data (externally controlled pattern)
   useEffect(() => {
     if (open) {
       form.reset({ personalEventTypeUri: currentUri ?? "" });
-      setSubmitError(null);
     }
   }, [open, currentUri, form]);
 

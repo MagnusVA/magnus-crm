@@ -118,7 +118,7 @@ export const create = internalMutation({
       createdAt: now,
     });
 
-    await ctx.db.patch(resolution.leadId, {
+    await ctx.db.patch("leads", resolution.leadId, {
       country: args.country.trim(),
       leadType: args.leadType,
       updatedAt: now,

@@ -73,7 +73,7 @@ export const getTeamOutcomeMix = query({
     const opportunities = await Promise.all(
       opportunityIds.map(async (opportunityId) => [
         opportunityId,
-        await ctx.db.get(opportunityId),
+        await ctx.db.get("opportunities", opportunityId),
       ] as const),
     );
     const opportunityById = new Map<

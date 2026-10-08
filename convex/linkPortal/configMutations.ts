@@ -69,7 +69,7 @@ export const ensureConfigForTenant = internalMutation({
       createdAt: now,
       updatedAt: now,
     });
-    return await ctx.db.get(configId);
+    return await ctx.db.get("linkPortalConfigs", configId);
   },
 });
 
@@ -102,10 +102,10 @@ export const rotatePasswordHash = internalMutation({
         createdAt: now,
         updatedAt: now,
       });
-      return await ctx.db.get(configId);
+      return await ctx.db.get("linkPortalConfigs", configId);
     }
 
-    await ctx.db.patch(config._id, {
+    await ctx.db.patch("linkPortalConfigs", config._id, {
       passwordHash: args.passwordHash,
       passwordSalt: args.passwordSalt,
       passwordHashParams: args.passwordHashParams,
@@ -114,7 +114,7 @@ export const rotatePasswordHash = internalMutation({
       sessionVersion: config.sessionVersion + 1,
       updatedAt: now,
     });
-    return await ctx.db.get(config._id);
+    return await ctx.db.get("linkPortalConfigs", config._id);
   },
 });
 
@@ -131,7 +131,7 @@ export const rotatePublicSlug = internalMutation({
       throw new Error("Set a portal password first.");
     }
 
-    await ctx.db.patch(config._id, {
+    await ctx.db.patch("linkPortalConfigs", config._id, {
       publicSlug,
       sessionVersion: config.sessionVersion + 1,
       updatedAt: Date.now(),
@@ -168,7 +168,7 @@ export const setPortalEnabled = mutation({
     const sessionVersion = isEnabled
       ? config.sessionVersion
       : config.sessionVersion + 1;
-    await ctx.db.patch(config._id, {
+    await ctx.db.patch("linkPortalConfigs", config._id, {
       isEnabled,
       sessionVersion,
       updatedAt: Date.now(),
@@ -197,7 +197,7 @@ export const updateSessionTtl = mutation({
       };
     }
 
-    await ctx.db.patch(config._id, {
+    await ctx.db.patch("linkPortalConfigs", config._id, {
       sessionTtlSeconds: normalizedTtl,
       sessionVersion: config.sessionVersion + 1,
       updatedAt: Date.now(),

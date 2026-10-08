@@ -3,7 +3,7 @@
 import { NotFoundException, WorkOS } from "@workos-inc/node";
 import { v } from "convex/values";
 import type { ActionCtx } from "../_generated/server";
-import { action, internalAction } from "../_generated/server";
+import { action, internalAction, env } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { getValidAccessToken } from "../calendly/tokens";
@@ -12,8 +12,8 @@ import { generateInviteToken } from "../lib/inviteToken";
 import { requireSystemAdminSession } from "../requireSystemAdmin";
 import { validateCompanyName, validateEmail } from "../lib/validation";
 
-const workos = new WorkOS(process.env.WORKOS_API_KEY!, {
-  clientId: process.env.WORKOS_CLIENT_ID!,
+const workos = new WorkOS(env.WORKOS_API_KEY, {
+  clientId: env.WORKOS_CLIENT_ID,
 });
 
 type InviteLinkResult = {
@@ -63,11 +63,11 @@ type TenantWithConnectionState = Doc<"tenants"> & {
 };
 
 function getAppUrl() {
-  return process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+  return env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 }
 
 function getInviteSigningSecret() {
-  const signingSecret = process.env.INVITE_SIGNING_SECRET;
+  const signingSecret = env.INVITE_SIGNING_SECRET;
   if (!signingSecret) {
     throw new Error("Missing INVITE_SIGNING_SECRET");
   }
@@ -76,13 +76,11 @@ function getInviteSigningSecret() {
 }
 
 function getCalendlyClientId() {
-  return (
-    process.env.CALENDLY_CLIENT_ID ?? process.env.NEXT_PUBLIC_CALENDLY_CLIENT_ID
-  );
+  return env.CALENDLY_CLIENT_ID;
 }
 
 function getCalendlyClientSecret() {
-  return process.env.CALENDLY_CLIENT_SECRET;
+  return env.CALENDLY_CLIENT_SECRET;
 }
 
 function buildPendingOrganizationExternalId(contactEmail: string) {

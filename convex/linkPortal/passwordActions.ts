@@ -9,8 +9,8 @@ import type { ScryptOptions } from "node:crypto";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { action } from "../_generated/server";
-import type { CrmRole } from "../lib/roleMapping";
+import { action, env } from "../_generated/server";
+import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 import { issuePortalSessionToken } from "./sessionToken";
 
 const HASH_PARAMS = {
@@ -28,11 +28,6 @@ const GENERIC_PORTAL_AUTH_ERROR = "Portal unavailable or password invalid.";
 const IP_HASH_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
 type HashParams = typeof HASH_PARAMS;
-type TenantAdminPortalAccess = {
-  tenantId: Id<"tenants">;
-  userId: Id<"users">;
-  role: CrmRole;
-};
 type LinkPortalConfigForPassword = {
   tenantId: Id<"tenants">;
   publicSlug: string;
@@ -86,7 +81,7 @@ async function hashPortalPassword(
   salt: string,
   hashParams: HashParams,
 ) {
-  const pepper = process.env.LINK_PORTAL_PASSWORD_PEPPER ?? "";
+  const pepper = env.LINK_PORTAL_PASSWORD_PEPPER ?? "";
   const derived = (await scrypt(
     `${password}${pepper}`,
     salt,
@@ -149,10 +144,10 @@ export const rotatePortalPassword = action({
     password: v.string(),
   },
   handler: async (ctx, args): Promise<PortalPasswordRotationResult> => {
-    const access: TenantAdminPortalAccess = await ctx.runQuery(
-      internal.linkPortal.authz.requireTenantAdminForPortal,
-      {},
-    );
+    const access = await requireTenantUserFromAction(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
     assertAdminSetPasswordAllowed(args.password);
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -195,6 +190,7 @@ export const rotatePortalPassword = action({
   },
 });
 
+// eslint-disable-next-line @convex-dev/require-access-control -- DM portal sign-in; the portal password is the credential
 export const verifyPassword = action({
   args: {
     portalSlug: v.string(),

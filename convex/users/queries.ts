@@ -8,6 +8,7 @@ import {
 } from "../lib/workosUserId";
 import { userMemberIdentity } from "../lib/memberIdentity";
 
+// eslint-disable-next-line @convex-dev/require-access-control -- returns null when signed out; reads only the caller's user
 export const getCurrentUser = query({
   args: {},
   handler: async (ctx) => {
@@ -79,7 +80,7 @@ export const getById = internalQuery({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
     console.log("[Users] getById called", { userId });
-    const user = await ctx.db.get(userId);
+    const user = await ctx.db.get("users", userId);
     console.log("[Users] getById result", { found: !!user });
     return user;
   },
@@ -119,7 +120,7 @@ export const getActiveAssignedOpportunityCount = internalQuery({
     for (const status of activeStatuses) {
       const opportunities = await ctx.db
         .query("opportunities")
-        .withIndex("by_tenantId_and_assignedCloserId_and_status", (q) =>
+        .withIndex("by_tenantId_and_assignedCloserId_and_status_and_createdAt", (q) =>
           q
             .eq("tenantId", tenantId)
             .eq("assignedCloserId", userId)

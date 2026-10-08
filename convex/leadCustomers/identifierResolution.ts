@@ -76,7 +76,7 @@ export async function resolveDirectEntityIdentifier(
 
   const customerId = ctx.db.normalizeId("customers", term);
   if (customerId) {
-    const customer = await ctx.db.get(customerId);
+    const customer = await ctx.db.get("customers", customerId);
     if (!customer || customer.tenantId !== tenantId) {
       return null;
     }
@@ -86,7 +86,7 @@ export async function resolveDirectEntityIdentifier(
 
   const opportunityId = ctx.db.normalizeId("opportunities", term);
   if (opportunityId) {
-    const opportunity = await ctx.db.get(opportunityId);
+    const opportunity = await ctx.db.get("opportunities", opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       return null;
     }
@@ -98,11 +98,11 @@ export async function resolveDirectEntityIdentifier(
 
   const meetingId = ctx.db.normalizeId("meetings", term);
   if (meetingId) {
-    const meeting = await ctx.db.get(meetingId);
+    const meeting = await ctx.db.get("meetings", meetingId);
     if (!meeting || meeting.tenantId !== tenantId) {
       return null;
     }
-    const opportunity = await ctx.db.get(meeting.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       return null;
     }

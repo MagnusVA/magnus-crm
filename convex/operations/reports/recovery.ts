@@ -22,7 +22,7 @@ export const recoverJob = internalMutation({
   },
   returns: v.object({ recovered: v.boolean(), reason: v.string() }),
   handler: async (ctx, args) => {
-    const job = await ctx.db.get(args.jobId);
+    const job = await ctx.db.get("operationsReportJobs", args.jobId);
     const now = Date.now();
     if (job?.executionVersion === 2) return { recovered: false, reason: "Recovery is owned by maintenance." };
     if (
@@ -67,7 +67,7 @@ export const recoverStaleReports = internalMutation({
     let recovered = 0;
     for (const job of jobs) {
       if (job.executionVersion === 2 && job.scheduledFunctionId) {
-        const invocation = await ctx.db.system.get(job.scheduledFunctionId);
+        const invocation = await ctx.db.system.get("_scheduled_functions", job.scheduledFunctionId);
         if (invocation?.state.kind === "pending" || invocation?.state.kind === "inProgress") continue;
       }
       const result =
@@ -129,7 +129,7 @@ async function requeue(
   const retryCount = job.retryCount + 1;
   const delayMs = Math.min(60_000, 1_000 * 2 ** (retryCount - 1));
   const scheduledFunctionId = await scheduleWorker(ctx, job._id, delayMs);
-  await ctx.db.patch(job._id, {
+  await ctx.db.patch("operationsReportJobs", job._id, {
     status: "queued",
     queuedAt: now,
     retryCount,
@@ -153,7 +153,7 @@ async function failRecovery(
   message: string,
 ) {
   await releaseAdmission(ctx, job);
-  await ctx.db.patch(job._id, {
+  await ctx.db.patch("operationsReportJobs", job._id, {
     status: "failed",
     phase: "cleanup",
     failure: { category: "recovery", message, retryable: false },
@@ -175,7 +175,7 @@ async function cancelRecovery(
   now: number,
 ) {
   await releaseAdmission(ctx, job);
-  await ctx.db.patch(job._id, {
+  await ctx.db.patch("operationsReportJobs", job._id, {
     status: "canceled",
     phase: "cleanup",
     failure: {

@@ -2,7 +2,6 @@
 
 import {
 	useCallback,
-	useEffect,
 	useMemo,
 	useState,
 	useTransition,
@@ -33,11 +32,14 @@ export function useEntityBrowserUrlState(): EntityBrowserContextValue {
 	const urlLifecycle = parseLifecycle(searchParams.get("lifecycle"));
 	const [lifecycle, setLifecycleState] =
 		useState<EntityLifecycleFilter>(urlLifecycle);
+	const [syncedUrlLifecycle, setSyncedUrlLifecycle] = useState(urlLifecycle);
 	const debouncedQuery = useDebouncedValue(query, 275);
 
-	useEffect(() => {
+	// Adopt lifecycle changes that arrive through the URL, such as back/forward.
+	if (urlLifecycle !== syncedUrlLifecycle) {
+		setSyncedUrlLifecycle(urlLifecycle);
 		setLifecycleState(urlLifecycle);
-	}, [urlLifecycle]);
+	}
 
 	const replaceParams = useCallback(
 		(updates: Record<string, string | null>) => {

@@ -41,7 +41,7 @@ async function assertOwnedPendingReminder(
 }> {
   const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
 
-  const followUp = await ctx.db.get(followUpId);
+  const followUp = await ctx.db.get("followUps", followUpId);
   if (!followUp) {
     throw new Error("Reminder not found");
   }
@@ -63,14 +63,14 @@ async function assertOwnedPendingReminder(
     throw new Error("Reminder is not pending");
   }
 
-  const opportunity = await ctx.db.get(followUp.opportunityId);
+  const opportunity = await ctx.db.get("opportunities", followUp.opportunityId);
   if (!opportunity || opportunity.tenantId !== tenantId) {
     throw new Error("Opportunity not found");
   }
   return { followUp, opportunity, tenantId, userId };
 }
 
-async function loadPendingReminderForPayment(
+async function requirePendingReminderForPayment(
   ctx: MutationCtx,
   followUpId: Id<"followUps">,
 ): Promise<{
@@ -88,7 +88,7 @@ async function loadPendingReminderForPayment(
   ]);
   const role = authorizedRole as ReminderPaymentRole;
 
-  const followUp = await ctx.db.get(followUpId);
+  const followUp = await ctx.db.get("followUps", followUpId);
   if (!followUp) {
     throw new Error("Reminder not found");
   }
@@ -110,7 +110,7 @@ async function loadPendingReminderForPayment(
     throw new Error("Reminder is not pending");
   }
 
-  const opportunity = await ctx.db.get(followUp.opportunityId);
+  const opportunity = await ctx.db.get("opportunities", followUp.opportunityId);
   if (!opportunity || opportunity.tenantId !== tenantId) {
     throw new Error("Opportunity not found");
   }
@@ -128,7 +128,7 @@ export const logReminderPayment = mutation({
   },
   handler: async (ctx, args) => {
     const { followUp, opportunity, tenantId, userId, role } =
-      await loadPendingReminderForPayment(
+      await requirePendingReminderForPayment(
       ctx,
       args.followUpId,
     );
@@ -213,7 +213,7 @@ export const logReminderPayment = mutation({
         : 0,
     });
 
-    await ctx.db.patch(args.followUpId, {
+    await ctx.db.patch("followUps", args.followUpId, {
       status: "completed",
       completedAt: now,
       completionOutcome: "payment_received",
@@ -279,7 +279,7 @@ export const logReminderPayment = mutation({
     });
 
     if (customerId) {
-      await ctx.db.patch(paymentId, { customerId });
+      await ctx.db.patch("paymentRecords", paymentId, { customerId });
       await syncCustomerPaymentSummary(ctx, customerId);
     } else {
       const existingCustomer = await ctx.db
@@ -289,7 +289,7 @@ export const logReminderPayment = mutation({
         )
         .first();
       if (existingCustomer) {
-        await ctx.db.patch(paymentId, { customerId: existingCustomer._id });
+        await ctx.db.patch("paymentRecords", paymentId, { customerId: existingCustomer._id });
         await syncCustomerPaymentSummary(ctx, existingCustomer._id);
       }
     }
@@ -337,7 +337,7 @@ export const markReminderLost = mutation({
       lostDeals: 1,
     });
 
-    await ctx.db.patch(followUpId, {
+    await ctx.db.patch("followUps", followUpId, {
       status: "completed",
       completedAt: now,
       completionOutcome: "lost",
@@ -469,7 +469,7 @@ export const markReminderNoResponse = mutation({
       });
     }
 
-    await ctx.db.patch(followUpId, {
+    await ctx.db.patch("followUps", followUpId, {
       status: "completed",
       completedAt: now,
       completionOutcome: outcomeTag,

@@ -167,7 +167,7 @@ async function readLeadGenDaily(ctx: QueryCtx, args: ReportSourcePageRequest) {
   for (const workerId of [...new Set(filtered.map((row) => row.workerId))]) {
     const schedules = await ctx.db
       .query("leadGenWorkerSchedules")
-      .withIndex("by_tenantId_and_workerId", (q) =>
+      .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
         q.eq("tenantId", args.tenantId).eq("workerId", workerId),
       )
       .take(7);
@@ -242,7 +242,7 @@ async function readLeadGenSubmissions(ctx: QueryCtx, args: ReportSourcePageReque
     // Registry dimensions supply worker/team labels during finalization. Eight
     // prospects plus the 1 MiB primary page stay below the 16 MiB read limit,
     // even if every related document reaches Convex's 1 MiB document limit.
-    const prospect = await ctx.db.get(row.prospectId);
+    const prospect = await ctx.db.get("leadGenProspects", row.prospectId);
     const tenantProspect = prospect?.tenantId === args.tenantId ? prospect : null;
     return {
       kind: "lead_gen_submission", submissionId: row._id, prospectId: row.prospectId,
@@ -261,7 +261,7 @@ async function readLeadGenSubmissions(ctx: QueryCtx, args: ReportSourcePageReque
 async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promise<ReportSourcePage | null> {
   const opts = pagination(args.cursor);
   if (args.sourceKey === "lead_gen_workers") {
-    const result = await ctx.db.query("leadGenWorkers").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
+    const result = await ctx.db.query("leadGenWorkers").withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
     const page = await Promise.all(result.page.map(async (row): Promise<ReportSourceRow> => {
       const identity = await leadGenWorkerMemberIdentity(ctx, row);
       return { kind: "lead_gen_worker", workerId: row._id, userId: row.userId, teamId: row.teamId ?? null, label: identity.name ?? row.email, email: row.email, isActive: row.isActive, ...flattenIdentity(identity) };
@@ -279,7 +279,7 @@ async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promi
     return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "team", teamId: row._id, label: row.displayName, isActive: row.isActive, bookingDailyQuota: row.bookingDailyQuota ?? null })));
   }
   if (args.sourceKey === "lead_gen_worker_schedules") {
-    const result = await ctx.db.query("leadGenWorkerSchedules").withIndex("by_tenantId_and_workerId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
+    const result = await ctx.db.query("leadGenWorkerSchedules").withIndex("by_tenantId_and_workerId_and_weekday", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
     return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "lead_gen_schedule", workerId: row.workerId, weekday: row.weekday, scheduledHours: row.scheduledHours })));
   }
   if (args.sourceKey === "slack_users") {
@@ -290,7 +290,7 @@ async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promi
     }));
   }
   if (args.sourceKey === "qualifier_schedules") {
-    const result = await ctx.db.query("slackQualifierSchedules").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
+    const result = await ctx.db.query("slackQualifierSchedules").withIndex("by_tenantId_and_slackUserId_and_weekday", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
     return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "qualifier_schedule", slackUserId: row.slackUserId, weekday: row.weekday, scheduledHours: row.scheduledHours })));
   }
   if (args.sourceKey === "dm_closers") {
@@ -298,7 +298,7 @@ async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promi
     // so keep the fan-out well below the action transaction byte budget.
     const result = await ctx.db.query("dmClosers").withIndex("by_tenantId_and_teamId", (q) => q.eq("tenantId", args.tenantId)).paginate(pagination(args.cursor, 4));
     const page = await Promise.all(result.page.map(async (row): Promise<ReportSourceRow> => {
-      const linked = row.userId ? await ctx.db.get(row.userId) : null;
+      const linked = row.userId ? await ctx.db.get("users", row.userId) : null;
       const linkedUser = linked?.tenantId === args.tenantId ? linked : null;
       const identity = await dmCloserMemberIdentity(ctx, row, linkedUser);
       return { kind: "dm_closer", dmCloserId: row._id, userId: row.userId ?? null, teamId: row.teamId, label: row.displayName, isActive: row.isActive, hourlyRateMinor: row.hourlyRateMinor ?? null, ...flattenIdentity(identity) };
@@ -306,7 +306,7 @@ async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promi
     return projectedPage(result, page);
   }
   if (args.sourceKey === "dm_closer_schedules") {
-    const result = await ctx.db.query("dmCloserSchedules").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
+    const result = await ctx.db.query("dmCloserSchedules").withIndex("by_tenantId_and_dmCloserId_and_weekday", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
     return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "dm_closer_schedule", dmCloserId: row.dmCloserId, weekday: row.weekday, scheduledHours: row.scheduledHours })));
   }
   if (args.sourceKey === "users") {
@@ -318,7 +318,7 @@ async function readRegistry(ctx: QueryCtx, args: ReportSourcePageRequest): Promi
     return projectedPage(result, page);
   }
   if (args.sourceKey === "programs") {
-    const result = await ctx.db.query("tenantPrograms").withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
+    const result = await ctx.db.query("tenantPrograms").withIndex("by_tenantId_and_archivedAt", (q) => q.eq("tenantId", args.tenantId)).paginate(opts);
     return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "program", programId: row._id, label: row.name })));
   }
   return null;
@@ -333,11 +333,11 @@ async function readBookedMeetings(ctx: QueryCtx, args: ReportSourcePageRequest) 
   const result = await ctx.db.query("meetings").withIndex("by_tenantId_and_createdAt", (q) => q.eq("tenantId", args.tenantId).gte("createdAt", args.startTimestamp).lt("createdAt", args.endTimestampExclusive)).paginate(pagination(args.cursor, 2));
   const meetings = result.page.filter((row) => row.dmCloserId !== undefined && row.callClassification !== "follow_up");
   const page = await Promise.all(meetings.map(async (meeting): Promise<ReportSourceRow> => {
-    const [opportunity, team, dmCloser] = await Promise.all([ctx.db.get(meeting.opportunityId), meeting.attributionTeamId ? ctx.db.get(meeting.attributionTeamId) : Promise.resolve(null), ctx.db.get(meeting.dmCloserId!)]);
+    const [opportunity, team, dmCloser] = await Promise.all([ctx.db.get("opportunities", meeting.opportunityId), meeting.attributionTeamId ? ctx.db.get("attributionTeams", meeting.attributionTeamId) : Promise.resolve(null), ctx.db.get("dmClosers", meeting.dmCloserId!)]);
     const tenantOpportunity = opportunity?.tenantId === args.tenantId ? opportunity : null;
     const tenantTeam = team?.tenantId === args.tenantId ? team : null;
     const tenantDmCloser = dmCloser?.tenantId === args.tenantId ? dmCloser : null;
-    const leadCandidate = tenantOpportunity ? await ctx.db.get(tenantOpportunity.leadId) : null;
+    const leadCandidate = tenantOpportunity ? await ctx.db.get("leads", tenantOpportunity.leadId) : null;
     const lead = leadCandidate?.tenantId === args.tenantId ? leadCandidate : null;
     return {
       kind: "booked_meeting", meetingId: meeting._id, opportunityId: meeting.opportunityId,
@@ -362,9 +362,9 @@ async function readSalesMeetingStats(ctx: QueryCtx, args: ReportSourcePageReques
 async function readSalesCalls(ctx: QueryCtx, args: ReportSourcePageRequest) {
   const result = await ctx.db.query("meetings").withIndex("by_tenantId_and_scheduledAt", (q) => q.eq("tenantId", args.tenantId).gte("scheduledAt", args.startTimestamp).lt("scheduledAt", args.endTimestampExclusive)).paginate(pagination(args.cursor, 4));
   const page = await Promise.all(result.page.map(async (meeting): Promise<ReportSourceRow> => {
-    const opportunity = await ctx.db.get(meeting.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
     const tenantOpportunity = opportunity?.tenantId === args.tenantId ? opportunity : null;
-    const leadCandidate = tenantOpportunity ? await ctx.db.get(tenantOpportunity.leadId) : null;
+    const leadCandidate = tenantOpportunity ? await ctx.db.get("leads", tenantOpportunity.leadId) : null;
     const lead = leadCandidate?.tenantId === args.tenantId ? leadCandidate : null;
     return { kind: "sales_call", meetingId: meeting._id, opportunityId: meeting.opportunityId, assignedCloserId: meeting.assignedCloserId, scheduledAt: meeting.scheduledAt, status: meeting.status, bookingProgramId: meeting.bookingProgramId ?? null, bookingProgramName: meeting.bookingProgramName ?? tenantOpportunity?.firstBookingProgramName ?? null, soldProgramId: meeting.soldProgramId ?? null, soldProgramName: meeting.soldProgramName ?? tenantOpportunity?.soldProgramName ?? null, leadId: lead?._id ?? tenantOpportunity?.leadId ?? null, leadLabel: lead ? leadDisplayFromShape({ fullName: lead.fullName, email: lead.email, leadId: lead._id }) : meeting.leadName?.trim() || "Unknown lead" };
   }));
@@ -383,7 +383,7 @@ export async function readSourcePage(ctx: QueryCtx, args: ReportSourcePageReques
   if (registry) return registry;
   switch (args.sourceKey) {
     case "tenant": {
-      const tenant = await ctx.db.get(args.tenantId);
+      const tenant = await ctx.db.get("tenants", args.tenantId);
       return syntheticPage(tenant ? [{ kind: "tenant", slackQualificationDailyTeamQuota: tenant.slackQualificationDailyTeamQuota ?? null }] : [], args.cursor);
     }
     case "lead_gen_daily": return await readLeadGenDaily(ctx, args);

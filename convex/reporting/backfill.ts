@@ -44,7 +44,7 @@ export const backfillMeetingClassification = internalMutation({
 				)
 				.first();
 
-			await ctx.db.patch(meeting._id, {
+			await ctx.db.patch("meetings", meeting._id, {
 				callClassification:
 					firstMeeting === null || firstMeeting._id === meeting._id
 						? "new"
@@ -296,7 +296,7 @@ export const backfillPaymentOrigin = internalMutation({
 				defaultedToCloserMeeting += 1;
 			}
 
-			await ctx.db.patch(payment._id, { origin });
+			await ctx.db.patch("paymentRecords", payment._id, { origin });
 			updated += 1;
 		}
 
@@ -460,7 +460,7 @@ export const backfillFollowUpOrigin = internalMutation({
 				defaultedToSystem += 1;
 			}
 
-			await ctx.db.patch(followUp._id, {
+			await ctx.db.patch("followUps", followUp._id, {
 				createdSource,
 				createdByUserId,
 			});

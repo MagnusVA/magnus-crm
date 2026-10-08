@@ -6,6 +6,7 @@ import { internal } from "../_generated/api";
 import { action, internalAction } from "../_generated/server";
 import { getIdentityOrgId } from "../lib/identity";
 import { ADMIN_ROLES } from "../lib/roleMapping";
+import { requireIdentity } from "../requireIdentity";
 import { getValidAccessToken } from "./tokens";
 
 type TenantMemberState = {
@@ -168,10 +169,7 @@ export const syncMyTenantMembers = action({
   ): Promise<{ synced: number; deleted: number; reason?: string }> => {
     console.log(`[org-sync] syncMyTenantMembers: called`);
 
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Not authenticated");
-    }
+    const identity = await requireIdentity(ctx);
 
     const workosUserId = identity.tokenIdentifier ?? identity.subject;
     if (!workosUserId) {

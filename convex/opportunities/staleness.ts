@@ -40,7 +40,7 @@ export const nudgeStaleSideDeals = internalMutation({
 
       const payment = await ctx.db
         .query("paymentRecords")
-        .withIndex("by_opportunityId", (q) =>
+        .withIndex("by_opportunityId_and_recordedAt", (q) =>
           q.eq("opportunityId", opportunity._id),
         )
         .first();
@@ -73,7 +73,7 @@ export const nudgeStaleSideDeals = internalMutation({
 
       const followUps = await ctx.db
         .query("followUps")
-        .withIndex("by_opportunityId", (q) =>
+        .withIndex("by_opportunityId_and_status_and_reason", (q) =>
           q.eq("opportunityId", opportunity._id),
         )
         .take(50);

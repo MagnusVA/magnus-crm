@@ -1,6 +1,7 @@
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
+import { env } from "../_generated/server";
 
 const STATE_TTL_DEFAULT_SECONDS = 600;
 const BASE64URL_ALPHABET =
@@ -137,7 +138,7 @@ function randomHex(byteLength: number): string {
 }
 
 function getSigningSecret(explicitSecret?: string): string {
-  const signingSecret = explicitSecret ?? process.env.SLACK_STATE_SIGNING_SECRET;
+  const signingSecret = explicitSecret ?? env.SLACK_STATE_SIGNING_SECRET;
   if (!signingSecret) {
     throw new Error("SLACK_STATE_SIGNING_SECRET not set");
   }

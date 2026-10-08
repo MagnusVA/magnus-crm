@@ -70,7 +70,7 @@ export const updateTeam = mutation({
       "tenant_master",
       "tenant_admin",
     ]);
-    const team = await ctx.db.get(args.teamId);
+    const team = await ctx.db.get("attributionTeams", args.teamId);
     if (!team || team.tenantId !== tenantId) {
       throw new Error("Attribution team not found.");
     }
@@ -92,7 +92,7 @@ export const updateTeam = mutation({
       throw new Error("An active attribution team already uses this UTM source.");
     }
 
-    await ctx.db.patch(args.teamId, {
+    await ctx.db.patch("attributionTeams", args.teamId, {
       slug: normalized.slug,
       displayName: normalized.displayName,
       utmSource: normalized.utmSource,
@@ -116,7 +116,7 @@ export const setTeamBookingQuota = mutation({
       "tenant_master",
       "tenant_admin",
     ]);
-    const team = await ctx.db.get(args.teamId);
+    const team = await ctx.db.get("attributionTeams", args.teamId);
     if (!team || team.tenantId !== tenantId) {
       throw new Error("Attribution team not found.");
     }
@@ -132,7 +132,7 @@ export const setTeamBookingQuota = mutation({
       );
     }
 
-    await ctx.db.patch(args.teamId, {
+    await ctx.db.patch("attributionTeams", args.teamId, {
       bookingDailyQuota: args.bookingDailyQuota ?? undefined,
       updatedAt: Date.now(),
     });
@@ -150,11 +150,11 @@ export const setTeamActive = mutation({
       "tenant_master",
       "tenant_admin",
     ]);
-    const team = await ctx.db.get(teamId);
+    const team = await ctx.db.get("attributionTeams", teamId);
     if (!team || team.tenantId !== tenantId) {
       throw new Error("Attribution team not found.");
     }
-    await ctx.db.patch(teamId, { isActive, updatedAt: Date.now() });
+    await ctx.db.patch("attributionTeams", teamId, { isActive, updatedAt: Date.now() });
     return teamId;
   },
 });

@@ -42,14 +42,14 @@ async function createOrReuseAcceptedMatch(
   const accepted = acceptedMatches[0];
   if (accepted) {
     if (!accepted.opportunityId && args.opportunityId) {
-      await ctx.db.patch(accepted._id, {
+      await ctx.db.patch("leadGenAuditMatches", accepted._id, {
         opportunityId: args.opportunityId,
         updatedAt: args.now,
       });
     }
 
     if (args.prospect.currentAuditMatchId !== accepted._id) {
-      await ctx.db.patch(args.prospect._id, {
+      await ctx.db.patch("leadGenProspects", args.prospect._id, {
         currentAuditMatchId: accepted._id,
         updatedAt: args.now,
       });
@@ -80,7 +80,7 @@ async function createOrReuseAcceptedMatch(
     updatedAt: args.now,
   });
 
-  await ctx.db.patch(args.prospect._id, {
+  await ctx.db.patch("leadGenProspects", args.prospect._id, {
     currentAuditMatchId: matchId,
     updatedAt: args.now,
   });
@@ -175,7 +175,7 @@ export async function preserveQualificationAuditMatchForScheduledMeeting(
     return match._id;
   }
 
-  await ctx.db.patch(match._id, {
+  await ctx.db.patch("leadGenAuditMatches", match._id, {
     opportunityId: args.opportunityId,
     updatedAt: args.now,
   });

@@ -340,7 +340,7 @@ async function resolveCanonicalEventTypeConfigId(
 
   let candidateUri = eventTypeUri;
   if (!candidateUri && args.opportunity.eventTypeConfigId) {
-    const existingConfig = await ctx.db.get(args.opportunity.eventTypeConfigId);
+    const existingConfig = await ctx.db.get("eventTypeConfigs", args.opportunity.eventTypeConfigId);
     candidateUri = existingConfig?.calendlyEventTypeUri;
   }
 
@@ -408,7 +408,7 @@ export const getAllTenantIds = internalQuery({
 export const backfillMeetingFormResponsesForRawEvent = internalMutation({
   args: { rawEventId: v.id("rawWebhookEvents") },
   handler: async (ctx, { rawEventId }): Promise<RawEventBackfillResult> => {
-    const rawEvent = await ctx.db.get(rawEventId);
+    const rawEvent = await ctx.db.get("rawWebhookEvents", rawEventId);
     if (!rawEvent) {
       return {
         status: "skipped_missing_meeting",
@@ -495,7 +495,7 @@ export const backfillMeetingFormResponsesForRawEvent = internalMutation({
       };
     }
 
-    const opportunity = await ctx.db.get(meeting.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
     if (!opportunity || opportunity.tenantId !== rawEvent.tenantId) {
       return {
         status: "skipped_missing_opportunity",
@@ -567,7 +567,7 @@ export const seedTenantStatsInternal = internalMutation({
 
     const payments = await ctx.db
       .query("paymentRecords")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .withIndex("by_tenantId_and_recordedAt", (q) => q.eq("tenantId", tenantId))
       .collect();
     const nonDisputedPayments = payments.filter(
       (payment) => payment.status !== "disputed",
@@ -608,7 +608,7 @@ export const seedTenantStatsInternal = internalMutation({
       .first();
 
     if (existingStats) {
-      await ctx.db.patch(existingStats._id, payload);
+      await ctx.db.patch("tenantStats", existingStats._id, payload);
       return { action: "updated" };
     }
 
@@ -693,7 +693,7 @@ export const deduplicateEventTypeConfigsInternal = internalMutation({
       }
 
       if (Object.keys(canonicalPatch).length > 0) {
-        await ctx.db.patch(canonicalConfig._id, canonicalPatch);
+        await ctx.db.patch("eventTypeConfigs", canonicalConfig._id, canonicalPatch);
       }
 
       const canonicalFieldCatalogRows = await ctx.db
@@ -741,7 +741,7 @@ export const deduplicateEventTypeConfigsInternal = internalMutation({
             }
 
             if (Object.keys(patch).length > 0) {
-              await ctx.db.patch(existingCanonicalFieldCatalog._id, patch);
+              await ctx.db.patch("eventTypeFieldCatalog", existingCanonicalFieldCatalog._id, patch);
               fieldCatalogRowsMerged += 1;
             }
 
@@ -765,7 +765,7 @@ export const deduplicateEventTypeConfigsInternal = internalMutation({
             },
           );
 
-          const movedFieldCatalog = await ctx.db.get(newCanonicalFieldCatalogId);
+          const movedFieldCatalog = await ctx.db.get("eventTypeFieldCatalog", newCanonicalFieldCatalogId);
           if (movedFieldCatalog) {
             canonicalFieldCatalogByKey.set(
               movedFieldCatalog.fieldKey,
@@ -787,7 +787,7 @@ export const deduplicateEventTypeConfigsInternal = internalMutation({
           )
           .collect();
         for (const opportunity of opportunities) {
-          await ctx.db.patch(opportunity._id, {
+          await ctx.db.patch("opportunities", opportunity._id, {
             eventTypeConfigId: canonicalConfig._id,
           });
           opportunitiesRepointed += 1;
@@ -819,16 +819,16 @@ export const deduplicateEventTypeConfigsInternal = internalMutation({
             }
           }
 
-          await ctx.db.patch(response._id, patch);
+          await ctx.db.patch("meetingFormResponses", response._id, patch);
           responsesRepointed += 1;
         }
 
         for (const duplicateFieldCatalog of duplicateFieldCatalogRows) {
-          await ctx.db.delete(duplicateFieldCatalog._id);
+          await ctx.db.delete("eventTypeFieldCatalog", duplicateFieldCatalog._id);
           fieldCatalogRowsDeleted += 1;
         }
 
-        await ctx.db.delete(duplicate._id);
+        await ctx.db.delete("eventTypeConfigs", duplicate._id);
         deleted += 1;
       }
 
@@ -1039,7 +1039,7 @@ async function inferOpportunityAssignedCloserId(
 
   const followUps = await ctx.db
     .query("followUps")
-    .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunity._id))
+    .withIndex("by_opportunityId_and_status_and_reason", (q) => q.eq("opportunityId", opportunity._id))
     .collect();
   for (const followUp of followUps) {
     collectCandidateCloser(
@@ -1052,7 +1052,7 @@ async function inferOpportunityAssignedCloserId(
 
   const payments = await ctx.db
     .query("paymentRecords")
-    .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunity._id))
+    .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", opportunity._id))
     .collect();
   for (const payment of payments) {
     collectCandidateCloser(
@@ -1105,7 +1105,7 @@ export const backfillLeadStatus = mutation({
         continue;
       }
 
-      await ctx.db.patch(lead._id, { status: "active" });
+      await ctx.db.patch("leads", lead._id, { status: "active" });
       updated += 1;
     }
 
@@ -1130,7 +1130,7 @@ export const backfillUserIsActive = mutation({
         continue;
       }
 
-      await ctx.db.patch(user._id, { isActive: true });
+      await ctx.db.patch("users", user._id, { isActive: true });
       updated += 1;
     }
 
@@ -1168,7 +1168,7 @@ export const backfillPaymentAmountMinor = mutation({
         continue;
       }
 
-      await ctx.db.patch(payment._id, {
+      await ctx.db.patch("paymentRecords", payment._id, {
         amountMinor: Math.round(legacyAmount * 100),
       });
       updated += 1;
@@ -1202,7 +1202,7 @@ export const backfillPaymentContextType = mutation({
         continue;
       }
 
-      await ctx.db.patch(payment._id, {
+      await ctx.db.patch("paymentRecords", payment._id, {
         contextType: payment.opportunityId ? "opportunity" : "customer",
       });
       updated += 1;
@@ -1229,7 +1229,7 @@ export const backfillFollowUpType = mutation({
         continue;
       }
 
-      await ctx.db.patch(followUp._id, {
+      await ctx.db.patch("followUps", followUp._id, {
         type: followUp.schedulingLinkUrl
           ? "scheduling_link"
           : "manual_reminder",
@@ -1276,7 +1276,7 @@ export const backfillMeetingCloserId = mutation({
         continue;
       }
 
-      const opportunity = await ctx.db.get(meeting.opportunityId);
+      const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
       if (!opportunity) {
         addSkippedMeeting({
           meetingId: meeting._id,
@@ -1297,14 +1297,14 @@ export const backfillMeetingCloserId = mutation({
       }
 
       if (opportunity.assignedCloserId !== inferred.assignedCloserId) {
-        await ctx.db.patch(opportunity._id, {
+        await ctx.db.patch("opportunities", opportunity._id, {
           assignedCloserId: inferred.assignedCloserId,
           updatedAt: Date.now(),
         });
         opportunitiesPatched += 1;
       }
 
-      await ctx.db.patch(meeting._id, {
+      await ctx.db.patch("meetings", meeting._id, {
         assignedCloserId: inferred.assignedCloserId,
       });
       updated += 1;
@@ -1341,7 +1341,7 @@ export const backfillCustomerTotals = mutation({
     for (const customer of customers) {
       const payments = await ctx.db
         .query("paymentRecords")
-        .withIndex("by_customerId", (q) => q.eq("customerId", customer._id))
+        .withIndex("by_customerId_and_recordedAt", (q) => q.eq("customerId", customer._id))
         .collect();
       const nonDisputedPayments = payments.filter(
         (payment) => payment.status !== "disputed",
@@ -1351,7 +1351,7 @@ export const backfillCustomerTotals = mutation({
         0,
       );
 
-      await ctx.db.patch(customer._id, {
+      await ctx.db.patch("customers", customer._id, {
         totalPaidMinor,
         totalPaymentCount: nonDisputedPayments.length,
         paymentCurrency:
@@ -1513,14 +1513,14 @@ export const backfillPaymentProgramsAndTypes = mutation({
 
     const getOpportunity = async (opportunityId: Id<"opportunities">) => {
       if (!opportunityCache.has(opportunityId)) {
-        opportunityCache.set(opportunityId, await ctx.db.get(opportunityId));
+        opportunityCache.set(opportunityId, await ctx.db.get("opportunities", opportunityId));
       }
       return opportunityCache.get(opportunityId) ?? null;
     };
 
     const getEventTypeConfig = async (eventTypeConfigId: Id<"eventTypeConfigs">) => {
       if (!eventTypeConfigCache.has(eventTypeConfigId)) {
-        eventTypeConfigCache.set(eventTypeConfigId, await ctx.db.get(eventTypeConfigId));
+        eventTypeConfigCache.set(eventTypeConfigId, await ctx.db.get("eventTypeConfigs", eventTypeConfigId));
       }
       return eventTypeConfigCache.get(eventTypeConfigId) ?? null;
     };
@@ -1595,7 +1595,7 @@ export const backfillPaymentProgramsAndTypes = mutation({
         customer.programId !== program._id ||
         customer.programName !== program.name
       ) {
-        await ctx.db.patch(customer._id, {
+        await ctx.db.patch("customers", customer._id, {
           programId: program._id,
           programName: program.name,
         });
@@ -1710,7 +1710,7 @@ export const backfillPaymentProgramsAndTypes = mutation({
         continue;
       }
 
-      await ctx.db.patch(payment._id, patch);
+      await ctx.db.patch("paymentRecords", payment._id, patch);
       paymentsPatched += 1;
       if (payment.customerId) {
         touchedCustomerIds.add(payment.customerId);
@@ -2221,7 +2221,7 @@ export const backfillTenantCalendlyConnections = mutation({
         continue;
       }
 
-      await ctx.db.patch(existing._id, repairPatch);
+      await ctx.db.patch("tenantCalendlyConnections", existing._id, repairPatch);
       patchedExisting += 1;
       addSampleId(samplePatched, tenant._id);
     }
@@ -2397,7 +2397,7 @@ export const auditPaymentCurrencies = query({
     for await (const tenant of ctx.db.query("tenants")) {
       const payments = await ctx.db
         .query("paymentRecords")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenant._id))
+        .withIndex("by_tenantId_and_recordedAt", (q) => q.eq("tenantId", tenant._id))
         .collect();
       if (payments.length === 0) {
         continue;
@@ -2510,7 +2510,7 @@ export const purgePhase6BlockerRecords = mutation({
           .withIndex("by_meetingId", (q) => q.eq("meetingId", meeting._id))
           .collect();
         for (const r of formResponses) {
-          await ctx.db.delete(r._id);
+          await ctx.db.delete("meetingFormResponses", r._id);
           counts.meetingFormResponses++;
         }
       }
@@ -2522,7 +2522,7 @@ export const purgePhase6BlockerRecords = mutation({
           .withIndex("by_meetingId", (q) => q.eq("meetingId", meeting._id))
           .collect();
         for (const r of reassignments) {
-          await ctx.db.delete(r._id);
+          await ctx.db.delete("meetingReassignments", r._id);
           counts.meetingReassignments++;
         }
       }
@@ -2530,24 +2530,24 @@ export const purgePhase6BlockerRecords = mutation({
       // 4. followUps
       const followUps = await ctx.db
         .query("followUps")
-        .withIndex("by_opportunityId", (q) => q.eq("opportunityId", oppId))
+        .withIndex("by_opportunityId_and_status_and_reason", (q) => q.eq("opportunityId", oppId))
         .collect();
       for (const fu of followUps) {
-        await ctx.db.delete(fu._id);
+        await ctx.db.delete("followUps", fu._id);
         counts.followUps++;
       }
 
       // 5. paymentRecords (opportunity-scoped) + proof files
       const oppPayments = await ctx.db
         .query("paymentRecords")
-        .withIndex("by_opportunityId", (q) => q.eq("opportunityId", oppId))
+        .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", oppId))
         .collect();
       for (const p of oppPayments) {
         if (p.proofFileId) {
           await ctx.storage.delete(p.proofFileId);
           counts.paymentProofFiles++;
         }
-        await ctx.db.delete(p._id);
+        await ctx.db.delete("paymentRecords", p._id);
         counts.paymentRecords++;
       }
 
@@ -2567,7 +2567,7 @@ export const purgePhase6BlockerRecords = mutation({
           )
           .collect();
         for (const evt of oppEvents) {
-          await ctx.db.delete(evt._id);
+          await ctx.db.delete("domainEvents", evt._id);
           counts.domainEvents++;
         }
       }
@@ -2586,7 +2586,7 @@ export const purgePhase6BlockerRecords = mutation({
           )
           .collect();
         for (const evt of meetingEvents) {
-          await ctx.db.delete(evt._id);
+          await ctx.db.delete("domainEvents", evt._id);
           counts.domainEvents++;
         }
       }
@@ -2594,7 +2594,7 @@ export const purgePhase6BlockerRecords = mutation({
       // 8. customers whose winningOpportunityId points to this opportunity
       //    (winningOpportunityId is required in the schema, so we must delete
       //    the customer, not just clear the field).
-      const opportunity = await ctx.db.get(oppId);
+      const opportunity = await ctx.db.get("opportunities", oppId);
       if (opportunity) {
         const customers = await ctx.db
           .query("customers")
@@ -2609,7 +2609,7 @@ export const purgePhase6BlockerRecords = mutation({
           // Delete customer-scoped payment records first
           const custPayments = await ctx.db
             .query("paymentRecords")
-            .withIndex("by_customerId", (q) =>
+            .withIndex("by_customerId_and_recordedAt", (q) =>
               q.eq("customerId", customer._id),
             )
             .collect();
@@ -2618,7 +2618,7 @@ export const purgePhase6BlockerRecords = mutation({
               await ctx.storage.delete(p.proofFileId);
               counts.paymentProofFiles++;
             }
-            await ctx.db.delete(p._id);
+            await ctx.db.delete("paymentRecords", p._id);
             counts.paymentRecords++;
           }
           // Delete domainEvents for the customer
@@ -2634,10 +2634,10 @@ export const purgePhase6BlockerRecords = mutation({
             )
             .collect();
           for (const evt of custEvents) {
-            await ctx.db.delete(evt._id);
+            await ctx.db.delete("domainEvents", evt._id);
             counts.domainEvents++;
           }
-          await ctx.db.delete(customer._id);
+          await ctx.db.delete("customers", customer._id);
           counts.customers++;
         }
       }
@@ -2651,18 +2651,18 @@ export const purgePhase6BlockerRecords = mutation({
             !meetingIdSet.has(m._id),
         );
         for (const m of chainedMeetings) {
-          await ctx.db.patch(m._id, { rescheduledFromMeetingId: undefined });
+          await ctx.db.patch("meetings", m._id, { rescheduledFromMeetingId: undefined });
         }
       }
 
       // 10. Delete meetings
       for (const meeting of oppMeetings) {
-        await ctx.db.delete(meeting._id);
+        await ctx.db.delete("meetings", meeting._id);
         counts.meetings++;
       }
 
       // 11. Delete the opportunity
-      await ctx.db.delete(oppId);
+      await ctx.db.delete("opportunities", oppId);
       counts.opportunities++;
     }
 
@@ -2682,7 +2682,7 @@ export const purgePhase6BlockerRecords = mutation({
         await ctx.storage.delete(p.proofFileId);
         counts.paymentProofFiles++;
       }
-      await ctx.db.delete(p._id);
+      await ctx.db.delete("paymentRecords", p._id);
       counts.legacyPaymentsStripped++;
     }
 

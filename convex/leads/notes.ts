@@ -31,7 +31,7 @@ export const listLeadNotes = query({
       "closer",
     ]);
 
-    const lead = await ctx.db.get(leadId);
+    const lead = await ctx.db.get("leads", leadId);
     if (!lead || lead.tenantId !== tenantId) {
       throw new Error("Lead not found");
     }
@@ -64,13 +64,13 @@ export const listLeadNotes = query({
       Promise.all(
         dmCloserIds.map(async (dmCloserId) => ({
           dmCloserId,
-          dmCloser: await ctx.db.get(dmCloserId),
+          dmCloser: await ctx.db.get("dmClosers", dmCloserId),
         })),
       ),
       Promise.all(
         userIds.map(async (userId) => ({
           userId,
-          user: await ctx.db.get(userId),
+          user: await ctx.db.get("users", userId),
         })),
       ),
     ]);

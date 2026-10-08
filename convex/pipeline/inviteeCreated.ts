@@ -122,7 +122,7 @@ async function loadEventTypeConfig(
 	ctx: MutationCtx,
 	eventTypeConfigId: Id<"eventTypeConfigs"> | undefined,
 ) {
-	return eventTypeConfigId ? await ctx.db.get(eventTypeConfigId) : null;
+	return eventTypeConfigId ? await ctx.db.get("eventTypeConfigs", eventTypeConfigId) : null;
 }
 
 async function patchFirstExternalBookingCaches(
@@ -142,7 +142,7 @@ async function patchFirstExternalBookingCaches(
 
 	const bookingProgram = bookedProgramPatch(args.eventTypeConfig);
 	const utmPatch = args.utmParams ? { utmParams: args.utmParams } : {};
-	await ctx.db.patch(args.opportunity._id, {
+	await ctx.db.patch("opportunities", args.opportunity._id, {
 		firstBookingProgramId: bookingProgram.bookingProgramId,
 		firstBookingProgramName: bookingProgram.bookingProgramName,
 		firstBookingProgramMappingStatus:
@@ -306,7 +306,7 @@ async function updateLeadSocialHandles(
 	platform: SocialPlatformType,
 	normalizedHandle: string,
 ): Promise<void> {
-	const lead = await ctx.db.get(leadId);
+	const lead = await ctx.db.get("leads", leadId);
 	if (!lead) {
 		return;
 	}
@@ -320,7 +320,7 @@ async function updateLeadSocialHandles(
 		return;
 	}
 
-	await ctx.db.patch(leadId, {
+	await ctx.db.patch("leads", leadId, {
 		socialHandles: [
 			...existing,
 			{ type: platform, handle: normalizedHandle },
@@ -354,7 +354,7 @@ async function syncLeadFromBooking(
 		updatedAt: now,
 	};
 
-	await ctx.db.patch(lead._id, {
+	await ctx.db.patch("leads", lead._id, {
 		email: updatedLead.email,
 		fullName: updatedLead.fullName,
 		phone: updatedLead.phone,
@@ -468,7 +468,7 @@ async function updateLeadSearchText(
 	ctx: MutationCtx,
 	leadId: Id<"leads">,
 ): Promise<void> {
-	const lead = await ctx.db.get(leadId);
+	const lead = await ctx.db.get("leads", leadId);
 	if (!lead) {
 		return;
 	}
@@ -483,7 +483,7 @@ async function updateLeadSearchText(
 		identifiers.map((identifier) => identifier.value),
 	);
 	if (searchText !== lead.searchText) {
-		await ctx.db.patch(leadId, { searchText });
+		await ctx.db.patch("leads", leadId, { searchText });
 		await refreshOpportunitySearchForLead(ctx, lead.tenantId, leadId);
 		return;
 	}
@@ -602,7 +602,7 @@ async function resolveAssignedCloser(
 		)
 		.unique();
 	if (orgMember?.matchedUserId) {
-		const matchedUser = await ctx.db.get(orgMember.matchedUserId);
+		const matchedUser = await ctx.db.get("users", orgMember.matchedUserId);
 		if (matchedUser?.role === "closer") {
 			console.log(
 				`[Pipeline:invitee.created] Org member match: userId=${matchedUser._id} via orgMemberId=${orgMember._id}`,
@@ -737,7 +737,7 @@ async function syncKnownCustomFieldKeys(
 		return;
 	}
 
-	const config = await ctx.db.get(eventTypeConfigId);
+	const config = await ctx.db.get("eventTypeConfigs", eventTypeConfigId);
 	if (!config) {
 		return;
 	}
@@ -750,7 +750,7 @@ async function syncKnownCustomFieldKeys(
 	}
 
 	const updatedKeys = [...existingKeys, ...newKeys];
-	await ctx.db.patch(eventTypeConfigId, {
+	await ctx.db.patch("eventTypeConfigs", eventTypeConfigId, {
 		knownCustomFieldKeys: updatedKeys,
 	});
 	console.log(
@@ -769,7 +769,7 @@ export const process = internalMutation({
 			`[Pipeline:invitee.created] Entry | tenantId=${tenantId} rawEventId=${rawEventId}`,
 		);
 
-		const rawEvent = await ctx.db.get(rawEventId);
+		const rawEvent = await ctx.db.get("rawWebhookEvents", rawEventId);
 		if (!rawEvent || rawEvent.processed) {
 			console.log(
 				`[Pipeline:invitee.created] Skipping: event already processed or not found`,
@@ -823,7 +823,7 @@ export const process = internalMutation({
 			console.log(
 				`[Pipeline:invitee.created] Duplicate detected: meeting ${existingMeeting._id} already exists for eventUri=${calendlyEventUri}`,
 			);
-			await ctx.db.patch(rawEventId, { processed: true });
+			await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
 			return;
 		}
 		console.log(
@@ -895,7 +895,7 @@ export const process = internalMutation({
 				!isNoShowRescheduleUtm && utmParams.utm_content
 					? (utmParams.utm_content as Id<"followUps">)
 					: undefined;
-			const targetOpportunity = await ctx.db.get(targetOpportunityId);
+			const targetOpportunity = await ctx.db.get("opportunities", targetOpportunityId);
 
 			if (
 				targetOpportunity &&
@@ -905,7 +905,7 @@ export const process = internalMutation({
 				validateTransition(targetOpportunity.status, "scheduled")
 			) {
 				const previousTargetStatus = targetOpportunity.status;
-				const targetLead = await ctx.db.get(targetOpportunity.leadId);
+				const targetLead = await ctx.db.get("leads", targetOpportunity.leadId);
 				if (!targetLead || targetLead.tenantId !== tenantId) {
 					console.warn(
 						`[Pipeline:invitee.created] [Feature A] Opportunity lead missing or invalid | opportunityId=${targetOpportunityId} leadId=${targetOpportunity.leadId}`,
@@ -981,7 +981,7 @@ export const process = internalMutation({
 						const candidateMeetingId =
 							utmParams.utm_content as Id<"meetings">;
 						const originalMeeting = await ctx.db.get(
-							candidateMeetingId,
+							"meetings", candidateMeetingId,
 						);
 						if (originalMeeting && originalMeeting.tenantId === tenantId) {
 							rescheduledFromMeetingId = originalMeeting._id;
@@ -993,7 +993,7 @@ export const process = internalMutation({
 					}
 
 					if (targetFollowUpId) {
-						const followUp = await ctx.db.get(targetFollowUpId);
+						const followUp = await ctx.db.get("followUps", targetFollowUpId);
 						if (
 							followUp &&
 							followUp.tenantId === tenantId &&
@@ -1002,7 +1002,7 @@ export const process = internalMutation({
 							followUp.type !== "manual_reminder"
 						) {
 							const bookedAt = Date.now();
-							await ctx.db.patch(targetFollowUpId, {
+							await ctx.db.patch("followUps", targetFollowUpId, {
 								status: "booked",
 								calendlyEventUri,
 								bookedAt,
@@ -1137,7 +1137,7 @@ export const process = internalMutation({
 						latestCustomFields,
 					);
 
-					await ctx.db.patch(rawEventId, { processed: true });
+					await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
 					console.log(
 						`[Pipeline:invitee.created] [Feature A] Deterministic linking complete | meetingId=${meetingId} opportunityId=${targetOpportunityId}`,
 					);
@@ -1167,7 +1167,7 @@ export const process = internalMutation({
 				console.warn(
 					`[Pipeline:invitee.created] Skipping booking for known non-closer host without existing lead context | eventUri=${calendlyEventUri} hostUserUri=${hostUserUri ?? "none"} hostEmail=${hostCalendlyEmail ?? "none"} eventTypeUri=${eventTypeUri ?? "none"} calendlyRole=${assignedCloserResolution.hostCalendlyRole ?? "none"}`,
 				);
-				await ctx.db.patch(rawEventId, { processed: true });
+				await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
 				return;
 			}
 		}
@@ -1201,7 +1201,7 @@ export const process = internalMutation({
 			await updateLeadSearchText(ctx, lead._id);
 		} else if (latestCustomFields) {
 			// New lead: set custom fields (they were not set in resolveLeadIdentity)
-			await ctx.db.patch(lead._id, {
+			await ctx.db.patch("leads", lead._id, {
 				customFields: latestCustomFields,
 			});
 			await syncCustomerSnapshot(ctx, tenantId, lead._id);
@@ -1426,7 +1426,7 @@ export const process = internalMutation({
 				latestCustomFields,
 			);
 
-			await ctx.db.patch(rawEventId, { processed: true });
+			await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
 			console.log(
 				`[Pipeline:invitee.created] [Feature B4] Heuristic reschedule complete | meetingId=${meetingId} opportunityId=${reschedOpportunityId}`,
 			);
@@ -1480,7 +1480,7 @@ export const process = internalMutation({
 				console.warn(
 					`[Pipeline:invitee.created] Skipping booking for known non-closer host without reusable opportunity context | leadId=${lead._id} eventUri=${calendlyEventUri} hostUserUri=${hostUserUri ?? "none"} hostEmail=${hostCalendlyEmail ?? "none"} resolution=${assignedCloserResolution.resolution}`,
 				);
-				await ctx.db.patch(rawEventId, { processed: true });
+				await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
 				return;
 			}
 			throw new Error(
@@ -1648,7 +1648,7 @@ export const process = internalMutation({
 			ctx,
 			meetingEventTypeConfigId,
 		);
-		const opportunityForFirstBooking = await ctx.db.get(opportunityId);
+		const opportunityForFirstBooking = await ctx.db.get("opportunities", opportunityId);
 		if (!opportunityForFirstBooking) {
 			throw new Error("[Pipeline] Opportunity disappeared before meeting insert");
 		}
@@ -1758,7 +1758,7 @@ export const process = internalMutation({
 			latestCustomFields,
 		);
 
-		await ctx.db.patch(rawEventId, { processed: true });
+		await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
 		console.log(
 			`[Pipeline:invitee.created] Marked processed | rawEventId=${rawEventId}`,
 		);

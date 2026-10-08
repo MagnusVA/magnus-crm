@@ -2,6 +2,7 @@
 
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Id } from "../_generated/dataModel";
+import { env } from "../_generated/server";
 
 export type PortalSessionPayload = {
   tenantId: Id<"tenants">;
@@ -13,7 +14,7 @@ export type PortalSessionPayload = {
 };
 
 function secret() {
-  const value = process.env.LINK_PORTAL_SESSION_SECRET;
+  const value = env.LINK_PORTAL_SESSION_SECRET;
   if (!value) {
     throw new Error("LINK_PORTAL_SESSION_SECRET is not configured.");
   }

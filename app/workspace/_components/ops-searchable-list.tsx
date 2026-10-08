@@ -78,10 +78,13 @@ export function OpsSearchableList({
 	className,
 }: OpsSearchableListProps) {
 	const [draft, setDraft] = useState(searchValue);
+	const [syncedSearchValue, setSyncedSearchValue] = useState(searchValue);
 
-	useEffect(() => {
+	// Adopt external changes to the search value, such as a reset.
+	if (searchValue !== syncedSearchValue) {
+		setSyncedSearchValue(searchValue);
 		setDraft(searchValue);
-	}, [searchValue]);
+	}
 
 	useEffect(() => {
 		const timeout = window.setTimeout(

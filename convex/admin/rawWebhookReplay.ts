@@ -241,7 +241,7 @@ async function deleteMeetingCommentsBatch(
 		.take(CLEANUP_BATCH_SIZE);
 
 	for (const row of rows) {
-		await ctx.db.delete(row._id);
+		await ctx.db.delete("meetingComments", row._id);
 	}
 
 	return rows.length;
@@ -257,7 +257,7 @@ async function deleteMeetingReassignmentsBatch(
 		.take(CLEANUP_BATCH_SIZE);
 
 	for (const row of rows) {
-		await ctx.db.delete(row._id);
+		await ctx.db.delete("meetingReassignments", row._id);
 	}
 
 	return rows.length;
@@ -273,7 +273,7 @@ async function deleteMeetingFormResponsesBatch(
 		.take(CLEANUP_BATCH_SIZE);
 
 	for (const row of rows) {
-		await ctx.db.delete(row._id);
+		await ctx.db.delete("meetingFormResponses", row._id);
 	}
 
 	return rows.length;
@@ -289,7 +289,7 @@ async function deleteEventTypeFieldCatalogBatch(
 		.take(CLEANUP_BATCH_SIZE);
 
 	for (const row of rows) {
-		await ctx.db.delete(row._id);
+		await ctx.db.delete("eventTypeFieldCatalog", row._id);
 	}
 
 	return rows.length;
@@ -305,7 +305,7 @@ async function deleteFollowUpsBatch(
 		.take(CLEANUP_BATCH_SIZE);
 
 	for (const row of rows) {
-		await ctx.db.delete(row._id);
+		await ctx.db.delete("followUps", row._id);
 	}
 
 	return rows.length;
@@ -324,7 +324,7 @@ async function deletePaymentRecordsBatch(
 		if (row.proofFileId) {
 			await ctx.storage.delete(row.proofFileId);
 		}
-		await ctx.db.delete(row._id);
+		await ctx.db.delete("paymentRecords", row._id);
 	}
 
 	return rows.length;
@@ -340,7 +340,7 @@ async function deleteCustomersBatch(
 		.take(CLEANUP_BATCH_SIZE);
 
 	for (const row of rows) {
-		await ctx.db.delete(row._id);
+		await ctx.db.delete("customers", row._id);
 	}
 
 	return rows.length;
@@ -356,7 +356,7 @@ async function deleteDomainEventsBatch(
 		.take(CLEANUP_BATCH_SIZE);
 
 	for (const row of rows) {
-		await ctx.db.delete(row._id);
+		await ctx.db.delete("domainEvents", row._id);
 	}
 
 	return rows.length;
@@ -372,7 +372,7 @@ async function deleteMeetingsBatch(
 		.take(CLEANUP_BATCH_SIZE);
 
 	for (const row of rows) {
-		await ctx.db.delete(row._id);
+		await ctx.db.delete("meetings", row._id);
 	}
 
 	return rows.length;
@@ -388,7 +388,7 @@ async function deleteOpportunitiesBatch(
 		.take(CLEANUP_BATCH_SIZE);
 
 	for (const row of rows) {
-		await ctx.db.delete(row._id);
+		await ctx.db.delete("opportunities", row._id);
 	}
 
 	return rows.length;
@@ -404,7 +404,7 @@ async function deleteLeadIdentifiersBatch(
 		.take(CLEANUP_BATCH_SIZE);
 
 	for (const row of rows) {
-		await ctx.db.delete(row._id);
+		await ctx.db.delete("leadIdentifiers", row._id);
 	}
 
 	return rows.length;
@@ -420,7 +420,7 @@ async function deleteLeadMergeHistoryBatch(
 		.take(CLEANUP_BATCH_SIZE);
 
 	for (const row of rows) {
-		await ctx.db.delete(row._id);
+		await ctx.db.delete("leadMergeHistory", row._id);
 	}
 
 	return rows.length;
@@ -436,7 +436,7 @@ async function deleteLeadsBatch(
 		.take(CLEANUP_BATCH_SIZE);
 
 	for (const row of rows) {
-		await ctx.db.delete(row._id);
+		await ctx.db.delete("leads", row._id);
 	}
 
 	return rows.length;
@@ -452,7 +452,7 @@ async function deleteTenantStatsBatch(
 		.take(CLEANUP_BATCH_SIZE);
 
 	for (const row of rows) {
-		await ctx.db.delete(row._id);
+		await ctx.db.delete("tenantStats", row._id);
 	}
 
 	return rows.length;
@@ -691,12 +691,12 @@ export const setRawWebhookProcessedState = internalMutation({
 		rawEventId: v.id("rawWebhookEvents"),
 	},
 	handler: async (ctx, { rawEventId, processed }) => {
-		const rawEvent = await ctx.db.get(rawEventId);
+		const rawEvent = await ctx.db.get("rawWebhookEvents", rawEventId);
 		if (!rawEvent) {
 			throw new Error(`Raw webhook event not found: ${rawEventId}`);
 		}
 
-		await ctx.db.patch(rawEventId, { processed });
+		await ctx.db.patch("rawWebhookEvents", rawEventId, { processed });
 	},
 });
 

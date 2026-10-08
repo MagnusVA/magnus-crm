@@ -13,9 +13,9 @@ export async function setSoldProgramCaches(
     programName: string;
   },
 ) {
-  const opportunity = await ctx.db.get(args.opportunityId);
+  const opportunity = await ctx.db.get("opportunities", args.opportunityId);
   if (opportunity && opportunity.tenantId === args.tenantId) {
-    await ctx.db.patch(args.opportunityId, {
+    await ctx.db.patch("opportunities", args.opportunityId, {
       soldProgramId: args.programId,
       soldProgramName: args.programName,
     });
@@ -28,13 +28,13 @@ export async function setSoldProgramCaches(
   }
 
   if (args.meetingId) {
-    const meeting = await ctx.db.get(args.meetingId);
+    const meeting = await ctx.db.get("meetings", args.meetingId);
     if (
       meeting &&
       meeting.tenantId === args.tenantId &&
       meeting.opportunityId === args.opportunityId
     ) {
-      await ctx.db.patch(args.meetingId, {
+      await ctx.db.patch("meetings", args.meetingId, {
         soldProgramId: args.programId,
         soldProgramName: args.programName,
       });
@@ -87,9 +87,9 @@ async function refreshSoldProgramCachesFromPayments(
         soldProgramName: undefined,
       };
 
-  const opportunity = await ctx.db.get(args.opportunityId);
+  const opportunity = await ctx.db.get("opportunities", args.opportunityId);
   if (opportunity && opportunity.tenantId === args.tenantId) {
-    await ctx.db.patch(args.opportunityId, patch);
+    await ctx.db.patch("opportunities", args.opportunityId, patch);
     await rebuildQualificationRowsForOpportunity(ctx, args.opportunityId);
     await rebuildLeadCustomerSearchRow(
       ctx,
@@ -104,7 +104,7 @@ async function refreshSoldProgramCachesFromPayments(
     .take(100);
   for (const meeting of meetings) {
     if (meeting.tenantId === args.tenantId) {
-      await ctx.db.patch(meeting._id, patch);
+      await ctx.db.patch("meetings", meeting._id, patch);
     }
   }
 }
@@ -149,13 +149,13 @@ export async function refreshSoldProgramCachesForPaymentContext(
     return;
   }
 
-  const customer = await ctx.db.get(args.payment.customerId);
+  const customer = await ctx.db.get("customers", args.payment.customerId);
   if (
     customer &&
     customer.tenantId === args.tenantId &&
     customer.winningOpportunityId === opportunityId
   ) {
-    await ctx.db.patch(customer._id, {
+    await ctx.db.patch("customers", customer._id, {
       programId: args.payment.programId,
       programName: args.payment.programName,
     });

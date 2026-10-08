@@ -26,7 +26,7 @@ export const deleteEmptyOpportunity = mutation({
       throw new Error("Reason must be under 500 characters.");
     }
 
-    const opportunity = await ctx.db.get(opportunityId);
+    const opportunity = await ctx.db.get("opportunities", opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found.");
     }
@@ -46,7 +46,7 @@ export const deleteEmptyOpportunity = mutation({
       await Promise.all([
         ctx.db
           .query("paymentRecords")
-          .withIndex("by_opportunityId", (q) =>
+          .withIndex("by_opportunityId_and_recordedAt", (q) =>
             q.eq("opportunityId", opportunityId),
           )
           .first(),
@@ -58,19 +58,19 @@ export const deleteEmptyOpportunity = mutation({
           .first(),
         ctx.db
           .query("followUps")
-          .withIndex("by_opportunityId_and_status", (q) =>
+          .withIndex("by_opportunityId_and_status_and_reason", (q) =>
             q.eq("opportunityId", opportunityId).eq("status", "booked"),
           )
           .first(),
         ctx.db
           .query("followUps")
-          .withIndex("by_opportunityId_and_status", (q) =>
+          .withIndex("by_opportunityId_and_status_and_reason", (q) =>
             q.eq("opportunityId", opportunityId).eq("status", "completed"),
           )
           .first(),
         ctx.db
           .query("followUps")
-          .withIndex("by_opportunityId", (q) =>
+          .withIndex("by_opportunityId_and_status_and_reason", (q) =>
             q.eq("opportunityId", opportunityId),
           )
           .take(50),
@@ -122,14 +122,14 @@ export const deleteEmptyOpportunity = mutation({
     });
 
     for (const followUp of followUps) {
-      await ctx.db.delete(followUp._id);
+      await ctx.db.delete("followUps", followUp._id);
     }
     await deleteOpportunityAggregate(ctx, opportunity);
     await updateTenantStats(ctx, tenantId, {
       totalOpportunities: -1,
       activeOpportunities: -1,
     });
-    await ctx.db.delete(opportunityId);
+    await ctx.db.delete("opportunities", opportunityId);
     await rebuildLeadCustomerSearchRow(ctx, tenantId, opportunity.leadId);
 
     return null;

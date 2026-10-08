@@ -75,7 +75,7 @@ async function buildPaginatedCloserOpportunityQuery(
   if (statusFilter) {
     return ctx.db
       .query("opportunities")
-      .withIndex("by_tenantId_and_assignedCloserId_and_status", (q) =>
+      .withIndex("by_tenantId_and_assignedCloserId_and_status_and_createdAt", (q) =>
         q
           .eq("tenantId", tenantId)
           .eq("assignedCloserId", assignedCloserId)
@@ -88,7 +88,7 @@ async function buildPaginatedCloserOpportunityQuery(
   // No filters
   return ctx.db
     .query("opportunities")
-    .withIndex("by_tenantId_and_assignedCloserId", (q) =>
+    .withIndex("by_tenantId_and_assignedCloserId_and_createdAt", (q) =>
       q.eq("tenantId", tenantId).eq("assignedCloserId", assignedCloserId),
     )
     .order("desc")
@@ -142,7 +142,7 @@ export const listMyOpportunities = query({
     const leads = await Promise.all(
       leadIds.map(async (leadId) => ({
         leadId,
-        lead: await ctx.db.get(leadId),
+        lead: await ctx.db.get("leads", leadId),
       })),
     );
     const leadById = new Map<

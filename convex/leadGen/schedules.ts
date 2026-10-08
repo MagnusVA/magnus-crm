@@ -76,7 +76,7 @@ export async function loadCurrentScheduledHoursByWorkerDay(
     const scan = await readLiveQueryRows(
       ctx.db
         .query("leadGenWorkerSchedules")
-        .withIndex("by_tenantId_and_workerId", (q) =>
+        .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
           q.eq("tenantId", args.tenantId).eq("workerId", workerId),
         ),
       7,

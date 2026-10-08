@@ -1,3 +1,4 @@
+// eslint-disable-next-line @convex-dev/no-process-env -- the Convex CLI evaluates auth config at push time, outside the function runtime
 const clientId = process.env.WORKOS_CLIENT_ID;
 
 const authConfig = {

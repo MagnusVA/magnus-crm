@@ -12,7 +12,7 @@ export async function releaseAdmission(
     .withIndex("by_tenantId", (q) => q.eq("tenantId", job.tenantId))
     .unique();
   if (admission?.slots.some((slot) => slot.jobId === job._id)) {
-    await ctx.db.patch(admission._id, {
+    await ctx.db.patch("operationsReportAdmission", admission._id, {
       slots: admission.slots.filter((slot) => slot.jobId !== job._id),
     });
   }
@@ -23,7 +23,7 @@ export async function scheduleWorker(
   jobId: Id<"operationsReportJobs">,
   delayMs = 0,
 ): Promise<Id<"_scheduled_functions">> {
-  const job = await ctx.db.get(jobId);
+  const job = await ctx.db.get("operationsReportJobs", jobId);
   return await ctx.scheduler.runAfter(
     delayMs,
     job?.executionVersion === 2 && job.purpose === "export"

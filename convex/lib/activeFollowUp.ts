@@ -21,7 +21,7 @@ export async function loadActiveFollowUpDoc(
 ): Promise<Doc<"followUps"> | null> {
   const followUps = await ctx.db
     .query("followUps")
-    .withIndex("by_opportunityId_and_status", (q) =>
+    .withIndex("by_opportunityId_and_status_and_reason", (q) =>
       q.eq("opportunityId", opportunityId).eq("status", "pending"),
     )
     .take(50);

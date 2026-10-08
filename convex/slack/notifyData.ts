@@ -11,7 +11,7 @@ import { countGoalEligibleQualificationEvents } from "../reporting/lib/slackQual
 export const getOppForNotify = internalQuery({
   args: { opportunityId: v.id("opportunities") },
   handler: async (ctx, args) => {
-    const opportunity = await ctx.db.get(args.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", args.opportunityId);
     if (!opportunity) return null;
     return {
       _id: opportunity._id,
@@ -24,7 +24,7 @@ export const getOppForNotify = internalQuery({
 export const getLeadForNotify = internalQuery({
   args: { leadId: v.id("leads") },
   handler: async (ctx, args) => {
-    const lead = await ctx.db.get(args.leadId);
+    const lead = await ctx.db.get("leads", args.leadId);
     if (!lead) return null;
     return {
       _id: lead._id,
@@ -67,9 +67,9 @@ export const getExistingOpportunityBumpForNotify = internalQuery({
   },
   handler: async (ctx, args) => {
     const [opportunity, lead, event] = await Promise.all([
-      ctx.db.get(args.opportunityId),
-      ctx.db.get(args.leadId),
-      ctx.db.get(args.qualificationEventId),
+      ctx.db.get("opportunities", args.opportunityId),
+      ctx.db.get("leads", args.leadId),
+      ctx.db.get("slackQualificationEvents", args.qualificationEventId),
     ]);
 
     if (!opportunity || !lead || !event) {
@@ -107,7 +107,7 @@ export const getQualificationGoalProgress = internalQuery({
     now: v.number(),
   },
   handler: async (ctx, args) => {
-    const tenant = await ctx.db.get(args.tenantId);
+    const tenant = await ctx.db.get("tenants", args.tenantId);
     const dailyTeamQualificationGoal =
       tenant?.slackQualificationDailyTeamQuota;
 
@@ -150,10 +150,10 @@ export const recordNotifyFailure = internalMutation({
     clearChannel: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const installation = await ctx.db.get(args.installationId);
+    const installation = await ctx.db.get("slackInstallations", args.installationId);
     if (!installation) return;
 
-    await ctx.db.patch(args.installationId, {
+    await ctx.db.patch("slackInstallations", args.installationId, {
       notifyChannelId: args.clearChannel
         ? undefined
         : installation.notifyChannelId,

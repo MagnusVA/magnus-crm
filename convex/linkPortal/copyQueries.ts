@@ -34,15 +34,15 @@ export const listRecentCopyEvents = query({
       rows.map(async (row) => {
         const [eventTypeConfig, bookingProgram, team, dmCloser, campaign] =
           await Promise.all([
-            ctx.db.get(row.eventTypeConfigId),
-            ctx.db.get(row.bookingProgramId),
-            ctx.db.get(row.attributionTeamId),
-            ctx.db.get(row.dmCloserId),
-            ctx.db.get(row.campaignPresetId),
+            ctx.db.get("eventTypeConfigs", row.eventTypeConfigId),
+            ctx.db.get("tenantPrograms", row.bookingProgramId),
+            ctx.db.get("attributionTeams", row.attributionTeamId),
+            ctx.db.get("dmClosers", row.dmCloserId),
+            ctx.db.get("linkPortalCampaignPresets", row.campaignPresetId),
           ]);
         const linkedDmCloserUser =
           dmCloser?.tenantId === tenantId && dmCloser.userId
-            ? await ctx.db.get(dmCloser.userId)
+            ? await ctx.db.get("users", dmCloser.userId)
             : null;
         const validLinkedDmCloserUser =
           linkedDmCloserUser?.tenantId === tenantId ? linkedDmCloserUser : null;

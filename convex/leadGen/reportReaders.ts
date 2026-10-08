@@ -107,7 +107,7 @@ export async function loadLeadGenWorkersForRows(
   const workers = new Map<Id<"leadGenWorkers">, Doc<"leadGenWorkers">>();
 
   for (const workerId of workerIds) {
-    const worker = await ctx.db.get(workerId);
+    const worker = await ctx.db.get("leadGenWorkers", workerId);
     if (worker && worker.tenantId === tenantId) {
       workers.set(worker._id, worker);
     }

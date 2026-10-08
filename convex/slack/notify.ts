@@ -1,6 +1,6 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction } from "../_generated/server";
+import { internalAction, env } from "../_generated/server";
 import { emitDomainEventInAction } from "../lib/domainEventsAction";
 import { buildQualifiedLeadConfirmation } from "../lib/slackBlockKit";
 import { getValidSlackBotToken } from "./tokens";
@@ -65,7 +65,7 @@ export const postConfirmation = internalAction({
       return;
     }
 
-    const appUrl = process.env.APP_URL;
+    const appUrl = env.APP_URL;
     if (!appUrl) {
       console.warn("[Slack:Notify] APP_URL not configured", {
         tenantId: args.tenantId,
@@ -208,7 +208,7 @@ export const postExistingOpportunityBump = internalAction({
       return;
     }
 
-    const appUrl = process.env.APP_URL;
+    const appUrl = env.APP_URL;
     if (!appUrl) {
       console.warn("[Slack:Notify] APP_URL not configured for bump", {
         tenantId: args.tenantId,

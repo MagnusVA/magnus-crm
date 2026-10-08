@@ -42,7 +42,7 @@ export const listSlackQualifierSchedules = query({
         .take(300),
       ctx.db
         .query("slackQualifierSchedules")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+        .withIndex("by_tenantId_and_slackUserId_and_weekday", (q) => q.eq("tenantId", tenantId))
         .take(2_100),
     ]);
 
@@ -94,7 +94,7 @@ export const setSlackQualifierWeeklySchedule = mutation({
       };
 
       if (existing) {
-        await ctx.db.patch(existing._id, patch);
+        await ctx.db.patch("slackQualifierSchedules", existing._id, patch);
       } else {
         await ctx.db.insert("slackQualifierSchedules", {
           tenantId,
@@ -130,7 +130,7 @@ export const listDmCloserSchedules = query({
         .take(300),
       ctx.db
         .query("dmCloserSchedules")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+        .withIndex("by_tenantId_and_dmCloserId_and_weekday", (q) => q.eq("tenantId", tenantId))
         .take(2_100),
     ]);
 
@@ -150,7 +150,7 @@ export const setDmCloserWeeklySchedule = mutation({
     ]);
     validateWeeklyScheduledHours(args.scheduledHours);
 
-    const dmCloser = await ctx.db.get(args.dmCloserId);
+    const dmCloser = await ctx.db.get("dmClosers", args.dmCloserId);
     if (!dmCloser || dmCloser.tenantId !== tenantId) {
       throw new Error("DM closer not found.");
     }
@@ -179,7 +179,7 @@ export const setDmCloserWeeklySchedule = mutation({
       };
 
       if (existing) {
-        await ctx.db.patch(existing._id, patch);
+        await ctx.db.patch("dmCloserSchedules", existing._id, patch);
       } else {
         await ctx.db.insert("dmCloserSchedules", {
           tenantId,

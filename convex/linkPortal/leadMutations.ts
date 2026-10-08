@@ -136,7 +136,7 @@ export const updateLeadProfileForSession = internalMutation({
       changes.selfReportedIncome = args.selfReportedIncome;
     }
 
-    await ctx.db.patch(args.leadId, patch);
+    await ctx.db.patch("leads", args.leadId, patch);
 
     // Durable audit row (also the rate-limit window source above); the
     // console log below stays for structured log tailing.

@@ -119,7 +119,7 @@ export const markReviewed = mutation({
     );
     await requireBillingOpsEnabled(ctx, tenantId);
 
-    const payment = await ctx.db.get(paymentRecordId);
+    const payment = await ctx.db.get("paymentRecords", paymentRecordId);
     if (!payment || payment.tenantId !== tenantId) {
       throw new Error("Payment not found.");
     }
@@ -139,7 +139,7 @@ export const markReviewed = mutation({
     };
     const reviewedPayment = { ...payment, ...reviewPatch };
 
-    await ctx.db.patch(paymentRecordId, reviewPatch);
+    await ctx.db.patch("paymentRecords", paymentRecordId, reviewPatch);
     await replaceBillingPaymentAggregates(ctx, payment, reviewedPayment);
 
     await emitDomainEvent(ctx, {
@@ -175,7 +175,7 @@ export const correctPayment = mutation({
     );
     await requireBillingOpsEnabled(ctx, tenantId);
 
-    const payment = await ctx.db.get(args.paymentRecordId);
+    const payment = await ctx.db.get("paymentRecords", args.paymentRecordId);
     if (!payment || payment.tenantId !== tenantId) {
       throw new Error("Payment not found.");
     }
@@ -253,7 +253,7 @@ export const correctPayment = mutation({
       patch.statusChangedAt = now;
     }
 
-    await ctx.db.patch(args.paymentRecordId, patch);
+    await ctx.db.patch("paymentRecords", args.paymentRecordId, patch);
     const nextPayment = await refreshPaymentCorrectionSideEffects(ctx, {
       tenantId,
       before: payment,
@@ -299,7 +299,7 @@ export const recordExportAudit = mutation({
     );
     await requireBillingOpsEnabled(ctx, tenantId);
 
-    const program = args.programId ? await ctx.db.get(args.programId) : null;
+    const program = args.programId ? await ctx.db.get("tenantPrograms", args.programId) : null;
     if (args.programId && (!program || program.tenantId !== tenantId)) {
       throw new Error("Program not found.");
     }

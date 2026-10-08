@@ -64,7 +64,7 @@ export const editComment = mutation({
       "tenant_admin",
     ]);
 
-    const comment = await ctx.db.get(commentId);
+    const comment = await ctx.db.get("meetingComments", commentId);
     if (!comment || comment.tenantId !== tenantId) {
       throw new Error("Comment not found");
     }
@@ -83,7 +83,7 @@ export const editComment = mutation({
       throw new Error(`Comment exceeds ${MAX_COMMENT_LENGTH} character limit`);
     }
 
-    await ctx.db.patch(commentId, {
+    await ctx.db.patch("meetingComments", commentId, {
       content: trimmed,
       editedAt: Date.now(),
     });
@@ -106,7 +106,7 @@ export const deleteComment = mutation({
       "tenant_admin",
     ]);
 
-    const comment = await ctx.db.get(commentId);
+    const comment = await ctx.db.get("meetingComments", commentId);
     if (!comment || comment.tenantId !== tenantId) {
       throw new Error("Comment not found");
     }
@@ -114,7 +114,7 @@ export const deleteComment = mutation({
       return;
     }
 
-    await ctx.db.patch(commentId, {
+    await ctx.db.patch("meetingComments", commentId, {
       deletedAt: Date.now(),
     });
 
@@ -138,13 +138,13 @@ export const getComments = query({
       "tenant_admin",
     ]);
 
-    const meeting = await ctx.db.get(meetingId);
+    const meeting = await ctx.db.get("meetings", meetingId);
     if (!meeting || meeting.tenantId !== tenantId) {
       return [];
     }
 
     if (role === "closer") {
-      const opportunity = await ctx.db.get(meeting.opportunityId);
+      const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
       if (!opportunity || opportunity.tenantId !== tenantId) {
         return [];
       }
@@ -169,7 +169,7 @@ export const getComments = query({
     const authorEntries = await Promise.all(
       authorIds.map(async (authorId) => [
         authorId,
-        await ctx.db.get(authorId),
+        await ctx.db.get("users", authorId),
       ] as const),
     );
     const authorById = new Map(authorEntries);

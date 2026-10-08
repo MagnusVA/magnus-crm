@@ -138,7 +138,7 @@ export async function buildEntityDetailPayload(
       Promise.all(
         closerIds.map(async (closerId) => ({
           closerId,
-          closer: await ctx.db.get(closerId),
+          closer: await ctx.db.get("users", closerId),
         })),
       ),
       Promise.all(

@@ -92,6 +92,7 @@ function OnboardingPageContent() {
             onboardingOrgId: result.workosOrgId,
           });
 
+          // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- /sign-up is a route handler and needs a full page load
           window.location.assign(
             `/sign-up?organization_id=${encodeURIComponent(result.workosOrgId)}&returnTo=${encodeURIComponent("/onboarding/connect")}&state=${encodeURIComponent(authState)}`,
           );

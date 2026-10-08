@@ -30,14 +30,14 @@ export async function rebuildQualificationRow(
   ctx: MutationCtx,
   qualificationEventId: Id<"slackQualificationEvents">,
 ) {
-  const event = await ctx.db.get(qualificationEventId);
+  const event = await ctx.db.get("slackQualificationEvents", qualificationEventId);
   if (!event) {
     return null;
   }
 
   const [lead, opportunity] = await Promise.all([
-    event.leadId ? ctx.db.get(event.leadId) : Promise.resolve(null),
-    event.opportunityId ? ctx.db.get(event.opportunityId) : Promise.resolve(null),
+    event.leadId ? ctx.db.get("leads", event.leadId) : Promise.resolve(null),
+    event.opportunityId ? ctx.db.get("opportunities", event.opportunityId) : Promise.resolve(null),
   ]);
 
   const row = {
@@ -74,7 +74,7 @@ export async function rebuildQualificationRow(
     .unique();
 
   if (existing) {
-    await ctx.db.patch(existing._id, row);
+    await ctx.db.patch("operationsQualificationRows", existing._id, row);
     return existing._id;
   }
 
@@ -85,7 +85,7 @@ export async function rebuildQualificationRowsForOpportunity(
   ctx: MutationCtx,
   opportunityId: Id<"opportunities">,
 ) {
-  const opportunity = await ctx.db.get(opportunityId);
+  const opportunity = await ctx.db.get("opportunities", opportunityId);
   if (!opportunity) {
     return;
   }

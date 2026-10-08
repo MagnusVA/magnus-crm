@@ -19,7 +19,7 @@ export const syncWorkerProfileForUser = internalMutation({
     userId: v.id("users"),
   },
   handler: async (ctx, { userId }) => {
-    const user = await ctx.db.get(userId);
+    const user = await ctx.db.get("users", userId);
     if (!user) return null;
 
     const existing = await ctx.db
@@ -51,7 +51,7 @@ export const syncWorkerProfileForUser = internalMutation({
       });
     }
 
-    await ctx.db.patch(existing._id, {
+    await ctx.db.patch("leadGenWorkers", existing._id, {
       workosUserId: user.workosUserId,
       email: user.email,
       displayName: displayNameForUser(user),
@@ -77,7 +77,7 @@ export const listWorkers = query({
 
     const rows = await ctx.db
       .query("leadGenWorkers")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", tenantId))
       .take(250);
 
     const filtered = rows
@@ -120,14 +120,14 @@ export const listWorkerSchedules = query({
     ]);
 
     if (args.workerId) {
-      const worker = await ctx.db.get(args.workerId);
+      const worker = await ctx.db.get("leadGenWorkers", args.workerId);
       if (!worker || worker.tenantId !== tenantId) {
         throw new Error("Worker not found");
       }
 
       return await ctx.db
         .query("leadGenWorkerSchedules")
-        .withIndex("by_tenantId_and_workerId", (q) =>
+        .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
           q.eq("tenantId", tenantId).eq("workerId", args.workerId!),
         )
         .take(7);
@@ -135,14 +135,14 @@ export const listWorkerSchedules = query({
 
     const workers = await ctx.db
       .query("leadGenWorkers")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", tenantId))
       .take(250);
 
     const schedules = [];
     for (const worker of workers) {
       const rows = await ctx.db
         .query("leadGenWorkerSchedules")
-        .withIndex("by_tenantId_and_workerId", (q) =>
+        .withIndex("by_tenantId_and_workerId_and_weekday", (q) =>
           q.eq("tenantId", tenantId).eq("workerId", worker._id),
         )
         .take(7);
@@ -177,12 +177,12 @@ export const archiveTeam = mutation({
       "tenant_admin",
     ]);
 
-    const team = await ctx.db.get(teamId);
+    const team = await ctx.db.get("attributionTeams", teamId);
     if (!team || team.tenantId !== tenantId) {
       throw new Error("Team not found");
     }
 
-    await ctx.db.patch(team._id, {
+    await ctx.db.patch("attributionTeams", team._id, {
       isActive: false,
       updatedAt: Date.now(),
     });
@@ -203,7 +203,7 @@ export const updateWorkerProfile = mutation({
       "tenant_admin",
     ]);
 
-    const worker = await ctx.db.get(args.workerId);
+    const worker = await ctx.db.get("leadGenWorkers", args.workerId);
     if (!worker || worker.tenantId !== tenantId) {
       throw new Error("Worker not found");
     }
@@ -214,7 +214,7 @@ export const updateWorkerProfile = mutation({
       requireActive: true,
     });
 
-    await ctx.db.patch(worker._id, {
+    await ctx.db.patch("leadGenWorkers", worker._id, {
       teamId,
       isActive: args.isActive,
       updatedAt: Date.now(),
@@ -240,7 +240,7 @@ export const setWorkerSchedule = mutation({
       throw new Error("Scheduled hours must be between 0 and 24");
     }
 
-    const worker = await ctx.db.get(args.workerId);
+    const worker = await ctx.db.get("leadGenWorkers", args.workerId);
     if (!worker || worker.tenantId !== tenantId) {
       throw new Error("Worker not found");
     }
@@ -262,7 +262,7 @@ export const setWorkerSchedule = mutation({
     };
 
     if (existing) {
-      await ctx.db.patch(existing._id, patch);
+      await ctx.db.patch("leadGenWorkerSchedules", existing._id, patch);
       return existing._id;
     }
 

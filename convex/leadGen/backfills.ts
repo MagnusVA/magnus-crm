@@ -1,6 +1,10 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { mutation, type MutationCtx } from "../_generated/server";
+import {
+  internalMutation,
+  mutation,
+  type MutationCtx,
+} from "../_generated/server";
 import {
   addBusinessDays,
   businessDateToUtcStart,
@@ -177,9 +181,9 @@ function groupSubmissionsIntoTeamOriginStats(
   }));
 }
 
-// Temporary operational backfill: intentionally public/non-auth-gated so it can
-// be run from the Convex CLI during the Lead Gen Ops rollout.
-export const backfillUnassignedWorkersToTeam = mutation({
+// Temporary operational backfill for the Lead Gen Ops rollout. Run it with
+// `npx convex run leadGen/backfills:backfillUnassignedWorkersToTeam`.
+export const backfillUnassignedWorkersToTeam = internalMutation({
   args: {
     dryRun: v.boolean(),
     limit: v.optional(v.number()),
@@ -219,7 +223,7 @@ export const backfillUnassignedWorkersToTeam = mutation({
       if (args.dryRun) {
         submissions.wouldUpdate += 1;
       } else {
-        await ctx.db.patch(submission._id, { teamId });
+        await ctx.db.patch("leadGenSubmissions", submission._id, { teamId });
         submissions.updated += 1;
       }
     }
@@ -271,7 +275,7 @@ export const backfillUnassignedWorkersToTeam = mutation({
         if (args.dryRun) {
           dailyStats.wouldMerge += 1;
         } else {
-          await ctx.db.patch(existing._id, {
+          await ctx.db.patch("leadGenDailyStats", existing._id, {
             submissions: existing.submissions + stat.submissions,
             uniqueProspectsSubmitted:
               existing.uniqueProspectsSubmitted +
@@ -285,7 +289,7 @@ export const backfillUnassignedWorkersToTeam = mutation({
             ),
             updatedAt: now,
           });
-          await ctx.db.delete(stat._id);
+          await ctx.db.delete("leadGenDailyStats", stat._id);
           dailyStats.merged += 1;
         }
         continue;
@@ -294,7 +298,7 @@ export const backfillUnassignedWorkersToTeam = mutation({
       if (args.dryRun) {
         dailyStats.wouldPatch += 1;
       } else {
-        await ctx.db.patch(stat._id, {
+        await ctx.db.patch("leadGenDailyStats", stat._id, {
           teamId,
           statKey: nextStatKey,
           updatedAt: now,
@@ -353,7 +357,7 @@ export const rebuildTeamOriginStatsRange = mutation({
 
     if (!args.dryRun) {
       for (const row of existing) {
-        await ctx.db.delete(row._id);
+        await ctx.db.delete("leadGenTeamOriginStats", row._id);
       }
       for (const row of rebuiltRows) {
         await ctx.db.insert("leadGenTeamOriginStats", row);

@@ -2,7 +2,7 @@
 
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalAction } from "../_generated/server";
+import { internalAction, env } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { provisionWebhookSubscription } from "./webhookSetup";
 import { refreshTenantTokenCore } from "./tokens";
@@ -15,21 +15,9 @@ type TenantHealthState = {
   tenantStatus: string;
 };
 
-function getConvexSiteUrl() {
-  return (
-    process.env.NEXT_PUBLIC_CONVEX_SITE_URL ??
-    process.env.NEXT_PUBLIC_CONVEX_URL?.replace(
-      ".convex.cloud",
-      ".convex.site",
-    ) ??
-    "http://localhost:3000"
-  );
-}
-
 async function introspectAccessToken(accessToken: string) {
-  const clientId =
-    process.env.CALENDLY_CLIENT_ID ?? process.env.NEXT_PUBLIC_CALENDLY_CLIENT_ID;
-  const clientSecret = process.env.CALENDLY_CLIENT_SECRET;
+  const clientId = env.CALENDLY_CLIENT_ID;
+  const clientSecret = env.CALENDLY_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
     throw new Error("Missing Calendly OAuth configuration");
   }
@@ -170,7 +158,7 @@ async function runTenantHealthCheck(
       tenantId,
       accessToken,
       organizationUri: tenant.organizationUri,
-      convexSiteUrl: getConvexSiteUrl(),
+      convexSiteUrl: env.CONVEX_SITE_URL,
       signingSecret: tenant.webhookSecret ?? undefined,
     });
 

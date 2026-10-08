@@ -70,7 +70,7 @@ export const getTenant = query({
     const identity = await ctx.auth.getUserIdentity();
     requireSystemAdminSession(identity);
 
-    const tenant = await ctx.db.get(tenantId);
+    const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant) {
       console.warn("[Admin] getTenant: tenant not found", { tenantId });
       throw new Error("Tenant not found");
@@ -92,7 +92,7 @@ export const getTenantInternal = internalQuery({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
     console.log("[Admin] getTenantInternal called", { tenantId });
-    const tenant = await ctx.db.get(tenantId);
+    const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant) {
       console.warn("[Admin] getTenantInternal: tenant not found", { tenantId });
     } else {

@@ -38,7 +38,7 @@ export const process = internalMutation({
 			`[Pipeline:invitee.canceled] Entry | tenantId=${tenantId} rawEventId=${rawEventId}`,
 		);
 
-		const rawEvent = await ctx.db.get(rawEventId);
+		const rawEvent = await ctx.db.get("rawWebhookEvents", rawEventId);
 		if (!rawEvent || rawEvent.processed) {
 			console.log(
 				`[Pipeline:invitee.canceled] Skipping: event already processed or not found`,
@@ -68,7 +68,7 @@ export const process = internalMutation({
 			console.error(
 				"[Pipeline:invitee.canceled] Missing event URI in payload",
 			);
-			await ctx.db.patch(rawEventId, { processed: true });
+			await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
 			return;
 		}
 
@@ -85,7 +85,7 @@ export const process = internalMutation({
 			console.warn(
 				`[Pipeline:invitee.canceled] No meeting found for eventUri=${calendlyEventUri}`,
 			);
-			await ctx.db.patch(rawEventId, { processed: true });
+			await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
 			return;
 		}
 
@@ -93,12 +93,12 @@ export const process = internalMutation({
 			`[Pipeline:invitee.canceled] Meeting found | meetingId=${meeting._id} currentStatus=${meeting.status}`,
 		);
 
-		const opportunity = await ctx.db.get(meeting.opportunityId);
+		const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
 
 		if (meeting.status !== "canceled") {
 			const now = Date.now();
 			if (validateMeetingTransition(meeting.status, "canceled")) {
-				await ctx.db.patch(meeting._id, {
+				await ctx.db.patch("meetings", meeting._id, {
 					status: "canceled",
 					canceledAt: now,
 				});
@@ -187,7 +187,7 @@ export const process = internalMutation({
 			);
 		}
 
-		await ctx.db.patch(rawEventId, { processed: true });
+		await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
 		console.log(
 			`[Pipeline:invitee.canceled] Marked processed | rawEventId=${rawEventId}`,
 		);

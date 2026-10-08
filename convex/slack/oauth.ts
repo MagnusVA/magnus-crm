@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import { action, httpAction } from "../_generated/server";
+import { action, httpAction, env } from "../_generated/server";
 import { internal } from "../_generated/api";
 import {
   createSlackOAuthState,
@@ -87,8 +87,8 @@ function missingSlackOAuthFields(data: SlackOAuthAccessResponse) {
   return missing;
 }
 
-function getRequiredEnv(name: string): string {
-  const value = process.env[name];
+function getRequiredEnv(name: keyof typeof env): string {
+  const value = env[name];
   if (!value) {
     throw new Error(`${name} not set`);
   }
@@ -111,18 +111,19 @@ export const startInstall = action({
     const requestId = args.requestId ?? createLogId("slack_oauth_start");
     console.log("[Slack:OAuth] startInstall begin", { requestId });
 
+    const access = await requireTenantUserFromAction(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+    console.log("[Slack:OAuth] startInstall authorized", {
+      requestId,
+      tenantId: access.tenantId,
+      userId: access.userId,
+      workosUserId: access.workosUserId,
+      role: access.role,
+    });
+
     try {
-      const access = await requireTenantUserFromAction(ctx, [
-        "tenant_master",
-        "tenant_admin",
-      ]);
-      console.log("[Slack:OAuth] startInstall authorized", {
-        requestId,
-        tenantId: access.tenantId,
-        userId: access.userId,
-        workosUserId: access.workosUserId,
-        role: access.role,
-      });
 
       const clientId = getRequiredEnv("SLACK_CLIENT_ID");
       const redirectUri = getRequiredEnv("SLACK_REDIRECT_URI");

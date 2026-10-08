@@ -17,7 +17,7 @@ export async function syncOpportunityMeetingsAssignedCloser(
     }
 
     const oldMeeting = meeting;
-    await ctx.db.patch(meeting._id, { assignedCloserId });
+    await ctx.db.patch("meetings", meeting._id, { assignedCloserId });
     await replaceMeetingAggregate(ctx, oldMeeting, meeting._id);
     updatedCount += 1;
   }

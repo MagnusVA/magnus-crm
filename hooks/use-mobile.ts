@@ -4,19 +4,20 @@ const MOBILE_BREAKPOINT = 768
 export const SIDEBAR_MOBILE_BREAKPOINT = 1280
 
 function useMediaBelow(breakpoint: number) {
-  const [isBelow, setIsBelow] = React.useState<boolean | undefined>(undefined)
+  const subscribe = React.useCallback(
+    (onChange: () => void) => {
+      const mql = window.matchMedia(`(max-width: ${breakpoint - 1}px)`)
+      mql.addEventListener("change", onChange)
+      return () => mql.removeEventListener("change", onChange)
+    },
+    [breakpoint]
+  )
 
-  React.useEffect(() => {
-    const mql = window.matchMedia(`(max-width: ${breakpoint - 1}px)`)
-    const onChange = () => {
-      setIsBelow(window.innerWidth < breakpoint)
-    }
-    mql.addEventListener("change", onChange)
-    setIsBelow(window.innerWidth < breakpoint)
-    return () => mql.removeEventListener("change", onChange)
-  }, [breakpoint])
-
-  return !!isBelow
+  return React.useSyncExternalStore(
+    subscribe,
+    () => window.innerWidth < breakpoint,
+    () => false
+  )
 }
 
 export function useIsMobile() {

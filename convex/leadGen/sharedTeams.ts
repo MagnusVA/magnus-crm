@@ -39,7 +39,7 @@ export async function getSharedDmTeam(
     teamId: Id<"attributionTeams">;
   },
 ) {
-  const team = await ctx.db.get(args.teamId);
+  const team = await ctx.db.get("attributionTeams", args.teamId);
   if (!team || team.tenantId !== args.tenantId) {
     return null;
   }
@@ -93,7 +93,7 @@ export async function upsertSharedDmTeamFromName(
   const now = Date.now();
   const inactiveExisting = existing[0];
   if (inactiveExisting) {
-    await ctx.db.patch(inactiveExisting._id, {
+    await ctx.db.patch("attributionTeams", inactiveExisting._id, {
       slug: normalized.slug,
       displayName: normalized.displayName,
       utmSource: normalized.utmSource,
@@ -128,7 +128,7 @@ export async function resolveLeadGenTeamIdForWrite(
     return undefined;
   }
 
-  const team = await ctx.db.get(args.teamId);
+  const team = await ctx.db.get("attributionTeams", args.teamId);
   if (
     !team ||
     team.tenantId !== args.tenantId ||

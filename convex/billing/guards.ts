@@ -28,7 +28,7 @@ export async function requireBillingOpsEnabled(
   ctx: QueryCtx | MutationCtx,
   tenantId: Id<"tenants">,
 ) {
-  const tenant = await ctx.db.get(tenantId);
+  const tenant = await ctx.db.get("tenants", tenantId);
   if (!tenant || tenant.billingOpsEnabled !== true) {
     throw new BillingOpsDisabledError();
   }

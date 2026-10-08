@@ -87,12 +87,12 @@ export async function upsertOpportunitySearchProjection(
   ctx: MutationCtx,
   opportunityId: Id<"opportunities">,
 ): Promise<void> {
-  const opportunity = await ctx.db.get(opportunityId);
+  const opportunity = await ctx.db.get("opportunities", opportunityId);
   if (!opportunity) {
     return;
   }
 
-  const lead = await ctx.db.get(opportunity.leadId);
+  const lead = await ctx.db.get("leads", opportunity.leadId);
   const latestActivityAt =
     opportunity.latestActivityAt ?? computeSearchActivityAt(opportunity);
   const searchText = buildOpportunitySearchText(lead, opportunity);
@@ -121,7 +121,7 @@ export async function upsertOpportunitySearchProjection(
   };
 
   if (existing) {
-    await ctx.db.patch(existing._id, projection);
+    await ctx.db.patch("opportunitySearch", existing._id, projection);
     return;
   }
 
@@ -138,7 +138,7 @@ export async function deleteOpportunitySearchProjection(
     .unique();
 
   if (existing) {
-    await ctx.db.delete(existing._id);
+    await ctx.db.delete("opportunitySearch", existing._id);
   }
 }
 
