@@ -67,7 +67,7 @@ export const linkCloserToCalendlyMember = mutation({
 
     // Link the new Calendly member to the user
     // Denormalize the Calendly member's name onto the user document to avoid
-    // double-table scans in queries like listTeamMembers (see @plans/caching/caching.md)
+    // double-table scans in queries like listTeamMembers
     await ctx.db.patch(userId, {
       calendlyUserUri: member.calendlyUserUri,
       calendlyMemberName: member.name,

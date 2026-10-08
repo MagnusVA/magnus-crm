@@ -1728,7 +1728,6 @@ export const process = internalMutation({
 		);
 
 		// Update denormalized meeting refs on opportunity for efficient queries
-		// (see @plans/caching/caching.md)
 		await updateOpportunityMeetingRefs(ctx, opportunityId);
 		await rebuildQualificationRowsForOpportunity(ctx, opportunityId);
 		console.log(

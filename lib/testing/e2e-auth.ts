@@ -14,8 +14,6 @@ import crypto from "node:crypto";
 //   - Tokens encode a role *alias* (not a raw email/password) so the public
 //     login URL is not a generic password-auth endpoint.
 //   - Tokens carry an explicit `orgId` and `returnTo`. The route enforces both.
-//
-// See `brainstorming/AGENT_E2E_TESTING.md` for the full design and threat model.
 // ---------------------------------------------------------------------------
 
 export type E2ERoleAlias = "tenant_owner" | "closer1";

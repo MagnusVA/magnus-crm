@@ -286,7 +286,7 @@ export const listOpportunitiesForAdmin = query({
     }
 
     // Fetch the denormalized latest/next meeting references for each opportunity
-    // (see @plans/caching/caching.md: these are maintained by the mutation that creates/updates meetings)
+    // (these are maintained by the mutation that creates/updates meetings)
     const meetingDataByOppId = new Map<string, { latestMeeting: MeetingSummary | null; nextMeeting: MeetingSummary | null }>();
     const meetingIdsToFetch = new Set<string>();
 

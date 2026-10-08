@@ -4,19 +4,17 @@ import { internalQuery } from "../_generated/server";
 // ---------------------------------------------------------------------------
 // E2E test helpers
 //
-// Focused, read-only queries used by `scripts/e2e-login-url.mjs` callers,
-// Playwright fixtures, and AI agents to discover tenant context and inspect
-// the records produced by a test booking. These helpers are intentionally
-// narrow: they return only the fields a test runner needs so we do not have
-// to scrape large `npx convex data` dumps.
+// Focused, read-only queries used by Playwright fixtures and AI agents to
+// discover tenant context and inspect the records produced by a test booking.
+// These helpers are intentionally narrow: they return only the fields a test
+// runner needs so we do not have to scrape large `npx convex data` dumps.
 //
 // All helpers are `internalQuery` and therefore not exposed to the WorkOS
 // authenticated app surface; they can only be called via:
 //
 //   npx convex run testing/e2e:<name> '<args>'
 //
-// or via a server-side `internal.testing.e2e.*` reference. See
-// `brainstorming/AGENT_E2E_TESTING.md` and `AGENT_TESTING.md`.
+// or via a server-side `internal.testing.e2e.*` reference.
 // ---------------------------------------------------------------------------
 
 /**

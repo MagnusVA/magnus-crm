@@ -13,7 +13,7 @@ import {
 //
 // Exchanges a short-lived signed token for a real WorkOS AuthKit session
 // cookie scoped to the configured tenant organization. This is the routine
-// used by `scripts/e2e-login-url.mjs` and by Playwright/agent tests.
+// used by Playwright/agent tests.
 //
 // The route returns 404 when E2E auth is disabled so that it is not
 // discoverable in normal app usage. See `lib/testing/e2e-auth.ts` for

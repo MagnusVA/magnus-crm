@@ -2,7 +2,6 @@
  * Meeting link maintenance operations.
  *
  * Includes dry-run audit and production backfill for meeting link normalization.
- * See @plans/v0.5/meeting-link-normalization/meeting-link-normalization-design.md
  */
 
 import { internalMutation } from "../_generated/server";

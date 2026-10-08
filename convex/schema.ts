@@ -815,7 +815,7 @@ export default defineSchema({
     // Idempotency key for manual opportunity creation. Undefined for Calendly rows.
     manualCreationKey: v.optional(v.string()),
     calendlyEventUri: v.optional(v.string()),
-    // Denormalized meeting references for query efficiency (see @plans/caching/caching.md)
+    // Denormalized meeting references for query efficiency
     latestMeetingId: v.optional(v.id("meetings")),
     latestMeetingAt: v.optional(v.number()),
     nextMeetingId: v.optional(v.id("meetings")), // Soonest "scheduled" meeting by scheduledAt
@@ -1212,7 +1212,7 @@ export default defineSchema({
       ),
     ),
     // === End v0.6: Call Classification ===
-    // DEPRECATED (as of meeting-comments feature — see plans/meeting-comments/):
+    // DEPRECATED (as of meeting-comments feature):
     // All frontend reads/writes removed. Calendly's meeting_notes_plain webhook
     // still populates this field for newly-created meetings. Phase 4 migrates
     // existing data to the meetingComments table. Schedule full removal via the
@@ -1240,7 +1240,7 @@ export default defineSchema({
     attributionResolutionVersion: v.optional(v.number()),
     utmTruncated: v.optional(v.boolean()),
 
-    // DEAD FIELD (as of meeting-comments feature — see plans/meeting-comments/).
+    // DEAD FIELD (as of meeting-comments feature).
     // All read and write code paths are deleted — no production code references
     // this field. Existing data is preserved but orphaned. Full removal requires
     // a widen-migrate-narrow migration; schedule via the `convex-migration-helper`

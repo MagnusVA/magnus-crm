@@ -44,8 +44,7 @@ export function deriveCallOutcome(
   //
   // The previous trigger was `meeting.meetingOutcome === "not_qualified"`,
   // but `meetingOutcome` has been removed from all read/write paths as of
-  // the meeting-comments feature (see plans/meeting-comments/phases/phase3.md
-  // §3D and the design doc §6.3).
+  // the meeting-comments feature.
   //
   // When the v0.6b Team Performance reporting feature ships, choose one of:
   //   (a) explicit `disqualifyMeeting` mutation that sets a dedicated field
