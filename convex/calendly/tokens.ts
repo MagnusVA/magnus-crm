@@ -7,6 +7,7 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { getIdentityOrgId } from "../lib/identity";
 import { ADMIN_ROLES } from "../lib/roleMapping";
+import { requireIdentity } from "../requireIdentity";
 
 type TenantConnectionContext = {
   accessToken?: string;
@@ -363,10 +364,7 @@ export const refreshMyTenantToken = action({
   handler: async (ctx): Promise<RefreshOutcome> => {
     console.log(`[token-refresh] refreshMyTenantToken: called`);
 
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Not authenticated");
-    }
+    const identity = await requireIdentity(ctx);
 
     const workosUserId = identity.tokenIdentifier ?? identity.subject;
     if (!workosUserId) {

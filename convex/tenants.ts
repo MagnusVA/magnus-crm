@@ -71,6 +71,7 @@ export const getCalendlyTenant = internalQuery({
   },
 });
 
+// eslint-disable-next-line @convex-dev/require-access-control -- returns null when signed out; reads only the caller's tenant
 export const getCurrentTenant = query({
   args: {},
   handler: async (ctx) => {

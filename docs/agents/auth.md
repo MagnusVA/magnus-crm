@@ -26,12 +26,14 @@ One WorkOS organization is one tenant, linked by `tenants.workosOrgId`. A tenant
 | --- | --- |
 | Next.js pages and layouts | `requirePermission(slug)` or `requireRole(roles)` from `lib/auth.ts`; `requireWorkspaceUser()` admits any tenant member. Denied users redirect to their role's home page. |
 | Convex queries and mutations | `requireTenantUser(ctx, roles)`, which returns `{ userId, tenantId, role, workosUserId }` |
-| Convex actions | `requireTenantUserFromAction(ctx, roles)`. Older actions check identity by hand and skip WorkOS ID canonicalization; use the shared guard in new code. |
+| Convex actions | `requireTenantUserFromAction(ctx, roles)`. Older actions call `requireIdentity(ctx)` and authorize by hand, skipping WorkOS ID canonicalization; use the shared guard in new code. |
 | Billing | `requireBillingPermission` plus `requireBillingOpsEnabled` from `convex/billing/guards.ts`; the second enforces the tenant's `billingOpsEnabled` flag |
 | System admin (`/admin`) | `requireSystemAdmin()` in Next.js and `requireSystemAdminSession(identity)` in Convex. Membership means the identity's org equals `SYSTEM_ADMIN_ORG_ID`, and `/workspace` redirects system admins to `/admin`. `convex/admin/` also holds tenant-admin code (`meetingActions.ts`), so check each function's guard rather than its folder. |
 | DM link portal (`/dm-links/[portalSlug]`) | Shared password, outside WorkOS. Public actions take a `sessionToken`, verify it in `"use node"` code, then call internal functions that run `assertActivePortalSession` (`convex/linkPortal/leadSession.ts`). The tenant comes from the token. |
 | Webhooks | Signature verification; see `docs/agents/convex.md` |
 | UI | `useRole()` and `<RequirePermission>` (`components/auth/`) only control what renders |
+
+ESLint's `@convex-dev/require-access-control` rule fails any public Convex function whose handler doesn't call a guard at its top level. The accepted guard names are listed in `CONVEX_ACCESS_GUARDS` in `eslint.config.mjs`; add a new guard there. A function that is public on purpose gets an `eslint-disable-next-line` comment that says why.
 
 ## Identity helpers
 

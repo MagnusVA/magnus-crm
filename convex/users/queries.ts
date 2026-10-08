@@ -8,6 +8,7 @@ import {
 } from "../lib/workosUserId";
 import { userMemberIdentity } from "../lib/memberIdentity";
 
+// eslint-disable-next-line @convex-dev/require-access-control -- returns null when signed out; reads only the caller's user
 export const getCurrentUser = query({
   args: {},
   handler: async (ctx) => {

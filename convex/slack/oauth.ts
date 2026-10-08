@@ -111,18 +111,19 @@ export const startInstall = action({
     const requestId = args.requestId ?? createLogId("slack_oauth_start");
     console.log("[Slack:OAuth] startInstall begin", { requestId });
 
+    const access = await requireTenantUserFromAction(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
+    console.log("[Slack:OAuth] startInstall authorized", {
+      requestId,
+      tenantId: access.tenantId,
+      userId: access.userId,
+      workosUserId: access.workosUserId,
+      role: access.role,
+    });
+
     try {
-      const access = await requireTenantUserFromAction(ctx, [
-        "tenant_master",
-        "tenant_admin",
-      ]);
-      console.log("[Slack:OAuth] startInstall authorized", {
-        requestId,
-        tenantId: access.tenantId,
-        userId: access.userId,
-        workosUserId: access.workosUserId,
-        role: access.role,
-      });
 
       const clientId = getRequiredEnv("SLACK_CLIENT_ID");
       const redirectUri = getRequiredEnv("SLACK_REDIRECT_URI");

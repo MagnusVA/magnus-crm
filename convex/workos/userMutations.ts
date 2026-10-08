@@ -475,6 +475,7 @@ export const claimInvitedAccountByEmail = internalMutation({
  *
  * Returns null if no pending record is found (genuine "not provisioned" state).
  */
+// eslint-disable-next-line @convex-dev/require-access-control -- returns null when signed out; claims only the caller's invite
 export const claimInvitedAccount = mutation({
   args: {},
   handler: async (ctx): Promise<Doc<"users"> | null> => {

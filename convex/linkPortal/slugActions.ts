@@ -3,14 +3,8 @@
 import { randomBytes } from "node:crypto";
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
-import type { CrmRole } from "../lib/roleMapping";
+import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 
-type TenantAdminPortalAccess = {
-  tenantId: Id<"tenants">;
-  userId: Id<"users">;
-  role: CrmRole;
-};
 type RotatePortalSlugResult = {
   portalUrlPath: string;
   publicSlug: string;
@@ -28,10 +22,10 @@ function isSlugCollision(error: unknown) {
 export const rotatePortalSlug = action({
   args: {},
   handler: async (ctx): Promise<RotatePortalSlugResult> => {
-    const access: TenantAdminPortalAccess = await ctx.runQuery(
-      internal.linkPortal.authz.requireTenantAdminForPortal,
-      {},
-    );
+    const access = await requireTenantUserFromAction(ctx, [
+      "tenant_master",
+      "tenant_admin",
+    ]);
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {

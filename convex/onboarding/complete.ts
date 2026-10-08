@@ -7,6 +7,7 @@ import {
   getCanonicalIdentityWorkosUserId,
   getWorkosUserIdCandidates,
 } from "../lib/workosUserId";
+import { requireIdentity } from "../requireIdentity";
 import { internal } from "../_generated/api";
 
 export const redeemInviteAndCreateUser = mutation({
@@ -23,11 +24,7 @@ export const redeemInviteAndCreateUser = mutation({
     }
 
     const normalizedWorkosOrgId = workosOrgId.trim();
-    const identity = await ctx.auth.getUserIdentity();
-    console.log("[Onboarding] identity check", { hasIdentity: !!identity });
-    if (!identity) {
-      throw new Error("Not authenticated");
-    }
+    const identity = await requireIdentity(ctx);
 
     const workosUserId = getCanonicalIdentityWorkosUserId(identity) ?? "";
     const userIdValidation = validateRequiredString(workosUserId, {

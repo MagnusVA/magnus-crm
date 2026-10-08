@@ -8,10 +8,16 @@ import {
   toPublicOverviewRange,
 } from "../dashboard/overviewRange";
 import type { CrmRole } from "../lib/roleMapping";
-import { requireTenantUser } from "../requireTenantUser";
+import { requireTenantUser, type TenantUserResult } from "../requireTenantUser";
 import { summarizeDailyRows } from "./reportBuilders";
 import { DAILY_STATS_READ_LIMIT } from "./reportLimits";
 import { loadCurrentScheduledHoursByWorkerDay } from "./schedules";
+
+const LEAD_GEN_ACTIVITY_ROLES: CrmRole[] = [
+  "lead_generator",
+  "tenant_master",
+  "tenant_admin",
+];
 
 export const listMyRecentSubmissions = query({
   args: {
@@ -19,7 +25,8 @@ export const listMyRecentSubmissions = query({
     range: v.optional(overviewRangeValidator),
   },
   handler: async (ctx, args) => {
-    const access = await resolveOwnLeadGenWorker(ctx);
+    const auth = await requireTenantUser(ctx, LEAD_GEN_ACTIVITY_ROLES);
+    const access = await resolveOwnLeadGenWorker(ctx, auth);
     if (!access) {
       return { page: [], isDone: true, continueCursor: "" };
     }
@@ -51,7 +58,8 @@ export const getMyActivitySummary = query({
   handler: async (ctx, { range }) => {
     const derivedRange = deriveOverviewRange(range, Date.now());
     const publicRange = toPublicOverviewRange(derivedRange);
-    const access = await resolveOwnLeadGenWorker(ctx);
+    const auth = await requireTenantUser(ctx, LEAD_GEN_ACTIVITY_ROLES);
+    const access = await resolveOwnLeadGenWorker(ctx, auth);
     if (!access) {
       return {
         range: publicRange,
@@ -95,7 +103,8 @@ export const getMyActivitySummary = query({
 export const getMyDaySummary = query({
   args: { dayKey: v.string() },
   handler: async (ctx, { dayKey }) => {
-    const access = await resolveOwnLeadGenWorker(ctx);
+    const auth = await requireTenantUser(ctx, LEAD_GEN_ACTIVITY_ROLES);
+    const access = await resolveOwnLeadGenWorker(ctx, auth);
     if (!access) {
       return { submissions: 0, uniqueProspects: 0, duplicates: 0 };
     }
@@ -121,13 +130,10 @@ export const getMyDaySummary = query({
   },
 });
 
-async function resolveOwnLeadGenWorker(ctx: QueryCtx) {
-  const access = await requireTenantUser(ctx, [
-    "lead_generator",
-    "tenant_master",
-    "tenant_admin",
-  ]);
-
+async function resolveOwnLeadGenWorker(
+  ctx: QueryCtx,
+  access: TenantUserResult,
+) {
   const worker = await ctx.db
     .query("leadGenWorkers")
     .withIndex("by_tenantId_and_userId", (q) =>

@@ -8,6 +8,7 @@ import {
   getCanonicalIdentityWorkosUserId,
   getRawWorkosUserId,
 } from "../lib/workosUserId";
+import { requireIdentity } from "../requireIdentity";
 
 const workos = new WorkOS(process.env.WORKOS_API_KEY!, {
   clientId: process.env.WORKOS_CLIENT_ID!,
@@ -28,10 +29,7 @@ function getDisplayName(user: {
 export const syncCurrentProfile = action({
   args: {},
   handler: async (ctx): Promise<Id<"users"> | null> => {
-    const identity = await ctx.auth.getUserIdentity();
-    if (!identity) {
-      throw new Error("Not authenticated");
-    }
+    const identity = await requireIdentity(ctx);
 
     const workosUserId = getCanonicalIdentityWorkosUserId(identity);
     if (!workosUserId) {

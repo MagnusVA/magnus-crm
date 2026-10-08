@@ -26,6 +26,7 @@ function getDisplayName(user: {
   return fullName || undefined;
 }
 
+// eslint-disable-next-line @convex-dev/require-access-control -- returns null when signed out; claims only the caller's invite
 export const claimInvitedAccount = action({
   args: {},
   handler: async (ctx): Promise<Doc<"users"> | null> => {

@@ -3,6 +3,26 @@ import { defineConfig, globalIgnores } from "eslint/config";
 import nextVitals from "eslint-config-next/core-web-vitals";
 import nextTs from "eslint-config-next/typescript";
 
+// Public Convex functions must call one of these guards at the top level of
+// the handler. The plugin's default pattern also accepts validators such as
+// assertValidDateRange, so list the real guards instead.
+const CONVEX_ACCESS_GUARDS = [
+  "requireIdentity",
+  "requireTenantUser",
+  "requireTenantUserFromAction",
+  "requireSystemAdmin",
+  "requireSystemAdminSession",
+  "requireBillingPermission",
+  "requireAdminContext",
+  "requireOwnedJob",
+  "assertOwnedPendingReminder",
+  "requirePendingReminderForPayment",
+  "requirePortalDmCloser",
+  "requirePortalLead",
+  "assertActivePortalSession",
+  "verifyPortalSessionToken",
+];
+
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
@@ -36,6 +56,10 @@ const eslintConfig = defineConfig([
       "@convex-dev/no-filter-in-query": "error",
       "@convex-dev/no-top-of-hour-crons": "error",
       "@convex-dev/no-collect-in-query": "error",
+      "@convex-dev/require-access-control": [
+        "error",
+        { pattern: `^(${CONVEX_ACCESS_GUARDS.join("|")})$` },
+      ],
       "@convex-dev/no-process-env": "off",
       "@convex-dev/no-duplicate-indexes": "off",
     },

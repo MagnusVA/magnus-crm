@@ -13,7 +13,10 @@ import {
   type QueryCtx,
 } from "../../_generated/server";
 import { releaseAdmission, scheduleWorker } from "./admission";
-import { requireTenantUser } from "../../requireTenantUser";
+import {
+  requireTenantUser,
+  type TenantUserResult,
+} from "../../requireTenantUser";
 import {
   REPORT_DEFINITION_VERSION,
   REPORT_JOB_METADATA_RETENTION_MS,
@@ -160,14 +163,16 @@ export const requestDashboardReport = mutation({
     requestToken: v.string(),
   },
   returns: requestResultValidator,
-  handler: async (ctx, args) =>
-    await requestReport(ctx, {
+  handler: async (ctx, args) => {
+    const auth = await requireTenantUser(ctx, [...ADMIN_ROLES]);
+    return await requestReport(ctx, auth, {
       purpose: "dashboard",
       reportKind: args.reportKind,
       range: args.range,
       sourceFilter: args.sourceFilter ?? "all",
       requestToken: args.requestToken,
-    }),
+    });
+  },
 });
 
 export const requestExport = mutation({
@@ -179,15 +184,17 @@ export const requestExport = mutation({
     requestToken: v.string(),
   },
   returns: requestResultValidator,
-  handler: async (ctx, args) =>
-    await requestReport(ctx, {
+  handler: async (ctx, args) => {
+    const auth = await requireTenantUser(ctx, [...ADMIN_ROLES]);
+    return await requestReport(ctx, auth, {
       purpose: "export",
       reportKind: args.reportKind,
       format: args.format,
       range: args.range,
       sourceFilter: args.sourceFilter ?? "all",
       requestToken: args.requestToken,
-    }),
+    });
+  },
 });
 
 export const getReportJob = query({
@@ -1008,6 +1015,7 @@ export const failJob = internalMutation({
 
 async function requestReport(
   ctx: MutationCtx,
+  auth: TenantUserResult,
   args: {
     purpose: ReportPurpose;
     reportKind: ReportKind;
@@ -1017,7 +1025,6 @@ async function requestReport(
     requestToken: string;
   },
 ) {
-  const auth = await requireTenantUser(ctx, [...ADMIN_ROLES]);
   const requestToken = assertBoundedIdentifier(args.requestToken, "Request token");
   assertValidSourceFilter(args.reportKind, args.sourceFilter);
   if (args.format) {

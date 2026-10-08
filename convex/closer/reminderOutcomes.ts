@@ -70,7 +70,7 @@ async function assertOwnedPendingReminder(
   return { followUp, opportunity, tenantId, userId };
 }
 
-async function loadPendingReminderForPayment(
+async function requirePendingReminderForPayment(
   ctx: MutationCtx,
   followUpId: Id<"followUps">,
 ): Promise<{
@@ -128,7 +128,7 @@ export const logReminderPayment = mutation({
   },
   handler: async (ctx, args) => {
     const { followUp, opportunity, tenantId, userId, role } =
-      await loadPendingReminderForPayment(
+      await requirePendingReminderForPayment(
       ctx,
       args.followUpId,
     );
