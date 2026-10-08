@@ -88,7 +88,7 @@ async function resolveEffectiveCloserId(
     return undefined;
   }
 
-  const closer = await ctx.db.get(args.closerFilter);
+  const closer = await ctx.db.get("users", args.closerFilter);
   if (
     !closer ||
     closer.tenantId !== args.tenantId ||
@@ -271,13 +271,13 @@ async function enrichOpportunityRows(
     Promise.all(
       [...leadIds].map(async (leadId) => ({
         leadId,
-        lead: await ctx.db.get(leadId),
+        lead: await ctx.db.get("leads", leadId),
       })),
     ),
     Promise.all(
       [...closerIds].map(async (closerId) => ({
         closerId,
-        closer: await ctx.db.get(closerId),
+        closer: await ctx.db.get("users", closerId),
       })),
     ),
   ]);
@@ -413,7 +413,7 @@ export const searchOpportunities = query({
       .take(SEARCH_CANDIDATE_LIMIT);
 
     const opportunities = await Promise.all(
-      projectionMatches.map((match) => ctx.db.get(match.opportunityId)),
+      projectionMatches.map((match) => ctx.db.get("opportunities", match.opportunityId)),
     );
 
     const { periodStart, periodEnd } = resolvePeriod(args.periodFilter, now);

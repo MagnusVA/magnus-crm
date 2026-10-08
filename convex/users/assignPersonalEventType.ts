@@ -21,7 +21,7 @@ export const assignPersonalEventType = mutation({
       "tenant_admin",
     ]);
 
-    const targetUser = await ctx.db.get(userId);
+    const targetUser = await ctx.db.get("users", userId);
     if (!targetUser || targetUser.tenantId !== tenantId) {
       throw new Error("User not found");
     }
@@ -47,7 +47,7 @@ export const assignPersonalEventType = mutation({
       throw new Error("Invalid URL format");
     }
 
-    await ctx.db.patch(userId, { personalEventTypeUri });
+    await ctx.db.patch("users", userId, { personalEventTypeUri });
 
     console.log("[Users] assignPersonalEventType", {
       userId,

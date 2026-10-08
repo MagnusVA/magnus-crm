@@ -225,7 +225,7 @@ export const getBillingOpsReadiness = query({
         )
         .order("desc")
         .first(),
-      ctx.db.get(tenantId),
+      ctx.db.get("tenants", tenantId),
     ]);
 
     if (!tenant) {
@@ -266,7 +266,7 @@ export const recordBillingOpsReadinessCheck = mutation({
       }
     }
 
-    const tenant = await ctx.db.get(args.tenantId);
+    const tenant = await ctx.db.get("tenants", args.tenantId);
     if (!tenant) {
       throw new Error("Tenant not found");
     }
@@ -298,7 +298,7 @@ export const verifyBillingOpsReadiness = mutation({
     const identity = await ctx.auth.getUserIdentity();
     requireSystemAdminSession(identity);
 
-    const tenant = await ctx.db.get(args.tenantId);
+    const tenant = await ctx.db.get("tenants", args.tenantId);
     if (!tenant) {
       throw new Error("Tenant not found");
     }
@@ -414,7 +414,7 @@ export const setBillingOpsEnabled = mutation({
     const identity = await ctx.auth.getUserIdentity();
     requireSystemAdminSession(identity);
 
-    const tenant = await ctx.db.get(tenantId);
+    const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant) {
       throw new Error("Tenant not found");
     }
@@ -446,7 +446,7 @@ export const setBillingOpsEnabled = mutation({
       }
     }
 
-    await ctx.db.patch(tenantId, { billingOpsEnabled: enabled });
+    await ctx.db.patch("tenants", tenantId, { billingOpsEnabled: enabled });
     console.log("[Admin:BillingOps] tenant gate updated", {
       tenantId,
       enabled,

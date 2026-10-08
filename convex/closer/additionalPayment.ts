@@ -51,7 +51,7 @@ export const recordAdditionalPayment = mutation({
     const now = Date.now();
     const isAdmin = role === "tenant_master" || role === "tenant_admin";
 
-    const opportunity = await ctx.db.get(args.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", args.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found.");
     }
@@ -97,7 +97,7 @@ export const recordAdditionalPayment = mutation({
         "This opportunity has no sold program on record to attribute the payment to.",
       );
     }
-    const program = await ctx.db.get(opportunity.soldProgramId);
+    const program = await ctx.db.get("tenantPrograms", opportunity.soldProgramId);
     if (!program || program.tenantId !== tenantId) {
       throw new Error("Sold program for this opportunity was not found.");
     }
@@ -180,7 +180,7 @@ export const recordAdditionalPayment = mutation({
       .first();
 
     if (customer) {
-      await ctx.db.patch(paymentId, { customerId: customer._id });
+      await ctx.db.patch("paymentRecords", paymentId, { customerId: customer._id });
       await replacePaymentAggregate(ctx, paymentBeforeCustomerLink, paymentId);
       await syncCustomerPaymentSummary(ctx, customer._id);
     }

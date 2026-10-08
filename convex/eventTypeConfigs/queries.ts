@@ -18,7 +18,7 @@ export const getById = internalQuery({
   args: { eventTypeConfigId: v.id("eventTypeConfigs") },
   handler: async (ctx, { eventTypeConfigId }) => {
     console.log("[EventTypeConfig] getById called", { eventTypeConfigId });
-    const config = await ctx.db.get(eventTypeConfigId);
+    const config = await ctx.db.get("eventTypeConfigs", eventTypeConfigId);
     console.log("[EventTypeConfig] getById result", { found: !!config });
     return config;
   },

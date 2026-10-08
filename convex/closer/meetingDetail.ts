@@ -59,14 +59,14 @@ export const getMeetingDetail = query({
     ]);
 
     // Load the meeting
-    const meeting = await ctx.db.get(meetingId);
+    const meeting = await ctx.db.get("meetings", meetingId);
     console.log("[Closer:MeetingDetail] meeting lookup", { found: !!meeting });
     if (!meeting || meeting.tenantId !== tenantId) {
       throw new Error("Meeting not found");
     }
 
     // Load the parent opportunity
-    const opportunity = await ctx.db.get(meeting.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
     console.log("[Closer:MeetingDetail] opportunity lookup", { found: !!opportunity, opportunityId: meeting.opportunityId });
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
@@ -78,7 +78,7 @@ export const getMeetingDetail = query({
     }
 
     // Load the lead
-    const lead = await ctx.db.get(opportunity.leadId);
+    const lead = await ctx.db.get("leads", opportunity.leadId);
     console.log("[Closer:MeetingDetail] lead lookup", { found: !!lead, leadId: opportunity.leadId });
     if (!lead || lead.tenantId !== tenantId) {
       throw new Error("Lead not found");
@@ -112,7 +112,7 @@ export const getMeetingDetail = query({
         )
         .take(50),
       opportunity.eventTypeConfigId
-        ? ctx.db.get(opportunity.eventTypeConfigId)
+        ? ctx.db.get("eventTypeConfigs", opportunity.eventTypeConfigId)
         : Promise.resolve(null),
       ctx.db
         .query("paymentRecords")
@@ -121,7 +121,7 @@ export const getMeetingDetail = query({
         )
         .take(50),
       opportunity.assignedCloserId
-        ? ctx.db.get(opportunity.assignedCloserId)
+        ? ctx.db.get("users", opportunity.assignedCloserId)
         : Promise.resolve(null),
       meeting.reassignedFromCloserId
         ? ctx.db
@@ -131,17 +131,17 @@ export const getMeetingDetail = query({
             .first()
         : Promise.resolve(null),
       meeting.reassignedFromCloserId
-        ? ctx.db.get(meeting.reassignedFromCloserId)
+        ? ctx.db.get("users", meeting.reassignedFromCloserId)
         : Promise.resolve(null),
       opportunity.potentialDuplicateLeadId
-        ? ctx.db.get(opportunity.potentialDuplicateLeadId)
+        ? ctx.db.get("leads", opportunity.potentialDuplicateLeadId)
         : Promise.resolve(null),
       meeting.rescheduledFromMeetingId
-        ? ctx.db.get(meeting.rescheduledFromMeetingId)
+        ? ctx.db.get("meetings", meeting.rescheduledFromMeetingId)
         : Promise.resolve(null),
       loadActiveFollowUpSummary(ctx, opportunity._id),
-      attributionTeamId ? ctx.db.get(attributionTeamId) : Promise.resolve(null),
-      dmCloserId ? ctx.db.get(dmCloserId) : Promise.resolve(null),
+      attributionTeamId ? ctx.db.get("attributionTeams", attributionTeamId) : Promise.resolve(null),
+      dmCloserId ? ctx.db.get("dmClosers", dmCloserId) : Promise.resolve(null),
     ]);
 
     const opportunityStatusById = new Map<
@@ -186,7 +186,7 @@ export const getMeetingDetail = query({
     const paymentUsers = await Promise.all(
       paymentUserIds.map(async (paymentUserId) => [
         paymentUserId,
-        await ctx.db.get(paymentUserId),
+        await ctx.db.get("users", paymentUserId),
       ] as const),
     );
     const paymentUserNameById = new Map<Id<"users">, string | null>(
@@ -281,7 +281,7 @@ export const getMeetingDetail = query({
     const validDmCloser =
       dmCloser && dmCloser.tenantId === tenantId ? dmCloser : null;
     const linkedDmCloserUser =
-      validDmCloser?.userId ? await ctx.db.get(validDmCloser.userId) : null;
+      validDmCloser?.userId ? await ctx.db.get("users", validDmCloser.userId) : null;
     const validLinkedDmCloserUser =
       linkedDmCloserUser && linkedDmCloserUser.tenantId === tenantId
         ? linkedDmCloserUser

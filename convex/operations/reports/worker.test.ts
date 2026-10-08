@@ -110,7 +110,7 @@ it("scans 32001 monthly events and preserves job idempotency", async () => {
   let steps = 0;
   for (; steps < 200; steps++) {
     await t.action(internal.operations.reports.worker.run, { jobId });
-    const job = await t.run(ctx => ctx.db.get(jobId));
+    const job = await t.run(ctx => ctx.db.get("operationsReportJobs", jobId));
     if (job?.status === "ready") break;
     expect(job?.status).toBe("queued");
   }
@@ -199,7 +199,7 @@ it("pages 8501 materialized groups without gaps", async () => {
     });
   }
   await t.run(async ctx => {
-    await ctx.db.patch(jobId, {
+    await ctx.db.patch("operationsReportJobs", jobId, {
       status: "ready",
       phase: "ready",
       completedAt: updatedAt,
@@ -377,11 +377,11 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
   );
   for (let steps = 0; steps < 20; steps += 1) {
     await t.action(internal.operations.reports.worker.run, { jobId });
-    const job = await t.run(async (ctx) => await ctx.db.get(jobId));
+    const job = await t.run(async (ctx) => await ctx.db.get("operationsReportJobs", jobId));
     if (job?.status === "ready") break;
     expect(job?.status).toBe("queued");
   }
-  expect((await t.run(async (ctx) => await ctx.db.get(jobId)))?.status).toBe("ready");
+  expect((await t.run(async (ctx) => await ctx.db.get("operationsReportJobs", jobId)))?.status).toBe("ready");
 
   const listSection = async (section: string) =>
     (await authed.query(

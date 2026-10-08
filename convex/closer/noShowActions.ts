@@ -39,12 +39,12 @@ export const markNoShow = mutation({
     console.log("[Closer:NoShow] markNoShow called", { meetingId, reason });
     const { userId, tenantId, role } = await requireTenantUser(ctx, ["closer"]);
 
-    const meeting = await ctx.db.get(meetingId);
+    const meeting = await ctx.db.get("meetings", meetingId);
     if (!meeting || meeting.tenantId !== tenantId) {
       throw new Error("Meeting not found");
     }
 
-    const opportunity = await ctx.db.get(meeting.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
@@ -143,7 +143,7 @@ export const createNoShowRescheduleLink = mutation({
     });
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
 
-    const user = await ctx.db.get(userId);
+    const user = await ctx.db.get("users", userId);
     if (!user) {
       throw new Error("User not found");
     }
@@ -153,7 +153,7 @@ export const createNoShowRescheduleLink = mutation({
       );
     }
 
-    const opportunity = await ctx.db.get(opportunityId);
+    const opportunity = await ctx.db.get("opportunities", opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
@@ -171,7 +171,7 @@ export const createNoShowRescheduleLink = mutation({
       );
     }
 
-    const meeting = await ctx.db.get(meetingId);
+    const meeting = await ctx.db.get("meetings", meetingId);
     if (
       !meeting ||
       meeting.tenantId !== tenantId ||

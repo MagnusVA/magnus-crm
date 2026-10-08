@@ -14,7 +14,7 @@ export const getOpportunityDetail = query({
     ]);
     const isAdmin = role === "tenant_master" || role === "tenant_admin";
 
-    const opportunity = await ctx.db.get(opportunityId);
+    const opportunity = await ctx.db.get("opportunities", opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       return null;
     }
@@ -32,9 +32,9 @@ export const getOpportunityDetail = query({
       attachedFollowUps,
       attribution,
     ] = await Promise.all([
-      ctx.db.get(opportunity.leadId),
+      ctx.db.get("leads", opportunity.leadId),
       opportunity.assignedCloserId
-        ? ctx.db.get(opportunity.assignedCloserId)
+        ? ctx.db.get("users", opportunity.assignedCloserId)
         : Promise.resolve(null),
       ctx.db
         .query("meetings")

@@ -89,7 +89,7 @@ export async function rebuildLeadCustomerSearchRow(
   tenantId: Id<"tenants">,
   leadId: Id<"leads">,
 ) {
-  const lead = await ctx.db.get(leadId);
+  const lead = await ctx.db.get("leads", leadId);
   if (!lead) {
     await hideProjectionRowForMissingLead(ctx, tenantId, leadId);
     return;
@@ -198,7 +198,7 @@ export async function rebuildLeadCustomerSearchRow(
     .unique();
 
   if (existing) {
-    await ctx.db.patch(existing._id, row);
+    await ctx.db.patch("leadCustomerSearchRows", existing._id, row);
   } else {
     await ctx.db.insert("leadCustomerSearchRows", row);
   }
@@ -228,7 +228,7 @@ export async function hideProjectionRowForMissingLead(
     return;
   }
 
-  await ctx.db.patch(existing._id, {
+  await ctx.db.patch("leadCustomerSearchRows", existing._id, {
     lifecycle: "merged",
     isSearchVisible: false,
     updatedAt: Date.now(),

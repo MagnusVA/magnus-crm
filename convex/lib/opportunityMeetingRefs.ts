@@ -14,7 +14,7 @@ export async function updateOpportunityMeetingRefs(
   ctx: MutationCtx,
   opportunityId: Id<"opportunities">,
 ): Promise<void> {
-  const opportunity = await ctx.db.get(opportunityId);
+  const opportunity = await ctx.db.get("opportunities", opportunityId);
   if (!opportunity) {
     return;
   }
@@ -75,7 +75,7 @@ export async function updateOpportunityMeetingRefs(
     updatedAt: now,
   };
 
-  await ctx.db.patch(opportunityId, {
+  await ctx.db.patch("opportunities", opportunityId, {
     latestMeetingId: latestMeeting?._id,
     latestMeetingAt: latestMeeting?.scheduledAt,
     nextMeetingId: nextMeeting?._id,

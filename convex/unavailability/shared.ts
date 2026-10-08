@@ -137,7 +137,7 @@ export async function buildCloserSchedulesForDate(
   const closers = await Promise.all(
     uniqueCloserIds.map(async (closerId) => ({
       closerId,
-      closer: await ctx.db.get(closerId),
+      closer: await ctx.db.get("users", closerId),
     })),
   );
 

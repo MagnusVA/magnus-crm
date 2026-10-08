@@ -23,7 +23,7 @@ export async function syncLeadMeetingNames(
         continue;
       }
 
-      await ctx.db.patch(meeting._id, { leadName });
+      await ctx.db.patch("meetings", meeting._id, { leadName });
       updatedCount += 1;
     }
   }

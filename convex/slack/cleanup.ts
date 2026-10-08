@@ -26,7 +26,7 @@ export const deleteOAuthStatesByIds = internalMutation({
   args: { ids: v.array(v.id("slackOAuthStates")) },
   handler: async (ctx, args) => {
     for (const id of args.ids) {
-      await ctx.db.delete(id);
+      await ctx.db.delete("slackOAuthStates", id);
     }
   },
 });
@@ -77,7 +77,7 @@ export const deleteRawEventsByIds = internalMutation({
   args: { ids: v.array(v.id("rawSlackEvents")) },
   handler: async (ctx, args) => {
     for (const id of args.ids) {
-      await ctx.db.delete(id);
+      await ctx.db.delete("rawSlackEvents", id);
     }
   },
 });

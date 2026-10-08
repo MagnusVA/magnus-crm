@@ -39,7 +39,7 @@ export const listStaleOpportunities = internalQuery({
     const entries = [];
 
     for (const opportunity of opportunities.slice(0, args.limit)) {
-      const lead = await ctx.db.get(opportunity.leadId);
+      const lead = await ctx.db.get("leads", opportunity.leadId);
       if (!lead) continue;
 
       const identifiers = await ctx.db
@@ -78,11 +78,11 @@ export const recordChannelFailure = internalMutation({
     clearChannel: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const installation = await ctx.db.get(args.installationId);
+    const installation = await ctx.db.get("slackInstallations", args.installationId);
     if (!installation) return;
 
     if (args.channelKind === "staleReminder") {
-      await ctx.db.patch(args.installationId, {
+      await ctx.db.patch("slackInstallations", args.installationId, {
         staleReminderChannelId: args.clearChannel
           ? undefined
           : installation.staleReminderChannelId,
@@ -99,7 +99,7 @@ export const recordChannelFailure = internalMutation({
       return;
     }
 
-    await ctx.db.patch(args.installationId, {
+    await ctx.db.patch("slackInstallations", args.installationId, {
       notifyChannelId: args.clearChannel
         ? undefined
         : installation.notifyChannelId,

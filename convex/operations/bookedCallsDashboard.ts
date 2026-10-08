@@ -129,7 +129,7 @@ async function enrichBookedCallRows(
 ) {
   const opportunityIds = uniqueIds(meetings.map((m) => m.opportunityId));
   const opportunities = await Promise.all(
-    opportunityIds.map((id) => ctx.db.get(id)),
+    opportunityIds.map((id) => ctx.db.get("opportunities", id)),
   );
   const opportunityById = new Map(
     opportunities
@@ -145,9 +145,9 @@ async function enrichBookedCallRows(
   const dmCloserIds = uniqueIds(meetings.map((m) => m.dmCloserId));
 
   const [leads, teams, dmClosers] = await Promise.all([
-    Promise.all(leadIds.map((id) => ctx.db.get(id))),
-    Promise.all(teamIds.map((id) => ctx.db.get(id))),
-    Promise.all(dmCloserIds.map((id) => ctx.db.get(id))),
+    Promise.all(leadIds.map((id) => ctx.db.get("leads", id))),
+    Promise.all(teamIds.map((id) => ctx.db.get("attributionTeams", id))),
+    Promise.all(dmCloserIds.map((id) => ctx.db.get("dmClosers", id))),
   ]);
 
   const leadById = new Map(
@@ -362,7 +362,7 @@ export const getBookedCallsDashboard = query({
         rows
           .map((row) => row.dmCloserId)
           .filter((id) => !closerById.has(id)),
-        async (id) => await ctx.db.get(id),
+        async (id) => await ctx.db.get("dmClosers", id),
       );
       if (missingCloserScan.capped) {
         return {
@@ -392,7 +392,7 @@ export const getBookedCallsDashboard = query({
       );
       const linkedUserScan = await readLiveDocuments(
         linkedUserIds,
-        async (id) => await ctx.db.get(id),
+        async (id) => await ctx.db.get("users", id),
       );
       if (linkedUserScan.capped) {
         return {

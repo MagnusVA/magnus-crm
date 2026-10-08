@@ -228,9 +228,9 @@ export const getPipelineAging = query({
       ),
     ];
     const [leadDocs, closerDocs] = await Promise.all([
-      Promise.all(leadIds.map(async (leadId) => [leadId, await ctx.db.get(leadId)] as const)),
+      Promise.all(leadIds.map(async (leadId) => [leadId, await ctx.db.get("leads", leadId)] as const)),
       Promise.all(
-        closerIds.map(async (closerId) => [closerId, await ctx.db.get(closerId)] as const),
+        closerIds.map(async (closerId) => [closerId, await ctx.db.get("users", closerId)] as const),
       ),
     ]);
     const leadById = new Map(leadDocs);
@@ -349,7 +349,7 @@ export const getPipelineBacklogAndLoss = query({
 
     const actorIds = [...lossCountsByActor.keys()];
     const actorDocs = await Promise.all(
-      actorIds.map(async (actorId) => [actorId, await ctx.db.get(actorId)] as const),
+      actorIds.map(async (actorId) => [actorId, await ctx.db.get("users", actorId)] as const),
     );
     const actorById = new Map(actorDocs);
 

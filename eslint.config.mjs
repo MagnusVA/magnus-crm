@@ -36,7 +36,6 @@ const eslintConfig = defineConfig([
       "@convex-dev/no-filter-in-query": "error",
       "@convex-dev/no-top-of-hour-crons": "error",
       "@convex-dev/no-collect-in-query": "error",
-      "@convex-dev/explicit-table-ids": "off",
       "@convex-dev/no-process-env": "off",
       "@convex-dev/no-duplicate-indexes": "off",
     },

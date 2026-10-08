@@ -27,9 +27,9 @@ export const insertCopyEvent = internalMutation({
     }
 
     const [eventTypeConfig, dmCloser, campaign] = await Promise.all([
-      ctx.db.get(args.eventTypeConfigId),
-      ctx.db.get(args.dmCloserId),
-      ctx.db.get(args.campaignPresetId),
+      ctx.db.get("eventTypeConfigs", args.eventTypeConfigId),
+      ctx.db.get("dmClosers", args.dmCloserId),
+      ctx.db.get("linkPortalCampaignPresets", args.campaignPresetId),
     ]);
 
     if (
@@ -45,7 +45,7 @@ export const insertCopyEvent = internalMutation({
       throw new Error("Portal event type is not available.");
     }
 
-    const bookingProgram = await ctx.db.get(bookingProgramId);
+    const bookingProgram = await ctx.db.get("tenantPrograms", bookingProgramId);
     if (
       !bookingProgram ||
       bookingProgram.tenantId !== args.tenantId ||
@@ -58,7 +58,7 @@ export const insertCopyEvent = internalMutation({
       throw new Error("DM closer is not available.");
     }
 
-    const team = await ctx.db.get(dmCloser.teamId);
+    const team = await ctx.db.get("attributionTeams", dmCloser.teamId);
     if (!team || team.tenantId !== args.tenantId || !team.isActive) {
       throw new Error("Attribution team is not available.");
     }

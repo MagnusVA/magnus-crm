@@ -143,7 +143,7 @@ export const byTenantId = internalQuery({
 export const byId = internalQuery({
   args: { id: v.id("slackInstallations") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
+    return await ctx.db.get("slackInstallations", args.id);
   },
 });
 
@@ -291,7 +291,7 @@ export const upsertOnInstall = internalMutation({
         });
         throw new Error("Slack workspace already linked to another tenant");
       }
-      await ctx.db.patch(existing._id, {
+      await ctx.db.patch("slackInstallations", existing._id, {
         ...row,
         lastRefreshedAt: undefined,
         refreshLockHolder: undefined,
@@ -330,7 +330,7 @@ export const tryAcquireRefreshLock = internalMutation({
     staleAfterMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const installation = await ctx.db.get(args.installationId);
+    const installation = await ctx.db.get("slackInstallations", args.installationId);
     if (!installation) {
       return false;
     }
@@ -349,7 +349,7 @@ export const tryAcquireRefreshLock = internalMutation({
       return false;
     }
 
-    await ctx.db.patch(args.installationId, {
+    await ctx.db.patch("slackInstallations", args.installationId, {
       refreshLockHolder: args.lockHolder,
       refreshLockAcquiredAt: now,
     });
@@ -363,11 +363,11 @@ export const releaseRefreshLock = internalMutation({
     lockHolder: v.string(),
   },
   handler: async (ctx, args) => {
-    const installation = await ctx.db.get(args.id);
+    const installation = await ctx.db.get("slackInstallations", args.id);
     if (!installation) return;
     if (installation.refreshLockHolder !== args.lockHolder) return;
 
-    await ctx.db.patch(args.id, {
+    await ctx.db.patch("slackInstallations", args.id, {
       refreshLockHolder: undefined,
       refreshLockAcquiredAt: undefined,
     });
@@ -384,7 +384,7 @@ export const completeRefresh = internalMutation({
     lastRefreshedAt: v.number(),
   },
   handler: async (ctx, args) => {
-    const installation = await ctx.db.get(args.id);
+    const installation = await ctx.db.get("slackInstallations", args.id);
     if (!installation) {
       throw new Error("Installation gone during refresh");
     }
@@ -392,7 +392,7 @@ export const completeRefresh = internalMutation({
       throw new Error("Lock lost during refresh");
     }
 
-    await ctx.db.patch(args.id, {
+    await ctx.db.patch("slackInstallations", args.id, {
       botAccessToken: args.botAccessToken,
       refreshToken: args.refreshToken,
       tokenExpiresAt: args.tokenExpiresAt,
@@ -407,7 +407,7 @@ export const completeRefresh = internalMutation({
 export const markTokenExpired = internalMutation({
   args: { id: v.id("slackInstallations") },
   handler: async (ctx, args) => {
-    await ctx.db.patch(args.id, {
+    await ctx.db.patch("slackInstallations", args.id, {
       status: "token_expired",
       refreshLockHolder: undefined,
       refreshLockAcquiredAt: undefined,
@@ -427,7 +427,7 @@ export const disconnectByTenant = internalMutation({
       return { disconnected: false };
     }
 
-    await ctx.db.patch(installation._id, {
+    await ctx.db.patch("slackInstallations", installation._id, {
       status: "uninstalled",
       uninstalledAt: Date.now(),
       botAccessToken: "",
@@ -461,7 +461,7 @@ export const markUninstalled = internalMutation({
       return [];
     }
 
-    await ctx.db.patch(row._id, {
+    await ctx.db.patch("slackInstallations", row._id, {
       status: "uninstalled",
       uninstalledAt: Date.now(),
       botAccessToken: "",
@@ -496,7 +496,7 @@ export const markRevoked = internalMutation({
       return [];
     }
 
-    await ctx.db.patch(row._id, {
+    await ctx.db.patch("slackInstallations", row._id, {
       status: "revoked",
       uninstalledAt: Date.now(),
       botAccessToken: "",
@@ -531,7 +531,7 @@ export const reactivate = internalMutation({
     requestId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db.get(args.id);
+    const existing = await ctx.db.get("slackInstallations", args.id);
     if (!existing) {
       console.error("[Slack:Installations] reactivate failed: row missing", {
         requestId: args.requestId,
@@ -560,7 +560,7 @@ export const reactivate = internalMutation({
       tokenExpiresAt: args.tokenExpiresAt,
     });
 
-    await ctx.db.patch(args.id, {
+    await ctx.db.patch("slackInstallations", args.id, {
       teamName: args.teamName,
       enterpriseId: args.enterpriseId,
       isEnterpriseInstall: args.isEnterpriseInstall,

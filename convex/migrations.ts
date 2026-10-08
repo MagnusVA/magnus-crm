@@ -33,7 +33,7 @@ export const backfillOpportunitySourceAndActivity = migrations.define({
     }
 
     if (Object.keys(patch).length > 0) {
-      await ctx.db.patch(opportunity._id, patch);
+      await ctx.db.patch("opportunities", opportunity._id, patch);
     }
   },
 });
@@ -160,7 +160,7 @@ export const backfillSlackQualificationEvents = migrations.define({
       return;
     }
 
-    const lead = await ctx.db.get(opportunity.leadId);
+    const lead = await ctx.db.get("leads", opportunity.leadId);
     const installations = await ctx.db
       .query("slackInstallations")
       .withIndex("by_teamId", (q) =>
@@ -193,7 +193,7 @@ export const backfillSlackQualificationEvents = migrations.define({
     });
 
     if (opportunity.qualifiedAt === undefined) {
-      await ctx.db.patch(opportunity._id, {
+      await ctx.db.patch("opportunities", opportunity._id, {
         qualifiedAt: opportunity.qualifiedBy.submittedAt,
       });
     }
@@ -206,12 +206,12 @@ export const backfillMeetingOpportunityStatusAndOperationsStats =
     table: "meetings",
     batchSize: 100,
     migrateOne: async (ctx, meeting) => {
-      const opportunity = await ctx.db.get(meeting.opportunityId);
+      const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
       const opportunityStatus = opportunity?.status;
       const nextMeeting = { ...meeting, opportunityStatus };
 
       if (meeting.opportunityStatus !== opportunityStatus) {
-        await ctx.db.patch(meeting._id, { opportunityStatus });
+        await ctx.db.patch("meetings", meeting._id, { opportunityStatus });
       }
 
       if (meeting.operationsStatsSyncedAt !== undefined) {
@@ -242,7 +242,7 @@ export const backfillLeadGenDailyStatScheduledHours = migrations.define({
     const scheduledHours = schedule?.scheduledHours ?? 0;
 
     if (stat.scheduledHours !== scheduledHours) {
-      await ctx.db.patch(stat._id, {
+      await ctx.db.patch("leadGenDailyStats", stat._id, {
         scheduledHours,
         updatedAt: Date.now(),
       });

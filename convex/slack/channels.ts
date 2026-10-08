@@ -92,7 +92,7 @@ export const setSlackNotifyChannels = mutation({
       );
     }
 
-    await ctx.db.patch(installation._id, {
+    await ctx.db.patch("slackInstallations", installation._id, {
       notifyChannelId: args.notifyChannelId,
       notifyChannelName: args.notifyChannelName,
       staleReminderChannelId: args.staleReminderChannelId,

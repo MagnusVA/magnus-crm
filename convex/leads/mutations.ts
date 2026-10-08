@@ -28,7 +28,7 @@ export const updateLead = mutation({
       "tenant_admin",
     ]);
 
-    const lead = await ctx.db.get(leadId);
+    const lead = await ctx.db.get("leads", leadId);
     if (!lead || lead.tenantId !== tenantId) {
       throw new Error("Lead not found");
     }
@@ -54,9 +54,9 @@ export const updateLead = mutation({
       patch.email = normalizedEmail;
     }
 
-    await ctx.db.patch(leadId, patch);
+    await ctx.db.patch("leads", leadId, patch);
 
-    const updatedLead = await ctx.db.get(leadId);
+    const updatedLead = await ctx.db.get("leads", leadId);
     if (!updatedLead) {
       throw new Error("Lead not found after update");
     }
@@ -71,7 +71,7 @@ export const updateLead = mutation({
     );
 
     if (searchText !== updatedLead.searchText) {
-      await ctx.db.patch(leadId, { searchText });
+      await ctx.db.patch("leads", leadId, { searchText });
       await refreshOpportunitySearchForLead(ctx, tenantId, leadId);
     }
 

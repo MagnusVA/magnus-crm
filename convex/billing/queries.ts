@@ -31,7 +31,7 @@ async function assertProgramFilterForTenant(
   if (!programId) {
     return;
   }
-  const program = await ctx.db.get(programId);
+  const program = await ctx.db.get("tenantPrograms", programId);
   if (!program || program.tenantId !== tenantId) {
     throw new Error("Program not found.");
   }
@@ -41,7 +41,7 @@ export const getAvailability = query({
   args: {},
   handler: async (ctx) => {
     const { tenantId } = await requireBillingPermission(ctx, "billing:view");
-    const tenant = await ctx.db.get(tenantId);
+    const tenant = await ctx.db.get("tenants", tenantId);
     const enabled = tenant?.billingOpsEnabled === true;
     return {
       enabled,
@@ -86,7 +86,7 @@ export const getPaymentDetail = query({
     const { tenantId } = await requireBillingPermission(ctx, "billing:view");
     await requireBillingOpsEnabled(ctx, tenantId);
 
-    const payment = await ctx.db.get(paymentRecordId);
+    const payment = await ctx.db.get("paymentRecords", paymentRecordId);
     if (!payment || payment.tenantId !== tenantId) {
       return null;
     }
@@ -102,7 +102,7 @@ export const getNextPaymentForReview = query({
     await requireBillingOpsEnabled(ctx, tenantId);
 
     const current = currentPaymentRecordId
-      ? await ctx.db.get(currentPaymentRecordId)
+      ? await ctx.db.get("paymentRecords", currentPaymentRecordId)
       : null;
     if (currentPaymentRecordId && (!current || current.tenantId !== tenantId)) {
       throw new Error("Payment not found.");

@@ -12,13 +12,13 @@ export const getEntityDetail = query({
       "closer",
     ]);
 
-    const lead = await ctx.db.get(leadId);
+    const lead = await ctx.db.get("leads", leadId);
     if (!lead || lead.tenantId !== tenantId) {
       return null;
     }
 
     if (lead.status === "merged" && lead.mergedIntoLeadId) {
-      const targetLead = await ctx.db.get(lead.mergedIntoLeadId);
+      const targetLead = await ctx.db.get("leads", lead.mergedIntoLeadId);
       if (!targetLead || targetLead.tenantId !== tenantId) {
         return null;
       }

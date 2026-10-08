@@ -143,7 +143,7 @@ export async function writeMeetingFormResponses(
           ...existingResponse,
           ...patch,
         };
-        await ctx.db.patch(existingResponse._id, patch);
+        await ctx.db.patch("meetingFormResponses", existingResponse._id, patch);
         responseByQuestion.set(qa.question, updatedResponse);
         responsesUpdated += 1;
       } else {

@@ -80,7 +80,7 @@ export const transitionToFollowUp = internalMutation({
   args: { opportunityId: v.id("opportunities") },
   handler: async (ctx, { opportunityId }) => {
     console.log("[Closer:FollowUp] transitionToFollowUp called", { opportunityId });
-    const opportunity = await ctx.db.get(opportunityId);
+    const opportunity = await ctx.db.get("opportunities", opportunityId);
     if (!opportunity) throw new Error("Opportunity not found");
 
     console.log("[Closer:FollowUp] transitionToFollowUp current status", { currentStatus: opportunity.status });
@@ -142,7 +142,7 @@ export const markFollowUpBooked = internalMutation({
 
     if (followUpId) {
       console.log("[Closer:FollowUp] markFollowUpBooked: found pending follow-up", { followUpId });
-      await ctx.db.patch(followUpId, {
+      await ctx.db.patch("followUps", followUpId, {
         status: "booked",
         calendlyEventUri,
         bookedAt: Date.now(),
@@ -171,7 +171,7 @@ export const createSchedulingLinkFollowUp = mutation({
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
 
     const now = Date.now();
-    const user = await ctx.db.get(userId);
+    const user = await ctx.db.get("users", userId);
     if (!user) {
       throw new Error("User not found");
     }
@@ -181,7 +181,7 @@ export const createSchedulingLinkFollowUp = mutation({
       );
     }
 
-    const opportunity = await ctx.db.get(opportunityId);
+    const opportunity = await ctx.db.get("opportunities", opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
@@ -220,7 +220,7 @@ export const createSchedulingLinkFollowUp = mutation({
       throw new Error("Personal calendar URL is invalid");
     }
 
-    await ctx.db.patch(followUpId, {
+    await ctx.db.patch("followUps", followUpId, {
       schedulingLinkUrl,
     });
     await emitDomainEvent(ctx, {
@@ -263,14 +263,14 @@ export const confirmFollowUpScheduled = mutation({
   handler: async (ctx, { opportunityId, meetingId }) => {
     const { userId, tenantId, role } = await requireTenantUser(ctx, ["closer"]);
 
-    const opportunity = await ctx.db.get(opportunityId);
+    const opportunity = await ctx.db.get("opportunities", opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
     if (opportunity.assignedCloserId !== userId) {
       throw new Error("Not your opportunity");
     }
-    const meeting = meetingId ? await ctx.db.get(meetingId) : null;
+    const meeting = meetingId ? await ctx.db.get("meetings", meetingId) : null;
     if (
       meetingId &&
       (!meeting ||
@@ -344,14 +344,14 @@ export const createManualReminderFollowUpPublic = mutation({
   handler: async (ctx, args) => {
     const { userId, tenantId, role } = await requireTenantUser(ctx, ["closer"]);
 
-    const opportunity = await ctx.db.get(args.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", args.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
     if (opportunity.assignedCloserId !== userId) {
       throw new Error("Not your opportunity");
     }
-    const meeting = args.meetingId ? await ctx.db.get(args.meetingId) : null;
+    const meeting = args.meetingId ? await ctx.db.get("meetings", args.meetingId) : null;
     if (
       args.meetingId &&
       (!meeting ||
@@ -458,7 +458,7 @@ export const markReminderComplete = mutation({
   handler: async (ctx, { followUpId, completionNote }) => {
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
 
-    const followUp = await ctx.db.get(followUpId);
+    const followUp = await ctx.db.get("followUps", followUpId);
     if (!followUp) {
       throw new Error("Follow-up not found");
     }
@@ -476,7 +476,7 @@ export const markReminderComplete = mutation({
     }
 
     const now = Date.now();
-    await ctx.db.patch(followUpId, {
+    await ctx.db.patch("followUps", followUpId, {
       status: "completed",
       completedAt: now,
       ...(completionNote ? { completionNote } : {}),

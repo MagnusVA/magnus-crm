@@ -105,7 +105,7 @@ export async function getPhoneCloserOperationsOverviewSection(
 
   const tableRows: PhoneCloserOperations["rows"] = [];
   for (const [closerId, totals] of byCloser) {
-    const closer = await ctx.db.get(closerId);
+    const closer = await ctx.db.get("users", closerId);
     const validCloser = closer && closer.tenantId === tenantId ? closer : null;
     const closerIdentity = validCloser
       ? await userMemberIdentity(ctx, validCloser)

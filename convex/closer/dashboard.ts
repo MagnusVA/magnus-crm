@@ -104,7 +104,7 @@ export const getNextMeeting = query({
         continue;
       }
 
-      const opportunity = await ctx.db.get(meeting.opportunityId);
+      const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
       if (
         !opportunity ||
         opportunity.tenantId !== tenantId ||
@@ -114,9 +114,9 @@ export const getNextMeeting = query({
       }
 
       const [lead, eventTypeConfig] = await Promise.all([
-        ctx.db.get(opportunity.leadId),
+        ctx.db.get("leads", opportunity.leadId),
         opportunity.eventTypeConfigId
-          ? ctx.db.get(opportunity.eventTypeConfigId)
+          ? ctx.db.get("eventTypeConfigs", opportunity.eventTypeConfigId)
           : Promise.resolve(null),
       ]);
 
@@ -187,7 +187,7 @@ export const getPipelineSummary = query({
       let total = 0;
 
       for (const opportunityId of opportunityIds) {
-        const opportunity = await ctx.db.get(opportunityId);
+        const opportunity = await ctx.db.get("opportunities", opportunityId);
         if (!opportunity || opportunity.tenantId !== tenantId) {
           continue;
         }
@@ -263,7 +263,7 @@ export const getCloserProfile = query({
     console.log("[Closer:Dashboard] getCloserProfile called");
     const { userId } = await requireTenantUser(ctx, ["closer"]);
 
-    const user = await ctx.db.get(userId);
+    const user = await ctx.db.get("users", userId);
     if (!user) throw new Error("User not found");
 
     console.log("[Closer:Dashboard] getCloserProfile", { userId, isCalendlyLinked: !!user.calendlyUserUri });

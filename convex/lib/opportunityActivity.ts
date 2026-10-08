@@ -23,14 +23,14 @@ export async function patchOpportunityLifecycle(
   opportunityId: Id<"opportunities">,
   patch: Partial<Doc<"opportunities">>,
 ): Promise<Doc<"opportunities">> {
-  const before = await ctx.db.get(opportunityId);
+  const before = await ctx.db.get("opportunities", opportunityId);
   if (!before) {
     throw new Error("Opportunity not found");
   }
 
   const updatedAt = patch.updatedAt ?? Date.now();
   const nextShape = { ...before, ...patch, updatedAt };
-  await ctx.db.patch(opportunityId, {
+  await ctx.db.patch("opportunities", opportunityId, {
     ...patch,
     updatedAt,
     latestActivityAt: computeLatestActivityAt(nextShape),
@@ -46,7 +46,7 @@ export async function patchOpportunityLifecycle(
     return await replaceOpportunityAggregate(ctx, before, opportunityId);
   }
 
-  const after = await ctx.db.get(opportunityId);
+  const after = await ctx.db.get("opportunities", opportunityId);
   if (!after) {
     throw new Error("Opportunity not found after patch");
   }

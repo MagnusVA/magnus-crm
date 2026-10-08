@@ -25,13 +25,13 @@ export const getUnavailabilityWithMeetings = query({
       "tenant_admin",
     ]);
 
-    const unavailability = await ctx.db.get(unavailabilityId);
+    const unavailability = await ctx.db.get("closerUnavailability", unavailabilityId);
     if (!unavailability || unavailability.tenantId !== tenantId) {
       throw new Error("Unavailability record not found");
     }
 
-    const closer = await ctx.db.get(unavailability.closerId);
-    const createdBy = await ctx.db.get(unavailability.createdByUserId);
+    const closer = await ctx.db.get("users", unavailability.closerId);
+    const createdBy = await ctx.db.get("users", unavailability.createdByUserId);
     const { rangeStart, rangeEnd } = getEffectiveRange(unavailability);
 
     const affectedMeetings = await listAffectedMeetingsForCloserInRange(ctx, {
@@ -58,7 +58,7 @@ export const getUnavailabilityWithMeetings = query({
       .withIndex("by_unavailabilityId", (q) =>
         q.eq("unavailabilityId", unavailabilityId),
       )) {
-      const meeting = await ctx.db.get(reassignment.meetingId);
+      const meeting = await ctx.db.get("meetings", reassignment.meetingId);
       if (!meeting || meeting.tenantId !== tenantId) {
         continue;
       }
@@ -186,7 +186,7 @@ export const getRecentReassignments = query({
 
     const usersById = new Map<Id<"users">, Doc<"users">>();
     for (const userId of userIds) {
-      const user = await ctx.db.get(userId);
+      const user = await ctx.db.get("users", userId);
       if (user && user.tenantId === tenantId) {
         usersById.set(userId, user);
       }
@@ -200,7 +200,7 @@ export const getRecentReassignments = query({
       }
     >();
     for (const meetingId of meetingIds) {
-      const meeting = await ctx.db.get(meetingId);
+      const meeting = await ctx.db.get("meetings", meetingId);
       if (meeting && meeting.tenantId === tenantId) {
         meetingsById.set(meetingId, {
           scheduledAt: meeting.scheduledAt,

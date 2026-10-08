@@ -16,7 +16,7 @@ export const getConnectionStatus = query({
       "tenant_admin",
     ]);
 
-    const tenant = await ctx.db.get(tenantId);
+    const tenant = await ctx.db.get("tenants", tenantId);
     const connection = await getTenantCalendlyConnectionState(ctx, tenantId);
     const now = Date.now();
     const eventTypeSyncInProgress =

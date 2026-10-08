@@ -97,7 +97,7 @@ async function validateFilterIds(
   }
 
   if (args.workerId) {
-    const worker = await ctx.db.get(args.workerId);
+    const worker = await ctx.db.get("leadGenWorkers", args.workerId);
     if (!worker || worker.tenantId !== args.tenantId) {
       throw new Error("Lead-gen worker not found");
     }
@@ -356,7 +356,7 @@ async function loadWorkers(
 ) {
   const workers = new Map<Id<"leadGenWorkers">, Doc<"leadGenWorkers">>();
   for (const workerId of workerIds) {
-    const worker = await ctx.db.get(workerId);
+    const worker = await ctx.db.get("leadGenWorkers", workerId);
     if (worker && worker.tenantId === tenantId) {
       workers.set(worker._id, worker);
     }

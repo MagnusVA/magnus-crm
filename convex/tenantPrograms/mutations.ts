@@ -49,12 +49,12 @@ export const upsertProgram = mutation({
     }
 
     if (args.programId) {
-      const existing = await ctx.db.get(args.programId);
+      const existing = await ctx.db.get("tenantPrograms", args.programId);
       if (!existing || existing.tenantId !== tenantId) {
         throw new Error("Program not found");
       }
 
-      await ctx.db.patch(args.programId, {
+      await ctx.db.patch("tenantPrograms", args.programId, {
         name,
         normalizedName,
         description: normalizeOptionalProgramField(args.description),
@@ -94,7 +94,7 @@ export const archiveProgram = mutation({
       "tenant_admin",
     ]);
 
-    const program = await ctx.db.get(programId);
+    const program = await ctx.db.get("tenantPrograms", programId);
     if (!program || program.tenantId !== tenantId) {
       throw new Error("Program not found");
     }
@@ -112,7 +112,7 @@ export const archiveProgram = mutation({
       );
     }
 
-    await ctx.db.patch(programId, {
+    await ctx.db.patch("tenantPrograms", programId, {
       archivedAt: Date.now(),
       updatedAt: Date.now(),
     });
@@ -127,7 +127,7 @@ export const restoreProgram = mutation({
       "tenant_admin",
     ]);
 
-    const program = await ctx.db.get(programId);
+    const program = await ctx.db.get("tenantPrograms", programId);
     if (!program || program.tenantId !== tenantId) {
       throw new Error("Program not found");
     }
@@ -150,7 +150,7 @@ export const restoreProgram = mutation({
       );
     }
 
-    await ctx.db.patch(programId, {
+    await ctx.db.patch("tenantPrograms", programId, {
       archivedAt: undefined,
       updatedAt: Date.now(),
     });

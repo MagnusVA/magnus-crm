@@ -57,7 +57,7 @@ async function loadPaymentUserMaps(
   ];
 
   const users = await Promise.all(
-    userIds.map(async (userId) => [userId, await ctx.db.get(userId)] as const),
+    userIds.map(async (userId) => [userId, await ctx.db.get("users", userId)] as const),
   );
 
   const userNameById = new Map<Id<"users">, string | null>(
@@ -126,7 +126,7 @@ export const listCustomers = query({
     const converters = await Promise.all(
       converterIds.map(async (converterId) => ({
         converterId,
-        converter: await ctx.db.get(converterId),
+        converter: await ctx.db.get("users", converterId),
       })),
     );
     const converterNameById = new Map<Id<"users">, string>(
@@ -171,17 +171,17 @@ export const getCustomerDetail = query({
       "closer",
     ]);
 
-    const customer = await ctx.db.get(args.customerId);
+    const customer = await ctx.db.get("customers", args.customerId);
     if (!customer || customer.tenantId !== tenantId) {
       return null;
     }
 
     const [lead, winningOpportunity, winningMeeting, opportunities, paymentRecordsRaw, converter] =
       await Promise.all([
-        ctx.db.get(customer.leadId),
-        ctx.db.get(customer.winningOpportunityId),
+        ctx.db.get("leads", customer.leadId),
+        ctx.db.get("opportunities", customer.winningOpportunityId),
         customer.winningMeetingId
-          ? ctx.db.get(customer.winningMeetingId)
+          ? ctx.db.get("meetings", customer.winningMeetingId)
           : Promise.resolve(null),
         ctx.db
           .query("opportunities")
@@ -196,7 +196,7 @@ export const getCustomerDetail = query({
           )
           .order("desc")
           .take(50),
-        ctx.db.get(customer.convertedByUserId),
+        ctx.db.get("users", customer.convertedByUserId),
       ]);
 
     const opportunityStatusById = new Map(
@@ -270,7 +270,7 @@ export const getCustomerDetail = query({
         : null;
     const [assignedCloser, attribution] = await Promise.all([
       validWinningOpportunity?.assignedCloserId
-        ? ctx.db.get(validWinningOpportunity.assignedCloserId)
+        ? ctx.db.get("users", validWinningOpportunity.assignedCloserId)
         : Promise.resolve(null),
       validWinningOpportunity
         ? buildOpportunityAttributionPayload(ctx, validWinningOpportunity, {

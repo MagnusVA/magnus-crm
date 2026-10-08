@@ -16,7 +16,7 @@ export async function expirePendingStaleOpportunityNudges(
     .take(50);
 
   for (const nudge of nudges) {
-    await ctx.db.patch(nudge._id, { status: "expired" });
+    await ctx.db.patch("followUps", nudge._id, { status: "expired" });
   }
 
   return nudges.length;

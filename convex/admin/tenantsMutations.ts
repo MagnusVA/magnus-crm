@@ -42,7 +42,7 @@ async function deletePaymentRecordsBatch(
     if (row.proofFileId) {
       await ctx.storage.delete(row.proofFileId);
     }
-    await ctx.db.delete(row._id);
+    await ctx.db.delete("paymentRecords", row._id);
   }
 
   return rows.length;
@@ -60,7 +60,7 @@ async function deleteByTenantIdBatch<TableName extends TenantScopedByTenantIdTab
     .take(CLEANUP_BATCH_SIZE);
 
   for (const row of rows) {
-    await ctx.db.delete(row._id);
+    await ctx.db.delete(tableName, row._id);
   }
 
   return rows.length;
@@ -99,7 +99,7 @@ export const patchInviteToken = internalMutation({
   },
   handler: async (ctx, { tenantId, ...fields }) => {
     console.log("[Admin] patchInviteToken called", { tenantId });
-    await ctx.db.patch(tenantId, fields);
+    await ctx.db.patch("tenants", tenantId, fields);
   },
 });
 
@@ -109,7 +109,7 @@ export const deleteTenant = internalMutation({
   },
   handler: async (ctx, { tenantId }) => {
     console.log("[Admin] deleteTenant called", { tenantId });
-    const tenant = await ctx.db.get(tenantId);
+    const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant) {
       console.error("[Admin] deleteTenant: tenant not found", { tenantId });
       throw new Error("Tenant not found");
@@ -120,7 +120,7 @@ export const deleteTenant = internalMutation({
       status: tenant.status,
     });
 
-    await ctx.db.delete(tenantId);
+    await ctx.db.delete("tenants", tenantId);
     console.log("[Admin] deleteTenant completed", { tenantId });
   },
 });
@@ -152,7 +152,7 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
       .withIndex("by_tenantId_and_occurredAt", (q) => q.eq("tenantId", tenantId))
       .take(CLEANUP_BATCH_SIZE);
     for (const row of domainEvents) {
-      await ctx.db.delete(row._id);
+      await ctx.db.delete("domainEvents", row._id);
     }
     deletedCounts.domainEvents = domainEvents.length;
 
@@ -161,7 +161,7 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
       .withIndex("by_tenantId_and_fieldKey", (q) => q.eq("tenantId", tenantId))
       .take(CLEANUP_BATCH_SIZE);
     for (const row of meetingFormResponses) {
-      await ctx.db.delete(row._id);
+      await ctx.db.delete("meetingFormResponses", row._id);
     }
     deletedCounts.meetingFormResponses = meetingFormResponses.length;
 
@@ -170,7 +170,7 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
       .withIndex("by_tenantId_and_fieldKey", (q) => q.eq("tenantId", tenantId))
       .take(CLEANUP_BATCH_SIZE);
     for (const row of eventTypeFieldCatalog) {
-      await ctx.db.delete(row._id);
+      await ctx.db.delete("eventTypeFieldCatalog", row._id);
     }
     deletedCounts.eventTypeFieldCatalog = eventTypeFieldCatalog.length;
 

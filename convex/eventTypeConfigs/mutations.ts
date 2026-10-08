@@ -149,7 +149,7 @@ export const upsertEventTypeConfig = mutation({
     const normalizedDisplayName = displayName.trim();
     const normalizedPaymentLinks = normalizePaymentLinks(paymentLinks);
     const program = bookingProgramId
-      ? await ctx.db.get(bookingProgramId)
+      ? await ctx.db.get("tenantPrograms", bookingProgramId)
       : null;
     if (
       bookingProgramId &&
@@ -191,7 +191,7 @@ export const upsertEventTypeConfig = mutation({
 
     console.log("[EventTypeConfig] upsertEventTypeConfig existing check", { exists: !!existing, existingId: existing?._id });
     if (existing) {
-      await ctx.db.patch(existing._id, {
+      await ctx.db.patch("eventTypeConfigs", existing._id, {
         displayName: normalizedDisplayName,
         displayNameSource: "admin_entered",
         paymentLinks:
@@ -239,7 +239,7 @@ export const setLinkPortalEnabled = mutation({
       "tenant_admin",
     ]);
 
-    const config = await ctx.db.get(eventTypeConfigId);
+    const config = await ctx.db.get("eventTypeConfigs", eventTypeConfigId);
     if (!config || config.tenantId !== tenantId) {
       throw new Error("Event type configuration not found.");
     }
@@ -278,7 +278,7 @@ export const setLinkPortalEnabled = mutation({
       return eventTypeConfigId;
     }
 
-    await ctx.db.patch(eventTypeConfigId, {
+    await ctx.db.patch("eventTypeConfigs", eventTypeConfigId, {
       linkPortalEnabled,
       updatedAt: Date.now(),
     });
@@ -307,7 +307,7 @@ export const updateCustomFieldMappings = mutation({
     ]);
 
     // Load and validate ownership
-    const config = await ctx.db.get(eventTypeConfigId);
+    const config = await ctx.db.get("eventTypeConfigs", eventTypeConfigId);
     if (!config) {
       throw new Error("Event type configuration not found.");
     }
@@ -362,7 +362,7 @@ export const updateCustomFieldMappings = mutation({
     const normalizedMappings =
       normalizeCustomFieldMappings(customFieldMappings);
 
-    await ctx.db.patch(eventTypeConfigId, {
+    await ctx.db.patch("eventTypeConfigs", eventTypeConfigId, {
       customFieldMappings: normalizedMappings,
     });
 

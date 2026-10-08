@@ -24,9 +24,9 @@ async function fixture() {
     ctx: MutationCtx,
     args: FunctionArgs<typeof internal.operations.reports.jobs.attachArtifact>,
   ) => {
-    const artifact = await ctx.db.get(args.artifactId);
+    const artifact = await ctx.db.get("operationsReportArtifacts", args.artifactId);
     const db: GenericDatabaseWriter<GenericDataModel> = ctx.db;
-    await db.patch(args.storageId, {
+    await db.patch("_storage", args.storageId, {
       contentType: artifact!.ownershipContentType,
     });
     const original = jobFunctions.attachArtifact;
@@ -165,7 +165,7 @@ it.each(["raw_csv", "summary_csv", "xlsx", "pdf"] as const)(
     );
     await t.action(internal.operations.reports.exportWorker.run, { jobId });
     const state = await t.run(async (ctx) => {
-      const job = await ctx.db.get(jobId);
+      const job = await ctx.db.get("operationsReportJobs", jobId);
       const artifacts = await ctx.db
         .query("operationsReportArtifacts")
         .withIndex("by_jobId_and_partNumber", (q) => q.eq("jobId", jobId))
@@ -286,11 +286,11 @@ it.each(["pending", "inProgress"] as const)(
         workerId: "test",
       });
       const scheduledBefore = await t.run(
-        async (ctx) => (await ctx.db.get(jobId))!.scheduledFunctionId,
+        async (ctx) => (await ctx.db.get("operationsReportJobs", jobId))!.scheduledFunctionId,
       );
       await t.run(async (ctx) => {
         const db: GenericDatabaseWriter<GenericDataModel> = ctx.db;
-        await db.patch(scheduledBefore!, { state: { kind: stateKind } });
+        await db.patch("_scheduled_functions", scheduledBefore!, { state: { kind: stateKind } });
       });
       vi.setSystemTime(Date.now() + REPORT_LEASE_MS + 1);
       expect(
@@ -299,7 +299,7 @@ it.each(["pending", "inProgress"] as const)(
           {},
         ),
       ).toMatchObject({ recovered: 0 });
-      const state = await t.run((ctx) => ctx.db.get(jobId));
+      const state = await t.run((ctx) => ctx.db.get("operationsReportJobs", jobId));
       expect(state?.scheduledFunctionId).toBe(scheduledBefore);
       expect(state?.retryCount).toBe(0);
     } finally {
@@ -323,7 +323,7 @@ it("restarts a dead invocation and fences out its previous worker", async () => 
     });
     if (claim.kind !== "claimed") throw new Error("claim failed");
     await t.run(async (ctx) => {
-      const job = (await ctx.db.get(jobId))!;
+      const job = (await ctx.db.get("operationsReportJobs", jobId))!;
       await ctx.scheduler.cancel(job.scheduledFunctionId!);
     });
     vi.setSystemTime(Date.now() + REPORT_LEASE_MS + 1);
@@ -343,7 +343,7 @@ it("restarts a dead invocation and fences out its previous worker", async () => 
       }),
     ).toEqual({ updated: false });
     await t.action(internal.operations.reports.exportWorker.run, { jobId });
-    expect(await t.run((ctx) => ctx.db.get(jobId))).toMatchObject({
+    expect(await t.run((ctx) => ctx.db.get("operationsReportJobs", jobId))).toMatchObject({
       status: "ready",
       artifactCount: 1,
       retryCount: 1,
@@ -361,12 +361,12 @@ it("bootstraps admission from a legacy active job and releases it when that job 
     { ...request, format: "pdf", requestToken: "legacy" },
   );
   await t.run(async (ctx) => {
-    await ctx.db.patch(first.jobId, { executionVersion: undefined });
+    await ctx.db.patch("operationsReportJobs", first.jobId, { executionVersion: undefined });
     const admission = await ctx.db
       .query("operationsReportAdmission")
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
       .unique();
-    await ctx.db.delete(admission!._id);
+    await ctx.db.delete("operationsReportAdmission", admission!._id);
   });
   expect(
     await caller.mutation(api.operations.reports.jobs.requestExport, {
@@ -390,7 +390,7 @@ it("bootstraps admission from a legacy active job and releases it when that job 
     { ...request, format: "xlsx", requestToken: "after-cancel" },
   );
   expect(next.jobId).not.toBe(first.jobId);
-  expect(await t.run((ctx) => ctx.db.get(next.jobId))).toMatchObject({
+  expect(await t.run((ctx) => ctx.db.get("operationsReportJobs", next.jobId))).toMatchObject({
     executionVersion: 2,
   });
 });

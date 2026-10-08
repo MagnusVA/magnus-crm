@@ -56,7 +56,7 @@ async function loadPaymentUserMaps(
   ];
 
   const users = await Promise.all(
-    userIds.map(async (userId) => [userId, await ctx.db.get(userId)] as const),
+    userIds.map(async (userId) => [userId, await ctx.db.get("users", userId)] as const),
   );
 
   const userNameById = new Map<Id<"users">, string | null>(
@@ -86,7 +86,7 @@ export const getReminderDetail = query({
   handler: async (ctx, { followUpId }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, ["closer"]);
 
-    const followUp = await ctx.db.get(followUpId);
+    const followUp = await ctx.db.get("followUps", followUpId);
     if (!followUp) {
       return null;
     }
@@ -101,8 +101,8 @@ export const getReminderDetail = query({
     }
 
     const [opportunity, lead] = await Promise.all([
-      ctx.db.get(followUp.opportunityId),
-      ctx.db.get(followUp.leadId),
+      ctx.db.get("opportunities", followUp.opportunityId),
+      ctx.db.get("leads", followUp.leadId),
     ]);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       return null;
@@ -113,7 +113,7 @@ export const getReminderDetail = query({
 
     const [latestMeeting, paymentRecordsRaw, eventTypeConfig] = await Promise.all([
       opportunity.latestMeetingId
-        ? ctx.db.get(opportunity.latestMeetingId)
+        ? ctx.db.get("meetings", opportunity.latestMeetingId)
         : Promise.resolve(null),
       ctx.db
         .query("paymentRecords")
@@ -123,7 +123,7 @@ export const getReminderDetail = query({
         .order("desc")
         .take(10),
       opportunity.eventTypeConfigId
-        ? ctx.db.get(opportunity.eventTypeConfigId)
+        ? ctx.db.get("eventTypeConfigs", opportunity.eventTypeConfigId)
         : Promise.resolve(null),
     ]);
 

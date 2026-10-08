@@ -13,7 +13,7 @@ export const storeWebhookAndActivate = internalMutation({
       `[Webhook:Setup] storeWebhookAndActivate: tenant ${tenantId}, webhookUri=${webhookUri}`,
     );
 
-    const tenant = await ctx.db.get(tenantId);
+    const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant) {
       console.error(
         `[Webhook:Setup] storeWebhookAndActivate: tenant ${tenantId} not found`,
@@ -28,7 +28,7 @@ export const storeWebhookAndActivate = internalMutation({
       connectionStatus: "connected",
       webhookProvisioningStartedAt: undefined,
     });
-    await ctx.db.patch(tenantId, {
+    await ctx.db.patch("tenants", tenantId, {
       status: "active" as const,
       onboardingCompletedAt: tenant.onboardingCompletedAt ?? Date.now(),
     });

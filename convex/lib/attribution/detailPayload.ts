@@ -61,7 +61,7 @@ async function resolveProgramSummary(
     return { id: programId, name: programName };
   }
 
-  const program = await ctx.db.get(programId);
+  const program = await ctx.db.get("tenantPrograms", programId);
   if (!program || program.tenantId !== tenantId) {
     return null;
   }
@@ -110,9 +110,9 @@ export async function buildOpportunityAttributionPayload(
       )
       .order("desc")
       .first(),
-    attributionTeamId ? ctx.db.get(attributionTeamId) : Promise.resolve(null),
-    dmCloserId ? ctx.db.get(dmCloserId) : Promise.resolve(null),
-    phoneCloserId ? ctx.db.get(phoneCloserId) : Promise.resolve(null),
+    attributionTeamId ? ctx.db.get("attributionTeams", attributionTeamId) : Promise.resolve(null),
+    dmCloserId ? ctx.db.get("dmClosers", dmCloserId) : Promise.resolve(null),
+    phoneCloserId ? ctx.db.get("users", phoneCloserId) : Promise.resolve(null),
     resolveProgramSummary(
       ctx,
       opportunity.tenantId,
@@ -139,7 +139,7 @@ export async function buildOpportunityAttributionPayload(
     : null;
   const linkedDmCloserUser =
     dmCloser?.userId && dmCloser.tenantId === opportunity.tenantId
-      ? await ctx.db.get(dmCloser.userId)
+      ? await ctx.db.get("users", dmCloser.userId)
       : null;
 
   return {

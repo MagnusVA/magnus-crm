@@ -46,7 +46,7 @@ export const getCalendlyTenant = internalQuery({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
     console.log("[Tenants] getCalendlyTenant called", { tenantId });
-    const tenant = await ctx.db.get(tenantId);
+    const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant) {
       console.warn("[Tenants] getCalendlyTenant tenant not found, returning null", { tenantId });
       return null;
@@ -140,7 +140,7 @@ export const updateStatus = internalMutation({
     await updateTenantCalendlyConnection(ctx, tenantId, {
       webhookProvisioningStartedAt,
     });
-    await ctx.db.patch(tenantId, {
+    await ctx.db.patch("tenants", tenantId, {
       status,
     });
     console.log("[Tenants] updateStatus completed", { tenantId, status });

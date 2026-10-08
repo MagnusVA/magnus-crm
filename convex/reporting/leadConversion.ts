@@ -49,11 +49,11 @@ export const getLeadConversionMetrics = query({
     const opportunityDocs = await Promise.all(
       winningOpportunityIds.map(async (opportunityId) => [
         opportunityId,
-        await ctx.db.get(opportunityId),
+        await ctx.db.get("opportunities", opportunityId),
       ] as const),
     );
     const leadDocs = await Promise.all(
-      leadIds.map(async (leadId) => [leadId, await ctx.db.get(leadId)] as const),
+      leadIds.map(async (leadId) => [leadId, await ctx.db.get("leads", leadId)] as const),
     );
     const opportunityById = new Map(opportunityDocs);
     const leadById = new Map(leadDocs);

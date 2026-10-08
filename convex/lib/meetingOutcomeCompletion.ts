@@ -52,7 +52,7 @@ export async function completeMeetingForOutcome(
 
   assertTimingFreePatch(args.extraMeetingPatch);
 
-  await ctx.db.patch(meeting._id, {
+  await ctx.db.patch("meetings", meeting._id, {
     status: toMeetingStatus,
     completedAt,
     ...args.extraMeetingPatch,

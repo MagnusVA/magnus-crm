@@ -59,7 +59,7 @@ export const getMeetingsForRange = query({
 		const opportunities = await Promise.all(
 			opportunityIds.map(async (opportunityId) => ({
 				opportunityId,
-				opportunity: await ctx.db.get(opportunityId),
+				opportunity: await ctx.db.get("opportunities", opportunityId),
 			})),
 		);
 		const opportunityById = new Map<
@@ -81,7 +81,7 @@ export const getMeetingsForRange = query({
 		const eventTypeConfigs = await Promise.all(
 			[...eventTypeConfigIds].map(async (eventTypeConfigId) => ({
 				eventTypeConfigId,
-				eventTypeConfig: await ctx.db.get(eventTypeConfigId),
+				eventTypeConfig: await ctx.db.get("eventTypeConfigs", eventTypeConfigId),
 			})),
 		);
 		const eventTypeNameById = new Map<

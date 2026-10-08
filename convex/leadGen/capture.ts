@@ -103,7 +103,7 @@ export const submit = mutation({
         updatedAt: now,
       });
 
-      prospect = await ctx.db.get(prospectId);
+      prospect = await ctx.db.get("leadGenProspects", prospectId);
       if (!prospect) {
         throw new Error("Prospect insert failed");
       }
@@ -140,7 +140,7 @@ export const submit = mutation({
       createdAt: now,
     });
 
-    await ctx.db.patch(prospect._id, {
+    await ctx.db.patch("leadGenProspects", prospect._id, {
       lastSubmittedByWorkerId: worker._id,
       lastSubmittedAt: now,
       latestOriginKind: submittedOrigin.originKind,
@@ -244,13 +244,13 @@ async function requireOperationalLeadGenWorker(
     throw new Error("Lead Gen Ops access is not active for this user");
   }
 
-  const user = await ctx.db.get(access.userId);
+  const user = await ctx.db.get("users", access.userId);
   if (!user || user.tenantId !== access.tenantId || !user.isActive) {
     throw new Error("Lead Gen Ops access is not active for this user");
   }
 
   if (existing) {
-    await ctx.db.patch(existing._id, {
+    await ctx.db.patch("leadGenWorkers", existing._id, {
       workosUserId: user.workosUserId,
       email: user.email,
       displayName: displayNameForUser(user),
@@ -259,7 +259,7 @@ async function requireOperationalLeadGenWorker(
       isActive: true,
       updatedAt: now,
     });
-    const updated = await ctx.db.get(existing._id);
+    const updated = await ctx.db.get("leadGenWorkers", existing._id);
     if (!updated) {
       throw new Error("Worker profile update failed");
     }
@@ -278,7 +278,7 @@ async function requireOperationalLeadGenWorker(
     createdAt: now,
     updatedAt: now,
   });
-  const worker = await ctx.db.get(workerId);
+  const worker = await ctx.db.get("leadGenWorkers", workerId);
   if (!worker) {
     throw new Error("Worker profile insert failed");
   }
@@ -299,7 +299,7 @@ async function normalizeWorkerTeamForWrite(
     return worker;
   }
 
-  await ctx.db.patch(worker._id, {
+  await ctx.db.patch("leadGenWorkers", worker._id, {
     teamId,
     updatedAt: now,
   });

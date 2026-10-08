@@ -306,7 +306,7 @@ async function mergeQuestionCatalog(
     return 0;
   }
 
-  const config = await ctx.db.get(args.eventTypeConfigId);
+  const config = await ctx.db.get("eventTypeConfigs", args.eventTypeConfigId);
   if (!config) {
     return 0;
   }
@@ -323,7 +323,7 @@ async function mergeQuestionCatalog(
     mergedKeys.length !== existingLabels.length ||
     mergedKeys.some((label, index) => label !== existingLabels[index])
   ) {
-    await ctx.db.patch(args.eventTypeConfigId, {
+    await ctx.db.patch("eventTypeConfigs", args.eventTypeConfigId, {
       knownCustomFieldKeys: mergedKeys,
       updatedAt: Date.now(),
     });
@@ -528,7 +528,7 @@ export const upsertEventTypesPage = internalMutation({
         );
 
         if (Object.keys(patch).length > 0) {
-          await ctx.db.patch(existing._id, patch);
+          await ctx.db.patch("eventTypeConfigs", existing._id, patch);
         }
         if (materialChange) {
           updated += 1;
@@ -566,7 +566,7 @@ export const markMissingEventTypes = internalMutation({
         config.lastCalendlySeenAt !== syncStartedAt &&
         config.calendlySyncStatus !== "deleted"
       ) {
-        await ctx.db.patch(config._id, {
+        await ctx.db.patch("eventTypeConfigs", config._id, {
           calendlySyncStatus: "not_returned",
           calendlyActive: false,
           updatedAt: Date.now(),

@@ -213,7 +213,7 @@ export const getActivityFeed = query({
       ),
     ];
     const actorDocs = await Promise.all(
-      actorIds.map(async (actorId) => [actorId, await ctx.db.get(actorId)] as const),
+      actorIds.map(async (actorId) => [actorId, await ctx.db.get("users", actorId)] as const),
     );
     const actorById = new Map(actorDocs);
 
@@ -296,7 +296,7 @@ export const getActivitySummary = query({
 
     const actorIds = [...actorCounts.keys()];
     const actorDocs = await Promise.all(
-      actorIds.map(async (actorId) => [actorId, await ctx.db.get(actorId)] as const),
+      actorIds.map(async (actorId) => [actorId, await ctx.db.get("users", actorId)] as const),
     );
     const actorById = new Map(actorDocs);
 

@@ -19,7 +19,7 @@ export const syncWorkerProfileForUser = internalMutation({
     userId: v.id("users"),
   },
   handler: async (ctx, { userId }) => {
-    const user = await ctx.db.get(userId);
+    const user = await ctx.db.get("users", userId);
     if (!user) return null;
 
     const existing = await ctx.db
@@ -51,7 +51,7 @@ export const syncWorkerProfileForUser = internalMutation({
       });
     }
 
-    await ctx.db.patch(existing._id, {
+    await ctx.db.patch("leadGenWorkers", existing._id, {
       workosUserId: user.workosUserId,
       email: user.email,
       displayName: displayNameForUser(user),
@@ -120,7 +120,7 @@ export const listWorkerSchedules = query({
     ]);
 
     if (args.workerId) {
-      const worker = await ctx.db.get(args.workerId);
+      const worker = await ctx.db.get("leadGenWorkers", args.workerId);
       if (!worker || worker.tenantId !== tenantId) {
         throw new Error("Worker not found");
       }
@@ -177,12 +177,12 @@ export const archiveTeam = mutation({
       "tenant_admin",
     ]);
 
-    const team = await ctx.db.get(teamId);
+    const team = await ctx.db.get("attributionTeams", teamId);
     if (!team || team.tenantId !== tenantId) {
       throw new Error("Team not found");
     }
 
-    await ctx.db.patch(team._id, {
+    await ctx.db.patch("attributionTeams", team._id, {
       isActive: false,
       updatedAt: Date.now(),
     });
@@ -203,7 +203,7 @@ export const updateWorkerProfile = mutation({
       "tenant_admin",
     ]);
 
-    const worker = await ctx.db.get(args.workerId);
+    const worker = await ctx.db.get("leadGenWorkers", args.workerId);
     if (!worker || worker.tenantId !== tenantId) {
       throw new Error("Worker not found");
     }
@@ -214,7 +214,7 @@ export const updateWorkerProfile = mutation({
       requireActive: true,
     });
 
-    await ctx.db.patch(worker._id, {
+    await ctx.db.patch("leadGenWorkers", worker._id, {
       teamId,
       isActive: args.isActive,
       updatedAt: Date.now(),
@@ -240,7 +240,7 @@ export const setWorkerSchedule = mutation({
       throw new Error("Scheduled hours must be between 0 and 24");
     }
 
-    const worker = await ctx.db.get(args.workerId);
+    const worker = await ctx.db.get("leadGenWorkers", args.workerId);
     if (!worker || worker.tenantId !== tenantId) {
       throw new Error("Worker not found");
     }
@@ -262,7 +262,7 @@ export const setWorkerSchedule = mutation({
     };
 
     if (existing) {
-      await ctx.db.patch(existing._id, patch);
+      await ctx.db.patch("leadGenWorkerSchedules", existing._id, patch);
       return existing._id;
     }
 

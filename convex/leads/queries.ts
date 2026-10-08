@@ -102,7 +102,7 @@ export const listLeads = query({
           }
 
           if (!closerNameCache.has(opportunity.assignedCloserId)) {
-            const closer = await ctx.db.get(opportunity.assignedCloserId);
+            const closer = await ctx.db.get("users", opportunity.assignedCloserId);
             closerNameCache.set(
               opportunity.assignedCloserId,
               closer && closer.tenantId === tenantId
@@ -196,14 +196,14 @@ export const getLeadForPicker = query({
       "tenant_admin",
     ]);
 
-    const lead = await ctx.db.get(leadId);
+    const lead = await ctx.db.get("leads", leadId);
     if (!lead || lead.tenantId !== tenantId) {
       return null;
     }
 
     const resolvedLead =
       lead.status === "merged" && lead.mergedIntoLeadId
-        ? await ctx.db.get(lead.mergedIntoLeadId)
+        ? await ctx.db.get("leads", lead.mergedIntoLeadId)
         : lead;
 
     if (!resolvedLead || resolvedLead.tenantId !== tenantId) {
@@ -268,13 +268,13 @@ export const getLeadDetail = query({
       "closer",
     ]);
 
-    const lead = await ctx.db.get(leadId);
+    const lead = await ctx.db.get("leads", leadId);
     if (!lead || lead.tenantId !== tenantId) {
       throw new Error("Lead not found");
     }
 
     if (lead.status === "merged" && lead.mergedIntoLeadId) {
-      const targetLead = await ctx.db.get(lead.mergedIntoLeadId);
+      const targetLead = await ctx.db.get("leads", lead.mergedIntoLeadId);
       if (targetLead && targetLead.tenantId === tenantId) {
         console.log("[Leads:Detail] merged lead redirect", {
           sourceLeadId: leadId,
@@ -361,13 +361,13 @@ export const getLeadDetail = query({
       Promise.all(
         [...closerIds].map(async (closerId) => ({
           closerId,
-          closer: await ctx.db.get(closerId),
+          closer: await ctx.db.get("users", closerId),
         })),
       ),
       Promise.all(
         [...eventTypeConfigIds].map(async (eventTypeConfigId) => ({
           eventTypeConfigId,
-          eventType: await ctx.db.get(eventTypeConfigId),
+          eventType: await ctx.db.get("eventTypeConfigs", eventTypeConfigId),
         })),
       ),
       Promise.all(
@@ -494,14 +494,14 @@ export const getLeadDetail = query({
       Promise.all(
         [...mergeUserIds].map(async (userId) => ({
           userId,
-          user: await ctx.db.get(userId),
+          user: await ctx.db.get("users", userId),
         })),
       ),
       Promise.all(
         [...mergeLeadIds].map(async (mergeLeadId) => ({
           mergeLeadId,
           mergeLead:
-            mergeLeadId === leadId ? lead : await ctx.db.get(mergeLeadId),
+            mergeLeadId === leadId ? lead : await ctx.db.get("leads", mergeLeadId),
         })),
       ),
     ]);
@@ -562,7 +562,7 @@ export const getLeadDetail = query({
     const duplicateLeads = await Promise.all(
       [...duplicateLeadIds].map(async (dupLeadId) => ({
         dupLeadId,
-        dupLead: await ctx.db.get(dupLeadId),
+        dupLead: await ctx.db.get("leads", dupLeadId),
       })),
     );
 
@@ -623,8 +623,8 @@ export const getMergePreview = query({
       throw new Error("Cannot merge a lead into itself");
     }
 
-    const source = await ctx.db.get(sourceLeadId);
-    const target = await ctx.db.get(targetLeadId);
+    const source = await ctx.db.get("leads", sourceLeadId);
+    const target = await ctx.db.get("leads", targetLeadId);
 
     if (!source || source.tenantId !== tenantId) {
       throw new Error("Source lead not found");

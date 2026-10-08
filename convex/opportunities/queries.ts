@@ -43,7 +43,7 @@ export const getById = internalQuery({
   args: { opportunityId: v.id("opportunities") },
   handler: async (ctx, { opportunityId }) => {
     console.log("[Opportunities] getById called", { opportunityId });
-    return await ctx.db.get(opportunityId);
+    return await ctx.db.get("opportunities", opportunityId);
   },
 });
 
@@ -198,7 +198,7 @@ export const listOpportunitiesForAdmin = query({
     ]);
 
     if (assignedCloserId) {
-      const closer = await ctx.db.get(assignedCloserId);
+      const closer = await ctx.db.get("users", assignedCloserId);
       if (
         !closer ||
         closer.tenantId !== tenantId ||
@@ -239,19 +239,19 @@ export const listOpportunitiesForAdmin = query({
       Promise.all(
         [...leadIds].map(async (leadId) => ({
           leadId,
-          lead: await ctx.db.get(leadId),
+          lead: await ctx.db.get("leads", leadId),
         })),
       ),
       Promise.all(
         [...closerIds].map(async (closerId) => ({
           closerId,
-          closer: await ctx.db.get(closerId),
+          closer: await ctx.db.get("users", closerId),
         })),
       ),
       Promise.all(
         [...eventTypeConfigIds].map(async (eventTypeConfigId) => ({
           eventTypeConfigId,
-          eventTypeConfig: await ctx.db.get(eventTypeConfigId),
+          eventTypeConfig: await ctx.db.get("eventTypeConfigs", eventTypeConfigId),
         })),
       ),
     ]);
@@ -302,7 +302,7 @@ export const listOpportunitiesForAdmin = query({
     const meetings = await Promise.all(
       [...meetingIdsToFetch].map(async (meetingId) => ({
         meetingId,
-        meeting: await ctx.db.get(meetingId as Id<"meetings">),
+        meeting: await ctx.db.get("meetings", meetingId as Id<"meetings">),
       })),
     );
     const meetingById = new Map<string, MeetingSummary>();

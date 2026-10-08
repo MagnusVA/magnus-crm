@@ -78,7 +78,7 @@ async function followMergeChain(
     current.mergedIntoLeadId &&
     depth < maxDepth
   ) {
-    const next = await ctx.db.get(current.mergedIntoLeadId);
+    const next = await ctx.db.get("leads", current.mergedIntoLeadId);
     if (!next) {
       console.error(
         "[LeadIdentity] Broken merge chain",
@@ -127,7 +127,7 @@ async function findLeadByIdentifier(
     return null;
   }
 
-  const matchedLead = await ctx.db.get(identifier.leadId);
+  const matchedLead = await ctx.db.get("leads", identifier.leadId);
   if (!matchedLead || matchedLead.tenantId !== args.tenantId) {
     return null;
   }
@@ -349,13 +349,13 @@ async function syncSubmittedIdentifiersForExistingLead(
     return lead;
   }
 
-  await ctx.db.patch(lead._id, {
+  await ctx.db.patch("leads", lead._id, {
     ...(socialHandlesChanged ? { socialHandles: nextSocialHandles } : {}),
     ...(searchTextChanged ? { searchText } : {}),
   });
   await refreshOpportunitySearchForLead(ctx, lead.tenantId, lead._id);
 
-  return (await ctx.db.get(lead._id)) ?? lead;
+  return (await ctx.db.get("leads", lead._id)) ?? lead;
 }
 
 export async function resolveLeadIdentity(
@@ -523,7 +523,7 @@ export async function resolveLeadIdentity(
       identifierValues.push(socialHandles[0].handle);
     }
 
-    await ctx.db.patch(leadId, {
+    await ctx.db.patch("leads", leadId, {
       socialHandles,
       searchText: buildLeadSearchText(
         {
@@ -537,7 +537,7 @@ export async function resolveLeadIdentity(
     });
   }
 
-  const newLead = await ctx.db.get(leadId);
+  const newLead = await ctx.db.get("leads", leadId);
   if (!newLead) {
     throw new Error("Lead not found after creation.");
   }

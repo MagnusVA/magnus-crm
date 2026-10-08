@@ -60,7 +60,7 @@ export async function requireActiveProgram(
   tenantId: Id<"tenants">,
   programId: Id<"tenantPrograms">,
 ) {
-  const program = await ctx.db.get(programId);
+  const program = await ctx.db.get("tenantPrograms", programId);
   if (!program || program.tenantId !== tenantId) {
     throw new Error("Program not found");
   }
@@ -96,7 +96,7 @@ export async function syncCustomerPaymentSummary(
     new Set(nonDisputedPayments.map((payment) => payment.currency)),
   );
 
-  await ctx.db.patch(customerId, {
+  await ctx.db.patch("customers", customerId, {
     totalPaidMinor: nonDisputedPayments.reduce(
       (sum, payment) => sum + payment.amountMinor,
       0,
@@ -105,7 +105,7 @@ export async function syncCustomerPaymentSummary(
     paymentCurrency: currencies.length === 1 ? currencies[0] : undefined,
   });
 
-  const customer = await ctx.db.get(customerId);
+  const customer = await ctx.db.get("customers", customerId);
   if (customer) {
     await rebuildLeadCustomerSearchRow(ctx, customer.tenantId, customer.leadId);
   }
@@ -125,7 +125,7 @@ export async function expirePendingFollowUpsForOpportunity(
 
   const now = Date.now();
   for (const followUp of pendingFollowUps) {
-    await ctx.db.patch(followUp._id, { status: "expired" });
+    await ctx.db.patch("followUps", followUp._id, { status: "expired" });
     await emitDomainEvent(ctx, {
       tenantId: followUp.tenantId,
       entityType: "followUp",
@@ -151,7 +151,7 @@ export async function rollbackCustomerConversionIfEmpty(
     actorUserId: Id<"users">;
   },
 ): Promise<{ rolledBack: boolean }> {
-  const customer = await ctx.db.get(args.customerId);
+  const customer = await ctx.db.get("customers", args.customerId);
   if (!customer) {
     return { rolledBack: false };
   }
@@ -176,16 +176,16 @@ export async function rollbackCustomerConversionIfEmpty(
 
   const now = Date.now();
   for (const payment of payments) {
-    await ctx.db.patch(payment._id, { customerId: undefined });
+    await ctx.db.patch("paymentRecords", payment._id, { customerId: undefined });
   }
 
-  const lead = await ctx.db.get(customer.leadId);
+  const lead = await ctx.db.get("leads", customer.leadId);
 
   await deleteCustomerAggregate(ctx, customer._id);
-  await ctx.db.delete(args.customerId);
+  await ctx.db.delete("customers", args.customerId);
 
   if (lead && lead.status === "converted") {
-    await ctx.db.patch(lead._id, {
+    await ctx.db.patch("leads", lead._id, {
       status: "active",
       updatedAt: now,
     });

@@ -79,7 +79,7 @@ export const getById = internalQuery({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
     console.log("[Users] getById called", { userId });
-    const user = await ctx.db.get(userId);
+    const user = await ctx.db.get("users", userId);
     console.log("[Users] getById result", { found: !!user });
     return user;
   },

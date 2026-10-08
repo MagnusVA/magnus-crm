@@ -85,9 +85,9 @@ export const backfillMeetingAttribution = internalMutation({
         if (meeting.utmTruncated) {
           tenantReport.truncatedUtmCount += 1;
         }
-        const opportunity = await ctx.db.get(meeting.opportunityId);
+        const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
         const config = opportunity?.eventTypeConfigId
-          ? await ctx.db.get(opportunity.eventTypeConfigId)
+          ? await ctx.db.get("eventTypeConfigs", opportunity.eventTypeConfigId)
           : null;
         const resolved = await resolveAttributionForTenant(ctx, {
           tenantId,
@@ -122,7 +122,7 @@ export const backfillMeetingAttribution = internalMutation({
         if (changed) {
           tenantReport.rowsChanged += 1;
           if (!dryRun) {
-            await ctx.db.patch(meeting._id, patch);
+            await ctx.db.patch("meetings", meeting._id, patch);
           }
         }
       }
@@ -156,7 +156,7 @@ export const backfillOpportunityAttribution = internalMutation({
       for (const opportunity of opportunities) {
         tenantReport.rowsScanned += 1;
         const firstMeeting = opportunity.firstMeetingId
-          ? await ctx.db.get(opportunity.firstMeetingId)
+          ? await ctx.db.get("meetings", opportunity.firstMeetingId)
           : (
               await ctx.db
                 .query("meetings")
@@ -181,7 +181,7 @@ export const backfillOpportunityAttribution = internalMutation({
           tenantReport.truncatedUtmCount += 1;
         }
         const config = opportunity.eventTypeConfigId
-          ? await ctx.db.get(opportunity.eventTypeConfigId)
+          ? await ctx.db.get("eventTypeConfigs", opportunity.eventTypeConfigId)
           : null;
         const soldPayment = await latestSoldProgramForOpportunity(
           ctx,
@@ -225,7 +225,7 @@ export const backfillOpportunityAttribution = internalMutation({
         if (changed) {
           tenantReport.rowsChanged += 1;
           if (!dryRun) {
-            await ctx.db.patch(opportunity._id, patch);
+            await ctx.db.patch("opportunities", opportunity._id, patch);
             await rebuildQualificationRowsForOpportunity(ctx, opportunity._id);
           }
         }

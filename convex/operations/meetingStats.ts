@@ -48,9 +48,9 @@ async function incrementMeetingStatsBucket(
   if (existing) {
     const count = existing.count + delta;
     if (count <= 0) {
-      await ctx.db.delete(existing._id);
+      await ctx.db.delete("operationsMeetingDailyStats", existing._id);
     } else {
-      await ctx.db.patch(existing._id, { count, updatedAt: Date.now() });
+      await ctx.db.patch("operationsMeetingDailyStats", existing._id, { count, updatedAt: Date.now() });
     }
     return;
   }
@@ -73,7 +73,7 @@ async function incrementMeetingStatsBucket(
 }
 
 async function markStatsSynced(ctx: MutationCtx, meeting: Doc<"meetings">) {
-  await ctx.db.patch(meeting._id, { operationsStatsSyncedAt: Date.now() });
+  await ctx.db.patch("meetings", meeting._id, { operationsStatsSyncedAt: Date.now() });
 }
 
 export async function insertOperationsMeetingStats(

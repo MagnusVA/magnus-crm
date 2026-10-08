@@ -125,7 +125,7 @@ export async function updateTenantStats(
     patch[field] = (stats[field] ?? 0) + value;
   }
 
-  await ctx.db.patch(stats._id, patch);
+  await ctx.db.patch("tenantStats", stats._id, patch);
 }
 
 export async function applyPaymentStatsDelta(

@@ -44,7 +44,7 @@ export const resolveOpportunityOpen = query({
       "tenant_admin",
     ]);
     const fallbackPath = fallbackForRole(role);
-    const opportunity = await ctx.db.get(args.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", args.opportunityId);
 
     if (!opportunity || opportunity.tenantId !== tenantId) {
       return {

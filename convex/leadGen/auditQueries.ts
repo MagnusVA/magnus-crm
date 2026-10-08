@@ -12,7 +12,7 @@ export const getProspectAuditDetail = query({
       "tenant_admin",
     ]);
 
-    const prospect = await ctx.db.get(prospectId);
+    const prospect = await ctx.db.get("leadGenProspects", prospectId);
     if (!prospect || prospect.tenantId !== tenantId) {
       throw new Error("Prospect not found");
     }

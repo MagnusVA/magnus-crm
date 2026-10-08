@@ -179,7 +179,7 @@ export const listLeadNotesForSession = internalQuery({
     const dmClosers = await Promise.all(
       dmCloserIds.map(async (dmCloserId) => ({
         dmCloserId,
-        dmCloser: await ctx.db.get(dmCloserId),
+        dmCloser: await ctx.db.get("dmClosers", dmCloserId),
       })),
     );
     const dmCloserLabelById = new Map<Id<"dmClosers">, string>(

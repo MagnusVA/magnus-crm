@@ -100,7 +100,7 @@ export async function loadOpportunityMapForQualificationEvents(
   ];
 
   const opportunities = await Promise.all(
-    opportunityIds.map(async (opportunityId) => ctx.db.get(opportunityId)),
+    opportunityIds.map(async (opportunityId) => ctx.db.get("opportunities", opportunityId)),
   );
 
   return new Map(

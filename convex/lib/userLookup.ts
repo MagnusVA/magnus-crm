@@ -40,7 +40,7 @@ export const resolveCrmUserByIdentity = internalQuery({
       throw new Error("User account is inactive");
     }
 
-    const tenant = await ctx.db.get(user.tenantId);
+    const tenant = await ctx.db.get("tenants", user.tenantId);
     if (!tenant || tenant.workosOrgId !== args.orgId) {
       throw new Error("Organization mismatch");
     }

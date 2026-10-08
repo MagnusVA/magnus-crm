@@ -10,6 +10,6 @@ export const markProcessed = internalMutation({
   args: { rawEventId: v.id("rawWebhookEvents") },
   handler: async (ctx, { rawEventId }) => {
     console.log(`[Pipeline] markProcessed | rawEventId=${rawEventId}`);
-    await ctx.db.patch(rawEventId, { processed: true });
+    await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
   },
 });

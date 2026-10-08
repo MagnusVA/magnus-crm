@@ -233,10 +233,10 @@ export async function enrichPhoneSalesRows(
   ];
 
   const [opportunities, closers, teams, dmClosers] = await Promise.all([
-    Promise.all(opportunityIds.map((id) => ctx.db.get(id))),
-    Promise.all(closerIds.map((id) => ctx.db.get(id))),
-    Promise.all(teamIds.map((id) => ctx.db.get(id))),
-    Promise.all(dmCloserIds.map((id) => ctx.db.get(id))),
+    Promise.all(opportunityIds.map((id) => ctx.db.get("opportunities", id))),
+    Promise.all(closerIds.map((id) => ctx.db.get("users", id))),
+    Promise.all(teamIds.map((id) => ctx.db.get("attributionTeams", id))),
+    Promise.all(dmCloserIds.map((id) => ctx.db.get("dmClosers", id))),
   ]);
 
   const opportunityById = new Map(
@@ -256,7 +256,7 @@ export async function enrichPhoneSalesRows(
   const tenantId = meetings[0]?.tenantId;
 
   const [leads, slackUsers] = await Promise.all([
-    Promise.all(leadIds.map((id) => ctx.db.get(id))),
+    Promise.all(leadIds.map((id) => ctx.db.get("leads", id))),
     tenantId
       ? Promise.all(
           slackUserIds.map((slackUserId) =>
@@ -289,7 +289,7 @@ export async function enrichPhoneSalesRows(
       : undefined;
     const linkedDmCloserUserCandidate =
       dmCloser?.userId
-        ? (closerById.get(dmCloser.userId) ?? await ctx.db.get(dmCloser.userId))
+        ? (closerById.get(dmCloser.userId) ?? await ctx.db.get("users", dmCloser.userId))
         : undefined;
     const linkedDmCloserUser =
       linkedDmCloserUserCandidate?.tenantId === tenantId

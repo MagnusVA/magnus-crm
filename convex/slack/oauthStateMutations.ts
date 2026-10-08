@@ -85,7 +85,7 @@ export const consumeState = internalMutation({
       return false;
     }
 
-    await ctx.db.patch(row._id, { consumedAt: now });
+    await ctx.db.patch("slackOAuthStates", row._id, { consumedAt: now });
     console.log("[Slack:OAuthState] consumeState success", {
       stateId: row._id,
       tenantId: row.tenantId,

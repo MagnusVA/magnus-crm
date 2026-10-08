@@ -87,7 +87,7 @@ export const getQualificationsDashboard = query({
     try {
       const range = deriveOverviewRange(args.range, Date.now());
 
-      const tenant = await ctx.db.get(tenantId);
+      const tenant = await ctx.db.get("tenants", tenantId);
       if (!tenant) {
         throw new Error("Tenant not found.");
       }

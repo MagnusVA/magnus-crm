@@ -23,7 +23,7 @@ export const getPortalBootstrapForSession = internalQuery({
 			throw new Error("Portal session is no longer valid.");
 		}
 
-		const tenant = await ctx.db.get(tenantId);
+		const tenant = await ctx.db.get("tenants", tenantId);
 		if (!tenant) {
 			throw new Error("Portal session is no longer valid.");
 		}

@@ -150,7 +150,7 @@ async function loadWorkers(
 ) {
   const workers: WorkerMap = new Map();
   for (const workerId of workerIds) {
-    const worker = await ctx.db.get(workerId);
+    const worker = await ctx.db.get("leadGenWorkers", workerId);
     if (worker && worker.tenantId === tenantId) {
       workers.set(worker._id, worker);
     }
@@ -187,7 +187,7 @@ async function loadFilterLabels(
       })
     : null;
   const worker = args.filters.workerId
-    ? await ctx.db.get(args.filters.workerId)
+    ? await ctx.db.get("leadGenWorkers", args.filters.workerId)
     : null;
 
   return {

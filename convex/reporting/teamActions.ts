@@ -50,7 +50,7 @@ export const getActionsPerCloserPerDay = query({
       .slice(0, 3);
     const topCloserActors = await Promise.all(
       topEntries.map(async ([userId, count]) => {
-        const user = await ctx.db.get(userId);
+        const user = await ctx.db.get("users", userId);
         return {
           userId,
           actorName: getUserDisplayName(user),

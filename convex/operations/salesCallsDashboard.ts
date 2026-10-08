@@ -392,7 +392,7 @@ export const getSalesCallsDashboard = query({
       }
       const programScan = await readLiveDocuments(
         programIds,
-        async (id) => await ctx.db.get(id),
+        async (id) => await ctx.db.get("tenantPrograms", id),
       );
       if (programScan.capped) {
         return emptyDashboard(
@@ -467,7 +467,7 @@ export const getSalesCallsDashboard = query({
       );
       const missingUserScan = await readLiveDocuments(
         missingCloserIds,
-        async (closerId) => await ctx.db.get(closerId),
+        async (closerId) => await ctx.db.get("users", closerId),
       );
       if (missingUserScan.capped) {
         return emptyDashboard(

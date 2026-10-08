@@ -48,12 +48,12 @@ async function resolveLeadForManualCreate(
   },
 ): Promise<{ leadId: Id<"leads">; leadWasCreated: boolean }> {
   if (args.existingLeadId) {
-    const lead = await ctx.db.get(args.existingLeadId);
+    const lead = await ctx.db.get("leads", args.existingLeadId);
     if (!lead || lead.tenantId !== args.tenantId) {
       throw new Error("Selected lead not found.");
     }
     if (lead.status === "merged" && lead.mergedIntoLeadId) {
-      const target = await ctx.db.get(lead.mergedIntoLeadId);
+      const target = await ctx.db.get("leads", lead.mergedIntoLeadId);
       if (
         !target ||
         target.tenantId !== args.tenantId ||
@@ -157,7 +157,7 @@ export const createManual = mutation({
       if (!args.assignedCloserId) {
         throw new Error("Pick an active closer before creating an opportunity.");
       }
-      const closer = await ctx.db.get(args.assignedCloserId);
+      const closer = await ctx.db.get("users", args.assignedCloserId);
       if (
         !closer ||
         closer.tenantId !== tenantId ||

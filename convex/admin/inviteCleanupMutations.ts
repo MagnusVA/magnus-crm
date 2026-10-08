@@ -40,7 +40,7 @@ export const markInviteExpired = internalMutation({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
     console.log("[invite-cleanup] markInviteExpired called", { tenantId });
-    const tenant = await ctx.db.get(tenantId);
+    const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant || tenant.status !== "pending_signup") {
       console.warn("[invite-cleanup] markInviteExpired skipped", {
         tenantId,
@@ -50,7 +50,7 @@ export const markInviteExpired = internalMutation({
       return;
     }
 
-    await ctx.db.patch(tenantId, {
+    await ctx.db.patch("tenants", tenantId, {
       status: "invite_expired",
       inviteTokenHash: undefined,
     });

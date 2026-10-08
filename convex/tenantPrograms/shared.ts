@@ -68,7 +68,7 @@ export async function ensureProgramForTenant(
   );
   if (existing) {
     if (existing.archivedAt !== undefined) {
-      await ctx.db.patch(existing._id, {
+      await ctx.db.patch("tenantPrograms", existing._id, {
         archivedAt: undefined,
         updatedAt: Date.now(),
       });
@@ -93,7 +93,7 @@ export async function ensureProgramForTenant(
     updatedAt: now,
   });
 
-  const program = await ctx.db.get(programId);
+  const program = await ctx.db.get("tenantPrograms", programId);
   if (!program) {
     throw new Error("Failed to create tenant program");
   }

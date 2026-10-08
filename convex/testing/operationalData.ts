@@ -112,7 +112,7 @@ async function deleteSimpleBatch(
 ) {
   const rows = await ctx.db.query(tableName).take(BATCH_SIZE);
   for (const row of rows) {
-    await ctx.db.delete(row._id);
+    await ctx.db.delete(tableName, row._id);
   }
   return rows.length;
 }
@@ -120,7 +120,7 @@ async function deleteSimpleBatch(
 async function deleteMeetingsBatch(ctx: MutationCtx) {
   const rows = await ctx.db.query("meetings").take(BATCH_SIZE);
   for (const row of rows) {
-    await ctx.db.delete(row._id);
+    await ctx.db.delete("meetings", row._id);
   }
   return rows.length;
 }
@@ -131,7 +131,7 @@ async function deletePaymentRecordsBatch(ctx: MutationCtx) {
     if (row.proofFileId) {
       await ctx.storage.delete(row.proofFileId);
     }
-    await ctx.db.delete(row._id);
+    await ctx.db.delete("paymentRecords", row._id);
   }
   return rows.length;
 }

@@ -85,10 +85,10 @@ export async function buildPaymentAuditSnapshot(
   const sampleDiagnostics = await Promise.all(
     payments.slice(0, ISSUE_SAMPLE_LIMIT).map(async (payment) => {
       const [recordedBy, program, customer, meetingById] = await Promise.all([
-        ctx.db.get(payment.recordedByUserId),
-        ctx.db.get(payment.programId),
-        payment.customerId ? ctx.db.get(payment.customerId) : Promise.resolve(null),
-        payment.meetingId ? ctx.db.get(payment.meetingId) : Promise.resolve(null),
+        ctx.db.get("users", payment.recordedByUserId),
+        ctx.db.get("tenantPrograms", payment.programId),
+        payment.customerId ? ctx.db.get("customers", payment.customerId) : Promise.resolve(null),
+        payment.meetingId ? ctx.db.get("meetings", payment.meetingId) : Promise.resolve(null),
       ]);
       const meeting = tenantOwned(meetingById, tenantId);
       const opportunityId =
@@ -96,7 +96,7 @@ export async function buildPaymentAuditSnapshot(
         payment.originatingOpportunityId ??
         meeting?.opportunityId;
       const opportunity = opportunityId
-        ? tenantOwned(await ctx.db.get(opportunityId), tenantId)
+        ? tenantOwned(await ctx.db.get("opportunities", opportunityId), tenantId)
         : null;
       const slackEvents =
         opportunity &&
@@ -170,10 +170,10 @@ export async function buildPaymentAuditSnapshot(
       }
 
       const [recordedBy, program, customer, meetingById] = await Promise.all([
-        ctx.db.get(payment.recordedByUserId),
-        ctx.db.get(payment.programId),
-        payment.customerId ? ctx.db.get(payment.customerId) : Promise.resolve(null),
-        payment.meetingId ? ctx.db.get(payment.meetingId) : Promise.resolve(null),
+        ctx.db.get("users", payment.recordedByUserId),
+        ctx.db.get("tenantPrograms", payment.programId),
+        payment.customerId ? ctx.db.get("customers", payment.customerId) : Promise.resolve(null),
+        payment.meetingId ? ctx.db.get("meetings", payment.meetingId) : Promise.resolve(null),
       ]);
 
       if (!recordedBy || recordedBy.tenantId !== tenantId) {
@@ -222,7 +222,7 @@ export async function buildPaymentAuditSnapshot(
         payment.originatingOpportunityId ??
         meeting?.opportunityId;
       const opportunity = opportunityId
-        ? tenantOwned(await ctx.db.get(opportunityId), tenantId)
+        ? tenantOwned(await ctx.db.get("opportunities", opportunityId), tenantId)
         : null;
       if (!hasAttributionContext(opportunity, meeting)) {
         metrics.missingAttributionContext += 1;

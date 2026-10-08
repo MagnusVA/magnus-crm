@@ -39,7 +39,7 @@ async function getMeetingOrThrow(
   ctx: MutationCtx,
   meetingId: Id<"meetings">,
 ): Promise<Doc<"meetings">> {
-  const meeting = await ctx.db.get(meetingId);
+  const meeting = await ctx.db.get("meetings", meetingId);
   if (!meeting) {
     throw new Error(`Meeting ${meetingId} not found for reporting aggregate sync`);
   }
@@ -50,7 +50,7 @@ async function getOpportunityOrThrow(
   ctx: MutationCtx,
   opportunityId: Id<"opportunities">,
 ): Promise<Doc<"opportunities">> {
-  const opportunity = await ctx.db.get(opportunityId);
+  const opportunity = await ctx.db.get("opportunities", opportunityId);
   if (!opportunity) {
     throw new Error(
       `Opportunity ${opportunityId} not found for reporting aggregate sync`,
@@ -63,7 +63,7 @@ async function getPaymentOrThrow(
   ctx: MutationCtx,
   paymentId: Id<"paymentRecords">,
 ): Promise<Doc<"paymentRecords">> {
-  const payment = await ctx.db.get(paymentId);
+  const payment = await ctx.db.get("paymentRecords", paymentId);
   if (!payment) {
     throw new Error(`Payment ${paymentId} not found for reporting aggregate sync`);
   }
@@ -75,10 +75,10 @@ async function getMeetingWithOpportunityStatus(
   meetingId: Id<"meetings">,
 ): Promise<Doc<"meetings">> {
   const meeting = await getMeetingOrThrow(ctx, meetingId);
-  const opportunity = await ctx.db.get(meeting.opportunityId);
+  const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
   const opportunityStatus = opportunity?.status;
   if (meeting.opportunityStatus !== opportunityStatus) {
-    await ctx.db.patch(meeting._id, { opportunityStatus });
+    await ctx.db.patch("meetings", meeting._id, { opportunityStatus });
     return { ...meeting, opportunityStatus };
   }
   return meeting;
@@ -102,7 +102,7 @@ async function syncMeetingOpportunityStatusForOpportunity(
         ...meeting,
         opportunityStatus: opportunity.status,
       };
-      await ctx.db.patch(meeting._id, {
+      await ctx.db.patch("meetings", meeting._id, {
         opportunityStatus: opportunity.status,
       });
       await replaceOperationsMeetingStats(ctx, meeting, nextMeeting);
@@ -211,7 +211,7 @@ export async function insertLeadAggregate(
   ctx: MutationCtx,
   leadId: Id<"leads">,
 ): Promise<Doc<"leads">> {
-  const lead = await ctx.db.get(leadId);
+  const lead = await ctx.db.get("leads", leadId);
   if (!lead) {
     throw new Error(`Lead ${leadId} not found for reporting aggregate sync`);
   }
@@ -259,7 +259,7 @@ export async function insertCustomerAggregate(
   ctx: MutationCtx,
   customerId: Id<"customers">,
 ): Promise<Doc<"customers">> {
-  const customer = await ctx.db.get(customerId);
+  const customer = await ctx.db.get("customers", customerId);
   if (!customer) {
     throw new Error(
       `Customer ${customerId} not found for reporting aggregate sync`,
@@ -273,7 +273,7 @@ export async function deleteCustomerAggregate(
   ctx: MutationCtx,
   customerId: Id<"customers">,
 ): Promise<void> {
-  const customer = await ctx.db.get(customerId);
+  const customer = await ctx.db.get("customers", customerId);
   if (!customer) {
     return;
   }

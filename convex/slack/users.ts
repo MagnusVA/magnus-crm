@@ -70,7 +70,7 @@ export async function upsertSlackUserOnSubmission(
     return id;
   }
 
-  await ctx.db.patch(existing._id, {
+  await ctx.db.patch("slackUsers", existing._id, {
     lastSeenAt: args.now,
     installationId: args.installationId,
     slackTeamId: args.slackTeamId,
@@ -114,7 +114,7 @@ export const applyProfile = internalMutation({
     syncedAt: v.number(),
   },
   handler: async (ctx, args) => {
-    const row = await ctx.db.get(args.id);
+    const row = await ctx.db.get("slackUsers", args.id);
     if (!row) return;
 
     const patch: {
@@ -142,7 +142,7 @@ export const applyProfile = internalMutation({
     if (avatarUrl !== undefined) patch.avatarUrl = avatarUrl;
     if (timezone !== undefined) patch.timezone = timezone;
 
-    await ctx.db.patch(args.id, patch);
+    await ctx.db.patch("slackUsers", args.id, patch);
   },
 });
 
@@ -205,7 +205,7 @@ export const handleUserChange = internalMutation({
     if (avatarUrl !== undefined) patch.avatarUrl = avatarUrl;
     if (timezone !== undefined) patch.timezone = timezone;
 
-    await ctx.db.patch(row._id, patch);
+    await ctx.db.patch("slackUsers", row._id, patch);
     console.log("[Slack:Users] user_change applied", {
       installationId: args.installationId,
       slackUserId,
@@ -216,6 +216,6 @@ export const handleUserChange = internalMutation({
 export const _byId = internalQuery({
   args: { id: v.id("slackUsers") },
   handler: async (ctx, args): Promise<Doc<"slackUsers"> | null> => {
-    return await ctx.db.get(args.id);
+    return await ctx.db.get("slackUsers", args.id);
   },
 });

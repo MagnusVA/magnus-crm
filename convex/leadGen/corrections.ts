@@ -30,7 +30,7 @@ export const voidSubmission = mutation({
       "tenant_admin",
     ]);
     const reason = normalizeCorrectionReason(args.reason);
-    const submission = await ctx.db.get(args.submissionId);
+    const submission = await ctx.db.get("leadGenSubmissions", args.submissionId);
 
     if (!submission || submission.tenantId !== tenantId) {
       throw new Error("Submission not found");
@@ -54,7 +54,7 @@ export const voidSubmission = mutation({
       reason: "voided",
     });
 
-    await ctx.db.patch(submission._id, {
+    await ctx.db.patch("leadGenSubmissions", submission._id, {
       voidedAt: now,
       voidedByUserId: userId,
       voidReason: reason,

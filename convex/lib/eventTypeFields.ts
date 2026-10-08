@@ -85,7 +85,7 @@ export async function upsertEventTypeFieldCatalogEntry(
         ...existing,
         ...patch,
       };
-      await ctx.db.patch(existing._id, patch);
+      await ctx.db.patch("eventTypeFieldCatalog", existing._id, patch);
       args.existingEntriesByFieldKey.set(updated.fieldKey, updated);
       return {
         action: "updated",

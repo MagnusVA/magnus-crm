@@ -40,12 +40,12 @@ export const adminMarkAsLost = mutation({
       "tenant_admin",
     ]);
 
-    const opportunity = await ctx.db.get(args.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", args.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
 
-    const meeting = args.meetingId ? await ctx.db.get(args.meetingId) : null;
+    const meeting = args.meetingId ? await ctx.db.get("meetings", args.meetingId) : null;
     if (
       args.meetingId &&
       (!meeting ||
@@ -128,7 +128,7 @@ export const adminCreateFollowUp = mutation({
       "tenant_admin",
     ]);
 
-    const opportunity = await ctx.db.get(args.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", args.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
@@ -144,7 +144,7 @@ export const adminCreateFollowUp = mutation({
     if (!closerId) {
       throw new Error("No closer assigned to this opportunity");
     }
-    const closer = await ctx.db.get(closerId);
+    const closer = await ctx.db.get("users", closerId);
     if (!closer || !closer.personalEventTypeUri) {
       throw new Error(
         "Assigned closer has no personal event type URI configured",
@@ -175,7 +175,7 @@ export const adminCreateFollowUp = mutation({
     url.searchParams.set("utm_term", closerId);
     const schedulingLinkUrl = url.toString();
 
-    await ctx.db.patch(followUpId, { schedulingLinkUrl });
+    await ctx.db.patch("followUps", followUpId, { schedulingLinkUrl });
 
     // Note: status transition is deferred — confirmed via adminConfirmFollowUp
     await emitDomainEvent(ctx, {
@@ -212,12 +212,12 @@ export const adminConfirmFollowUp = mutation({
       "tenant_admin",
     ]);
 
-    const opportunity = await ctx.db.get(args.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", args.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
 
-    const meeting = args.meetingId ? await ctx.db.get(args.meetingId) : null;
+    const meeting = args.meetingId ? await ctx.db.get("meetings", args.meetingId) : null;
     if (
       args.meetingId &&
       (!meeting ||
@@ -303,11 +303,11 @@ export const adminCreateManualReminder = mutation({
       "tenant_admin",
     ]);
 
-    const opportunity = await ctx.db.get(args.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", args.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
-    const meeting = args.meetingId ? await ctx.db.get(args.meetingId) : null;
+    const meeting = args.meetingId ? await ctx.db.get("meetings", args.meetingId) : null;
     if (
       args.meetingId &&
       (!meeting ||
@@ -428,12 +428,12 @@ export const adminMarkNoShow = mutation({
       "tenant_admin",
     ]);
 
-    const meeting = await ctx.db.get(args.meetingId);
+    const meeting = await ctx.db.get("meetings", args.meetingId);
     if (!meeting || meeting.tenantId !== tenantId) {
       throw new Error("Meeting not found");
     }
 
-    const opportunity = await ctx.db.get(meeting.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
@@ -526,7 +526,7 @@ export const adminCreateRescheduleLink = mutation({
       "tenant_admin",
     ]);
 
-    const opportunity = await ctx.db.get(args.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", args.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
@@ -541,7 +541,7 @@ export const adminCreateRescheduleLink = mutation({
       );
     }
 
-    const meeting = await ctx.db.get(args.meetingId);
+    const meeting = await ctx.db.get("meetings", args.meetingId);
     if (
       !meeting ||
       meeting.tenantId !== tenantId ||
@@ -556,7 +556,7 @@ export const adminCreateRescheduleLink = mutation({
     if (!closerId) {
       throw new Error("No closer assigned to this opportunity");
     }
-    const closer = await ctx.db.get(closerId);
+    const closer = await ctx.db.get("users", closerId);
     if (!closer || !closer.personalEventTypeUri) {
       throw new Error(
         "Assigned closer has no personal event type URI configured",

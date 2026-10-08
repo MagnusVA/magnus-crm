@@ -23,7 +23,7 @@ export const getActiveReminders = query({
     const leads = await Promise.all(
       leadIds.map(async (leadId) => ({
         leadId,
-        lead: await ctx.db.get(leadId),
+        lead: await ctx.db.get("leads", leadId),
       })),
     );
     const leadById = new Map(

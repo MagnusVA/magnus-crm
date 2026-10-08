@@ -233,7 +233,7 @@ export const getRevenueDetails = query({
       ),
     ];
     const closerDocs = await Promise.all(
-      closerIds.map(async (closerId) => [closerId, await ctx.db.get(closerId)] as const),
+      closerIds.map(async (closerId) => [closerId, await ctx.db.get("users", closerId)] as const),
     );
     const closerById = new Map(closerDocs);
 

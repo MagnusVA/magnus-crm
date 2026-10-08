@@ -7,7 +7,7 @@ export async function syncCustomerSnapshot(
   tenantId: Id<"tenants">,
   leadId: Id<"leads">,
 ): Promise<void> {
-  const lead = await ctx.db.get(leadId);
+  const lead = await ctx.db.get("leads", leadId);
   if (!lead || lead.tenantId !== tenantId) {
     return;
   }
@@ -23,7 +23,7 @@ export async function syncCustomerSnapshot(
     return;
   }
 
-  await ctx.db.patch(customer._id, {
+  await ctx.db.patch("customers", customer._id, {
     fullName: leadDisplayString(lead),
     ...(lead.email ? { email: lead.email } : {}),
     phone: lead.phone,

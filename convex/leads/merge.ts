@@ -107,8 +107,8 @@ async function executeMerge(
     throw new Error("Cannot merge a lead with itself");
   }
 
-  const sourceLead = await ctx.db.get(sourceLeadId);
-  const targetLead = await ctx.db.get(targetLeadId);
+  const sourceLead = await ctx.db.get("leads", sourceLeadId);
+  const targetLead = await ctx.db.get("leads", targetLeadId);
 
   if (!sourceLead || sourceLead.tenantId !== tenantId) {
     throw new Error("Source lead not found");
@@ -139,7 +139,7 @@ async function executeMerge(
   );
 
   for (const opportunity of sourceOpportunities) {
-    await ctx.db.patch(opportunity._id, {
+    await ctx.db.patch("opportunities", opportunity._id, {
       leadId: targetLeadId,
       potentialDuplicateLeadId: undefined,
       updatedAt: now,
@@ -178,7 +178,7 @@ async function executeMerge(
       identifiersMoved += 1;
     }
 
-    await ctx.db.delete(identifier._id);
+    await ctx.db.delete("leadIdentifiers", identifier._id);
   }
 
   // === NIM-17: portal data must not be orphaned by a merge ===
@@ -197,7 +197,7 @@ async function executeMerge(
     );
   }
   for (const note of sourceNotes) {
-    await ctx.db.patch(note._id, { leadId: targetLeadId });
+    await ctx.db.patch("leadNotes", note._id, { leadId: targetLeadId });
   }
 
   // (b) Carry over the portal-entered profile fields, but only where the
@@ -225,7 +225,7 @@ async function executeMerge(
     .withIndex("by_leadId", (q) => q.eq("leadId", targetLeadId))
     .take(200);
   const socialHandles = buildSocialHandles(allTargetIdentifiers);
-  const refreshedTargetLead = await ctx.db.get(targetLeadId);
+  const refreshedTargetLead = await ctx.db.get("leads", targetLeadId);
   if (!refreshedTargetLead) {
     throw new Error("Target lead disappeared during merge");
   }
@@ -238,7 +238,7 @@ async function executeMerge(
     allTargetIdentifiers.map((identifier) => identifier.value),
   );
 
-  await ctx.db.patch(targetLeadId, {
+  await ctx.db.patch("leads", targetLeadId, {
     socialHandles,
     searchText,
     // NIM-17: portal profile fields carried over from the source lead only
@@ -255,7 +255,7 @@ async function executeMerge(
     leadDisplayString(refreshedTargetLead, allTargetIdentifiers),
   );
 
-  await ctx.db.patch(sourceLeadId, {
+  await ctx.db.patch("leads", sourceLeadId, {
     status: "merged",
     mergedIntoLeadId: targetLeadId,
     updatedAt: now,
@@ -287,7 +287,7 @@ async function executeMerge(
       continue;
     }
 
-    await ctx.db.patch(opportunity._id, {
+    await ctx.db.patch("opportunities", opportunity._id, {
       potentialDuplicateLeadId: undefined,
       updatedAt: now,
     });
@@ -328,12 +328,12 @@ export const dismissDuplicateFlag = mutation({
       "tenant_admin",
     ]);
 
-    const opportunity = await ctx.db.get(opportunityId);
+    const opportunity = await ctx.db.get("opportunities", opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
 
-    await ctx.db.patch(opportunityId, {
+    await ctx.db.patch("opportunities", opportunityId, {
       potentialDuplicateLeadId: undefined,
       updatedAt: Date.now(),
     });

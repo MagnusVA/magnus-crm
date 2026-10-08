@@ -87,7 +87,7 @@ export async function ownerCanRunReport(
   ctx: ReportReadCtx,
   job: Doc<"operationsReportJobs">,
 ) {
-  const user = await ctx.db.get(job.requestedByUserId);
+  const user = await ctx.db.get("users", job.requestedByUserId);
   return Boolean(
     user &&
       user.tenantId === job.tenantId &&
@@ -228,7 +228,7 @@ export async function applyReportContributions(
     }
 
     if (existing) {
-      await ctx.db.patch(existing._id, {
+      await ctx.db.patch("operationsReportRows", existing._id, {
         rowType: "staging",
         payload,
         updatedAt: now,
@@ -281,7 +281,7 @@ export async function applyFinalizedRows(
       )
       .unique();
     if (existing) {
-      await ctx.db.patch(existing._id, {
+      await ctx.db.patch("operationsReportRows", existing._id, {
         rowType: "result",
         groupKey: row.groupKey,
         payload: row.payload,

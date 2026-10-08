@@ -163,7 +163,7 @@ async function hydrateSubmissionProspects(
   const prospects = new Map<Id<"leadGenProspects">, Doc<"leadGenProspects">>();
 
   for (const prospectId of new Set(rows.map((row) => row.prospectId))) {
-    const prospect = await ctx.db.get(prospectId);
+    const prospect = await ctx.db.get("leadGenProspects", prospectId);
     if (prospect && prospect.tenantId === tenantId) {
       prospects.set(prospect._id, prospect);
     }

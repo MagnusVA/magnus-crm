@@ -58,7 +58,7 @@ export const logPayment = mutation({
       "tenant_admin",
     ]);
 
-    const opportunity = await ctx.db.get(args.opportunityId);
+    const opportunity = await ctx.db.get("opportunities", args.opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       throw new Error("Opportunity not found");
     }
@@ -66,7 +66,7 @@ export const logPayment = mutation({
       throw new Error("Not your opportunity");
     }
 
-    const meeting = await ctx.db.get(args.meetingId);
+    const meeting = await ctx.db.get("meetings", args.meetingId);
     if (
       !meeting ||
       meeting.tenantId !== tenantId ||
@@ -210,7 +210,7 @@ export const logPayment = mutation({
     });
 
     if (customerId) {
-      await ctx.db.patch(paymentId, { customerId });
+      await ctx.db.patch("paymentRecords", paymentId, { customerId });
       await syncCustomerPaymentSummary(ctx, customerId);
     } else {
       const existingCustomer = await ctx.db
@@ -220,7 +220,7 @@ export const logPayment = mutation({
         )
         .first();
       if (existingCustomer) {
-        await ctx.db.patch(paymentId, { customerId: existingCustomer._id });
+        await ctx.db.patch("paymentRecords", paymentId, { customerId: existingCustomer._id });
         await syncCustomerPaymentSummary(ctx, existingCustomer._id);
       }
     }
@@ -238,7 +238,7 @@ export const getPaymentProofUrl = query({
       "tenant_admin",
     ]);
 
-    const record = await ctx.db.get(paymentRecordId);
+    const record = await ctx.db.get("paymentRecords", paymentRecordId);
     if (!record || record.tenantId !== tenantId || !record.proofFileId) {
       return null;
     }

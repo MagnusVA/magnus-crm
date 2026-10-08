@@ -9,7 +9,7 @@ export const getRawEvent = internalQuery({
   args: { rawEventId: v.id("rawWebhookEvents") },
   handler: async (ctx, { rawEventId }) => {
     console.log(`[Pipeline] getRawEvent | rawEventId=${rawEventId}`);
-    const event = await ctx.db.get(rawEventId);
+    const event = await ctx.db.get("rawWebhookEvents", rawEventId);
     console.log(`[Pipeline] getRawEvent | ${event ? `found, type=${event.eventType} processed=${event.processed}` : "not found"}`);
     return event;
   },

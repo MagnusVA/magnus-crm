@@ -70,7 +70,7 @@ export async function validateCloser(
   closerId: Id<"users">,
   tenantId: Id<"tenants">,
 ) {
-  const closer = await ctx.db.get(closerId);
+  const closer = await ctx.db.get("users", closerId);
 
   if (!closer || closer.tenantId !== tenantId) {
     throw new Error("Closer not found");

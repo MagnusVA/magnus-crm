@@ -176,10 +176,10 @@ async function enrichSchedulingRows(
   const slackUserIds = [...new Set(rows.map((row) => row.slackUserId))];
 
   const [leads, teams, dmClosers, users, slackUsers] = await Promise.all([
-    Promise.all(leadIds.map((id) => ctx.db.get(id))),
-    Promise.all(teamIds.map((id) => ctx.db.get(id))),
-    Promise.all(dmCloserIds.map((id) => ctx.db.get(id))),
-    Promise.all(userIds.map((id) => ctx.db.get(id))),
+    Promise.all(leadIds.map((id) => ctx.db.get("leads", id))),
+    Promise.all(teamIds.map((id) => ctx.db.get("attributionTeams", id))),
+    Promise.all(dmCloserIds.map((id) => ctx.db.get("dmClosers", id))),
+    Promise.all(userIds.map((id) => ctx.db.get("users", id))),
     Promise.all(
       slackUserIds.map((slackUserId) =>
         ctx.db
@@ -206,7 +206,7 @@ async function enrichSchedulingRows(
     const slackUser = slackUserBySlackId.get(row.slackUserId);
     const linkedDmCloserUserCandidate =
       dmCloser?.userId
-        ? (userById.get(dmCloser.userId) ?? await ctx.db.get(dmCloser.userId))
+        ? (userById.get(dmCloser.userId) ?? await ctx.db.get("users", dmCloser.userId))
         : undefined;
     const linkedDmCloserUser =
       linkedDmCloserUserCandidate?.tenantId === tenantId

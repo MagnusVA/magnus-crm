@@ -94,7 +94,7 @@ async function resolveBillingOpportunity(
   );
 
   for (const opportunityId of opportunityIds) {
-    const opportunity = tenantOwned(await ctx.db.get(opportunityId), tenantId);
+    const opportunity = tenantOwned(await ctx.db.get("opportunities", opportunityId), tenantId);
     if (opportunity) {
       return opportunity;
     }
@@ -120,7 +120,7 @@ async function resolveBillingMeeting(
   );
 
   for (const meetingId of meetingIds) {
-    const meeting = tenantOwned(await ctx.db.get(meetingId), tenantId);
+    const meeting = tenantOwned(await ctx.db.get("meetings", meetingId), tenantId);
     if (meeting) {
       return meeting;
     }
@@ -155,14 +155,14 @@ async function resolveDirectDmAttribution(
 
   const [team, dmCloser] = await Promise.all([
     source.attributionTeamId
-      ? ctx.db.get(source.attributionTeamId)
+      ? ctx.db.get("attributionTeams", source.attributionTeamId)
       : Promise.resolve(null),
-    source.dmCloserId ? ctx.db.get(source.dmCloserId) : Promise.resolve(null),
+    source.dmCloserId ? ctx.db.get("dmClosers", source.dmCloserId) : Promise.resolve(null),
   ]);
   const tenantDmCloser = dmCloser && dmCloser.tenantId === tenantId ? dmCloser : null;
   const linkedUser =
     tenantDmCloser?.userId !== undefined
-      ? await ctx.db.get(tenantDmCloser.userId)
+      ? await ctx.db.get("users", tenantDmCloser.userId)
       : null;
   const tenantLinkedUser =
     linkedUser && linkedUser.tenantId === tenantId ? linkedUser : null;
@@ -273,7 +273,7 @@ async function resolveBillingAttribution(
     paymentCloserId ?? meeting?.assignedCloserId ?? opportunity?.assignedCloserId;
   const [fallbackCloser, payload, directDmAttribution, slackContributorSummary] =
     await Promise.all([
-      fallbackCloserId ? ctx.db.get(fallbackCloserId) : Promise.resolve(null),
+      fallbackCloserId ? ctx.db.get("users", fallbackCloserId) : Promise.resolve(null),
       opportunity
         ? buildOpportunityAttributionPayload(ctx, opportunity, { meeting })
         : Promise.resolve(null),
@@ -323,7 +323,7 @@ async function enrichOneBillingPaymentListRow(
   }
 
   const directCustomer = payment.customerId
-    ? tenantOwned(await ctx.db.get(payment.customerId), tenantId)
+    ? tenantOwned(await ctx.db.get("customers", payment.customerId), tenantId)
     : null;
 
   let customer = directCustomer;
@@ -373,7 +373,7 @@ async function enrichOneBillingPaymentRow(
   }
 
   const directCustomer = payment.customerId
-    ? tenantOwned(await ctx.db.get(payment.customerId), tenantId)
+    ? tenantOwned(await ctx.db.get("customers", payment.customerId), tenantId)
     : null;
   const opportunity = await resolveBillingOpportunity(
     ctx,
@@ -397,9 +397,9 @@ async function enrichOneBillingPaymentRow(
 
   const recordedByUserId = resolveLegacyCompatibleRecordedByUserId(payment);
   const [enteredBy, reviewer, attribution] = await Promise.all([
-    recordedByUserId ? ctx.db.get(recordedByUserId) : Promise.resolve(null),
+    recordedByUserId ? ctx.db.get("users", recordedByUserId) : Promise.resolve(null),
     payment.verifiedByUserId
-      ? ctx.db.get(payment.verifiedByUserId)
+      ? ctx.db.get("users", payment.verifiedByUserId)
       : Promise.resolve(null),
     resolveBillingAttribution(ctx, tenantId, payment, opportunity, meeting),
   ]);
@@ -491,7 +491,7 @@ async function loadPaymentEvents(
     ),
   ];
   const actorPairs = await Promise.all(
-    actorIds.map(async (actorId) => [actorId, await ctx.db.get(actorId)] as const),
+    actorIds.map(async (actorId) => [actorId, await ctx.db.get("users", actorId)] as const),
   );
   const actorById = new Map(actorPairs);
 
@@ -552,7 +552,7 @@ export async function enrichBillingPaymentDetail(
   ]);
 
   const opportunity = row.opportunity.id
-    ? tenantOwned(await ctx.db.get(row.opportunity.id), tenantId)
+    ? tenantOwned(await ctx.db.get("opportunities", row.opportunity.id), tenantId)
     : null;
 
   return {
