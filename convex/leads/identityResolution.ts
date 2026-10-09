@@ -386,12 +386,13 @@ export async function resolveLeadIdentity(
     const lead = await findLeadByIdentifier(ctx, { tenantId: args.tenantId, type: "phone", value: normalizedPhone });
     if (lead) matches.push({ lead, via: "phone" });
   }
-  if (new Set(matches.map(m => m.lead._id)).size > 1) blockBooking("identity_conflict");
+  const isBooking = args.identifierSource === "calendly_booking";
+  if (isBooking && new Set(matches.map(m => m.lead._id)).size > 1) blockBooking("identity_conflict");
   const match = matches[0];
   if (match) {
     // A phone or handle is not permission to change a person's established email.
     // Existing aliases also require review if the canonical contact disagrees.
-    if (normalizedEmail && match.lead.email && normalizeEmail(match.lead.email) !== normalizedEmail) blockBooking("identity_conflict");
+    if (isBooking && normalizedEmail && match.lead.email && normalizeEmail(match.lead.email) !== normalizedEmail) blockBooking("identity_conflict");
     const lead = await syncSubmittedIdentifiersForExistingLead(ctx, match.lead, args, normalizedEmail);
     return { lead, leadId: lead._id, created: false, isNewLead: false, resolvedVia: match.via };
   }

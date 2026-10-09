@@ -21,7 +21,7 @@ const answerTextClasses = "text-sm leading-relaxed break-words";
 
 type BookingAnswersCardProps = {
   customFields: unknown;
-  customFieldLabels?: Record<string, string>;
+  customFieldLabels: Record<string, string> | undefined;
 };
 
 /**

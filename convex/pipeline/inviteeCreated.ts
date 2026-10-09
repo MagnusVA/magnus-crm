@@ -901,15 +901,8 @@ export const process = internalMutation({
 		);
 		const assignedCloserId = assignedCloserResolution.assignedCloserId;
 
-    if (!assignedCloserId) {
-      if (assignedCloserResolution.isKnownNonCloserHost && assignedCloserResolution.resolution !== "org_member_unmatched") {
-        await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true, processingReason: "non_closer_host" });
-        return;
-      }
-      blockBooking("host_not_linked");
-    }
-
-
+		// Resolve the opportunity before rejecting the host: a follow-up or
+		// reschedule can retain the opportunity's already assigned closer.
 		if (utmParams?.utm_source === "ptdom" && utmParams.utm_campaign) {
 
 			const targetOpportunityId = ctx.db.normalizeId("opportunities", utmParams.utm_campaign);
@@ -990,9 +983,7 @@ export const process = internalMutation({
 							opportunityId: targetOpportunityId,
 							closerResolution: assignedCloserResolution.resolution,
 						});
-						throw new Error(
-							"[Pipeline] Unable to resolve assigned closer for deterministic booking",
-						);
+						blockBooking("host_not_linked");
 					}
 
 					await patchOpportunityLifecycle(ctx, targetOpportunityId, {
@@ -1326,9 +1317,7 @@ export const process = internalMutation({
 					opportunityId: reschedOpportunityId,
 					closerResolution: assignedCloserResolution.resolution,
 				});
-				throw new Error(
-					"[Pipeline] Unable to resolve assigned closer for auto-rescheduled booking",
-				);
+				blockBooking("host_not_linked");
 			}
 
 			await patchOpportunityLifecycle(ctx, reschedOpportunityId, {
@@ -1495,7 +1484,11 @@ export const process = internalMutation({
 				? assignedCloserId ?? existingFollowUp.assignedCloserId
 				: assignedCloserId;
 		if (!meetingAssignedCloserId) {
-			if (assignedCloserResolution.isKnownNonCloserHost) {
+			if (
+				!slackQualifiedOpportunity && !existingFollowUp &&
+				assignedCloserResolution.isKnownNonCloserHost &&
+				assignedCloserResolution.resolution !== "org_member_unmatched"
+			) {
 				logNonCloserHostSkip({
 					reason: "non_closer_host_without_opportunity",
 					tenantId,
@@ -1505,7 +1498,10 @@ export const process = internalMutation({
 					closerResolution: assignedCloserResolution.resolution,
 					hostCalendlyRole: assignedCloserResolution.hostCalendlyRole,
 				});
-				await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
+				await ctx.db.patch("rawWebhookEvents", rawEventId, {
+					processed: true,
+					processingReason: "non_closer_host",
+				});
 				return;
 			}
 			log.warn("pipeline.invitee_created.rejected", {
@@ -1520,9 +1516,7 @@ export const process = internalMutation({
 				leadId: lead._id,
 				closerResolution: assignedCloserResolution.resolution,
 			});
-			throw new Error(
-				"[Pipeline] Unable to resolve assigned closer for invitee.created",
-			);
+			blockBooking("host_not_linked");
 		}
 
 		let opportunityId: Id<"opportunities">;

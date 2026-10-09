@@ -18,19 +18,29 @@ export function OperationsHealthBanner() {
   if (!unmappedCount && !issueCount && !updating) return null;
 
   return (
-    <Alert>
-      <AlertTriangleIcon />
-      <AlertTitle>Operations health needs review</AlertTitle>
-      <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <span>
-          {unmappedCount} booking UTM values need mapping. {issueCount}{capped ? "+" : ""} booking or reporting issues need review. {updating ? "Reports are updating; displayed totals may lag recent changes." : ""}
-        </span>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/workspace/operations/booked-calls/attribution?section=diagnostics">
-            Review issues
-          </Link>
-        </Button>
-      </AlertDescription>
-    </Alert>
+    <>
+      {(unmappedCount > 0 || issueCount > 0) && (
+        <Alert>
+          <AlertTriangleIcon />
+          <AlertTitle>Operations health needs review</AlertTitle>
+          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              {unmappedCount > 0 && <span>{unmappedCount} booking UTM values need mapping. </span>}
+              {issueCount > 0 && <span>{issueCount}{capped ? "+" : ""} booking or reporting issues need review.</span>}
+            </span>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/workspace/operations/booked-calls/attribution?section=diagnostics">
+                Review issues
+              </Link>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+      {updating && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Reports are updating; displayed totals may lag recent changes.
+        </p>
+      )}
+    </>
   );
 }

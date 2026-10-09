@@ -7,6 +7,44 @@ import { convexTestModules } from "../test.setup";
 
 afterEach(() => vi.useRealTimers());
 
+it.each([
+  "invitee.canceled",
+  "invitee_no_show.created",
+  "invitee_no_show.deleted",
+])("blocks a different invitee's %s without changing the booked meeting", async (eventType) => {
+  vi.useFakeTimers();
+  const { bookingHarness, bookingPayload } = await import("../../tests/bookingHarness");
+  const { t, tenantId, admin } = await bookingHarness();
+  const booked = bookingPayload("shared-event");
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: booked.uri,
+    eventType: "invitee.created",
+    payload: JSON.stringify({ payload: booked }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const otherInvitee = { ...booked, uri: booked.uri.replace("/person", "/other") };
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: otherInvitee.uri,
+    eventType,
+    payload: JSON.stringify({ payload: otherInvitee }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const receipts = (await admin.query(api.pipeline.delivery.list, {
+    paginationOpts: { cursor: null, numItems: 10 },
+  })).page;
+  expect(receipts).toMatchObject([
+    { status: "blocked", reason: "ambiguous_booking_identity" },
+    { status: "applied" },
+  ]);
+  const detail = await admin.query(api.closer.meetingDetail.getMeetingDetail, {
+    meetingId: receipts[1].meetingId!,
+  });
+  expect(detail.meeting.status).toBe("scheduled");
+  expect(detail.opportunity.status).toBe("scheduled");
+});
+
 it("keeps a durable ignored outcome and deduplicates repeated delivery", async () => {
   vi.useFakeTimers();
   const t = convexTest(schema, convexTestModules);

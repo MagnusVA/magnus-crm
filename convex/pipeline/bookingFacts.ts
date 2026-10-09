@@ -89,8 +89,9 @@ export async function reconcileBookingFact(
     )
     .unique();
   if (!meeting || !fact) return;
-  if (meeting.calendlyInviteeUri !== inviteeUri)
-    throw new Error("Ambiguous Calendly booking identity");
+  // Keep the other invitee's fact, but let the processor block the delivery.
+  // A shared scheduled-event URI alone cannot identify a person's booking.
+  if (meeting.calendlyInviteeUri !== inviteeUri) return;
   const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
   if (!opportunity || opportunity.tenantId !== tenantId)
     throw new Error("Invalid booking relationship");
