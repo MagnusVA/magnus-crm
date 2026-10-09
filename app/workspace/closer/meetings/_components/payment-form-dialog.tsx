@@ -41,7 +41,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { BanknoteIcon, AlertCircleIcon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
+import { getErrorMessage } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -150,6 +152,7 @@ export function PaymentFormDialog({
   const logPayment = useMutation(api.closer.payments.logPayment);
 
   const onSubmit = async (values: PaymentFormValues) => {
+    let uploadHttpStatus: number | undefined;
     setIsSubmitting(true);
     setSubmitError(null);
 
@@ -168,6 +171,7 @@ export function PaymentFormDialog({
         });
 
         if (!uploadResponse.ok) {
+          uploadHttpStatus = uploadResponse.status;
           throw new Error("Failed to upload proof file");
         }
 
@@ -211,11 +215,9 @@ export function PaymentFormDialog({
       setOpen(false);
       form.reset();
     } catch (err: unknown) {
-      posthog.captureException(err);
+      reportClientError(err, { flow: "meeting_payment_log", httpStatus: uploadHttpStatus });
       const message =
-        err instanceof Error
-          ? err.message
-          : "Failed to log payment. Please try again.";
+        getErrorMessage(err, "Failed to log payment. Please try again.");
       setSubmitError(message);
       toast.error(message);
     } finally {

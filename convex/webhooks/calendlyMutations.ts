@@ -10,8 +10,6 @@ export const persistRawEvent = internalMutation({
     payload: v.string(),
   },
   handler: async (ctx, args) => {
-    console.log(`[Webhook] persistRawEvent called: eventType=${args.eventType}, uri=${args.calendlyEventUri}`);
-
     const existingEvents = await ctx.db
       .query("rawWebhookEvents")
       .withIndex("by_tenantId_and_eventType_and_calendlyEventUri", (q) =>
@@ -22,10 +20,8 @@ export const persistRawEvent = internalMutation({
       )
       .first();
 
+    // Calendly retries deliveries; the caller logs `duplicate: true`.
     if (existingEvents) {
-      console.warn(
-        `[Webhook] Duplicate detected: eventType=${args.eventType}, uri=${args.calendlyEventUri} — skipping`,
-      );
       return null;
     }
 
@@ -35,16 +31,11 @@ export const persistRawEvent = internalMutation({
       receivedAt: Date.now(),
     });
 
-    console.log(`[Webhook] New event inserted: id=${rawEventId}, eventType=${args.eventType}`);
-
-    // ==== NEW: Trigger pipeline processing ====
     await ctx.scheduler.runAfter(
       0,
       internal.pipeline.processor.processRawEvent,
       { rawEventId },
     );
-
-    console.log(`[Webhook] Pipeline processing scheduled for rawEventId=${rawEventId}`);
 
     return rawEventId;
   },

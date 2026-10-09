@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { log } from "../lib/observability/log";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import {
   rollbackCustomerConversionIfEmpty,
@@ -98,6 +99,12 @@ export const voidPayment = mutation({
         actorUserId: userId,
       });
       if (!rollback.rolledBack) {
+        log.info("side_deals.void_payment.rollback_skipped", {
+          tenantId,
+          paymentId,
+          customerId: payment.customerId,
+          reason: "customer_retained",
+        });
         await syncCustomerPaymentSummary(ctx, payment.customerId);
       }
     }

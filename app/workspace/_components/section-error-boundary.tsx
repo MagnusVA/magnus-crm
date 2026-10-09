@@ -1,7 +1,9 @@
 "use client";
 
-import { Component, type ReactNode } from "react";
+import { Component, type ErrorInfo, type ReactNode } from "react";
+import posthog from "posthog-js";
 import { AlertCircleIcon } from "lucide-react";
+import { getErrorMessage } from "@/lib/errors";
 
 interface SectionErrorBoundaryProps {
   children: ReactNode;
@@ -34,6 +36,14 @@ export class SectionErrorBoundary extends Component<
     return { hasError: true, error };
   }
 
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    posthog.captureException(error, {
+      error_origin: "section_error_boundary",
+      error_boundary: this.props.sectionName ?? "section",
+      react_component_stack: info.componentStack ?? undefined,
+    });
+  }
+
   render() {
     if (this.state.hasError) {
       if (this.props.fallback) return this.props.fallback;
@@ -50,7 +60,7 @@ export class SectionErrorBoundary extends Component<
               Failed to load {this.props.sectionName ?? "this section"}
             </p>
             <p className="text-xs text-muted-foreground">
-              {this.state.error?.message ?? "An unexpected error occurred."}
+              {getErrorMessage(this.state.error, "An unexpected error occurred.")}
             </p>
           </div>
         </div>

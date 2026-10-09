@@ -13,6 +13,7 @@ import {
   type QueryCtx,
 } from "../../_generated/server";
 import { releaseAdmission, scheduleWorker } from "./admission";
+import { log, reportError } from "../../lib/observability/log";
 import {
   requireTenantUser,
   type TenantUserResult,
@@ -382,7 +383,15 @@ export const cancelReport = mutation({
       leaseExpiresAt: undefined,
       scheduledFunctionId: undefined,
     });
-    console.log("[Operations:Reports] canceled", { jobId: job._id });
+    log.info("reports.job.canceled", {
+      jobId: job._id,
+      tenantId: job.tenantId,
+      reportKind: job.reportKind,
+      purpose: job.purpose,
+      status: job.status,
+      phase: job.phase,
+      reason: "user_requested",
+    });
     return { status: "canceled" as const };
   },
 });
@@ -498,6 +507,11 @@ export const claimJob = internalMutation({
     const workerId = assertBoundedIdentifier(args.workerId, "Worker ID");
     const job = await ctx.db.get("operationsReportJobs", args.jobId);
     if (!job || job.status !== "queued") {
+      log.info("reports.job.claim_skipped", {
+        jobId: args.jobId,
+        reason: job ? "not_queued" : "job_missing",
+        status: job?.status,
+      });
       return { kind: "skip" as const, reason: "Job is not queued." };
     }
     const now = Date.now();
@@ -505,6 +519,12 @@ export const claimJob = internalMutation({
       await markJobFailed(ctx, job, now, {
         category: "definition_version",
         message: "This report was created with an older definition. Regenerate the report.",
+        retryable: false,
+      });
+      log.warn("reports.job.marked_failed", {
+        ...failedJobAttrs(job),
+        reason: "definition_version",
+        category: "definition_version",
         retryable: false,
       });
       return { kind: "skip" as const, reason: "Report definition is outdated." };
@@ -515,6 +535,19 @@ export const claimJob = internalMutation({
         message: "Report exceeded its two-hour processing lifetime.",
         retryable: false,
       });
+      // The job never got to run, matching recovery's `reports.job.expired`.
+      reportError(
+        "reports.job.expired",
+        new Error("Report exceeded its two-hour processing lifetime before it was claimed"),
+        {
+          severity: "error",
+          fingerprint: "reports.job.expired:claim_max_age",
+          ...failedJobAttrs(job),
+          reason: "claim_max_age",
+          category: "resource_limit",
+          retryable: false,
+        },
+      );
       return { kind: "skip" as const, reason: "Job exceeded its maximum age." };
     }
     const interruptedArtifact = await ctx.db
@@ -529,6 +562,12 @@ export const claimJob = internalMutation({
       )
       .first();
     if (interruptedArtifact) {
+      log.info("reports.job.claim_skipped", {
+        jobId: job._id,
+        tenantId: job.tenantId,
+        reason: "artifact_reconciliation_pending",
+        artifactId: interruptedArtifact._id,
+      });
       return {
         kind: "skip" as const,
         reason: "An interrupted artifact upload is being reconciled.",
@@ -551,11 +590,6 @@ export const claimJob = internalMutation({
       leaseGeneration,
       leaseOwner: workerId,
       leaseExpiresAt,
-    });
-    console.log("[Operations:Reports] claimed", {
-      jobId: job._id,
-      leaseGeneration,
-      phase: job.phase,
     });
     return {
       kind: "claimed" as const,
@@ -972,8 +1006,9 @@ export const completeJob = internalMutation({
       leaseExpiresAt: undefined,
       scheduledFunctionId: undefined,
     });
-    console.log("[Operations:Reports] ready", {
+    log.info("reports.job.ready", {
       jobId: job._id,
+      tenantId: job.tenantId,
       purpose: job.purpose,
       reportKind: job.reportKind,
       rowsProcessed: job.rowsProcessed,
@@ -1098,8 +1133,9 @@ async function requestReport(
   await ctx.db.patch("operationsReportAdmission", admission._id, { slots: [...admission.slots, { jobId, userId: auth.userId, purpose: args.purpose, requestKey }] });
   const scheduledFunctionId = await scheduleWorker(ctx, jobId);
   await ctx.db.patch("operationsReportJobs", jobId, { scheduledFunctionId });
-  console.log("[Operations:Reports] queued", {
+  log.info("reports.job.queued", {
     jobId,
+    tenantId: auth.tenantId,
     purpose: args.purpose,
     reportKind: args.reportKind,
     format: args.format ?? null,
@@ -1251,11 +1287,19 @@ async function markJobFailed(
     leaseExpiresAt: undefined,
     scheduledFunctionId: undefined,
   });
-  console.error("[Operations:Reports] failed", {
+  // No log here: workers report their own failures (`reports.job.failed`)
+  // and claimJob logs the failures it decides.
+}
+
+function failedJobAttrs(job: Doc<"operationsReportJobs">) {
+  return {
     jobId: job._id,
-    category: failure.category,
-    retryable: failure.retryable,
-  });
+    tenantId: job.tenantId,
+    reportKind: job.reportKind,
+    purpose: job.purpose,
+    phase: job.phase,
+    retryCount: job.retryCount,
+  };
 }
 
 async function markJobCanceledForRevocation(
@@ -1282,6 +1326,15 @@ async function markJobCanceledForRevocation(
     leaseOwner: undefined,
     leaseExpiresAt: undefined,
     scheduledFunctionId: undefined,
+  });
+  log.info("reports.job.canceled", {
+    jobId: job._id,
+    tenantId: job.tenantId,
+    reportKind: job.reportKind,
+    purpose: job.purpose,
+    status: job.status,
+    phase: job.phase,
+    reason: "owner_access_revoked",
   });
 }
 

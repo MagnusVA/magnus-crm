@@ -7,6 +7,8 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { DashboardRangeInput } from "@/app/workspace/_components/dashboard-date-range-filter";
 import { collectDashboardPages } from "@/lib/operations-reports/dashboard-pages";
+import { reportClientError } from "@/lib/observability/report-client-error";
+import { getErrorMessage as getDisplayErrorMessage } from "@/lib/errors";
 
 export type OperationsReportKind =
   | "lead-gen"
@@ -32,10 +34,10 @@ type OperationsReportArtifact = FunctionReturnType<
 >["page"][number];
 
 function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message.replace(/^Uncaught Error: /, "");
-  }
-  return "The report request could not be completed.";
+  return getDisplayErrorMessage(
+    error,
+    "The report request could not be completed.",
+  ).replace(/^Uncaught Error: /, "");
 }
 
 function reportScopeKey(args: {
@@ -143,6 +145,10 @@ export function useOperationsDashboardReport(args: {
         }
       })
       .catch((error: unknown) => {
+        reportClientError(error, {
+          flow: "operations_dashboard_report_request",
+          reportKind,
+        });
         if (activeRequestRef.current === requestToken) {
           setJobState({
             requestToken,
@@ -230,6 +236,7 @@ export function useAllOperationsReportRows(args: {
     ).then((rows) => {
       if (!canceled && rows !== undefined) setResult({ scopeKey, rows, error: null });
     }).catch((error: unknown) => {
+      reportClientError(error, { flow: "operations_dashboard_report_rows", section });
       if (!canceled) setResult({ scopeKey, error: getErrorMessage(error) });
     });
     return () => { canceled = true; };
@@ -432,16 +439,21 @@ export function useOperationsReportExport(args: {
       downloadingArtifactsRef.current.add(artifactKey);
       setArtifactDownloadState((current) => ({ ...current, [artifactKey]: "downloading" }));
       setDownloadError(null);
+      let httpStatus: number | undefined;
+      let reason: "too_large" | "http_error" | undefined;
       try {
         const download = await requestReportDownload({
           jobId: activeExport.jobId,
           artifactId: artifact.artifactId,
         });
         if (download.byteSize > MAX_BROWSER_DOWNLOAD_BYTES) {
+          reason = "too_large";
           throw new Error("This report part is too large for a browser download.");
         }
         const response = await fetch(download.url);
+        httpStatus = response.status;
         if (!response.ok) {
+          reason = "http_error";
           throw new Error("The report file could not be downloaded.");
         }
         const contentLength = response.headers.get("content-length");
@@ -449,10 +461,12 @@ export function useOperationsReportExport(args: {
           contentLength !== null &&
           Number(contentLength) > MAX_BROWSER_DOWNLOAD_BYTES
         ) {
+          reason = "too_large";
           throw new Error("This report part is too large for a browser download.");
         }
         const blob = await response.blob();
         if (blob.size > MAX_BROWSER_DOWNLOAD_BYTES) {
+          reason = "too_large";
           throw new Error("This report part is too large for a browser download.");
         }
         const objectUrl = URL.createObjectURL(blob);
@@ -466,6 +480,12 @@ export function useOperationsReportExport(args: {
         downloadedArtifactsRef.current.add(artifactKey);
         setArtifactDownloadState((current) => ({ ...current, [artifactKey]: "downloaded" }));
       } catch (error) {
+        reportClientError(error, {
+          flow: "operations_report_download",
+          httpStatus,
+          reason,
+          format: activeExport.format,
+        });
         setDownloadError(getErrorMessage(error));
         setArtifactDownloadState((current) => ({ ...current, [artifactKey]: "failed" }));
       } finally {

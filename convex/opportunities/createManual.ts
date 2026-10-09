@@ -3,7 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
-import { leadDisplayString } from "../lib/leadDisplay";
+import { rejectRequest } from "../lib/observability/errors";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { resolveLeadIdentity } from "../leads/identityResolution";
 import { requireTenantUser } from "../requireTenantUser";
@@ -26,14 +26,13 @@ type NewLeadInput = {
   };
 };
 
-function leadDisplayName(lead: Doc<"leads">): string {
-  return leadDisplayString(lead);
-}
-
+// Messages reach the browser, so they name the lead's status, never the lead.
 function assertLeadCanStartManualSideDeal(lead: Doc<"leads">): void {
   if (lead.status !== "active") {
-    throw new Error(
-      `Lead "${leadDisplayName(lead)}" is ${lead.status}. Only active leads can be used for a new side-deal opportunity.`,
+    throw rejectRequest(
+      "opportunity.lead_not_active",
+      `This lead is ${lead.status}. Only active leads can be used for a new side-deal opportunity.`,
+      { tenantId: lead.tenantId, leadId: lead._id, leadStatus: lead.status },
     );
   }
 }
@@ -91,13 +90,23 @@ async function resolveLeadForManualCreate(
       result.resolvedVia === "social_handle"
         ? "social handle"
         : result.resolvedVia;
+    const rejectionAttrs = {
+      tenantId: args.tenantId,
+      leadId: resolvedLead._id,
+      leadStatus: resolvedLead.status,
+      resolvedVia: result.resolvedVia,
+    };
     if (resolvedLead.status !== "active") {
-      throw new Error(
-        `This ${resolvedBy} belongs to ${resolvedLead.status} lead "${leadDisplayName(resolvedLead)}". Only active leads can be used for a new side-deal opportunity.`,
+      throw rejectRequest(
+        "opportunity.lead_not_active",
+        `This ${resolvedBy} belongs to a ${resolvedLead.status} lead. Only active leads can be used for a new side-deal opportunity.`,
+        rejectionAttrs,
       );
     }
-    throw new Error(
-      `This ${resolvedBy} already belongs to "${leadDisplayName(resolvedLead)}". Use Existing lead, or enter different lead details.`,
+    throw rejectRequest(
+      "opportunity.lead_already_exists",
+      `This ${resolvedBy} already belongs to an existing lead. Use Existing lead, or enter different lead details.`,
+      rejectionAttrs,
     );
   }
 

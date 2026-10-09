@@ -1,6 +1,6 @@
-# Follow-ups from the October 2026 docs audit
+# Follow-ups from the October 2026 audits
 
-These issues came up while rewriting `AGENTS.md` on 2026-10-08. Nothing here has been changed yet. Line numbers are from `main` at that date.
+Sections 1 to 5 came up while rewriting `AGENTS.md` on 2026-10-08; line numbers there are from `main` at that date. Sections 6 to 10 came out of the observability audit the same day and need a product or design decision before anyone changes them. Nothing here has been changed yet.
 
 ## 1. Unused code
 
@@ -8,15 +8,13 @@ None of these files are imported anywhere in `app/`, `components/`, `lib/`, `hoo
 
 | File | Lines | Notes |
 | --- | --- | --- |
-| `app/workspace/_components/workspace-shell.tsx` | 356 | Marked `@deprecated`; replaced by `workspace-shell-frame.tsx`, `workspace-auth.tsx`, and `workspace-shell-client.tsx` |
 | `app/workspace/_components/stats-section.tsx` | 21 | Leftover dashboard section |
 | `app/workspace/_components/pipeline-section.tsx` | 20 | Leftover dashboard section |
 | `components/ui/stream-boundary.tsx` | 36 | Unused streaming wrapper |
-| `lib/posthog-capture.ts` | 69 | Server-side capture helper that reads the PostHog cookie; server events go through `lib/posthog-server.ts` instead |
 
 ### Fix
 
-Delete the five files, then run `pnpm typecheck` and `pnpm lint`.
+Delete the three files, then run `pnpm typecheck` and `pnpm lint`.
 
 ## 2. Orphaned View Transition CSS
 
@@ -51,3 +49,43 @@ Confirm the three variables are unused on the Vercel and Convex dashboards, then
 ### Fix
 
 Run `npx convex env list --prod` and compare the names with `convex/convex.config.ts`. For each optional variable that is set on dev and production, drop its `v.optional` wrapper, then remove any `?? ""` fallbacks and "not set" checks that the required type makes unnecessary.
+
+## 6. DM portal lockout can be bypassed
+
+`verifyPassword` in `convex/linkPortal/passwordActions.ts` is a public action that takes `ipHash` as an argument, and the lockout in `convex/linkPortal/rateLimitMutations.ts` counts failed attempts per `ipHash`. The Next.js server action computes the hash from the requester's IP, but anyone calling Convex directly can send a new `ipHash` on every attempt and guess the shared portal password without ever being locked out. Failed attempts and lockouts are now logged (`link_portal.auth.password_rejected`, `link_portal.auth.locked_out`), so an attack would be visible, not blocked.
+
+### Fix
+
+Make the Convex function trust only a hash it can verify. Either make `verifyPassword` an `internalAction` called through a route that computes the hash server-side, or have the Next.js action sign the `ipHash` with a shared secret that Convex checks. Add a per-portal attempt limit as well, so one portal can't be brute-forced from many IPs.
+
+## 7. Out-of-order Calendly cancels and no-shows are dropped
+
+When an `invitee.canceled` or `invitee_no_show.*` webhook is processed before its `invitee.created`, the handlers in `convex/pipeline/inviteeCanceled.ts` and `convex/pipeline/inviteeNoShow.ts` find no meeting and mark the event processed. The meeting then stays `scheduled` forever. Both events are scheduled with `runAfter(0)`, so the race is real. `classifyMissingMeeting` in `convex/pipeline/missingMeeting.ts` now tells this case apart and reports it as `pipeline.event_dropped:<event type>:out_of_order`, but the event is still lost.
+
+### Fix
+
+When the matching `invitee.created` exists but is unprocessed, leave the cancel or no-show unprocessed and reschedule `processRawEvent` for it after a delay, with an attempt cap. Decide what happens when the cap is hit: report it and stop, or apply the cancel once the booking lands.
+
+## 8. Failed booking events are never retried
+
+If `processRawEvent` (`convex/pipeline/processor.ts`) throws, for example `no_assigned_closer` in `inviteeCreated.ts` or an unparseable payload, the raw event stays `processed: false` and nothing processes it again. The only recovery is the system-admin replay in `convex/admin/rawWebhookReplay.ts`. The new `pipeline-stuck-events` cron reports these as `pipeline.events_stuck_unprocessed` every 15 minutes until someone replays or deletes them, so the alert keeps firing while the booking is missing from the CRM.
+
+### Fix
+
+Decide which failures are worth retrying. Transient ones (write conflicts, timeouts) could retry automatically with backoff and an attempt counter on `rawWebhookEvents` (a schema change, so plan the migration). Permanent ones such as `no_assigned_closer` need a person, so the alert should link to the replay tool, and replayed or deleted events should stop counting as stuck.
+
+## 9. Payment corrections keep old and new note values in domain events
+
+`buildCorrectionMetadata` in `convex/billing/mutations.ts` writes the `{ from, to }` of every changed field into the `payment.corrected` domain event, including the free-text `note` and `referenceCode`. That event is the only history of the previous values. These nested values don't reach PostHog, because `captureDomainEvent` only forwards flat values, but the free text stays in `domainEvents` for good.
+
+### Fix
+
+Decide whether correction history should keep free text. If it should, leave it and document it as intentional. If not, record `noteChanged: true` instead of the values, accepting that the old note is gone after a correction.
+
+## 10. Ownership checks throw plain errors
+
+Ownership checks such as "Not your opportunity", "Not your meeting", and "Not your reminder" throw a plain `Error` in `convex/closer/` (`followUp.ts`, `followUpMutations.ts`, `meetingActions.ts`, `meetingComments.ts`, `meetingDetail.ts`, `noShowActions.ts`, `payments.ts`, `reminderOutcomes.ts`) and in `convex/lib/outcomeEligibility.ts`. The observability classifier treats them as expected rejections, but production redacts a plain `Error` message, so the closer sees "Server Error" instead of the reason.
+
+### Fix
+
+Convert them to `throw rejectRequest("auth.not_owner", "<user-facing message>", { ...ids })` from `convex/lib/observability/errors.ts`. The UI already shows `error.data.message` through `getErrorMessage` in `lib/errors.ts`, so no frontend change is needed. Do the same for other caller-caused throws in these files as you touch them.

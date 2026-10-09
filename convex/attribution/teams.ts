@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import { normalizeAttributionTeamInput } from "../lib/attribution/teamInput";
+import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 
 // Matches MAX_DAILY_TEAM_GOAL in reporting/slackQualifications.ts.
@@ -46,7 +47,7 @@ export const createTeam = mutation({
       throw new Error("An active attribution team already uses this UTM source.");
     }
 
-    return await ctx.db.insert("attributionTeams", {
+    const teamId = await ctx.db.insert("attributionTeams", {
       tenantId,
       slug: normalized.slug,
       displayName: normalized.displayName,
@@ -56,6 +57,8 @@ export const createTeam = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    log.info("attribution.team.created", { tenantId, teamId });
+    return teamId;
   },
 });
 
@@ -98,6 +101,12 @@ export const updateTeam = mutation({
       utmSource: normalized.utmSource,
       normalizedUtmSource: normalized.normalizedUtmSource,
       updatedAt: Date.now(),
+    });
+    log.info("attribution.team.updated", {
+      tenantId,
+      teamId: args.teamId,
+      utmSourceChanged:
+        team.normalizedUtmSource !== normalized.normalizedUtmSource,
     });
     return args.teamId;
   },
@@ -155,6 +164,12 @@ export const setTeamActive = mutation({
       throw new Error("Attribution team not found.");
     }
     await ctx.db.patch("attributionTeams", teamId, { isActive, updatedAt: Date.now() });
+    log.info("attribution.team.active_set", {
+      tenantId,
+      teamId,
+      isActive,
+      changed: team.isActive !== isActive,
+    });
     return teamId;
   },
 });

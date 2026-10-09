@@ -15,6 +15,7 @@ import {
   slackQualificationsByTime,
   slackQualificationsByUser,
 } from "./aggregates";
+import { log } from "../lib/observability/log";
 
 const CLASSIFICATION_PAGE_SIZE = 100;
 const AGGREGATE_PAGE_SIZE = 200;
@@ -22,6 +23,21 @@ const ORIGIN_BACKFILL_PAGE_SIZE = 100;
 const SLACK_QUALIFICATION_AGGREGATE_PAGE_SIZE = 200;
 
 type FollowUpCreatedSource = "closer" | "admin" | "system";
+
+/**
+ * Each backfill reschedules itself one page at a time, so it logs one line
+ * per batch and `reporting.backfill.completed` for the last page.
+ */
+function logBackfillBatch(
+	backfill: string,
+	isDone: boolean,
+	counts: Record<string, number>,
+) {
+	log.info(isDone ? "reporting.backfill.completed" : "reporting.backfill.batch", {
+		backfill,
+		...counts,
+	});
+}
 
 export const backfillMeetingClassification = internalMutation({
 	args: { cursor: v.optional(v.string()) },
@@ -53,6 +69,11 @@ export const backfillMeetingClassification = internalMutation({
 			updated += 1;
 		}
 
+		logBackfillBatch("meeting_classification", result.isDone, {
+			processed: result.page.length,
+			updated,
+		});
+
 		if (!result.isDone) {
 			await ctx.scheduler.runAfter(
 				0,
@@ -81,6 +102,10 @@ export const backfillMeetingsAggregate = internalMutation({
 			await meetingsByStatus.insertIfDoesNotExist(ctx, meeting);
 		}
 
+		logBackfillBatch("meetings_aggregate", result.isDone, {
+			processed: result.page.length,
+		});
+
 		if (!result.isDone) {
 			await ctx.scheduler.runAfter(
 				0,
@@ -108,6 +133,10 @@ export const backfillPaymentsAggregate = internalMutation({
 			await paymentSums.insertIfDoesNotExist(ctx, payment);
 		}
 
+		logBackfillBatch("payments_aggregate", result.isDone, {
+			processed: result.page.length,
+		});
+
 		if (!result.isDone) {
 			await ctx.scheduler.runAfter(
 				0,
@@ -134,6 +163,10 @@ export const backfillOpportunitiesAggregate = internalMutation({
 		for (const opportunity of result.page) {
 			await opportunityByStatus.insertIfDoesNotExist(ctx, opportunity);
 		}
+
+		logBackfillBatch("opportunities_aggregate", result.isDone, {
+			processed: result.page.length,
+		});
 
 		if (!result.isDone) {
 			await ctx.scheduler.runAfter(
@@ -169,6 +202,11 @@ export const backfillSlackQualificationAggregates = internalMutation({
 			inserted += 1;
 		}
 
+		logBackfillBatch("slack_qualification_aggregates", result.isDone, {
+			processed: result.page.length,
+			inserted,
+		});
+
 		if (!result.isDone) {
 			await ctx.scheduler.runAfter(
 				0,
@@ -197,6 +235,10 @@ export const backfillLeadsAggregate = internalMutation({
 			await leadTimeline.insertIfDoesNotExist(ctx, lead);
 		}
 
+		logBackfillBatch("leads_aggregate", result.isDone, {
+			processed: result.page.length,
+		});
+
 		if (!result.isDone) {
 			await ctx.scheduler.runAfter(
 				0,
@@ -223,6 +265,10 @@ export const backfillCustomersAggregate = internalMutation({
 		for (const customer of result.page) {
 			await customerConversions.insertIfDoesNotExist(ctx, customer);
 		}
+
+		logBackfillBatch("customers_aggregate", result.isDone, {
+			processed: result.page.length,
+		});
 
 		if (!result.isDone) {
 			await ctx.scheduler.runAfter(
@@ -300,14 +346,11 @@ export const backfillPaymentOrigin = internalMutation({
 			updated += 1;
 		}
 
-		if (defaultedToCloserMeeting > 0) {
-			console.log(
-				"[Backfill:PaymentOrigin] batch complete | updated=%d skipped=%d defaulted=%d",
-				updated,
-				skipped,
-				defaultedToCloserMeeting,
-			);
-		}
+		logBackfillBatch("payment_origin", result.isDone, {
+			updated,
+			skipped,
+			defaultedToCloserMeeting,
+		});
 
 		if (!result.isDone) {
 			await ctx.scheduler.runAfter(
@@ -467,14 +510,11 @@ export const backfillFollowUpOrigin = internalMutation({
 			updated += 1;
 		}
 
-		if (defaultedToSystem > 0) {
-			console.log(
-				"[Backfill:FollowUpOrigin] batch complete | updated=%d skipped=%d defaulted=%d",
-				updated,
-				skipped,
-				defaultedToSystem,
-			);
-		}
+		logBackfillBatch("follow_up_origin", result.isDone, {
+			updated,
+			skipped,
+			defaultedToSystem,
+		});
 
 		if (!result.isDone) {
 			await ctx.scheduler.runAfter(

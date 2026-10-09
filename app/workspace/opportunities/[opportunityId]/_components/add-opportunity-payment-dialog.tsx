@@ -5,6 +5,7 @@ import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation } from "convex/react";
 import { BanknoteIcon, UploadIcon } from "lucide-react";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -42,6 +43,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { getErrorMessage } from "@/lib/errors";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const VALID_FILE_TYPES = [
@@ -136,6 +138,7 @@ export function AddOpportunityPaymentDialog({
   });
 
   const onSubmit = async (values: PaymentValues) => {
+    let uploadHttpStatus: number | undefined;
     setIsSubmitting(true);
     setSubmitError(null);
 
@@ -150,6 +153,7 @@ export function AddOpportunityPaymentDialog({
         });
 
         if (!uploadResponse.ok) {
+          uploadHttpStatus = uploadResponse.status;
           throw new Error("Failed to upload proof file.");
         }
 
@@ -185,9 +189,9 @@ export function AddOpportunityPaymentDialog({
       form.reset();
       setOpen(false);
     } catch (error) {
-      posthog.captureException(error);
+      reportClientError(error, { flow: "additional_payment_record", httpStatus: uploadHttpStatus });
       const message =
-        error instanceof Error ? error.message : "Failed to record payment";
+        getErrorMessage(error, "Failed to record payment");
       setSubmitError(message);
       toast.error(message);
     } finally {

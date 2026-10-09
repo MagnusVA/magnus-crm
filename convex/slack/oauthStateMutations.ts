@@ -1,9 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
-
-function hashPrefix(value: string) {
-  return value.slice(0, 12);
-}
+import { log } from "../lib/observability/log";
 
 export const insertState = internalMutation({
   args: {
@@ -15,15 +12,6 @@ export const insertState = internalMutation({
     expiresAt: v.number(),
   },
   handler: async (ctx, args) => {
-    console.log("[Slack:OAuthState] insertState", {
-      tenantId: args.tenantId,
-      workosUserId: args.workosUserId,
-      stateHashPrefix: hashPrefix(args.stateHash),
-      nonceHashPrefix: hashPrefix(args.nonceHash),
-      issuedAt: args.issuedAt,
-      expiresAt: args.expiresAt,
-    });
-
     await ctx.db.insert("slackOAuthStates", {
       tenantId: args.tenantId,
       workosUserId: args.workosUserId,
@@ -41,24 +29,18 @@ export const consumeState = internalMutation({
     nonceHash: v.string(),
   },
   handler: async (ctx, args) => {
-    console.log("[Slack:OAuthState] consumeState lookup", {
-      stateHashPrefix: hashPrefix(args.stateHash),
-      nonceHashPrefix: hashPrefix(args.nonceHash),
-    });
-
     const row = await ctx.db
       .query("slackOAuthStates")
       .withIndex("by_stateHash", (q) => q.eq("stateHash", args.stateHash))
       .unique();
 
     if (!row) {
-      console.warn("[Slack:OAuthState] consumeState failed: row missing", {
-        stateHashPrefix: hashPrefix(args.stateHash),
-      });
+      log.warn("slack.oauth_state.rejected", { reason: "state_not_found" });
       return false;
     }
     if (row.consumedAt) {
-      console.warn("[Slack:OAuthState] consumeState failed: already consumed", {
+      log.warn("slack.oauth_state.rejected", {
+        reason: "already_consumed",
         stateId: row._id,
         tenantId: row.tenantId,
         consumedAt: row.consumedAt,
@@ -66,32 +48,25 @@ export const consumeState = internalMutation({
       return false;
     }
     if (row.nonceHash !== args.nonceHash) {
-      console.warn("[Slack:OAuthState] consumeState failed: nonce mismatch", {
+      log.warn("slack.oauth_state.rejected", {
+        reason: "nonce_mismatch",
         stateId: row._id,
         tenantId: row.tenantId,
-        expectedNonceHashPrefix: hashPrefix(row.nonceHash),
-        receivedNonceHashPrefix: hashPrefix(args.nonceHash),
       });
       return false;
     }
     const now = Date.now();
     if (row.expiresAt <= now) {
-      console.warn("[Slack:OAuthState] consumeState failed: expired", {
+      log.warn("slack.oauth_state.rejected", {
+        reason: "expired",
         stateId: row._id,
         tenantId: row.tenantId,
-        expiresAt: row.expiresAt,
-        now,
+        expiredForMs: now - row.expiresAt,
       });
       return false;
     }
 
     await ctx.db.patch("slackOAuthStates", row._id, { consumedAt: now });
-    console.log("[Slack:OAuthState] consumeState success", {
-      stateId: row._id,
-      tenantId: row.tenantId,
-      workosUserId: row.workosUserId,
-      consumedAt: now,
-    });
     return true;
   },
 });

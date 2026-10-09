@@ -3,6 +3,7 @@ import { internalMutation, internalQuery } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { attributionPatch, isInternalUtm, resolveAttributionForTenant } from "../lib/attribution/resolveAttribution";
+import { log } from "../lib/observability/log";
 import { rebuildQualificationRowsForOpportunity } from "../operations/projections";
 
 type BackfillReport = {
@@ -66,6 +67,7 @@ export const backfillMeetingAttribution = internalMutation({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, { dryRun, limit }) => {
+    const startedAt = Date.now();
     const report = emptyReport();
     const tenantIds = await listTenantIds(ctx);
 
@@ -129,6 +131,11 @@ export const backfillMeetingAttribution = internalMutation({
       addReport(report, tenantReport);
     }
 
+    log.info("attribution.backfill.meetings", {
+      dryRun,
+      ...report,
+      durationMs: Date.now() - startedAt,
+    });
     return report;
   },
 });
@@ -139,6 +146,7 @@ export const backfillOpportunityAttribution = internalMutation({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, { dryRun, limit }) => {
+    const startedAt = Date.now();
     const report = emptyReport();
     const tenantIds = await listTenantIds(ctx);
 
@@ -233,6 +241,11 @@ export const backfillOpportunityAttribution = internalMutation({
       addReport(report, tenantReport);
     }
 
+    log.info("attribution.backfill.opportunities", {
+      dryRun,
+      ...report,
+      durationMs: Date.now() - startedAt,
+    });
     return report;
   },
 });

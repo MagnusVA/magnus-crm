@@ -11,6 +11,7 @@ import {
 } from "../lib/normalization";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
+import { reportError } from "../lib/observability/log";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { insertLeadAggregate } from "../reporting/writeHooks";
 import { buildLeadSearchText } from "./searchTextBuilder";
@@ -80,14 +81,15 @@ async function followMergeChain(
   ) {
     const next = await ctx.db.get("leads", current.mergedIntoLeadId);
     if (!next) {
-      console.error(
-        "[LeadIdentity] Broken merge chain",
-        {
-          leadId: current._id,
-          mergedIntoLeadId: current.mergedIntoLeadId,
-          depth,
-        },
-      );
+      reportError("leads.identity.merge_chain_broken", "Merge chain target lead is missing", {
+        severity: "error",
+        fingerprint: "leads.identity.merge_chain_broken",
+        tenantId: lead.tenantId,
+        startLeadId: lead._id,
+        leadId: current._id,
+        mergedIntoLeadId: current.mergedIntoLeadId,
+        depth,
+      });
       return undefined;
     }
     current = next;
@@ -95,8 +97,12 @@ async function followMergeChain(
   }
 
   if (depth >= maxDepth || current.status === "merged") {
-    console.error("[LeadIdentity] Merge chain unresolved", {
+    reportError("leads.identity.merge_chain_unresolved", "Merge chain did not resolve to an active lead", {
+      severity: "error",
+      fingerprint: "leads.identity.merge_chain_unresolved",
+      tenantId: lead.tenantId,
       startLeadId: lead._id,
+      endLeadId: current._id,
       depth,
     });
     return undefined;
@@ -176,11 +182,6 @@ async function detectPotentialDuplicate(
     }
 
     if (areNamesSimilar(newLeadName, candidate.fullName)) {
-      console.log("[LeadIdentity] Potential duplicate detected", {
-        newLeadId,
-        candidateLeadId: candidate._id,
-        domain: emailDomain,
-      });
       return candidate._id;
     }
   }

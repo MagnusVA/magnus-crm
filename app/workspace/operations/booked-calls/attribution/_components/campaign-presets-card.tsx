@@ -27,6 +27,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { CampaignPresetDialog } from "./campaign-preset-dialog";
+import { getErrorMessage } from "@/lib/errors";
 
 type CampaignPreset = Doc<"linkPortalCampaignPresets">;
 
@@ -58,9 +59,7 @@ export function CampaignPresetsCard() {
     seedRequestedRef.current = true;
     void ensureDefaults({}).catch((error) => {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Could not seed campaign presets",
+        getErrorMessage(error, "Could not seed campaign presets"),
       );
     });
   }, [campaigns, ensureDefaults]);
@@ -83,7 +82,7 @@ export function CampaignPresetsCard() {
       toast.success(isActive ? "Campaign enabled" : "Campaign disabled");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not update campaign",
+        getErrorMessage(error, "Could not update campaign"),
       );
     } finally {
       setPendingCampaignId(null);
@@ -97,9 +96,7 @@ export function CampaignPresetsCard() {
       toast.success("Default campaign updated");
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Could not update default campaign",
+        getErrorMessage(error, "Could not update default campaign"),
       );
     } finally {
       setPendingCampaignId(null);

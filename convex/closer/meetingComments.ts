@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import { userMemberIdentity } from "../lib/memberIdentity";
+import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 import { getUserDisplayName } from "../reporting/lib/helpers";
 import { loadMeetingContext } from "./meetingActions";
@@ -41,13 +42,6 @@ export const addComment = mutation({
       createdAt: Date.now(),
     });
 
-    console.log(
-      "[Comments] addComment | meetingId=%s authorId=%s commentId=%s",
-      meetingId,
-      userId,
-      commentId,
-    );
-
     return commentId;
   },
 });
@@ -87,12 +81,6 @@ export const editComment = mutation({
       content: trimmed,
       editedAt: Date.now(),
     });
-
-    console.log(
-      "[Comments] editComment | commentId=%s authorId=%s",
-      commentId,
-      userId,
-    );
   },
 });
 
@@ -101,7 +89,7 @@ export const deleteComment = mutation({
     commentId: v.id("meetingComments"),
   },
   handler: async (ctx, { commentId }) => {
-    const { userId, tenantId, role } = await requireTenantUser(ctx, [
+    const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
@@ -111,19 +99,18 @@ export const deleteComment = mutation({
       throw new Error("Comment not found");
     }
     if (comment.deletedAt !== undefined) {
+      log.info("meeting_comment.delete_skipped", {
+        tenantId,
+        actor: "admin",
+        commentId,
+        reason: "already_deleted",
+      });
       return;
     }
 
     await ctx.db.patch("meetingComments", commentId, {
       deletedAt: Date.now(),
     });
-
-    console.log(
-      "[Comments] deleteComment | commentId=%s deletedBy=%s role=%s",
-      commentId,
-      userId,
-      role,
-    );
   },
 });
 

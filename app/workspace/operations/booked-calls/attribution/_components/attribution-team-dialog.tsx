@@ -16,6 +16,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 
 export function AttributionTeamDialog({
   open,
@@ -54,7 +55,7 @@ export function AttributionTeamDialog({
       toast.success(team ? "Attribution team updated" : "Attribution team created");
       onOpenChange(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Unable to save team");
+      toast.error(getErrorMessage(error, "Unable to save team"));
     } finally {
       setIsSaving(false);
     }

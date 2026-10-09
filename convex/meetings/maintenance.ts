@@ -7,6 +7,7 @@
 import { internalMutation } from "../_generated/server";
 import { v } from "convex/values";
 import { extractMeetingLocation } from "../lib/meetingLocation";
+import { log } from "../lib/observability/log";
 
 interface BackfillResult {
   patched: number;
@@ -43,13 +44,14 @@ export const backfillMeetingLinks = internalMutation({
     dryRun: v.optional(v.boolean()),
   },
   handler: async (ctx, { tenantId, dryRun }): Promise<BackfillResult> => {
-    console.log(`[Meetings:Backfill] Starting | tenantId=${tenantId} dryRun=${dryRun}`);
+    log.info("meetings.link_backfill.started", { tenantId, dryRun: !!dryRun });
 
     const locationByScheduledEventUri = new Map<
       string,
       ReturnType<typeof extractMeetingLocation>
     >();
     let rawEventCount = 0;
+    let unparseableRawEventCount = 0;
 
     for await (const rawEvent of ctx.db
       .query("rawWebhookEvents")
@@ -72,16 +74,10 @@ export const backfillMeetingLinks = internalMutation({
 
         const normalized = extractMeetingLocation(payload.scheduled_event.location);
         locationByScheduledEventUri.set(scheduledEventUri, normalized);
-      } catch (err) {
-        console.error(
-          `[Meetings:Backfill] Failed to parse raw event | rawEventId=${rawEvent._id} error=${err}`,
-        );
+      } catch {
+        unparseableRawEventCount += 1;
       }
     }
-
-    console.log(
-      `[Meetings:Backfill] Built location map | rawEvents=${rawEventCount} uniqueScheduledEvents=${locationByScheduledEventUri.size}`,
-    );
 
     let meetingCount = 0;
     let patched = 0;
@@ -123,9 +119,17 @@ export const backfillMeetingLinks = internalMutation({
       }
     }
 
-    console.log(
-      `[Meetings:Backfill] Completed | meetings=${meetingCount} patched=${patched} recoverable=${recoverable} malformed=${malformed} dryRun=${dryRun}`,
-    );
+    log.info("meetings.link_backfill.completed", {
+      tenantId,
+      dryRun: !!dryRun,
+      rawEventCount,
+      unparseableRawEventCount,
+      uniqueScheduledEventCount: locationByScheduledEventUri.size,
+      meetingCount,
+      patched,
+      recoverable,
+      malformed,
+    });
 
     return { patched, recoverable, malformed, dryRun: !!dryRun };
   },

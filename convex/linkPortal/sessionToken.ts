@@ -3,6 +3,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Id } from "../_generated/dataModel";
 import { env } from "../_generated/server";
+import { log, logRequestContext } from "../lib/observability/log";
 
 export type PortalSessionPayload = {
   tenantId: Id<"tenants">;
@@ -67,9 +68,16 @@ export function issuePortalSessionToken(args: {
   return `${body}.${sign(body)}`;
 }
 
-export function verifyPortalSessionToken(token: string) {
+/**
+ * Verify a signed portal session token. Once the signature checks out, the
+ * request is attributed to the token's tenant. With `expectedSlug`, also
+ * require the token to be bound to that portal slug. The tenant always comes
+ * from the signed token, never from client args.
+ */
+export function verifyPortalSessionToken(token: string, expectedSlug?: string) {
   const [body, signature, extra] = token.split(".");
   if (!body || !signature || extra !== undefined) {
+    log.warn("link_portal.session.rejected", { reason: "malformed_token" });
     throw new Error("Invalid portal session.");
   }
 
@@ -80,6 +88,7 @@ export function verifyPortalSessionToken(token: string) {
     signatureBuffer.length !== expectedBuffer.length ||
     !timingSafeEqual(signatureBuffer, expectedBuffer)
   ) {
+    log.warn("link_portal.session.rejected", { reason: "signature_mismatch" });
     throw new Error("Invalid portal session.");
   }
 
@@ -87,15 +96,22 @@ export function verifyPortalSessionToken(token: string) {
   try {
     parsed = JSON.parse(Buffer.from(body, "base64url").toString("utf8"));
   } catch {
+    log.warn("link_portal.session.rejected", { reason: "invalid_payload_json" });
     throw new Error("Invalid portal session.");
   }
 
   if (!isPortalSessionPayload(parsed)) {
+    log.warn("link_portal.session.rejected", { reason: "invalid_payload" });
     throw new Error("Invalid portal session.");
   }
+  logRequestContext({ tenantId: parsed.tenantId });
   if (parsed.exp <= Math.floor(Date.now() / 1000)) {
     throw new Error("Portal session expired.");
+  }
+  if (expectedSlug !== undefined && parsed.publicSlug !== expectedSlug) {
+    throw new Error("Portal session is no longer valid.");
   }
 
   return parsed;
 }
+

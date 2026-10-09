@@ -1,11 +1,9 @@
 import { internal } from "../_generated/api";
-import { httpAction, env } from "../_generated/server";
+import { httpAction } from "../_generated/server";
 import { emitDomainEventInAction } from "../lib/domainEventsAction";
-import { verifySlackSignature } from "../lib/slackSignature";
+import { log, logRequestContext } from "../lib/observability/log";
+import { verifyInboundSlackRequest } from "../lib/slackSignature";
 import { persistRawSlackEvent } from "./rawEventsAudit";
-
-const SIG_HEADER = "x-slack-signature";
-const TS_HEADER = "x-slack-request-timestamp";
 
 type SlackEventEnvelope = {
   type?: string;
@@ -23,8 +21,17 @@ type SlackEventEnvelope = {
 export const handleEvent = httpAction(async (ctx, req) => {
   const rawBody = await req.text();
 
-  if (!(await verifyInboundSlackRequest(req, rawBody))) {
-    console.warn("[Slack:Events] bad signature");
+  const signatureFailure = await verifyInboundSlackRequest(
+    req,
+    rawBody,
+    "events",
+  );
+  if (signatureFailure) {
+    log.warn("slack.events.rejected", {
+      reason: "bad_signature",
+      signatureFailure,
+      httpStatus: 401,
+    });
     return new Response("Bad signature", { status: 401 });
   }
 
@@ -32,7 +39,10 @@ export const handleEvent = httpAction(async (ctx, req) => {
   try {
     body = JSON.parse(rawBody) as SlackEventEnvelope;
   } catch {
-    console.warn("[Slack:Events] body not JSON");
+    log.warn("slack.events.rejected", {
+      reason: "body_not_json",
+      httpStatus: 400,
+    });
     return new Response("Bad request", { status: 400 });
   }
 
@@ -44,7 +54,7 @@ export const handleEvent = httpAction(async (ctx, req) => {
       rawBody,
       parsedPayload: body,
     });
-    console.log("[Slack:Events] url_verification handshake");
+    log.info("slack.events.handled", { eventType: "url_verification" });
     return new Response(body.challenge ?? "", {
       status: 200,
       headers: { "Content-Type": "text/plain" },
@@ -52,7 +62,10 @@ export const handleEvent = httpAction(async (ctx, req) => {
   }
 
   if (body.type !== "event_callback") {
-    console.log("[Slack:Events] ignored top-level type", { type: body.type });
+    log.info("slack.events.ignored", {
+      reason: "unsupported_envelope_type",
+      envelopeType: body.type,
+    });
     return new Response("", { status: 200 });
   }
 
@@ -61,9 +74,11 @@ export const handleEvent = httpAction(async (ctx, req) => {
   const eventType = body.event?.type;
 
   if (!teamId || !appId) {
-    console.warn("[Slack:Events] missing team_id/api_app_id", {
-      teamId,
-      appId,
+    log.warn("slack.events.rejected", {
+      reason: "missing_team_or_app_id",
+      httpStatus: 200,
+      hasTeamId: Boolean(teamId),
+      hasAppId: Boolean(appId),
       eventType,
     });
     return new Response("", { status: 200 });
@@ -96,10 +111,7 @@ export const handleEvent = httpAction(async (ctx, req) => {
       });
     }
 
-    console.log("[Slack:Events] app_uninstalled", {
-      teamId,
-      affected: affected.length,
-    });
+    logLifecycleEvent(eventType, { teamId, appId, affected });
     return new Response("", { status: 200 });
   }
 
@@ -121,16 +133,18 @@ export const handleEvent = httpAction(async (ctx, req) => {
       });
     }
 
-    console.log("[Slack:Events] tokens_revoked", {
-      teamId,
-      affected: affected.length,
-    });
+    logLifecycleEvent(eventType, { teamId, appId, affected });
     return new Response("", { status: 200 });
   }
 
   if (eventType === "user_change") {
     if (!body.event?.user) {
-      console.warn("[Slack:Events] user_change without user payload");
+      log.warn("slack.events.rejected", {
+        reason: "user_change_without_user",
+        httpStatus: 200,
+        teamId,
+        apiAppId: appId,
+      });
       return new Response("", { status: 200 });
     }
 
@@ -138,11 +152,16 @@ export const handleEvent = httpAction(async (ctx, req) => {
       internal.slack.installations.byTeamIdAndAppId,
       { teamId, appId },
     );
+    if (installation) {
+      logRequestContext({ tenantId: installation.tenantId });
+    }
     if (!installation || installation.status !== "active") {
-      console.log("[Slack:Events] user_change ignored - installation inactive", {
+      log.info("slack.events.ignored", {
+        reason: installation ? "installation_not_active" : "no_installation",
+        eventType,
         teamId,
-        appId,
-        status: installation?.status,
+        apiAppId: appId,
+        installationStatus: installation?.status,
       });
       return new Response("", { status: 200 });
     }
@@ -151,23 +170,59 @@ export const handleEvent = httpAction(async (ctx, req) => {
       installationId: installation._id,
       userPayload: body.event.user,
     });
-    console.log("[Slack:Events] user_change applied", { teamId, appId });
+    log.info("slack.events.handled", {
+      eventType,
+      tenantId: installation.tenantId,
+      installationId: installation._id,
+    });
     return new Response("", { status: 200 });
   }
 
-  console.log("[Slack:Events] ignored event.type", { eventType });
+  log.info("slack.events.ignored", {
+    reason: "unsupported_event_type",
+    eventType,
+    teamId,
+  });
   return new Response("", { status: 200 });
 });
 
-async function verifyInboundSlackRequest(
-  req: Request,
-  rawBody: string,
-): Promise<boolean> {
-  return await verifySlackSignature({
-    rawBody,
-    timestamp: req.headers.get(TS_HEADER) ?? "",
-    signature: req.headers.get(SIG_HEADER) ?? "",
-    signingSecret: env.SLACK_SIGNING_SECRET ?? "",
-    previousSigningSecret: env.SLACK_SIGNING_SECRET_PREVIOUS,
+/**
+ * Uninstall and token revocation are routine lifecycle events (our own
+ * disconnect flow triggers them), so the outcome line is info. Losing an
+ * installation that was still active means someone removed the app from the
+ * Slack side and notifications stop, which gets a separate warning.
+ */
+function logLifecycleEvent(
+  eventType: "app_uninstalled" | "tokens_revoked",
+  args: {
+    teamId: string;
+    appId: string;
+    affected: Array<{
+      tenantId: string;
+      installationId: string;
+      previousStatus: string;
+    }>;
+  },
+) {
+  const { teamId, appId, affected } = args;
+  if (affected.length === 1) {
+    logRequestContext({ tenantId: affected[0].tenantId });
+  }
+  log.info("slack.events.handled", {
+    eventType,
+    teamId,
+    apiAppId: appId,
+    affectedInstallations: affected.length,
+    tenantIds: affected.map((row) => row.tenantId),
   });
+  for (const row of affected) {
+    if (row.previousStatus !== "active") continue;
+    log.warn("slack.installation.lost", {
+      reason: eventType,
+      tenantId: row.tenantId,
+      installationId: row.installationId,
+      teamId,
+      apiAppId: appId,
+    });
+  }
 }

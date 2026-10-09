@@ -6,6 +6,7 @@ import { useMutation } from "convex/react";
 import { Trash2Icon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -34,6 +35,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { getErrorMessage } from "@/lib/errors";
 
 const deleteOpportunitySchema = z.object({
   reason: z
@@ -77,9 +79,9 @@ export function DeleteOpportunityDialog({
       toast.success("Opportunity deleted");
       router.push("/workspace/opportunities");
     } catch (error) {
-      posthog.captureException(error);
+      reportClientError(error, { flow: "opportunity_delete" });
       const message =
-        error instanceof Error ? error.message : "Failed to delete opportunity";
+        getErrorMessage(error, "Failed to delete opportunity");
       setSubmitError(message);
       toast.error(message);
       setIsSubmitting(false);

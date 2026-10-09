@@ -143,16 +143,6 @@ export const getReminderOutcomeFunnel = query({
       filteredReminderRevenue,
     );
 
-    if (reminderRevenueSplit.nonCommissionable.allPayments.length > 0) {
-      console.warn(
-        "[Reporting:Reminders] Non-commissionable reminder payments detected",
-        {
-          tenantId,
-          count: reminderRevenueSplit.nonCommissionable.allPayments.length,
-        },
-      );
-    }
-
     const reminderDrivenFinalRevenueMinor =
       reminderRevenueSplit.commissionable.finalRevenueMinor;
     const reminderDrivenDepositRevenueMinor =

@@ -5,6 +5,7 @@ import { internal } from "../_generated/api";
 import { action, env } from "../_generated/server";
 import type { Doc } from "../_generated/dataModel";
 import { getIdentityOrgId } from "../lib/identity";
+import { log } from "../lib/observability/log";
 import {
   getCanonicalIdentityWorkosUserId,
   getRawWorkosUserId,
@@ -30,23 +31,21 @@ function getDisplayName(user: {
 export const claimInvitedAccount = action({
   args: {},
   handler: async (ctx): Promise<Doc<"users"> | null> => {
-    console.log("[WorkOS:Users] claimInvitedAccount action called");
-
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
-      console.warn("[WorkOS:Users] claimInvitedAccount action: not authenticated");
+      log.warn("workos.user.invite_claim_skipped", { reason: "not_authenticated" });
       return null;
     }
 
     const workosUserId = getCanonicalIdentityWorkosUserId(identity);
     if (!workosUserId) {
-      console.warn("[WorkOS:Users] claimInvitedAccount action: no workosUserId");
+      log.warn("workos.user.invite_claim_skipped", { reason: "missing_workos_user_id" });
       return null;
     }
 
     const orgId = getIdentityOrgId(identity);
     if (!orgId) {
-      console.warn("[WorkOS:Users] claimInvitedAccount action: no orgId");
+      log.warn("workos.user.invite_claim_skipped", { reason: "missing_org_id" });
       return null;
     }
 
@@ -56,17 +55,12 @@ export const claimInvitedAccount = action({
     const email = workosUser.email?.trim().toLowerCase();
 
     if (!email) {
-      console.warn("[WorkOS:Users] claimInvitedAccount action: WorkOS user missing email", {
-        workosUserId,
+      log.warn("workos.user.invite_claim_skipped", {
+        reason: "workos_user_missing_email",
+        workosOrgId: orgId,
       });
       return null;
     }
-
-    console.log("[WorkOS:Users] claimInvitedAccount action: resolved WorkOS user", {
-      workosUserId,
-      orgId,
-      email,
-    });
 
     return await ctx.runMutation(
       internal.workos.userMutations.claimInvitedAccountByEmail,

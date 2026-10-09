@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { getErrorMessage } from "@/lib/errors";
 
 const campaignPresetSchema = z.object({
   label: z.string().trim().min(1, "Label is required").max(40),
@@ -108,7 +109,7 @@ export function CampaignPresetDialog({
       onOpenChange(false);
     } catch (error) {
       setSubmitError(
-        error instanceof Error ? error.message : "Campaign preset could not be saved.",
+        getErrorMessage(error, "Campaign preset could not be saved."),
       );
     } finally {
       setIsSubmitting(false);

@@ -1,12 +1,30 @@
 import { v } from "convex/values";
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { rejectRequest } from "../lib/observability/errors";
+import { describeError, log, reportError } from "../lib/observability/log";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
-import { getValidSlackBotToken } from "./tokens";
+import {
+  getValidSlackBotToken,
+  SlackInstallationMissingError,
+  SlackInstallationNotActiveError,
+  slackTokenUnavailableReason,
+  type SlackTokenUnavailableReason,
+} from "./tokens";
 import { slackApiGet } from "./webApi";
 
 const CHANNEL_PAGE_LIMIT = 200;
 const MAX_PAGES = 10;
+
+/**
+ * auth.revoke errors meaning the token is already dead (the app was removed
+ * or the token revoked in Slack), so there's nothing left to revoke.
+ */
+const ALREADY_REVOKED_ERRORS = new Set([
+  "token_revoked",
+  "invalid_auth",
+  "account_inactive",
+]);
 
 export type SlackChannel = {
   id: string;
@@ -49,34 +67,73 @@ export const disconnectSlack = action({
     // Slack's side; removing the app from the workspace itself still requires
     // a Slack admin, hence the revokedInSlack flag for honest UI copy.
     let revokedInSlack = false;
+    const revokeAttrs = { tenantId, installationId: installation._id };
     try {
-      let token: string;
+      let token: string | undefined;
+      let tokenFailure: SlackTokenUnavailableReason | undefined;
       try {
         token = await getValidSlackBotToken(ctx, tenantId);
-      } catch {
-        if (!installation.botAccessToken) {
-          throw new Error("no usable bot token");
-        }
-        token = installation.botAccessToken;
+      } catch (error) {
+        // `token_expired` was already reported as `slack.token.expired`.
+        tokenFailure = slackTokenUnavailableReason(error);
+        token = installation.botAccessToken || undefined;
       }
-      const response = await slackApiGet<{ revoked?: boolean }>(
-        "auth.revoke",
-        token,
-        {},
-      );
-      if (response.ok) {
-        revokedInSlack = true;
-      } else {
-        console.warn("[Slack:Channels] auth.revoke failed", {
-          tenantId,
-          error: response.error ?? "unknown",
+
+      if (!token) {
+        log.info("slack.disconnect.revoke_skipped", {
+          ...revokeAttrs,
+          reason: "no_usable_token",
+          tokenFailure,
         });
+      } else {
+        const response = await slackApiGet<{ revoked?: boolean }>(
+          "auth.revoke",
+          token,
+          {},
+        );
+        if (response.ok) {
+          revokedInSlack = true;
+        } else {
+          const slackError = response.error ?? "unknown";
+          if (
+            ALREADY_REVOKED_ERRORS.has(slackError) ||
+            tokenFailure === "token_expired"
+          ) {
+            log.info("slack.disconnect.revoke_skipped", {
+              ...revokeAttrs,
+              reason: "token_already_invalid",
+              slackError,
+              tokenFailure,
+            });
+          } else {
+            reportError(
+              "slack.disconnect.revoke_failed",
+              new Error(`Slack auth.revoke failed: ${slackError}`),
+              {
+                severity: "warning",
+                integration: "slack",
+                fingerprint: `slack.disconnect.revoke_failed:${slackError}`,
+                ...revokeAttrs,
+                slackError,
+                tokenFailure,
+              },
+            );
+          }
+        }
       }
     } catch (error) {
-      console.warn("[Slack:Channels] auth.revoke failed", {
-        tenantId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      const errorName = describeError(error).name;
+      reportError(
+        "slack.disconnect.revoke_failed",
+        new Error("Slack auth.revoke request failed"),
+        {
+          severity: "warning",
+          integration: "slack",
+          fingerprint: `slack.disconnect.revoke_failed:${errorName}`,
+          errorName,
+          ...revokeAttrs,
+        },
+      );
     }
 
     const result: { disconnected: boolean } = await ctx.runMutation(
@@ -84,8 +141,10 @@ export const disconnectSlack = action({
       { tenantId },
     );
 
-    console.log("[Slack:Channels] disconnected", {
+    log.info("slack.disconnect.completed", {
       tenantId,
+      installationId: installation._id,
+      disconnected: result.disconnected,
       revokedInSlack,
     });
 
@@ -101,7 +160,25 @@ export const listInstalledChannels = action({
       "tenant_admin",
     ]);
 
-    const token = await getValidSlackBotToken(ctx, access.tenantId);
+    let token: string;
+    try {
+      token = await getValidSlackBotToken(ctx, access.tenantId);
+    } catch (error) {
+      if (
+        error instanceof SlackInstallationMissingError ||
+        error instanceof SlackInstallationNotActiveError
+      ) {
+        throw rejectRequest(
+          "slack.not_connected",
+          "Slack is not connected for this workspace.",
+          {
+            tenantId: access.tenantId,
+            reason: slackTokenUnavailableReason(error),
+          },
+        );
+      }
+      throw error;
+    }
     const channels: SlackChannel[] = [];
     let cursor: string | undefined;
 
@@ -140,11 +217,6 @@ export const listInstalledChannels = action({
     channels.sort((a, b) => {
       if (a.isArchived !== b.isArchived) return a.isArchived ? 1 : -1;
       return a.name.localeCompare(b.name);
-    });
-
-    console.log("[Slack:Channels] listed", {
-      tenantId: access.tenantId,
-      count: channels.length,
     });
 
     return channels;

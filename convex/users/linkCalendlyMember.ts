@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
+import { rejectRequest } from "../lib/observability/errors";
+import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 
 /**
@@ -14,13 +16,10 @@ export const linkCloserToCalendlyMember = mutation({
     calendlyMemberId: v.union(v.id("calendlyOrgMembers"), v.null()),
   },
   handler: async (ctx, { userId, calendlyMemberId }) => {
-    console.log("[Users:CalendlyLink] linkCloserToCalendlyMember called", { userId, calendlyMemberId });
     const { tenantId } = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
 
     const user = await ctx.db.get("users", userId);
-    console.log("[Users:CalendlyLink] user validation", { found: !!user, role: user?.role, currentCalendlyUri: !!user?.calendlyUserUri });
     if (!user || user.tenantId !== tenantId) {
-      console.error("[Users:CalendlyLink] Invalid user", { userId });
       throw new Error("Invalid user");
     }
 
@@ -29,6 +28,7 @@ export const linkCloserToCalendlyMember = mutation({
     }
 
     // Unlink previous Calendly member (if the user was linked to someone else)
+    let previousMemberId: string | undefined;
     if (user.calendlyUserUri) {
       const prevMember = await ctx.db
         .query("calendlyOrgMembers")
@@ -37,32 +37,43 @@ export const linkCloserToCalendlyMember = mutation({
         )
         .unique();
       if (prevMember) {
-        console.log("[Users:CalendlyLink] unlinking previous member", { prevMemberId: prevMember._id });
+        previousMemberId = prevMember._id;
         await ctx.db.patch("calendlyOrgMembers", prevMember._id, { matchedUserId: undefined });
       }
     }
 
     if (calendlyMemberId === null) {
-      console.log("[Users:CalendlyLink] unlinking user (no new member)", { userId });
       // Clear both the URI and the denormalized name when unlinking
       await ctx.db.patch("users", userId, {
         calendlyUserUri: undefined,
         calendlyMemberName: undefined,
+      });
+      log.info("user.calendly_member.unlinked", {
+        tenantId,
+        userId,
+        previousMemberId,
+        reason: "admin_unlinked",
       });
       return;
     }
 
     const member = await ctx.db.get("calendlyOrgMembers", calendlyMemberId);
     if (!member || member.tenantId !== tenantId) {
-      console.error("[Users:CalendlyLink] Invalid Calendly member", { calendlyMemberId });
       throw new Error("Invalid Calendly member");
     }
-    console.log("[Users:CalendlyLink] new member validated", { calendlyMemberId });
 
     // Ensure the Calendly member isn't already linked to a DIFFERENT user
     if (member.matchedUserId && member.matchedUserId !== userId) {
-      console.warn("[Users:CalendlyLink] Conflict: member already linked to another user", { calendlyMemberId, existingUserId: member.matchedUserId });
-      throw new Error("This Calendly member is already linked to another user");
+      throw rejectRequest(
+        "calendly_member.already_linked",
+        "This Calendly member is already linked to another user",
+        {
+          tenantId,
+          userId,
+          calendlyMemberId,
+          existingUserId: member.matchedUserId,
+        },
+      );
     }
 
     // Link the new Calendly member to the user
@@ -73,6 +84,12 @@ export const linkCloserToCalendlyMember = mutation({
       calendlyMemberName: member.name,
     });
     await ctx.db.patch("calendlyOrgMembers", calendlyMemberId, { matchedUserId: userId });
-    console.log("[Users:CalendlyLink] linked successfully", { userId, calendlyMemberId, calendlyUserUri: member.calendlyUserUri, calendlyMemberName: member.name });
+    log.info("user.calendly_member.linked", {
+      tenantId,
+      userId,
+      calendlyMemberId,
+      previousMemberId,
+      source: "admin_link",
+    });
   },
 });

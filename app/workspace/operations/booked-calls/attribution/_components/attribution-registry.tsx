@@ -29,6 +29,7 @@ import {
 import { formatAmountMinor } from "@/lib/format-currency";
 import { AttributionTeamDialog } from "./attribution-team-dialog";
 import { DmCloserDialog } from "./dm-closer-dialog";
+import { getErrorMessage } from "@/lib/errors";
 
 type DialogState =
   | { kind: "team"; teamId?: Id<"attributionTeams"> }
@@ -76,7 +77,7 @@ function InlineNumberCell({
       setEditing(false);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to save value.",
+        getErrorMessage(error, "Failed to save value."),
       );
     } finally {
       setSaving(false);

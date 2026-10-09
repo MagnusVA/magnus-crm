@@ -10,6 +10,7 @@ import {
   businessDateToUtcStart,
   timestampToBusinessDateKey,
 } from "../reporting/lib/hondurasBusinessTime";
+import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 import { teamOriginStatKey } from "./aggregates";
 import {
@@ -307,13 +308,18 @@ export const backfillUnassignedWorkersToTeam = internalMutation({
       }
     }
 
-    return {
+    const result = {
       dryRun: args.dryRun,
       limit,
       workersLoaded: workerById.size,
       submissions,
       dailyStats,
     };
+    log.info("lead_gen.backfill.worker_teams", {
+      ...result,
+      durationMs: Date.now() - now,
+    });
+    return result;
   },
 });
 
@@ -364,7 +370,7 @@ export const rebuildTeamOriginStatsRange = mutation({
       }
     }
 
-    return {
+    const result = {
       dryRun: args.dryRun,
       deletedRows: args.dryRun ? 0 : existing.length,
       wouldDeleteRows: existing.length,
@@ -372,5 +378,12 @@ export const rebuildTeamOriginStatsRange = mutation({
       wouldInsertRows: rebuiltRows.length,
       sourceSubmissions: submissions.length,
     };
+    log.info("lead_gen.team_origin_stats.rebuilt", {
+      tenantId,
+      startDayKey: args.startDayKey,
+      endDayKey: args.endDayKey,
+      ...result,
+    });
+    return result;
   },
 });

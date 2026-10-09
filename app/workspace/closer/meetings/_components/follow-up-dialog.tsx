@@ -47,6 +47,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
+import { getErrorMessage } from "@/lib/errors";
 
 type FollowUpDialogProps = {
   opportunityId: Id<"opportunities">;
@@ -262,7 +263,7 @@ function SchedulingLinkForm({
       setState("success");
     } catch (err: unknown) {
       const message =
-        err instanceof Error ? err.message : "Failed to create scheduling link.";
+        getErrorMessage(err, "Failed to create scheduling link.");
       setError(message);
       setState("error");
     }
@@ -462,7 +463,7 @@ function ManualReminderForm({
       onClose();
     } catch (err: unknown) {
       setSubmitError(
-        err instanceof Error ? err.message : "Failed to create reminder."
+        getErrorMessage(err, "Failed to create reminder.")
       );
     } finally {
       setIsSubmitting(false);

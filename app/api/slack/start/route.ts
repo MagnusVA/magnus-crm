@@ -3,6 +3,8 @@ import { ConvexHttpClient } from "convex/browser";
 import { NextRequest, NextResponse } from "next/server";
 
 import { api } from "@/convex/_generated/api";
+import { getErrorCode } from "@/lib/errors";
+import { reportServerError } from "@/lib/observability/report-server-error";
 
 function describeRequestUrl(request: NextRequest) {
   return {
@@ -106,13 +108,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.redirect(authorizeUrl);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "unknown";
     console.error("[Slack:OAuth:Next] startInstall failed", {
       requestId,
       error: describeError(error),
     });
 
-    if (message.includes("Insufficient permissions")) {
+    if (getErrorCode(error) === "auth.insufficient_permissions") {
       console.warn("[Slack:OAuth:Next] redirecting admin-required failure", {
         requestId,
         destination: "/workspace?slack=admin_required",
@@ -120,6 +121,13 @@ export async function GET(request: NextRequest) {
       return redirectTo(request, "/workspace?slack=admin_required");
     }
 
+    await reportServerError(error, {
+      event: "slack.oauth_start.failed",
+      request,
+      distinctId: auth.user.id,
+      fingerprint: "slack-oauth-start",
+      slack_request_id: requestId,
+    });
     console.warn("[Slack:OAuth:Next] redirecting start failure", {
       requestId,
       destination: "/workspace/settings?tab=integrations&slack=start_failed",

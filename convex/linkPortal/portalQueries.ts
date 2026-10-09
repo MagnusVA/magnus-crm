@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
 import { isPortalBookable } from "../lib/eventTypeBookability";
+import { log } from "../lib/observability/log";
 import { publicDmCloserIdentity } from "../lib/memberIdentity";
 
 export const getPortalBootstrapForSession = internalQuery({
@@ -20,6 +21,17 @@ export const getPortalBootstrapForSession = internalQuery({
 			config.publicSlug !== publicSlug ||
 			config.sessionVersion !== sessionVersion
 		) {
+			log.warn("link_portal.session.rejected", {
+				reason: !config
+					? "portal_not_found"
+					: !config.isEnabled
+						? "portal_disabled"
+						: config.publicSlug !== publicSlug
+							? "slug_rotated"
+							: "session_version_stale",
+				tenantId,
+				sessionVersion,
+			});
 			throw new Error("Portal session is no longer valid.");
 		}
 

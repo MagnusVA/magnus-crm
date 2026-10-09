@@ -13,6 +13,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action } from "../_generated/server";
+import { log } from "../lib/observability/log";
 import {
   isPortalSearchTermPiiProbe,
   leadInitialSourceValidator,
@@ -35,10 +36,7 @@ export const searchPortalLeads = action({
   },
   returns: v.array(portalLeadSearchRowValidator),
   handler: async (ctx, args): Promise<PortalLeadSearchRow[]> => {
-    const session = verifyPortalSessionToken(args.sessionToken);
-    if (session.publicSlug !== args.portalSlug) {
-      throw new Error("Portal session is no longer valid.");
-    }
+    const session = verifyPortalSessionToken(args.sessionToken, args.portalSlug);
 
     // Anti-enumeration: refuse short queries before touching the database.
     const trimmed = args.searchTerm.trim();
@@ -50,6 +48,10 @@ export const searchPortalLeads = action({
     // search only — email/phone-shaped terms are rejected (also enforced in
     // the internal query).
     if (isPortalSearchTermPiiProbe(trimmed)) {
+      log.warn("link_portal.lead_search.rejected", {
+        reason: "pii_probe",
+        tenantId: session.tenantId,
+      });
       return [];
     }
 
@@ -78,10 +80,7 @@ export const updatePortalLeadProfile = action({
   },
   returns: v.null(),
   handler: async (ctx, args): Promise<null> => {
-    const session = verifyPortalSessionToken(args.sessionToken);
-    if (session.publicSlug !== args.portalSlug) {
-      throw new Error("Portal session is no longer valid.");
-    }
+    const session = verifyPortalSessionToken(args.sessionToken, args.portalSlug);
 
     await ctx.runMutation(
       internal.linkPortal.leadMutations.updateLeadProfileForSession,
@@ -114,10 +113,7 @@ export const addPortalLeadNote = action({
   },
   returns: v.id("leadNotes"),
   handler: async (ctx, args): Promise<Id<"leadNotes">> => {
-    const session = verifyPortalSessionToken(args.sessionToken);
-    if (session.publicSlug !== args.portalSlug) {
-      throw new Error("Portal session is no longer valid.");
-    }
+    const session = verifyPortalSessionToken(args.sessionToken, args.portalSlug);
 
     const noteId: Id<"leadNotes"> = await ctx.runMutation(
       internal.linkPortal.leadMutations.insertLeadNoteForSession,
@@ -143,10 +139,7 @@ export const listPortalLeadNotes = action({
   },
   returns: v.array(portalLeadNoteRowValidator),
   handler: async (ctx, args): Promise<PortalLeadNoteRow[]> => {
-    const session = verifyPortalSessionToken(args.sessionToken);
-    if (session.publicSlug !== args.portalSlug) {
-      throw new Error("Portal session is no longer valid.");
-    }
+    const session = verifyPortalSessionToken(args.sessionToken, args.portalSlug);
 
     const notes: PortalLeadNoteRow[] = await ctx.runQuery(
       internal.linkPortal.leadQueries.listLeadNotesForSession,

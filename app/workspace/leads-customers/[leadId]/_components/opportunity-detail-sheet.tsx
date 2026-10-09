@@ -80,6 +80,7 @@ export function OpportunityDetailSheet() {
 				</SheetHeader>
 				{opportunityId ? (
 					<SectionErrorBoundary
+						key={opportunityId}
 						sectionName="opportunity detail"
 						fallback={<OpportunityUnavailableState />}
 					>

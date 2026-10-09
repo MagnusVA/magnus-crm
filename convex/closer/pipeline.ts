@@ -113,11 +113,6 @@ export const listMyOpportunities = query({
     ctx,
     { paginationOpts, statusFilter, periodStart, periodEnd },
   ) => {
-    console.log("[Closer:Pipeline] listMyOpportunities called", {
-      statusFilter: statusFilter ?? "all",
-      periodStart: periodStart ?? "none",
-      periodEnd: periodEnd ?? "none",
-    });
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
 
     const hasDate = periodStart !== undefined && periodEnd !== undefined;
@@ -172,10 +167,6 @@ export const listMyOpportunities = query({
     });
 
     // Sort by most recent update first
-    console.log("[Closer:Pipeline] listMyOpportunities result", {
-      totalOpps: opportunities.length,
-      enrichedCount: enriched.length,
-    });
     return {
       ...paginatedResult,
       page: enriched.sort((a, b) => b.updatedAt - a.updatedAt),

@@ -1,6 +1,7 @@
 import aggregate from "@convex-dev/aggregate/convex.config";
 import migrations from "@convex-dev/migrations/convex.config";
 import workOSAuthKit from "@convex-dev/workos-authkit/convex.config";
+import posthog from "@posthog/convex/convex.config.js";
 import { defineApp } from "convex/server";
 import { v } from "convex/values";
 
@@ -31,10 +32,24 @@ const app = defineApp({
     // Set only while rotating the signing secret.
     SLACK_SIGNING_SECRET_PREVIOUS: v.optional(v.string()),
     SLACK_STATE_SIGNING_SECRET: v.optional(v.string()),
+
+    // PostHog project token (`phc_…`). The PostHog component requires it, so
+    // set it to `disabled` on deployments that shouldn't report events.
+    POSTHOG_PROJECT_TOKEN: v.string(),
+    // Defaults to https://us.i.posthog.com.
+    POSTHOG_HOST: v.optional(v.string()),
   },
 });
 app.use(workOSAuthKit);
 app.use(migrations);
+app.use(posthog, {
+  env: {
+    POSTHOG_PROJECT_TOKEN: app.env.POSTHOG_PROJECT_TOKEN,
+    POSTHOG_HOST: app.env.POSTHOG_HOST,
+    // Feature flags aren't evaluated server-side, so skip the refresh loop.
+    POSTHOG_DISABLE_LOCAL_EVALUATION: "true",
+  },
+});
 app.use(aggregate, { name: "meetingsByStatus" });
 app.use(aggregate, { name: "paymentSums" });
 app.use(aggregate, { name: "opportunityByStatus" });

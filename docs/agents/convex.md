@@ -60,9 +60,11 @@ Find an existing mutation that writes the same table and match its side-effect c
 
 Read environment variables through `env` from `_generated/server`, not `process.env`; ESLint enforces this. Declare each variable in `convex/convex.config.ts`. A deploy fails if a required variable isn't set, so set a new required variable on every deployment before deploying code that declares it. `convex/auth.config.ts` and `convex/lib/constants.ts`, which Next.js also imports, still read `process.env`.
 
-## Logging
+## Logging and errors
 
-Prefix `console` calls with a PascalCase `[Domain:Sub]` tag, such as `[Pipeline]`, `[Slack:OAuth]`, or `[WorkOS:Users]`.
+Use `log` and `reportError` from `convex/lib/observability/log.ts` for process steps and handled failures, and `rejectRequest` from `convex/lib/observability/errors.ts` for errors the caller caused. They reach PostHog through the Convex log stream; `docs/agents/observability.md` covers the rules. Prefix any remaining `console` calls with a PascalCase `[Domain:Sub]` tag, such as `[Pipeline]`, `[Slack:OAuth]`, or `[WorkOS:Users]`.
+
+`emitDomainEvent` also sends each domain event to PostHog, so a new event type needs no extra analytics call.
 
 ## Tests
 

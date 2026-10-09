@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalMutation } from "../_generated/server";
+import { log } from "../lib/observability/log";
 
 const SYNC_BATCH_SIZE = 100;
 
@@ -13,6 +14,10 @@ export const syncRenamedProgram = internalMutation({
   handler: async (ctx, args) => {
     const program = await ctx.db.get("tenantPrograms", args.programId);
     if (!program) {
+      log.warn("program.rename_sync.skipped", {
+        programId: args.programId,
+        reason: "program_not_found",
+      });
       return { syncedPayments: 0, syncedCustomers: 0, hasMore: false };
     }
 
@@ -75,6 +80,19 @@ export const syncRenamedProgram = internalMutation({
         },
       );
     }
+
+    // The last batch logs `completed`, so a chain that stops early shows up
+    // as a rename with batch lines and no completed line.
+    log.info(
+      hasMore ? "program.rename_sync.batch" : "program.rename_sync.completed",
+      {
+        tenantId: program.tenantId,
+        programId: program._id,
+        syncedPayments,
+        syncedCustomers,
+        hasMore,
+      },
+    );
 
     return {
       syncedPayments,

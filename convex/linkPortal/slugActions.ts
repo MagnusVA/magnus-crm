@@ -3,6 +3,7 @@
 import { randomBytes } from "node:crypto";
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
+import { log } from "../lib/observability/log";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 
 type RotatePortalSlugResult = {
@@ -36,6 +37,11 @@ export const rotatePortalSlug = action({
             publicSlug: randomPortalSlug(),
           },
         );
+        log.info("link_portal.slug.rotated", {
+          tenantId: access.tenantId,
+          sessionVersion: result.sessionVersion,
+          slugCollisionRetries: attempt,
+        });
         return result;
       } catch (error) {
         if (!isSlugCollision(error) || attempt === 2) {

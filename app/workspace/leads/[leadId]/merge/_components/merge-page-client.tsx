@@ -37,6 +37,7 @@ import {
 
 import { LeadSearchInput } from "../../../_components/lead-search-input";
 import { MergePreview } from "./merge-preview";
+import { getErrorMessage } from "@/lib/errors";
 
 type MergeStep = "search" | "preview" | "confirming";
 
@@ -107,7 +108,7 @@ export function MergePageClient() {
 			router.replace(`/workspace/leads/${selectedTargetId}`);
 		} catch (error) {
 			toast.error(
-				error instanceof Error ? error.message : "Failed to merge leads",
+				getErrorMessage(error, "Failed to merge leads"),
 			);
 			setIsMerging(false);
 			setIsConfirmOpen(false);

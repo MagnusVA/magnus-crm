@@ -12,6 +12,7 @@ import {
   getTenantCalendlyConnectionState,
   updateTenantCalendlyConnection,
 } from "../lib/tenantCalendlyConnection";
+import { log } from "../lib/observability/log";
 import { isRecord } from "../lib/payloadExtraction";
 
 type NormalizedCustomQuestion = {
@@ -30,6 +31,8 @@ type NormalizedCalendlyEventType = {
   schedulingUrl?: string;
   syncStatus: EventTypeSyncStatus;
   enabledCustomQuestions: NormalizedCustomQuestion[];
+  /** Enabled questions dropped because they have no label. */
+  unlabeledQuestionCount: number;
   calendlyPatch: Partial<Doc<"eventTypeConfigs">>;
 };
 
@@ -102,13 +105,17 @@ function normalizeProfile(value: unknown): {
   };
 }
 
-function normalizeCustomQuestions(value: unknown): NormalizedCustomQuestion[] {
+function normalizeCustomQuestions(value: unknown): {
+  questions: NormalizedCustomQuestion[];
+  unlabeledCount: number;
+} {
   if (!Array.isArray(value)) {
-    return [];
+    return { questions: [], unlabeledCount: 0 };
   }
 
   const questions: NormalizedCustomQuestion[] = [];
   const usedKeys = new Set<string>();
+  let unlabeledCount = 0;
 
   for (const item of value) {
     if (!isRecord(item) || item.enabled === false) {
@@ -117,7 +124,7 @@ function normalizeCustomQuestions(value: unknown): NormalizedCustomQuestion[] {
 
     const label = getNullableString(item, "name");
     if (!label) {
-      console.warn("[Calendly:EventTypes] Skipping malformed custom question");
+      unlabeledCount += 1;
       continue;
     }
 
@@ -132,7 +139,7 @@ function normalizeCustomQuestions(value: unknown): NormalizedCustomQuestion[] {
     });
   }
 
-  return questions;
+  return { questions, unlabeledCount };
 }
 
 export function normalizeCalendlyEventTypeResource(
@@ -144,7 +151,7 @@ export function normalizeCalendlyEventTypeResource(
 
   const uri = getNullableString(value, "uri");
   if (!uri) {
-    console.warn("[Calendly:EventTypes] Skipping event type without uri");
+    // The sync action already drops and counts resources without a uri.
     return null;
   }
 
@@ -155,6 +162,7 @@ export function normalizeCalendlyEventTypeResource(
   const deletedAt = getNullableString(value, "deleted_at");
   const active = getBoolean(value, "active");
   const profile = normalizeProfile(value.profile);
+  const customQuestions = normalizeCustomQuestions(value.custom_questions);
   const syncStatus: EventTypeSyncStatus = deletedAt
     ? "deleted"
     : active === false
@@ -166,7 +174,8 @@ export function normalizeCalendlyEventTypeResource(
     name,
     schedulingUrl,
     syncStatus,
-    enabledCustomQuestions: normalizeCustomQuestions(value.custom_questions),
+    enabledCustomQuestions: customQuestions.questions,
+    unlabeledQuestionCount: customQuestions.unlabeledCount,
     calendlyPatch: {
       calendlyName: name,
       calendlySchedulingUrl: schedulingUrl,
@@ -371,7 +380,7 @@ export const acquireEventTypeSyncLock = internalMutation({
     lockUntil: v.number(),
     reason: v.optional(v.string()),
   },
-  handler: async (ctx, { tenantId, lockUntil, reason }) => {
+  handler: async (ctx, { tenantId, lockUntil }) => {
     const connection = await getTenantCalendlyConnectionState(ctx, tenantId);
     if (!connection) {
       throw new Error("Calendly connection not found.");
@@ -395,12 +404,6 @@ export const acquireEventTypeSyncLock = internalMutation({
       lastEventTypeSyncError: undefined,
       lastEventTypeSyncCount: undefined,
       lastEventTypeSyncSummary: undefined,
-    });
-
-    console.log("[Calendly:EventTypes] sync lock acquired", {
-      tenantId,
-      reason,
-      lockUntil,
     });
 
     return { acquired: true as const, lockUntil };
@@ -446,12 +449,6 @@ export const completeEventTypeSync = internalMutation({
     };
 
     await updateTenantCalendlyConnection(ctx, tenantId, patch);
-
-    console.log("[Calendly:EventTypes] sync completed", {
-      tenantId,
-      status,
-      totalSeen: totals?.totalSeen,
-    });
   },
 });
 
@@ -471,12 +468,14 @@ export const upsertEventTypesPage = internalMutation({
     let inactive = 0;
     let deleted = 0;
     let questionsMerged = 0;
+    let unlabeledQuestionsSkipped = 0;
 
     for (const resource of collection) {
       const normalized = normalizeCalendlyEventTypeResource(resource);
       if (!normalized) {
         continue;
       }
+      unlabeledQuestionsSkipped += normalized.unlabeledQuestionCount;
 
       if (normalized.syncStatus === "inactive") {
         inactive += 1;
@@ -545,6 +544,14 @@ export const upsertEventTypesPage = internalMutation({
       });
     }
 
+    if (unlabeledQuestionsSkipped > 0) {
+      log.warn("calendly.event_types.custom_questions_skipped", {
+        tenantId,
+        reason: "missing_label",
+        count: unlabeledQuestionsSkipped,
+      });
+    }
+
     return { created, updated, unchanged, inactive, deleted, questionsMerged };
   },
 });
@@ -574,11 +581,6 @@ export const markMissingEventTypes = internalMutation({
         notReturned += 1;
       }
     }
-
-    console.log("[Calendly:EventTypes] missing event types marked", {
-      tenantId,
-      notReturned,
-    });
 
     return { notReturned };
   },

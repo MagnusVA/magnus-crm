@@ -6,6 +6,7 @@ import type { MutationCtx } from "../_generated/server";
 import { resolveLeadIdentity } from "../leads/identityResolution";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { leadTypeValidator } from "../lib/leadType";
+import { describeError, log, reportError } from "../lib/observability/log";
 import type { SocialPlatform } from "../lib/socialPlatform";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { rebuildQualificationRow } from "../operations/projections";
@@ -99,12 +100,21 @@ export const create = internalMutation({
           },
         );
       } catch (error) {
-        console.error("[LeadGen:Audit] failed to schedule Slack audit match", {
-          tenantId: args.tenantId,
-          leadId: params.leadId,
-          opportunityId: params.opportunityId,
-          error,
-        });
+        // Swallowed so the qualification still commits without an audit match.
+        // The scheduler error can echo the args (the raw handle), so report a
+        // constant message.
+        reportError(
+          "lead_gen.audit_match.schedule_failed",
+          new Error("Scheduling the lead-gen audit match failed"),
+          {
+            fingerprint: "lead_gen.audit_match.schedule_failed",
+            errorName: describeError(error).name,
+            tenantId: args.tenantId,
+            leadId: params.leadId,
+            opportunityId: params.opportunityId,
+            matchSource: "slack_qualification",
+          },
+        );
       }
     }
 
@@ -149,11 +159,12 @@ export const create = internalMutation({
       .first();
 
     if (recent) {
-      console.warn("[Slack:CreateQL] dedup hit", {
+      log.info("slack.qualified_lead.duplicate_skipped", {
         tenantId: args.tenantId,
+        outcome: "duplicate_pending",
+        reason: "recent_pending_opportunity",
         leadId: resolution.leadId,
-        existingOpportunityId: recent._id,
-        priorSubmitter: recent.qualifiedBy?.slackUserId,
+        opportunityId: recent._id,
       });
       await insertQualificationEvent(ctx, {
         tenantId: args.tenantId,
@@ -226,12 +237,13 @@ export const create = internalMutation({
             qualificationEventId,
           },
         );
-        console.log("[Slack:CreateQL] existing opportunity bumped", {
+        log.info("slack.qualified_lead.opportunity_bumped", {
           tenantId: args.tenantId,
+          outcome: "existing_opportunity_bump",
           leadId: resolution.leadId,
-          existingOpportunityId: alreadyBooked._id,
+          opportunityId: alreadyBooked._id,
+          opportunityStatus: alreadyBooked.status,
           qualificationEventId,
-          status: alreadyBooked.status,
         });
         return {
           kind: "existing_opportunity_bump" as const,
@@ -241,6 +253,14 @@ export const create = internalMutation({
         };
       }
 
+      log.info("slack.qualified_lead.duplicate_skipped", {
+        tenantId: args.tenantId,
+        outcome: "duplicate_pending",
+        reason: "pending_opportunity_for_lead",
+        leadId: resolution.leadId,
+        opportunityId: alreadyBooked._id,
+        qualificationEventId,
+      });
       return {
         kind: "duplicate_pending" as const,
         existingOpportunityId: alreadyBooked._id,
@@ -300,10 +320,12 @@ export const create = internalMutation({
       opportunityId,
     });
 
-    console.log("[Slack:CreateQL] opportunity inserted", {
+    log.info("slack.qualified_lead.created", {
       tenantId: args.tenantId,
+      outcome: "created",
       opportunityId,
       leadId: resolution.leadId,
+      isNewLead: resolution.isNewLead,
       resolvedVia: resolution.resolvedVia,
     });
 

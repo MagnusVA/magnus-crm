@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { log, reportError } from "./observability/log";
 import type { PaymentType } from "./paymentTypes";
 
 export type TenantStatsDelta = {
@@ -77,6 +78,22 @@ function paymentRevenueBucket(payment: Doc<"paymentRecords">): PaymentRevenueBuc
     : "totalNonCommissionableFinalRevenueMinor";
 }
 
+function reportNegativeCounter(
+  tenantId: Id<"tenants">,
+  field: TenantStatsField,
+) {
+  reportError(
+    "tenant_stats.negative_counter",
+    new Error("Tenant stats counter went negative"),
+    {
+      severity: "error",
+      fingerprint: `tenant_stats.negative_counter:${field}`,
+      tenantId,
+      field,
+    },
+  );
+}
+
 export async function updateTenantStats(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
@@ -88,10 +105,8 @@ export async function updateTenantStats(
     .unique();
 
   if (!stats) {
-    console.warn("[TenantStats] Missing stats document, auto-creating", {
-      tenantId,
-      delta,
-    });
+    // The stats doc is created lazily on a tenant's first counted write.
+    log.info("tenant_stats.initialized", { tenantId });
     const initial: Record<string, unknown> = {
       tenantId,
       totalTeamMembers: 0,
@@ -109,6 +124,9 @@ export async function updateTenantStats(
     for (const field of TENANT_STATS_FIELDS) {
       const value = delta[field];
       if (value !== undefined && value !== 0) {
+        if (value < 0) {
+          reportNegativeCounter(tenantId, field);
+        }
         initial[field] = Math.max(0, value);
       }
     }
@@ -122,7 +140,11 @@ export async function updateTenantStats(
     if (value === undefined || value === 0) {
       continue;
     }
-    patch[field] = (stats[field] ?? 0) + value;
+    const next = (stats[field] ?? 0) + value;
+    if (value < 0 && next < 0) {
+      reportNegativeCounter(tenantId, field);
+    }
+    patch[field] = next;
   }
 
   await ctx.db.patch("tenantStats", stats._id, patch);

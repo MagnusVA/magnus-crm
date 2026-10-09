@@ -12,28 +12,15 @@ import { userMemberIdentity } from "../lib/memberIdentity";
 export const getCurrentUser = query({
   args: {},
   handler: async (ctx) => {
-    console.log("[Users] getCurrentUser called");
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
-      console.log("[Users] getCurrentUser: no identity");
       return null;
     }
-
-    console.log("[Users] getCurrentUser identity", {
-      subject: identity.subject,
-      tokenIdentifier: identity.tokenIdentifier ?? null,
-    });
 
     const workosUserId = getCanonicalIdentityWorkosUserId(identity);
     if (!workosUserId) {
-      console.warn("[Users] getCurrentUser: no workosUserId from identity");
       return null;
     }
-
-    console.log("[Users] getCurrentUser lookup", {
-      workosUserId,
-      usedTokenIdentifier: identity.tokenIdentifier === workosUserId,
-    });
 
     let user = null;
     for (const candidateWorkosUserId of getWorkosUserIdCandidates(workosUserId)) {
@@ -46,22 +33,6 @@ export const getCurrentUser = query({
       }
     }
 
-    if (!user && identity.subject && identity.subject !== workosUserId) {
-      const subjectMatch = await ctx.db
-        .query("users")
-        .withIndex("by_workosUserId", (q) => q.eq("workosUserId", identity.subject))
-        .unique();
-
-      console.warn("[Users] getCurrentUser no match for chosen lookup key", {
-        chosenLookupKey: workosUserId,
-        subject: identity.subject,
-        tokenIdentifier: identity.tokenIdentifier ?? null,
-        subjectMatchFound: Boolean(subjectMatch),
-        subjectMatchUserId: subjectMatch?._id ?? null,
-      });
-    }
-
-    console.log("[Users] getCurrentUser result", { found: !!user, userId: user?._id });
     if (user?.isActive === false) {
       return null;
     }
@@ -79,9 +50,7 @@ export const getCurrentUser = query({
 export const getById = internalQuery({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
-    console.log("[Users] getById called", { userId });
     const user = await ctx.db.get("users", userId);
-    console.log("[Users] getById result", { found: !!user });
     return user;
   },
 });
@@ -92,14 +61,12 @@ export const getByTenantAndEmail = internalQuery({
     email: v.string(),
   },
   handler: async (ctx, { tenantId, email }) => {
-    console.log("[Users] getByTenantAndEmail called", { tenantId });
     const user = await ctx.db
       .query("users")
       .withIndex("by_tenantId_and_email", (q) =>
         q.eq("tenantId", tenantId).eq("email", email),
       )
       .unique();
-    console.log("[Users] getByTenantAndEmail result", { found: !!user });
     return user;
   },
 });
@@ -140,7 +107,6 @@ export const getActiveAssignedOpportunityCount = internalQuery({
 export const getCurrentUserInternal = internalQuery({
   args: { workosUserId: v.string() },
   handler: async (ctx, { workosUserId }) => {
-    console.log("[Users] getCurrentUserInternal called", { workosUserId });
     let user = null;
     for (const candidateWorkosUserId of getWorkosUserIdCandidates(workosUserId)) {
       user = await ctx.db
@@ -151,7 +117,6 @@ export const getCurrentUserInternal = internalQuery({
         break;
       }
     }
-    console.log("[Users] getCurrentUserInternal result", { found: !!user, userId: user?._id });
     if (user?.isActive === false) {
       return null;
     }
@@ -168,7 +133,6 @@ export const getCurrentUserInternal = internalQuery({
 export const listTeamMembers = query({
   args: {},
   handler: async (ctx) => {
-    console.log("[Users] listTeamMembers called");
     const { tenantId } = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
 
     // Return all users (including deactivated) — frontend handles filtering
@@ -207,7 +171,6 @@ export const listTeamMembers = query({
       ]),
     );
 
-    console.log("[Users] listTeamMembers result", { count: users.length });
     return await Promise.all(
       users.map(async (user) => ({
         ...user,
@@ -260,7 +223,6 @@ export const listActiveClosers = query({
 export const listUnmatchedCalendlyMembers = query({
   args: {},
   handler: async (ctx) => {
-    console.log("[Users] listUnmatchedCalendlyMembers called");
     const { tenantId } = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
 
     const members = await ctx.db
@@ -270,7 +232,6 @@ export const listUnmatchedCalendlyMembers = query({
       )
       .take(200);
 
-    console.log("[Users] listUnmatchedCalendlyMembers result", { count: members.length });
     return members;
   },
 });

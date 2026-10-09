@@ -1,5 +1,10 @@
 import { httpAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import {
+  log,
+  logRequestContext,
+  reportError,
+} from "../lib/observability/log";
 
 function parseSignatureHeader(signatureHeader: string) {
   const signatureEntries = signatureHeader.split(",").map((entry) => {
@@ -95,10 +100,12 @@ function getCalendlyEventUri(payload: unknown) {
 export const handleCalendlyWebhook = httpAction(async (ctx, req) => {
   const url = new URL(req.url);
   const tenantIdParam = url.searchParams.get("tenantId");
-  console.log(`[Webhook] Request received: tenantId=${tenantIdParam}, method=${req.method}`);
 
   if (!tenantIdParam) {
-    console.warn("[Webhook] Missing tenantId query parameter");
+    log.warn("calendly.webhook.rejected", {
+      reason: "missing_tenant_id",
+      httpStatus: 400,
+    });
     return new Response("Missing tenantId", { status: 400 });
   }
 
@@ -107,20 +114,60 @@ export const handleCalendlyWebhook = httpAction(async (ctx, req) => {
   const tenant = await ctx.runQuery(internal.webhooks.calendlyQueries.getTenantSigningKey, {
     tenantId: tenantIdParam,
   });
-  if (!tenant) {
-    console.warn(`[Webhook] Unknown tenant: ${tenantIdParam}`);
+  if (!tenant.ok) {
+    if (tenant.reason === "invalid_id") {
+      // The raw param is attacker-controlled, so it isn't logged.
+      log.warn("calendly.webhook.rejected", {
+        reason: "unknown_tenant",
+        tenantIdValid: false,
+        httpStatus: 404,
+      });
+    } else {
+      logRequestContext({ tenantId: tenant.tenantId });
+      if (tenant.reason === "no_secret") {
+        // Calendly delivered to a connected tenant with no stored secret
+        // (usually mid-reconnect), so the booking is rejected and lost.
+        reportError(
+          "calendly.webhook.no_signing_key",
+          new Error("Calendly webhook received for a tenant with no webhook secret"),
+          {
+            severity: "warning",
+            integration: "calendly",
+            fingerprint: "calendly.webhook.no_signing_key",
+            tenantId: tenant.tenantId,
+            httpStatus: 404,
+          },
+        );
+      } else {
+        log.warn("calendly.webhook.rejected", {
+          reason: "unknown_tenant",
+          tenantIdValid: true,
+          tenantId: tenant.tenantId,
+          httpStatus: 404,
+        });
+      }
+    }
     return new Response("Unknown tenant", { status: 404 });
   }
+  logRequestContext({ tenantId: tenant.tenantId });
 
   const signatureHeader = req.headers.get("Calendly-Webhook-Signature");
   if (!signatureHeader) {
-    console.warn(`[Webhook] Missing Calendly-Webhook-Signature header for tenant ${tenantIdParam}`);
+    log.warn("calendly.webhook.rejected", {
+      reason: "missing_signature",
+      tenantId: tenant.tenantId,
+      httpStatus: 401,
+    });
     return new Response("Missing signature", { status: 401 });
   }
 
   const { timestamp, signature } = parseSignatureHeader(signatureHeader);
   if (!timestamp || !signature) {
-    console.warn(`[Webhook] Malformed signature header for tenant ${tenantIdParam}`);
+    log.warn("calendly.webhook.rejected", {
+      reason: "malformed_signature",
+      tenantId: tenant.tenantId,
+      httpStatus: 401,
+    });
     return new Response("Malformed signature", { status: 401 });
   }
 
@@ -129,28 +176,53 @@ export const handleCalendlyWebhook = httpAction(async (ctx, req) => {
     `${timestamp}.${rawBody}`,
   );
   if (!timingSafeEqualHex(expectedSignature, signature)) {
-    console.error(`[Webhook] Invalid signature for tenant ${tenantIdParam}`);
+    // Usually a stored webhook secret out of sync with Calendly, which
+    // rejects every booking for the tenant until someone reconnects.
+    reportError(
+      "calendly.webhook.invalid_signature",
+      new Error("Calendly webhook signature did not match the tenant's secret"),
+      {
+        severity: "error",
+        fingerprint: "calendly.webhook.invalid_signature",
+        integration: "calendly",
+        tenantId: tenant.tenantId,
+        reason: "invalid_signature",
+        httpStatus: 401,
+      },
+    );
     return new Response("Invalid signature", { status: 401 });
   }
 
   const timestampNumber = Number.parseInt(timestamp, 10);
   if (Number.isNaN(timestampNumber)) {
-    console.warn(`[Webhook] Non-numeric timestamp in signature for tenant ${tenantIdParam}`);
+    log.warn("calendly.webhook.rejected", {
+      reason: "non_numeric_signature_timestamp",
+      tenantId: tenant.tenantId,
+      httpStatus: 401,
+    });
     return new Response("Malformed signature", { status: 401 });
   }
 
   const now = Math.floor(Date.now() / 1000);
   if (Math.abs(now - timestampNumber) > 180) {
-    console.warn(`[Webhook] Stale webhook for tenant ${tenantIdParam}: age=${Math.abs(now - timestampNumber)}s`);
+    log.warn("calendly.webhook.rejected", {
+      reason: "stale_timestamp",
+      tenantId: tenant.tenantId,
+      ageSeconds: Math.abs(now - timestampNumber),
+      httpStatus: 401,
+    });
     return new Response("Stale webhook", { status: 401 });
   }
 
   let payload: unknown;
   try {
     payload = JSON.parse(rawBody) as unknown;
-    console.log(`[Webhook] JSON parsed successfully for tenant ${tenantIdParam}`);
   } catch {
-    console.error(`[Webhook] JSON parse failed for tenant ${tenantIdParam}`);
+    log.warn("calendly.webhook.rejected", {
+      reason: "invalid_json",
+      tenantId: tenant.tenantId,
+      httpStatus: 400,
+    });
     return new Response("Invalid JSON payload", { status: 400 });
   }
 
@@ -162,16 +234,23 @@ export const handleCalendlyWebhook = httpAction(async (ctx, req) => {
     getCalendlyEventUri(payload) ??
     `${eventType}:${isRecord(payload) && typeof payload.created_at === "string" ? payload.created_at : Date.now().toString()}`;
 
-  console.log(`[Webhook] Event extracted: type=${eventType}, uri=${calendlyEventUri}`);
+  const rawEventId = await ctx.runMutation(
+    internal.webhooks.calendlyMutations.persistRawEvent,
+    {
+      tenantId: tenant.tenantId,
+      calendlyEventUri,
+      eventType,
+      payload: rawBody,
+    },
+  );
 
-  await ctx.runMutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+  // persistRawEvent returns null when the same event was already stored.
+  log.info("calendly.webhook.received", {
     tenantId: tenant.tenantId,
-    calendlyEventUri,
     eventType,
-    payload: rawBody,
+    rawEventId: rawEventId ?? undefined,
+    duplicate: rawEventId === null,
+    httpStatus: 200,
   });
-
-  console.log(`[Webhook] Persist mutation triggered for tenant ${tenantIdParam}, type=${eventType}`);
-  console.log(`[Webhook] Responding 200 OK`);
   return new Response("OK", { status: 200 });
 });

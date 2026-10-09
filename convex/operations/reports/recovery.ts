@@ -12,6 +12,24 @@ import {
   REPORT_MAX_RETRIES,
 } from "./contracts";
 import { ownerCanRunReport } from "./lifecycle";
+import { log, reportError } from "../../lib/observability/log";
+
+type RecoveryCode =
+  | "queued_not_claimed"
+  | "lease_expired"
+  | "max_age_exceeded"
+  | "retry_limit_exceeded";
+
+function jobAttrs(job: Doc<"operationsReportJobs">) {
+  return {
+    jobId: job._id,
+    tenantId: job.tenantId,
+    reportKind: job.reportKind,
+    purpose: job.purpose,
+    status: job.status,
+    phase: job.phase,
+  };
+}
 
 const QUEUED_STALE_MS = 2 * 60_000;
 
@@ -76,6 +94,9 @@ export const recoverStaleReports = internalMutation({
           : await recoverStaleJob(ctx, job, now);
       if (result.recovered) recovered += 1;
     }
+    if (jobs.length > 0) {
+      log.info("reports.recovery.sweep", { examined: jobs.length, recovered });
+    }
     return { examined: jobs.length, recovered };
   },
 });
@@ -86,7 +107,7 @@ async function recoverQueuedJob(
   now: number,
 ) {
   if (job.createdAt + REPORT_MAX_AGE_MS <= now) {
-    await failRecovery(ctx, job, now, "Report exceeded its processing lifetime.");
+    await failRecovery(ctx, job, now, "Report exceeded its processing lifetime.", "max_age_exceeded");
     return { recovered: false, reason: "Maximum age exceeded." };
   }
   if (!(await ownerCanRunReport(ctx, job))) {
@@ -94,10 +115,10 @@ async function recoverQueuedJob(
     return { recovered: false, reason: "Owner access was revoked." };
   }
   if (job.retryCount >= REPORT_MAX_RETRIES) {
-    await failRecovery(ctx, job, now, "Report could not be started after three retries.");
+    await failRecovery(ctx, job, now, "Report could not be started after three retries.", "retry_limit_exceeded");
     return { recovered: false, reason: "Retry limit exceeded." };
   }
-  return await requeue(ctx, job, now, "Queued invocation was not claimed.");
+  return await requeue(ctx, job, now, "Queued invocation was not claimed.", "queued_not_claimed");
 }
 
 async function recoverStaleJob(
@@ -106,7 +127,7 @@ async function recoverStaleJob(
   now: number,
 ) {
   if (job.createdAt + REPORT_MAX_AGE_MS <= now) {
-    await failRecovery(ctx, job, now, "Report exceeded its processing lifetime.");
+    await failRecovery(ctx, job, now, "Report exceeded its processing lifetime.", "max_age_exceeded");
     return { recovered: false, reason: "Maximum age exceeded." };
   }
   if (!(await ownerCanRunReport(ctx, job))) {
@@ -114,10 +135,10 @@ async function recoverStaleJob(
     return { recovered: false, reason: "Owner access was revoked." };
   }
   if (job.retryCount >= REPORT_MAX_RETRIES) {
-    await failRecovery(ctx, job, now, "Report lease expired after three retries.");
+    await failRecovery(ctx, job, now, "Report lease expired after three retries.", "retry_limit_exceeded");
     return { recovered: false, reason: "Retry limit exceeded." };
   }
-  return await requeue(ctx, job, now, "Worker lease expired.");
+  return await requeue(ctx, job, now, "Worker lease expired.", "lease_expired");
 }
 
 async function requeue(
@@ -125,6 +146,7 @@ async function requeue(
   job: Doc<"operationsReportJobs">,
   now: number,
   reason: string,
+  code: RecoveryCode,
 ) {
   const retryCount = job.retryCount + 1;
   const delayMs = Math.min(60_000, 1_000 * 2 ** (retryCount - 1));
@@ -138,10 +160,11 @@ async function requeue(
     leaseExpiresAt: undefined,
     scheduledFunctionId,
   });
-  console.warn("[Operations:Reports] recovered", {
-    jobId: job._id,
+  log.warn("reports.job.recovered", {
+    ...jobAttrs(job),
+    reason: code,
     retryCount,
-    reason,
+    delayMs,
   });
   return { recovered: true, reason };
 }
@@ -151,6 +174,7 @@ async function failRecovery(
   job: Doc<"operationsReportJobs">,
   now: number,
   message: string,
+  code: RecoveryCode,
 ) {
   await releaseAdmission(ctx, job);
   await ctx.db.patch("operationsReportJobs", job._id, {
@@ -167,6 +191,16 @@ async function failRecovery(
     leaseExpiresAt: undefined,
     scheduledFunctionId: undefined,
   });
+  // Recovery gave up on the job, so its retries never succeeded.
+  reportError("reports.job.expired", new Error(message), {
+    severity: code === "retry_limit_exceeded" ? "error" : "warning",
+    fingerprint: `reports.job.expired:${code}`,
+    ...jobAttrs(job),
+    reason: code,
+    category: "recovery",
+    retryable: false,
+    retryCount: job.retryCount,
+  });
 }
 
 async function cancelRecovery(
@@ -175,6 +209,10 @@ async function cancelRecovery(
   now: number,
 ) {
   await releaseAdmission(ctx, job);
+  log.info("reports.job.canceled", {
+    ...jobAttrs(job),
+    reason: "owner_access_revoked",
+  });
   await ctx.db.patch("operationsReportJobs", job._id, {
     status: "canceled",
     phase: "cleanup",

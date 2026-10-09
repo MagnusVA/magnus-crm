@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { isPortalBookable } from "../lib/eventTypeBookability";
+import { log } from "../lib/observability/log";
 
 export const insertCopyEvent = internalMutation({
   args: {
@@ -23,6 +24,17 @@ export const insertCopyEvent = internalMutation({
       config.publicSlug !== args.publicSlug ||
       config.sessionVersion !== args.sessionVersion
     ) {
+      log.warn("link_portal.session.rejected", {
+        reason: !config
+          ? "portal_not_found"
+          : !config.isEnabled
+            ? "portal_disabled"
+            : config.publicSlug !== args.publicSlug
+              ? "slug_rotated"
+              : "session_version_stale",
+        tenantId: args.tenantId,
+        sessionVersion: args.sessionVersion,
+      });
       throw new Error("Portal session is no longer valid.");
     }
 

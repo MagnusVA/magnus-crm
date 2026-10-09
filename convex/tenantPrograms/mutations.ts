@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { mutation } from "../_generated/server";
+import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateRequiredString } from "../lib/validation";
 import {
@@ -18,10 +19,6 @@ export const upsertProgram = mutation({
     defaultCurrency: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    console.log("[Programs] upsertProgram called", {
-      isUpdate: args.programId !== undefined,
-    });
-
     const { userId, tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -62,7 +59,8 @@ export const upsertProgram = mutation({
         updatedAt: now,
       });
 
-      if (existing.name !== name) {
+      const renamed = existing.name !== name;
+      if (renamed) {
         await ctx.scheduler.runAfter(
           0,
           internal.tenantPrograms.sync.syncRenamedProgram,
@@ -70,10 +68,15 @@ export const upsertProgram = mutation({
         );
       }
 
+      log.info("program.updated", {
+        tenantId,
+        programId: args.programId,
+        renamed,
+      });
       return args.programId;
     }
 
-    return await ctx.db.insert("tenantPrograms", {
+    const programId = await ctx.db.insert("tenantPrograms", {
       tenantId,
       name,
       normalizedName,
@@ -83,6 +86,8 @@ export const upsertProgram = mutation({
       createdByUserId: userId,
       updatedAt: now,
     });
+    log.info("program.created", { tenantId, programId });
+    return programId;
   },
 });
 
@@ -99,6 +104,11 @@ export const archiveProgram = mutation({
       throw new Error("Program not found");
     }
     if (program.archivedAt !== undefined) {
+      log.info("program.archive_skipped", {
+        tenantId,
+        programId,
+        reason: "already_archived",
+      });
       return;
     }
 
@@ -116,6 +126,11 @@ export const archiveProgram = mutation({
       archivedAt: Date.now(),
       updatedAt: Date.now(),
     });
+    log.info("program.archived", {
+      tenantId,
+      programId,
+      remainingActiveCount: activeCount - 1,
+    });
   },
 });
 
@@ -132,6 +147,11 @@ export const restoreProgram = mutation({
       throw new Error("Program not found");
     }
     if (program.archivedAt === undefined) {
+      log.info("program.restore_skipped", {
+        tenantId,
+        programId,
+        reason: "not_archived",
+      });
       return;
     }
 
@@ -154,5 +174,6 @@ export const restoreProgram = mutation({
       archivedAt: undefined,
       updatedAt: Date.now(),
     });
+    log.info("program.restored", { tenantId, programId });
   },
 });

@@ -1,31 +1,47 @@
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { httpAction, env } from "../_generated/server";
+import { httpAction } from "../_generated/server";
+import { isExpectedError } from "../lib/observability/errors";
+import {
+  describeError,
+  log,
+  logRequestContext,
+  reportError,
+} from "../lib/observability/log";
 import { parseQualifyLeadSubmission } from "../lib/slackBlockKit";
-import { verifySlackSignature } from "../lib/slackSignature";
+import { verifyInboundSlackRequest } from "../lib/slackSignature";
 import { persistRawSlackEvent } from "./rawEventsAudit";
 
-const SIG_HEADER = "x-slack-signature";
-const TS_HEADER = "x-slack-request-timestamp";
+/** Messages for input the submitter can fix, as opposed to a bug. */
+const VALIDATION_MESSAGE = /is required|must be|is invalid|^Invalid |cannot be empty/i;
+
+function logRejected(reason: string, attrs: Record<string, unknown> = {}) {
+  log.warn("slack.interactivity.rejected", { reason, ...attrs });
+}
 
 export const interactivity = httpAction(async (ctx, req) => {
   const rawBody = await req.text();
 
-  if (!(await verifyInboundSlackRequest(req, rawBody))) {
-    console.warn("[Slack:Int] bad signature");
+  const signatureFailure = await verifyInboundSlackRequest(
+    req,
+    rawBody,
+    "interactivity",
+  );
+  if (signatureFailure) {
+    logRejected("bad_signature", { signatureFailure, httpStatus: 401 });
     return new Response("Bad signature", { status: 401 });
   }
 
   const form = new URLSearchParams(rawBody);
   const payloadRaw = form.get("payload");
   if (!payloadRaw) {
-    console.warn("[Slack:Int] missing payload field");
+    logRejected("missing_payload", { httpStatus: 400 });
     return new Response("Bad request", { status: 400 });
   }
 
   const payload = parseJsonObject(payloadRaw);
   if (!payload) {
-    console.warn("[Slack:Int] payload not JSON object");
+    logRejected("payload_not_json_object", { httpStatus: 400 });
     return new Response("Bad request", { status: 400 });
   }
 
@@ -45,20 +61,39 @@ export const interactivity = httpAction(async (ctx, req) => {
   });
 
   if (payloadType !== "view_submission") {
-    console.log("[Slack:Int] ignored type", { type: payloadType });
+    log.info("slack.interactivity.ignored", {
+      reason: "unsupported_type",
+      payloadType,
+      teamId: payloadTeamId,
+    });
     return new Response("", { status: 200 });
   }
 
   const callbackId = getStringAtPath(payload, ["view", "callback_id"]);
   if (callbackId !== "qualify_lead_submit") {
-    console.log("[Slack:Int] ignored callback_id", { callbackId });
+    log.info("slack.interactivity.ignored", {
+      reason: "unknown_callback_id",
+      callbackId,
+      teamId: payloadTeamId,
+    });
     return new Response("", { status: 200 });
   }
 
   const view = getObjectAtPath(payload, ["view"]);
   const parsed = parseQualifyLeadSubmission(view);
   if (!parsed) {
-    console.error("[Slack:Int] view payload malformed");
+    // We built this modal, so a view we can't parse is our bug, and the
+    // submitter's lead is not saved.
+    reportError(
+      "slack.interactivity.malformed_view",
+      new Error("Slack qualify-lead view submission could not be parsed"),
+      {
+        integration: "slack",
+        fingerprint: "slack.interactivity.malformed_view",
+        teamId: payloadTeamId,
+        apiAppId: payloadAppId,
+      },
+    );
     return jsonResponse({
       response_action: "errors",
       errors: { handle: "Couldn't parse — please try again." },
@@ -71,7 +106,8 @@ export const interactivity = httpAction(async (ctx, req) => {
     payloadTeamId !== parsed.teamId ||
     payloadAppId !== parsed.appId
   ) {
-    console.error("[Slack:Int] Slack context mismatch - possible tampering", {
+    // Possible tampering with the modal's private metadata.
+    logRejected("context_mismatch", {
       payloadTeamId,
       metadataTeamId: parsed.teamId,
       payloadAppId,
@@ -88,14 +124,16 @@ export const interactivity = httpAction(async (ctx, req) => {
     },
   );
   if (!installation || installation.tenantId !== parsed.tenantId) {
-    console.error("[Slack:Int] tenantId mismatch - possible tampering", {
-      metadataTenant: parsed.tenantId,
-      installationTenant: installation?.tenantId,
+    // Possible tampering with the modal's private metadata.
+    logRejected(installation ? "tenant_mismatch" : "no_installation", {
+      metadataTenantId: parsed.tenantId,
+      installationTenantId: installation?.tenantId,
       teamId: payloadTeamId,
-      appId: payloadAppId,
+      apiAppId: payloadAppId,
     });
     return verificationFailedResponse();
   }
+  logRequestContext({ tenantId: installation.tenantId });
 
   const fieldErrors: Record<string, string> = {};
   if (parsed.fullName.length === 0) {
@@ -109,6 +147,10 @@ export const interactivity = httpAction(async (ctx, req) => {
   }
 
   if (Object.keys(fieldErrors).length > 0) {
+    log.info("slack.interactivity.validation_failed", {
+      tenantId: parsed.tenantId,
+      fields: Object.keys(fieldErrors),
+    });
     return jsonResponse({
       response_action: "errors",
       errors: fieldErrors,
@@ -131,10 +173,28 @@ export const interactivity = httpAction(async (ctx, req) => {
       },
     });
   } catch (error) {
-    console.error("[Slack:Int] createQualifiedLead threw", {
-      tenantId: parsed.tenantId,
-      err: error instanceof Error ? error.message : "unknown",
-    });
+    // Shown to the submitter as a modal error, so the request succeeds.
+    if (isExpectedError(error)) {
+      log.info("slack.interactivity.validation_failed", {
+        tenantId: parsed.tenantId,
+        reason: error.data.code,
+      });
+    } else if (
+      error instanceof Error &&
+      VALIDATION_MESSAGE.test(error.message)
+    ) {
+      log.info("slack.interactivity.validation_failed", {
+        tenantId: parsed.tenantId,
+        reason: "invalid_input",
+      });
+    } else {
+      // The nested mutation's failure is already reported by the log stream.
+      log.error("slack.interactivity.create_lead_failed", {
+        tenantId: parsed.tenantId,
+        installationId: installation._id,
+        errorName: describeError(error).name,
+      });
+    }
     return jsonResponse({
       response_action: "errors",
       errors: { handle: "Couldn't save the lead - please try again." },
@@ -142,6 +202,11 @@ export const interactivity = httpAction(async (ctx, req) => {
   }
 
   if (result.kind === "duplicate_pending") {
+    log.info("slack.interactivity.submitted", {
+      tenantId: parsed.tenantId,
+      outcome: "duplicate_pending",
+      opportunityId: result.existingOpportunityId,
+    });
     const priorAt = result.priorQualifiedBy?.submittedAt;
     const elapsedDays = priorAt
       ? Math.floor((Date.now() - priorAt) / (24 * 60 * 60 * 1000))
@@ -161,8 +226,9 @@ export const interactivity = httpAction(async (ctx, req) => {
   }
 
   if (result.kind === "existing_opportunity_bump") {
-    console.log("[Slack:Int] view_submission bumped existing opportunity", {
+    log.info("slack.interactivity.submitted", {
       tenantId: parsed.tenantId,
+      outcome: "existing_opportunity_bump",
       opportunityId: result.existingOpportunityId,
       leadId: result.leadId,
       qualificationEventId: result.qualificationEventId,
@@ -170,8 +236,9 @@ export const interactivity = httpAction(async (ctx, req) => {
     return new Response("", { status: 200 });
   }
 
-  console.log("[Slack:Int] view_submission committed", {
+  log.info("slack.interactivity.submitted", {
     tenantId: parsed.tenantId,
+    outcome: "created",
     opportunityId: result.opportunityId,
     leadId: result.leadId,
     isNewLead: result.isNewLead,
@@ -179,19 +246,6 @@ export const interactivity = httpAction(async (ctx, req) => {
 
   return new Response("", { status: 200 });
 });
-
-async function verifyInboundSlackRequest(
-  req: Request,
-  rawBody: string,
-): Promise<boolean> {
-  return await verifySlackSignature({
-    rawBody,
-    timestamp: req.headers.get(TS_HEADER) ?? "",
-    signature: req.headers.get(SIG_HEADER) ?? "",
-    signingSecret: env.SLACK_SIGNING_SECRET ?? "",
-    previousSigningSecret: env.SLACK_SIGNING_SECRET_PREVIOUS,
-  });
-}
 
 function parseJsonObject(raw: string): Record<string, unknown> | null {
   try {

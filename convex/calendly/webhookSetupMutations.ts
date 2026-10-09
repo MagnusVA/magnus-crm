@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
+import { log } from "../lib/observability/log";
 import { updateTenantCalendlyConnection } from "../lib/tenantCalendlyConnection";
 
 export const storeWebhookAndActivate = internalMutation({
@@ -9,15 +10,12 @@ export const storeWebhookAndActivate = internalMutation({
     webhookSecret: v.string(),
   },
   handler: async (ctx, { tenantId, webhookUri, webhookSecret }) => {
-    console.log(
-      `[Webhook:Setup] storeWebhookAndActivate: tenant ${tenantId}, webhookUri=${webhookUri}`,
-    );
-
     const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant) {
-      console.error(
-        `[Webhook:Setup] storeWebhookAndActivate: tenant ${tenantId} not found`,
-      );
+      log.warn("calendly.webhook_setup.rejected", {
+        reason: "tenant_not_found",
+        tenantId,
+      });
       throw new Error("Tenant not found");
     }
 
@@ -33,8 +31,10 @@ export const storeWebhookAndActivate = internalMutation({
       onboardingCompletedAt: tenant.onboardingCompletedAt ?? Date.now(),
     });
 
-    console.log(
-      `[Webhook:Setup] storeWebhookAndActivate: tenant ${tenantId} activated, previousStatus=${tenant.status}, isFirstOnboarding=${isFirstOnboarding}`,
-    );
+    log.info("calendly.webhook.activated", {
+      tenantId,
+      previousStatus: tenant.status,
+      isFirstOnboarding,
+    });
   },
 });

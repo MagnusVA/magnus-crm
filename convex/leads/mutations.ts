@@ -84,15 +84,6 @@ export const updateLead = mutation({
     );
     await rebuildLeadCustomerSearchRow(ctx, tenantId, leadId);
 
-    console.log("[Leads:Mutation] updateLead completed", {
-      leadId,
-      updatedFields: [
-        fullName !== undefined ? "fullName" : null,
-        phone !== undefined ? "phone" : null,
-        email !== undefined ? "email" : null,
-      ].filter(Boolean),
-    });
-
     return { leadId };
   },
 });

@@ -8,11 +8,16 @@ import {
 } from "./overviewOperations";
 import {
   deriveOverviewRange,
+  isRangeCapErrorMessage,
   toPublicOverviewRange,
   type OverviewRangeInput,
 } from "./overviewRange";
 import { getTopQualifiersOverviewSection } from "./overviewSlack";
-import type { OverviewDashboard, SectionResult } from "./overviewTypes";
+import type {
+  OverviewDashboard,
+  SectionErrorCode,
+  SectionResult,
+} from "./overviewTypes";
 
 type SectionBuildResult<T> = {
   data: T;
@@ -21,7 +26,6 @@ type SectionBuildResult<T> = {
 };
 
 async function resolveSection<T>(
-  key: string,
   build: () => Promise<SectionBuildResult<T>>,
 ): Promise<SectionResult<T>> {
   try {
@@ -32,6 +36,7 @@ async function resolveSection<T>(
         data: result.data,
         truncated: false,
         message: "No activity for this range.",
+        errorCode: null,
       };
     }
 
@@ -40,30 +45,36 @@ async function resolveSection<T>(
       data: result.data,
       truncated: Boolean(result.truncated),
       message: null,
+      errorCode: null,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
-    if (isExpectedRangeCapError(message)) {
+    if (isRangeCapErrorMessage(message)) {
       return {
         status: "capped",
         data: null,
         truncated: true,
         message,
+        errorCode: null,
       };
     }
 
-    console.error("[Dashboard:Overview] section failed", { key, message });
+    // This runs inside a reactive query, so it doesn't log or report: the
+    // browser reports a section with `status: "error"` once per mount.
     return {
       status: "error",
       data: null,
       truncated: false,
       message: "This section could not be loaded.",
+      errorCode: classifySectionError(message),
     };
   }
 }
 
-function isExpectedRangeCapError(message: string) {
-  return /too large|cannot exceed|narrow/i.test(message);
+function classifySectionError(message: string): SectionErrorCode {
+  return /\bToo many (?:reads|bytes read|documents read)\b/i.test(message)
+    ? "read_limit_exceeded"
+    : "unexpected";
 }
 
 export async function getOverviewDashboardData(
@@ -83,19 +94,19 @@ export async function getOverviewDashboardData(
     phoneCloserOperations,
     topOrigins,
   ] = await Promise.all([
-    resolveSection("leadGen", () =>
+    resolveSection(() =>
       getLeadGenOverviewSection(ctx, args.tenantId, range),
     ),
-    resolveSection("topQualifiers", () =>
+    resolveSection(() =>
       getTopQualifiersOverviewSection(ctx, args.tenantId, range),
     ),
-    resolveSection("topDmClosers", () =>
+    resolveSection(() =>
       getTopDmClosersOverviewSection(ctx, args.tenantId, range),
     ),
-    resolveSection("phoneCloserOperations", () =>
+    resolveSection(() =>
       getPhoneCloserOperationsOverviewSection(ctx, args.tenantId, range),
     ),
-    resolveSection("topOrigins", () =>
+    resolveSection(() =>
       getTopOriginsOverviewSection(ctx, args.tenantId, range),
     ),
   ]);

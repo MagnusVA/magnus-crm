@@ -32,6 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { SetPortalPasswordDialog } from "./set-portal-password-dialog";
+import { getErrorMessage } from "@/lib/errors";
 
 type PendingAction = "toggle" | "slug" | "ttl" | null;
 
@@ -111,7 +112,7 @@ export function PortalAccessCard() {
       toast.success(isEnabled ? "Portal enabled" : "Portal disabled");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not update portal",
+        getErrorMessage(error, "Could not update portal"),
       );
     } finally {
       setPendingAction(null);
@@ -125,7 +126,7 @@ export function PortalAccessCard() {
       toast.success(`Portal path rotated to ${result.portalUrlPath}`);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not rotate portal path",
+        getErrorMessage(error, "Could not rotate portal path"),
       );
     } finally {
       setPendingAction(null);
@@ -143,9 +144,7 @@ export function PortalAccessCard() {
       toast.success("Session duration updated");
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Could not update session duration",
+        getErrorMessage(error, "Could not update session duration"),
       );
     } finally {
       setPendingAction(null);

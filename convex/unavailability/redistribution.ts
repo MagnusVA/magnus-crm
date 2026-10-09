@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
+import { log } from "../lib/observability/log";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMeetingsAssignedCloser";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
@@ -99,12 +100,6 @@ export const autoDistributeMeetings = mutation({
     candidateCloserIds: v.array(v.id("users")),
   },
   handler: async (ctx, args) => {
-    console.log("[Redistribution] autoDistributeMeetings called", {
-      unavailabilityId: args.unavailabilityId,
-      meetingCount: args.meetingIds.length,
-      candidateCount: args.candidateCloserIds.length,
-    });
-
     const { userId, tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -288,7 +283,14 @@ export const autoDistributeMeetings = mutation({
       });
     }
 
-    console.log("[Redistribution] autoDistributeMeetings completed", {
+    // No domain event covers reassignment, so this line is the outcome record.
+    log.info("unavailability.redistribution.auto_distributed", {
+      tenantId,
+      unavailabilityId: args.unavailabilityId,
+      fromCloserId: unavailability.closerId,
+      requestedCount: args.meetingIds.length,
+      candidateCount: candidateCloserIds.length,
+      eligibleCount: meetingsToAssign.length,
       assignedCount: assigned.length,
       unassignedCount: unassigned.length,
     });
@@ -305,12 +307,6 @@ export const manuallyResolveMeeting = mutation({
     targetCloserId: v.optional(v.id("users")),
   },
   handler: async (ctx, args) => {
-    console.log("[Redistribution] manuallyResolveMeeting called", {
-      meetingId: args.meetingId,
-      action: args.action,
-      targetCloserId: args.targetCloserId,
-    });
-
     const { userId, tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -402,6 +398,15 @@ export const manuallyResolveMeeting = mutation({
         reassignedAt: now,
       });
 
+      log.info("unavailability.redistribution.manual_assigned", {
+        tenantId,
+        unavailabilityId: args.unavailabilityId,
+        meetingId: args.meetingId,
+        opportunityId: opportunity._id,
+        fromCloserId: unavailability.closerId,
+        toCloserId: targetCloser._id,
+      });
+
       return {
         action: "assigned" as const,
         targetCloserName: targetCloser.fullName ?? targetCloser.email,
@@ -437,6 +442,16 @@ export const manuallyResolveMeeting = mutation({
       cancellationReason: `Canceled due to closer unavailability (${reasonLabel})`,
       canceledBy: "admin_unavailability_resolution",
       updatedAt: now,
+    });
+
+    log.info("unavailability.redistribution.manual_canceled", {
+      tenantId,
+      unavailabilityId: args.unavailabilityId,
+      meetingId: args.meetingId,
+      opportunityId: opportunity._id,
+      meetingAlreadyCanceled: meeting.status === "canceled",
+      previousOpportunityStatus: opportunity.status,
+      opportunityStatus: nextOpportunityStatus,
     });
 
     return { action: "canceled" as const };

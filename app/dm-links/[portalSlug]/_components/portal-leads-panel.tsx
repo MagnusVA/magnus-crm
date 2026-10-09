@@ -8,6 +8,7 @@ import {
 	AlertCircleIcon,
 	RefreshCwIcon,
 } from "lucide-react";
+import { toast } from "sonner";
 import type {
 	PortalLeadInitialSource,
 	PortalLeadNote,
@@ -20,6 +21,7 @@ import type {
 	PortalLeadSearchResult,
 } from "../actions";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -179,6 +181,16 @@ export function PortalLeadsPanel({
 				} else {
 					setSearchError(result.message);
 				}
+			}).catch((error: unknown) => {
+				// The server action itself failed (network, deploy skew).
+				reportClientError(error, { flow: "link_portal_lead_search" });
+				if (requestId !== requestIdRef.current) {
+					return;
+				}
+				const message = "Lead search failed. Try again in a moment.";
+				setSearching(false);
+				setSearchError(message);
+				toast.error(message);
 			});
 		}, SEARCH_DEBOUNCE_MS);
 		return () => window.clearTimeout(timeoutId);
@@ -606,6 +618,15 @@ function LeadNotesSection({
 			} else {
 				setNotesState({ status: "error", message: result.message });
 			}
+		}).catch((error: unknown) => {
+			// The server action itself failed (network, deploy skew).
+			reportClientError(error, { flow: "link_portal_lead_notes_list" });
+			if (cancelled) {
+				return;
+			}
+			const message = "Could not load notes. Try again in a moment.";
+			setNotesState({ status: "error", message });
+			toast.error(message);
 		});
 		return () => {
 			cancelled = true;

@@ -24,6 +24,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
+import { getErrorMessage } from "@/lib/errors";
 
 interface CalendlyLinkDialogProps {
   open: boolean;
@@ -72,7 +73,7 @@ export function CalendlyLinkDialog({
       onSuccess?.();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to link Calendly",
+        getErrorMessage(error, "Failed to link Calendly"),
       );
     } finally {
       setIsSubmitting(false);

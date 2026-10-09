@@ -19,6 +19,8 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
 import { serializeCsv } from "@/lib/csv";
+import { reportClientError } from "@/lib/observability/report-client-error";
+import { getErrorMessage } from "@/lib/errors";
 
 const EXPORT_LIMIT = 1000;
 
@@ -136,7 +138,8 @@ export function ExportMenu({
       toast.success("Billing CSV exported.");
       setOpen(false);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Export failed.");
+      reportClientError(error, { flow: "billing_export" });
+      toast.error(getErrorMessage(error, "Export failed."));
     } finally {
       setIsDownloading(false);
     }

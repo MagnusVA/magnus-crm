@@ -5,6 +5,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { internalAction, env } from "../_generated/server";
+import { log, reportError } from "../lib/observability/log";
 import { getRawWorkosUserId } from "../lib/workosUserId";
 
 const workos = new WorkOS(env.WORKOS_API_KEY, {
@@ -40,6 +41,7 @@ export const backfillUserProfilePictures = internalAction({
     dryRun: v.boolean(),
   },
   handler: async (ctx, args): Promise<ProfileBackfillResult> => {
+    const startedAt = Date.now();
     const page: ProfileBackfillPage = await ctx.runQuery(
       internal.workos.profileBackfillQueries.listUsersForProfileBackfill,
       {
@@ -96,10 +98,12 @@ export const backfillUserProfilePictures = internalAction({
           result.skipped += 1;
         }
       } catch (error) {
-        console.warn("[WorkOS:ProfileBackfill] failed user", {
+        reportError("workos.profile_backfill.user_failed", error, {
+          severity: "warning",
+          integration: "workos",
+          fingerprint: "workos.profile_backfill.user_failed",
+          tenantId: args.tenantId,
           userId: user._id,
-          workosUserId: user.workosUserId,
-          error: error instanceof Error ? error.message : String(error),
         });
         result.failed += 1;
       }
@@ -118,6 +122,18 @@ export const backfillUserProfilePictures = internalAction({
       result.scheduledContinuation = true;
     }
 
+    log.info("workos.profile_backfill.batch", {
+      tenantId: args.tenantId,
+      dryRun: args.dryRun,
+      scanned: result.scanned,
+      skipped: result.skipped,
+      updated: result.updated,
+      unchanged: result.unchanged,
+      failed: result.failed,
+      isDone: result.isDone,
+      scheduledContinuation: result.scheduledContinuation,
+      durationMs: Date.now() - startedAt,
+    });
     return result;
   },
 });

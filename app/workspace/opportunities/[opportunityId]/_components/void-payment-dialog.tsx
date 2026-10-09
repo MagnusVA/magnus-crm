@@ -5,6 +5,7 @@ import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation } from "convex/react";
 import { AlertTriangleIcon } from "lucide-react";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -33,6 +34,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { getErrorMessage } from "@/lib/errors";
 
 const voidPaymentSchema = z.object({
   reason: z
@@ -72,9 +74,9 @@ export function VoidPaymentDialog({
       form.reset();
       setOpen(false);
     } catch (error) {
-      posthog.captureException(error);
+      reportClientError(error, { flow: "payment_void" });
       const message =
-        error instanceof Error ? error.message : "Failed to void payment";
+        getErrorMessage(error, "Failed to void payment");
       setSubmitError(message);
       toast.error(message);
     } finally {

@@ -3,6 +3,7 @@ import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { internalMutation, mutation } from "../_generated/server";
 import { portalPasswordHashParamsValidator } from "../lib/linkPortal/validators";
+import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 
 const DEFAULT_SESSION_TTL_SECONDS = 8 * 60 * 60;
@@ -172,6 +173,10 @@ export const setPortalEnabled = mutation({
       isEnabled,
       sessionVersion,
       updatedAt: Date.now(),
+    });
+    log.info(isEnabled ? "link_portal.enabled" : "link_portal.disabled", {
+      tenantId,
+      sessionVersion,
     });
     return { isEnabled, sessionVersion };
   },

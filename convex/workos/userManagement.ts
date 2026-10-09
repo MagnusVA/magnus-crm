@@ -6,6 +6,12 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { action, type ActionCtx, env } from "../_generated/server";
 import { getIdentityOrgId } from "../lib/identity";
+import { rejectRequest } from "../lib/observability/errors";
+import {
+	log,
+	logRequestContext,
+	reportError,
+} from "../lib/observability/log";
 import { ADMIN_ROLES, mapCrmRoleToWorkosSlug } from "../lib/roleMapping";
 import { validateEmail, validateRequiredString } from "../lib/validation";
 import {
@@ -42,20 +48,37 @@ const crmRoleValidator = v.union(
 async function requireAdminContext(ctx: ActionCtx): Promise<AdminContext> {
 	const identity = await ctx.auth.getUserIdentity();
 	if (!identity) {
-		throw new Error("Not authenticated");
+		throw rejectRequest("auth.not_authenticated", "Not authenticated");
 	}
 
 	const callerWorkosUserId = getCanonicalIdentityWorkosUserId(identity);
 	if (!callerWorkosUserId) {
-		throw new Error("Missing WorkOS user ID");
+		throw rejectRequest(
+			"auth.missing_workos_user_id",
+			"Missing WorkOS user ID",
+		);
 	}
 
 	const caller: Doc<"users"> | null = await ctx.runQuery(
 		internal.users.queries.getCurrentUserInternal,
 		{ workosUserId: callerWorkosUserId },
 	);
+	const identityOrgId = getIdentityOrgId(identity);
+	if (caller) {
+		logRequestContext({
+			distinctId: getRawWorkosUserId(callerWorkosUserId),
+			userId: caller._id,
+			tenantId: caller.tenantId,
+			workosOrgId: identityOrgId,
+			role: caller.role,
+		});
+	}
 	if (!caller || !ADMIN_ROLES.includes(caller.role)) {
-		throw new Error("Insufficient permissions");
+		throw rejectRequest(
+			"auth.insufficient_permissions",
+			"Insufficient permissions",
+			{ role: caller?.role, hasCrmUser: Boolean(caller) },
+		);
 	}
 
 	const tenant: TenantSummary | null = await ctx.runQuery(
@@ -68,12 +91,66 @@ async function requireAdminContext(ctx: ActionCtx): Promise<AdminContext> {
 		throw new Error("Tenant not found");
 	}
 
-	const identityOrgId = getIdentityOrgId(identity);
 	if (!identityOrgId || identityOrgId !== tenant.workosOrgId) {
-		throw new Error("Not authorized");
+		throw rejectRequest("auth.organization_mismatch", "Not authorized", {
+			tenantId: tenant._id,
+			hasOrgId: Boolean(identityOrgId),
+		});
 	}
 
 	return { caller, tenant, callerWorkosUserId };
+}
+
+function workosErrorStatus(error: unknown): number | undefined {
+	if (typeof error !== "object" || error === null) return undefined;
+	const status = (error as { status?: unknown }).status;
+	return typeof status === "number" ? status : undefined;
+}
+
+/**
+ * A failed invitation revoke never blocks the caller. 404 and 400 mean the
+ * invitation is already revoked, accepted, or expired; anything else goes to
+ * Error Tracking.
+ */
+function handleInvitationRevokeFailure(
+	error: unknown,
+	attrs: {
+		operation: "update_user_role" | "remove_user";
+		tenantId: Id<"tenants">;
+		userId: Id<"users">;
+		invitationId: string;
+	},
+) {
+	const httpStatus = workosErrorStatus(error);
+	if (httpStatus === 404 || httpStatus === 400) {
+		log.info("workos.invitation.revoke_skipped", {
+			...attrs,
+			reason: "already_inactive",
+			httpStatus,
+		});
+		return;
+	}
+	const code =
+		typeof error === "object" && error !== null
+			? (error as { code?: unknown }).code
+			: undefined;
+	reportError(
+		"workos.invitation.revoke_failed",
+		new Error(
+			httpStatus === undefined
+				? "WorkOS revokeInvitation failed"
+				: `WorkOS revokeInvitation failed: HTTP ${httpStatus}${
+						typeof code === "string" ? ` (${code})` : ""
+					}`,
+		),
+		{
+			severity: "warning",
+			integration: "workos",
+			fingerprint: `workos.invitation.revoke_failed:${httpStatus ?? "network"}`,
+			httpStatus,
+			...attrs,
+		},
+	);
 }
 
 async function getMembership(workosUserId: string, organizationId: string) {
@@ -205,10 +282,6 @@ export const inviteUser = action({
 		userId: Id<"users">;
 		invitationId?: string;
 	}> => {
-		console.log("[WorkOS:Users] inviteUser called", {
-			role,
-			hasCalendlyMember: !!calendlyMemberId,
-		});
 		const { caller, tenant, callerWorkosUserId } =
 			await requireAdminContext(ctx);
 		const { normalizedEmail, fullName } = normalizeInviteInput(
@@ -223,10 +296,6 @@ export const inviteUser = action({
 			);
 		}
 
-		console.log("[WorkOS:Users] inviteUser input validated", {
-			role,
-			tenantId: caller.tenantId,
-		});
 		const existingTenantUser: Doc<"users"> | null = await ctx.runQuery(
 			internal.users.queries.getByTenantAndEmail,
 			{
@@ -274,6 +343,7 @@ export const inviteUser = action({
 		// -----------------------------------------------------------------------
 		const desiredRoleSlug = mapCrmRoleToWorkosSlug(role);
 		let invitationId: string | undefined;
+		let membershipRoleUpdated = false;
 
 		// Check if user already has a WorkOS account AND an existing membership
 		// (edge case: re-inviting someone who previously had access).
@@ -292,13 +362,8 @@ export const inviteUser = action({
 						existingMembership.id,
 						{ roleSlug: desiredRoleSlug },
 					);
+					membershipRoleUpdated = true;
 				}
-				console.log(
-					"[WorkOS:Users] inviteUser existing membership reused",
-					{
-						membershipId: existingMembership.id,
-					},
-				);
 			} else {
 				// User exists in WorkOS but not in this org — send invitation
 				invitationId = await sendOrResendInvitation(
@@ -344,9 +409,14 @@ export const inviteUser = action({
 				workosInvitationId: invitationId,
 			},
 		);
-		console.log("[WorkOS:Users] inviteUser CRM record created", {
+		log.info("workos.user.invited", {
+			tenantId: caller.tenantId,
 			userId,
-			invitationId,
+			role,
+			outcome: invitationId ? "invitation_sent" : "existing_membership_reused",
+			membershipRoleUpdated,
+			hadWorkosAccount: Boolean(existingWorkosUser),
+			calendlyMemberId,
 		});
 
 		return {
@@ -372,8 +442,10 @@ async function sendOrResendInvitation(
 		const resentInvitation = await workos.userManagement.resendInvitation(
 			pendingInvitation.id,
 		);
-		console.log("[WorkOS:Users] invitation resent", {
+		log.info("workos.invitation.sent", {
+			workosOrgId: organizationId,
 			invitationId: resentInvitation.id,
+			resent: true,
 		});
 		return resentInvitation.id;
 	}
@@ -384,8 +456,10 @@ async function sendOrResendInvitation(
 		inviterUserId: getRawWorkosUserId(inviterWorkosUserId),
 		roleSlug,
 	});
-	console.log("[WorkOS:Users] invitation sent", {
+	log.info("workos.invitation.sent", {
+		workosOrgId: organizationId,
 		invitationId: invitation.id,
+		resent: false,
 	});
 	return invitation.id;
 }
@@ -411,10 +485,6 @@ export const updateUserRole = action({
 		newRole: crmRoleValidator,
 	},
 	handler: async (ctx, { userId, newRole }) => {
-		console.log("[WorkOS:Users] updateUserRole called", {
-			userId,
-			newRole,
-		});
 		const { caller, tenant, callerWorkosUserId } =
 			await requireAdminContext(ctx);
 		const user = await getTenantUserOrThrow(ctx, caller.tenantId, userId);
@@ -440,24 +510,14 @@ export const updateUserRole = action({
 					await workos.userManagement.revokeInvitation(
 						user.workosInvitationId,
 					);
-					console.log(
-						"[WorkOS:Users] updateUserRole revoked old invitation",
-						{
-							invitationId: user.workosInvitationId,
-						},
-					);
 				} catch (error) {
 					// Invitation may already be expired/revoked — proceed regardless
-					console.warn(
-						"[WorkOS:Users] updateUserRole revoke failed (proceeding)",
-						{
-							invitationId: user.workosInvitationId,
-							error:
-								error instanceof Error
-									? error.message
-									: String(error),
-						},
-					);
+					handleInvitationRevokeFailure(error, {
+						operation: "update_user_role",
+						tenantId: caller.tenantId,
+						userId,
+						invitationId: user.workosInvitationId,
+					});
 				}
 
 				const newInvitationId = await sendOrResendInvitation(
@@ -485,10 +545,14 @@ export const updateUserRole = action({
 				);
 			}
 
-			console.log(
-				"[WorkOS:Users] updateUserRole completed (pending user)",
-				{ userId, newRole },
-			);
+			log.info("workos.user.role_updated", {
+				tenantId: caller.tenantId,
+				userId,
+				fromRole: user.role,
+				toRole: newRole,
+				pendingInvitation: true,
+				invitationReissued: Boolean(user.workosInvitationId),
+			});
 			return { userId, role: newRole };
 		}
 
@@ -497,11 +561,13 @@ export const updateUserRole = action({
 			user.workosUserId,
 			tenant.workosOrgId,
 		);
-		console.log("[WorkOS:Users] updateUserRole membership lookup", {
-			found: !!membership,
-			membershipId: membership?.id,
-		});
 		if (!membership) {
+			log.warn("workos.user.rejected", {
+				reason: "membership_not_found",
+				operation: "update_user_role",
+				tenantId: caller.tenantId,
+				userId,
+			});
 			throw new Error("No WorkOS membership found for this user");
 		}
 
@@ -511,10 +577,13 @@ export const updateUserRole = action({
 				roleSlug: mapCrmRoleToWorkosSlug(newRole),
 			},
 		);
-		console.log("[WorkOS:Users] updateUserRole role changed", {
+		log.info("workos.user.role_updated", {
+			tenantId: caller.tenantId,
 			userId,
-			from: user.role,
-			to: newRole,
+			fromRole: user.role,
+			toRole: newRole,
+			pendingInvitation: false,
+			membershipId: membership.id,
 		});
 
 		await ctx.runMutation(internal.workos.userMutations.updateRole, {
@@ -539,7 +608,6 @@ export const updateUserRole = action({
 export const removeUser = action({
 	args: { userId: v.id("users") },
 	handler: async (ctx, { userId }) => {
-		console.log("[WorkOS:Users] removeUser called", { userId });
 		const { caller, tenant } = await requireAdminContext(ctx);
 		const user = await getTenantUserOrThrow(ctx, caller.tenantId, userId);
 
@@ -565,6 +633,7 @@ export const removeUser = action({
 		}
 
 		const isPending = user.invitationStatus === "pending";
+		let membershipDeleted = false;
 
 		if (isPending) {
 			// User hasn't signed up yet — revoke the WorkOS invitation instead
@@ -574,24 +643,14 @@ export const removeUser = action({
 					await workos.userManagement.revokeInvitation(
 						user.workosInvitationId,
 					);
-					console.log(
-						"[WorkOS:Users] removeUser WorkOS invitation revoked",
-						{
-							invitationId: user.workosInvitationId,
-						},
-					);
 				} catch (error) {
 					// Invitation may already be expired/revoked — proceed with removal
-					console.warn(
-						"[WorkOS:Users] removeUser revoke invitation failed (proceeding)",
-						{
-							invitationId: user.workosInvitationId,
-							error:
-								error instanceof Error
-									? error.message
-									: String(error),
-						},
-					);
+					handleInvitationRevokeFailure(error, {
+						operation: "remove_user",
+						tenantId: caller.tenantId,
+						userId,
+						invitationId: user.workosInvitationId,
+					});
 				}
 			}
 		} else {
@@ -600,27 +659,22 @@ export const removeUser = action({
 				user.workosUserId,
 				tenant.workosOrgId,
 			);
-			console.log("[WorkOS:Users] removeUser membership found", {
-				found: !!membership,
-				membershipId: membership?.id,
-			});
 			if (membership) {
 				await workos.userManagement.deleteOrganizationMembership(
 					membership.id,
 				);
-				console.log(
-					"[WorkOS:Users] removeUser WorkOS membership deleted",
-					{ membershipId: membership.id },
-				);
+				membershipDeleted = true;
 			}
 		}
 
 		await ctx.runMutation(internal.workos.userMutations.removeUser, {
 			userId,
 		});
-		console.log("[WorkOS:Users] removeUser completed", {
+		log.info("workos.user.removed", {
+			tenantId: caller.tenantId,
 			userId,
 			wasPending: isPending,
+			membershipDeleted,
 		});
 
 		return { userId };

@@ -1,13 +1,14 @@
 "use node";
 
 import { v } from "convex/values";
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Doc } from "../_generated/dataModel";
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { getValidAccessToken } from "../calendly/tokens";
 import { validateTransition } from "../lib/statusTransitions";
-import { getIdentityOrgId } from "../lib/identity";
-import { requireIdentity } from "../requireIdentity";
+import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
+import { log } from "../lib/observability/log";
+import { rejectRequest } from "../lib/observability/errors";
 
 type SchedulingLinkPayload = {
   resource?: {
@@ -51,51 +52,18 @@ export const createFollowUp = action({
     ctx,
     { opportunityId, eventTypeUri },
   ): Promise<{ bookingUrl: string }> => {
-    console.log("[Closer:FollowUp] createFollowUp called", { opportunityId, eventTypeUriProvided: !!eventTypeUri });
     // ==== Step 1: Validate caller ====
-    const identity = await requireIdentity(ctx);
-
-    const orgId = getIdentityOrgId(identity);
-    if (!orgId) {
-      throw new Error("No organization context");
-    }
-
-    const workosUserId = identity.tokenIdentifier ?? identity.subject;
-    if (!workosUserId) {
-      throw new Error("Missing WorkOS user ID");
-    }
-
-    const caller: Doc<"users"> | null = await ctx.runQuery(
-      internal.users.queries.getCurrentUserInternal,
-      { workosUserId },
-    );
-    console.log("[Closer:FollowUp] caller validation", { found: !!caller, role: caller?.role });
-    if (!caller || caller.role !== "closer") {
-      throw new Error("Only closers can create follow-ups");
-    }
-
-    const tenant:
-      | {
-          _id: Id<"tenants">;
-          workosOrgId: string;
-        }
-      | null = await ctx.runQuery(internal.tenants.getCalendlyTenant, {
-      tenantId: caller.tenantId,
-    });
-    if (!tenant || tenant.workosOrgId !== orgId) {
-      throw new Error("Organization mismatch");
-    }
+    const caller = await requireTenantUserFromAction(ctx, ["closer"]);
 
     // Load the opportunity
     const opportunity: Doc<"opportunities"> | null = await ctx.runQuery(
       internal.opportunities.queries.getById,
       { opportunityId },
     );
-    console.log("[Closer:FollowUp] opportunity validation", { found: !!opportunity, status: opportunity?.status, assignedCloserId: opportunity?.assignedCloserId });
     if (!opportunity || opportunity.tenantId !== caller.tenantId) {
       throw new Error("Opportunity not found");
     }
-    if (opportunity.assignedCloserId !== caller._id) {
+    if (opportunity.assignedCloserId !== caller.userId) {
       throw new Error("Not your opportunity");
     }
     if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
@@ -109,12 +77,11 @@ export const createFollowUp = action({
       internal.calendly.connectionQueries.getTenantConnectionContext,
       { tenantId: caller.tenantId },
     );
-    console.log("[Closer:FollowUp] token state", {
-      hasAccessToken: !!connectionState?.accessToken,
-    });
     if (!connectionState?.accessToken) {
-      throw new Error(
-        "Calendly is not connected. Please ask your admin to reconnect Calendly."
+      throw rejectRequest(
+        "calendly.not_connected",
+        "Calendly is not connected. Please ask your admin to reconnect Calendly.",
+        { tenantId: caller.tenantId, opportunityId },
       );
     }
 
@@ -142,7 +109,6 @@ export const createFollowUp = action({
     }
 
     // ==== Step 3: Create single-use scheduling link via Calendly API ====
-    console.log("[Closer:FollowUp] Calendly API request", { endpoint: "scheduling_links", eventType: targetEventType });
     const response = await fetch("https://api.calendly.com/scheduling_links", {
       method: "POST",
       headers: {
@@ -155,43 +121,51 @@ export const createFollowUp = action({
         owner_type: "EventType",
       }),
     });
+    const calendlyResponseAttrs = {
+      tenantId: caller.tenantId,
+      opportunityId,
+      actor: "closer",
+      httpStatus: response.status,
+    };
+    if (response.ok) {
+      log.info("follow_up.calendly_scheduling_link", calendlyResponseAttrs);
+    } else {
+      log.warn("follow_up.calendly_scheduling_link", calendlyResponseAttrs);
+    }
 
     if (!response.ok) {
-      const errorBody = await response.text();
       if (response.status === 403) {
         throw new Error(
           "Missing Calendly scope: scheduling_links:write. " +
             "Please ask your admin to reconnect Calendly with the required scopes.",
         );
       }
+      // The body can echo request details, so only the status is kept.
       throw new Error(
-        `Failed to create scheduling link: ${response.status} ${errorBody}`,
+        `Calendly scheduling link failed: HTTP ${response.status}`,
       );
     }
 
     const data = (await response.json()) as SchedulingLinkPayload;
     const bookingUrl = extractBookingUrl(data);
-    console.log("[Closer:FollowUp] Calendly API response", { status: response.status, success: response.ok, hasBookingUrl: !!bookingUrl });
     if (!bookingUrl) {
       throw new Error("Calendly did not return a booking URL");
     }
 
     // ==== Step 4: Create follow-up record ====
-    console.log("[Closer:FollowUp] creating follow-up record", { opportunityId, leadId: opportunity.leadId });
     await ctx.runMutation(
       internal.closer.followUpMutations.createFollowUpRecord,
       {
         tenantId: caller.tenantId,
         opportunityId,
         leadId: opportunity.leadId,
-        closerId: caller._id,
+        closerId: caller.userId,
         schedulingLinkUrl: bookingUrl,
         reason: "closer_initiated",
       },
     );
 
     // ==== Step 5: Transition opportunity status ====
-    console.log("[Closer:FollowUp] transitioning opportunity to follow_up_scheduled", { opportunityId });
     await ctx.runMutation(
       internal.closer.followUpMutations.transitionToFollowUp,
       {
@@ -199,7 +173,6 @@ export const createFollowUp = action({
       },
     );
 
-    console.log("[Closer:FollowUp] createFollowUp completed successfully", { opportunityId });
     return { bookingUrl };
   },
 });

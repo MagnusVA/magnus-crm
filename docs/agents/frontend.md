@@ -72,4 +72,4 @@ Page clients are `*-page-client.tsx`, loading states `*-skeleton.tsx`, modals `*
 
 ## Analytics
 
-PostHog runs only in production with a token set (`lib/posthog-config.ts`). The client initializes in `instrumentation-client.ts` and sends through the `/ingest` proxy rewrites in `next.config.ts`. Only `usePostHogIdentify` and sign-out call `identify`. Server events use `getPostHogClient()` from `lib/posthog-server.ts`. For Convex and server-rendering patterns with Next.js, see `.docs/convex/nextjs.md`.
+PostHog runs only in production with a token set (`lib/posthog-config.ts`). The client initializes in `instrumentation-client.ts` and sends through the `/ingest` proxy rewrites in `next.config.ts`. Only `usePostHogIdentify` and sign-out call `identify`. Server events use `getPostHogClient()` from `lib/posthog-server.ts`. `instrumentation.ts` reports server errors, and route error boundaries and `SectionErrorBoundary` report what they catch; `docs/agents/observability.md` covers error tracking and logs. For Convex and server-rendering patterns with Next.js, see `.docs/convex/nextjs.md`.

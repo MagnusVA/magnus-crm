@@ -48,6 +48,7 @@ import {
 	insertOpportunityAggregate,
 } from "../reporting/writeHooks";
 import { findOpenSlackQualifiedOpportunity } from "./slackJoinLookup";
+import { log, reportError } from "../lib/observability/log";
 
 function parseTimestamp(value: unknown): number | undefined {
 	if (typeof value !== "string") {
@@ -89,10 +90,7 @@ async function syncMeetingFormResponsesForBooking(
 		return;
 	}
 
-	const result = await writeMeetingFormResponses(ctx, args);
-	console.log(
-		`[Pipeline:invitee.created] Meeting form responses synced | meetingId=${args.meetingId} responsesCreated=${result.responsesCreated} responsesUpdated=${result.responsesUpdated} fieldCatalogCreated=${result.fieldCatalogCreated} fieldCatalogUpdated=${result.fieldCatalogUpdated} questionsSkipped=${result.questionsSkipped}`,
-	);
+	await writeMeetingFormResponses(ctx, args);
 }
 
 async function getCallClassificationForOpportunity(
@@ -232,9 +230,6 @@ function extractIdentifiersFromCustomFields(
 				rawValue: rawValue.trim(),
 				platform: mappings.socialHandleType,
 			};
-			console.log(
-				`[Pipeline:Identity] Social handle extracted from custom field | field="${mappings.socialHandleField}" platform=${mappings.socialHandleType} rawValue="${rawValue.trim()}"`,
-			);
 		}
 	}
 
@@ -243,9 +238,6 @@ function extractIdentifiersFromCustomFields(
 		const rawValue = customFields[mappings.phoneField];
 		if (rawValue && rawValue.trim().length > 0) {
 			result.phoneOverride = rawValue.trim();
-			console.log(
-				`[Pipeline:Identity] Phone override extracted from custom field | field="${mappings.phoneField}" rawValue="${rawValue.trim()}"`,
-			);
 		}
 	}
 
@@ -282,18 +274,18 @@ async function upsertLeadIdentifier(
 
 	if (existing) {
 		if (existing.leadId !== record.leadId) {
-			console.warn(
-				`[Pipeline:Identity] Identifier conflict: ${record.type}=${record.value} exists on leadId=${existing.leadId}, attempted to add to leadId=${record.leadId}`,
-			);
+			log.warn("pipeline.lead_identifier.conflict", {
+				tenantId: record.tenantId,
+				identifierType: record.type,
+				leadId: record.leadId,
+				existingLeadId: existing.leadId,
+			});
 			return "existing_other_lead";
 		}
 		return "existing_same_lead";
 	}
 
 	await ctx.db.insert("leadIdentifiers", record);
-	console.log(
-		`[Pipeline:Identity] Identifier created | type=${record.type} value=${record.value} leadId=${record.leadId} confidence=${record.confidence}`,
-	);
 	return "created";
 }
 
@@ -549,14 +541,8 @@ async function resolveAssignedCloser(
 	tenantId: Id<"tenants">,
 	hostUserUri: string | undefined,
 ): Promise<AssignedCloserResolution> {
-	console.log(
-		`[Pipeline:invitee.created] Resolving closer | hostUserUri=${hostUserUri ?? "none"}`,
-	);
 
 	if (!hostUserUri) {
-		console.warn(
-			"[Pipeline:invitee.created] No host URI on scheduled event; leaving opportunity unassigned",
-		);
 		return {
 			assignedCloserId: undefined,
 			hostCalendlyRole: undefined,
@@ -572,9 +558,6 @@ async function resolveAssignedCloser(
 		)
 		.unique();
 	if (directUser?.role === "closer") {
-		console.log(
-			`[Pipeline:invitee.created] Direct user match: userId=${directUser._id}`,
-		);
 		return {
 			assignedCloserId: directUser._id,
 			hostCalendlyRole: undefined,
@@ -584,9 +567,6 @@ async function resolveAssignedCloser(
 	}
 
 	if (directUser) {
-		console.warn(
-			`[Pipeline:invitee.created] Host maps to non-closer CRM user | userId=${directUser._id} role=${directUser.role}`,
-		);
 		return {
 			assignedCloserId: undefined,
 			hostCalendlyRole: undefined,
@@ -604,9 +584,6 @@ async function resolveAssignedCloser(
 	if (orgMember?.matchedUserId) {
 		const matchedUser = await ctx.db.get("users", orgMember.matchedUserId);
 		if (matchedUser?.role === "closer") {
-			console.log(
-				`[Pipeline:invitee.created] Org member match: userId=${matchedUser._id} via orgMemberId=${orgMember._id}`,
-			);
 			return {
 				assignedCloserId: matchedUser._id,
 				hostCalendlyRole: orgMember.calendlyRole,
@@ -616,9 +593,6 @@ async function resolveAssignedCloser(
 		}
 
 		if (matchedUser) {
-			console.warn(
-				`[Pipeline:invitee.created] Host org member maps to non-closer CRM user | orgMemberId=${orgMember._id} userId=${matchedUser._id} role=${matchedUser.role}`,
-			);
 			return {
 				assignedCloserId: undefined,
 				hostCalendlyRole: orgMember.calendlyRole,
@@ -629,9 +603,6 @@ async function resolveAssignedCloser(
 	}
 
 	if (orgMember) {
-		console.warn(
-			`[Pipeline:invitee.created] Known Calendly host has no matched closer | orgMemberId=${orgMember._id} calendlyRole=${orgMember.calendlyRole ?? "none"} email=${orgMember.email}`,
-		);
 		return {
 			assignedCloserId: undefined,
 			hostCalendlyRole: orgMember.calendlyRole,
@@ -640,15 +611,48 @@ async function resolveAssignedCloser(
 		};
 	}
 
-	console.warn(
-		`[Pipeline:invitee.created] Unmatched Calendly host URI: ${hostUserUri}. Leaving opportunity unassigned.`,
-	);
 	return {
 		assignedCloserId: undefined,
 		hostCalendlyRole: undefined,
 		isKnownNonCloserHost: false,
 		resolution: "unknown_host",
 	};
+}
+
+/**
+ * Records an invitee.created dropped because its host isn't a closer. A host
+ * known to be a non-closer CRM user is routine. A Calendly member not linked
+ * to any CRM user (`org_member_unmatched`) usually means a closer whose
+ * Calendly account was never linked, so their booking is lost.
+ */
+function logNonCloserHostSkip(
+	attrs: {
+		reason:
+			| "non_closer_host_without_lead"
+			| "non_closer_host_without_opportunity";
+		tenantId: Id<"tenants">;
+		rawEventId: Id<"rawWebhookEvents">;
+		closerResolution: AssignedCloserResolution["resolution"];
+	} & Record<string, unknown>,
+) {
+	if (attrs.closerResolution === "org_member_unmatched") {
+		reportError(
+			"pipeline.event_dropped",
+			new Error(
+				"invitee.created hosted by a Calendly member not linked to a CRM closer",
+			),
+			{
+				...attrs,
+				severity: "warning",
+				integration: "calendly",
+				fingerprint:
+					"pipeline.event_dropped:invitee.created:org_member_unmatched",
+				eventType: "invitee.created",
+			},
+		);
+		return;
+	}
+	log.info("pipeline.invitee_created.skipped", attrs);
 }
 
 async function resolveEventTypeConfigId(
@@ -673,29 +677,15 @@ async function resolveEventTypeConfigId(
 		return undefined;
 	}
 
-	// Reuse preloaded config from early lookup if available, avoiding a duplicate query
-	let existingConfig: Doc<"eventTypeConfigs"> | null;
-
-	if (preloadedConfig !== undefined) {
-		existingConfig = preloadedConfig;
-	} else {
-		const lookup = await lookupEventTypeConfig(ctx, {
-			tenantId,
-			eventTypeUri,
-		});
-		existingConfig = lookup.existingConfig;
-
-		if (lookup.candidateCount > 1 && existingConfig) {
-			console.warn(
-				`[Pipeline:invitee.created] Multiple eventTypeConfigs for same URI (${lookup.candidateCount}); using canonical configId=${existingConfig._id}`,
-			);
-		}
-	}
+	// Reuse preloaded config from early lookup if available, avoiding a
+	// duplicate query. The early lookup reports duplicate configs.
+	const existingConfig =
+		preloadedConfig !== undefined
+			? preloadedConfig
+			: (await lookupEventTypeConfig(ctx, { tenantId, eventTypeUri }))
+					.existingConfig;
 
 	if (existingConfig) {
-		console.log(
-			`[Pipeline:invitee.created] Event type config found | configId=${existingConfig._id}`,
-		);
 		return existingConfig._id;
 	}
 
@@ -716,9 +706,11 @@ async function resolveEventTypeConfigId(
 		knownCustomFieldKeys:
 			initialKeys && initialKeys.length > 0 ? initialKeys : undefined,
 	});
-	console.log(
-		`[Pipeline:invitee.created] Event type config auto-created | configId=${eventTypeConfigId} displayName="${eventDisplayName}" initialKeys=${initialKeys ? JSON.stringify(initialKeys) : "none"}`,
-	);
+	log.info("pipeline.event_type_config.auto_created", {
+		tenantId,
+		eventTypeConfigId,
+		initialCustomFieldKeyCount: initialKeys?.length ?? 0,
+	});
 
 	return eventTypeConfigId;
 }
@@ -753,9 +745,12 @@ async function syncKnownCustomFieldKeys(
 	await ctx.db.patch("eventTypeConfigs", eventTypeConfigId, {
 		knownCustomFieldKeys: updatedKeys,
 	});
-	console.log(
-		`[Pipeline:invitee.created] [Feature F] Auto-discovered ${newKeys.length} new custom field key(s) | configId=${eventTypeConfigId} newKeys=${JSON.stringify(newKeys)} totalKeys=${updatedKeys.length}`,
-	);
+	log.info("pipeline.event_type_config.custom_fields_discovered", {
+		tenantId: config.tenantId,
+		eventTypeConfigId,
+		newKeyCount: newKeys.length,
+		totalKeyCount: updatedKeys.length,
+	});
 }
 
 export const process = internalMutation({
@@ -765,15 +760,14 @@ export const process = internalMutation({
 		rawEventId: v.id("rawWebhookEvents"),
 	},
 	handler: async (ctx, { tenantId, payload, rawEventId }) => {
-		console.log(
-			`[Pipeline:invitee.created] Entry | tenantId=${tenantId} rawEventId=${rawEventId}`,
-		);
 
 		const rawEvent = await ctx.db.get("rawWebhookEvents", rawEventId);
 		if (!rawEvent || rawEvent.processed) {
-			console.log(
-				`[Pipeline:invitee.created] Skipping: event already processed or not found`,
-			);
+			log.info("pipeline.invitee_created.skipped", {
+				reason: rawEvent ? "already_processed" : "raw_event_missing",
+				tenantId,
+				rawEventId,
+			});
 			return;
 		}
 
@@ -794,9 +788,6 @@ export const process = internalMutation({
 		const scheduledAt = parseTimestamp(scheduledEvent.start_time);
 		const endTime = parseTimestamp(scheduledEvent.end_time);
 
-		console.log(
-			`[Pipeline:invitee.created] Extracted fields | email=${inviteeEmail} name=${inviteeName} phone=${inviteePhone ? "provided" : "none"} calendlyEventUri=${calendlyEventUri} eventTypeUri=${eventTypeUri} scheduledAt=${scheduledAt} endTime=${endTime}`,
-		);
 
 		if (
 			!inviteeEmail ||
@@ -806,6 +797,16 @@ export const process = internalMutation({
 			scheduledAt === undefined ||
 			endTime === undefined
 		) {
+			log.warn("pipeline.invitee_created.rejected", {
+				reason: "missing_required_fields",
+				tenantId,
+				rawEventId,
+				hasEmail: !!inviteeEmail,
+				hasInviteeUri: !!calendlyInviteeUri,
+				hasEventUri: !!calendlyEventUri,
+				hasStartTime: scheduledAt !== undefined,
+				hasEndTime: endTime !== undefined,
+			});
 			throw new Error(
 				"[Pipeline] Missing required fields in invitee.created payload",
 			);
@@ -820,15 +821,16 @@ export const process = internalMutation({
 			)
 			.unique();
 		if (existingMeeting) {
-			console.log(
-				`[Pipeline:invitee.created] Duplicate detected: meeting ${existingMeeting._id} already exists for eventUri=${calendlyEventUri}`,
-			);
+			log.info("pipeline.invitee_created.skipped", {
+				reason: "duplicate_meeting",
+				tenantId,
+				rawEventId,
+				meetingId: existingMeeting._id,
+				opportunityId: existingMeeting.opportunityId,
+			});
 			await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
 			return;
 		}
-		console.log(
-			`[Pipeline:invitee.created] No duplicate meeting found, proceeding`,
-		);
 
 		const now = Date.now();
 		const durationMinutes = Math.max(
@@ -861,6 +863,22 @@ export const process = internalMutation({
 			eventTypeUri,
 		});
 		const earlyEventTypeConfig = eventTypeConfigLookup.existingConfig;
+		if (eventTypeConfigLookup.candidateCount > 1 && earlyEventTypeConfig) {
+			// The oldest config wins, so the booking still proceeds.
+			reportError(
+				"pipeline.data_inconsistency",
+				new Error("Multiple event type configs share one Calendly event type"),
+				{
+					severity: "warning",
+					fingerprint: "pipeline.data_inconsistency:duplicate_event_type_configs",
+					reason: "duplicate_event_type_configs",
+					tenantId,
+					rawEventId,
+					eventTypeConfigId: earlyEventTypeConfig._id,
+					candidateCount: eventTypeConfigLookup.candidateCount,
+				},
+			);
+		}
 		const extractedIdentifiers = extractIdentifiersFromCustomFields(
 			latestCustomFields,
 			earlyEventTypeConfig,
@@ -875,17 +893,8 @@ export const process = internalMutation({
 			hostUserUri,
 		);
 		const assignedCloserId = assignedCloserResolution.assignedCloserId;
-		console.log(
-			`[Pipeline:invitee.created] Assigned closer resolved | closerId=${assignedCloserId ?? "none"} hostEmail=${hostCalendlyEmail ?? "none"} resolution=${assignedCloserResolution.resolution}`,
-		);
-		console.log(
-			`[Pipeline:invitee.created] UTM extraction | hasUtm=${!!utmParams} source=${utmParams?.utm_source ?? "none"} medium=${utmParams?.utm_medium ?? "none"} campaign=${utmParams?.utm_campaign ?? "none"}`,
-		);
 
 		if (utmParams?.utm_source === "ptdom" && utmParams.utm_campaign) {
-			console.log(
-				`[Pipeline:invitee.created] [Feature A] UTM deterministic linking | opportunityId=${utmParams.utm_campaign} medium=${utmParams.utm_medium ?? "none"} content=${utmParams.utm_content ?? "none"}`,
-			);
 
 			const targetOpportunityId =
 				utmParams.utm_campaign as Id<"opportunities">;
@@ -907,8 +916,19 @@ export const process = internalMutation({
 				const previousTargetStatus = targetOpportunity.status;
 				const targetLead = await ctx.db.get("leads", targetOpportunity.leadId);
 				if (!targetLead || targetLead.tenantId !== tenantId) {
-					console.warn(
-						`[Pipeline:invitee.created] [Feature A] Opportunity lead missing or invalid | opportunityId=${targetOpportunityId} leadId=${targetOpportunity.leadId}`,
+					reportError(
+						"pipeline.data_inconsistency",
+						new Error("UTM target opportunity references a missing lead"),
+						{
+							severity: "error",
+							fingerprint: "pipeline.data_inconsistency:utm_target_lead_missing",
+							reason: "utm_target_lead_missing",
+							tenantId,
+							rawEventId,
+							opportunityId: targetOpportunityId,
+							leadId: targetOpportunity.leadId,
+							leadExists: !!targetLead,
+						},
 					);
 				} else {
 					const lead = await syncLeadFromBooking(ctx, targetLead, {
@@ -940,6 +960,14 @@ export const process = internalMutation({
 						nextAssignedCloserId !==
 						targetOpportunity.assignedCloserId;
 					if (!nextAssignedCloserId) {
+						log.warn("pipeline.invitee_created.rejected", {
+							reason: "no_assigned_closer",
+							path: "utm_relink",
+							tenantId,
+							rawEventId,
+							opportunityId: targetOpportunityId,
+							closerResolution: assignedCloserResolution.resolution,
+						});
 						throw new Error(
 							"[Pipeline] Unable to resolve assigned closer for deterministic booking",
 						);
@@ -972,9 +1000,6 @@ export const process = internalMutation({
 						toStatus: "scheduled",
 						occurredAt: now,
 					});
-					console.log(
-						`[Pipeline:invitee.created] [Feature A] Opportunity relinked | opportunityId=${targetOpportunityId} status=${previousTargetStatus}->scheduled`,
-					);
 
 					let rescheduledFromMeetingId: Id<"meetings"> | undefined;
 					if (isNoShowRescheduleUtm && utmParams.utm_content) {
@@ -986,9 +1011,13 @@ export const process = internalMutation({
 						if (originalMeeting && originalMeeting.tenantId === tenantId) {
 							rescheduledFromMeetingId = originalMeeting._id;
 						} else {
-							console.warn(
-								`[Pipeline:invitee.created] [Feature B] Invalid no-show reschedule meeting | meetingId=${candidateMeetingId}`,
-							);
+							log.warn("pipeline.invitee_created.reschedule_source_invalid", {
+								tenantId,
+								rawEventId,
+								opportunityId: targetOpportunityId,
+								meetingId: candidateMeetingId,
+								meetingExists: !!originalMeeting,
+							});
 						}
 					}
 
@@ -1017,13 +1046,16 @@ export const process = internalMutation({
 								toStatus: "booked",
 								occurredAt: bookedAt,
 							});
-							console.log(
-								`[Pipeline:invitee.created] [Feature A] Follow-up marked booked | followUpId=${targetFollowUpId}`,
-							);
 						} else {
-							console.warn(
-								`[Pipeline:invitee.created] [Feature A] Follow-up target invalid | followUpId=${targetFollowUpId}`,
-							);
+							log.warn("pipeline.invitee_created.follow_up_target_invalid", {
+								tenantId,
+								rawEventId,
+								opportunityId: targetOpportunityId,
+								followUpId: targetFollowUpId,
+								followUpExists: !!followUp,
+								followUpStatus: followUp?.status,
+								followUpType: followUp?.type,
+							});
 						}
 					} else {
 						await ctx.runMutation(
@@ -1105,11 +1137,6 @@ export const process = internalMutation({
 						},
 						occurredAt: now,
 					});
-					if (rescheduledFromMeetingId) {
-						console.log(
-							`[Pipeline:invitee.created] [Feature B] Reschedule chain linked | newMeetingId=${meetingId} rescheduledFrom=${rescheduledFromMeetingId}`,
-						);
-					}
 
 					await updateOpportunityMeetingRefs(
 						ctx,
@@ -1138,16 +1165,33 @@ export const process = internalMutation({
 					);
 
 					await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
-					console.log(
-						`[Pipeline:invitee.created] [Feature A] Deterministic linking complete | meetingId=${meetingId} opportunityId=${targetOpportunityId}`,
-					);
+					log.info("pipeline.invitee_created.processed", {
+						path: "utm_relink",
+						tenantId,
+						rawEventId,
+						meetingId,
+						opportunityId: targetOpportunityId,
+						leadId: lead._id,
+						leadCreated: false,
+						opportunityCreated: false,
+						previousOpportunityStatus: previousTargetStatus,
+						closerResolution: assignedCloserResolution.resolution,
+						closerChanged,
+						rescheduledFromMeetingId,
+						followUpId: targetFollowUpId,
+					});
 					return;
 				}
 			}
 
-			console.warn(
-				`[Pipeline:invitee.created] [Feature A] UTM target invalid | opportunityExists=${!!targetOpportunity} tenantMatch=${targetOpportunity?.tenantId === tenantId} status=${targetOpportunity?.status ?? "N/A"} - falling through to normal flow`,
-			);
+			log.warn("pipeline.invitee_created.utm_target_invalid", {
+				tenantId,
+				rawEventId,
+				opportunityId: targetOpportunityId,
+				opportunityExists: !!targetOpportunity,
+				tenantMatch: targetOpportunity?.tenantId === tenantId,
+				opportunityStatus: targetOpportunity?.status,
+			});
 		}
 
 		if (
@@ -1164,9 +1208,13 @@ export const process = internalMutation({
 				createdAt: now,
 			});
 			if (!existingLeadResolution) {
-				console.warn(
-					`[Pipeline:invitee.created] Skipping booking for known non-closer host without existing lead context | eventUri=${calendlyEventUri} hostUserUri=${hostUserUri ?? "none"} hostEmail=${hostCalendlyEmail ?? "none"} eventTypeUri=${eventTypeUri ?? "none"} calendlyRole=${assignedCloserResolution.hostCalendlyRole ?? "none"}`,
-				);
+				logNonCloserHostSkip({
+					reason: "non_closer_host_without_lead",
+					tenantId,
+					rawEventId,
+					closerResolution: assignedCloserResolution.resolution,
+					hostCalendlyRole: assignedCloserResolution.hostCalendlyRole,
+				});
 				await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
 				return;
 			}
@@ -1185,9 +1233,6 @@ export const process = internalMutation({
 		});
 
 		let lead = resolution.lead;
-		console.log(
-			`[Pipeline:Identity] Resolution complete | leadId=${lead._id} isNew=${resolution.isNewLead} via=${resolution.resolvedVia} potentialDuplicate=${resolution.potentialDuplicateLeadId ?? "none"}`,
-		);
 
 		// If existing lead, update fields (existing behavior, preserved)
 		if (!resolution.isNewLead) {
@@ -1248,21 +1293,17 @@ export const process = internalMutation({
 			}
 		}
 
-		if (autoRescheduleTarget) {
-			console.log(
-				`[Pipeline:invitee.created] [Feature B4] Heuristic reschedule detected | opportunityId=${autoRescheduleTarget._id} status=${autoRescheduleTarget.status}`,
-			);
-
-			if (!validateTransition(autoRescheduleTarget.status, "scheduled")) {
-				console.warn(
-					`[Pipeline:invitee.created] [Feature B4] Invalid transition ${autoRescheduleTarget.status} -> scheduled | falling through to normal flow`,
-				);
-				autoRescheduleTarget = null;
-			}
-		} else {
-			console.log(
-				`[Pipeline:invitee.created] [Feature B4] No reschedule candidate found for leadId=${lead._id} | proceeding to follow-up detection`,
-			);
+		if (
+			autoRescheduleTarget &&
+			!validateTransition(autoRescheduleTarget.status, "scheduled")
+		) {
+			log.warn("pipeline.invitee_created.reschedule_transition_invalid", {
+				tenantId,
+				rawEventId,
+				opportunityId: autoRescheduleTarget._id,
+				opportunityStatus: autoRescheduleTarget.status,
+			});
+			autoRescheduleTarget = null;
 		}
 		// === End Feature B4: Heuristic reschedule detection ===
 
@@ -1287,6 +1328,14 @@ export const process = internalMutation({
 			const closerChanged =
 				nextAssignedCloserId !== autoRescheduleTarget.assignedCloserId;
 			if (!nextAssignedCloserId) {
+				log.warn("pipeline.invitee_created.rejected", {
+					reason: "no_assigned_closer",
+					path: "heuristic_reschedule",
+					tenantId,
+					rawEventId,
+					opportunityId: reschedOpportunityId,
+					closerResolution: assignedCloserResolution.resolution,
+				});
 				throw new Error(
 					"[Pipeline] Unable to resolve assigned closer for auto-rescheduled booking",
 				);
@@ -1324,15 +1373,6 @@ export const process = internalMutation({
 				toStatus: "scheduled",
 				occurredAt: now,
 			});
-			console.log(
-				`[Pipeline:invitee.created] [Feature B4] Opportunity relinked | opportunityId=${reschedOpportunityId} status=${previousOpportunityStatus}->scheduled`,
-			);
-
-			if (closerChanged) {
-				console.log(
-					`[Pipeline:invitee.created] [Feature B4] Opportunity reassigned | opportunityId=${reschedOpportunityId} from=${autoRescheduleTarget.assignedCloserId ?? "none"} to=${nextAssignedCloserId ?? "none"}`,
-				);
-			}
 
 			await ctx.runMutation(
 				internal.closer.followUpMutations.markFollowUpBooked,
@@ -1403,9 +1443,6 @@ export const process = internalMutation({
 				},
 				occurredAt: now,
 			});
-				console.log(
-					`[Pipeline:invitee.created] [Feature B4] Meeting created | meetingId=${meetingId} rescheduledFrom=${rescheduledFromMeetingId ?? "none"}`,
-				);
 
 			await updateOpportunityMeetingRefs(ctx, reschedOpportunityId);
 			await rebuildQualificationRowsForOpportunity(ctx, reschedOpportunityId);
@@ -1427,9 +1464,21 @@ export const process = internalMutation({
 			);
 
 			await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
-			console.log(
-				`[Pipeline:invitee.created] [Feature B4] Heuristic reschedule complete | meetingId=${meetingId} opportunityId=${reschedOpportunityId}`,
-			);
+			log.info("pipeline.invitee_created.processed", {
+				path: "heuristic_reschedule",
+				tenantId,
+				rawEventId,
+				meetingId,
+				opportunityId: reschedOpportunityId,
+				leadId: lead._id,
+				leadCreated: resolution.isNewLead,
+				opportunityCreated: false,
+				previousOpportunityStatus,
+				closerResolution: assignedCloserResolution.resolution,
+				closerChanged,
+				rescheduledFromMeetingId,
+				identityResolvedVia: resolution.resolvedVia,
+			});
 			return;
 		}
 		// === End Feature B4: Opportunity linking + closer reassignment ===
@@ -1454,20 +1503,6 @@ export const process = internalMutation({
 				leadId: lead._id,
 			});
 
-		if (slackQualifiedOpportunity) {
-			console.log(
-				`[Pipeline:invitee.created] Slack-qualified opportunity eligible | opportunityId=${slackQualifiedOpportunity._id} leadId=${lead._id}`,
-			);
-		} else if (existingFollowUp) {
-			console.log(
-				`[Pipeline:invitee.created] Follow-up opportunity detected | opportunityId=${existingFollowUp._id}`,
-			);
-		} else {
-			console.log(
-				`[Pipeline:invitee.created] No follow-up opportunity found, creating new`,
-			);
-		}
-
 		const meetingAssignedCloserId = slackQualifiedOpportunity
 			? assignedCloserId ??
 				slackQualifiedOpportunity.assignedCloserId ??
@@ -1477,12 +1512,30 @@ export const process = internalMutation({
 				: assignedCloserId;
 		if (!meetingAssignedCloserId) {
 			if (assignedCloserResolution.isKnownNonCloserHost) {
-				console.warn(
-					`[Pipeline:invitee.created] Skipping booking for known non-closer host without reusable opportunity context | leadId=${lead._id} eventUri=${calendlyEventUri} hostUserUri=${hostUserUri ?? "none"} hostEmail=${hostCalendlyEmail ?? "none"} resolution=${assignedCloserResolution.resolution}`,
-				);
+				logNonCloserHostSkip({
+					reason: "non_closer_host_without_opportunity",
+					tenantId,
+					rawEventId,
+					leadId: lead._id,
+					leadCreated: resolution.isNewLead,
+					closerResolution: assignedCloserResolution.resolution,
+					hostCalendlyRole: assignedCloserResolution.hostCalendlyRole,
+				});
 				await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
 				return;
 			}
+			log.warn("pipeline.invitee_created.rejected", {
+				reason: "no_assigned_closer",
+				path: slackQualifiedOpportunity
+					? "slack_qualified"
+					: existingFollowUp
+						? "follow_up"
+						: "new_opportunity",
+				tenantId,
+				rawEventId,
+				leadId: lead._id,
+				closerResolution: assignedCloserResolution.resolution,
+			});
 			throw new Error(
 				"[Pipeline] Unable to resolve assigned closer for invitee.created",
 			);
@@ -1540,9 +1593,6 @@ export const process = internalMutation({
 				now,
 			});
 			slackJoinEventOpportunityId = opportunityId;
-			console.log(
-				`[Pipeline:invitee.created] Slack-qualified opportunity joined | opportunityId=${opportunityId} leadId=${lead._id} slackOppCreatedAt=${new Date(slackQualifiedOpportunity.createdAt).toISOString()} qualifiedBy=${slackQualifiedOpportunity.qualifiedBy?.slackUserId ?? "unknown"}`,
-			);
 		} else if (existingFollowUp) {
 			if (!validateTransition(existingFollowUp.status, "scheduled")) {
 				throw new Error(
@@ -1589,9 +1639,6 @@ export const process = internalMutation({
 				toStatus: "scheduled",
 				occurredAt: now,
 			});
-			console.log(
-				`[Pipeline:invitee.created] Follow-up opportunity reused | opportunityId=${opportunityId} status=follow_up_scheduled->scheduled`,
-			);
 
 			await ctx.runMutation(
 				internal.closer.followUpMutations.markFollowUpBooked,
@@ -1637,9 +1684,6 @@ export const process = internalMutation({
 				},
 				occurredAt: now,
 			});
-			console.log(
-				`[Pipeline:invitee.created] New opportunity created | opportunityId=${opportunityId}`,
-			);
 		}
 
 		const meetingLocation = extractMeetingLocation(scheduledEvent.location);
@@ -1723,16 +1767,10 @@ export const process = internalMutation({
 				occurredAt: now,
 			});
 		}
-		console.log(
-			`[Pipeline:invitee.created] Meeting created | meetingId=${meetingId} durationMinutes=${durationMinutes}`,
-		);
 
 		// Update denormalized meeting refs on opportunity for efficient queries
 		await updateOpportunityMeetingRefs(ctx, opportunityId);
 		await rebuildQualificationRowsForOpportunity(ctx, opportunityId);
-		console.log(
-			`[Pipeline:invitee.created] Updated opportunity meeting refs | opportunityId=${opportunityId}`,
-		);
 
 		// === Feature E: Create leadIdentifier records ===
 		await createLeadIdentifiers(
@@ -1746,9 +1784,6 @@ export const process = internalMutation({
 			extractedIdentifiers.socialHandle,
 			now,
 		);
-		console.log(
-			`[Pipeline:Identity] Lead identifiers created | leadId=${lead._id} meetingId=${meetingId}`,
-		);
 		await updateLeadSearchText(ctx, lead._id);
 		// === End Feature E ===
 
@@ -1759,8 +1794,23 @@ export const process = internalMutation({
 		);
 
 		await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
-		console.log(
-			`[Pipeline:invitee.created] Marked processed | rawEventId=${rawEventId}`,
-		);
+		log.info("pipeline.invitee_created.processed", {
+			path: slackQualifiedOpportunity
+				? "slack_qualified"
+				: existingFollowUp
+					? "follow_up"
+					: "new_opportunity",
+			tenantId,
+			rawEventId,
+			meetingId,
+			opportunityId,
+			leadId: lead._id,
+			leadCreated: resolution.isNewLead,
+			opportunityCreated: !slackQualifiedOpportunity && !existingFollowUp,
+			closerResolution: assignedCloserResolution.resolution,
+			identityResolvedVia: resolution.resolvedVia,
+			potentialDuplicateLead: resolution.potentialDuplicateLeadId !== undefined,
+			durationMinutes,
+		});
 	},
 });

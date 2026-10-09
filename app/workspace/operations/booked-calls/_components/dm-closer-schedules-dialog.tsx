@@ -13,6 +13,7 @@ import {
   draftsEqual,
   emptyDraft,
 } from "@/app/workspace/_components/weekly-schedule-dialog";
+import { getErrorMessage } from "@/lib/errors";
 
 export function DmCloserSchedulesDialog({
   open,
@@ -75,7 +76,7 @@ export function DmCloserSchedulesDialog({
       toast.success("DM closer schedule saved.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not save schedule.",
+        getErrorMessage(error, "Could not save schedule."),
       );
     } finally {
       setIsSaving(false);

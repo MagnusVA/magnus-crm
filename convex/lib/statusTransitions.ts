@@ -1,3 +1,4 @@
+
 export const OPPORTUNITY_STATUSES = [
   "qualified_pending",
   "scheduled",
@@ -42,17 +43,14 @@ export const VALID_TRANSITIONS: Record<
   lost: [],
 };
 
+// The validators are plain predicates: callers also use them to pick a branch,
+// so they don't log. A caller that rejects a write throws, and the failure
+// is reported with the request.
 export function validateTransition(
   from: OpportunityStatus,
   to: OpportunityStatus,
 ): boolean {
-  const valid = VALID_TRANSITIONS[from].includes(to);
-  if (!valid) {
-    console.warn("[StatusTransition] Invalid transition rejected", { from, to, allowedTargets: VALID_TRANSITIONS[from] });
-  } else {
-    console.log("[StatusTransition] Transition validated", { from, to });
-  }
-  return valid;
+  return VALID_TRANSITIONS[from].includes(to);
 }
 
 // === Meeting Status Transitions ===
@@ -71,17 +69,7 @@ export function validateMeetingTransition(
   from: MeetingStatus,
   to: MeetingStatus,
 ): boolean {
-  const valid = MEETING_VALID_TRANSITIONS[from].includes(to);
-  if (!valid) {
-    console.warn("[StatusTransition] Invalid meeting transition rejected", {
-      from,
-      to,
-      allowedTargets: MEETING_VALID_TRANSITIONS[from],
-    });
-  } else {
-    console.log("[StatusTransition] Meeting transition validated", { from, to });
-  }
-  return valid;
+  return MEETING_VALID_TRANSITIONS[from].includes(to);
 }
 
 // === Feature D: Lead Status Transitions ===
@@ -99,16 +87,6 @@ export function validateLeadTransition(
   from: LeadStatus,
   to: LeadStatus,
 ): boolean {
-  const valid = VALID_LEAD_TRANSITIONS[from].includes(to);
-  if (!valid) {
-    console.warn("[StatusTransition] Invalid lead transition rejected", {
-      from,
-      to,
-      allowedTargets: VALID_LEAD_TRANSITIONS[from],
-    });
-  } else {
-    console.log("[StatusTransition] Lead transition validated", { from, to });
-  }
-  return valid;
+  return VALID_LEAD_TRANSITIONS[from].includes(to);
 }
 // === End Feature D ===

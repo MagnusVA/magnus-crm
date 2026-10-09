@@ -1,4 +1,5 @@
 import type { Auth, UserIdentity } from "convex/server";
+import { expectedError, rejectRequest } from "./lib/observability/errors";
 
 /**
  * Returns the caller's identity, or throws if the request isn't signed in.
@@ -12,8 +13,10 @@ export async function requireIdentity(ctx: {
 }): Promise<UserIdentity> {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
-    console.error("[Auth] requireIdentity failed: no identity");
-    throw new Error("Not authenticated");
+    // Queries (no scheduler) re-run on every update; skip the log line there.
+    throw "scheduler" in ctx
+      ? rejectRequest("auth.not_authenticated", "Not authenticated")
+      : expectedError("auth.not_authenticated", "Not authenticated");
   }
   return identity;
 }

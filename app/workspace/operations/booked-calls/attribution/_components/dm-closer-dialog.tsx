@@ -27,6 +27,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { MemberIdentityOption } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
+import { getErrorMessage } from "@/lib/errors";
 
 type DmCloserRow = Doc<"dmClosers"> & { teamLabel: string };
 type TeamMemberOption = {
@@ -99,7 +100,7 @@ export function DmCloserDialog({
       onOpenChange(false);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to save DM closer",
+        getErrorMessage(error, "Unable to save DM closer"),
       );
     } finally {
       setIsSaving(false);

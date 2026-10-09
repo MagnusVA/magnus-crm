@@ -30,6 +30,7 @@ import {
 
 import { CommentEntry } from "./comment-entry";
 import { CommentInput } from "./comment-input";
+import { getErrorMessage } from "@/lib/errors";
 
 type MeetingCommentsProps = {
   meetingId: Id<"meetings">;
@@ -49,7 +50,7 @@ export function MeetingComments({ meetingId }: MeetingCommentsProps) {
         toast.success("Comment deleted");
       } catch (error) {
         toast.error(
-          error instanceof Error ? error.message : "Failed to delete comment",
+          getErrorMessage(error, "Failed to delete comment"),
         );
       }
     },

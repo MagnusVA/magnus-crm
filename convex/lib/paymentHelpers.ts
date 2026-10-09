@@ -2,12 +2,15 @@ import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { emitDomainEvent } from "./domainEvents";
+import { reportError } from "./observability/log";
 import { updateTenantStats } from "./tenantStatsHelper";
 import { deleteCustomerAggregate } from "../reporting/writeHooks";
 import {
   type AssertablePaymentShape,
   isNonCommissionableOrigin,
 } from "./paymentTypes";
+
+const CUSTOMER_PAYMENT_LIMIT = 100;
 
 export type {
   AssertablePaymentShape,
@@ -87,7 +90,7 @@ export async function syncCustomerPaymentSummary(
   const payments = await ctx.db
     .query("paymentRecords")
     .withIndex("by_customerId_and_recordedAt", (q) => q.eq("customerId", customerId))
-    .take(100);
+    .take(CUSTOMER_PAYMENT_LIMIT);
 
   const nonDisputedPayments = payments.filter(
     (payment) => payment.status !== "disputed",
@@ -106,6 +109,20 @@ export async function syncCustomerPaymentSummary(
   });
 
   const customer = await ctx.db.get("customers", customerId);
+  if (payments.length === CUSTOMER_PAYMENT_LIMIT) {
+    // Payments past the limit are left out of the customer's totals.
+    reportError(
+      "customer.payment_summary.bound_hit",
+      new Error("Customer payment summary reached the payment limit"),
+      {
+        severity: "warning",
+        fingerprint: "customer.bound_hit:payment_summary",
+        tenantId: customer?.tenantId,
+        customerId,
+        limit: CUSTOMER_PAYMENT_LIMIT,
+      },
+    );
+  }
   if (customer) {
     await rebuildLeadCustomerSearchRow(ctx, customer.tenantId, customer.leadId);
   }
@@ -159,7 +176,22 @@ export async function rollbackCustomerConversionIfEmpty(
   const payments = await ctx.db
     .query("paymentRecords")
     .withIndex("by_customerId_and_recordedAt", (q) => q.eq("customerId", args.customerId))
-    .take(100);
+    .take(CUSTOMER_PAYMENT_LIMIT);
+  if (payments.length === CUSTOMER_PAYMENT_LIMIT) {
+    // A non-disputed payment past the limit is invisible to the empty check.
+    reportError(
+      "customer.conversion_rollback.bound_hit",
+      new Error("Conversion rollback reached the customer payment limit"),
+      {
+        severity: "warning",
+        fingerprint: "customer.bound_hit:rollback_payments",
+        tenantId: customer.tenantId,
+        customerId: args.customerId,
+        opportunityId: args.opportunityId,
+        limit: CUSTOMER_PAYMENT_LIMIT,
+      },
+    );
+  }
   const nonDisputedPayments = payments.filter(
     (payment) => payment.status !== "disputed",
   );

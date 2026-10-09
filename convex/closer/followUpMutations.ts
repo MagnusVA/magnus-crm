@@ -7,6 +7,7 @@ import { validateTransition } from "../lib/statusTransitions";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { log } from "../lib/observability/log";
 import {
   isActiveOpportunityStatus,
   updateTenantStats,
@@ -38,7 +39,6 @@ export const createFollowUpRecord = internalMutation({
     ),
   },
   handler: async (ctx, args) => {
-    console.log("[Closer:FollowUp] createFollowUpRecord called", { opportunityId: args.opportunityId, reason: args.reason });
     const now = Date.now();
     const id = await ctx.db.insert("followUps", {
       tenantId: args.tenantId,
@@ -67,7 +67,6 @@ export const createFollowUpRecord = internalMutation({
       },
       occurredAt: now,
     });
-    console.log("[Closer:FollowUp] createFollowUpRecord inserted", { followUpId: id });
     return id;
   },
 });
@@ -79,13 +78,10 @@ export const createFollowUpRecord = internalMutation({
 export const transitionToFollowUp = internalMutation({
   args: { opportunityId: v.id("opportunities") },
   handler: async (ctx, { opportunityId }) => {
-    console.log("[Closer:FollowUp] transitionToFollowUp called", { opportunityId });
     const opportunity = await ctx.db.get("opportunities", opportunityId);
     if (!opportunity) throw new Error("Opportunity not found");
 
-    console.log("[Closer:FollowUp] transitionToFollowUp current status", { currentStatus: opportunity.status });
     const isValid = validateTransition(opportunity.status, "follow_up_scheduled");
-    console.log("[Closer:FollowUp] transitionToFollowUp transition valid", { from: opportunity.status, to: "follow_up_scheduled", valid: isValid });
     if (!isValid) {
       throw new Error(
         `Cannot schedule follow-up from status "${opportunity.status}". ` +
@@ -111,7 +107,6 @@ export const transitionToFollowUp = internalMutation({
       toStatus: "follow_up_scheduled",
       occurredAt: now,
     });
-    console.log("[Closer:FollowUp] transitionToFollowUp patch applied", { opportunityId, newStatus: "follow_up_scheduled" });
   },
 });
 
@@ -125,7 +120,6 @@ export const markFollowUpBooked = internalMutation({
     calendlyEventUri: v.string(),
   },
   handler: async (ctx, { opportunityId, calendlyEventUri }) => {
-    console.log("[Closer:FollowUp] markFollowUpBooked called", { opportunityId });
     let followUpId: Id<"followUps"> | null = null;
     let pendingFollowUpTenantId: Id<"tenants"> | null = null;
     let previousStatus: "pending" | "booked" | "completed" | "expired" | null = null;
@@ -141,7 +135,6 @@ export const markFollowUpBooked = internalMutation({
     }
 
     if (followUpId) {
-      console.log("[Closer:FollowUp] markFollowUpBooked: found pending follow-up", { followUpId });
       await ctx.db.patch("followUps", followUpId, {
         status: "booked",
         calendlyEventUri,
@@ -156,9 +149,13 @@ export const markFollowUpBooked = internalMutation({
       fromStatus: previousStatus ?? undefined,
       toStatus: "booked",
       });
-      console.log("[Closer:FollowUp] markFollowUpBooked patch applied", { followUpId, newStatus: "booked" });
     } else {
-      console.warn("[Closer:FollowUp] markFollowUpBooked: no pending follow-up found", { opportunityId });
+      const opportunity = await ctx.db.get("opportunities", opportunityId);
+      log.info("follow_up.mark_booked_skipped", {
+        tenantId: opportunity?.tenantId,
+        opportunityId,
+        reason: "no_pending_follow_up",
+      });
     }
   },
 });
@@ -242,11 +239,6 @@ export const createSchedulingLinkFollowUp = mutation({
     // client immediately, which re-renders OutcomeActionBar → returns null →
     // unmounts the FollowUpDialog before the user can see/copy the link.
 
-    console.log("[Closer:FollowUp] scheduling link follow-up created", {
-      followUpId,
-      opportunityId,
-    });
-
     return { schedulingLinkUrl, followUpId };
   },
 });
@@ -281,6 +273,12 @@ export const confirmFollowUpScheduled = mutation({
     }
     // Already transitioned (e.g. user double-clicked Done) — silently succeed.
     if (opportunity.status === "follow_up_scheduled") {
+      log.info("follow_up.confirm_skipped", {
+        tenantId,
+        actor: "closer",
+        opportunityId,
+        reason: "already_follow_up_scheduled",
+      });
       return;
     }
     const now = Date.now();
@@ -325,11 +323,6 @@ export const confirmFollowUpScheduled = mutation({
       toStatus: "follow_up_scheduled",
       occurredAt: now,
     });
-
-    console.log(
-      "[Closer:FollowUp] opportunity confirmed as follow_up_scheduled",
-      { opportunityId },
-    );
   },
 });
 
@@ -438,14 +431,6 @@ export const createManualReminderFollowUpPublic = mutation({
       occurredAt: now,
     });
 
-    console.log("[Closer:FollowUp] manual reminder follow-up created", {
-      followUpId,
-      opportunityId: args.opportunityId,
-      meetingId: args.meetingId,
-      contactMethod: args.contactMethod,
-      reminderScheduledAt: args.reminderScheduledAt,
-    });
-
     return { followUpId };
   },
 });
@@ -491,11 +476,6 @@ export const markReminderComplete = mutation({
       fromStatus: followUp.status,
       toStatus: "completed",
       occurredAt: now,
-    });
-
-    console.log("[Closer:FollowUp] reminder marked complete", {
-      followUpId,
-      hasCompletionNote: Boolean(completionNote),
     });
   },
 });

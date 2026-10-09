@@ -16,10 +16,6 @@ import {
 export const getUnavailabilityWithMeetings = query({
   args: { unavailabilityId: v.id("closerUnavailability") },
   handler: async (ctx, { unavailabilityId }) => {
-    console.log("[Unavailability] getUnavailabilityWithMeetings called", {
-      unavailabilityId,
-    });
-
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -79,11 +75,6 @@ export const getUnavailabilityWithMeetings = query({
       (a, b) => a.scheduledAt - b.scheduledAt,
     );
 
-    console.log("[Unavailability] getUnavailabilityWithMeetings completed", {
-      unavailabilityId,
-      affectedCount: result.length,
-    });
-
     return {
       unavailability: {
         ...unavailability,
@@ -105,11 +96,6 @@ export const getAvailableClosersForDate = query({
     excludeCloserId: v.id("users"),
   },
   handler: async (ctx, { date, excludeCloserId }) => {
-    console.log("[Unavailability] getAvailableClosersForDate called", {
-      date,
-      excludeCloserId,
-    });
-
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -146,11 +132,6 @@ export const getAvailableClosersForDate = query({
       }))
       .sort((a, b) => a.closerName.localeCompare(b.closerName));
 
-    console.log("[Unavailability] getAvailableClosersForDate completed", {
-      totalClosers: result.length,
-      availableCount: result.filter((closer) => closer.isAvailable).length,
-    });
-
     return result;
   },
 });
@@ -160,8 +141,6 @@ export const getRecentReassignments = query({
     limit: v.optional(v.number()),
   },
   handler: async (ctx, { limit }) => {
-    console.log("[Unavailability] getRecentReassignments called", { limit });
-
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",

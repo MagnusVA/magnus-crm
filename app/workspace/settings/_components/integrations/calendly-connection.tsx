@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import posthog from "posthog-js";
 import { connectionStatusConfig } from "@/lib/status-config";
+import { getErrorMessage } from "@/lib/errors";
 
 interface ConnectionStatus {
   tenantId: string;
@@ -97,7 +98,7 @@ export function CalendlyConnection({
       }
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to refresh token",
+        getErrorMessage(error, "Failed to refresh token"),
       );
     } finally {
       setIsRefreshing(false);
@@ -122,7 +123,7 @@ export function CalendlyConnection({
       });
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to sync members",
+        getErrorMessage(error, "Failed to sync members"),
       );
     } finally {
       setIsSyncing(false);
@@ -145,7 +146,7 @@ export function CalendlyConnection({
       );
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to sync event types",
+        getErrorMessage(error, "Failed to sync event types"),
       );
     } finally {
       setIsSyncingEventTypes(false);

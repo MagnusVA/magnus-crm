@@ -126,12 +126,6 @@ export const searchLeadsForSession = internalQuery({
       (row): row is PortalLeadSearchRow => row !== null,
     );
 
-    console.log("[LinkPortal:Leads] searchLeadsForSession completed", {
-      tenantId: args.tenantId,
-      searchTermLength: trimmed.length,
-      resultCount: filteredRows.length,
-    });
-
     return filteredRows;
   },
 });

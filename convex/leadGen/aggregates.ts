@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { reportError } from "../lib/observability/log";
 import {
   addBusinessDays,
   businessDateToUtcStart,
@@ -66,11 +67,17 @@ function sortSubmissionsBySubmittedAt<T extends Doc<"leadGenSubmissions">>(
 function clampCounter(value: number, delta: number, counterName: string) {
   const nextValue = value + delta;
   if (nextValue < 0) {
-    console.error("[LeadGen:Corrections] aggregate counter underflow", {
-      counterName,
-      value,
-      delta,
-    });
+    reportError(
+      "lead_gen.aggregate.counter_underflow",
+      new Error(`Lead gen aggregate counter underflow: ${counterName}`),
+      {
+        severity: "warning",
+        fingerprint: `lead_gen.aggregate.counter_underflow:${counterName}`,
+        counterName,
+        value,
+        delta,
+      },
+    );
     return 0;
   }
   return nextValue;
@@ -186,10 +193,21 @@ async function patchTeamOriginStatCounters(
     .unique();
 
   if (!stat) {
-    console.warn("[LeadGen:Corrections] missing team-origin aggregate row", {
-      submissionId: args.submission._id,
-      statKey,
-    });
+    // The counter correction is skipped, so team-origin aggregates drift.
+    reportError(
+      "lead_gen.data_inconsistency",
+      new Error("Lead gen team origin stat missing; counter correction skipped"),
+      {
+        severity: "warning",
+        fingerprint: "lead_gen.data_inconsistency:team_origin_stat_missing",
+        reason: "team_origin_stat_missing",
+        tenantId: args.submission.tenantId,
+        submissionId: args.submission._id,
+        dayKey,
+        teamId: args.submission.teamId,
+        source: args.submission.source,
+      },
+    );
     return;
   }
 

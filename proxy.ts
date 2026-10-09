@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { authkit, handleAuthkitProxy } from "@workos-inc/authkit-nextjs";
+import { reportServerError } from "@/lib/observability/report-server-error";
 import { SYSTEM_ADMIN_ORG_ID } from "@/lib/system-admin-org";
 
 const PUBLIC_PREFIXES = [
@@ -10,6 +11,8 @@ const PUBLIC_PREFIXES = [
 	"/privacy",
 	"/support",
 	"/dm-links",
+	// Signed by the Convex log stream; the route verifies the HMAC itself.
+	"/api/observability/convex",
 ] as const;
 
 function isPublicPath(pathname: string) {
@@ -23,7 +26,20 @@ function isPublicPath(pathname: string) {
 }
 
 export default async function proxy(request: NextRequest) {
-	const { session, headers, authorizationUrl } = await authkit(request);
+	const { session, headers, authorizationUrl } = await authkit(request, {
+		// Expired sessions are routine; a transient failure (WorkOS down,
+		// timeout, 429) signs people out for no reason, so report it.
+		onSessionRefreshError: async ({ error, request: refreshRequest, isTransient }) => {
+			if (!isTransient) return;
+			await reportServerError(error, {
+				event: "auth.session_refresh.failed",
+				request: refreshRequest,
+				integration: "workos",
+				severity: "warning",
+				fingerprint: "auth.session_refresh.failed:transient",
+			});
+		},
+	});
 	const { pathname } = request.nextUrl;
 
 	if (pathname === "/" && session.user && session.organizationId) {

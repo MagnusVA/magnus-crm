@@ -39,6 +39,7 @@ import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import type { Id } from "@/convex/_generated/dataModel";
 import { format } from "date-fns";
+import { getErrorMessage } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -133,7 +134,7 @@ export function ConvertToCustomerDialog({
       }
     } catch (err: unknown) {
       const message =
-        err instanceof Error ? err.message : "Conversion failed";
+        getErrorMessage(err, "Conversion failed");
       setSubmitError(message);
       toast.error(message);
     } finally {

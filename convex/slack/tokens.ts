@@ -3,12 +3,18 @@ import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { internalAction, env } from "../_generated/server";
+import { log, reportError } from "../lib/observability/log";
+import { timeoutSignal } from "../lib/timeoutSignal";
 
 const REFRESH_BUFFER_MS = 60_000;
 const PROACTIVE_BUFFER_MS = 2 * 60 * 60 * 1000;
 const STALE_LOCK_MS = 30_000;
 const REFRESH_BACKOFF_MIN_MS = 500;
 const REFRESH_BACKOFF_JITTER_MS = 500;
+const SLACK_FETCH_TIMEOUT_MS = 30_000;
+
+/** Errors `refreshBotToken` already reported, so callers don't report twice. */
+const reportedRefreshErrors = new WeakSet<object>();
 
 export class SlackInstallationMissingError extends Error {
   constructor(tenantId: Id<"tenants">) {
@@ -32,6 +38,56 @@ export class SlackTokenRefreshContentionError extends Error {
   constructor() {
     super("Slack token refresh contention - peer holds lock");
   }
+}
+
+export type SlackTokenUnavailableReason =
+  | "installation_missing"
+  | "installation_not_active"
+  | "token_expired"
+  | "refresh_contention"
+  | "refresh_failed";
+
+export function slackTokenUnavailableReason(
+  error: unknown,
+): SlackTokenUnavailableReason {
+  if (error instanceof SlackInstallationMissingError) return "installation_missing";
+  if (error instanceof SlackInstallationNotActiveError) {
+    return "installation_not_active";
+  }
+  if (error instanceof SlackTokenExpiredError) return "token_expired";
+  if (error instanceof SlackTokenRefreshContentionError) {
+    return "refresh_contention";
+  }
+  return "refresh_failed";
+}
+
+/**
+ * Log why `getValidSlackBotToken` failed for a caller that swallows the error.
+ * Expected states (no install, expired token) log a warning; an unclassified
+ * refresh failure that `refreshBotToken` didn't already report goes to Error
+ * Tracking.
+ */
+export function logSlackTokenUnavailable(
+  event: string,
+  error: unknown,
+  attrs: Record<string, unknown>,
+) {
+  const reason = slackTokenUnavailableReason(error);
+  const alreadyReported =
+    typeof error === "object" &&
+    error !== null &&
+    reportedRefreshErrors.has(error);
+  if (reason === "refresh_failed" && !alreadyReported) {
+    reportError(event, error, {
+      severity: "warning",
+      integration: "slack",
+      fingerprint: `${event}:${reason}`,
+      ...attrs,
+      reason,
+    });
+    return;
+  }
+  log.warn(event, { ...attrs, reason });
 }
 
 function getRequiredEnv(name: keyof typeof env): string {
@@ -68,6 +124,11 @@ async function refreshBotToken(
   ctx: ActionCtx,
   installation: Doc<"slackInstallations">,
 ): Promise<string> {
+  const startedAt = Date.now();
+  const refreshAttrs = {
+    installationId: installation._id,
+    tenantId: installation.tenantId,
+  };
   const lockHolder = crypto.randomUUID();
   const acquired = await ctx.runMutation(
     internal.slack.installations.tryAcquireRefreshLock,
@@ -91,8 +152,18 @@ async function refreshBotToken(
       id: installation._id,
     });
     if (fresh && fresh.tokenExpiresAt - Date.now() > REFRESH_BUFFER_MS) {
+      log.info("slack.token.refresh", {
+        ...refreshAttrs,
+        outcome: "peer_refreshed",
+        durationMs: Date.now() - startedAt,
+      });
       return fresh.botAccessToken;
     }
+    log.warn("slack.token.refresh", {
+      ...refreshAttrs,
+      outcome: "lock_contention",
+      durationMs: Date.now() - startedAt,
+    });
     throw new SlackTokenRefreshContentionError();
   }
 
@@ -107,6 +178,7 @@ async function refreshBotToken(
         client_id: getRequiredEnv("SLACK_CLIENT_ID"),
         client_secret: getRequiredEnv("SLACK_CLIENT_SECRET"),
       }),
+      signal: timeoutSignal(SLACK_FETCH_TIMEOUT_MS),
     });
     const data = (await response.json()) as {
       ok: boolean;
@@ -121,18 +193,22 @@ async function refreshBotToken(
         await ctx.runMutation(internal.slack.installations.markTokenExpired, {
           id: installation._id,
         });
-        console.error("[Slack:Tokens] refresh failed permanently", {
-          installationId: installation._id,
-          error: data.error,
+        const expiredError = new SlackTokenExpiredError();
+        reportError("slack.token.expired", expiredError, {
+          severity: "warning",
+          integration: "slack",
+          fingerprint: "slack.token.expired",
+          ...refreshAttrs,
+          slackError: data.error,
         });
-        throw new SlackTokenExpiredError();
+        reportedRefreshErrors.add(expiredError);
+        throw expiredError;
       }
 
-      console.warn("[Slack:Tokens] refresh transient failure", {
-        installationId: installation._id,
-        error: data.error,
-      });
-      throw new Error(`Slack refresh transient: ${data.error ?? "unknown"}`);
+      // The caller reports this (logSlackTokenUnavailable or the cron).
+      throw new Error(
+        `Slack token refresh failed: HTTP ${response.status} (${data.error ?? "unknown"})`,
+      );
     }
 
     if (!data.access_token || !data.refresh_token || !data.expires_in) {
@@ -150,8 +226,11 @@ async function refreshBotToken(
       lastRefreshedAt: refreshedAt,
     });
 
-    console.log("[Slack:Tokens] refresh ok", {
-      installationId: installation._id,
+    log.info("slack.token.refresh", {
+      ...refreshAttrs,
+      outcome: "refreshed",
+      expiresInSeconds: data.expires_in,
+      durationMs: Date.now() - startedAt,
     });
     return data.access_token;
   } catch (error) {
@@ -160,12 +239,18 @@ async function refreshBotToken(
     }
 
     if (slackIssuedNewTuple) {
-      console.error("[Slack:Tokens] CATASTROPHIC refresh-write-fail", {
-        installationId: installation._id,
-        tenantId: installation.tenantId,
+      // Slack rotated the tokens but we failed to store them, so the stored
+      // refresh token is dead. See runbooks/slack-token-refresh-write-failure.md.
+      reportError("slack.token.refresh_write_failed", error, {
+        severity: "error",
+        integration: "slack",
+        fingerprint: "slack.token.refresh_write_failed",
+        ...refreshAttrs,
         teamId: installation.teamId,
-        error: error instanceof Error ? error.message : "unknown",
       });
+      if (typeof error === "object" && error !== null) {
+        reportedRefreshErrors.add(error);
+      }
       await ctx.runMutation(internal.slack.installations.markTokenExpired, {
         id: installation._id,
       });
@@ -187,7 +272,9 @@ export const refreshExpiringTokens = internalAction({
       internal.slack.refreshCron.listExpiringInstallationIds,
       { withinMs: PROACTIVE_BUFFER_MS },
     );
-    console.log("[Slack:Tokens] cron tick", { dueCount: dueIds.length });
+    if (dueIds.length > 0) {
+      log.info("slack.token.refresh_cron", { dueCount: dueIds.length });
+    }
 
     for (const installationId of dueIds) {
       await ctx.scheduler.runAfter(
@@ -216,10 +303,26 @@ export const refreshOneInstallation = internalAction({
     try {
       await refreshBotToken(ctx, installation);
     } catch (error) {
-      console.warn("[Slack:Tokens] cron refresh skipped", {
-        installationId: args.installationId,
-        error: error instanceof Error ? error.message : "unknown",
-      });
+      // Swallowed; the next cron tick retries while the token is still valid.
+      const alreadyReported =
+        typeof error === "object" &&
+        error !== null &&
+        reportedRefreshErrors.has(error);
+      if (alreadyReported || error instanceof SlackTokenRefreshContentionError) {
+        log.warn("slack.token.cron_refresh_skipped", {
+          installationId: args.installationId,
+          tenantId: installation.tenantId,
+          errorName: error instanceof Error ? error.constructor.name : "Error",
+        });
+      } else {
+        reportError("slack.token.cron_refresh_failed", error, {
+          severity: "warning",
+          integration: "slack",
+          fingerprint: "slack.token.cron_refresh_failed",
+          installationId: args.installationId,
+          tenantId: installation.tenantId,
+        });
+      }
     }
   },
 });

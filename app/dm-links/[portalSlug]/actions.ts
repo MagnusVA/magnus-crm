@@ -6,6 +6,8 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { getErrorCode } from "@/lib/errors";
+import { reportServerError } from "@/lib/observability/report-server-error";
 import {
 	normalizePortalSlugParam,
 	portalSessionCookieName,
@@ -116,6 +118,27 @@ async function hashRequesterIp() {
 	return createHmac("sha256", ipHashSecret()).update(ip).digest("base64url");
 }
 
+type PortalAction =
+	| "unlock"
+	| "record_copy"
+	| "search_leads"
+	| "update_lead_profile"
+	| "add_lead_note"
+	| "list_lead_notes";
+
+/**
+ * Reports a portal failure that didn't come from Convex (Convex failures are
+ * reported by the backend), such as a missing env var or a network error.
+ * Never pass the password, slug, IP, or session token.
+ */
+function reportPortalError(error: unknown, action: PortalAction) {
+	return reportServerError(error, {
+		event: action === "unlock" ? "link_portal.unlock.failed" : "link_portal.action.failed",
+		fingerprint: `link-portal:${action}`,
+		action,
+	});
+}
+
 function portalCookieOptions(portalSlug: string, maxAge: number) {
 	return {
 		httpOnly: true,
@@ -149,6 +172,7 @@ export async function unlockPortal(
 		});
 	} catch (error) {
 		console.error("[LinkPortal] unlock failed", error);
+		await reportPortalError(error, "unlock");
 		return { status: "error", message: GENERIC_PORTAL_AUTH_ERROR };
 	}
 
@@ -207,6 +231,7 @@ export async function recordPortalCopy(
 		return { recorded: true };
 	} catch (error) {
 		console.warn("[LinkPortal] copy audit failed", error);
+		await reportPortalError(error, "record_copy");
 		return { recorded: false };
 	}
 }
@@ -251,6 +276,7 @@ export async function searchPortalLeads(
 		return { status: "ok", rows };
 	} catch (error) {
 		console.warn("[LinkPortal] lead search failed", error);
+		await reportPortalError(error, "search_leads");
 		return {
 			status: "error",
 			message: "Lead search failed. Try again in a moment.",
@@ -283,6 +309,7 @@ export async function updatePortalLeadProfile(
 		return { status: "ok" };
 	} catch (error) {
 		console.warn("[LinkPortal] lead profile update failed", error);
+		await reportPortalError(error, "update_lead_profile");
 		return {
 			status: "error",
 			message: "Could not save the lead details. Try again in a moment.",
@@ -321,11 +348,8 @@ export async function addPortalLeadNote(
 		return { status: "ok", noteId };
 	} catch (error) {
 		console.warn("[LinkPortal] add lead note failed", error);
-		// The backend rate limit throws "Too many notes in a short time…"; the
-		// message may be redacted in production, so keep the fallback friendly
-		// for that case too.
-		const isRateLimited =
-			error instanceof Error && error.message.includes("Too many notes");
+		await reportPortalError(error, "add_lead_note");
+		const isRateLimited = getErrorCode(error) === "link_portal.notes_rate_limited";
 		return {
 			status: "error",
 			message: isRateLimited
@@ -356,6 +380,7 @@ export async function listPortalLeadNotes(
 		return { status: "ok", notes };
 	} catch (error) {
 		console.warn("[LinkPortal] list lead notes failed", error);
+		await reportPortalError(error, "list_lead_notes");
 		return {
 			status: "error",
 			message: "Could not load notes. Try again in a moment.",

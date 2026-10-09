@@ -30,6 +30,7 @@ import {
   portalReadinessFor,
   readinessBadgeVariant,
 } from "@/app/workspace/_components/portal-readiness";
+import { getErrorMessage } from "@/lib/errors";
 
 type EventTypeConfig = Doc<"eventTypeConfigs"> & {
   portalReadiness?: PortalReadiness;
@@ -63,9 +64,7 @@ export function PortalEventTypeReadinessCard({
       );
     } catch (error) {
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Could not update event type visibility",
+        getErrorMessage(error, "Could not update event type visibility"),
       );
     } finally {
       setPendingConfigId(null);

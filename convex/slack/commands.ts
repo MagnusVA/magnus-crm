@@ -1,13 +1,20 @@
 import { internal } from "../_generated/api";
-import { httpAction, env } from "../_generated/server";
+import { httpAction } from "../_generated/server";
+import {
+  describeError,
+  log,
+  logRequestContext,
+  reportError,
+} from "../lib/observability/log";
 import { buildQualifyLeadModal } from "../lib/slackBlockKit";
-import { verifySlackSignature } from "../lib/slackSignature";
-import { getValidSlackBotToken } from "./tokens";
+import { verifyInboundSlackRequest } from "../lib/slackSignature";
+import { getValidSlackBotToken, logSlackTokenUnavailable } from "./tokens";
 import { persistRawSlackEvent } from "./rawEventsAudit";
+import { timeoutSignal } from "../lib/timeoutSignal";
 
-const SIG_HEADER = "x-slack-signature";
-const TS_HEADER = "x-slack-request-timestamp";
 const VIEWS_OPEN_URL = "https://slack.com/api/views.open";
+/** Slack's trigger_id expires 3s after the command, so give up before that. */
+const VIEWS_OPEN_TIMEOUT_MS = 2_500;
 const DISCONNECTED_TEXT =
   "Slack integration disconnected — ask an admin to reconnect in the CRM.";
 
@@ -15,8 +22,17 @@ export const slashCommand = httpAction(async (ctx, req) => {
   const startedAt = Date.now();
   const rawBody = await req.text();
 
-  if (!(await verifyInboundSlackRequest(req, rawBody))) {
-    console.warn("[Slack:Cmd] bad signature");
+  const signatureFailure = await verifyInboundSlackRequest(
+    req,
+    rawBody,
+    "commands",
+  );
+  if (signatureFailure) {
+    log.warn("slack.commands.rejected", {
+      reason: "bad_signature",
+      signatureFailure,
+      httpStatus: 401,
+    });
     return new Response("Bad signature", { status: 401 });
   }
 
@@ -40,11 +56,15 @@ export const slashCommand = httpAction(async (ctx, req) => {
     !channelId ||
     command !== "/qualify-lead"
   ) {
-    console.warn("[Slack:Cmd] malformed payload", {
+    log.warn("slack.commands.rejected", {
+      reason: "malformed_payload",
+      httpStatus: 400,
       teamId,
       apiAppId,
-      command,
+      knownCommand: command === "/qualify-lead",
       hasTrigger: Boolean(triggerId),
+      hasUser: Boolean(slackUserId),
+      hasChannel: Boolean(channelId),
     });
     return new Response("Bad request", { status: 400 });
   }
@@ -56,8 +76,18 @@ export const slashCommand = httpAction(async (ctx, req) => {
       appId: apiAppId,
     },
   );
+  if (installation) {
+    logRequestContext({ tenantId: installation.tenantId });
+  }
 
   if (!installation || installation.status !== "active") {
+    log.warn("slack.commands.rejected", {
+      reason: installation ? "installation_not_active" : "no_installation",
+      teamId,
+      apiAppId,
+      tenantId: installation?.tenantId,
+      installationStatus: installation?.status,
+    });
     await persistRawSlackEvent(ctx, {
       tenantId: installation?.tenantId,
       teamId,
@@ -80,9 +110,9 @@ export const slashCommand = httpAction(async (ctx, req) => {
   try {
     token = await getValidSlackBotToken(ctx, installation.tenantId);
   } catch (error) {
-    console.error("[Slack:Cmd] token unavailable", {
+    logSlackTokenUnavailable("slack.commands.token_unavailable", error, {
       tenantId: installation.tenantId,
-      err: error instanceof Error ? error.message : "unknown",
+      installationId: installation._id,
     });
     return jsonResponse({
       response_type: "ephemeral",
@@ -112,10 +142,19 @@ export const slashCommand = httpAction(async (ctx, req) => {
       });
     }
   } catch (error) {
-    console.error("[Slack:Cmd] views.open request failed", {
-      tenantId: installation.tenantId,
-      err: error instanceof Error ? error.message : "unknown",
-    });
+    // The user gets an ephemeral error; the request itself succeeds.
+    const errorName = describeError(error).name;
+    reportError(
+      "slack.commands.modal_open_failed",
+      new Error("Slack views.open request failed"),
+      {
+        integration: "slack",
+        fingerprint: `slack.commands.modal_open_failed:${errorName}`,
+        errorName,
+        tenantId: installation.tenantId,
+        latencyMs: Date.now() - startedAt,
+      },
+    );
     return openFailureResponse();
   }
 
@@ -128,26 +167,14 @@ export const slashCommand = httpAction(async (ctx, req) => {
     parsedPayload: Object.fromEntries(params.entries()),
   });
 
-  console.log("[Slack:Cmd] ok", {
+  log.info("slack.commands.handled", {
     tenantId: installation.tenantId,
+    command: "qualify_lead",
     latencyMs: Date.now() - startedAt,
   });
 
   return new Response("", { status: 200 });
 });
-
-async function verifyInboundSlackRequest(
-  req: Request,
-  rawBody: string,
-): Promise<boolean> {
-  return await verifySlackSignature({
-    rawBody,
-    timestamp: req.headers.get(TS_HEADER) ?? "",
-    signature: req.headers.get(SIG_HEADER) ?? "",
-    signingSecret: env.SLACK_SIGNING_SECRET ?? "",
-    previousSigningSecret: env.SLACK_SIGNING_SECRET_PREVIOUS,
-  });
-}
 
 async function openQualifyLeadModal(args: {
   token: string;
@@ -164,6 +191,7 @@ async function openQualifyLeadModal(args: {
       trigger_id: args.triggerId,
       view: args.view,
     }),
+    signal: timeoutSignal(VIEWS_OPEN_TIMEOUT_MS),
   });
 
   const data = (await response.json()) as { ok?: boolean; error?: string };
@@ -182,15 +210,24 @@ function handleViewsOpenFailure(args: {
   latencyMs: number;
 }) {
   if (args.slackError === "expired_trigger_id") {
-    console.warn("[Slack:Cmd] expired_trigger_id", {
+    // We took longer than Slack's 3s trigger window; latency explains it.
+    log.warn("slack.commands.modal_open_failed", {
       tenantId: args.tenantId,
+      slackError: args.slackError,
       latencyMs: args.latencyMs,
     });
   } else {
-    console.error("[Slack:Cmd] views.open failed", {
-      tenantId: args.tenantId,
-      slackError: args.slackError,
-    });
+    reportError(
+      "slack.commands.modal_open_failed",
+      new Error(`Slack views.open failed: ${args.slackError}`),
+      {
+        integration: "slack",
+        fingerprint: `slack.commands.modal_open_failed:${args.slackError}`,
+        tenantId: args.tenantId,
+        slackError: args.slackError,
+        latencyMs: args.latencyMs,
+      },
+    );
   }
 
   return openFailureResponse(args.slackError);

@@ -7,6 +7,7 @@ import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation } from "convex/react";
 import { ChevronLeftIcon } from "lucide-react";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { useRole } from "@/components/auth/role-context";
@@ -59,6 +60,7 @@ import {
 	type SocialPlatform,
 } from "./create-opportunity-schema";
 import { LeadCombobox } from "./lead-combobox";
+import { getErrorMessage } from "@/lib/errors";
 
 type CreateOpportunityResult = {
 	opportunityId: Id<"opportunities">;
@@ -87,11 +89,7 @@ function normalizeOptional(value?: string) {
 
 function extractSubmitErrorMessage(error: unknown) {
 	const fallback = "Failed to create opportunity";
-	if (!(error instanceof Error)) {
-		return fallback;
-	}
-
-	const message = error.message.trim();
+	const message = getErrorMessage(error, fallback).trim();
 	if (!message) {
 		return fallback;
 	}
@@ -222,7 +220,7 @@ export function CreateOpportunityPageClient({
 			requestIdRef.current = crypto.randomUUID();
 			router.push(getSuccessHref(result, successRedirectTarget));
 		} catch (error) {
-			posthog.captureException(error);
+			reportClientError(error, { flow: "opportunity_create" });
 			const message = extractSubmitErrorMessage(error);
 			setSubmitError(message);
 			isSubmittingRef.current = false;

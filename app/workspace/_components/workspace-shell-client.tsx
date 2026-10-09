@@ -2,7 +2,6 @@
 
 import { useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
-import { useAuth } from "@workos-inc/authkit-nextjs/components";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import type { CrmRole } from "@/convex/lib/roleMapping";
@@ -60,7 +59,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { MagnusBrand } from "@/components/magnus-brand";
 import { useKeyboardShortcut } from "@/hooks/use-keyboard-shortcut";
 import { usePostHogIdentify } from "@/hooks/use-posthog-identify";
-import posthog from "posthog-js";
+import { useSignOut } from "@/hooks/use-sign-out";
 import { MemberIdentity } from "./member-identity";
 import type { MemberAvatarIdentity } from "./member-avatar";
 
@@ -315,7 +314,7 @@ function WorkspaceShellClientInner({
   children,
 }: Omit<WorkspaceShellClientProps, "initialRole"> & { initialRole: CrmRole }) {
   const { isAdmin, role } = useRole();
-  const { signOut } = useAuth();
+  const handleSignOut = useSignOut();
   const pathname = usePathname();
   const router = useRouter();
   const displayName = initialDisplayName || initialEmail;
@@ -332,12 +331,6 @@ function WorkspaceShellClientInner({
     workosOrgId,
     tenantName,
   });
-
-  const handleSignOut = () => {
-    posthog.capture("user_signed_out");
-    posthog.reset();
-    signOut();
-  };
 
   // TODO [Phase 6]: When WorkOS permissions become authoritative, call
   // refreshAuth() (from useAuth) after role-changing flows complete. This

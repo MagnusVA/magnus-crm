@@ -624,7 +624,7 @@ export const bookTestInvitee = internalAction({
     console.log("[Testing:Calendly] bookTestInvitee", {
       tenantId: args.tenantId,
       eventTypeUri: args.eventTypeUri,
-      inviteeEmail: args.inviteeEmail,
+      hasInviteeEmail: Boolean(args.inviteeEmail),
       hasExplicitStartTime: Boolean(args.startTimeIso),
     });
 

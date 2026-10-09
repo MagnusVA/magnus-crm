@@ -6,6 +6,7 @@ import {
   businessDateToUtcStart,
   timestampToBusinessDateKey,
 } from "../reporting/lib/hondurasBusinessTime";
+import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   isRankableLeadGenOrigin,
@@ -419,10 +420,12 @@ export const markRangeForReconciliation = mutation({
       correctedAt: now,
     });
 
-    console.log("[LeadGen:Reconciliation] range marked for reconciliation", {
+    log.info("lead_gen.reconciliation.range_marked", {
+      tenantId,
       correctionEventId,
-      targetId,
-      correctedByUserId: userId,
+      startTimestamp: args.startTimestamp,
+      endTimestamp: args.endTimestamp,
+      userId,
     });
 
     return {

@@ -29,6 +29,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import {
   CalendarIcon,
   Loader2Icon,
@@ -39,6 +40,7 @@ import {
   UserIcon,
 } from "lucide-react";
 import ProfileLoading from "../loading";
+import { getErrorMessage } from "@/lib/errors";
 
 const allowedProfilePictureTypes = new Set([
   "image/jpeg",
@@ -172,6 +174,7 @@ function ProfilePictureControl({ user }: { user: CurrentUser }) {
 
     setIsUploading(true);
     setProfilePictureError(null);
+    let httpStatus: number | undefined;
 
     try {
       const uploadUrl = await generateUploadUrl();
@@ -180,6 +183,7 @@ function ProfilePictureControl({ user }: { user: CurrentUser }) {
         headers: { "Content-Type": file.type },
         body: file,
       });
+      httpStatus = response.status;
 
       if (!response.ok) {
         throw new Error("Failed to upload profile picture.");
@@ -195,10 +199,9 @@ function ProfilePictureControl({ user }: { user: CurrentUser }) {
       await saveProfilePicture({ storageId });
       toast.success("Profile picture updated.");
     } catch (error) {
+      reportClientError(error, { flow: "profile_picture_upload", httpStatus });
       const message =
-        error instanceof Error
-          ? error.message
-          : "Profile picture upload failed.";
+        getErrorMessage(error, "Profile picture upload failed.");
       setProfilePictureError(message);
       toast.error(message);
     } finally {
@@ -216,9 +219,7 @@ function ProfilePictureControl({ user }: { user: CurrentUser }) {
       toast.success("Profile picture removed.");
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : "Profile picture removal failed.";
+        getErrorMessage(error, "Profile picture removal failed.");
       setProfilePictureError(message);
       toast.error(message);
     } finally {

@@ -5,6 +5,7 @@ import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation } from "convex/react";
 import { AlertTriangleIcon, XCircleIcon } from "lucide-react";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -33,6 +34,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { getErrorMessage } from "@/lib/errors";
 
 const markLostSchema = z.object({
   reason: z
@@ -73,9 +75,9 @@ export function MarkSideDealLostDialog({
       form.reset();
       setOpen(false);
     } catch (error) {
-      posthog.captureException(error);
+      reportClientError(error, { flow: "side_deal_mark_lost" });
       const message =
-        error instanceof Error ? error.message : "Failed to mark lost";
+        getErrorMessage(error, "Failed to mark lost");
       setSubmitError(message);
       toast.error(message);
     } finally {

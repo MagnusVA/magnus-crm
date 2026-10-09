@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
+import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 import { applyLeadGenAggregateDelta } from "./aggregates";
 
@@ -37,6 +38,12 @@ export const voidSubmission = mutation({
     }
 
     if (submission.voidedAt) {
+      log.info("lead_gen.submission.void_skipped", {
+        reason: "already_voided",
+        tenantId,
+        submissionId: submission._id,
+        userId,
+      });
       return { submissionId: submission._id, alreadyVoided: true };
     }
 
@@ -72,10 +79,11 @@ export const voidSubmission = mutation({
       correctedAt: now,
     });
 
-    console.log("[LeadGen:Corrections] submission voided", {
+    log.info("lead_gen.submission.voided", {
+      tenantId,
       submissionId: submission._id,
       prospectId: submission.prospectId,
-      correctedByUserId: userId,
+      userId,
     });
 
     return { submissionId: submission._id, alreadyVoided: false };

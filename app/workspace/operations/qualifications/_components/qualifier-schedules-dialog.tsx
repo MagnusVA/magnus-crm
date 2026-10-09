@@ -12,6 +12,7 @@ import {
   draftsEqual,
   emptyDraft,
 } from "@/app/workspace/_components/weekly-schedule-dialog";
+import { getErrorMessage } from "@/lib/errors";
 
 export function QualifierSchedulesDialog({
   open,
@@ -73,7 +74,7 @@ export function QualifierSchedulesDialog({
       toast.success("Slack qualifier schedule saved.");
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Could not save schedule.",
+        getErrorMessage(error, "Could not save schedule."),
       );
     } finally {
       setIsSaving(false);

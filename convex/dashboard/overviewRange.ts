@@ -9,6 +9,19 @@ import type { PublicOverviewRange } from "./overviewTypes";
 
 export const MAX_OVERVIEW_CUSTOM_DAYS = 120;
 
+/**
+ * Matches the range-cap errors the report readers throw on purpose, such as
+ * "Lead Gen range is too large. Narrow the date range." or "Date range cannot
+ * exceed 730 business days.". Kept narrow so platform errors like "Value is
+ * too large" still surface as section failures.
+ */
+const RANGE_CAP_MESSAGE =
+  /\bis too large\. Narrow the [a-z ]+\.$|\brange cannot exceed \d+ (?:business )?days\b/i;
+
+export function isRangeCapErrorMessage(message: string): boolean {
+  return RANGE_CAP_MESSAGE.test(message);
+}
+
 export const overviewRangeValidator = v.union(
   v.object({
     kind: v.literal("preset"),

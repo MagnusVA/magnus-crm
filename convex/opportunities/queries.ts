@@ -42,7 +42,6 @@ type MeetingSummary = {
 export const getById = internalQuery({
   args: { opportunityId: v.id("opportunities") },
   handler: async (ctx, { opportunityId }) => {
-    console.log("[Opportunities] getById called", { opportunityId });
     return await ctx.db.get("opportunities", opportunityId);
   },
 });
@@ -186,12 +185,6 @@ export const listOpportunitiesForAdmin = query({
     periodEnd: v.optional(v.number()),
   },
   handler: async (ctx, { paginationOpts, statusFilter, assignedCloserId, periodStart, periodEnd }) => {
-    console.log("[Opportunities] listOpportunitiesForAdmin called", {
-      statusFilter: statusFilter ?? "all",
-      assignedCloserId: assignedCloserId ?? "none",
-      periodStart: periodStart ?? "none",
-      periodEnd: periodEnd ?? "none",
-    });
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -361,7 +354,6 @@ export const listOpportunitiesForAdmin = query({
       }),
     );
 
-    console.log("[Opportunities] listOpportunitiesForAdmin result", { count: enriched.length });
     return {
       ...paginatedResult,
       page: enriched.sort((a, b) => b.updatedAt - a.updatedAt),

@@ -5,6 +5,7 @@ import { action, env } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { hashInviteToken, validateInviteToken } from "../lib/inviteToken";
+import { log } from "../lib/observability/log";
 
 // eslint-disable-next-line @convex-dev/require-access-control -- runs before sign-up; the signed invite token is the credential
 export const validateInvite = action({
@@ -31,20 +32,17 @@ export const validateInvite = action({
         companyName?: string;
       }
   > => {
-    console.log("[Onboarding:Invite] validateInvite called", { tokenExists: !!token });
     const signingSecret = env.INVITE_SIGNING_SECRET;
     if (!signingSecret) {
       throw new Error("Missing INVITE_SIGNING_SECRET");
     }
 
     const payload = validateInviteToken(token, signingSecret);
-    console.log("[Onboarding:Invite] signature validation result", { valid: !!payload });
     const tenant: Doc<"tenants"> | null = payload
       ? await ctx.runQuery(internal.tenants.getByInviteTokenHash, {
           inviteTokenHash: hashInviteToken(token),
         })
       : null;
-    console.log("[Onboarding:Invite] tenant lookup result", { found: !!tenant, tenantId: tenant?._id });
 
     const result =
       !payload
@@ -74,9 +72,10 @@ export const validateInvite = action({
                 };
 
     if (!result.valid) {
-      console.warn("[Onboarding:Invite] validation failed", { error: result.error });
-    } else {
-      console.log("[Onboarding:Invite] validation succeeded", { tenantId: result.tenantId });
+      log.warn("onboarding.invite.rejected", {
+        reason: result.error,
+        tenantId: tenant?._id,
+      });
     }
     return result;
   },

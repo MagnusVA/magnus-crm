@@ -43,15 +43,6 @@ export const logPayment = mutation({
     proofFileId: v.optional(v.id("_storage")),
   },
   handler: async (ctx, args) => {
-    console.log("[Closer:Payment] logPayment called", {
-      opportunityId: args.opportunityId,
-      meetingId: args.meetingId,
-      amount: args.amount,
-      currency: args.currency,
-      programId: args.programId,
-      paymentType: args.paymentType,
-      hasProofFile: !!args.proofFileId,
-    });
     const { userId, tenantId, role } = await requireTenantUser(ctx, [
       "closer",
       "tenant_master",

@@ -17,9 +17,7 @@ function isConfigCalendlyActive(config: {
 export const getById = internalQuery({
   args: { eventTypeConfigId: v.id("eventTypeConfigs") },
   handler: async (ctx, { eventTypeConfigId }) => {
-    console.log("[EventTypeConfig] getById called", { eventTypeConfigId });
     const config = await ctx.db.get("eventTypeConfigs", eventTypeConfigId);
-    console.log("[EventTypeConfig] getById result", { found: !!config });
     return config;
   },
 });
@@ -38,16 +36,6 @@ export const listForCalendlyTesting = internalQuery({
       .query("eventTypeConfigs")
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
       .take(500);
-
-    if (configs.length >= 500) {
-      console.warn(
-        "[EventTypeConfig] listForCalendlyTesting reached safety bound",
-        {
-          tenantId,
-          count: configs.length,
-        },
-      );
-    }
 
     return configs
       .filter((config) => !activeOnly || isConfigCalendlyActive(config))
@@ -76,7 +64,6 @@ export const listForCalendlyTesting = internalQuery({
 export const listEventTypeConfigs = query({
   args: {},
   handler: async (ctx) => {
-    console.log("[EventTypeConfig] listEventTypeConfigs called");
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -87,14 +74,6 @@ export const listEventTypeConfigs = query({
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
       .take(500);
 
-    if (configs.length >= 500) {
-      console.warn("[EventTypeConfig] listEventTypeConfigs reached MVP bound", {
-        tenantId,
-        count: configs.length,
-      });
-    }
-
-    console.log("[EventTypeConfig] listEventTypeConfigs result", { count: configs.length });
     return configs.map((config) => ({
       ...config,
       portalReadiness: portalReadiness(config),
@@ -112,7 +91,6 @@ export const listEventTypeConfigs = query({
 export const getEventTypeConfigsWithStats = query({
   args: {},
   handler: async (ctx) => {
-    console.log("[EventTypeConfig] getEventTypeConfigsWithStats called");
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -122,16 +100,6 @@ export const getEventTypeConfigsWithStats = query({
       .query("eventTypeConfigs")
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
       .take(500);
-
-    if (configs.length >= 500) {
-      console.warn(
-        "[EventTypeConfig] getEventTypeConfigsWithStats reached MVP bound",
-        {
-          tenantId,
-          count: configs.length,
-        },
-      );
-    }
 
     const results = await Promise.all(
       configs.map(async (config) => {
@@ -163,9 +131,6 @@ export const getEventTypeConfigsWithStats = query({
       }),
     );
 
-    console.log("[EventTypeConfig] getEventTypeConfigsWithStats result", {
-      count: results.length,
-    });
     return results;
   },
 });

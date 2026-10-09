@@ -105,6 +105,8 @@ export function CreateTenantDialog({
       setForm({ companyName: "", contactEmail: "", notes: "" });
       setErrors({ companyName: null, contactEmail: null });
       onOpenChange(false);
+    } catch {
+      // The parent toasts and reports the failure; keep the dialog open.
     } finally {
       setIsSubmitting(false);
     }

@@ -10,6 +10,7 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internalMutation } from "../_generated/server";
+import { log } from "../lib/observability/log";
 import {
   leadInitialSourceValidator,
   PORTAL_LEAD_INCOME_MAX,
@@ -20,6 +21,7 @@ import {
   requirePortalDmCloser,
   requirePortalLead,
 } from "./leadSession";
+import { expectedError } from "../lib/observability/errors";
 
 // Light write rate limit for portal writes (notes AND profile edits): per DM
 // closer per minute, plus a tenant-wide flood guard, both computed from a
@@ -77,6 +79,12 @@ export const updateLeadProfileForSession = internalMutation({
     });
 
     if (args.initialSource === undefined && args.selfReportedIncome === undefined) {
+      log.info("link_portal.lead.profile_update_skipped", {
+        reason: "no_changes",
+        tenantId: args.tenantId,
+        leadId: args.leadId,
+        dmCloserId: args.dmCloserId,
+      });
       return null;
     }
 
@@ -108,7 +116,12 @@ export const updateLeadProfileForSession = internalMutation({
       .take(PORTAL_WRITE_RATE_TENANT_FLOOD_LIMIT);
     const editRate = evaluatePortalWriteRateLimit(recentEdits, args.dmCloserId);
     if (editRate.limited) {
-      console.warn("[LinkPortal:Leads] profile edit rate limit hit", {
+      log.warn("link_portal.lead.rate_limited", {
+        reason:
+          editRate.tenantRecentCount >= PORTAL_WRITE_RATE_TENANT_FLOOD_LIMIT
+            ? "tenant_flood"
+            : "dm_closer_limit",
+        write: "profile_edit",
         tenantId: args.tenantId,
         leadId: args.leadId,
         dmCloserId: args.dmCloserId,
@@ -138,8 +151,7 @@ export const updateLeadProfileForSession = internalMutation({
 
     await ctx.db.patch("leads", args.leadId, patch);
 
-    // Durable audit row (also the rate-limit window source above); the
-    // console log below stays for structured log tailing.
+    // Durable audit row (also the rate-limit window source above).
     await ctx.db.insert("linkPortalLeadEdits", {
       tenantId: args.tenantId,
       leadId: args.leadId,
@@ -149,12 +161,12 @@ export const updateLeadProfileForSession = internalMutation({
       changedFields: Object.keys(changes),
     });
 
-    console.log("[LinkPortal:Leads] lead profile updated", {
+    log.info("link_portal.lead.profile_updated", {
       tenantId: args.tenantId,
       leadId: args.leadId,
       dmCloserId: args.dmCloserId,
       sessionIdHash: args.sessionIdHash,
-      changes,
+      changedFields: Object.keys(changes),
     });
 
     return null;
@@ -208,7 +220,12 @@ export const insertLeadNoteForSession = internalMutation({
 
     const noteRate = evaluatePortalWriteRateLimit(recentNotes, args.dmCloserId);
     if (noteRate.limited) {
-      console.warn("[LinkPortal:Leads] note rate limit hit", {
+      log.warn("link_portal.lead.rate_limited", {
+        reason:
+          noteRate.tenantRecentCount >= PORTAL_WRITE_RATE_TENANT_FLOOD_LIMIT
+            ? "tenant_flood"
+            : "dm_closer_limit",
+        write: "note",
         tenantId: args.tenantId,
         leadId: args.leadId,
         dmCloserId: args.dmCloserId,
@@ -216,7 +233,7 @@ export const insertLeadNoteForSession = internalMutation({
         dmCloserRecentCount: noteRate.dmCloserRecentCount,
         tenantRecentCount: noteRate.tenantRecentCount,
       });
-      throw new Error("Too many notes in a short time. Try again in a minute.");
+      throw expectedError("link_portal.notes_rate_limited", "Too many notes in a short time. Try again in a minute.");
     }
 
     const noteId = await ctx.db.insert("leadNotes", {
@@ -228,7 +245,7 @@ export const insertLeadNoteForSession = internalMutation({
       dmCloserId: args.dmCloserId,
     });
 
-    console.log("[LinkPortal:Leads] lead note added", {
+    log.info("link_portal.lead.note_added", {
       tenantId: args.tenantId,
       leadId: args.leadId,
       dmCloserId: args.dmCloserId,

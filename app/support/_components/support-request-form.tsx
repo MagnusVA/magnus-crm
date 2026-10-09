@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { getErrorMessage } from "@/lib/errors";
 
 const initialForm = {
   name: "",
@@ -74,9 +75,7 @@ export function SupportRequestForm() {
       setSubmitted(true);
     } catch (error) {
       setSubmitError(
-        error instanceof Error
-          ? error.message
-          : "Support request could not be submitted.",
+        getErrorMessage(error, "Support request could not be submitted."),
       );
     } finally {
       setIsSubmitting(false);

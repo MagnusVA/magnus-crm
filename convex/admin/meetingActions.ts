@@ -6,6 +6,7 @@ import { validateTransition } from "../lib/statusTransitions";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { log } from "../lib/observability/log";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import {
   updateTenantStats,
@@ -107,10 +108,6 @@ export const adminMarkAsLost = mutation({
       toStatus: "lost",
       reason,
     });
-
-    console.log("[Admin] adminMarkAsLost completed", {
-      opportunityId: args.opportunityId,
-    });
   },
 });
 
@@ -188,11 +185,6 @@ export const adminCreateFollowUp = mutation({
       metadata: { type: "scheduling_link", reason: "admin_initiated" },
     });
 
-    console.log("[Admin] adminCreateFollowUp completed", {
-      opportunityId: args.opportunityId,
-      followUpId,
-    });
-
     return { schedulingLinkUrl, followUpId };
   },
 });
@@ -229,6 +221,12 @@ export const adminConfirmFollowUp = mutation({
 
     // Idempotent: already transitioned
     if (opportunity.status === "follow_up_scheduled") {
+      log.info("follow_up.confirm_skipped", {
+        tenantId,
+        actor: "admin",
+        opportunityId: args.opportunityId,
+        reason: "already_follow_up_scheduled",
+      });
       return;
     }
 
@@ -277,10 +275,6 @@ export const adminConfirmFollowUp = mutation({
       actorUserId: userId,
       fromStatus: opportunity.status,
       toStatus: "follow_up_scheduled",
-    });
-
-    console.log("[Admin] adminConfirmFollowUp completed", {
-      opportunityId: args.opportunityId,
     });
   },
 });
@@ -402,12 +396,6 @@ export const adminCreateManualReminder = mutation({
       toStatus: "follow_up_scheduled",
     });
 
-    console.log("[Admin] adminCreateManualReminder completed", {
-      opportunityId: args.opportunityId,
-      meetingId: args.meetingId,
-      followUpId,
-    });
-
     return { followUpId };
   },
 });
@@ -487,7 +475,7 @@ export const adminMarkNoShow = mutation({
       fromStatus: meeting.status,
       toStatus: "no_show",
       reason: args.reason,
-      metadata: { note: normalizedNote },
+      metadata: { noteProvided: Boolean(normalizedNote) },
       occurredAt: now,
     });
     await emitDomainEvent(ctx, {
@@ -501,12 +489,6 @@ export const adminMarkNoShow = mutation({
       toStatus: "no_show",
       reason: args.reason,
       occurredAt: now,
-    });
-
-    console.log("[Admin] adminMarkNoShow completed", {
-      meetingId: args.meetingId,
-      opportunityId: opportunity._id,
-      reason: args.reason,
     });
   },
 });
@@ -618,12 +600,6 @@ export const adminCreateRescheduleLink = mutation({
       actorUserId: userId,
       fromStatus: "no_show",
       toStatus: "reschedule_link_sent",
-    });
-
-    console.log("[Admin] adminCreateRescheduleLink completed", {
-      opportunityId: args.opportunityId,
-      meetingId: args.meetingId,
-      followUpId,
     });
 
     return { schedulingLinkUrl, followUpId };

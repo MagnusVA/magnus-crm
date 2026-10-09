@@ -80,17 +80,10 @@ export const insertTenant = internalMutation({
     inviteExpiresAt: v.number(),
   },
   handler: async (ctx, args) => {
-    console.log("[Admin] insertTenant called", {
-      companyName: args.companyName,
-      contactEmail: args.contactEmail,
-      workosOrgId: args.workosOrgId,
-    });
-    const id = await ctx.db.insert("tenants", {
+    return await ctx.db.insert("tenants", {
       ...args,
       status: "pending_signup",
     });
-    console.log("[Admin] insertTenant completed", { insertedId: id });
-    return id;
   },
 });
 
@@ -101,7 +94,6 @@ export const patchInviteToken = internalMutation({
     inviteExpiresAt: v.number(),
   },
   handler: async (ctx, { tenantId, ...fields }) => {
-    console.log("[Admin] patchInviteToken called", { tenantId });
     await ctx.db.patch("tenants", tenantId, fields);
   },
 });
@@ -111,20 +103,12 @@ export const deleteTenant = internalMutation({
     tenantId: v.id("tenants"),
   },
   handler: async (ctx, { tenantId }) => {
-    console.log("[Admin] deleteTenant called", { tenantId });
     const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant) {
-      console.error("[Admin] deleteTenant: tenant not found", { tenantId });
       throw new Error("Tenant not found");
     }
-    console.log("[Admin] deleteTenant: tenant found, deleting", {
-      tenantId,
-      companyName: tenant.companyName,
-      status: tenant.status,
-    });
 
     await ctx.db.delete("tenants", tenantId);
-    console.log("[Admin] deleteTenant completed", { tenantId });
   },
 });
 
@@ -133,8 +117,6 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
     tenantId: v.id("tenants"),
   },
   handler: async (ctx, { tenantId }) => {
-    console.log("[Admin] deleteTenantRuntimeDataBatch called", { tenantId });
-
     const deletedCounts: Record<string, number> = {};
 
     deletedCounts.paymentRecords = await deletePaymentRecordsBatch(
@@ -182,12 +164,6 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
     const hasMore = Object.values(deletedCounts).some(
       (count) => count === CLEANUP_BATCH_SIZE,
     );
-
-    console.log("[Admin] deleteTenantRuntimeDataBatch completed", {
-      tenantId,
-      deletedCounts,
-      hasMore,
-    });
 
     return {
       deletedCounts,

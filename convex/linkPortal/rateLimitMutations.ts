@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
+import { log } from "../lib/observability/log";
 
 const WINDOW_MS = 15 * 60 * 1000;
 const LOCK_MS = 15 * 60 * 1000;
@@ -21,6 +22,13 @@ export const assertNotLocked = internalMutation({
       .unique();
 
     if (attempt?.lockedUntil && attempt.lockedUntil > Date.now()) {
+      log.warn("link_portal.auth.rejected", {
+        reason: "locked_out",
+        tenantId,
+        ipHash,
+        failedCount: attempt.failedCount,
+        lockedUntil: attempt.lockedUntil,
+      });
       throw new Error(GENERIC_PORTAL_AUTH_ERROR);
     }
   },
@@ -44,6 +52,14 @@ export const recordFailedAttempt = internalMutation({
     const inWindow = existing ? now - existing.windowStartedAt < WINDOW_MS : false;
     const failedCount = inWindow && existing ? existing.failedCount + 1 : 1;
     const lockedUntil = failedCount >= MAX_FAILURES ? now + LOCK_MS : undefined;
+    if (lockedUntil !== undefined) {
+      log.warn("link_portal.auth.locked_out", {
+        tenantId,
+        ipHash,
+        failedCount,
+        lockedUntil,
+      });
+    }
 
     if (!existing) {
       await ctx.db.insert("linkPortalAuthAttempts", {

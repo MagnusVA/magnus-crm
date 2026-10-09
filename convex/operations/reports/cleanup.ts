@@ -5,12 +5,25 @@ import {
   internalQuery,
   type MutationCtx,
 } from "../../_generated/server";
+import { reportError } from "../../lib/observability/log";
 import {
   REPORT_CLEANUP_BATCH_SIZE,
   REPORT_UPLOAD_SETTLE_MS,
 } from "./contracts";
 
 const STORAGE_PAGE_SIZE = 50;
+/** First failed-delete attempt that gets reported; then every 10th after. */
+const DELETE_FAILURE_REPORT_AFTER = 3;
+const DELETE_FAILURE_REPORT_EVERY = 10;
+
+function shouldReportDeleteFailure(deleteAttempts: number) {
+  return (
+    deleteAttempts >= DELETE_FAILURE_REPORT_AFTER &&
+    (deleteAttempts - DELETE_FAILURE_REPORT_AFTER) %
+      DELETE_FAILURE_REPORT_EVERY ===
+      0
+  );
+}
 
 export const expireReadyJobs = internalMutation({
   args: {},
@@ -175,12 +188,25 @@ export const cleanupTerminalJobs = internalMutation({
           try {
             await ctx.storage.delete(artifact.storageId);
           } catch (error) {
+            const deleteAttempts = artifact.deleteAttempts + 1;
             await ctx.db.patch("operationsReportArtifacts", artifact._id, {
               state: "delete_failed",
-              deleteAttempts: artifact.deleteAttempts + 1,
+              deleteAttempts,
               lastDeleteError: sanitizeDeleteError(error),
               updatedAt: now,
             });
+            // Retried every sweep forever, so report only the 3rd and then
+            // every 10th consecutive failure.
+            if (shouldReportDeleteFailure(deleteAttempts)) {
+              reportError("reports.cleanup.storage_delete_failed", error, {
+                severity: "warning",
+                fingerprint: "reports.cleanup.storage_delete_failed",
+                jobId: job._id,
+                tenantId: job.tenantId,
+                artifactId: artifact._id,
+                deleteAttempts,
+              });
+            }
             continue;
           }
         }

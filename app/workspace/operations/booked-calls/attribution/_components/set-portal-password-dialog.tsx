@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { getErrorMessage } from "@/lib/errors";
 
 const MIN_PASSWORD_LENGTH = 8;
 const MAX_PASSWORD_LENGTH = 256;
@@ -110,7 +111,7 @@ export function SetPortalPasswordDialog({
       onSuccess?.();
     } catch (error) {
       setSubmitError(
-        error instanceof Error ? error.message : "Could not save password",
+        getErrorMessage(error, "Could not save password"),
       );
     }
   }

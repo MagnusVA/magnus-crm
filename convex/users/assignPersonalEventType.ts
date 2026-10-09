@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
+import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 
 /**
@@ -49,9 +50,10 @@ export const assignPersonalEventType = mutation({
 
     await ctx.db.patch("users", userId, { personalEventTypeUri });
 
-    console.log("[Users] assignPersonalEventType", {
+    log.info("user.personal_event_type.assigned", {
+      tenantId,
       userId,
-      personalEventTypeUri: personalEventTypeUri.substring(0, 60),
+      replacedExisting: Boolean(targetUser.personalEventTypeUri),
     });
   },
 });

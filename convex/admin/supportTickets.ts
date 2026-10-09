@@ -33,12 +33,6 @@ export const listSupportTickets = query({
             .order("desc")
             .paginate(args.paginationOpts);
 
-    console.log("[Admin] listSupportTickets completed", {
-      resultCount: result.page.length,
-      isDone: result.isDone,
-      statusFilter: args.statusFilter ?? "none",
-    });
-
     return result;
   },
 });

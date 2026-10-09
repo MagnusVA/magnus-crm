@@ -14,6 +14,8 @@ import {
   isActiveOpportunityStatus,
   updateTenantStats,
 } from "../lib/tenantStatsHelper";
+import { log, reportError } from "../lib/observability/log";
+import { classifyMissingMeeting } from "./missingMeeting";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -34,23 +36,15 @@ export const process = internalMutation({
 		rawEventId: v.id("rawWebhookEvents"),
 	},
 	handler: async (ctx, { tenantId, payload, rawEventId }) => {
-		console.log(
-			`[Pipeline:invitee.canceled] Entry | tenantId=${tenantId} rawEventId=${rawEventId}`,
-		);
-
 		const rawEvent = await ctx.db.get("rawWebhookEvents", rawEventId);
 		if (!rawEvent || rawEvent.processed) {
-			console.log(
-				`[Pipeline:invitee.canceled] Skipping: event already processed or not found`,
-			);
+			log.info("pipeline.invitee_canceled.skipped", {
+				reason: rawEvent ? "already_processed" : "raw_event_missing",
+				tenantId,
+				rawEventId,
+			});
 			return;
 		}
-
-		// Log tracking presence for debugging (UTMs already stored at creation time)
-		const hasTracking = isRecord(payload) && isRecord(payload.tracking);
-		console.log(
-			`[Pipeline:invitee.canceled] UTM check | hasTracking=${hasTracking}`,
-		);
 
 		const scheduledEvent =
 			isRecord(payload) && isRecord(payload.scheduled_event)
@@ -60,13 +54,19 @@ export const process = internalMutation({
 			(scheduledEvent ? getString(scheduledEvent, "uri") : undefined) ??
 			(isRecord(payload) ? getString(payload, "event") : undefined);
 
-		console.log(
-			`[Pipeline:invitee.canceled] Extracted eventUri=${calendlyEventUri ?? "none"}`,
-		);
-
 		if (!calendlyEventUri) {
-			console.error(
-				"[Pipeline:invitee.canceled] Missing event URI in payload",
+			reportError(
+				"pipeline.event_dropped",
+				new Error("invitee.canceled payload has no scheduled event URI"),
+				{
+					severity: "warning",
+					fingerprint: "pipeline.event_dropped:invitee.canceled:missing_event_uri",
+					integration: "calendly",
+					reason: "missing_event_uri",
+					eventType: "invitee.canceled",
+					tenantId,
+					rawEventId,
+				},
 			);
 			await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
 			return;
@@ -82,19 +82,44 @@ export const process = internalMutation({
 			.unique();
 
 		if (!meeting) {
-			console.warn(
-				`[Pipeline:invitee.canceled] No meeting found for eventUri=${calendlyEventUri}`,
-			);
+			const reason = await classifyMissingMeeting(ctx, rawEvent);
+			if (reason === "booking_not_tracked") {
+				// The booking was deliberately not tracked (non-closer host).
+				log.info("pipeline.invitee_canceled.skipped", {
+					reason,
+					tenantId,
+					rawEventId,
+				});
+			} else {
+				// The cancellation is lost either way.
+				reportError(
+					"pipeline.event_dropped",
+					new Error(
+						reason === "out_of_order"
+							? "invitee.canceled arrived before its invitee.created was processed"
+							: "invitee.canceled has no matching meeting",
+					),
+					{
+						severity: "warning",
+						fingerprint: `pipeline.event_dropped:invitee.canceled:${reason}`,
+						integration: "calendly",
+						reason,
+						eventType: "invitee.canceled",
+						tenantId,
+						rawEventId,
+						calendlyEventUri,
+					},
+				);
+			}
 			await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
 			return;
 		}
 
-		console.log(
-			`[Pipeline:invitee.canceled] Meeting found | meetingId=${meeting._id} currentStatus=${meeting.status}`,
-		);
-
 		const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
 
+		let meetingTransition: "applied" | "invalid" | "already_canceled" =
+			"already_canceled";
+		let opportunityStatusChange: { from: string; to: string } | undefined;
 		if (meeting.status !== "canceled") {
 			const now = Date.now();
 			if (validateMeetingTransition(meeting.status, "canceled")) {
@@ -114,18 +139,10 @@ export const process = internalMutation({
 					toStatus: "canceled",
 					occurredAt: now,
 				});
-				console.log(
-					`[Pipeline:invitee.canceled] Meeting status changed | ${meeting.status} -> canceled`,
-				);
+				meetingTransition = "applied";
 			} else {
-				console.log(
-					`[Pipeline:invitee.canceled] Meeting transition skipped | ${meeting.status} -> canceled is invalid`,
-				);
+				meetingTransition = "invalid";
 			}
-		} else {
-			console.log(
-				`[Pipeline:invitee.canceled] Meeting already canceled, no change`,
-			);
 		}
 
 		if (opportunity) {
@@ -150,9 +167,6 @@ export const process = internalMutation({
 			const newStatus = shouldMarkCanceled
 				? "canceled"
 				: opportunity.status;
-			console.log(
-				`[Pipeline:invitee.canceled] Opportunity update | opportunityId=${opportunity._id} statusTransition=${opportunity.status}->${newStatus} reason=${cancellationReason ?? "none"} canceledBy=${canceledBy ?? "unknown"}`,
-			);
 
 			const now = Date.now();
 			await patchOpportunityLifecycle(ctx, opportunity._id, {
@@ -163,6 +177,7 @@ export const process = internalMutation({
 				updatedAt: now,
 			});
 			if (newStatus !== opportunity.status) {
+				opportunityStatusChange = { from: opportunity.status, to: newStatus };
 				await updateTenantStats(ctx, tenantId, {
 					activeOpportunities: isActiveOpportunityStatus(opportunity.status)
 						? -1
@@ -182,14 +197,33 @@ export const process = internalMutation({
 				});
 			}
 		} else {
-			console.warn(
-				`[Pipeline:invitee.canceled] Opportunity not found for meeting ${meeting._id}`,
+			reportError(
+				"pipeline.data_inconsistency",
+				new Error("Meeting references a missing opportunity"),
+				{
+					severity: "error",
+					fingerprint: "pipeline.data_inconsistency:meeting_opportunity_missing",
+					reason: "meeting_opportunity_missing",
+					eventType: "invitee.canceled",
+					tenantId,
+					rawEventId,
+					meetingId: meeting._id,
+					opportunityId: meeting.opportunityId,
+				},
 			);
 		}
 
 		await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
-		console.log(
-			`[Pipeline:invitee.canceled] Marked processed | rawEventId=${rawEventId}`,
-		);
+		log.info("pipeline.invitee_canceled.processed", {
+			tenantId,
+			rawEventId,
+			meetingId: meeting._id,
+			opportunityId: meeting.opportunityId,
+			previousMeetingStatus: meeting.status,
+			meetingTransition,
+			opportunityFound: opportunity !== null,
+			previousOpportunityStatus: opportunityStatusChange?.from,
+			opportunityStatus: opportunityStatusChange?.to ?? opportunity?.status,
+		});
 	},
 });

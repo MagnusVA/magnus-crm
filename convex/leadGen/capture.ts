@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, type MutationCtx } from "../_generated/server";
+import { log } from "../lib/observability/log";
 import type { CrmRole } from "../lib/roleMapping";
 import { requireTenantUser } from "../requireTenantUser";
 import {
@@ -54,6 +55,12 @@ export const submit = mutation({
         .unique();
 
       if (existingSubmission) {
+        log.info("lead_gen.submission.duplicate_retry", {
+          reason: "client_submission_key_match",
+          tenantId: access.tenantId,
+          workerId: worker._id,
+          submissionId: existingSubmission._id,
+        });
         return {
           submissionId: existingSubmission._id,
           prospectId: existingSubmission.prospectId,
@@ -183,6 +190,19 @@ export const submit = mutation({
         submittedAt: now,
       });
     }
+
+    log.info("lead_gen.submission.created", {
+      tenantId: access.tenantId,
+      submissionId,
+      prospectId: prospect._id,
+      workerId: worker._id,
+      teamId: worker.teamId,
+      source: args.source,
+      originKind: submittedOrigin.originKind,
+      originRankable,
+      duplicateProspect,
+      isDistinctWorker,
+    });
 
     return {
       submissionId,

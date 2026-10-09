@@ -133,13 +133,6 @@ export const listLeads = query({
       }),
     );
 
-    console.log("[Leads:List] listLeads completed", {
-      tenantId,
-      statusFilter: effectiveStatus,
-      pageSize: enrichedPage.length,
-      isDone: rawResults.isDone,
-    });
-
     return {
       ...rawResults,
       page: enrichedPage,
@@ -161,7 +154,6 @@ export const searchLeads = query({
 
     const trimmed = searchTerm.trim();
     if (trimmed.length === 0) {
-      console.log("[Leads:Search] empty search term", { tenantId });
       return [];
     }
     const effectiveStatus = statusFilter ?? "active";
@@ -175,13 +167,6 @@ export const searchLeads = query({
           .eq("status", effectiveStatus),
       )
       .take(20);
-
-    console.log("[Leads:Search] searchLeads completed", {
-      tenantId,
-      searchTerm: trimmed,
-      statusFilter: effectiveStatus,
-      resultCount: results.length,
-    });
 
     return results;
   },
@@ -276,10 +261,6 @@ export const getLeadDetail = query({
     if (lead.status === "merged" && lead.mergedIntoLeadId) {
       const targetLead = await ctx.db.get("leads", lead.mergedIntoLeadId);
       if (targetLead && targetLead.tenantId === tenantId) {
-        console.log("[Leads:Detail] merged lead redirect", {
-          sourceLeadId: leadId,
-          targetLeadId: targetLead._id,
-        });
         return {
           redirectToLeadId: targetLead._id,
           lead: null,
@@ -292,11 +273,6 @@ export const getLeadDetail = query({
           qualificationEvents: [],
         };
       }
-
-      console.error("[Leads:Detail] broken merged lead redirect", {
-        sourceLeadId: leadId,
-        mergedIntoLeadId: lead.mergedIntoLeadId,
-      });
     }
 
     const [
@@ -582,17 +558,6 @@ export const getLeadDetail = query({
       }
     }
 
-    console.log("[Leads:Detail] getLeadDetail completed", {
-      leadId,
-      identifierCount: identifiers.length,
-      opportunityCount: opportunities.length,
-      meetingCount: meetings.length,
-      followUpCount: followUps.length,
-      mergeHistoryCount: mergeHistory.length,
-      potentialDuplicateCount: potentialDuplicates.length,
-      qualificationEventCount: qualificationEvents.length,
-    });
-
     return {
       redirectToLeadId: null,
       lead,
@@ -674,17 +639,6 @@ export const getMergePreview = query({
     const duplicateIdentifiers = sourceIdentifiers.filter((identifier) =>
       targetIdentifierKeys.has(`${identifier.type}:${identifier.value}`),
     );
-
-    console.log("[Leads:MergePreview] getMergePreview completed", {
-      sourceLeadId,
-      targetLeadId,
-      sourceIdentifierCount: sourceIdentifiers.length,
-      targetIdentifierCount: targetIdentifiers.length,
-      identifiersToMove: identifiersToMove.length,
-      duplicateIdentifiers: duplicateIdentifiers.length,
-      sourceOpportunityCount: sourceOpportunities.length,
-      targetOpportunityCount: targetOpportunities.length,
-    });
 
     return {
       source: {

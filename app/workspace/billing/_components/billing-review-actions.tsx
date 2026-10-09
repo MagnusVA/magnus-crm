@@ -10,6 +10,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import type { BillingPaymentStatus } from "@/convex/billing/types";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { getErrorMessage } from "@/lib/errors";
 
 export function BillingReviewActions({
   paymentRecordId,
@@ -41,7 +42,7 @@ export function BillingReviewActions({
       }
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Unable to mark reviewed.",
+        getErrorMessage(error, "Unable to mark reviewed."),
       );
     } finally {
       setIsSubmitting(false);

@@ -7,6 +7,7 @@ import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { toast } from "sonner";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import { AlertCircleIcon } from "lucide-react";
 
 import { api } from "@/convex/_generated/api";
@@ -41,6 +42,7 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { getErrorMessage } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -169,9 +171,9 @@ export function ProgramFormDialog({
       onOpenChange(false);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to save program";
+        getErrorMessage(error, "Failed to save program");
       setSubmitError(message);
-      posthog.captureException(error);
+      reportClientError(error, { flow: "program_form_save" });
     } finally {
       setIsSubmitting(false);
     }

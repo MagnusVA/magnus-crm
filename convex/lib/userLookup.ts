@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
+import { rejectRequest } from "./observability/errors";
 import type { CrmRole } from "./roleMapping";
 
 export const resolveCrmUserByIdentity = internalQuery({
@@ -34,15 +35,27 @@ export const resolveCrmUserByIdentity = internalQuery({
     }
 
     if (!user) {
-      throw new Error("User not found — please complete setup");
+      throw rejectRequest(
+        "auth.user_not_found",
+        "User not found — please complete setup",
+        { orgId: args.orgId },
+      );
     }
     if (user.isActive === false) {
-      throw new Error("User account is inactive");
+      throw rejectRequest("auth.user_inactive", "User account is inactive", {
+        userId: user._id,
+        tenantId: user.tenantId,
+      });
     }
 
     const tenant = await ctx.db.get("tenants", user.tenantId);
     if (!tenant || tenant.workosOrgId !== args.orgId) {
-      throw new Error("Organization mismatch");
+      throw rejectRequest("auth.organization_mismatch", "Organization mismatch", {
+        userId: user._id,
+        tenantId: user.tenantId,
+        orgId: args.orgId,
+        tenantOrgId: tenant?.workosOrgId ?? null,
+      });
     }
 
     return {

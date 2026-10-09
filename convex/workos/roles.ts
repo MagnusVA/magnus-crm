@@ -3,6 +3,7 @@
 import { WorkOS } from "@workos-inc/node";
 import { v } from "convex/values";
 import { internalAction, env } from "../_generated/server";
+import { log } from "../lib/observability/log";
 import { getRawWorkosUserId } from "../lib/workosUserId";
 
 const workos = new WorkOS(env.WORKOS_API_KEY, {
@@ -28,7 +29,7 @@ export const assignRoleToMembership = internalAction({
     ),
   },
   handler: async (_ctx, { workosUserId, organizationId, roleSlug }) => {
-    console.log("[WorkOS:Roles] assignRoleToMembership called", { workosUserId, organizationId, roleSlug });
+    const startedAt = Date.now();
     const rawWorkosUserId = getRawWorkosUserId(workosUserId);
 
     // Step 1: Find the user's membership in this organization
@@ -39,12 +40,18 @@ export const assignRoleToMembership = internalAction({
 
     const membership = memberships.data[0];
     if (!membership) {
-      console.error("[WorkOS:Roles] No membership found", { workosUserId, rawWorkosUserId, organizationId });
+      // Thrown, so the failed execution is reported on its own.
+      log.warn("workos.role.assign_failed", {
+        outcome: "no_membership",
+        workosUserId: rawWorkosUserId,
+        organizationId,
+        roleSlug,
+        durationMs: Date.now() - startedAt,
+      });
       throw new Error(
         `No membership found for user ${workosUserId} in org ${organizationId}`
       );
     }
-    console.log("[WorkOS:Roles] Found membership", { membershipId: membership.id, workosUserId, rawWorkosUserId, organizationId });
 
     // Step 2: Update the membership with the new role slug
     const updated = await workos.userManagement.updateOrganizationMembership(
@@ -52,7 +59,15 @@ export const assignRoleToMembership = internalAction({
       { roleSlug }
     );
 
-    console.log("[WorkOS:Roles] Role assigned", { roleSlug, membershipId: membership.id });
+    log.info("workos.role.assigned", {
+      outcome: "assigned",
+      workosUserId: rawWorkosUserId,
+      organizationId,
+      membershipId: membership.id,
+      previousRoleSlug: membership.role?.slug,
+      roleSlug,
+      durationMs: Date.now() - startedAt,
+    });
 
     return updated;
   },

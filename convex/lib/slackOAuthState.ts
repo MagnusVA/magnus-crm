@@ -2,6 +2,7 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { env } from "../_generated/server";
+import { log } from "./observability/log";
 
 const STATE_TTL_DEFAULT_SECONDS = 600;
 const BASE64URL_ALPHABET =
@@ -183,16 +184,6 @@ export async function createSlackOAuthState(
     expiresAt,
   });
 
-  console.log("[Slack:OAuthState] created", {
-    requestId: args.requestId,
-    tenantId: args.tenantId,
-    workosUserId: args.workosUserId,
-    stateFingerprint: await fingerprintSlackOAuthStateToken(token),
-    issuedAt: now,
-    expiresAt,
-    ttlMs: expiresAt - now,
-  });
-
   return { token, expiresAt };
 }
 
@@ -202,11 +193,11 @@ export async function validateAndConsumeSlackOAuthState(
 ): Promise<ValidatedSlackOAuthState | null> {
   const signingSecret = getSigningSecret(args.signingSecret);
   const stateFingerprint = await fingerprintSlackOAuthStateToken(args.token);
-  console.log("[Slack:OAuthState] validate start", { stateFingerprint });
 
   const dotIndex = args.token.lastIndexOf(".");
   if (dotIndex < 0) {
-    console.warn("[Slack:OAuthState] validate failed: missing signature", {
+    log.warn("slack.oauth_state.rejected", {
+      reason: "missing_signature",
       stateFingerprint,
     });
     return null;
@@ -215,7 +206,8 @@ export async function validateAndConsumeSlackOAuthState(
   const payloadEncoded = args.token.slice(0, dotIndex);
   const signature = args.token.slice(dotIndex + 1);
   if (!(await verifySignature(payloadEncoded, signature, signingSecret))) {
-    console.warn("[Slack:OAuthState] validate failed: signature mismatch", {
+    log.warn("slack.oauth_state.rejected", {
+      reason: "signature_mismatch",
       stateFingerprint,
     });
     return null;
@@ -225,7 +217,8 @@ export async function validateAndConsumeSlackOAuthState(
   try {
     payload = JSON.parse(base64urlDecodeToString(payloadEncoded)) as StatePayload;
   } catch {
-    console.warn("[Slack:OAuthState] validate failed: invalid payload JSON", {
+    log.warn("slack.oauth_state.rejected", {
+      reason: "invalid_payload_json",
       stateFingerprint,
     });
     return null;
@@ -241,7 +234,10 @@ export async function validateAndConsumeSlackOAuthState(
     typeof payload.exp !== "number" ||
     now >= payload.exp
   ) {
-    console.warn("[Slack:OAuthState] validate failed: invalid or expired payload", {
+    const expired =
+      Boolean(payload) && typeof payload.exp === "number" && now >= payload.exp;
+    log.warn("slack.oauth_state.rejected", {
+      reason: expired ? "expired" : "invalid_payload",
       stateFingerprint,
       requestId:
         payload && typeof payload.requestId === "string"
@@ -251,15 +247,6 @@ export async function validateAndConsumeSlackOAuthState(
         payload && typeof payload.tenantId === "string"
           ? payload.tenantId
           : undefined,
-      workosUserId:
-        payload && typeof payload.workosUserId === "string"
-          ? payload.workosUserId
-          : undefined,
-      exp:
-        payload && typeof payload.exp === "number" ? payload.exp : undefined,
-      now,
-      expired:
-        payload && typeof payload.exp === "number" ? now >= payload.exp : null,
     });
     return null;
   }
@@ -273,23 +260,14 @@ export async function validateAndConsumeSlackOAuthState(
   );
 
   if (!consumed) {
-    console.warn("[Slack:OAuthState] validate failed: state not consumable", {
+    log.warn("slack.oauth_state.rejected", {
+      reason: "not_consumable",
       stateFingerprint,
       requestId: payload.requestId,
       tenantId: payload.tenantId,
-      workosUserId: payload.workosUserId,
-      exp: payload.exp,
     });
     return null;
   }
-
-  console.log("[Slack:OAuthState] validate success", {
-    stateFingerprint,
-    requestId: payload.requestId,
-    tenantId: payload.tenantId,
-    workosUserId: payload.workosUserId,
-    exp: payload.exp,
-  });
 
   return {
     tenantId: payload.tenantId,

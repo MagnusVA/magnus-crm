@@ -89,6 +89,8 @@ export function ResetTenantDialog({
     try {
       await onSubmit(currentTenant);
       onOpenChange(false);
+    } catch {
+      // The parent toasts and reports the failure; keep the dialog open.
     } finally {
       setIsSubmitting(false);
     }

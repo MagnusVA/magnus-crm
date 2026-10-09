@@ -37,6 +37,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { UserXIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
+import { getErrorMessage } from "@/lib/errors";
 
 const NO_SHOW_REASONS = [
   { value: "no_response", label: "Lead didn't show up (no communication)" },
@@ -117,7 +118,7 @@ export function MarkNoShowDialog({
       onOpenChange(false);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to mark no-show",
+        getErrorMessage(error, "Failed to mark no-show"),
       );
     } finally {
       setIsSubmitting(false);
