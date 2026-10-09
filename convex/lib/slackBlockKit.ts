@@ -197,7 +197,7 @@ export function buildQualifiedLeadConfirmation(
     { type: "mrkdwn" as const, text: `*Platform:*\n${platformLabel}` },
     {
       type: "mrkdwn" as const,
-      text: `*Handle:*\n${profileUrl ? `<${profileUrl}|${handle}>` : handle}`,
+      text: `*Handle:*\n${profileUrl ? `<${slackLinkUrl(profileUrl)}|${handle}>` : handle}`,
     },
     {
       type: "mrkdwn" as const,
@@ -261,7 +261,7 @@ export function buildLeadGenSubmissionNotification(
   const fields = [
     {
       type: "mrkdwn" as const,
-      text: `*Prospect:*\n<${args.profileUrl}|${handle}>`,
+      text: `*Prospect:*\n<${slackLinkUrl(args.profileUrl)}|${handle}>`,
     },
     { type: "mrkdwn" as const, text: `*Source:*\n${sourceLabel}` },
     ...(origin
@@ -431,7 +431,7 @@ function formatLeadGenOrigin(
   if (!originValue) return label;
   if (originKind === "post" || originKind === "reel") {
     // Capture normalizes post and reel origins to an http(s) URL.
-    return `<${escapeSlackMrkdwn(originValue)}|${label}>`;
+    return `<${slackLinkUrl(originValue)}|${label}>`;
   }
   return `${label} - ${escapeSlackMrkdwn(originValue)}`;
 }
@@ -442,6 +442,14 @@ function socialProfileUrl(platform: SocialPlatform, rawHandle: string) {
   const handle = normalizeSocialHandle(rawHandle, "instagram");
   if (!handle || !/^[a-z0-9._]+$/.test(handle)) return null;
   return `https://instagram.com/${handle}`;
+}
+
+/**
+ * Slack reads `|` as the URL/label separator, and URL parsing keeps it in
+ * pathnames, so encode it along with the mrkdwn control characters.
+ */
+function slackLinkUrl(url: string) {
+  return escapeSlackMrkdwn(url).replace(/\|/g, "%7C");
 }
 
 /** Renders in each reader's own timezone. */

@@ -183,6 +183,50 @@ describe("lead gen submission notification", () => {
     expect(message.text).toContain("attempt #200+");
   });
 
+  it("caps eligible attempts, not rows skipped as voided or later", async () => {
+    const { t, caller, tenantId } = await fixture({ leadGenChannelId: "C_LEADGEN" });
+    const first = await caller.mutation(api.leadGen.capture.submit, {
+      source: "instagram", rawHandleOrProfileUrl: "@boundary.prospect", originKind: "follower",
+    });
+    const { target, insertOlder } = await t.run(async (ctx) => {
+      const { _id, _creationTime, ...row } = (await ctx.db.get("leadGenSubmissions", first.submissionId))!;
+      void _id;
+      void _creationTime;
+      // 198 more eligible rows, with voided rows mixed in, then the 200th.
+      for (let i = 1; i <= 198; i++) {
+        const at = row.submittedAt + i;
+        await ctx.db.insert("leadGenSubmissions", { ...row, submittedAt: at, createdAt: at });
+        if (i % 40 === 0) {
+          await ctx.db.insert("leadGenSubmissions", { ...row, submittedAt: at, createdAt: at, voidedAt: at });
+        }
+      }
+      const at = row.submittedAt + 500;
+      const target = await ctx.db.insert("leadGenSubmissions", { ...row, submittedAt: at, createdAt: at });
+      for (let i = 0; i < 3; i++) {
+        await ctx.db.insert("leadGenSubmissions", { ...row, submittedAt: at, createdAt: at });
+      }
+      return { target, insertOlder: { ...row, submittedAt: row.submittedAt - 1, createdAt: row.submittedAt - 1 } };
+    });
+    const attempt = async () =>
+      await t.query(internal.slack.notifyData.getLeadGenSubmissionForNotify, { tenantId, submissionId: target });
+
+    expect(await attempt()).toMatchObject({ contactAttemptNumber: 200, contactAttemptCapped: false });
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("leadGenSubmissions", insertOlder);
+    });
+    expect(await attempt()).toMatchObject({ contactAttemptNumber: 200, contactAttemptCapped: true });
+  });
+
+  it("encodes pipes so a link URL can't split into a Slack label", () => {
+    const message = buildLeadGenSubmissionNotification({
+      handle: "prospect", profileUrl: "https://instagram.com/prospect", source: "instagram",
+      originKind: "post", originValue: "https://instagram.com/p/a|b/", submittedByName: "Ana",
+      contactAttemptNumber: 1, submittedAt: 0,
+    });
+    expect(JSON.stringify(message.blocks)).toContain("<https://instagram.com/p/a%7Cb/|Post>");
+  });
+
   it("saves, keeps, and clears the opt-in channel", async () => {
     const { t, caller, installationId } = await fixture();
     const channels = {

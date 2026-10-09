@@ -10,6 +10,8 @@ import {
 import { countGoalEligibleQualificationEvents } from "../reporting/lib/slackQualificationLedger";
 
 const MAX_LEAD_GEN_ATTEMPTS_COUNTED = 200;
+// Bounds the read when many of a prospect's rows are voided.
+const MAX_LEAD_GEN_SUBMISSIONS_SCANNED = 1000;
 
 export const getQualifiedLeadForNotify = internalQuery({
   args: {
@@ -212,8 +214,13 @@ export const getLeadGenSubmissionForNotify = internalQuery({
 
     // Count this prospect's live submissions up to this one, so a late or
     // retried post still shows the attempt number it had when submitted.
-    // Read newest first from this submission so the cap drops the oldest rows.
-    const recentSubmissions = await ctx.db
+    // Read newest first from this submission so the cap drops the oldest
+    // rows, and cap eligible rows, not raw ones, so skipped rows can't
+    // displace counted attempts.
+    let contactAttemptNumber = 0;
+    let contactAttemptCapped = false;
+    let scanned = 0;
+    for await (const row of ctx.db
       .query("leadGenSubmissions")
       .withIndex("by_tenantId_and_prospectId_and_submittedAt", (q) =>
         q
@@ -221,21 +228,25 @@ export const getLeadGenSubmissionForNotify = internalQuery({
           .eq("prospectId", submission.prospectId)
           .lte("submittedAt", submission.submittedAt),
       )
-      .order("desc")
-      .take(MAX_LEAD_GEN_ATTEMPTS_COUNTED + 1);
-    const contactAttemptCapped =
-      recentSubmissions.length > MAX_LEAD_GEN_ATTEMPTS_COUNTED;
-    const contactAttemptNumber = recentSubmissions
-      .slice(0, MAX_LEAD_GEN_ATTEMPTS_COUNTED)
-      .filter(
-        (row) =>
-          row.voidedAt === undefined &&
-          // Same-millisecond submissions inserted after this one came later.
-          !(
-            row.submittedAt === submission.submittedAt &&
-            row._creationTime > submission._creationTime
-          ),
-      ).length;
+      .order("desc")) {
+      if (++scanned > MAX_LEAD_GEN_SUBMISSIONS_SCANNED) {
+        contactAttemptCapped = true;
+        break;
+      }
+      if (row.voidedAt !== undefined) continue;
+      // Same-millisecond submissions inserted after this one came later.
+      if (
+        row.submittedAt === submission.submittedAt &&
+        row._creationTime > submission._creationTime
+      ) {
+        continue;
+      }
+      if (contactAttemptNumber === MAX_LEAD_GEN_ATTEMPTS_COUNTED) {
+        contactAttemptCapped = true;
+        break;
+      }
+      contactAttemptNumber++;
+    }
 
     return {
       kind: "ready" as const,
