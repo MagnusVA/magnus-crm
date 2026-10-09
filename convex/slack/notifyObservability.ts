@@ -4,7 +4,8 @@ import { log, reportError } from "../lib/observability/log";
 export type SlackNotificationKind =
   | "qualified_lead"
   | "existing_opportunity_bump"
-  | "stale_digest";
+  | "stale_digest"
+  | "lead_gen_submission";
 
 type SlackNotificationAttrs = {
   tenantId: Id<"tenants">;

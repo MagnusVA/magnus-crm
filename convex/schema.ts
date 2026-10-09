@@ -1059,6 +1059,9 @@ export default defineSchema({
     fullNameSnapshot: v.string(),
     platform: socialPlatformValidator,
     handleSnapshot: v.string(),
+    // Submitted form values. Optional because events before 2026-10 lack them.
+    countrySnapshot: v.optional(v.string()),
+    leadTypeSnapshot: v.optional(leadTypeValidator),
     submittedAt: v.number(),
     createdAt: v.number(),
   })
@@ -2007,6 +2010,17 @@ export default defineSchema({
       }),
     ),
     staleReminderChannelError: v.optional(
+      v.object({
+        code: v.string(),
+        channelId: v.string(),
+        channelName: v.optional(v.string()),
+        occurredAt: v.number(),
+      }),
+    ),
+    // Opt-in: lead gen submissions post here only when a channel is set.
+    leadGenNotifyChannelId: v.optional(v.string()),
+    leadGenNotifyChannelName: v.optional(v.string()),
+    leadGenNotifyChannelError: v.optional(
       v.object({
         code: v.string(),
         channelId: v.string(),

@@ -34,6 +34,7 @@ import {
 import { FieldGroup } from "@/components/ui/field";
 import {
   Form,
+  FormDescription,
   FormField,
   FormItem,
   FormLabel,
@@ -45,6 +46,8 @@ import { getErrorMessage } from "@/lib/errors";
 const channelPickerSchema = z.object({
   notifyChannelId: z.string().min(1, "Pick a notification channel"),
   staleReminderChannelId: z.string().min(1, "Pick a reminder channel"),
+  // Optional: empty turns lead gen notifications off.
+  leadGenNotifyChannelId: z.string(),
 });
 
 type ChannelPickerValues = z.infer<typeof channelPickerSchema>;
@@ -62,6 +65,7 @@ type Props = {
   onOpenChange: (open: boolean) => void;
   initialNotifyChannelId?: string;
   initialStaleChannelId?: string;
+  initialLeadGenChannelId?: string;
 };
 
 export function SlackChannelPickerDialog({
@@ -69,6 +73,7 @@ export function SlackChannelPickerDialog({
   onOpenChange,
   initialNotifyChannelId,
   initialStaleChannelId,
+  initialLeadGenChannelId,
 }: Props) {
   const listChannels = useAction(api.slack.channelsActions.listInstalledChannels);
   const saveChannels = useMutation(api.slack.channels.setSlackNotifyChannels);
@@ -80,6 +85,7 @@ export function SlackChannelPickerDialog({
     defaultValues: {
       notifyChannelId: initialNotifyChannelId ?? "",
       staleReminderChannelId: initialStaleChannelId ?? "",
+      leadGenNotifyChannelId: initialLeadGenChannelId ?? "",
     },
   });
   const notifyChannelId = useWatch({
@@ -90,14 +96,25 @@ export function SlackChannelPickerDialog({
     control: form.control,
     name: "staleReminderChannelId",
   });
+  const leadGenNotifyChannelId = useWatch({
+    control: form.control,
+    name: "leadGenNotifyChannelId",
+  });
 
   useEffect(() => {
     if (!open) return;
     form.reset({
       notifyChannelId: initialNotifyChannelId ?? "",
       staleReminderChannelId: initialStaleChannelId ?? "",
+      leadGenNotifyChannelId: initialLeadGenChannelId ?? "",
     });
-  }, [form, initialNotifyChannelId, initialStaleChannelId, open]);
+  }, [
+    form,
+    initialNotifyChannelId,
+    initialStaleChannelId,
+    initialLeadGenChannelId,
+    open,
+  ]);
 
   useEffect(() => {
     if (!open) return;
@@ -136,7 +153,11 @@ export function SlackChannelPickerDialog({
     () => channels?.find((channel) => channel.id === staleReminderChannelId),
     [channels, staleReminderChannelId],
   );
-  const privateChannels = [selectedNotify, selectedStale].filter(
+  const selectedLeadGen = useMemo(
+    () => channels?.find((channel) => channel.id === leadGenNotifyChannelId),
+    [channels, leadGenNotifyChannelId],
+  );
+  const privateChannels = [selectedNotify, selectedStale, selectedLeadGen].filter(
     (channel): channel is SlackChannel => Boolean(channel?.isPrivate),
   );
 
@@ -147,11 +168,14 @@ export function SlackChannelPickerDialog({
     const stale = channels?.find(
       (channel) => channel.id === values.staleReminderChannelId,
     );
-    if (!notify || !stale) {
+    const leadGen = values.leadGenNotifyChannelId
+      ? channels?.find((channel) => channel.id === values.leadGenNotifyChannelId)
+      : null;
+    if (!notify || !stale || leadGen === undefined) {
       toast.error("Pick valid Slack channels.");
       return;
     }
-    if (notify.isArchived || stale.isArchived) {
+    if (notify.isArchived || stale.isArchived || leadGen?.isArchived) {
       toast.error("Archived channels cannot receive Slack messages.");
       return;
     }
@@ -162,6 +186,9 @@ export function SlackChannelPickerDialog({
         notifyChannelName: notify.name,
         staleReminderChannelId: stale.id,
         staleReminderChannelName: stale.name,
+        leadGenNotifyChannel: leadGen
+          ? { channelId: leadGen.id, channelName: leadGen.name }
+          : null,
       });
       toast.success("Slack channels saved.");
       onOpenChange(false);
@@ -179,7 +206,8 @@ export function SlackChannelPickerDialog({
           <DialogTitle>Pick Slack Channels</DialogTitle>
           <DialogDescription>
             New-lead confirmations and stale-lead digests post to these
-            channels.
+            channels. Lead gen submissions post only if you pick a channel
+            for them.
           </DialogDescription>
         </DialogHeader>
 
@@ -237,6 +265,27 @@ export function SlackChannelPickerDialog({
                         onValueChange={field.onChange}
                         placeholder="Search channels…"
                       />
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="leadGenNotifyChannelId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Lead Gen Channel (Optional)</FormLabel>
+                      <ChannelCombobox
+                        channels={channels}
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        placeholder="Off - search channels…"
+                      />
+                      <FormDescription>
+                        Posts each lead gen submission. Clear it to turn these
+                        posts off.
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}

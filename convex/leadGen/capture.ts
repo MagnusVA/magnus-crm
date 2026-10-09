@@ -1,6 +1,7 @@
+import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, type MutationCtx } from "../_generated/server";
-import { log } from "../lib/observability/log";
+import { describeError, log, reportError } from "../lib/observability/log";
 import type { CrmRole } from "../lib/roleMapping";
 import { requireTenantUser } from "../requireTenantUser";
 import {
@@ -204,6 +205,11 @@ export const submit = mutation({
       isDistinctWorker,
     });
 
+    await scheduleSlackLeadGenNotification(ctx, {
+      tenantId: access.tenantId,
+      submissionId,
+    });
+
     return {
       submissionId,
       prospectId: prospect._id,
@@ -212,6 +218,43 @@ export const submit = mutation({
     };
   },
 });
+
+/** Posts to the tenant's lead gen Slack channel, when one is configured. */
+async function scheduleSlackLeadGenNotification(
+  ctx: MutationCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    submissionId: Id<"leadGenSubmissions">;
+  },
+) {
+  const installation = await ctx.db
+    .query("slackInstallations")
+    .withIndex("by_tenantId", (q) => q.eq("tenantId", args.tenantId))
+    .first();
+  if (installation?.status !== "active" || !installation.leadGenNotifyChannelId) {
+    return;
+  }
+
+  try {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.slack.notify.postLeadGenSubmission,
+      args,
+    );
+  } catch (error) {
+    // Swallowed so the submission still commits without a Slack post.
+    reportError(
+      "lead_gen.slack_notify.schedule_failed",
+      new Error("Scheduling the lead gen Slack notification failed"),
+      {
+        fingerprint: "lead_gen.slack_notify.schedule_failed",
+        errorName: describeError(error).name,
+        tenantId: args.tenantId,
+        submissionId: args.submissionId,
+      },
+    );
+  }
+}
 
 function resolveCaptureOrigin(args: {
   source: LeadGenSource;

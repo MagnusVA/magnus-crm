@@ -5,7 +5,7 @@ import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { resolveLeadIdentity } from "../leads/identityResolution";
 import { emitDomainEvent } from "../lib/domainEvents";
-import { leadTypeValidator } from "../lib/leadType";
+import { type LeadType, leadTypeValidator } from "../lib/leadType";
 import { describeError, log, reportError } from "../lib/observability/log";
 import type { SocialPlatform } from "../lib/socialPlatform";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
@@ -30,6 +30,8 @@ async function insertQualificationEvent(
     fullName: string;
     platform: SocialPlatform;
     handle: string;
+    country: string;
+    leadType: LeadType;
     qualifiedBy: {
       slackUserId: string;
       slackTeamId: string;
@@ -50,6 +52,8 @@ async function insertQualificationEvent(
     fullNameSnapshot: args.fullName.trim(),
     platform: args.platform,
     handleSnapshot: args.handle.trim(),
+    countrySnapshot: args.country.trim(),
+    leadTypeSnapshot: args.leadType,
     submittedAt: args.qualifiedBy.submittedAt,
     createdAt: args.now,
   });
@@ -175,6 +179,8 @@ export const create = internalMutation({
         fullName: args.fullName,
         platform,
         handle: args.handle,
+        country: args.country,
+        leadType: args.leadType,
         qualifiedBy: args.qualifiedBy,
         now,
       });
@@ -217,6 +223,8 @@ export const create = internalMutation({
         fullName: args.fullName,
         platform,
         handle: args.handle,
+        country: args.country,
+        leadType: args.leadType,
         qualifiedBy: args.qualifiedBy,
         now,
       });
@@ -280,7 +288,7 @@ export const create = internalMutation({
       latestActivityAt: now,
     });
 
-    await insertQualificationEvent(ctx, {
+    const qualificationEventId = await insertQualificationEvent(ctx, {
       tenantId: args.tenantId,
       installationId: args.installationId,
       leadId: resolution.leadId,
@@ -289,6 +297,8 @@ export const create = internalMutation({
       fullName: args.fullName,
       platform,
       handle: args.handle,
+      country: args.country,
+      leadType: args.leadType,
       qualifiedBy: args.qualifiedBy,
       now,
     });
@@ -313,6 +323,7 @@ export const create = internalMutation({
       tenantId: args.tenantId,
       opportunityId,
       leadId: resolution.leadId,
+      qualificationEventId,
     });
     await scheduleLeadGenAuditMatch({
       resultKind: "created_opportunity",
