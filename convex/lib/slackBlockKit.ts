@@ -1,11 +1,12 @@
 import type { KnownBlock, ModalView } from "@slack/types";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import {
   isLeadType,
   LEAD_TYPE_LABELS,
   LEAD_TYPES,
   type LeadType,
 } from "./leadType";
+import { normalizeSocialHandle } from "./normalization";
 import {
   SOCIAL_PLATFORM_LABELS,
   type SocialPlatform,
@@ -35,12 +36,47 @@ export type QualifiedLeadConfirmationArgs = {
   country?: string;
   leadType?: LeadType;
   qualifiedBySlackUserId: string;
+  submittedAt?: number;
   qualificationGoal?: {
     qualifiedCount: number;
     dailyTeamQualificationGoal: number;
   };
   appUrl: string;
   opportunityId: string;
+};
+
+type LeadGenSource = Doc<"leadGenSubmissions">["source"];
+type LeadGenOriginKind = Doc<"leadGenSubmissions">["originKind"];
+
+export type LeadGenSubmissionNotificationArgs = {
+  handle: string;
+  profileUrl: string;
+  source: LeadGenSource;
+  originKind: LeadGenOriginKind;
+  originValue?: string;
+  submittedByName: string;
+  teamName?: string;
+  contactAttemptNumber: number;
+  /** True when older attempts went uncounted, so the number is a minimum. */
+  contactAttemptCapped?: boolean;
+  submittedAt: number;
+};
+
+const LEAD_GEN_SOURCE_LABELS: Record<LeadGenSource, string> = {
+  instagram: "Instagram",
+  meta_business: "Meta Business",
+};
+
+const LEAD_GEN_ORIGIN_LABELS: Record<LeadGenOriginKind, string> = {
+  post: "Post",
+  reel: "Reel",
+  story_poll: "Story Poll",
+  story: "Story",
+  follower: "Follower",
+  application: "Application",
+  source_only: "Source only",
+  meta_business: "Meta Business",
+  other: "Other",
 };
 
 export type StaleLeadDigestEntry = {
@@ -141,6 +177,7 @@ export function buildQualifiedLeadConfirmation(
 ) {
   const leadName = escapeSlackMrkdwn(args.leadFullName);
   const handle = escapeSlackMrkdwn(args.handle);
+  const profileUrl = socialProfileUrl(args.platform, args.handle);
   const platformLabel = SOCIAL_PLATFORM_LABELS[args.platform];
   const country = args.country ? escapeSlackMrkdwn(args.country) : null;
   const leadTypeLabel = args.leadType
@@ -158,7 +195,10 @@ export function buildQualifiedLeadConfirmation(
       ? [{ type: "mrkdwn" as const, text: `*Country:*\n${country}` }]
       : []),
     { type: "mrkdwn" as const, text: `*Platform:*\n${platformLabel}` },
-    { type: "mrkdwn" as const, text: `*Handle:*\n${handle}` },
+    {
+      type: "mrkdwn" as const,
+      text: `*Handle:*\n${profileUrl ? `<${slackLinkUrl(profileUrl)}|${handle}>` : handle}`,
+    },
     {
       type: "mrkdwn" as const,
       text: `*Qualified by:*\n<@${args.qualifiedBySlackUserId}>`,
@@ -178,11 +218,98 @@ export function buildQualifiedLeadConfirmation(
       fields,
     },
   ];
+  if (args.submittedAt !== undefined) {
+    blocks.push({
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `Submitted ${slackDate(args.submittedAt)}`,
+        },
+      ],
+    });
+  }
 
+  // Push notifications and some clients show only `text`, so it repeats
+  // every submitted field.
+  const details = [
+    leadTypeLabel,
+    country,
+    `${platformLabel} ${handle}`,
+  ].filter((detail): detail is string => Boolean(detail));
   return {
     text:
-      `${leadName} was qualified by <@${args.qualifiedBySlackUserId}>` +
+      `${leadName} (${details.join(", ")}) was qualified by ` +
+      `<@${args.qualifiedBySlackUserId}>` +
       `${goalText ? `. Goal: ${goalText}` : ""}`,
+    blocks,
+  };
+}
+
+export function buildLeadGenSubmissionNotification(
+  args: LeadGenSubmissionNotificationArgs,
+) {
+  const handle = escapeSlackMrkdwn(`@${args.handle}`);
+  const sourceLabel = LEAD_GEN_SOURCE_LABELS[args.source];
+  const submittedBy = escapeSlackMrkdwn(args.submittedByName);
+  const origin = formatLeadGenOrigin(args.originKind, args.originValue);
+  const isRepeat =
+    args.contactAttemptNumber > 1 || Boolean(args.contactAttemptCapped);
+  const attempt =
+    `#${args.contactAttemptNumber}` + (args.contactAttemptCapped ? "+" : "");
+
+  const fields = [
+    {
+      type: "mrkdwn" as const,
+      text: `*Prospect:*\n<${slackLinkUrl(args.profileUrl)}|${handle}>`,
+    },
+    { type: "mrkdwn" as const, text: `*Source:*\n${sourceLabel}` },
+    ...(origin
+      ? [{ type: "mrkdwn" as const, text: `*Origin:*\n${origin}` }]
+      : []),
+    { type: "mrkdwn" as const, text: `*Submitted by:*\n${submittedBy}` },
+    ...(args.teamName
+      ? [
+          {
+            type: "mrkdwn" as const,
+            text: `*Team:*\n${escapeSlackMrkdwn(args.teamName)}`,
+          },
+        ]
+      : []),
+    {
+      type: "mrkdwn" as const,
+      text: isRepeat
+        ? `*Prospect status:*\nRepeat - attempt ${attempt}`
+        : "*Prospect status:*\nNew prospect",
+    },
+  ];
+
+  const blocks: KnownBlock[] = [
+    {
+      type: "header",
+      text: { type: "plain_text", text: "📥 New Lead Gen Submission", emoji: true },
+    },
+    { type: "section", fields },
+    {
+      type: "context",
+      elements: [
+        {
+          type: "mrkdwn",
+          text: `Submitted ${slackDate(args.submittedAt)}`,
+        },
+      ],
+    },
+  ];
+
+  const originLabel =
+    args.originKind === "source_only"
+      ? null
+      : LEAD_GEN_ORIGIN_LABELS[args.originKind];
+  return {
+    text:
+      `${handle} submitted by ${submittedBy}` +
+      ` (${[sourceLabel, originLabel].filter(Boolean).join(", ")})` +
+      (isRepeat ? ` - repeat prospect, attempt ${attempt}` : ""),
     blocks,
   };
 }
@@ -293,6 +420,43 @@ export function parseQualifyLeadSubmission(
 
 function isSubmittedView(value: unknown): value is SlackSubmittedView {
   return typeof value === "object" && value !== null;
+}
+
+function formatLeadGenOrigin(
+  originKind: LeadGenOriginKind,
+  originValue: string | undefined,
+): string | null {
+  if (originKind === "source_only") return null;
+  const label = LEAD_GEN_ORIGIN_LABELS[originKind];
+  if (!originValue) return label;
+  if (originKind === "post" || originKind === "reel") {
+    // Capture normalizes post and reel origins to an http(s) URL.
+    return `<${slackLinkUrl(originValue)}|${label}>`;
+  }
+  return `${label} - ${escapeSlackMrkdwn(originValue)}`;
+}
+
+/** Instagram is the only platform the qualify modal submits today. */
+function socialProfileUrl(platform: SocialPlatform, rawHandle: string) {
+  if (platform !== "instagram") return null;
+  const handle = normalizeSocialHandle(rawHandle, "instagram");
+  if (!handle || !/^[a-z0-9._]+$/.test(handle)) return null;
+  return `https://instagram.com/${handle}`;
+}
+
+/**
+ * Slack reads `|` as the URL/label separator, and URL parsing keeps it in
+ * pathnames, so encode it along with the mrkdwn control characters.
+ */
+function slackLinkUrl(url: string) {
+  return escapeSlackMrkdwn(url).replace(/\|/g, "%7C");
+}
+
+/** Renders in each reader's own timezone. */
+function slackDate(timestamp: number) {
+  const seconds = Math.floor(timestamp / 1000);
+  const fallback = new Date(timestamp).toISOString();
+  return `<!date^${seconds}^{date_short_pretty} at {time}|${fallback}>`;
 }
 
 function crmOpportunityUrl(appUrl: string, opportunityId: string) {

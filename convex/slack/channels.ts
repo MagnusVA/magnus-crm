@@ -28,6 +28,14 @@ export type InstallationStatus =
         channelName?: string;
         occurredAt: number;
       };
+      leadGenNotifyChannelId?: string;
+      leadGenNotifyChannelName?: string;
+      leadGenNotifyChannelError?: {
+        code: string;
+        channelId: string;
+        channelName?: string;
+        occurredAt: number;
+      };
       lastRefreshedAt?: number;
     };
 
@@ -61,6 +69,9 @@ export const getInstallationStatus = query({
       staleReminderChannelName: installation.staleReminderChannelName,
       notifyChannelError: installation.notifyChannelError,
       staleReminderChannelError: installation.staleReminderChannelError,
+      leadGenNotifyChannelId: installation.leadGenNotifyChannelId,
+      leadGenNotifyChannelName: installation.leadGenNotifyChannelName,
+      leadGenNotifyChannelError: installation.leadGenNotifyChannelError,
       lastRefreshedAt: installation.lastRefreshedAt,
     };
   },
@@ -72,6 +83,14 @@ export const setSlackNotifyChannels = mutation({
     notifyChannelName: v.string(),
     staleReminderChannelId: v.string(),
     staleReminderChannelName: v.string(),
+    // Opt-in channel for lead gen submissions: omitted leaves it unchanged,
+    // null turns it off.
+    leadGenNotifyChannel: v.optional(
+      v.union(
+        v.null(),
+        v.object({ channelId: v.string(), channelName: v.string() }),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [
@@ -93,6 +112,7 @@ export const setSlackNotifyChannels = mutation({
       );
     }
 
+    const leadGenChannel = args.leadGenNotifyChannel;
     await ctx.db.patch("slackInstallations", installation._id, {
       notifyChannelId: args.notifyChannelId,
       notifyChannelName: args.notifyChannelName,
@@ -100,16 +120,28 @@ export const setSlackNotifyChannels = mutation({
       staleReminderChannelName: args.staleReminderChannelName,
       notifyChannelError: undefined,
       staleReminderChannelError: undefined,
+      ...(leadGenChannel !== undefined && {
+        leadGenNotifyChannelId: leadGenChannel?.channelId,
+        leadGenNotifyChannelName: leadGenChannel?.channelName,
+        leadGenNotifyChannelError: undefined,
+      }),
     });
 
+    const leadGenNotifyChannelId =
+      leadGenChannel === undefined
+        ? installation.leadGenNotifyChannelId
+        : leadGenChannel?.channelId;
     log.info("slack.channels.saved", {
       tenantId,
       installationId: installation._id,
       notifyChannelId: args.notifyChannelId,
       staleReminderChannelId: args.staleReminderChannelId,
+      leadGenNotifyChannelId,
       notifyChannelChanged: installation.notifyChannelId !== args.notifyChannelId,
       staleReminderChannelChanged:
         installation.staleReminderChannelId !== args.staleReminderChannelId,
+      leadGenNotifyChannelChanged:
+        installation.leadGenNotifyChannelId !== leadGenNotifyChannelId,
     });
   },
 });

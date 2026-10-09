@@ -148,7 +148,8 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
     (!status.notifyChannelId ||
       !status.staleReminderChannelId ||
       Boolean(status.notifyChannelError) ||
-      Boolean(status.staleReminderChannelError));
+      Boolean(status.staleReminderChannelError) ||
+      Boolean(status.leadGenNotifyChannelError));
 
   return (
     <>
@@ -197,6 +198,10 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
             error={status.staleReminderChannelError}
             kind="stale"
           />
+          <ChannelErrorAlert
+            error={status.leadGenNotifyChannelError}
+            kind="lead_gen"
+          />
           <LifecycleAlert status={status.status} />
           <ChannelSummary status={status} />
         </CardContent>
@@ -234,6 +239,8 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
         onOpenChange={setPickerOpen}
         initialNotifyChannelId={status.notifyChannelId}
         initialStaleChannelId={status.staleReminderChannelId}
+        initialLeadGenChannelId={status.leadGenNotifyChannelId}
+        initialLeadGenChannelName={status.leadGenNotifyChannelName}
       />
 
       <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
@@ -342,7 +349,7 @@ function ChannelErrorAlert({
   kind,
 }: {
   error: ConnectedStatus["notifyChannelError"];
-  kind: "notify" | "stale";
+  kind: "notify" | "stale" | "lead_gen";
 }) {
   const content = useMemo(() => {
     if (!error) return null;
@@ -356,19 +363,13 @@ function ChannelErrorAlert({
     if (error.code === "is_archived") {
       return {
         title: "Channel Archived",
-        description:
-          kind === "notify"
-            ? "Pick a new notification channel before the next lead is qualified."
-            : "Pick a new reminder channel before the next stale-lead digest.",
+        description: repickChannelCopy(kind),
       };
     }
     if (error.code === "channel_not_found") {
       return {
         title: "Channel Not Found",
-        description:
-          kind === "notify"
-            ? "Pick a new notification channel before the next lead is qualified."
-            : "Pick a new reminder channel before the next stale-lead digest.",
+        description: repickChannelCopy(kind),
       };
     }
     return {
@@ -388,9 +389,20 @@ function ChannelErrorAlert({
   );
 }
 
+function repickChannelCopy(kind: "notify" | "stale" | "lead_gen") {
+  switch (kind) {
+    case "notify":
+      return "Pick a new notification channel before the next lead is qualified.";
+    case "stale":
+      return "Pick a new reminder channel before the next stale-lead digest.";
+    case "lead_gen":
+      return "Lead gen posts are off. Pick a new lead gen channel to turn them back on.";
+  }
+}
+
 function ChannelSummary({ status }: { status: ConnectedStatus }) {
   return (
-    <dl className="grid gap-3 text-sm sm:grid-cols-2">
+    <dl className="grid gap-3 text-sm sm:grid-cols-3">
       <div className="min-w-0 rounded-lg border p-3">
         <dt className="text-muted-foreground">Notify Channel</dt>
         <dd className="truncate font-medium">
@@ -405,6 +417,14 @@ function ChannelSummary({ status }: { status: ConnectedStatus }) {
           {status.staleReminderChannelName
             ? `#${status.staleReminderChannelName}`
             : "Not configured"}
+        </dd>
+      </div>
+      <div className="min-w-0 rounded-lg border p-3">
+        <dt className="text-muted-foreground">Lead Gen Submissions</dt>
+        <dd className="truncate font-medium">
+          {status.leadGenNotifyChannelName
+            ? `#${status.leadGenNotifyChannelName}`
+            : "Off"}
         </dd>
       </div>
     </dl>
