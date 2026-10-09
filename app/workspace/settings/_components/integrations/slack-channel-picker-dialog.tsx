@@ -52,6 +52,12 @@ const channelPickerSchema = z.object({
 
 type ChannelPickerValues = z.infer<typeof channelPickerSchema>;
 
+const CHANNEL_FIELDS = [
+  "notifyChannelId",
+  "staleReminderChannelId",
+  "leadGenNotifyChannelId",
+] as const satisfies readonly (keyof ChannelPickerValues)[];
+
 type SlackChannel = {
   id: string;
   name: string;
@@ -79,6 +85,8 @@ export function SlackChannelPickerDialog({
   const saveChannels = useMutation(api.slack.channels.setSlackNotifyChannels);
   const [channels, setChannels] = useState<SlackChannel[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
+  const [leadGenChannelUnavailable, setLeadGenChannelUnavailable] =
+    useState(false);
 
   const form = useForm({
     resolver: standardSchemaResolver(channelPickerSchema),
@@ -126,11 +134,25 @@ export function SlackChannelPickerDialog({
         if (cancelled) return null;
         setChannels(null);
         setListError(null);
+        setLeadGenChannelUnavailable(false);
         return listChannels({});
       })
       .then((rows) => {
-        if (!rows) return;
-        if (!cancelled) setChannels(rows);
+        if (!rows || cancelled) return;
+        // A saved channel Magnus can no longer see (deleted, or a private
+        // channel it left) shows as blank, so clear it rather than let a
+        // hidden ID fail the save.
+        const visibleIds = new Set(rows.map((channel) => channel.id));
+        for (const name of CHANNEL_FIELDS) {
+          const savedId = form.getValues(name);
+          if (savedId && !visibleIds.has(savedId)) {
+            form.setValue(name, "");
+            if (name === "leadGenNotifyChannelId") {
+              setLeadGenChannelUnavailable(true);
+            }
+          }
+        }
+        setChannels(rows);
       })
       .catch((error) => {
         if (!cancelled) {
@@ -143,7 +165,7 @@ export function SlackChannelPickerDialog({
     return () => {
       cancelled = true;
     };
-  }, [listChannels, open]);
+  }, [form, listChannels, open]);
 
   const selectedNotify = useMemo(
     () => channels?.find((channel) => channel.id === notifyChannelId),
@@ -283,8 +305,9 @@ export function SlackChannelPickerDialog({
                         placeholder="Off - search channels…"
                       />
                       <FormDescription>
-                        Posts each lead gen submission. Clear it to turn these
-                        posts off.
+                        {leadGenChannelUnavailable && !field.value
+                          ? "Magnus can no longer see the saved lead gen channel. Pick another one, or save to turn these posts off."
+                          : "Posts each lead gen submission. Clear it to turn these posts off."}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>

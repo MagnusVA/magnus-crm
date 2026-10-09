@@ -212,7 +212,8 @@ export const getLeadGenSubmissionForNotify = internalQuery({
 
     // Count this prospect's live submissions up to this one, so a late or
     // retried post still shows the attempt number it had when submitted.
-    const priorSubmissions = await ctx.db
+    // Read newest first from this submission so the cap drops the oldest rows.
+    const recentSubmissions = await ctx.db
       .query("leadGenSubmissions")
       .withIndex("by_tenantId_and_prospectId_and_submittedAt", (q) =>
         q
@@ -220,10 +221,21 @@ export const getLeadGenSubmissionForNotify = internalQuery({
           .eq("prospectId", submission.prospectId)
           .lte("submittedAt", submission.submittedAt),
       )
-      .take(MAX_LEAD_GEN_ATTEMPTS_COUNTED);
-    const contactAttemptNumber = priorSubmissions.filter(
-      (row) => row.voidedAt === undefined,
-    ).length;
+      .order("desc")
+      .take(MAX_LEAD_GEN_ATTEMPTS_COUNTED + 1);
+    const contactAttemptCapped =
+      recentSubmissions.length > MAX_LEAD_GEN_ATTEMPTS_COUNTED;
+    const contactAttemptNumber = recentSubmissions
+      .slice(0, MAX_LEAD_GEN_ATTEMPTS_COUNTED)
+      .filter(
+        (row) =>
+          row.voidedAt === undefined &&
+          // Same-millisecond submissions inserted after this one came later.
+          !(
+            row.submittedAt === submission.submittedAt &&
+            row._creationTime > submission._creationTime
+          ),
+      ).length;
 
     return {
       kind: "ready" as const,
@@ -235,6 +247,7 @@ export const getLeadGenSubmissionForNotify = internalQuery({
       submittedByName: worker.displayName?.trim() || worker.email,
       teamName: team?.displayName,
       contactAttemptNumber: Math.max(contactAttemptNumber, 1),
+      contactAttemptCapped,
       submittedAt: submission.submittedAt,
     };
   },

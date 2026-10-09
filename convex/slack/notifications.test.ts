@@ -141,6 +141,48 @@ describe("lead gen submission notification", () => {
     }
   });
 
+  it("counts attempts up to this submission only, and marks a capped count", async () => {
+    const { t, caller, tenantId } = await fixture({ leadGenChannelId: "C_LEADGEN" });
+    const first = await caller.mutation(api.leadGen.capture.submit, {
+      source: "instagram", rawHandleOrProfileUrl: "@busy.prospect", originKind: "follower",
+    });
+    const [sameMsEarlier, target, sameMsLater] = await t.run(async (ctx) => {
+      const base = (await ctx.db.get("leadGenSubmissions", first.submissionId))!;
+      const { _id, _creationTime, ...row } = base;
+      void _id;
+      void _creationTime;
+      const at = base.submittedAt + 1;
+      const ids = [];
+      for (let i = 0; i < 3; i++) {
+        ids.push(await ctx.db.insert("leadGenSubmissions", { ...row, submittedAt: at, createdAt: at }));
+      }
+      return ids;
+    });
+    const attemptFor = async (submissionId: Id<"leadGenSubmissions">) =>
+      await t.query(internal.slack.notifyData.getLeadGenSubmissionForNotify, { tenantId, submissionId });
+
+    expect(await attemptFor(sameMsEarlier)).toMatchObject({ contactAttemptNumber: 2, contactAttemptCapped: false });
+    expect(await attemptFor(target)).toMatchObject({ contactAttemptNumber: 3, contactAttemptCapped: false });
+    expect(await attemptFor(sameMsLater)).toMatchObject({ contactAttemptNumber: 4, contactAttemptCapped: false });
+
+    const newest = await t.run(async (ctx) => {
+      const { _id, _creationTime, ...row } = (await ctx.db.get("leadGenSubmissions", first.submissionId))!;
+      void _id;
+      void _creationTime;
+      let last = first.submissionId;
+      for (let i = 0; i < 200; i++) {
+        const at = row.submittedAt + 10 + i;
+        last = await ctx.db.insert("leadGenSubmissions", { ...row, submittedAt: at, createdAt: at });
+      }
+      return last;
+    });
+    const capped = await attemptFor(newest);
+    expect(capped).toMatchObject({ contactAttemptNumber: 200, contactAttemptCapped: true });
+    const message = buildLeadGenSubmissionNotification(capped as Extract<typeof capped, { kind: "ready" }>);
+    expect(JSON.stringify(message.blocks)).toContain("Repeat - attempt #200+");
+    expect(message.text).toContain("attempt #200+");
+  });
+
   it("saves, keeps, and clears the opt-in channel", async () => {
     const { t, caller, installationId } = await fixture();
     const channels = {

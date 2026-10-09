@@ -57,6 +57,8 @@ export type LeadGenSubmissionNotificationArgs = {
   submittedByName: string;
   teamName?: string;
   contactAttemptNumber: number;
+  /** True when older attempts went uncounted, so the number is a minimum. */
+  contactAttemptCapped?: boolean;
   submittedAt: number;
 };
 
@@ -251,7 +253,10 @@ export function buildLeadGenSubmissionNotification(
   const sourceLabel = LEAD_GEN_SOURCE_LABELS[args.source];
   const submittedBy = escapeSlackMrkdwn(args.submittedByName);
   const origin = formatLeadGenOrigin(args.originKind, args.originValue);
-  const isRepeat = args.contactAttemptNumber > 1;
+  const isRepeat =
+    args.contactAttemptNumber > 1 || Boolean(args.contactAttemptCapped);
+  const attempt =
+    `#${args.contactAttemptNumber}` + (args.contactAttemptCapped ? "+" : "");
 
   const fields = [
     {
@@ -274,7 +279,7 @@ export function buildLeadGenSubmissionNotification(
     {
       type: "mrkdwn" as const,
       text: isRepeat
-        ? `*Prospect status:*\nRepeat - attempt #${args.contactAttemptNumber}`
+        ? `*Prospect status:*\nRepeat - attempt ${attempt}`
         : "*Prospect status:*\nNew prospect",
     },
   ];
@@ -304,7 +309,7 @@ export function buildLeadGenSubmissionNotification(
     text:
       `${handle} submitted by ${submittedBy}` +
       ` (${[sourceLabel, originLabel].filter(Boolean).join(", ")})` +
-      (isRepeat ? ` - repeat prospect, attempt #${args.contactAttemptNumber}` : ""),
+      (isRepeat ? ` - repeat prospect, attempt ${attempt}` : ""),
     blocks,
   };
 }
