@@ -88,4 +88,6 @@ crons.cron(
   {},
 );
 
+crons.interval("reporting-work-health", { minutes: 15 }, internal.operations.workStatus.reportProblems, {});
+
 export default crons;

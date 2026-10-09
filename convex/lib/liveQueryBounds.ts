@@ -15,13 +15,14 @@ export async function readLiveQueryRows<T>(
   query: AsyncIterable<T>,
   maxRows: number,
   state = createLiveReadState(),
+  byteBudget = LIVE_QUERY_BYTE_BUDGET,
 ): Promise<{ rows: T[]; capped: boolean }> {
   const rows: T[] = [];
 
   for await (const row of query) {
     state.bytesRead += getConvexSize(row as unknown as Value);
     if (
-      state.bytesRead > LIVE_QUERY_BYTE_BUDGET ||
+      state.bytesRead > byteBudget ||
       rows.length >= maxRows ||
       state.capped
     ) {

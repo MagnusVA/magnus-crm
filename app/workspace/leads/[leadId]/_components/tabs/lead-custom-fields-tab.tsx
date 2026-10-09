@@ -99,7 +99,7 @@ export function LeadCustomFieldsTab({
 									className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-baseline sm:gap-4"
 								>
 									<dt className="w-48 shrink-0 text-sm font-medium text-muted-foreground">
-										{formatFieldKey(key)}
+										{lead.customFieldLabels?.[key] ?? formatFieldKey(key)}
 									</dt>
 									<dd className="text-sm">{formatFieldValue(value)}</dd>
 								</div>

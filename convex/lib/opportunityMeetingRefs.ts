@@ -19,42 +19,27 @@ export async function updateOpportunityMeetingRefs(
     return;
   }
 
-  let latestMeeting:
-    | {
-        _id: Id<"meetings">;
-        scheduledAt: number;
-      }
-    | undefined;
-  let nextMeeting:
-    | {
-        _id: Id<"meetings">;
-        scheduledAt: number;
-      }
-    | undefined;
-
-  for await (const meeting of ctx.db
-    .query("meetings")
-    .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunityId))) {
-    if (
-      latestMeeting === undefined ||
-      meeting.scheduledAt > latestMeeting.scheduledAt
-    ) {
-      latestMeeting = {
-        _id: meeting._id,
-        scheduledAt: meeting.scheduledAt,
-      };
-    }
-
-    if (
-      meeting.status === "scheduled" &&
-      (nextMeeting === undefined || meeting.scheduledAt < nextMeeting.scheduledAt)
-    ) {
-      nextMeeting = {
-        _id: meeting._id,
-        scheduledAt: meeting.scheduledAt,
-      };
-    }
-  }
+  const [latestMeeting, nextMeeting] = await Promise.all([
+    ctx.db
+      .query("meetings")
+      .withIndex("by_opportunityId_and_scheduledAt", (q) =>
+        q.eq("opportunityId", opportunityId),
+      )
+      .order("desc")
+      .first(),
+    ctx.db
+      .query("meetings")
+      .withIndex("by_opportunityId_and_status_and_scheduledAt", (q) =>
+        q.eq("opportunityId", opportunityId).eq("status", "scheduled"),
+      )
+      .first(),
+  ]);
+  if (
+    [latestMeeting, nextMeeting].some(
+      (m) => m && m.tenantId !== opportunity.tenantId,
+    )
+  )
+    throw new Error("Meeting reference tenant mismatch");
 
   if (
     opportunity.latestMeetingId === latestMeeting?._id &&
@@ -65,14 +50,12 @@ export async function updateOpportunityMeetingRefs(
     return;
   }
 
-  const now = Date.now();
   const nextOpportunity = {
     ...opportunity,
     latestMeetingId: latestMeeting?._id,
     latestMeetingAt: latestMeeting?.scheduledAt,
     nextMeetingId: nextMeeting?._id,
     nextMeetingAt: nextMeeting?.scheduledAt,
-    updatedAt: now,
   };
 
   await ctx.db.patch("opportunities", opportunityId, {
@@ -80,7 +63,6 @@ export async function updateOpportunityMeetingRefs(
     latestMeetingAt: latestMeeting?.scheduledAt,
     nextMeetingId: nextMeeting?._id,
     nextMeetingAt: nextMeeting?.scheduledAt,
-    updatedAt: now,
     latestActivityAt: computeLatestActivityAt(nextOpportunity),
   });
   await upsertOpportunitySearchProjection(ctx, opportunityId);

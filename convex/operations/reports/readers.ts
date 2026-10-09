@@ -1,3 +1,4 @@
+import { requireReportingReady } from "../reportingReadiness";
 import type { PaginationOptions, PaginationResult } from "convex/server";
 import { v } from "convex/values";
 import { internalQuery, type QueryCtx } from "../../_generated/server";
@@ -355,7 +356,8 @@ async function readBookedMeetings(ctx: QueryCtx, args: ReportSourcePageRequest) 
 }
 
 async function readSalesMeetingStats(ctx: QueryCtx, args: ReportSourcePageRequest) {
-  const result = await ctx.db.query("operationsMeetingDailyStats").withIndex("by_tenantId_and_dayKey", (q) => q.eq("tenantId", args.tenantId).gte("dayKey", args.startDayKey).lt("dayKey", args.endDayKeyExclusive)).paginate(pagination(args.cursor));
+  await requireReportingReady(ctx, args.tenantId);
+  const result = await ctx.db.query("operationsMeetingStatsV2").withIndex("by_tenantId_and_dayKey", (q) => q.eq("tenantId", args.tenantId).gte("dayKey", args.startDayKey).lt("dayKey", args.endDayKeyExclusive)).paginate(pagination(args.cursor));
   return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "sales_meeting_stat", assignedCloserId: row.assignedCloserId, bookingProgramId: row.bookingProgramId ?? null, meetingStatus: row.meetingStatus, count: row.count })));
 }
 

@@ -21,6 +21,7 @@ const answerTextClasses = "text-sm leading-relaxed break-words";
 
 type BookingAnswersCardProps = {
   customFields: unknown;
+  customFieldLabels: Record<string, string> | undefined;
 };
 
 /**
@@ -31,7 +32,7 @@ type BookingAnswersCardProps = {
  * - Long answers (>120 chars) collapse behind a Collapsible toggle.
  * - Uses a responsive 2-column grid to stay compact in wide containers.
  */
-export function BookingAnswersCard({ customFields }: BookingAnswersCardProps) {
+export function BookingAnswersCard({ customFields, customFieldLabels }: BookingAnswersCardProps) {
   if (!isStringRecord(customFields)) return null;
 
   const entries = Object.entries(customFields).filter(
@@ -49,7 +50,7 @@ export function BookingAnswersCard({ customFields }: BookingAnswersCardProps) {
           {entries.map(([question, answer]) => (
             <div key={question} className="min-w-0">
               <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {question}
+                {customFieldLabels?.[question] ?? question}
               </dt>
               {answer.length > LONG_ANSWER_THRESHOLD ? (
                 <CollapsibleAnswer answer={answer} />

@@ -95,7 +95,10 @@ const DEFAULT_COUNTRY_CODE = "1";
  */
 export function normalizePhone(rawValue: string): string | undefined {
   const stripped = stripPhoneFormatting(rawValue);
-  if (stripped.length === 0) return undefined;
+  const digits = stripped.replace(/\D/g, "");
+  if (digits.length < 7 || digits.length > 15) return undefined;
+  // Common placeholders must never become shared identity keys.
+  if (/^(\d)\1+$/.test(digits) || ["1234567890", "12345678910", "11234567890", "0123456789", "0987654321"].includes(digits)) return undefined;
 
   // Already has country code prefix
   if (stripped.startsWith("+")) {

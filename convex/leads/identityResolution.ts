@@ -1,3 +1,4 @@
+import { blockBooking } from "../pipeline/blocked";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import {
@@ -80,7 +81,7 @@ async function followMergeChain(
     depth < maxDepth
   ) {
     const next = await ctx.db.get("leads", current.mergedIntoLeadId);
-    if (!next) {
+    if (!next || next.tenantId !== lead.tenantId) {
       reportError("leads.identity.merge_chain_broken", "Merge chain target lead is missing", {
         severity: "error",
         fingerprint: "leads.identity.merge_chain_broken",
@@ -119,26 +120,19 @@ async function findLeadByIdentifier(
     value: string;
   },
 ): Promise<Doc<"leads"> | null> {
-  const identifier = await ctx.db
-    .query("leadIdentifiers")
-    .withIndex("by_tenantId_and_type_and_value", (q) =>
-      q
-        .eq("tenantId", args.tenantId)
-        .eq("type", args.type)
-        .eq("value", args.value),
-    )
-    .first();
-
-  if (!identifier) {
-    return null;
+  const identifiers = await ctx.db.query("leadIdentifiers")
+    .withIndex("by_tenantId_and_type_and_value", q => q.eq("tenantId", args.tenantId).eq("type", args.type).eq("value", args.value)).take(17);
+  if (identifiers.length > 16) blockBooking("identity_conflict");
+  const matches = new Map<string, Doc<"leads">>();
+  for (const identifier of identifiers) {
+    const lead = await ctx.db.get("leads", identifier.leadId);
+    if (!lead || lead.tenantId !== args.tenantId) blockBooking("invalid_identity_relationship");
+    const resolved = await followMergeChain(ctx, lead);
+    if (!resolved) blockBooking("invalid_identity_relationship");
+    matches.set(resolved._id, resolved);
   }
-
-  const matchedLead = await ctx.db.get("leads", identifier.leadId);
-  if (!matchedLead || matchedLead.tenantId !== args.tenantId) {
-    return null;
-  }
-
-  return (await followMergeChain(ctx, matchedLead)) ?? null;
+  if (matches.size > 1) blockBooking("identity_conflict");
+  return matches.values().next().value ?? null;
 }
 
 async function detectPotentialDuplicate(
@@ -372,103 +366,35 @@ export async function resolveLeadIdentity(
     : undefined;
   const normalizedPhone = args.phone ? normalizePhone(args.phone) : undefined;
 
+  const matches: { lead: Doc<"leads">; via: "email" | "social_handle" | "phone" }[] = [];
   if (normalizedEmail) {
-    const legacyLead = await ctx.db
-      .query("leads")
-      .withIndex("by_tenantId_and_email", (q) =>
-        q.eq("tenantId", args.tenantId).eq("email", normalizedEmail),
-      )
-      .unique();
-
-    if (legacyLead) {
-      const activeLead = await followMergeChain(ctx, legacyLead);
-      if (activeLead) {
-        const syncedLead = await syncSubmittedIdentifiersForExistingLead(
-          ctx,
-          activeLead,
-          args,
-          normalizedEmail,
-        );
-        return {
-          lead: syncedLead,
-          leadId: syncedLead._id,
-          created: false,
-          isNewLead: false,
-          resolvedVia: "email",
-        };
-      }
+    const legacy = await ctx.db.query("leads").withIndex("by_tenantId_and_email", q => q.eq("tenantId", args.tenantId).eq("email", normalizedEmail)).take(17);
+    if (legacy.length > 16) blockBooking("identity_conflict");
+    for (const lead of legacy) {
+      const resolved = await followMergeChain(ctx, lead);
+      if (!resolved) blockBooking("invalid_identity_relationship");
+      matches.push({ lead: resolved, via: "email" });
     }
-
-    const emailLead = await findLeadByIdentifier(ctx, {
-      tenantId: args.tenantId,
-      type: "email",
-      value: normalizedEmail,
-    });
-    if (emailLead) {
-      const syncedLead = await syncSubmittedIdentifiersForExistingLead(
-        ctx,
-        emailLead,
-        args,
-        normalizedEmail,
-      );
-      return {
-        lead: syncedLead,
-        leadId: syncedLead._id,
-        created: false,
-        isNewLead: false,
-        resolvedVia: "email",
-      };
-    }
+    const lead = await findLeadByIdentifier(ctx, { tenantId: args.tenantId, type: "email", value: normalizedEmail });
+    if (lead) matches.push({ lead, via: "email" });
   }
-
-  if (args.socialHandle) {
-    if (normalizedSocialHandle) {
-      const socialLead = await findLeadByIdentifier(ctx, {
-        tenantId: args.tenantId,
-        type: args.socialHandle.platform,
-        value: normalizedSocialHandle,
-      });
-      if (socialLead) {
-        const syncedLead = await syncSubmittedIdentifiersForExistingLead(
-          ctx,
-          socialLead,
-          args,
-          normalizedEmail,
-        );
-        return {
-          lead: syncedLead,
-          leadId: syncedLead._id,
-          created: false,
-          isNewLead: false,
-          resolvedVia: "social_handle",
-        };
-      }
-    }
+  if (normalizedSocialHandle && args.socialHandle) {
+    const lead = await findLeadByIdentifier(ctx, { tenantId: args.tenantId, type: args.socialHandle.platform, value: normalizedSocialHandle });
+    if (lead) matches.push({ lead, via: "social_handle" });
   }
-
-  if (args.phone) {
-    if (normalizedPhone) {
-      const phoneLead = await findLeadByIdentifier(ctx, {
-        tenantId: args.tenantId,
-        type: "phone",
-        value: normalizedPhone,
-      });
-      if (phoneLead) {
-        const syncedLead = await syncSubmittedIdentifiersForExistingLead(
-          ctx,
-          phoneLead,
-          args,
-          normalizedEmail,
-        );
-        return {
-          lead: syncedLead,
-          leadId: syncedLead._id,
-          created: false,
-          isNewLead: false,
-          resolvedVia: "phone",
-        };
-      }
-    }
+  if (normalizedPhone) {
+    const lead = await findLeadByIdentifier(ctx, { tenantId: args.tenantId, type: "phone", value: normalizedPhone });
+    if (lead) matches.push({ lead, via: "phone" });
+  }
+  const isBooking = args.identifierSource === "calendly_booking";
+  if (isBooking && new Set(matches.map(m => m.lead._id)).size > 1) blockBooking("identity_conflict");
+  const match = matches[0];
+  if (match) {
+    // A phone or handle is not permission to change a person's established email.
+    // Existing aliases also require review if the canonical contact disagrees.
+    if (isBooking && normalizedEmail && match.lead.email && normalizeEmail(match.lead.email) !== normalizedEmail) blockBooking("identity_conflict");
+    const lead = await syncSubmittedIdentifiersForExistingLead(ctx, match.lead, args, normalizedEmail);
+    return { lead, leadId: lead._id, created: false, isNewLead: false, resolvedVia: match.via };
   }
 
   if (!createIfMissing) {

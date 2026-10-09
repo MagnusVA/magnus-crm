@@ -200,7 +200,10 @@ export function AdminMeetingDetailClient({
             assignedCloser={assignedCloser}
             assignedCloserIdentity={assignedCloserIdentity}
           />
-          <BookingAnswersCard customFields={lead.customFields} />
+          <BookingAnswersCard
+            customFields={lead.customFields}
+            customFieldLabels={lead.customFieldLabels}
+          />
 
           {/* Deal Won Card — only when opportunity is won with payments */}
           {opportunity.status === "payment_received" &&

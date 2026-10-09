@@ -14,6 +14,7 @@ import {
   upsertOpportunitySearchProjection,
 } from "../lib/opportunitySearch";
 import {
+  requestOpportunityProjections,
   insertOperationsMeetingStats,
   replaceOperationsMeetingStats,
 } from "../operations/meetingStats";
@@ -88,26 +89,7 @@ async function syncMeetingOpportunityStatusForOpportunity(
   ctx: MutationCtx,
   opportunity: Doc<"opportunities">,
 ) {
-  const meetings = await ctx.db
-    .query("meetings")
-    .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunity._id))
-    .take(200);
-
-  await Promise.all(
-    meetings.map(async (meeting) => {
-      if (meeting.opportunityStatus === opportunity.status) {
-        return;
-      }
-      const nextMeeting = {
-        ...meeting,
-        opportunityStatus: opportunity.status,
-      };
-      await ctx.db.patch("meetings", meeting._id, {
-        opportunityStatus: opportunity.status,
-      });
-      await replaceOperationsMeetingStats(ctx, meeting, nextMeeting);
-    }),
-  );
+  await requestOpportunityProjections(ctx, opportunity._id);
 }
 
 export async function insertMeetingAggregate(

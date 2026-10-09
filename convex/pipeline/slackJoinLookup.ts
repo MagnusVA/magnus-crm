@@ -1,3 +1,4 @@
+import { blockBooking } from "./blocked";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
@@ -24,7 +25,7 @@ export async function findOpenSlackQualifiedOpportunity(
 	const lookbackMs = args.lookbackMs ?? SLACK_JOIN_LOOKBACK_MS;
 	const cutoff = referenceTime - lookbackMs;
 
-	return await ctx.db
+	const candidates = await ctx.db
 		.query("opportunities")
 		.withIndex(
 			"by_tenantId_and_leadId_and_source_and_status_and_createdAt",
@@ -34,8 +35,10 @@ export async function findOpenSlackQualifiedOpportunity(
 					.eq("leadId", args.leadId)
 					.eq("source", "slack_qualified")
 					.eq("status", "qualified_pending")
-					.gt("createdAt", cutoff),
+					.gt("createdAt", cutoff).lte("createdAt", referenceTime),
 		)
 		.order("desc")
-		.first();
+		.take(2);
+  if (candidates.length > 1) blockBooking("ambiguous_booking_target");
+  return candidates[0] ?? null;
 }

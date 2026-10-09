@@ -234,7 +234,7 @@ export function MeetingDetailPageClient({
         {/* Column 2 — booking context */}
         <div className="flex min-w-0 flex-col gap-4">
           <LeadNotesCard leadId={lead._id} />
-          <BookingAnswersCard customFields={lead.customFields} />
+          <BookingAnswersCard customFields={lead.customFields} customFieldLabels={lead.customFieldLabels} />
           {paymentLinks && paymentLinks.length > 0 && (
             <PaymentLinksPanel paymentLinks={paymentLinks} />
           )}

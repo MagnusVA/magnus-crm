@@ -1,3 +1,4 @@
+import { requireReportingReady } from "./reportingReadiness";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -339,7 +340,7 @@ export async function enrichPhoneSalesRows(
 }
 
 function rowMatchesStatsFilter(
-  row: Doc<"operationsMeetingDailyStats">,
+  row: Doc<"operationsMeetingStatsV2">,
   args: PhoneSalesFilterArgs,
 ) {
   if (args.bookingProgramId && row.bookingProgramId !== args.bookingProgramId) {
@@ -426,6 +427,7 @@ export const getPhoneSalesStats = query({
       "tenant_master",
       "tenant_admin",
     ]);
+    await requireReportingReady(ctx, tenantId);
     assertSinglePhoneSalesPrimaryFilter({
       tenantId,
       assignedCloserId: args.closerId,
@@ -441,7 +443,7 @@ export const getPhoneSalesStats = query({
     const endExclusiveKey = meetingDayKey(args.scheduledTo);
     const rows = args.closerId
       ? await ctx.db
-          .query("operationsMeetingDailyStats")
+          .query("operationsMeetingStatsV2")
           .withIndex("by_tenantId_and_assignedCloserId_and_dayKey", (q) =>
             q
               .eq("tenantId", tenantId)
@@ -449,17 +451,18 @@ export const getPhoneSalesStats = query({
               .gte("dayKey", startKey)
               .lt("dayKey", endExclusiveKey),
           )
-          .take(1000)
+          .take(8193)
       : await ctx.db
-          .query("operationsMeetingDailyStats")
+          .query("operationsMeetingStatsV2")
           .withIndex("by_tenantId_and_dayKey", (q) =>
             q
               .eq("tenantId", tenantId)
               .gte("dayKey", startKey)
               .lt("dayKey", endExclusiveKey),
           )
-          .take(1000);
+          .take(8193);
 
+    if (rows.length > 8192) throw new Error("Reporting range exceeds the live limit. Use a materialized report or narrow the dates.");
     const byStatus = new Map<MeetingStatus, number>();
     let won = 0;
     for (const row of rows) {
@@ -502,7 +505,7 @@ export const getPhoneSalesStats = query({
       won,
       showRate:
         showRateDenominator > 0 ? completed / showRateDenominator : null,
-      isPartial: rows.length >= 1000,
+      isPartial: false,
     };
   },
 });

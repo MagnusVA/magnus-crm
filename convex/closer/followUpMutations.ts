@@ -1,5 +1,5 @@
+import { blockBooking } from "../pipeline/blocked";
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
 import { internalMutation, mutation } from "../_generated/server";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
@@ -115,48 +115,24 @@ export const transitionToFollowUp = internalMutation({
  * This could be wired into the invitee.created handler in Phase 3.
  */
 export const markFollowUpBooked = internalMutation({
-  args: {
-    opportunityId: v.id("opportunities"),
-    calendlyEventUri: v.string(),
-  },
-  handler: async (ctx, { opportunityId, calendlyEventUri }) => {
-    let followUpId: Id<"followUps"> | null = null;
-    let pendingFollowUpTenantId: Id<"tenants"> | null = null;
-    let previousStatus: "pending" | "booked" | "completed" | "expired" | null = null;
-    for await (const followUp of ctx.db
-      .query("followUps")
-      .withIndex("by_opportunityId_and_status_and_reason", (q) => q.eq("opportunityId", opportunityId))) {
-      if (followUp.status === "pending") {
-        followUpId = followUp._id;
-        pendingFollowUpTenantId = followUp.tenantId;
-        previousStatus = followUp.status;
-        break;
-      }
-    }
-
-    if (followUpId) {
-      await ctx.db.patch("followUps", followUpId, {
-        status: "booked",
-        calendlyEventUri,
-        bookedAt: Date.now(),
-      });
-    await emitDomainEvent(ctx, {
-      tenantId: pendingFollowUpTenantId!,
-      entityType: "followUp",
-      entityId: followUpId,
-      eventType: "followUp.booked",
-      source: "system",
-      fromStatus: previousStatus ?? undefined,
-      toStatus: "booked",
-      });
-    } else {
-      const opportunity = await ctx.db.get("opportunities", opportunityId);
-      log.info("follow_up.mark_booked_skipped", {
-        tenantId: opportunity?.tenantId,
-        opportunityId,
-        reason: "no_pending_follow_up",
-      });
-    }
+  args: { opportunityId: v.id("opportunities"), calendlyEventUri: v.string(), occurredAt: v.optional(v.number()) },
+  returns: v.null(),
+  handler: async (ctx, { opportunityId, calendlyEventUri, occurredAt }) => {
+    const opportunity = await ctx.db.get("opportunities", opportunityId);
+    if (!opportunity) throw new Error("Opportunity not found");
+    const rows = await ctx.db.query("followUps").withIndex("by_opportunityId_and_status_and_reason", q => q.eq("opportunityId", opportunityId).eq("status", "pending")).take(65);
+    if (rows.length > 64) blockBooking("follow_up_history_requires_review");
+    if (rows.some(r => r.tenantId !== opportunity.tenantId)) throw new Error("Follow-up tenant mismatch");
+    const eligible = rows.filter(r => r.type !== "manual_reminder");
+    if (eligible.length > 1) blockBooking("ambiguous_follow_up");
+    const followUp = eligible[0];
+    if (!followUp) return null;
+    const bookedAt = occurredAt ?? Date.now();
+    if (followUp.createdAt > bookedAt) blockBooking("historical_booking_requires_review");
+    await ctx.db.patch("followUps", followUp._id, { status: "booked", calendlyEventUri, bookedAt });
+    await emitDomainEvent(ctx, { tenantId: opportunity.tenantId, entityType: "followUp", entityId: followUp._id,
+      eventType: "followUp.booked", source: "pipeline", fromStatus: "pending", toStatus: "booked", occurredAt: bookedAt });
+    return null;
   },
 });
 
@@ -303,8 +279,8 @@ export const confirmFollowUpScheduled = mutation({
     });
     if (meeting) {
       await completeMeetingForOutcome(ctx, {
-        meeting,
-        opportunity,
+        meetingId: meeting._id,
+        opportunityId: opportunity._id,
         toMeetingStatus: "completed",
         completedAt: now,
       });
@@ -410,8 +386,8 @@ export const createManualReminderFollowUpPublic = mutation({
     });
     if (meeting) {
       await completeMeetingForOutcome(ctx, {
-        meeting,
-        opportunity,
+        meetingId: meeting._id,
+        opportunityId: opportunity._id,
         toMeetingStatus: "completed",
         completedAt: now,
       });

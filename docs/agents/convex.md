@@ -24,11 +24,13 @@ Most folders under `convex/` are named for their table or feature. The ones whos
 
 The repo has no triggers. A mutation that inserts, updates, or deletes a meeting, opportunity, payment, lead, or customer also updates:
 
-- reporting aggregates through `convex/reporting/writeHooks.ts` (`insert*`, `replace*`, and `delete*Aggregate`), which also update billing aggregates and operations meeting stats
+- reporting aggregates through `convex/reporting/writeHooks.ts` (`insert*`, `replace*`, and `delete*Aggregate`), which also update billing aggregates and enqueue operations meeting projections
 - tenant counters through `updateTenantStats` or `applyPaymentStatsDelta` (`convex/lib/tenantStatsHelper.ts`)
 - the domain event log through `emitDomainEvent` (`convex/lib/domainEvents.ts`)
 - opportunity meeting refs through `updateOpportunityMeetingRefs` (`convex/lib/opportunityMeetingRefs.ts`), which also rebuilds the opportunity and lead/customer search rows
 - qualification rows through `rebuildQualificationRowsForOpportunity` (`convex/operations/projections.ts`)
+
+Meeting updates should use `patchMeetingLifecycle` with an ID so the mutation reads its own current snapshot. Reporting jobs must carry IDs and read source state, never caller-provided before/after snapshots. Deleting a meeting must request its projection before deleting the source row. Opportunity changes use the paginated projection sweep; never replace it with a capped first-page loop.
 
 Find an existing mutation that writes the same table and match its side-effect calls. A missed call leaves dashboards and counts wrong without any error.
 
@@ -51,7 +53,7 @@ Find an existing mutation that writes the same table and match its side-effect c
 
 ## Webhooks and integrations
 
-- **Calendly**: `convex/webhooks/calendly.ts` verifies the HMAC signature against the tenant's secret, and `persistRawEvent` dedupes and stores the event in `rawWebhookEvents`. It then schedules `internal.pipeline.processor.processRawEvent`, which routes by event type and marks the event processed. Raw events are kept 30 days.
+- **Calendly**: `convex/webhooks/calendly.ts` verifies the HMAC signature against the tenant's secret, and `persistRawEvent` dedupes and stores the event in `rawWebhookEvents`. It atomically writes a permanent `webhookDeliveries` receipt, provider facts, and a webhook Workpool job. `pipeline/processor` commits booking changes and the receipt outcome together. Raw payload retention is 30 days for resolved deliveries; unresolved payloads are retained. Recovery previews and retries live in `pipeline/recovery`; destructive replay is retired. See `runbooks/booking-workpool-rollout.md` before deploying or repairing this pipeline.
 - **Calendly credentials**: OAuth tokens and the webhook secret live in `tenantCalendlyConnections`, not `tenants`. Read them through `convex/lib/tenantCalendlyConnection.ts`.
 - **Slack**: `convex/lib/slackSignature.ts` verifies requests and accepts `SLACK_SIGNING_SECRET_PREVIOUS` during secret rotation. Events are stored redacted in `rawSlackEvents`, and the tenant comes from `team_id` through `slackInstallations`. CI requires token rotation to stay on in `slack-manifest.prod.yaml`; `runbooks/slack-token-refresh-write-failure.md` covers failed token refreshes.
 - **WorkOS**: `authKit.registerRoutes(http)` in `convex/http.ts` mounts the AuthKit component's routes.
@@ -68,4 +70,4 @@ Use `log` and `reportError` from `convex/lib/observability/log.ts` for process s
 
 ## Tests
 
-Backend tests use `convex-test` with `convexTestModules` from `convex/test.setup.ts`; see `convex/operations/reports/jobs.test.ts` for the setup. Coverage today is operations reports, lead gen reporting, and live query bounds.
+Backend tests use `convex-test` with `convexTestModules` from `convex/test.setup.ts`; see `convex/operations/reports/jobs.test.ts` for the setup. Booking/Workpool integration tests use `tests/bookingHarness.ts` to register both pools and aggregate components. Keep test helpers outside `convex/` so Convex codegen does not bundle `convex-test` into a deployment. Coverage also includes operations reports, lead gen reporting, and live query bounds.

@@ -105,8 +105,8 @@ export const markAsLost = mutation({
     await patchOpportunityLifecycle(ctx, opportunityId, patch);
     if (meeting) {
       await completeMeetingForOutcome(ctx, {
-        meeting,
-        opportunity,
+        meetingId: meeting._id,
+        opportunityId: opportunity._id,
         toMeetingStatus: "completed",
         completedAt: now,
       });

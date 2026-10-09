@@ -284,21 +284,23 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
       createdByUserId: adminId,
       updatedAt: recordedAt,
     });
-    await ctx.db.insert("operationsMeetingDailyStats", {
+    await ctx.db.insert("operationsMeetingStatsV2", {
       tenantId,
       dayKey,
       assignedCloserId: historicalCloserId,
       bookingProgramId: callsProgramId,
       meetingStatus: "completed",
+      bucketKey: "fixture-completed",
       count: 2,
       updatedAt: recordedAt,
     });
-    await ctx.db.insert("operationsMeetingDailyStats", {
+    await ctx.db.insert("operationsMeetingStatsV2", {
       tenantId,
       dayKey,
       assignedCloserId: historicalCloserId,
       bookingProgramId: callsProgramId,
       meetingStatus: "canceled",
+      bucketKey: "fixture-canceled",
       count: 1,
       updatedAt: recordedAt,
     });

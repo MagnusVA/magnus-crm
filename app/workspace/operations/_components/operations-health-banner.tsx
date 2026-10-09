@@ -9,33 +9,38 @@ import { Button } from "@/components/ui/button";
 
 export function OperationsHealthBanner() {
   const unmapped = useQuery(api.operations.unmappedUtms.listRecentUnmappedUtms, {});
-  const bookingIssues = useQuery(
-    api.operations.bookingHealth.listRecentBookingHealthIssues,
-    {},
-  );
-
+  const work = useQuery(api.operations.workStatus.health, {});
   const unmappedCount = unmapped?.length ?? 0;
-  const bookingIssueCount = bookingIssues?.length ?? 0;
-
-  if (unmappedCount === 0 && bookingIssueCount === 0) {
-    return null;
-  }
+  const problems = work?.queues.filter(q => q.kind.endsWith(":failed") || q.kind.endsWith(":blocked")) ?? [];
+  const issueCount = problems.reduce((sum, q) => sum + q.count, 0);
+  const updating = work?.queues.some(q => q.kind !== "webhooks:queued" && q.kind.endsWith(":queued") && q.count > 0);
+  const capped = problems.some(q => q.capped);
+  if (!unmappedCount && !issueCount && !updating) return null;
 
   return (
-    <Alert>
-      <AlertTriangleIcon />
-      <AlertTitle>Operations health needs review</AlertTitle>
-      <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <span>
-          {unmappedCount} recent booking UTM values are unmapped and{" "}
-          {bookingIssueCount} recent invitee.created webhooks are unprocessed.
-        </span>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/workspace/operations/booked-calls/attribution?section=diagnostics">
-            Review mappings
-          </Link>
-        </Button>
-      </AlertDescription>
-    </Alert>
+    <>
+      {(unmappedCount > 0 || issueCount > 0) && (
+        <Alert>
+          <AlertTriangleIcon />
+          <AlertTitle>Operations health needs review</AlertTitle>
+          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>
+              {unmappedCount > 0 && <span>{unmappedCount} booking UTM values need mapping. </span>}
+              {issueCount > 0 && <span>{issueCount}{capped ? "+" : ""} booking or reporting issues need review.</span>}
+            </span>
+            <Button asChild variant="outline" size="sm">
+              <Link href="/workspace/operations/booked-calls/attribution?section=diagnostics">
+                Review issues
+              </Link>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+      {updating && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Reports are updating; displayed totals may lag recent changes.
+        </p>
+      )}
+    </>
   );
 }

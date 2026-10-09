@@ -1,3 +1,4 @@
+import { adoptRawDelivery } from "../pipeline/receipts";
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 
@@ -11,7 +12,7 @@ export const deleteExpiredEvents = internalMutation({
     batchSize: v.optional(v.number()),
   },
   handler: async (ctx, { cutoffTimestamp, batchSize }) => {
-    const limit = batchSize ?? 128;
+    const limit = Math.max(1, Math.min(batchSize ?? 64, 128));
     const expired = await ctx.db
       .query("rawWebhookEvents")
       .withIndex("by_processed_and_receivedAt", (q) =>
@@ -19,11 +20,19 @@ export const deleteExpiredEvents = internalMutation({
       )
       .take(limit);
 
+    let deleted = 0;
     for (const event of expired) {
-      await ctx.db.delete("rawWebhookEvents", event._id);
+      const receipt = await adoptRawDelivery(ctx, event);
+      const duplicatePayload = receipt.rawEventId !== event._id && Boolean(await ctx.db.get("rawWebhookEvents", receipt.rawEventId));
+      if (receipt.status === "applied" || receipt.status === "ignored" || duplicatePayload) {
+        await ctx.db.delete("rawWebhookEvents", event._id);
+        deleted++;
+      } else {
+        await ctx.db.patch("rawWebhookEvents", event._id, { processed: false });
+      }
     }
 
-    return { deleted: expired.length, hasMore: expired.length === limit };
+    return { deleted, hasMore: expired.length === limit };
   },
 });
 
