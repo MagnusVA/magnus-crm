@@ -1,5 +1,9 @@
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
+import {
+	buildPortalEventTypeRouting,
+	listTeamProgramEventTypesForTenant,
+} from "../lib/attribution/teamEventTypeRoutes";
 import { isPortalBookable } from "../lib/eventTypeBookability";
 import { log } from "../lib/observability/log";
 import { publicDmCloserIdentity } from "../lib/memberIdentity";
@@ -40,7 +44,7 @@ export const getPortalBootstrapForSession = internalQuery({
 			throw new Error("Portal session is no longer valid.");
 		}
 
-		const [teams, closers, campaignPresets, eventTypeConfigs] =
+		const [teams, closers, campaignPresets, eventTypeConfigs, teamRoutes] =
 			await Promise.all([
 				ctx.db
 					.query("attributionTeams")
@@ -60,11 +64,13 @@ export const getPortalBootstrapForSession = internalQuery({
 					.query("eventTypeConfigs")
 					.withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
 					.take(500),
+				listTeamProgramEventTypesForTenant(ctx, tenantId),
 			]);
 
 		const activeTeamById = new Map(
 			teams.filter((team) => team.isActive).map((team) => [team._id, team]),
 		);
+		const routing = buildPortalEventTypeRouting(teamRoutes);
 
 		return {
 			tenantName: tenant.companyName,
@@ -92,6 +98,7 @@ export const getPortalBootstrapForSession = internalQuery({
 						teamId: team._id,
 						teamDisplayName: team.displayName,
 						teamUtmSource: team.utmSource,
+						teamHasEventTypeRoutes: routing.routedTeamIds.has(team._id),
 					};
 				}),
 			bookablePrograms: eventTypeConfigs
@@ -103,6 +110,8 @@ export const getPortalBootstrapForSession = internalQuery({
 					bookingProgramName: config.bookingProgramName ?? config.displayName,
 					bookingBaseUrl: config.bookingBaseUrl!,
 					isExtended: config.isExtended === true,
+					isShared: routing.isShared(config._id),
+					routedTeamIds: routing.teamsForEventType(config),
 				})),
 		};
 	},

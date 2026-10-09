@@ -5,6 +5,10 @@ export type BookableProgramEventType = {
 	bookingProgramName: string;
 	bookingBaseUrl: string;
 	isExtended: boolean;
+	// No team is routed to this event type.
+	isShared: boolean;
+	// Teams whose program and mode route points at this event type.
+	routedTeamIds: string[];
 };
 
 export type SchedulingMode = "normal" | "extended";
@@ -14,6 +18,19 @@ export type GroupedBookableProgram = {
 	bookingProgramName: string;
 	eventTypes: BookableProgramEventType[];
 };
+
+// A team with routes sees only its routed event types; a team without routes
+// sees the shared ones. Mirrors canTeamUseEventType on the server.
+export function eventTypesForTeam(
+	eventTypes: BookableProgramEventType[],
+	team: { teamId: string; teamHasEventTypeRoutes: boolean },
+) {
+	return eventTypes.filter((eventType) =>
+		team.teamHasEventTypeRoutes
+			? eventType.routedTeamIds.includes(team.teamId)
+			: eventType.isShared,
+	);
+}
 
 export function filterEventTypesBySchedulingMode(
 	eventTypes: BookableProgramEventType[],

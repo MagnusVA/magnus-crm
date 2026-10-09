@@ -696,6 +696,31 @@ export default defineSchema({
     ])
     .index("by_tenantId_and_userId", ["tenantId", "userId"]),
 
+  // Routes a DM team's portal links for one program and scheduling mode to a
+  // specific Calendly event type (usually a round-robin pool of closers).
+  // A team with no rows uses the shared event types: portal-ready event types
+  // that no team is routed to. The event type keeps its own program mapping,
+  // so webhook program resolution does not read this table.
+  teamProgramEventTypes: defineTable({
+    tenantId: v.id("tenants"),
+    teamId: v.id("attributionTeams"),
+    programId: v.id("tenantPrograms"),
+    mode: v.union(v.literal("normal"), v.literal("extended")),
+    eventTypeConfigId: v.id("eventTypeConfigs"),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index("by_tenantId_and_teamId_and_programId_and_mode", [
+      "tenantId",
+      "teamId",
+      "programId",
+      "mode",
+    ])
+    .index("by_tenantId_and_eventTypeConfigId", [
+      "tenantId",
+      "eventTypeConfigId",
+    ]),
+
   linkPortalConfigs: defineTable({
     tenantId: v.id("tenants"),
     publicSlug: v.string(),
