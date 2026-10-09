@@ -19,10 +19,6 @@ export const getMeetingsForRange = query({
 		endDate: v.number(),
 	},
 	handler: async (ctx, { startDate, endDate }) => {
-		console.log("[Closer:Calendar] getMeetingsForRange called", {
-			startDate,
-			endDate,
-		});
 		if (startDate >= endDate) {
 			throw new Error("startDate must be earlier than endDate");
 		}
@@ -46,9 +42,6 @@ export const getMeetingsForRange = query({
 			}
 		}
 
-		console.log("[Closer:Calendar] meetings found in range", {
-			count: myMeetings.length,
-		});
 		if (myMeetings.length === 0) {
 			return [];
 		}
@@ -108,9 +101,6 @@ export const getMeetingsForRange = query({
 			};
 		});
 
-		console.log("[Closer:Calendar] enriched count", {
-			count: enriched.length,
-		});
 		return enriched;
 	},
 });

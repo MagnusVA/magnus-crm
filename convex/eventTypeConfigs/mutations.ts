@@ -3,6 +3,7 @@ import { mutation } from "../_generated/server";
 import { isCalendlyBookable } from "../lib/eventTypeBookability";
 import { validateRequiredString } from "../lib/validation";
 import { requireTenantUser } from "../requireTenantUser";
+import { log } from "../lib/observability/log";
 
 const paymentLinkValidator = v.object({
   provider: v.string(),
@@ -122,7 +123,6 @@ export const upsertEventTypeConfig = mutation({
       isExtended,
     },
   ) => {
-    console.log("[EventTypeConfig] upsertEventTypeConfig called", { displayName, hasPaymentLinks: !!paymentLinks });
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -143,7 +143,6 @@ export const upsertEventTypeConfig = mutation({
     if (!displayNameValidation.valid) {
       throw new Error(displayNameValidation.error);
     }
-    console.log("[EventTypeConfig] upsertEventTypeConfig validation passed", { tenantId });
 
     const normalizedEventTypeUri = calendlyEventTypeUri.trim();
     const normalizedDisplayName = displayName.trim();
@@ -189,7 +188,6 @@ export const upsertEventTypeConfig = mutation({
       )
       .unique();
 
-    console.log("[EventTypeConfig] upsertEventTypeConfig existing check", { exists: !!existing, existingId: existing?._id });
     if (existing) {
       await ctx.db.patch("eventTypeConfigs", existing._id, {
         displayName: normalizedDisplayName,
@@ -205,7 +203,14 @@ export const upsertEventTypeConfig = mutation({
         updatedAt: Date.now(),
       });
 
-      console.log("[EventTypeConfig] upsertEventTypeConfig updated", { configId: existing._id });
+      log.info("event_type_config.upserted", {
+        tenantId,
+        eventTypeConfigId: existing._id,
+        created: false,
+        bookingProgramMapped: program !== null,
+        hasBookingBaseUrl: trimmedBookingBaseUrl !== undefined,
+        paymentLinksChanged: normalizedPaymentLinks !== undefined,
+      });
       return existing._id;
     }
 
@@ -223,7 +228,14 @@ export const upsertEventTypeConfig = mutation({
       updatedAt: Date.now(),
     });
 
-    console.log("[EventTypeConfig] upsertEventTypeConfig created", { configId });
+    log.info("event_type_config.upserted", {
+      tenantId,
+      eventTypeConfigId: configId,
+      created: true,
+      bookingProgramMapped: program !== null,
+      hasBookingBaseUrl: trimmedBookingBaseUrl !== undefined,
+      paymentLinksChanged: normalizedPaymentLinks !== undefined,
+    });
     return configId;
   },
 });
@@ -282,6 +294,11 @@ export const setLinkPortalEnabled = mutation({
       linkPortalEnabled,
       updatedAt: Date.now(),
     });
+    log.info("event_type_config.link_portal.toggled", {
+      tenantId,
+      eventTypeConfigId,
+      linkPortalEnabled,
+    });
     return eventTypeConfigId;
   },
 });
@@ -297,10 +314,6 @@ export const updateCustomFieldMappings = mutation({
     customFieldMappings: customFieldMappingsValidator,
   },
   handler: async (ctx, { eventTypeConfigId, customFieldMappings }) => {
-    console.log("[EventTypeConfig] updateCustomFieldMappings called", {
-      eventTypeConfigId,
-      customFieldMappings,
-    });
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -366,9 +379,12 @@ export const updateCustomFieldMappings = mutation({
       customFieldMappings: normalizedMappings,
     });
 
-    console.log("[EventTypeConfig] updateCustomFieldMappings saved", {
-      configId: eventTypeConfigId,
-      mappings: normalizedMappings,
+    log.info("event_type_config.custom_field_mappings.updated", {
+      tenantId,
+      eventTypeConfigId,
+      hasSocialHandleField: normalizedMappings?.socialHandleField !== undefined,
+      socialHandleType: normalizedMappings?.socialHandleType,
+      hasPhoneField: normalizedMappings?.phoneField !== undefined,
     });
   },
 });

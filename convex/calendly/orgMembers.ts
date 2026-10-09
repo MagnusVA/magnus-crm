@@ -5,8 +5,12 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { action, internalAction } from "../_generated/server";
 import { getIdentityOrgId } from "../lib/identity";
+import { rejectRequest } from "../lib/observability/errors";
+import { log, logRequestContext } from "../lib/observability/log";
 import { ADMIN_ROLES } from "../lib/roleMapping";
+import { getRawWorkosUserId } from "../lib/workosUserId";
 import { requireIdentity } from "../requireIdentity";
+import { CALENDLY_FETCH_TIMEOUT_MS, calendlyHttpError } from "./apiErrors";
 import { getValidAccessToken } from "./tokens";
 
 type TenantMemberState = {
@@ -40,12 +44,32 @@ type SyncTenantOrgMembersResult =
 
 type SyncForTenantResult = SyncTenantOrgMembersResult & { deleted: number };
 
+function logOrgMemberSync(
+  tenantId: Id<"tenants">,
+  trigger: "scheduled" | "manual",
+  startedAt: number,
+  result: SyncTenantOrgMembersResult,
+  deleted: number,
+) {
+  const attrs = {
+    tenantId,
+    trigger,
+    outcome: "reason" in result ? result.reason : "synced",
+    synced: result.synced,
+    deleted,
+    durationMs: Date.now() - startedAt,
+  };
+  if ("reason" in result) {
+    log.warn("calendly.org_members.sync", attrs);
+  } else {
+    log.info("calendly.org_members.sync", attrs);
+  }
+}
+
 async function syncTenantOrgMembers(
   ctx: Parameters<typeof getValidAccessToken>[0],
   tenantId: Id<"tenants">,
 ): Promise<SyncTenantOrgMembersResult> {
-  console.log(`[org-sync] syncTenantOrgMembers: entry for tenant ${tenantId}`);
-
   const tenant = (await ctx.runQuery(
     internal.calendly.connectionQueries.getTenantConnectionContext,
     {
@@ -54,7 +78,6 @@ async function syncTenantOrgMembers(
   )) as TenantMemberState | null;
 
   if (!tenant?.organizationUri) {
-    console.warn(`[org-sync] syncTenantOrgMembers: tenant ${tenantId} missing org URI`);
     return { synced: 0, reason: "missing_org_uri" as const };
   }
 
@@ -62,50 +85,40 @@ async function syncTenantOrgMembers(
     tenant.tenantStatus !== "active" &&
     tenant.tenantStatus !== "provisioning_webhooks"
   ) {
-    console.warn(
-      `[org-sync] syncTenantOrgMembers: tenant ${tenantId} not ready, status=${tenant.tenantStatus}`,
-    );
     return { synced: 0, reason: "tenant_not_ready" as const };
   }
 
-  console.log(`[org-sync] syncTenantOrgMembers: tenant ${tenantId} obtaining access token`);
   const accessToken = await getValidAccessToken(ctx, tenantId);
   if (!accessToken) {
-    console.warn(`[org-sync] syncTenantOrgMembers: tenant ${tenantId} no valid access token`);
     return { synced: 0, reason: "missing_access_token" as const };
   }
 
   let nextPage: string | null = `https://api.calendly.com/organization_memberships?organization=${encodeURIComponent(tenant.organizationUri)}&count=100`;
   let synced = 0;
   let pageNum = 0;
+  let skippedMalformed = 0;
 
   while (nextPage) {
     pageNum++;
-    console.log(`[org-sync] syncTenantOrgMembers: tenant ${tenantId} fetching page ${pageNum}`);
 
     const response = await fetch(nextPage, {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
+      signal: AbortSignal.timeout(CALENDLY_FETCH_TIMEOUT_MS),
     });
 
     if (!response.ok) {
-      throw new Error(
-        `Failed to sync Calendly organization members: ${response.status} ${await response.text()}`,
-      );
+      throw await calendlyHttpError("organization memberships", response);
     }
 
     const data = (await response.json()) as CalendlyOrganizationMembershipPage;
-    const pageSize = data.collection?.length ?? 0;
-    console.log(`[org-sync] syncTenantOrgMembers: tenant ${tenantId} page ${pageNum} has ${pageSize} members`);
 
     for (const membership of data.collection ?? []) {
       const calendlyUserUri = membership.user?.uri;
       const email = membership.user?.email;
       if (!calendlyUserUri || !email) {
-        console.warn(
-          `[org-sync] syncTenantOrgMembers: skipping malformed membership for tenant ${tenantId}, hasUri=${Boolean(calendlyUserUri)}, hasEmail=${Boolean(email)}`,
-        );
+        skippedMalformed += 1;
         continue;
       }
 
@@ -122,7 +135,13 @@ async function syncTenantOrgMembers(
     nextPage = data.pagination?.next_page ?? null;
   }
 
-  console.log(`[org-sync] syncTenantOrgMembers: tenant ${tenantId} complete, synced=${synced} members across ${pageNum} pages`);
+  if (skippedMalformed > 0) {
+    log.warn("calendly.org_members.malformed_skipped", {
+      tenantId,
+      skippedMalformed,
+      pages: pageNum,
+    });
+  }
   return { synced };
 }
 
@@ -132,15 +151,12 @@ async function syncTenantOrgMembers(
 export const syncForTenant = internalAction({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }): Promise<SyncForTenantResult> => {
-    console.log(`[org-sync] syncForTenant: entry for tenant ${tenantId}`);
     const syncStartTimestamp = Date.now();
 
     const result = await syncTenantOrgMembers(ctx, tenantId);
 
     if ("reason" in result) {
-      console.log(
-        `[org-sync] syncForTenant: skipped for tenant ${tenantId}, reason=${result.reason}`,
-      );
+      logOrgMemberSync(tenantId, "scheduled", syncStartTimestamp, result, 0);
       return { ...result, deleted: 0 };
     }
 
@@ -150,8 +166,13 @@ export const syncForTenant = internalAction({
       { tenantId, syncStartTimestamp },
     );
 
-    console.log(
-      `[org-sync] syncForTenant: tenant ${tenantId} complete, synced=${result.synced}, deleted=${cleanupResult.deleted} stale records`,
+    logOrgMemberSync(
+      tenantId,
+      // Scheduled by the daily cron fan-out or after OAuth connect.
+      "scheduled",
+      syncStartTimestamp,
+      result,
+      cleanupResult.deleted,
     );
 
     return { ...result, deleted: cleanupResult.deleted };
@@ -167,21 +188,30 @@ export const syncMyTenantMembers = action({
   handler: async (
     ctx,
   ): Promise<{ synced: number; deleted: number; reason?: string }> => {
-    console.log(`[org-sync] syncMyTenantMembers: called`);
-
     const identity = await requireIdentity(ctx);
 
     const workosUserId = identity.tokenIdentifier ?? identity.subject;
     if (!workosUserId) {
-      throw new Error("Missing WorkOS user ID");
+      throw rejectRequest("auth.missing_workos_user_id", "Missing WorkOS user ID");
     }
 
     const currentUser: Doc<"users"> | null = await ctx.runQuery(
       internal.users.queries.getCurrentUserInternal,
       { workosUserId },
     );
+    if (currentUser) {
+      logRequestContext({
+        distinctId: getRawWorkosUserId(workosUserId),
+        tenantId: currentUser.tenantId,
+        userId: currentUser._id,
+        role: currentUser.role,
+      });
+    }
     if (!currentUser || !ADMIN_ROLES.includes(currentUser.role)) {
-      throw new Error("Insufficient permissions");
+      throw rejectRequest("auth.insufficient_permissions", "Insufficient permissions", {
+        userFound: currentUser !== null,
+        role: currentUser?.role,
+      });
     }
 
     const tenant = await ctx.runQuery(internal.tenants.getCalendlyTenant, {
@@ -193,19 +223,22 @@ export const syncMyTenantMembers = action({
 
     const identityOrgId = getIdentityOrgId(identity);
     if (!identityOrgId || identityOrgId !== tenant.workosOrgId) {
-      throw new Error("Organization mismatch");
+      throw rejectRequest("auth.organization_mismatch", "Organization mismatch", {
+        tenantId: currentUser.tenantId,
+        hasIdentityOrgId: Boolean(identityOrgId),
+      });
     }
-
-    console.log(
-      `[org-sync] syncMyTenantMembers: user=${currentUser._id}, tenant=${currentUser.tenantId}`,
-    );
 
     const syncStartTimestamp = Date.now();
     const result = await syncTenantOrgMembers(ctx, currentUser.tenantId);
 
     if ("reason" in result) {
-      console.log(
-        `[org-sync] syncMyTenantMembers: skipped, reason=${result.reason}`,
+      logOrgMemberSync(
+        currentUser.tenantId,
+        "manual",
+        syncStartTimestamp,
+        result,
+        0,
       );
       return { synced: 0, deleted: 0, reason: result.reason };
     }
@@ -215,8 +248,12 @@ export const syncMyTenantMembers = action({
       { tenantId: currentUser.tenantId, syncStartTimestamp },
     );
 
-    console.log(
-      `[org-sync] syncMyTenantMembers: complete, synced=${result.synced}, deleted=${cleanupResult.deleted}`,
+    logOrgMemberSync(
+      currentUser.tenantId,
+      "manual",
+      syncStartTimestamp,
+      result,
+      cleanupResult.deleted,
     );
 
     return { synced: result.synced, deleted: cleanupResult.deleted };
@@ -231,15 +268,9 @@ export const syncMyTenantMembers = action({
 export const syncAllTenants = internalAction({
   args: {},
   handler: async (ctx) => {
-    console.log(`[org-sync] syncAllTenants: entry`);
-
     const tenantIds: Array<Id<"tenants">> = await ctx.runQuery(
       internal.calendly.tokenMutations.listActiveTenantIds,
       {},
-    );
-
-    console.log(
-      `[org-sync] syncAllTenants: scheduling sync for ${tenantIds.length} tenants`,
     );
 
     // Fan out: each tenant gets its own action invocation
@@ -251,7 +282,9 @@ export const syncAllTenants = internalAction({
       );
     }
 
-    console.log(`[org-sync] syncAllTenants: all ${tenantIds.length} tenants scheduled`);
+    log.info("calendly.org_members.sync_scheduled", {
+      tenantCount: tenantIds.length,
+    });
     // The cron completes immediately after scheduling.
     // Individual sync actions run asynchronously and independently.
     // Failures in one tenant do not affect others.

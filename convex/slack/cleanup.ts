@@ -5,6 +5,7 @@ import {
   internalMutation,
   internalQuery,
 } from "../_generated/server";
+import { log } from "../lib/observability/log";
 
 const OAUTH_STATE_RETENTION_MS = 24 * 60 * 60 * 1000;
 
@@ -34,9 +35,11 @@ export const deleteOAuthStatesByIds = internalMutation({
 export const deleteExpiredOAuthStates = internalAction({
   args: {},
   handler: async (ctx) => {
-    const cutoff = Date.now() - OAUTH_STATE_RETENTION_MS;
+    const startedAt = Date.now();
+    const cutoff = startedAt - OAUTH_STATE_RETENTION_MS;
     let deleted = 0;
 
+    let capped = true;
     for (let i = 0; i < 10; i++) {
       const ids = await ctx.runQuery(
         internal.slack.cleanup.findExpiredOAuthStates,
@@ -45,7 +48,10 @@ export const deleteExpiredOAuthStates = internalAction({
           limit: 200,
         },
       );
-      if (ids.length === 0) break;
+      if (ids.length === 0) {
+        capped = false;
+        break;
+      }
 
       await ctx.runMutation(
         internal.slack.cleanup.deleteOAuthStatesByIds,
@@ -54,7 +60,11 @@ export const deleteExpiredOAuthStates = internalAction({
       deleted += ids.length;
     }
 
-    console.log("[Slack:Cleanup] oauth states", { deleted });
+    log.info("slack.cleanup.oauth_states", {
+      deleted,
+      durationMs: Date.now() - startedAt,
+      ...(capped ? { capped: true } : {}),
+    });
     return { deleted };
   },
 });
@@ -86,8 +96,10 @@ export const deleteExpiredRawEvents = internalAction({
   args: {},
   handler: async (ctx) => {
     const cutoff = Date.now();
+    const startedAt = cutoff;
     let deleted = 0;
 
+    let capped = true;
     for (let i = 0; i < 10; i++) {
       const ids = await ctx.runQuery(
         internal.slack.cleanup.findExpiredRawEvents,
@@ -96,7 +108,10 @@ export const deleteExpiredRawEvents = internalAction({
           limit: 200,
         },
       );
-      if (ids.length === 0) break;
+      if (ids.length === 0) {
+        capped = false;
+        break;
+      }
 
       await ctx.runMutation(internal.slack.cleanup.deleteRawEventsByIds, {
         ids,
@@ -104,7 +119,11 @@ export const deleteExpiredRawEvents = internalAction({
       deleted += ids.length;
     }
 
-    console.log("[Slack:Cleanup] raw events", { deleted });
+    log.info("slack.cleanup.raw_events", {
+      deleted,
+      durationMs: Date.now() - startedAt,
+      ...(capped ? { capped: true } : {}),
+    });
     return { deleted };
   },
 });

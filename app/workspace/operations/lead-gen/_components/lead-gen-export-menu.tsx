@@ -14,7 +14,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { serializeCsv } from "@/lib/csv";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import { downloadLeadGenExcelReport } from "./lead-gen-excel-report";
+import { getErrorMessage } from "@/lib/errors";
 
 type ExportKind = "summary" | "raw" | "excel";
 
@@ -153,6 +155,7 @@ export function LeadGenExportMenu({
         downloadLeadGenExcelReport(excelReport);
         toast.success("Excel report ready");
       } catch (error) {
+        reportClientError(error, { flow: "lead_gen_export", exportKind: kind });
         toast.error(getExportErrorMessage(error));
       } finally {
         setExportingKind(null);
@@ -210,9 +213,5 @@ export function LeadGenExportMenu({
 }
 
 function getExportErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message.replace(/^Uncaught Error: /, "");
-  }
-
-  return "Export failed";
+  return getErrorMessage(error, "Export failed").replace(/^Uncaught Error: /, "");
 }

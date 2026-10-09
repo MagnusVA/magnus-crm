@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { getErrorMessage } from "@/lib/errors";
 
 // Mirrors MAX_BOOKING_DAILY_QUOTA in convex/attribution/teams.ts.
 const MAX_DAILY_QUOTA = 5000;
@@ -123,9 +124,7 @@ export function BookingGoalsDialog({
       onOpenChange(false);
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : "Failed to update booking goals.";
+        getErrorMessage(error, "Failed to update booking goals.");
       setSubmitError(message);
     }
   };

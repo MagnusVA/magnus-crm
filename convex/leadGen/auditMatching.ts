@@ -3,7 +3,38 @@ import { internalMutation } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { normalizeSocialHandle } from "../lib/normalization";
+import { log, reportError } from "../lib/observability/log";
 import { leadGenAuditMatchSourceValidator } from "./validators";
+
+type MatchOutcome =
+  | "matched_new"
+  | "matched_existing"
+  | "unmatched_invalid_handle"
+  | "unmatched_no_prospect"
+  | "unmatched_ambiguous_prospects"
+  | "unmatched_multiple_accepted"
+  | "unmatched_ambiguous_matches";
+
+/** One line per match attempt. Never log the handle itself. */
+function logMatchOutcome(
+  outcome: MatchOutcome,
+  attrs: {
+    tenantId: Id<"tenants">;
+    leadId: Id<"leads">;
+    matchSource: string;
+    [key: string]: unknown;
+  },
+) {
+  const ambiguous =
+    outcome === "unmatched_ambiguous_prospects" ||
+    outcome === "unmatched_multiple_accepted" ||
+    outcome === "unmatched_ambiguous_matches";
+  log[ambiguous ? "warn" : "info"]("lead_gen.audit_match", {
+    outcome,
+    matched: outcome.startsWith("matched"),
+    ...attrs,
+  });
+}
 
 async function createOrReuseAcceptedMatch(
   ctx: MutationCtx,
@@ -30,12 +61,15 @@ async function createOrReuseAcceptedMatch(
   const acceptedMatches = existingMatches.filter(
     (match) => match.matchStatus === "accepted",
   );
+  const logAttrs = {
+    tenantId: args.tenantId,
+    leadId: args.leadId,
+    opportunityId: args.opportunityId,
+    prospectId: args.prospect._id,
+    matchSource: args.matchSource,
+  };
   if (acceptedMatches.length > 1) {
-    console.warn("[LeadGen:Audit] multiple accepted matches for prospect/lead", {
-      tenantId: args.tenantId,
-      prospectId: args.prospect._id,
-      leadId: args.leadId,
-    });
+    logMatchOutcome("unmatched_multiple_accepted", logAttrs);
     return null;
   }
 
@@ -55,15 +89,12 @@ async function createOrReuseAcceptedMatch(
       });
     }
 
+    logMatchOutcome("matched_existing", { ...logAttrs, matchId: accepted._id });
     return accepted._id;
   }
 
   if (existingMatches.length > 1) {
-    console.warn("[LeadGen:Audit] ambiguous existing matches for prospect/lead", {
-      tenantId: args.tenantId,
-      prospectId: args.prospect._id,
-      leadId: args.leadId,
-    });
+    logMatchOutcome("unmatched_ambiguous_matches", logAttrs);
     return null;
   }
 
@@ -85,6 +116,7 @@ async function createOrReuseAcceptedMatch(
     updatedAt: args.now,
   });
 
+  logMatchOutcome("matched_new", { ...logAttrs, matchId });
   return matchId;
 }
 
@@ -102,7 +134,14 @@ export const matchQualifiedLead = internalMutation({
       args.rawHandle,
       args.platform,
     );
+    const logAttrs = {
+      tenantId: args.tenantId,
+      leadId: args.leadId,
+      opportunityId: args.opportunityId,
+      matchSource: args.matchSource,
+    };
     if (!normalizedHandle) {
+      logMatchOutcome("unmatched_invalid_handle", logAttrs);
       return null;
     }
 
@@ -116,12 +155,12 @@ export const matchQualifiedLead = internalMutation({
       .take(2);
 
     if (prospects.length !== 1) {
-      if (prospects.length > 1) {
-        console.warn("[LeadGen:Audit] ambiguous prospects for handle", {
-          tenantId: args.tenantId,
-          normalizedHandle,
-        });
-      }
+      logMatchOutcome(
+        prospects.length > 1
+          ? "unmatched_ambiguous_prospects"
+          : "unmatched_no_prospect",
+        logAttrs,
+      );
       return null;
     }
 
@@ -160,10 +199,20 @@ export async function preserveQualificationAuditMatchForScheduledMeeting(
     return null;
   }
   if (acceptedMatches.length > 1) {
-    console.warn("[LeadGen:Audit] multiple accepted matches for lead", {
-      tenantId: args.tenantId,
-      leadId: args.leadId,
-    });
+    reportError(
+      "lead_gen.data_inconsistency",
+      new Error("Lead has multiple accepted lead gen audit matches"),
+      {
+        severity: "warning",
+        fingerprint:
+          "lead_gen.data_inconsistency:multiple_accepted_audit_matches",
+        reason: "multiple_accepted_audit_matches",
+        tenantId: args.tenantId,
+        leadId: args.leadId,
+        opportunityId: args.opportunityId,
+        acceptedMatchCount: acceptedMatches.length,
+      },
+    );
     return null;
   }
 

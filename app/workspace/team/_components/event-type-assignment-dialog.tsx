@@ -29,6 +29,7 @@ import { AlertCircleIcon } from "lucide-react";
 import { toast } from "sonner";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
+import { getErrorMessage } from "@/lib/errors";
 
 const eventTypeSchema = z.object({
   personalEventTypeUri: z
@@ -99,7 +100,7 @@ export function EventTypeAssignmentDialog({
       onOpenChange(false);
     } catch (err) {
       setSubmitError(
-        err instanceof Error ? err.message : "Failed to assign event type."
+        getErrorMessage(err, "Failed to assign event type.")
       );
     } finally {
       setIsSubmitting(false);

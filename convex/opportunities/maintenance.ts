@@ -3,6 +3,7 @@ import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { internalMutation } from "../_generated/server";
 import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
+import { log } from "../lib/observability/log";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -53,9 +54,8 @@ export const repairAssignmentsFromCalendlyHosts = internalMutation({
     tenantId: v.id("tenants"),
   },
   handler: async (ctx, { tenantId }) => {
-    console.log("[Opportunities:Maintenance] repairAssignmentsFromCalendlyHosts start", {
-      tenantId,
-    });
+    const startedAt = Date.now();
+    log.info("opportunities.assignment_repair.started", { tenantId });
 
     const hostByEventUri = new Map<
       string,
@@ -65,6 +65,7 @@ export const repairAssignmentsFromCalendlyHosts = internalMutation({
         hostCalendlyName?: string;
       }
     >();
+    let unparseablePayloads = 0;
 
     for await (const rawEvent of ctx.db
       .query("rawWebhookEvents")
@@ -76,6 +77,7 @@ export const repairAssignmentsFromCalendlyHosts = internalMutation({
       try {
         envelope = JSON.parse(rawEvent.payload);
       } catch {
+        unparseablePayloads += 1;
         continue;
       }
 
@@ -146,11 +148,13 @@ export const repairAssignmentsFromCalendlyHosts = internalMutation({
       patched += 1;
     }
 
-    console.log("[Opportunities:Maintenance] repairAssignmentsFromCalendlyHosts complete", {
+    log.info("opportunities.assignment_repair.completed", {
       tenantId,
       scanned,
       patched,
       mappedHosts: hostByEventUri.size,
+      unparseablePayloads,
+      durationMs: Date.now() - startedAt,
     });
 
     return { scanned, patched, mappedHosts: hostByEventUri.size };

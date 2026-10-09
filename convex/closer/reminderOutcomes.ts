@@ -294,12 +294,6 @@ export const logReminderPayment = mutation({
       }
     }
 
-    console.log("[Closer:Reminder] logReminderPayment done", {
-      followUpId: args.followUpId,
-      paymentId,
-      opportunityId: opportunity._id,
-    });
-
     return paymentId;
   },
 });
@@ -374,12 +368,6 @@ export const markReminderLost = mutation({
         origin: "reminder",
       },
       occurredAt: now,
-    });
-
-    console.log("[Closer:Reminder] markReminderLost done", {
-      followUpId,
-      opportunityId: opportunity._id,
-      hasReason: Boolean(trimmedReason),
     });
   },
 });
@@ -527,13 +515,6 @@ export const markReminderNoResponse = mutation({
         occurredAt: now,
       });
     }
-
-    console.log("[Closer:Reminder] markReminderNoResponse done", {
-      followUpId,
-      nextStep,
-      newFollowUpId,
-      opportunityId: opportunity._id,
-    });
 
     return { newFollowUpId };
   },

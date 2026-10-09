@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalMutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { log } from "../lib/observability/log";
 import { isSideDeal } from "../lib/sideDeals";
 
 const STALE_THRESHOLD_MS = 72 * 60 * 60 * 1000;
@@ -124,11 +125,12 @@ export const nudgeStaleSideDeals = internalMutation({
       nudged += 1;
     }
 
-    console.log(
-      "[Opportunities:Staleness] scanned=%d nudged=%d",
-      page.page.length,
+    log.info("opportunities.stale_side_deals.batch", {
+      scanned: page.page.length,
       nudged,
-    );
+      hasMore: !page.isDone,
+      durationMs: Date.now() - now,
+    });
 
     if (!page.isDone) {
       await ctx.scheduler.runAfter(

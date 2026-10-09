@@ -9,8 +9,6 @@ import { requireTenantUser } from "../requireTenantUser";
 export const getConnectionStatus = query({
   args: {},
   handler: async (ctx) => {
-    console.log(`[Calendly:OAuth] getConnectionStatus: called`);
-
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -24,7 +22,6 @@ export const getConnectionStatus = query({
       connection.eventTypeSyncLockUntil > now;
 
     if (!tenant) {
-      console.warn(`[Calendly:OAuth] getConnectionStatus: tenant ${tenantId} not found`);
       return null;
     }
 
@@ -49,8 +46,6 @@ export const getConnectionStatus = query({
       lastEventTypeSyncCount: connection?.lastEventTypeSyncCount ?? null,
       lastEventTypeSyncSummary: connection?.lastEventTypeSyncSummary ?? null,
     };
-
-    console.log(`[Calendly:OAuth] getConnectionStatus: tenant=${tenantId}, status=${result.status}, needsReconnect=${result.needsReconnect}, hasAccessToken=${result.hasAccessToken}, hasRefreshToken=${result.hasRefreshToken}`);
 
     return result;
   },

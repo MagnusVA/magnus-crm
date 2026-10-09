@@ -1,25 +1,9 @@
-import { httpAction, env } from "../_generated/server";
-import { verifySlackSignature } from "../lib/slackSignature";
-
-const SIG_HEADER = "x-slack-signature";
-const TS_HEADER = "x-slack-request-timestamp";
-
-async function verifyInboundSlackRequest(
-  req: Request,
-  rawBody: string,
-): Promise<boolean> {
-  return await verifySlackSignature({
-    rawBody,
-    timestamp: req.headers.get(TS_HEADER) ?? "",
-    signature: req.headers.get(SIG_HEADER) ?? "",
-    signingSecret: env.SLACK_SIGNING_SECRET ?? "",
-    previousSigningSecret: env.SLACK_SIGNING_SECRET_PREVIOUS,
-  });
-}
+import { httpAction } from "../_generated/server";
+import { verifyInboundSlackRequest } from "../lib/slackSignature";
 
 export const slackCommandStub = httpAction(async (_ctx, req) => {
   const rawBody = await req.text();
-  if (!(await verifyInboundSlackRequest(req, rawBody))) {
+  if (await verifyInboundSlackRequest(req, rawBody, "commands_stub")) {
     return new Response("Bad signature", { status: 401 });
   }
 
@@ -37,7 +21,7 @@ export const slackCommandStub = httpAction(async (_ctx, req) => {
 
 export const slackInteractivityStub = httpAction(async (_ctx, req) => {
   const rawBody = await req.text();
-  if (!(await verifyInboundSlackRequest(req, rawBody))) {
+  if (await verifyInboundSlackRequest(req, rawBody, "interactivity_stub")) {
     return new Response("Bad signature", { status: 401 });
   }
 
@@ -46,7 +30,7 @@ export const slackInteractivityStub = httpAction(async (_ctx, req) => {
 
 export const slackEventsStub = httpAction(async (_ctx, req) => {
   const rawBody = await req.text();
-  if (!(await verifyInboundSlackRequest(req, rawBody))) {
+  if (await verifyInboundSlackRequest(req, rawBody, "events_stub")) {
     return new Response("Bad signature", { status: 401 });
   }
 

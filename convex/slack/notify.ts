@@ -3,7 +3,12 @@ import { internal } from "../_generated/api";
 import { internalAction, env } from "../_generated/server";
 import { emitDomainEventInAction } from "../lib/domainEventsAction";
 import { buildQualifiedLeadConfirmation } from "../lib/slackBlockKit";
-import { getValidSlackBotToken } from "./tokens";
+import {
+  logSlackNotifyPosted,
+  logSlackNotifySkipped,
+  reportSlackNotifyFailed,
+} from "./notifyObservability";
+import { getValidSlackBotToken, logSlackTokenUnavailable } from "./tokens";
 import { slackApiPostJson } from "./webApi";
 
 const CLEAR_CHANNEL_ERRORS = new Set(["channel_not_found", "is_archived"]);
@@ -24,19 +29,30 @@ export const postConfirmation = internalAction({
       internal.slack.installations.byTenantId,
       { tenantId: args.tenantId },
     );
+    const kind = "qualified_lead" as const;
     if (!installation || installation.status !== "active") {
-      console.log("[Slack:Notify] skipping - installation not active", {
+      logSlackNotifySkipped("installation_not_active", {
         tenantId: args.tenantId,
-        status: installation?.status,
+        kind,
+        installationStatus: installation?.status ?? "missing",
       });
       return;
     }
     if (!installation.notifyChannelId) {
-      console.log("[Slack:Notify] skipping - no notify channel configured", {
+      logSlackNotifySkipped("no_channel_configured", {
         tenantId: args.tenantId,
+        installationId: installation._id,
+        kind,
       });
       return;
     }
+    const notifyAttrs = {
+      tenantId: args.tenantId,
+      installationId: installation._id,
+      kind,
+      channelId: installation.notifyChannelId,
+      opportunityId: args.opportunityId,
+    };
 
     const opportunity = await ctx.runQuery(
       internal.slack.notifyData.getOppForNotify,
@@ -55,22 +71,19 @@ export const postConfirmation = internalAction({
     );
 
     if (!opportunity || !lead || !identifier || !opportunity.qualifiedBy) {
-      console.warn("[Slack:Notify] missing notification data", {
-        tenantId: args.tenantId,
-        opportunityId: args.opportunityId,
+      reportSlackNotifyFailed("missing_notification_data", {
+        ...notifyAttrs,
         hasOpportunity: Boolean(opportunity),
         hasLead: Boolean(lead),
         hasIdentifier: Boolean(identifier),
+        hasQualifiedBy: Boolean(opportunity?.qualifiedBy),
       });
       return;
     }
 
     const appUrl = env.APP_URL;
     if (!appUrl) {
-      console.warn("[Slack:Notify] APP_URL not configured", {
-        tenantId: args.tenantId,
-        opportunityId: args.opportunityId,
-      });
+      reportSlackNotifyFailed("app_url_not_configured", notifyAttrs);
       await emitDomainEventInAction(ctx, {
         tenantId: args.tenantId,
         entityType: "slackInstallation",
@@ -103,10 +116,7 @@ export const postConfirmation = internalAction({
     try {
       token = await getValidSlackBotToken(ctx, args.tenantId);
     } catch (error) {
-      console.warn("[Slack:Notify] token unavailable", {
-        tenantId: args.tenantId,
-        error: error instanceof Error ? error.message : "unknown",
-      });
+      logSlackTokenUnavailable("slack.notify.token_unavailable", error, notifyAttrs);
       return;
     }
 
@@ -123,20 +133,12 @@ export const postConfirmation = internalAction({
     );
 
     if (response.ok) {
-      console.log("[Slack:Notify] posted", {
-        tenantId: args.tenantId,
-        channel: installation.notifyChannelId,
-        opportunityId: args.opportunityId,
-      });
+      logSlackNotifyPosted(notifyAttrs);
       return;
     }
 
     const slackErr = response.error ?? "unknown";
-    console.warn("[Slack:Notify] post failed", {
-      tenantId: args.tenantId,
-      channel: installation.notifyChannelId,
-      slackErr,
-    });
+    reportSlackNotifyFailed(slackErr, notifyAttrs);
 
     if (ACTION_REQUIRED_ERRORS.has(slackErr)) {
       await ctx.runMutation(internal.slack.notifyData.recordNotifyFailure, {
@@ -174,19 +176,30 @@ export const postExistingOpportunityBump = internalAction({
       internal.slack.installations.byTenantId,
       { tenantId: args.tenantId },
     );
+    const kind = "existing_opportunity_bump" as const;
     if (!installation || installation.status !== "active") {
-      console.log("[Slack:Notify] bump skipping - installation not active", {
+      logSlackNotifySkipped("installation_not_active", {
         tenantId: args.tenantId,
-        status: installation?.status,
+        kind,
+        installationStatus: installation?.status ?? "missing",
       });
       return;
     }
     if (!installation.notifyChannelId) {
-      console.log("[Slack:Notify] bump skipping - no notify channel configured", {
+      logSlackNotifySkipped("no_channel_configured", {
         tenantId: args.tenantId,
+        installationId: installation._id,
+        kind,
       });
       return;
     }
+    const notifyAttrs = {
+      tenantId: args.tenantId,
+      installationId: installation._id,
+      kind,
+      channelId: installation.notifyChannelId,
+      opportunityId: args.opportunityId,
+    };
 
     const bump = await ctx.runQuery(
       internal.slack.notifyData.getExistingOpportunityBumpForNotify,
@@ -199,9 +212,8 @@ export const postExistingOpportunityBump = internalAction({
     );
 
     if (!bump) {
-      console.warn("[Slack:Notify] missing bump notification data", {
-        tenantId: args.tenantId,
-        opportunityId: args.opportunityId,
+      reportSlackNotifyFailed("missing_notification_data", {
+        ...notifyAttrs,
         leadId: args.leadId,
         qualificationEventId: args.qualificationEventId,
       });
@@ -210,10 +222,7 @@ export const postExistingOpportunityBump = internalAction({
 
     const appUrl = env.APP_URL;
     if (!appUrl) {
-      console.warn("[Slack:Notify] APP_URL not configured for bump", {
-        tenantId: args.tenantId,
-        opportunityId: args.opportunityId,
-      });
+      reportSlackNotifyFailed("app_url_not_configured", notifyAttrs);
       await emitDomainEventInAction(ctx, {
         tenantId: args.tenantId,
         entityType: "slackInstallation",
@@ -252,10 +261,7 @@ export const postExistingOpportunityBump = internalAction({
     try {
       token = await getValidSlackBotToken(ctx, args.tenantId);
     } catch (error) {
-      console.warn("[Slack:Notify] bump token unavailable", {
-        tenantId: args.tenantId,
-        error: error instanceof Error ? error.message : "unknown",
-      });
+      logSlackTokenUnavailable("slack.notify.token_unavailable", error, notifyAttrs);
       return;
     }
 
@@ -272,20 +278,12 @@ export const postExistingOpportunityBump = internalAction({
     );
 
     if (response.ok) {
-      console.log("[Slack:Notify] bump posted", {
-        tenantId: args.tenantId,
-        channel: installation.notifyChannelId,
-        opportunityId: args.opportunityId,
-      });
+      logSlackNotifyPosted(notifyAttrs);
       return;
     }
 
     const slackErr = response.error ?? "unknown";
-    console.warn("[Slack:Notify] bump post failed", {
-      tenantId: args.tenantId,
-      channel: installation.notifyChannelId,
-      slackErr,
-    });
+    reportSlackNotifyFailed(slackErr, notifyAttrs);
 
     if (ACTION_REQUIRED_ERRORS.has(slackErr)) {
       await ctx.runMutation(internal.slack.notifyData.recordNotifyFailure, {

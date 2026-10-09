@@ -1,9 +1,10 @@
 "use client";
 
-import { useAuth } from "@workos-inc/authkit-nextjs/components";
 import { useAction, usePaginatedQuery } from "convex/react";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { useAuthPostHogIdentify } from "@/hooks/use-posthog-identify";
+import { useSignOut } from "@/hooks/use-sign-out";
 import {
   CopyIcon,
   LogOutIcon,
@@ -49,6 +50,8 @@ import {
   type InviteResult,
 } from "./invite-banner";
 import { SupportTicketsSection } from "./support-tickets-section";
+import { getErrorMessage } from "@/lib/errors";
+import { reportClientError } from "@/lib/observability/report-client-error";
 
 const CreateTenantDialog = dynamic(() =>
   import("./create-tenant-dialog").then((m) => ({ default: m.CreateTenantDialog })),
@@ -66,7 +69,8 @@ const PAGE_SIZE = 25;
 
 export function AdminPageClient() {
   usePageTitle("Admin Console");
-  const { signOut } = useAuth();
+  const signOut = useSignOut();
+  useAuthPostHogIdentify({ role: "system_admin" });
 
   const [statusFilter, setStatusFilter] = useState<TenantStatus | undefined>(
     undefined,
@@ -88,18 +92,34 @@ export function AdminPageClient() {
   const deleteTenant = useAction(api.admin.tenants.resetTenantForReonboarding);
 
   const handleCreate = async (payload: CreateTenantPayload) => {
-    const result = await createTenantInvite(payload);
-    setInviteResult(result);
+    try {
+      const result = await createTenantInvite(payload);
+      setInviteResult(result);
+    } catch (error) {
+      reportClientError(error, { flow: "admin_tenant_invite_create" });
+      toast.error("Tenant invite failed.", {
+        description: getErrorMessage(error, "The tenant invite could not be created."),
+      });
+      // Rethrown so the dialog stays open with the entered values.
+      throw error;
+    }
   };
 
   const handleRegenerate = async (tenant: Doc<"tenants">) => {
-    const result = await regenerateInvite({ tenantId: tenant._id });
-    setInviteResult({
-      tenantId: tenant._id,
-      workosOrgId: tenant.workosOrgId,
-      inviteUrl: result.inviteUrl,
-      expiresAt: result.expiresAt,
-    });
+    try {
+      const result = await regenerateInvite({ tenantId: tenant._id });
+      setInviteResult({
+        tenantId: tenant._id,
+        workosOrgId: tenant.workosOrgId,
+        inviteUrl: result.inviteUrl,
+        expiresAt: result.expiresAt,
+      });
+    } catch (error) {
+      reportClientError(error, { flow: "admin_tenant_invite_regenerate" });
+      toast.error("Invite regeneration failed.", {
+        description: getErrorMessage(error, "The invite could not be regenerated."),
+      });
+    }
   };
 
   const handleReset = async (tenant: TenantWithWebhookStatus) => {
@@ -110,11 +130,10 @@ export function AdminPageClient() {
         description: getResetToastDescription(result),
       });
     } catch (error) {
+      reportClientError(error, { flow: "admin_tenant_reset" });
       toast.error("Tenant deletion failed.", {
         description:
-          error instanceof Error
-            ? error.message
-            : "The tenant could not be deleted.",
+          getErrorMessage(error, "The tenant could not be deleted."),
       });
       throw error;
     }

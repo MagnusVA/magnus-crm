@@ -5,6 +5,7 @@ import {
   clearBillingPaymentAggregatesForTenant,
   insertBillingPaymentAggregates,
 } from "./aggregates";
+import { log } from "../lib/observability/log";
 
 const BACKFILL_BATCH_SIZE = 200;
 
@@ -32,6 +33,20 @@ export const backfillBillingPaymentAggregates = internalMutation({
 
     for (const payment of result.page) {
       await insertBillingPaymentAggregates(ctx, payment);
+    }
+
+    const batchAttrs = {
+      tenantId,
+      batchSize: result.page.length,
+      reset: reset === true && cursor === undefined,
+    };
+    if (result.isDone) {
+      log.info("billing.aggregate_backfill.completed", {
+        ...batchAttrs,
+        durationMs: Date.now() - backfillStartedAt,
+      });
+    } else {
+      log.info("billing.aggregate_backfill.batch", batchAttrs);
     }
 
     if (!result.isDone) {

@@ -3,9 +3,27 @@
 import { ConvexReactClient, ConvexProviderWithAuth } from "convex/react";
 import { AuthKitProvider, useAccessToken, useAuth } from "@workos-inc/authkit-nextjs/components";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import posthog from "posthog-js";
 import { toast } from "sonner";
 import { CalendlyConnectionGuard } from "@/components/calendly-connection-guard";
 import { SlackConnectionGuard } from "@/components/slack-connection-guard";
+import { isPostHogEnabled } from "@/lib/posthog-config";
+
+/**
+ * A failing refresh repeats on every Convex reconnect, so the PostHog log
+ * line is sent once per page session.
+ */
+let loggedTokenRefreshFailure = false;
+
+function logTokenRefreshFailure(forced: boolean) {
+  if (loggedTokenRefreshFailure || !isPostHogEnabled()) return;
+  loggedTokenRefreshFailure = true;
+  try {
+    posthog.logger.warn("auth.token_refresh_failed", { forced });
+  } catch {
+    // Never let reporting break auth.
+  }
+}
 
 function getConvexUrl(): string {
   const url = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -72,6 +90,7 @@ function useAuthFromAuthKit() {
         return (await getAccessToken()) ?? null;
       } catch (error) {
         console.error("Failed to get access token:", error);
+        logTokenRefreshFailure(Boolean(forceRefreshToken));
         return null;
       }
     },

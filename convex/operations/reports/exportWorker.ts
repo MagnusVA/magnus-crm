@@ -3,7 +3,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { v } from "convex/values";
 import { internal } from "../../_generated/api";
+import type { Doc } from "../../_generated/dataModel";
 import { internalAction } from "../../_generated/server";
+import { log, reportError } from "../../lib/observability/log";
 import { ReportAggregate, ReportSizeLimit } from "./aggregate";
 import type { ReportSourcePage } from "./model";
 import { sourcesForReport } from "./sources";
@@ -37,9 +39,22 @@ export const run = internalAction({
     if (claim.kind !== "claimed") return null;
     const fence = { jobId, workerId, leaseGeneration: claim.leaseGeneration };
     const started = Date.now();
+    // Kept outside the try so a failure report can describe the job.
+    let jobContext: Partial<
+      Pick<
+        Doc<"operationsReportJobs">,
+        "tenantId" | "reportKind" | "format" | "retryCount"
+      >
+    > = {};
     try {
       const job = await ctx.runQuery(jobs.getJobState, { jobId });
       if (!job?.format) return null;
+      jobContext = {
+        tenantId: job.tenantId,
+        reportKind: job.reportKind,
+        format: job.format,
+        retryCount: job.retryCount,
+      };
       let sequence = job.checkpointSequence;
       const existing = await ctx.runQuery(jobs.getArtifactForRender, {
         jobId,
@@ -320,8 +335,9 @@ export const run = internalAction({
         commitKey: `complete:${attached.sequence}`,
         expectedArtifactCount: 1,
       });
-      console.log("[Operations:Reports] export completed", {
+      log.info("reports.export.completed", {
         jobId,
+        ...jobContext,
         rowsProcessed,
         pagesProcessed,
         outputRows: rowCount,
@@ -330,21 +346,36 @@ export const run = internalAction({
         maxRssMb: process.resourceUsage().maxRSS / 1024,
       });
     } catch (error) {
-      console.error("[Operations:Reports] export failed", {
+      const sizeLimited = error instanceof ReportSizeLimit;
+      const failure = {
+        category: sizeLimited ? "resource_limit" : "processing_error",
+        retryable: !sizeLimited,
+      };
+      const failureAttrs = {
         jobId,
-        message: error instanceof Error ? error.message : String(error),
-      });
+        ...jobContext,
+        ...failure,
+        leaseGeneration: claim.leaseGeneration,
+        worker: "export",
+        durationMs: Date.now() - started,
+      };
+      if (sizeLimited) {
+        // The user's range choice, not a failure to fix.
+        log.info("reports.export.size_limited", failureAttrs);
+      } else {
+        // The job stores a generic message, so this is the only record of
+        // the real error and its stack.
+        reportError("reports.job.failed", error, {
+          fingerprint: "reports.job.failed:export",
+          ...failureAttrs,
+        });
+      }
       await ctx.runMutation(jobs.failJob, {
         ...fence,
-        category:
-          error instanceof ReportSizeLimit
-            ? "resource_limit"
-            : "processing_error",
-        message:
-          error instanceof ReportSizeLimit
-            ? error.message
-            : "The export could not be completed. Please retry.",
-        retryable: !(error instanceof ReportSizeLimit),
+        ...failure,
+        message: sizeLimited
+          ? error.message
+          : "The export could not be completed. Please retry.",
       });
     }
     return null;

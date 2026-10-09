@@ -41,7 +41,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { BanknoteIcon, AlertCircleIcon, UploadIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
+import { getErrorMessage } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -141,6 +143,7 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
   );
 
   const onSubmit = async (values: PaymentFormValues) => {
+    let uploadHttpStatus: number | undefined;
     setIsSubmitting(true);
     setSubmitError(null);
     try {
@@ -157,6 +160,7 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
           body: values.proofFile,
         });
         if (!uploadResponse.ok) {
+          uploadHttpStatus = uploadResponse.status;
           throw new Error("Failed to upload proof file");
         }
         const uploadData = (await uploadResponse.json()) as {
@@ -197,11 +201,9 @@ export function ReminderPaymentDialog({ followUpId, onSuccess }: Props) {
       form.reset();
       onSuccess();
     } catch (err: unknown) {
-      posthog.captureException(err);
+      reportClientError(err, { flow: "reminder_payment_log", httpStatus: uploadHttpStatus });
       const message =
-        err instanceof Error
-          ? err.message
-          : "Failed to log payment. Please try again.";
+        getErrorMessage(err, "Failed to log payment. Please try again.");
       setSubmitError(message);
       toast.error(message);
     } finally {

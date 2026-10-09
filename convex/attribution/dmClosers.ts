@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, query, type MutationCtx } from "../_generated/server";
 import { normalizeUtmValue, slugifyAttributionLabel } from "../lib/attribution/normalize";
 import { dmCloserMemberIdentity } from "../lib/memberIdentity";
+import { log } from "../lib/observability/log";
 import { validateRequiredString } from "../lib/validation";
 import { requireTenantUser } from "../requireTenantUser";
 
@@ -140,7 +141,7 @@ export const createDmCloser = mutation({
       throw new Error("An active DM closer already uses this UTM medium.");
     }
 
-    return await ctx.db.insert("dmClosers", {
+    const dmCloserId = await ctx.db.insert("dmClosers", {
       tenantId,
       teamId: args.teamId,
       slug: normalized.slug,
@@ -152,6 +153,13 @@ export const createDmCloser = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    log.info("attribution.dm_closer.created", {
+      tenantId,
+      dmCloserId,
+      teamId: args.teamId,
+      linkedUserId: linkedUser?._id,
+    });
+    return dmCloserId;
   },
 });
 
@@ -207,6 +215,15 @@ export const updateDmCloser = mutation({
       normalizedUtmMedium: normalized.normalizedUtmMedium,
       userId: linkedUser?._id,
       updatedAt: Date.now(),
+    });
+    log.info("attribution.dm_closer.updated", {
+      tenantId,
+      dmCloserId: args.dmCloserId,
+      teamId: args.teamId,
+      teamChanged: dmCloser.teamId !== args.teamId,
+      utmMediumChanged:
+        dmCloser.normalizedUtmMedium !== normalized.normalizedUtmMedium,
+      linkedUserChanged: dmCloser.userId !== linkedUser?._id,
     });
     return args.dmCloserId;
   },
@@ -268,6 +285,12 @@ export const setDmCloserActive = mutation({
       throw new Error("DM closer not found.");
     }
     await ctx.db.patch("dmClosers", dmCloserId, { isActive, updatedAt: Date.now() });
+    log.info("attribution.dm_closer.active_set", {
+      tenantId,
+      dmCloserId,
+      isActive,
+      changed: dmCloser.isActive !== isActive,
+    });
     return dmCloserId;
   },
 });

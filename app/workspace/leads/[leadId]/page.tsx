@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { requirePermission } from "@/lib/auth";
+import { isExpectedConvexRejection } from "@/lib/errors";
 
 export const unstable_instant = false;
 
@@ -21,7 +22,9 @@ export default async function LegacyLeadDetailPage({
 			{ leadId: leadId as Id<"leads"> },
 			{ token: session.accessToken },
 		);
-	} catch {
+	} catch (error) {
+		// A bad id or no access is a 404; an outage or bug reaches the error boundary.
+		if (!isExpectedConvexRejection(error)) throw error;
 		target = null;
 	}
 

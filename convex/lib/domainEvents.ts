@@ -1,5 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { captureDomainEvent } from "./observability/posthog";
 
 export type DomainEventEntityType =
   | "opportunity"
@@ -33,7 +34,7 @@ export async function emitDomainEvent(
 ): Promise<Id<"domainEvents">> {
   const occurredAt = params.occurredAt ?? Date.now();
 
-  return await ctx.db.insert("domainEvents", {
+  const domainEventId = await ctx.db.insert("domainEvents", {
     tenantId: params.tenantId,
     entityType: params.entityType,
     entityId: params.entityId,
@@ -46,4 +47,8 @@ export async function emitDomainEvent(
     reason: params.reason,
     metadata: params.metadata ? JSON.stringify(params.metadata) : undefined,
   });
+
+  await captureDomainEvent(ctx, params, domainEventId, occurredAt);
+
+  return domainEventId;
 }

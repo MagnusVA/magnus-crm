@@ -40,6 +40,8 @@ import {
 } from "@/components/ui/select";
 import { toast } from "sonner";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
+import { getErrorMessage } from "@/lib/errors";
 
 // Sentinel value for "no selection" in Select components
 // (Radix Select doesn't support empty string as a value)
@@ -199,9 +201,9 @@ export function EventTypeConfigDialog({
         payment_link_count: paymentLinks.length,
       });
     } catch (error) {
-      posthog.captureException(error);
+      reportClientError(error, { flow: "event_type_config_save" });
       setSubmitError(
-        error instanceof Error ? error.message : "Failed to save configuration",
+        getErrorMessage(error, "Failed to save configuration"),
       );
       return;
     }
@@ -243,11 +245,9 @@ export function EventTypeConfigDialog({
           has_phone_override: !!mappings.phoneField,
         });
       } catch (error) {
-        posthog.captureException(error);
+        reportClientError(error, { flow: "event_type_field_mappings_save" });
         setSubmitError(
-          error instanceof Error
-            ? `Configuration saved, but field mappings failed: ${error.message}`
-            : "Configuration saved, but field mappings failed to save.",
+          `Configuration saved, but field mappings failed: ${getErrorMessage(error, "unknown error")}`,
         );
         return;
       }

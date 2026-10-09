@@ -5,6 +5,7 @@ import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useMutation } from "convex/react";
 import { BanknoteIcon, UploadIcon } from "lucide-react";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -42,6 +43,7 @@ import {
 import { Spinner } from "@/components/ui/spinner";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { getErrorMessage } from "@/lib/errors";
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 const VALID_FILE_TYPES = [
@@ -110,6 +112,7 @@ export function SideDealPaymentDialog({
   });
 
   const onSubmit = async (values: PaymentValues) => {
+    let uploadHttpStatus: number | undefined;
     setIsSubmitting(true);
     setSubmitError(null);
 
@@ -124,6 +127,7 @@ export function SideDealPaymentDialog({
         });
 
         if (!uploadResponse.ok) {
+          uploadHttpStatus = uploadResponse.status;
           throw new Error("Failed to upload proof file.");
         }
 
@@ -154,9 +158,9 @@ export function SideDealPaymentDialog({
       form.reset();
       setOpen(false);
     } catch (error) {
-      posthog.captureException(error);
+      reportClientError(error, { flow: "side_deal_payment_log", httpStatus: uploadHttpStatus });
       const message =
-        error instanceof Error ? error.message : "Failed to record payment";
+        getErrorMessage(error, "Failed to record payment");
       setSubmitError(message);
       toast.error(message);
     } finally {

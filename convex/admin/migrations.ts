@@ -18,6 +18,7 @@ import {
   extractQuestionsAndAnswers,
   writeMeetingFormResponses,
 } from "../lib/meetingFormResponses";
+import { log } from "../lib/observability/log";
 import { getString, isRecord } from "../lib/payloadExtraction";
 import {
   getLegacyTenantCalendlyConnectionPatch,
@@ -425,11 +426,8 @@ export const backfillMeetingFormResponsesForRawEvent = internalMutation({
     let envelope: unknown;
     try {
       envelope = JSON.parse(rawEvent.payload);
-    } catch (error) {
-      console.error("[Migration:2A] Failed to parse raw webhook payload", {
-        rawEventId,
-        error: error instanceof Error ? error.message : String(error),
-      });
+    } catch {
+      // Counted as eventsSkippedInvalidJson in the run's completed line.
       return {
         status: "skipped_invalid_json",
         eventsProcessed: 0,
@@ -645,7 +643,7 @@ export const deduplicateEventTypeConfigsInternal = internalMutation({
     let opportunitiesRepointed = 0;
     let responsesRepointed = 0;
 
-    for (const [eventTypeUri, group] of groupedConfigs) {
+    for (const group of groupedConfigs.values()) {
       if (group.length <= 1) {
         continue;
       }
@@ -831,13 +829,6 @@ export const deduplicateEventTypeConfigsInternal = internalMutation({
         await ctx.db.delete("eventTypeConfigs", duplicate._id);
         deleted += 1;
       }
-
-      console.log("[Migration:2E] Deduplicated eventTypeConfig group", {
-        tenantId,
-        eventTypeUri,
-        canonicalConfigId: canonicalConfig._id,
-        duplicatesDeleted: duplicates.length,
-      });
     }
 
     return {
@@ -854,6 +845,8 @@ export const backfillMeetingFormResponses = action({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
     await requireSystemAdmin(ctx);
+    const startedAt = Date.now();
+    log.info("admin.migration.started", { migration: "backfill_meeting_form_responses", tenantId });
 
     let cursor: string | null = null;
     let eventsScanned = 0;
@@ -925,7 +918,9 @@ export const backfillMeetingFormResponses = action({
       cursor = page.continueCursor;
     }
 
-    console.log("[Migration:2A] Meeting form response backfill complete", {
+    log.info("admin.migration.completed", {
+      migration: "backfill_meeting_form_responses",
+      durationMs: Date.now() - startedAt,
       tenantId,
       eventsScanned,
       eventsProcessed,
@@ -1097,6 +1092,7 @@ export const backfillLeadStatus = mutation({
   args: {},
   handler: async (ctx) => {
     await requireSystemAdmin(ctx);
+    log.info("admin.migration.started", { migration: "backfill_lead_status" });
 
     const leads = await ctx.db.query("leads").collect();
     let updated = 0;
@@ -1109,7 +1105,8 @@ export const backfillLeadStatus = mutation({
       updated += 1;
     }
 
-    console.log("[Migration:2B] Lead status backfill complete", {
+    log.info("admin.migration.completed", {
+      migration: "backfill_lead_status",
       updated,
       total: leads.length,
     });
@@ -1122,6 +1119,7 @@ export const backfillUserIsActive = mutation({
   args: {},
   handler: async (ctx) => {
     await requireSystemAdmin(ctx);
+    log.info("admin.migration.started", { migration: "backfill_user_is_active" });
 
     const users = await ctx.db.query("users").collect();
     let updated = 0;
@@ -1134,7 +1132,8 @@ export const backfillUserIsActive = mutation({
       updated += 1;
     }
 
-    console.log("[Migration:2B] User isActive backfill complete", {
+    log.info("admin.migration.completed", {
+      migration: "backfill_user_is_active",
       updated,
       total: users.length,
     });
@@ -1147,6 +1146,7 @@ export const backfillPaymentAmountMinor = mutation({
   args: {},
   handler: async (ctx) => {
     await requireSystemAdmin(ctx);
+    log.info("admin.migration.started", { migration: "backfill_payment_amount_minor" });
 
     const payments = await ctx.db.query("paymentRecords").collect();
     let updated = 0;
@@ -1174,7 +1174,8 @@ export const backfillPaymentAmountMinor = mutation({
       updated += 1;
     }
 
-    console.log("[Migration:2B] Payment amountMinor backfill complete", {
+    log.info("admin.migration.completed", {
+      migration: "backfill_payment_amount_minor",
       updated,
       skippedMissingLegacyAmount,
       sampleIdsMissingLegacyAmount,
@@ -1194,6 +1195,7 @@ export const backfillPaymentContextType = mutation({
   args: {},
   handler: async (ctx) => {
     await requireSystemAdmin(ctx);
+    log.info("admin.migration.started", { migration: "backfill_payment_context_type" });
 
     const payments = await ctx.db.query("paymentRecords").collect();
     let updated = 0;
@@ -1208,7 +1210,8 @@ export const backfillPaymentContextType = mutation({
       updated += 1;
     }
 
-    console.log("[Migration:2B] Payment contextType backfill complete", {
+    log.info("admin.migration.completed", {
+      migration: "backfill_payment_context_type",
       updated,
       total: payments.length,
     });
@@ -1221,6 +1224,7 @@ export const backfillFollowUpType = mutation({
   args: {},
   handler: async (ctx) => {
     await requireSystemAdmin(ctx);
+    log.info("admin.migration.started", { migration: "backfill_follow_up_type" });
 
     const followUps = await ctx.db.query("followUps").collect();
     let updated = 0;
@@ -1237,7 +1241,8 @@ export const backfillFollowUpType = mutation({
       updated += 1;
     }
 
-    console.log("[Migration:2B] Follow-up type backfill complete", {
+    log.info("admin.migration.completed", {
+      migration: "backfill_follow_up_type",
       updated,
       total: followUps.length,
     });
@@ -1250,6 +1255,7 @@ export const backfillMeetingCloserId = mutation({
   args: {},
   handler: async (ctx) => {
     await requireSystemAdmin(ctx);
+    log.info("admin.migration.started", { migration: "backfill_meeting_closer_id" });
 
     const meetings = await ctx.db.query("meetings").collect();
     let updated = 0;
@@ -1312,7 +1318,8 @@ export const backfillMeetingCloserId = mutation({
         (inferredByReason[inferred.reason] ?? 0) + 1;
     }
 
-    console.log("[Migration:2C] Meeting closer backfill complete", {
+    log.info("admin.migration.completed", {
+      migration: "backfill_meeting_closer_id",
       inferredByReason,
       opportunitiesPatched,
       skippedMeetings,
@@ -1334,6 +1341,7 @@ export const backfillCustomerTotals = mutation({
   args: {},
   handler: async (ctx) => {
     await requireSystemAdmin(ctx);
+    log.info("admin.migration.started", { migration: "backfill_customer_totals" });
 
     const customers = await ctx.db.query("customers").collect();
     let updated = 0;
@@ -1362,7 +1370,8 @@ export const backfillCustomerTotals = mutation({
       updated += 1;
     }
 
-    console.log("[Migration:2C] Customer totals backfill complete", {
+    log.info("admin.migration.completed", {
+      migration: "backfill_customer_totals",
       updated,
       total: customers.length,
     });
@@ -1491,6 +1500,7 @@ export const backfillPaymentProgramsAndTypes = mutation({
   },
   handler: async (ctx, args) => {
     await requireSystemAdmin(ctx);
+    log.info("admin.migration.started", { migration: "backfill_payment_programs_and_types" });
 
     const customers = await ctx.db.query("customers").collect();
     const payments = await ctx.db.query("paymentRecords").collect();
@@ -1730,6 +1740,14 @@ export const backfillPaymentProgramsAndTypes = mutation({
       await syncCustomerPaymentSummary(ctx, customerId);
     }
 
+    log.info("admin.migration.completed", {
+      migration: "backfill_payment_programs_and_types",
+      customersPatched,
+      paymentsPatched,
+      tenantProgramsResolved: touchedProgramIds.size,
+      touchedCustomers: touchedCustomerIds.size,
+    });
+
     return {
       customersPatched,
       paymentsPatched,
@@ -1743,13 +1761,15 @@ export const seedTenantStats = mutation({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
     await requireSystemAdmin(ctx);
+    log.info("admin.migration.started", { migration: "seed_tenant_stats", tenantId });
 
     const result: SeedTenantStatsInternalResult = await ctx.runMutation(
       internal.admin.migrations.seedTenantStatsInternal,
       { tenantId },
     );
 
-    console.log("[Migration:2D] tenantStats seed complete", {
+    log.info("admin.migration.completed", {
+      migration: "seed_tenant_stats",
       tenantId,
       action: result.action,
     });
@@ -1762,6 +1782,8 @@ export const seedAllTenantStats = action({
   args: {},
   handler: async (ctx) => {
     await requireSystemAdmin(ctx);
+    const startedAt = Date.now();
+    log.info("admin.migration.started", { migration: "seed_all_tenant_stats" });
 
     const tenantIds: Id<"tenants">[] = await ctx.runQuery(
       internal.admin.migrations.getActiveTenantIds,
@@ -1782,7 +1804,9 @@ export const seedAllTenantStats = action({
       }
     }
 
-    console.log("[Migration:2D] Seeded tenantStats for active tenants", {
+    log.info("admin.migration.completed", {
+      migration: "seed_all_tenant_stats",
+      durationMs: Date.now() - startedAt,
       created,
       updated,
       totalTenants: tenantIds.length,
@@ -1800,6 +1824,7 @@ export const deduplicateEventTypeConfigs = mutation({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
     await requireSystemAdmin(ctx);
+    log.info("admin.migration.started", { migration: "deduplicate_event_type_configs", tenantId });
 
     const result: DeduplicateEventTypeConfigsInternalResult =
       await ctx.runMutation(
@@ -1807,7 +1832,8 @@ export const deduplicateEventTypeConfigs = mutation({
         { tenantId },
       );
 
-    console.log("[Migration:2E] Event type config dedupe complete", {
+    log.info("admin.migration.completed", {
+      migration: "deduplicate_event_type_configs",
       tenantId,
       ...result,
     });
@@ -1820,6 +1846,8 @@ export const deduplicateAllEventTypeConfigs = action({
   args: {},
   handler: async (ctx) => {
     await requireSystemAdmin(ctx);
+    const startedAt = Date.now();
+    log.info("admin.migration.started", { migration: "deduplicate_all_event_type_configs" });
 
     const tenantIds: Id<"tenants">[] = await ctx.runQuery(
       internal.admin.migrations.getAllTenantIds,
@@ -1845,7 +1873,9 @@ export const deduplicateAllEventTypeConfigs = action({
       responsesRepointed += result.responsesRepointed;
     }
 
-    console.log("[Migration:2E] Event type config dedupe complete for all tenants", {
+    log.info("admin.migration.completed", {
+      migration: "deduplicate_all_event_type_configs",
+      durationMs: Date.now() - startedAt,
       totalTenants: tenantIds.length,
       deleted,
       fieldCatalogRowsDeleted,
@@ -1898,16 +1928,6 @@ export const auditOrphanedTenantRows = query({
         orphans[table] = count;
         samples[table] = sampleIds;
       }
-    }
-
-    if (totalOrphans === 0) {
-      console.log("[Audit:2F] No orphaned tenant-scoped rows found");
-    } else {
-      console.warn("[Audit:2F] Orphaned tenant-scoped rows found", {
-        totalOrphans,
-        orphans,
-        samples,
-      });
     }
 
     return {
@@ -2077,15 +2097,6 @@ export const auditOrphanedUserRefs = query({
       });
     }
 
-    if (issues.length === 0) {
-      console.log("[Audit:2F] No orphaned user references found");
-    } else {
-      console.warn("[Audit:2F] Orphaned user references found", {
-        totalIssues: issues.length,
-        issues,
-      });
-    }
-
     return {
       issues,
       totalIssues: issues.length,
@@ -2097,6 +2108,7 @@ export const backfillTenantCalendlyConnections = mutation({
   args: {},
   handler: async (ctx) => {
     await requireSystemAdmin(ctx);
+    log.info("admin.migration.started", { migration: "backfill_tenant_calendly_connections" });
 
     const tenants = await ctx.db.query("tenants").collect();
     let createdDisconnected = 0;
@@ -2226,7 +2238,8 @@ export const backfillTenantCalendlyConnections = mutation({
       addSampleId(samplePatched, tenant._id);
     }
 
-    console.log("[Migration:5A] Tenant Calendly connections backfill complete", {
+    log.info("admin.migration.completed", {
+      migration: "backfill_tenant_calendly_connections",
       createdDisconnected,
       createdFromLegacy,
       patchedExisting,
@@ -2383,7 +2396,6 @@ export const auditPhase6Readiness = query({
       }
     }
 
-    console.log("[Audit:6] Phase 6 readiness", report);
     return report;
   },
 });
@@ -2421,14 +2433,6 @@ export const auditPaymentCurrencies = query({
     const inconsistentTenants = report.filter(
       (tenant) => !tenant.isConsistent,
     );
-    if (inconsistentTenants.length === 0) {
-      console.log("[Audit:2F] Payment currencies are consistent for all tenants");
-    } else {
-      console.warn("[Audit:2F] Mixed tenant currencies detected", {
-        inconsistentTenants,
-      });
-    }
-
     return {
       report,
       totalTenants: report.length,
@@ -2462,6 +2466,7 @@ export const purgePhase6BlockerRecords = mutation({
   args: {},
   handler: async (ctx) => {
     await requireSystemAdmin(ctx);
+    log.info("admin.migration.started", { migration: "purge_phase6_blocker_records" });
 
     const counts = {
       opportunities: 0,
@@ -2488,10 +2493,6 @@ export const purgePhase6BlockerRecords = mutation({
     const opportunityIds = [
       ...new Set(blockerMeetings.map((m) => m.opportunityId)),
     ];
-
-    console.log(
-      `[Phase6:Purge] Found ${blockerMeetings.length} meetings without assignedCloserId across ${opportunityIds.length} opportunities`,
-    );
 
     for (const oppId of opportunityIds) {
       // 1. All meetings for this opportunity (not just blocker ones — delete the
@@ -2673,10 +2674,6 @@ export const purgePhase6BlockerRecords = mutation({
       hasDefinedField(p as unknown as Record<string, unknown>, "amount"),
     );
 
-    console.log(
-      `[Phase6:Purge] Found ${legacyPayments.length} payment records with legacy amount field`,
-    );
-
     for (const p of legacyPayments) {
       if (p.proofFileId) {
         await ctx.storage.delete(p.proofFileId);
@@ -2686,7 +2683,13 @@ export const purgePhase6BlockerRecords = mutation({
       counts.legacyPaymentsStripped++;
     }
 
-    console.log("[Phase6:Purge] Completed", counts);
+    log.info("admin.migration.completed", {
+      migration: "purge_phase6_blocker_records",
+      blockerMeetingsFound: blockerMeetings.length,
+      blockerOpportunitiesFound: opportunityIds.length,
+      legacyPaymentsFound: legacyPayments.length,
+      ...counts,
+    });
 
     return {
       blockerA: {

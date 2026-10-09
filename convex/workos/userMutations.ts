@@ -13,6 +13,7 @@ import {
 } from "../lib/workosUserId";
 import { getIdentityOrgId } from "../lib/identity";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { log } from "../lib/observability/log";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 
 const crmRoleValidator = v.union(
@@ -70,7 +71,6 @@ export const createUserWithCalendlyLink = internalMutation({
     calendlyMemberId: v.optional(v.id("calendlyOrgMembers")),
   },
   handler: async (ctx, args) => {
-    console.log("[WorkOS:Users] createUserWithCalendlyLink called", { tenantId: args.tenantId, role: args.role, hasCalendlyMember: !!args.calendlyMemberId });
     const {
       tenantId, workosUserId, email, fullName, role,
       calendlyUserUri, calendlyMemberId,
@@ -99,11 +99,9 @@ export const createUserWithCalendlyLink = internalMutation({
         .withIndex("by_workosUserId", (q) => q.eq("workosUserId", legacyRawWorkosUserId))
         .unique();
     }
-    console.log("[WorkOS:Users] createUserWithCalendlyLink existing check", { exists: !!existing, existingId: existing?._id });
     if (existing) {
       const wasInactive = existing.isActive === false;
       const roleChanged = existing.role !== role;
-      console.log("[WorkOS:Users] createUserWithCalendlyLink updating existing user", { userId: existing._id });
       if (shouldClearCalendly) {
         await unlinkCalendlyMemberForUser(ctx, existing);
       }
@@ -153,13 +151,22 @@ export const createUserWithCalendlyLink = internalMutation({
       }
 
       if (calendlyMemberId) {
-        console.log("[WorkOS:Users] createUserWithCalendlyLink linking calendly member to existing user", { calendlyMemberId, userId: existing._id });
         await ctx.db.patch("calendlyOrgMembers", calendlyMemberId, {
           matchedUserId: existing._id,
         });
       }
 
       await syncLeadGenWorkerProfile(ctx, existing._id);
+      log.info("workos.user.provision_reused", {
+        tenantId,
+        userId: existing._id,
+        role,
+        reactivated: wasInactive,
+        roleChanged,
+        calendlyMemberId,
+        calendlyCleared: shouldClearCalendly,
+        source: "create_user_with_calendly_link",
+      });
       return existing._id;
     }
 
@@ -189,13 +196,16 @@ export const createUserWithCalendlyLink = internalMutation({
       toStatus: role,
     });
 
-    console.log("[WorkOS:Users] createUserWithCalendlyLink user inserted", { userId });
-
     // Link the Calendly org member to this user (if selected during invite)
     if (calendlyMemberId) {
-      console.log("[WorkOS:Users] createUserWithCalendlyLink linking calendly member", { calendlyMemberId, userId });
       await ctx.db.patch("calendlyOrgMembers", calendlyMemberId, {
         matchedUserId: userId,
+      });
+      log.info("user.calendly_member.linked", {
+        tenantId,
+        userId,
+        calendlyMemberId,
+        source: "create_user_with_calendly_link",
       });
     }
 
@@ -230,12 +240,6 @@ export const createInvitedUser = internalMutation({
     workosInvitationId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    console.log("[WorkOS:Users] createInvitedUser called", {
-      tenantId: args.tenantId,
-      role: args.role,
-      email: args.email,
-      hasCalendlyMember: !!args.calendlyMemberId,
-    });
     const {
       tenantId, workosUserId, email, fullName, role,
       calendlyUserUri, calendlyMemberId,
@@ -263,7 +267,6 @@ export const createInvitedUser = internalMutation({
     if (existing) {
       const wasInactive = existing.isActive === false;
       const roleChanged = existing.role !== role;
-      console.log("[WorkOS:Users] createInvitedUser updating existing user", { userId: existing._id });
       if (shouldClearCalendly) {
         await unlinkCalendlyMemberForUser(ctx, existing);
       }
@@ -317,6 +320,17 @@ export const createInvitedUser = internalMutation({
       }
 
       await syncLeadGenWorkerProfile(ctx, existing._id);
+      log.info("workos.user.provision_reused", {
+        tenantId,
+        userId: existing._id,
+        role,
+        invitationStatus,
+        reactivated: wasInactive,
+        roleChanged,
+        calendlyMemberId,
+        calendlyCleared: shouldClearCalendly,
+        source: "invite",
+      });
       return existing._id;
     }
 
@@ -348,12 +362,15 @@ export const createInvitedUser = internalMutation({
       toStatus: invitationStatus,
     });
 
-    console.log("[WorkOS:Users] createInvitedUser user inserted", { userId, invitationStatus });
-
     // Link the Calendly org member to this user (if selected during invite)
     if (calendlyMemberId) {
-      console.log("[WorkOS:Users] createInvitedUser linking calendly member", { calendlyMemberId, userId });
       await ctx.db.patch("calendlyOrgMembers", calendlyMemberId, { matchedUserId: userId });
+      log.info("user.calendly_member.linked", {
+        tenantId,
+        userId,
+        calendlyMemberId,
+        source: "invite",
+      });
     }
 
     await syncLeadGenWorkerProfile(ctx, userId);
@@ -383,20 +400,15 @@ export const claimInvitedAccountByEmail = internalMutation({
   ) => {
     const normalizedEmail = email.trim().toLowerCase();
 
-    console.log("[WorkOS:Users] claimInvitedAccountByEmail called", {
-      workosUserId,
-      orgId,
-      email: normalizedEmail,
-    });
-
     const tenant = await ctx.db
       .query("tenants")
       .withIndex("by_workosOrgId", (q) => q.eq("workosOrgId", orgId))
       .unique();
 
     if (!tenant) {
-      console.warn("[WorkOS:Users] claimInvitedAccountByEmail: no tenant for orgId", {
-        orgId,
+      log.warn("workos.user.invite_claim_skipped", {
+        reason: "tenant_not_found",
+        workosOrgId: orgId,
       });
       return null;
     }
@@ -409,32 +421,27 @@ export const claimInvitedAccountByEmail = internalMutation({
       .unique();
 
     if (!pendingUser) {
-      console.log("[WorkOS:Users] claimInvitedAccountByEmail: no pending user found", {
-        email: normalizedEmail,
+      log.info("workos.user.invite_claim_skipped", {
+        reason: "no_invited_user",
         tenantId: tenant._id,
       });
       return null;
     }
 
     if (pendingUser.invitationStatus !== "pending") {
-      console.log("[WorkOS:Users] claimInvitedAccountByEmail: user not in pending state", {
+      const alreadyClaimedByCaller = pendingUser.workosUserId === workosUserId;
+      log.info("workos.user.invite_claim_skipped", {
+        reason: alreadyClaimedByCaller ? "already_claimed" : "not_pending",
+        tenantId: tenant._id,
         userId: pendingUser._id,
         invitationStatus: pendingUser.invitationStatus,
       });
-      if (pendingUser.workosUserId === workosUserId) {
+      if (alreadyClaimedByCaller) {
         await syncLeadGenWorkerProfile(ctx, pendingUser._id);
         return pendingUser;
       }
       return null;
     }
-
-    console.log("[WorkOS:Users] claimInvitedAccountByEmail: claiming pending user", {
-      userId: pendingUser._id,
-      oldWorkosUserId: pendingUser.workosUserId,
-      newWorkosUserId: workosUserId,
-      role: pendingUser.role,
-      hasCalendlyLink: !!pendingUser.calendlyUserUri,
-    });
 
     await ctx.db.patch("users", pendingUser._id, {
       workosUserId,
@@ -449,9 +456,11 @@ export const claimInvitedAccountByEmail = internalMutation({
     await syncLeadGenWorkerProfile(ctx, pendingUser._id);
 
     const claimed = await ctx.db.get("users", pendingUser._id);
-    console.log("[WorkOS:Users] claimInvitedAccountByEmail: claim complete", {
+    log.info("workos.user.invite_claimed", {
+      tenantId: tenant._id,
       userId: pendingUser._id,
       role: pendingUser.role,
+      hasCalendlyLink: Boolean(pendingUser.calendlyUserUri),
     });
 
     return claimed;
@@ -479,28 +488,27 @@ export const claimInvitedAccountByEmail = internalMutation({
 export const claimInvitedAccount = mutation({
   args: {},
   handler: async (ctx): Promise<Doc<"users"> | null> => {
-    console.log("[WorkOS:Users] claimInvitedAccount called");
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) {
-      console.warn("[WorkOS:Users] claimInvitedAccount: not authenticated");
+      log.warn("workos.user.invite_claim_skipped", { reason: "not_authenticated" });
       return null;
     }
 
     const workosUserId = getCanonicalIdentityWorkosUserId(identity);
     if (!workosUserId) {
-      console.warn("[WorkOS:Users] claimInvitedAccount: no workosUserId");
+      log.warn("workos.user.invite_claim_skipped", { reason: "missing_workos_user_id" });
       return null;
     }
 
     const orgId = getIdentityOrgId(identity);
     if (!orgId) {
-      console.warn("[WorkOS:Users] claimInvitedAccount: no orgId");
+      log.warn("workos.user.invite_claim_skipped", { reason: "missing_org_id" });
       return null;
     }
 
     const email = identity.email;
     if (!email || typeof email !== "string") {
-      console.warn("[WorkOS:Users] claimInvitedAccount: no email in identity");
+      log.warn("workos.user.invite_claim_skipped", { reason: "missing_email" });
       return null;
     }
 
@@ -519,6 +527,7 @@ export const claimInvitedAccount = mutation({
 export const normalizeStoredWorkosUserIds = internalMutation({
   args: {},
   handler: async (ctx) => {
+    const startedAt = Date.now();
     const updatedUsers: Array<{
       userId: string;
       from: string;
@@ -541,9 +550,9 @@ export const normalizeStoredWorkosUserIds = internalMutation({
       });
     }
 
-    console.log("[WorkOS:Users] normalizeStoredWorkosUserIds completed", {
+    log.info("workos.user.ids_normalized", {
       updatedCount: updatedUsers.length,
-      updatedUsers,
+      durationMs: Date.now() - startedAt,
     });
 
     return {
@@ -563,7 +572,6 @@ export const updateRole = internalMutation({
     role: crmRoleValidator,
   },
   handler: async (ctx, { userId, role }) => {
-    console.log("[WorkOS:Users] updateRole called", { userId, role });
     const existing = await ctx.db.get("users", userId);
     if (!existing) {
       throw new Error("User not found");
@@ -595,7 +603,6 @@ export const updateRole = internalMutation({
       });
     }
     await syncLeadGenWorkerProfile(ctx, userId);
-    console.log("[WorkOS:Users] updateRole completed", { userId, role });
   },
 });
 
@@ -610,7 +617,6 @@ export const updateRoleAndInvitation = internalMutation({
     workosInvitationId: v.string(),
   },
   handler: async (ctx, { userId, role, workosInvitationId }) => {
-    console.log("[WorkOS:Users] updateRoleAndInvitation called", { userId, role, workosInvitationId });
     const existing = await ctx.db.get("users", userId);
     if (!existing) {
       throw new Error("User not found");
@@ -643,7 +649,6 @@ export const updateRoleAndInvitation = internalMutation({
       });
     }
     await syncLeadGenWorkerProfile(ctx, userId);
-    console.log("[WorkOS:Users] updateRoleAndInvitation completed", { userId, role });
   },
 });
 
@@ -654,14 +659,17 @@ export const updateRoleAndInvitation = internalMutation({
 export const removeUser = internalMutation({
   args: { userId: v.id("users") },
   handler: async (ctx, { userId }) => {
-    console.log("[WorkOS:Users] removeUser called", { userId });
     const user = await ctx.db.get("users", userId);
     if (!user) {
-      console.warn("[WorkOS:Users] removeUser user not found", { userId });
+      log.warn("workos.user.remove_skipped", { reason: "user_not_found", userId });
       return;
     }
     if (user.isActive === false) {
-      console.log("[WorkOS:Users] removeUser: already deactivated", { userId });
+      log.info("workos.user.remove_skipped", {
+        reason: "already_deactivated",
+        tenantId: user.tenantId,
+        userId,
+      });
       return;
     }
 
@@ -698,8 +706,13 @@ export const removeUser = internalMutation({
         )
         .unique();
       if (member) {
-        console.log("[WorkOS:Users] removeUser unlinking calendly member", { memberId: member._id });
         await ctx.db.patch("calendlyOrgMembers", member._id, { matchedUserId: undefined });
+        log.info("user.calendly_member.unlinked", {
+          tenantId: user.tenantId,
+          userId,
+          previousMemberId: member._id,
+          reason: "user_deactivated",
+        });
       }
     }
 
@@ -722,6 +735,5 @@ export const removeUser = internalMutation({
       occurredAt: now,
     });
     await syncLeadGenWorkerProfile(ctx, userId);
-    console.log("[WorkOS:Users] removeUser soft deleted", { userId });
   },
 });

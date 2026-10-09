@@ -40,6 +40,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Spinner } from "@/components/ui/spinner";
+import { getErrorMessage } from "@/lib/errors";
 
 const channelPickerSchema = z.object({
   notifyChannelId: z.string().min(1, "Pick a notification channel"),
@@ -117,7 +118,7 @@ export function SlackChannelPickerDialog({
       .catch((error) => {
         if (!cancelled) {
           setListError(
-            error instanceof Error ? error.message : "Failed to list channels.",
+            getErrorMessage(error, "Failed to list channels."),
           );
         }
       });
@@ -166,7 +167,7 @@ export function SlackChannelPickerDialog({
       onOpenChange(false);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to save channels.",
+        getErrorMessage(error, "Failed to save channels."),
       );
     }
   }

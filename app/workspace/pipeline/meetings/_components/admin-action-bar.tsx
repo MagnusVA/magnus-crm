@@ -9,10 +9,12 @@ import { Spinner } from "@/components/ui/spinner";
 import { LinkIcon, UserXIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import { PaymentFormDialog } from "@/app/workspace/closer/meetings/_components/payment-form-dialog";
 import { MarkNoShowDialog } from "@/app/workspace/closer/meetings/_components/mark-no-show-dialog";
 import { AdminFollowUpDialog } from "./admin-follow-up-dialog";
 import { AdminMarkLostDialog } from "./admin-mark-lost-dialog";
+import { getErrorMessage } from "@/lib/errors";
 
 type AdminActionBarProps = {
   meeting: Doc<"meetings">;
@@ -132,11 +134,9 @@ function AdminRescheduleButton({
       });
       toast.success("Reschedule link generated");
     } catch (error) {
-      posthog.captureException(error);
+      reportClientError(error, { flow: "admin_reschedule_link_create" });
       toast.error(
-        error instanceof Error
-          ? error.message
-          : "Failed to generate reschedule link",
+        getErrorMessage(error, "Failed to generate reschedule link"),
       );
     } finally {
       setIsLoading(false);

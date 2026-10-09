@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { getErrorMessage } from "@/lib/errors";
 
 type BillingPaymentDetail = NonNullable<
   FunctionReturnType<typeof api.billing.queries.getPaymentDetail>
@@ -169,7 +170,7 @@ export function CorrectionDialog({
       });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Unable to correct payment.";
+        getErrorMessage(error, "Unable to correct payment.");
       setSubmitError(message);
     } finally {
       setIsSubmitting(false);

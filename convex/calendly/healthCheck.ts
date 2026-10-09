@@ -4,8 +4,19 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction, env } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
+import { log, reportError } from "../lib/observability/log";
+import { CALENDLY_FETCH_TIMEOUT_MS, calendlyHttpError } from "./apiErrors";
 import { provisionWebhookSubscription } from "./webhookSetup";
 import { refreshTenantTokenCore } from "./tokens";
+
+/** Report at most this many tenant ids on one stuck-provisioning report. */
+const MAX_REPORTED_TENANT_IDS = 10;
+
+type TokenIntrospection =
+  | { status: "active" }
+  | { status: "inactive"; httpStatus?: number }
+  /** Calendly is down or rate limiting; the token's state is unknown. */
+  | { status: "unavailable"; httpStatus: number };
 
 type TenantHealthState = {
   accessToken?: string;
@@ -15,7 +26,9 @@ type TenantHealthState = {
   tenantStatus: string;
 };
 
-async function introspectAccessToken(accessToken: string) {
+async function introspectAccessToken(
+  accessToken: string,
+): Promise<TokenIntrospection> {
   const clientId = env.CALENDLY_CLIENT_ID;
   const clientSecret = env.CALENDLY_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
@@ -32,14 +45,18 @@ async function introspectAccessToken(accessToken: string) {
       client_secret: clientSecret,
       token: accessToken,
     }).toString(),
+    signal: AbortSignal.timeout(CALENDLY_FETCH_TIMEOUT_MS),
   });
 
+  if (response.status === 429 || response.status >= 500) {
+    return { status: "unavailable", httpStatus: response.status };
+  }
   if (!response.ok) {
-    return { active: false };
+    return { status: "inactive", httpStatus: response.status };
   }
 
   const data = (await response.json()) as { active?: boolean };
-  return { active: Boolean(data.active) };
+  return { status: data.active ? "active" : "inactive" };
 }
 
 async function getWebhookSubscriptionState(
@@ -57,6 +74,7 @@ async function getWebhookSubscriptionState(
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
+      signal: AbortSignal.timeout(CALENDLY_FETCH_TIMEOUT_MS),
     },
   );
 
@@ -65,9 +83,7 @@ async function getWebhookSubscriptionState(
   }
 
   if (!response.ok) {
-    throw new Error(
-      `Unable to inspect Calendly webhook subscription ${webhookUuid}: ${response.status} ${await response.text()}`,
-    );
+    throw await calendlyHttpError("webhook subscription lookup", response);
   }
 
   const data = (await response.json()) as {
@@ -83,10 +99,6 @@ async function runTenantHealthCheck(
   ctx: Parameters<typeof refreshTenantTokenCore>[0],
   tenantId: Id<"tenants">,
 ) {
-  console.log(
-    `[health-check] runTenantHealthCheck: entry for tenant ${tenantId}`,
-  );
-
   const tenant = (await ctx.runQuery(
     internal.calendly.connectionQueries.getTenantConnectionContext,
     {
@@ -95,9 +107,6 @@ async function runTenantHealthCheck(
   )) as TenantHealthState | null;
 
   if (!tenant?.accessToken || !tenant.organizationUri) {
-    console.warn(
-      `[health-check] runTenantHealthCheck: tenant ${tenantId} skipped, hasAccessToken=${Boolean(tenant?.accessToken)}, hasOrganizationUri=${Boolean(tenant?.organizationUri)}`,
-    );
     return { status: "skipped" as const, reason: "missing_tokens_or_org" };
   }
 
@@ -105,55 +114,43 @@ async function runTenantHealthCheck(
     tenant.tenantStatus !== "active" &&
     tenant.tenantStatus !== "provisioning_webhooks"
   ) {
-    console.warn(
-      `[health-check] runTenantHealthCheck: tenant ${tenantId} skipped, status=${tenant.tenantStatus}`,
-    );
     return { status: "skipped" as const, reason: "tenant_not_ready" };
   }
 
-  console.log(
-    `[health-check] runTenantHealthCheck: tenant ${tenantId} introspecting access token`,
-  );
   let accessToken = tenant.accessToken;
   const tokenStatus = await introspectAccessToken(accessToken);
-  console.log(
-    `[health-check] runTenantHealthCheck: tenant ${tenantId} token introspection result: active=${tokenStatus.active}`,
-  );
 
-  if (!tokenStatus.active) {
-    console.log(
-      `[health-check] runTenantHealthCheck: tenant ${tenantId} token inactive, attempting refresh`,
-    );
+  if (tokenStatus.status === "unavailable") {
+    // Refreshing spends the single-use refresh token, so don't refresh on a
+    // guess. The stored token is likely still valid; check again next run.
+    log.warn("calendly.health_check.introspection_unavailable", {
+      tenantId,
+      httpStatus: tokenStatus.httpStatus,
+      action: "skip_refresh",
+    });
+  } else if (tokenStatus.status === "inactive") {
+    if (tokenStatus.httpStatus !== undefined) {
+      log.warn("calendly.health_check.introspection_failed", {
+        tenantId,
+        httpStatus: tokenStatus.httpStatus,
+        action: "refresh",
+      });
+    }
     const refreshed = await refreshTenantTokenCore(ctx, tenantId);
     if (!refreshed.refreshed) {
-      console.warn(
-        `[health-check] runTenantHealthCheck: tenant ${tenantId} refresh failed, reason=${refreshed.reason}`,
-      );
       return {
         status: "skipped" as const,
         reason: refreshed.reason,
       };
     }
     accessToken = refreshed.accessToken;
-    console.log(
-      `[health-check] runTenantHealthCheck: tenant ${tenantId} token refreshed successfully`,
-    );
   }
 
-  console.log(
-    `[health-check] runTenantHealthCheck: tenant ${tenantId} checking webhook state, hasWebhookUri=${Boolean(tenant.webhookUri)}`,
-  );
   const webhookState = tenant.webhookUri
     ? await getWebhookSubscriptionState(accessToken, tenant.webhookUri)
     : "missing";
-  console.log(
-    `[health-check] runTenantHealthCheck: tenant ${tenantId} webhookState=${webhookState}`,
-  );
 
   if (webhookState !== "active") {
-    console.log(
-      `[health-check] runTenantHealthCheck: tenant ${tenantId} reprovisioning webhook (state=${webhookState})`,
-    );
     const { webhookUri, signingSecret } = await provisionWebhookSubscription({
       tenantId,
       accessToken,
@@ -170,14 +167,22 @@ async function runTenantHealthCheck(
         webhookSecret: signingSecret,
       },
     );
-    console.log(
-      `[health-check] runTenantHealthCheck: tenant ${tenantId} webhook reprovisioned, newUri=${webhookUri}`,
+    // A disabled or missing subscription means Calendly stopped delivering
+    // bookings, which were lost until now.
+    reportError(
+      "calendly.webhook.reprovisioned",
+      new Error(`Calendly webhook subscription was ${webhookState}`),
+      {
+        severity: "error",
+        integration: "calendly",
+        fingerprint: `calendly.webhook.reprovisioned:${webhookState}`,
+        tenantId,
+        previousState: webhookState,
+        trigger: "health_check",
+      },
     );
   }
 
-  console.log(
-    `[health-check] runTenantHealthCheck: tenant ${tenantId} check complete, tokenActive=true, webhookState=${webhookState}`,
-  );
   return {
     status: "checked" as const,
     tokenActive: true,
@@ -188,7 +193,7 @@ async function runTenantHealthCheck(
 export const checkSingleTenant = internalAction({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
-    console.log(`[health-check] checkSingleTenant: entry for tenant ${tenantId}`);
+    const startedAt = Date.now();
     try {
       const result = await runTenantHealthCheck(ctx, tenantId);
       await ctx.runMutation(
@@ -198,15 +203,26 @@ export const checkSingleTenant = internalAction({
           checkedAt: Date.now(),
         },
       );
-      console.log(
-        `[health-check] checkSingleTenant: tenant ${tenantId} completed, status=${result.status}`,
-      );
+      const attrs = {
+        tenantId,
+        status: result.status,
+        reason: result.status === "skipped" ? result.reason : undefined,
+        webhookState: result.status === "checked" ? result.webhookState : undefined,
+        durationMs: Date.now() - startedAt,
+      };
+      if (result.status === "checked") {
+        log.info("calendly.health_check.result", attrs);
+      } else {
+        log.warn("calendly.health_check.result", attrs);
+      }
       return result;
     } catch (error) {
-      console.error(
-        `[health-check] checkSingleTenant: tenant ${tenantId} failed:`,
-        error instanceof Error ? error.message : error,
-      );
+      // Swallowed into an `error` result, so report it here.
+      reportError("calendly.health_check.failed", error, {
+        integration: "calendly",
+        tenantId,
+        durationMs: Date.now() - startedAt,
+      });
       return {
         status: "error" as const,
         reason: "health_check_exception" as const,
@@ -219,32 +235,50 @@ export const checkSingleTenant = internalAction({
 export const runHealthCheck = internalAction({
   args: {},
   handler: async (ctx) => {
-    console.log(`[health-check] runHealthCheck: entry`);
-
     const stuckTenants = await ctx.runQuery(
       internal.calendly.healthCheckMutations.listStuckProvisioningTenants,
     );
-    console.log(
-      `[health-check] runHealthCheck: found ${stuckTenants.length} stuck provisioning tenants`,
-    );
 
-    for (const { tenantId, companyName } of stuckTenants) {
-      await ctx.runMutation(internal.tenants.updateStatus, {
-        tenantId,
-        status: "pending_calendly",
-      });
-      console.warn(
-        `[health-check] runHealthCheck: reverted stuck tenant "${companyName}" (${tenantId}) from provisioning_webhooks → pending_calendly`,
+    // Revert each tenant independently, so one failure doesn't stop the rest.
+    const revertedTenantIds: Array<Id<"tenants">> = [];
+    for (const { tenantId } of stuckTenants) {
+      try {
+        await ctx.runMutation(internal.tenants.updateStatus, {
+          tenantId,
+          status: "pending_calendly",
+        });
+        revertedTenantIds.push(tenantId);
+      } catch (error) {
+        reportError("calendly.onboarding.provisioning_revert_failed", error, {
+          severity: "error",
+          integration: "calendly",
+          fingerprint: "calendly.onboarding.provisioning_revert_failed",
+          tenantId,
+        });
+      }
+    }
+    if (stuckTenants.length > 0) {
+      reportError(
+        "calendly.onboarding.provisioning_stuck",
+        new Error("Tenants stuck provisioning Calendly webhooks for over 10 minutes"),
+        {
+          severity: "error",
+          integration: "calendly",
+          fingerprint: "calendly.onboarding.provisioning_stuck",
+          count: stuckTenants.length,
+          revertedCount: revertedTenantIds.length,
+          tenantIds: stuckTenants
+            .slice(0, MAX_REPORTED_TENANT_IDS)
+            .map(({ tenantId }) => tenantId),
+          fromStatus: "provisioning_webhooks",
+          toStatus: "pending_calendly",
+        },
       );
     }
 
     const tenantIds: Array<Id<"tenants">> = await ctx.runQuery(
       internal.calendly.tokenMutations.listActiveTenantIds,
       {},
-    );
-
-    console.log(
-      `[health-check] runHealthCheck: scheduling health check for ${tenantIds.length} active tenants`,
     );
 
     for (const tenantId of tenantIds) {
@@ -255,8 +289,9 @@ export const runHealthCheck = internalAction({
       );
     }
 
-    console.log(
-      `[health-check] runHealthCheck: all ${tenantIds.length} checks scheduled`,
-    );
+    log.info("calendly.health_check.scheduled", {
+      tenantCount: tenantIds.length,
+      stuckTenantCount: stuckTenants.length,
+    });
   },
 });

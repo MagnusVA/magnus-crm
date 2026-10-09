@@ -37,6 +37,8 @@ type Env = {
   readonly LINK_PORTAL_PASSWORD_PEPPER: string | undefined;
   readonly LINK_PORTAL_SESSION_SECRET: string | undefined;
   readonly NEXT_PUBLIC_APP_URL: string | undefined;
+  readonly POSTHOG_HOST: string | undefined;
+  readonly POSTHOG_PROJECT_TOKEN: string;
   readonly SLACK_CLIENT_ID: string | undefined;
   readonly SLACK_CLIENT_SECRET: string | undefined;
   readonly SLACK_REDIRECT_URI: string | undefined;

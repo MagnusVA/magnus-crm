@@ -24,7 +24,10 @@ import {
   readLiveDocuments,
   readLiveQueryRows,
 } from "../lib/liveQueryBounds";
-import type { DerivedOverviewRange } from "./overviewRange";
+import {
+  isRangeCapErrorMessage,
+  type DerivedOverviewRange,
+} from "./overviewRange";
 import type {
   ExpandedOverviewLeaderboard,
   LeadGenOverview,
@@ -707,7 +710,7 @@ export async function buildExpandedOverviewLeaderboard(
       } catch (error) {
         const message =
           error instanceof Error ? error.message : "Unknown leaderboard error";
-        if (/too large|cannot exceed|narrow/i.test(message)) {
+        if (isRangeCapErrorMessage(message)) {
           return {
             kind: "dm_closers",
             rows: [],

@@ -4,6 +4,23 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { getErrorCode } from "@/lib/errors";
+import { reportServerError } from "@/lib/observability/report-server-error";
+
+/**
+ * OAuth 2.0 error codes (RFC 6749 §4.1.2.1). The `error` param is
+ * caller-controlled, so anything else is reported as `other` to keep the
+ * fingerprint low-cardinality.
+ */
+const OAUTH_ERROR_CODES = new Set([
+  "invalid_request",
+  "unauthorized_client",
+  "access_denied",
+  "unsupported_response_type",
+  "invalid_scope",
+  "server_error",
+  "temporarily_unavailable",
+]);
 
 function getConvexUrl() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -66,6 +83,23 @@ export async function GET(request: NextRequest) {
   const error = request.nextUrl.searchParams.get("error");
   const code = request.nextUrl.searchParams.get("code");
 
+  if (error && error !== "access_denied") {
+    // Calendly refused the authorization; the user sees the error and can retry.
+    const oauthError = OAUTH_ERROR_CODES.has(error) ? error : "other";
+    await reportServerError(
+      new Error(`Calendly OAuth authorize failed (${oauthError})`),
+      {
+        event: "calendly.oauth_callback.denied",
+        request,
+        integration: "calendly",
+        expected: true,
+        severity: "warning",
+        fingerprint: `calendly-oauth-callback:${oauthError}`,
+        error_code: oauthError,
+      },
+    );
+  }
+
   if (error || !code) {
     return redirectToReturnTarget(request, {
       error: error ?? "calendly_denied",
@@ -98,21 +132,35 @@ export async function GET(request: NextRequest) {
 
     return redirectToReturnTarget(request, { calendly: "connected" });
   } catch (error) {
-    const errorMessage =
-      error instanceof Error ? error.message : "exchange_failed";
+    // Expected rejections carry a stable code (`ConvexError` data); plain
+    // Error messages are redacted in production, so only codes are reliable.
+    const backendCode = getErrorCode(error);
+    const errorMessage = error instanceof Error ? error.message : "";
 
-    // Map specific error messages to user-friendly error codes
+    // Map backend codes to the error keys the return page understands
     let errorCode: string;
-    if (errorMessage.includes("code verifier")) {
-      // Concurrent OAuth flow: session expired or started in another tab
+    if (backendCode === "calendly.oauth_flow_expired") {
+      // Missing or reused PKCE verifier: expired, or started in another tab
       errorCode = "stale_session";
-    } else if (errorMessage === "calendly_free_plan_unsupported") {
+    } else if (backendCode === "calendly.tenant_not_ready") {
+      errorCode = "missing_context";
+    } else if (backendCode?.startsWith("auth.")) {
+      errorCode = "not_authenticated";
+    } else if (getErrorCode(error) === "calendly.free_plan_unsupported") {
       errorCode = "calendly_free_plan_unsupported";
     } else if (errorMessage.startsWith("webhook_creation_failed")) {
       errorCode = "webhook_creation_failed";
     } else {
       errorCode = "exchange_failed";
     }
+
+    await reportServerError(error, {
+      event: "calendly.oauth_exchange.failed",
+      request,
+      distinctId: auth.user.id,
+      fingerprint: `calendly-oauth-exchange:${errorCode}`,
+      error_code: errorCode,
+    });
 
     return redirectToReturnTarget(request, { error: errorCode });
   }

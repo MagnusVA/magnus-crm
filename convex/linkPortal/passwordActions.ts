@@ -10,6 +10,7 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action, env } from "../_generated/server";
+import { log, logRequestContext } from "../lib/observability/log";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 import { issuePortalSessionToken } from "./sessionToken";
 
@@ -99,6 +100,7 @@ async function hashPortalPassword(
 function normalizePortalSlug(portalSlug: string) {
   const trimmed = portalSlug.trim();
   if (trimmed.length === 0 || trimmed.length > MAX_PORTAL_SLUG_LENGTH) {
+    log.warn("link_portal.auth.rejected", { reason: "malformed_slug" });
     throw new Error(GENERIC_PORTAL_AUTH_ERROR);
   }
   return trimmed;
@@ -107,6 +109,7 @@ function normalizePortalSlug(portalSlug: string) {
 function normalizeIpHash(ipHash: string) {
   const trimmed = ipHash.trim();
   if (!IP_HASH_PATTERN.test(trimmed)) {
+    log.warn("link_portal.auth.rejected", { reason: "malformed_ip_hash" });
     throw new Error(GENERIC_PORTAL_AUTH_ERROR);
   }
   return trimmed;
@@ -173,6 +176,11 @@ export const rotatePortalPassword = action({
           throw new Error("Portal configuration could not be saved.");
         }
 
+        log.info("link_portal.password.rotated", {
+          tenantId: access.tenantId,
+          sessionVersion: config.sessionVersion,
+          slugCollisionRetries: attempt,
+        });
         return {
           portalUrlPath: `/dm-links/${config.publicSlug}`,
           publicSlug: config.publicSlug,
@@ -212,6 +220,16 @@ export const verifyPassword = action({
       !config.passwordSalt ||
       !isSupportedHashParams(config.passwordHashParams)
     ) {
+      log.warn("link_portal.auth.rejected", {
+        reason: !config
+          ? "portal_not_found"
+          : !config.isEnabled
+            ? "portal_disabled"
+            : !config.passwordHash || !config.passwordSalt
+              ? "password_not_set"
+              : "unsupported_hash_params",
+        tenantId: config?.tenantId,
+      });
       throw new Error(GENERIC_PORTAL_AUTH_ERROR);
     }
 
@@ -222,6 +240,11 @@ export const verifyPassword = action({
     });
 
     if (!isSubmittedPasswordAllowed(args.password)) {
+      log.warn("link_portal.auth.password_rejected", {
+        reason: "invalid_length",
+        tenantId: config.tenantId,
+        ipHash,
+      });
       await ctx.runMutation(
         internal.linkPortal.rateLimitMutations.recordFailedAttempt,
         {
@@ -245,6 +268,11 @@ export const verifyPassword = action({
       timingSafeEqual(attemptedBuffer, expectedBuffer);
 
     if (!valid) {
+      log.warn("link_portal.auth.password_rejected", {
+        reason: "password_mismatch",
+        tenantId: config.tenantId,
+        ipHash,
+      });
       await ctx.runMutation(
         internal.linkPortal.rateLimitMutations.recordFailedAttempt,
         {
@@ -264,6 +292,12 @@ export const verifyPassword = action({
       },
     );
 
+    logRequestContext({ tenantId: config.tenantId });
+    log.info("link_portal.auth.session_issued", {
+      tenantId: config.tenantId,
+      sessionVersion: config.sessionVersion,
+      sessionTtlSeconds: config.sessionTtlSeconds,
+    });
     return {
       sessionToken: issuePortalSessionToken({
         tenantId: config.tenantId,

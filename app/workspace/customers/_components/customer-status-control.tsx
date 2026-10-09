@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/errors";
 
 const STATUSES = [
   { value: "active", label: "Active" },
@@ -49,7 +50,7 @@ export function CustomerStatusControl({
       toast.success(`Customer status updated to ${newStatus}`);
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to update status",
+        getErrorMessage(err, "Failed to update status"),
       );
     } finally {
       setIsUpdating(false);

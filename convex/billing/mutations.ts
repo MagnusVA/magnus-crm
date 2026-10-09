@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
 import type { MutationCtx } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { log } from "../lib/observability/log";
 import { toAmountMinor } from "../lib/formatMoney";
 import {
   requireActiveProgram,
@@ -127,6 +128,11 @@ export const markReviewed = mutation({
       throw new Error("Disputed payments cannot be marked reviewed.");
     }
     if (payment.status === "verified") {
+      log.info("billing.payment.review_skipped", {
+        tenantId,
+        paymentRecordId,
+        reason: "already_verified",
+      });
       return null;
     }
 
@@ -232,6 +238,11 @@ export const correctPayment = mutation({
     }
 
     if (changedKeys.length === 0) {
+      log.info("billing.payment.correction_skipped", {
+        tenantId,
+        paymentRecordId: args.paymentRecordId,
+        reason: "no_changes",
+      });
       return {
         paymentRecordId: args.paymentRecordId,
         status: payment.status,

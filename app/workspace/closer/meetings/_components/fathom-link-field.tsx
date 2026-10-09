@@ -11,6 +11,7 @@ import {
   SaveIcon,
 } from "lucide-react";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
 
 import type { Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
@@ -34,6 +35,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import { getErrorMessage } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -97,12 +99,10 @@ export function FathomLinkField({
       });
       toast.success("Fathom link saved");
     } catch (err) {
-      posthog.captureException(err);
+      reportClientError(err, { flow: "meeting_fathom_link_save" });
       setSaveStatus("error");
       setErrorMessage(
-        err instanceof Error
-          ? err.message
-          : "Failed to save. Please try again.",
+        getErrorMessage(err, "Failed to save. Please try again."),
       );
     }
   }, [meetingId, saveFathomLink, value]);

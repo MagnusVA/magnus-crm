@@ -31,6 +31,7 @@ import {
 } from "@/components/ui/form";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { getErrorMessage } from "@/lib/errors";
 
 const voidSubmissionSchema = z.object({
   reason: z
@@ -84,7 +85,7 @@ export function VoidSubmissionDialog({
       setOpen(false);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to void submission",
+        getErrorMessage(error, "Failed to void submission"),
       );
     }
   }

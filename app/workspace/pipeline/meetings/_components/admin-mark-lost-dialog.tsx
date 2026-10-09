@@ -30,6 +30,8 @@ import {
 import { AlertTriangleIcon, XCircleIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
+import { getErrorMessage } from "@/lib/errors";
 
 const markLostSchema = z.object({
   reason: z
@@ -85,9 +87,9 @@ export function AdminMarkLostDialog({
       setOpen(false);
       form.reset();
     } catch (error) {
-      posthog.captureException(error);
+      reportClientError(error, { flow: "admin_mark_lost" });
       toast.error(
-        error instanceof Error ? error.message : "Failed to mark as lost",
+        getErrorMessage(error, "Failed to mark as lost"),
       );
     } finally {
       setIsLoading(false);

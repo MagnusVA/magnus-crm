@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { UsersIcon, ExternalLinkIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useState } from "react";
+import { getErrorMessage } from "@/lib/errors";
 
 type PotentialDuplicateBannerProps = {
 	duplicateLead: {
@@ -43,9 +44,7 @@ export function PotentialDuplicateBanner({
 			toast.success("Duplicate flag dismissed");
 		} catch (error) {
 			toast.error(
-				error instanceof Error
-					? error.message
-					: "Failed to dismiss duplicate flag",
+				getErrorMessage(error, "Failed to dismiss duplicate flag"),
 			);
 			setIsDismissing(false);
 		}

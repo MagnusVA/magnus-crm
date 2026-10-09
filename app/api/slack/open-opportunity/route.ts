@@ -3,6 +3,7 @@ import { ConvexHttpClient } from "convex/browser";
 import { NextRequest, NextResponse } from "next/server";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { reportServerError } from "@/lib/observability/report-server-error";
 import { SYSTEM_ADMIN_ORG_ID } from "@/lib/system-admin-org";
 
 function getConvexUrl() {
@@ -73,6 +74,12 @@ export async function GET(request: NextRequest) {
     const message = error instanceof Error ? error.message : "unknown";
     console.warn("[/api/slack/open-opportunity] redirect failed", {
       message,
+    });
+    await reportServerError(error, {
+      event: "slack.open_opportunity.failed",
+      request,
+      distinctId: auth.user.id,
+      fingerprint: "slack-open-opportunity",
     });
     return redirectWithSlackOpen(request, "/workspace", "invalid_opportunity");
   }

@@ -32,6 +32,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { connectionStatusConfig } from "@/lib/status-config";
+import { getErrorMessage } from "@/lib/errors";
 
 export function SystemHealth() {
   const pathname = usePathname();
@@ -78,7 +79,7 @@ export function SystemHealth() {
       }
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to refresh token",
+        getErrorMessage(error, "Failed to refresh token"),
       );
     } finally {
       setIsRefreshing(false);

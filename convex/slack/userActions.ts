@@ -1,8 +1,9 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction } from "../_generated/server";
+import { describeError, log, reportError } from "../lib/observability/log";
 import { normalizeSlackUserProfile } from "./profileNames";
-import { getValidSlackBotToken } from "./tokens";
+import { getValidSlackBotToken, logSlackTokenUnavailable } from "./tokens";
 import { slackApiGet } from "./webApi";
 
 type SlackUserInfo = {
@@ -28,14 +29,20 @@ export const fetchAndSync = internalAction({
     });
     if (!row) return;
 
+    const enrichAttrs = {
+      tenantId: row.tenantId,
+      slackUserRowId: args.slackUserRowId,
+    };
+
     let token: string;
     try {
       token = await getValidSlackBotToken(ctx, row.tenantId);
     } catch (error) {
-      console.warn("[Slack:Users] enrich token unavailable", {
-        slackUserRowId: args.slackUserRowId,
-        err: error instanceof Error ? error.message : "unknown",
-      });
+      logSlackTokenUnavailable(
+        "slack.users.enrich_token_unavailable",
+        error,
+        enrichAttrs,
+      );
       return;
     }
 
@@ -44,10 +51,18 @@ export const fetchAndSync = internalAction({
         user: SlackUserInfo;
       }>("users.info", token, { user: row.slackUserId });
       if (!response.ok) {
-        console.warn("[Slack:Users] users.info returned !ok", {
-          slackUserRowId: args.slackUserRowId,
-          error: response.error ?? "unknown",
-        });
+        const slackError = response.error ?? "unknown";
+        reportError(
+          "slack.users.enrich_failed",
+          new Error(`Slack users.info failed: ${slackError}`),
+          {
+            severity: "warning",
+            integration: "slack",
+            fingerprint: `slack.users.enrich_failed:${slackError}`,
+            slackError,
+            ...enrichAttrs,
+          },
+        );
         return;
       }
 
@@ -65,14 +80,24 @@ export const fetchAndSync = internalAction({
         isDeleted: Boolean(user.deleted),
         syncedAt: Date.now(),
       });
-      console.log("[Slack:Users] enriched", {
-        slackUserRowId: args.slackUserRowId,
+      log.info("slack.users.enriched", {
+        ...enrichAttrs,
+        isBot: Boolean(user.is_bot),
+        isDeleted: Boolean(user.deleted),
       });
     } catch (error) {
-      console.error("[Slack:Users] users.info threw", {
-        slackUserRowId: args.slackUserRowId,
-        err: error instanceof Error ? error.message : "unknown",
-      });
+      const errorName = describeError(error).name;
+      reportError(
+        "slack.users.enrich_failed",
+        new Error("Slack user profile enrichment failed"),
+        {
+          severity: "warning",
+          integration: "slack",
+          fingerprint: `slack.users.enrich_failed:${errorName}`,
+          errorName,
+          ...enrichAttrs,
+        },
+      );
     }
   },
 });

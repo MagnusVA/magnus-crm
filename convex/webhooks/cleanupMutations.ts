@@ -12,8 +12,6 @@ export const deleteExpiredEvents = internalMutation({
   },
   handler: async (ctx, { cutoffTimestamp, batchSize }) => {
     const limit = batchSize ?? 128;
-    console.log(`[webhook-cleanup] deleteExpiredEvents: cutoff=${cutoffTimestamp}, batchSize=${limit}`);
-
     const expired = await ctx.db
       .query("rawWebhookEvents")
       .withIndex("by_processed_and_receivedAt", (q) =>
@@ -25,7 +23,6 @@ export const deleteExpiredEvents = internalMutation({
       await ctx.db.delete("rawWebhookEvents", event._id);
     }
 
-    console.log(`[webhook-cleanup] deleteExpiredEvents: deleted ${expired.length} events`);
     return { deleted: expired.length, hasMore: expired.length === limit };
   },
 });
@@ -36,8 +33,6 @@ export const deleteExpiredEvents = internalMutation({
 export const countStaleUnprocessed = internalQuery({
   args: { cutoffTimestamp: v.number() },
   handler: async (ctx, { cutoffTimestamp }) => {
-    console.log(`[webhook-cleanup] countStaleUnprocessed: cutoff=${cutoffTimestamp}`);
-
     const stale = await ctx.db
       .query("rawWebhookEvents")
       .withIndex("by_processed_and_receivedAt", (q) =>
@@ -45,7 +40,11 @@ export const countStaleUnprocessed = internalQuery({
       )
       .take(100);
 
-    console.log(`[webhook-cleanup] countStaleUnprocessed: found ${stale.length} stale events (capped=${stale.length === 100})`);
-    return { count: stale.length, capped: stale.length === 100 };
+    return {
+      count: stale.length,
+      capped: stale.length === 100,
+      // The index orders by receivedAt, so the first row is the oldest.
+      oldestReceivedAt: stale[0]?.receivedAt,
+    };
   },
 });

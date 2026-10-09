@@ -30,6 +30,8 @@ import {
 import { AlertTriangleIcon, XCircleIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
+import { getErrorMessage } from "@/lib/errors";
 
 // Schema mirrors the meeting `MarkLostDialog` so lost-reason
 // conventions stay consistent across the two entry points.
@@ -92,9 +94,9 @@ export function ReminderMarkLostDialog({ followUpId, onSuccess }: Props) {
 			form.reset();
 			onSuccess();
 		} catch (err) {
-			posthog.captureException(err);
+			reportClientError(err, { flow: "reminder_mark_lost" });
 			toast.error(
-				err instanceof Error ? err.message : "Failed to mark as lost",
+				getErrorMessage(err, "Failed to mark as lost"),
 			);
 		} finally {
 			setIsLoading(false);

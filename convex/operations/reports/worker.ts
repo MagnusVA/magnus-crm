@@ -1,6 +1,8 @@
 import { v } from "convex/values";
 import { internal } from "../../_generated/api";
+import type { Doc } from "../../_generated/dataModel";
 import { internalAction } from "../../_generated/server";
+import { reportError } from "../../lib/observability/log";
 import { REPORT_FINALIZATION_ORDER } from "./catalog";
 import { reduceReportSourcePage } from "./reducers";
 import { sourcesForReport } from "./sources";
@@ -18,9 +20,12 @@ export const run = internalAction({
     if (claim.kind !== "claimed") return null;
     const fence = { jobId, workerId, leaseGeneration: claim.leaseGeneration };
     let sequence = claim.checkpointSequence;
+    // Kept outside the try so a failure report can describe the job.
+    let jobContext: Partial<Pick<Doc<"operationsReportJobs">, "tenantId" | "reportKind" | "purpose" | "phase" | "retryCount">> = {};
     try {
       const job = await ctx.runQuery(internal.operations.reports.jobs.getJobState, { jobId });
       if (!job) return null;
+      jobContext = { tenantId: job.tenantId, reportKind: job.reportKind, purpose: job.purpose, phase: job.phase, retryCount: job.retryCount };
       if (job.phase === "rendering") {
         await ctx.runAction(internal.operations.reports.render.run, fence);
         return null;
@@ -82,9 +87,15 @@ export const run = internalAction({
         if (transition.kind !== "stale") await ctx.runAction(internal.operations.reports.render.run, fence);
       }
     } catch (error) {
-      console.error("[Operations:Reports] worker failed", { jobId, message: error instanceof Error ? error.message : String(error) });
+      const failure = { category: "processing_error", retryable: true };
+      // The job stores a generic message, so this is the only record of the
+      // real error and its stack.
+      reportError("reports.job.failed", error, {
+        severity: "warning", fingerprint: "reports.job.failed:dashboard",
+        jobId, ...jobContext, ...failure, leaseGeneration: claim.leaseGeneration, worker: "dashboard",
+      });
       await ctx.runMutation(internal.operations.reports.jobs.failJob, {
-        ...fence, category: "processing_error", message: "The report could not be completed. Retry the report or choose a smaller date range.", retryable: true,
+        ...fence, ...failure, message: "The report could not be completed. Retry the report or choose a smaller date range.",
       });
     }
     return null;

@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
+import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   getEffectiveRange,
@@ -19,13 +20,6 @@ export const createCloserUnavailability = mutation({
     endTime: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    console.log("[Unavailability] createCloserUnavailability called", {
-      closerId: args.closerId,
-      date: args.date,
-      reason: args.reason,
-      isFullDay: args.isFullDay,
-    });
-
     const { userId, tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -86,9 +80,13 @@ export const createCloserUnavailability = mutation({
       rangeEnd,
     });
 
-    console.log("[Unavailability] createCloserUnavailability completed", {
+    log.info("unavailability.created", {
+      tenantId,
+      closerId: args.closerId,
       unavailabilityId,
-      affectedCount: affectedMeetings.length,
+      reason: args.reason,
+      isFullDay: args.isFullDay,
+      affectedMeetingCount: affectedMeetings.length,
     });
 
     return {

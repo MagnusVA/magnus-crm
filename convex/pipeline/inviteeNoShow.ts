@@ -14,6 +14,8 @@ import {
   isActiveOpportunityStatus,
   updateTenantStats,
 } from "../lib/tenantStatsHelper";
+import { log, reportError } from "../lib/observability/log";
+import { classifyMissingMeeting } from "./missingMeeting";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -46,25 +48,33 @@ export const process = internalMutation({
     rawEventId: v.id("rawWebhookEvents"),
   },
   handler: async (ctx, { tenantId, payload, rawEventId }) => {
-    console.log(`[Pipeline:no-show] Entry (process) | tenantId=${tenantId} rawEventId=${rawEventId}`);
-
     const rawEvent = await ctx.db.get("rawWebhookEvents", rawEventId);
     if (!rawEvent || rawEvent.processed) {
-      console.log(`[Pipeline:no-show] Skipping: event already processed or not found`);
+      log.info("pipeline.invitee_no_show.skipped", {
+        reason: rawEvent ? "already_processed" : "raw_event_missing",
+        tenantId,
+        rawEventId,
+      });
       return;
     }
 
-    // Log tracking presence for debugging (UTMs already stored at creation time)
-    const hasTracking = isRecord(payload) && isRecord(payload.tracking);
-    console.log(
-      `[Pipeline:no-show] UTM check | hasTracking=${hasTracking}`
-    );
-
     const calendlyEventUri = extractCalendlyEventUri(payload);
-    console.log(`[Pipeline:no-show] Extracted eventUri=${calendlyEventUri ?? "none"}`);
 
     if (!calendlyEventUri) {
-      console.error("[Pipeline:no-show] Missing event URI in invitee_no_show.created payload");
+      reportError(
+        "pipeline.event_dropped",
+        new Error("invitee_no_show.created payload has no scheduled event URI"),
+        {
+          severity: "warning",
+          fingerprint:
+            "pipeline.event_dropped:invitee_no_show.created:missing_event_uri",
+          integration: "calendly",
+          reason: "missing_event_uri",
+          eventType: "invitee_no_show.created",
+          tenantId,
+          rawEventId,
+        },
+      );
       await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
       return;
     }
@@ -77,22 +87,47 @@ export const process = internalMutation({
       .unique();
 
     if (!meeting) {
-      console.warn(
-        `[Pipeline:no-show] No meeting found for eventUri=${calendlyEventUri}`,
-      );
+      const reason = await classifyMissingMeeting(ctx, rawEvent);
+      if (reason === "booking_not_tracked") {
+        // The booking was deliberately not tracked (non-closer host).
+        log.info("pipeline.invitee_no_show.skipped", {
+          reason,
+          tenantId,
+          rawEventId,
+        });
+      } else {
+        reportError(
+          "pipeline.event_dropped",
+          new Error(
+            reason === "out_of_order"
+              ? "invitee_no_show.created arrived before its invitee.created was processed"
+              : "invitee_no_show.created has no matching meeting",
+          ),
+          {
+            severity: "warning",
+            fingerprint: `pipeline.event_dropped:invitee_no_show.created:${reason}`,
+            integration: "calendly",
+            reason,
+            eventType: "invitee_no_show.created",
+            tenantId,
+            rawEventId,
+            calendlyEventUri,
+          },
+        );
+      }
       await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
       return;
     }
 
-    console.log(
-      `[Pipeline:no-show] Meeting found | meetingId=${meeting._id} currentStatus=${meeting.status}`,
-    );
-
     const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
 
     const now = Date.now();
+    let meetingTransition: "applied" | "invalid" | "already_no_show" =
+      "already_no_show";
+    let opportunityMarkedNoShow = false;
     if (meeting.status !== "no_show") {
       if (validateMeetingTransition(meeting.status, "no_show")) {
+        meetingTransition = "applied";
         await ctx.db.patch("meetings", meeting._id, {
           status: "no_show",
           noShowSource: "calendly_webhook",
@@ -110,14 +145,9 @@ export const process = internalMutation({
           toStatus: "no_show",
           occurredAt: now,
         });
-        console.log(`[Pipeline:no-show] Meeting status changed | ${meeting.status} -> no_show`);
       } else {
-        console.log(
-          `[Pipeline:no-show] Meeting transition skipped | ${meeting.status} -> no_show is invalid`,
-        );
+        meetingTransition = "invalid";
       }
-    } else {
-      console.log(`[Pipeline:no-show] Meeting already no_show, no change`);
     }
 
     if (
@@ -125,9 +155,7 @@ export const process = internalMutation({
       (opportunity.status === "no_show" ||
         validateTransition(opportunity.status, "no_show"))
     ) {
-      console.log(
-        `[Pipeline:no-show] Opportunity status changed | opportunityId=${opportunity._id} ${opportunity.status} -> no_show`,
-      );
+      opportunityMarkedNoShow = true;
       await patchOpportunityLifecycle(ctx, opportunity._id, {
         status: "no_show",
         noShowAt: now,
@@ -150,16 +178,35 @@ export const process = internalMutation({
           occurredAt: now,
         });
       }
-    } else if (opportunity) {
-      console.log(
-        `[Pipeline:no-show] Opportunity not eligible for no_show transition | opportunityId=${opportunity._id} currentStatus=${opportunity.status}`,
+    } else if (!opportunity) {
+      reportError(
+        "pipeline.data_inconsistency",
+        new Error("Meeting references a missing opportunity"),
+        {
+          severity: "error",
+          fingerprint: "pipeline.data_inconsistency:meeting_opportunity_missing",
+          reason: "meeting_opportunity_missing",
+          eventType: "invitee_no_show.created",
+          tenantId,
+          rawEventId,
+          meetingId: meeting._id,
+          opportunityId: meeting.opportunityId,
+        },
       );
-    } else {
-      console.warn(`[Pipeline:no-show] Opportunity not found for meeting ${meeting._id}`);
     }
 
     await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
-    console.log(`[Pipeline:no-show] Marked processed | rawEventId=${rawEventId}`);
+    log.info("pipeline.invitee_no_show.processed", {
+      tenantId,
+      rawEventId,
+      meetingId: meeting._id,
+      opportunityId: meeting.opportunityId,
+      previousMeetingStatus: meeting.status,
+      meetingTransition,
+      opportunityFound: opportunity !== null,
+      previousOpportunityStatus: opportunity?.status,
+      opportunityMarkedNoShow,
+    });
   },
 });
 
@@ -170,26 +217,33 @@ export const revert = internalMutation({
     rawEventId: v.id("rawWebhookEvents"),
   },
   handler: async (ctx, { tenantId, payload, rawEventId }) => {
-    console.log(`[Pipeline:no-show] Entry (revert) | tenantId=${tenantId} rawEventId=${rawEventId}`);
-    console.log(`[Pipeline:no-show] No-show is being reversed`);
-
     const rawEvent = await ctx.db.get("rawWebhookEvents", rawEventId);
     if (!rawEvent || rawEvent.processed) {
-      console.log(`[Pipeline:no-show] Revert skipping: event already processed or not found`);
+      log.info("pipeline.invitee_no_show_reverted.skipped", {
+        reason: rawEvent ? "already_processed" : "raw_event_missing",
+        tenantId,
+        rawEventId,
+      });
       return;
     }
 
-    // Log tracking presence for debugging
-    const hasTracking = isRecord(payload) && isRecord(payload.tracking);
-    console.log(
-      `[Pipeline:no-show] Revert UTM check | hasTracking=${hasTracking}`
-    );
-
     const calendlyEventUri = extractCalendlyEventUri(payload);
-    console.log(`[Pipeline:no-show] Revert extracted eventUri=${calendlyEventUri ?? "none"}`);
 
     if (!calendlyEventUri) {
-      console.warn(`[Pipeline:no-show] Revert: missing event URI, marking processed`);
+      reportError(
+        "pipeline.event_dropped",
+        new Error("invitee_no_show.deleted payload has no scheduled event URI"),
+        {
+          severity: "warning",
+          fingerprint:
+            "pipeline.event_dropped:invitee_no_show.deleted:missing_event_uri",
+          integration: "calendly",
+          reason: "missing_event_uri",
+          eventType: "invitee_no_show.deleted",
+          tenantId,
+          rawEventId,
+        },
+      );
       await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
       return;
     }
@@ -202,14 +256,37 @@ export const revert = internalMutation({
       .unique();
 
     if (!meeting) {
-      console.warn(`[Pipeline:no-show] Revert: no meeting found for eventUri=${calendlyEventUri}`);
+      const reason = await classifyMissingMeeting(ctx, rawEvent);
+      if (reason === "booking_not_tracked") {
+        // The booking was deliberately not tracked (non-closer host).
+        log.info("pipeline.invitee_no_show_reverted.skipped", {
+          reason,
+          tenantId,
+          rawEventId,
+        });
+      } else {
+        reportError(
+          "pipeline.event_dropped",
+          new Error(
+            reason === "out_of_order"
+              ? "invitee_no_show.deleted arrived before its invitee.created was processed"
+              : "invitee_no_show.deleted has no matching meeting",
+          ),
+          {
+            severity: "warning",
+            fingerprint: `pipeline.event_dropped:invitee_no_show.deleted:${reason}`,
+            integration: "calendly",
+            reason,
+            eventType: "invitee_no_show.deleted",
+            tenantId,
+            rawEventId,
+            calendlyEventUri,
+          },
+        );
+      }
       await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
       return;
     }
-
-    console.log(
-      `[Pipeline:no-show] Revert: meeting found | meetingId=${meeting._id} currentStatus=${meeting.status}`,
-    );
 
     if (meeting.status === "no_show") {
       const now = Date.now();
@@ -233,9 +310,6 @@ export const revert = internalMutation({
         toStatus: "scheduled",
         occurredAt: now,
       });
-      console.log(`[Pipeline:no-show] Revert: meeting status changed | no_show -> scheduled`);
-    } else {
-      console.log(`[Pipeline:no-show] Revert: meeting not in no_show status, no change`);
     }
 
     const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
@@ -259,18 +333,34 @@ export const revert = internalMutation({
         toStatus: "scheduled",
         occurredAt: now,
       });
-      console.log(
-        `[Pipeline:no-show] Revert: opportunity status changed | opportunityId=${opportunity._id} no_show -> scheduled`,
+    } else if (!opportunity) {
+      reportError(
+        "pipeline.data_inconsistency",
+        new Error("Meeting references a missing opportunity"),
+        {
+          severity: "error",
+          fingerprint: "pipeline.data_inconsistency:meeting_opportunity_missing",
+          reason: "meeting_opportunity_missing",
+          eventType: "invitee_no_show.deleted",
+          tenantId,
+          rawEventId,
+          meetingId: meeting._id,
+          opportunityId: meeting.opportunityId,
+        },
       );
-    } else if (opportunity) {
-      console.log(
-        `[Pipeline:no-show] Revert: opportunity not in no_show status | opportunityId=${opportunity._id} currentStatus=${opportunity.status}`,
-      );
-    } else {
-      console.warn(`[Pipeline:no-show] Revert: opportunity not found for meeting ${meeting._id}`);
     }
 
     await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
-    console.log(`[Pipeline:no-show] Revert: marked processed | rawEventId=${rawEventId}`);
+    log.info("pipeline.invitee_no_show_reverted.processed", {
+      tenantId,
+      rawEventId,
+      meetingId: meeting._id,
+      opportunityId: meeting.opportunityId,
+      previousMeetingStatus: meeting.status,
+      meetingReverted: meeting.status === "no_show",
+      opportunityFound: opportunity !== null,
+      previousOpportunityStatus: opportunity?.status,
+      opportunityReverted: opportunity?.status === "no_show",
+    });
   },
 });

@@ -36,7 +36,6 @@ export const markNoShow = mutation({
     note: v.optional(v.string()),
   },
   handler: async (ctx, { meetingId, reason, note }) => {
-    console.log("[Closer:NoShow] markNoShow called", { meetingId, reason });
     const { userId, tenantId, role } = await requireTenantUser(ctx, ["closer"]);
 
     const meeting = await ctx.db.get("meetings", meetingId);
@@ -97,7 +96,7 @@ export const markNoShow = mutation({
       toStatus: "no_show",
       reason,
       metadata: {
-        note: normalizedNote,
+        noteProvided: Boolean(normalizedNote),
       },
       occurredAt: now,
     });
@@ -112,14 +111,6 @@ export const markNoShow = mutation({
       toStatus: "no_show",
       reason,
       occurredAt: now,
-    });
-
-    console.log("[Closer:NoShow] markNoShow completed", {
-      meetingId,
-      opportunityId: opportunity._id,
-      closerId: userId,
-      reason,
-      noShowMarkedAt: now,
     });
   },
 });
@@ -137,10 +128,6 @@ export const createNoShowRescheduleLink = mutation({
     meetingId: v.id("meetings"),
   },
   handler: async (ctx, { opportunityId, meetingId }) => {
-    console.log("[Closer:NoShow] createNoShowRescheduleLink called", {
-      opportunityId,
-      meetingId,
-    });
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
 
     const user = await ctx.db.get("users", userId);
@@ -244,12 +231,6 @@ export const createNoShowRescheduleLink = mutation({
       fromStatus: opportunity.status,
       toStatus: "reschedule_link_sent",
       occurredAt: now,
-    });
-
-    console.log("[Closer:NoShow] createNoShowRescheduleLink completed", {
-      followUpId,
-      opportunityId,
-      originalMeetingId: meetingId,
     });
 
     return { schedulingLinkUrl, followUpId };

@@ -14,6 +14,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { getErrorMessage } from "@/lib/errors";
 
 type CommentInputProps = {
   meetingId: Id<"meetings">;
@@ -71,7 +72,7 @@ export function CommentInput({ meetingId }: CommentInputProps) {
       textareaRef.current?.focus();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to post comment",
+        getErrorMessage(error, "Failed to post comment"),
       );
     } finally {
       setIsSubmitting(false);

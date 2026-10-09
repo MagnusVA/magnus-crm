@@ -2,9 +2,16 @@ import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { Id } from "../_generated/dataModel";
 import { getIdentityOrgId } from "../lib/identity";
+import {
+  log,
+  logRequestContext,
+  reportError,
+} from "../lib/observability/log";
+import { rejectRequest } from "../lib/observability/errors";
 import { validateRequiredString } from "../lib/validation";
 import {
   getCanonicalIdentityWorkosUserId,
+  getRawWorkosUserId,
   getWorkosUserIdCandidates,
 } from "../lib/workosUserId";
 import { requireIdentity } from "../requireIdentity";
@@ -15,7 +22,6 @@ export const redeemInviteAndCreateUser = mutation({
     workosOrgId: v.string(),
   },
   handler: async (ctx, { workosOrgId }) => {
-    console.log("[Onboarding] redeemInviteAndCreateUser called", { workosOrgId });
     const orgIdValidation = validateRequiredString(workosOrgId, {
       fieldName: "WorkOS organization ID",
     });
@@ -36,7 +42,10 @@ export const redeemInviteAndCreateUser = mutation({
 
     const identityOrgId = getIdentityOrgId(identity);
     if (!identityOrgId || identityOrgId !== normalizedWorkosOrgId) {
-      throw new Error("Not authorized");
+      throw rejectRequest("auth.organization_mismatch", "Not authorized", {
+        flow: "onboarding",
+        identityOrgId,
+      });
     }
 
     const tenant = await ctx.db
@@ -44,7 +53,6 @@ export const redeemInviteAndCreateUser = mutation({
       .withIndex("by_workosOrgId", (q) => q.eq("workosOrgId", identityOrgId))
       .unique();
 
-    console.log("[Onboarding] tenant lookup", { found: !!tenant, tenantId: tenant?._id });
     if (!tenant) {
       throw new Error("No tenant found for this organization");
     }
@@ -60,7 +68,6 @@ export const redeemInviteAndCreateUser = mutation({
       }
     }
 
-    console.log("[Onboarding] existing user check", { exists: !!existingUser, existingUserId: existingUser?._id });
     let userId: Id<"users">;
 
     if (!existingUser) {
@@ -72,10 +79,8 @@ export const redeemInviteAndCreateUser = mutation({
         role: "tenant_master",
         isActive: true,
       });
-      console.log("[Onboarding] user created", { userId });
     } else {
       userId = existingUser._id;
-      console.log("[Onboarding] using existing user", { userId });
       const userPatch: {
         deletedAt?: undefined;
         isActive?: boolean;
@@ -85,6 +90,17 @@ export const redeemInviteAndCreateUser = mutation({
       if (existingUser.tenantId !== tenant._id) {
         // User exists in a different tenant — update to current tenant
         userPatch.tenantId = tenant._id;
+        reportError(
+          "onboarding.user_tenant_reassigned",
+          new Error("Existing user moved to another tenant during onboarding"),
+          {
+            severity: "warning",
+            fingerprint: "onboarding.user_tenant_reassigned",
+            fromTenantId: existingUser.tenantId,
+            toTenantId: tenant._id,
+            userId: existingUser._id,
+          },
+        );
       }
       if (existingUser.workosUserId !== workosUserId) {
         userPatch.workosUserId = workosUserId;
@@ -97,6 +113,14 @@ export const redeemInviteAndCreateUser = mutation({
         await ctx.db.patch("users", existingUser._id, userPatch);
       }
     }
+
+    logRequestContext({
+      distinctId: getRawWorkosUserId(workosUserId),
+      tenantId: tenant._id,
+      workosOrgId: identityOrgId,
+      userId,
+      role: existingUser?.role ?? "tenant_master",
+    });
 
     let nextTenantStatus = tenant.status;
     const tenantPatch: {
@@ -116,12 +140,12 @@ export const redeemInviteAndCreateUser = mutation({
     }
 
     if (Object.keys(tenantPatch).length > 0) {
-      console.log("[Onboarding] patching tenant", { tenantId: tenant._id, patchKeys: Object.keys(tenantPatch) });
       await ctx.db.patch("tenants", tenant._id, tenantPatch);
     }
 
-    if (tenant.status === "pending_signup" || tenant.tenantOwnerId !== userId) {
-      console.log("[Onboarding] scheduling role assignment", { workosUserId, organizationId: tenant.workosOrgId });
+    const roleAssignmentScheduled =
+      tenant.status === "pending_signup" || tenant.tenantOwnerId !== userId;
+    if (roleAssignmentScheduled) {
       await ctx.scheduler.runAfter(0, internal.workos.roles.assignRoleToMembership, {
         workosUserId,
         organizationId: tenant.workosOrgId,
@@ -129,10 +153,13 @@ export const redeemInviteAndCreateUser = mutation({
       });
     }
 
-    console.log("[Onboarding] redeemInviteAndCreateUser completed", {
+    log.info("onboarding.invite_redeemed", {
       tenantId: tenant._id,
+      userId,
+      userCreated: !existingUser,
       alreadyRedeemed: tenant.status !== "pending_signup",
       status: nextTenantStatus,
+      roleAssignmentScheduled,
     });
     return {
       tenantId: tenant._id,

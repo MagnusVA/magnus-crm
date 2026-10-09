@@ -11,6 +11,7 @@ import { AlertTriangleIcon, RefreshCwIcon } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import posthog from "posthog-js";
+import { getErrorMessage } from "@/lib/errors";
 
 const FollowUpDialog = dynamic(() =>
   import("./follow-up-dialog").then((m) => ({ default: m.FollowUpDialog })),
@@ -75,7 +76,7 @@ export function NoShowActionBar({
       toast.success("Reschedule link generated. Copy and send it to the lead.");
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "Failed to create reschedule link",
+        getErrorMessage(err, "Failed to create reschedule link"),
       );
     } finally {
       setIsCreating(false);

@@ -41,6 +41,8 @@ import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { PlusIcon } from "lucide-react";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
+import { getErrorMessage } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Zod schema — conditional validation via .superRefine()
@@ -130,9 +132,9 @@ export function InviteUserDialog({ onSuccess }: InviteUserDialogProps) {
       // Re-run server components so the team list reflects the new invite
       router.refresh();
     } catch (error) {
-      posthog.captureException(error);
+      reportClientError(error, { flow: "team_user_invite" });
       toast.error(
-        error instanceof Error ? error.message : "Failed to invite user",
+        getErrorMessage(error, "Failed to invite user"),
       );
     } finally {
       setIsSubmitting(false);

@@ -4,6 +4,9 @@ import { WorkOS } from "@workos-inc/node";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action, env } from "../_generated/server";
+import { rejectRequest } from "../lib/observability/errors";
+import { logRequestContext } from "../lib/observability/log";
+import { getIdentityOrgId } from "../lib/identity";
 import {
   getCanonicalIdentityWorkosUserId,
   getRawWorkosUserId,
@@ -33,8 +36,15 @@ export const syncCurrentProfile = action({
 
     const workosUserId = getCanonicalIdentityWorkosUserId(identity);
     if (!workosUserId) {
-      throw new Error("Missing WorkOS user ID");
+      throw rejectRequest(
+        "auth.missing_workos_user_id",
+        "Missing WorkOS user ID",
+      );
     }
+    logRequestContext({
+      distinctId: getRawWorkosUserId(workosUserId),
+      workosOrgId: getIdentityOrgId(identity),
+    });
 
     const workosUser = await workos.userManagement.getUser(
       getRawWorkosUserId(workosUserId),

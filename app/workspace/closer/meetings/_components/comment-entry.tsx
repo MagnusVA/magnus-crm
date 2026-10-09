@@ -22,6 +22,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 
 import { CommentContent } from "./comment-content";
+import { getErrorMessage } from "@/lib/errors";
 
 type CommentEntryProps = {
   comment: {
@@ -86,7 +87,7 @@ export function CommentEntry({ comment, onDelete }: CommentEntryProps) {
       setIsEditing(false);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to save edit",
+        getErrorMessage(error, "Failed to save edit"),
       );
     } finally {
       setIsSaving(false);

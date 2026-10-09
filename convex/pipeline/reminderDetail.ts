@@ -196,15 +196,6 @@ export const getAdminReminderDetail = query({
         ? (eventTypeConfig.paymentLinks ?? [])
         : [];
 
-    console.log("[Admin:Reminder] getAdminReminderDetail", {
-      followUpId,
-      opportunityStatus: opportunity.status,
-      followUpStatus: followUp.status,
-      hasLatestMeeting: Boolean(latestMeeting),
-      paymentCount: payments.length,
-      paymentLinkCount: paymentLinks.length,
-    });
-
     return {
       followUp,
       opportunity,

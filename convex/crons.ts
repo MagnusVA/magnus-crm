@@ -24,6 +24,13 @@ crons.interval(
   {},
 );
 
+crons.interval(
+  "pipeline-stuck-events",
+  { minutes: 15 },
+  internal.pipeline.mutations.reportStuckEvents,
+  {},
+);
+
 // Event type metadata sync is manual-only for the MVP; do not add a recurring job here.
 crons.interval(
   "cleanup-expired-webhook-events",

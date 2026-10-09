@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
+import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 
 export type InstallationStatus =
@@ -101,10 +102,14 @@ export const setSlackNotifyChannels = mutation({
       staleReminderChannelError: undefined,
     });
 
-    console.log("[Slack:Channels] saved", {
+    log.info("slack.channels.saved", {
       tenantId,
-      notify: args.notifyChannelName,
-      stale: args.staleReminderChannelName,
+      installationId: installation._id,
+      notifyChannelId: args.notifyChannelId,
+      staleReminderChannelId: args.staleReminderChannelId,
+      notifyChannelChanged: installation.notifyChannelId !== args.notifyChannelId,
+      staleReminderChannelChanged:
+        installation.staleReminderChannelId !== args.staleReminderChannelId,
     });
   },
 });

@@ -2,11 +2,17 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalAction, env } from "../_generated/server";
 import { emitDomainEventInAction } from "../lib/domainEventsAction";
+import { log } from "../lib/observability/log";
 import {
   buildStaleDigest,
   type StaleLeadDigestEntry,
 } from "../lib/slackBlockKit";
-import { getValidSlackBotToken } from "./tokens";
+import {
+  logSlackNotifyPosted,
+  logSlackNotifySkipped,
+  reportSlackNotifyFailed,
+} from "./notifyObservability";
+import { getValidSlackBotToken, logSlackTokenUnavailable } from "./tokens";
 import { slackApiPostJson } from "./webApi";
 
 const STALE_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000;
@@ -42,7 +48,6 @@ export const maybeRun = internalAction({
 
     if (hourInNY !== 8) return;
 
-    console.log("[Slack:Stale] cron fired (8 AM NY)");
     await ctx.scheduler.runAfter(0, internal.slack.staleReminders.fanOut, {});
   },
 });
@@ -55,7 +60,7 @@ export const fanOut = internalAction({
       {},
     );
 
-    console.log("[Slack:Stale] fan-out", { tenantCount: ids.length });
+    log.info("slack.stale_digest.fan_out", { installationCount: ids.length });
 
     for (const installationId of ids) {
       await ctx.scheduler.runAfter(
@@ -81,12 +86,22 @@ export const postForTenant = internalAction({
     const channelId =
       installation.staleReminderChannelId ?? installation.notifyChannelId;
 
+    const kind = "stale_digest" as const;
     if (!channelId) {
-      console.log("[Slack:Stale] skipping - no channel configured", {
+      logSlackNotifySkipped("no_channel_configured", {
         tenantId: installation.tenantId,
+        installationId: installation._id,
+        kind,
       });
       return;
     }
+    const notifyAttrs = {
+      tenantId: installation.tenantId,
+      installationId: installation._id,
+      kind,
+      channelId,
+      channelKind,
+    };
 
     const stale: {
       opps: StaleOpportunityDigestRow[];
@@ -101,17 +116,13 @@ export const postForTenant = internalAction({
     );
 
     if (stale.opps.length === 0) {
-      console.log("[Slack:Stale] no stale leads", {
-        tenantId: installation.tenantId,
-      });
+      logSlackNotifySkipped("no_stale_leads", notifyAttrs);
       return;
     }
 
     const appUrl = env.APP_URL;
     if (!appUrl) {
-      console.warn("[Slack:Stale] APP_URL not configured", {
-        tenantId: installation.tenantId,
-      });
+      reportSlackNotifyFailed("app_url_not_configured", notifyAttrs);
       await emitDomainEventInAction(ctx, {
         tenantId: installation.tenantId,
         entityType: "slackInstallation",
@@ -142,10 +153,7 @@ export const postForTenant = internalAction({
     try {
       token = await getValidSlackBotToken(ctx, installation.tenantId);
     } catch (error) {
-      console.warn("[Slack:Stale] token unavailable", {
-        tenantId: installation.tenantId,
-        error: error instanceof Error ? error.message : "unknown",
-      });
+      logSlackTokenUnavailable("slack.notify.token_unavailable", error, notifyAttrs);
       return;
     }
 
@@ -162,19 +170,16 @@ export const postForTenant = internalAction({
     );
 
     if (response.ok) {
-      console.log("[Slack:Stale] posted", {
-        tenantId: installation.tenantId,
-        channel: channelId,
-        count: entries.length,
+      logSlackNotifyPosted({
+        ...notifyAttrs,
+        entryCount: entries.length,
+        hasMore: stale.hasMore,
       });
       return;
     }
 
     const slackErr = response.error ?? "unknown";
-    console.warn("[Slack:Stale] post failed", {
-      tenantId: installation.tenantId,
-      slackErr,
-    });
+    reportSlackNotifyFailed(slackErr, notifyAttrs);
 
     if (ACTION_REQUIRED_ERRORS.has(slackErr)) {
       await ctx.runMutation(

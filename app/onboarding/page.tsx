@@ -11,11 +11,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState, useSyncExternalStore } from "react";
 
 import { api } from "@/convex/_generated/api";
 import { Button } from "@/components/ui/button";
+import { reportClientError } from "@/lib/observability/report-client-error";
 
 import { OnboardingShell, PulsingDots } from "./_components/onboarding-shell";
 
@@ -39,6 +40,26 @@ type InviteError =
   | "not_found"
   | "already_redeemed"
   | "expired";
+
+/**
+ * The invite token is moved from the URL into sessionStorage on arrival, so
+ * it doesn't linger in the address bar, history, or analytics URLs. A
+ * reload in the same tab still finds it.
+ */
+const INVITE_TOKEN_STORAGE_KEY = "onboarding_inviteToken";
+
+function subscribeToNothing() {
+  return () => {};
+}
+
+function readStoredInviteToken() {
+  return sessionStorage.getItem(INVITE_TOKEN_STORAGE_KEY);
+}
+
+/** Unknown during server render and hydration. */
+function readStoredInviteTokenOnServer() {
+  return undefined;
+}
 
 // ---------------------------------------------------------------------------
 // Page (Suspense boundary for useSearchParams)
@@ -65,12 +86,32 @@ export default function OnboardingPage() {
 
 function OnboardingPageContent() {
   const searchParams = useSearchParams();
-  const token = searchParams.get("token");
-  const validateInvite = useAction(api.onboarding.invite.validateInvite);
-  // Derive initial state from token presence — avoids synchronous setState in effect
-  const [state, setState] = useState<ValidationState>(() =>
-    token ? { status: "loading" } : { status: "error", error: "no_token" },
+  const pathname = usePathname();
+  const router = useRouter();
+  const urlToken = searchParams.get("token");
+  const storedToken = useSyncExternalStore(
+    subscribeToNothing,
+    readStoredInviteToken,
+    readStoredInviteTokenOnServer,
   );
+  // `undefined` until the client can read sessionStorage.
+  const token = urlToken ?? storedToken;
+  const validateInvite = useAction(api.onboarding.invite.validateInvite);
+  const [validation, setValidation] = useState<ValidationState>({
+    status: "loading",
+  });
+  const state: ValidationState =
+    token === null ? { status: "error", error: "no_token" } : validation;
+
+  // Move the token out of the URL, keeping any other params.
+  useEffect(() => {
+    if (!urlToken) return;
+    sessionStorage.setItem(INVITE_TOKEN_STORAGE_KEY, urlToken);
+    const remaining = new URLSearchParams(searchParams.toString());
+    remaining.delete("token");
+    const query = remaining.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }, [urlToken, searchParams, pathname, router]);
 
   useEffect(() => {
     if (!token) return;
@@ -86,7 +127,7 @@ function OnboardingPageContent() {
           sessionStorage.setItem("onboarding_companyName", result.companyName);
           sessionStorage.setItem("onboarding_tenantId", result.tenantId);
 
-          setState({ status: "redirecting", companyName: result.companyName });
+          setValidation({ status: "redirecting", companyName: result.companyName });
 
           const authState = JSON.stringify({
             onboardingOrgId: result.workosOrgId,
@@ -99,17 +140,18 @@ function OnboardingPageContent() {
           return;
         }
 
-        setState({
+        setValidation({
           status: "error",
           error: result.error,
           workosOrgId: result.workosOrgId,
           companyName: result.companyName,
         });
       })
-      .catch(() => {
+      .catch((error: unknown) => {
+        reportClientError(error, { flow: "onboarding_invite_validate" });
         if (!active) return;
 
-        setState({ status: "error", error: "invalid_signature" });
+        setValidation({ status: "error", error: "invalid_signature" });
       });
 
     return () => {

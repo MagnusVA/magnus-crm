@@ -19,8 +19,10 @@ import { Spinner } from "@/components/ui/spinner";
 import { AlertCircleIcon } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
+import { getErrorMessage } from "@/lib/errors";
 
 interface RemoveUserDialogProps {
   open: boolean;
@@ -58,9 +60,9 @@ export function RemoveUserDialog({
       // Re-run server components so the team list and nav reflect the deactivation
       router.refresh();
     } catch (error) {
-      posthog.captureException(error);
+      reportClientError(error, { flow: "team_user_remove" });
       toast.error(
-        error instanceof Error ? error.message : "Failed to deactivate user",
+        getErrorMessage(error, "Failed to deactivate user"),
       );
     } finally {
       setIsRemoving(false);

@@ -202,14 +202,6 @@ export async function rebuildLeadCustomerSearchRow(
   } else {
     await ctx.db.insert("leadCustomerSearchRows", row);
   }
-
-  console.log("[LeadCustomers:Projection] rebuilt row", {
-    tenantId,
-    leadId,
-    lifecycle,
-    opportunityCount: row.opportunityCount,
-    meetingCount: row.meetingCount,
-  });
 }
 
 export async function hideProjectionRowForMissingLead(

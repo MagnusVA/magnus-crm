@@ -2,8 +2,11 @@ import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { CrmRole } from "./lib/roleMapping";
 import { getIdentityOrgId } from "./lib/identity";
+import { expectedError, rejectRequest } from "./lib/observability/errors";
+import { logRequestContext } from "./lib/observability/log";
 import {
   getCanonicalIdentityWorkosUserId,
+  getRawWorkosUserId,
   getWorkosUserIdCandidates,
 } from "./lib/workosUserId";
 
@@ -18,31 +21,31 @@ export async function requireTenantUser(
   ctx: QueryCtx | MutationCtx,
   allowedRoles: CrmRole[],
 ): Promise<TenantUserResult> {
-  console.log("[Auth] requireTenantUser called", { allowedRoles });
+  // Queries re-run on every subscription update, so a rejected query skips
+  // the `request.rejected` line; the ingest reads the code from the error.
+  const reject: typeof rejectRequest =
+    "scheduler" in ctx
+      ? rejectRequest
+      : (code, message) => expectedError(code, message);
 
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
-    console.error("[Auth] requireTenantUser failed: no identity");
-    throw new Error("Not authenticated");
+    throw reject("auth.not_authenticated", "Not authenticated");
   }
-  console.log("[Auth] identity resolved", {
-    subject: identity.subject,
-    tokenIdentifier: identity.tokenIdentifier ?? null,
-  });
 
   const orgId = getIdentityOrgId(identity);
   if (!orgId) {
-    console.error("[Auth] requireTenantUser failed: no orgId from identity");
-    throw new Error("No organization context");
+    throw reject("auth.no_organization", "No organization context", {
+      subject: identity.subject,
+    });
   }
-  console.log("[Auth] orgId resolved", { orgId });
 
   const workosUserId = getCanonicalIdentityWorkosUserId(identity);
   if (!workosUserId) {
-    console.error("[Auth] requireTenantUser failed: no workosUserId");
-    throw new Error("Missing WorkOS user ID");
+    throw reject("auth.missing_workos_user_id", "Missing WorkOS user ID", {
+      orgId,
+    });
   }
-  console.log("[Auth] workosUserId resolved", { workosUserId });
 
   let user = null;
   for (const candidateWorkosUserId of getWorkosUserIdCandidates(workosUserId)) {
@@ -56,67 +59,61 @@ export async function requireTenantUser(
   }
 
   if (!user) {
+    let subjectMatchFound = false;
     if (identity.subject && identity.subject !== workosUserId) {
       const subjectMatch = await ctx.db
         .query("users")
         .withIndex("by_workosUserId", (q) => q.eq("workosUserId", identity.subject))
         .unique();
-
-      console.error("[Auth] requireTenantUser alternate subject lookup", {
-        chosenLookupKey: workosUserId,
-        subject: identity.subject,
-        tokenIdentifier: identity.tokenIdentifier ?? null,
-        subjectMatchFound: Boolean(subjectMatch),
-        subjectMatchUserId: subjectMatch?._id ?? null,
-      });
+      subjectMatchFound = Boolean(subjectMatch);
     }
 
-    console.error("[Auth] requireTenantUser failed: user not found", { workosUserId });
-    throw new Error("User not found — please complete setup");
+    throw reject(
+      "auth.user_not_found",
+      "User not found — please complete setup",
+      {
+        workosUserId,
+        subject: identity.subject,
+        subjectMatchFound,
+        orgId,
+      },
+    );
   }
-  console.log("[Auth] user found", {
+
+  const context = {
+    distinctId: getRawWorkosUserId(workosUserId),
     userId: user._id,
     tenantId: user.tenantId,
+    workosOrgId: orgId,
     role: user.role,
-  });
+  };
 
   if (user.isActive === false) {
-    console.error("[Auth] requireTenantUser failed: user is inactive", {
-      userId: user._id,
-    });
-    throw new Error("User account is inactive");
+    throw reject("auth.user_inactive", "User account is inactive", context);
   }
 
   const tenant = await ctx.db.get("tenants", user.tenantId);
   if (!tenant || tenant.workosOrgId !== orgId) {
-    console.error("[Auth] requireTenantUser failed: org mismatch", {
-      userTenantId: user.tenantId,
+    throw reject("auth.organization_mismatch", "Organization mismatch", {
+      ...context,
       tenantFound: Boolean(tenant),
       tenantOrgId: tenant?.workosOrgId ?? null,
-      expectedOrgId: orgId,
     });
-    throw new Error("Organization mismatch");
   }
-  console.log("[Auth] tenant verified", { tenantId: tenant._id, orgId });
+
+  logRequestContext(context);
 
   if (!allowedRoles.includes(user.role)) {
-    console.error("[Auth] requireTenantUser failed: insufficient permissions", {
-      userRole: user.role,
+    throw reject("auth.insufficient_permissions", "Insufficient permissions", {
+      ...context,
       allowedRoles,
     });
-    throw new Error("Insufficient permissions");
   }
 
-  const result = {
+  return {
     userId: user._id,
     tenantId: user.tenantId,
     role: user.role,
     workosUserId,
   };
-  console.log("[Auth] requireTenantUser succeeded", {
-    userId: result.userId,
-    tenantId: result.tenantId,
-    role: result.role,
-  });
-  return result;
 }

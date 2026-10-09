@@ -39,6 +39,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
+import { getErrorMessage } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Schema — three-branch superRefine.
@@ -224,9 +226,9 @@ export function ReminderNoResponseDialog({ followUpId, onSuccess }: Props) {
 			form.reset();
 			onSuccess();
 		} catch (err) {
-			posthog.captureException(err);
+			reportClientError(err, { flow: "reminder_no_response" });
 			const message =
-				err instanceof Error ? err.message : "Failed to save";
+				getErrorMessage(err, "Failed to save");
 			setSubmitError(message);
 			toast.error(message);
 		} finally {

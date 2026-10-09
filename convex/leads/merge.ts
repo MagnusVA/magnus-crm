@@ -6,6 +6,7 @@ import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { requireTenantUser } from "../requireTenantUser";
 import { buildLeadSearchText } from "./searchTextBuilder";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { log } from "../lib/observability/log";
 import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
 import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
 import { syncLeadMeetingNames } from "../lib/syncLeadMeetingNames";
@@ -13,7 +14,8 @@ import { leadDisplayString } from "../lib/leadDisplay";
 
 // NIM-17: bounded reparent of the source lead's portal notes during a merge.
 // Far above realistic per-lead note counts; if the read comes back full we
-// log a warning instead of looping unbounded inside the merge transaction.
+// log a warning at the end of the merge instead of looping unbounded inside
+// the merge transaction.
 const LEAD_NOTE_REPARENT_LIMIT = 200;
 
 const SOCIAL_IDENTIFIER_TYPES = new Set<Doc<"leadIdentifiers">["type"]>([
@@ -190,12 +192,6 @@ async function executeMerge(
       q.eq("tenantId", tenantId).eq("leadId", sourceLeadId),
     )
     .take(LEAD_NOTE_REPARENT_LIMIT);
-  if (sourceNotes.length === LEAD_NOTE_REPARENT_LIMIT) {
-    console.warn(
-      "[Leads:Merge] lead note reparent hit its bound; more notes may remain on the source lead",
-      { tenantId, sourceLeadId, targetLeadId, limit: LEAD_NOTE_REPARENT_LIMIT },
-    );
-  }
   for (const note of sourceNotes) {
     await ctx.db.patch("leadNotes", note._id, { leadId: targetLeadId });
   }
@@ -306,15 +302,22 @@ async function executeMerge(
   await rebuildLeadCustomerSearchRow(ctx, tenantId, targetLeadId);
   await rebuildLeadCustomerSearchRow(ctx, tenantId, sourceLeadId);
 
-  console.log("[Leads:Merge] executeMerge completed", {
-    tenantId,
-    sourceLeadId,
-    targetLeadId,
-    identifiersMoved,
-    opportunitiesMoved: sourceOpportunities.length,
-    meetingsMoved,
-    mergedByUserId: userId,
-  });
+  // Each read above is bounded. A full page means rows past the bound were
+  // left on the source lead (or, for the tenant scan, still flag it).
+  const boundsHit = [
+    sourceOpportunities.length === 100 ? "source_opportunities" : null,
+    sourceIdentifiers.length === 100 ? "source_identifiers" : null,
+    sourceNotes.length === LEAD_NOTE_REPARENT_LIMIT ? "source_notes" : null,
+    tenantOpportunities.length === 500 ? "duplicate_flag_scan" : null,
+  ].filter((bound) => bound !== null);
+  if (boundsHit.length > 0) {
+    log.warn("leads.merge.bound_hit", {
+      tenantId,
+      sourceLeadId,
+      targetLeadId,
+      boundsHit,
+    });
+  }
 }
 
 export const dismissDuplicateFlag = mutation({
@@ -336,11 +339,6 @@ export const dismissDuplicateFlag = mutation({
     await ctx.db.patch("opportunities", opportunityId, {
       potentialDuplicateLeadId: undefined,
       updatedAt: Date.now(),
-    });
-
-    console.log("[Leads:Merge] dismissDuplicateFlag completed", {
-      tenantId,
-      opportunityId,
     });
 
     return { opportunityId };

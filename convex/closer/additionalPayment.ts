@@ -216,17 +216,8 @@ export const recordAdditionalPayment = mutation({
         additionalPayment: true,
         hasProofFile: Boolean(args.proofFileId),
         hasFathomLink: Boolean(fathomLink),
-        note: normalizedNote,
+        noteProvided: Boolean(normalizedNote),
       },
-    });
-
-    console.log("[Payments] Additional payment recorded on won opportunity", {
-      paymentId,
-      opportunityId: args.opportunityId,
-      attributedCloserId,
-      origin,
-      programId: program._id,
-      paymentType,
     });
 
     return { paymentId, customerId: customer?._id };

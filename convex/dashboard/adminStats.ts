@@ -17,7 +17,6 @@ export const getAdminDashboardStats = query({
       "tenant_master",
       "tenant_admin",
     ]);
-    console.log("[Dashboard] getAdminDashboardStats called", { tenantId });
 
     const stats = await ctx.db
       .query("tenantStats")
@@ -25,9 +24,7 @@ export const getAdminDashboardStats = query({
       .first();
 
     if (!stats) {
-      console.warn("[Dashboard] getAdminDashboardStats missing tenantStats", {
-        tenantId,
-      });
+      // New tenants have no stats doc until the first counted write.
       return {
         totalTeamMembers: 0,
         totalClosers: 0,
@@ -85,19 +82,6 @@ export const getAdminDashboardStats = query({
       postConversionRevenueLogged +
       postConversionDepositsLogged;
 
-    console.log("[Dashboard] getAdminDashboardStats completed", {
-      tenantId,
-      totalTeamMembers: stats.totalTeamMembers,
-      totalClosers: stats.totalClosers,
-      totalOpportunities: stats.totalOpportunities,
-      activeOpportunities: stats.activeOpportunities,
-      meetingsToday,
-      wonDeals: stats.wonDeals,
-      revenueLogged,
-      postConversionRevenueLogged,
-      depositsCollected,
-      postConversionDepositsLogged,
-    });
     return {
       totalTeamMembers: stats.totalTeamMembers,
       totalClosers: stats.totalClosers,

@@ -1,30 +1,43 @@
 import type { Id } from "../_generated/dataModel";
 import type { MemberAvatarIdentity } from "../lib/memberIdentity";
 
+/**
+ * Machine code for a section that failed to build. The query returns it
+ * instead of reporting the failure, because queries re-run on every
+ * subscription update; the browser reports it once per mount.
+ */
+export type SectionErrorCode =
+  | "read_limit_exceeded"
+  | "unexpected";
+
 export type SectionResult<T> =
   | {
       status: "ready";
       data: T;
       truncated: boolean;
       message: null;
+      errorCode: null;
     }
   | {
       status: "empty";
       data: T;
       truncated: false;
       message: string;
+      errorCode: null;
     }
   | {
       status: "capped";
       data: null;
       truncated: true;
       message: string;
+      errorCode: null;
     }
   | {
       status: "error";
       data: null;
       truncated: false;
       message: string;
+      errorCode: SectionErrorCode;
     };
 
 export type LeadGenOverview = {

@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { reportServerError } from "@/lib/observability/report-server-error";
 
 function getConvexUrl() {
   const convexUrl = process.env.NEXT_PUBLIC_CONVEX_URL;
@@ -55,8 +56,11 @@ export async function GET(request: NextRequest) {
   const convex = new ConvexHttpClient(getConvexUrl());
   convex.setAuth(auth.accessToken);
 
+  const mode =
+    request.nextUrl.searchParams.get("mode") === "reconnect" ? "reconnect" : "connect";
+
   try {
-    if (request.nextUrl.searchParams.get("mode") === "reconnect") {
+    if (mode === "reconnect") {
       await convex.action(api.calendly.oauth.prepareReconnect, {
         tenantId: tenantId as Id<"tenants">,
       });
@@ -82,7 +86,14 @@ export async function GET(request: NextRequest) {
       maxAge: 60 * 15,
     });
     return response;
-  } catch {
+  } catch (error) {
+    await reportServerError(error, {
+      event: "calendly.oauth_start.failed",
+      request,
+      distinctId: auth.user.id,
+      fingerprint: "calendly-oauth-start",
+      mode,
+    });
     return redirectToReturnTarget(request, returnTo, "oauth_start_failed");
   }
 }

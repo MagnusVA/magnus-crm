@@ -39,11 +39,6 @@ export const getActiveReminders = query({
       };
     });
 
-    console.log("[Closer:FollowUp] getActiveReminders", {
-      userId,
-      count: enriched.length,
-    });
-
     return enriched;
   },
 });

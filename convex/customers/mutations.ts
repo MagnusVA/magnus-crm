@@ -23,10 +23,6 @@ export const convertLeadToCustomer = mutation({
     notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    console.log("[Customer] convertLeadToCustomer called", {
-      leadId: args.leadId,
-      winningOpportunityId: args.winningOpportunityId,
-    });
     const { userId, tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -71,10 +67,6 @@ export const updateCustomerStatus = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    console.log("[Customer] updateCustomerStatus called", {
-      customerId: args.customerId,
-      newStatus: args.status,
-    });
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -123,14 +115,6 @@ export const recordCustomerPayment = mutation({
     note: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    console.log("[Customer] recordCustomerPayment called", {
-      customerId: args.customerId,
-      amount: args.amount,
-      programId: args.programId,
-      paymentType: args.paymentType,
-      hasPaidAt: args.paidAt !== undefined,
-      hasNote: !!args.note,
-    });
     const { userId, tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
@@ -234,19 +218,12 @@ export const recordCustomerPayment = mutation({
         origin: "customer_direct",
         recordedByUserId: userId,
         paidAt,
-        note: normalizedNote,
+        noteProvided: Boolean(normalizedNote),
       },
       // Preserve the "when the admin performed this action" signal on the
       // event timeline; reporting uses `paymentRecords.recordedAt` for
       // financial bucketing instead.
       occurredAt: now,
-    });
-
-    console.log("[Customer] Post-conversion payment recorded", {
-      paymentId,
-      customerId: args.customerId,
-      programId: program._id,
-      paymentType,
     });
 
     return paymentId;

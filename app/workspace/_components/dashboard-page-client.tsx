@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
+import posthog from "posthog-js";
 import { api } from "@/convex/_generated/api";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { useRole } from "@/components/auth/role-context";
@@ -10,10 +11,33 @@ import {
 	type DashboardRangeInput,
 } from "./dashboard-date-range-filter";
 import { validateCustomDashboardRange } from "./dashboard-date-utils";
+import type { OverviewDashboard } from "./overview-dashboard-types";
 import { OverviewTopCards } from "./overview-top-cards";
 import { PhoneCloserOperationsSection } from "./phone-closer-operations-section";
 import { TopOriginsOverviewSection } from "./top-origins-overview-section";
 import { OverviewDashboardSkeleton } from "./skeletons/overview-dashboard-skeleton";
+
+type OverviewSectionKey = Exclude<keyof OverviewDashboard, "range">;
+
+/**
+ * Reports a section the backend marked `status: "error"`. The query returns
+ * the failure instead of reporting it, because it re-runs on every update;
+ * this reports once per mount for each section and error code.
+ */
+function useReportOverviewSectionError(
+	key: OverviewSectionKey,
+	section: OverviewDashboard[OverviewSectionKey] | undefined,
+) {
+	const errorCode = section?.status === "error" ? section.errorCode : null;
+	useEffect(() => {
+		if (errorCode === null) return;
+		posthog.captureException(new Error(`Overview section failed: ${key}`), {
+			error_origin: "dashboard_overview",
+			section: key,
+			error_code: errorCode,
+		});
+	}, [key, errorCode]);
+}
 
 export function DashboardPageClient() {
 	usePageTitle("Overview");
@@ -37,6 +61,14 @@ export function DashboardPageClient() {
 		api.dashboard.overview.getOverviewDashboard,
 		isAdmin ? { range: queryRange } : "skip",
 	);
+	useReportOverviewSectionError("leadGen", overview?.leadGen);
+	useReportOverviewSectionError("topQualifiers", overview?.topQualifiers);
+	useReportOverviewSectionError("topDmClosers", overview?.topDmClosers);
+	useReportOverviewSectionError(
+		"phoneCloserOperations",
+		overview?.phoneCloserOperations,
+	);
+	useReportOverviewSectionError("topOrigins", overview?.topOrigins);
 
 	if (!isAdmin || !overview) {
 		return <OverviewDashboardSkeleton />;

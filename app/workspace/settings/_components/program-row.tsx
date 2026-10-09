@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useMutation } from "convex/react";
 import { toast } from "sonner";
 import posthog from "posthog-js";
+import { reportClientError } from "@/lib/observability/report-client-error";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
@@ -37,6 +38,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
 import { ProgramFormDialog } from "./program-form-dialog";
+import { getErrorMessage } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -89,7 +91,7 @@ export function ProgramRow({ program }: ProgramRowProps) {
       }
       setPendingAction(null);
     } catch (error) {
-      posthog.captureException(error);
+      reportClientError(error, { flow: "program_row_action" });
       // Surface the server-side reason verbatim when available — the
       // archive / restore mutations throw actionable errors (e.g.
       // "At least one active program is required. Create or restore
@@ -99,10 +101,7 @@ export function ProgramRow({ program }: ProgramRowProps) {
         pendingAction === "archive"
           ? "Cannot archive — at least one active program must remain."
           : "Cannot restore — a program with this name already exists.";
-      const message =
-        error instanceof Error && error.message
-          ? error.message
-          : fallback;
+      const message = getErrorMessage(error, fallback);
       toast.error(message);
     } finally {
       setIsSubmitting(false);

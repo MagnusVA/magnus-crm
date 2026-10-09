@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { mutation } from "./_generated/server";
+import { log } from "./lib/observability/log";
 
 const MAX_NAME_LENGTH = 160;
 const MAX_EMAIL_LENGTH = 254;
@@ -44,7 +45,7 @@ export const submitSupportRequest = mutation({
   },
   handler: async (ctx, args) => {
     if (args.website?.trim()) {
-      console.warn("[Support] Rejected support request from honeypot");
+      log.warn("support.request.rejected", { reason: "honeypot" });
       throw new Error("Support request could not be submitted.");
     }
 
@@ -81,9 +82,10 @@ export const submitSupportRequest = mutation({
       createdAt,
     });
 
-    console.log("[Support] support request submitted", {
+    log.info("support.request.submitted", {
       supportTicketId,
-      createdAt,
+      hasOrganizationName: organizationName !== undefined,
+      hasSlackWorkspace: slackWorkspace !== undefined,
     });
 
     return { supportTicketId };

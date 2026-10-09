@@ -1,6 +1,7 @@
 import { fetchAction } from "convex/nextjs";
 import { cookies } from "next/headers";
 import { api } from "@/convex/_generated/api";
+import { reportServerError } from "@/lib/observability/report-server-error";
 import { DmLinkPortalClient } from "./_components/dm-link-portal-client";
 import {
 	addPortalLeadNote,
@@ -35,7 +36,16 @@ export default async function DmLinksPage({ params }: Props) {
 			? await fetchAction(api.linkPortal.portalActions.getPortalBootstrap, {
 					portalSlug,
 					sessionToken,
-				}).catch(() => null)
+				}).catch(async (error: unknown) => {
+					// An expired session or unknown portal comes back from Convex
+					// (already reported there); anything else is a page failure.
+					await reportServerError(error, {
+						event: "link_portal.bootstrap.failed",
+						fingerprint: "link-portal:bootstrap",
+						action: "bootstrap",
+					});
+					return null;
+				})
 			: null;
 
 	return (

@@ -39,10 +39,7 @@ export const getPortalBootstrap = action({
 		sessionToken: v.string(),
 	},
 	handler: async (ctx, { portalSlug, sessionToken }): Promise<PortalBootstrap> => {
-		const session = verifyPortalSessionToken(sessionToken);
-		if (session.publicSlug !== portalSlug) {
-			throw new Error("Portal session is no longer valid.");
-		}
+		const session = verifyPortalSessionToken(sessionToken, portalSlug);
 
 		const bootstrap: PortalBootstrap = await ctx.runQuery(
 			internal.linkPortal.portalQueries.getPortalBootstrapForSession,

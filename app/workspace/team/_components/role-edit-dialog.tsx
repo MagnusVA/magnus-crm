@@ -36,6 +36,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { toast } from "sonner";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
+import { getErrorMessage } from "@/lib/errors";
 
 const roleEditSchema = z.object({
   role: z.enum(["closer", "tenant_admin", "lead_generator"]),
@@ -110,7 +111,7 @@ export function RoleEditDialog({
       router.refresh();
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to update role",
+        getErrorMessage(error, "Failed to update role"),
       );
     } finally {
       setIsSaving(false);

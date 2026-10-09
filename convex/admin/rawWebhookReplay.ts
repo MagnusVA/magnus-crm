@@ -11,6 +11,7 @@ import {
 	type QueryCtx,
 } from "../_generated/server";
 import { getString, isRecord } from "../lib/payloadExtraction";
+import { log } from "../lib/observability/log";
 import { requireSystemAdminSession } from "../requireSystemAdmin";
 import {
 	customerConversions,
@@ -760,15 +761,17 @@ export const rebuildFreshStartFromRawWebhooks = action({
 	},
 	handler: async (ctx, { scheduledStartCutoffIso, confirmDestructiveReset }) => {
 		await requireSystemAdmin(ctx);
+		const startedAt = Date.now();
 		const targetTenant: ResolvedFreshStartTenant = await ctx.runQuery(
 			internal.admin.rawWebhookReplay.resolveFreshStartTenant,
 			{},
 		);
 		const tenantId = targetTenant.tenantId;
-		console.log("[Admin:RawWebhookReplay] Rebuild requested", {
+		log.info("pipeline.replay.started", {
 			tenantId,
-			targetTenant,
+			tenantResolution: targetTenant.resolution,
 			scheduledStartCutoffIso,
+			confirmDestructiveReset,
 		});
 
 		if (!confirmDestructiveReset) {
@@ -830,11 +833,21 @@ export const rebuildFreshStartFromRawWebhooks = action({
 					rawEventId: candidate.rawEventId,
 				});
 			} catch (error) {
-				throw new Error(
-					`Replay failed for rawEventId=${candidate.rawEventId} eventType=${candidate.eventType} calendlyEventUri=${candidate.calendlyEventUri ?? "unknown"}: ${
-						error instanceof Error ? error.message : String(error)
-					}`,
-				);
+				// The tenant's operational data is already deleted, so this
+				// leaves it partially rebuilt until the replay is rerun.
+				log.error("pipeline.replay.failed", {
+					tenantId,
+					rawEventId: candidate.rawEventId,
+					eventType: candidate.eventType,
+					calendlyEventUri: candidate.calendlyEventUri,
+					replayedInviteeCreated,
+					replayedRelatedEvents,
+					totalReplayEvents: candidates.length,
+					durationMs: Date.now() - startedAt,
+				});
+				// Rethrow unchanged so the failure groups with the processor's own
+				// issue; the ids are in the log line above.
+				throw error;
 			}
 
 			if (candidate.eventType === "invitee.created") {
@@ -848,13 +861,14 @@ export const rebuildFreshStartFromRawWebhooks = action({
 			tenantId,
 		});
 
-		console.log("[Admin:RawWebhookReplay] Rebuild completed", {
+		log.info("pipeline.replay.completed", {
 			tenantId,
 			scheduledStartCutoffIso: preview.scheduledStartCutoffIso,
 			clearedAggregates: aggregateReset.clearedNamespaces,
 			deletedCounts,
 			replayedInviteeCreated,
 			replayedRelatedEvents,
+			durationMs: Date.now() - startedAt,
 		});
 
 		return {

@@ -1,18 +1,11 @@
 "use client";
 
-import { useAuth } from "@workos-inc/authkit-nextjs/components";
 import { Button } from "@/components/ui/button";
 import { LogOutIcon } from "lucide-react";
-import posthog from "posthog-js";
+import { useSignOut } from "@/hooks/use-sign-out";
 
 export function SignOutButton() {
-  const { signOut } = useAuth();
-
-  const handleSignOut = () => {
-    posthog.capture("user_signed_out");
-    posthog.reset();
-    signOut();
-  };
+  const handleSignOut = useSignOut();
 
   return (
     <Button onClick={handleSignOut} variant="outline">

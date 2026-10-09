@@ -3,8 +3,11 @@ import type { Id } from "./_generated/dataModel";
 import type { ActionCtx } from "./_generated/server";
 import { getIdentityOrgId } from "./lib/identity";
 import type { CrmRole } from "./lib/roleMapping";
+import { rejectRequest } from "./lib/observability/errors";
+import { logRequestContext } from "./lib/observability/log";
 import {
   getCanonicalIdentityWorkosUserId,
+  getRawWorkosUserId,
   getWorkosUserIdCandidates,
 } from "./lib/workosUserId";
 
@@ -19,26 +22,23 @@ export async function requireTenantUserFromAction(
   ctx: ActionCtx,
   allowedRoles: CrmRole[],
 ): Promise<TenantUserFromActionResult> {
-  console.log("[Auth:Action] requireTenantUserFromAction called", {
-    allowedRoles,
-  });
-
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) {
-    console.error("[Auth:Action] failed: no identity");
-    throw new Error("Not authenticated");
+    throw rejectRequest("auth.not_authenticated", "Not authenticated");
   }
 
   const orgId = getIdentityOrgId(identity);
   if (!orgId) {
-    console.error("[Auth:Action] failed: no orgId from identity");
-    throw new Error("No organization context");
+    throw rejectRequest("auth.no_organization", "No organization context", {
+      subject: identity.subject,
+    });
   }
 
   const workosUserId = getCanonicalIdentityWorkosUserId(identity);
   if (!workosUserId) {
-    console.error("[Auth:Action] failed: no workosUserId");
-    throw new Error("Missing WorkOS user ID");
+    throw rejectRequest("auth.missing_workos_user_id", "Missing WorkOS user ID", {
+      orgId,
+    });
   }
 
   const resolved = await ctx.runQuery(
@@ -50,19 +50,21 @@ export async function requireTenantUserFromAction(
     },
   );
 
-  if (!allowedRoles.includes(resolved.role)) {
-    console.error("[Auth:Action] failed: insufficient permissions", {
-      userRole: resolved.role,
-      allowedRoles,
-    });
-    throw new Error("Insufficient permissions");
-  }
-
-  console.log("[Auth:Action] succeeded", {
+  const context = {
+    distinctId: getRawWorkosUserId(workosUserId),
     userId: resolved.userId,
     tenantId: resolved.tenantId,
+    workosOrgId: orgId,
     role: resolved.role,
-  });
+  };
+  logRequestContext(context);
+
+  if (!allowedRoles.includes(resolved.role)) {
+    throw rejectRequest("auth.insufficient_permissions", "Insufficient permissions", {
+      ...context,
+      allowedRoles,
+    });
+  }
 
   return resolved;
 }

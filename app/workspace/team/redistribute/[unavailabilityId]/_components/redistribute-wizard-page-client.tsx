@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
+import { getErrorMessage } from "@/lib/errors";
 
 // ─── Types ──────────────────────────────────────────────────────────
 
@@ -247,9 +248,7 @@ export function RedistributeWizardPageClient({
 			}
 		} catch (error) {
 			toast.error(
-				error instanceof Error
-					? error.message
-					: "Failed to distribute meetings",
+				getErrorMessage(error, "Failed to distribute meetings"),
 			);
 		} finally {
 			setIsDistributing(false);
@@ -295,9 +294,7 @@ export function RedistributeWizardPageClient({
 			}
 		} catch (error) {
 			toast.error(
-				error instanceof Error
-					? error.message
-					: "Failed to assign meeting",
+				getErrorMessage(error, "Failed to assign meeting"),
 			);
 		} finally {
 			setIsResolving(false);
@@ -331,9 +328,7 @@ export function RedistributeWizardPageClient({
 			}
 		} catch (error) {
 			toast.error(
-				error instanceof Error
-					? error.message
-					: "Failed to cancel meeting",
+				getErrorMessage(error, "Failed to cancel meeting"),
 			);
 		} finally {
 			setIsResolving(false);

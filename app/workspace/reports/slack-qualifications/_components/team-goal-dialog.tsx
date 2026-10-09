@@ -32,6 +32,7 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { getErrorMessage } from "@/lib/errors";
 
 type TeamGoalDialogProps = {
   currentGoal: number | null;
@@ -96,7 +97,7 @@ export function TeamGoalDialog({
       onOpenChange(false);
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to update team goal.";
+        getErrorMessage(error, "Failed to update team goal.");
       setSubmitError(message);
     }
   };

@@ -63,10 +63,6 @@ export async function upsertSlackUserOnSubmission(
     await ctx.scheduler.runAfter(0, internal.slack.userActions.fetchAndSync, {
       slackUserRowId: id,
     });
-    console.log("[Slack:Users] stub inserted", {
-      tenantId: args.tenantId,
-      slackUserId: args.slackUserId,
-    });
     return id;
   }
 
@@ -206,10 +202,6 @@ export const handleUserChange = internalMutation({
     if (timezone !== undefined) patch.timezone = timezone;
 
     await ctx.db.patch("slackUsers", row._id, patch);
-    console.log("[Slack:Users] user_change applied", {
-      installationId: args.installationId,
-      slackUserId,
-    });
   },
 });
 

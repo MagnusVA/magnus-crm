@@ -8,6 +8,7 @@ import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateTransition } from "../lib/statusTransitions";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { log } from "../lib/observability/log";
 import {
   isActiveOpportunityStatus,
   updateTenantStats,
@@ -54,9 +55,7 @@ export const markAsLost = mutation({
     reason: v.optional(v.string()),
   },
   handler: async (ctx, { opportunityId, meetingId, reason }) => {
-    console.log("[Closer:Meeting] markAsLost called", { opportunityId });
     const { userId, tenantId, role } = await requireTenantUser(ctx, ["closer"]);
-    console.log("[Closer:Meeting] markAsLost auth check passed", { userId });
 
     const opportunity = await ctx.db.get("opportunities", opportunityId);
     if (!opportunity || opportunity.tenantId !== tenantId) {
@@ -78,7 +77,6 @@ export const markAsLost = mutation({
     }
 
     // Validate the transition
-    console.log("[Closer:Meeting] markAsLost current status", { currentStatus: opportunity.status });
     const now = Date.now();
     if (meeting) {
       assertCanRecordMeetingOutcome({
@@ -129,7 +127,6 @@ export const markAsLost = mutation({
       reason: normalizedReason,
       occurredAt: now,
     });
-    console.log("[Closer:Meeting] markAsLost patch applied", { opportunityId, newStatus: "lost", hasReason: !!normalizedReason });
   },
 });
 
@@ -139,15 +136,17 @@ export const saveFathomLink = mutation({
     fathomLink: v.string(),
   },
   handler: async (ctx, { meetingId, fathomLink: rawLink }) => {
-    console.log("[Closer:Meeting] saveFathomLink called", { meetingId });
     const { userId, tenantId, role } = await requireTenantUser(ctx, [
       "closer",
       "tenant_master",
       "tenant_admin",
     ]);
-    console.log("[Closer:Meeting] saveFathomLink auth check passed", { userId, role });
 
-    const { opportunity } = await loadMeetingContext(ctx, meetingId, tenantId);
+    const { meeting, opportunity } = await loadMeetingContext(
+      ctx,
+      meetingId,
+      tenantId,
+    );
 
     if (role === "closer" && opportunity.assignedCloserId !== userId) {
       throw new Error("Not your meeting");
@@ -164,9 +163,12 @@ export const saveFathomLink = mutation({
       fathomLinkSavedAt: now,
     });
 
-    console.log("[Closer:Meeting] saveFathomLink completed", {
+    log.info("meeting.fathom_link_saved", {
+      tenantId,
+      actor: role === "closer" ? "closer" : "admin",
       meetingId,
-      fathomLinkSavedAt: now,
+      opportunityId: opportunity._id,
+      replacedExisting: Boolean(meeting.fathomLink),
     });
   },
 });

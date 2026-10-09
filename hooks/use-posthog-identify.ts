@@ -1,16 +1,18 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { useAuth } from "@workos-inc/authkit-nextjs/components";
 import posthog from "posthog-js";
 import { isPostHogEnabled } from "@/lib/posthog-config";
 
 interface PostHogIdentityProps {
-  workosUserId: string;
-  email: string;
-  name: string;
-  role: string;
-  workosOrgId: string;
-  tenantName: string;
+  /** Canonical or raw WorkOS user id. Nothing is sent until it's known. */
+  workosUserId: string | null | undefined;
+  email?: string;
+  name?: string;
+  role?: string;
+  workosOrgId?: string;
+  tenantName?: string;
 }
 
 /**
@@ -50,7 +52,7 @@ export function usePostHogIdentify({
   const identifiedRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!isPostHogEnabled()) {
+    if (!isPostHogEnabled() || !workosUserId) {
       return;
     }
 
@@ -68,10 +70,30 @@ export function usePostHogIdentify({
       tenant_name: tenantName,
     });
 
-    posthog.group("company", workosOrgId, {
-      name: tenantName,
-    });
+    if (workosOrgId) {
+      posthog.group("company", workosOrgId, tenantName ? { name: tenantName } : undefined);
+    }
 
     identifiedRef.current = rawUserId;
   }, [workosUserId, email, name, role, workosOrgId, tenantName]);
+}
+
+/**
+ * Identifies the signed-in WorkOS user on pages outside the workspace shell
+ * (`/admin`, `/onboarding/connect`), where there's no CRM user record yet.
+ * Uses the same raw WorkOS user id as the workspace, so the person matches.
+ */
+export function useAuthPostHogIdentify(options: { role?: string } = {}) {
+  const { user, organizationId } = useAuth();
+  const name = [user?.firstName, user?.lastName]
+    .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+    .join(" ");
+
+  usePostHogIdentify({
+    workosUserId: user?.id,
+    email: user?.email,
+    name: name || undefined,
+    role: options.role,
+    workosOrgId: organizationId,
+  });
 }

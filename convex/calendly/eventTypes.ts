@@ -5,7 +5,9 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { ActionCtx } from "../_generated/server";
 import { action, internalAction } from "../_generated/server";
+import { describeError, log } from "../lib/observability/log";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
+import { CALENDLY_FETCH_TIMEOUT_MS, calendlyHttpError } from "./apiErrors";
 import { getValidAccessToken, refreshTenantTokenCore } from "./tokens";
 
 type TenantEventTypeSyncContext = {
@@ -70,9 +72,15 @@ function parseCalendlyEventTypesPage(value: unknown): CalendlyEventTypesPage {
   return { collection: value.collection, nextPage };
 }
 
-async function readCalendlyError(response: Response) {
-  const text = await response.text();
-  return text.length > 1_000 ? `${text.slice(0, 1_000)}...` : text;
+/**
+ * The `reason` arg is a free string; logs carry this bounded version.
+ * `manual_admin` is the only caller today.
+ */
+type EventTypeSyncTrigger = "manual_admin" | "unspecified" | "other";
+
+function toSyncTrigger(reason: string | undefined): EventTypeSyncTrigger {
+  if (reason === undefined) return "unspecified";
+  return reason === "manual_admin" ? "manual_admin" : "other";
 }
 
 function calendlyRateLimitMessage(response: Response) {
@@ -80,9 +88,9 @@ function calendlyRateLimitMessage(response: Response) {
     response.headers.get("X-RateLimit-Reset") ??
     response.headers.get("Retry-After");
   if (!resetSeconds) {
-    return "Calendly rate limited event type sync. Try again later.";
+    return "Calendly rate limited event type sync (HTTP 429). Try again later.";
   }
-  return `Calendly rate limited event type sync. Try again in ${resetSeconds} seconds.`;
+  return `Calendly rate limited event type sync (HTTP 429). Try again in ${resetSeconds} seconds.`;
 }
 
 function buildFirstEventTypesPageUrl(organizationUri: string) {
@@ -118,6 +126,7 @@ async function fetchEventTypesPage(
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
+    signal: AbortSignal.timeout(CALENDLY_FETCH_TIMEOUT_MS),
   });
 }
 
@@ -183,6 +192,8 @@ async function syncEventTypesSource(args: {
   accessToken: string;
   seenEventTypeUris: Set<string>;
   totals: EventTypeSyncTotals;
+  /** Resources skipped across the whole sync, logged once in the summary. */
+  skipped: { missingUri: number };
 }) {
   let accessToken = args.accessToken;
   let nextPage: string | null = args.source.firstPageUrl;
@@ -193,13 +204,6 @@ async function syncEventTypesSource(args: {
       throw new Error("Calendly event type pagination loop detected.");
     }
     visitedPages.add(nextPage);
-
-    console.log("[Calendly:EventTypes] fetching page", {
-      tenantId: args.tenantId,
-      source: args.source.kind,
-      userUri: args.source.userUri,
-      page: visitedPages.size,
-    });
 
     const fetchResult = await fetchEventTypesPageWithRefresh(
       args.ctx,
@@ -216,16 +220,12 @@ async function syncEventTypesSource(args: {
     if (response.status === 403) {
       throw new Error(
         args.source.kind === "user"
-          ? `Calendly denied event type access for user ${args.source.userUri}.`
-          : "Calendly denied organization event type access. Reconnect Calendly with an owner or admin account.",
+          ? `Calendly denied event type access for user ${args.source.userUri} (HTTP 403).`
+          : "Calendly denied organization event type access (HTTP 403). Reconnect Calendly with an owner or admin account.",
       );
     }
     if (!response.ok) {
-      throw new Error(
-        `Calendly event type sync failed: ${response.status} ${await readCalendlyError(
-          response,
-        )}`,
-      );
+      throw await calendlyHttpError("event type sync", response);
     }
 
     const page = parseCalendlyEventTypesPage(await response.json());
@@ -233,11 +233,7 @@ async function syncEventTypesSource(args: {
     for (const resource of page.collection) {
       const resourceUri = getEventTypeResourceUri(resource);
       if (!resourceUri) {
-        console.warn("[Calendly:EventTypes] skipping resource without uri", {
-          tenantId: args.tenantId,
-          source: args.source.kind,
-          userUri: args.source.userUri,
-        });
+        args.skipped.missingUri += 1;
         continue;
       }
       if (args.seenEventTypeUris.has(resourceUri)) {
@@ -284,6 +280,7 @@ async function finalizeSuccessfulSync(
   tenantId: Id<"tenants">,
   startedAt: number,
   totals: EventTypeSyncTotals,
+  logAttrs: { trigger: EventTypeSyncTrigger; skippedMissingUri: number },
 ) {
   const stale: { notReturned: number } = await ctx.runMutation(
     internal.calendly.eventTypeMutations.markMissingEventTypes,
@@ -296,8 +293,11 @@ async function finalizeSuccessfulSync(
     { tenantId, status: "success", totals: summary },
   );
 
-  console.log("[Calendly:EventTypes] sync success", {
+  log.info("calendly.event_types.sync", {
     tenantId,
+    outcome: "success",
+    durationMs: Date.now() - startedAt,
+    ...logAttrs,
     ...summary,
   });
 
@@ -311,6 +311,7 @@ export const syncForTenant = internalAction({
   },
   handler: async (ctx, { tenantId, reason }) => {
     const startedAt = Date.now();
+    const trigger = toSyncTrigger(reason);
     const lock: { acquired: boolean; lockUntil?: number } =
       await ctx.runMutation(
         internal.calendly.eventTypeMutations.acquireEventTypeSyncLock,
@@ -322,9 +323,12 @@ export const syncForTenant = internalAction({
       );
 
     if (!lock.acquired) {
-      console.log("[Calendly:EventTypes] sync skipped; lock held", {
+      log.warn("calendly.event_types.sync", {
         tenantId,
-        lockUntil: lock.lockUntil,
+        trigger,
+        outcome: "skipped",
+        reason: "lock_held",
+        lockedForMs: lock.lockUntil ? lock.lockUntil - startedAt : undefined,
       });
       await ctx.runMutation(
         internal.calendly.eventTypeMutations.completeEventTypeSync,
@@ -350,6 +354,7 @@ export const syncForTenant = internalAction({
       notReturned: 0,
       questionsMerged: 0,
     };
+    const skipped = { missingUri: 0 };
 
     try {
       let accessToken = await getValidAccessToken(ctx, tenantId);
@@ -382,12 +387,6 @@ export const syncForTenant = internalAction({
       });
       const seenEventTypeUris = new Set<string>();
 
-      console.log("[Calendly:EventTypes] sync sources prepared", {
-        tenantId,
-        sourceCount: sources.length,
-        memberUserCount: memberUserUris.length,
-      });
-
       for (const source of sources) {
         accessToken = await syncEventTypesSource({
           ctx,
@@ -397,10 +396,14 @@ export const syncForTenant = internalAction({
           accessToken,
           seenEventTypeUris,
           totals,
+          skipped,
         });
       }
 
-      return await finalizeSuccessfulSync(ctx, tenantId, startedAt, totals);
+      return await finalizeSuccessfulSync(ctx, tenantId, startedAt, totals, {
+        trigger,
+        skippedMissingUri: skipped.missingUri,
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       await ctx.runMutation(
@@ -411,9 +414,16 @@ export const syncForTenant = internalAction({
           error: message,
         },
       );
-      console.error("[Calendly:EventTypes] sync failed", {
+      // Rethrown, so the failed execution is reported on its own; this line
+      // records the outcome and the progress made before the failure.
+      log.error("calendly.event_types.sync", {
         tenantId,
-        error: message,
+        trigger,
+        outcome: "failed",
+        durationMs: Date.now() - startedAt,
+        errorName: describeError(error).name,
+        skippedMissingUri: skipped.missingUri,
+        ...totals,
       });
       throw error;
     }
@@ -429,35 +439,15 @@ export const syncForTenant = internalAction({
 export const syncMyTenantEventTypes = action({
   args: {},
   handler: async (ctx): Promise<ManualEventTypeSyncResult> => {
-    console.log("[Calendly:EventTypes] syncMyTenantEventTypes called");
-
     const access = await requireTenantUserFromAction(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
 
-    const result: ManualEventTypeSyncResult = await ctx.runAction(
-      internal.calendly.eventTypes.syncForTenant,
-      {
-        tenantId: access.tenantId,
-        reason: "manual_admin",
-      },
-    );
-
-    if (result.status === "skipped") {
-      console.log("[Calendly:EventTypes] manual sync skipped", {
-        tenantId: access.tenantId,
-        reason: result.reason,
-      });
-      return result;
-    }
-
-    console.log("[Calendly:EventTypes] manual sync complete", {
+    // syncForTenant logs the outcome as `calendly.event_types.sync`.
+    return await ctx.runAction(internal.calendly.eventTypes.syncForTenant, {
       tenantId: access.tenantId,
-      totalSeen: result.totalSeen,
-      created: result.created,
-      updated: result.updated,
+      reason: "manual_admin",
     });
-    return result;
   },
 });

@@ -1,11 +1,15 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { log, reportError } from "../lib/observability/log";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { validateLeadTransition } from "../lib/statusTransitions";
 import { syncCustomerPaymentSummary } from "../lib/paymentHelpers";
 import { insertCustomerAggregate } from "../reporting/writeHooks";
 import { leadDisplayString } from "../lib/leadDisplay";
+
+const LEAD_OPPORTUNITY_LIMIT = 100;
+const OPPORTUNITY_PAYMENT_LIMIT = 50;
 
 /**
  * Core conversion logic — creates a customer record from a lead.
@@ -49,9 +53,12 @@ export async function executeConversion(
     )
     .first();
   if (existingCustomer) {
-    console.log("[Customer] Customer already exists for lead", {
+    log.info("customer.conversion.skipped", {
+      tenantId,
       leadId,
       customerId: existingCustomer._id,
+      winningOpportunityId,
+      reason: "customer_exists",
     });
     return null;
   }
@@ -164,16 +171,35 @@ export async function executeConversion(
     .withIndex("by_tenantId_and_leadId", (q) =>
       q.eq("tenantId", tenantId).eq("leadId", leadId),
     )
-    .take(100);
+    .take(LEAD_OPPORTUNITY_LIMIT);
+  if (leadOpportunities.length === LEAD_OPPORTUNITY_LIMIT) {
+    // Opportunities past the limit keep payments without customerId/program.
+    reportError(
+      "customer.conversion.bound_hit",
+      new Error("Conversion reached the lead opportunity limit"),
+      {
+        severity: "warning",
+        fingerprint: "customer.bound_hit:lead_opportunities",
+        tenantId,
+        leadId,
+        customerId,
+        limit: LEAD_OPPORTUNITY_LIMIT,
+      },
+    );
+  }
 
   let backfilledCount = 0;
+  let opportunitiesAtPaymentLimit = 0;
   for (const candidateOpportunity of leadOpportunities) {
     const payments = await ctx.db
       .query("paymentRecords")
       .withIndex("by_opportunityId_and_recordedAt", (q) =>
         q.eq("opportunityId", candidateOpportunity._id),
       )
-      .take(50);
+      .take(OPPORTUNITY_PAYMENT_LIMIT);
+    if (payments.length === OPPORTUNITY_PAYMENT_LIMIT) {
+      opportunitiesAtPaymentLimit += 1;
+    }
 
     for (const payment of payments) {
       const patch: Partial<Doc<"paymentRecords">> = {};
@@ -193,15 +219,33 @@ export async function executeConversion(
     }
   }
 
+  if (opportunitiesAtPaymentLimit > 0) {
+    // Payments past the limit aren't relinked to the new customer.
+    reportError(
+      "customer.conversion.bound_hit",
+      new Error("Conversion reached the opportunity payment limit"),
+      {
+        severity: "warning",
+        fingerprint: "customer.bound_hit:opportunity_payments",
+        tenantId,
+        leadId,
+        customerId,
+        opportunitiesAtPaymentLimit,
+        limit: OPPORTUNITY_PAYMENT_LIMIT,
+      },
+    );
+  }
+
   await syncCustomerPaymentSummary(ctx, customerId);
 
-  console.log("[Customer] Conversion completed", {
+  // The customer.converted domain event covers the conversion itself; this
+  // line records the payment rows relinked to the new customer.
+  log.info("customer.conversion.payments_linked", {
+    tenantId,
     customerId,
     leadId,
-    winningOpportunityId,
-    backfilledCount,
-    resolvedProgramId,
-    resolvedProgramName,
+    paymentsPatched: backfilledCount,
+    opportunitiesScanned: leadOpportunities.length,
   });
 
   return customerId;

@@ -1,6 +1,12 @@
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
 import { internal } from "../_generated/api";
+import {
+  describeError,
+  log,
+  reportError,
+  type ObsAttributes,
+} from "../lib/observability/log";
 
 const CALENDLY_EVENT_TYPE_WEBHOOK_PREFIX = "event_type";
 
@@ -26,19 +32,39 @@ function isCalendlyEventTypeWebhook(eventType: string) {
 export const processRawEvent = internalAction({
   args: { rawEventId: v.id("rawWebhookEvents") },
   handler: async (ctx, { rawEventId }) => {
+    const startedAt = Date.now();
+
     // Load the raw event
     const rawEvent = await ctx.runQuery(internal.pipeline.queries.getRawEvent, {
       rawEventId,
     });
 
     if (!rawEvent) {
-      console.error(`[Pipeline] Raw event ${rawEventId} not found`);
+      log.warn("pipeline.event.processed", {
+        rawEventId,
+        outcome: "raw_event_missing",
+        durationMs: Date.now() - startedAt,
+      });
       return;
     }
 
+    const logOutcome = (
+      level: "info" | "error",
+      outcome: string,
+      attrs?: ObsAttributes,
+    ) =>
+      log[level]("pipeline.event.processed", {
+        rawEventId,
+        tenantId: rawEvent.tenantId,
+        eventType: rawEvent.eventType,
+        outcome,
+        durationMs: Date.now() - startedAt,
+        ...attrs,
+      });
+
     // Idempotency check — skip already-processed events
     if (rawEvent.processed) {
-      console.log(`[Pipeline] Event ${rawEventId} already processed, skipping`);
+      logOutcome("info", "already_processed");
       return;
     }
 
@@ -46,92 +72,113 @@ export const processRawEvent = internalAction({
     let envelope: unknown;
     try {
       envelope = JSON.parse(rawEvent.payload);
-    } catch (e) {
-      console.error(`[Pipeline] Failed to parse payload for event ${rawEventId}:`, e);
+    } catch {
+      // Not marked processed, so this event stays unprocessed until someone
+      // fixes or deletes it. The SyntaxError message can quote the payload,
+      // so report a fixed message instead.
+      reportError(
+        "pipeline.payload_unparseable",
+        new Error("Raw webhook payload is not valid JSON"),
+        {
+          severity: "error",
+          fingerprint: "pipeline.payload_unparseable",
+          integration: "calendly",
+          rawEventId,
+          tenantId: rawEvent.tenantId,
+          eventType: rawEvent.eventType,
+          outcome: "payload_unparseable",
+          durationMs: Date.now() - startedAt,
+        },
+      );
       return;
     }
 
     const payload = isRecord(envelope) ? envelope.payload : undefined;
     if (!isRecord(payload)) {
-      console.error(
-        `[Pipeline] Missing nested payload object for event ${rawEventId} (type: ${rawEvent.eventType})`,
-      );
       await ctx.runMutation(internal.pipeline.mutations.markProcessed, {
         rawEventId,
       });
+      // Marked processed, so a booking with no payload is lost for good.
+      reportError(
+        "pipeline.event_dropped",
+        new Error(`Calendly ${rawEvent.eventType} event has no payload`),
+        {
+          severity: "warning",
+          fingerprint: `pipeline.event_dropped:${rawEvent.eventType}:missing_payload`,
+          integration: "calendly",
+          rawEventId,
+          tenantId: rawEvent.tenantId,
+          eventType: rawEvent.eventType,
+          outcome: "skipped",
+          reason: "missing_payload",
+          durationMs: Date.now() - startedAt,
+        },
+      );
       return;
     }
-
-    console.log(
-      `[Pipeline] Dispatching event ${rawEventId} | type=${rawEvent.eventType} tenantId=${rawEvent.tenantId}`,
-    );
 
     // Dispatch to the appropriate handler
     try {
       switch (rawEvent.eventType) {
         case "invitee.created":
-          console.log(`[Pipeline] Handler selected: inviteeCreated.process`);
           await ctx.runMutation(internal.pipeline.inviteeCreated.process, {
             tenantId: rawEvent.tenantId,
             payload,
             rawEventId,
           });
-          console.log(`[Pipeline] Handler inviteeCreated.process completed successfully`);
           break;
 
         case "invitee.canceled":
-          console.log(`[Pipeline] Handler selected: inviteeCanceled.process`);
           await ctx.runMutation(internal.pipeline.inviteeCanceled.process, {
             tenantId: rawEvent.tenantId,
             payload,
             rawEventId,
           });
-          console.log(`[Pipeline] Handler inviteeCanceled.process completed successfully`);
           break;
 
         case "invitee_no_show.created":
-          console.log(`[Pipeline] Handler selected: inviteeNoShow.process`);
           await ctx.runMutation(internal.pipeline.inviteeNoShow.process, {
             tenantId: rawEvent.tenantId,
             payload,
             rawEventId,
           });
-          console.log(`[Pipeline] Handler inviteeNoShow.process completed successfully`);
           break;
 
         case "invitee_no_show.deleted":
           // No-show reversal: revert meeting/opportunity back to scheduled
-          console.log(`[Pipeline] Handler selected: inviteeNoShow.revert`);
           await ctx.runMutation(internal.pipeline.inviteeNoShow.revert, {
             tenantId: rawEvent.tenantId,
             payload,
             rawEventId,
           });
-          console.log(`[Pipeline] Handler inviteeNoShow.revert completed successfully`);
           break;
 
         default:
-          if (isCalendlyEventTypeWebhook(rawEvent.eventType)) {
-            console.log(
-              `[Pipeline] Calendly event type webhook ignored for manual-sync MVP boundary: ${rawEvent.eventType} | rawEventId=${rawEventId}`,
-            );
-          } else {
-            console.log(
-              `[Pipeline] Unhandled event type "${rawEvent.eventType}" for event ${rawEventId}`,
-            );
-          }
           // Mark as processed to avoid retrying unknown event types
           await ctx.runMutation(internal.pipeline.mutations.markProcessed, {
             rawEventId,
           });
+          // The subscription includes event types the pipeline doesn't act
+          // on: event_type.* (event types sync manually) and
+          // routing_form_submission.created. Skipping them is routine.
+          logOutcome("info", "skipped", {
+            reason: isCalendlyEventTypeWebhook(rawEvent.eventType)
+              ? "event_type_webhook"
+              : "unhandled_event_type",
+          });
+          return;
       }
     } catch (error) {
-      console.error(
-        `[Pipeline] Error processing event ${rawEventId} (type: ${rawEvent.eventType}):`,
-        error
-      );
-      // Do NOT mark as processed — the event will be retried on next run
+      // The rethrow fails the action, which the log stream reports.
+      logOutcome("error", "failed", { error: describeError(error) });
+      // Not marked processed. Nothing retries it automatically: the event
+      // stays unprocessed until someone replays it, and the
+      // pipeline-stuck-events cron reports it after 15 minutes.
       throw error;
     }
+
+    // Handlers can still skip an event (duplicate, no matching meeting);
+    // their own logs record why.
+    logOutcome("info", "handled");
   },
 });

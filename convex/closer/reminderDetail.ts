@@ -188,15 +188,6 @@ export const getReminderDetail = query({
         ? (eventTypeConfig.paymentLinks ?? [])
         : [];
 
-    console.log("[Closer:Reminder] getReminderDetail", {
-      followUpId,
-      opportunityStatus: opportunity.status,
-      followUpStatus: followUp.status,
-      hasLatestMeeting: Boolean(latestMeeting),
-      paymentCount: payments.length,
-      paymentLinkCount: paymentLinks.length,
-    });
-
     return {
       followUp,
       opportunity,

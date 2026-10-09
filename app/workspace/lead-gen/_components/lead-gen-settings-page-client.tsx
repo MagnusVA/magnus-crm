@@ -38,6 +38,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { ArchiveIcon, PlusIcon, SaveIcon } from "lucide-react";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import { getErrorMessage } from "@/lib/errors";
 
 const weekdays = [
   "monday",
@@ -168,7 +169,7 @@ export function LeadGenSettingsPageClient() {
       setNewTeamName("");
       toast.success("Team created");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to create team");
+      toast.error(getErrorMessage(error, "Failed to create team"));
     } finally {
       setSavingKey(null);
     }
@@ -180,7 +181,7 @@ export function LeadGenSettingsPageClient() {
       await archiveTeam({ teamId });
       toast.success("Team archived");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to archive team");
+      toast.error(getErrorMessage(error, "Failed to archive team"));
     } finally {
       setSavingKey(null);
     }
@@ -200,7 +201,7 @@ export function LeadGenSettingsPageClient() {
       });
       toast.success("Worker updated");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update worker");
+      toast.error(getErrorMessage(error, "Failed to update worker"));
     } finally {
       setSavingKey(null);
     }
@@ -223,7 +224,7 @@ export function LeadGenSettingsPageClient() {
       });
       toast.success("Worker team updated");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to update team");
+      toast.error(getErrorMessage(error, "Failed to update team"));
     } finally {
       setSavingKey(null);
     }
@@ -245,7 +246,7 @@ export function LeadGenSettingsPageClient() {
       );
       toast.success("Schedule saved");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save schedule");
+      toast.error(getErrorMessage(error, "Failed to save schedule"));
     } finally {
       setSavingKey(null);
     }
@@ -268,7 +269,7 @@ export function LeadGenSettingsPageClient() {
       });
       toast.success("Rules saved");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save rules");
+      toast.error(getErrorMessage(error, "Failed to save rules"));
     } finally {
       setSavingKey(null);
     }

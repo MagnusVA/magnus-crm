@@ -54,17 +54,20 @@ export function OpportunitySheetBody({
 		);
 	}
 
+	// Keyed by opportunity so a section that failed for one deal recovers when
+	// the sheet switches to another.
+	const opportunityId = detail.opportunity._id;
 	const meetingBasePath = meetingBasePathForRole(detail.permissions.viewerRole);
 
 	return (
 		<div className="flex flex-col gap-4 p-4">
 			<OpportunitySheetSummary detail={detail} />
 			{detail.attribution ? (
-				<SectionErrorBoundary sectionName="opportunity attribution">
+				<SectionErrorBoundary key={`attribution:${opportunityId}`} sectionName="opportunity attribution">
 					<SheetAttribution attribution={detail.attribution} />
 				</SectionErrorBoundary>
 			) : null}
-			<SectionErrorBoundary sectionName="opportunity meetings">
+			<SectionErrorBoundary key={`meetings:${opportunityId}`} sectionName="opportunity meetings">
 				<SectionShell
 					title="Meetings"
 					icon={<CalendarClockIcon aria-hidden="true" />}
@@ -78,7 +81,7 @@ export function OpportunitySheetBody({
 					/>
 				</SectionShell>
 			</SectionErrorBoundary>
-			<SectionErrorBoundary sectionName="opportunity payments">
+			<SectionErrorBoundary key={`payments:${opportunityId}`} sectionName="opportunity payments">
 				<div className="flex flex-col gap-2">
 					{detail.permissions.canRecordAdditionalPayment ? (
 						<div className="flex justify-end">
@@ -91,7 +94,7 @@ export function OpportunitySheetBody({
 					<OpportunityPaymentsList payments={detail.payments} compact />
 				</div>
 			</SectionErrorBoundary>
-			<SectionErrorBoundary sectionName="opportunity activity">
+			<SectionErrorBoundary key={`activity:${opportunityId}`} sectionName="opportunity activity">
 				<OpportunityActivityTimeline events={detail.events} compact />
 			</SectionErrorBoundary>
 		</div>

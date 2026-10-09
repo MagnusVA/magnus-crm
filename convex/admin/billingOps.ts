@@ -9,6 +9,7 @@ import {
   BILLING_PAYMENT_STATUSES,
   type BillingCountArgs,
 } from "../billing/types";
+import { log } from "../lib/observability/log";
 import { PAYMENT_TYPES } from "../lib/paymentTypes";
 import { requireSystemAdminSession } from "../requireSystemAdmin";
 
@@ -271,7 +272,7 @@ export const recordBillingOpsReadinessCheck = mutation({
       throw new Error("Tenant not found");
     }
 
-    return await ctx.db.insert("billingOpsReadinessChecks", {
+    const readinessCheckId = await ctx.db.insert("billingOpsReadinessChecks", {
       tenantId: args.tenantId,
       actorSubject: actorSubject(identity),
       status: args.status,
@@ -284,6 +285,15 @@ export const recordBillingOpsReadinessCheck = mutation({
         manualSummaryJson: args.summaryJson,
       }),
     });
+
+    log.info("billing_ops.readiness_recorded", {
+      tenantId: args.tenantId,
+      readinessCheckId,
+      status: args.status,
+      verificationSource: "manual",
+    });
+
+    return readinessCheckId;
   },
 });
 
@@ -395,6 +405,17 @@ export const verifyBillingOpsReadiness = mutation({
       summaryJson,
     });
 
+    log.info("billing_ops.readiness_recorded", {
+      tenantId: args.tenantId,
+      readinessCheckId,
+      status,
+      verificationSource: "automated",
+      blockerCount: blockers.length,
+      mismatchedFilterCount: countResults.filter((result) => !result.matches)
+        .length,
+      programScanTruncated,
+    });
+
     return {
       readinessCheckId,
       status,
@@ -447,10 +468,10 @@ export const setBillingOpsEnabled = mutation({
     }
 
     await ctx.db.patch("tenants", tenantId, { billingOpsEnabled: enabled });
-    console.log("[Admin:BillingOps] tenant gate updated", {
+    log.info("billing_ops.gate_updated", {
       tenantId,
       enabled,
-      actor: actorSubject(identity),
+      previouslyEnabled: tenant.billingOpsEnabled === true,
     });
 
     return { tenantId, enabled };

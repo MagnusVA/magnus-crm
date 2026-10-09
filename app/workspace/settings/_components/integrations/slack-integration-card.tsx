@@ -40,6 +40,7 @@ import {
   UnplugIcon,
 } from "lucide-react";
 import { SlackChannelPickerDialog } from "./slack-channel-picker-dialog";
+import { getErrorMessage } from "@/lib/errors";
 
 type InstallationStatus = FunctionReturnType<
   typeof api.slack.channels.getInstallationStatus
@@ -84,7 +85,7 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
       setDisconnectOpen(false);
     } catch (error) {
       toast.error(
-        error instanceof Error ? error.message : "Failed to disconnect Slack.",
+        getErrorMessage(error, "Failed to disconnect Slack."),
       );
     } finally {
       setDisconnecting(false);

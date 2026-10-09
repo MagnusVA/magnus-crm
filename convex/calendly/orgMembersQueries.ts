@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
+import { log } from "../lib/observability/log";
 
 /**
  * Get a specific Calendly org member by ID.
@@ -8,9 +9,7 @@ import { internalQuery } from "../_generated/server";
 export const getMember = internalQuery({
   args: { memberId: v.id("calendlyOrgMembers") },
   handler: async (ctx, { memberId }) => {
-    console.log(`[org-sync] getMember: looking up memberId=${memberId}`);
     const member = await ctx.db.get("calendlyOrgMembers", memberId);
-    console.log(`[org-sync] getMember: memberId=${memberId}, found=${Boolean(member)}`);
     return member;
   },
 });
@@ -24,7 +23,7 @@ export const listMemberUserUrisForTenant = internalQuery({
       .take(500);
 
     if (members.length >= 500) {
-      console.warn("[org-sync] listMemberUserUrisForTenant reached MVP bound", {
+      log.warn("calendly.org_members.list_bound_reached", {
         tenantId,
         count: members.length,
       });

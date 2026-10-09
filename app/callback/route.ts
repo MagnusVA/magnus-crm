@@ -1,5 +1,12 @@
-import { type NextRequest, NextResponse } from "next/server";
-import { getWorkOS, handleAuth, saveSession } from "@workos-inc/authkit-nextjs";
+import { type NextRequest, NextResponse, after } from "next/server";
+import { unstable_rethrow } from "next/navigation";
+import {
+	CallbackError,
+	getWorkOS,
+	handleAuth,
+	saveSession,
+} from "@workos-inc/authkit-nextjs";
+import { reportServerError } from "@/lib/observability/report-server-error";
 import { getPostHogClient } from "@/lib/posthog-server";
 
 // ---------------------------------------------------------------------------
@@ -95,14 +102,22 @@ function identifyUserInPostHog(user: {
 			return;
 		}
 
-		posthog.identify({
-			distinctId: user.id,
-			properties: {
-				email: user.email,
-				...(fullName ? { name: fullName } : {}),
-				workos_user_id: user.id,
-			},
-		});
+		const properties = {
+			email: user.email,
+			...(fullName ? { name: fullName } : {}),
+			workos_user_id: user.id,
+		};
+		// Sent after the redirect goes out; a plain `identify()` is queued and
+		// can be lost when the serverless function freezes.
+		after(() =>
+			posthog
+				.identifyImmediate({ distinctId: user.id, properties })
+				.catch((error: unknown) => {
+					console.warn("[PostHog] server-side identify failed", {
+						error: error instanceof Error ? error.message : String(error),
+					});
+				}),
+		);
 	} catch (error) {
 		// Best-effort — never block the auth callback for analytics
 		console.warn("[PostHog] server-side identify failed", {
@@ -125,6 +140,42 @@ function identifyUserInPostHog(user: {
 // link the CRM record.
 // ---------------------------------------------------------------------------
 
+/**
+ * Low-cardinality description of an auth failure for the fingerprint:
+ * AuthKit's `CallbackError` code, the WorkOS API error code, or the HTTP
+ * status. Never the message.
+ */
+function describeAuthError(error: unknown): {
+	code: string;
+	httpStatus?: number;
+} {
+	if (error instanceof CallbackError) return { code: error.code };
+	const fields = (typeof error === "object" && error !== null ? error : {}) as {
+		code?: unknown;
+		error?: unknown;
+		status?: unknown;
+	};
+	const httpStatus =
+		typeof fields.status === "number" ? fields.status : undefined;
+	const apiCode = [fields.code, fields.error].find(
+		(value): value is string =>
+			typeof value === "string" && /^[a-z0-9_]+$/i.test(value),
+	);
+	if (apiCode) return { code: apiCode, httpStatus };
+	if (httpStatus !== undefined) return { code: `http_${httpStatus}`, httpStatus };
+	return { code: error instanceof Error ? error.name : "unknown" };
+}
+
+/**
+ * Callback failures the user causes (an expired or replayed link, a sign-in
+ * started in another browser) rather than a WorkOS or app fault.
+ */
+const EXPECTED_CALLBACK_ERRORS = new Set([
+	"missing_pkce_cookie",
+	"oauth_state_mismatch",
+	"missing_auth_params",
+]);
+
 async function handleInvitationCallback(
 	request: NextRequest,
 ): Promise<NextResponse> {
@@ -133,11 +184,6 @@ async function handleInvitationCallback(
 	const pkceCookieNames = getPkceCookieNames(request);
 	const hadPkceCookie = pkceCookieNames.length > 0;
 
-	console.log("[AuthDebug:Callback] invitation callback detected", {
-		code: `${code.slice(0, 8)}...`,
-		hadPkceCookie,
-	});
-
 	// Exchange the authorization code. No codeVerifier needed — the server
 	// API key acts as the client secret (confidential client flow).
 	const authResponse = await workos.userManagement.authenticateWithCode({
@@ -145,17 +191,10 @@ async function handleInvitationCallback(
 		code,
 	});
 
-	console.log("[AuthDebug:Callback] invitation auth response", {
-		userId: authResponse.user.id,
-		email: authResponse.user.email,
-		organizationId: authResponse.organizationId ?? null,
-		hasAccessToken: Boolean(authResponse.accessToken),
-		hasRefreshToken: Boolean(authResponse.refreshToken),
-	});
-
 	// The user accepted an org invitation, so organizationId should be set.
 	// If not, we still save the session and let the workspace handle it.
 	let finalSession = authResponse;
+	let orgRefresh: "skipped" | "ok" | "failed" = "skipped";
 
 	if (authResponse.organizationId && authResponse.refreshToken) {
 		// Refresh the session scoped to the organization so the JWT includes
@@ -170,26 +209,25 @@ async function handleInvitationCallback(
 					organizationId: authResponse.organizationId,
 				});
 
-			console.log(
-				"[AuthDebug:Callback] invitation session refreshed with org context",
-				{
-					userId: refreshed.user.id,
-					organizationId: authResponse.organizationId,
-				},
-			);
-
 			finalSession = {
 				...refreshed,
 				organizationId: authResponse.organizationId,
 			};
+			orgRefresh = "ok";
 		} catch (error) {
-			console.warn(
-				"[AuthDebug:Callback] org-scoped refresh failed, using initial session",
-				{
-					error:
-						error instanceof Error ? error.message : String(error),
-				},
-			);
+			// Fall back to the initial session; the workspace can still load.
+			orgRefresh = "failed";
+			const { code: errorCode, httpStatus } = describeAuthError(error);
+			await reportServerError(error, {
+				event: "auth.invite_callback.org_refresh_failed",
+				request,
+				distinctId: authResponse.user.id,
+				integration: "workos",
+				severity: "warning",
+				fingerprint: `auth-invite-org-refresh:${errorCode}`,
+				error_code: errorCode,
+				http_status: httpStatus,
+			});
 		}
 	}
 
@@ -204,13 +242,12 @@ async function handleInvitationCallback(
 		getRedirectUri(),
 	);
 
-	console.log(
-		"[AuthDebug:Callback] invitation session saved, redirecting to /workspace",
-		{
-			userId: finalSession.user.id,
-			organizationId: authResponse.organizationId ?? null,
-		},
-	);
+	console.log("[auth.invite_callback] session saved", {
+		userId: finalSession.user.id,
+		organizationId: authResponse.organizationId ?? null,
+		hadPkceCookie,
+		orgRefresh,
+	});
 
 	// Best-effort server-side PostHog identify (supplementary to client-side)
 	identifyUserInPostHog(finalSession.user);
@@ -234,13 +271,6 @@ async function handleInvitationCallback(
 const standardAuthHandler = handleAuth({
 	onSuccess: async ({ refreshToken, user, organizationId, state }) => {
 		const onboardingOrgId = getOnboardingOrgId(state);
-		console.log("[AuthDebug:Callback] onSuccess", {
-			userId: user.id,
-			email: user.email,
-			organizationId: organizationId ?? null,
-			onboardingOrgId: onboardingOrgId ?? null,
-			hasRefreshToken: Boolean(refreshToken),
-		});
 
 		// Best-effort server-side PostHog identify (supplementary to client-side)
 		identifyUserInPostHog(user);
@@ -253,29 +283,28 @@ const standardAuthHandler = handleAuth({
 					userId: user.id,
 				});
 
-			const existingMembership = memberships.data[0];
-			console.log("[AuthDebug:Callback] membership lookup", {
-				userId: user.id,
-				onboardingOrgId,
-				membershipCount: memberships.data.length,
-				existingMembershipId: existingMembership?.id ?? null,
-			});
-			if (!existingMembership) {
+			let membership: "existing" | "created" | "create_failed" =
+				memberships.data.length > 0 ? "existing" : "created";
+			if (membership === "created") {
 				try {
 					await workos.userManagement.createOrganizationMembership({
 						organizationId: onboardingOrgId,
 						userId: user.id,
 					});
-					console.log("[AuthDebug:Callback] membership created", {
-						userId: user.id,
-						onboardingOrgId,
-					});
 				} catch (error) {
-					console.error(
-						"[callback] Failed to create org membership:",
-						error,
-					);
 					// Don't fail the auth callback; the user can retry login
+					membership = "create_failed";
+					console.error("[callback] Failed to create org membership:", error);
+					const { code: errorCode, httpStatus } = describeAuthError(error);
+					await reportServerError(error, {
+						event: "auth.membership_create.failed",
+						distinctId: user.id,
+						integration: "workos",
+						fingerprint: `auth-membership-create:${errorCode}`,
+						error_code: errorCode,
+						http_status: httpStatus,
+						workos_org_id: onboardingOrgId,
+					});
 				}
 			}
 
@@ -286,14 +315,6 @@ const standardAuthHandler = handleAuth({
 					organizationId: onboardingOrgId,
 				});
 
-			console.log("[AuthDebug:Callback] refreshed session", {
-				requestedOrganizationId: onboardingOrgId,
-				refreshedUserId: refreshedSession.user.id,
-				refreshedOrganizationId: onboardingOrgId,
-				hasAccessToken: Boolean(refreshedSession.accessToken),
-				hasRefreshToken: Boolean(refreshedSession.refreshToken),
-			});
-
 			await saveSession(
 				{
 					accessToken: refreshedSession.accessToken,
@@ -301,22 +322,51 @@ const standardAuthHandler = handleAuth({
 					user: refreshedSession.user,
 					impersonator: refreshedSession.impersonator,
 				},
-				process.env.NEXT_PUBLIC_WORKOS_REDIRECT_URI ??
-					"http://localhost:3000/callback",
+				getRedirectUri(),
 			);
 
-			console.log("[AuthDebug:Callback] session saved", {
+			console.log("[auth.callback] session saved", {
 				userId: refreshedSession.user.id,
 				organizationId: onboardingOrgId,
+				flow: "onboarding_org",
+				membership,
 			});
 			return;
 		}
 
-		console.log("[AuthDebug:Callback] session retained", {
+		console.log("[auth.callback] session saved", {
 			userId: user.id,
 			organizationId: organizationId ?? null,
-			usedOnboardingOrgFallback: false,
+			flow: "standard",
 		});
+	},
+	onError: async ({ error, request }) => {
+		// Next redirects thrown from `onSuccess` are control flow, not failures.
+		unstable_rethrow(error);
+
+		const { code, httpStatus } = describeAuthError(error);
+		const expected = EXPECTED_CALLBACK_ERRORS.has(code);
+		await reportServerError(error, {
+			event: "auth.callback.failed",
+			request,
+			integration: "workos",
+			expected,
+			fingerprint: `auth-callback:${code}`,
+			error_code: code,
+			http_status: httpStatus,
+		});
+
+		// Same response AuthKit returns when no `onError` is configured.
+		return NextResponse.json(
+			{
+				error: {
+					message: "Something went wrong",
+					description:
+						"Couldn't sign in. If you are not sure what happened, please contact your organization admin.",
+				},
+			},
+			{ status: 500 },
+		);
 	},
 });
 
@@ -327,8 +377,18 @@ export async function GET(request: NextRequest) {
 		try {
 			return await handleInvitationCallback(request);
 		} catch (error) {
-			console.error("[AuthDebug:Callback] invitation callback failed", {
-				error: error instanceof Error ? error.message : String(error),
+			const { code, httpStatus } = describeAuthError(error);
+			console.error("[auth.invite_callback] failed", {
+				errorCode: code,
+				httpStatus: httpStatus ?? null,
+			});
+			await reportServerError(error, {
+				event: "auth.invite_callback.failed",
+				request,
+				integration: "workos",
+				fingerprint: `auth-invite-callback:${code}`,
+				error_code: code,
+				http_status: httpStatus,
 			});
 			// Fall through to standard handler as last resort
 		}

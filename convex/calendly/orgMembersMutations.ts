@@ -10,7 +10,6 @@ export const upsertMember = internalMutation({
     calendlyRole: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    console.log(`[org-sync] upsertMember: entry for tenant ${args.tenantId}, email=${args.email}, role=${args.calendlyRole ?? "none"}`);
     const existing = await ctx.db
       .query("calendlyOrgMembers")
       .withIndex("by_tenantId_and_calendlyUserUri", (q) =>
@@ -27,7 +26,6 @@ export const upsertMember = internalMutation({
     const linkedUserId = matchedUser?._id ?? existing?.matchedUserId;
 
     if (existing) {
-      console.log(`[org-sync] upsertMember: updating existing member ${existing._id} for tenant ${args.tenantId}, matchedUser=${Boolean(matchedUser)}`);
       await ctx.db.patch("calendlyOrgMembers", existing._id, {
         email: args.email,
         name: args.name,
@@ -45,7 +43,6 @@ export const upsertMember = internalMutation({
       return;
     }
 
-    console.log(`[org-sync] upsertMember: inserting new member for tenant ${args.tenantId}, email=${args.email}, matchedUser=${Boolean(matchedUser)}`);
     await ctx.db.insert("calendlyOrgMembers", {
       tenantId: args.tenantId,
       calendlyUserUri: args.calendlyUserUri,
@@ -71,7 +68,6 @@ export const deleteStaleMembers = internalMutation({
     syncStartTimestamp: v.number(),
   },
   handler: async (ctx, { tenantId, syncStartTimestamp }) => {
-    console.log(`[org-sync] deleteStaleMembers: entry for tenant ${tenantId}, syncStartTimestamp=${new Date(syncStartTimestamp).toISOString()}`);
     let deleted = 0;
     let hasMore = true;
 
@@ -91,7 +87,6 @@ export const deleteStaleMembers = internalMutation({
       hasMore = staleMembers.length === 128;
     }
 
-    console.log(`[org-sync] deleteStaleMembers: tenant ${tenantId} completed, deleted=${deleted}`);
     return { deleted };
   },
 });

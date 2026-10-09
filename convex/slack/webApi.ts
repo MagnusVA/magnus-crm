@@ -1,3 +1,6 @@
+const SLACK_FETCH_TIMEOUT_MS = 30_000;
+import { timeoutSignal } from "../lib/timeoutSignal";
+
 type SlackApiErrorResponse = {
   ok: false;
   error?: string;
@@ -30,6 +33,7 @@ export async function slackApiGet<T extends object>(
 
   const response = await fetch(url, {
     headers: { Authorization: `Bearer ${token}` },
+    signal: timeoutSignal(SLACK_FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
     return {
@@ -53,6 +57,7 @@ export async function slackApiPostJson<T extends object>(
       "Content-Type": "application/json; charset=utf-8",
     },
     body: JSON.stringify(body),
+    signal: timeoutSignal(SLACK_FETCH_TIMEOUT_MS),
   });
   if (!response.ok) {
     return {

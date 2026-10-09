@@ -6,7 +6,9 @@ import {
   fingerprintSlackOAuthStateToken,
   validateAndConsumeSlackOAuthState,
 } from "../lib/slackOAuthState";
+import { log, logRequestContext, reportError } from "../lib/observability/log";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
+import { timeoutSignal } from "../lib/timeoutSignal";
 
 const SLACK_BOT_SCOPES = [
   "commands",
@@ -37,43 +39,6 @@ function createLogId(prefix: string) {
     .slice(2, 8)}`;
 }
 
-function describeUrl(value: string) {
-  try {
-    const url = new URL(value);
-    return { origin: url.origin, pathname: url.pathname };
-  } catch {
-    return { invalid: true };
-  }
-}
-
-function describeError(error: unknown) {
-  if (error instanceof Error) {
-    return { name: error.name, message: error.message };
-  }
-  return { name: "Unknown", message: String(error) };
-}
-
-function describeSlackOAuthResponse(data: SlackOAuthAccessResponse) {
-  const scopes = (data.scope ?? "").split(",").filter(Boolean);
-  return {
-    ok: data.ok,
-    error: data.error,
-    hasAccessToken: Boolean(data.access_token),
-    hasRefreshToken: Boolean(data.refresh_token),
-    hasExpiresIn: typeof data.expires_in === "number",
-    expiresInSeconds: data.expires_in,
-    hasBotUserId: Boolean(data.bot_user_id),
-    hasAppId: Boolean(data.app_id),
-    hasTeamId: Boolean(data.team?.id),
-    hasTeamName: Boolean(data.team?.name),
-    teamNameLength: data.team?.name?.length,
-    enterpriseIdPresent: Boolean(data.enterprise?.id),
-    isEnterpriseInstall: Boolean(data.is_enterprise_install),
-    scopeCount: scopes.length,
-    scopes,
-  };
-}
-
 function missingSlackOAuthFields(data: SlackOAuthAccessResponse) {
   const missing: string[] = [];
   if (!data.ok) missing.push("ok");
@@ -95,6 +60,54 @@ function getRequiredEnv(name: keyof typeof env): string {
   return value;
 }
 
+const SLACK_FETCH_TIMEOUT_MS = 30_000;
+
+type SlackOAuthFailureReason =
+  | "token_request_failed"
+  | "invalid_json"
+  | "failed_validation"
+  | "cross_tenant_install"
+  | "unexpected_error";
+
+/**
+ * Report an install that ends on the `oauth_failed` redirect. The redirect
+ * hides the failure from the function's status, so it goes to Error Tracking.
+ * Cross-tenant attempts are warnings; anything pointing at Slack or our code
+ * is an error. Stale tabs and scanners (missing params, invalid state) are
+ * logged by `logSlackOAuthRejected` instead.
+ */
+function reportSlackOAuthFailed(
+  reason: SlackOAuthFailureReason,
+  attrs: Record<string, unknown>,
+  error?: unknown,
+) {
+  const severity = reason === "cross_tenant_install" ? "warning" : "error";
+  reportError(
+    "slack.oauth.failed",
+    error ?? new Error(`Slack OAuth install failed: ${reason}`),
+    {
+      severity,
+      integration: "slack",
+      fingerprint: `slack.oauth.failed:${reason}`,
+      reason,
+      redirectStatus: "oauth_failed",
+      ...attrs,
+    },
+  );
+}
+
+/** A callback from a stale tab, a replayed link, or a scanner. */
+function logSlackOAuthRejected(
+  reason: "missing_params" | "invalid_state",
+  attrs: Record<string, unknown>,
+) {
+  log.warn("slack.oauth.rejected", {
+    reason,
+    redirectStatus: "oauth_failed",
+    ...attrs,
+  });
+}
+
 function workspaceSettingsUrl(slackStatus: string): string {
   const appUrl = getRequiredEnv("APP_URL");
   const url = new URL("/workspace/settings", appUrl);
@@ -109,67 +122,40 @@ export const startInstall = action({
   },
   handler: async (ctx, args) => {
     const requestId = args.requestId ?? createLogId("slack_oauth_start");
-    console.log("[Slack:OAuth] startInstall begin", { requestId });
 
     const access = await requireTenantUserFromAction(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
-    console.log("[Slack:OAuth] startInstall authorized", {
+
+    const clientId = getRequiredEnv("SLACK_CLIENT_ID");
+    const redirectUri = getRequiredEnv("SLACK_REDIRECT_URI");
+
+    const state = await createSlackOAuthState(ctx, {
+      tenantId: access.tenantId,
+      workosUserId: access.workosUserId,
+      requestId,
+      ttlSeconds: 600,
+    });
+    const stateFingerprint = await fingerprintSlackOAuthStateToken(
+      state.token,
+    );
+
+    const authorizeUrl = new URL("https://slack.com/oauth/v2/authorize");
+    authorizeUrl.searchParams.set("client_id", clientId);
+    authorizeUrl.searchParams.set("scope", SLACK_BOT_SCOPES.join(","));
+    authorizeUrl.searchParams.set("redirect_uri", redirectUri);
+    authorizeUrl.searchParams.set("state", state.token);
+
+    log.info("slack.oauth.started", {
       requestId,
       tenantId: access.tenantId,
       userId: access.userId,
-      workosUserId: access.workosUserId,
-      role: access.role,
+      stateExpiresAt: state.expiresAt,
+      stateFingerprint,
     });
 
-    try {
-
-      const clientId = getRequiredEnv("SLACK_CLIENT_ID");
-      const redirectUri = getRequiredEnv("SLACK_REDIRECT_URI");
-      console.log("[Slack:OAuth] startInstall env ready", {
-        requestId,
-        hasClientId: Boolean(clientId),
-        redirectUri: describeUrl(redirectUri),
-        scopeCount: SLACK_BOT_SCOPES.length,
-        scopes: SLACK_BOT_SCOPES,
-      });
-
-      const state = await createSlackOAuthState(ctx, {
-        tenantId: access.tenantId,
-        workosUserId: access.workosUserId,
-        requestId,
-        ttlSeconds: 600,
-      });
-      const stateFingerprint = await fingerprintSlackOAuthStateToken(
-        state.token,
-      );
-
-      const authorizeUrl = new URL("https://slack.com/oauth/v2/authorize");
-      authorizeUrl.searchParams.set("client_id", clientId);
-      authorizeUrl.searchParams.set("scope", SLACK_BOT_SCOPES.join(","));
-      authorizeUrl.searchParams.set("redirect_uri", redirectUri);
-      authorizeUrl.searchParams.set("state", state.token);
-
-      console.log("[Slack:OAuth] startInstall issued", {
-        requestId,
-        tenantId: access.tenantId,
-        workosUserId: access.workosUserId,
-        stateExpiresAt: state.expiresAt,
-        stateFingerprint,
-        authorizeHost: authorizeUrl.host,
-        authorizePathname: authorizeUrl.pathname,
-        redirectUri: describeUrl(redirectUri),
-      });
-
-      return { authorizeUrl: authorizeUrl.toString() };
-    } catch (error) {
-      console.error("[Slack:OAuth] startInstall failed", {
-        requestId,
-        error: describeError(error),
-      });
-      throw error;
-    }
+    return { authorizeUrl: authorizeUrl.toString() };
   },
 });
 
@@ -187,27 +173,20 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
       stateFingerprint = await fingerprintSlackOAuthStateToken(stateRaw);
     }
 
-    console.log("[Slack:OAuth] redirect received", {
-      callbackId,
-      path: url.pathname,
-      queryParamNames: Array.from(url.searchParams.keys()).sort(),
-      hasError: Boolean(errorParam),
-      hasCode: Boolean(code),
-      hasState: Boolean(stateRaw),
-      stateFingerprint,
-    });
 
     if (errorParam) {
-      console.warn("[Slack:OAuth] redirect denied by Slack", {
+      log.warn("slack.oauth.denied", {
         callbackId,
-        errorParam,
         stateFingerprint,
+        // Anyone can set this query param; keep only Slack-style codes.
+        slackError: /^[a-z_]{1,64}$/.test(errorParam) ? errorParam : "unrecognized",
+        redirectStatus: "denied",
       });
       return Response.redirect(workspaceSettingsUrl("denied"), 302);
     }
 
     if (!code || !stateRaw) {
-      console.error("[Slack:OAuth] redirect missing required params", {
+      logSlackOAuthRejected("missing_params", {
         callbackId,
         hasCode: Boolean(code),
         hasState: Boolean(stateRaw),
@@ -221,19 +200,13 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
     });
     requestId = state?.requestId;
     if (!state) {
-      console.error("[Slack:OAuth] invalid or expired state", {
+      logSlackOAuthRejected("invalid_state", {
         callbackId,
         stateFingerprint,
       });
       return Response.redirect(workspaceSettingsUrl("oauth_failed"), 302);
     }
-    console.log("[Slack:OAuth] state consumed", {
-      requestId,
-      callbackId,
-      stateFingerprint,
-      tenantId: state.tenantId,
-      workosUserId: state.workosUserId,
-    });
+    logRequestContext({ tenantId: state.tenantId });
 
     const installer = await ctx.runQuery(
       internal.slack.installations.verifyInstallerStillAdmin,
@@ -244,28 +217,17 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
       },
     );
     if (!installer) {
-      console.error("[Slack:OAuth] installer no longer authorized", {
+      log.warn("slack.oauth.admin_required", {
         requestId,
         callbackId,
         tenantId: state.tenantId,
         workosUserId: state.workosUserId,
+        redirectStatus: "admin_required",
       });
       return Response.redirect(workspaceSettingsUrl("admin_required"), 302);
     }
-    console.log("[Slack:OAuth] installer authorization confirmed", {
-      requestId,
-      callbackId,
-      tenantId: state.tenantId,
-      installerUserId: installer.userId,
-    });
 
     const redirectUri = getRequiredEnv("SLACK_REDIRECT_URI");
-    console.log("[Slack:OAuth] exchanging OAuth code with Slack", {
-      requestId,
-      callbackId,
-      redirectUri: describeUrl(redirectUri),
-      stateFingerprint,
-    });
 
     let tokenResponse: Response;
     try {
@@ -278,51 +240,45 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
           client_secret: getRequiredEnv("SLACK_CLIENT_SECRET"),
           redirect_uri: redirectUri,
         }),
+        signal: timeoutSignal(SLACK_FETCH_TIMEOUT_MS),
       });
     } catch (error) {
-      console.error("[Slack:OAuth] oauth.v2.access request failed", {
-        requestId,
-        callbackId,
-        error: describeError(error),
-      });
+      reportSlackOAuthFailed(
+        "token_request_failed",
+        { requestId, callbackId, tenantId: state.tenantId },
+        error,
+      );
       return Response.redirect(workspaceSettingsUrl("oauth_failed"), 302);
     }
 
-    console.log("[Slack:OAuth] oauth.v2.access response received", {
-      requestId,
-      callbackId,
-      httpStatus: tokenResponse.status,
-      httpOk: tokenResponse.ok,
-    });
 
     let data: SlackOAuthAccessResponse;
     try {
       data = (await tokenResponse.json()) as SlackOAuthAccessResponse;
     } catch (error) {
-      console.error("[Slack:OAuth] oauth.v2.access invalid JSON", {
-        requestId,
-        callbackId,
-        httpStatus: tokenResponse.status,
-        error: describeError(error),
-      });
+      reportSlackOAuthFailed(
+        "invalid_json",
+        {
+          requestId,
+          callbackId,
+          tenantId: state.tenantId,
+          httpStatus: tokenResponse.status,
+        },
+        error,
+      );
       return Response.redirect(workspaceSettingsUrl("oauth_failed"), 302);
     }
 
-    console.log("[Slack:OAuth] oauth.v2.access parsed", {
-      requestId,
-      callbackId,
-      httpStatus: tokenResponse.status,
-      response: describeSlackOAuthResponse(data),
-    });
 
     const missingFields = missingSlackOAuthFields(data);
     if (missingFields.length > 0) {
-      console.error("[Slack:OAuth] oauth.v2.access failed validation", {
+      reportSlackOAuthFailed("failed_validation", {
         requestId,
         callbackId,
+        tenantId: state.tenantId,
         httpStatus: tokenResponse.status,
+        slackError: data.error,
         missingFields,
-        response: describeSlackOAuthResponse(data),
       });
       return Response.redirect(workspaceSettingsUrl("oauth_failed"), 302);
     }
@@ -330,38 +286,15 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
     const teamId = data.team!.id!;
     const appId = data.app_id!;
     const scopes = (data.scope ?? "").split(",").filter(Boolean);
-    console.log("[Slack:OAuth] looking up existing installation", {
-      requestId,
-      callbackId,
-      tenantId: state.tenantId,
-      teamId,
-      appId,
-      scopeCount: scopes.length,
-      scopes,
-    });
 
     const existing = await ctx.runQuery(
       internal.slack.installations.byTeamIdAndAppId,
       {
         teamId,
         appId,
-        logContext: "oauth_redirect",
       },
     );
 
-    console.log("[Slack:OAuth] existing installation lookup complete", {
-      requestId,
-      callbackId,
-      found: Boolean(existing),
-      installationId: existing?._id,
-      existingTenantId: existing?.tenantId,
-      previousStatus: existing?.status,
-      attemptingTenantId: state.tenantId,
-      hadNotifyChannel: Boolean(existing?.notifyChannelId),
-      hadStaleReminderChannel: Boolean(existing?.staleReminderChannelId),
-      previousTokenExpiresAt: existing?.tokenExpiresAt,
-      previousUninstalledAt: existing?.uninstalledAt,
-    });
 
     const tokenTuple = {
       teamName: data.team!.name!,
@@ -377,15 +310,16 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
       requestId,
     };
     let needsChannelPicker = true;
+    let installationId = existing?._id;
 
     if (existing) {
       if (existing.tenantId !== state.tenantId) {
-        console.error("[Slack:OAuth] cross-tenant install attempt", {
+        reportSlackOAuthFailed("cross_tenant_install", {
           requestId,
           callbackId,
           installationId: existing._id,
           existingTenantId: existing.tenantId,
-          attemptingTenantId: state.tenantId,
+          tenantId: state.tenantId,
           previousStatus: existing.status,
           teamId,
           appId,
@@ -393,39 +327,13 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
         return Response.redirect(workspaceSettingsUrl("oauth_failed"), 302);
       }
 
-      console.log("[Slack:OAuth] reactivating existing installation", {
-        requestId,
-        callbackId,
-        installationId: existing._id,
-        tenantId: state.tenantId,
-        previousStatus: existing.status,
-        tokenExpiresAt: tokenTuple.tokenExpiresAt,
-      });
       await ctx.runMutation(internal.slack.installations.reactivate, {
         id: existing._id,
         ...tokenTuple,
       });
       needsChannelPicker = !existing.notifyChannelId;
-      console.log("[Slack:OAuth] existing row reactivated", {
-        requestId,
-        callbackId,
-        installationId: existing._id,
-        tenantId: state.tenantId,
-        previousStatus: existing.status,
-        needsChannelPicker,
-        hadNotifyChannel: Boolean(existing.notifyChannelId),
-        hadStaleReminderChannel: Boolean(existing.staleReminderChannelId),
-      });
     } else {
-      console.log("[Slack:OAuth] creating new installation", {
-        requestId,
-        callbackId,
-        tenantId: state.tenantId,
-        teamId,
-        appId,
-        tokenExpiresAt: tokenTuple.tokenExpiresAt,
-      });
-      const insertedId = await ctx.runMutation(
+      installationId = await ctx.runMutation(
         internal.slack.installations.upsertOnInstall,
         {
           tenantId: state.tenantId,
@@ -433,20 +341,15 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
           ...tokenTuple,
         },
       );
-      console.log("[Slack:OAuth] new installation created", {
-        requestId,
-        callbackId,
-        installationId: insertedId,
-        tenantId: state.tenantId,
-        teamId,
-        appId,
-      });
     }
 
-    console.log("[Slack:OAuth] install complete", {
+    log.info("slack.oauth.installed", {
       requestId,
       callbackId,
       tenantId: state.tenantId,
+      installationId,
+      outcome: existing ? "reactivated" : "created",
+      previousStatus: existing?.status,
       teamId,
       appId,
       needsChannelPicker,
@@ -456,21 +359,13 @@ export const oauthRedirect = httpAction(async (ctx, req) => {
     if (needsChannelPicker) {
       destination.searchParams.set("pickChannel", "true");
     }
-    console.log("[Slack:OAuth] redirecting back to settings", {
-      requestId,
-      callbackId,
-      destinationPathname: destination.pathname,
-      destinationSearchParams: Array.from(destination.searchParams.keys()).sort(),
-      needsChannelPicker,
-    });
     return Response.redirect(destination.toString(), 302);
   } catch (error) {
-    console.error("[Slack:OAuth] redirect unexpected failure", {
-      requestId,
-      callbackId,
-      stateFingerprint,
-      error: describeError(error),
-    });
+    reportSlackOAuthFailed(
+      "unexpected_error",
+      { requestId, callbackId, stateFingerprint },
+      error,
+    );
     return Response.redirect(workspaceSettingsUrl("oauth_failed"), 302);
   }
 });

@@ -47,6 +47,7 @@ import { toast } from "sonner";
 import posthog from "posthog-js";
 
 import { ProgramSelect } from "@/app/workspace/closer/_components/program-select";
+import { getErrorMessage } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -257,9 +258,7 @@ export function RecordPaymentDialog({
       onPaymentRecorded?.();
     } catch (err: unknown) {
       const message =
-        err instanceof Error
-          ? err.message
-          : "Failed to record payment. Please try again.";
+        getErrorMessage(err, "Failed to record payment. Please try again.");
       setSubmitError(message);
       toast.error(message);
     } finally {

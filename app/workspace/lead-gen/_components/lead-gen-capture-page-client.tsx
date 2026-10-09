@@ -47,6 +47,7 @@ import {
   detectInstagramOriginUrl,
   type DetectedInstagramOrigin,
 } from "./instagram-origin-detection";
+import { getErrorMessage } from "@/lib/errors";
 
 const HONDURAS_TIME_ZONE = "America/Tegucigalpa";
 const BUSINESS_DAY_START_OFFSET_MS = 60 * 60 * 1000;
@@ -334,7 +335,7 @@ export function LeadGenCapturePageClient() {
           : "New prospect captured",
       );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Capture failed");
+      toast.error(getErrorMessage(error, "Capture failed"));
     } finally {
       setIsSubmitting(false);
     }

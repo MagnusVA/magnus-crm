@@ -43,6 +43,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
+import { getErrorMessage } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -244,9 +245,7 @@ export function MarkUnavailableDialog({
         }
       } catch (err: unknown) {
         const message =
-          err instanceof Error
-            ? err.message
-            : "Failed to mark closer as unavailable";
+          getErrorMessage(err, "Failed to mark closer as unavailable");
         setSubmitError(message);
       } finally {
         setIsSubmitting(false);

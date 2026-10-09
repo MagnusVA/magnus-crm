@@ -2,6 +2,8 @@
 
 import { useAuth } from "@workos-inc/authkit-nextjs/components";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { useAuthPostHogIdentify } from "@/hooks/use-posthog-identify";
+import { useSignOut } from "@/hooks/use-sign-out";
 import { useConvexAuth, useMutation, useQuery } from "convex/react";
 import {
   ArrowRightIcon,
@@ -22,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { SYSTEM_ADMIN_ORG_ID } from "@/lib/system-admin-org";
 
 import { OnboardingShell, PulsingDots } from "../_components/onboarding-shell";
+import { getErrorMessage } from "@/lib/errors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,6 +64,7 @@ function ConnectCalendlyPageContent() {
   const searchParams = useSearchParams();
   const { isAuthenticated, isLoading: convexLoading } = useConvexAuth();
   const { user, organizationId, loading: authLoading } = useAuth();
+  useAuthPostHogIdentify();
   const orgId = organizationId ?? undefined;
   const isSystemAdmin = orgId === SYSTEM_ADMIN_ORG_ID;
   const tenant = useQuery(
@@ -130,9 +134,7 @@ function ConnectCalendlyPageContent() {
         setState({
           status: "error",
           message:
-            error instanceof Error
-              ? error.message
-              : "Unable to finish onboarding for this organization.",
+            getErrorMessage(error, "Unable to finish onboarding for this organization."),
         });
       });
 
@@ -205,7 +207,8 @@ function LoadingCard() {
 // ---------------------------------------------------------------------------
 
 function ErrorCard({ message }: { message: string }) {
-  const { user, signOut } = useAuth();
+  const { user } = useAuth();
+  const signOut = useSignOut();
   const isAuthed = !!user;
 
   return (
@@ -280,7 +283,7 @@ function ConnectCard({
   calendlyStatus: string | null;
   calendlyError: string | null;
 }) {
-  const { signOut } = useAuth();
+  const signOut = useSignOut();
   const initial = companyName.charAt(0).toUpperCase() || "C";
   const calendlyConnected = calendlyStatus === "connected";
   const errorCode = calendlyError ?? "";

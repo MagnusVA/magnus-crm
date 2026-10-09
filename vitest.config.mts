@@ -5,7 +5,11 @@ export default defineConfig({
   resolve: { alias: { "@": fileURLToPath(new URL(".", import.meta.url)) } },
   test: {
     environment: "edge-runtime",
-    include: ["convex/**/*.test.ts", "lib/operations-reports/**/*.test.ts"],
+    include: [
+      "convex/**/*.test.ts",
+      "lib/operations-reports/**/*.test.ts",
+      "lib/observability/**/*.test.ts",
+    ],
     server: { deps: { inline: ["convex-test"] } },
   },
 });

@@ -1,20 +1,21 @@
 "use client";
 
 import { useEffect } from "react";
+import { reportErrorBoundary } from "@/lib/observability/report-client-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AlertTriangleIcon, RefreshCwIcon } from "lucide-react";
 
 export default function WorkspaceError({
 	error,
-	reset,
+	retry,
 }: {
 	error: Error & { digest?: string };
-	reset: () => void;
+	retry: () => void;
 }) {
 	useEffect(() => {
-		// Log to error reporting service (PostHog, Sentry, etc.)
 		console.error("[WorkspaceError]", error);
+		reportErrorBoundary(error, { boundary: "workspace" });
 	}, [error]);
 
 	return (
@@ -39,7 +40,7 @@ export default function WorkspaceError({
 							</span>
 						)}
 					</p>
-					<Button onClick={reset} variant="outline" size="sm">
+					<Button onClick={() => retry()} variant="outline" size="sm">
 						<RefreshCwIcon data-icon="inline-start" />
 						Try again
 					</Button>

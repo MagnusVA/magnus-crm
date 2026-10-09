@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
+import { log } from "../lib/observability/log";
 import { SOCIAL_PLATFORMS, type SocialPlatform } from "../lib/socialPlatform";
 import {
   addBusinessDays,
@@ -129,7 +130,7 @@ export const getQualificationGoalProgress = internalQuery({
       });
 
     if (truncated) {
-      console.warn("[Slack:Notify] daily goal count truncated", {
+      log.warn("slack.notify.goal_count_truncated", {
         tenantId: args.tenantId,
         businessDate,
         qualifiedCount,
