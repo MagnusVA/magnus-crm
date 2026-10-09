@@ -240,6 +240,7 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
         initialNotifyChannelId={status.notifyChannelId}
         initialStaleChannelId={status.staleReminderChannelId}
         initialLeadGenChannelId={status.leadGenNotifyChannelId}
+        initialLeadGenChannelName={status.leadGenNotifyChannelName}
       />
 
       <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>

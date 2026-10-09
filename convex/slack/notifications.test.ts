@@ -218,6 +218,27 @@ describe("lead gen submission notification", () => {
     expect(await attempt()).toMatchObject({ contactAttemptNumber: 200, contactAttemptCapped: true });
   });
 
+  it("marks the count as a minimum when voided rows exhaust the scan bound", async () => {
+    const { t, caller, tenantId } = await fixture({ leadGenChannelId: "C_LEADGEN" });
+    const first = await caller.mutation(api.leadGen.capture.submit, {
+      source: "instagram", rawHandleOrProfileUrl: "@voided.prospect", originKind: "follower",
+    });
+    const target = await t.run(async (ctx) => {
+      const { _id, _creationTime, ...row } = (await ctx.db.get("leadGenSubmissions", first.submissionId))!;
+      void _id;
+      void _creationTime;
+      for (let i = 1; i <= 500; i++) {
+        const at = row.submittedAt + i;
+        await ctx.db.insert("leadGenSubmissions", { ...row, submittedAt: at, createdAt: at, voidedAt: at });
+      }
+      const at = row.submittedAt + 1000;
+      return await ctx.db.insert("leadGenSubmissions", { ...row, submittedAt: at, createdAt: at });
+    });
+    expect(
+      await t.query(internal.slack.notifyData.getLeadGenSubmissionForNotify, { tenantId, submissionId: target }),
+    ).toMatchObject({ contactAttemptNumber: 1, contactAttemptCapped: true });
+  });
+
   it("encodes pipes so a link URL can't split into a Slack label", () => {
     const message = buildLeadGenSubmissionNotification({
       handle: "prospect", profileUrl: "https://instagram.com/prospect", source: "instagram",

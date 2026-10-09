@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
+import { readLiveQueryRows } from "../lib/liveQueryBounds";
 import { log } from "../lib/observability/log";
 import { SOCIAL_PLATFORMS, type SocialPlatform } from "../lib/socialPlatform";
 import {
@@ -10,8 +11,9 @@ import {
 import { countGoalEligibleQualificationEvents } from "../reporting/lib/slackQualificationLedger";
 
 const MAX_LEAD_GEN_ATTEMPTS_COUNTED = 200;
-// Bounds the read when many of a prospect's rows are voided.
-const MAX_LEAD_GEN_SUBMISSIONS_SCANNED = 1000;
+// Bounds the read, along with the live-read byte budget, when many of a
+// prospect's rows are voided. Hitting it marks the count as a minimum.
+const MAX_LEAD_GEN_SUBMISSIONS_SCANNED = 500;
 
 export const getQualifiedLeadForNotify = internalQuery({
   args: {
@@ -217,22 +219,22 @@ export const getLeadGenSubmissionForNotify = internalQuery({
     // Read newest first from this submission so the cap drops the oldest
     // rows, and cap eligible rows, not raw ones, so skipped rows can't
     // displace counted attempts.
+    const { rows: recentSubmissions, capped: scanCapped } =
+      await readLiveQueryRows(
+        ctx.db
+          .query("leadGenSubmissions")
+          .withIndex("by_tenantId_and_prospectId_and_submittedAt", (q) =>
+            q
+              .eq("tenantId", args.tenantId)
+              .eq("prospectId", submission.prospectId)
+              .lte("submittedAt", submission.submittedAt),
+          )
+          .order("desc"),
+        MAX_LEAD_GEN_SUBMISSIONS_SCANNED,
+      );
     let contactAttemptNumber = 0;
-    let contactAttemptCapped = false;
-    let scanned = 0;
-    for await (const row of ctx.db
-      .query("leadGenSubmissions")
-      .withIndex("by_tenantId_and_prospectId_and_submittedAt", (q) =>
-        q
-          .eq("tenantId", args.tenantId)
-          .eq("prospectId", submission.prospectId)
-          .lte("submittedAt", submission.submittedAt),
-      )
-      .order("desc")) {
-      if (++scanned > MAX_LEAD_GEN_SUBMISSIONS_SCANNED) {
-        contactAttemptCapped = true;
-        break;
-      }
+    let contactAttemptCapped = scanCapped;
+    for (const row of recentSubmissions) {
       if (row.voidedAt !== undefined) continue;
       // Same-millisecond submissions inserted after this one came later.
       if (

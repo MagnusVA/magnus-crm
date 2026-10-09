@@ -5,6 +5,7 @@ import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useAction, useMutation } from "convex/react";
 import {
   ArchiveIcon,
+  EyeOffIcon,
   HashIcon,
   LockIcon,
   TriangleAlertIcon,
@@ -52,10 +53,9 @@ const channelPickerSchema = z.object({
 
 type ChannelPickerValues = z.infer<typeof channelPickerSchema>;
 
-const CHANNEL_FIELDS = [
+const REQUIRED_CHANNEL_FIELDS = [
   "notifyChannelId",
   "staleReminderChannelId",
-  "leadGenNotifyChannelId",
 ] as const satisfies readonly (keyof ChannelPickerValues)[];
 
 type SlackChannel = {
@@ -64,6 +64,8 @@ type SlackChannel = {
   isPrivate: boolean;
   isMember: boolean;
   isArchived: boolean;
+  /** A saved channel missing from Magnus's channel list. */
+  isUnavailable?: boolean;
 };
 
 type Props = {
@@ -72,6 +74,7 @@ type Props = {
   initialNotifyChannelId?: string;
   initialStaleChannelId?: string;
   initialLeadGenChannelId?: string;
+  initialLeadGenChannelName?: string;
 };
 
 export function SlackChannelPickerDialog({
@@ -80,13 +83,14 @@ export function SlackChannelPickerDialog({
   initialNotifyChannelId,
   initialStaleChannelId,
   initialLeadGenChannelId,
+  initialLeadGenChannelName,
 }: Props) {
   const listChannels = useAction(api.slack.channelsActions.listInstalledChannels);
   const saveChannels = useMutation(api.slack.channels.setSlackNotifyChannels);
   const [channels, setChannels] = useState<SlackChannel[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
-  const [leadGenChannelUnavailable, setLeadGenChannelUnavailable] =
-    useState(false);
+  const [unavailableLeadGenChannel, setUnavailableLeadGenChannel] =
+    useState<SlackChannel | null>(null);
 
   const form = useForm({
     resolver: standardSchemaResolver(channelPickerSchema),
@@ -134,23 +138,34 @@ export function SlackChannelPickerDialog({
         if (cancelled) return null;
         setChannels(null);
         setListError(null);
-        setLeadGenChannelUnavailable(false);
+        setUnavailableLeadGenChannel(null);
         return listChannels({});
       })
       .then((rows) => {
         if (!rows || cancelled) return;
-        // A saved channel Magnus can no longer see (deleted, or a private
-        // channel it left) shows as blank, so clear it rather than let a
-        // hidden ID fail the save.
+        // A saved channel can be missing from the list: deleted, a private
+        // channel Magnus left, or past the listing's 2,000-channel limit.
+        // Required channels must be picked again rather than let a hidden ID
+        // fail the save.
         const visibleIds = new Set(rows.map((channel) => channel.id));
-        for (const name of CHANNEL_FIELDS) {
+        for (const name of REQUIRED_CHANNEL_FIELDS) {
           const savedId = form.getValues(name);
           if (savedId && !visibleIds.has(savedId)) {
             form.setValue(name, "");
-            if (name === "leadGenNotifyChannelId") {
-              setLeadGenChannelUnavailable(true);
-            }
           }
+        }
+        // The optional lead gen channel stays selected and is saved unchanged,
+        // so a short listing can't silently turn its posts off.
+        const savedLeadGenId = form.getValues("leadGenNotifyChannelId");
+        if (savedLeadGenId && !visibleIds.has(savedLeadGenId)) {
+          setUnavailableLeadGenChannel({
+            id: savedLeadGenId,
+            name: initialLeadGenChannelName ?? savedLeadGenId,
+            isPrivate: false,
+            isMember: false,
+            isArchived: false,
+            isUnavailable: true,
+          });
         }
         setChannels(rows);
       })
@@ -165,7 +180,7 @@ export function SlackChannelPickerDialog({
     return () => {
       cancelled = true;
     };
-  }, [form, listChannels, open]);
+  }, [form, initialLeadGenChannelName, listChannels, open]);
 
   const selectedNotify = useMemo(
     () => channels?.find((channel) => channel.id === notifyChannelId),
@@ -179,6 +194,16 @@ export function SlackChannelPickerDialog({
     () => channels?.find((channel) => channel.id === leadGenNotifyChannelId),
     [channels, leadGenNotifyChannelId],
   );
+  const leadGenChannels = useMemo(
+    () =>
+      channels && unavailableLeadGenChannel
+        ? [unavailableLeadGenChannel, ...channels]
+        : channels,
+    [channels, unavailableLeadGenChannel],
+  );
+  const leadGenUnchangedAndUnavailable =
+    unavailableLeadGenChannel !== null &&
+    leadGenNotifyChannelId === unavailableLeadGenChannel.id;
   const privateChannels = [selectedNotify, selectedStale, selectedLeadGen].filter(
     (channel): channel is SlackChannel => Boolean(channel?.isPrivate),
   );
@@ -190,9 +215,13 @@ export function SlackChannelPickerDialog({
     const stale = channels?.find(
       (channel) => channel.id === values.staleReminderChannelId,
     );
-    const leadGen = values.leadGenNotifyChannelId
-      ? channels?.find((channel) => channel.id === values.leadGenNotifyChannelId)
-      : null;
+    const keepUnavailableLeadGen =
+      unavailableLeadGenChannel !== null &&
+      values.leadGenNotifyChannelId === unavailableLeadGenChannel.id;
+    const leadGen =
+      values.leadGenNotifyChannelId && !keepUnavailableLeadGen
+        ? channels?.find((channel) => channel.id === values.leadGenNotifyChannelId)
+        : null;
     if (!notify || !stale || leadGen === undefined) {
       toast.error("Pick valid Slack channels.");
       return;
@@ -208,9 +237,12 @@ export function SlackChannelPickerDialog({
         notifyChannelName: notify.name,
         staleReminderChannelId: stale.id,
         staleReminderChannelName: stale.name,
-        leadGenNotifyChannel: leadGen
-          ? { channelId: leadGen.id, channelName: leadGen.name }
-          : null,
+        // Omitted leaves the saved lead gen channel, and any error, as is.
+        leadGenNotifyChannel: keepUnavailableLeadGen
+          ? undefined
+          : leadGen
+            ? { channelId: leadGen.id, channelName: leadGen.name }
+            : null,
       });
       toast.success("Slack channels saved.");
       onOpenChange(false);
@@ -299,14 +331,14 @@ export function SlackChannelPickerDialog({
                     <FormItem>
                       <FormLabel>Lead Gen Channel (Optional)</FormLabel>
                       <ChannelCombobox
-                        channels={channels}
+                        channels={leadGenChannels ?? channels}
                         value={field.value}
                         onValueChange={field.onChange}
                         placeholder="Off - search channels…"
                       />
                       <FormDescription>
-                        {leadGenChannelUnavailable && !field.value
-                          ? "Magnus can no longer see the saved lead gen channel. Pick another one, or save to turn these posts off."
+                        {leadGenUnchangedAndUnavailable
+                          ? "Magnus can't find this channel in Slack's channel list. Saving keeps it; pick another channel or clear it to turn these posts off."
                           : "Posts each lead gen submission. Clear it to turn these posts off."}
                       </FormDescription>
                       <FormMessage />
@@ -383,7 +415,9 @@ function ChannelCombobox({
               value={channel}
               disabled={channel.isArchived}
             >
-              {channel.isArchived ? (
+              {channel.isUnavailable ? (
+                <EyeOffIcon aria-hidden="true" />
+              ) : channel.isArchived ? (
                 <ArchiveIcon aria-hidden="true" />
               ) : channel.isPrivate ? (
                 <LockIcon aria-hidden="true" />
@@ -391,9 +425,9 @@ function ChannelCombobox({
                 <HashIcon aria-hidden="true" />
               )}
               <span className="min-w-0 truncate">{channel.name}</span>
-              {channel.isArchived && (
+              {(channel.isArchived || channel.isUnavailable) && (
                 <span className="ml-auto text-xs text-muted-foreground">
-                  Archived
+                  {channel.isUnavailable ? "Not found" : "Archived"}
                 </span>
               )}
             </ComboboxItem>
