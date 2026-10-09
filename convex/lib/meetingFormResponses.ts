@@ -1,9 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import {
-  getUniqueFieldKey,
   loadFieldCatalogByKey,
-  normalizeFieldKey,
   upsertEventTypeFieldCatalogEntry,
 } from "./eventTypeFields";
 import { getString, isRecord } from "./payloadExtraction";
@@ -46,19 +44,34 @@ export function extractQuestionsAndAnswers(
   return entries;
 }
 
-export function toQuestionAnswerRecord(
+/** Provider labels are values. SHA-256 keys accept every Unicode label and stay bounded. */
+export async function questionFieldKey(
+  label: string,
+  occurrence = 0,
+): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify([label, occurrence])),
+  );
+  return (
+    "q_" +
+    Array.from(new Uint8Array(digest), (b) =>
+      b.toString(16).padStart(2, "0"),
+    ).join("")
+  );
+}
+export async function toQuestionAnswerRecord(
   entries: MeetingQuestionAnswer[],
-): Record<string, string> | undefined {
-  if (entries.length === 0) {
-    return undefined;
-  }
-
+): Promise<Record<string, string> | undefined> {
+  if (!entries.length) return undefined;
   const record: Record<string, string> = {};
+  const occurrences = new Map<string, number>();
   for (const entry of entries) {
-    record[entry.question] = entry.answer;
+    const occurrence = occurrences.get(entry.question) ?? 0;
+    occurrences.set(entry.question, occurrence + 1);
+    record[await questionFieldKey(entry.question, occurrence)] = entry.answer;
   }
-
-  return Object.keys(record).length > 0 ? record : undefined;
+  return record;
 }
 
 export async function writeMeetingFormResponses(
@@ -74,14 +87,21 @@ export async function writeMeetingFormResponses(
   },
 ): Promise<MeetingFormResponseWriteResult> {
   const responseByQuestion = new Map<string, Doc<"meetingFormResponses">>();
-  const usedFieldKeys = new Set<string>();
+  const legacyOccurrences = new Map<string, number>();
   const existingResponses = ctx.db
     .query("meetingFormResponses")
     .withIndex("by_meetingId", (q) => q.eq("meetingId", args.meetingId));
 
   for await (const response of existingResponses) {
-    responseByQuestion.set(response.questionLabelSnapshot, response);
-    usedFieldKeys.add(response.fieldKey);
+    if (response.tenantId !== args.tenantId)
+      throw new Error("Form response tenant mismatch");
+    const occurrence =
+      legacyOccurrences.get(response.questionLabelSnapshot) ?? 0;
+    legacyOccurrences.set(response.questionLabelSnapshot, occurrence + 1);
+    const key = /^q_[a-f0-9]{64}$/.test(response.fieldKey)
+      ? response.fieldKey
+      : await questionFieldKey(response.questionLabelSnapshot, occurrence);
+    responseByQuestion.set(key, response);
   }
 
   const fieldCatalogEntriesByFieldKey = new Map<
@@ -104,12 +124,14 @@ export async function writeMeetingFormResponses(
   let fieldCatalogUpdated = 0;
   let questionsSkipped = 0;
 
+  const labels: Record<string, string> = {};
+  const occurrences = new Map<string, number>();
   for (const qa of args.questionsAndAnswers) {
-    const existingResponse = responseByQuestion.get(qa.question) ?? null;
-    const baseFieldKey = normalizeFieldKey(qa.question);
-    const fieldKey = existingResponse
-      ? existingResponse.fieldKey
-      : getUniqueFieldKey(baseFieldKey, usedFieldKeys);
+    const occurrence = occurrences.get(qa.question) ?? 0;
+    occurrences.set(qa.question, occurrence + 1);
+    const fieldKey = await questionFieldKey(qa.question, occurrence);
+    labels[fieldKey] = qa.question;
+    const existingResponse = responseByQuestion.get(fieldKey) ?? null;
 
     let fieldCatalogId: Id<"eventTypeFieldCatalog"> | undefined;
     if (args.eventTypeConfigId) {
@@ -131,10 +153,14 @@ export async function writeMeetingFormResponses(
 
     if (existingResponse) {
       const patch: Partial<Doc<"meetingFormResponses">> = {};
+      if (existingResponse.fieldKey !== fieldKey) patch.fieldKey = fieldKey;
       if (!existingResponse.eventTypeConfigId && args.eventTypeConfigId) {
         patch.eventTypeConfigId = args.eventTypeConfigId;
       }
-      if (!existingResponse.fieldCatalogId && fieldCatalogId) {
+      if (
+        fieldCatalogId &&
+        existingResponse.fieldCatalogId !== fieldCatalogId
+      ) {
         patch.fieldCatalogId = fieldCatalogId;
       }
 
@@ -144,7 +170,7 @@ export async function writeMeetingFormResponses(
           ...patch,
         };
         await ctx.db.patch("meetingFormResponses", existingResponse._id, patch);
-        responseByQuestion.set(qa.question, updatedResponse);
+        responseByQuestion.set(fieldKey, updatedResponse);
         responsesUpdated += 1;
       } else {
         questionsSkipped += 1;
@@ -152,7 +178,6 @@ export async function writeMeetingFormResponses(
       continue;
     }
 
-    usedFieldKeys.add(fieldKey);
     const responseId = await ctx.db.insert("meetingFormResponses", {
       tenantId: args.tenantId,
       meetingId: args.meetingId,
@@ -166,7 +191,7 @@ export async function writeMeetingFormResponses(
       capturedAt: args.capturedAt,
     });
     responsesCreated += 1;
-    responseByQuestion.set(qa.question, {
+    responseByQuestion.set(fieldKey, {
       _id: responseId,
       _creationTime: args.capturedAt,
       tenantId: args.tenantId,
@@ -179,6 +204,37 @@ export async function writeMeetingFormResponses(
       questionLabelSnapshot: qa.question,
       answerText: qa.answer,
       capturedAt: args.capturedAt,
+    });
+  }
+
+  const lead = await ctx.db.get("leads", args.leadId);
+  if (!lead || lead.tenantId !== args.tenantId)
+    throw new Error("Form response lead mismatch");
+  const customFields = { ...lead.customFields };
+  for (const [key, label] of Object.entries(labels)) {
+    // Replace the old label-as-key representation when this question is seen
+    // again, without dropping unrelated historical answers.
+    if (!(key in customFields) && label in customFields)
+      customFields[key] = customFields[label];
+    if (!(label in labels)) delete customFields[label];
+  }
+  await ctx.db.patch("leads", lead._id, {
+    customFields,
+    customFieldLabels: { ...lead.customFieldLabels, ...labels },
+  });
+  if (args.eventTypeConfigId) {
+    const config = await ctx.db.get("eventTypeConfigs", args.eventTypeConfigId);
+    if (!config || config.tenantId !== args.tenantId)
+      throw new Error("Form response config mismatch");
+    await ctx.db.patch("eventTypeConfigs", config._id, {
+      knownCustomFieldKeys: [
+        ...new Set([
+          ...(config.knownCustomFieldKeys ?? []).filter(
+            (k) => !/^q_[a-f0-9]{64}$/.test(k),
+          ),
+          ...Object.values(labels),
+        ]),
+      ],
     });
   }
 

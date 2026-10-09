@@ -139,7 +139,7 @@ export function EntitySnapshotAside() {
 								className="flex flex-col gap-0.5 rounded-md px-2 py-2 transition-colors hover:bg-muted/40"
 							>
 								<dt>
-									<MicroLabel>{key}</MicroLabel>
+									<MicroLabel>{lead.customFieldLabels?.[key] ?? key}</MicroLabel>
 								</dt>
 								<dd className="text-sm font-medium wrap-break-word" translate="no">
 									{value}

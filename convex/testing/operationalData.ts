@@ -12,6 +12,13 @@ const DESTRUCTIVE_CONFIRMATION = "DELETE_OPERATIONAL_DATA";
 const BATCH_SIZE = 64;
 
 const OPERATIONAL_TABLES = [
+  "webhookRecoveryAttempts",
+  "webhookDeliveries",
+  "calendlyBookingFacts",
+  "meetingProjections",
+  "opportunityProjectionJobs",
+  "operationsMeetingStatsV2",
+
   "billingExportEvents",
   "billingOpsReadinessChecks",
   "calendlyOrgMembers",
@@ -177,6 +184,12 @@ export const getSnapshot = internalQuery({
         ctx,
         "meetingReassignments",
       ),
+      webhookRecoveryAttempts: await countTableDocuments(ctx, "webhookRecoveryAttempts"),
+      webhookDeliveries: await countTableDocuments(ctx, "webhookDeliveries"),
+      calendlyBookingFacts: await countTableDocuments(ctx, "calendlyBookingFacts"),
+      meetingProjections: await countTableDocuments(ctx, "meetingProjections"),
+      opportunityProjectionJobs: await countTableDocuments(ctx, "opportunityProjectionJobs"),
+      operationsMeetingStatsV2: await countTableDocuments(ctx, "operationsMeetingStatsV2"),
       operationsMeetingDailyStats: await countTableDocuments(
         ctx,
         "operationsMeetingDailyStats",
@@ -268,6 +281,13 @@ export const getSnapshot = internalQuery({
 export const deleteOperationalDataBatch = internalMutation({
   args: {
     tableName: v.union(
+      v.literal("webhookRecoveryAttempts"),
+      v.literal("webhookDeliveries"),
+      v.literal("calendlyBookingFacts"),
+      v.literal("meetingProjections"),
+      v.literal("opportunityProjectionJobs"),
+      v.literal("operationsMeetingStatsV2"),
+
       v.literal("meetingFormResponses"),
       v.literal("meetingComments"),
       v.literal("meetingReassignments"),
@@ -370,6 +390,12 @@ export const resetOperationalData = internalAction({
       meetingFormResponses: 0,
       meetingComments: 0,
       meetingReassignments: 0,
+      webhookRecoveryAttempts: 0,
+      webhookDeliveries: 0,
+      calendlyBookingFacts: 0,
+      meetingProjections: 0,
+      opportunityProjectionJobs: 0,
+      operationsMeetingStatsV2: 0,
       operationsMeetingDailyStats: 0,
       meetings: 0,
       followUps: 0,

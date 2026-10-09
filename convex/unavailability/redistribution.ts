@@ -1,3 +1,4 @@
+import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
@@ -6,7 +7,6 @@ import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMeetingsAssignedCloser";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import {
-  replaceMeetingAggregate,
   replaceOpportunityAggregate,
 } from "../reporting/writeHooks";
 import {
@@ -427,8 +427,7 @@ export const manuallyResolveMeeting = mutation({
     }
 
     if (meeting.status !== "canceled") {
-      await ctx.db.patch("meetings", args.meetingId, { status: "canceled" });
-      await replaceMeetingAggregate(ctx, meeting, args.meetingId);
+      await patchMeetingLifecycle(ctx, args.meetingId, { status: "canceled" });
       await updateOpportunityMeetingRefs(ctx, opportunity._id);
     }
 

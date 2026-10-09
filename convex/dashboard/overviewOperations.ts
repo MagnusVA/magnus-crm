@@ -1,3 +1,4 @@
+import { requireReportingReady } from "../operations/reportingReadiness";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import {
@@ -8,9 +9,9 @@ import { buildDmCloserEfficiencyRows } from "./overviewLeaderboardBuilders";
 import type { DerivedOverviewRange } from "./overviewRange";
 import type { PhoneCloserOperations } from "./overviewTypes";
 
-export const OPERATIONS_STATS_ROW_LIMIT = 1000;
+export const OPERATIONS_STATS_ROW_LIMIT = 8192;
 
-type OperationsStatsRow = Doc<"operationsMeetingDailyStats">;
+type OperationsStatsRow = Doc<"operationsMeetingStatsV2">;
 type OperationsTotals = {
   scheduled: number;
   completed: number;
@@ -51,8 +52,9 @@ async function readOperationsStatsRows(
   tenantId: Id<"tenants">,
   range: DerivedOverviewRange,
 ) {
+  await requireReportingReady(ctx, tenantId);
   const rows = await ctx.db
-    .query("operationsMeetingDailyStats")
+    .query("operationsMeetingStatsV2")
     .withIndex("by_tenantId_and_dayKey", (q) =>
       q
         .eq("tenantId", tenantId)

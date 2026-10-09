@@ -142,8 +142,8 @@ export const logPayment = mutation({
       updatedAt: now,
     });
     await completeMeetingForOutcome(ctx, {
-      meeting,
-      opportunity,
+      meetingId: meeting._id,
+        opportunityId: opportunity._id,
       toMeetingStatus: "completed",
       completedAt: now,
     });

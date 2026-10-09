@@ -1,15 +1,26 @@
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
-import { replaceMeetingAggregate } from "../reporting/writeHooks";
-import { updateOpportunityMeetingRefs } from "./opportunityMeetingRefs";
+import { patchMeetingLifecycle } from "./meetingLifecycle";
 import { validateMeetingTransition } from "./statusTransitions";
 
 type TerminalMeetingStatus = "completed" | "no_show" | "canceled";
 type MeetingPatch = Partial<
-  Omit<Doc<"meetings">, "_id" | "_creationTime" | "status" | "completedAt">
+  Omit<
+    Doc<"meetings">,
+    | "_id"
+    | "_creationTime"
+    | "tenantId"
+    | "opportunityId"
+    | "status"
+    | "completedAt"
+  >
 >;
 
 const RESERVED_MEETING_OUTCOME_PATCH_KEYS = new Set([
+  "_id",
+  "_creationTime",
+  "tenantId",
+  "opportunityId",
   "status",
   "completedAt",
 ]);
@@ -29,14 +40,18 @@ function assertTimingFreePatch(patch: MeetingPatch | undefined): void {
 export async function completeMeetingForOutcome(
   ctx: MutationCtx,
   args: {
-    meeting: Doc<"meetings">;
-    opportunity: Doc<"opportunities">;
+    meetingId: Id<"meetings">;
+    opportunityId: Id<"opportunities">;
     toMeetingStatus: TerminalMeetingStatus;
     completedAt: number;
     extraMeetingPatch?: MeetingPatch;
   },
 ): Promise<Doc<"meetings">> {
-  const { meeting, opportunity, toMeetingStatus, completedAt } = args;
+  const { toMeetingStatus, completedAt } = args;
+  const meeting = await ctx.db.get("meetings", args.meetingId);
+  const opportunity = await ctx.db.get("opportunities", args.opportunityId);
+  if (!meeting || !opportunity)
+    throw new Error("Meeting or opportunity not found");
 
   if (meeting.opportunityId !== opportunity._id) {
     throw new Error("Meeting does not belong to opportunity");
@@ -52,13 +67,9 @@ export async function completeMeetingForOutcome(
 
   assertTimingFreePatch(args.extraMeetingPatch);
 
-  await ctx.db.patch("meetings", meeting._id, {
+  return await patchMeetingLifecycle(ctx, meeting._id, {
     status: toMeetingStatus,
     completedAt,
     ...args.extraMeetingPatch,
   });
-
-  const nextMeeting = await replaceMeetingAggregate(ctx, meeting, meeting._id);
-  await updateOpportunityMeetingRefs(ctx, opportunity._id);
-  return nextMeeting;
 }

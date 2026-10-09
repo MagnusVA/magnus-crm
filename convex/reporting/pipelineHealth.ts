@@ -1,3 +1,4 @@
+import { requireReportingReady } from "../operations/reportingReadiness";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
@@ -33,7 +34,7 @@ const REPORT_ROW_CAP = 2000;
 const MAX_UNRESOLVED_REMINDER_SCAN_ROWS = REPORT_ROW_CAP + 1;
 const MAX_NO_SHOW_SCAN_ROWS = REPORT_ROW_CAP + 1;
 const MAX_LOSS_SCAN_ROWS = REPORT_ROW_CAP + 1;
-const MAX_OPERATIONS_STATS_ROWS = 1000;
+const MAX_OPERATIONS_STATS_ROWS = 8192;
 const STALE_THRESHOLD_MS = 14 * 24 * 60 * 60 * 1000;
 
 type NoShowSource = "closer" | "calendly_webhook" | "none";
@@ -406,13 +407,14 @@ export const getSchedulingShowRateByOperationsDimensions = query({
       "tenant_master",
       "tenant_admin",
     ]);
+    await requireReportingReady(ctx, tenantId);
 
     if (args.startDayKey >= args.endDayKeyExclusive) {
       throw new Error("startDayKey must be before endDayKeyExclusive");
     }
 
     const rows = await ctx.db
-      .query("operationsMeetingDailyStats")
+      .query("operationsMeetingStatsV2")
       .withIndex("by_tenantId_and_dayKey", (q) =>
         q
           .eq("tenantId", tenantId)

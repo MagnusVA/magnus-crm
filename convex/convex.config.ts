@@ -1,3 +1,4 @@
+import workpool from "@convex-dev/workpool/convex.config.js";
 import aggregate from "@convex-dev/aggregate/convex.config";
 import migrations from "@convex-dev/migrations/convex.config";
 import workOSAuthKit from "@convex-dev/workos-authkit/convex.config";
@@ -40,6 +41,8 @@ const app = defineApp({
     POSTHOG_HOST: v.optional(v.string()),
   },
 });
+app.use(workpool, { name: "webhookWorkpool" });
+app.use(workpool, { name: "reportingWorkpool" });
 app.use(workOSAuthKit);
 app.use(migrations);
 app.use(posthog, {

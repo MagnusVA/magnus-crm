@@ -1,3 +1,4 @@
+import { requireReportingReady } from "./reportingReadiness";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
@@ -26,7 +27,7 @@ import { enrichPhoneSalesRows } from "./phoneSales";
 
 // Matches getPhoneSalesStats / overviewOperations: the daily-stats rollup read
 // is bounded and the result is flagged as capped past this many rows.
-const MAX_OPERATIONS_STATS_ROWS = 1000;
+const MAX_OPERATIONS_STATS_ROWS = 8192;
 const LIVE_DIMENSION_LIMIT = 300;
 // Search fan-out bounds — same values as bookedCallsDashboard.
 const SEARCH_OPPORTUNITY_LIMIT = 30;
@@ -106,7 +107,7 @@ function emptyMeetingTotals(): MeetingTotals {
   return { booked: 0, canceled: 0, noShows: 0, showed: 0 };
 }
 
-function addStatsRow(totals: MeetingTotals, row: Doc<"operationsMeetingDailyStats">) {
+function addStatsRow(totals: MeetingTotals, row: Doc<"operationsMeetingStatsV2">) {
   totals.booked += row.count;
   if (row.meetingStatus === "completed") totals.showed += row.count;
   if (row.meetingStatus === "canceled") totals.canceled += row.count;
@@ -215,7 +216,7 @@ function validateWindow(start: number, end: number) {
  * with a team-total row, all in one round trip.
  *
  * Population semantics match getPhoneSalesStats exactly: the
- * operationsMeetingDailyStats rollup keyed by the UTC day of `scheduledAt`
+ * operationsMeetingStatsV2 rollup keyed by the UTC day of `scheduledAt`
  * (dayKey), all four meeting statuses counted. `totalCalls` here is what
  * getPhoneSalesStats calls `scheduled`. Payments follow the
  * teamPerformance/revenue definition of cash collected: non-disputed,
@@ -270,13 +271,14 @@ export const getSalesCallsDashboard = query({
       "tenant_master",
       "tenant_admin",
     ]);
+    await requireReportingReady(ctx, tenantId);
 
     const range = deriveOverviewRange(args.range, Date.now());
 
     const [statsScan, activeUserScan, paymentScan] = await Promise.all([
       readLiveQueryRows(
         ctx.db
-          .query("operationsMeetingDailyStats")
+          .query("operationsMeetingStatsV2")
           .withIndex("by_tenantId_and_dayKey", (q) =>
             q
               .eq("tenantId", tenantId)
@@ -284,6 +286,8 @@ export const getSalesCallsDashboard = query({
               .lt("dayKey", range.operationsEndDayKeyExclusive),
           ),
         MAX_OPERATIONS_STATS_ROWS,
+        undefined,
+        4 * 1024 * 1024,
       ),
       readLiveQueryRows(
         ctx.db

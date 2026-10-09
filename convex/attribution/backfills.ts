@@ -1,3 +1,4 @@
+import { requestMeetingProjection, requestOpportunityProjections } from "../operations/meetingStats";
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -125,6 +126,7 @@ export const backfillMeetingAttribution = internalMutation({
           tenantReport.rowsChanged += 1;
           if (!dryRun) {
             await ctx.db.patch("meetings", meeting._id, patch);
+            await requestMeetingProjection(ctx, tenantId, meeting._id);
           }
         }
       }
@@ -234,6 +236,7 @@ export const backfillOpportunityAttribution = internalMutation({
           tenantReport.rowsChanged += 1;
           if (!dryRun) {
             await ctx.db.patch("opportunities", opportunity._id, patch);
+            await requestOpportunityProjections(ctx, opportunity._id);
             await rebuildQualificationRowsForOpportunity(ctx, opportunity._id);
           }
         }

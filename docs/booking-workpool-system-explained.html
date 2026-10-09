@@ -1,0 +1,1399 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><title>Magnus CRM · Booking and reporting Workpool change</title>
+<style>
+:root{--ink:#202b34;--dim:#58656b;--paper:#f7f6f2;--line:#d9dfdf;--blue:#246aa0;--teal:#177364;--amber:#a96b12;--red:#b3423d;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;color:var(--foreground,var(--ink));background:var(--background,var(--paper));font:16px/1.65 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}a{color:var(--blue);text-underline-offset:3px}a:hover{text-decoration-thickness:2px}button,input{font:inherit}button{padding:8px 14px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);cursor:pointer}button:hover{background:#edf4f4}button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid #74a8ca;outline-offset:3px}.page{max-width:1220px;margin:auto;padding:42px 30px 80px}.eyebrow{color:var(--teal);font:600 12px/1.4 var(--mono);letter-spacing:.12em;text-transform:uppercase}h1{font-size:clamp(32px,4.4vw,56px);line-height:1.1;letter-spacing:-.045em;max-width:840px;margin:17px 0 22px}h2{font-size:29px;line-height:1.25;letter-spacing:-.025em;margin:0 0 16px}h3{font-size:20px;line-height:1.35;margin:24px 0 10px}p{margin:0 0 16px}.lede{font-size:20px;line-height:1.6;max-width:860px}.small{font-size:13px;color:var(--dim);line-height:1.6}.meta{padding:18px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);display:flex;gap:18px;flex-wrap:wrap;align-items:center}.pill{display:inline-block;font:600 12px/1.6 var(--mono);padding:4px 9px;border-radius:6px;background:#e6f2ee;color:#125f53}.pill.warn{background:#fff1d6;color:#82540f}.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:20px 0}nav{display:grid;grid-template-columns:repeat(3,1fr);gap:9px 24px;padding:20px 0 36px}nav a{font-size:14px;text-decoration:none}section{border-top:1px solid var(--line);padding-top:34px;margin-top:32px;scroll-margin-top:20px}.section-no{color:var(--teal);font:600 12px var(--mono);letter-spacing:.1em;display:block;margin-bottom:12px}.reading{border-left:4px solid var(--blue);padding:16px 20px;background:#eef4f7;margin:22px 0;color:var(--ink)}.callout{border-left:4px solid var(--teal);padding:18px 22px;margin:22px 0;background:#edf6f2;color:var(--ink)}.callout.warn{border-color:var(--amber);background:#fff7e8}.callout.bad{border-color:var(--red);background:#fff0ee}.callout p:last-child{margin:0}.cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:24px 0}.card{background:var(--card,#fff);border:1px solid var(--line);border-radius:9px;padding:20px}.card h3{margin:0 0 10px}.card .number{font-size:32px;font-weight:650;letter-spacing:-.03em;display:block}.two{display:grid;grid-template-columns:1fr 1fr;gap:22px}.diagram{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:#fff;margin:24px 0 12px;padding:12px;color:var(--ink)}svg{display:block;width:100%;min-width:790px;height:auto;font-family:system-ui,sans-serif}.node rect{fill:#f4f6f7;stroke:#cbd5d9;stroke-width:1.3}.node text{fill:#26373e;font-size:15px;font-weight:550}.node.commit rect{fill:#e4f3ed;stroke:#6cae99}.node.queue rect{fill:#e8f1fb;stroke:#84a8cf}.node.warn rect{fill:#fff2d9;stroke:#d6ac68}.node.bad rect{fill:#ffebe7;stroke:#ce9489}.node.external rect{fill:#f4f1ea;stroke:#b8b5aa}.node.actor rect{fill:#f3f5f6;stroke:#aebbc2}.edge{fill:none;stroke:currentColor;stroke-width:1.5;color:#526d7b}.dashed{stroke-dasharray:6 4}.edge-label{fill:#536771;font-size:13px}.seq-label{fill:#2b3f49;font-size:14px;font-weight:500;paint-order:stroke;stroke:#fff;stroke-width:5px;stroke-linejoin:round}.lifeline{stroke:#bbc8ce;stroke-width:1;stroke-dasharray:5 5}.band{fill:#eff8f3;stroke:#bcd9ca;stroke-dasharray:4 4;stroke-width:1}.band-label{fill:#4a7562;font-size:12px;font-weight:650}.legend{display:flex;flex-wrap:wrap;gap:18px;font-size:12px;color:var(--dim);margin-bottom:22px}.dot{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px}.table-wrap{overflow:auto;margin:22px 0;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink)}table{width:100%;border-collapse:collapse;font-size:14px;line-height:1.5;min-width:680px}th{text-align:left;background:#edf1f2;padding:13px 15px;font-size:12px;letter-spacing:.03em}td{padding:15px;vertical-align:top;border-top:1px solid #e1e6e7}td:first-child{width:20%}tbody tr:hover{background:#fafcfc}.test-id{display:block;color:var(--teal);font:600 12px var(--mono);margin-bottom:5px}td details{min-width:190px}td details[open]{min-width:330px}td pre{max-width:520px;font-size:11px;max-height:480px;overflow:auto}details{margin:14px 0}summary{cursor:pointer;font-weight:600;line-height:1.5}summary span{display:block;font-weight:400;font-size:12px;color:var(--dim);margin-top:3px;overflow-wrap:anywhere}.proof{border:1px solid var(--line);border-radius:8px;background:var(--card,#fff);padding:15px 18px}.proof p{margin-top:13px}pre{white-space:pre;overflow:auto;padding:17px;background:#f0f3f5;border-radius:7px;font:12px/1.7 var(--mono);color:#22383f;tab-size:2}code{font-family:var(--mono);font-size:.88em;overflow-wrap:anywhere}p code,td code,li code{background:#eaf0f2;padding:2px 4px;border-radius:3px}ul,ol{padding-left:23px}li{margin:7px 0}.scenario-tabs{display:flex;gap:9px;flex-wrap:wrap;margin:22px 0}.scenario-tabs button[aria-pressed="true"]{background:#194f66;color:#fff;border-color:#194f66}.scenario-box{padding:24px;border:1px solid var(--line);border-radius:10px;background:var(--card,#fff)}.scenario-box h3{margin-top:5px}.trace{list-style:none;padding:0;display:grid;grid-template-columns:repeat(4,1fr);gap:22px;margin:24px 0}.trace li{position:relative;padding:16px;background:#eef4f6;border-radius:7px;font-size:14px;color:var(--ink)}.trace li:not(:last-child)::after{content:'→';position:absolute;right:-19px;top:20px;font-size:22px;color:#597482}.trace strong{display:block;margin:5px 0 8px}.trace .step{font:600 12px var(--mono);color:var(--teal)}.search{width:100%;padding:10px 13px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);margin:10px 0}.formula{font:500 18px/1.9 var(--mono);padding:22px;background:#eaf3ee;border-radius:8px;color:#16594e;overflow:auto}.kv{display:grid;grid-template-columns:1fr 1fr;gap:0 24px}.kv p{padding:14px 0;border-bottom:1px solid var(--line);margin:0}footer{border-top:1px solid var(--line);margin-top:40px;padding-top:22px;color:var(--dim);font-size:13px}.back{font-size:13px;display:block;text-align:right;margin:14px 0}[hidden]{display:none!important}
+@media(max-width:760px){.page{padding:28px 16px 50px}.cards,.two,.kv{grid-template-columns:1fr}nav{grid-template-columns:1fr 1fr}.trace{grid-template-columns:1fr}.trace li:not(:last-child)::after{content:'↓';left:18px;top:auto;bottom:-26px}.diagram{padding:6px}h2{font-size:25px}.meta{gap:10px}.lede{font-size:18px}}
+@media print{@page{margin:15mm}body{background:#fff;color:#202b34;font-size:11px}.page{padding:0;max-width:none}.toolbar,.scenario-tabs,.search,.back,nav{display:none}h1{font-size:34px}h2{font-size:22px}.diagram{padding:0;overflow:visible;break-inside:avoid}svg{min-width:0}section{break-before:auto}.cards,.two{gap:12px}.card{padding:13px}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:9px}details{break-inside:avoid}table{min-width:0;font-size:10px}td details[open]{min-width:0}td pre{max-width:none}a{color:#202b34}.trace{grid-template-columns:repeat(4,1fr)}}
+</style></head><body><main class="page" id="top">
+<header><div class="eyebrow">Magnus CRM · Architecture and evidence · Decision document</div><h1>How bookings and reports work after this change</h1><p class="lede">Every accepted Calendly event gets a durable outcome. Every meeting gets one recorded contribution to operations reporting. Workpools control when background mutations run; the application code defines what is safe to apply.</p><div class="meta"><span class="pill warn">Implemented locally · awaiting validation</span><span class="small">Snapshot 2026-10-09 05:35 UTC</span><span class="small">Base commit <code>b675502d48a2</code> + uncommitted refactor</span></div></header>
+<div class="toolbar"><button id="print">Print / save as PDF</button><button id="expand">Expand all code evidence</button><button id="collapse">Collapse evidence</button></div>
+<div class="reading"><p><strong>Start with sections 1–4 for the system model.</strong> Then try the failure scenarios in section 5. Section 9 contains the exact 20 regression tests and their limits.</p><p class="small">This is a single offline HTML file. All diagrams, styles, scripts and code excerpts are embedded. Source-file and official-documentation links are optional; the explanations work without them. Nothing in this document executes CRM functions or starts a server.</p></div>
+<nav aria-label="Document contents"><a href="#overview">01 · What changes</a><a href="#ingestion">02 · Webhook acceptance</a><a href="#outcomes">03 · Processing and outcomes</a><a href="#reporting">04 · Correct reporting</a><a href="#scenarios">05 · Event-order scenarios</a><a href="#fanout">06 · Scale and sweep pages</a><a href="#recovery">07 · Reviewed recovery</a><a href="#migration">08 · Deployment and migration</a><a href="#evidence">09 · Evidence and test coverage</a><a href="#decision">10 · What remains to validate</a></nav>
+<section id="overview"><span class="section-no">01 / System model</span><h2>The system has two kinds of truth</h2><p>A meeting, opportunity, lead or payment is an authoritative business record. Operations totals are a derived view of those records. This change keeps the business write and the obligation to update that view in the same mutation, then lets a reporting worker compute the current answer.</p><div class="cards"><div class="card"><h3>Accept the event</h3><p>Store its payload, delivery receipt, provider facts and queued job together. Return HTTP 200 after acceptance, before the booking worker finishes.</p></div><div class="card"><h3>Apply a safe booking</h3><p>The worker checks the host, identity and booking relationship. It commits CRM writes with the receipt outcome, or leaves a reviewable blocked/failed receipt.</p></div><div class="card"><h3>Project current records</h3><p>The report worker compares the meeting's current contribution with the contribution it previously recorded. It updates the difference atomically.</p></div></div><div class="diagram"><svg viewBox="0 0 1040 560" role="img" aria-labelledby="d1-title d1-desc"><title id="d1-title">The system after the change</title><desc id="d1-desc">Calendly feeds a webhook pool. Business records feed a separate reporting pool and V2 totals. Closer commands update business records directly. Warehouse ingestion continues on its existing path.</desc><defs><marker id="d1-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs><g class="node external"><rect x="25" y="70" width="165" height="62" rx="9"/><text x="107.5" y="106.0" text-anchor="middle"><tspan x="107.5" dy="0">Calendly</tspan></text></g><g class="node commit"><rect x="260" y="70" width="220" height="62" rx="9"/><text x="370.0" y="96.0" text-anchor="middle"><tspan x="370.0" dy="0">Signed webhook</tspan><tspan x="370.0" dy="21">Acceptance transaction</tspan></text></g><g class="node queue"><rect x="570" y="70" width="220" height="62" rx="9"/><text x="680.0" y="96.0" text-anchor="middle"><tspan x="680.0" dy="0">Webhook Workpool</tspan><tspan x="680.0" dy="21">4 concurrent mutations</tspan></text></g><g class="node queue"><rect x="860" y="70" width="160" height="62" rx="9"/><text x="940.0" y="106.0" text-anchor="middle"><tspan x="940.0" dy="0">Booking worker</tspan></text></g><path class="edge " d="M 190,101 L 260,101" marker-end="url(#d1-arrow)"/><path class="edge " d="M 480,101 L 570,101" marker-end="url(#d1-arrow)"/><text class="edge-label" x="525" y="84" text-anchor="middle">receipt + job</text><path class="edge " d="M 790,101 L 860,101" marker-end="url(#d1-arrow)"/><g class="node external"><rect x="35" y="260" width="185" height="62" rx="9"/><text x="127.5" y="286.0" text-anchor="middle"><tspan x="127.5" dy="0">Closer / admin</tspan><tspan x="127.5" dy="21">Outcome command</tspan></text></g><g class="node commit"><rect x="330" y="250" width="250" height="90" rx="9"/><text x="455.0" y="280.0" text-anchor="middle"><tspan x="455.0" dy="0">Business records</tspan><tspan x="455.0" dy="21">Meetings · opportunities</tspan><tspan x="455.0" dy="21">Leads · payments</tspan></text></g><g class="node normal"><rect x="705" y="260" width="270" height="62" rx="9"/><text x="840.0" y="286.0" text-anchor="middle"><tspan x="840.0" dy="0">Existing synchronous</tspan><tspan x="840.0" dy="21">aggregate components</tspan></text></g><path class="edge " d="M 940,132 L 940,195 L 455,195 L 455,250" marker-end="url(#d1-arrow)"/><text class="edge-label" x="695" y="184" text-anchor="middle">commit booking + receipt outcome</text><path class="edge " d="M 220,291 L 330,291" marker-end="url(#d1-arrow)"/><path class="edge " d="M 580,291 L 705,291" marker-end="url(#d1-arrow)"/><text class="edge-label" x="640" y="276" text-anchor="middle">same mutation</text><g class="node queue"><rect x="330" y="425" width="250" height="62" rx="9"/><text x="455.0" y="451.0" text-anchor="middle"><tspan x="455.0" dy="0">Reporting Workpool</tspan><tspan x="455.0" dy="21">2 concurrent mutations</tspan></text></g><g class="node commit"><rect x="705" y="425" width="270" height="62" rx="9"/><text x="840.0" y="451.0" text-anchor="middle"><tspan x="840.0" dy="0">Contribution ledger</tspan><tspan x="840.0" dy="21">+ operationsMeetingStatsV2</tspan></text></g><path class="edge " d="M 455,340 L 455,425" marker-end="url(#d1-arrow)"/><text class="edge-label" x="565" y="383" text-anchor="middle">IDs queued atomically</text><path class="edge " d="M 580,456 L 705,456" marker-end="url(#d1-arrow)"/><text class="edge-label" x="642" y="440" text-anchor="middle">read current state</text><g class="node external"><rect x="35" y="435" width="200" height="66" rx="9"/><text x="135.0" y="463.0" text-anchor="middle"><tspan x="135.0" dy="0">Fivetran → ClickHouse</tspan><tspan x="135.0" dy="21">Existing ingestion</tspan></text></g><path class="edge dashed" d="M 330,315 L 270,315 L 270,395 L 135,395 L 135,435" marker-end="url(#d1-arrow)"/><text class="edge-label" x="834" y="519" text-anchor="middle">Operations dashboards read V2 after activation.</text></svg></div>
+<div class="legend"><span><i class="dot" style="background:#e4f3ed"></i>Writes that commit together</span><span><i class="dot" style="background:#e8f1fb"></i>Background scheduling</span><span><i class="dot" style="background:#fff2d9"></i>Review or recovery required</span></div>
+<div class="table-wrap"><table><thead><tr><th>Concern</th><th>Previous path</th><th>Implemented path</th></tr></thead><tbody>
+<tr><td>Booking delivery</td><td>Raw event dedupe and scheduled processor action; processing calls crossed separate mutation boundaries.</td><td>Permanent receipt and a Workpool mutation. Business writes and successful receipt outcome share the processing transaction.</td></tr>
+<tr><td>Meeting accounting</td><td>Caller-provided before/after snapshots could describe a record from before another write.</td><td>Lifecycle helper reads the current record. V2 worker reads source IDs and compares its own saved contribution.</td></tr>
+<tr><td>Opportunity-wide reporting</td><td>A capped loop updated at most 200 meetings.</td><td>Durable 64-meeting pages with a cursor and a dirty flag for changes during a sweep.</td></tr>
+<tr><td>Large reporting ranges</td><td>Several readers stopped at 1,000 stats rows.</td><td>V2 readers use an 8,192-row bound, explicit overflow behavior or the existing materialized fallback.</td></tr>
+<tr><td>Recovery</td><td>A destructive replay could clear operational records and attempt to rebuild from raw payloads.</td><td>Selected receipt preview/retry, tenant and generation guards, and actor audit. Destructive endpoints reject calls.</td></tr>
+<tr><td>Analytics destination</td><td>Existing Convex → Fivetran → ClickHouse ingestion.</td><td>The same ingestion path. This change does not migrate warehouse modeling or analytics.</td></tr>
+</tbody></table></div>
+<h3>What Workpool owns</h3><p>The two pools schedule bounded internal mutations and limit how many run concurrently. The application's receipt, projection and sweep rows hold business progress, reasons and retry generations. There is no Workflow component in this refactor: the implemented units are database transactions and paged jobs, rather than a journaled sequence of external calls. Booking work and reporting work have separate pool budgets, so a report rebuild does not occupy the booking pool.</p><h3>What users see</h3><p>A closer's successful command returns after the business transaction commits. Operations totals catch up afterward; pending or failed reporting work appears in the health banner. Admin diagnostics expose delivery outcomes and reviewed retries. Question answers display their original labels, even though storage keys are now hashes.</p><p class="small">The old operations stats table remains for migration/verification context. Production operations readers move to <code>operationsMeetingStatsV2</code>. Existing synchronous aggregate components still participate in source mutations.</p></section>
+
+<section id="ingestion"><span class="section-no">02 / Acceptance boundary</span><h2>HTTP acceptance is separate from booking success</h2><p>The existing HTTP endpoint still checks the tenant's signing secret and webhook signature. Its <code>persistRawEvent</code> call creates the durable acceptance record. The asynchronous booking result appears later in the delivery receipt.</p><div class="diagram"><svg viewBox="0 0 1040 922" role="img" aria-labelledby="d2-title d2-desc"><title id="d2-title">Webhook acceptance and later processing</title><desc id="d2-desc">Time runs downward. Solid arrows show calls; dashed arrows show responses. Shaded bands identify transaction boundaries.</desc><defs><marker id="d2-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs><rect class="band commit" x="10" y="221" width="1020" height="285" rx="9"/><text class="band-label" x="22" y="238">Transaction A · event acceptance</text><rect class="band commit" x="10" y="653" width="1020" height="141" rx="9"/><text class="band-label" x="22" y="670">Transaction B · booking processing</text><line class="lifeline" x1="85.0" y1="64" x2="85.0" y2="904"/><g class="node actor"><rect x="7.0" y="10" width="156" height="52" rx="9"/><text x="85.0" y="41.0" text-anchor="middle"><tspan x="85.0" dy="0">Calendly</tspan></text></g><line class="lifeline" x1="302.5" y1="64" x2="302.5" y2="904"/><g class="node actor"><rect x="224.5" y="10" width="156" height="52" rx="9"/><text x="302.5" y="41.0" text-anchor="middle"><tspan x="302.5" dy="0">HTTP endpoint</tspan></text></g><line class="lifeline" x1="520.0" y1="64" x2="520.0" y2="904"/><g class="node actor"><rect x="442.0" y="10" width="156" height="52" rx="9"/><text x="520.0" y="41.0" text-anchor="middle"><tspan x="520.0" dy="0">Convex records</tspan></text></g><line class="lifeline" x1="737.5" y1="64" x2="737.5" y2="904"/><g class="node actor"><rect x="659.5" y="10" width="156" height="52" rx="9"/><text x="737.5" y="41.0" text-anchor="middle"><tspan x="737.5" dy="0">Webhook pool</tspan></text></g><line class="lifeline" x1="955.0" y1="64" x2="955.0" y2="904"/><g class="node actor"><rect x="877.0" y="10" width="156" height="52" rx="9"/><text x="955.0" y="41.0" text-anchor="middle"><tspan x="955.0" dy="0">Booking worker</tspan></text></g><path class="edge " d="M 85.0,118 L 302.5,118" marker-end="url(#d2-arrow)"/><text class="seq-label" text-anchor="middle" x="193.75" y="109">Signed event delivery</text><path class="edge " d="M 302.5,190 L 360.5,190 L 360.5,214 L 302.5,214" marker-end="url(#d2-arrow)"/><text class="seq-label" x="370.5" y="194">Verify tenant secret, signature and payload</text><path class="edge " d="M 302.5,262 L 520.0,262" marker-end="url(#d2-arrow)"/><text class="seq-label" text-anchor="middle" x="411.25" y="253">persistRawEvent: derive key; look up tenant + key</text><path class="edge " d="M 520.0,334 L 578.0,334 L 578.0,358 L 520.0,358" marker-end="url(#d2-arrow)"/><text class="seq-label" x="588.0" y="338">Write raw payload + receipt + provider fact</text><path class="edge " d="M 520.0,406 L 737.5,406" marker-end="url(#d2-arrow)"/><text class="seq-label" text-anchor="middle" x="628.75" y="397">Enqueue mutation; increment receipt generation</text><path class="edge dashed" d="M 520.0,478 L 302.5,478" marker-end="url(#d2-arrow)"/><text class="seq-label" text-anchor="middle" x="411.25" y="469">Commit accepted event, or return duplicate</text><path class="edge dashed" d="M 302.5,550 L 85.0,550" marker-end="url(#d2-arrow)"/><text class="seq-label" text-anchor="middle" x="193.75" y="541">HTTP 200 means accepted / duplicate</text><path class="edge " d="M 737.5,622 L 955.0,622" marker-end="url(#d2-arrow)"/><text class="seq-label" text-anchor="middle" x="846.25" y="613">Later: rawEventId + generation</text><path class="edge " d="M 955.0,694 L 520.0,694" marker-end="url(#d2-arrow)"/><text class="seq-label" text-anchor="middle" x="737.5" y="685">Read raw + receipt; reject obsolete generation</text><path class="edge " d="M 955.0,766 L 520.0,766" marker-end="url(#d2-arrow)"/><text class="seq-label" text-anchor="middle" x="737.5" y="757">Resolve booking; reconcile facts; write receipt outcome</text><path class="edge dashed" d="M 955.0,838 L 737.5,838" marker-end="url(#d2-arrow)"/><text class="seq-label" text-anchor="middle" x="846.25" y="829">Worker returns; completion callback runs separately</text></svg></div>
+<div class="two"><div><h3>The deduplication key</h3><p>For <code>invitee.created</code> and <code>invitee.canceled</code>, the SHA-256 key includes event type and invitee URI, scoped by tenant. Repeated delivery cannot create a second receipt for that logical event.</p><p>For mutable events, the key also includes provider <code>created_at</code>, or the raw payload if it is missing. No-show fact ordering uses the parsed provider time; missing or invalid time falls back to <code>receivedAt</code>.</p></div><div><h3>What survives retention</h3><p>Resolved raw payloads can expire after 30 days. Compact receipts and provider facts stay, so the identity of an accepted event does not disappear with its original JSON.</p><p>Blocked and failed events retain their payload for recovery. Legacy adoption consolidates duplicate raw rows around a canonical receipt and retains its payload when unresolved.</p></div></div>
+<div class="callout"><p><strong>Atomic acceptance means one committed unit.</strong> If the acceptance mutation throws, its new payload, receipt, fact and job are not committed. If the HTTP response is lost after commit, the provider's retry finds the receipt.</p></div>
+<p class="small">Atomic mutation behavior is a Convex platform guarantee. The deduplication lookup and queue call are the application's implementation of that guarantee. See <a href="https://docs.convex.dev/functions/mutation-functions#transactions" target="_blank" rel="noreferrer">Convex mutation transactions</a> and <a href="https://docs.convex.dev/database/advanced/occ" target="_blank" rel="noreferrer">Convex OCC and atomicity</a>.</p><details class="proof"><summary>Code evidence · atomic acceptance <span>convex/webhooks/calendlyMutations.ts:7</span></summary><p class="small">Snapshot from the current working tree. <a href="../convex/webhooks/calendlyMutations.ts">Open source file</a>. SHA-256 <code>7e1973af86e061cc…</code>.</p><pre><code>   7  export const persistRawEvent = internalMutation({
+   8    args: { tenantId: v.id(&quot;tenants&quot;), calendlyEventUri: v.string(), eventType: v.string(), payload: v.string() },
+   9    returns: v.union(v.id(&quot;rawWebhookEvents&quot;), v.null()),
+  10    handler: async (ctx, args) =&gt; {
+  11      const receivedAt = Date.now();
+  12      const { key, occurredAt, eventUri, payload } = await deliveryMetadata({ ...args, receivedAt });
+  13      const existing = await ctx.db.query(&quot;webhookDeliveries&quot;)
+  14        .withIndex(&quot;by_tenantId_and_key&quot;, q =&gt; q.eq(&quot;tenantId&quot;, args.tenantId).eq(&quot;key&quot;, key)).unique();
+  15      if (existing) return null;
+  16      // Widening compatibility: a provider redelivery must not replay old raw rows
+  17      // while receipt adoption is still running.
+  18      if (args.eventType === &quot;invitee.created&quot; || args.eventType === &quot;invitee.canceled&quot;) {
+  19        const legacy = await ctx.db.query(&quot;rawWebhookEvents&quot;).withIndex(&quot;by_tenantId_and_eventType_and_calendlyEventUri&quot;, q =&gt;
+  20          q.eq(&quot;tenantId&quot;, args.tenantId).eq(&quot;eventType&quot;, args.eventType).eq(&quot;calendlyEventUri&quot;, args.calendlyEventUri)).first();
+  21        if (legacy) { await adoptRawDelivery(ctx, legacy); return null; }
+  22      }
+  23      const rawEventId = await ctx.db.insert(&quot;rawWebhookEvents&quot;, { ...args, processed: false, occurredAt, receivedAt });
+  24      const deliveryId = await ctx.db.insert(&quot;webhookDeliveries&quot;, {
+  25        tenantId: args.tenantId, key, inviteeUri: args.calendlyEventUri, eventUri,
+  26        eventType: args.eventType, rawEventId, occurredAt, receivedAt, status: &quot;queued&quot;, generation: 0,
+  27      });
+  28      await recordBookingFact(ctx, { tenantId: args.tenantId, eventType: args.eventType, eventUri, inviteeUri: args.calendlyEventUri, occurredAt, payload });
+  29      await enqueueDelivery(ctx, deliveryId);
+  30      return rawEventId;
+  31    },</code></pre></details>
+<p class="small">Evidence: T01 covers re-delivery after raw cleanup through the internal acceptance function. End-to-end signed HTTP delivery and concurrent retry traffic still need integration validation.</p></section>
+
+<section id="outcomes"><span class="section-no">03 / Booking decisions</span><h2>Unsafe bookings become visible decisions</h2><p>The booking processor is now an internal mutation. A recognized business block comes from the nested booking mutation; the processor catches it and stores a fixed reason on the receipt. An unexpected exception rolls back the worker mutation, then the separate Workpool completion callback records failure.</p><div class="diagram"><svg viewBox="0 0 1040 620" role="img" aria-labelledby="d3-title d3-desc"><title id="d3-title">Delivery outcomes and recovery</title><desc id="d3-desc">A worker validates input, then either applies, ignores, blocks, or fails. Failed work rolls back its worker mutation and a later callback records failure.</desc><defs><marker id="d3-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs><g class="node queue"><rect x="390" y="18" width="260" height="60" rx="9"/><text x="520.0" y="53.0" text-anchor="middle"><tspan x="520.0" dy="0">Queued receipt + generation</tspan></text></g><g class="node normal"><rect x="390" y="118" width="260" height="60" rx="9"/><text x="520.0" y="153.0" text-anchor="middle"><tspan x="520.0" dy="0">Worker reads raw + receipt</tspan></text></g><path class="edge " d="M 520,78 L 520,118" marker-end="url(#d3-arrow)"/><g class="node normal"><rect x="30" y="235" width="225" height="76" rx="9"/><text x="142.5" y="258.0" text-anchor="middle"><tspan x="142.5" dy="0">Unsupported event or</tspan><tspan x="142.5" dy="21">known non-closer host</tspan><tspan x="142.5" dy="21">IGNORED</tspan></text></g><g class="node commit"><rect x="300" y="235" width="205" height="76" rx="9"/><text x="402.5" y="258.0" text-anchor="middle"><tspan x="402.5" dy="0">Valid tracked booking</tspan><tspan x="402.5" dy="21">or matched fact</tspan><tspan x="402.5" dy="21">APPLIED</tspan></text></g><g class="node warn"><rect x="550" y="235" width="205" height="76" rx="9"/><text x="652.5" y="258.0" text-anchor="middle"><tspan x="652.5" dy="0">Unsafe / missing</tspan><tspan x="652.5" dy="21">business relationship</tspan><tspan x="652.5" dy="21">BLOCKED</tspan></text></g><g class="node bad"><rect x="800" y="235" width="215" height="76" rx="9"/><text x="907.5" y="258.0" text-anchor="middle"><tspan x="907.5" dy="0">Unexpected exception</tspan><tspan x="907.5" dy="21">worker rolls back</tspan><tspan x="907.5" dy="21">CALLBACK → FAILED</tspan></text></g><path class="edge " d="M 520,178 L 520,205 L 142,205 L 142,235" marker-end="url(#d3-arrow)"/><path class="edge " d="M 520,178 L 520,205 L 402,205 L 402,235" marker-end="url(#d3-arrow)"/><path class="edge " d="M 520,178 L 520,205 L 652,205 L 652,235" marker-end="url(#d3-arrow)"/><path class="edge " d="M 520,178 L 520,205 L 907,205 L 907,235" marker-end="url(#d3-arrow)"/><g class="node warn"><rect x="530" y="403" width="320" height="76" rx="9"/><text x="690.0" y="426.0" text-anchor="middle"><tspan x="690.0" dy="0">Admin fixes the cause</tspan><tspan x="690.0" dy="21">Preview + guarded retry</tspan><tspan x="690.0" dy="21">New generation; same raw payload</tspan></text></g><path class="edge " d="M 652,311 L 652,403" marker-end="url(#d3-arrow)"/><path class="edge " d="M 907,311 L 907,366 L 775,366 L 775,403" marker-end="url(#d3-arrow)"/><path class="edge " d="M 530,440 L 485,440 L 485,370 L 270,370 L 270,47 L 390,47" marker-end="url(#d3-arrow)"/><text class="edge-label" x="285" y="350" text-anchor="middle">re-run all checks</text><text class="edge-label" x="520" y="538" text-anchor="middle">A blocked result keeps the reason and payload. A retry never overrides identity or history checks.</text><text class="edge-label" x="520" y="565" text-anchor="middle">Failure/cancellation callbacks are separate transactions. Stale generations cannot overwrite newer work.</text></svg></div>
+<div class="table-wrap"><table><thead><tr><th>Receipt state</th><th>What it means</th><th>Business effect and next action</th></tr></thead><tbody>
+<tr><td><code>queued</code></td><td>The application has recorded work to run.</td><td>It is not a separate running state. Wait for the worker; a stale queue requires investigation.</td></tr>
+<tr><td><code>applied</code></td><td>A tracked booking was matched and the relevant event was reconciled.</td><td>A harmless late event can apply without changing a completed outcome. Applied does not imply “new meeting inserted.”</td></tr>
+<tr><td><code>ignored</code></td><td>Unsupported event type or a known non-closer host.</td><td>No tracked sales booking is created for that ignored event. Normal retry accepts only blocked or failed receipts.</td></tr>
+<tr><td><code>blocked</code></td><td>Missing host/booking, conflicting identity, invalid link, ambiguous relationship or unsafe historical event.</td><td>Retain payload and reason. Resolve the cause and use a reviewed retry. Some blocks still require a scoped data repair.</td></tr>
+<tr><td><code>failed</code></td><td>Unexpected processing exception or canceled work.</td><td>Worker changes roll back; a later callback records a fixed reason. Investigate and retry the current failed generation.</td></tr>
+</tbody></table></div>
+<h3>Checks that change the outcome</h3><div class="two"><div><ul><li>Host must map to an active same-tenant closer. Unknown/inactive hosts block; known non-closer hosts ignore.</li><li>Email, accepted phone and social identifiers must resolve consistently. Merge chains must stay within the tenant.</li><li>Placeholder/repeated-digit phone values are excluded from matching. A real phone conflict cannot silently attach another email.</li></ul></div><div><ul><li>Internal booking links must point to valid same-tenant opportunity, follow-up and source-meeting relationships.</li><li>Provider reschedules use explicit <code>old_invitee</code> where available. Ambiguous fallback candidates block.</li><li>An event older than a newer opportunity update blocks for review. Derived meeting references no longer advance business <code>updatedAt</code>.</li></ul></div></div>
+<p>Question labels now stay in values, while record keys use <code>q_</code> plus a SHA-256 digest of label and repeated-label occurrence. This accepts Unicode and multiline labels without making them Convex object keys. Display components read the preserved labels; legacy answers can be upgraded without duplicating the response.</p><details class="proof"><summary>Code evidence · blocked child mutation versus unexpected error <span>convex/pipeline/processor.ts:63</span></summary><p class="small">Snapshot from the current working tree. <a href="../convex/pipeline/processor.ts">Open source file</a>. SHA-256 <code>98857637a9faf737…</code>.</p><pre><code>  63      try {
+  64        switch (raw.eventType) {
+  65          case &quot;invitee.created&quot;:
+  66            await ctx.runMutation(internal.pipeline.inviteeCreated.process, args);
+  67            break;
+  68          case &quot;invitee.canceled&quot;:
+  69            break;
+  70          case &quot;invitee_no_show.created&quot;:
+  71            break;
+  72          case &quot;invitee_no_show.deleted&quot;:
+  73            break;
+  74          default:
+  75            reason = &quot;unsupported_event_type&quot;;
+  76        }
+  77      } catch (error) {
+  78        const reason = blockedReason(error);
+  79        if (!reason || !receipt) throw error;
+  80        await ctx.db.patch(&quot;webhookDeliveries&quot;, receipt._id, {
+  81          status: &quot;blocked&quot;,
+  82          reason,
+  83          processedAt: Date.now(),
+  84        });
+  85        return null;
+  86      }
+  87      if (receipt?.eventUri)
+  88        await reconcileBookingFact(
+  89          ctx,
+  90          raw.tenantId,
+  91          receipt.eventUri,
+  92          receipt.inviteeUri,
+  93        );</code></pre></details><details class="proof"><summary>Code evidence · completion generation guard <span>convex/pipeline/delivery.ts:43</span></summary><p class="small">Snapshot from the current working tree. <a href="../convex/pipeline/delivery.ts">Open source file</a>. SHA-256 <code>db9417a55373f0f6…</code>.</p><pre><code>  43  export const completed = internalMutation({
+  44    args: vOnCompleteArgs(
+  45      v.object({ deliveryId: v.id(&quot;webhookDeliveries&quot;), generation: v.number() }),
+  46    ),
+  47    returns: v.null(),
+  48    handler: async (ctx, { context, result }) =&gt; {
+  49      const receipt = await ctx.db.get(&quot;webhookDeliveries&quot;, context.deliveryId);
+  50      if (
+  51        !receipt ||
+  52        receipt.generation !== context.generation ||
+  53        receipt.status !== &quot;queued&quot;
+  54      )
+  55        return null;
+  56      await ctx.db.patch(&quot;webhookDeliveries&quot;, receipt._id, {
+  57        status: &quot;failed&quot;,
+  58        processedAt: Date.now(),
+  59        // Errors can contain provider PII. Preserve a fixed operational reason here;
+  60        // the function log retains the detailed exception under existing retention.
+  61        reason:
+  62          result.kind === &quot;canceled&quot; ? &quot;work_canceled&quot; : &quot;processing_failed&quot;,
+  63      });
+  64      return null;
+  65    },</code></pre></details>
+<div class="callout warn"><p><strong>There is no Workpool retry policy for these mutation jobs.</strong> Convex retries database conflicts and eligible transient failures. A permanent exception becomes retained failed work for operator recovery. Workpool's configurable backoff policy applies to actions. This implementation queues mutations.</p></div>
+<p class="small">Verified against the installed <code>@convex-dev/workpool 0.4.13</code> client source. <a href="https://github.com/get-convex/workpool" target="_blank" rel="noreferrer">Official Workpool documentation</a> also describes pool separation and the separate completion transaction.</p></section>
+
+<section id="reporting"><span class="section-no">04 / Reporting correctness</span><h2>A saved outcome and an updated report have different commit times</h2><p>Closer and admin commands still enforce access and valid transitions. The lifecycle helper takes IDs, reads the current meeting and opportunity, writes the source change, updates the existing synchronous aggregates and requests a V2 projection. A failure in those synchronous steps still aborts the business command.</p><div class="diagram"><svg viewBox="0 0 1040 778" role="img" aria-labelledby="d4-title d4-desc"><title id="d4-title">A closer outcome commits before the reporting job</title><desc id="d4-desc">Time runs downward. Solid arrows show calls; dashed arrows show responses. Shaded bands identify transaction boundaries.</desc><defs><marker id="d4-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs><rect class="band commit" x="10" y="149" width="1020" height="285" rx="9"/><text class="band-label" x="22" y="166">Transaction C · business outcome</text><rect class="band commit" x="10" y="509" width="1020" height="141" rx="9"/><text class="band-label" x="22" y="526">Transaction D · derived reporting</text><line class="lifeline" x1="85.0" y1="64" x2="85.0" y2="760"/><g class="node actor"><rect x="7.0" y="10" width="156" height="52" rx="9"/><text x="85.0" y="41.0" text-anchor="middle"><tspan x="85.0" dy="0">Closer</tspan></text></g><line class="lifeline" x1="302.5" y1="64" x2="302.5" y2="760"/><g class="node actor"><rect x="224.5" y="10" width="156" height="52" rx="9"/><text x="302.5" y="41.0" text-anchor="middle"><tspan x="302.5" dy="0">Outcome mutation</tspan></text></g><line class="lifeline" x1="520.0" y1="64" x2="520.0" y2="760"/><g class="node actor"><rect x="442.0" y="10" width="156" height="52" rx="9"/><text x="520.0" y="41.0" text-anchor="middle"><tspan x="520.0" dy="0">Source + aggregates</tspan></text></g><line class="lifeline" x1="737.5" y1="64" x2="737.5" y2="760"/><g class="node actor"><rect x="659.5" y="10" width="156" height="52" rx="9"/><text x="737.5" y="41.0" text-anchor="middle"><tspan x="737.5" dy="0">Reporting pool</tspan></text></g><line class="lifeline" x1="955.0" y1="64" x2="955.0" y2="760"/><g class="node actor"><rect x="877.0" y="10" width="156" height="52" rx="9"/><text x="955.0" y="41.0" text-anchor="middle"><tspan x="955.0" dy="0">Report worker</tspan></text></g><path class="edge " d="M 85.0,118 L 302.5,118" marker-end="url(#d4-arrow)"/><text class="seq-label" text-anchor="middle" x="193.75" y="109">Record no-show / lost / payment outcome</text><path class="edge " d="M 302.5,190 L 520.0,190" marker-end="url(#d4-arrow)"/><text class="seq-label" text-anchor="middle" x="411.25" y="181">Authorize tenant + role; read current IDs</text><path class="edge " d="M 302.5,262 L 520.0,262" marker-end="url(#d4-arrow)"/><text class="seq-label" text-anchor="middle" x="411.25" y="253">Patch source; update existing synchronous aggregates</text><path class="edge " d="M 302.5,334 L 737.5,334" marker-end="url(#d4-arrow)"/><text class="seq-label" text-anchor="middle" x="520.0" y="325">Record projection obligation; enqueue IDs</text><path class="edge dashed" d="M 302.5,406 L 85.0,406" marker-end="url(#d4-arrow)"/><text class="seq-label" text-anchor="middle" x="193.75" y="397">Commit command; return to closer</text><path class="edge " d="M 737.5,478 L 955.0,478" marker-end="url(#d4-arrow)"/><text class="seq-label" text-anchor="middle" x="846.25" y="469">Later: projectionId + generation</text><path class="edge " d="M 955.0,550 L 520.0,550" marker-end="url(#d4-arrow)"/><text class="seq-label" text-anchor="middle" x="737.5" y="541">Read current meeting + opportunity + recorded contribution</text><path class="edge " d="M 955.0,622 L 520.0,622" marker-end="url(#d4-arrow)"/><text class="seq-label" text-anchor="middle" x="737.5" y="613">Remove old bucket; add new; record applied contribution</text><path class="edge dashed" d="M 955.0,694 L 737.5,694" marker-end="url(#d4-arrow)"/><text class="seq-label" text-anchor="middle" x="846.25" y="685">Success or failure callback in another transaction</text></svg></div>
+<div class="callout"><p><strong>A later V2 worker failure cannot roll back the already committed closer command.</strong> It can leave the report stale. The health banner shows pending reporting work and failed jobs; the diagnostics tab lets an authorized operator retry failed work after fixing its cause.</p></div><details class="proof"><summary>Code evidence · read current record before updating aggregates <span>convex/lib/meetingLifecycle.ts:10</span></summary><p class="small">Snapshot from the current working tree. <a href="../convex/lib/meetingLifecycle.ts">Open source file</a>. SHA-256 <code>6396d2b148ebd933…</code>.</p><pre><code>  10  export async function patchMeetingLifecycle(
+  11    ctx: MutationCtx,
+  12    meetingId: Id&lt;&quot;meetings&quot;&gt;,
+  13    patch: Patch,
+  14  ) {
+  15    const before = await ctx.db.get(&quot;meetings&quot;, meetingId);
+  16    if (!before) throw new Error(&quot;Meeting not found&quot;);
+  17    const opportunity = await ctx.db.get(&quot;opportunities&quot;, before.opportunityId);
+  18    if (!opportunity || opportunity.tenantId !== before.tenantId)
+  19      throw new Error(&quot;Invalid meeting opportunity&quot;);
+  20    if (patch.assignedCloserId) {
+  21      const closer = await ctx.db.get(&quot;users&quot;, patch.assignedCloserId);
+  22      if (
+  23        !closer ||
+  24        closer.tenantId !== before.tenantId ||
+  25        closer.role !== &quot;closer&quot; ||
+  26        !closer.isActive
+  27      )
+  28        throw new Error(&quot;Invalid meeting closer&quot;);
+  29    }
+  30    await ctx.db.patch(&quot;meetings&quot;, meetingId, patch);
+  31    const after = await replaceMeetingAggregate(ctx, before, meetingId);
+  32    await updateOpportunityMeetingRefs(ctx, before.opportunityId);
+  33    return after;
+  34  }</code></pre></details><details class="proof"><summary>Code evidence · coalesce pending work and enqueue IDs <span>convex/operations/meetingStats.ts:58</span></summary><p class="small">Snapshot from the current working tree. <a href="../convex/operations/meetingStats.ts">Open source file</a>. SHA-256 <code>6892c833ff9a4b9b…</code>.</p><pre><code>  58  export async function requestMeetingProjection(
+  59    ctx: MutationCtx,
+  60    tenantId: Id&lt;&quot;tenants&quot;&gt;,
+  61    meetingId: Id&lt;&quot;meetings&quot;&gt;,
+  62  ) {
+  63    const row = await ctx.db
+  64      .query(&quot;meetingProjections&quot;)
+  65      .withIndex(&quot;by_meetingId&quot;, (q) =&gt; q.eq(&quot;meetingId&quot;, meetingId))
+  66      .unique();
+  67    if (row &amp;&amp; row.tenantId !== tenantId)
+  68      throw new Error(&quot;Projection tenant mismatch&quot;);
+  69    // A pending job always reads the latest state. Repeated changes coalesce.
+  70    if (row?.status === &quot;queued&quot;) return;
+  71    const generation = (row?.generation ?? 0) + 1;
+  72    const fields = {
+  73      generation,
+  74      status: &quot;queued&quot; as const,
+  75      requestedAt: Date.now(),
+  76      reason: undefined,
+  77    };
+  78    const projectionId =
+  79      row?._id ??
+  80      (await ctx.db.insert(&quot;meetingProjections&quot;, {
+  81        tenantId,
+  82        meetingId,
+  83        ...fields,
+  84      }));
+  85    if (row) await ctx.db.patch(&quot;meetingProjections&quot;, row._id, fields);
+  86    await reportingPool.enqueueMutation(
+  87      ctx,
+  88      internal.operations.meetingStats.project,
+  89      { projectionId, generation },
+  90      {
+  91        onComplete: internal.operations.meetingStats.completed,
+  92        context: { projectionId, generation },
+  93      },
+  94    );
+  95  }</code></pre></details>
+<h3>The accounting rule</h3><p>Each <code>meetingProjections</code> row records what that meeting contributed last. The bucket key includes UTC day, assigned closer, booking program, sold program, attribution team, DM closer, current opportunity status and meeting status.</p><div class="formula">bucket count = number of recorded meeting contributions with that bucket key<br>changed meeting = remove its recorded old contribution + add its current contribution</div><div class="diagram"><svg viewBox="0 0 1040 610" role="img" aria-labelledby="d5-title d5-desc"><title id="d5-title">How one meeting contributes exactly once to the new totals</title><desc id="d5-desc">The projection worker compares its recorded contribution with the latest source contribution. It removes the old and adds the new in one transaction. A repeat with the same key changes no counts.</desc><defs><marker id="d5-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs><g class="node queue"><rect x="360" y="15" width="320" height="60" rx="9"/><text x="520.0" y="40.0" text-anchor="middle"><tspan x="520.0" dy="0">Load projection by ID</tspan><tspan x="520.0" dy="21">Check generation + queued status</tspan></text></g><g class="node normal"><rect x="360" y="118" width="320" height="60" rx="9"/><text x="520.0" y="143.0" text-anchor="middle"><tspan x="520.0" dy="0">Read latest meeting + opportunity</tspan><tspan x="520.0" dy="21">Derive next bucket key</tspan></text></g><path class="edge " d="M 520,75 L 520,118" marker-end="url(#d5-arrow)"/><g class="node normal"><rect x="360" y="230" width="320" height="60" rx="9"/><text x="520.0" y="265.0" text-anchor="middle"><tspan x="520.0" dy="0">Recorded old key = next key?</tspan></text></g><path class="edge " d="M 520,178 L 520,230" marker-end="url(#d5-arrow)"/><g class="node commit"><rect x="30" y="366" width="270" height="72" rx="9"/><text x="165.0" y="387.0" text-anchor="middle"><tspan x="165.0" dy="0">YES</tspan><tspan x="165.0" dy="21">Leave counts unchanged</tspan><tspan x="165.0" dy="21">Mark projection applied</tspan></text></g><g class="node commit"><rect x="380" y="366" width="310" height="72" rx="9"/><text x="535.0" y="387.0" text-anchor="middle"><tspan x="535.0" dy="0">NO</tspan><tspan x="535.0" dy="21">Old contribution −1</tspan><tspan x="535.0" dy="21">New contribution +1</tspan></text></g><g class="node normal"><rect x="770" y="366" width="240" height="72" rx="9"/><text x="890.0" y="387.0" text-anchor="middle"><tspan x="890.0" dy="0">Source meeting deleted</tspan><tspan x="890.0" dy="21">Remove old contribution</tspan><tspan x="890.0" dy="21">Record no contribution</tspan></text></g><path class="edge " d="M 360,260 L 165,260 L 165,366" marker-end="url(#d5-arrow)"/><text class="edge-label" x="200" y="244" text-anchor="middle">same key</text><path class="edge " d="M 520,290 L 520,366" marker-end="url(#d5-arrow)"/><text class="edge-label" x="590" y="332" text-anchor="middle">different key</text><path class="edge " d="M 680,148 L 890,148 L 890,366" marker-end="url(#d5-arrow)"/><text class="edge-label" x="887" y="200" text-anchor="middle">source missing</text><g class="node commit"><rect x="350" y="516" width="390" height="60" rx="9"/><text x="545.0" y="541.0" text-anchor="middle"><tspan x="545.0" dy="0">Commit bucket changes + contribution</tspan><tspan x="545.0" dy="21">+ applied status together</tspan></text></g><path class="edge " d="M 535,438 L 535,516" marker-end="url(#d5-arrow)"/><path class="edge " d="M 890,438 L 890,476 L 650,476 L 650,516" marker-end="url(#d5-arrow)"/><text class="edge-label" x="166" y="478" text-anchor="middle">Repeat job → no extra +1.</text></svg></div>
+<p>A repeated job that sees the same contribution changes no counts. A changed contribution decrements the old bucket and increments the new one. These writes and the saved contribution commit together. A missing old bucket throws instead of silently accepting broken accounting.</p><p>When a meeting is deleted through a path that requests projection work, the worker removes its recorded contribution. Retry alone cannot repair a source deletion that bypasses the hook; migration assertions and reviewed reconciliation must catch it.</p><details class="proof"><summary>Code evidence · replace the recorded contribution atomically <span>convex/operations/meetingStats.ts:97</span></summary><p class="small">Snapshot from the current working tree. <a href="../convex/operations/meetingStats.ts">Open source file</a>. SHA-256 <code>6892c833ff9a4b9b…</code>.</p><pre><code>  97  export const project = internalMutation({
+  98    args: { projectionId: v.id(&quot;meetingProjections&quot;), generation: v.number() },
+  99    returns: v.null(),
+ 100    handler: async (ctx, { projectionId, generation }) =&gt; {
+ 101      const projection = await ctx.db.get(&quot;meetingProjections&quot;, projectionId);
+ 102      if (
+ 103        !projection ||
+ 104        projection.generation !== generation ||
+ 105        projection.status !== &quot;queued&quot;
+ 106      )
+ 107        return null;
+ 108      const meeting = await ctx.db.get(&quot;meetings&quot;, projection.meetingId);
+ 109      let next: Contribution | undefined;
+ 110      if (meeting) {
+ 111        const opportunity = await ctx.db.get(
+ 112          &quot;opportunities&quot;,
+ 113          meeting.opportunityId,
+ 114        );
+ 115        if (
+ 116          meeting.tenantId !== projection.tenantId ||
+ 117          !opportunity ||
+ 118          opportunity.tenantId !== meeting.tenantId
+ 119        )
+ 120          throw new Error(&quot;Invalid meeting relationship&quot;);
+ 121        next = {
+ 122          dayKey: meetingDayKey(meeting.scheduledAt),
+ 123          assignedCloserId: meeting.assignedCloserId,
+ 124          bookingProgramId: meeting.bookingProgramId,
+ 125          soldProgramId: opportunity.soldProgramId,
+ 126          attributionTeamId: meeting.attributionTeamId,
+ 127          dmCloserId: meeting.dmCloserId,
+ 128          opportunityStatus: opportunity.status,
+ 129          meetingStatus: meeting.status,
+ 130        };
+ 131        if (
+ 132          meeting.opportunityStatus !== opportunity.status ||
+ 133          meeting.soldProgramId !== opportunity.soldProgramId ||
+ 134          meeting.soldProgramName !== opportunity.soldProgramName
+ 135        ) {
+ 136          await ctx.db.patch(&quot;meetings&quot;, meeting._id, {
+ 137            opportunityStatus: opportunity.status,
+ 138            soldProgramId: opportunity.soldProgramId,
+ 139            soldProgramName: opportunity.soldProgramName,
+ 140          });
+ 141        }
+ 142      }
+ 143      const old = projection.contribution;
+ 144      if ((old &amp;&amp; bucketKey(old)) !== (next &amp;&amp; bucketKey(next))) {
+ 145        // Sequential writes matter when two changes touch the same bucket.
+ 146        if (old) await increment(ctx, projection.tenantId, old, -1);
+ 147        if (next) await increment(ctx, projection.tenantId, next, 1);
+ 148      }
+ 149      await ctx.db.patch(&quot;meetingProjections&quot;, projectionId, {
+ 150        contribution: next,
+ 151        bucketKey: next ? bucketKey(next) : undefined,
+ 152        status: &quot;applied&quot;,
+ 153        appliedAt: Date.now(),
+ 154        reason: undefined,
+ 155      });
+ 156      return null;
+ 157    },
+ 158  });</code></pre></details>
+<div class="callout warn"><p><strong>The ledger is the reason repeated work does not inflate totals.</strong> Workpool controls concurrency. It does not make an unsafe increment idempotent. Clearing buckets while retaining their contribution ledger would break the invariant.</p></div>
+<p class="small">Evidence: T15 tests one meeting after a no-show, T19 tests payment followed by late cancellation, and T20 injects a reporting failure. Stale-generation checks and contribution comparisons are inspected in code; a dedicated concurrent worker/source-write stress test is still outstanding.</p></section>
+
+<section id="scenarios"><span class="section-no">05 / Event order and failure</span><h2>Walk through the cases that caused the risk</h2><p>Select a scenario to follow the implemented decisions. These are explanations of the code and linked tests, not live executions against a deployment.</p><div class="scenario-tabs" role="group" aria-label="Choose a scenario"><button data-scenario="0" aria-pressed="true">Cancellation arrives first</button><button data-scenario="1" aria-pressed="false">Old cancellation after reschedule</button><button data-scenario="2" aria-pressed="false">Newer no-show removal arrives first</button><button data-scenario="3" aria-pressed="false">Closer outcome while reporting fails</button><button data-scenario="4" aria-pressed="false">Unknown host corrected by admin</button><button data-scenario="5" aria-pressed="false">Different emails share a phone</button></div><div class="scenario-box" id="scenario-content" aria-live="polite"></div>
+<h3>Provider facts have a narrower authority than closer outcomes</h3><p>Cancellation is permanent for a particular invitee URI. No-show create/delete uses the latest provider timestamp, with deletion winning ties. Reconciliation changes scheduled meetings and provider-marked no-shows. It preserves completed meetings and manually marked no-shows.</p><p>An old booking event can update its own meeting only when the state is eligible. It can update the opportunity only when that event is its current booking, or its latest meeting when no current event URI exists, and the opportunity state is one of scheduled, no_show or canceled.</p><details class="proof"><summary>Code evidence · provider changes preserve closer outcomes <span>convex/pipeline/bookingFacts.ts:95</span></summary><p class="small">Snapshot from the current working tree. <a href="../convex/pipeline/bookingFacts.ts">Open source file</a>. SHA-256 <code>0a7e54853d5b8fd4…</code>.</p><pre><code>  95    if (!opportunity || opportunity.tenantId !== tenantId)
+  96      throw new Error(&quot;Invalid booking relationship&quot;);
+  97    let status = meeting.status;
+  98    let occurredAt: number | undefined;
+  99    if (
+ 100      fact.canceledAt !== undefined &amp;&amp;
+ 101      (status === &quot;scheduled&quot; ||
+ 102        (status === &quot;no_show&quot; &amp;&amp; meeting.noShowSource === &quot;calendly_webhook&quot;))
+ 103    ) {
+ 104      status = &quot;canceled&quot;;
+ 105      occurredAt = fact.canceledAt;
+ 106    } else if (fact.canceledAt === undefined &amp;&amp; fact.noShowAt !== undefined) {
+ 107      if (fact.noShow &amp;&amp; status === &quot;scheduled&quot;) {
+ 108        status = &quot;no_show&quot;;
+ 109        occurredAt = fact.noShowAt;
+ 110      }
+ 111      if (
+ 112        !fact.noShow &amp;&amp;
+ 113        status === &quot;no_show&quot; &amp;&amp;
+ 114        meeting.noShowSource === &quot;calendly_webhook&quot;
+ 115      ) {
+ 116        status = &quot;scheduled&quot;;
+ 117        occurredAt = fact.noShowAt;
+ 118      }
+ 119    }
+ 120    if (
+ 121      status === meeting.status ||
+ 122      status === &quot;completed&quot; ||
+ 123      occurredAt === undefined
+ 124    )
+ 125      return;
+ 126    await patchMeetingLifecycle(ctx, meeting._id, {
+ 127      status,
+ 128      canceledAt: status === &quot;canceled&quot; ? occurredAt : meeting.canceledAt,
+ 129      noShowMarkedAt: status === &quot;no_show&quot; ? occurredAt : undefined,
+ 130      noShowSource: status === &quot;no_show&quot; ? &quot;calendly_webhook&quot; : undefined,
+ 131    });
+ 132    await emitDomainEvent(ctx, {
+ 133      tenantId,
+ 134      entityType: &quot;meeting&quot;,
+ 135      entityId: meeting._id,
+ 136      eventType:
+ 137        status === &quot;scheduled&quot; ? &quot;meeting.no_show_reverted&quot; : `meeting.${status}`,
+ 138      source: &quot;pipeline&quot;,
+ 139      fromStatus: meeting.status,
+ 140      toStatus: status,
+ 141      occurredAt,
+ 142    });
+ 143    // An old booking&#x27;s cancellation must not cancel a newer reschedule or a sale.
+ 144    const currentBooking =
+ 145      opportunity.calendlyEventUri === eventUri ||
+ 146      (!opportunity.calendlyEventUri &amp;&amp;
+ 147        opportunity.latestMeetingId === meeting._id);
+ 148    const mutable = [&quot;scheduled&quot;, &quot;no_show&quot;, &quot;canceled&quot;].includes(
+ 149      opportunity.status,
+ 150    );
+ 151    if (currentBooking &amp;&amp; mutable &amp;&amp; opportunity.status !== status) {
+ 152      await patchOpportunityLifecycle(ctx, opportunity._id, {
+ 153        status,
+ 154        canceledAt: status === &quot;canceled&quot; ? occurredAt : opportunity.canceledAt,
+ 155        cancellationReason:
+ 156          status === &quot;canceled&quot;
+ 157            ? fact.cancellationReason
+ 158            : opportunity.cancellationReason,
+ 159        noShowAt: status === &quot;no_show&quot; ? occurredAt : undefined,
+ 160        updatedAt: Math.max(opportunity.updatedAt, occurredAt),
+ 161      });
+ 162      await updateTenantStats(ctx, tenantId, {
+ 163        activeOpportunities:
+ 164          Number(isActiveOpportunityStatus(status)) -
+ 165          Number(isActiveOpportunityStatus(opportunity.status)),
+ 166      });
+ 167      await emitDomainEvent(ctx, {
+ 168        tenantId,
+ 169        entityType: &quot;opportunity&quot;,
+ 170        entityId: opportunity._id,
+ 171        eventType: &quot;opportunity.status_changed&quot;,
+ 172        source: &quot;pipeline&quot;,
+ 173        fromStatus: opportunity.status,
+ 174        toStatus: status,
+ 175        occurredAt,
+ 176      });
+ 177    }
+ 178  }</code></pre></details>
+<p class="small">If provider time is unavailable, receipt time is a weaker fallback. The ordering guarantees above are conditional on usable identity and timestamp data; the document does not claim the application can recover chronology that the payload does not contain.</p></section>
+
+<section id="fanout"><span class="section-no">06 / Bounded work</span><h2>Large histories advance through durable pages</h2><p>An opportunity-wide change requests a sweep job. Each page reads at most 64 meetings and requests projections by ID. Its next cursor and next job generation are saved together. A new request during an active sweep sets <code>dirty</code>; after its final page the job restarts from the beginning if needed.</p><div class="diagram"><svg viewBox="0 0 1040 706" role="img" aria-labelledby="d6-title d6-desc"><title id="d6-title">Opportunity changes update every page of meetings</title><desc id="d6-desc">Time runs downward. Solid arrows show calls; dashed arrows show responses. Shaded bands identify transaction boundaries.</desc><defs><marker id="d6-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs><rect class="band commit" x="10" y="221" width="1020" height="213" rx="9"/><text class="band-label" x="22" y="238">One bounded mutation per page</text><line class="lifeline" x1="85.0" y1="64" x2="85.0" y2="688"/><g class="node actor"><rect x="7.0" y="10" width="156" height="52" rx="9"/><text x="85.0" y="41.0" text-anchor="middle"><tspan x="85.0" dy="0">Source mutation</tspan></text></g><line class="lifeline" x1="375.0" y1="64" x2="375.0" y2="688"/><g class="node actor"><rect x="297.0" y="10" width="156" height="52" rx="9"/><text x="375.0" y="41.0" text-anchor="middle"><tspan x="375.0" dy="0">Sweep job</tspan></text></g><line class="lifeline" x1="665.0" y1="64" x2="665.0" y2="688"/><g class="node actor"><rect x="587.0" y="10" width="156" height="52" rx="9"/><text x="665.0" y="41.0" text-anchor="middle"><tspan x="665.0" dy="0">Reporting pool</tspan></text></g><line class="lifeline" x1="955.0" y1="64" x2="955.0" y2="688"/><g class="node actor"><rect x="877.0" y="10" width="156" height="52" rx="9"/><text x="955.0" y="41.0" text-anchor="middle"><tspan x="955.0" dy="0">Meeting projections</tspan></text></g><path class="edge " d="M 85.0,118 L 375.0,118" marker-end="url(#d6-arrow)"/><text class="seq-label" text-anchor="middle" x="230.0" y="109">Request opportunity projection sweep</text><path class="edge " d="M 375.0,190 L 665.0,190" marker-end="url(#d6-arrow)"/><text class="seq-label" text-anchor="middle" x="520.0" y="181">Queue page 1 with cursor = null</text><path class="edge " d="M 665.0,262 L 375.0,262" marker-end="url(#d6-arrow)"/><text class="seq-label" text-anchor="middle" x="520.0" y="253">Run page: read up to 64 meetings</text><path class="edge " d="M 375.0,334 L 955.0,334" marker-end="url(#d6-arrow)"/><text class="seq-label" text-anchor="middle" x="665.0" y="325">Request ID-based projection for each meeting</text><path class="edge " d="M 375.0,406 L 665.0,406" marker-end="url(#d6-arrow)"/><text class="seq-label" text-anchor="middle" x="520.0" y="397">Persist cursor + next generation; queue next page</text><path class="edge " d="M 85.0,478 L 375.0,478" marker-end="url(#d6-arrow)"/><text class="seq-label" text-anchor="middle" x="230.0" y="469">Another source change during sweep → dirty = true</text><path class="edge " d="M 665.0,550 L 375.0,550" marker-end="url(#d6-arrow)"/><text class="seq-label" text-anchor="middle" x="520.0" y="541">Continue until last page</text><path class="edge " d="M 375.0,622 L 665.0,622" marker-end="url(#d6-arrow)"/><text class="seq-label" text-anchor="middle" x="520.0" y="613">If dirty: restart from null; otherwise mark applied</text></svg></div><details class="proof"><summary>Code evidence · cursor pages and dirty restart <span>convex/operations/meetingStats.ts:215</span></summary><p class="small">Snapshot from the current working tree. <a href="../convex/operations/meetingStats.ts">Open source file</a>. SHA-256 <code>6892c833ff9a4b9b…</code>.</p><pre><code> 215  export async function requestOpportunityProjections(
+ 216    ctx: MutationCtx,
+ 217    opportunityId: Id&lt;&quot;opportunities&quot;&gt;,
+ 218  ) {
+ 219    const opportunity = await ctx.db.get(&quot;opportunities&quot;, opportunityId);
+ 220    if (!opportunity) throw new Error(&quot;Opportunity missing&quot;);
+ 221    const existing = await ctx.db
+ 222      .query(&quot;opportunityProjectionJobs&quot;)
+ 223      .withIndex(&quot;by_opportunityId&quot;, (q) =&gt; q.eq(&quot;opportunityId&quot;, opportunityId))
+ 224      .unique();
+ 225    if (existing?.status === &quot;queued&quot;) {
+ 226      await ctx.db.patch(&quot;opportunityProjectionJobs&quot;, existing._id, {
+ 227        dirty: true,
+ 228      });
+ 229      return;
+ 230    }
+ 231    const id =
+ 232      existing?._id ??
+ 233      (await ctx.db.insert(&quot;opportunityProjectionJobs&quot;, {
+ 234        tenantId: opportunity.tenantId,
+ 235        opportunityId,
+ 236        generation: 0,
+ 237        status: &quot;queued&quot;,
+ 238        cursor: null,
+ 239        dirty: false,
+ 240        requestedAt: Date.now(),
+ 241      }));
+ 242    await ctx.db.patch(&quot;opportunityProjectionJobs&quot;, id, {
+ 243      cursor: null,
+ 244      dirty: false,
+ 245      requestedAt: Date.now(),
+ 246    });
+ 247    await enqueueOpportunityPage(
+ 248      ctx,
+ 249      (await ctx.db.get(&quot;opportunityProjectionJobs&quot;, id))!,
+ 250    );
+ 251  }
+ 252  export const projectOpportunityPage = internalMutation({
+ 253    args: { jobId: v.id(&quot;opportunityProjectionJobs&quot;), generation: v.number() },
+ 254    returns: v.null(),
+ 255    handler: async (ctx, { jobId, generation }) =&gt; {
+ 256      const job = await ctx.db.get(&quot;opportunityProjectionJobs&quot;, jobId);
+ 257      if (!job || job.generation !== generation || job.status !== &quot;queued&quot;)
+ 258        return null;
+ 259      const page = await ctx.db
+ 260        .query(&quot;meetings&quot;)
+ 261        .withIndex(&quot;by_opportunityId&quot;, (q) =&gt;
+ 262          q.eq(&quot;opportunityId&quot;, job.opportunityId),
+ 263        )
+ 264        .paginate({ cursor: job.cursor, numItems: 64 });
+ 265      for (const meeting of page.page) {
+ 266        if (meeting.tenantId !== job.tenantId)
+ 267          throw new Error(&quot;Meeting tenant mismatch&quot;);
+ 268        await requestMeetingProjection(ctx, meeting.tenantId, meeting._id);
+ 269      }
+ 270      if (!page.isDone || job.dirty) {
+ 271        await ctx.db.patch(&quot;opportunityProjectionJobs&quot;, jobId, {
+ 272          cursor: page.isDone ? null : page.continueCursor,
+ 273          dirty: page.isDone ? false : job.dirty,
+ 274        });
+ 275        await enqueueOpportunityPage(
+ 276          ctx,
+ 277          (await ctx.db.get(&quot;opportunityProjectionJobs&quot;, jobId))!,
+ 278        );
+ 279      } else
+ 280        await ctx.db.patch(&quot;opportunityProjectionJobs&quot;, jobId, {
+ 281          status: &quot;applied&quot;,
+ 282        });
+ 283      return null;
+ 284    },</code></pre></details>
+<div class="cards"><div class="card"><span class="number">4 + 2</span><p>Concurrent webhook + reporting mutation jobs. Separate budgets reduce direct queue competition; both still use the same deployment resources.</p></div><div class="card"><span class="number">64</span><p>Meetings per opportunity sweep page. Rebuild migrations enqueue source meetings in batches of 32.</p></div><div class="card"><span class="number">8,192</span><p>Live reporting bucket rows. A bucket assertion also has an explicit 8,192-contribution verification limit.</p></div></div>
+<div class="table-wrap"><table><thead><tr><th>Boundary</th><th>Implemented behavior</th><th>Evidence or limitation</th></tr></thead><tbody>
+<tr><td>Live report range</td><td>Phone-sales and overview reject overflow; team/pipeline readers return their existing truncated flag; sales-call stats keep their materialized fallback. Async report readers paginate V2.</td><td>T18 covers 1,300 rows in phone-sales. Other overflow branches need joint validation.</td></tr>
+<tr><td>Sales-call live read</td><td>Stats use a 4 MiB byte budget; other live reads retain their existing default budget.</td><td>Row count alone is not a memory/transaction throughput guarantee.</td></tr>
+<tr><td>Identity candidates</td><td>More than 16 matching rows per identifier or 128 lead opportunities triggers review.</td><td>Excessive history becomes visible rather than silently picking the first candidate.</td></tr>
+<tr><td>Closer reassignment</td><td>Reject histories over 1,000 meetings before writing. Access-related assignment remains synchronous.</td><td>It removes the former silent 100-meeting cutoff. A huge reassignment needs a separate reviewed approach.</td></tr>
+<tr><td>Waiting provider events</td><td>A created booking wakes at most 64 matching blocked receipts.</td><td>Remaining blocked receipts stay visible for review/retry.</td></tr>
+<tr><td>Admin review</td><td>Lists paginate at up to 100 rows; delivery recovery selects 1–50 distinct receipts.</td><td>Health summaries use a capped 100+ count and oldest request time.</td></tr>
+<tr><td>Stale reporting</td><td>A bounded 15-minute cron reports older queued/failed work.</td><td>It reports problems; it does not automatically rescue a permanently queued job.</td></tr>
+</tbody></table></div>
+<p class="small">The investigation snapshot had about 6,364 meetings and monthly stats ranges above 1,000 rows. These choices address the observed cutoffs. Pool throughput, drain time, cost and contention have not been measured in production. Increasing parallelism may increase conflicts on shared buckets.</p></section>
+
+<section id="recovery"><span class="section-no">07 / Operator control</span><h2>Retry a reviewed record with a current manifest</h2><p>Recovery comes through tenant-admin/master functions. A preview returns generation, status, reason, event time and raw-payload availability. Retry re-reads the record rather than trusting those fields as authorization.</p><div class="diagram"><svg viewBox="0 0 1040 778" role="img" aria-labelledby="d7-title d7-desc"><title id="d7-title">Reviewed retry with a stale-preview guard</title><desc id="d7-desc">Time runs downward. Solid arrows show calls; dashed arrows show responses. Shaded bands identify transaction boundaries.</desc><defs><marker id="d7-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs><rect class="band commit" x="10" y="437" width="1020" height="285" rx="9"/><text class="band-label" x="22" y="454">One mutation · stale entry causes rollback of all selected changes</text><line class="lifeline" x1="85.0" y1="64" x2="85.0" y2="760"/><g class="node actor"><rect x="7.0" y="10" width="156" height="52" rx="9"/><text x="85.0" y="41.0" text-anchor="middle"><tspan x="85.0" dy="0">Tenant admin</tspan></text></g><line class="lifeline" x1="375.0" y1="64" x2="375.0" y2="760"/><g class="node actor"><rect x="297.0" y="10" width="156" height="52" rx="9"/><text x="375.0" y="41.0" text-anchor="middle"><tspan x="375.0" dy="0">Recovery API</tspan></text></g><line class="lifeline" x1="665.0" y1="64" x2="665.0" y2="760"/><g class="node actor"><rect x="587.0" y="10" width="156" height="52" rx="9"/><text x="665.0" y="41.0" text-anchor="middle"><tspan x="665.0" dy="0">Receipt / audit</tspan></text></g><line class="lifeline" x1="955.0" y1="64" x2="955.0" y2="760"/><g class="node actor"><rect x="877.0" y="10" width="156" height="52" rx="9"/><text x="955.0" y="41.0" text-anchor="middle"><tspan x="955.0" dy="0">Webhook pool</tspan></text></g><path class="edge " d="M 85.0,118 L 375.0,118" marker-end="url(#d7-arrow)"/><text class="seq-label" text-anchor="middle" x="230.0" y="109">Preview 1–50 distinct selected receipt IDs</text><path class="edge " d="M 375.0,190 L 665.0,190" marker-end="url(#d7-arrow)"/><text class="seq-label" text-anchor="middle" x="520.0" y="181">Authorize role + tenant; read generation/status/reason</text><path class="edge dashed" d="M 375.0,262 L 85.0,262" marker-end="url(#d7-arrow)"/><text class="seq-label" text-anchor="middle" x="230.0" y="253">Return manifest + payload availability</text><path class="edge " d="M 85.0,334 L 143.0,334 L 143.0,358 L 85.0,358" marker-end="url(#d7-arrow)"/><text class="seq-label" x="153.0" y="338">Review; correct host or other root cause</text><path class="edge " d="M 85.0,406 L 375.0,406" marker-end="url(#d7-arrow)"/><text class="seq-label" text-anchor="middle" x="230.0" y="397">Submit the reviewed manifest</text><path class="edge " d="M 375.0,478 L 665.0,478" marker-end="url(#d7-arrow)"/><text class="seq-label" text-anchor="middle" x="520.0" y="469">Re-check tenant, generation, status, reason and raw payload</text><path class="edge " d="M 375.0,550 L 665.0,550" marker-end="url(#d7-arrow)"/><text class="seq-label" text-anchor="middle" x="520.0" y="541">Write actor + prior outcome audit; reset this raw flag</text><path class="edge " d="M 375.0,622 L 955.0,622" marker-end="url(#d7-arrow)"/><text class="seq-label" text-anchor="middle" x="665.0" y="613">Enqueue same receipt with next generation</text><path class="edge dashed" d="M 375.0,694 L 85.0,694" marker-end="url(#d7-arrow)"/><text class="seq-label" text-anchor="middle" x="230.0" y="685">Commit all selected retries or reject the whole mutation</text></svg></div><details class="proof"><summary>Code evidence · manifest checks and audited retry <span>convex/pipeline/recovery.ts:64</span></summary><p class="small">Snapshot from the current working tree. <a href="../convex/pipeline/recovery.ts">Open source file</a>. SHA-256 <code>bda01b1bd01cdf38…</code>.</p><pre><code>  64      for (const item of manifest) {
+  65        const row = await ctx.db.get(&quot;webhookDeliveries&quot;, item.deliveryId);
+  66        if (!row || row.tenantId !== tenantId)
+  67          throw new Error(&quot;Delivery not found&quot;);
+  68        if (
+  69          row.generation !== item.generation ||
+  70          row.status !== item.status ||
+  71          row.reason !== item.reason
+  72        )
+  73          throw new Error(&quot;Recovery preview is stale&quot;);
+  74        if (row.status !== &quot;blocked&quot; &amp;&amp; row.status !== &quot;failed&quot;)
+  75          throw new Error(&quot;Only blocked or failed deliveries can be retried&quot;);
+  76        const raw = await ctx.db.get(&quot;rawWebhookEvents&quot;, row.rawEventId);
+  77        if (!raw || raw.tenantId !== tenantId)
+  78          throw new Error(&quot;Original payload is unavailable&quot;);
+  79        await ctx.db.insert(&quot;webhookRecoveryAttempts&quot;, {
+  80          tenantId,
+  81          deliveryId: row._id,
+  82          actorUserId: userId,
+  83          requestedAt: Date.now(),
+  84          previousGeneration: row.generation,
+  85          previousStatus: row.status,
+  86          previousReason: row.reason,
+  87        });
+  88        await ctx.db.patch(&quot;rawWebhookEvents&quot;, raw._id, {
+  89          processed: false,
+  90          processingReason: undefined,
+  91        });
+  92        await enqueueDelivery(ctx, row._id);
+  93      }
+  94      return null;</code></pre></details>
+<ul><li>A retry only accepts blocked or failed receipts owned by the authenticated tenant.</li><li>A changed generation, status or reason rejects the stale manifest. A rejected entry aborts the complete selected mutation.</li><li>The retained original payload must still exist in the tenant. Retry records actor and prior outcome in <code>webhookRecoveryAttempts</code>.</li><li>Reporting retries accept only the current failed generation; they run the current source projection or restart the opportunity sweep.</li></ul>
+<div class="callout warn"><p><strong>Some problems require repair before retry.</strong> A mixed-identity lead needs reviewed reassignment of its historical records. A missing bucket needs ledger/bucket reconciliation. A historical booking may keep blocking even after its host is linked because newer business activity must be protected.</p></div>
+<p class="small">T06 and T13 cover stale preview and access controls. T20 covers stale reporting retry. A full stale multi-entry manifest rollback test, permanent queued-job recovery procedure, and completion-callback fault injection are still validation gaps.</p></section>
+
+<section id="migration"><span class="section-no">08 / Activation sequence</span><h2>The new totals must be rebuilt from authoritative records</h2><p>The widened schema retains legacy stats and adds receipts, provider facts, projection records, sweep jobs and V2 buckets. The rebuild reads meetings and current opportunities. It does not seed new counters from the totals already known to be inflated.</p><div class="diagram"><svg viewBox="0 0 1040 510" role="img" aria-labelledby="d8-title d8-desc"><title id="d8-title">Migration and reporting activation</title><desc id="d8-desc">A coordinated release adds the schema, adopts receipts, enqueues projection rebuild, drains reporting, runs assertions, and activates V2 reporting per tenant. Historical repairs remain separately reviewed.</desc><defs><marker id="d8-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/></marker></defs><g class="node normal"><rect x="20" y="45" width="235" height="95" rx="9"/><text x="137.5" y="87.5" text-anchor="middle"><tspan x="137.5" dy="0">Backup + inventory</tspan><tspan x="137.5" dy="21">Drain legacy processor</tspan></text></g><path class="edge " d="M 255,92 L 275,92" marker-end="url(#d8-arrow)"/><g class="node queue"><rect x="275" y="45" width="235" height="95" rx="9"/><text x="392.5" y="87.5" text-anchor="middle"><tspan x="392.5" dy="0">Deploy widened schema</tspan><tspan x="392.5" dy="21">Backend + frontend + pools</tspan></text></g><path class="edge " d="M 510,92 L 530,92" marker-end="url(#d8-arrow)"/><g class="node normal"><rect x="530" y="45" width="235" height="95" rx="9"/><text x="647.5" y="87.5" text-anchor="middle"><tspan x="647.5" dy="0">Adopt old raw receipts</tspan><tspan x="647.5" dy="21">Assert receipt existence</tspan></text></g><path class="edge " d="M 765,92 L 785,92" marker-end="url(#d8-arrow)"/><g class="node queue"><rect x="785" y="45" width="235" height="95" rx="9"/><text x="902.5" y="87.5" text-anchor="middle"><tspan x="902.5" dy="0">Rebuild from meetings</tspan><tspan x="902.5" dy="21">Queue batches of 32</tspan></text></g><path class="edge " d="M 903,140 L 903,285" marker-end="url(#d8-arrow)"/><g class="node warn"><rect x="785" y="285" width="235" height="95" rx="9"/><text x="902.5" y="327.5" text-anchor="middle"><tspan x="902.5" dy="0">Drain reporting work</tspan><tspan x="902.5" dy="21">Fix / retry failures</tspan></text></g><path class="edge " d="M 785,332 L 765,332" marker-end="url(#d8-arrow)"/><g class="node commit"><rect x="530" y="285" width="235" height="95" rx="9"/><text x="647.5" y="327.5" text-anchor="middle"><tspan x="647.5" dy="0">Run three assertions</tspan><tspan x="647.5" dy="21">Source · ledger · buckets</tspan></text></g><path class="edge " d="M 530,332 L 510,332" marker-end="url(#d8-arrow)"/><g class="node commit"><rect x="275" y="285" width="235" height="95" rx="9"/><text x="392.5" y="317.5" text-anchor="middle"><tspan x="392.5" dy="0">Activate tenant V2</tspan><tspan x="392.5" dy="21">Require completed migrations</tspan><tspan x="392.5" dy="21">and no pending / failed jobs</tspan></text></g><path class="edge " d="M 275,332 L 255,332" marker-end="url(#d8-arrow)"/><g class="node warn"><rect x="20" y="285" width="235" height="95" rx="9"/><text x="137.5" y="327.5" text-anchor="middle"><tspan x="137.5" dy="0">Review historical repairs</tspan><tspan x="137.5" dy="21">Reconcile reports afterward</tspan></text></g><text class="edge-label" x="520" y="459" text-anchor="middle">Until activation, existing tenants with legacy stats receive a rebuild-not-verified error.</text></svg></div>
+<div class="table-wrap"><table><thead><tr><th>Step</th><th>Check / operation</th><th>What it establishes</th></tr></thead><tbody>
+<tr><td>Adopt and assert receipts</td><td><code>adoptWebhookDeliveryReceipts</code>, <code>assertWebhookDeliveryReceipts</code></td><td>Each retained raw row resolves to a logical receipt. Adoption records provider facts without replaying business writes. A processed flag plus matching meeting is used as legacy application evidence.</td></tr>
+<tr><td>Rebuild</td><td><code>rebuildMeetingProjections</code></td><td>Enqueue source meetings in batches. Completion of the enqueue migration does not mean background work has drained.</td></tr>
+<tr><td>Assert source meetings</td><td><code>assertMeetingProjections</code></td><td>Meeting/opportunity relationship, applied projection, expected bucket key and bucket existence.</td></tr>
+<tr><td>Assert ledger sources</td><td><code>assertMeetingProjectionSources</code></td><td>Work is applied, tenants match, deleted meetings do not still contribute, and contribution keys are internally consistent.</td></tr>
+<tr><td>Assert bucket totals</td><td><code>assertMeetingProjectionBuckets</code></td><td>Each existing bucket is positive and equals its indexed recorded contribution count, within the explicit verification bound.</td></tr>
+<tr><td>Activate tenant</td><td><code>activateMeetingProjections</code></td><td>Require the rebuild plus three assertions to have completed, and no queued/failed reporting jobs for that tenant. Then set <code>meetingProjectionVersion = 2</code>.</td></tr>
+</tbody></table></div>
+<div class="callout warn"><p><strong>The activation check is an operational gate, not a versioned proof of the current rebuild.</strong> It checks completed migration statuses, not an immutable verification token tied to a source snapshot or current rebuild generation. Completed assertions must be restarted after repairs. The runbook requires drain, fresh assertions and status review in order. That sequence still needs deployment validation.</p></div>
+<p>Existing tenants with legacy stats receive <code>Reporting rebuild has not been verified</code> until activation. New tenants without legacy rows can read V2 immediately, while normal reporting updates remain asynchronous. Expect a reporting maintenance window during the coordinated cutover.</p><details class="proof"><summary>Code evidence · source rebuild, assertions and activation <span>convex/migrations.ts:259</span></summary><p class="small">Snapshot from the current working tree. <a href="../convex/migrations.ts">Open source file</a>. SHA-256 <code>a0e94236babdd95c…</code>.</p><pre><code> 259  export const adoptWebhookDeliveryReceipts = migrations.define({
+ 260    table: &quot;rawWebhookEvents&quot;, batchSize: 32,
+ 261    migrateOne: async (ctx, raw) =&gt; { await adoptRawDelivery(ctx, raw); },
+ 262  });
+ 263  export const assertWebhookDeliveryReceipts = migrations.define({
+ 264    table: &quot;rawWebhookEvents&quot;, batchSize: 64,
+ 265    migrateOne: async (ctx, raw) =&gt; {
+ 266      const metadata = await deliveryMetadata(raw);
+ 267      const receipt = await ctx.db.query(&quot;webhookDeliveries&quot;).withIndex(&quot;by_tenantId_and_key&quot;, q =&gt; q.eq(&quot;tenantId&quot;, raw.tenantId).eq(&quot;key&quot;, metadata.key)).unique();
+ 268      if (!receipt) throw new Error(&quot;Webhook receipt missing&quot;);
+ 269    },
+ 270  });
+ 271  export const rebuildMeetingProjections = migrations.define({
+ 272    table: &quot;meetings&quot;, batchSize: 32,
+ 273    migrateOne: async (ctx, meeting) =&gt; { await requestMeetingProjection(ctx, meeting.tenantId, meeting._id); },
+ 274  });
+ 275  export const assertMeetingProjections = migrations.define({
+ 276    table: &quot;meetings&quot;, batchSize: 64,
+ 277    migrateOne: async (ctx, meeting) =&gt; {
+ 278      const projection = await ctx.db.query(&quot;meetingProjections&quot;).withIndex(&quot;by_meetingId&quot;, q =&gt; q.eq(&quot;meetingId&quot;, meeting._id)).unique();
+ 279      const opportunity = await ctx.db.get(&quot;opportunities&quot;, meeting.opportunityId);
+ 280      if (!opportunity || opportunity.tenantId !== meeting.tenantId) throw new Error(&quot;Invalid meeting relationship&quot;);
+ 281      const key = bucketKey({ dayKey: meetingDayKey(meeting.scheduledAt), assignedCloserId: meeting.assignedCloserId,
+ 282        bookingProgramId: meeting.bookingProgramId, soldProgramId: opportunity.soldProgramId,
+ 283        attributionTeamId: meeting.attributionTeamId, dmCloserId: meeting.dmCloserId, opportunityStatus: opportunity.status, meetingStatus: meeting.status });
+ 284      const bucket = await ctx.db.query(&quot;operationsMeetingStatsV2&quot;).withIndex(&quot;by_tenantId_and_bucketKey&quot;, q =&gt; q.eq(&quot;tenantId&quot;, meeting.tenantId).eq(&quot;bucketKey&quot;, key)).unique();
+ 285      if (!bucket || projection?.tenantId !== meeting.tenantId || projection.status !== &quot;applied&quot; || projection.bucketKey !== key) throw new Error(&quot;Meeting projection is missing or stale; drain and rerun assertion&quot;);
+ 286    },
+ 287  });
+ 288  export const assertMeetingProjectionBuckets = migrations.define({
+ 289    table: &quot;operationsMeetingStatsV2&quot;, batchSize: 1,
+ 290    migrateOne: async (ctx, bucket) =&gt; {
+ 291      // Large buckets use pagination across separate migration rows in a future
+ 292      // warehouse cutover; fail explicitly instead of accepting a partial count.
+ 293      const contributions = await ctx.db.query(&quot;meetingProjections&quot;).withIndex(&quot;by_tenantId_and_bucketKey&quot;, q =&gt; q.eq(&quot;tenantId&quot;, bucket.tenantId).eq(&quot;bucketKey&quot;, bucket.bucketKey)).take(8193);
+ 294      if (contributions.length &gt; 8192) throw new Error(&quot;Bucket verification exceeds live limit&quot;);
+ 295      if (bucket.count &lt;= 0 || bucket.count !== contributions.length) throw new Error(&quot;Projection bucket count mismatch&quot;);
+ 296    },
+ 297  });
+ 298  export const assertMeetingProjectionSources = migrations.define({
+ 299    table: &quot;meetingProjections&quot;, batchSize: 64,
+ 300    migrateOne: async (ctx, projection) =&gt; {
+ 301      const meeting = await ctx.db.get(&quot;meetings&quot;, projection.meetingId);
+ 302      if (projection.status !== &quot;applied&quot;) throw new Error(&quot;Projection work is unfinished&quot;);
+ 303      if (meeting &amp;&amp; meeting.tenantId !== projection.tenantId) throw new Error(&quot;Projection tenant mismatch&quot;);
+ 304      if (!meeting &amp;&amp; (projection.contribution || projection.bucketKey)) throw new Error(&quot;Deleted meeting still contributes to reports&quot;);
+ 305      if (projection.contribution &amp;&amp; projection.bucketKey !== bucketKey(projection.contribution)) throw new Error(&quot;Projection contribution key mismatch&quot;);
+ 306    },
+ 307  });
+ 308  export const activateMeetingProjections = internalMutation({
+ 309    args: { tenantId: v.id(&quot;tenants&quot;) }, returns: v.null(),
+ 310    handler: async (ctx, { tenantId }) =&gt; {
+ 311      const statuses = await migrations.getStatus(ctx, { migrations: [
+ 312        internal.migrations.rebuildMeetingProjections, internal.migrations.assertMeetingProjections,
+ 313        internal.migrations.assertMeetingProjectionBuckets, internal.migrations.assertMeetingProjectionSources,
+ 314      ] });
+ 315      if (statuses.length !== 4 || statuses.some(s =&gt; !s.isDone)) throw new Error(&quot;Complete rebuild and all three assertions before activating reports&quot;);
+ 316      for (const status of [&quot;queued&quot;, &quot;failed&quot;] as const) {
+ 317        const pending = await ctx.db.query(&quot;meetingProjections&quot;).withIndex(&quot;by_tenantId_and_status_and_requestedAt&quot;, q =&gt; q.eq(&quot;tenantId&quot;, tenantId).eq(&quot;status&quot;, status)).first();
+ 318        const fanout = await ctx.db.query(&quot;opportunityProjectionJobs&quot;).withIndex(&quot;by_tenantId_and_status_and_requestedAt&quot;, q =&gt; q.eq(&quot;tenantId&quot;, tenantId).eq(&quot;status&quot;, status)).first();
+ 319        if (pending || fanout) throw new Error(&quot;Drain reporting work before activating reports&quot;);
+ 320      }
+ 321      await ctx.db.patch(&quot;tenants&quot;, tenantId, { meetingProjectionVersion: 2 });
+ 322      return null;
+ 323    },
+ 324  });</code></pre></details><details class="proof"><summary>Code evidence · reader activation barrier <span>convex/operations/reportingReadiness.ts:1</span></summary><p class="small">Snapshot from the current working tree. <a href="../convex/operations/reportingReadiness.ts">Open source file</a>. SHA-256 <code>25869f1e9c2859a2…</code>.</p><pre><code>   1  import type { Id } from &quot;../_generated/dataModel&quot;;
+   2  import type { QueryCtx } from &quot;../_generated/server&quot;;
+   3  
+   4  /** Existing tenants cannot show a partially rebuilt projection as a complete total. */
+   5  export async function requireReportingReady(
+   6    ctx: QueryCtx,
+   7    tenantId: Id&lt;&quot;tenants&quot;&gt;,
+   8  ) {
+   9    const tenant = await ctx.db.get(&quot;tenants&quot;, tenantId);
+  10    if (!tenant) throw new Error(&quot;Tenant not found&quot;);
+  11    if (tenant.meetingProjectionVersion === 2) return;
+  12    const legacy = await ctx.db
+  13      .query(&quot;operationsMeetingDailyStats&quot;)
+  14      .withIndex(&quot;by_tenantId_and_dayKey&quot;, (q) =&gt; q.eq(&quot;tenantId&quot;, tenantId))
+  15      .first();
+  16    if (legacy) throw new Error(&quot;Reporting rebuild has not been verified&quot;);
+  17  }</code></pre></details>
+<h3>The release does not finish historical repair by itself</h3><p>The earlier investigation found 89 stuck deliveries, 27 affected by invalid question keys, a contaminated lead with 54 email aliases, and old totals exceeding source meetings by 957. These are investigation observations, not results after this refactor.</p><p>We still need to classify retained events, link legitimate missing hosts, review historical outcomes, split mixed identities with a repair manifest and reconcile repaired source records. Already-expired raw payloads cannot be recreated by this implementation.</p><p>Drain the old scheduled action before replacing its entry point with a mutation. Preserve widened tables during rollback. An old writer deployment will stop maintaining V2, so readers cannot stay active through an old-code rollback without a rebuild and verification plan.</p><p class="small">The complete operational instructions are in <a href="../runbooks/booking-workpool-rollout.md">runbooks/booking-workpool-rollout.md</a>. No commands in that runbook have been executed against production.</p></section>
+
+<section id="evidence"><span class="section-no">09 / What is proved locally</span><h2>Twenty focused regressions, plus the existing suite</h2><p>The local suite passed 131 tests across 21 files. The two new regression files contain 20 tests: 14 delivery tests and six reporting tests. They exercise the real Convex function code with <code>convex-test</code>, registered Workpool and aggregate test components, synthetic records and controlled clocks.</p><div class="callout"><p><strong>The evidence establishes the listed outcomes under those test conditions.</strong> It does not establish vendor webhook delivery reliability, production concurrency, pool throughput, migration completion or browser behavior.</p></div><pre>Full suite: pnpm test
+21 test files passed; 131 tests passed
+2026-10-08 23:18:33 local; 48.77 seconds
+
+Final delivery-only rerun: pnpm exec vitest run convex/pipeline/delivery.test.ts
+14 tests passed
+2026-10-08 23:19:34 local; 893 ms
+
+pnpm typecheck: exit 0
+pnpm lint: exit 0; 0 errors, 11 existing warnings
+git diff --check: exit 0</pre>
+<p class="small">Recorded outputs were read from <code>/tmp/magnus-tests-final.log</code>, <code>/tmp/magnus-delivery-final.log</code>, <code>/tmp/magnus-typecheck-final.log</code> and <code>/tmp/magnus-lint-final.log</code>. The suite duration is runtime of local tests, not CRM production latency. The final delivery rerun followed the last bounded test-query adjustment.</p>
+<label for="evidence-search" class="small">Find an evidence case by topic, setup or result</label><input id="evidence-search" class="search" type="search" placeholder="e.g. reschedule, identity, migration, failed"><p class="small" id="evidence-count">20 evidence cases</p><div class="table-wrap"><table id="evidence-table"><thead><tr><th>Case</th><th>Trigger</th><th>Assertion</th><th>Exact code and practical limit</th></tr></thead><tbody><tr data-evidence-row><td><span class="test-id">T01</span><strong>Persistent delivery identity</strong></td><td>Repeated unsupported event + raw cleanup + re-delivery</td><td>Ignored receipt survives; second acceptance returns null.</td><td><details><summary>Exact test + limits</summary><p class="small">It checks a resolved ignored delivery. Concurrent duplicate booking acceptance is not stress-tested.</p><p class="small"><a href="../convex/pipeline/delivery.test.ts">convex/pipeline/delivery.test.ts:10</a></p><pre><code>it(&quot;keeps a durable ignored outcome and deduplicates repeated delivery&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  const t = convexTest(schema, convexTestModules);
+  workpool.register(t, &quot;webhookWorkpool&quot;);
+  const tenantId = await t.run(async (ctx) =&gt; {
+    const tenantId = await ctx.db.insert(&quot;tenants&quot;, {
+      companyName: &quot;Test&quot;,
+      contactEmail: &quot;admin@example.com&quot;,
+      workosOrgId: &quot;org_test&quot;,
+      status: &quot;active&quot;,
+      inviteExpiresAt: 0,
+      createdBy: &quot;test&quot;,
+    });
+    await ctx.db.insert(&quot;users&quot;, {
+      tenantId,
+      workosUserId: &quot;user_test&quot;,
+      email: &quot;admin@example.com&quot;,
+      role: &quot;tenant_admin&quot;,
+      isActive: true,
+    });
+    return tenantId;
+  });
+  const delivery = {
+    tenantId,
+    calendlyEventUri: &quot;https://api.calendly.com/event_types/test&quot;,
+    eventType: &quot;event_type.updated&quot;,
+    payload: JSON.stringify({
+      created_at: &quot;2026-10-01T00:00:00Z&quot;,
+      payload: {},
+    }),
+  };
+  const id = await t.mutation(
+    internal.webhooks.calendlyMutations.persistRawEvent,
+    delivery,
+  );
+  expect(id).not.toBeNull();
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const admin = t.withIdentity({ subject: &quot;user_test&quot;, org_id: &quot;org_test&quot; });
+  const result = await admin.query(api.pipeline.delivery.list, {
+    paginationOpts: { cursor: null, numItems: 10 },
+  });
+  expect(result.page).toMatchObject([
+    { status: &quot;ignored&quot;, reason: &quot;unsupported_event_type&quot; },
+  ]);
+  await t.mutation(internal.webhooks.cleanupMutations.deleteExpiredEvents, {
+    cutoffTimestamp: Date.now() + 1,
+  });
+  expect(
+    await t.mutation(
+      internal.webhooks.calendlyMutations.persistRawEvent,
+      delivery,
+    ),
+  ).toBeNull();
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T02</span><strong>Cancellation before booking</strong></td><td>Cancel arrives first; booking arrives later</td><td>One meeting, one canceled count; both receipts finish applied.</td><td><details><summary>Exact test + limits</summary><p class="small">Synthetic events; no vendor replay is performed.</p><p class="small"><a href="../convex/pipeline/delivery.test.ts">convex/pipeline/delivery.test.ts:65</a></p><pre><code>it(&quot;retains an early cancellation and applies it when the booking arrives&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  const { bookingHarness, bookingPayload } =
+    await import(&quot;../../tests/bookingHarness&quot;);
+  const { t, tenantId, admin } = await bookingHarness();
+  const payload = bookingPayload(&quot;canceled-first&quot;);
+  for (const eventType of [&quot;invitee.canceled&quot;, &quot;invitee.created&quot;]) {
+    await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+      tenantId,
+      calendlyEventUri: payload.uri,
+      eventType,
+      payload: JSON.stringify({
+        created_at:
+          eventType === &quot;invitee.created&quot;
+            ? &quot;2026-10-01T09:00:00Z&quot;
+            : &quot;2026-10-01T10:00:00Z&quot;,
+        payload,
+      }),
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  }
+  expect(
+    await admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+      scheduledFrom: Date.parse(&quot;2026-10-01T00:00:00Z&quot;),
+      scheduledTo: Date.parse(&quot;2026-10-02T00:00:00Z&quot;),
+    }),
+  ).toMatchObject({ scheduled: 1, canceled: 1 });
+  const receipts = (
+    await admin.query(api.pipeline.delivery.list, {
+      paginationOpts: { cursor: null, numItems: 10 },
+    })
+  ).page;
+  expect(receipts.every((r) =&gt; r.status === &quot;applied&quot;)).toBe(true);
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T03</span><strong>Placeholder phone</strong></td><td>Two different emails submit +12345678910</td><td>Two applied deliveries resolve to two distinct lead IDs.</td><td><details><summary>Exact test + limits</summary><p class="small">Does not repair pre-existing mixed leads.</p><p class="small"><a href="../convex/pipeline/delivery.test.ts">convex/pipeline/delivery.test.ts:100</a></p><pre><code>it(&quot;does not join different emails through a placeholder phone&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  const { bookingHarness, bookingPayload } =
+    await import(&quot;../../tests/bookingHarness&quot;);
+  const { t, tenantId, admin } = await bookingHarness();
+  for (const name of [&quot;alice&quot;, &quot;bob&quot;]) {
+    const payload = {
+      ...bookingPayload(name, `${name}@example.com`),
+      text_reminder_number: &quot;+12345678910&quot;,
+    };
+    await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+      tenantId,
+      calendlyEventUri: payload.uri,
+      eventType: &quot;invitee.created&quot;,
+      payload: JSON.stringify({ payload }),
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  }
+  const result = await admin.query(api.pipeline.delivery.list, {
+    paginationOpts: { cursor: null, numItems: 10 },
+  });
+  expect(result.page.map((r) =&gt; r.status)).toEqual([&quot;applied&quot;, &quot;applied&quot;]);
+  expect(new Set(result.page.map((r) =&gt; r.leadId)).size).toBe(2);
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T04</span><strong>Conflicting real identifiers</strong></td><td>Two different emails submit the same accepted real phone</td><td>Second delivery is blocked with identity_conflict.</td><td><details><summary>Exact test + limits</summary><p class="small">Does not decide whether two records should be merged by an operator.</p><p class="small"><a href="../convex/pipeline/delivery.test.ts">convex/pipeline/delivery.test.ts:125</a></p><pre><code>it(&quot;holds conflicting identifiers for review without attaching another email&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  const { bookingHarness, bookingPayload } =
+    await import(&quot;../../tests/bookingHarness&quot;);
+  const { t, tenantId, admin } = await bookingHarness();
+  for (const name of [&quot;alice&quot;, &quot;bob&quot;]) {
+    const payload = {
+      ...bookingPayload(name, `${name}@example.com`),
+      text_reminder_number: &quot;+17789559253&quot;,
+    };
+    await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+      tenantId,
+      calendlyEventUri: payload.uri,
+      eventType: &quot;invitee.created&quot;,
+      payload: JSON.stringify({ payload }),
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  }
+  const result = await admin.query(api.pipeline.delivery.list, {
+    paginationOpts: { cursor: null, numItems: 10 },
+  });
+  expect(result.page).toMatchObject([
+    { status: &quot;blocked&quot;, reason: &quot;identity_conflict&quot; },
+    { status: &quot;applied&quot; },
+  ]);
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T05</span><strong>Unsafe question labels</strong></td><td>Unicode, multiline and repeated question labels</td><td>Booking applies; Grow / One / Two and display labels survive.</td><td><details><summary>Exact test + limits</summary><p class="small">Repeated labels use their occurrence order as part of the key.</p><p class="small"><a href="../convex/pipeline/delivery.test.ts">convex/pipeline/delivery.test.ts:152</a></p><pre><code>it(&quot;accepts Unicode and multiline question labels without dropping the booking&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  const { bookingHarness, bookingPayload } =
+    await import(&quot;../../tests/bookingHarness&quot;);
+  const { t, tenantId, admin } = await bookingHarness();
+  const payload = {
+    ...bookingPayload(&quot;unicode&quot;),
+    questions_and_answers: [
+      { question: &quot;What’s your goal?\nTell us 🎯&quot;, answer: &quot;Grow&quot; },
+      { question: &quot;同じ&quot;, answer: &quot;One&quot; },
+      { question: &quot;同じ&quot;, answer: &quot;Two&quot; },
+    ],
+  };
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: &quot;invitee.created&quot;,
+    payload: JSON.stringify({ payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const result = await admin.query(api.pipeline.delivery.list, {
+    paginationOpts: { cursor: null, numItems: 10 },
+  });
+  expect(result.page[0]).toMatchObject({ status: &quot;applied&quot; });
+  const detail = await admin.query(api.closer.meetingDetail.getMeetingDetail, {
+    meetingId: result.page[0].meetingId!,
+  });
+  expect(Object.values(detail.lead.customFields ?? {}).sort()).toEqual([
+    &quot;Grow&quot;,
+    &quot;One&quot;,
+    &quot;Two&quot;,
+  ]);
+  expect(Object.values(detail.lead.customFieldLabels ?? {})).toContain(
+    &quot;What’s your goal?\nTell us 🎯&quot;,
+  );
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T06</span><strong>Reviewed host recovery</strong></td><td>Unknown host is linked, then the preview is retried</td><td>Delivery applies once; reusing the preview is rejected.</td><td><details><summary>Exact test + limits</summary><p class="small">Still requires the operator to fix the host mapping.</p><p class="small"><a href="../convex/pipeline/delivery.test.ts">convex/pipeline/delivery.test.ts:189</a></p><pre><code>it(&quot;recovers a reviewed host failure once and rejects reuse of its preview&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  const { bookingHarness, bookingPayload } =
+    await import(&quot;../../tests/bookingHarness&quot;);
+  const { t, tenantId, admin } = await bookingHarness();
+  const payload = bookingPayload(&quot;unlinked&quot;);
+  payload.scheduled_event.event_memberships[0].user =
+    &quot;https://api.calendly.com/users/new-host&quot;;
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: &quot;invitee.created&quot;,
+    payload: JSON.stringify({ payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const result = await admin.query(api.pipeline.delivery.list, {
+    paginationOpts: { cursor: null, numItems: 10 },
+  });
+  expect(result.page[0]).toMatchObject({
+    status: &quot;blocked&quot;,
+    reason: &quot;host_not_linked&quot;,
+  });
+  const manifest = await admin.query(api.pipeline.recovery.preview, {
+    deliveryIds: [result.page[0]._id],
+  });
+  await t.run(async (ctx) =&gt; {
+    await ctx.db.insert(&quot;users&quot;, {
+      tenantId,
+      workosUserId: &quot;host_new&quot;,
+      email: &quot;new@example.com&quot;,
+      role: &quot;closer&quot;,
+      isActive: true,
+      calendlyUserUri: &quot;https://api.calendly.com/users/new-host&quot;,
+    });
+  });
+  await admin.mutation(api.pipeline.recovery.retry, { manifest });
+  await expect(
+    admin.mutation(api.pipeline.recovery.retry, { manifest }),
+  ).rejects.toThrow(&quot;Recovery preview is stale&quot;);
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(
+    (
+      await admin.query(api.pipeline.delivery.list, {
+        paginationOpts: { cursor: null, numItems: 10 },
+      })
+    ).page[0],
+  ).toMatchObject({ status: &quot;applied&quot;, generation: 2 });
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T07</span><strong>Inactive host</strong></td><td>Booking names an inactive closer</td><td>Delivery is blocked before a tracked booking can be applied.</td><td><details><summary>Exact test + limits</summary><p class="small">Known non-closer ignore behavior is implemented but lacks its own focused test here.</p><p class="small"><a href="../convex/pipeline/delivery.test.ts">convex/pipeline/delivery.test.ts:238</a></p><pre><code>it(&quot;blocks a booking hosted by an inactive closer&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  const { bookingHarness, bookingPayload } =
+    await import(&quot;../../tests/bookingHarness&quot;);
+  const { t, tenantId, admin } = await bookingHarness();
+  await t.run(async (ctx) =&gt; {
+    const host = await ctx.db
+      .query(&quot;users&quot;)
+      .withIndex(&quot;by_tenantId_and_calendlyUserUri&quot;, (q) =&gt;
+        q
+          .eq(&quot;tenantId&quot;, tenantId)
+          .eq(&quot;calendlyUserUri&quot;, &quot;https://api.calendly.com/users/closer&quot;),
+      )
+      .unique();
+    if (!host) throw new Error(&quot;Fixture host missing&quot;);
+    await ctx.db.patch(&quot;users&quot;, host._id, { isActive: false });
+  });
+  const payload = bookingPayload(&quot;inactive&quot;);
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: &quot;invitee.created&quot;,
+    payload: JSON.stringify({ payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(
+    (
+      await admin.query(api.pipeline.delivery.list, {
+        paginationOpts: { cursor: null, numItems: 10 },
+      })
+    ).page[0],
+  ).toMatchObject({ status: &quot;blocked&quot;, reason: &quot;host_inactive&quot; });
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T08</span><strong>No-show event order</strong></td><td>Newer deletion arrives before older creation, then booking</td><td>Report has one booking and zero no-shows.</td><td><details><summary>Exact test + limits</summary><p class="small">Provider time is used; missing/invalid time falls back to receipt time.</p><p class="small"><a href="../convex/pipeline/delivery.test.ts">convex/pipeline/delivery.test.ts:272</a></p><pre><code>it(&quot;keeps no-show reversal ordered by provider time rather than delivery time&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  const { bookingHarness, bookingPayload } =
+    await import(&quot;../../tests/bookingHarness&quot;);
+  const { t, tenantId, admin } = await bookingHarness();
+  const payload = bookingPayload(&quot;ordered&quot;);
+  for (const [eventType, created_at] of [
+    [&quot;invitee_no_show.deleted&quot;, &quot;2026-10-01T14:00:00Z&quot;],
+    [&quot;invitee_no_show.created&quot;, &quot;2026-10-01T13:00:00Z&quot;],
+    [&quot;invitee.created&quot;, &quot;2026-10-01T09:00:00Z&quot;],
+  ]) {
+    await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+      tenantId,
+      calendlyEventUri: payload.uri,
+      eventType,
+      payload: JSON.stringify({ created_at, payload }),
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  }
+  expect(
+    await admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+      scheduledFrom: Date.parse(&quot;2026-10-01T00:00:00Z&quot;),
+      scheduledTo: Date.parse(&quot;2026-10-02T00:00:00Z&quot;),
+    }),
+  ).toMatchObject({ scheduled: 1, noShows: 0 });
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T09</span><strong>Explicit reschedule</strong></td><td>Old booking → replacement with old_invitee → old cancellation</td><td>Created receipts share one opportunity; replacement remains scheduled.</td><td><details><summary>Exact test + limits</summary><p class="small">Ambiguous histories are blocked for review.</p><p class="small"><a href="../convex/pipeline/delivery.test.ts">convex/pipeline/delivery.test.ts:299</a></p><pre><code>it(&quot;uses an explicit reschedule link and does not let the old cancellation cancel the new booking&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(&quot;2026-10-02T00:00:00Z&quot;));
+  const { bookingHarness, bookingPayload } =
+    await import(&quot;../../tests/bookingHarness&quot;);
+  const { t, tenantId, admin } = await bookingHarness();
+  const old = bookingPayload(&quot;old&quot;);
+  const next = { ...bookingPayload(&quot;new&quot;), old_invitee: old.uri };
+  for (const [eventType, created_at, payload] of [
+    [&quot;invitee.created&quot;, &quot;2026-10-01T09:00:00Z&quot;, old],
+    [&quot;invitee.created&quot;, &quot;2026-10-01T10:00:00Z&quot;, next],
+    [&quot;invitee.canceled&quot;, &quot;2026-10-01T10:00:00Z&quot;, old],
+  ] as const) {
+    await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+      tenantId,
+      calendlyEventUri: payload.uri,
+      eventType,
+      payload: JSON.stringify({ created_at, payload }),
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  }
+  const deliveries = (
+    await admin.query(api.pipeline.delivery.list, {
+      paginationOpts: { cursor: null, numItems: 10 },
+    })
+  ).page;
+  expect(deliveries.every((d) =&gt; d.status === &quot;applied&quot;)).toBe(true);
+  expect(new Set(deliveries.map((d) =&gt; d.opportunityId)).size).toBe(1);
+  const newestBooking = deliveries.find(
+    (d) =&gt;
+      d.eventType === &quot;invitee.created&quot; &amp;&amp;
+      d.occurredAt === Date.parse(&quot;2026-10-01T10:00:00Z&quot;),
+  );
+  const detail = await admin.query(api.closer.meetingDetail.getMeetingDetail, {
+    meetingId: newestBooking!.meetingId!,
+  });
+  expect(detail.meeting.status).toBe(&quot;scheduled&quot;);
+  expect(detail.opportunity.status).toBe(&quot;scheduled&quot;);
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T10</span><strong>Historical replay protection</strong></td><td>Closer records lost; an older provider booking arrives</td><td>Historical event is blocked; original meeting stays completed and opportunity lost.</td><td><details><summary>Exact test + limits</summary><p class="small">The guard uses updatedAt; it is conservative and is not a full event-sourced history.</p><p class="small"><a href="../convex/pipeline/delivery.test.ts">convex/pipeline/delivery.test.ts:339</a></p><pre><code>it(&quot;holds historical bookings instead of reopening a lead&#x27;s newer lost opportunity&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(&quot;2026-10-02T00:00:00Z&quot;));
+  const { bookingHarness, bookingPayload } =
+    await import(&quot;../../tests/bookingHarness&quot;);
+  const { t, tenantId, admin, closer } = await bookingHarness();
+  const payload = bookingPayload(&quot;current&quot;);
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: &quot;invitee.created&quot;,
+    payload: JSON.stringify({ created_at: &quot;2026-10-01T09:00:00Z&quot;, payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [delivery] = (
+    await admin.query(api.pipeline.delivery.list, {
+      paginationOpts: { cursor: null, numItems: 1 },
+    })
+  ).page;
+  if (!delivery.meetingId || !delivery.opportunityId)
+    throw new Error(&quot;Fixture booking failed&quot;);
+  await closer.mutation(api.closer.meetingActions.markAsLost, {
+    opportunityId: delivery.opportunityId,
+    meetingId: delivery.meetingId,
+    reason: &quot;Declined&quot;,
+  });
+  const historical = bookingPayload(&quot;historical&quot;);
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: historical.uri,
+    eventType: &quot;invitee.created&quot;,
+    payload: JSON.stringify({
+      created_at: &quot;2026-09-25T09:00:00Z&quot;,
+      payload: historical,
+    }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(
+    (
+      await admin.query(api.pipeline.delivery.list, {
+        status: &quot;blocked&quot;,
+        paginationOpts: { cursor: null, numItems: 10 },
+      })
+    ).page,
+  ).toMatchObject([{ reason: &quot;historical_booking_requires_review&quot; }]);
+  const detail = await admin.query(api.closer.meetingDetail.getMeetingDetail, {
+    meetingId: delivery.meetingId,
+  });
+  expect(detail.opportunity.status).toBe(&quot;lost&quot;);
+  expect(detail.meeting.status).toBe(&quot;completed&quot;);
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T11</span><strong>Unexpected processing error</strong></td><td>Malformed JSON enters the internal ingestion function</td><td>Receipt ends failed with processing_failed.</td><td><details><summary>Exact test + limits</summary><p class="small">Signed HTTP requests are validated before this internal seam.</p><p class="small"><a href="../convex/pipeline/delivery.test.ts">convex/pipeline/delivery.test.ts:391</a></p><pre><code>it(&quot;records a malformed delivery as failed instead of losing the job&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  const { bookingHarness } = await import(&quot;../../tests/bookingHarness&quot;);
+  const { t, tenantId, admin } = await bookingHarness();
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: &quot;malformed&quot;,
+    eventType: &quot;invitee.created&quot;,
+    payload: &quot;{&quot;,
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(
+    (
+      await admin.query(api.pipeline.delivery.list, {
+        status: &quot;failed&quot;,
+        paginationOpts: { cursor: null, numItems: 10 },
+      })
+    ).page,
+  ).toMatchObject([{ reason: &quot;processing_failed&quot; }]);
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T12</span><strong>Wrong reschedule source</strong></td><td>Internal link points to another opportunity’s meeting</td><td>Receipt is blocked; target opportunity stays reschedule_link_sent.</td><td><details><summary>Exact test + limits</summary><p class="small">Tenant/relationship checks reject the link; no override is exposed.</p><p class="small"><a href="../convex/pipeline/delivery.test.ts">convex/pipeline/delivery.test.ts:412</a></p><pre><code>it(&quot;rejects a reschedule link whose source meeting belongs to another opportunity&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  const { bookingHarness, bookingPayload } =
+    await import(&quot;../../tests/bookingHarness&quot;);
+  const { t, tenantId, admin, closer } = await bookingHarness();
+  for (const name of [&quot;target&quot;, &quot;unrelated&quot;]) {
+    const payload = bookingPayload(name, `${name}@example.com`);
+    await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+      tenantId,
+      calendlyEventUri: payload.uri,
+      eventType: &quot;invitee.created&quot;,
+      payload: JSON.stringify({ payload }),
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  }
+  const bookings = (
+    await admin.query(api.pipeline.delivery.list, {
+      paginationOpts: { cursor: null, numItems: 10 },
+    })
+  ).page;
+  const [unrelated, target] = bookings;
+  if (!target.opportunityId || !target.meetingId || !unrelated.meetingId)
+    throw new Error(&quot;Fixture booking failed&quot;);
+  await t.run(async (ctx) =&gt; {
+    const user = await ctx.db
+      .query(&quot;users&quot;)
+      .withIndex(&quot;by_workosUserId&quot;, (q) =&gt; q.eq(&quot;workosUserId&quot;, &quot;user_closer&quot;))
+      .unique();
+    await ctx.db.patch(&quot;users&quot;, user!._id, {
+      personalEventTypeUri: &quot;https://calendly.com/closer/test&quot;,
+    });
+  });
+  await closer.mutation(api.closer.noShowActions.markNoShow, {
+    reason: &quot;no_response&quot;,
+    meetingId: target.meetingId,
+  });
+  await closer.mutation(api.closer.noShowActions.createNoShowRescheduleLink, {
+    opportunityId: target.opportunityId,
+    meetingId: target.meetingId,
+  });
+  const payload = {
+    ...bookingPayload(&quot;bad-link&quot;, &quot;target@example.com&quot;),
+    tracking: {
+      utm_source: &quot;ptdom&quot;,
+      utm_medium: &quot;noshow_resched&quot;,
+      utm_campaign: target.opportunityId,
+      utm_content: unrelated.meetingId,
+    },
+  };
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: &quot;invitee.created&quot;,
+    payload: JSON.stringify({ payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(
+    (
+      await admin.query(api.pipeline.delivery.list, {
+        status: &quot;blocked&quot;,
+        paginationOpts: { cursor: null, numItems: 10 },
+      })
+    ).page,
+  ).toMatchObject([{ reason: &quot;invalid_booking_link&quot; }]);
+  const detail = await admin.query(api.closer.meetingDetail.getMeetingDetail, {
+    meetingId: target.meetingId,
+  });
+  expect(detail.opportunity.status).toBe(&quot;reschedule_link_sent&quot;);
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T13</span><strong>Recovery access</strong></td><td>Unauthenticated user, closer, and another tenant try recovery</td><td>Unauthorized preview/retry calls reject.</td><td><details><summary>Exact test + limits</summary><p class="small">Does not replace a broader security review of the whole CRM.</p><p class="small"><a href="../convex/pipeline/delivery.test.ts">convex/pipeline/delivery.test.ts:482</a></p><pre><code>it(&quot;protects recovery from unauthorized roles and other tenants&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  const { bookingHarness } = await import(&quot;../../tests/bookingHarness&quot;);
+  const { t, tenantId, admin, closer } = await bookingHarness();
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: &quot;malformed&quot;,
+    eventType: &quot;invitee.created&quot;,
+    payload: &quot;{&quot;,
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [receipt] = (
+    await admin.query(api.pipeline.delivery.list, {
+      paginationOpts: { cursor: null, numItems: 1 },
+    })
+  ).page;
+  const args = { deliveryIds: [receipt._id] };
+  await expect(t.query(api.pipeline.recovery.preview, args)).rejects.toThrow();
+  await expect(
+    closer.query(api.pipeline.recovery.preview, args),
+  ).rejects.toThrow();
+  await t.run(async (ctx) =&gt; {
+    const otherTenant = await ctx.db.insert(&quot;tenants&quot;, {
+      companyName: &quot;Other&quot;,
+      contactEmail: &quot;other@example.com&quot;,
+      workosOrgId: &quot;org_other&quot;,
+      status: &quot;active&quot;,
+      inviteExpiresAt: 0,
+      createdBy: &quot;test&quot;,
+    });
+    await ctx.db.insert(&quot;users&quot;, {
+      tenantId: otherTenant,
+      workosUserId: &quot;user_other&quot;,
+      email: &quot;other@example.com&quot;,
+      role: &quot;tenant_admin&quot;,
+      isActive: true,
+    });
+  });
+  const other = t.withIdentity({ subject: &quot;user_other&quot;, org_id: &quot;org_other&quot; });
+  await expect(
+    other.query(api.pipeline.recovery.preview, args),
+  ).rejects.toThrow(&quot;Delivery not found&quot;);
+  const manifest = await admin.query(api.pipeline.recovery.preview, args);
+  await expect(
+    other.mutation(api.pipeline.recovery.retry, { manifest }),
+  ).rejects.toThrow(&quot;Delivery not found&quot;);
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T14</span><strong>Legacy form compatibility</strong></td><td>Legacy field key is upgraded twice</td><td>One response and one preserved answer; stable q_ hash key.</td><td><details><summary>Exact test + limits</summary><p class="small">Old unused field-catalog rows are not globally deleted.</p><p class="small"><a href="../convex/pipeline/delivery.test.ts">convex/pipeline/delivery.test.ts:530</a></p><pre><code>it(&quot;preserves legacy form answers when their keys are upgraded more than once&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  const { bookingHarness, bookingPayload } =
+    await import(&quot;../../tests/bookingHarness&quot;);
+  const { writeMeetingFormResponses } =
+    await import(&quot;../lib/meetingFormResponses&quot;);
+  const { t, tenantId, admin } = await bookingHarness();
+  const payload = {
+    ...bookingPayload(&quot;legacy-fields&quot;),
+    questions_and_answers: [{ question: &quot;Goal&quot;, answer: &quot;Grow&quot; }],
+  };
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: &quot;invitee.created&quot;,
+    payload: JSON.stringify({ payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [receipt] = (
+    await admin.query(api.pipeline.delivery.list, {
+      paginationOpts: { cursor: null, numItems: 1 },
+    })
+  ).page;
+  if (!receipt.meetingId || !receipt.leadId || !receipt.opportunityId)
+    throw new Error(&quot;Fixture booking failed&quot;);
+  const meetingId = receipt.meetingId,
+    leadId = receipt.leadId,
+    opportunityId = receipt.opportunityId;
+  await t.run(async (ctx) =&gt; {
+    const response = await ctx.db
+      .query(&quot;meetingFormResponses&quot;)
+      .withIndex(&quot;by_meetingId&quot;, (q) =&gt; q.eq(&quot;meetingId&quot;, meetingId))
+      .unique();
+    await ctx.db.patch(&quot;meetingFormResponses&quot;, response!._id, {
+      fieldKey: &quot;goal&quot;,
+    });
+    await ctx.db.patch(&quot;leads&quot;, leadId, {
+      customFields: { Goal: &quot;Grow&quot; },
+      customFieldLabels: undefined,
+    });
+  });
+  for (let attempt = 0; attempt &lt; 2; attempt++)
+    await t.run(async (ctx) =&gt; {
+      const opportunity = await ctx.db.get(&quot;opportunities&quot;, opportunityId);
+      await writeMeetingFormResponses(ctx, {
+        tenantId,
+        leadId,
+        opportunityId,
+        meetingId,
+        eventTypeConfigId: opportunity!.eventTypeConfigId,
+        capturedAt: Date.now(),
+        questionsAndAnswers: [{ question: &quot;Goal&quot;, answer: &quot;Grow&quot; }],
+      });
+    });
+  const detail = await admin.query(api.closer.meetingDetail.getMeetingDetail, {
+    meetingId,
+  });
+  expect(Object.values(detail.lead.customFields!)).toEqual([&quot;Grow&quot;]);
+  expect(Object.values(detail.lead.customFieldLabels!)).toEqual([&quot;Goal&quot;]);
+  const responses = await t.run((ctx) =&gt;
+    ctx.db
+      .query(&quot;meetingFormResponses&quot;)
+      .withIndex(&quot;by_meetingId&quot;, (q) =&gt; q.eq(&quot;meetingId&quot;, meetingId))
+      .take(2),
+  );
+  expect(responses).toHaveLength(1);
+  expect(responses[0].answerText).toBe(&quot;Grow&quot;);
+  expect(responses[0].fieldKey).toMatch(/^q_[a-f0-9]{64}$/);
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T15</span><strong>One meeting after outcome</strong></td><td>Book, then closer marks no-show</td><td>Report counts one meeting, one no-show, zero cancellations.</td><td><details><summary>Exact test + limits</summary><p class="small">The report field named scheduled is the total cohort count, not only scheduled-status rows.</p><p class="small"><a href="../convex/operations/meetingStats.test.ts">convex/operations/meetingStats.test.ts:6</a></p><pre><code>it(&quot;counts a booked meeting once after recording a no-show&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(&quot;2026-10-02T00:00:00Z&quot;));
+  const { t, tenantId, admin, closer } = await bookingHarness();
+  const payload = bookingPayload(&quot;no-show&quot;);
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: &quot;invitee.created&quot;,
+    payload: JSON.stringify({ created_at: &quot;2026-10-01T10:00:00Z&quot;, payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers, 1000);
+  const deliveries = await admin.query(api.pipeline.delivery.list, {
+    paginationOpts: { cursor: null, numItems: 10 },
+  });
+  const meetingId = deliveries.page[0].meetingId;
+  expect(meetingId).toBeDefined();
+  if (!meetingId) throw new Error(&quot;Booking was not applied&quot;);
+  await closer.mutation(api.closer.noShowActions.markNoShow, {
+    meetingId,
+    reason: &quot;no_response&quot;,
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers, 1000);
+  expect(
+    await admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+      scheduledFrom: Date.parse(&quot;2026-10-01T00:00:00Z&quot;),
+      scheduledTo: Date.parse(&quot;2026-10-02T00:00:00Z&quot;),
+    }),
+  ).toMatchObject({ scheduled: 1, noShows: 1, canceled: 0 });
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T16</span><strong>Migration read barrier</strong></td><td>Legacy stats exist; V2 is empty and unverified</td><td>Reader throws instead of returning a misleading zero.</td><td><details><summary>Exact test + limits</summary><p class="small">End-to-end migration/activation has not been executed.</p><p class="small"><a href="../convex/operations/meetingStats.test.ts">convex/operations/meetingStats.test.ts:37</a></p><pre><code>it(&quot;does not report an empty replacement table as zero during migration&quot;, async () =&gt; {
+  const { t, tenantId, admin } = await bookingHarness();
+  await t.run(async (ctx) =&gt; {
+    const closer = await ctx.db
+      .query(&quot;users&quot;)
+      .withIndex(&quot;by_tenantId_and_calendlyUserUri&quot;, (q) =&gt;
+        q
+          .eq(&quot;tenantId&quot;, tenantId)
+          .eq(&quot;calendlyUserUri&quot;, &quot;https://api.calendly.com/users/closer&quot;),
+      )
+      .unique();
+    if (!closer) throw new Error(&quot;Missing fixture closer&quot;);
+    await ctx.db.insert(&quot;operationsMeetingDailyStats&quot;, {
+      tenantId,
+      assignedCloserId: closer._id,
+      dayKey: &quot;2026-10-01&quot;,
+      meetingStatus: &quot;scheduled&quot;,
+      count: 5,
+      updatedAt: 0,
+    });
+  });
+  await expect(
+    admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+      scheduledFrom: Date.parse(&quot;2026-10-01T00:00:00Z&quot;),
+      scheduledTo: Date.parse(&quot;2026-10-02T00:00:00Z&quot;),
+    }),
+  ).rejects.toThrow(&quot;Reporting rebuild has not been verified&quot;);
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T17</span><strong>Fanout beyond 200</strong></td><td>An opportunity with 205 meetings becomes lost</td><td>Report filtered to lost includes all 205 meetings.</td><td><details><summary>Exact test + limits</summary><p class="small">Concurrent dirty-sweep interleavings are inspected in code, not separately tested.</p><p class="small"><a href="../convex/operations/meetingStats.test.ts">convex/operations/meetingStats.test.ts:66</a></p><pre><code>it(&quot;projects every historical meeting when an opportunity with over 200 meetings changes&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  const { t, tenantId, admin, closer } = await bookingHarness();
+  const payload = bookingPayload(&quot;long-history&quot;);
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: &quot;invitee.created&quot;,
+    payload: JSON.stringify({ payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers, 1000);
+  const [delivery] = (
+    await admin.query(api.pipeline.delivery.list, {
+      paginationOpts: { cursor: null, numItems: 1 },
+    })
+  ).page;
+  if (!delivery.meetingId || !delivery.opportunityId)
+    throw new Error(&quot;Fixture booking failed&quot;);
+  await t.run(async (ctx) =&gt; {
+    const original = await ctx.db.get(&quot;meetings&quot;, delivery.meetingId!);
+    if (!original) throw new Error(&quot;Fixture meeting missing&quot;);
+    const { _id, _creationTime, ...fields } = original;
+    void _id;
+    void _creationTime;
+    for (let i = 1; i &lt; 205; i++)
+      await ctx.db.insert(&quot;meetings&quot;, {
+        ...fields,
+        calendlyEventUri: `https://api.calendly.com/scheduled_events/history-${i}`,
+        calendlyInviteeUri: `https://api.calendly.com/scheduled_events/history-${i}/invitees/test`,
+      });
+  });
+  await closer.mutation(api.closer.meetingActions.markAsLost, {
+    opportunityId: delivery.opportunityId,
+    reason: &quot;Not proceeding&quot;,
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers, 1000);
+  expect(
+    await admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+      scheduledFrom: Date.parse(&quot;2026-10-01T00:00:00Z&quot;),
+      scheduledTo: Date.parse(&quot;2026-10-02T00:00:00Z&quot;),
+      opportunityStatus: &quot;lost&quot;,
+    }),
+  ).toMatchObject({ scheduled: 205 });
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T18</span><strong>Monthly read beyond 1,000</strong></td><td>Reader receives 1,300 synthetic V2 bucket rows</td><td>Phone-sales total includes all 1,300.</td><td><details><summary>Exact test + limits</summary><p class="small">This is a read-bound regression test, not a real production-sized throughput benchmark.</p><p class="small"><a href="../convex/operations/meetingStats.test.ts">convex/operations/meetingStats.test.ts:111</a></p><pre><code>it(&quot;includes a production-sized month with more than 1000 stats rows&quot;, async () =&gt; {
+  const { t, tenantId, admin } = await bookingHarness();
+  await t.run(async (ctx) =&gt; {
+    const user = await ctx.db
+      .query(&quot;users&quot;)
+      .withIndex(&quot;by_tenantId&quot;, (q) =&gt; q.eq(&quot;tenantId&quot;, tenantId))
+      .first();
+    if (!user) throw new Error(&quot;Fixture user missing&quot;);
+    for (let i = 0; i &lt; 1300; i++)
+      await ctx.db.insert(&quot;operationsMeetingStatsV2&quot;, {
+        tenantId,
+        assignedCloserId: user._id,
+        dayKey: &quot;2026-10-01&quot;,
+        bucketKey: `fixture-${i}`,
+        meetingStatus: &quot;scheduled&quot;,
+        count: 1,
+        updatedAt: 0,
+      });
+  });
+  expect(
+    await admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+      scheduledFrom: Date.parse(&quot;2026-10-01T00:00:00Z&quot;),
+      scheduledTo: Date.parse(&quot;2026-10-02T00:00:00Z&quot;),
+    }),
+  ).toMatchObject({ scheduled: 1300 });
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T19</span><strong>Paid outcome protection</strong></td><td>Payment is recorded, then late provider cancellation arrives</td><td>Meeting remains completed; one payment; report total/completed/won are each one.</td><td><details><summary>Exact test + limits</summary><p class="small">Other payment edge cases are outside this particular regression.</p><p class="small"><a href="../convex/operations/meetingStats.test.ts">convex/operations/meetingStats.test.ts:138</a></p><pre><code>it(&quot;keeps a paid meeting completed and counted once when a late cancellation arrives&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(&quot;2026-10-02T00:00:00Z&quot;));
+  const { t, tenantId, admin, closer } = await bookingHarness();
+  const payload = bookingPayload(&quot;paid&quot;);
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: &quot;invitee.created&quot;,
+    payload: JSON.stringify({ created_at: &quot;2026-10-01T09:00:00Z&quot;, payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [delivery] = (
+    await admin.query(api.pipeline.delivery.list, {
+      paginationOpts: { cursor: null, numItems: 1 },
+    })
+  ).page;
+  if (!delivery.meetingId || !delivery.opportunityId)
+    throw new Error(&quot;Fixture booking failed&quot;);
+  const programId = await t.run(async (ctx) =&gt; {
+    const user = await ctx.db
+      .query(&quot;users&quot;)
+      .withIndex(&quot;by_tenantId&quot;, (q) =&gt; q.eq(&quot;tenantId&quot;, tenantId))
+      .first();
+    if (!user) throw new Error(&quot;Fixture user missing&quot;);
+    return await ctx.db.insert(&quot;tenantPrograms&quot;, {
+      tenantId,
+      name: &quot;Program&quot;,
+      normalizedName: &quot;program&quot;,
+      createdAt: 0,
+      updatedAt: 0,
+      createdByUserId: user._id,
+    });
+  });
+  await closer.mutation(api.closer.payments.logPayment, {
+    opportunityId: delivery.opportunityId,
+    meetingId: delivery.meetingId,
+    amount: 100,
+    currency: &quot;USD&quot;,
+    programId,
+    paymentType: &quot;pif&quot;,
+  });
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: &quot;invitee.canceled&quot;,
+    payload: JSON.stringify({ created_at: &quot;2026-10-01T10:00:00Z&quot;, payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const detail = await admin.query(api.closer.meetingDetail.getMeetingDetail, {
+    meetingId: delivery.meetingId,
+  });
+  expect(detail.meeting.status).toBe(&quot;completed&quot;);
+  expect(detail.opportunity.status).toBe(&quot;payment_received&quot;);
+  expect(detail.payments).toHaveLength(1);
+  expect(
+    await admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+      scheduledFrom: Date.parse(&quot;2026-10-01T00:00:00Z&quot;),
+      scheduledTo: Date.parse(&quot;2026-10-02T00:00:00Z&quot;),
+      soldProgramId: programId,
+    }),
+  ).toMatchObject({ scheduled: 1, completed: 1, won: 1, canceled: 0 });
+});</code></pre></details></td></tr><tr data-evidence-row><td><span class="test-id">T20</span><strong>Reporting failure recovery</strong></td><td>Delete a downstream bucket, record no-show, restore bucket, retry</td><td>Source remains no_show; failed job is visible; stale retry rejects; final report counts one.</td><td><details><summary>Exact test + limits</summary><p class="small">The test restores the corrupted bucket explicitly. Retry alone cannot reconstruct arbitrary corruption.</p><p class="small"><a href="../convex/operations/meetingStats.test.ts">convex/operations/meetingStats.test.ts:202</a></p><pre><code>it(&quot;keeps a closer outcome when reporting fails and repairs the report through a guarded retry&quot;, async () =&gt; {
+  vi.useFakeTimers();
+  const { t, tenantId, admin, closer } = await bookingHarness();
+  const payload = bookingPayload(&quot;report-failure&quot;);
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: &quot;invitee.created&quot;,
+    payload: JSON.stringify({ payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [delivery] = (
+    await admin.query(api.pipeline.delivery.list, {
+      paginationOpts: { cursor: null, numItems: 1 },
+    })
+  ).page;
+  if (!delivery.meetingId) throw new Error(&quot;Fixture booking failed&quot;);
+  // Inject a broken downstream projection, without changing the source booking.
+  const bucket = await t.run(async (ctx) =&gt; {
+    const row = await ctx.db
+      .query(&quot;operationsMeetingStatsV2&quot;)
+      .withIndex(&quot;by_tenantId_and_dayKey&quot;, (q) =&gt; q.eq(&quot;tenantId&quot;, tenantId))
+      .first();
+    if (!row) throw new Error(&quot;Fixture bucket missing&quot;);
+    await ctx.db.delete(&quot;operationsMeetingStatsV2&quot;, row._id);
+    const { _id, _creationTime, ...fields } = row;
+    void _id;
+    void _creationTime;
+    return fields;
+  });
+  await closer.mutation(api.closer.noShowActions.markNoShow, {
+    meetingId: delivery.meetingId,
+    reason: &quot;no_response&quot;,
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(
+    (
+      await admin.query(api.closer.meetingDetail.getMeetingDetail, {
+        meetingId: delivery.meetingId,
+      })
+    ).meeting.status,
+  ).toBe(&quot;no_show&quot;);
+  const failed = await admin.query(api.operations.workStatus.list, {
+    kind: &quot;meeting&quot;,
+    status: &quot;failed&quot;,
+    paginationOpts: { cursor: null, numItems: 10 },
+  });
+  expect(failed.page).toHaveLength(1);
+  expect(failed.page[0].reason).toBe(&quot;projection_failed&quot;);
+  await t.run(async (ctx) =&gt; {
+    await ctx.db.insert(&quot;operationsMeetingStatsV2&quot;, bucket);
+  });
+  const retry = {
+    kind: &quot;meeting&quot; as const,
+    id: failed.page[0].id,
+    generation: failed.page[0].generation,
+  };
+  await admin.mutation(api.operations.workStatus.retry, retry);
+  await expect(
+    admin.mutation(api.operations.workStatus.retry, retry),
+  ).rejects.toThrow(&quot;Projection retry is stale&quot;);
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(
+    await admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+      scheduledFrom: Date.parse(&quot;2026-10-01T00:00:00Z&quot;),
+      scheduledTo: Date.parse(&quot;2026-10-02T00:00:00Z&quot;),
+    }),
+  ).toMatchObject({ scheduled: 1, noShows: 1 });
+});</code></pre></details></td></tr></tbody></table></div>
+<details class="proof"><summary>Source snapshot fingerprints<span>Full SHA-256 values for embedded implementation excerpts</span></summary><pre>convex/lib/meetingLifecycle.ts  6396d2b148ebd933614b4dbfdb0c6c2b34efa3f4132fad2ef37f2c9991201743
+convex/migrations.ts  a0e94236babdd95cca9f0d85e6d643d9de25962d57e5469d4d4d51636bf95c86
+convex/operations/meetingStats.ts  6892c833ff9a4b9b3742418cac91dd056d3a9a6c407bea2d47a570134572169f
+convex/operations/reportingReadiness.ts  25869f1e9c2859a25c46445bb6d3c6230818d7f1fdd4cd0e7d1d1f9b9a9142a9
+convex/pipeline/bookingFacts.ts  0a7e54853d5b8fd48c411442bfc95426f5697a89dd3d44b26d043391ac9e6c79
+convex/pipeline/delivery.ts  db9417a55373f0f601ea18fb4ad442eb839c96a06d0c6be096d28239bc6adcbf
+convex/pipeline/processor.ts  98857637a9faf737c36770fa8c8d7848cf5a933bc7a67c8861f13988e6fa6cff
+convex/pipeline/recovery.ts  bda01b1bd01cdf38661e584eba480ad9e0ad88c039c882f98c1acd00e405a2dd
+convex/webhooks/calendlyMutations.ts  7e1973af86e061cc694617aaf40d22751e57601ec6001b26c321796b3ae22f32</pre></details>
+<p class="small">Diagrams were traced from this working tree, not from a deployed backend. References are line numbers at document creation time. If code changes, rebuild this explanation or recheck its excerpts.</p></section>
+
+<section id="decision"><span class="section-no">10 / Decision boundary</span><h2>What I would require before production activation</h2><p>The refactor addresses the observed accounting, ordering and recovery mechanisms. The local evidence supports moving to joint validation. It does not justify treating production repairs or throughput as already settled.</p><div class="two"><div class="card"><h3>Supported by code and tests</h3><ul><li>One recorded meeting contribution prevents the tested duplicate-count outcomes.</li><li>Early cancellation and reversed no-show delivery reconcile to the tested final state.</li><li>Paid/completed outcomes survive the tested late cancellation.</li><li>Ambiguous identities, bad links and unsafe history stop with retained outcomes.</li><li>Reporting failure can be observed and retried after its cause is fixed.</li></ul></div><div class="card"><h3>Still requires joint validation</h3><ul><li>Signed real webhook acceptance, response loss, concurrent duplicates and provider retry behavior.</li><li>Concurrent source writes versus projection workers, dirty sweep restart and callback failure.</li><li>Full migration, freshly rerun assertions, activation and rollback on realistic staging data.</li><li>Exact report reconciliation across all affected readers, including overflow/fallback paths.</li><li>Admin UI access and recovery workflow in a browser; measured queue age, throughput, drain time and OCC contention.</li></ul></div></div>
+<div class="callout warn"><p><strong>The design still has these limits.</strong> Reports can lag committed business writes, and permanent mutation failures require reviewed recovery. The current migration activation gate also relies on correctly ordered operational verification rather than a generation-bound proof. Those are real limits to assess before approving deployment.</p></div>
+<h3>Terms used in the diagrams</h3><div class="kv"><p><strong>Receipt</strong><br>A permanent logical-delivery record with identity, state, reason and generation.</p><p><strong>Provider fact</strong><br>A retained cancellation/no-show observation scoped to tenant, event URI and invitee URI.</p><p><strong>Contribution</strong><br>The last reporting bucket a particular meeting was counted in.</p><p><strong>Generation</strong><br>A monotonically increased attempt number used to reject obsolete workers, callbacks and retry previews.</p><p><strong>Atomic mutation</strong><br>A group of Convex writes that commit together or roll back together.</p><p><strong>Eventually consistent report</strong><br>A report updated after the source mutation, with no promised completion time in this release.</p></div>
+</section><footer><p>Prepared from branch <code>t3/investigate-stuck-bookings</code>, base <code>b675502d48a23b162643d68312363a80a2c1496a</code>, with the current uncommitted refactor. No production deployment or production data repair has been performed. The document contains synthetic test data only.</p><p>Official platform references: <a href="https://docs.convex.dev/functions/mutation-functions#transactions">Convex mutation transactions</a>, <a href="https://docs.convex.dev/database/advanced/occ">OCC and atomicity</a>, <a href="https://github.com/get-convex/workpool">Workpool documentation</a>. Installed library behavior was checked against version 0.4.13.</p><a class="back" href="#top">Back to top ↑</a></footer>
+</main><script>
+const scenarios=[{"title": "Cancellation arrives first", "tag": "T02 · tested", "intro": "Delivery order: cancellation, then booking creation. Both refer to the same event URI and invitee URI.", "steps": [["Cancellation accepted", "Record canceledAt in calendlyBookingFacts. The receipt and job are durable."], ["No meeting exists yet", "Worker cannot match a booking. Receipt becomes blocked / booking_not_tracked; the fact stays."], ["Booking arrives", "Create the meeting, then reconcile the stored cancellation in the same processing transaction."], ["Final state", "The meeting is canceled. Up to 64 matching waiting receipts are requeued; this test finishes both applied."]], "end": "One source meeting and one reporting contribution. The cancellation is retained even when it arrives before creation."}, {"title": "Old cancellation after reschedule", "tag": "T09 · tested", "intro": "Old booking A exists. Booking B has old_invitee = A. Cancellation of A arrives after B.", "steps": [["Resolve replacement", "The explicit provider link selects A’s opportunity and source meeting; unsuitable or ambiguous relationships block."], ["Move current booking", "Cancel scheduled A and create B on the same opportunity. B becomes its current Calendly event URI."], ["Cancel A later", "Reconciliation targets A’s event + invitee. A cannot change an opportunity whose current booking is B."], ["Final state", "B and its opportunity stay scheduled; both meetings retain their distinct recorded contributions."]], "end": "A reschedule preserves one opportunity, but reports still count the two distinct meeting records in their relevant buckets."}, {"title": "Newer no-show removal arrives first", "tag": "T08 · tested", "intro": "Provider time: no-show added at 13:00, removed at 14:00. Delivery order is reversed.", "steps": [["Receive 14:00 deletion", "Store noShowAt = 14:00 and noShow = false."], ["Receive 13:00 addition", "Compare provider times. The older addition cannot replace the newer fact."], ["Booking creation arrives", "Worker reads the stored fact. No provider no-show needs to be applied."], ["Final state", "Meeting stays scheduled. Report counts one meeting and zero no-shows."]], "end": "Equal provider timestamps favor deletion. Without a valid provider timestamp, ordering falls back to receivedAt."}, {"title": "Closer outcome while reporting fails", "tag": "T20 · tested", "intro": "The test removes a previously recorded reporting bucket, then the closer marks a meeting no-show.", "steps": [["Commit the business command", "Source meeting becomes no_show; synchronous aggregates and the reporting obligation commit together."], ["Report worker fails", "Removing the old contribution finds a missing bucket and throws. The reporting transaction rolls back."], ["Observe and repair", "Completion callback marks projection_failed. Operator restores the missing bucket and retries the failed generation."], ["Final state", "Worker moves the recorded contribution to the current no-show bucket. Reusing the old retry generation rejects."]], "end": "The source outcome survives a downstream reporting failure. The report can remain stale until the cause is repaired and retry succeeds."}, {"title": "Unknown host corrected by admin", "tag": "T06 · tested", "intro": "The Calendly host cannot be mapped to an active closer in the same tenant.", "steps": [["Block the booking", "The child booking mutation rejects with host_not_linked. Its attempted business writes roll back."], ["Review the receipt", "Admin sees the fixed reason and checks the retained payload through an authorized process."], ["Fix and preview", "Link the host, then obtain a manifest containing current generation, status and reason."], ["Retry the manifest", "One transaction validates the manifest, writes audit history and enqueues the same receipt with a new generation."]], "end": "The worker performs the same identity and history checks again. A corrected host does not authorize bypassing those checks."}, {"title": "Different emails share a phone", "tag": "T03 / T04 · tested", "intro": "The outcome depends on whether the phone is a recognized placeholder or an accepted real identifier.", "steps": [["Normalize submitted identifiers", "Ignore rejected placeholder phones such as +12345678910. Normalize email and other accepted identifiers."], ["Read all matching signals", "Resolve email, phone and social matches through same-tenant merge chains."], ["Decide safely", "Placeholder + different emails produces separate leads. Conflicting accepted identifiers produce identity_conflict."], ["Final state", "A safe booking applies; an ambiguous one retains its payload and reason for review."]], "end": "The code prevents further contamination. Splitting existing mixed-identity records still requires a reviewed repair manifest."}];
+const safe=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function showScenario(i){const s=scenarios[i];document.querySelectorAll('[data-scenario]').forEach(b=>b.setAttribute('aria-pressed',String(Number(b.dataset.scenario)===i)));document.getElementById('scenario-content').innerHTML=`<span class="pill">${safe(s.tag)}</span><h3>${safe(s.title)}</h3><p>${safe(s.intro)}</p><ol class="trace">${s.steps.map((x,n)=>`<li><span class="step">STEP ${n+1}</span><strong>${safe(x[0])}</strong>${safe(x[1])}</li>`).join('')}</ol><p>${safe(s.end)}</p>`;}
+document.querySelectorAll('[data-scenario]').forEach(b=>b.addEventListener('click',()=>showScenario(Number(b.dataset.scenario))));showScenario(0);
+document.getElementById('print').addEventListener('click',()=>window.print());document.getElementById('expand').addEventListener('click',()=>document.querySelectorAll('details').forEach(d=>d.open=true));document.getElementById('collapse').addEventListener('click',()=>document.querySelectorAll('details').forEach(d=>d.open=false));
+document.getElementById('evidence-search').addEventListener('input',e=>{const q=e.target.value.toLowerCase();let count=0;document.querySelectorAll('[data-evidence-row]').forEach(r=>{r.hidden=!r.textContent.toLowerCase().includes(q);if(!r.hidden)count++;});document.getElementById('evidence-count').textContent=`${count} of 20 evidence cases`;});
+const broken=[...document.querySelectorAll('a[href^="#"]')].filter(a=>!document.getElementById(a.getAttribute('href').slice(1)));console.assert(broken.length===0,'All section links resolve');console.assert(document.querySelectorAll('svg').length===8,'Eight diagrams rendered');console.assert(document.querySelectorAll('[data-evidence-row]').length===20,'Twenty exact regression cases');console.log('Document checks:',{diagrams:document.querySelectorAll('svg').length,evidenceCases:document.querySelectorAll('[data-evidence-row]').length,brokenAnchors:broken.length,scenarios:scenarios.length});
+</script></body></html>

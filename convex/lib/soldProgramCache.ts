@@ -1,3 +1,7 @@
+import {
+  requestOpportunityProjections,
+  requestMeetingProjection,
+} from "../operations/meetingStats";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
@@ -19,6 +23,7 @@ export async function setSoldProgramCaches(
       soldProgramId: args.programId,
       soldProgramName: args.programName,
     });
+    await requestOpportunityProjections(ctx, args.opportunityId);
     await rebuildQualificationRowsForOpportunity(ctx, args.opportunityId);
     await rebuildLeadCustomerSearchRow(
       ctx,
@@ -34,6 +39,7 @@ export async function setSoldProgramCaches(
       meeting.tenantId === args.tenantId &&
       meeting.opportunityId === args.opportunityId
     ) {
+      await requestMeetingProjection(ctx, args.tenantId, args.meetingId);
       await ctx.db.patch("meetings", args.meetingId, {
         soldProgramId: args.programId,
         soldProgramName: args.programName,
@@ -49,13 +55,7 @@ export async function refreshSoldProgramCachesForOpportunity(
     opportunityId: Id<"opportunities">;
   },
 ) {
-  const payments = await ctx.db
-    .query("paymentRecords")
-    .withIndex("by_opportunityId_and_recordedAt", (q) =>
-      q.eq("opportunityId", args.opportunityId),
-    )
-    .order("desc")
-    .take(25);
+  const payments = await latestValidPayments(ctx, args.opportunityId);
   await refreshSoldProgramCachesFromPayments(ctx, {
     ...args,
     payments,
@@ -90,6 +90,7 @@ async function refreshSoldProgramCachesFromPayments(
   const opportunity = await ctx.db.get("opportunities", args.opportunityId);
   if (opportunity && opportunity.tenantId === args.tenantId) {
     await ctx.db.patch("opportunities", args.opportunityId, patch);
+    await requestOpportunityProjections(ctx, args.opportunityId);
     await rebuildQualificationRowsForOpportunity(ctx, args.opportunityId);
     await rebuildLeadCustomerSearchRow(
       ctx,
@@ -98,15 +99,7 @@ async function refreshSoldProgramCachesFromPayments(
     );
   }
 
-  const meetings = await ctx.db
-    .query("meetings")
-    .withIndex("by_opportunityId", (q) => q.eq("opportunityId", args.opportunityId))
-    .take(100);
-  for (const meeting of meetings) {
-    if (meeting.tenantId === args.tenantId) {
-      await ctx.db.patch("meetings", meeting._id, patch);
-    }
-  }
+  // Meeting caches are refreshed by the paginated reporting job above.
 }
 
 export async function refreshSoldProgramCachesForPaymentContext(
@@ -122,27 +115,12 @@ export async function refreshSoldProgramCachesForPaymentContext(
     return;
   }
 
-  const [opportunityPayments, customerContextPayments] = await Promise.all([
-    ctx.db
-      .query("paymentRecords")
-      .withIndex("by_opportunityId_and_recordedAt", (q) =>
-        q.eq("opportunityId", opportunityId),
-      )
-      .order("desc")
-      .take(50),
-    ctx.db
-      .query("paymentRecords")
-      .withIndex("by_originatingOpportunityId_and_recordedAt", (q) =>
-        q.eq("originatingOpportunityId", opportunityId),
-      )
-      .order("desc")
-      .take(50),
-  ]);
+  const payments = await latestValidPayments(ctx, opportunityId);
 
   await refreshSoldProgramCachesFromPayments(ctx, {
     tenantId: args.tenantId,
     opportunityId,
-    payments: [...opportunityPayments, ...customerContextPayments],
+    payments,
   });
 
   if (!args.payment.customerId || args.payment.contextType !== "opportunity") {
@@ -160,4 +138,33 @@ export async function refreshSoldProgramCachesForPaymentContext(
       programName: args.payment.programName,
     });
   }
+}
+
+async function latestValidPayments(
+  ctx: MutationCtx,
+  opportunityId: Id<"opportunities">,
+) {
+  const rows = await Promise.all(
+    (["recorded", "verified"] as const).flatMap((status) => [
+      ctx.db
+        .query("paymentRecords")
+        .withIndex("by_opportunityId_and_status_and_recordedAt", (q) =>
+          q.eq("opportunityId", opportunityId).eq("status", status),
+        )
+        .order("desc")
+        .first(),
+      ctx.db
+        .query("paymentRecords")
+        .withIndex(
+          "by_originatingOpportunityId_and_status_and_recordedAt",
+          (q) =>
+            q
+              .eq("originatingOpportunityId", opportunityId)
+              .eq("status", status),
+        )
+        .order("desc")
+        .first(),
+    ]),
+  );
+  return rows.filter((row): row is Doc<"paymentRecords"> => row !== null);
 }

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePageTitle } from "@/hooks/use-page-title";
+import { PipelineRecoveryPanel } from "../../../_components/pipeline-recovery-panel";
 import { AttributionRegistry } from "./attribution-registry";
 import { AttributionUnmappedPanel } from "./attribution-unmapped-panel";
 import { BookingLinkMatrix } from "./booking-link-matrix";
@@ -87,7 +88,7 @@ export function AttributionPageClient() {
         </TabsContent>
 
         <TabsContent value="diagnostics" className="mt-4">
-          <DiagnosticsSection />
+          <div className="space-y-4"><PipelineRecoveryPanel /><DiagnosticsSection /></div>
         </TabsContent>
       </Tabs>
     </div>

@@ -1,3 +1,4 @@
+import { requireReportingReady } from "../operations/reportingReadiness";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
@@ -21,7 +22,7 @@ const MEETING_STATUSES = [
   "canceled",
   "no_show",
 ] as const satisfies ReadonlyArray<Doc<"meetings">["status"]>;
-const MAX_OPERATIONS_STATS_ROWS = 1000;
+const MAX_OPERATIONS_STATS_ROWS = 8192;
 
 type CallClassification = (typeof CALL_CLASSIFICATIONS)[number];
 type MeetingStatus = (typeof MEETING_STATUSES)[number];
@@ -295,13 +296,14 @@ export const getTeamOperationsDimensions = query({
       "tenant_master",
       "tenant_admin",
     ]);
+    await requireReportingReady(ctx, tenantId);
 
     const startDayKey = new Date(args.startDate).toISOString().slice(0, 10);
     const endDayKeyExclusive = new Date(args.endDate).toISOString().slice(0, 10);
     const [closers, statsRows] = await Promise.all([
       getActiveClosers(ctx, tenantId),
       ctx.db
-        .query("operationsMeetingDailyStats")
+        .query("operationsMeetingStatsV2")
         .withIndex("by_tenantId_and_dayKey", (q) =>
           q
             .eq("tenantId", tenantId)

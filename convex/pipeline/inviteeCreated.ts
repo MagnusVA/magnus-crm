@@ -1,3 +1,5 @@
+import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
+import { blockBooking } from "./blocked";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalMutation } from "../_generated/server";
@@ -40,8 +42,8 @@ import {
 } from "../lib/tenantStatsHelper";
 import { buildLeadSearchText } from "../leads/searchTextBuilder";
 import {
-	resolveExistingLeadIdentity,
 	resolveLeadIdentity,
+  resolveExistingLeadIdentity,
 } from "../leads/identityResolution";
 import {
 	insertMeetingAggregate,
@@ -340,8 +342,8 @@ async function syncLeadFromBooking(
 	const updatedLead: Doc<"leads"> = {
 		...lead,
 		email: lead.email ?? inviteeEmail,
-		fullName: inviteeName || lead.fullName,
-		phone: inviteePhone || lead.phone,
+		fullName: lead.fullName || inviteeName,
+		phone: lead.phone || inviteePhone,
 		customFields: mergeCustomFields(lead.customFields, latestCustomFields),
 		updatedAt: now,
 	};
@@ -558,6 +560,7 @@ async function resolveAssignedCloser(
 		)
 		.unique();
 	if (directUser?.role === "closer") {
+    if (!directUser.isActive) blockBooking("host_inactive");
 		return {
 			assignedCloserId: directUser._id,
 			hostCalendlyRole: undefined,
@@ -583,7 +586,9 @@ async function resolveAssignedCloser(
 		.unique();
 	if (orgMember?.matchedUserId) {
 		const matchedUser = await ctx.db.get("users", orgMember.matchedUserId);
+		if (matchedUser && matchedUser.tenantId !== tenantId) blockBooking("host_not_linked");
 		if (matchedUser?.role === "closer") {
+      if (!matchedUser.isActive) blockBooking("host_inactive");
 			return {
 				assignedCloserId: matchedUser._id,
 				hostCalendlyRole: orgMember.calendlyRole,
@@ -724,7 +729,7 @@ async function syncKnownCustomFieldKeys(
 		return;
 	}
 
-	const incomingKeys = Object.keys(latestCustomFields);
+	const incomingKeys = Object.keys(latestCustomFields).filter(key => !/^q_[a-f0-9]{64}$/.test(key));
 	if (incomingKeys.length === 0) {
 		return;
 	}
@@ -770,6 +775,8 @@ export const process = internalMutation({
 			});
 			return;
 		}
+
+		if (rawEvent.tenantId !== tenantId) throw new Error("Webhook tenant mismatch");
 
 		if (!isRecord(payload) || !isRecord(payload.scheduled_event)) {
 			throw new Error("[Pipeline] Invalid invitee.created payload");
@@ -832,7 +839,7 @@ export const process = internalMutation({
 			return;
 		}
 
-		const now = Date.now();
+		const now = rawEvent.occurredAt ?? rawEvent.receivedAt;
 		const durationMinutes = Math.max(
 			1,
 			Math.round((endTime - scheduledAt) / 60000),
@@ -840,7 +847,7 @@ export const process = internalMutation({
 		const bookingQuestionsAndAnswers = extractQuestionsAndAnswers(
 			payload.questions_and_answers,
 		);
-		const latestCustomFields = toQuestionAnswerRecord(
+		const latestCustomFields = await toQuestionAnswerRecord(
 			bookingQuestionsAndAnswers,
 		);
 		const rawUtmParams = extractUtmParams(payload.tracking);
@@ -880,7 +887,7 @@ export const process = internalMutation({
 			);
 		}
 		const extractedIdentifiers = extractIdentifiersFromCustomFields(
-			latestCustomFields,
+			{ ...latestCustomFields, ...Object.fromEntries(bookingQuestionsAndAnswers.map(qa => [qa.question, qa.answer])) },
 			earlyEventTypeConfig,
 		);
 		const effectivePhone =
@@ -894,17 +901,28 @@ export const process = internalMutation({
 		);
 		const assignedCloserId = assignedCloserResolution.assignedCloserId;
 
+    if (!assignedCloserId) {
+      if (assignedCloserResolution.isKnownNonCloserHost && assignedCloserResolution.resolution !== "org_member_unmatched") {
+        await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true, processingReason: "non_closer_host" });
+        return;
+      }
+      blockBooking("host_not_linked");
+    }
+
+
 		if (utmParams?.utm_source === "ptdom" && utmParams.utm_campaign) {
 
-			const targetOpportunityId =
-				utmParams.utm_campaign as Id<"opportunities">;
+			const targetOpportunityId = ctx.db.normalizeId("opportunities", utmParams.utm_campaign);
+      if (!targetOpportunityId) blockBooking("invalid_booking_link");
 			const isNoShowRescheduleUtm =
 				utmParams.utm_medium === "noshow_resched";
 			const targetFollowUpId =
 				!isNoShowRescheduleUtm && utmParams.utm_content
-					? (utmParams.utm_content as Id<"followUps">)
+					? (ctx.db.normalizeId("followUps", utmParams.utm_content) ?? blockBooking("invalid_booking_link"))
 					: undefined;
 			const targetOpportunity = await ctx.db.get("opportunities", targetOpportunityId);
+      if (!targetOpportunity || targetOpportunity.tenantId !== tenantId) blockBooking("invalid_booking_link");
+      if (targetOpportunity.updatedAt > now) blockBooking("historical_booking_requires_review");
 
 			if (
 				targetOpportunity &&
@@ -915,6 +933,10 @@ export const process = internalMutation({
 			) {
 				const previousTargetStatus = targetOpportunity.status;
 				const targetLead = await ctx.db.get("leads", targetOpportunity.leadId);
+        const resolvedTarget = await resolveExistingLeadIdentity(ctx, { tenantId, email: inviteeEmail, phone: effectivePhone,
+          socialHandle: extractedIdentifiers.socialHandle, identifierSource: "calendly_booking", createdAt: now });
+        if (resolvedTarget && resolvedTarget.leadId !== targetOpportunity.leadId) blockBooking("identity_conflict");
+        if (targetLead?.email && normalizeEmail(targetLead.email) !== inviteeEmail) blockBooking("identity_conflict");
 				if (!targetLead || targetLead.tenantId !== tenantId) {
 					reportError(
 						"pipeline.data_inconsistency",
@@ -1004,20 +1026,14 @@ export const process = internalMutation({
 					let rescheduledFromMeetingId: Id<"meetings"> | undefined;
 					if (isNoShowRescheduleUtm && utmParams.utm_content) {
 						const candidateMeetingId =
-							utmParams.utm_content as Id<"meetings">;
+							ctx.db.normalizeId("meetings", utmParams.utm_content) ?? blockBooking("invalid_booking_link");
 						const originalMeeting = await ctx.db.get(
 							"meetings", candidateMeetingId,
 						);
-						if (originalMeeting && originalMeeting.tenantId === tenantId) {
+						if (originalMeeting && originalMeeting.tenantId === tenantId && originalMeeting.opportunityId === targetOpportunityId) {
 							rescheduledFromMeetingId = originalMeeting._id;
 						} else {
-							log.warn("pipeline.invitee_created.reschedule_source_invalid", {
-								tenantId,
-								rawEventId,
-								opportunityId: targetOpportunityId,
-								meetingId: candidateMeetingId,
-								meetingExists: !!originalMeeting,
-							});
+							blockBooking("invalid_booking_link");
 						}
 					}
 
@@ -1030,7 +1046,7 @@ export const process = internalMutation({
 							followUp.opportunityId === targetOpportunityId &&
 							followUp.type !== "manual_reminder"
 						) {
-							const bookedAt = Date.now();
+							const bookedAt = now;
 							await ctx.db.patch("followUps", targetFollowUpId, {
 								status: "booked",
 								calendlyEventUri,
@@ -1047,15 +1063,7 @@ export const process = internalMutation({
 								occurredAt: bookedAt,
 							});
 						} else {
-							log.warn("pipeline.invitee_created.follow_up_target_invalid", {
-								tenantId,
-								rawEventId,
-								opportunityId: targetOpportunityId,
-								followUpId: targetFollowUpId,
-								followUpExists: !!followUp,
-								followUpStatus: followUp?.status,
-								followUpType: followUp?.type,
-							});
+							blockBooking("invalid_booking_link");
 						}
 					} else {
 						await ctx.runMutation(
@@ -1064,6 +1072,7 @@ export const process = internalMutation({
 							{
 								opportunityId: targetOpportunityId,
 								calendlyEventUri,
+                occurredAt: now,
 							},
 						);
 					}
@@ -1192,33 +1201,9 @@ export const process = internalMutation({
 				tenantMatch: targetOpportunity?.tenantId === tenantId,
 				opportunityStatus: targetOpportunity?.status,
 			});
+		  blockBooking("invalid_booking_link");
 		}
 
-		if (
-			!assignedCloserId &&
-			assignedCloserResolution.isKnownNonCloserHost
-		) {
-			const existingLeadResolution = await resolveExistingLeadIdentity(ctx, {
-				tenantId,
-				email: inviteeEmail,
-				fullName: inviteeName,
-				phone: effectivePhone,
-				socialHandle: extractedIdentifiers.socialHandle,
-				identifierSource: "calendly_booking",
-				createdAt: now,
-			});
-			if (!existingLeadResolution) {
-				logNonCloserHostSkip({
-					reason: "non_closer_host_without_lead",
-					tenantId,
-					rawEventId,
-					closerResolution: assignedCloserResolution.resolution,
-					hostCalendlyRole: assignedCloserResolution.hostCalendlyRole,
-				});
-				await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
-				return;
-			}
-		}
 
 		// === Feature E: Multi-identifier identity resolution ===
 		const resolution = await resolveLeadIdentity(ctx, {
@@ -1275,26 +1260,26 @@ export const process = internalMutation({
 		// === Feature B4: Heuristic reschedule detection ===
 		let autoRescheduleTarget: Doc<"opportunities"> | null = null;
 		const rescheduleCutoff = now - RESCHEDULE_WINDOW_MS;
-		const reschedCandidates = ctx.db
-			.query("opportunities")
-			.withIndex("by_tenantId_and_leadId", (q) =>
-				q.eq("tenantId", tenantId).eq("leadId", lead._id),
-			)
-			.order("desc");
-
-		for await (const opportunity of reschedCandidates) {
-			if (
-				(opportunity.status === "no_show" ||
-					opportunity.status === "canceled") &&
-				opportunity.updatedAt > rescheduleCutoff
-			) {
-				autoRescheduleTarget = opportunity;
-				break;
-			}
-		}
+    const candidates = await ctx.db.query("opportunities").withIndex("by_tenantId_and_leadId", q => q.eq("tenantId", tenantId).eq("leadId", lead._id)).order("desc").take(129);
+    if (candidates.length > 128) blockBooking("booking_history_requires_review");
+    if (candidates.some(o => o.updatedAt > now)) blockBooking("historical_booking_requires_review");
+    const oldInvitee = getString(payload, "old_invitee");
+    let explicitSourceMeeting: Doc<"meetings"> | undefined;
+    if (oldInvitee) {
+      const previousMeeting = await ctx.db.query("meetings").withIndex("by_tenantId_and_calendlyInviteeUri", q => q.eq("tenantId", tenantId).eq("calendlyInviteeUri", oldInvitee)).unique();
+      if (!previousMeeting) blockBooking("previous_booking_missing");
+      explicitSourceMeeting = previousMeeting;
+      autoRescheduleTarget = candidates.find(o => o._id === previousMeeting.opportunityId) ?? null;
+      if (!autoRescheduleTarget) blockBooking("identity_conflict");
+      if (!["scheduled", "canceled", "no_show"].includes(autoRescheduleTarget.status)) blockBooking("booking_target_requires_review");
+    } else {
+      const eligible = candidates.filter(o => (o.status === "no_show" || o.status === "canceled") && o.updatedAt > rescheduleCutoff);
+      if (eligible.length > 1) blockBooking("ambiguous_booking_target");
+      autoRescheduleTarget = eligible[0] ?? null;
+    }
 
 		if (
-			autoRescheduleTarget &&
+			autoRescheduleTarget && autoRescheduleTarget.status !== "scheduled" &&
 			!validateTransition(autoRescheduleTarget.status, "scheduled")
 		) {
 			log.warn("pipeline.invitee_created.reschedule_transition_invalid", {
@@ -1318,7 +1303,12 @@ export const process = internalMutation({
 				)
 				.order("desc")
 				.take(1);
-			const rescheduledFromMeetingId = previousMeetings[0]?._id;
+			const rescheduledFromMeetingId = explicitSourceMeeting?._id ?? previousMeetings[0]?._id;
+      if (explicitSourceMeeting?.status === "scheduled") {
+        await patchMeetingLifecycle(ctx, explicitSourceMeeting._id, { status: "canceled", canceledAt: now });
+        await emitDomainEvent(ctx, { tenantId, entityType: "meeting", entityId: explicitSourceMeeting._id,
+          eventType: "meeting.canceled", source: "pipeline", fromStatus: "scheduled", toStatus: "canceled", occurredAt: now });
+      }
 			const nextAssignedCloserId =
 				assignedCloserId ?? autoRescheduleTarget.assignedCloserId;
 			const effectiveEventTypeConfigId =
@@ -1379,6 +1369,7 @@ export const process = internalMutation({
 				{
 					opportunityId: reschedOpportunityId,
 					calendlyEventUri,
+          occurredAt: now,
 				},
 			);
 
@@ -1484,24 +1475,17 @@ export const process = internalMutation({
 		// === End Feature B4: Opportunity linking + closer reassignment ===
 
 		let existingFollowUp: Doc<"opportunities"> | null = null;
-		const followUpCandidates = ctx.db
-			.query("opportunities")
-			.withIndex("by_tenantId_and_leadId", (q) =>
-				q.eq("tenantId", tenantId).eq("leadId", lead._id),
-			)
-			.order("desc");
-		for await (const opportunity of followUpCandidates) {
-			if (opportunity.status === "follow_up_scheduled") {
-				existingFollowUp = opportunity;
-				break;
-			}
-		}
+    const followUps = candidates.filter(o => o.status === "follow_up_scheduled");
+    if (followUps.length > 1) blockBooking("ambiguous_booking_target");
+    existingFollowUp = followUps[0] ?? null;
 
 		const slackQualifiedOpportunity =
 			await findOpenSlackQualifiedOpportunity(ctx, {
 				tenantId,
 				leadId: lead._id,
+        referenceTime: now,
 			});
+    if (existingFollowUp && slackQualifiedOpportunity) blockBooking("ambiguous_booking_target");
 
 		const meetingAssignedCloserId = slackQualifiedOpportunity
 			? assignedCloserId ??
@@ -1645,6 +1629,7 @@ export const process = internalMutation({
 				{
 					opportunityId,
 					calendlyEventUri,
+          occurredAt: now,
 				},
 			);
 		} else {

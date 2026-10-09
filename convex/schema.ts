@@ -28,9 +28,15 @@ import { utmParamsValidator } from "./lib/utmParams";
 import { weekdayValidator } from "./lib/workSchedule";
 import { operationsReportTables } from "./operations/reports/schema";
 
+import { meetingProjectionTables } from "./operations/meetingProjectionSchema";
+import { pipelineTables } from "./pipeline/schema";
+
 export default defineSchema({
+  ...pipelineTables,
+  ...meetingProjectionTables,
   ...operationsReportTables,
   tenants: defineTable({
+    meetingProjectionVersion: v.optional(v.literal(2)),
     // Identity
     companyName: v.string(),
     contactEmail: v.string(),
@@ -421,6 +427,8 @@ export default defineSchema({
     eventType: v.string(),
     payload: v.string(),
     processed: v.boolean(),
+    occurredAt: v.optional(v.number()),
+    processingReason: v.optional(v.string()),
     receivedAt: v.number(),
   })
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: maintenance reads the newest event per scheduled event first
@@ -458,6 +466,7 @@ export default defineSchema({
     country: v.optional(v.string()),
     leadType: v.optional(leadTypeValidator),
     customFields: v.optional(v.record(v.string(), v.string())),
+    customFieldLabels: v.optional(v.record(v.string(), v.string())),
     firstSeenAt: v.number(),
     updatedAt: v.number(),
 
@@ -1291,6 +1300,7 @@ export default defineSchema({
     .index("by_opportunityId", ["opportunityId"])
     .index("by_tenantId_and_scheduledAt", ["tenantId", "scheduledAt"])
     .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
+    .index("by_tenantId_and_calendlyInviteeUri", ["tenantId", "calendlyInviteeUri"])
     .index("by_tenantId_and_calendlyEventUri", ["tenantId", "calendlyEventUri"])
     .index("by_tenantId_and_status_and_scheduledAt", [
       "tenantId",
@@ -1304,6 +1314,7 @@ export default defineSchema({
       "meetingOutcome",
       "scheduledAt",
     ])
+    .index("by_opportunityId_and_status_and_scheduledAt", ["opportunityId", "status", "scheduledAt"])
     .index("by_opportunityId_and_scheduledAt", [
       "opportunityId",
       "scheduledAt",
@@ -1631,6 +1642,8 @@ export default defineSchema({
       "opportunityId",
       "recordedAt",
     ])
+    .index("by_opportunityId_and_status_and_recordedAt", ["opportunityId", "status", "recordedAt"])
+    .index("by_originatingOpportunityId_and_status_and_recordedAt", ["originatingOpportunityId", "status", "recordedAt"])
     .index("by_originatingOpportunityId_and_recordedAt", [
       "originatingOpportunityId",
       "recordedAt",

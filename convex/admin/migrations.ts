@@ -1,3 +1,6 @@
+import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { requestMeetingProjection } from "../operations/meetingStats";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
@@ -1303,14 +1306,14 @@ export const backfillMeetingCloserId = mutation({
       }
 
       if (opportunity.assignedCloserId !== inferred.assignedCloserId) {
-        await ctx.db.patch("opportunities", opportunity._id, {
+        await patchOpportunityLifecycle(ctx, opportunity._id, {
           assignedCloserId: inferred.assignedCloserId,
           updatedAt: Date.now(),
         });
         opportunitiesPatched += 1;
       }
 
-      await ctx.db.patch("meetings", meeting._id, {
+      await patchMeetingLifecycle(ctx, meeting._id, {
         assignedCloserId: inferred.assignedCloserId,
       });
       updated += 1;
@@ -2658,6 +2661,7 @@ export const purgePhase6BlockerRecords = mutation({
 
       // 10. Delete meetings
       for (const meeting of oppMeetings) {
+        await requestMeetingProjection(ctx, meeting.tenantId, meeting._id);
         await ctx.db.delete("meetings", meeting._id);
         counts.meetings++;
       }

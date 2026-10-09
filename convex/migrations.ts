@@ -1,5 +1,9 @@
 import { Migrations } from "@convex-dev/migrations";
-import { components } from "./_generated/api";
+import { v } from "convex/values";
+import { internalMutation } from "./_generated/server";
+import { adoptRawDelivery, deliveryMetadata } from "./pipeline/receipts";
+import { requestMeetingProjection, bucketKey, meetingDayKey } from "./operations/meetingStats";
+import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import { leadGenWeekdayForBusinessDate } from "./leadGen/schedules";
@@ -247,5 +251,74 @@ export const backfillLeadGenDailyStatScheduledHours = migrations.define({
         updatedAt: Date.now(),
       });
     }
+  },
+});
+
+// Workpool rollout: widen schema, adopt receipts, rebuild from source, drain,
+// assert every source and bucket, then enable readers. Never seed from old totals.
+export const adoptWebhookDeliveryReceipts = migrations.define({
+  table: "rawWebhookEvents", batchSize: 32,
+  migrateOne: async (ctx, raw) => { await adoptRawDelivery(ctx, raw); },
+});
+export const assertWebhookDeliveryReceipts = migrations.define({
+  table: "rawWebhookEvents", batchSize: 64,
+  migrateOne: async (ctx, raw) => {
+    const metadata = await deliveryMetadata(raw);
+    const receipt = await ctx.db.query("webhookDeliveries").withIndex("by_tenantId_and_key", q => q.eq("tenantId", raw.tenantId).eq("key", metadata.key)).unique();
+    if (!receipt) throw new Error("Webhook receipt missing");
+  },
+});
+export const rebuildMeetingProjections = migrations.define({
+  table: "meetings", batchSize: 32,
+  migrateOne: async (ctx, meeting) => { await requestMeetingProjection(ctx, meeting.tenantId, meeting._id); },
+});
+export const assertMeetingProjections = migrations.define({
+  table: "meetings", batchSize: 64,
+  migrateOne: async (ctx, meeting) => {
+    const projection = await ctx.db.query("meetingProjections").withIndex("by_meetingId", q => q.eq("meetingId", meeting._id)).unique();
+    const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
+    if (!opportunity || opportunity.tenantId !== meeting.tenantId) throw new Error("Invalid meeting relationship");
+    const key = bucketKey({ dayKey: meetingDayKey(meeting.scheduledAt), assignedCloserId: meeting.assignedCloserId,
+      bookingProgramId: meeting.bookingProgramId, soldProgramId: opportunity.soldProgramId,
+      attributionTeamId: meeting.attributionTeamId, dmCloserId: meeting.dmCloserId, opportunityStatus: opportunity.status, meetingStatus: meeting.status });
+    const bucket = await ctx.db.query("operationsMeetingStatsV2").withIndex("by_tenantId_and_bucketKey", q => q.eq("tenantId", meeting.tenantId).eq("bucketKey", key)).unique();
+    if (!bucket || projection?.tenantId !== meeting.tenantId || projection.status !== "applied" || projection.bucketKey !== key) throw new Error("Meeting projection is missing or stale; drain and rerun assertion");
+  },
+});
+export const assertMeetingProjectionBuckets = migrations.define({
+  table: "operationsMeetingStatsV2", batchSize: 1,
+  migrateOne: async (ctx, bucket) => {
+    // Large buckets use pagination across separate migration rows in a future
+    // warehouse cutover; fail explicitly instead of accepting a partial count.
+    const contributions = await ctx.db.query("meetingProjections").withIndex("by_tenantId_and_bucketKey", q => q.eq("tenantId", bucket.tenantId).eq("bucketKey", bucket.bucketKey)).take(8193);
+    if (contributions.length > 8192) throw new Error("Bucket verification exceeds live limit");
+    if (bucket.count <= 0 || bucket.count !== contributions.length) throw new Error("Projection bucket count mismatch");
+  },
+});
+export const assertMeetingProjectionSources = migrations.define({
+  table: "meetingProjections", batchSize: 64,
+  migrateOne: async (ctx, projection) => {
+    const meeting = await ctx.db.get("meetings", projection.meetingId);
+    if (projection.status !== "applied") throw new Error("Projection work is unfinished");
+    if (meeting && meeting.tenantId !== projection.tenantId) throw new Error("Projection tenant mismatch");
+    if (!meeting && (projection.contribution || projection.bucketKey)) throw new Error("Deleted meeting still contributes to reports");
+    if (projection.contribution && projection.bucketKey !== bucketKey(projection.contribution)) throw new Error("Projection contribution key mismatch");
+  },
+});
+export const activateMeetingProjections = internalMutation({
+  args: { tenantId: v.id("tenants") }, returns: v.null(),
+  handler: async (ctx, { tenantId }) => {
+    const statuses = await migrations.getStatus(ctx, { migrations: [
+      internal.migrations.rebuildMeetingProjections, internal.migrations.assertMeetingProjections,
+      internal.migrations.assertMeetingProjectionBuckets, internal.migrations.assertMeetingProjectionSources,
+    ] });
+    if (statuses.length !== 4 || statuses.some(s => !s.isDone)) throw new Error("Complete rebuild and all three assertions before activating reports");
+    for (const status of ["queued", "failed"] as const) {
+      const pending = await ctx.db.query("meetingProjections").withIndex("by_tenantId_and_status_and_requestedAt", q => q.eq("tenantId", tenantId).eq("status", status)).first();
+      const fanout = await ctx.db.query("opportunityProjectionJobs").withIndex("by_tenantId_and_status_and_requestedAt", q => q.eq("tenantId", tenantId).eq("status", status)).first();
+      if (pending || fanout) throw new Error("Drain reporting work before activating reports");
+    }
+    await ctx.db.patch("tenants", tenantId, { meetingProjectionVersion: 2 });
+    return null;
   },
 });
