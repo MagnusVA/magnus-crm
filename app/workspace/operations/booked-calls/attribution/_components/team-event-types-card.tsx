@@ -38,6 +38,7 @@ import {
   portalReadinessFor,
 } from "@/app/workspace/_components/portal-readiness";
 import { getErrorMessage } from "@/lib/errors";
+import { cn } from "@/lib/utils";
 import { SCHEDULING_MODE_LABEL } from "@/lib/scheduling-mode";
 
 type SchedulingMode = "normal" | "extended";
@@ -79,7 +80,13 @@ export function TeamEventTypesCard({
   const [pendingCell, setPendingCell] = useState<string | null>(null);
 
   if (teams === undefined || programs === undefined || routes === undefined) {
-    return <Skeleton className="h-72 w-full" />;
+    return (
+      <Skeleton
+        className="h-72 w-full"
+        role="status"
+        aria-label="Loading team event types"
+      />
+    );
   }
 
   const activeTeams = teams.filter((team) => team.isActive);
@@ -131,10 +138,8 @@ export function TeamEventTypesCard({
       <CardHeader>
         <CardTitle>Team Event Types</CardTitle>
         <CardDescription>
-          Choose which event type each team&apos;s portal links book into for
-          each program. A team with nothing assigned uses the shared event
-          types: portal-ready event types no team is assigned to (
-          {sharedCount} now).
+          Pick the event type each team&apos;s portal links book into, per
+          program and scheduling mode.
         </CardDescription>
         {activeTeams.length > 0 && team ? (
           <CardAction>
@@ -142,7 +147,7 @@ export function TeamEventTypesCard({
               value={team._id}
               onValueChange={(value) => setSelectedTeamId(value)}
             >
-              <SelectTrigger aria-label="Team" className="w-48" size="sm">
+              <SelectTrigger aria-label="Team" className="w-52">
                 <SelectValue placeholder="Select team" />
               </SelectTrigger>
               <SelectContent>
@@ -165,69 +170,78 @@ export function TeamEventTypesCard({
           </p>
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-col gap-1 rounded-lg border bg-muted/30 px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3">
               {teamRoutes.length > 0 ? (
                 <Badge variant="secondary">
-                  Own event types ({teamRoutes.length})
+                  Own event types · {teamRoutes.length}
                 </Badge>
               ) : (
-                <Badge variant="outline">Uses shared event types</Badge>
+                <Badge variant="outline">
+                  Shared event types · {sharedCount}
+                </Badge>
               )}
               <span className="text-xs text-muted-foreground">
                 {teamRoutes.length > 0
-                  ? "This team's DM closers only see the event types below."
-                  : "Assigning any event type switches this team to its own event types."}
+                  ? `${team.displayName}'s DM closers only see the event types assigned below.`
+                  : `${team.displayName} sees every portal-ready event type no team is assigned to. Assigning one switches it to its own set.`}
               </span>
             </div>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Program</TableHead>
-                  {MODES.map(({ mode, label }) => (
-                    <TableHead key={mode}>{label}</TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {programs.length === 0 ? (
-                  <TableRow>
-                    <TableCell
-                      colSpan={3}
-                      className="h-24 text-center text-muted-foreground"
-                    >
-                      No programs are available.
-                    </TableCell>
-                  </TableRow>
-                ) : null}
-                {programs.map((program) => (
-                  <TableRow key={program._id}>
-                    <TableCell className="font-medium">{program.name}</TableCell>
+            <div className="overflow-hidden rounded-lg border">
+              <Table className="table-fixed">
+                <TableHeader className="bg-muted/40">
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="w-[30%] pl-3">Program</TableHead>
                     {MODES.map(({ mode, label }) => (
-                      <TableCell key={mode}>
-                        <RouteCell
-                          options={eventTypeConfigs.filter(
-                            (config) =>
-                              config.bookingProgramId === program._id &&
-                              config.bookingProgramMappingStatus ===
-                                "mapped" &&
-                              modeOf(config) === mode,
-                          )}
-                          route={routeByCell.get(cellKey(program._id, mode))}
-                          eventTypeById={eventTypeById}
-                          isPending={
-                            pendingCell === cellKey(program._id, mode)
-                          }
-                          onChange={(value) =>
-                            handleChange(team._id, program._id, mode, value)
-                          }
-                          label={`${program.name} ${label} event type for ${team.displayName}`}
-                        />
-                      </TableCell>
+                      <TableHead key={mode}>{label}</TableHead>
                     ))}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {programs.length === 0 ? (
+                    <TableRow>
+                      <TableCell
+                        colSpan={3}
+                        className="h-24 text-center text-muted-foreground"
+                      >
+                        No programs are available.
+                      </TableCell>
+                    </TableRow>
+                  ) : null}
+                  {programs.map((program) => (
+                    <TableRow key={program._id}>
+                      <TableCell
+                        className="truncate pl-3 font-medium"
+                        title={program.name}
+                      >
+                        {program.name}
+                      </TableCell>
+                      {MODES.map(({ mode, label }) => (
+                        <TableCell key={mode}>
+                          <RouteCell
+                            options={eventTypeConfigs.filter(
+                              (config) =>
+                                config.bookingProgramId === program._id &&
+                                config.bookingProgramMappingStatus ===
+                                  "mapped" &&
+                                modeOf(config) === mode,
+                            )}
+                            route={routeByCell.get(cellKey(program._id, mode))}
+                            eventTypeById={eventTypeById}
+                            isPending={
+                              pendingCell === cellKey(program._id, mode)
+                            }
+                            onChange={(value) =>
+                              handleChange(team._id, program._id, mode, value)
+                            }
+                            label={`${program.name} ${label} event type for ${team.displayName}`}
+                          />
+                        </TableCell>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </>
         )}
       </CardContent>
@@ -261,14 +275,21 @@ function RouteCell({
     : null;
 
   return (
-    <div className="flex flex-col items-start gap-1.5">
-      <div className="flex items-center gap-2">
+    <div className="flex min-w-0 flex-col items-start gap-1.5">
+      <div className="flex w-full min-w-0 items-center gap-2">
         <Select
           value={route?.eventTypeConfigId ?? NOT_ASSIGNED}
           onValueChange={onChange}
           disabled={isPending}
         >
-          <SelectTrigger aria-label={label} className="w-56" size="sm">
+          <SelectTrigger
+            aria-label={label}
+            className={cn(
+              "w-full max-w-72 min-w-0",
+              !route && "text-muted-foreground",
+            )}
+            size="sm"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>

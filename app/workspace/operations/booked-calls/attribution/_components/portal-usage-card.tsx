@@ -1,8 +1,14 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery } from "convex/react";
+import { formatDistanceToNowStrict } from "date-fns";
 import { api } from "@/convex/_generated/api";
-import { MemberIdentity } from "@/app/workspace/_components/member-identity";
+import {
+  getMemberDisplayName,
+  MemberAvatar,
+} from "@/app/workspace/_components/member-avatar";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -11,14 +17,8 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+
+const COLLAPSED_COUNT = 8;
 
 function formatTimestamp(timestamp: number) {
   return new Intl.DateTimeFormat(undefined, {
@@ -31,6 +31,7 @@ export function PortalUsageCard() {
   const events = useQuery(api.linkPortal.copyQueries.listRecentCopyEvents, {
     limit: 25,
   });
+  const [expanded, setExpanded] = useState(false);
 
   if (events === undefined) {
     return (
@@ -42,66 +43,80 @@ export function PortalUsageCard() {
     );
   }
 
+  const visibleEvents = expanded ? events : events.slice(0, COLLAPSED_COUNT);
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Portal Copy Activity</CardTitle>
+        <CardTitle>Recent Link Copies</CardTitle>
         <CardDescription>
-          Recent successful link copies, without storing generated URLs.
+          Who copied which link. Generated URLs aren&apos;t stored.
         </CardDescription>
       </CardHeader>
       <CardContent>
         {events.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
+          <p className="py-6 text-center text-sm text-muted-foreground">
             No portal copy activity recorded yet.
           </p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Copied</TableHead>
-                <TableHead>Program</TableHead>
-                <TableHead>DM Closer</TableHead>
-                <TableHead>Campaign</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {events.map((event) => (
-                <TableRow key={event.id}>
-                  <TableCell className="tabular-nums">
-                    {formatTimestamp(event.copiedAt)}
-                  </TableCell>
-                  <TableCell>
-                    <div className="max-w-56 truncate">
+          <>
+            <ol className="flex flex-col divide-y">
+              {visibleEvents.map((event) => (
+                <li
+                  key={event.id}
+                  className="flex gap-3 py-2.5 first:pt-0 last:pb-0"
+                >
+                  {event.dmCloser ? (
+                    <MemberAvatar identity={event.dmCloser} className="mt-0.5" />
+                  ) : null}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="truncate text-sm font-medium">
+                        {event.dmCloser
+                          ? getMemberDisplayName(event.dmCloser)
+                          : event.dmCloserName}
+                      </span>
+                      <time
+                        dateTime={new Date(event.copiedAt).toISOString()}
+                        title={formatTimestamp(event.copiedAt)}
+                        className="shrink-0 text-xs tabular-nums text-muted-foreground"
+                      >
+                        {formatDistanceToNowStrict(event.copiedAt, {
+                          addSuffix: true,
+                        })}
+                      </time>
+                    </div>
+                    <p className="truncate text-xs text-muted-foreground">
                       {event.bookingProgramName}
-                    </div>
-                    <div className="max-w-56 truncate text-xs text-muted-foreground">
-                      {event.eventTypeName}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    {event.dmCloser ? (
-                      <MemberIdentity identity={event.dmCloser} className="max-w-48" />
-                    ) : (
-                      <div className="max-w-48 truncate">{event.dmCloserName}</div>
-                    )}
-                    <div className="max-w-48 truncate text-xs text-muted-foreground">
-                      {event.attributionTeamName}
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="max-w-40 truncate">{event.campaignLabel}</div>
-                    <div
-                      className="max-w-40 truncate font-mono text-xs text-muted-foreground"
-                      translate="no"
+                      <span aria-hidden="true"> · </span>
+                      <span title={event.utmCampaign}>
+                        {event.campaignLabel}
+                      </span>
+                    </p>
+                    <p
+                      className="truncate text-xs text-muted-foreground/70"
+                      title={`${event.attributionTeamName} · ${event.eventTypeName}`}
                     >
-                      {event.utmCampaign}
-                    </div>
-                  </TableCell>
-                </TableRow>
+                      {event.attributionTeamName}
+                      <span aria-hidden="true"> · </span>
+                      {event.eventTypeName}
+                    </p>
+                  </div>
+                </li>
               ))}
-            </TableBody>
-          </Table>
+            </ol>
+            {events.length > COLLAPSED_COUNT ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mt-3 w-full"
+                onClick={() => setExpanded((value) => !value)}
+              >
+                {expanded ? "Show less" : `Show all ${events.length}`}
+              </Button>
+            ) : null}
+          </>
         )}
       </CardContent>
     </Card>
