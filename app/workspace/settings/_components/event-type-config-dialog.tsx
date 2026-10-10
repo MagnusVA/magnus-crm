@@ -88,6 +88,12 @@ const eventTypeConfigSchema = z
 
 type EventTypeConfigFormValues = z.infer<typeof eventTypeConfigSchema>;
 
+// Calendly form questions can be long sentences; keep them from widening the form.
+const SELECT_TRIGGER_CLASS =
+  "w-full *:data-[slot=select-value]:block *:data-[slot=select-value]:truncate";
+const FORM_FIELD_SELECT_CONTENT_CLASS =
+  "max-w-(--radix-select-trigger-width)";
+
 const SOCIAL_PLATFORMS = [
   { value: "instagram", label: "Instagram" },
   { value: "tiktok", label: "TikTok" },
@@ -265,7 +271,7 @@ export function EventTypeConfigDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+      <DialogContent className="max-h-[85vh] grid-cols-1 overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Edit Event Type</DialogTitle>
           <DialogDescription>
@@ -314,7 +320,7 @@ export function EventTypeConfigDialog({
                       disabled={isSubmitting || programs === undefined}
                     >
                       <FormControl>
-                        <SelectTrigger>
+                        <SelectTrigger className={SELECT_TRIGGER_CLASS}>
                           <SelectValue placeholder="Select booked program" />
                         </SelectTrigger>
                       </FormControl>
@@ -358,7 +364,7 @@ export function EventTypeConfigDialog({
                 render={({ field }) => (
                   <FormItem>
                     <div className="flex items-center justify-between gap-3">
-                      <div className="space-y-1">
+                      <div className="min-w-0 space-y-1">
                         <FormLabel>Standard scheduling</FormLabel>
                         <FormDescription>
                           Enable when this event type books further in advance.
@@ -421,11 +427,14 @@ export function EventTypeConfigDialog({
                           disabled={isSubmitting}
                         >
                           <FormControl>
-                            <SelectTrigger>
+                            <SelectTrigger className={SELECT_TRIGGER_CLASS}>
                               <SelectValue placeholder="Select a form field..." />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
+                          <SelectContent
+                            position="popper"
+                            className={FORM_FIELD_SELECT_CONTENT_CLASS}
+                          >
                             <SelectItem value={NONE_VALUE}>(none)</SelectItem>
                             {knownKeys.map((key) => (
                               <SelectItem key={key} value={key}>
@@ -455,7 +464,7 @@ export function EventTypeConfigDialog({
                           disabled={isSubmitting || !isSocialFieldSelected}
                         >
                           <FormControl>
-                            <SelectTrigger>
+                            <SelectTrigger className={SELECT_TRIGGER_CLASS}>
                               <SelectValue placeholder="Select platform..." />
                             </SelectTrigger>
                           </FormControl>
@@ -489,11 +498,14 @@ export function EventTypeConfigDialog({
                           disabled={isSubmitting}
                         >
                           <FormControl>
-                            <SelectTrigger>
+                            <SelectTrigger className={SELECT_TRIGGER_CLASS}>
                               <SelectValue placeholder="Select a form field..." />
                             </SelectTrigger>
                           </FormControl>
-                          <SelectContent>
+                          <SelectContent
+                            position="popper"
+                            className={FORM_FIELD_SELECT_CONTENT_CLASS}
+                          >
                             <SelectItem value={NONE_VALUE}>(none)</SelectItem>
                             {knownKeys.map((key) => (
                               <SelectItem key={key} value={key}>
