@@ -21,7 +21,7 @@ describe("team program event types", () => {
           eventTypeConfigId: fixture.poolA,
         },
       ),
-    ).rejects.toThrow("is not an extended event type");
+    ).rejects.toThrow("is not a Standard event type");
 
     await expect(
       fixture.admin.mutation(

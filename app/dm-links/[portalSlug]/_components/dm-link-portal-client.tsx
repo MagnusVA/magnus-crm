@@ -66,6 +66,7 @@ import {
 	type MemberAvatarIdentity,
 } from "@/app/workspace/_components/member-avatar";
 import { isPostHogEnabled } from "@/lib/posthog-config";
+import { SCHEDULING_MODE_LABEL } from "@/lib/scheduling-mode";
 import { cn } from "@/lib/utils";
 import {
 	eventTypesForTeam,
@@ -98,12 +99,12 @@ const schedulingModeOptions: Array<{
 }> = [
 	{
 		mode: "normal",
-		title: "Normal",
-		description: "Standard scheduling availability.",
+		title: SCHEDULING_MODE_LABEL.normal,
+		description: "Book the soonest available slots.",
 	},
 	{
 		mode: "extended",
-		title: "Extended",
+		title: SCHEDULING_MODE_LABEL.extended,
 		description: "Book further out when near-term slots are full.",
 	},
 ];
@@ -718,11 +719,11 @@ function UnlockedPortal({
 		scheduling: {
 			title: "Choose scheduling type",
 			description:
-				"Pick normal for standard availability, or extended when near-term slots are full.",
+				"Pick priority for the soonest availability, or standard when near-term slots are full.",
 		},
 		generate: {
 			title: "Generate the link",
-			description: `The ${selectedSchedulingMode === "extended" ? "extended" : "normal"} booking link appears here for ${LINK_EXPIRATION_SECONDS} seconds.`,
+			description: `The ${SCHEDULING_MODE_LABEL[selectedSchedulingMode || "normal"].toLowerCase()} booking link appears here for ${LINK_EXPIRATION_SECONDS} seconds.`,
 		},
 	};
 
@@ -731,12 +732,9 @@ function UnlockedPortal({
 		{ label: "Program", value: program?.bookingProgramName ?? "Not selected" },
 		{
 			label: "Scheduling",
-			value:
-				selectedSchedulingMode === "extended"
-					? "Extended"
-					: selectedSchedulingMode === "normal"
-						? "Normal"
-						: "Not selected",
+			value: selectedSchedulingMode
+				? SCHEDULING_MODE_LABEL[selectedSchedulingMode]
+				: "Not selected",
 		},
 	];
 

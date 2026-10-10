@@ -359,10 +359,10 @@ export function EventTypeConfigDialog({
                   <FormItem>
                     <div className="flex items-center justify-between gap-3">
                       <div className="space-y-1">
-                        <FormLabel>Extended scheduling</FormLabel>
+                        <FormLabel>Standard scheduling</FormLabel>
                         <FormDescription>
-                          Enable when this event type allows booking further in
-                          advance.
+                          Enable when this event type books further in advance.
+                          Leave off for Priority event types.
                         </FormDescription>
                       </div>
                       <FormControl>
@@ -370,7 +370,7 @@ export function EventTypeConfigDialog({
                           checked={field.value}
                           onCheckedChange={field.onChange}
                           disabled={isSubmitting}
-                          aria-label="Extended scheduling event type"
+                          aria-label="Standard scheduling event type"
                         />
                       </FormControl>
                     </div>
