@@ -21,6 +21,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { formatCalendlyLastRefresh } from "@/lib/calendly-connection-status";
+import { SCHEDULING_MODE_LABEL } from "@/lib/scheduling-mode";
 import {
   Empty,
   EmptyHeader,
@@ -298,7 +299,9 @@ export function EventTypeConfigList({
                               {READINESS_LABEL[readiness]}
                             </Badge>
                             {config.isExtended ? (
-                              <Badge variant="secondary">Extended</Badge>
+                              <Badge variant="secondary">
+                                {SCHEDULING_MODE_LABEL.extended}
+                              </Badge>
                             ) : null}
                             {hasFieldMappings(config) ? (
                               <Badge variant="muted">Fields mapped</Badge>

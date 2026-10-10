@@ -31,6 +31,7 @@ import {
   readinessBadgeVariant,
 } from "@/app/workspace/_components/portal-readiness";
 import { getErrorMessage } from "@/lib/errors";
+import { SCHEDULING_MODE_LABEL } from "@/lib/scheduling-mode";
 
 type EventTypeConfig = Doc<"eventTypeConfigs"> & {
   portalReadiness?: PortalReadiness;
@@ -123,7 +124,9 @@ export function PortalEventTypeReadinessCard({
                   </TableCell>
                   <TableCell>
                     <Badge variant={config.isExtended ? "secondary" : "outline"}>
-                      {config.isExtended ? "Extended" : "Normal"}
+                      {config.isExtended
+                        ? SCHEDULING_MODE_LABEL.extended
+                        : SCHEDULING_MODE_LABEL.normal}
                     </Badge>
                   </TableCell>
                   <TableCell>

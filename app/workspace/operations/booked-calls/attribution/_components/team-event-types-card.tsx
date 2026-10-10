@@ -38,6 +38,7 @@ import {
   portalReadinessFor,
 } from "@/app/workspace/_components/portal-readiness";
 import { getErrorMessage } from "@/lib/errors";
+import { SCHEDULING_MODE_LABEL } from "@/lib/scheduling-mode";
 
 type SchedulingMode = "normal" | "extended";
 type EventTypeConfig = Doc<"eventTypeConfigs"> & {
@@ -46,8 +47,8 @@ type EventTypeConfig = Doc<"eventTypeConfigs"> & {
 type Route = Doc<"teamProgramEventTypes">;
 
 const MODES: Array<{ mode: SchedulingMode; label: string }> = [
-  { mode: "normal", label: "Normal" },
-  { mode: "extended", label: "Extended" },
+  { mode: "normal", label: SCHEDULING_MODE_LABEL.normal },
+  { mode: "extended", label: SCHEDULING_MODE_LABEL.extended },
 ];
 
 const NOT_ASSIGNED = "__not_assigned__";
@@ -201,7 +202,7 @@ export function TeamEventTypesCard({
                 {programs.map((program) => (
                   <TableRow key={program._id}>
                     <TableCell className="font-medium">{program.name}</TableCell>
-                    {MODES.map(({ mode }) => (
+                    {MODES.map(({ mode, label }) => (
                       <TableCell key={mode}>
                         <RouteCell
                           options={eventTypeConfigs.filter(
@@ -219,7 +220,7 @@ export function TeamEventTypesCard({
                           onChange={(value) =>
                             handleChange(team._id, program._id, mode, value)
                           }
-                          label={`${program.name} ${mode} event type for ${team.displayName}`}
+                          label={`${program.name} ${label} event type for ${team.displayName}`}
                         />
                       </TableCell>
                     ))}

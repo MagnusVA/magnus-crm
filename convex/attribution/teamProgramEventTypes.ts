@@ -115,8 +115,8 @@ export const setTeamProgramEventType = mutation({
       throw rejectRequest(
         "attribution.event_type_mode_mismatch",
         args.mode === "extended"
-          ? `${eventTypeConfig.displayName} is not an extended event type.`
-          : `${eventTypeConfig.displayName} is an extended event type.`,
+          ? `${eventTypeConfig.displayName} is not a Standard event type.`
+          : `${eventTypeConfig.displayName} is not a Priority event type.`,
         { tenantId },
       );
     }

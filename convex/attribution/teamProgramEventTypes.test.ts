@@ -21,7 +21,19 @@ describe("team program event types", () => {
           eventTypeConfigId: fixture.poolA,
         },
       ),
-    ).rejects.toThrow("is not an extended event type");
+    ).rejects.toThrow("is not a Standard event type");
+
+    await expect(
+      fixture.admin.mutation(
+        api.attribution.teamProgramEventTypes.setTeamProgramEventType,
+        {
+          teamId: fixture.teamA,
+          programId: fixture.programId,
+          mode: "normal",
+          eventTypeConfigId: fixture.standardPool,
+        },
+      ),
+    ).rejects.toThrow("is not a Priority event type");
 
     await expect(
       fixture.admin.mutation(
@@ -180,11 +192,12 @@ async function createFixture() {
     const programId = await insertProgram("Program X");
     const otherProgramId = await insertProgram("Program Y");
 
-    const insertEventType = (displayName: string) =>
+    const insertEventType = (displayName: string, isExtended = false) =>
       ctx.db.insert("eventTypeConfigs", {
         tenantId,
         calendlyEventTypeUri: `https://api.calendly.com/event_types/${displayName}`,
         displayName,
+        isExtended,
         createdAt: now,
         bookingProgramId: programId,
         bookingProgramName: "Program X",
@@ -195,6 +208,7 @@ async function createFixture() {
       });
     const poolA = await insertEventType("pool-a");
     const sharedPool = await insertEventType("shared-pool");
+    const standardPool = await insertEventType("standard-pool", true);
 
     const insertTeam = (slug: string) =>
       ctx.db.insert("attributionTeams", {
@@ -253,6 +267,7 @@ async function createFixture() {
       otherProgramId,
       poolA,
       sharedPool,
+      standardPool,
       teamA,
       teamB,
       dmCloserA,
