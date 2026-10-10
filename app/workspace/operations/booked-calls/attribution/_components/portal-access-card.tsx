@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useAction, useMutation, useQuery } from "convex/react";
 import {
   CopyIcon,
+  ExternalLinkIcon,
   KeyRoundIcon,
   RotateCcwIcon,
   ShieldCheckIcon,
@@ -11,11 +12,9 @@ import {
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -27,12 +26,25 @@ import {
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupInput,
+  InputGroupText,
+} from "@/components/ui/input-group";
+import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { SetPortalPasswordDialog } from "./set-portal-password-dialog";
 import { getErrorMessage } from "@/lib/errors";
+import { cn } from "@/lib/utils";
 
 type PendingAction = "toggle" | "slug" | "ttl" | null;
 
@@ -152,22 +164,26 @@ export function PortalAccessCard() {
   }
 
   if (config === undefined) {
-    return <Skeleton className="h-80 w-full" />;
+    return (
+      <Skeleton
+        className="h-96 w-full"
+        role="status"
+        aria-label="Loading portal access"
+      />
+    );
   }
+
+  const isEnabled = config?.isEnabled ?? false;
 
   return (
     <>
       <Card>
         <CardHeader>
-          <CardTitle>DM Link Portal</CardTitle>
+          <CardTitle>Portal Access</CardTitle>
           <CardDescription>
-            Tenant-wide password access for external DM link generation.
+            Password-protected page where external DM closers generate
+            booking links.
           </CardDescription>
-          <CardAction>
-            <Badge variant={config?.isEnabled ? "secondary" : "outline"}>
-              {config?.isEnabled ? "Enabled" : "Disabled"}
-            </Badge>
-          </CardAction>
         </CardHeader>
         <CardContent className="flex flex-col gap-5">
           {config === null ? (
@@ -181,47 +197,120 @@ export function PortalAccessCard() {
             </Alert>
           ) : null}
 
-          <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-            <FieldGroup>
-              <Field>
-                <FieldLabel htmlFor="portal-url">Portal path</FieldLabel>
-                <div className="flex gap-2">
-                  <Input
-                    id="portal-url"
-                    value={portalPath}
-                    readOnly
-                    disabled={!portalPath}
-                    onFocus={(event) => event.currentTarget.select()}
-                  />
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    aria-label="Copy portal path"
-                    disabled={!portalPath}
-                    onClick={() => copyPortalPath(portalPath)}
-                  >
-                    <CopyIcon />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="outline"
-                    aria-label="Rotate portal path"
-                    disabled={!config || isBusy}
-                    onClick={handleRotateSlug}
-                  >
-                    {pendingAction === "slug" ? <Spinner /> : <RotateCcwIcon />}
-                  </Button>
-                </div>
-              </Field>
+          <div
+            className={cn(
+              "flex items-center justify-between gap-3 rounded-lg border p-3",
+              isEnabled
+                ? "border-emerald-500/30 bg-emerald-500/5"
+                : "bg-muted/40",
+            )}
+          >
+            <div className="flex min-w-0 items-start gap-2.5">
+              <span
+                className={cn(
+                  "mt-1.5 size-2 shrink-0 rounded-full",
+                  isEnabled ? "bg-emerald-500" : "bg-muted-foreground/40",
+                )}
+                aria-hidden="true"
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-medium">
+                  {isEnabled ? "Portal is live" : "Portal is off"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Turning it off signs out every active session.
+                </p>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              {pendingAction === "toggle" ? <Spinner /> : null}
+              <Switch
+                checked={isEnabled}
+                disabled={!config || isBusy}
+                aria-label="Toggle public portal access"
+                onCheckedChange={handlePortalToggle}
+              />
+            </div>
+          </div>
 
-              <Field>
-                <FieldLabel htmlFor="portal-session-duration">
-                  Session duration
-                </FieldLabel>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <Input
+          <FieldGroup className="gap-5">
+            <Field>
+              <FieldLabel htmlFor="portal-url">Portal path</FieldLabel>
+              <InputGroup>
+                <InputGroupInput
+                  id="portal-url"
+                  value={portalPath}
+                  readOnly
+                  disabled={!portalPath}
+                  className="font-mono text-xs"
+                  translate="no"
+                  onFocus={(event) => event.currentTarget.select()}
+                />
+                <InputGroupAddon align="inline-end">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <InputGroupButton
+                        size="icon-xs"
+                        aria-label="Copy portal path"
+                        disabled={!portalPath}
+                        onClick={() => copyPortalPath(portalPath)}
+                      >
+                        <CopyIcon />
+                      </InputGroupButton>
+                    </TooltipTrigger>
+                    <TooltipContent>Copy path</TooltipContent>
+                  </Tooltip>
+                  {portalPath && isEnabled ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <InputGroupButton
+                          size="icon-xs"
+                          aria-label="Open portal in a new tab"
+                          asChild
+                        >
+                          <a
+                            href={portalPath}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <ExternalLinkIcon />
+                          </a>
+                        </InputGroupButton>
+                      </TooltipTrigger>
+                      <TooltipContent>Open portal</TooltipContent>
+                    </Tooltip>
+                  ) : null}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <InputGroupButton
+                        size="icon-xs"
+                        aria-label="Rotate portal path"
+                        disabled={!config || isBusy}
+                        onClick={handleRotateSlug}
+                      >
+                        {pendingAction === "slug" ? (
+                          <Spinner />
+                        ) : (
+                          <RotateCcwIcon />
+                        )}
+                      </InputGroupButton>
+                    </TooltipTrigger>
+                    <TooltipContent>Rotate path</TooltipContent>
+                  </Tooltip>
+                </InputGroupAddon>
+              </InputGroup>
+              <FieldDescription>
+                Rotating the path breaks the old one immediately.
+              </FieldDescription>
+            </Field>
+
+            <Field>
+              <FieldLabel htmlFor="portal-session-duration">
+                Session duration
+              </FieldLabel>
+              <div className="flex gap-2">
+                <InputGroup>
+                  <InputGroupInput
                     id="portal-session-duration"
                     type="number"
                     inputMode="decimal"
@@ -230,67 +319,59 @@ export function PortalAccessCard() {
                     step="0.25"
                     value={ttlHours}
                     disabled={!config || isBusy}
+                    className="tabular-nums"
                     onChange={(event) => setTtlHours(event.target.value)}
                   />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={!config || !ttlIsDirty || isBusy}
-                    onClick={handleSaveTtl}
-                  >
-                    {pendingAction === "ttl" ? (
-                      <Spinner data-icon="inline-start" />
-                    ) : null}
-                    Save Duration
-                  </Button>
-                </div>
-                <FieldDescription>
-                  Measured in hours. Backend bounds are 0.25 to 24 hours.
-                </FieldDescription>
-              </Field>
-            </FieldGroup>
-
-            <div className="flex flex-col gap-3 rounded-lg border bg-muted/25 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-medium">Public access</p>
-                  <p className="text-xs text-muted-foreground">
-                    Disabling revokes active portal sessions.
-                  </p>
-                </div>
-                <Switch
-                  checked={config?.isEnabled ?? false}
-                  disabled={!config || isBusy}
-                  aria-label="Toggle public portal access"
-                  onCheckedChange={handlePortalToggle}
-                />
+                  <InputGroupAddon align="inline-end">
+                    <InputGroupText>hours</InputGroupText>
+                  </InputGroupAddon>
+                </InputGroup>
+                <Button
+                  type="button"
+                  variant={ttlIsDirty ? "default" : "outline"}
+                  disabled={!config || !ttlIsDirty || isBusy}
+                  onClick={handleSaveTtl}
+                >
+                  {pendingAction === "ttl" ? (
+                    <Spinner data-icon="inline-start" />
+                  ) : null}
+                  Save
+                </Button>
               </div>
+              <FieldDescription>
+                Between 0.25 and 24 hours.
+              </FieldDescription>
+            </Field>
+          </FieldGroup>
 
-              <div className="flex flex-col gap-1 text-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">Password set</span>
-                  <span>{formatTimestamp(config?.passwordSetAt)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-3">
-                  <span className="text-muted-foreground">Last rotated</span>
-                  <span>
-                    {formatTimestamp(
-                      config?.passwordRotatedAt ?? config?.passwordSetAt,
-                    )}
-                  </span>
-                </div>
+          <Separator />
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-2.5">
+              <KeyRoundIcon
+                className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <div className="min-w-0 text-sm">
+                <p className="font-medium">Password</p>
+                <p className="text-xs text-muted-foreground">
+                  {config?.passwordSetAt === undefined
+                    ? "Not set"
+                    : `${config.passwordRotatedAt ? "Rotated" : "Set"} ${formatTimestamp(
+                        config.passwordRotatedAt ?? config.passwordSetAt,
+                      )}`}
+                </p>
               </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                disabled={isBusy}
-                onClick={() => setPasswordDialogOpen(true)}
-              >
-                <KeyRoundIcon data-icon="inline-start" />
-                {config?.passwordSetAt ? "Rotate Password" : "Set Password"}
-              </Button>
             </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={isBusy}
+              onClick={() => setPasswordDialogOpen(true)}
+            >
+              {config?.passwordSetAt ? "Rotate" : "Set Password"}
+            </Button>
           </div>
         </CardContent>
       </Card>

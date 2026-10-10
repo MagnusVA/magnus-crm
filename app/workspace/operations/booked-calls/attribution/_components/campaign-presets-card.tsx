@@ -2,7 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "convex/react";
-import { PencilIcon, PlusIcon, StarIcon } from "lucide-react";
+import {
+  BanIcon,
+  CheckIcon,
+  EllipsisIcon,
+  PencilIcon,
+  PlusIcon,
+  StarIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
 import type { Doc, Id } from "@/convex/_generated/dataModel";
@@ -19,15 +26,15 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { CampaignPresetDialog } from "./campaign-preset-dialog";
 import { getErrorMessage } from "@/lib/errors";
+import { cn } from "@/lib/utils";
 
 type CampaignPreset = Doc<"linkPortalCampaignPresets">;
 
@@ -65,7 +72,13 @@ export function CampaignPresetsCard() {
   }, [campaigns, ensureDefaults]);
 
   if (campaigns === undefined) {
-    return <Skeleton className="h-72 w-full" />;
+    return (
+      <Skeleton
+        className="h-72 w-full"
+        role="status"
+        aria-label="Loading campaign presets"
+      />
+    );
   }
 
   const activeCampaignCount = campaigns.filter(
@@ -119,106 +132,105 @@ export function CampaignPresetsCard() {
         <CardHeader>
           <CardTitle>Campaign Presets</CardTitle>
           <CardDescription>
-            Canonical UTM campaign values available in the public portal.
+            UTM campaign values DM closers pick from in the portal.
           </CardDescription>
           <CardAction>
             <Button type="button" size="sm" onClick={openCreateDialog}>
               <PlusIcon data-icon="inline-start" />
-              New Campaign
+              New
             </Button>
           </CardAction>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Label</TableHead>
-                <TableHead>UTM Campaign</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {campaigns.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={4}
-                    className="h-24 text-center text-muted-foreground"
-                  >
-                    Campaign presets are being prepared.
-                  </TableCell>
-                </TableRow>
-              ) : null}
+          {campaigns.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              Campaign presets are being prepared.
+            </p>
+          ) : (
+            <ul className="divide-y rounded-lg border">
               {campaigns.map((campaign) => {
                 const isPending = pendingCampaignId === campaign._id;
                 const cannotDisable =
                   campaign.isActive && activeCampaignCount === 1;
                 return (
-                  <TableRow key={campaign._id}>
-                    <TableCell>{campaign.label}</TableCell>
-                    <TableCell className="font-mono text-xs">
-                      {campaign.utmCampaign}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-2">
-                        {campaign.isDefault && campaign.isActive ? (
-                          <Badge variant="secondary">Default</Badge>
-                        ) : null}
-                        <Badge
-                          variant={campaign.isActive ? "outline" : "muted"}
+                  <li
+                    key={campaign._id}
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2.5",
+                      !campaign.isActive && "bg-muted/30",
+                    )}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "truncate text-sm font-medium",
+                            !campaign.isActive && "text-muted-foreground",
+                          )}
                         >
-                          {campaign.isActive ? "Active" : "Disabled"}
-                        </Badge>
+                          {campaign.label}
+                        </span>
+                        {campaign.isDefault && campaign.isActive ? (
+                          <Badge variant="secondary">
+                            <StarIcon data-icon="inline-start" />
+                            Default
+                          </Badge>
+                        ) : null}
+                        {!campaign.isActive ? (
+                          <Badge variant="muted">Disabled</Badge>
+                        ) : null}
                       </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex justify-end gap-2">
+                      <div
+                        className="truncate font-mono text-xs text-muted-foreground"
+                        translate="no"
+                      >
+                        utm_campaign={campaign.utmCampaign}
+                      </div>
+                    </div>
+                    {isPending ? <Spinner /> : null}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
                         <Button
                           type="button"
-                          size="sm"
+                          size="icon-sm"
                           variant="ghost"
+                          disabled={isPending}
+                          aria-label={`Actions for ${campaign.label}`}
+                        >
+                          <EllipsisIcon />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem
                           onClick={() => openEditDialog(campaign)}
                         >
-                          <PencilIcon data-icon="inline-start" />
+                          <PencilIcon />
                           Edit
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={
-                            isPending ||
-                            !campaign.isActive ||
-                            campaign.isDefault
-                          }
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={!campaign.isActive || campaign.isDefault}
                           onClick={() => handleSetDefault(campaign)}
                         >
-                          {isPending ? (
-                            <Spinner data-icon="inline-start" />
-                          ) : (
-                            <StarIcon data-icon="inline-start" />
-                          )}
+                          <StarIcon />
                           Make Default
-                        </Button>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          disabled={isPending || cannotDisable}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          disabled={cannotDisable}
                           onClick={() =>
                             handleSetActive(campaign, !campaign.isActive)
                           }
                         >
-                          {isPending ? <Spinner data-icon="inline-start" /> : null}
+                          {campaign.isActive ? <BanIcon /> : <CheckIcon />}
                           {campaign.isActive ? "Disable" : "Enable"}
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </li>
                 );
               })}
-            </TableBody>
-          </Table>
+            </ul>
+          )}
         </CardContent>
       </Card>
 

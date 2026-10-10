@@ -102,19 +102,32 @@ function PortalSection() {
     {},
   );
 
+  // Settings sit in a side rail on wide screens so the event type tables get
+  // the main column; below 2xl the rail stacks on top.
   return (
-    <div className="flex flex-col gap-4">
-      <PortalAccessCard />
-      <CampaignPresetsCard />
-      {eventTypeConfigs === undefined ? (
-        <Skeleton className="h-72 w-full" />
-      ) : (
-        <>
-          <PortalEventTypeReadinessCard eventTypeConfigs={eventTypeConfigs} />
-          <TeamEventTypesCard eventTypeConfigs={eventTypeConfigs} />
-        </>
-      )}
-      <PortalUsageCard />
+    <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_400px] 2xl:items-start">
+      <div className="flex min-w-0 flex-col gap-4 2xl:col-start-2 2xl:row-start-1">
+        <PortalAccessCard />
+        <CampaignPresetsCard />
+        <PortalUsageCard />
+      </div>
+      <div className="flex min-w-0 flex-col gap-4 2xl:col-start-1 2xl:row-start-1">
+        {eventTypeConfigs === undefined ? (
+          <>
+            <Skeleton
+              className="h-96 w-full"
+              role="status"
+              aria-label="Loading portal event types"
+            />
+            <Skeleton className="h-72 w-full" />
+          </>
+        ) : (
+          <>
+            <PortalEventTypeReadinessCard eventTypeConfigs={eventTypeConfigs} />
+            <TeamEventTypesCard eventTypeConfigs={eventTypeConfigs} />
+          </>
+        )}
+      </div>
     </div>
   );
 }
