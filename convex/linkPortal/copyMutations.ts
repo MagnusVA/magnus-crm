@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
+import { canTeamUseEventType } from "../lib/attribution/teamEventTypeRoutes";
 import { isPortalBookable } from "../lib/eventTypeBookability";
 import { log } from "../lib/observability/log";
 
@@ -73,6 +74,21 @@ export const insertCopyEvent = internalMutation({
     const team = await ctx.db.get("attributionTeams", dmCloser.teamId);
     if (!team || team.tenantId !== args.tenantId || !team.isActive) {
       throw new Error("Attribution team is not available.");
+    }
+
+    if (
+      !(await canTeamUseEventType(ctx, {
+        tenantId: args.tenantId,
+        teamId: team._id,
+        eventTypeConfig,
+      }))
+    ) {
+      log.warn("link_portal.copy.team_event_type_rejected", {
+        tenantId: args.tenantId,
+        teamId: team._id,
+        eventTypeConfigId: eventTypeConfig._id,
+      });
+      throw new Error("Portal event type is not available for this team.");
     }
 
     if (!campaign || campaign.tenantId !== args.tenantId || !campaign.isActive) {

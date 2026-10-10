@@ -68,6 +68,7 @@ import {
 import { isPostHogEnabled } from "@/lib/posthog-config";
 import { cn } from "@/lib/utils";
 import {
+	eventTypesForTeam,
 	filterEventTypesBySchedulingMode,
 	groupBookablePrograms,
 	type BookableProgramEventType,
@@ -145,6 +146,7 @@ type PortalBootstrap = {
 		teamId: string;
 		teamDisplayName: string;
 		teamUtmSource: string;
+		teamHasEventTypeRoutes: boolean;
 	}>;
 	bookablePrograms: Array<BookableProgramEventType>;
 };
@@ -417,9 +419,15 @@ function UnlockedPortal({
 		Record<string, LinkCopyState>
 	>({});
 
+	const closer = bootstrap.dmClosers.find((row) => row.id === selectedCloserId);
 	const groupedPrograms = useMemo(
-		() => groupBookablePrograms(bootstrap.bookablePrograms),
-		[bootstrap.bookablePrograms],
+		() =>
+			closer
+				? groupBookablePrograms(
+						eventTypesForTeam(bootstrap.bookablePrograms, closer),
+					)
+				: [],
+		[bootstrap.bookablePrograms, closer],
 	);
 
 	const defaultCampaign = useMemo(
@@ -430,7 +438,6 @@ function UnlockedPortal({
 		[bootstrap.campaignPresets],
 	);
 
-	const closer = bootstrap.dmClosers.find((row) => row.id === selectedCloserId);
 	const program = groupedPrograms.find(
 		(row) => row.bookingProgramId === selectedProgramId,
 	);
@@ -465,7 +472,7 @@ function UnlockedPortal({
 
 	const setupIncomplete =
 		bootstrap.dmClosers.length === 0 ||
-		groupedPrograms.length === 0 ||
+		bootstrap.bookablePrograms.length === 0 ||
 		!defaultCampaign;
 	const currentStepIndex = portalSteps.findIndex(
 		(step) => step.id === currentStep,
@@ -529,6 +536,13 @@ function UnlockedPortal({
 	function selectCloser(value: string) {
 		if (value !== selectedCloserId) {
 			resetGeneratedLinks();
+			const nextCloser = bootstrap.dmClosers.find((row) => row.id === value);
+			// Each team can route a program to a different event type, so the
+			// program list changes with the team.
+			if (nextCloser?.teamId !== closer?.teamId) {
+				setSelectedProgramId("");
+				setSelectedSchedulingMode("");
+			}
 		}
 		setSelectedCloserId(value);
 	}
@@ -900,6 +914,13 @@ function UnlockedPortal({
 										/>
 									))}
 								</div>
+							) : null}
+
+							{currentStep === "program" && groupedPrograms.length === 0 ? (
+								<p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+									No programs are set up for {closer?.teamDisplayName ?? "this team"} yet.
+									Ask an admin to assign event types to the team.
+								</p>
 							) : null}
 
 							{currentStep === "program" ? (

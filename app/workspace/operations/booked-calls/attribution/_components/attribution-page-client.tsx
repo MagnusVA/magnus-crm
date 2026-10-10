@@ -18,6 +18,7 @@ import { CampaignPresetsCard } from "./campaign-presets-card";
 import { PortalAccessCard } from "./portal-access-card";
 import { PortalEventTypeReadinessCard } from "./portal-event-type-readiness-card";
 import { PortalUsageCard } from "./portal-usage-card";
+import { TeamEventTypesCard } from "./team-event-types-card";
 
 const SECTIONS = ["teams", "portal", "diagnostics"] as const;
 type Section = (typeof SECTIONS)[number];
@@ -108,7 +109,10 @@ function PortalSection() {
       {eventTypeConfigs === undefined ? (
         <Skeleton className="h-72 w-full" />
       ) : (
-        <PortalEventTypeReadinessCard eventTypeConfigs={eventTypeConfigs} />
+        <>
+          <PortalEventTypeReadinessCard eventTypeConfigs={eventTypeConfigs} />
+          <TeamEventTypesCard eventTypeConfigs={eventTypeConfigs} />
+        </>
       )}
       <PortalUsageCard />
     </div>
