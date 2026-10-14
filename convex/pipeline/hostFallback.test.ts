@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { insertLeadAggregate, insertOpportunityAggregate } from "../reporting/writeHooks";
 
 afterEach(() => vi.useRealTimers());
 
@@ -166,5 +167,62 @@ it.each(["admin", "unknown", "unmatched_member"])(
       : { status: "blocked", reason: "host_not_linked" });
     expect(await t.run((ctx) => ctx.db.query("meetings").take(1))).toHaveLength(0);
     expect(await t.run((ctx) => ctx.db.query("opportunities").take(1))).toHaveLength(0);
+    // A booking the pipeline does not track leaves no lead or identifier behind.
+    expect(await t.run((ctx) => ctx.db.query("leads").take(1))).toHaveLength(0);
+    expect(await t.run((ctx) => ctx.db.query("leadIdentifiers").take(1))).toHaveLength(0);
   },
 );
+
+it("attaches an admin-hosted booking to the lead's Slack-qualified opportunity without a new lead", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-02T00:00:00Z"));
+  const { t, tenantId, admin } = await bookingHarness();
+  const { leadId, opportunityId, closerId } = await t.run(async (ctx) => {
+    const adminUser = await ctx.db.query("users")
+      .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_admin")).unique();
+    await ctx.db.patch("users", adminUser!._id, {
+      calendlyUserUri: "https://api.calendly.com/users/admin",
+    });
+    const closer = await ctx.db.query("users")
+      .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_closer")).unique();
+    const leadId = await ctx.db.insert("leads", {
+      tenantId,
+      email: "lead@example.com",
+      status: "active",
+      firstSeenAt: Date.parse("2026-09-30T08:00:00Z"),
+      updatedAt: Date.parse("2026-09-30T08:00:00Z"),
+    });
+    const opportunityId = await ctx.db.insert("opportunities", {
+      tenantId, leadId,
+      status: "qualified_pending",
+      source: "slack_qualified",
+      assignedCloserId: closer!._id,
+      createdAt: Date.parse("2026-09-30T08:00:00Z"),
+      updatedAt: Date.parse("2026-09-30T08:00:00Z"),
+    });
+    await insertLeadAggregate(ctx, leadId);
+    await insertOpportunityAggregate(ctx, opportunityId);
+    return { leadId, opportunityId, closerId: closer!._id };
+  });
+  const payload = bookingPayload("slack-admin");
+  payload.scheduled_event.event_memberships[0].user = "https://api.calendly.com/users/admin";
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: "invitee.created",
+    payload: JSON.stringify({ created_at: "2026-10-01T10:00:00Z", payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [receipt] = (await admin.query(api.pipeline.delivery.list, {
+    paginationOpts: { cursor: null, numItems: 10 },
+  })).page;
+  expect(receipt).toMatchObject({ status: "applied", opportunityId, leadId });
+  const state = await t.run(async (ctx) => ({
+    leads: await ctx.db.query("leads").take(5),
+    opportunity: await ctx.db.get("opportunities", opportunityId),
+    meeting: await ctx.db.get("meetings", receipt.meetingId!),
+  }));
+  expect(state.leads.map((l) => l._id)).toEqual([leadId]);
+  expect(state.opportunity).toMatchObject({ status: "scheduled", assignedCloserId: closerId });
+  expect(state.meeting).toMatchObject({ assignedCloserId: closerId, status: "scheduled" });
+});

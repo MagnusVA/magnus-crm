@@ -240,6 +240,8 @@ import type * as opportunities_staleness from "../opportunities/staleness.js";
 import type * as opportunities_validators from "../opportunities/validators.js";
 import type * as pipeline_blocked from "../pipeline/blocked.js";
 import type * as pipeline_bookingFacts from "../pipeline/bookingFacts.js";
+import type * as pipeline_bookingHost from "../pipeline/bookingHost.js";
+import type * as pipeline_bookingRelevance from "../pipeline/bookingRelevance.js";
 import type * as pipeline_delivery from "../pipeline/delivery.js";
 import type * as pipeline_inviteeCanceled from "../pipeline/inviteeCanceled.js";
 import type * as pipeline_inviteeCreated from "../pipeline/inviteeCreated.js";
@@ -585,6 +587,8 @@ declare const fullApi: ApiFromModules<{
   "opportunities/validators": typeof opportunities_validators;
   "pipeline/blocked": typeof pipeline_blocked;
   "pipeline/bookingFacts": typeof pipeline_bookingFacts;
+  "pipeline/bookingHost": typeof pipeline_bookingHost;
+  "pipeline/bookingRelevance": typeof pipeline_bookingRelevance;
   "pipeline/delivery": typeof pipeline_delivery;
   "pipeline/inviteeCanceled": typeof pipeline_inviteeCanceled;
   "pipeline/inviteeCreated": typeof pipeline_inviteeCreated;

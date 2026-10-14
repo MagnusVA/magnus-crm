@@ -1,5 +1,5 @@
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
-import { blockBooking } from "./blocked";
+import { blockBooking, ignoreBooking } from "./blocked";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalMutation } from "../_generated/server";
@@ -51,6 +51,12 @@ import {
 } from "../reporting/writeHooks";
 import { findOpenSlackQualifiedOpportunity } from "./slackJoinLookup";
 import { log, reportError } from "../lib/observability/log";
+import {
+	bookingHostOutcome,
+	extractHostMembership,
+	resolveAssignedCloser,
+	type AssignedCloserResolution,
+} from "./bookingHost";
 
 function parseTimestamp(value: unknown): number | undefined {
 	if (typeof value !== "string") {
@@ -173,20 +179,6 @@ type ExtractedIdentifiers = {
 type EventTypeConfigLookupResult = {
 	existingConfig: Doc<"eventTypeConfigs"> | null;
 	candidateCount: number;
-};
-
-type AssignedCloserResolution = {
-	assignedCloserId: Id<"users"> | undefined;
-	hostCalendlyRole: string | undefined;
-	isKnownNonCloserHost: boolean;
-	resolution:
-		| "missing_host"
-		| "direct_closer"
-		| "direct_non_closer"
-		| "org_member_closer"
-		| "org_member_non_closer"
-		| "org_member_unmatched"
-		| "unknown_host";
 };
 
 type LeadIdentifierUpsertResult =
@@ -484,25 +476,6 @@ async function updateLeadSearchText(
 	await rebuildLeadCustomerSearchRow(ctx, lead.tenantId, leadId);
 }
 
-function extractHostMembership(scheduledEvent: Record<string, unknown>) {
-	const eventMemberships = Array.isArray(scheduledEvent.event_memberships)
-		? scheduledEvent.event_memberships
-		: [];
-	const primaryMembership = eventMemberships.find(isRecord);
-
-	return {
-		hostUserUri: primaryMembership
-			? getString(primaryMembership, "user")
-			: undefined,
-		hostCalendlyEmail: primaryMembership
-			? getString(primaryMembership, "user_email")
-			: undefined,
-		hostCalendlyName: primaryMembership
-			? getString(primaryMembership, "user_name")
-			: undefined,
-	};
-}
-
 async function lookupEventTypeConfig(
 	ctx: MutationCtx,
 	{
@@ -538,92 +511,6 @@ async function lookupEventTypeConfig(
 	};
 }
 
-async function resolveAssignedCloser(
-	ctx: MutationCtx,
-	tenantId: Id<"tenants">,
-	hostUserUri: string | undefined,
-): Promise<AssignedCloserResolution> {
-
-	if (!hostUserUri) {
-		return {
-			assignedCloserId: undefined,
-			hostCalendlyRole: undefined,
-			isKnownNonCloserHost: false,
-			resolution: "missing_host",
-		};
-	}
-
-	const directUser = await ctx.db
-		.query("users")
-		.withIndex("by_tenantId_and_calendlyUserUri", (q) =>
-			q.eq("tenantId", tenantId).eq("calendlyUserUri", hostUserUri),
-		)
-		.unique();
-	if (directUser?.role === "closer") {
-    if (!directUser.isActive) blockBooking("host_inactive");
-		return {
-			assignedCloserId: directUser._id,
-			hostCalendlyRole: undefined,
-			isKnownNonCloserHost: false,
-			resolution: "direct_closer",
-		};
-	}
-
-	if (directUser) {
-		return {
-			assignedCloserId: undefined,
-			hostCalendlyRole: undefined,
-			isKnownNonCloserHost: true,
-			resolution: "direct_non_closer",
-		};
-	}
-
-	const orgMember = await ctx.db
-		.query("calendlyOrgMembers")
-		.withIndex("by_tenantId_and_calendlyUserUri", (q) =>
-			q.eq("tenantId", tenantId).eq("calendlyUserUri", hostUserUri),
-		)
-		.unique();
-	if (orgMember?.matchedUserId) {
-		const matchedUser = await ctx.db.get("users", orgMember.matchedUserId);
-		if (matchedUser && matchedUser.tenantId !== tenantId) blockBooking("host_not_linked");
-		if (matchedUser?.role === "closer") {
-      if (!matchedUser.isActive) blockBooking("host_inactive");
-			return {
-				assignedCloserId: matchedUser._id,
-				hostCalendlyRole: orgMember.calendlyRole,
-				isKnownNonCloserHost: false,
-				resolution: "org_member_closer",
-			};
-		}
-
-		if (matchedUser) {
-			return {
-				assignedCloserId: undefined,
-				hostCalendlyRole: orgMember.calendlyRole,
-				isKnownNonCloserHost: true,
-				resolution: "org_member_non_closer",
-			};
-		}
-	}
-
-	if (orgMember) {
-		return {
-			assignedCloserId: undefined,
-			hostCalendlyRole: orgMember.calendlyRole,
-			isKnownNonCloserHost: true,
-			resolution: "org_member_unmatched",
-		};
-	}
-
-	return {
-		assignedCloserId: undefined,
-		hostCalendlyRole: undefined,
-		isKnownNonCloserHost: false,
-		resolution: "unknown_host",
-	};
-}
-
 /**
  * Records an invitee.created dropped because its host isn't a closer. A host
  * known to be a non-closer CRM user is routine. A Calendly member not linked
@@ -634,7 +521,8 @@ function logNonCloserHostSkip(
 	attrs: {
 		reason:
 			| "non_closer_host_without_lead"
-			| "non_closer_host_without_opportunity";
+			| "non_closer_host_without_opportunity"
+			| "non_closer_host_untracked_reschedule";
 		tenantId: Id<"tenants">;
 		rawEventId: Id<"rawWebhookEvents">;
 		closerResolution: AssignedCloserResolution["resolution"];
@@ -929,7 +817,10 @@ export const process = internalMutation({
         const resolvedTarget = await resolveExistingLeadIdentity(ctx, { tenantId, email: inviteeEmail, phone: effectivePhone,
           socialHandle: extractedIdentifiers.socialHandle, identifierSource: "calendly_booking", createdAt: now });
         if (resolvedTarget && resolvedTarget.leadId !== targetOpportunity.leadId) blockBooking("identity_conflict");
-        if (targetLead?.email && normalizeEmail(targetLead.email) !== inviteeEmail) blockBooking("identity_conflict");
+        // A different email is accepted only when the identity lookup tied it
+        // to the target lead (a known email, or a handle vouching for a new one),
+        // the same rule a booking without a link gets.
+        if (!resolvedTarget && targetLead?.email && normalizeEmail(targetLead.email) !== inviteeEmail) blockBooking("identity_conflict");
 				if (!targetLead || targetLead.tenantId !== tenantId) {
 					reportError(
 						"pipeline.data_inconsistency",
@@ -1196,6 +1087,34 @@ export const process = internalMutation({
 		}
 
 
+		// A provider reschedule of a booking without a meeting gets the outcome
+		// its host would give the original booking. Only a closer's booking is
+		// genuinely missing. Checked before lead resolution so an ignored
+		// reschedule writes nothing.
+		const oldInvitee = getString(payload, "old_invitee");
+		const previousMeeting = oldInvitee
+			? await ctx.db
+					.query("meetings")
+					.withIndex("by_tenantId_and_calendlyInviteeUri", (q) =>
+						q.eq("tenantId", tenantId).eq("calendlyInviteeUri", oldInvitee),
+					)
+					.unique()
+			: null;
+		if (oldInvitee && !previousMeeting) {
+			const hostOutcome = bookingHostOutcome(assignedCloserResolution);
+			if (hostOutcome.status === "ignored") {
+				logNonCloserHostSkip({
+					reason: "non_closer_host_untracked_reschedule",
+					tenantId,
+					rawEventId,
+					closerResolution: assignedCloserResolution.resolution,
+					hostCalendlyRole: assignedCloserResolution.hostCalendlyRole,
+				});
+				ignoreBooking(hostOutcome.reason);
+			}
+			if (hostOutcome.status === "blocked") blockBooking(hostOutcome.reason);
+		}
+
 		// === Feature E: Multi-identifier identity resolution ===
 		const resolution = await resolveLeadIdentity(ctx, {
 			tenantId,
@@ -1254,10 +1173,8 @@ export const process = internalMutation({
     const candidates = await ctx.db.query("opportunities").withIndex("by_tenantId_and_leadId", q => q.eq("tenantId", tenantId).eq("leadId", lead._id)).order("desc").take(129);
     if (candidates.length > 128) blockBooking("booking_history_requires_review");
     if (candidates.some(o => o.updatedAt > now)) blockBooking("historical_booking_requires_review");
-    const oldInvitee = getString(payload, "old_invitee");
     let explicitSourceMeeting: Doc<"meetings"> | undefined;
     if (oldInvitee) {
-      const previousMeeting = await ctx.db.query("meetings").withIndex("by_tenantId_and_calendlyInviteeUri", q => q.eq("tenantId", tenantId).eq("calendlyInviteeUri", oldInvitee)).unique();
       if (!previousMeeting) blockBooking("previous_booking_missing");
       explicitSourceMeeting = previousMeeting;
       autoRescheduleTarget = candidates.find(o => o._id === previousMeeting.opportunityId) ?? null;
@@ -1437,6 +1354,7 @@ export const process = internalMutation({
 				extractedIdentifiers.socialHandle,
 				now,
 			);
+			await updateLeadSearchText(ctx, lead._id);
 			await syncKnownCustomFieldKeys(
 				ctx,
 				effectiveEventTypeConfigId,
@@ -1484,25 +1402,21 @@ export const process = internalMutation({
 				? assignedCloserId ?? existingFollowUp.assignedCloserId
 				: assignedCloserId;
 		if (!meetingAssignedCloserId) {
+			const hostOutcome = bookingHostOutcome(assignedCloserResolution);
 			if (
 				!slackQualifiedOpportunity && !existingFollowUp &&
-				assignedCloserResolution.isKnownNonCloserHost &&
-				assignedCloserResolution.resolution !== "org_member_unmatched"
+				hostOutcome.status === "ignored"
 			) {
+				// Thrown, so the lead resolved above rolls back with the rest of
+				// this booking's writes: an untracked booking leaves no lead behind.
 				logNonCloserHostSkip({
 					reason: "non_closer_host_without_opportunity",
 					tenantId,
 					rawEventId,
-					leadId: lead._id,
-					leadCreated: resolution.isNewLead,
 					closerResolution: assignedCloserResolution.resolution,
 					hostCalendlyRole: assignedCloserResolution.hostCalendlyRole,
 				});
-				await ctx.db.patch("rawWebhookEvents", rawEventId, {
-					processed: true,
-					processingReason: "non_closer_host",
-				});
-				return;
+				ignoreBooking(hostOutcome.reason);
 			}
 			log.warn("pipeline.invitee_created.rejected", {
 				reason: "no_assigned_closer",
@@ -1513,10 +1427,13 @@ export const process = internalMutation({
 						: "new_opportunity",
 				tenantId,
 				rawEventId,
-				leadId: lead._id,
+				// A new lead rolls back with the blocked booking.
+				leadId: resolution.isNewLead ? undefined : lead._id,
 				closerResolution: assignedCloserResolution.resolution,
 			});
-			blockBooking("host_not_linked");
+			blockBooking(
+				hostOutcome.status === "blocked" ? hostOutcome.reason : "host_not_linked",
+			);
 		}
 
 		let opportunityId: Id<"opportunities">;
