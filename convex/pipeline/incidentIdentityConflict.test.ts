@@ -476,7 +476,7 @@ it("a handle match with a new email on a placeholder-polluted lead stays blocked
 // booker's email and Instagram handle as identifiers. In prod that one lead
 // holds about 55 people's emails and handles. This booker was attached to it
 // on 2026-06-27. On 2026-10-10 he booked again with the same email and handle
-// and a different fake phone (+1 234-567-8945, not on the placeholder list).
+// and a different fake phone (+1 234-567-8945, not on the placeholder list then).
 // His email resolves through an identifier to the polluted lead, whose
 // canonical email belongs to the first booker. The lead's placeholder phone
 // identifier marks it as polluted, so the known email does not vouch for him.

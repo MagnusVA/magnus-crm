@@ -1,0 +1,783 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lead lifecycle review: Magnus CRM</title>
+<style>
+  :root {
+    --x-bg: #fbfaf7; --x-fg: #1d1c1a; --x-muted: #66635d; --x-card: #ffffff;
+    --x-border: #e3e0d8; --x-code: #f1efe9; --x-accent: #0f6a6a;
+    --x-red: #b42318; --x-amber: #a85a06; --x-green: #2c7a4b; --x-blue: #2459a8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --x-bg: #141413; --x-fg: #ebe9e4; --x-muted: #a19e97; --x-card: #1c1c1a;
+      --x-border: #302f2b; --x-code: #232320; --x-accent: #5cc4c0;
+      --x-red: #f07167; --x-amber: #f0a644; --x-green: #6cc58f; --x-blue: #7aa7f0;
+    }
+  }
+  :root {
+    --c-bg: var(--background, var(--x-bg));
+    --c-fg: var(--foreground, var(--x-fg));
+    --c-muted: var(--muted-foreground, var(--x-muted));
+    --c-card: var(--card, var(--x-card));
+    --c-border: var(--border, var(--x-border));
+    --c-code: var(--code-background, var(--x-code));
+    --c-accent: var(--chart-1, var(--x-accent));
+    --c-red: var(--destructive, var(--x-red));
+    --c-amber: var(--warning, var(--x-amber));
+    --c-green: var(--success, var(--x-green));
+    --c-blue: var(--info, var(--x-blue));
+    --c-radius: var(--radius, 10px);
+    --c-sans: var(--font-sans, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif);
+    --c-mono: var(--font-mono, ui-monospace, "SF Mono", Menlo, monospace);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--c-bg); color: var(--c-fg); font-family: var(--c-sans);
+    font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 880px; margin: 0 auto; padding: 8px 0 48px; }
+  @media (min-width: 960px) { main { padding: 40px 0 80px; } }
+  h1 { font-size: 30px; line-height: 1.2; letter-spacing: -0.02em; margin: 6px 0 14px; font-weight: 700; }
+  h2 { font-size: 21px; line-height: 1.3; letter-spacing: -0.01em; margin: 52px 0 6px; font-weight: 700; }
+  h3 { font-size: 16px; margin: 26px 0 6px; font-weight: 650; }
+  h2 .num { color: var(--c-muted); font-weight: 500; margin-right: 6px; }
+  p { margin: 8px 0 12px; }
+  .lede { font-size: 17px; color: var(--c-muted); max-width: 70ch; }
+  .eyebrow { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--c-muted); font-weight: 600; }
+  .sub { color: var(--c-muted); margin-top: 0; }
+  code, .mono { font-family: var(--c-mono); font-size: 0.86em; }
+  code { background: var(--c-code); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+  a { color: var(--c-accent); }
+  ul, ol { padding-left: 22px; margin: 8px 0 12px; }
+  li { margin: 4px 0; }
+  hr { border: 0; border-top: 1px solid var(--c-border); margin: 40px 0; }
+  .muted { color: var(--c-muted); }
+  .small { font-size: 13px; }
+
+  .toc { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 2px 18px; margin: 18px 0 0; padding: 0; list-style: none; font-size: 14px; }
+  .toc a { color: var(--c-fg); text-decoration: none; border-bottom: 1px dotted var(--c-border); }
+  .toc a:hover { color: var(--c-accent); }
+  .toc .n { color: var(--c-muted); display: inline-block; min-width: 22px; }
+
+  .box { background: var(--c-card); border: 1px solid var(--c-border); border-radius: var(--c-radius); padding: 18px 20px; margin: 16px 0; }
+  .answer { border-left: 4px solid var(--c-accent); }
+  .answer p:first-child { margin-top: 0; }
+  .answer p:last-child { margin-bottom: 0; }
+
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .grid4 { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+
+  .score { background: var(--c-card); border: 1px solid var(--c-border); border-radius: var(--c-radius); padding: 14px 16px; }
+  .score .label { font-size: 13px; color: var(--c-muted); font-weight: 600; }
+  .score .val { font-size: 18px; font-weight: 700; margin: 2px 0 6px; }
+  .score p { margin: 0; font-size: 13.5px; }
+  .ok { color: var(--c-green); } .warn { color: var(--c-amber); } .bad { color: var(--c-red); }
+
+  .pill { display: inline-block; font-size: 11.5px; font-weight: 700; letter-spacing: 0.03em; padding: 2px 8px; border-radius: 999px; vertical-align: 2px; white-space: nowrap; }
+  .pill.high { background: color-mix(in srgb, var(--c-red) 14%, transparent); color: var(--c-red); }
+  .pill.med { background: color-mix(in srgb, var(--c-amber) 16%, transparent); color: var(--c-amber); }
+  .pill.low { background: color-mix(in srgb, var(--c-muted) 16%, transparent); color: var(--c-muted); }
+  .pill.good { background: color-mix(in srgb, var(--c-green) 14%, transparent); color: var(--c-green); }
+  .pill.info { background: color-mix(in srgb, var(--c-blue) 14%, transparent); color: var(--c-blue); }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 9px 10px; border-bottom: 1px solid var(--c-border); }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--c-muted); font-weight: 650; border-bottom: 1.5px solid var(--c-border); }
+  td.nowrap, th.nowrap { white-space: nowrap; }
+  .tablewrap { overflow-x: auto; border: 1px solid var(--c-border); border-radius: var(--c-radius); background: var(--c-card); margin: 14px 0; }
+  .tablewrap table tr:last-child td { border-bottom: 0; }
+
+  /* Funnel lanes */
+  .lanes { display: grid; gap: 8px; margin: 16px 0; }
+  .lane { display: grid; grid-template-columns: 170px minmax(0, 1fr) 120px; gap: 14px; align-items: start; background: var(--c-card); border: 1px solid var(--c-border); border-radius: var(--c-radius); padding: 12px 14px; }
+  .lane .who { font-weight: 650; font-size: 14px; }
+  .lane .who span { display: block; font-weight: 400; color: var(--c-muted); font-size: 12.5px; }
+  .lane .what { font-size: 13.5px; }
+  .lane .link { font-size: 12.5px; text-align: right; }
+  .lane .link .pill { margin-bottom: 4px; }
+  .lane .link div { color: var(--c-muted); }
+  .rec { display: inline-block; max-width: 100%; overflow-wrap: anywhere; font-family: var(--c-mono); font-size: 11.5px; padding: 1px 6px; margin: 2px 2px 2px 0; border-radius: 4px; background: var(--c-code); border: 1px solid var(--c-border); }
+  .rec.ghost { border-style: dashed; background: transparent; color: var(--c-muted); }
+  @media (max-width: 640px) {
+    .lane { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+    .lane .link { text-align: left; }
+  }
+
+  /* Four jobs */
+  .jobs { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 14px 0; }
+  .job { border-radius: var(--c-radius); padding: 12px 14px; border: 1px solid var(--c-border); background: var(--c-card); }
+  .job h4 { margin: 0 0 2px; font-size: 13.5px; }
+  .job p { margin: 0 0 8px; font-size: 12.5px; color: var(--c-muted); }
+  .job .rec { display: block; width: fit-content; margin: 4px 0; }
+  .job.j1 { border-top: 3px solid var(--c-blue); }
+  .job.j2 { border-top: 3px solid var(--c-amber); }
+  .job.j3 { border-top: 3px solid var(--c-accent); }
+  .job.j4 { border-top: 3px solid var(--c-green); }
+
+  /* Findings */
+  .finding { background: var(--c-card); border: 1px solid var(--c-border); border-radius: var(--c-radius); padding: 16px 18px; margin: 12px 0; }
+  .finding h3 { margin: 0 0 6px; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .finding h3 .id { color: var(--c-muted); font-weight: 500; font-size: 13px; }
+  .finding p { margin: 6px 0; font-size: 14px; }
+  .finding .ev { overflow-wrap: anywhere; font-family: var(--c-mono); font-size: 11.5px; color: var(--c-muted); margin-top: 8px; line-height: 1.55; }
+  .finding .k { font-weight: 650; }
+
+  /* Person spread */
+  .spread { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+  .spread .rec { font-size: 12px; padding: 3px 8px; }
+  .spread .rec.core { border-color: var(--c-accent); color: var(--c-accent); }
+  .spread .rec.copy { border-color: color-mix(in srgb, var(--c-amber) 60%, transparent); }
+
+  /* Stage tracks */
+  .track { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 10px 0 4px; }
+  .stage { background: var(--c-card); border: 1px solid var(--c-border); border-radius: 8px; padding: 7px 11px; font-size: 13px; font-weight: 600; }
+  .stage small { display: block; font-weight: 400; color: var(--c-muted); font-size: 11.5px; }
+  .stage.end { border-color: var(--c-green); }
+  .arrow { color: var(--c-muted); font-size: 13px; }
+  .offramps { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; font-size: 12.5px; }
+  .offramps .rec { font-family: var(--c-sans); font-size: 12px; }
+
+  /* SVG diagrams */
+  .diagram { background: var(--c-card); border: 1px solid var(--c-border); border-radius: var(--c-radius); padding: 14px; margin: 14px 0; }
+  .diagram svg { width: 100%; height: auto; display: block; }
+  .diagram svg text { font-family: var(--c-sans); fill: var(--c-fg); }
+  .diagram svg .t-muted { fill: var(--c-muted); }
+  .diagram svg .box { fill: var(--c-bg); stroke: var(--c-border); stroke-width: 1.2; }
+  .diagram svg .box.core { stroke: var(--c-accent); stroke-width: 2; }
+  .diagram svg .box.new { stroke: var(--c-green); stroke-dasharray: 5 3; stroke-width: 1.5; }
+  .diagram svg .edge { stroke: var(--c-muted); stroke-width: 1.2; fill: none; }
+  .diagram .caption { font-size: 12.5px; color: var(--c-muted); margin: 8px 2px 0; }
+
+  /* Roadmap */
+  .phase { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 14px; padding: 14px 0; border-top: 1px solid var(--c-border); }
+  .phase:first-of-type { border-top: 0; }
+  .phase .tag { font-weight: 700; font-size: 13px; color: var(--c-accent); }
+  .phase .tag span { display: block; font-weight: 500; color: var(--c-muted); font-size: 12px; margin-top: 2px; }
+  .phase h3 { margin: 0 0 4px; }
+  .phase p, .phase li { font-size: 14px; }
+  .meta { display: flex; gap: 6px; flex-wrap: wrap; margin: 4px 0 6px; }
+
+  .quote { border-left: 3px solid var(--c-border); padding: 2px 0 2px 14px; color: var(--c-muted); margin: 10px 0; font-size: 14px; }
+  .footnote { font-size: 12.5px; color: var(--c-muted); }
+  @media (max-width: 520px) { h1 { font-size: 25px; } body { font-size: 14.5px; } }
+</style>
+</head>
+<body>
+<main>
+
+<div class="eyebrow">Magnus CRM · Architecture and behavior review · 14 October 2026</div>
+<h1>The lead lifecycle: what we built, what it costs, and what to change</h1>
+<p class="lede">This review follows one person through the CRM, from a lead gen capture to a repeat purchase. I checked each step against the code and against the production snapshot taken on 13 October. Then I compared the model with HubSpot, Salesforce, Close, Pipedrive, GoHighLevel and the setter/closer tools built for high-ticket sales.</p>
+
+<ol class="toc">
+  <li><a href="#answer"><span class="n">0</span>The short answer</a></li>
+  <li><a href="#today"><span class="n">1</span>How a person moves through the CRM today</a></li>
+  <li><a href="#hypothesis"><span class="n">2</span>Your description, checked</a></li>
+  <li><a href="#findings"><span class="n">3</span>Findings, ranked</a></li>
+  <li><a href="#good"><span class="n">4</span>What is worth keeping</a></li>
+  <li><a href="#market"><span class="n">5</span>How other CRMs model this</a></li>
+  <li><a href="#target"><span class="n">6</span>The model I recommend</a></li>
+  <li><a href="#roadmap"><span class="n">7</span>Migration path</a></li>
+  <li><a href="#avoid"><span class="n">8</span>What not to copy</a></li>
+  <li><a href="#decisions"><span class="n">9</span>Decisions, locked</a></li>
+  <li><a href="#appendix"><span class="n">A</span>Evidence and method</a></li>
+</ol>
+
+<!-- ============================================================ -->
+<h2 id="answer"><span class="num">0</span>The short answer</h2>
+
+<div class="box answer">
+<p><strong>Your read is right.</strong> The CRM has no record of a person until a Slack qualifier or a Calendly booking creates one. Lead gen and DM work happen outside the lead. One opportunity status field carries four different jobs. A customer is a second copy of the lead.</p>
+<p><strong>Whether it scales depends on what you mean by scale.</strong> At runtime it holds up. One tenant has about 10,800 opportunities and 19,000 identifiers, and the reads are bounded, the counts come from aggregates, and the webhook pipeline is durable. As a model it does not scale. Slack setters, lead gen and DM closers each arrived with their own person table, staff table, schedule table, attribution fields and projections. The next role will repeat the pattern. And the 68 people merged into 4 leads are the predictable result of deciding who someone is at booking time, with heuristics, instead of at first contact.</p>
+<p><strong>I would not rewrite it.</strong> Make the lead (I will call it the person) the first record in the funnel, and give each concern its own field. Lifecycle stage goes on the person. Stage and outcome go on the deal. Attendance goes on the meeting. Due dates go on tasks. Attribution goes to team members through one table. Section 7 splits this into six phases, revised after your decisions in section 9. Each phase ships on its own, using the widen, migrate, narrow pattern the repo already follows.</p>
+</div>
+
+<div class="grid4">
+  <div class="score"><div class="label">Data volume and runtime</div><div class="val ok">Holds up for now</div><p>Bounded live reads, aggregates, Workpool webhooks, idempotent ingestion. Five hot spots to fix before volume doubles (F11).</p></div>
+  <div class="score"><div class="label">Adding a role or channel</div><div class="val bad">Does not scale</div><p>Slack, DM closers and lead gen added 4, 10 and 9 tables, each wired a different way. Nothing generic absorbs the next role.</p></div>
+  <div class="score"><div class="label">Reporting consistency</div><div class="val warn">At risk</div><p>Deal status has 7 copies, attribution 6, program name 9, all kept in sync by hand. One rollup was already rebuilt after it went corrupt.</p></div>
+  <div class="score"><div class="label">Fit for more tenants</div><div class="val bad">Does not scale</div><p>The pipeline is a literal union in the schema. A tenant with a different funnel needs a deploy.</p></div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="today"><span class="num">1</span>How a person moves through the CRM today</h2>
+<h3>How it got this way</h3>
+<div class="tablewrap"><table>
+  <thead><tr><th class="nowrap">Date (2026)</th><th>What arrived</th><th class="nowrap">Tables / indexes after</th></tr></thead>
+  <tbody>
+    <tr><td class="nowrap">2 Apr</td><td>Calendly pipeline: leads, opportunities, meetings, follow-ups, payments</td><td>10 / 34</td></tr>
+    <tr><td class="nowrap">10 to 13 Apr</td><td>Identifiers, no-shows, merge, customers, domain events, reporting aggregates</td><td>20 / 91</td></tr>
+    <tr><td class="nowrap">25 Apr</td><td>Side deals and the opportunity <code>source</code> field</td><td>24 / 125</td></tr>
+    <tr><td class="nowrap">1 May</td><td>Slack qualification: <code>qualified_pending</code>, <code>qualifiedBy</code></td><td>28 / 142</td></tr>
+    <tr><td class="nowrap">20 May</td><td>DM closers, teams, link portal, attribution columns, operations projections (one commit, 200 files)</td><td>38 / 193</td></tr>
+    <tr><td class="nowrap">25 May</td><td>Lead gen, as 9 separate tables and a new role</td><td>47 / 231</td></tr>
+    <tr><td class="nowrap">31 May</td><td>Unified lead and customer search projection and UI</td><td>50 / 249</td></tr>
+    <tr><td class="nowrap">Jul to Oct</td><td>DM portal notes and edits, async reports, workpools, meeting projections v2</td><td>67 / 283</td></tr>
+  </tbody>
+</table></div>
+<p class="small muted">The closer core took 25 days. Then Slack setters, DM closers, lead gen and billing landed in 27 days. Each one was wired differently: Slack setters became an opportunity status, DM closers became UTM-derived columns, and lead gen became its own group of tables. Since June most of the work has gone into consolidating them.</p>
+
+<h3>The funnel, step by step</h3>
+<p class="sub">Each row is one step of the real funnel. The middle column lists what the code writes. The right column says whether that step is tied to the lead record.</p>
+<div class="lanes">
+  <div class="lane">
+    <div class="who">Lead gen specialist<span>captures an Instagram handle</span></div>
+    <div class="what">
+      <span class="rec">leadGenProspects</span><span class="rec">leadGenSubmissions</span><span class="rec">leadGenDailyStats</span><span class="rec">leadGenOriginStats</span>
+      <div class="small muted">One prospect per handle, one submission per capture. Neither row has a <code>leadId</code>, and <code>leads</code> has no prospect field.</div>
+    </div>
+    <div class="link"><span class="pill high">Not linked</span><div>Separate table</div></div>
+  </div>
+  <div class="lane">
+    <div class="who">Opener or DM closer<span>works the conversation</span></div>
+    <div class="what">
+      <span class="rec ghost">nothing per person</span><span class="rec">linkPortalCopyEvents</span>
+      <div class="small muted">The portal copies generic booking links: team in <code>utm_source</code>, DM closer in <code>utm_medium</code>. It can search existing leads and edit <code>initialSource</code>, income and notes, but it cannot create a lead.</div>
+    </div>
+    <div class="link"><span class="pill high">Not linked</span><div>Only through UTMs on a later booking</div></div>
+  </div>
+  <div class="lane">
+    <div class="who">Slack qualifier<span>runs <code>/qualify-lead</code></span></div>
+    <div class="what">
+      <span class="rec">leads</span><span class="rec">leadIdentifiers</span><span class="rec">opportunities · qualified_pending</span><span class="rec">slackQualificationEvents</span><span class="rec">operationsQualificationRows</span><span class="rec ghost">leadGenAuditMatches (async)</span>
+      <div class="small muted">Creates the lead with a name and handle but no email. The prospect link is scheduled afterwards and only forms on an exact Instagram handle match.</div>
+    </div>
+    <div class="link"><span class="pill good">Creates the lead</span><div>Prospect link is audit-only</div></div>
+  </div>
+  <div class="lane">
+    <div class="who">Prospect books<span>Calendly <code>invitee.created</code></span></div>
+    <div class="what">
+      <span class="rec">leads</span><span class="rec">opportunities</span><span class="rec">meetings</span><span class="rec">meetingFormResponses</span><span class="rec">calendlyBookingFacts</span>
+      <div class="small muted">Identity resolves by email, then handle, then phone. The booking joins an existing opportunity through five ordered rules (UTM relink, Calendly reschedule, 14-day heuristic, follow-up, Slack opportunity under 30 days). Otherwise it opens a new one.</div>
+    </div>
+    <div class="link"><span class="pill med">Linked by heuristic</span><div>Can attach to the wrong person</div></div>
+  </div>
+  <div class="lane">
+    <div class="who">Closer<span>runs the call</span></div>
+    <div class="what">
+      <span class="rec">meetings.status</span><span class="rec">opportunities.status</span><span class="rec">followUps</span><span class="rec">meetingComments</span>
+      <div class="small muted">Lost, no-show, scheduling link, manual reminder or payment. Most actions write the meeting and the opportunity at once, so the opportunity mirrors meeting state.</div>
+    </div>
+    <div class="link"><span class="pill good">Linked</span><div>Through the opportunity</div></div>
+  </div>
+  <div class="lane">
+    <div class="who">First payment<span>closer, side deal or admin</span></div>
+    <div class="what">
+      <span class="rec">paymentRecords</span><span class="rec">customers</span><span class="rec">leads.status = converted</span>
+      <div class="small muted">The customer row copies name, email, phone and handles from the lead, plus one program and one winning opportunity. Conversion throws if the lead has no email, which rolls back the payment.</div>
+    </div>
+    <div class="link"><span class="pill med">Copied</span><div>Second person record</div></div>
+  </div>
+  <div class="lane">
+    <div class="who">Customer buys again<span>new booking or admin payment</span></div>
+    <div class="what">
+      <span class="rec">opportunities (new)</span><span class="rec">paymentRecords</span>
+      <div class="small muted">The payment attaches to the existing customer. The customer's program and winning opportunity stay as they were, so the second program does not show on the customer record.</div>
+    </div>
+    <div class="link"><span class="pill med">Partly linked</span><div>Customer row goes stale</div></div>
+  </div>
+</div>
+
+<h3>Where one person's data lives today</h3>
+<p>To answer "what happened with this person", the code has to read or keep in sync all of these. Teal names hold identity. Amber names hold copies of a fact that lives somewhere else.</p>
+<div class="spread">
+  <span class="rec core">leads</span><span class="rec core">leadIdentifiers</span><span class="rec core">leadGenProspects</span><span class="rec copy">customers</span>
+  <span class="rec">leadGenSubmissions</span><span class="rec">leadGenAuditMatches</span><span class="rec">slackQualificationEvents</span><span class="rec copy">operationsQualificationRows</span>
+  <span class="rec">opportunities</span><span class="rec copy">opportunitySearch</span><span class="rec">meetings</span><span class="rec copy">meetingProjections</span><span class="rec">meetingFormResponses</span>
+  <span class="rec">calendlyBookingFacts</span><span class="rec">webhookDeliveries</span><span class="rec">followUps</span><span class="rec">paymentRecords</span>
+  <span class="rec">leadNotes</span><span class="rec">meetingComments</span><span class="rec">linkPortalLeadEdits</span><span class="rec">leadMergeHistory</span>
+  <span class="rec copy">leadCustomerSearchRows</span><span class="rec">domainEvents</span>
+</div>
+<p class="small muted">23 tables. The polluted-lead split plan has to repoint about 10 of them by hand to move one person to a new lead, and call the matching aggregate, projection and counter helpers for each.</p>
+
+<!-- ============================================================ -->
+<h2 id="hypothesis"><span class="num">2</span>Your description, checked</h2>
+<p class="sub">You described the funnel from memory. The code agrees with all of it, corrects one date, and adds detail that matters for the redesign.</p>
+
+<div class="tablewrap"><table>
+  <thead><tr><th style="width:30%">What you said</th><th class="nowrap">Verdict</th><th>What the code shows</th></tr></thead>
+  <tbody>
+    <tr><td>Lead gen specialists create a record that is not technically a lead.</td><td><span class="pill good">Correct</span></td><td>They write <code>leadGenProspects</code> and <code>leadGenSubmissions</code>. No <code>leads</code> row is created, and no field links the two. The only bridge is <code>leadGenAuditMatches</code>, written only from Slack, only for an exact Instagram handle match. No screen reads it, and a lead merge does not repoint it.</td></tr>
+    <tr><td>Qualifiers create an opportunity with a specific status.</td><td><span class="pill good">Correct</span></td><td>They create an opportunity in <code>qualified_pending</code>, and usually the lead itself, with no email. A second qualification within 30 days is recorded as <code>duplicate_pending</code> and creates nothing. If the lead already has an open or won deal, the result is <code>already_booked</code>.</td></tr>
+    <tr><td>When the meeting comes, the opportunity is updated.</td><td><span class="pill info">Mostly</span></td><td>A booking reuses an opportunity only when one of five rules matches. Otherwise it opens a new one. A Slack opportunity older than 30 days is never joined, and nothing closes it. Cancel and no-show webhooks copy the meeting status onto the opportunity without the state machine check.</td></tr>
+    <tr><td>Lost and follow-up have their own statuses, and one lead can have several opportunities.</td><td><span class="pill good">Correct</span></td><td>Eight statuses cover four different concerns (section 3, F2). Several opportunities per lead is by design for repeat attempts, and also happens by accident when a stale Slack opportunity sits next to a new booking.</td></tr>
+    <tr><td>A payment makes the lead a customer.</td><td><span class="pill good">Correct</span></td><td>The first payment creates a <code>customers</code> row that copies the lead's contact fields and sets <code>lead.status</code> to <code>converted</code>. One customer per lead, one program, one winning opportunity. Later purchases do not update it.</td></tr>
+    <tr><td>It grew from closers, then Slack qualifiers, then lead gen, then DM closers.</td><td><span class="pill info">Close</span></td><td>Closers came first (2 April), Slack qualifiers next (1 May). DM closers landed on 20 May, five days <em>before</em> lead gen on 25 May. What kept growing after lead gen was the DM portal. The schema comments still show the seams: <code>leads.email</code> was "widened for Slack-qualified leads" and <code>opportunities.source</code> was "widened for side-deals rollout".</td></tr>
+  </tbody>
+</table></div>
+
+<!-- ============================================================ -->
+<h2 id="findings"><span class="num">3</span>Findings, ranked</h2>
+<p class="sub">Severity reflects how much each problem costs you now and how much worse it gets with each new role or tenant.</p>
+
+<div class="finding">
+  <h3><span class="id">F1</span>The person record starts in the middle of the funnel <span class="pill high">High</span></h3>
+  <p><span class="k">What happens.</span> Only <code>resolveLeadIdentity</code> inserts into <code>leads</code>, and its three callers are Slack, Calendly and side deals. Lead gen writes prospects with no lead link. The DM portal cannot create a lead at all.</p>
+  <p><span class="k">Why it hurts.</span> "Of the prospects this worker captured in September, how many paid?" has no direct answer. You would have to go through the audit-match table, which only exists for Slack-qualified Instagram handles with an exact match. Lead gen and setter performance end at the handoff, so you cannot measure the full prospect-to-cash conversion that this business is built on.</p>
+  <div class="ev">convex/leads/identityResolution.ts:446 · convex/leadGen/capture.ts:84-149 · convex/leadGen/auditMatching.ts:123-177 · convex/linkPortal/leadQueries.ts:30-131</div>
+</div>
+
+<div class="finding">
+  <h3><span class="id">F2</span>One status field does four jobs <span class="pill high">High</span></h3>
+  <p><span class="k">What happens.</span> <code>opportunities.status</code> mixes a funnel step, a mirror of the meeting, the state of a task and the final result.</p>
+  <div class="jobs">
+    <div class="job j1"><h4>Funnel step</h4><p>Where the deal is.</p><span class="rec">qualified_pending</span><span class="rec">scheduled</span></div>
+    <div class="job j2"><h4>Meeting mirror</h4><p>Copied from the meeting.</p><span class="rec">no_show</span><span class="rec">canceled</span><span class="rec">scheduled</span></div>
+    <div class="job j3"><h4>Task state</h4><p>A follow-up is pending.</p><span class="rec">follow_up_scheduled</span><span class="rec">reschedule_link_sent</span></div>
+    <div class="job j4"><h4>Result</h4><p>Terminal outcome.</p><span class="rec">payment_received</span><span class="rec">lost</span></div>
+  </div>
+  <p><span class="k">Why it hurts.</span> The meanings collide. A side deal starts as <code>scheduled</code> with no meeting. <code>follow_up_scheduled</code> stays after the reminder is done. Webhooks can move <code>no_show</code> to <code>canceled</code> although the state machine forbids it. "How many deals are open" means listing six literals. Each new step adds a literal that every report, filter, aggregate and projection has to learn.</p>
+  <p><span class="k">How big the blast radius is.</span> The full status list is declared 11 separate times. 89 files reference at least one status literal. Derived sets already disagree: "active" has four statuses in three files and three in the pipeline aging table, and both reminder action bars treat <code>no_show</code> as terminal although the state machine lets it move on. Removing two statuses in May touched 164 files and needed a 1,473-line repair migration. Adding one now means 30 to 40 files and a backfill.</p>
+  <div class="ev">convex/lib/statusTransitions.ts:25-42 · convex/opportunities/createManual.ts:198 · convex/pipeline/bookingFacts.ts:144-162 · convex/sideDeals/voidPayment.ts:76-83 · lib/status-config.ts:11 · commit f76cdbf</div>
+</div>
+
+<div class="finding">
+  <h3><span class="id">F3</span>Identity is decided late, by heuristics, and mistakes spread <span class="pill high">High</span></h3>
+  <p><span class="k">What happens.</span> The CRM first decides who someone is when a booking arrives, using whatever the booker typed. Before commit 12e6a6e, placeholder values such as Calendly's sample phone counted as identity keys. Then the 14-day reschedule heuristic attached other people's bookings to earlier canceled or no-show opportunities. In production, 4 leads hold 68 people, 43 opportunities and 85 meetings. One customer sits on a lead whose email belongs to someone else. Another 22 leads look like two people each.</p>
+  <p><span class="k">Why it hurts.</span> Undoing it means repointing about 10 lead-keyed tables per person and calling each side-effect helper by hand. Two placeholder classes (fake phones and placeholder emails) are still live. The 14-day heuristic still runs before the Slack check, so a fresh qualification can lose to an old no-show.</p>
+  <div class="ev">docs/plans/polluted-lead-split.md §1, §3 · convex/pipeline/inviteeCreated.ts:197, 1173-1187 · convex/leads/identityResolution.ts:382-531</div>
+</div>
+
+<div class="finding">
+  <h3><span class="id">F4</span>A customer is a copy of the lead <span class="pill high">High</span></h3>
+  <p><span class="k">What happens.</span> Conversion copies name, email, phone and handles into <code>customers</code>. Only three code paths re-sync them, so a handle added later or the Slack country never reaches the copy. Conversion requires an email, so a Slack-only lead cannot become a customer, and the payment rolls back. Each lead gets one customer with one program and one winning opportunity, so a second purchase never shows on it. <code>churned</code> and <code>paused</code> live on the copy and apply to the whole person rather than to one program.</p>
+  <p><span class="k">Why it hurts.</span> This is the Salesforce lead-conversion problem, which Salesforce itself now steers people away from (section 5). It also breaks the most valuable number in a coaching business, revenue per customer across programs.</p>
+  <div class="ev">convex/customers/conversion.ts:49-135 · convex/lib/syncCustomerSnapshot.ts:26-31 · convex/closer/payments.ts:206-216 · convex/customers/mutations.ts:187-193</div>
+</div>
+
+<div class="finding">
+  <h3><span class="id">F5</span>The people who do the work live in four tables <span class="pill med">Medium</span></h3>
+  <p><span class="k">What happens.</span> Closers and admins are <code>users</code>. Lead gen workers are <code>leadGenWorkers</code>, linked to users. Slack qualifiers exist only as a <code>slackUserId</code>, with an optional link to a user. DM closers are <code>dmClosers</code> behind a shared-password portal, with an optional link to a user. Three schedule tables have the same shape. Credit is stored four ways: a <code>qualifiedBy</code> object, <code>dmCloserId</code>, <code>workerId</code> and <code>assignedCloserId</code>.</p>
+  <p><span class="k">Why it hurts.</span> One human who prospects in the morning and sets in the afternoon is two unrelated identities. A commission report across roles needs four joins and four identity rules. The next role will add a fifth table. DM credit is also self-asserted: anyone with the shared portal password picks their own DM closer identity, and booking credit comes from the <code>utm_medium</code> string in the link.</p>
+  <div class="ev">convex/schema.ts:77-120 (users), 134-193 (workers and three schedule tables), 676-703 (dmClosers), 2094-2128 (slackUsers)</div>
+</div>
+
+<div class="finding">
+  <h3><span class="id">F6</span>Attribution is copied, and screens read different copies <span class="pill med">Medium</span></h3>
+  <p><span class="k">What happens.</span> Every meeting stores its own UTMs, DM team and DM closer. The opportunity keeps the first external booking's values. Qualification rows copy the opportunity's values, and the meeting projections copy the meeting's. That makes six copies each of <code>attributionTeamId</code> and <code>dmCloserId</code>. Booked Calls reads the meeting copy, and the qualification reports read the opportunity copy. A Slack opportunity gets its attribution from the first booking that joins it.</p>
+  <p><span class="k">Why it hurts.</span> Two dashboards can credit the same deal to different DM teams, and nothing raises an error. Commission questions turn into data archaeology.</p>
+  <div class="ev">convex/pipeline/inviteeCreated.ts:134-162, 1596-1627 · convex/operations/projections.ts:62-64 · convex/operations/bookedCallsDashboard.ts:209-213</div>
+</div>
+
+<div class="finding">
+  <h3><span class="id">F7</span>Side effects are maintained by hand <span class="pill med">Medium</span></h3>
+  <p><span class="k">What happens.</span> The repo has no triggers. A write to a meeting, opportunity, payment, lead or customer must also call the aggregate hooks, tenant counters, domain events, meeting refs and projection rebuilds. <code>docs/agents/convex.md</code> warns that "a missed call leaves dashboards and counts wrong without any error." No single function owns opportunity transitions. <code>patchOpportunityLifecycle</code> covers aggregates and search rows, but it does not validate the transition, update tenant stats, emit the domain event or rebuild qualification rows. It has 25 call sites in 13 files, and 15 raw <code>db.patch</code> calls sit beside them.</p>
+  <p><span class="k">What it costs.</span> Marking one meeting lost makes about 20 writes. Logging a payment rebuilds the lead/customer search row up to four times in one transaction, at about 300 reads each. Opportunity status exists in 7 places and the program name in 9, and renaming a program updates only 2 of the 9.</p>
+  <p><span class="k">It has probably already gone wrong once.</span> Qualification rows are rebuilt on bookings and on sold-program changes, never on closer outcomes. In <code>logPayment</code> the rebuild runs before the status patch. So the qualifications queue most likely filters on an <code>opportunityStatus</code> that is out of date for anything lost, no-showed or followed up after booking. A production read can confirm it.</p>
+  <p><span class="k">Why it hurts.</span> The cost of each new feature grows with the number of projections, and correctness rests on reviewers remembering the list. <code>convex-helpers</code> is installed and ships triggers, but nothing uses them.</p>
+  <div class="ev">docs/agents/convex.md "Write side effects" · convex/lib/opportunityActivity.ts:21-55 · convex/reporting/writeHooks.ts:138-178 · convex/closer/payments.ts:129-137 · convex/operations/qualifications.ts:52-55 · convex/tenantPrograms/sync.ts:24-66</div>
+</div>
+
+<div class="finding">
+  <h3><span class="id">F8</span>Merge leaves pieces behind <span class="pill med">Medium</span></h3>
+  <p><span class="k">What happens.</span> <code>mergeLead</code> moves opportunities (up to 100), identifiers and notes. It does not repoint <code>followUps</code>, <code>meetingFormResponses</code>, <code>slackQualificationEvents</code>, <code>operationsQualificationRows</code>, <code>leadGenAuditMatches</code>, <code>webhookDeliveries</code> or <code>linkPortalLeadEdits</code>. It refuses converted leads. The source lead's country, lead type and custom fields stay behind.</p>
+  <p><span class="k">Why it hurts.</span> Merging is the main tool for fixing identity mistakes (F3), and it leaves a trail of rows pointing at a dead lead.</p>
+  <div class="ev">convex/leads/merge.ts:80-321</div>
+</div>
+
+<div class="finding">
+  <h3><span class="id">F9</span>There is no single timeline for a person <span class="pill low">Low to medium</span></h3>
+  <p><span class="k">What happens.</span> Notes live in <code>leadNotes</code>, <code>meetingComments</code>, <code>opportunities.notes</code>, <code>customers.notes</code>, payment notes, follow-up notes and the deprecated <code>meetings.notes</code>. The lead page leaves out lead gen captures, follow-ups, most Slack events, domain events and form answers. <code>domainEvents</code> already records 34 event types, but the lead page builds its activity list from four other tables instead.</p>
+  <p><span class="k">Why it hurts.</span> A closer opening a lead before a call cannot see who found this person, what the setter said or what was promised in the last reminder.</p>
+  <div class="ev">convex/leadCustomers/detailPayload.ts:116-367 · convex/schema.ts:580-593, 1408-1419, 1851-1897</div>
+</div>
+
+<div class="finding">
+  <h3><span class="id">F10</span>The pipeline is hard-coded <span class="pill low">Low today</span></h3>
+  <p><span class="k">What happens.</span> Stages are literal unions in <code>schema.ts</code> and <code>statusTransitions.ts</code>. A tenant that wants an "application review" step, or no Slack step, needs a code change and a migration.</p>
+  <p><span class="k">Why it hurts.</span> It doesn't matter while one tenant uses the product. It matters as soon as a second tenant runs a different funnel. Every CRM in section 5 treats pipelines as tenant data. You have locked the funnel for now (section 9), so the fix is only to keep the stage list in one place.</p>
+  <div class="ev">convex/schema.ts:808-824 · convex/lib/statusTransitions.ts</div>
+</div>
+
+<div class="finding">
+  <h3><span class="id">F11</span>Runtime hot spots to fix before volume doubles <span class="pill med">Medium</span></h3>
+  <p><span class="k">What happens.</span> These are the places where the runtime verdict "holds up" stops holding.</p>
+  <ul class="small">
+    <li><code>tenantStats</code> is one document per tenant with 39 write sites, including the booking pipeline that runs four jobs in parallel. Every admin dashboard subscribes to it, so concurrent writes conflict and each write re-runs every subscribed query.</li>
+    <li><code>opportunities</code> has 27 indexes against Convex's limit of 32. Ten of them are combinations of closer, source, status and time, which exist because status carries too much meaning. About 24 indexes across the schema have no code reference.</li>
+    <li>Some public queries loop with no bound. <code>adminStats</code> counts every opportunity and meeting in a range the client picks, and the closer dashboard counts a closer's opportunities for all time.</li>
+    <li>Merge's duplicate cleanup scans only the first 500 opportunities in the tenant, about 5% of production, while a matching index goes unused.</li>
+    <li>The code uses three definitions of a day: Honduras business day, UTC day for meeting stats, and server midnight (which is UTC) on a few pages. Day counts can differ by up to seven hours between pages.</li>
+  </ul>
+  <div class="ev">convex/lib/tenantStatsHelper.ts · convex/pipeline/workpools.ts:5 · convex/schema.ts:808-1023 · convex/dashboard/adminStats.ts:123-145 · convex/closer/dashboard.ts:205-221 · convex/leads/merge.ts:278-291</div>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="good"><span class="num">4</span>What is worth keeping</h2>
+<p class="sub">The criticism above is about the domain model. A lot of the engineering underneath is solid, and the redesign should build on it.</p>
+<div class="grid2">
+  <div class="box"><h3 style="margin-top:0">Multi-identifier identity</h3><p class="small"><code>leadIdentifiers</code> with type, normalized value, source, confidence and source meeting is the right base, close to how Close and HubSpot handle it. The fix is to use it earlier and with stricter rules, not to replace it.</p></div>
+  <div class="box"><h3 style="margin-top:0">Durable ingestion</h3><p class="small">Signed webhooks, permanent delivery receipts, Workpool jobs, idempotent upserts, blocked-delivery recovery. This is better than most CRMs at this stage.</p></div>
+  <div class="box"><h3 style="margin-top:0">A domain event log</h3><p class="small"><code>domainEvents</code> already records status changes with actor, source, from and to. It is most of a person timeline once every event carries a person ID.</p></div>
+  <div class="box"><h3 style="margin-top:0">Explicit state machines</h3><p class="small"><code>statusTransitions.ts</code> puts the allowed moves in one place. The problem is what the states mean and the code paths that skip the check, not the idea.</p></div>
+  <div class="box"><h3 style="margin-top:0">Tenant isolation and auth</h3><p class="small">Tenant, user and role come from the identity, never from arguments, and server-only logic is internal. That carries over unchanged.</p></div>
+  <div class="box"><h3 style="margin-top:0">Migration discipline</h3><p class="small">Widen, migrate, narrow with paired assert migrations, plus the split plan's audit-and-undo approach. That discipline is what makes an incremental redesign safe.</p></div>
+</div>
+<p>The UI has also moved in the right direction already. <code>/leads</code>, <code>/customers</code>, <code>/opportunities</code> and <code>/pipeline</code> now redirect to <code>/workspace/leads-customers</code>, which reads one projection with a <code>lifecycle</code> field. The product already treats lead and customer as one person, and the data model has not caught up.</p>
+
+<!-- ============================================================ -->
+<h2 id="market"><span class="num">5</span>How other CRMs model this</h2>
+<p class="sub">I looked at five general CRMs and the tools built for setter and closer teams. Claims come from vendor help centers and API docs, linked below. Where only a consultant or practitioner said something, I say so.</p>
+
+<div class="tablewrap"><table style="min-width:760px">
+  <thead><tr><th>Platform</th><th>Person record</th><th>Attempt record</th><th>Lifecycle on the person</th><th>Stage vs won/lost</th><th>Meeting outcome on the meeting</th><th>Credit and attribution</th></tr></thead>
+  <tbody>
+    <tr><td><strong>HubSpot</strong></td><td>Contact, for life</td><td>Lead (qualification), then Deal</td><td>Yes, forward-only</td><td>Every pipeline needs a Won and a Lost stage</td><td>Meetings are activities</td><td>Original and latest source; deal splits that must total 100%</td></tr>
+    <tr><td><strong>Salesforce</strong></td><td>Lead, converted into Contact or Person Account</td><td>Opportunity</td><td>Lead status, before conversion only</td><td>Each stage has a type: open, closed won, closed lost</td><td>No native field</td><td>Contact roles, revenue and overlay splits, campaign influence</td></tr>
+    <tr><td><strong>Close</strong></td><td>Lead (household) with contacts</td><td>Opportunity, up to 1,000 per lead</td><td>Yes, lead status</td><td>Each status has a type: active, won, lost</td><td>Per-meeting Outcomes (newer), though its own playbook uses a No-Show status</td><td>Custom fields, Hyros integration</td></tr>
+    <tr><td><strong>Pipedrive</strong></td><td>Person</td><td>Lead in the inbox, then Deal</td><td>No, labels on leads</td><td>Separate status field: open, won, lost</td><td>Activities</td><td>Locked <code>source_origin</code>, editable channel</td></tr>
+    <tr><td><strong>GoHighLevel</strong></td><td>Contact with a type</td><td>Opportunity</td><td>Contact type (Lead, Customer)</td><td>Fixed status: open, won, lost, abandoned</td><td>Yes: confirmed, showed, no-show, cancelled</td><td>First attribution (frozen) and latest attribution</td></tr>
+    <tr><td><strong>iClosed</strong></td><td>Contact</td><td>Discovery call, strategy call, then Deal</td><td>Derived lead status</td><td>Sale or No Sale with a reason</td><td>Yes, an outcome per call</td><td>Deal source, Hyros</td></tr>
+    <tr style="background:color-mix(in srgb, var(--c-red) 6%, transparent)"><td><strong>Magnus today</strong></td><td>Prospect, lead and customer, unlinked or copied</td><td>Opportunity</td><td>No (active, converted, merged)</td><td>Mixed into one status</td><td>Mirrored onto the opportunity</td><td>Four columns in four shapes, plus an audit table</td></tr>
+  </tbody>
+</table></div>
+
+<h3>What each one teaches</h3>
+<p><strong>HubSpot</strong> is the closest match for the person side. The Contact is permanent. Its <a href="https://knowledge.hubspot.com/records/use-lifecycle-stages">lifecycle stage</a> runs Subscriber, Lead, MQL, SQL, Opportunity, Customer, Evangelist, and automation only moves it forward. To go back, someone has to clear the value first. Two <a href="https://knowledge.hubspot.com/object-settings/manage-how-lifecycle-stages-sync-between-objects">sync settings</a> move the contact to Opportunity when its first deal is created and to Customer when a deal closes won. A returning customer stays Customer when a new deal opens. Since 2024 a separate <a href="https://knowledge.hubspot.com/records/create-leads">Leads object</a> tracks qualification attempts. A lead cannot exist without a contact, one contact can have several, and disqualifying one <a href="https://knowledge.hubspot.com/prospecting/manage-leads-using-the-hubspot-mobile-app">requires a reason</a>. Deals record <a href="https://knowledge.hubspot.com/properties/hubspots-default-deal-properties">when they entered and left each stage</a>, which is what makes funnel timing reports cheap.</p>
+<p><strong>Salesforce</strong> is mostly a warning. A Lead is a separate record that gets <a href="https://developer.salesforce.com/docs/atlas.en-us.apexref.meta/apexref/apex_dml_convertLead.htm">converted</a> into a Contact and Account. After conversion the lead is hidden from most users, and the conversion cannot be undone. Consultants <a href="https://www.revblack.com/guides/leads-vs-contacts-salesforce">point out</a> that one person ends up in two pools, and that a returning customer comes back as a new Lead that duplicates their Contact. Many teams now run "contacts only". That is our customer-copy problem. The part worth copying is credit. <a href="https://help.salesforce.com/s/articleView?language=en_US&amp;id=sales.teamselling.htm&amp;type=5">Opportunity Splits</a> hold revenue credit that must total 100%, plus overlay credit for supporting reps that may exceed it. That maps directly onto setter and closer commission.</p>
+<p><strong>Close</strong> is popular with coaching sales teams. The Lead is the person, <a href="https://help.close.com/getting-started/import-data-into-close/migration-from-another-crm">before and after the sale</a>, and owns its opportunities. Every opportunity status belongs to a pipeline and has a <a href="https://help.close.com/docs/opportunity-statuses">type of active, won or lost</a> that drives revenue reports. Status changes are stored as activities. Close's <a href="https://www.close.com/blog/sales-process-workflow-coaching-business">coaching playbook</a> does what we do: it creates the opportunity when the call is booked and uses a No-Show status that starts a rebooking workflow. That works while one opportunity has one meeting. Once reschedules give an opportunity several meetings it stops working, and Close has since added <a href="https://help.close.com/docs/outcomes">per-meeting outcomes</a>.</p>
+<p><strong>Pipedrive</strong> has the cleanest split between stage and result. A deal has a stage and, <a href="https://developers.pipedrive.com/docs/api/v1/Deals">separately</a>, a status of open, won, lost or deleted. A lost reason can only be set when the status is lost. Its Leads Inbox keeps unqualified people out of the pipeline, so they don't distort pipeline reports. It also <a href="https://support.pipedrive.com/en/article/lead-source-deals">locks the original source</a> so nobody can overwrite it.</p>
+<p><strong>GoHighLevel</strong> shows the full three-way split. The contact has a type, the opportunity has a custom stage plus a <a href="https://help.gohighlevel.com/support/solutions/articles/155000001983-understanding-opportunities-in-highlevel">fixed status</a> of open, won, lost or abandoned, and the appointment has <a href="https://help.gohighlevel.com/support/solutions/articles/155000002619-workflow-trigger-appointment-status">its own status</a> (confirmed, showed, no-show, cancelled). Workflows connect them. Contacts keep a <a href="https://help.gohighlevel.com/support/solutions/articles/48001219997-understanding-attribution-source">first attribution that never changes</a> and a latest attribution that does. The weak spot is that agencies often copy appointment status back into stages, which brings the clutter back.</p>
+<p><strong>Setter and closer tools</strong> treat each call as having its own outcome. <a href="https://docs.iclosed.io/en/articles/9835780-difference-between-strategy-and-discovery-event">iClosed</a> separates the setter's discovery call (approved or rejected) from the closer's strategy call (sale or no sale, with reasons such as no-show, follow-up scheduled or unqualified). A sale creates a deal with value, product and payment type, either paid in full or a deposit. <a href="https://hyros.com/updates/changelog/version-1-9-5/">Hyros</a> tracks each call as qualified, unqualified, canceled or no-show, and argues that booked, showed and closed are three separate events whose rates differ by ad source. Dialers such as <a href="https://support.aloware.com/en/articles/9773655-understanding-and-managing-call-dispositions-in-aloware">Aloware</a> keep a disposition per call and a separate disposition for the contact. One practitioner's <a href="https://nathannewberry.com/sales-scorecard">sales scorecard</a> pays setters per call that shows and per close, not per booking. An Instagram DM tool puts the reason bluntly: paid per booking, "setters will book anyone who breathes" (<a href="https://dmtracker.ai/how-to-manage-appointment-setters">DM Tracker</a>, vendor content).</p>
+
+<h3>The pattern across all of them</h3>
+<ul>
+  <li>One person record for life. Only Salesforce converts and copies, and that is the part of it people work around.</li>
+  <li>Won and lost are a status, or a type attached to each stage, never just one more stage name.</li>
+  <li>The more specialised the tool is for booked calls, the more firmly it keeps the call outcome on the call.</li>
+  <li>Credit is its own record with a role and a share, not a column per role.</li>
+  <li>The first source is frozen, the latest source updates, and stage changes are logged with a timestamp.</li>
+</ul>
+<p class="footnote">Show rate has no standard definition. iClosed defines it two different ways in its own docs. Whatever the redesign computes, write the definitions down in the repo.</p>
+
+<!-- ============================================================ -->
+<h2 id="target"><span class="num">6</span>The model I recommend</h2>
+<p class="sub">Three things that are different today get separated: the person, each attempt to sell to them, and everything that happens along the way. Today the opportunity is all three.</p>
+
+<div class="diagram" style="overflow-x:auto">
+<svg viewBox="0 0 840 500" role="img" aria-label="Proposed entity model" style="min-width:620px">
+  <!-- edges -->
+  <line class="edge" x1="240" y1="60" x2="310" y2="60"/>
+  <line class="edge" x1="530" y1="60" x2="600" y2="60" stroke-dasharray="4 3"/>
+  <line class="edge" x1="420" y1="100" x2="420" y2="160"/>
+  <line class="edge" x1="330" y1="100" x2="220" y2="160"/>
+  <line class="edge" x1="530" y1="200" x2="600" y2="200"/>
+  <line class="edge" x1="710" y1="160" x2="710" y2="100"/>
+  <line class="edge" x1="362" y1="240" x2="362" y2="300"/>
+  <line class="edge" x1="477" y1="240" x2="477" y2="300"/>
+  <line class="edge" x1="320" y1="240" x2="220" y2="300"/>
+  <line class="edge" x1="130" y1="240" x2="130" y2="300"/>
+  <line class="edge" x1="520" y1="240" x2="640" y2="300" stroke-dasharray="4 3"/>
+  <text x="275" y="53" font-size="11" class="t-muted" text-anchor="middle">1 : n</text>
+  <text x="565" y="53" font-size="11" class="t-muted" text-anchor="middle">owners</text>
+  <text x="428" y="134" font-size="11" class="t-muted">1 : n</text>
+  <text x="565" y="193" font-size="11" class="t-muted" text-anchor="middle">1 : n</text>
+  <text x="716" y="134" font-size="11" class="t-muted">who</text>
+
+  <!-- row 1 -->
+  <rect class="box" x="20" y="20" width="220" height="80" rx="9"/>
+  <text x="34" y="44" font-size="14" font-weight="700">Identifiers</text>
+  <text x="34" y="64" font-size="11.5" class="t-muted">email, phone, handles, source</text>
+  <text x="34" y="80" font-size="11.5" class="t-muted">keep as is, add placeholder rules</text>
+
+  <rect class="box core" x="310" y="20" width="220" height="80" rx="9"/>
+  <text x="324" y="44" font-size="14" font-weight="700">Person (the lead)</text>
+  <text x="324" y="64" font-size="11.5" class="t-muted">created at first touch, any channel</text>
+  <text x="324" y="80" font-size="11.5" class="t-muted">lifecycle stage, disposition, owners</text>
+
+  <rect class="box new" x="600" y="20" width="220" height="80" rx="9"/>
+  <text x="614" y="44" font-size="14" font-weight="700">Team members</text>
+  <text x="614" y="64" font-size="11.5" class="t-muted">one row per human who gets credit</text>
+  <text x="614" y="80" font-size="11.5" class="t-muted">links to login, Slack, portal</text>
+
+  <!-- row 2 -->
+  <rect class="box new" x="20" y="160" width="220" height="80" rx="9"/>
+  <text x="34" y="184" font-size="14" font-weight="700">Enrollments</text>
+  <text x="34" y="204" font-size="11.5" class="t-muted">person × program</text>
+  <text x="34" y="220" font-size="11.5" class="t-muted">active, paused, churned</text>
+
+  <rect class="box core" x="310" y="160" width="220" height="80" rx="9"/>
+  <text x="324" y="184" font-size="14" font-weight="700">Deals (opportunities)</text>
+  <text x="324" y="204" font-size="11.5" class="t-muted">one per buying attempt</text>
+  <text x="324" y="220" font-size="11.5" class="t-muted">stage + status open / won / lost</text>
+
+  <rect class="box new" x="600" y="160" width="220" height="80" rx="9"/>
+  <text x="614" y="184" font-size="14" font-weight="700">Deal attributions</text>
+  <text x="614" y="204" font-size="11.5" class="t-muted">lead gen, setter, DM, closer</text>
+  <text x="614" y="220" font-size="11.5" class="t-muted">role per person, shares later</text>
+
+  <!-- row 3 -->
+  <rect class="box" x="20" y="300" width="220" height="70" rx="9"/>
+  <text x="34" y="324" font-size="14" font-weight="700">Payments</text>
+  <text x="34" y="344" font-size="11.5" class="t-muted">belong to a deal and an enrollment</text>
+
+  <rect class="box" x="310" y="300" width="105" height="70" rx="9"/>
+  <text x="322" y="324" font-size="14" font-weight="700">Meetings</text>
+  <text x="322" y="344" font-size="11.5" class="t-muted">attendance</text>
+  <text x="322" y="359" font-size="11.5" class="t-muted">only</text>
+
+  <rect class="box" x="425" y="300" width="105" height="70" rx="9"/>
+  <text x="437" y="324" font-size="14" font-weight="700">Tasks</text>
+  <text x="437" y="344" font-size="11.5" class="t-muted">follow-ups,</text>
+  <text x="437" y="359" font-size="11.5" class="t-muted">due dates</text>
+
+  <rect class="box new" x="600" y="300" width="220" height="70" rx="9"/>
+  <text x="614" y="324" font-size="14" font-weight="700">Stage list</text>
+  <text x="614" y="344" font-size="11.5" class="t-muted">defined once in code, funnel locked</text>
+
+  <!-- band -->
+  <rect class="box new" x="20" y="410" width="800" height="70" rx="9"/>
+  <text x="34" y="436" font-size="14" font-weight="700">Touches (the timeline)</text>
+  <text x="34" y="457" font-size="11.5" class="t-muted">one append-only row per event: captured, messaged, qualified, booked, attended, no-show, follow-up, paid, note.</text>
+  <text x="34" y="472" font-size="11.5" class="t-muted">Each row carries person, deal if any, team member and channel. It feeds the person page, first and last touch, and attribution.</text>
+</svg>
+<div class="caption">Teal: the two core records. Dashed green: new tables. Grey: existing tables that keep their job but lose fields they should not own.</div>
+</div>
+
+<h3>Lifecycle stage on the person</h3>
+<p>This answers "how far has this person ever got". It only moves forward on its own, as HubSpot's lifecycle stage does, and an admin can move it back with a reason. Every stage has an entry timestamp, which makes cohort conversion reports a simple query.</p>
+<div class="track">
+  <div class="stage">Prospect<small>lead gen captured</small></div><span class="arrow">→</span>
+  <div class="stage">In conversation<small>setter or DM working</small></div><span class="arrow">→</span>
+  <div class="stage">Qualified<small>setter handed off</small></div><span class="arrow">→</span>
+  <div class="stage">Booked<small>call on calendar</small></div><span class="arrow">→</span>
+  <div class="stage">Showed<small>attended a sales call</small></div><span class="arrow">→</span>
+  <div class="stage end">Customer<small>first payment</small></div>
+</div>
+<div class="offramps"><span class="muted">Disposition, separate from stage:</span><span class="rec">open</span><span class="rec">nurture</span><span class="rec">not a fit</span><span class="rec">unresponsive</span><span class="rec">do not contact</span></div>
+
+<h3>Stage and status on the deal</h3>
+<p>Stage answers "where is this attempt". Status answers "is it still alive". Close, Salesforce and HubSpot all keep these apart. A no-show or a cancellation is something that happened to a meeting. It creates a rebook task and moves the deal to Follow-up, so the deal is never "no_show".</p>
+<div class="track">
+  <div class="stage">Qualified</div><span class="arrow">→</span>
+  <div class="stage">Booked</div><span class="arrow">→</span>
+  <div class="stage">Call held</div><span class="arrow">→</span>
+  <div class="stage">Follow-up</div><span class="arrow">→</span>
+  <div class="stage end">Closed<small>status won or lost</small></div>
+</div>
+
+<h3>How today's statuses map</h3>
+<div class="tablewrap"><table>
+  <thead><tr><th>Today: opportunity.status</th><th>Deal stage</th><th>Deal status</th><th>Meeting</th><th>Task</th></tr></thead>
+  <tbody>
+    <tr><td><code>qualified_pending</code></td><td>Qualified</td><td>open</td><td>none</td><td>none</td></tr>
+    <tr><td><code>scheduled</code> (Calendly)</td><td>Booked</td><td>open</td><td>scheduled</td><td>none</td></tr>
+    <tr><td><code>scheduled</code> (side deal)</td><td>Call held</td><td>open</td><td>none</td><td>none</td></tr>
+    <tr><td><code>no_show</code></td><td>Follow-up</td><td>open</td><td>no_show</td><td>rebook</td></tr>
+    <tr><td><code>canceled</code></td><td>Follow-up</td><td>open</td><td>canceled</td><td>rebook</td></tr>
+    <tr><td><code>reschedule_link_sent</code></td><td>Follow-up</td><td>open</td><td>no_show</td><td>rebook, link sent</td></tr>
+    <tr><td><code>follow_up_scheduled</code></td><td>Follow-up</td><td>open</td><td>usually held</td><td>scheduling link or reminder</td></tr>
+    <tr><td><code>payment_received</code></td><td>Closed</td><td>won</td><td>held</td><td>none</td></tr>
+    <tr><td><code>lost</code></td><td>Closed</td><td>lost + reason</td><td>any</td><td>none</td></tr>
+  </tbody>
+</table></div>
+<p class="small muted">Meetings also get an honest status. Today <code>completed</code> means "an outcome was recorded", and no-show meetings get a <code>completedAt</code> too. Use <code>held</code> for "the call happened" and keep <code>outcomeRecordedAt</code> as its own field.</p>
+
+<h3>Rules that make the model hold</h3>
+<ol>
+  <li><strong>Every channel creates or finds the person.</strong> Lead gen capture, the DM portal, Slack, Calendly and side deals all call the same identity function, so the person exists before any deal does. Every lead gen capture becomes a person in the Prospect stage (decision 1), keyed by the Instagram identifier, and the prospect row keeps a real <code>leadId</code>.</li>
+  <li><strong>Identity uses strong keys only.</strong> Placeholder values never count as keys, and no time-window heuristic can join a booking to another deal. An ambiguous match goes to a review queue, the way <code>potentialDuplicateLeadId</code> works today.</li>
+  <li><strong>Each fact has one owner.</strong> Attendance lives on the meeting, the next step on a task, and credit in deal attributions. Projections can copy them for speed, but a projection rebuilds from the owner and never the other way round.</li>
+  <li><strong>Attribution is resolved once.</strong> When a deal is created, the CRM writes attribution rows for the lead gen worker (from the prospect), the setter (from Slack), the DM team and closer (from UTMs) and the closer (from the host). Reassigning a meeting adds a row and never replaces one. There are no shares yet (decision 2). When commissions arrive, each row can take a share the way Salesforce splits do: revenue credit totalling 100%, or overlay credit with no cap, frozen when the deal is won.</li>
+  <li><strong>The first source is frozen.</strong> The person keeps a first touch (who found them, through which channel) that nothing overwrites, plus a latest touch that updates. Each deal takes a snapshot of both when it is created, so later edits cannot change past commission.</li>
+  <li><strong>Each entity has one write path.</strong> One function per entity, such as <code>transitionOpportunity(ctx, opportunityId, change)</code>, owns the state machine and domain events, and no other code patches <code>status</code>. Aggregates and projections that only copy data hang off <code>convex-helpers</code> triggers, so a new write path cannot forget them.</li>
+  <li><strong>A customer is a stage, not a table.</strong> The person reaches Customer at their first payment. Each program they buy is an enrollment with its own active, paused or churned status. The contact fields stay on the person.</li>
+</ol>
+
+<h3>Metrics this model makes cheap</h3>
+<p>Each of these becomes an indexed read over one table, with no joins across copies.</p>
+<div class="tablewrap"><table>
+  <thead><tr><th>Metric</th><th>Computed from</th><th>Hard today because</th></tr></thead>
+  <tbody>
+    <tr><td>Prospect to customer, by lead gen worker and month</td><td>Person stage entry dates plus first-touch credit</td><td>Prospects are not linked to leads (F1)</td></tr>
+    <tr><td>Set rate per setter</td><td>Touches: conversations, then qualifications</td><td>Conversations are not recorded</td></tr>
+    <tr><td>Show rate per closer, DM team or ad source</td><td>Meetings: held / (held + no-show) for calls that came due</td><td>Attendance is mirrored into deal status and attribution has six copies (F2, F6)</td></tr>
+    <tr><td>Close rate</td><td>Deals won / deals with at least one held call</td><td>"Open" means six literals, and side deals start as "scheduled"</td></tr>
+    <tr><td>Cash per held call, revenue by role</td><td>Payments joined to deal attributions</td><td>Credit lives in four columns of different shapes (F5)</td></tr>
+    <tr><td>Revenue per customer across programs</td><td>Enrollments plus payments per person</td><td>The customer row keeps one program (F4)</td></tr>
+    <tr><td>Time in each stage</td><td>Stage entry timestamps on the person and the deal</td><td>Only scattered <code>*At</code> fields exist</td></tr>
+  </tbody>
+</table></div>
+
+<h3>Considered and not recommended (yet)</h3>
+<p>HubSpot's Leads object and iClosed's discovery calls give setter qualification its own record, with qualified and disqualified as final states, before any deal exists. That fits teams whose setters run a multi-step pipeline inside the CRM. Your setters qualify in one Slack step and send a booking link right away, so a deal that starts at Qualified, plus touches for the conversation, covers it with one entity fewer. Decision 4 tracks setter activity per person, but that activity happens in the DM portal and fits as touches. A separate record would only pay off if setters ran multi-step sequences inside the CRM.</p>
+
+<!-- ============================================================ -->
+<h2 id="roadmap"><span class="num">7</span>Migration path</h2>
+<p class="sub">Revised on 14 October after the decisions in section 9. Production has one live tenant with real data, so every phase follows widen, migrate, narrow and ships on its own. Sizes are rough: S is days, M one to two weeks, L several weeks.</p>
+
+<div class="box" style="padding-top:4px;padding-bottom:4px">
+<div class="phase">
+  <div class="tag">First<span>this week</span></div>
+  <div>
+    <h3>Write the decisions down</h3>
+    <div class="meta"><span class="pill info">S</span><span class="pill good">No code</span></div>
+    <ul>
+      <li>Record the five decisions and the target model as a decision record in the repo, with a short glossary: person, prospect, deal, stage, outcome, touch, attribution, enrollment.</li>
+      <li>Point <code>AGENTS.md</code> and <code>docs/agents/convex.md</code> at it, so every agent working on a lead, deal or report follows the new model instead of extending the old one.</li>
+    </ul>
+  </div>
+</div>
+<div class="phase">
+  <div class="tag">Phase 0<span>stabilize</span></div>
+  <div>
+    <h3>Stop the damage and unblock second programs</h3>
+    <div class="meta"><span class="pill info">S to M</span><span class="pill good">Low risk</span><span class="pill low">No schema change</span></div>
+    <ul>
+      <li>Finish the polluted-lead split, guards first. It has to land before phase 2, whose backfill matches prospects to leads by handle. A polluted lead would absorb even more people.</li>
+      <li>Run the Slack-opportunity check before the 14-day reschedule heuristic, or require a strong identifier match for the heuristic.</li>
+      <li>Close <code>qualified_pending</code> opportunities after 30 days as lost, reason "stale", so a new booking does not leave an orphan.</li>
+      <li>Build one <code>transitionOpportunity</code> function that validates the move and owns tenant stats, the domain event and the qualification row rebuild. Route all 25 <code>patchOpportunityLifecycle</code> callers and the 15 raw patches through it. That fixes the stale qualification statuses and both state machine bypasses (<code>bookingFacts.ts</code>, <code>voidPayment.ts</code>). Phase 5 then changes one function instead of 40 call sites.</li>
+      <li>Make <code>mergeLead</code> repoint every lead-keyed table. The split plan already lists them.</li>
+      <li>Remove the two rules that block a second program (decision 3). Slack answers <code>already_booked</code> whenever a won deal is among the lead's newest 20 opportunities (<code>slack/createQualifiedLead.ts:199-262</code>), and side deals reject converted leads (<code>opportunities/createManual.ts:30-37, 99-105</code>). A won deal should no longer count as "already booked".</li>
+    </ul>
+  </div>
+</div>
+<div class="phase">
+  <div class="tag">Phase 1<span>foundations</span></div>
+  <div>
+    <h3>Lifecycle stage, team members, timeline</h3>
+    <div class="meta"><span class="pill info">M</span><span class="pill good">Low risk</span><span class="pill low">Additive fields and one new table</span></div>
+    <ul>
+      <li>Add <code>lifecycleStage</code>, stage entry timestamps and disposition to <code>leads</code>. Backfill them from opportunities, meetings and customers. Keep <code>merged</code> as its own flag, because it describes identity housekeeping, not lifecycle.</li>
+      <li>Count by stage before the leads table grows. The leads report counts every <code>leads</code> row as a new lead (<code>reporting/leadConversion.ts:31</code>, through the <code>leadTimeline</code> aggregate keyed on creation time), and <code>tenantStats.totalLeads</code> goes up on every insert. Once captures become persons, both would count every Instagram handle. Key them to a stage entry, such as reaching Qualified. Also add a <code>prospect</code> lifecycle to the lead/customer search projection, hidden by default.</li>
+      <li>Add a <code>teamMembers</code> table with one row per human, linked to their user, lead gen worker, Slack user and DM closer records. Backfill it. The existing tables keep their role-specific settings, and nothing changes for users yet.</li>
+      <li>Give <code>domainEvents</code> an optional <code>leadId</code> and <code>teamMemberId</code> so it can serve as the person timeline. That avoids starting a second log.</li>
+    </ul>
+  </div>
+</div>
+<div class="phase">
+  <div class="tag">Phase 2<span>person first</span></div>
+  <div>
+    <h3>Every capture and every DM becomes part of the person</h3>
+    <div class="meta"><span class="pill info">M</span><span class="pill med">Medium risk</span><span class="pill low">Widen: prospect.leadId, copy event leadId</span></div>
+    <ul>
+      <li>Lead gen capture calls <code>resolveLeadIdentity</code> with the Instagram handle and creates the person at the Prospect stage (decision 1). Both sides already normalize handles through <code>normalizeSocialHandle</code>, so they match. The worker and source become the person's frozen first touch.</li>
+      <li>Backfill every existing prospect: link it to a lead through the handle identifier, or create one. Count production prospects first to size the migration batches.</li>
+      <li>The DM portal finds or creates the person (decision 4). It records each copied link against that person (<code>linkPortalCopyEvents</code> gets a <code>leadId</code>), and the booking link carries the person ID so the booking joins without guessing. Portal activity moves the person to In conversation.</li>
+      <li>The person page shows one timeline: captures, portal activity, Slack qualification, bookings, outcomes and payments.</li>
+    </ul>
+  </div>
+</div>
+<div class="phase">
+  <div class="tag">Phase 3<span>attribution</span></div>
+  <div>
+    <h3>Attribution as its own record</h3>
+    <div class="meta"><span class="pill info">M</span><span class="pill med">Medium risk</span><span class="pill low">New table</span></div>
+    <ul>
+      <li><code>dealAttributions</code>: one row per deal, role and team member. Roles are lead gen, setter, DM closer and closer. Each row stores where it came from (prospect, Slack event, UTM or Calendly host) and when. Rows are written when a deal is created and when a booking joins it. Reassigning a meeting adds a row.</li>
+      <li>The person keeps a frozen first touch and an updating latest touch.</li>
+      <li>Booked Calls, qualifications and lead gen operations read attribution rows instead of copied columns. The six copies of <code>attributionTeamId</code> and <code>dmCloserId</code> retire as each reader moves.</li>
+      <li>No shares and no commission fields (decision 2). When commissions arrive, add an optional share and a freeze-when-won rule to this table.</li>
+    </ul>
+  </div>
+</div>
+<div class="phase">
+  <div class="tag">Phase 4<span>customers</span></div>
+  <div>
+    <h3>Enrollments replace the customer copy</h3>
+    <div class="meta"><span class="pill info">M</span><span class="pill med">Medium risk</span><span class="pill low">New table, then narrow customers</span></div>
+    <ul>
+      <li>Each won deal creates an enrollment (person × program). A second program is a second deal and a second enrollment (decision 3).</li>
+      <li>Backfill one enrollment per customer program, and one per later program purchase found in payments. An admin payment for a new program goes through a new deal instead of <code>recordCustomerPayment</code>.</li>
+      <li>Customer pages read the person plus enrollments. Drop the copied contact fields and the email requirement, which lets Slack-only leads convert.</li>
+    </ul>
+  </div>
+</div>
+<div class="phase">
+  <div class="tag">Phase 5<span>deal status</span></div>
+  <div>
+    <h3>Split the opportunity status</h3>
+    <div class="meta"><span class="pill info">L</span><span class="pill high">Highest risk</span><span class="pill low">Widen, dual-write, narrow</span></div>
+    <ul>
+      <li>Add <code>stage</code> and <code>outcome</code> (open, won, lost) beside the old status, written from <code>transitionOpportunity</code>.</li>
+      <li>The funnel is locked (decision 5), so stages stay literals in code. Define them once, in one module, with an open, won or lost category on each. That keeps configurable pipelines a contained change if they are ever needed.</li>
+      <li>Move readers one dashboard at a time: aggregates keyed by status, projections, reports, the closer pipeline. Narrow last.</li>
+    </ul>
+  </div>
+</div>
+</div>
+<p>Phases 0 to 2 deliver the reporting you asked for. Every capture is a person, and prospect-to-customer conversion by lead gen worker becomes one query. Phase 1 has to ship before phase 2, or the leads report counts every Instagram capture as a new lead. Phases 4 and 5 don't depend on each other and can swap. Configurable pipelines are off the roadmap until a tenant needs a different funnel.</p>
+<div class="box">
+  <h3 style="margin-top:0">Alongside the phases: runtime fixes from F11</h3>
+  <ul class="small" style="margin-bottom:0">
+    <li>Move the counters in <code>tenantStats</code> into the aggregate components that already exist, or shard the document, so bookings stop conflicting with each other and with dashboards. This matters more once every capture creates a lead.</li>
+    <li>Bound the open loops in <code>adminStats</code> and the closer dashboard with aggregates.</li>
+    <li>Drop the roughly 24 unused indexes and the dead fields (<code>meetingOutcome</code>, <code>meetings.notes</code>, the legacy daily stats table). Phase 5 then frees the closer × source × status index combinations.</li>
+    <li>Pick one definition of "day" per screen and say which one in the UI.</li>
+  </ul>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="avoid"><span class="num">8</span>What not to copy</h2>
+<ul>
+  <li><strong>Convert and copy.</strong> Salesforce's lead conversion splits history across records and creates duplicates when people return. Our <code>customers</code> table is a small version of it. Don't add another one, such as a "qualified lead" table that gets copied into a deal.</li>
+  <li><strong>Appointment outcomes as deal stages.</strong> The GoHighLevel setups that add Booked, Confirmed, Showed and No-show stages, and Close's No-Show status, produce a pipeline that tracks the calendar instead of the sale. It is the same mix as our status field.</li>
+  <li><strong>Lifecycle that moves backwards on its own.</strong> HubSpot blocks it for a reason. Once a person has been a customer, a lost deal should not make them a lead again in reports.</li>
+  <li><strong>Crediting bookings instead of shows and closes.</strong> Practitioners and Hyros both warn that it pays setters to book anyone. Attribution rows should record the role, and future commission rules can decide what counts.</li>
+  <li><strong>Overwriting the original source.</strong> Pipedrive and GoHighLevel freeze it. Our opportunity already keeps first-booking attribution, so carry that rule over to the person.</li>
+  <li><strong>Dropping credit on reassignment.</strong> HubSpot removes a deal's split when the owner changes. Reassigning a meeting to another closer (Feature H) should add an attribution row, not replace one.</li>
+  <li><strong>A big-bang rewrite.</strong> One live tenant with 10,800 opportunities and a reporting stack built on the current fields cannot absorb it. Every phase in section 7 runs both shapes side by side until the readers have moved.</li>
+  <li><strong>Configuring everything before anyone needs it.</strong> Configurable pipelines are the right end state for a product with many tenants, but you have locked the funnel. Defining the stages once, in one module, keeps that option open for little cost.</li>
+</ul>
+
+<!-- ============================================================ -->
+<h2 id="decisions"><span class="num">9</span>Decisions, locked 14 October</h2>
+<p class="sub">Your answers to the open questions, and what each one changes in the plan.</p>
+<div class="tablewrap"><table>
+  <thead><tr><th style="width:26%">Question</th><th style="width:28%">Decision</th><th>What it changes</th></tr></thead>
+  <tbody>
+    <tr><td>Should every lead gen capture become a person?</td><td>Yes. It is the default, and it makes reporting work.</td><td>Phase 2 creates a person for every capture and backfills all prospects. Phase 1 must first make lead counts stage-aware.</td></tr>
+    <tr><td>Who gets credit, and how much?</td><td>No commissions yet. Attribution has to be tracked and shown correctly.</td><td>Phase 3 stores role-based attribution rows with no shares. Shares can be added later as one optional field.</td></tr>
+    <tr><td>Is a second program a new deal?</td><td>Yes.</td><td>Phase 0 removes the Slack and side-deal rules that block it. Phase 4 adds enrollments.</td></tr>
+    <tr><td>Should setter activity be tracked per person?</td><td>Yes, through the DM portal they already use.</td><td>Phase 2 links portal activity to a person and puts the person ID in booking links.</td></tr>
+    <tr><td>Will tenants run different funnels?</td><td>Not for now. The PT Domination funnel is locked, and most tenants will come through them.</td><td>Configurable pipelines are dropped. The stage list is defined once in code (phase 5).</td></tr>
+  </tbody>
+</table></div>
+
+<!-- ============================================================ -->
+<h2 id="appendix"><span class="num">A</span>Evidence and method</h2>
+<h3>Method</h3>
+<ul>
+  <li>Three parallel investigations: an end-to-end trace of every code path that creates or links a person record, a quantified coupling and scalability audit (counts from <code>grep</code>, <code>wc</code> and <code>git log</code>), and a review of vendor documentation for the CRMs in section 5.</li>
+  <li>I re-checked the claims the findings rest on directly in the code, among them the conversion email requirement, the side-deal starting status, the webhook status mirror without a transition check, and the staff identity links.</li>
+  <li>Production figures come from the 13 October snapshot in <code>docs/plans/polluted-lead-split.md</code>. The only deploy key on this machine opens the dev deployment, which holds 34 leads. That was enough to check shapes, not volume. I deleted the exported dev data after counting.</li>
+</ul>
+<h3>Scale reference</h3>
+<div class="tablewrap"><table>
+  <thead><tr><th>Measure</th><th>Value</th><th>Source</th></tr></thead>
+  <tbody>
+    <tr><td>Tables in the schema</td><td>67</td><td><code>convex/schema.ts</code> (55) plus pipeline, meeting projection and report schemas</td></tr>
+    <tr><td>Indexes</td><td>283 (27 on opportunities)</td><td><code>grep -c ".index("</code> over the four schema files</td></tr>
+    <tr><td>Backend and frontend size</td><td>70.7k and 80.1k lines</td><td>non-test code; 278 public and 228 internal Convex functions</td></tr>
+    <tr><td>Migration and backfill code</td><td>4,773 lines, 6.7% of the backend</td><td>17 <code>migrations.define</code> plus 27 exports in <code>admin/migrations.ts</code></td></tr>
+    <tr><td>Opportunities, production</td><td>10,798</td><td>split plan §2</td></tr>
+    <tr><td>Lead identifiers, production</td><td>19,188</td><td>split plan §2</td></tr>
+    <tr><td>Meeting form responses, production</td><td>42,865</td><td>split plan §2</td></tr>
+    <tr><td>Leads that hold more than one person</td><td>4 certain (68 people), 22 likely</td><td>split plan §3</td></tr>
+    <tr><td>Domain event types emitted</td><td>34</td><td><code>grep</code> over <code>eventType:</code> literals</td></tr>
+  </tbody>
+</table></div>
+<h3>Facts stored in more than one place</h3>
+<div class="tablewrap"><table>
+  <thead><tr><th>Fact</th><th>Copies</th><th>Where</th></tr></thead>
+  <tbody>
+    <tr><td>Program name</td><td>9</td><td>Meeting booking and sold program, opportunity first-booking and sold program, payments, customers, qualification rows, projections. A rename updates 2.</td></tr>
+    <tr><td>Opportunity status</td><td>7</td><td><code>opportunities</code>, <code>meetings.opportunityStatus</code>, <code>opportunitySearch</code>, qualification rows, two meeting stats projections, legacy daily stats; plus an aggregate and <code>tenantStats</code></td></tr>
+    <tr><td>Assigned closer</td><td>7</td><td>Same tables as status, plus two aggregate keys</td></tr>
+    <tr><td>DM team and DM closer</td><td>6 each</td><td>Opportunities, meetings, qualification rows, two projections, legacy daily stats</td></tr>
+    <tr><td>Contact details</td><td>5+</td><td><code>leads</code>, <code>leadIdentifiers</code>, <code>customers</code>, <code>meetings.leadName</code>, both search rows, Slack event snapshots</td></tr>
+    <tr><td>Slack qualifier</td><td>4</td><td><code>opportunities.qualifiedBy</code>, the event's <code>qualifiedBy</code> plus flattened IDs in the same row, qualification rows, two aggregates</td></tr>
+    <tr><td>Person status</td><td>3</td><td><code>leads.status</code>, the existence of a customer row, <code>leadCustomerSearchRows.lifecycle</code></td></tr>
+  </tbody>
+</table></div>
+<p class="footnote">Every finding cites file and line numbers on the branch <code>t3/lead-lifecycle-architecture-review</code> at commit a7bbc60. The stale qualification status in F7 is inferred from the code paths and has not been confirmed against production data.</p>
+
+</main>
+</body>
+</html>
