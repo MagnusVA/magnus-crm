@@ -210,6 +210,42 @@ export const backfillSlackQualificationEvents = migrations.define({
   },
 });
 
+// Fix forward: before transitionOpportunity, closer, admin and side-deal
+// outcomes never rebuilt qualification rows, so a row could keep the status
+// and closer from booking time.
+export const rebuildQualificationRows = migrations.define({
+  table: "slackQualificationEvents",
+  batchSize: 100,
+  migrateOne: async (ctx, event) => {
+    await rebuildQualificationRow(ctx, event._id);
+  },
+});
+
+export const assertQualificationRowsCurrent = migrations.define({
+  table: "slackQualificationEvents",
+  batchSize: 200,
+  migrateOne: async (ctx, event) => {
+    const row = await ctx.db
+      .query("operationsQualificationRows")
+      .withIndex("by_qualificationEventId", (q) =>
+        q.eq("qualificationEventId", event._id),
+      )
+      .unique();
+    if (!row) {
+      throw new Error(`Qualification event ${event._id} has no qualification row`);
+    }
+    const opportunity = event.opportunityId
+      ? await ctx.db.get("opportunities", event.opportunityId)
+      : null;
+    if (
+      row.opportunityStatus !== opportunity?.status ||
+      row.assignedCloserId !== opportunity?.assignedCloserId
+    ) {
+      throw new Error(`Qualification event ${event._id} has a stale qualification row`);
+    }
+  },
+});
+
 export const backfillMeetingOpportunityStatusAndOperationsStats =
   migrations.define({
     table: "meetings",

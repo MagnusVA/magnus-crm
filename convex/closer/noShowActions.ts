@@ -2,14 +2,10 @@ import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { transitionOpportunity } from "../lib/opportunityActivity";
 import { validateTransition } from "../lib/statusTransitions";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
-import {
-  isActiveOpportunityStatus,
-  updateTenantStats,
-} from "../lib/tenantStatsHelper";
 
 const noShowReasonValidator = v.union(
   v.literal("no_response"),
@@ -63,10 +59,13 @@ export const markNoShow = mutation({
 
     const normalizedNote = normalizeOptionalString(note);
 
-    await patchOpportunityLifecycle(ctx, opportunity._id, {
-      status: "no_show",
-      noShowAt: now,
-      updatedAt: now,
+    await transitionOpportunity(ctx, opportunity._id, {
+      to: "no_show",
+      fields: { noShowAt: now, updatedAt: now },
+      source: "closer",
+      actorUserId: userId,
+      reason,
+      occurredAt: now,
     });
     await completeMeetingForOutcome(ctx, {
       meetingId: meeting._id,
@@ -82,9 +81,6 @@ export const markNoShow = mutation({
       },
     });
 
-    await updateTenantStats(ctx, tenantId, {
-      activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? -1 : 0,
-    });
     await emitDomainEvent(ctx, {
       tenantId,
       entityType: "meeting",
@@ -98,18 +94,6 @@ export const markNoShow = mutation({
       metadata: {
         noteProvided: Boolean(normalizedNote),
       },
-      occurredAt: now,
-    });
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: opportunity._id,
-      eventType: "opportunity.status_changed",
-      source: "closer",
-      actorUserId: userId,
-      fromStatus: opportunity.status,
-      toStatus: "no_show",
-      reason,
       occurredAt: now,
     });
   },
@@ -200,12 +184,12 @@ export const createNoShowRescheduleLink = mutation({
       createdSource: "closer",
     });
 
-    await patchOpportunityLifecycle(ctx, opportunityId, {
-      status: "reschedule_link_sent",
-      updatedAt: now,
-    });
-    await updateTenantStats(ctx, tenantId, {
-      activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
+    await transitionOpportunity(ctx, opportunityId, {
+      to: "reschedule_link_sent",
+      fields: { updatedAt: now },
+      source: "closer",
+      actorUserId: userId,
+      occurredAt: now,
     });
     await emitDomainEvent(ctx, {
       tenantId,
@@ -219,17 +203,6 @@ export const createNoShowRescheduleLink = mutation({
         type: "scheduling_link",
         opportunityId,
       },
-      occurredAt: now,
-    });
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: opportunityId,
-      eventType: "opportunity.status_changed",
-      source: "closer",
-      actorUserId: userId,
-      fromStatus: opportunity.status,
-      toStatus: "reschedule_link_sent",
       occurredAt: now,
     });
 

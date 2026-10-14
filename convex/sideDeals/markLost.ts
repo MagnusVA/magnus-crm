@@ -1,14 +1,9 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
-import { emitDomainEvent } from "../lib/domainEvents";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { transitionOpportunity } from "../lib/opportunityActivity";
 import { isSideDeal } from "../lib/sideDeals";
 import { expirePendingStaleOpportunityNudges } from "../lib/staleOpportunityNudges";
 import { validateTransition } from "../lib/statusTransitions";
-import {
-  isActiveOpportunityStatus,
-  updateTenantStats,
-} from "../lib/tenantStatsHelper";
 import { requireTenantUser } from "../requireTenantUser";
 
 export const markLost = mutation({
@@ -43,34 +38,22 @@ export const markLost = mutation({
     }
 
     const trimmedReason = reason?.trim() || undefined;
-    await patchOpportunityLifecycle(ctx, opportunityId, {
-      status: "lost",
-      lostAt: now,
-      lostByUserId: userId,
-      lostReason: trimmedReason,
-      updatedAt: now,
-    });
-    await expirePendingStaleOpportunityNudges(ctx, opportunityId);
-    await updateTenantStats(ctx, tenantId, {
-      activeOpportunities: isActiveOpportunityStatus(opportunity.status)
-        ? -1
-        : 0,
-      lostDeals: 1,
-    });
-
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: opportunityId,
-      eventType: "opportunity.marked_lost",
+    await transitionOpportunity(ctx, opportunityId, {
+      to: "lost",
+      fields: {
+        lostAt: now,
+        lostByUserId: userId,
+        lostReason: trimmedReason,
+        updatedAt: now,
+      },
       source: isAdmin ? "admin" : "closer",
       actorUserId: userId,
-      fromStatus: opportunity.status,
-      toStatus: "lost",
+      eventType: "opportunity.marked_lost",
       reason: trimmedReason,
       occurredAt: now,
       metadata: { source: "side_deal" },
     });
+    await expirePendingStaleOpportunityNudges(ctx, opportunityId);
 
     return null;
   },

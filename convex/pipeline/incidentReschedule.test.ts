@@ -21,7 +21,7 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { bookingHarness } from "../../tests/bookingHarness";
 import { adoptRawDelivery } from "./receipts";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { forceOpportunityState } from "../../tests/opportunityFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -389,7 +389,7 @@ it("a non-closer booking's early cancellation settles once the booking attaches 
   });
   await h.deliver("invitee.created", first, "2026-10-08T04:27:44Z");
   const { opportunityId } = await h.receipt("invitee.created", first);
-  await h.t.run((ctx) => patchOpportunityLifecycle(ctx, opportunityId!, {
+  await h.t.run((ctx) => forceOpportunityState(ctx, opportunityId!, {
     status: "follow_up_scheduled", updatedAt: Date.parse("2026-10-09T21:00:00Z"),
   }));
 

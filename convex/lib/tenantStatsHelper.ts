@@ -20,12 +20,12 @@ export type TenantStatsDelta = {
   totalCustomers?: number;
 };
 
+// Revenue only. The won-deal and active-opportunity counters follow the
+// opportunity's status, which transitionOpportunity counts.
 export type PaymentStatsDelta = {
   commissionable: boolean;
   paymentType: PaymentType;
   amountMinorDelta: number;
-  wonDealDelta?: number;
-  activeOpportunityDelta?: number;
 };
 
 type PaymentRevenueBucket =
@@ -165,12 +165,10 @@ export async function applyPaymentStatsDelta(
         : "totalNonCommissionableFinalRevenueMinor";
 
   await updateTenantStats(ctx, tenantId, {
-    activeOpportunities: delta.activeOpportunityDelta ?? 0,
     totalPaymentRecords:
       delta.amountMinorDelta === 0 ? 0 : Math.sign(delta.amountMinorDelta),
     totalRevenueMinor: delta.amountMinorDelta,
     [bucketKey]: delta.amountMinorDelta,
-    wonDeals: delta.wonDealDelta ?? 0,
   });
 }
 
