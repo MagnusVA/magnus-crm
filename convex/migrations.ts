@@ -2,6 +2,11 @@ import { Migrations } from "@convex-dev/migrations";
 import { v } from "convex/values";
 import { internalMutation } from "./_generated/server";
 import { adoptRawDelivery, deliveryMetadata } from "./pipeline/receipts";
+import {
+  DISMISSED_REASON,
+  dismissBlockedDelivery,
+  isDismissible,
+} from "./pipeline/dismissal";
 import { requestMeetingProjection, bucketKey, meetingDayKey } from "./operations/meetingStats";
 import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
@@ -266,6 +271,25 @@ export const assertWebhookDeliveryReceipts = migrations.define({
     const metadata = await deliveryMetadata(raw);
     const receipt = await ctx.db.query("webhookDeliveries").withIndex("by_tenantId_and_key", q => q.eq("tenantId", raw.tenantId).eq("key", metadata.key)).unique();
     if (!receipt) throw new Error("Webhook receipt missing");
+  },
+});
+// Fix forward after PR #91: dismiss deliveries the old pipeline blocked. Preview
+// with pipeline/dismissal:previewBlockedBacklogDismissal, undo with
+// pipeline/dismissal:restoreDismissedDeliveries.
+export const dismissBlockedBacklog = migrations.define({
+  table: "webhookDeliveries", batchSize: 100,
+  migrateOne: async (ctx, row) => { await dismissBlockedDelivery(ctx, row); },
+});
+export const assertBlockedBacklogDismissed = migrations.define({
+  table: "webhookDeliveries", batchSize: 100,
+  migrateOne: async (ctx, row) => {
+    const log = await ctx.db.query("webhookDeliveryDismissals").withIndex("by_deliveryId", q => q.eq("deliveryId", row._id)).order("desc").first();
+    // Deliveries restored on purpose are back in review and expected to be blocked.
+    if (isDismissible(row) && log?.restoredAt === undefined) throw new Error(`Delivery ${row._id} is still blocked`);
+    if (row.status !== "ignored" || row.reason !== DISMISSED_REASON) return;
+    if (!log || log.restoredAt !== undefined) throw new Error(`Delivery ${row._id} has no dismissal log`);
+    const raw = await ctx.db.get("rawWebhookEvents", row.rawEventId);
+    if (raw && (!raw.processed || raw.processingReason !== DISMISSED_REASON)) throw new Error(`Delivery ${row._id} raw event is not resolved`);
   },
 });
 export const rebuildMeetingProjections = migrations.define({
