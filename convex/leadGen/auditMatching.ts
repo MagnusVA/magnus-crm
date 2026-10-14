@@ -176,6 +176,10 @@ export const matchQualifiedLead = internalMutation({
   },
 });
 
+// Far above the matches one lead collects; a lead matches one prospect per
+// handle it has used.
+const AUDIT_MATCH_SCAN_LIMIT = 50;
+
 export async function preserveQualificationAuditMatchForScheduledMeeting(
   ctx: MutationCtx,
   args: {
@@ -185,26 +189,37 @@ export async function preserveQualificationAuditMatchForScheduledMeeting(
     now: number;
   },
 ) {
+  // The match already on this opportunity, found through the opportunity so
+  // it can't fall outside the lead scan below.
+  const onThisDeal = await ctx.db
+    .query("leadGenAuditMatches")
+    .withIndex("by_tenantId_and_opportunityId", (q) =>
+      q.eq("tenantId", args.tenantId).eq("opportunityId", args.opportunityId),
+    )
+    .take(10);
+  const linked = onThisDeal.find(
+    (match) => match.matchStatus === "accepted" && match.leadId === args.leadId,
+  );
+  if (linked) {
+    return linked._id;
+  }
+
   const matches = await ctx.db
     .query("leadGenAuditMatches")
     .withIndex("by_tenantId_and_leadId", (q) =>
       q.eq("tenantId", args.tenantId).eq("leadId", args.leadId),
     )
     .order("desc")
-    .take(5);
+    .take(AUDIT_MATCH_SCAN_LIMIT);
 
   // A lead has one accepted match per prospect it matched, and can match
-  // several, for example after a merge. Use the one already on this
-  // opportunity, else the newest one not yet linked to a deal, else the
-  // newest, which only confirms an existing link. The lead page shows the
-  // newest accepted match (`getAuditMatchForLead`).
+  // several, for example after a merge. Link the newest one not yet tied to
+  // a deal; failing that, the newest, which only confirms an existing link.
+  // The lead page shows the newest accepted match (`getAuditMatchForLead`).
   const acceptedMatches = matches.filter(
     (match) => match.matchStatus === "accepted",
   );
   const match =
-    acceptedMatches.find(
-      (candidate) => candidate.opportunityId === args.opportunityId,
-    ) ??
     acceptedMatches.find((candidate) => candidate.opportunityId === undefined) ??
     acceptedMatches[0];
   if (!match) {

@@ -772,6 +772,45 @@ it("links a booking to an unlinked accepted match before one that belongs to ano
   expect(result.linked?.opportunityId).toBe(result.firstDealId);
 });
 
+it("finds the deal's own audit match even behind newer matches on the lead", async () => {
+  const h = await setup();
+  const { t, tenantId } = h;
+  const result = await t.run(async (ctx) => {
+    const leadId = await insertLead(ctx, tenantId, { fullName: "Many Matches" });
+    const dealId = await insertOpportunity(ctx, tenantId, leadId);
+    const ownMatchId = await insertMatch(
+      ctx,
+      await insertProspect(ctx, tenantId, "own.match"),
+      leadId,
+      { opportunityId: dealId },
+    );
+    const newerMatchIds = [];
+    for (let index = 0; index < 6; index += 1) {
+      newerMatchIds.push(
+        await insertMatch(
+          ctx,
+          await insertProspect(ctx, tenantId, `newer.${index}`),
+          leadId,
+        ),
+      );
+    }
+    const chosenId = await preserveQualificationAuditMatchForScheduledMeeting(ctx, {
+      tenantId,
+      leadId,
+      opportunityId: dealId,
+      now: AT,
+    });
+    const newer = await Promise.all(
+      newerMatchIds.map((id) => ctx.db.get("leadGenAuditMatches", id)),
+    );
+    return { chosenId, ownMatchId, newer };
+  });
+  expect(result.chosenId).toBe(result.ownMatchId);
+  expect(result.newer.map((match) => match?.opportunityId)).toEqual(
+    Array(6).fill(undefined),
+  );
+});
+
 it("rejects a source with more opportunities than one merge can move, and writes nothing", async () => {
   const h = await setup();
   const { t, tenantId, admin } = h;
