@@ -118,6 +118,7 @@ import type * as leads_merge from "../leads/merge.js";
 import type * as leads_mutations from "../leads/mutations.js";
 import type * as leads_notes from "../leads/notes.js";
 import type * as leads_queries from "../leads/queries.js";
+import type * as leads_repointLeadReferences from "../leads/repointLeadReferences.js";
 import type * as leads_searchTextBuilder from "../leads/searchTextBuilder.js";
 import type * as lib_activeFollowUp from "../lib/activeFollowUp.js";
 import type * as lib_attribution_detailPayload from "../lib/attribution/detailPayload.js";
@@ -466,6 +467,7 @@ declare const fullApi: ApiFromModules<{
   "leads/mutations": typeof leads_mutations;
   "leads/notes": typeof leads_notes;
   "leads/queries": typeof leads_queries;
+  "leads/repointLeadReferences": typeof leads_repointLeadReferences;
   "leads/searchTextBuilder": typeof leads_searchTextBuilder;
   "lib/activeFollowUp": typeof lib_activeFollowUp;
   "lib/attribution/detailPayload": typeof lib_attribution_detailPayload;

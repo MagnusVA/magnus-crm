@@ -3,7 +3,7 @@ import { internalMutation } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { normalizeSocialHandle } from "../lib/normalization";
-import { log, reportError } from "../lib/observability/log";
+import { log } from "../lib/observability/log";
 import { leadGenAuditMatchSourceValidator } from "./validators";
 
 type MatchOutcome =
@@ -190,35 +190,22 @@ export async function preserveQualificationAuditMatchForScheduledMeeting(
     .withIndex("by_tenantId_and_leadId", (q) =>
       q.eq("tenantId", args.tenantId).eq("leadId", args.leadId),
     )
+    .order("desc")
     .take(5);
 
+  // A lead has one accepted match per prospect it matched, and can match
+  // several, for example after a merge. Use the one already on this
+  // opportunity, else the newest, which the lead page shows
+  // (`getAuditMatchForLead`).
   const acceptedMatches = matches.filter(
     (match) => match.matchStatus === "accepted",
   );
-  if (acceptedMatches.length === 0) {
+  const match =
+    acceptedMatches.find(
+      (candidate) => candidate.opportunityId === args.opportunityId,
+    ) ?? acceptedMatches[0];
+  if (!match) {
     return null;
-  }
-  if (acceptedMatches.length > 1) {
-    reportError(
-      "lead_gen.data_inconsistency",
-      new Error("Lead has multiple accepted lead gen audit matches"),
-      {
-        severity: "warning",
-        fingerprint:
-          "lead_gen.data_inconsistency:multiple_accepted_audit_matches",
-        reason: "multiple_accepted_audit_matches",
-        tenantId: args.tenantId,
-        leadId: args.leadId,
-        opportunityId: args.opportunityId,
-        acceptedMatchCount: acceptedMatches.length,
-      },
-    );
-    return null;
-  }
-
-  const match = acceptedMatches[0];
-  if (match.opportunityId === args.opportunityId) {
-    return match._id;
   }
   if (match.opportunityId !== undefined) {
     return match._id;

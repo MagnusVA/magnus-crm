@@ -1,22 +1,42 @@
 import { v } from "convex/values";
+import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
-import { mutation } from "../_generated/server";
+import { internalMutation, mutation } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { requireTenantUser } from "../requireTenantUser";
 import { buildLeadSearchText } from "./searchTextBuilder";
+import {
+  moveFormResponsesPage,
+  moveOpportunityToLead,
+  moveRemainingLeadRows,
+} from "./repointLeadReferences";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { rejectRequest } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
-import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
 import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
-import { syncLeadMeetingNames } from "../lib/syncLeadMeetingNames";
 import { leadDisplayString } from "../lib/leadDisplay";
+import { updateTenantStats } from "../lib/tenantStatsHelper";
+import { rebuildQualificationRow } from "../operations/projections";
 
-// NIM-17: bounded reparent of the source lead's portal notes during a merge.
-// Far above realistic per-lead note counts; if the read comes back full we
-// log a warning at the end of the merge instead of looping unbounded inside
-// the merge transaction.
-const LEAD_NOTE_REPARENT_LIMIT = 200;
+// A merge moves all of the source in one transaction, or nothing. At 50
+// opportunities, the count the merge preview shows, a merge stays well
+// inside Convex's per-transaction read limits (see merge.test.ts).
+const MERGE_OPPORTUNITY_LIMIT = 50;
+const MERGE_IDENTIFIER_LIMIT = 100;
+// Bounds reads that don't decide whether the merge can run: the target's own
+// opportunities, meetings, and Slack events, and leads merged into the
+// source. A full read is logged as `leads.merge.bound_hit`.
+const BOUNDED_READ_LIMIT = 100;
+// A lead can have hundreds of form responses, and any number of other
+// leads' opportunities can flag it as a duplicate. The merge moves the first
+// page of form responses; `continueLeadMerge` moves the rest and clears the
+// flags.
+const FORM_RESPONSE_PAGE_SIZE = 200;
+// Clearing a flag rebuilds its lead's lead/customer row.
+const DUPLICATE_FLAG_PAGE_SIZE = 25;
 
 const SOCIAL_IDENTIFIER_TYPES = new Set<Doc<"leadIdentifiers">["type"]>([
   "instagram",
@@ -26,6 +46,21 @@ const SOCIAL_IDENTIFIER_TYPES = new Set<Doc<"leadIdentifiers">["type"]>([
   "linkedin",
   "other_social",
 ]);
+
+type ProfileCarryOver = Partial<
+  Pick<
+    Doc<"leads">,
+    | "fullName"
+    | "email"
+    | "phone"
+    | "country"
+    | "leadType"
+    | "customFields"
+    | "customFieldLabels"
+    | "initialSource"
+    | "selfReportedIncome"
+  >
+>;
 
 function isActiveLikeLeadStatus(status: Doc<"leads">["status"]): boolean {
   return status === "active";
@@ -57,24 +92,201 @@ function buildSocialHandles(
   return handles.length > 0 ? handles : undefined;
 }
 
-async function countMeetingsForOpportunities(
-  ctx: MutationCtx,
-  opportunities: Doc<"opportunities">[],
-): Promise<number> {
-  let count = 0;
+function isBlank(value: unknown): boolean {
+  return value === undefined || (typeof value === "string" && !value.trim());
+}
 
-  for (const opportunity of opportunities) {
-    for await (const meeting of ctx.db
-      .query("meetings")
-      .withIndex("by_opportunityId", (q) =>
-        q.eq("opportunityId", opportunity._id),
-      )) {
-      void meeting;
-      count += 1;
+function carryOverIfMissing<K extends keyof ProfileCarryOver>(
+  carryOver: ProfileCarryOver,
+  source: Doc<"leads">,
+  target: Doc<"leads">,
+  field: K,
+) {
+  if (isBlank(target[field]) && !isBlank(source[field])) {
+    carryOver[field] = source[field];
+  }
+}
+
+function mergeMissingKeys(
+  target: Record<string, string> | undefined,
+  source: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  const missing = Object.entries(source ?? {}).filter(
+    ([key]) => target?.[key] === undefined,
+  );
+  return missing.length > 0
+    ? { ...target, ...Object.fromEntries(missing) }
+    : undefined;
+}
+
+/**
+ * The source's profile fields that the target lacks. The target's data wins
+ * (the NIM-17 rule for portal fields, applied to every field), and custom
+ * fields merge key by key. The email moves only onto a target with none, and
+ * only when no other unmerged lead already has it as its canonical email.
+ */
+async function buildProfileCarryOver(
+  ctx: MutationCtx,
+  source: Doc<"leads">,
+  target: Doc<"leads">,
+): Promise<ProfileCarryOver> {
+  const carryOver: ProfileCarryOver = {};
+  for (const field of [
+    "fullName",
+    "phone",
+    "country",
+    "leadType",
+    "initialSource",
+    "selfReportedIncome",
+  ] as const) {
+    carryOverIfMissing(carryOver, source, target, field);
+  }
+
+  const customFields = mergeMissingKeys(
+    target.customFields,
+    source.customFields,
+  );
+  if (customFields) {
+    carryOver.customFields = customFields;
+  }
+  const customFieldLabels = mergeMissingKeys(
+    target.customFieldLabels,
+    source.customFieldLabels,
+  );
+  if (customFieldLabels) {
+    carryOver.customFieldLabels = customFieldLabels;
+  }
+
+  const email = source.email;
+  if (email && !isBlank(email) && isBlank(target.email)) {
+    const leadsWithEmail = await ctx.db
+      .query("leads")
+      .withIndex("by_tenantId_and_email", (q) =>
+        q.eq("tenantId", source.tenantId).eq("email", email),
+      )
+      .take(10);
+    const usedElsewhere = leadsWithEmail.some(
+      (lead) =>
+        lead._id !== source._id &&
+        lead._id !== target._id &&
+        lead.status !== "merged",
+    );
+    if (!usedElsewhere) {
+      carryOver.email = email;
     }
   }
 
-  return count;
+  return carryOver;
+}
+
+function duplicateFlagsQuery(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  mergedLeadId: Id<"leads">,
+) {
+  return ctx.db
+    .query("opportunities")
+    .withIndex("by_tenantId_and_potentialDuplicateLeadId", (q) =>
+      q.eq("tenantId", tenantId).eq("potentialDuplicateLeadId", mergedLeadId),
+    );
+}
+
+/**
+ * Clears one page of the duplicate flags that name a merged lead, as merges
+ * always have. Returns `hasMore` when the page was full.
+ */
+async function clearDuplicateFlagsPage(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  mergedLeadId: Id<"leads">,
+): Promise<{ cleared: number; hasMore: boolean }> {
+  const flagged = await duplicateFlagsQuery(ctx, tenantId, mergedLeadId).take(
+    DUPLICATE_FLAG_PAGE_SIZE,
+  );
+  for (const opportunity of flagged) {
+    // Keep `updatedAt`: another lead was merged, not this deal.
+    await patchOpportunityLifecycle(ctx, opportunity._id, {
+      potentialDuplicateLeadId: undefined,
+      updatedAt: opportunity.updatedAt,
+    });
+    // The patch recomputes `latestActivityAt`, which the search row copies.
+    await upsertOpportunitySearchProjection(ctx, opportunity._id);
+  }
+  return {
+    cleared: flagged.length,
+    hasMore: flagged.length === DUPLICATE_FLAG_PAGE_SIZE,
+  };
+}
+
+/**
+ * Updates what the target's own rows copy from its profile: opportunity
+ * search rows (lead search text), meeting `leadName`, and Slack
+ * qualification rows (name, email, phone). Runs before the source's rows
+ * move onto the target, which keeps those up to date itself.
+ */
+async function refreshTargetCopies(
+  ctx: MutationCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    targetLeadId: Id<"leads">;
+    leadName: string;
+    searchTextChanged: boolean;
+    leadNameChanged: boolean;
+    contactChanged: boolean;
+    boundsHit: string[];
+  },
+) {
+  const { tenantId, targetLeadId, boundsHit } = args;
+  if (args.searchTextChanged || args.leadNameChanged) {
+    const opportunities = await ctx.db
+      .query("opportunities")
+      .withIndex("by_tenantId_and_leadId", (q) =>
+        q.eq("tenantId", tenantId).eq("leadId", targetLeadId),
+      )
+      .take(BOUNDED_READ_LIMIT);
+    if (opportunities.length === BOUNDED_READ_LIMIT) {
+      boundsHit.push("target_opportunities");
+    }
+    for (const opportunity of opportunities) {
+      if (args.searchTextChanged) {
+        await upsertOpportunitySearchProjection(ctx, opportunity._id);
+      }
+      if (!args.leadNameChanged) {
+        continue;
+      }
+      const meetings = await ctx.db
+        .query("meetings")
+        .withIndex("by_opportunityId", (q) =>
+          q.eq("opportunityId", opportunity._id),
+        )
+        .take(BOUNDED_READ_LIMIT);
+      if (meetings.length === BOUNDED_READ_LIMIT) {
+        boundsHit.push("target_meetings");
+      }
+      for (const meeting of meetings) {
+        if (meeting.leadName !== args.leadName) {
+          await ctx.db.patch("meetings", meeting._id, {
+            leadName: args.leadName,
+          });
+        }
+      }
+    }
+  }
+
+  if (args.contactChanged) {
+    const events = await ctx.db
+      .query("slackQualificationEvents")
+      .withIndex("by_tenantId_and_leadId_and_submittedAt", (q) =>
+        q.eq("tenantId", tenantId).eq("leadId", targetLeadId),
+      )
+      .take(BOUNDED_READ_LIMIT);
+    if (events.length === BOUNDED_READ_LIMIT) {
+      boundsHit.push("target_qualification_events");
+    }
+    for (const event of events) {
+      await rebuildQualificationRow(ctx, event._id);
+    }
+  }
 }
 
 export const mergeLead = mutation({
@@ -129,33 +341,41 @@ async function executeMerge(
     );
   }
 
+  // Read one past each bound before writing anything, so a lead too large
+  // to move in one transaction is rejected whole instead of moved in part.
   const sourceOpportunities = await ctx.db
     .query("opportunities")
     .withIndex("by_tenantId_and_leadId", (q) =>
       q.eq("tenantId", tenantId).eq("leadId", sourceLeadId),
     )
-    .take(100);
-  const meetingsMoved = await countMeetingsForOpportunities(
-    ctx,
-    sourceOpportunities,
-  );
-
-  for (const opportunity of sourceOpportunities) {
-    await ctx.db.patch("opportunities", opportunity._id, {
-      leadId: targetLeadId,
-      potentialDuplicateLeadId: undefined,
-      updatedAt: now,
-    });
+    .take(MERGE_OPPORTUNITY_LIMIT + 1);
+  if (sourceOpportunities.length > MERGE_OPPORTUNITY_LIMIT) {
+    throw rejectRequest(
+      "lead.merge_too_many_opportunities",
+      `This lead has more than ${MERGE_OPPORTUNITY_LIMIT} opportunities, which is more than one merge can move. Nothing was merged.`,
+      { tenantId, sourceLeadId, targetLeadId },
+    );
   }
-
   const sourceIdentifiers = await ctx.db
     .query("leadIdentifiers")
     .withIndex("by_leadId", (q) => q.eq("leadId", sourceLeadId))
-    .take(100);
+    .take(MERGE_IDENTIFIER_LIMIT + 1);
+  if (sourceIdentifiers.length > MERGE_IDENTIFIER_LIMIT) {
+    throw rejectRequest(
+      "lead.merge_too_many_identifiers",
+      `This lead has more than ${MERGE_IDENTIFIER_LIMIT} identifiers, which is more than one merge can move. Nothing was merged.`,
+      { tenantId, sourceLeadId, targetLeadId },
+    );
+  }
+
+  const boundsHit: string[] = [];
   const targetIdentifiers = await ctx.db
     .query("leadIdentifiers")
     .withIndex("by_leadId", (q) => q.eq("leadId", targetLeadId))
-    .take(100);
+    .take(MERGE_IDENTIFIER_LIMIT);
+  if (targetIdentifiers.length === MERGE_IDENTIFIER_LIMIT) {
+    boundsHit.push("target_identifiers");
+  }
 
   const targetIdentifierKeys = new Set(
     targetIdentifiers.map((identifier) => `${identifier.type}:${identifier.value}`),
@@ -183,79 +403,129 @@ async function executeMerge(
     await ctx.db.delete("leadIdentifiers", identifier._id);
   }
 
-  // === NIM-17: portal data must not be orphaned by a merge ===
-  // (a) Reparent the source lead's notes (portal DM-closer notes today) to
-  // the target so they stay visible after the source is marked merged.
-  const sourceNotes = await ctx.db
-    .query("leadNotes")
-    .withIndex("by_tenantId_and_leadId", (q) =>
-      q.eq("tenantId", tenantId).eq("leadId", sourceLeadId),
-    )
-    .take(LEAD_NOTE_REPARENT_LIMIT);
-  for (const note of sourceNotes) {
-    await ctx.db.patch("leadNotes", note._id, { leadId: targetLeadId });
-  }
-
-  // (b) Carry over the portal-entered profile fields, but only where the
-  // target doesn't already have a value — the target's data wins.
-  const profileCarryOver: {
-    initialSource?: Doc<"leads">["initialSource"];
-    selfReportedIncome?: number;
-  } = {};
-  if (
-    targetLead.initialSource === undefined &&
-    sourceLead.initialSource !== undefined
-  ) {
-    profileCarryOver.initialSource = sourceLead.initialSource;
-  }
-  if (
-    targetLead.selfReportedIncome === undefined &&
-    sourceLead.selfReportedIncome !== undefined
-  ) {
-    profileCarryOver.selfReportedIncome = sourceLead.selfReportedIncome;
-  }
-  // === End NIM-17 ===
-
+  // Update the target's profile first, so every row rebuilt below sees it.
+  const carryOver = await buildProfileCarryOver(ctx, sourceLead, targetLead);
   const allTargetIdentifiers = await ctx.db
     .query("leadIdentifiers")
     .withIndex("by_leadId", (q) => q.eq("leadId", targetLeadId))
-    .take(200);
-  const socialHandles = buildSocialHandles(allTargetIdentifiers);
-  const refreshedTargetLead = await ctx.db.get("leads", targetLeadId);
-  if (!refreshedTargetLead) {
-    throw new Error("Target lead disappeared during merge");
+    .take(2 * MERGE_IDENTIFIER_LIMIT);
+  if (allTargetIdentifiers.length === 2 * MERGE_IDENTIFIER_LIMIT) {
+    boundsHit.push("all_target_identifiers");
   }
-
+  const socialHandles = buildSocialHandles(allTargetIdentifiers);
+  const updatedTargetLead = { ...targetLead, ...carryOver, socialHandles };
   const searchText = buildLeadSearchText(
-    {
-      ...refreshedTargetLead,
-      socialHandles,
-    },
+    updatedTargetLead,
     allTargetIdentifiers.map((identifier) => identifier.value),
   );
-
   await ctx.db.patch("leads", targetLeadId, {
+    ...carryOver,
     socialHandles,
     searchText,
-    // NIM-17: portal profile fields carried over from the source lead only
-    // where the target had no value (computed above).
-    ...profileCarryOver,
     updatedAt: now,
   });
-  await refreshOpportunitySearchForLead(ctx, tenantId, targetLeadId);
-  await syncCustomerSnapshot(ctx, tenantId, targetLeadId);
-  await syncLeadMeetingNames(
-    ctx,
+  const leadName = leadDisplayString(updatedTargetLead, allTargetIdentifiers);
+  await refreshTargetCopies(ctx, {
     tenantId,
     targetLeadId,
-    leadDisplayString(refreshedTargetLead, allTargetIdentifiers),
-  );
+    leadName,
+    searchTextChanged: searchText !== targetLead.searchText,
+    leadNameChanged:
+      leadName !== leadDisplayString(targetLead, targetIdentifiers),
+    contactChanged:
+      carryOver.fullName !== undefined ||
+      carryOver.email !== undefined ||
+      carryOver.phone !== undefined,
+    boundsHit,
+  });
+
+  const moved = {
+    meetings: 0,
+    followUps: 0,
+    qualificationEvents: 0,
+    auditMatches: 0,
+    webhookDeliveries: 0,
+  };
+  for (const opportunity of sourceOpportunities) {
+    const result = await moveOpportunityToLead(ctx, {
+      tenantId,
+      opportunityId: opportunity._id,
+      toLeadId: targetLeadId,
+      leadName,
+      now,
+      moveFormResponses: false,
+    });
+    moved.meetings += result.meetings;
+    moved.followUps += result.followUps;
+    moved.qualificationEvents += result.qualificationEvents;
+    moved.auditMatches += result.auditMatches;
+    moved.webhookDeliveries += result.webhookDeliveries;
+    boundsHit.push(...result.boundsHit.map((name) => `opportunity_${name}`));
+  }
+  const leadRows = await moveRemainingLeadRows(ctx, {
+    tenantId,
+    fromLeadId: sourceLeadId,
+    toLeadId: targetLeadId,
+    now,
+  });
+  boundsHit.push(...leadRows.boundsHit.map((name) => `lead_${name}`));
+  const formResponses = await moveFormResponsesPage(ctx, {
+    tenantId,
+    fromLeadId: sourceLeadId,
+    toLeadId: targetLeadId,
+    limit: FORM_RESPONSE_PAGE_SIZE,
+  });
 
   await ctx.db.patch("leads", sourceLeadId, {
     status: "merged",
     mergedIntoLeadId: targetLeadId,
     updatedAt: now,
   });
+  // `totalLeads` counts active leads, and the source was active.
+  await updateTenantStats(ctx, tenantId, { totalLeads: -1 });
+
+  // Leads merged into the source now point at the target, so merge chains
+  // stay one hop deep. Identity resolution follows at most five.
+  const earlierMerges = await ctx.db
+    .query("leadMergeHistory")
+    .withIndex("by_targetLeadId", (q) => q.eq("targetLeadId", sourceLeadId))
+    .take(BOUNDED_READ_LIMIT);
+  if (earlierMerges.length === BOUNDED_READ_LIMIT) {
+    boundsHit.push("earlier_merges");
+  }
+  let earlierMergesRepointed = 0;
+  for (const entry of earlierMerges) {
+    const mergedLead = await ctx.db.get("leads", entry.sourceLeadId);
+    if (
+      !mergedLead ||
+      mergedLead.tenantId !== tenantId ||
+      mergedLead.mergedIntoLeadId !== sourceLeadId
+    ) {
+      continue;
+    }
+    await ctx.db.patch("leads", mergedLead._id, {
+      mergedIntoLeadId: targetLeadId,
+    });
+    earlierMergesRepointed += 1;
+  }
+
+  // The customer snapshot copies the target's profile, and the target's
+  // search row reads the customer.
+  await syncCustomerSnapshot(ctx, tenantId, targetLeadId);
+  await rebuildLeadCustomerSearchRow(ctx, tenantId, targetLeadId);
+  await rebuildLeadCustomerSearchRow(ctx, tenantId, sourceLeadId);
+
+  const hasDuplicateFlags =
+    (await duplicateFlagsQuery(ctx, tenantId, sourceLeadId).first()) !== null;
+  const continues = formResponses.hasMore || hasDuplicateFlags;
+  if (continues) {
+    await ctx.scheduler.runAfter(0, internal.leads.merge.continueLeadMerge, {
+      tenantId,
+      sourceLeadId,
+      targetLeadId,
+    });
+  }
+
   await emitDomainEvent(ctx, {
     tenantId,
     entityType: "lead",
@@ -269,25 +539,21 @@ async function executeMerge(
       targetLeadId,
       identifiersMoved,
       opportunitiesMoved: sourceOpportunities.length,
-      meetingsMoved,
+      meetingsMoved: moved.meetings,
+      followUpsMoved: moved.followUps + leadRows.followUps,
+      qualificationEventsMoved:
+        moved.qualificationEvents + leadRows.qualificationEvents,
+      auditMatchesMoved: moved.auditMatches + leadRows.auditMatches,
+      webhookDeliveriesMoved: moved.webhookDeliveries,
+      notesMoved: leadRows.notes,
+      portalEditsMoved: leadRows.portalEdits,
+      formResponsesMoved: formResponses.moved,
+      earlierMergesRepointed,
+      fieldsCarriedOver: Object.keys(carryOver).length,
+      continuesInBackground: continues,
     },
     occurredAt: now,
   });
-
-  const tenantOpportunities = await ctx.db
-    .query("opportunities")
-    .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-    .take(500);
-  for (const opportunity of tenantOpportunities) {
-    if (opportunity.potentialDuplicateLeadId !== sourceLeadId) {
-      continue;
-    }
-
-    await ctx.db.patch("opportunities", opportunity._id, {
-      potentialDuplicateLeadId: undefined,
-      updatedAt: now,
-    });
-  }
 
   await ctx.db.insert("leadMergeHistory", {
     tenantId,
@@ -297,28 +563,94 @@ async function executeMerge(
     mergedAt: now,
     identifiersMoved,
     opportunitiesMoved: sourceOpportunities.length,
-    meetingsMoved,
+    meetingsMoved: moved.meetings,
   });
-  await rebuildLeadCustomerSearchRow(ctx, tenantId, targetLeadId);
-  await rebuildLeadCustomerSearchRow(ctx, tenantId, sourceLeadId);
 
-  // Each read above is bounded. A full page means rows past the bound were
-  // left on the source lead (or, for the tenant scan, still flag it).
-  const boundsHit = [
-    sourceOpportunities.length === 100 ? "source_opportunities" : null,
-    sourceIdentifiers.length === 100 ? "source_identifiers" : null,
-    sourceNotes.length === LEAD_NOTE_REPARENT_LIMIT ? "source_notes" : null,
-    tenantOpportunities.length === 500 ? "duplicate_flag_scan" : null,
-  ].filter((bound) => bound !== null);
+  // A full read skipped any rows past its bound.
   if (boundsHit.length > 0) {
     log.warn("leads.merge.bound_hit", {
       tenantId,
       sourceLeadId,
       targetLeadId,
-      boundsHit,
+      boundsHit: [...new Set(boundsHit)],
     });
   }
 }
+
+/**
+ * Finishes a merge: moves one more page of the source's form responses and
+ * clears one page of the duplicate flags naming it, then schedules itself
+ * while either page was full. A run that finds nothing left does nothing.
+ */
+export const continueLeadMerge = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    sourceLeadId: v.id("leads"),
+    targetLeadId: v.id("leads"),
+  },
+  returns: v.null(),
+  handler: async (ctx, args): Promise<null> => {
+    const { tenantId, sourceLeadId } = args;
+    const source = await ctx.db.get("leads", sourceLeadId);
+    if (
+      !source ||
+      source.tenantId !== tenantId ||
+      source.status !== "merged" ||
+      source.mergedIntoLeadId !== args.targetLeadId
+    ) {
+      log.warn("leads.merge.continuation_skipped", {
+        ...args,
+        reason: "source_not_merged_into_target",
+      });
+      return null;
+    }
+
+    // The target may have been merged into another lead since.
+    let target = await ctx.db.get("leads", args.targetLeadId);
+    for (
+      let hops = 0;
+      target?.status === "merged" && target.mergedIntoLeadId && hops < 5;
+      hops += 1
+    ) {
+      target = await ctx.db.get("leads", target.mergedIntoLeadId);
+    }
+    if (!target || target.tenantId !== tenantId || target.status === "merged") {
+      log.warn("leads.merge.continuation_skipped", {
+        ...args,
+        reason: "target_unresolved",
+      });
+      return null;
+    }
+
+    const formResponses = await moveFormResponsesPage(ctx, {
+      tenantId,
+      fromLeadId: sourceLeadId,
+      toLeadId: target._id,
+      limit: FORM_RESPONSE_PAGE_SIZE,
+    });
+    const duplicateFlags = await clearDuplicateFlagsPage(
+      ctx,
+      tenantId,
+      sourceLeadId,
+    );
+    const continues = formResponses.hasMore || duplicateFlags.hasMore;
+    log.info("leads.merge.continued", {
+      ...args,
+      resolvedTargetLeadId: target._id,
+      formResponsesMoved: formResponses.moved,
+      duplicateFlagsCleared: duplicateFlags.cleared,
+      continues,
+    });
+    if (continues) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.leads.merge.continueLeadMerge,
+        args,
+      );
+    }
+    return null;
+  },
+});
 
 export const dismissDuplicateFlag = mutation({
   args: {
