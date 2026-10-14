@@ -407,3 +407,36 @@ describe("rebuildQualificationRows migration", () => {
     expect(state.qualificationRow?.opportunityStatus).toBe("lost");
   });
 });
+
+describe("status counter repair", () => {
+  it("finds drift in tenantStats and resets the status counters from the aggregate", async () => {
+    const harness = await bookingHarness();
+    await slackOpportunity(harness, "scheduled");
+    await slackOpportunity(harness, "lost");
+    // A cancel on main that skipped the counters left active one too high.
+    await harness.t.run(async (ctx) => {
+      await updateTenantStats(ctx, harness.tenantId, { activeOpportunities: 1 });
+    });
+
+    const drift = await harness.t.query(
+      internal.reporting.verification.verifyTenantStatusCounters,
+      { tenantId: harness.tenantId },
+    );
+    expect(drift).toMatchObject({
+      match: false,
+      stored: { activeOpportunities: 2, wonDeals: 0, lostDeals: 1 },
+      counted: { activeOpportunities: 1, wonDeals: 0, lostDeals: 1 },
+    });
+
+    await harness.t.mutation(internal.admin.migrations.repairTenantStatusCounters, {
+      tenantId: harness.tenantId,
+    });
+
+    expect(
+      await harness.t.query(internal.reporting.verification.verifyTenantStatusCounters, {
+        tenantId: harness.tenantId,
+      }),
+    ).toMatchObject({ match: true });
+    await expectStatsMatchRecount(harness);
+  });
+});

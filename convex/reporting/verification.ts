@@ -1,12 +1,13 @@
 import type { GenericDataModel, TableNamesInDataModel } from "convex/server";
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatiblePaymentCommissionable,
 } from "../lib/paymentTypes";
+import { ACTIVE_OPPORTUNITY_STATUSES } from "../lib/tenantStatsHelper";
 import {
   customerConversions,
   isSlackQualificationAggregateEligible,
@@ -215,6 +216,68 @@ export const verifySlackQualificationAggregate = internalQuery({
       aggregate,
       matches: rows.length < 1000 && aggregate === eligibleRows.length,
       scanTruncated: rows.length >= 1000,
+    };
+  },
+});
+
+const STATUS_COUNTER_STATUSES = {
+  activeOpportunities: [...ACTIVE_OPPORTUNITY_STATUSES],
+  wonDeals: ["payment_received"],
+  lostDeals: ["lost"],
+} as const;
+
+export type TenantStatusCounters = {
+  activeOpportunities: number;
+  wonDeals: number;
+  lostDeals: number;
+};
+
+/**
+ * The tenant counters that follow opportunity status, recounted from the
+ * status aggregate. It reads a few aggregate nodes, not the opportunities.
+ */
+export async function countTenantStatusCounters(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+): Promise<TenantStatusCounters> {
+  const count = async (statuses: readonly Doc<"opportunities">["status"][]) => {
+    let total = 0;
+    for (const status of statuses) {
+      total += await opportunityByStatus.count(ctx, {
+        namespace: tenantId,
+        bounds: { prefix: [status] },
+      });
+    }
+    return total;
+  };
+  return {
+    activeOpportunities: await count(STATUS_COUNTER_STATUSES.activeOpportunities),
+    wonDeals: await count(STATUS_COUNTER_STATUSES.wonDeals),
+    lostDeals: await count(STATUS_COUNTER_STATUSES.lostDeals),
+  };
+}
+
+/** Read-only: compares tenantStats with a recount of the status counters. */
+export const verifyTenantStatusCounters = internalQuery({
+  args: { tenantId: v.id("tenants") },
+  handler: async (ctx, { tenantId }) => {
+    const counted = await countTenantStatusCounters(ctx, tenantId);
+    const stats = await ctx.db
+      .query("tenantStats")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .unique();
+    const stored = {
+      activeOpportunities: stats?.activeOpportunities ?? 0,
+      wonDeals: stats?.wonDeals ?? 0,
+      lostDeals: stats?.lostDeals ?? 0,
+    };
+    return {
+      stored,
+      counted,
+      match:
+        stored.activeOpportunities === counted.activeOpportunities &&
+        stored.wonDeals === counted.wonDeals &&
+        stored.lostDeals === counted.lostDeals,
     };
   },
 });

@@ -3,6 +3,7 @@ import type { MutationCtx } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { rebuildQualificationRowsForOpportunity } from "../operations/projections";
 import { replaceOpportunityAggregate } from "../reporting/writeHooks";
+import { upsertOpportunitySearchProjection } from "./opportunitySearch";
 import { emitDomainEvent, type DomainEventSource } from "./domainEvents";
 import { type OpportunityStatus, validateTransition } from "./statusTransitions";
 import {
@@ -30,22 +31,15 @@ export type OpportunityFieldsPatch = Partial<
   Omit<Doc<"opportunities">, "_id" | "_creationTime" | "tenantId" | "status">
 >;
 
-// Fields read by the status aggregate, the Slack qualification aggregates, the
-// opportunity search row, or its activity time. Patching any of them replaces
-// the aggregates and rebuilds the search rows.
-const AGGREGATE_AND_SEARCH_FIELDS = [
+// Inputs to the sort keys and eligibility of the status aggregate and the
+// Slack qualification aggregates (reporting/aggregates.ts). The aggregate
+// rewrites its entry on every replace, so replace only when one changes.
+const AGGREGATE_KEY_FIELDS = [
   "status",
   "assignedCloserId",
   "createdAt",
   "source",
   "qualifiedBy",
-  "leadId",
-  "calendlyEventUri",
-  "notes",
-  "latestMeetingId",
-  "nextMeetingId",
-  "paymentReceivedAt",
-  "lostAt",
 ] as const;
 
 // Fields copied into operationsQualificationRows (operations/projections.ts).
@@ -66,11 +60,16 @@ const QUALIFICATION_ROW_FIELDS = [
   "attributionResolution",
 ] as const;
 
-function touchesAny(
+function changesAny(
+  before: Doc<"opportunities">,
   patch: Partial<Doc<"opportunities">>,
   fields: readonly (keyof Doc<"opportunities">)[],
 ): boolean {
-  return fields.some((field) => field in patch);
+  return fields.some(
+    (field) =>
+      field in patch &&
+      JSON.stringify(patch[field]) !== JSON.stringify(before[field]),
+  );
 }
 
 async function getOpportunityOrThrow(
@@ -100,16 +99,20 @@ async function writeOpportunity(
   });
 
   let after: Doc<"opportunities">;
-  if (touchesAny(patch, AGGREGATE_AND_SEARCH_FIELDS)) {
+  if (changesAny(before, patch, AGGREGATE_KEY_FIELDS)) {
+    // Also rebuilds both search rows, and mirrors a new status onto the
+    // opportunity's meetings.
     after = await replaceOpportunityAggregate(ctx, before, before._id);
   } else {
     after = await getOpportunityOrThrow(ctx, before._id);
+    // Every write moves latestActivityAt, which the search row sorts by.
+    await upsertOpportunitySearchProjection(ctx, before._id);
     await rebuildLeadCustomerSearchRow(ctx, after.tenantId, after.leadId);
   }
   if (after.leadId !== before.leadId) {
     await rebuildLeadCustomerSearchRow(ctx, before.tenantId, before.leadId);
   }
-  if (touchesAny(patch, QUALIFICATION_ROW_FIELDS)) {
+  if (changesAny(before, patch, QUALIFICATION_ROW_FIELDS)) {
     await rebuildQualificationRowsForOpportunity(ctx, before._id);
   }
   return after;

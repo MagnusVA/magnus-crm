@@ -1642,8 +1642,7 @@ export const process = internalMutation({
 				entityId: slackJoinEventOpportunityId,
 				eventType: "slack_qualified_lead_booked",
 				source: "pipeline",
-				fromStatus: "qualified_pending",
-				toStatus: "scheduled",
+				// transitionOpportunity recorded the status change.
 				metadata: {
 					leadId: lead._id,
 					meetingId,
