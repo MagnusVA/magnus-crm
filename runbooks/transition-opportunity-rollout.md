@@ -54,4 +54,4 @@ npx convex run --env-file .env.vercel.production --component migrations lib:getS
 
 ## Undo
 
-The qualification rows are a projection, rebuilt from the Slack events and opportunities, so there is nothing to undo. For the counters, step 5 returns the old values; patch them back into the tenant's `tenantStats` document if needed.
+The qualification rows are a projection, rebuilt from the Slack events and opportunities, so there is nothing to undo. The counter repair sets the counters to a recount, which is correct by definition. Don't patch back the `before` values step 5 returns: every status change since the repair has moved the counters, and the old values would overwrite those changes. If the counters look wrong later, run step 1 and, if it reports drift, step 5 again.
