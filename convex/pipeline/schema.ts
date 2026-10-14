@@ -19,6 +19,16 @@ export const pipelineTables = {
     previousStatus: deliveryStatus,
     previousReason: v.optional(v.string()),
   }).index("by_tenantId_and_deliveryId", ["tenantId", "deliveryId"]),
+  // Undo log for the one-off dismissal of the pre-PR #91 blocked backlog.
+  webhookDeliveryDismissals: defineTable({
+    tenantId: v.id("tenants"),
+    deliveryId: v.id("webhookDeliveries"),
+    dismissedAt: v.number(),
+    previousGeneration: v.number(),
+    previousStatus: deliveryStatus,
+    previousReason: v.optional(v.string()),
+    restoredAt: v.optional(v.number()),
+  }).index("by_deliveryId", ["deliveryId"]),
   calendlyBookingFacts: defineTable({
     tenantId: v.id("tenants"),
     eventUri: v.string(),
