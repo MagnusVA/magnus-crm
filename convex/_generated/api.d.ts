@@ -310,6 +310,7 @@ import type * as slack_profileNames from "../slack/profileNames.js";
 import type * as slack_rawEvents from "../slack/rawEvents.js";
 import type * as slack_rawEventsAudit from "../slack/rawEventsAudit.js";
 import type * as slack_refreshCron from "../slack/refreshCron.js";
+import type * as slack_staleExpiry from "../slack/staleExpiry.js";
 import type * as slack_staleReminders from "../slack/staleReminders.js";
 import type * as slack_staleRemindersData from "../slack/staleRemindersData.js";
 import type * as slack_tokens from "../slack/tokens.js";
@@ -659,6 +660,7 @@ declare const fullApi: ApiFromModules<{
   "slack/rawEvents": typeof slack_rawEvents;
   "slack/rawEventsAudit": typeof slack_rawEventsAudit;
   "slack/refreshCron": typeof slack_refreshCron;
+  "slack/staleExpiry": typeof slack_staleExpiry;
   "slack/staleReminders": typeof slack_staleReminders;
   "slack/staleRemindersData": typeof slack_staleRemindersData;
   "slack/tokens": typeof slack_tokens;

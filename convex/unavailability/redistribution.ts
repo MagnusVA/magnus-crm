@@ -5,10 +5,10 @@ import { mutation } from "../_generated/server";
 import { log } from "../lib/observability/log";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMeetingsAssignedCloser";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import {
-  replaceOpportunityAggregate,
-} from "../reporting/writeHooks";
+  patchOpportunityLifecycle,
+  transitionOpportunity,
+} from "../lib/opportunityActivity";
 import {
   getEffectiveRange,
   isMeetingInRange,
@@ -238,15 +238,10 @@ export const autoDistributeMeetings = mutation({
         continue;
       }
 
-      await ctx.db.patch("opportunities", meeting.opportunityId, {
+      await patchOpportunityLifecycle(ctx, meeting.opportunityId, {
         assignedCloserId: bestCandidate.closerId,
         updatedAt: now,
       });
-      await replaceOpportunityAggregate(
-        ctx,
-        oldOpportunity,
-        meeting.opportunityId,
-      );
       await syncOpportunityMeetingsAssignedCloser(
         ctx,
         meeting.opportunityId,
@@ -373,11 +368,10 @@ export const manuallyResolveMeeting = mutation({
         }
       }
 
-      await ctx.db.patch("opportunities", opportunity._id, {
+      await patchOpportunityLifecycle(ctx, opportunity._id, {
         assignedCloserId: targetCloser._id,
         updatedAt: now,
       });
-      await replaceOpportunityAggregate(ctx, opportunity, opportunity._id);
       await syncOpportunityMeetingsAssignedCloser(
         ctx,
         opportunity._id,
@@ -436,12 +430,24 @@ export const manuallyResolveMeeting = mutation({
       validateTransition(opportunity.status, "canceled")
         ? "canceled"
         : opportunity.status;
-    await patchOpportunityLifecycle(ctx, opportunity._id, {
-      status: nextOpportunityStatus,
-      cancellationReason: `Canceled due to closer unavailability (${reasonLabel})`,
+    const cancellationReason = `Canceled due to closer unavailability (${reasonLabel})`;
+    const cancellationFields = {
+      cancellationReason,
       canceledBy: "admin_unavailability_resolution",
       updatedAt: now,
-    });
+    };
+    if (nextOpportunityStatus === opportunity.status) {
+      await patchOpportunityLifecycle(ctx, opportunity._id, cancellationFields);
+    } else {
+      await transitionOpportunity(ctx, opportunity._id, {
+        to: nextOpportunityStatus,
+        fields: cancellationFields,
+        source: "admin",
+        actorUserId: userId,
+        reason: cancellationReason,
+        occurredAt: now,
+      });
+    }
 
     log.info("unavailability.redistribution.manual_canceled", {
       tenantId,

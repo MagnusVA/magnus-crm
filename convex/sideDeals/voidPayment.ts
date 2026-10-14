@@ -2,17 +2,14 @@ import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { log } from "../lib/observability/log";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { transitionOpportunity } from "../lib/opportunityActivity";
 import {
   rollbackCustomerConversionIfEmpty,
   syncCustomerPaymentSummary,
 } from "../lib/paymentHelpers";
 import { isSideDeal, isSideDealOrigin } from "../lib/sideDeals";
 import { refreshSoldProgramCachesForOpportunity } from "../lib/soldProgramCache";
-import {
-  applyPaymentStatsDelta,
-  updateTenantStats,
-} from "../lib/tenantStatsHelper";
+import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import { requireTenantUser } from "../requireTenantUser";
 import { replacePaymentAggregate } from "../reporting/writeHooks";
 
@@ -73,13 +70,24 @@ export const voidPayment = mutation({
       opportunityId: payment.opportunityId,
     });
 
-    await patchOpportunityLifecycle(ctx, payment.opportunityId, {
-      status: "lost",
-      lostAt: now,
-      lostByUserId: userId,
-      lostReason: `Payment voided: ${trimmedReason}`,
-      paymentReceivedAt: undefined,
-      updatedAt: now,
+    await transitionOpportunity(ctx, payment.opportunityId, {
+      to: "lost",
+      fields: {
+        lostAt: now,
+        lostByUserId: userId,
+        lostReason: `Payment voided: ${trimmedReason}`,
+        paymentReceivedAt: undefined,
+        updatedAt: now,
+      },
+      exception: "payment_voided",
+      source: "admin",
+      actorUserId: userId,
+      reason: `Payment voided: ${trimmedReason}`,
+      occurredAt: now,
+      metadata: {
+        source: "side_deal",
+        paymentId,
+      },
     });
 
     await replacePaymentAggregate(ctx, payment, paymentId);
@@ -87,10 +95,7 @@ export const voidPayment = mutation({
       commissionable: payment.commissionable,
       paymentType: payment.paymentType,
       amountMinorDelta: -payment.amountMinor,
-      wonDealDelta: -1,
-      activeOpportunityDelta: 0,
     });
-    await updateTenantStats(ctx, tenantId, { lostDeals: 1 });
 
     if (payment.customerId) {
       const rollback = await rollbackCustomerConversionIfEmpty(ctx, {
@@ -124,22 +129,6 @@ export const voidPayment = mutation({
         opportunityId: payment.opportunityId,
         origin: payment.origin,
         sideDeal: true,
-      },
-    });
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: payment.opportunityId,
-      eventType: "opportunity.status_changed",
-      source: "admin",
-      actorUserId: userId,
-      fromStatus: opportunity.status,
-      toStatus: "lost",
-      reason: `Payment voided: ${trimmedReason}`,
-      occurredAt: now,
-      metadata: {
-        source: "side_deal",
-        paymentId,
       },
     });
 

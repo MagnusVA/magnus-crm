@@ -1,0 +1,123 @@
+import { describe, expect, it } from "vitest";
+import {
+  isPlaceholderEmail,
+  normalizePhone,
+  normalizeSocialHandle,
+} from "./normalization";
+
+describe("normalizePhone", () => {
+  it.each([
+    ["+1 778-955-9253", "+17789559253"],
+    ["(778) 955-9253", "+17789559253"],
+    ["7789559253", "+17789559253"],
+    ["17789559253", "+17789559253"],
+    ["+1 416-555-0142", "+14165550142"],
+    ["+1 212-555-1234", "+12125551234"],
+    ["+1 555-010-0000", "+15550100000"],
+    ["+44 20 7946 0958", "+442079460958"],
+  ])("keeps the real number %s", (raw, expected) => {
+    expect(normalizePhone(raw)).toBe(expected);
+  });
+
+  it.each([
+    // Existing list and all-same-digit rule.
+    "+1 234-567-8910",
+    "1234567890",
+    "0987654321",
+    "+1 111-111-1111",
+    // Known fakes from the polluted-lead split.
+    "+1 234-234-2342",
+    "+1 234-567-8901",
+    "+1 212-345-6789",
+    "+1 234-567-8945",
+    // The same fakes typed without the country code.
+    "234-234-2342",
+    "234-567-8910",
+  ])("rejects the known fake %s", (raw) => {
+    expect(normalizePhone(raw)).toBeUndefined();
+  });
+
+  it.each([
+    ["an ascending run of 7", "+1 345-678-9012"],
+    ["a descending run of 7", "+1 498-765-4321"],
+    ["a descending run of 7 at the start", "(987) 654-3201"],
+    ["a 3-digit group repeated over 9 digits", "+1 456-456-4567"],
+    ["a repeated area code and exchange", "+1 555-555-5555"],
+  ])("rejects a North American number with %s", (_, raw) => {
+    expect(normalizePhone(raw)).toBeUndefined();
+  });
+
+  it.each([
+    ["a 6-digit ascending run", "+1 312-345-6000"],
+    ["a group repeated twice", "+1 604-604-1234"],
+  ])("keeps a North American number with only %s", (_, raw) => {
+    expect(normalizePhone(raw)).toBeDefined();
+  });
+
+  it.each([
+    ["Indonesian", "+62 812-3456-7890", "+6281234567890"],
+    ["Kenyan", "+254 712 345 678", "+254712345678"],
+    ["Swedish", "+46 70 123 45 67", "+46701234567"],
+  ])("does not apply the pattern rule to a %s number", (_, raw, expected) => {
+    expect(normalizePhone(raw)).toBe(expected);
+  });
+});
+
+describe("isPlaceholderEmail", () => {
+  it.each([
+    "email@gmail.com",
+    "email@yahoo.com",
+    "email@icloud.com",
+    "thisisnotanemail@notanemail.com",
+    "email@hotmail.com",
+    "someone@notanemail.com",
+  ])("treats %s as a placeholder", (email) => {
+    expect(isPlaceholderEmail(email)).toBe(true);
+  });
+
+  it.each([
+    "jane.coach@gmail.com",
+    "email.me@gmail.com",
+    "myemail@yahoo.com",
+    "owner@acme-coaching.example",
+    "info@email.com",
+    // Booking tests use example.com addresses as real identities.
+    "lead@example.com",
+  ])("treats %s as a real address", (email) => {
+    expect(isPlaceholderEmail(email)).toBe(false);
+  });
+});
+
+describe("normalizeSocialHandle", () => {
+  it.each([
+    ["@campos.coachpro", "campos.coachpro"],
+    ["https://www.instagram.com/Campos.CoachPro/", "campos.coachpro"],
+    ["jo", "jo"],
+    ["@j_9", "j_9"],
+  ])("keeps the handle %s", (raw, expected) => {
+    expect(normalizeSocialHandle(raw, "instagram")).toBe(expected);
+  });
+
+  it.each([
+    "na",
+    "NA",
+    "@na",
+    "n/a",
+    "N/A",
+    "none",
+    "None",
+    "null",
+    "nil",
+    "no",
+    "-",
+    "...",
+    ".",
+    "g",
+    "@j",
+    "_._",
+    "instagram.com/g",
+    "",
+  ])("rejects the placeholder handle %j", (raw) => {
+    expect(normalizeSocialHandle(raw, "instagram")).toBeUndefined();
+  });
+});

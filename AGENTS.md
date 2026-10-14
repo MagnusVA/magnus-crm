@@ -38,9 +38,12 @@ Next.js 16 App Router, React 19, Convex, WorkOS AuthKit, shadcn/ui with Tailwind
 - Every public Convex function checks auth. Backfills, migrations, and server-only logic are `internal*` functions.
 - Pages and Convex functions each enforce access; `useRole()` in the UI only hides controls.
 - Writes to meetings, opportunities, payments, leads, or customers have side effects that code maintains by hand. Read "Write side effects" in `docs/agents/convex.md` before adding one.
+- Leads, opportunities, meetings, customers, and attribution are moving to the model in `docs/adr/0001-lead-lifecycle-model.md`. Read its "Rules for code written now" before adding an opportunity status, a person or staff table, an attribution field, or a customer field, and use the terms in `CONTEXT.md`.
 
 ## Topic guides
 
+- Domain language (person, deal, stage, outcome, touch, attribution, enrollment): `CONTEXT.md`
+- Lead lifecycle decisions and migration phases: `docs/adr/0001-lead-lifecycle-model.md`
 - Convex code: `docs/agents/convex.md`
 - Pages, components, forms, styling, and analytics: `docs/agents/frontend.md`
 - Roles, permissions, guards, system admin, and the DM portal: `docs/agents/auth.md`

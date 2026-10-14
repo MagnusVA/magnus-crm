@@ -11,14 +11,11 @@ import {
 } from "../lib/paymentHelpers";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { transitionOpportunity } from "../lib/opportunityActivity";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { validateTransition } from "../lib/statusTransitions";
-import {
-  applyPaymentStatsDelta,
-  isActiveOpportunityStatus,
-} from "../lib/tenantStatsHelper";
+import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   insertPaymentAggregate,
@@ -136,10 +133,13 @@ export const logPayment = mutation({
       programName: program.name,
     });
 
-    await patchOpportunityLifecycle(ctx, args.opportunityId, {
-      status: "payment_received",
-      paymentReceivedAt: now,
-      updatedAt: now,
+    await transitionOpportunity(ctx, args.opportunityId, {
+      to: "payment_received",
+      fields: { paymentReceivedAt: now, updatedAt: now },
+      source: role === "closer" ? "closer" : "admin",
+      actorUserId: userId,
+      metadata: { paymentId },
+      occurredAt: now,
     });
     await completeMeetingForOutcome(ctx, {
       meetingId: meeting._id,
@@ -151,10 +151,6 @@ export const logPayment = mutation({
       commissionable: true,
       paymentType,
       amountMinorDelta: amountMinor,
-      wonDealDelta: 1,
-      activeOpportunityDelta: isActiveOpportunityStatus(opportunity.status)
-        ? -1
-        : 0,
     });
 
     await emitDomainEvent(ctx, {
@@ -178,17 +174,6 @@ export const logPayment = mutation({
         recordedByUserId: userId,
         origin,
       },
-      occurredAt: now,
-    });
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: args.opportunityId,
-      eventType: "opportunity.status_changed",
-      source: role === "closer" ? "closer" : "admin",
-      actorUserId: userId,
-      fromStatus: opportunity.status,
-      toStatus: "payment_received",
       occurredAt: now,
     });
 

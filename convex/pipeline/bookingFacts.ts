@@ -1,12 +1,8 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { transitionOpportunity } from "../lib/opportunityActivity";
 import { emitDomainEvent } from "../lib/domainEvents";
-import {
-  isActiveOpportunityStatus,
-  updateTenantStats,
-} from "../lib/tenantStatsHelper";
 import { getString, isRecord } from "../lib/payloadExtraction";
 
 export async function recordBookingFact(
@@ -150,29 +146,22 @@ export async function reconcileBookingFact(
     opportunity.status,
   );
   if (currentBooking && mutable && opportunity.status !== status) {
-    await patchOpportunityLifecycle(ctx, opportunity._id, {
-      status,
-      canceledAt: status === "canceled" ? occurredAt : opportunity.canceledAt,
-      cancellationReason:
-        status === "canceled"
-          ? fact.cancellationReason
-          : opportunity.cancellationReason,
-      noShowAt: status === "no_show" ? occurredAt : undefined,
-      updatedAt: Math.max(opportunity.updatedAt, occurredAt),
-    });
-    await updateTenantStats(ctx, tenantId, {
-      activeOpportunities:
-        Number(isActiveOpportunityStatus(status)) -
-        Number(isActiveOpportunityStatus(opportunity.status)),
-    });
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: opportunity._id,
-      eventType: "opportunity.status_changed",
+    await transitionOpportunity(ctx, opportunity._id, {
+      to: status,
+      fields: {
+        canceledAt: status === "canceled" ? occurredAt : opportunity.canceledAt,
+        cancellationReason:
+          status === "canceled"
+            ? fact.cancellationReason
+            : opportunity.cancellationReason,
+        noShowAt: status === "no_show" ? occurredAt : undefined,
+        updatedAt: Math.max(opportunity.updatedAt, occurredAt),
+      },
+      // The opportunity mirrors the current booking, so it follows Calendly
+      // between scheduled, no-show and canceled in whatever order the facts
+      // arrive.
+      exception: "calendly_webhook",
       source: "pipeline",
-      fromStatus: opportunity.status,
-      toStatus: status,
       occurredAt,
     });
   }

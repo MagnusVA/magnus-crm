@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { internalMutation } from "../_generated/server";
-import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
+import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { log } from "../lib/observability/log";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -137,14 +137,26 @@ export const repairAssignmentsFromCalendlyHosts = internalMutation({
         continue;
       }
 
-      await ctx.db.patch("opportunities", opportunity._id, {
+      const repair = {
         assignedCloserId,
         hostCalendlyUserUri: hostDetails?.hostCalendlyUserUri,
         hostCalendlyEmail: hostDetails?.hostCalendlyEmail,
         hostCalendlyName: hostDetails?.hostCalendlyName,
+      };
+      if (
+        repair.assignedCloserId === opportunity.assignedCloserId &&
+        repair.hostCalendlyUserUri === opportunity.hostCalendlyUserUri &&
+        repair.hostCalendlyEmail === opportunity.hostCalendlyEmail &&
+        repair.hostCalendlyName === opportunity.hostCalendlyName
+      ) {
+        continue;
+      }
+      // assignedCloserId is part of the status aggregate's key, so this goes
+      // through the helper that re-keys the aggregate.
+      await patchOpportunityLifecycle(ctx, opportunity._id, {
+        ...repair,
         updatedAt: Date.now(),
       });
-      await upsertOpportunitySearchProjection(ctx, opportunity._id);
       patched += 1;
     }
 

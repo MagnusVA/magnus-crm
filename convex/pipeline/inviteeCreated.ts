@@ -8,7 +8,10 @@ import type { MutationCtx } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { rebuildQualificationRowsForOpportunity } from "../operations/projections";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import {
+	patchOpportunityLifecycle,
+	transitionOpportunity,
+} from "../lib/opportunityActivity";
 import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
 import { validateTransition } from "../lib/statusTransitions";
 import { extractUtmParams } from "../lib/utmParams";
@@ -29,6 +32,7 @@ import { emitDomainEvent } from "../lib/domainEvents";
 import { preserveQualificationAuditMatchForScheduledMeeting } from "../leadGen/auditMatching";
 import { isRecord, getString } from "../lib/payloadExtraction";
 import {
+	isPlaceholderEmail,
 	normalizeEmail,
 	normalizeSocialHandle,
 	normalizePhone,
@@ -36,12 +40,10 @@ import {
 import type { IdentifierType, SocialPlatformType } from "../lib/normalization";
 import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
 import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMeetingsAssignedCloser";
-import {
-	updateTenantStats,
-	isActiveOpportunityStatus,
-} from "../lib/tenantStatsHelper";
+import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { buildLeadSearchText } from "../leads/searchTextBuilder";
 import {
+	blockIfSplitLocked,
 	resolveLeadIdentity,
   resolveExistingLeadIdentity,
 } from "../leads/identityResolution";
@@ -49,7 +51,10 @@ import {
 	insertMeetingAggregate,
 	insertOpportunityAggregate,
 } from "../reporting/writeHooks";
-import { findOpenSlackQualifiedOpportunity } from "./slackJoinLookup";
+import {
+	findOpenSlackQualifiedOpportunity,
+	wasStaleExpiredAfter,
+} from "./slackJoinLookup";
 import { log, reportError } from "../lib/observability/log";
 import {
 	bookingHostOutcome,
@@ -331,9 +336,12 @@ async function syncLeadFromBooking(
 		now: number;
 	},
 ): Promise<Doc<"leads">> {
+	// A placeholder email stays on the booking and never becomes the lead's.
+	const bookingEmail =
+		inviteeEmail && !isPlaceholderEmail(inviteeEmail) ? inviteeEmail : undefined;
 	const updatedLead: Doc<"leads"> = {
 		...lead,
-		email: lead.email ?? inviteeEmail,
+		email: lead.email ?? bookingEmail,
 		fullName: lead.fullName || inviteeName,
 		phone: lead.phone || inviteePhone,
 		customFields: mergeCustomFields(lead.customFields, latestCustomFields),
@@ -372,8 +380,9 @@ async function createLeadIdentifiers(
 	// Prepare all identifier operations (will run in parallel)
 	const identifierOperations: Promise<LeadIdentifierUpsertResult>[] = [];
 
-	// Email identifier (always created, "verified" confidence)
-	if (normalizedEmail) {
+	// Email identifier ("verified" confidence). A placeholder email is never
+	// an identity key.
+	if (normalizedEmail && !isPlaceholderEmail(normalizedEmail)) {
 		identifierOperations.push(
 			upsertLeadIdentifier(ctx, {
 				tenantId,
@@ -814,6 +823,7 @@ export const process = internalMutation({
 			) {
 				const previousTargetStatus = targetOpportunity.status;
 				const targetLead = await ctx.db.get("leads", targetOpportunity.leadId);
+				if (targetLead) blockIfSplitLocked(targetLead);
         const resolvedTarget = await resolveExistingLeadIdentity(ctx, { tenantId, email: inviteeEmail, phone: effectivePhone,
           socialHandle: extractedIdentifiers.socialHandle, identifierSource: "calendly_booking", createdAt: now });
         if (resolvedTarget && resolvedTarget.leadId !== targetOpportunity.leadId) blockBooking("identity_conflict");
@@ -877,15 +887,19 @@ export const process = internalMutation({
 						blockBooking("host_not_linked");
 					}
 
-					await patchOpportunityLifecycle(ctx, targetOpportunityId, {
-						status: "scheduled",
-						calendlyEventUri,
-						assignedCloserId: nextAssignedCloserId,
-						hostCalendlyUserUri: hostUserUri,
-						hostCalendlyEmail,
-						hostCalendlyName,
-						eventTypeConfigId: effectiveEventTypeConfigId,
-						updatedAt: now,
+					await transitionOpportunity(ctx, targetOpportunityId, {
+						to: "scheduled",
+						fields: {
+							calendlyEventUri,
+							assignedCloserId: nextAssignedCloserId,
+							hostCalendlyUserUri: hostUserUri,
+							hostCalendlyEmail,
+							hostCalendlyName,
+							eventTypeConfigId: effectiveEventTypeConfigId,
+							updatedAt: now,
+						},
+						source: "pipeline",
+						occurredAt: now,
 					});
 					if (closerChanged) {
 						await syncOpportunityMeetingsAssignedCloser(
@@ -894,16 +908,6 @@ export const process = internalMutation({
 							nextAssignedCloserId,
 						);
 					}
-					await emitDomainEvent(ctx, {
-						tenantId,
-						entityType: "opportunity",
-						entityId: targetOpportunityId,
-						eventType: "opportunity.status_changed",
-						source: "pipeline",
-						fromStatus: previousTargetStatus,
-						toStatus: "scheduled",
-						occurredAt: now,
-					});
 
 					let rescheduledFromMeetingId: Id<"meetings"> | undefined;
 					if (isNoShowRescheduleUtm && utmParams.utm_content) {
@@ -1172,7 +1176,9 @@ export const process = internalMutation({
 		const rescheduleCutoff = now - RESCHEDULE_WINDOW_MS;
     const candidates = await ctx.db.query("opportunities").withIndex("by_tenantId_and_leadId", q => q.eq("tenantId", tenantId).eq("leadId", lead._id)).order("desc").take(129);
     if (candidates.length > 128) blockBooking("booking_history_requires_review");
-    if (candidates.some(o => o.updatedAt > now)) blockBooking("historical_booking_requires_review");
+    // The stale expiry can close a Slack deal after this booking happened; the
+    // Slack join below reopens it, so it doesn't make the booking historical.
+    if (candidates.some(o => o.updatedAt > now && !wasStaleExpiredAfter(o, now))) blockBooking("historical_booking_requires_review");
     let explicitSourceMeeting: Doc<"meetings"> | undefined;
     if (oldInvitee) {
       if (!previousMeeting) blockBooking("previous_booking_missing");
@@ -1181,9 +1187,19 @@ export const process = internalMutation({
       if (!autoRescheduleTarget) blockBooking("identity_conflict");
       if (!["scheduled", "canceled", "no_show"].includes(autoRescheduleTarget.status)) blockBooking("booking_target_requires_review");
     } else {
-      const eligible = candidates.filter(o => (o.status === "no_show" || o.status === "canceled") && o.updatedAt > rescheduleCutoff);
-      if (eligible.length > 1) blockBooking("ambiguous_booking_target");
-      autoRescheduleTarget = eligible[0] ?? null;
+      // A Slack qualification inside the join window outranks the time-window
+      // guess: the setter just handed this person off, so the booking belongs
+      // to that deal. The Slack join below picks it up.
+      const freshSlackQualification = await findOpenSlackQualifiedOpportunity(ctx, {
+        tenantId,
+        leadId: lead._id,
+        referenceTime: now,
+      });
+      if (!freshSlackQualification) {
+        const eligible = candidates.filter(o => (o.status === "no_show" || o.status === "canceled") && o.updatedAt > rescheduleCutoff);
+        if (eligible.length > 1) blockBooking("ambiguous_booking_target");
+        autoRescheduleTarget = eligible[0] ?? null;
+      }
     }
 
 		if (
@@ -1237,8 +1253,7 @@ export const process = internalMutation({
 				blockBooking("host_not_linked");
 			}
 
-			await patchOpportunityLifecycle(ctx, reschedOpportunityId, {
-				status: "scheduled",
+			const rebookFields = {
 				calendlyEventUri,
 				assignedCloserId: nextAssignedCloserId,
 				hostCalendlyUserUri: hostUserUri,
@@ -1246,7 +1261,19 @@ export const process = internalMutation({
 				hostCalendlyName,
 				eventTypeConfigId: effectiveEventTypeConfigId,
 				updatedAt: now,
-			});
+			};
+			// A Calendly reschedule of a booking that is still scheduled moves
+			// the booking, not the status.
+			if (previousOpportunityStatus === "scheduled") {
+				await patchOpportunityLifecycle(ctx, reschedOpportunityId, rebookFields);
+			} else {
+				await transitionOpportunity(ctx, reschedOpportunityId, {
+					to: "scheduled",
+					fields: rebookFields,
+					source: "pipeline",
+					occurredAt: now,
+				});
+			}
 			if (closerChanged) {
 				await syncOpportunityMeetingsAssignedCloser(
 					ctx,
@@ -1254,21 +1281,6 @@ export const process = internalMutation({
 					nextAssignedCloserId,
 				);
 			}
-			await updateTenantStats(ctx, tenantId, {
-				activeOpportunities: isActiveOpportunityStatus(previousOpportunityStatus)
-					? 0
-					: 1,
-			});
-			await emitDomainEvent(ctx, {
-				tenantId,
-				entityType: "opportunity",
-				entityId: reschedOpportunityId,
-				eventType: "opportunity.status_changed",
-				source: "pipeline",
-				fromStatus: previousOpportunityStatus,
-				toStatus: "scheduled",
-				occurredAt: now,
-			});
 
 			await ctx.runMutation(
 				internal.closer.followUpMutations.markFollowUpBooked,
@@ -1441,7 +1453,9 @@ export const process = internalMutation({
 			eventTypeConfigId;
 		let slackJoinEventOpportunityId: Id<"opportunities"> | undefined;
 		if (slackQualifiedOpportunity) {
+			const reopensStaleDeal = wasStaleExpiredAfter(slackQualifiedOpportunity, now);
 			if (
+				!reopensStaleDeal &&
 				!validateTransition(slackQualifiedOpportunity.status, "scheduled")
 			) {
 				throw new Error(
@@ -1461,18 +1475,26 @@ export const process = internalMutation({
 			const closerChanged =
 				nextAssignedCloserId !==
 				slackQualifiedOpportunity.assignedCloserId;
-			await patchOpportunityLifecycle(ctx, opportunityId, {
-				status: "scheduled",
-				calendlyEventUri,
-				assignedCloserId: nextAssignedCloserId,
-				hostCalendlyUserUri: hostUserUri,
-				hostCalendlyEmail,
-				hostCalendlyName,
-				eventTypeConfigId: meetingEventTypeConfigId,
-				updatedAt: now,
-				// NOTE: utmParams intentionally NOT included here.
-				// The opportunity preserves attribution from its Slack qualification.
-				// The new meeting stores its own UTMs independently.
+			await transitionOpportunity(ctx, opportunityId, {
+				to: "scheduled",
+				fields: {
+					calendlyEventUri,
+					assignedCloserId: nextAssignedCloserId,
+					hostCalendlyUserUri: hostUserUri,
+					hostCalendlyEmail,
+					hostCalendlyName,
+					eventTypeConfigId: meetingEventTypeConfigId,
+					updatedAt: now,
+					...(reopensStaleDeal
+						? { lostAt: undefined, lostReason: undefined, lostByUserId: undefined }
+						: {}),
+					// NOTE: utmParams intentionally NOT included here.
+					// The opportunity preserves attribution from its Slack qualification.
+					// The new meeting stores its own UTMs independently.
+				},
+				source: "pipeline",
+				occurredAt: now,
+				...(reopensStaleDeal ? { exception: "slack_stale_rejoin" as const } : {}),
 			});
 			if (closerChanged) {
 				await syncOpportunityMeetingsAssignedCloser(
@@ -1504,18 +1526,22 @@ export const process = internalMutation({
 				assignedCloserId ?? existingFollowUp.assignedCloserId;
 			const closerChanged =
 				nextAssignedCloserId !== existingFollowUp.assignedCloserId;
-			await patchOpportunityLifecycle(ctx, opportunityId, {
-				status: "scheduled",
-				calendlyEventUri,
-				assignedCloserId: nextAssignedCloserId,
-				hostCalendlyUserUri: hostUserUri,
-				hostCalendlyEmail,
-				hostCalendlyName,
-				eventTypeConfigId: meetingEventTypeConfigId,
-				updatedAt: now,
-				// NOTE: utmParams intentionally NOT included here.
-				// The opportunity preserves attribution from its original creation.
-				// The new meeting stores its own UTMs independently.
+			await transitionOpportunity(ctx, opportunityId, {
+				to: "scheduled",
+				fields: {
+					calendlyEventUri,
+					assignedCloserId: nextAssignedCloserId,
+					hostCalendlyUserUri: hostUserUri,
+					hostCalendlyEmail,
+					hostCalendlyName,
+					eventTypeConfigId: meetingEventTypeConfigId,
+					updatedAt: now,
+					// NOTE: utmParams intentionally NOT included here.
+					// The opportunity preserves attribution from its original creation.
+					// The new meeting stores its own UTMs independently.
+				},
+				source: "pipeline",
+				occurredAt: now,
 			});
 			if (closerChanged) {
 				await syncOpportunityMeetingsAssignedCloser(
@@ -1524,16 +1550,6 @@ export const process = internalMutation({
 					nextAssignedCloserId,
 				);
 			}
-			await emitDomainEvent(ctx, {
-				tenantId,
-				entityType: "opportunity",
-				entityId: opportunityId,
-				eventType: "opportunity.status_changed",
-				source: "pipeline",
-				fromStatus: existingFollowUp.status,
-				toStatus: "scheduled",
-				occurredAt: now,
-			});
 
 			await ctx.runMutation(
 				internal.closer.followUpMutations.markFollowUpBooked,
@@ -1654,8 +1670,7 @@ export const process = internalMutation({
 				entityId: slackJoinEventOpportunityId,
 				eventType: "slack_qualified_lead_booked",
 				source: "pipeline",
-				fromStatus: "qualified_pending",
-				toStatus: "scheduled",
+				// transitionOpportunity recorded the status change.
 				metadata: {
 					leadId: lead._id,
 					meetingId,

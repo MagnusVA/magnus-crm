@@ -3,7 +3,7 @@ import { mutation } from "../_generated/server";
 import { executeConversion } from "../customers/conversion";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { transitionOpportunity } from "../lib/opportunityActivity";
 import {
   assertPaymentRow,
   resolveProgramForWrite,
@@ -15,10 +15,7 @@ import { isSideDeal } from "../lib/sideDeals";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { expirePendingStaleOpportunityNudges } from "../lib/staleOpportunityNudges";
 import { validateTransition } from "../lib/statusTransitions";
-import {
-  applyPaymentStatsDelta,
-  isActiveOpportunityStatus,
-} from "../lib/tenantStatsHelper";
+import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   insertPaymentAggregate,
@@ -117,20 +114,19 @@ export const logPayment = mutation({
       programId: program._id,
       programName: program.name,
     });
-    await patchOpportunityLifecycle(ctx, args.opportunityId, {
-      status: "payment_received",
-      paymentReceivedAt: now,
-      updatedAt: now,
+    await transitionOpportunity(ctx, args.opportunityId, {
+      to: "payment_received",
+      fields: { paymentReceivedAt: now, updatedAt: now },
+      source: isAdmin ? "admin" : "closer",
+      actorUserId: userId,
+      occurredAt: now,
+      metadata: { source: "side_deal", paymentId },
     });
     await expirePendingStaleOpportunityNudges(ctx, args.opportunityId);
     await applyPaymentStatsDelta(ctx, tenantId, {
       commissionable: true,
       paymentType,
       amountMinorDelta: amountMinor,
-      wonDealDelta: 1,
-      activeOpportunityDelta: isActiveOpportunityStatus(opportunity.status)
-        ? -1
-        : 0,
     });
 
     let customerId = await executeConversion(ctx, {
@@ -176,18 +172,6 @@ export const logPayment = mutation({
         origin,
         sideDeal: true,
       },
-    });
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: args.opportunityId,
-      eventType: "opportunity.status_changed",
-      source: isAdmin ? "admin" : "closer",
-      actorUserId: userId,
-      fromStatus: opportunity.status,
-      toStatus: "payment_received",
-      occurredAt: now,
-      metadata: { source: "side_deal", paymentId },
     });
 
     return { paymentId, customerId: customerId ?? undefined };

@@ -8,12 +8,15 @@ import { emitDomainEvent } from "../lib/domainEvents";
 import { type LeadType, leadTypeValidator } from "../lib/leadType";
 import { describeError, log, reportError } from "../lib/observability/log";
 import type { SocialPlatform } from "../lib/socialPlatform";
-import { updateTenantStats } from "../lib/tenantStatsHelper";
+import {
+  isActiveOpportunityStatus,
+  updateTenantStats,
+} from "../lib/tenantStatsHelper";
 import { rebuildQualificationRow } from "../operations/projections";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
+import { SLACK_JOIN_LOOKBACK_MS } from "../pipeline/slackJoinLookup";
 import { upsertSlackUserOnSubmission } from "./users";
 
-const SLACK_DEDUP_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
 
 async function insertQualificationEvent(
   ctx: MutationCtx,
@@ -146,7 +149,7 @@ export const create = internalMutation({
       now,
     });
 
-    const lookbackCutoff = now - SLACK_DEDUP_LOOKBACK_MS;
+    const lookbackCutoff = now - SLACK_JOIN_LOOKBACK_MS;
     const recent = await ctx.db
       .query("opportunities")
       .withIndex(
@@ -203,11 +206,17 @@ export const create = internalMutation({
       )
       .order("desc")
       .take(20);
+    // Only a deal still in progress blocks a new qualification. A won deal
+    // doesn't: a second program is a new deal (ADR 0001, decision 3). Nor
+    // does a Slack deal past the join window: no booking can join it, and the
+    // stale expiry closes it.
     const alreadyBooked = existingOppsForLead.find(
       (opportunity) =>
-        opportunity.status !== "lost" &&
-        opportunity.status !== "canceled" &&
-        opportunity.status !== "no_show",
+        isActiveOpportunityStatus(opportunity.status) &&
+        !(
+          opportunity.status === "qualified_pending" &&
+          opportunity.createdAt <= lookbackCutoff
+        ),
     );
     if (alreadyBooked) {
       const resultKind =

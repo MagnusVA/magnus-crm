@@ -514,6 +514,11 @@ export default defineSchema({
     // Plain numeric field; unrelated to paymentRecords / cash collected.
     selfReportedIncome: v.optional(v.number()),
     // === End NIM-17 ===
+
+    // Set while the polluted-lead split migration moves people off or onto
+    // this lead (docs/plans/polluted-lead-split.md §5.0). Bookings that match
+    // a locked lead block as `identity_conflict` and are retried afterwards.
+    splitLockedAt: v.optional(v.number()),
   })
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: identity resolution scans the 50 newest leads
     .index("by_tenantId", ["tenantId"])

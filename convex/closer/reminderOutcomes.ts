@@ -5,7 +5,7 @@ import { mutation } from "../_generated/server";
 import { executeConversion } from "../customers/conversion";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { transitionOpportunity } from "../lib/opportunityActivity";
 import {
   assertPaymentRow,
   resolveProgramForWrite,
@@ -15,11 +15,7 @@ import {
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { validateTransition } from "../lib/statusTransitions";
-import {
-  applyPaymentStatsDelta,
-  isActiveOpportunityStatus,
-  updateTenantStats,
-} from "../lib/tenantStatsHelper";
+import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   insertPaymentAggregate,
@@ -148,7 +144,6 @@ export const logReminderPayment = mutation({
     const now = Date.now();
     const amountMinor = toAmountMinor(args.amount);
     const meetingId = opportunity.latestMeetingId ?? undefined;
-    const previousOpportunityStatus = opportunity.status;
     const attributedCloserId =
       role === "closer" ? userId : followUp.closerId;
     const origin: CommissionableOrigin =
@@ -195,22 +190,24 @@ export const logReminderPayment = mutation({
       programName: program.name,
     });
 
-    await patchOpportunityLifecycle(ctx, opportunity._id, {
-      ...(role !== "closer" && opportunity.assignedCloserId !== followUp.closerId
-        ? { assignedCloserId: followUp.closerId }
-        : {}),
-      status: "payment_received",
-      paymentReceivedAt: now,
-      updatedAt: now,
+    await transitionOpportunity(ctx, opportunity._id, {
+      to: "payment_received",
+      fields: {
+        ...(role !== "closer" && opportunity.assignedCloserId !== followUp.closerId
+          ? { assignedCloserId: followUp.closerId }
+          : {}),
+        paymentReceivedAt: now,
+        updatedAt: now,
+      },
+      source: role === "closer" ? "closer" : "admin",
+      actorUserId: userId,
+      metadata: { paymentId, followUpId: args.followUpId },
+      occurredAt: now,
     });
     await applyPaymentStatsDelta(ctx, tenantId, {
       commissionable: true,
       paymentType,
       amountMinorDelta: amountMinor,
-      wonDealDelta: 1,
-      activeOpportunityDelta: isActiveOpportunityStatus(previousOpportunityStatus)
-        ? -1
-        : 0,
     });
 
     await ctx.db.patch("followUps", args.followUpId, {
@@ -241,17 +238,6 @@ export const logReminderPayment = mutation({
         recordedByUserId: userId,
         origin,
       },
-      occurredAt: now,
-    });
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: opportunity._id,
-      eventType: "opportunity.status_changed",
-      source: role === "closer" ? "closer" : "admin",
-      actorUserId: userId,
-      fromStatus: previousOpportunityStatus,
-      toStatus: "payment_received",
       occurredAt: now,
     });
     await emitDomainEvent(ctx, {
@@ -315,20 +301,24 @@ export const markReminderLost = mutation({
 
     const now = Date.now();
     const trimmedReason = normalizeOptionalString(reason);
-    const previousOpportunityStatus = opportunity.status;
 
-    await patchOpportunityLifecycle(ctx, opportunity._id, {
-      status: "lost",
-      updatedAt: now,
-      lostAt: now,
-      lostByUserId: userId,
-      ...(trimmedReason ? { lostReason: trimmedReason } : {}),
-    });
-    await updateTenantStats(ctx, tenantId, {
-      activeOpportunities: isActiveOpportunityStatus(previousOpportunityStatus)
-        ? -1
-        : 0,
-      lostDeals: 1,
+    await transitionOpportunity(ctx, opportunity._id, {
+      to: "lost",
+      fields: {
+        updatedAt: now,
+        lostAt: now,
+        lostByUserId: userId,
+        ...(trimmedReason ? { lostReason: trimmedReason } : {}),
+      },
+      source: "closer",
+      actorUserId: userId,
+      eventType: "opportunity.marked_lost",
+      reason: trimmedReason,
+      metadata: {
+        followUpId,
+        origin: "reminder",
+      },
+      occurredAt: now,
     });
 
     await ctx.db.patch("followUps", followUpId, {
@@ -336,23 +326,6 @@ export const markReminderLost = mutation({
       completedAt: now,
       completionOutcome: "lost",
       ...(trimmedReason ? { completionNote: trimmedReason } : {}),
-    });
-
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: opportunity._id,
-      eventType: "opportunity.marked_lost",
-      source: "closer",
-      actorUserId: userId,
-      fromStatus: previousOpportunityStatus,
-      toStatus: "lost",
-      reason: trimmedReason,
-      metadata: {
-        followUpId,
-        origin: "reminder",
-      },
-      occurredAt: now,
     });
     await emitDomainEvent(ctx, {
       tenantId,
@@ -422,31 +395,19 @@ export const markReminderNoResponse = mutation({
       if (!validateTransition(opportunity.status, "lost")) {
         throw new Error(`Cannot mark lost from status "${opportunity.status}"`);
       }
-      const previousOpportunityStatus = opportunity.status;
       const lostReason = trimmedNote ?? "No response to outreach";
 
-      await patchOpportunityLifecycle(ctx, opportunity._id, {
-        status: "lost",
-        updatedAt: now,
-        lostAt: now,
-        lostByUserId: userId,
-        lostReason,
-      });
-      await updateTenantStats(ctx, tenantId, {
-        activeOpportunities: isActiveOpportunityStatus(previousOpportunityStatus)
-          ? -1
-          : 0,
-        lostDeals: 1,
-      });
-      await emitDomainEvent(ctx, {
-        tenantId,
-        entityType: "opportunity",
-        entityId: opportunity._id,
-        eventType: "opportunity.marked_lost",
+      await transitionOpportunity(ctx, opportunity._id, {
+        to: "lost",
+        fields: {
+          updatedAt: now,
+          lostAt: now,
+          lostByUserId: userId,
+          lostReason,
+        },
         source: "closer",
         actorUserId: userId,
-        fromStatus: previousOpportunityStatus,
-        toStatus: "lost",
+        eventType: "opportunity.marked_lost",
         reason: lostReason,
         metadata: {
           followUpId,

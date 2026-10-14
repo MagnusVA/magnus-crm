@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { forceOpportunityState } from "../../tests/opportunityFixtures";
 import { insertLeadAggregate, insertOpportunityAggregate } from "../reporting/writeHooks";
 
 afterEach(() => vi.useRealTimers());
@@ -97,7 +97,7 @@ it.each(paths.flatMap((path) => [
     await ctx.db.patch("users", adminUser!._id, {
       calendlyUserUri: "https://api.calendly.com/users/admin",
     });
-    await patchOpportunityLifecycle(ctx, opportunityId, {
+    await forceOpportunityState(ctx, opportunityId, {
       status: path === "utm_reschedule" ? "reschedule_link_sent"
         : path === "heuristic_reschedule" ? "canceled"
         : path === "provider_reschedule" ? "scheduled"

@@ -7,11 +7,7 @@ import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { log } from "../lib/observability/log";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
-import {
-  updateTenantStats,
-  isActiveOpportunityStatus,
-} from "../lib/tenantStatsHelper";
+import { transitionOpportunity } from "../lib/opportunityActivity";
 
 const noShowReasonValidator = v.union(
   v.literal("no_response"),
@@ -74,14 +70,19 @@ export const adminMarkAsLost = mutation({
     }
 
     const reason = args.reason?.trim() || undefined;
-    const wasActive = isActiveOpportunityStatus(opportunity.status);
 
-    await patchOpportunityLifecycle(ctx, args.opportunityId, {
-      status: "lost",
-      updatedAt: now,
-      lostAt: now,
-      lostByUserId: userId,
-      lostReason: reason,
+    await transitionOpportunity(ctx, args.opportunityId, {
+      to: "lost",
+      fields: {
+        updatedAt: now,
+        lostAt: now,
+        lostByUserId: userId,
+        lostReason: reason,
+      },
+      source: "admin",
+      actorUserId: userId,
+      eventType: "opportunity.marked_lost",
+      reason,
     });
     if (meeting) {
       await completeMeetingForOutcome(ctx, {
@@ -91,23 +92,6 @@ export const adminMarkAsLost = mutation({
         completedAt: now,
       });
     }
-
-    await updateTenantStats(ctx, tenantId, {
-      ...(wasActive ? { activeOpportunities: -1 } : {}),
-      lostDeals: 1,
-    });
-
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: args.opportunityId,
-      eventType: "opportunity.marked_lost",
-      source: "admin",
-      actorUserId: userId,
-      fromStatus: opportunity.status,
-      toStatus: "lost",
-      reason,
-    });
   },
 });
 
@@ -247,11 +231,11 @@ export const adminConfirmFollowUp = mutation({
       );
     }
 
-    const wasActive = isActiveOpportunityStatus(opportunity.status);
-
-    await patchOpportunityLifecycle(ctx, args.opportunityId, {
-      status: "follow_up_scheduled",
-      updatedAt: now,
+    await transitionOpportunity(ctx, args.opportunityId, {
+      to: "follow_up_scheduled",
+      fields: { updatedAt: now },
+      source: "admin",
+      actorUserId: userId,
     });
     if (meeting) {
       await completeMeetingForOutcome(ctx, {
@@ -261,21 +245,6 @@ export const adminConfirmFollowUp = mutation({
         completedAt: now,
       });
     }
-
-    await updateTenantStats(ctx, tenantId, {
-      ...(!wasActive ? { activeOpportunities: 1 } : {}),
-    });
-
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: args.opportunityId,
-      eventType: "opportunity.status_changed",
-      source: "admin",
-      actorUserId: userId,
-      fromStatus: opportunity.status,
-      toStatus: "follow_up_scheduled",
-    });
   },
 });
 
@@ -352,11 +321,11 @@ export const adminCreateManualReminder = mutation({
       createdSource: "admin",
     });
 
-    const wasActive = isActiveOpportunityStatus(opportunity.status);
-
-    await patchOpportunityLifecycle(ctx, args.opportunityId, {
-      status: "follow_up_scheduled",
-      updatedAt: now,
+    await transitionOpportunity(ctx, args.opportunityId, {
+      to: "follow_up_scheduled",
+      fields: { updatedAt: now },
+      source: "admin",
+      actorUserId: userId,
     });
     if (meeting) {
       await completeMeetingForOutcome(ctx, {
@@ -366,10 +335,6 @@ export const adminCreateManualReminder = mutation({
         completedAt: now,
       });
     }
-
-    await updateTenantStats(ctx, tenantId, {
-      ...(!wasActive ? { activeOpportunities: 1 } : {}),
-    });
 
     await emitDomainEvent(ctx, {
       tenantId,
@@ -383,17 +348,6 @@ export const adminCreateManualReminder = mutation({
         contactMethod: args.contactMethod,
         reason: "admin_initiated",
       },
-    });
-
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: args.opportunityId,
-      eventType: "opportunity.status_changed",
-      source: "admin",
-      actorUserId: userId,
-      fromStatus: opportunity.status,
-      toStatus: "follow_up_scheduled",
     });
 
     return { followUpId };
@@ -441,12 +395,14 @@ export const adminMarkNoShow = mutation({
     }
 
     const normalizedNote = normalizeOptionalString(args.note);
-    const wasActive = isActiveOpportunityStatus(opportunity.status);
 
-    await patchOpportunityLifecycle(ctx, opportunity._id, {
-      status: "no_show",
-      noShowAt: now,
-      updatedAt: now,
+    await transitionOpportunity(ctx, opportunity._id, {
+      to: "no_show",
+      fields: { noShowAt: now, updatedAt: now },
+      source: "admin",
+      actorUserId: userId,
+      reason: args.reason,
+      occurredAt: now,
     });
     await completeMeetingForOutcome(ctx, {
       meetingId: meeting._id,
@@ -462,9 +418,6 @@ export const adminMarkNoShow = mutation({
       } satisfies Partial<Doc<"meetings">>,
     });
 
-    await updateTenantStats(ctx, tenantId, {
-      ...(wasActive ? { activeOpportunities: -1 } : {}),
-    });
     await emitDomainEvent(ctx, {
       tenantId,
       entityType: "meeting",
@@ -476,18 +429,6 @@ export const adminMarkNoShow = mutation({
       toStatus: "no_show",
       reason: args.reason,
       metadata: { noteProvided: Boolean(normalizedNote) },
-      occurredAt: now,
-    });
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: opportunity._id,
-      eventType: "opportunity.status_changed",
-      source: "admin",
-      actorUserId: userId,
-      fromStatus: opportunity.status,
-      toStatus: "no_show",
-      reason: args.reason,
       occurredAt: now,
     });
   },
@@ -570,15 +511,11 @@ export const adminCreateRescheduleLink = mutation({
       createdSource: "admin",
     });
 
-    const wasActive = isActiveOpportunityStatus(opportunity.status);
-
-    await patchOpportunityLifecycle(ctx, args.opportunityId, {
-      status: "reschedule_link_sent",
-      updatedAt: now,
-    });
-
-    await updateTenantStats(ctx, tenantId, {
-      ...(!wasActive ? { activeOpportunities: 1 } : {}),
+    await transitionOpportunity(ctx, args.opportunityId, {
+      to: "reschedule_link_sent",
+      fields: { updatedAt: now },
+      source: "admin",
+      actorUserId: userId,
     });
 
     await emitDomainEvent(ctx, {
@@ -589,17 +526,6 @@ export const adminCreateRescheduleLink = mutation({
       source: "admin",
       actorUserId: userId,
       metadata: { type: "scheduling_link", reason: "no_show_follow_up" },
-    });
-
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: args.opportunityId,
-      eventType: "opportunity.status_changed",
-      source: "admin",
-      actorUserId: userId,
-      fromStatus: "no_show",
-      toStatus: "reschedule_link_sent",
     });
 
     return { schedulingLinkUrl, followUpId };
