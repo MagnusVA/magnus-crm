@@ -74,7 +74,7 @@ These are settled. Reopen one only with the product owner, and record the change
 The migration runs for months, and the old model stays live until each phase narrows it. Until then, new code must not extend the old model.
 
 1. **No new opportunity status.** Every literal costs 30 to 40 files and a backfill, and Phase 5 has to map it. If a feature seems to need one, it is probably a task, a meeting fact, or a deal stage. Raise it before adding it.
-2. **Opportunity status changes go through one function.** Phase 0 adds `transitionOpportunity`. Once it exists, no code calls `ctx.db.patch` on an opportunity's `status`, and no code moves a status without the state machine in `convex/lib/statusTransitions.ts`. Exceptions are named transitions inside that function, not bypasses at the call site.
+2. **Opportunity status changes go through one function.** `transitionOpportunity` in `convex/lib/opportunityActivity.ts` is that function. No code calls `ctx.db.patch` on an opportunity's `status`, and no code moves a status without the state machine in `convex/lib/statusTransitions.ts`. Exceptions are named transitions inside that function, not bypasses at the call site.
 3. **No new person, staff, or schedule table.** A new channel finds or creates the person through `resolveLeadIdentity`. A new role becomes a team member role (Phase 1), not another table like `leadGenWorkers` or `dmClosers`.
 4. **No new attribution column.** Don't add another `*CloserId`, `*TeamId`, or `qualifiedBy` shape. Until `dealAttributions` exists, extend the existing columns and say so in the PR.
 5. **No new copies of person fields.** Read contact details from the lead. Don't add fields to `customers`, because customer is becoming a stage.
