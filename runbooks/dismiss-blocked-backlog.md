@@ -16,7 +16,7 @@ Deliveries blocked after the cutoff, and deliveries that are `queued`, `failed`,
 
 ## What you lose
 
-The daily raw cleanup treats a dismissed delivery as resolved. It deletes the raw payload once the delivery is more than 30 days old. On 2026-10-14 that covers every legacy delivery from before Oct 9. After that, a dismissed legacy delivery can be restored to the review queue but can't be retried, because its payload is gone. The export in step 1 is the only copy.
+The daily raw cleanup treats a dismissed delivery as resolved, and deletes its raw payload once the delivery was received more than 30 days ago. On 2026-10-14 the cutoff is Sep 14, so the next cleanup run deletes the payloads of 119 of the 342 deliveries. The rest expire day by day as they turn 30 days old, until the last ones go around Nov 13. Once its payload is gone, a dismissed delivery can be restored to the review queue but can't be retried. The export in step 1 is then the only copy.
 
 ## Steps
 
@@ -40,7 +40,7 @@ All commands target production through `--env-file .env.vercel.production`. `--p
    npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:dismissBlockedBacklog","dryRun":true}'
    ```
 
-4. Run the migration and wait for it to finish.
+4. Run the migration. Re-run `getStatus` until it reports `isDone: true`.
 
    ```sh
    npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:dismissBlockedBacklog"}'
@@ -51,7 +51,10 @@ All commands target production through `--env-file .env.vercel.production`. `--p
 
    ```sh
    npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertBlockedBacklogDismissed"}'
+   npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:assertBlockedBacklogDismissed"]}'
    ```
+
+   `migrations:run` only starts the batches, so its output proves nothing. Wait until `getStatus` reports `isDone: true` before you go on. If it reports `state: "failed"`, its `error` names the delivery that failed.
 
 6. Verify:
    - The preview now shows `toDismiss: 0`.
