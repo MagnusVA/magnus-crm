@@ -95,7 +95,9 @@ async function writeOpportunity(
   await ctx.db.patch("opportunities", before._id, {
     ...patch,
     updatedAt,
-    latestActivityAt: computeLatestActivityAt(nextShape),
+    // A caller can keep the activity time, for a write nobody did, such as
+    // a system expiry.
+    latestActivityAt: patch.latestActivityAt ?? computeLatestActivityAt(nextShape),
   });
 
   let after: Doc<"opportunities">;
@@ -150,6 +152,12 @@ const TRANSITION_EXCEPTIONS = {
   // Voiding a side deal's payment closes the deal as lost.
   payment_voided: {
     payment_received: ["lost"],
+  },
+  // A booking that happened inside the Slack join window but was processed
+  // after the stale expiry closed the deal (a retried blocked delivery)
+  // reopens it. See wasStaleExpiredAfter in pipeline/slackJoinLookup.ts.
+  slack_stale_rejoin: {
+    lost: ["scheduled"],
   },
 } satisfies Record<
   string,

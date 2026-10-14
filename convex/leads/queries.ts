@@ -223,18 +223,26 @@ export const searchLeadsForPicker = query({
       return [];
     }
 
-    // Active leads and customers, in relevance order. A search filter takes
-    // one status, so filter merged leads out of a slightly larger page.
-    const results = await ctx.db
-      .query("leads")
-      .withSearchIndex("search_leads", (q) =>
-        q.search("searchText", term).eq("tenantId", tenantId),
+    // Active leads and customers. The lead/customer search rows hide merged
+    // leads, which keep their own searchText.
+    const rows = await ctx.db
+      .query("leadCustomerSearchRows")
+      .withSearchIndex("search_lead_customer_entities", (q) =>
+        q
+          .search("searchText", term)
+          .eq("tenantId", tenantId)
+          .eq("isSearchVisible", true),
       )
-      .take(30);
+      .take(20);
+    const leads = await Promise.all(
+      rows.map((row) => ctx.db.get("leads", row.leadId)),
+    );
 
-    return results
-      .filter((lead) => lead.status !== "merged")
-      .slice(0, 20)
+    return leads
+      .filter(
+        (lead): lead is Doc<"leads"> =>
+          lead !== null && lead.tenantId === tenantId && lead.status !== "merged",
+      )
       .map((lead) => ({
         _id: lead._id,
         fullName: lead.fullName,

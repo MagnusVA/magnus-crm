@@ -1,97 +1,170 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { internalMutation, internalQuery } from "../_generated/server";
+import type { Doc, Id } from "../_generated/dataModel";
+import {
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+} from "../_generated/server";
 import { log } from "../lib/observability/log";
-import { transitionOpportunity } from "../lib/opportunityActivity";
-import { SLACK_JOIN_LOOKBACK_MS } from "../pipeline/slackJoinLookup";
+import {
+  computeLatestActivityAt,
+  transitionOpportunity,
+} from "../lib/opportunityActivity";
+import {
+  SLACK_OPPORTUNITY_EXPIRY_MS,
+  SLACK_STALE_LOST_REASON,
+} from "../pipeline/slackJoinLookup";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-// A booking can join a Slack-qualified opportunity for 30 days. After that a
-// booking opens a new opportunity, so the old one would stay open forever.
-// It closes one day after the window, so the 8am stale digest
-// (staleReminders.ts) lists it exactly once first.
-export const SLACK_OPPORTUNITY_EXPIRY_MS = SLACK_JOIN_LOOKBACK_MS + DAY_MS;
-
-export const STALE_LOST_REASON = "stale";
-
-// Each transition rebuilds the lead's search row, so keep batches small.
-const EXPIRY_BATCH_SIZE = 20;
-const PREVIEW_LIMIT = 1000;
+// A booking can join a Slack-qualified opportunity for 30 days. After that it
+// opens a new opportunity, so one that never booked would stay open for good.
+// These close as lost, reason "stale", a day after the join window.
 
 /**
- * Closes Slack-qualified opportunities that never booked as lost, reason
- * "stale". Runs hourly across tenants and schedules itself until the backlog
- * is empty.
+ * Opportunities that passed the expiry before this moment are the backlog at
+ * rollout. The hourly cron leaves them alone, so its first run changes no old
+ * data; `migrations:expireStaleSlackBacklog` closes them once the owner has
+ * checked the count with `previewStaleSlackOpportunities`.
+ */
+export const STALE_EXPIRY_CUTOVER_AT = Date.parse("2026-10-16T00:00:00Z");
+
+const SCAN_PAGE_SIZE = 50;
+const PREVIEW_LIMIT = 1000;
+
+function isStillStale(
+  opportunity: Doc<"opportunities"> | null,
+  now: number,
+): opportunity is Doc<"opportunities"> {
+  return (
+    opportunity !== null &&
+    opportunity.source === "slack_qualified" &&
+    opportunity.status === "qualified_pending" &&
+    opportunity.createdAt < now - SLACK_OPPORTUNITY_EXPIRY_MS
+  );
+}
+
+/** True for a Slack opportunity that passed the expiry before the cutover. */
+export function isStaleSlackBacklog(opportunity: Doc<"opportunities">): boolean {
+  return (
+    opportunity.source === "slack_qualified" &&
+    opportunity.status === "qualified_pending" &&
+    opportunity.createdAt < STALE_EXPIRY_CUTOVER_AT - SLACK_OPPORTUNITY_EXPIRY_MS
+  );
+}
+
+/**
+ * Closes one Slack opportunity that never booked. Re-checks it first, so a
+ * booking that joined it in the meantime wins. Returns whether it closed.
+ */
+export async function expireStaleSlackOpportunity(
+  ctx: MutationCtx,
+  opportunityId: Id<"opportunities">,
+  now: number,
+): Promise<boolean> {
+  const opportunity = await ctx.db.get("opportunities", opportunityId);
+  if (!isStillStale(opportunity, now)) {
+    return false;
+  }
+  await transitionOpportunity(ctx, opportunityId, {
+    to: "lost",
+    fields: {
+      lostAt: now,
+      lostReason: SLACK_STALE_LOST_REASON,
+      updatedAt: now,
+      // Nobody worked the deal, so it keeps its place in activity sorts.
+      latestActivityAt:
+        opportunity.latestActivityAt ?? computeLatestActivityAt(opportunity),
+    },
+    source: "system",
+    eventType: "opportunity.marked_lost",
+    reason: SLACK_STALE_LOST_REASON,
+    metadata: { trigger: "slack_join_window_expired" },
+    occurredAt: now,
+  });
+  return true;
+}
+
+/**
+ * Hourly. Finds Slack opportunities that passed the expiry since the cutover,
+ * across tenants, and schedules one mutation per opportunity, so a row that
+ * fails can't hold up the others.
  */
 export const expireStaleSlackOpportunities = internalMutation({
-  args: {},
-  returns: v.object({ expired: v.number(), hasMore: v.boolean() }),
-  handler: async (ctx) => {
+  args: { cursor: v.optional(v.union(v.string(), v.null())) },
+  returns: v.null(),
+  handler: async (ctx, { cursor }) => {
     const now = Date.now();
-    const stale = await ctx.db
+    const page = await ctx.db
       .query("opportunities")
       .withIndex("by_source_and_status_and_createdAt", (q) =>
         q
           .eq("source", "slack_qualified")
           .eq("status", "qualified_pending")
+          .gte("createdAt", STALE_EXPIRY_CUTOVER_AT - SLACK_OPPORTUNITY_EXPIRY_MS)
           .lt("createdAt", now - SLACK_OPPORTUNITY_EXPIRY_MS),
       )
-      .take(EXPIRY_BATCH_SIZE + 1);
-    const batch = stale.slice(0, EXPIRY_BATCH_SIZE);
+      .paginate({ cursor: cursor ?? null, numItems: SCAN_PAGE_SIZE });
 
-    for (const opportunity of batch) {
-      await transitionOpportunity(ctx, opportunity._id, {
-        to: "lost",
-        fields: { lostAt: now, lostReason: STALE_LOST_REASON, updatedAt: now },
-        source: "system",
-        eventType: "opportunity.marked_lost",
-        reason: STALE_LOST_REASON,
-        metadata: { trigger: "slack_join_window_expired" },
-        occurredAt: now,
+    for (const opportunity of page.page) {
+      await ctx.scheduler.runAfter(0, internal.slack.staleExpiry.expireOne, {
+        opportunityId: opportunity._id,
       });
     }
-
-    const hasMore = stale.length > EXPIRY_BATCH_SIZE;
-    if (hasMore) {
+    if (!page.isDone) {
       await ctx.scheduler.runAfter(
         0,
         internal.slack.staleExpiry.expireStaleSlackOpportunities,
-        {},
+        { cursor: page.continueCursor },
       );
     }
-    if (batch.length > 0) {
-      log.info("slack.stale_opportunities.expired", {
-        expired: batch.length,
-        hasMore,
+    if (page.page.length > 0) {
+      log.info("slack.stale_opportunities.scheduled", {
+        count: page.page.length,
+        hasMore: !page.isDone,
       });
     }
-    return { expired: batch.length, hasMore };
+    return null;
   },
 });
 
-/** Read-only count of what the next expiry run would close, across tenants. */
+export const expireOne = internalMutation({
+  args: { opportunityId: v.id("opportunities") },
+  returns: v.boolean(),
+  handler: async (ctx, { opportunityId }) =>
+    await expireStaleSlackOpportunity(ctx, opportunityId, Date.now()),
+});
+
+/**
+ * Read-only: Slack opportunities past the expiry, split into the backlog the
+ * cron leaves for the migration and the ones the cron will close.
+ */
 export const previewStaleSlackOpportunities = internalQuery({
   args: {},
   returns: v.object({
-    count: v.number(),
+    backlog: v.number(),
+    cronWillClose: v.number(),
     capped: v.boolean(),
     oldestCreatedAt: v.union(v.number(), v.null()),
   }),
   handler: async (ctx) => {
+    const expiredBefore = Date.now() - SLACK_OPPORTUNITY_EXPIRY_MS;
     const stale = await ctx.db
       .query("opportunities")
       .withIndex("by_source_and_status_and_createdAt", (q) =>
         q
           .eq("source", "slack_qualified")
           .eq("status", "qualified_pending")
-          .lt("createdAt", Date.now() - SLACK_OPPORTUNITY_EXPIRY_MS),
+          .lt("createdAt", expiredBefore),
       )
       .take(PREVIEW_LIMIT + 1);
+    const counted = stale.slice(0, PREVIEW_LIMIT);
+    const backlogBefore = STALE_EXPIRY_CUTOVER_AT - SLACK_OPPORTUNITY_EXPIRY_MS;
+    const backlog = counted.filter((o) => o.createdAt < backlogBefore).length;
     return {
-      count: Math.min(stale.length, PREVIEW_LIMIT),
+      backlog,
+      cronWillClose: counted.length - backlog,
       capped: stale.length > PREVIEW_LIMIT,
-      oldestCreatedAt: stale[0]?.createdAt ?? null,
+      oldestCreatedAt: counted[0]?.createdAt ?? null,
     };
   },
 });
