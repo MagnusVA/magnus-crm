@@ -17,7 +17,13 @@ A booking made inside the 30 days but processed later, such as a retried blocked
 
 ## Steps
 
-All commands target production through `--env-file .env.vercel.production`, because `.env.local` holds a dev deploy key. Step 1 only reads. Steps 2 and 3 write, so run them only with the owner's approval.
+All commands target production through `--env-file .env.vercel.production`, because `.env.local` holds a dev deploy key. Step 1 only reads. Steps 2 and 3 go through the migrations component and step 2 closes opportunities, so run them only with the owner's approval.
+
+`migrations:run` only starts the batches, so its output proves nothing. After each one, re-run `getStatus` until it reports `isDone: true`. If it reports `state: "failed"`, its `error` names the opportunity that failed.
+
+```sh
+npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:<name>"]}'
+```
 
 1. Count. `backlog` is what the migration will close; `cronWillClose` is what the cron closes on its next run.
 
@@ -25,18 +31,20 @@ All commands target production through `--env-file .env.vercel.production`, beca
    npx convex run --env-file .env.vercel.production slack/staleExpiry:previewStaleSlackOpportunities
    ```
 
-2. Dry run, which runs one batch and rolls it back, then the real run.
+2. Dry run, which runs one batch and rolls it back, then the real run. Wait for `isDone: true`.
 
    ```sh
    npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:expireStaleSlackBacklog","dryRun":true}'
    npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:expireStaleSlackBacklog"}'
    ```
 
-3. Assert. It fails on the first backlog opportunity still pending.
+3. Assert. It fails on the first backlog opportunity still pending. To run it again later, add `"reset":true`, or the finished migration is skipped.
 
    ```sh
    npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertStaleSlackBacklogExpired"}'
    ```
+
+   Then run step 1 again: `backlog` should be 0.
 
 ## Undo
 
