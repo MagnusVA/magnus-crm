@@ -63,6 +63,22 @@ const eslintConfig = defineConfig([
     },
   },
   {
+    // Opportunity status changes go through transitionOpportunity, which
+    // validates the move and owns its counters, events and projections.
+    files: ["convex/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "CallExpression[callee.property.name=/^(patch|replace)$/][arguments.0.value='opportunities'] > ObjectExpression > Property[key.name='status']",
+          message:
+            "Change an opportunity's status with transitionOpportunity (convex/lib/opportunityActivity.ts).",
+        },
+      ],
+    },
+  },
+  {
     // One-off migrations scan whole tables on purpose.
     files: ["convex/admin/migrations.ts"],
     rules: {

@@ -8,7 +8,10 @@ import type { MutationCtx } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { rebuildQualificationRowsForOpportunity } from "../operations/projections";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import {
+	patchOpportunityLifecycle,
+	transitionOpportunity,
+} from "../lib/opportunityActivity";
 import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
 import { validateTransition } from "../lib/statusTransitions";
 import { extractUtmParams } from "../lib/utmParams";
@@ -36,10 +39,7 @@ import {
 import type { IdentifierType, SocialPlatformType } from "../lib/normalization";
 import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
 import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMeetingsAssignedCloser";
-import {
-	updateTenantStats,
-	isActiveOpportunityStatus,
-} from "../lib/tenantStatsHelper";
+import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { buildLeadSearchText } from "../leads/searchTextBuilder";
 import {
 	resolveLeadIdentity,
@@ -877,15 +877,19 @@ export const process = internalMutation({
 						blockBooking("host_not_linked");
 					}
 
-					await patchOpportunityLifecycle(ctx, targetOpportunityId, {
-						status: "scheduled",
-						calendlyEventUri,
-						assignedCloserId: nextAssignedCloserId,
-						hostCalendlyUserUri: hostUserUri,
-						hostCalendlyEmail,
-						hostCalendlyName,
-						eventTypeConfigId: effectiveEventTypeConfigId,
-						updatedAt: now,
+					await transitionOpportunity(ctx, targetOpportunityId, {
+						to: "scheduled",
+						fields: {
+							calendlyEventUri,
+							assignedCloserId: nextAssignedCloserId,
+							hostCalendlyUserUri: hostUserUri,
+							hostCalendlyEmail,
+							hostCalendlyName,
+							eventTypeConfigId: effectiveEventTypeConfigId,
+							updatedAt: now,
+						},
+						source: "pipeline",
+						occurredAt: now,
 					});
 					if (closerChanged) {
 						await syncOpportunityMeetingsAssignedCloser(
@@ -894,16 +898,6 @@ export const process = internalMutation({
 							nextAssignedCloserId,
 						);
 					}
-					await emitDomainEvent(ctx, {
-						tenantId,
-						entityType: "opportunity",
-						entityId: targetOpportunityId,
-						eventType: "opportunity.status_changed",
-						source: "pipeline",
-						fromStatus: previousTargetStatus,
-						toStatus: "scheduled",
-						occurredAt: now,
-					});
 
 					let rescheduledFromMeetingId: Id<"meetings"> | undefined;
 					if (isNoShowRescheduleUtm && utmParams.utm_content) {
@@ -1237,8 +1231,7 @@ export const process = internalMutation({
 				blockBooking("host_not_linked");
 			}
 
-			await patchOpportunityLifecycle(ctx, reschedOpportunityId, {
-				status: "scheduled",
+			const rebookFields = {
 				calendlyEventUri,
 				assignedCloserId: nextAssignedCloserId,
 				hostCalendlyUserUri: hostUserUri,
@@ -1246,7 +1239,19 @@ export const process = internalMutation({
 				hostCalendlyName,
 				eventTypeConfigId: effectiveEventTypeConfigId,
 				updatedAt: now,
-			});
+			};
+			// A Calendly reschedule of a booking that is still scheduled moves
+			// the booking, not the status.
+			if (previousOpportunityStatus === "scheduled") {
+				await patchOpportunityLifecycle(ctx, reschedOpportunityId, rebookFields);
+			} else {
+				await transitionOpportunity(ctx, reschedOpportunityId, {
+					to: "scheduled",
+					fields: rebookFields,
+					source: "pipeline",
+					occurredAt: now,
+				});
+			}
 			if (closerChanged) {
 				await syncOpportunityMeetingsAssignedCloser(
 					ctx,
@@ -1254,21 +1259,6 @@ export const process = internalMutation({
 					nextAssignedCloserId,
 				);
 			}
-			await updateTenantStats(ctx, tenantId, {
-				activeOpportunities: isActiveOpportunityStatus(previousOpportunityStatus)
-					? 0
-					: 1,
-			});
-			await emitDomainEvent(ctx, {
-				tenantId,
-				entityType: "opportunity",
-				entityId: reschedOpportunityId,
-				eventType: "opportunity.status_changed",
-				source: "pipeline",
-				fromStatus: previousOpportunityStatus,
-				toStatus: "scheduled",
-				occurredAt: now,
-			});
 
 			await ctx.runMutation(
 				internal.closer.followUpMutations.markFollowUpBooked,
@@ -1461,18 +1451,22 @@ export const process = internalMutation({
 			const closerChanged =
 				nextAssignedCloserId !==
 				slackQualifiedOpportunity.assignedCloserId;
-			await patchOpportunityLifecycle(ctx, opportunityId, {
-				status: "scheduled",
-				calendlyEventUri,
-				assignedCloserId: nextAssignedCloserId,
-				hostCalendlyUserUri: hostUserUri,
-				hostCalendlyEmail,
-				hostCalendlyName,
-				eventTypeConfigId: meetingEventTypeConfigId,
-				updatedAt: now,
-				// NOTE: utmParams intentionally NOT included here.
-				// The opportunity preserves attribution from its Slack qualification.
-				// The new meeting stores its own UTMs independently.
+			await transitionOpportunity(ctx, opportunityId, {
+				to: "scheduled",
+				fields: {
+					calendlyEventUri,
+					assignedCloserId: nextAssignedCloserId,
+					hostCalendlyUserUri: hostUserUri,
+					hostCalendlyEmail,
+					hostCalendlyName,
+					eventTypeConfigId: meetingEventTypeConfigId,
+					updatedAt: now,
+					// NOTE: utmParams intentionally NOT included here.
+					// The opportunity preserves attribution from its Slack qualification.
+					// The new meeting stores its own UTMs independently.
+				},
+				source: "pipeline",
+				occurredAt: now,
 			});
 			if (closerChanged) {
 				await syncOpportunityMeetingsAssignedCloser(
@@ -1504,18 +1498,22 @@ export const process = internalMutation({
 				assignedCloserId ?? existingFollowUp.assignedCloserId;
 			const closerChanged =
 				nextAssignedCloserId !== existingFollowUp.assignedCloserId;
-			await patchOpportunityLifecycle(ctx, opportunityId, {
-				status: "scheduled",
-				calendlyEventUri,
-				assignedCloserId: nextAssignedCloserId,
-				hostCalendlyUserUri: hostUserUri,
-				hostCalendlyEmail,
-				hostCalendlyName,
-				eventTypeConfigId: meetingEventTypeConfigId,
-				updatedAt: now,
-				// NOTE: utmParams intentionally NOT included here.
-				// The opportunity preserves attribution from its original creation.
-				// The new meeting stores its own UTMs independently.
+			await transitionOpportunity(ctx, opportunityId, {
+				to: "scheduled",
+				fields: {
+					calendlyEventUri,
+					assignedCloserId: nextAssignedCloserId,
+					hostCalendlyUserUri: hostUserUri,
+					hostCalendlyEmail,
+					hostCalendlyName,
+					eventTypeConfigId: meetingEventTypeConfigId,
+					updatedAt: now,
+					// NOTE: utmParams intentionally NOT included here.
+					// The opportunity preserves attribution from its original creation.
+					// The new meeting stores its own UTMs independently.
+				},
+				source: "pipeline",
+				occurredAt: now,
 			});
 			if (closerChanged) {
 				await syncOpportunityMeetingsAssignedCloser(
@@ -1524,16 +1522,6 @@ export const process = internalMutation({
 					nextAssignedCloserId,
 				);
 			}
-			await emitDomainEvent(ctx, {
-				tenantId,
-				entityType: "opportunity",
-				entityId: opportunityId,
-				eventType: "opportunity.status_changed",
-				source: "pipeline",
-				fromStatus: existingFollowUp.status,
-				toStatus: "scheduled",
-				occurredAt: now,
-			});
 
 			await ctx.runMutation(
 				internal.closer.followUpMutations.markFollowUpBooked,

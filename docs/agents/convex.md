@@ -30,6 +30,13 @@ The repo has no triggers. A mutation that inserts, updates, or deletes a meeting
 - opportunity meeting refs through `updateOpportunityMeetingRefs` (`convex/lib/opportunityMeetingRefs.ts`), which also rebuilds the opportunity and lead/customer search rows
 - qualification rows through `rebuildQualificationRowsForOpportunity` (`convex/operations/projections.ts`)
 
+Opportunity writes have two entry points in `convex/lib/opportunityActivity.ts`, and they make the calls above for you:
+
+- `transitionOpportunity` is the only way to change an opportunity's status. It checks the move against `statusTransitions.ts`, writes the status and its fields, and updates the aggregates, search and qualification rows, the active, won and lost counters, and the domain event. Don't add those calls next to it. A move the state machine forbids needs a named entry in its `TRANSITION_EXCEPTIONS`, not a bypass at the call site. ESLint rejects a raw `ctx.db.patch("opportunities", id, { status })`.
+- `patchOpportunityLifecycle` writes every other field, such as `assignedCloserId` or `leadId`, and re-keys the aggregates and projections that read them. Its type doesn't accept `status`.
+
+Payments add revenue with `applyPaymentStatsDelta`, which no longer touches the deal counters.
+
 Meeting updates should use `patchMeetingLifecycle` with an ID so the mutation reads its own current snapshot. Reporting jobs must carry IDs and read source state, never caller-provided before/after snapshots. Deleting a meeting must request its projection before deleting the source row. Opportunity changes use the paginated projection sweep; never replace it with a capped first-page loop.
 
 Find an existing mutation that writes the same table and match its side-effect calls. A missed call leaves dashboards and counts wrong without any error.

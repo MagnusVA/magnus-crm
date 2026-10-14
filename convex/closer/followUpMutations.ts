@@ -4,14 +4,10 @@ import { internalMutation, mutation } from "../_generated/server";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { validateTransition } from "../lib/statusTransitions";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { transitionOpportunity } from "../lib/opportunityActivity";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { log } from "../lib/observability/log";
-import {
-  isActiveOpportunityStatus,
-  updateTenantStats,
-} from "../lib/tenantStatsHelper";
 
 /**
  * OUTCOME MUTATION CONTRACT
@@ -90,21 +86,10 @@ export const transitionToFollowUp = internalMutation({
     }
 
     const now = Date.now();
-    await patchOpportunityLifecycle(ctx, opportunityId, {
-      status: "follow_up_scheduled",
-      updatedAt: now,
-    });
-    await updateTenantStats(ctx, opportunity.tenantId, {
-      activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
-    });
-    await emitDomainEvent(ctx, {
-      tenantId: opportunity.tenantId,
-      entityType: "opportunity",
-      entityId: opportunityId,
-      eventType: "opportunity.status_changed",
+    await transitionOpportunity(ctx, opportunityId, {
+      to: "follow_up_scheduled",
+      fields: { updatedAt: now },
       source: "system",
-      fromStatus: opportunity.status,
-      toStatus: "follow_up_scheduled",
       occurredAt: now,
     });
   },
@@ -273,9 +258,12 @@ export const confirmFollowUpScheduled = mutation({
       );
     }
 
-    await patchOpportunityLifecycle(ctx, opportunityId, {
-      status: "follow_up_scheduled",
-      updatedAt: now,
+    await transitionOpportunity(ctx, opportunityId, {
+      to: "follow_up_scheduled",
+      fields: { updatedAt: now },
+      source: "closer",
+      actorUserId: userId,
+      occurredAt: now,
     });
     if (meeting) {
       await completeMeetingForOutcome(ctx, {
@@ -285,20 +273,6 @@ export const confirmFollowUpScheduled = mutation({
         completedAt: now,
       });
     }
-    await updateTenantStats(ctx, tenantId, {
-      activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
-    });
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: opportunityId,
-      eventType: "opportunity.status_changed",
-      source: "closer",
-      actorUserId: userId,
-      fromStatus: opportunity.status,
-      toStatus: "follow_up_scheduled",
-      occurredAt: now,
-    });
   },
 });
 
@@ -380,9 +354,12 @@ export const createManualReminderFollowUpPublic = mutation({
       occurredAt: now,
     });
 
-    await patchOpportunityLifecycle(ctx, args.opportunityId, {
-      status: "follow_up_scheduled",
-      updatedAt: now,
+    await transitionOpportunity(ctx, args.opportunityId, {
+      to: "follow_up_scheduled",
+      fields: { updatedAt: now },
+      source: "closer",
+      actorUserId: userId,
+      occurredAt: now,
     });
     if (meeting) {
       await completeMeetingForOutcome(ctx, {
@@ -392,20 +369,6 @@ export const createManualReminderFollowUpPublic = mutation({
         completedAt: now,
       });
     }
-    await updateTenantStats(ctx, tenantId, {
-      activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? 0 : 1,
-    });
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: args.opportunityId,
-      eventType: "opportunity.status_changed",
-      source: "closer",
-      actorUserId: userId,
-      fromStatus: opportunity.status,
-      toStatus: "follow_up_scheduled",
-      occurredAt: now,
-    });
 
     return { followUpId };
   },

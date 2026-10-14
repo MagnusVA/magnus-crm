@@ -1,18 +1,13 @@
 import { v } from "convex/values";
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
-import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { transitionOpportunity } from "../lib/opportunityActivity";
 import { requireTenantUser } from "../requireTenantUser";
 import { validateTransition } from "../lib/statusTransitions";
-import { emitDomainEvent } from "../lib/domainEvents";
 import { log } from "../lib/observability/log";
-import {
-  isActiveOpportunityStatus,
-  updateTenantStats,
-} from "../lib/tenantStatsHelper";
 
 export async function loadMeetingContext(
   ctx: MutationCtx,
@@ -91,18 +86,21 @@ export const markAsLost = mutation({
       throw new Error(`Cannot mark as lost from status "${opportunity.status}"`);
     }
 
-    const normalizedReason = reason?.trim();
-    const patch: Partial<Doc<"opportunities">> = {
-      status: "lost",
-      updatedAt: now,
-      lostAt: now,
-      lostByUserId: userId,
-    };
-    if (normalizedReason) {
-      patch.lostReason = normalizedReason;
-    }
-
-    await patchOpportunityLifecycle(ctx, opportunityId, patch);
+    const normalizedReason = reason?.trim() || undefined;
+    await transitionOpportunity(ctx, opportunityId, {
+      to: "lost",
+      fields: {
+        updatedAt: now,
+        lostAt: now,
+        lostByUserId: userId,
+        ...(normalizedReason ? { lostReason: normalizedReason } : {}),
+      },
+      source: "closer",
+      actorUserId: userId,
+      eventType: "opportunity.marked_lost",
+      reason: normalizedReason,
+      occurredAt: now,
+    });
     if (meeting) {
       await completeMeetingForOutcome(ctx, {
         meetingId: meeting._id,
@@ -111,22 +109,6 @@ export const markAsLost = mutation({
         completedAt: now,
       });
     }
-    await updateTenantStats(ctx, tenantId, {
-      activeOpportunities: isActiveOpportunityStatus(opportunity.status) ? -1 : 0,
-      lostDeals: 1,
-    });
-    await emitDomainEvent(ctx, {
-      tenantId,
-      entityType: "opportunity",
-      entityId: opportunityId,
-      eventType: "opportunity.marked_lost",
-      source: "closer",
-      actorUserId: userId,
-      fromStatus: opportunity.status,
-      toStatus: "lost",
-      reason: normalizedReason,
-      occurredAt: now,
-    });
   },
 });
 
