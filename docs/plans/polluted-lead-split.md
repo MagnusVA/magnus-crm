@@ -149,7 +149,7 @@ Notes:
 ### 3.5 Excluded or cleanup-only
 
 - **Staff and test leads (7, no action):** `jh7cg5zpd4ssny9bnh16qt9qf98559qg`, `jh7dn9nbzxm89dzdy2tds8hh2d85b9zm`, `jh74jtm0mb5ahn16n66e87xtq586f18d`, `jh792794knx7g04nspvmb7q7cx88ttm2`, `jh72ws8bxeeb2j5yb7zxemhdq989p4en`, `jh78h0mjp0dbsqpezgrw2hzghs8bjv5s`, `jh7b0dg5gkyznev20918tdky598bj78x`. These hold company-domain emails or test names.
-- **Alias-email leads (33):** one person with two emails, joined by a real shared phone or handle. Nothing to split. But a booking made with the alias email blocks with `identity_conflict`, because the email differs from `lead.email`. See open question Q4.
+- **Alias-email leads (33):** one person with two emails, joined by a real shared phone or handle. Nothing to split. Bookings with either email resolve to the lead, because the matcher accepts an email already stored as an identifier on the matched lead (Q4, resolved).
 - **Single-person leads holding a live placeholder key (Tier D).** Delete or neutralise the key once the code guard ships:
   - canonical `email@yahoo.com`: `jh789dqeaqrarwjcvgx62r10vh876ktw`
   - canonical `email@icloud.com`: `jh7e7pnatzw4a5cxfed2g5rhkd89bx3c`
@@ -425,12 +425,19 @@ Paired `assert*` migrations, plus internal queries. Run the asserts after the ap
 - **All 22 Tier B leads.** Decide distinct versus same person after the snapshot. For the confirmed shared-email cases, the extracted person gets no email.
 - **Two converted Tier B leads** (`jh7fvmppmdp2am47an1h56c5rn8dwkfw`, `jh7902ynjk28s6emf5vjr3g6f58a2f92`). Decide which person owns the customer.
 
+### 6.1 Design review notes to resolve before implementation
+
+- **Shared emails.** A booking email that several people used (Tier B) must not join a cluster by itself in `buildPlan`, and reviewers need a way to split a cluster.
+- **Dry run.** `buildPlan` needs a `dryRun` argument that builds the plan without replacing `leadSplitPersons` or bumping `planVersion`, so phases 1–3 stay write-free on a dry run.
+- **Winning opportunity.** Before applying, check that the opportunity O1 keeps belongs to the lead that O6 assigns the customer to, or remap `customers.winningOpportunityId`. Reject the plan otherwise.
+- **Snapshot token.** `fetchInvitees` loads `tenantId` from the plan and passes it to `getValidAccessToken`. It only calls HTTPS URLs on `api.calendly.com` and disables redirects, so the token can't be sent elsewhere.
+
 ## 7. Open questions
 
 - **Q1. Phone guard rule.** An explicit list is safe but leaks new fakes. A pattern rule (an ascending run of 7 or more digits, or a 3-digit group repeated 3 times) catches about 28 current identifiers. It also catches some plausible non-US numbers (Indonesian, Kenyan, Swedish formats). Pick a rule, and decide whether existing single-lead matches lose their identifier.
 - **Q2. Email guard scope.** Is a fixed denylist enough, or do we also want "local part is `email`" or "domain has no MX"? Placeholder emails still need to be stored on the meeting, just not used as identity.
 - **Q3. Opportunity ownership.** Confirm rule O1: the latest-meeting owner keeps the document, except for Slack-qualified or side-deal opportunities. Dashboards will show 35 more opportunities and different `createdAt` dates for split opportunities.
-- **Q4. Alias emails.** 33 leads legitimately hold two emails for one person. Every booking with the second email blocks with `identity_conflict`, because `match.lead.email` differs from the booking email. Should a verified alias email identifier on the same lead count as a match?
+- **Q4. Alias emails (resolved).** A booking email already stored as an identifier on the matched lead now counts as a match, and an Instagram handle match adds the new email as an identifier. Phone-only matches with a new email still block.
 - **Q5. Setter-reused emails (Tier B).** Should the extracted person's lead keep the shared email as a non-identity note, or carry no email? Without an email, that lead can't be converted, because `executeConversion` requires `lead.email`.
 - **Q6. Domain event naming.** Is `lead.split` (plus `opportunity.created` and `lead.created` with split metadata) acceptable for PostHog dashboards, or should split-created rows be excluded from "created" metrics?
 - **Q7. Raw read method.** The full identifier export used the paginated `_system/cli/tableData` query directly, because `npx convex data` can't page past 8192 rows. Is that acceptable for future audits, or should we add an internal paginated export query?
