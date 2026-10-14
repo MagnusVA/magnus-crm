@@ -4,8 +4,14 @@ import workpool from "@convex-dev/workpool/test";
 import schema from "../convex/schema";
 import { convexTestModules } from "../convex/test.setup";
 
-export async function bookingHarness() {
-  const t = convexTest(schema, convexTestModules);
+// `transactionLimits: true` makes every function fail the way a deployment
+// would when it exceeds Convex's per-transaction read and write limits.
+export async function bookingHarness(options: { transactionLimits?: boolean } = {}) {
+  const t = convexTest({
+    schema,
+    modules: convexTestModules,
+    transactionLimits: options.transactionLimits ?? false,
+  });
   for (const name of ["webhookWorkpool", "reportingWorkpool"])
     workpool.register(t, name);
   for (const name of [

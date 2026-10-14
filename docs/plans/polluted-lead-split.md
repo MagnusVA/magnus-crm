@@ -305,6 +305,8 @@ Two `migrations.define` migrations in `convex/migrations.ts`, each paired with a
      - patch the `leadId` on `followUps`, `meetingFormResponses`, `slackQualificationEvents`, `leadGenAuditMatches`, and `webhookDeliveries` for that opportunity
      - call `rebuildQualificationRowsForOpportunity`
 
+     `moveOpportunityToLead` in `convex/leads/repointLeadReferences.ts` does all of this, and the lead merge uses it too. It writes `leadId` without `patchOpportunityLifecycle`, which would rebuild the lead/customer row once per opportunity, so the caller rebuilds both leads' rows after the last move.
+
      `patchOpportunityLifecycle({ leadId })` does not call `replaceOpportunityAggregate`. That is safe, because `opportunityByStatus` keys on `[status, assignedCloserId, createdAt]`. Call it anyway whenever O3 changes `createdAt`.
   4. **Split opportunities.**
      - If this person doesn't keep the document:

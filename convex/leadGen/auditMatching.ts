@@ -3,7 +3,7 @@ import { internalMutation } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { normalizeSocialHandle } from "../lib/normalization";
-import { log, reportError } from "../lib/observability/log";
+import { log } from "../lib/observability/log";
 import { leadGenAuditMatchSourceValidator } from "./validators";
 
 type MatchOutcome =
@@ -176,6 +176,10 @@ export const matchQualifiedLead = internalMutation({
   },
 });
 
+// Far above the matches one lead collects; a lead matches one prospect per
+// handle it has used.
+const AUDIT_MATCH_SCAN_LIMIT = 50;
+
 export async function preserveQualificationAuditMatchForScheduledMeeting(
   ctx: MutationCtx,
   args: {
@@ -185,40 +189,41 @@ export async function preserveQualificationAuditMatchForScheduledMeeting(
     now: number;
   },
 ) {
+  // The match already on this opportunity, found through the opportunity so
+  // it can't fall outside the lead scan below.
+  const onThisDeal = await ctx.db
+    .query("leadGenAuditMatches")
+    .withIndex("by_tenantId_and_opportunityId", (q) =>
+      q.eq("tenantId", args.tenantId).eq("opportunityId", args.opportunityId),
+    )
+    .take(10);
+  const linked = onThisDeal.find(
+    (match) => match.matchStatus === "accepted" && match.leadId === args.leadId,
+  );
+  if (linked) {
+    return linked._id;
+  }
+
   const matches = await ctx.db
     .query("leadGenAuditMatches")
     .withIndex("by_tenantId_and_leadId", (q) =>
       q.eq("tenantId", args.tenantId).eq("leadId", args.leadId),
     )
-    .take(5);
+    .order("desc")
+    .take(AUDIT_MATCH_SCAN_LIMIT);
 
+  // A lead has one accepted match per prospect it matched, and can match
+  // several, for example after a merge. Link the newest one not yet tied to
+  // a deal; failing that, the newest, which only confirms an existing link.
+  // The lead page shows the newest accepted match (`getAuditMatchForLead`).
   const acceptedMatches = matches.filter(
     (match) => match.matchStatus === "accepted",
   );
-  if (acceptedMatches.length === 0) {
+  const match =
+    acceptedMatches.find((candidate) => candidate.opportunityId === undefined) ??
+    acceptedMatches[0];
+  if (!match) {
     return null;
-  }
-  if (acceptedMatches.length > 1) {
-    reportError(
-      "lead_gen.data_inconsistency",
-      new Error("Lead has multiple accepted lead gen audit matches"),
-      {
-        severity: "warning",
-        fingerprint:
-          "lead_gen.data_inconsistency:multiple_accepted_audit_matches",
-        reason: "multiple_accepted_audit_matches",
-        tenantId: args.tenantId,
-        leadId: args.leadId,
-        opportunityId: args.opportunityId,
-        acceptedMatchCount: acceptedMatches.length,
-      },
-    );
-    return null;
-  }
-
-  const match = acceptedMatches[0];
-  if (match.opportunityId === args.opportunityId) {
-    return match._id;
   }
   if (match.opportunityId !== undefined) {
     return match._id;
