@@ -20,6 +20,15 @@ Most folders under `convex/` are named for their table or feature. The ones whos
 - Money is an integer in minor units (`amountMinor`) next to a `currency` code. Convert input with `toAmountMinor` and `validateCurrency` from `convex/lib/formatMoney.ts`.
 - `convex/lib/statusTransitions.ts` defines the opportunity, meeting, and lead state machines. Its validators return a boolean and log, so the caller rejects the write on `false`.
 
+## Lead lifecycle model
+
+The lead, opportunity, and customer tables are migrating to the model in `docs/adr/0001-lead-lifecycle-model.md`: one person record for life, deals with a stage and an outcome, meetings that hold attendance only, and attribution as its own record. `CONTEXT.md` defines the terms. Until each phase lands, the old fields stay live, so follow the ADR's "Rules for code written now":
+
+- Don't add an opportunity status literal, a person, staff, or schedule table, an attribution column, or a field on `customers`.
+- Change an opportunity's status only through `transitionOpportunity` (`convex/lib/opportunityActivity.ts`), never with a raw `ctx.db.patch`. "Write side effects" below covers it.
+- Create or find the person through `resolveLeadIdentity`, and never let a placeholder value or a time window decide identity.
+- A won deal doesn't block a new deal for the same person.
+
 ## Write side effects
 
 The repo has no triggers. A mutation that inserts, updates, or deletes a meeting, opportunity, payment, lead, or customer also updates:

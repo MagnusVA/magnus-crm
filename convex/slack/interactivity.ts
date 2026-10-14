@@ -1,6 +1,7 @@
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { httpAction } from "../_generated/server";
+import { normalizeSocialHandle } from "../lib/normalization";
 import { isExpectedError } from "../lib/observability/errors";
 import {
   describeError,
@@ -144,6 +145,9 @@ export const interactivity = httpAction(async (ctx, req) => {
   }
   if (parsed.handle.length === 0) {
     fieldErrors.handle = "Required";
+  } else if (!normalizeSocialHandle(parsed.handle, "instagram")) {
+    // Placeholders such as "na" or a single letter can't identify a lead.
+    fieldErrors.handle = "Enter the lead's Instagram handle";
   }
 
   if (Object.keys(fieldErrors).length > 0) {

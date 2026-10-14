@@ -55,3 +55,65 @@ it.each(["different_leads", "different_email"] as const)(
     expect(state.opportunities).toHaveLength(0);
   },
 );
+
+it("rejects a placeholder email for a new side-deal lead", async () => {
+  vi.useFakeTimers();
+  const { t, closer } = await bookingHarness();
+  await expect(
+    closer.mutation(api.opportunities.createManual.createManual, {
+      clientRequestId: "manual-placeholder-email",
+      newLeadInput: { fullName: "Test Lead", email: "Email@Gmail.com" },
+    }),
+  ).rejects.toThrow("opportunity.placeholder_email");
+  const state = await t.run(async (ctx) => ({
+    leads: await ctx.db.query("leads").take(1),
+    opportunities: await ctx.db.query("opportunities").take(1),
+  }));
+  expect(state.leads).toHaveLength(0);
+  expect(state.opportunities).toHaveLength(0);
+});
+
+it("asks for the lead's email when a payment would convert a lead without one", async () => {
+  vi.useFakeTimers();
+  const { t, tenantId, closer } = await bookingHarness();
+  const { leadId, programId } = await t.run(async (ctx) => {
+    const users = await ctx.db
+      .query("users")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .take(10);
+    const adminId = users.find((user) => user.role === "tenant_admin")!._id;
+    // What a booking with only a placeholder email now leaves behind.
+    const leadId = await ctx.db.insert("leads", {
+      tenantId,
+      fullName: "No Email",
+      status: "active",
+      firstSeenAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const programId = await ctx.db.insert("tenantPrograms", {
+      tenantId,
+      name: "Program",
+      normalizedName: "program",
+      createdAt: 0,
+      createdByUserId: adminId,
+      updatedAt: 0,
+    });
+    return { leadId, programId };
+  });
+  const { opportunityId } = await closer.mutation(
+    api.opportunities.createManual.createManual,
+    { clientRequestId: "no-email", existingLeadId: leadId },
+  );
+
+  await expect(
+    closer.mutation(api.sideDeals.logPayment.logPayment, {
+      opportunityId,
+      amount: 100,
+      currency: "USD",
+      programId,
+      paymentType: "pif",
+    }),
+  ).rejects.toThrow("customer.lead_email_missing");
+  const payments = await t.run((ctx) => ctx.db.query("paymentRecords").take(1));
+  expect(payments).toHaveLength(0);
+});

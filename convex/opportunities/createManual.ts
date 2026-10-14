@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { isPlaceholderEmail, normalizeEmail } from "../lib/normalization";
 import { rejectRequest } from "../lib/observability/errors";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { resolveLeadIdentity } from "../leads/identityResolution";
@@ -73,6 +74,17 @@ async function resolveLeadForManualCreate(
 
   if (!args.newLeadInput) {
     throw new Error("New lead input is required.");
+  }
+
+  // A placeholder never becomes the lead's email, and recording the side
+  // deal's payment converts the lead, which needs one. Ask for the real one.
+  const normalizedEmail = normalizeEmail(args.newLeadInput.email);
+  if (normalizedEmail && isPlaceholderEmail(normalizedEmail)) {
+    throw rejectRequest(
+      "opportunity.placeholder_email",
+      "Enter the lead's real email address. A placeholder such as email@gmail.com can't identify a lead.",
+      { tenantId: args.tenantId },
+    );
   }
 
   const result = await resolveLeadIdentity(ctx, {
