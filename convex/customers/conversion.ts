@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { rejectRequest } from "../lib/observability/errors";
 import { log, reportError } from "../lib/observability/log";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { validateLeadTransition } from "../lib/statusTransitions";
@@ -102,8 +103,15 @@ export async function executeConversion(
   }
   const resolvedProgramId = program._id;
   const resolvedProgramName = program.name;
+  // A lead from a Slack qualification, or a booking that only gave a
+  // placeholder email, has none. The message reaches whoever recorded the
+  // payment, which rolls back with this error.
   if (!lead.email) {
-    throw new Error("Cannot convert lead to customer: lead email is missing");
+    throw rejectRequest(
+      "customer.lead_email_missing",
+      "Add the lead's email before recording this payment. The first payment makes the lead a customer, and a customer needs an email.",
+      { tenantId, leadId },
+    );
   }
 
   const now = Date.now();

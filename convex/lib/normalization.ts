@@ -43,6 +43,37 @@ export function normalizeEmail(rawValue: string): string | undefined {
   return trimmed;
 }
 
+/** Placeholder addresses typed into booking forms in production. */
+const PLACEHOLDER_EMAILS = new Set([
+  "email@gmail.com",
+  "email@yahoo.com",
+  "email@icloud.com",
+  "thisisnotanemail@notanemail.com",
+]);
+const PLACEHOLDER_EMAIL_LOCAL_PARTS = new Set(["email"]);
+// example.com/.org/.net are left out: the test suite books with them as real
+// addresses.
+const PLACEHOLDER_EMAIL_DOMAINS = new Set(["notanemail.com"]);
+
+/**
+ * True for an address that people type when they don't want to give one,
+ * such as `email@gmail.com`. Several people share each of these, so a
+ * placeholder must never decide identity: identity resolution skips it, and
+ * it never becomes a lead's email or an email identifier. It stays on the
+ * booking, because Calendly requires an email.
+ *
+ * @param normalizedEmail Output of `normalizeEmail`.
+ */
+export function isPlaceholderEmail(normalizedEmail: string): boolean {
+  if (PLACEHOLDER_EMAILS.has(normalizedEmail)) return true;
+  const atIndex = normalizedEmail.lastIndexOf("@");
+  if (atIndex < 0) return false;
+  return (
+    PLACEHOLDER_EMAIL_LOCAL_PARTS.has(normalizedEmail.slice(0, atIndex)) ||
+    PLACEHOLDER_EMAIL_DOMAINS.has(normalizedEmail.slice(atIndex + 1))
+  );
+}
+
 /**
  * Extract the domain from an email address.
  * Used for weak duplicate detection (same domain + similar name).
@@ -77,6 +108,58 @@ function stripPhoneFormatting(phone: string): string {
 const DEFAULT_COUNTRY_CODE = "1";
 
 /**
+ * Fake numbers seen in production, as digits. Each one merged several
+ * bookers into one lead (docs/plans/polluted-lead-split.md). Checked against
+ * both the input digits and the normalized number's digits.
+ */
+const PLACEHOLDER_PHONE_DIGITS = new Set([
+  "1234567890",
+  "12345678910",
+  "11234567890",
+  "0123456789",
+  "0987654321",
+  "12342342342",
+  "12345678901",
+  "12123456789",
+  "12345678945",
+]);
+
+/**
+ * Pattern rule for fake North American numbers (+1 and 10 digits). The
+ * 10-digit national number is fake when it contains an ascending or
+ * descending run of SEQUENTIAL_RUN_MIN digits (2345678, 9876543), or when its
+ * first REPEATED_GROUP_SPAN digits repeat one 3-digit group (234-234-234x).
+ * Other country codes are exempt: the same patterns occur in real
+ * Indonesian, Kenyan, and Swedish numbers.
+ */
+const SEQUENTIAL_RUN_MIN = 7;
+const REPEATED_GROUP_LENGTH = 3;
+const REPEATED_GROUP_SPAN = 9;
+
+function hasSequentialRun(digits: string, minLength: number): boolean {
+  let ascending = 1;
+  let descending = 1;
+  for (let i = 1; i < digits.length; i++) {
+    const step = Number(digits[i]) - Number(digits[i - 1]);
+    ascending = step === 1 ? ascending + 1 : 1;
+    descending = step === -1 ? descending + 1 : 1;
+    if (ascending >= minLength || descending >= minLength) return true;
+  }
+  return false;
+}
+
+function isFakeNorthAmericanNumber(e164: string): boolean {
+  const national = /^\+1(\d{10})$/.exec(e164)?.[1];
+  if (!national) return false;
+  const group = national.slice(0, REPEATED_GROUP_LENGTH);
+  return (
+    hasSequentialRun(national, SEQUENTIAL_RUN_MIN) ||
+    national.slice(0, REPEATED_GROUP_SPAN) ===
+      group.repeat(REPEATED_GROUP_SPAN / REPEATED_GROUP_LENGTH)
+  );
+}
+
+/**
  * Normalize a phone number to E.164 format.
  *
  * Rules:
@@ -84,12 +167,15 @@ const DEFAULT_COUNTRY_CODE = "1";
  * - If the input is 10 digits, assume US/CA and prepend "+1".
  * - If the input is 11 digits starting with "1", assume US/CA and prepend "+".
  * - Otherwise, prepend "+" and hope for the best (best-effort).
+ * - Placeholder numbers (see above) are rejected, so they never become
+ *   shared identity keys.
  *
  * Examples:
  *   "+1 778-955-9253"  --> "+17789559253"
  *   "(778) 955-9253"   --> "+17789559253"
  *   "7789559253"       --> "+17789559253"
  *   "17789559253"      --> "+17789559253"
+ *   "+1 234-234-2342"  --> undefined
  *
  * @returns E.164 formatted phone string, or undefined if invalid.
  */
@@ -98,8 +184,20 @@ export function normalizePhone(rawValue: string): string | undefined {
   const digits = stripped.replace(/\D/g, "");
   if (digits.length < 7 || digits.length > 15) return undefined;
   // Common placeholders must never become shared identity keys.
-  if (/^(\d)\1+$/.test(digits) || ["1234567890", "12345678910", "11234567890", "0123456789", "0987654321"].includes(digits)) return undefined;
+  if (/^(\d)\1+$/.test(digits) || PLACEHOLDER_PHONE_DIGITS.has(digits)) return undefined;
 
+  const normalized = formatE164(stripped);
+  if (
+    !normalized ||
+    PLACEHOLDER_PHONE_DIGITS.has(normalized.slice(1)) ||
+    isFakeNorthAmericanNumber(normalized)
+  ) {
+    return undefined;
+  }
+  return normalized;
+}
+
+function formatE164(stripped: string): string | undefined {
   // Already has country code prefix
   if (stripped.startsWith("+")) {
     // Minimum viable: + followed by at least 7 digits
@@ -152,11 +250,37 @@ const PLATFORM_URL_PATTERNS: Record<SocialPlatformType, RegExp[]> = {
 };
 
 /**
+ * Answers people type when they have no handle. A handle also needs at least
+ * MIN_HANDLE_ALPHANUMERICS letters or digits, which rejects "g" and "-".
+ */
+const PLACEHOLDER_SOCIAL_HANDLES = new Set([
+  "na",
+  "n/a",
+  "none",
+  "null",
+  "nil",
+  "no",
+  "-",
+  "...",
+  ".",
+]);
+const MIN_HANDLE_ALPHANUMERICS = 2;
+
+function rejectPlaceholderHandle(handle: string): string | undefined {
+  if (PLACEHOLDER_SOCIAL_HANDLES.has(handle)) return undefined;
+  const alphanumerics = handle.match(/[\p{L}\p{N}]/gu)?.length ?? 0;
+  return alphanumerics >= MIN_HANDLE_ALPHANUMERICS ? handle : undefined;
+}
+
+/**
  * Normalize a social handle for a given platform.
  *
  * Handles these input patterns:
  * - Raw handle: "campos.coachpro" or "@campos.coachpro"
  * - Profile URL: "instagram.com/campos.coachpro" or "https://www.instagram.com/campos.coachpro/"
+ *
+ * Placeholder answers ("na", "none", a single letter) are rejected so they
+ * never become shared identity keys.
  *
  * @returns Normalized handle (lowercase, no @, no URL components), or undefined if invalid.
  */
@@ -172,7 +296,7 @@ export function normalizeSocialHandle(
   for (const pattern of patterns) {
     const match = trimmed.match(pattern);
     if (match?.[1]) {
-      return match[1].toLowerCase();
+      return rejectPlaceholderHandle(match[1].toLowerCase());
     }
   }
 
@@ -187,9 +311,8 @@ export function normalizeSocialHandle(
     return undefined;
   }
 
-  // Reject empty after stripping
-  handle = handle.toLowerCase().trim();
-  return handle.length > 0 ? handle : undefined;
+  // Reject empty or placeholder after stripping
+  return rejectPlaceholderHandle(handle.toLowerCase().trim());
 }
 
 // ---------------------------------------------------------------------------

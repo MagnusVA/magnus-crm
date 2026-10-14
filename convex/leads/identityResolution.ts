@@ -4,6 +4,7 @@ import type { MutationCtx } from "../_generated/server";
 import {
   areNamesSimilar,
   extractEmailDomain,
+  isPlaceholderEmail,
   normalizeEmail,
   normalizePhone,
   normalizeSocialHandle,
@@ -112,6 +113,16 @@ async function followMergeChain(
   return current;
 }
 
+/**
+ * The polluted-lead split (docs/plans/polluted-lead-split.md) locks the leads
+ * it is moving people between. A booking that matches one blocks like any
+ * identity conflict, so its delivery waits in pipeline recovery and is
+ * retried once the split clears the lock.
+ */
+export function blockIfSplitLocked(lead: Doc<"leads">): void {
+  if (lead.splitLockedAt !== undefined) blockBooking("identity_conflict");
+}
+
 async function findLeadByIdentifier(
   ctx: MutationCtx,
   args: {
@@ -129,6 +140,7 @@ async function findLeadByIdentifier(
     if (!lead || lead.tenantId !== args.tenantId) blockBooking("invalid_identity_relationship");
     const resolved = await followMergeChain(ctx, lead);
     if (!resolved) blockBooking("invalid_identity_relationship");
+    blockIfSplitLocked(resolved);
     matches.set(resolved._id, resolved);
   }
   if (matches.size > 1) blockBooking("identity_conflict");
@@ -138,12 +150,13 @@ async function findLeadByIdentifier(
 const POLLUTION_SCAN_LIMIT = 50;
 
 /**
- * Before placeholder phones stopped being identity keys, every booker who
- * typed one was attached to the same lead, which collected their emails and
- * handles. Such a lead still holds a phone identifier that `normalizePhone`
- * now rejects. Its email and handle identifiers can't be trusted, so bookings
- * that only agree with them need review. A lead with more identifiers than we
- * scan fails closed for the same reason.
+ * Before placeholder phones and emails stopped being identity keys, every
+ * booker who typed one was attached to the same lead, which collected their
+ * emails and handles. Such a lead still holds a phone identifier that
+ * `normalizePhone` now rejects, or an email identifier that
+ * `isPlaceholderEmail` flags. Its email and handle identifiers can't be
+ * trusted, so bookings that only agree with them need review. A lead with
+ * more identifiers than we scan fails closed for the same reason.
  * TODO: drop once the split migration in docs/plans/polluted-lead-split.md ships.
  */
 async function isPlaceholderPollutedLead(
@@ -157,7 +170,8 @@ async function isPlaceholderPollutedLead(
   if (identifiers.length > POLLUTION_SCAN_LIMIT) return true;
   return identifiers.some(
     (identifier) =>
-      identifier.type === "phone" && normalizePhone(identifier.value) === undefined,
+      (identifier.type === "phone" && normalizePhone(identifier.value) === undefined) ||
+      (identifier.type === "email" && isPlaceholderEmail(identifier.value)),
   );
 }
 
@@ -385,6 +399,12 @@ export async function resolveLeadIdentity(
 ): Promise<ResolveLeadIdentityResult> {
   const createIfMissing = args.createIfMissing ?? true;
   const normalizedEmail = args.email ? normalizeEmail(args.email) : undefined;
+  // A placeholder email (email@gmail.com) never decides identity: it is not
+  // looked up, not stored as an identifier, and never becomes the lead's email.
+  const identityEmail =
+    normalizedEmail && !isPlaceholderEmail(normalizedEmail)
+      ? normalizedEmail
+      : undefined;
   const rawSocialHandle =
     args.socialHandle?.rawValue ?? args.socialHandle?.handle ?? "";
   const normalizedSocialHandle = args.socialHandle
@@ -393,15 +413,16 @@ export async function resolveLeadIdentity(
   const normalizedPhone = args.phone ? normalizePhone(args.phone) : undefined;
 
   const matches: { lead: Doc<"leads">; via: "email" | "social_handle" | "phone" }[] = [];
-  if (normalizedEmail) {
-    const legacy = await ctx.db.query("leads").withIndex("by_tenantId_and_email", q => q.eq("tenantId", args.tenantId).eq("email", normalizedEmail)).take(17);
+  if (identityEmail) {
+    const legacy = await ctx.db.query("leads").withIndex("by_tenantId_and_email", q => q.eq("tenantId", args.tenantId).eq("email", identityEmail)).take(17);
     if (legacy.length > 16) blockBooking("identity_conflict");
     for (const lead of legacy) {
       const resolved = await followMergeChain(ctx, lead);
       if (!resolved) blockBooking("invalid_identity_relationship");
+      blockIfSplitLocked(resolved);
       matches.push({ lead: resolved, via: "email" });
     }
-    const lead = await findLeadByIdentifier(ctx, { tenantId: args.tenantId, type: "email", value: normalizedEmail });
+    const lead = await findLeadByIdentifier(ctx, { tenantId: args.tenantId, type: "email", value: identityEmail });
     if (lead) matches.push({ lead, via: "email" });
   }
   if (normalizedSocialHandle && args.socialHandle) {
@@ -422,19 +443,23 @@ export async function resolveLeadIdentity(
       // one of this lead's known emails. Otherwise the email belongs to no
       // lead: a social handle vouches for it (the pipeline stores it as an
       // extra email identifier), but a phone alone does not, because shared
-      // and fake phones once merged dozens of people into one lead.
+      // and fake phones once merged dozens of people into one lead. A
+      // placeholder email counts as a different email here, so a phone alone
+      // can't attach it to a lead that has a real one either.
       const emailIsKnown = matches.some(m => m.via === "email");
       const handleMatched = matches.some(m => m.via === "social_handle");
       if (!emailIsKnown && !handleMatched) blockBooking("identity_conflict");
       if (await isPlaceholderPollutedLead(ctx, match.lead._id)) blockBooking("identity_conflict");
     }
-    const lead = await syncSubmittedIdentifiersForExistingLead(ctx, match.lead, args, normalizedEmail);
+    const lead = await syncSubmittedIdentifiersForExistingLead(ctx, match.lead, args, identityEmail);
     return { lead, leadId: lead._id, created: false, isNewLead: false, resolvedVia: match.via };
   }
 
   if (!createIfMissing) {
     throw new Error("Lead not found.");
   }
+  // A placeholder email still counts as input here: a booking that has only
+  // one gets a lead with no email and no identifiers.
   if (!normalizedEmail && !normalizedSocialHandle && !normalizedPhone) {
     throw new Error(
       "Cannot create lead - at least one of email, socialHandle, or phone is required.",
@@ -445,7 +470,7 @@ export async function resolveLeadIdentity(
   const phone = args.phone?.trim() || undefined;
   const leadId = await ctx.db.insert("leads", {
     tenantId: args.tenantId,
-    email: normalizedEmail,
+    email: identityEmail,
     fullName,
     phone,
     customFields: undefined,
@@ -454,7 +479,7 @@ export async function resolveLeadIdentity(
     updatedAt: args.createdAt,
     searchText: buildLeadSearchText({
       fullName,
-      email: normalizedEmail,
+      email: identityEmail,
       phone,
       socialHandles: undefined,
     }),
@@ -465,7 +490,7 @@ export async function resolveLeadIdentity(
     socialHandles = await createManualIdentifiers(ctx, {
       tenantId: args.tenantId,
       leadId,
-      email: normalizedEmail,
+      email: identityEmail,
       rawEmail: args.email,
       phone,
       socialHandle: args.socialHandle,
@@ -474,7 +499,7 @@ export async function resolveLeadIdentity(
     });
 
     const identifierValues = [
-      normalizedEmail,
+      identityEmail,
       normalizedPhone,
       normalizedSocialHandle,
     ].filter((value): value is string => Boolean(value));
@@ -490,7 +515,7 @@ export async function resolveLeadIdentity(
       searchText: buildLeadSearchText(
         {
           fullName,
-          email: normalizedEmail,
+          email: identityEmail,
           phone,
           socialHandles,
         },
@@ -510,12 +535,12 @@ export async function resolveLeadIdentity(
   });
   await rebuildLeadCustomerSearchRow(ctx, args.tenantId, leadId);
 
-  const potentialDuplicateLeadId = normalizedEmail
+  const potentialDuplicateLeadId = identityEmail
     ? await detectPotentialDuplicate(
         ctx,
         args.tenantId,
         fullName,
-        normalizedEmail,
+        identityEmail,
         leadId,
       )
     : undefined;
