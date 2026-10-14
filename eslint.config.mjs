@@ -71,7 +71,7 @@ const eslintConfig = defineConfig([
         "error",
         {
           selector:
-            "CallExpression[callee.property.name=/^(patch|replace)$/][arguments.0.value='opportunities'] > ObjectExpression > Property[key.name='status']",
+            "CallExpression[callee.property.name=/^(patch|replace)$/][arguments.0.value='opportunities'] > ObjectExpression > Property:matches([key.name='status'], [key.value='status'])",
           message:
             "Change an opportunity's status with transitionOpportunity (convex/lib/opportunityActivity.ts).",
         },

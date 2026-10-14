@@ -13,7 +13,13 @@ The new code keeps both correct from now on. These steps repair what is already 
 
 ## Steps
 
-All commands target production through `--env-file .env.vercel.production`, because `.env.local` holds a dev deploy key. The live tenant is `k57dqjfyf8qqy31bq375ng8gb984b24q`. Steps 1 and 2 only read. Steps 3 and 4 write, so run them only with the owner's approval.
+All commands target production through `--env-file .env.vercel.production`, because `.env.local` holds a dev deploy key. The live tenant is `k57dqjfyf8qqy31bq375ng8gb984b24q`. Step 1 only reads. The other steps go through the migrations component, which records its own progress even for an assert, and steps 3 and 5 change data, so run them only with the owner's approval.
+
+`migrations:run` only starts the batches, so its output proves nothing. After each one, re-run `getStatus` until it reports `isDone: true`. If it reports `state: "failed"`, its `error` names the row that failed.
+
+```sh
+npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:<name>"]}'
+```
 
 1. Check the status counters. `match: false` means drift; the response shows the stored and recounted values.
 
@@ -21,20 +27,26 @@ All commands target production through `--env-file .env.vercel.production`, beca
    npx convex run --env-file .env.vercel.production reporting/verification:verifyTenantStatusCounters '{"tenantId":"k57dqjfyf8qqy31bq375ng8gb984b24q"}'
    ```
 
-2. Check the qualification rows. The assert stops at the first stale row with "has a stale qualification row". Read its result with `migrations:getStatus`.
+2. Check the qualification rows. The assert fails on the first stale row with "has a stale qualification row". Changes no application data.
 
    ```sh
    npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertQualificationRowsCurrent"}'
    ```
 
-3. Rebuild the qualification rows: a dry run first, which runs one batch and rolls it back, then the real run, then the assert from step 2 again.
+3. Rebuild the qualification rows: a dry run first, which runs one batch and rolls it back, then the real run. Wait for `isDone: true`.
 
    ```sh
    npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:rebuildQualificationRows","dryRun":true}'
    npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:rebuildQualificationRows"}'
    ```
 
-4. If step 1 found drift, reset the three status counters from the status aggregate, then repeat step 1. It returns the values before and after.
+4. Assert again. A finished migration is skipped unless it is reset, so pass `reset: true`.
+
+   ```sh
+   npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertQualificationRowsCurrent","reset":true}'
+   ```
+
+5. If step 1 found drift, reset the three status counters from the status aggregate, then repeat step 1. It returns the values before and after.
 
    ```sh
    npx convex run --env-file .env.vercel.production admin/migrations:repairTenantStatusCounters '{"tenantId":"k57dqjfyf8qqy31bq375ng8gb984b24q"}'
@@ -42,4 +54,4 @@ All commands target production through `--env-file .env.vercel.production`, beca
 
 ## Undo
 
-The qualification rows are a projection, rebuilt from the Slack events and opportunities, so there is nothing to undo. For the counters, step 4 returns the old values; patch them back into the tenant's `tenantStats` document if needed.
+The qualification rows are a projection, rebuilt from the Slack events and opportunities, so there is nothing to undo. For the counters, step 5 returns the old values; patch them back into the tenant's `tenantStats` document if needed.
