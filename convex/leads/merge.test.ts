@@ -734,6 +734,44 @@ it("links a booking to the newest accepted audit match when a merge left the lea
   expect(result.older?.opportunityId).toBeUndefined();
 });
 
+it("links a booking to an unlinked accepted match before one that belongs to another deal", async () => {
+  const h = await setup();
+  const { t, tenantId } = h;
+  const result = await t.run(async (ctx) => {
+    const leadId = await insertLead(ctx, tenantId, { fullName: "Merged Lead" });
+    const firstDealId = await insertOpportunity(ctx, tenantId, leadId);
+    const unlinkedMatchId = await insertMatch(
+      ctx,
+      await insertProspect(ctx, tenantId, "older.unlinked"),
+      leadId,
+    );
+    const linkedMatchId = await insertMatch(
+      ctx,
+      await insertProspect(ctx, tenantId, "newer.linked"),
+      leadId,
+      { opportunityId: firstDealId },
+    );
+    const secondDealId = await insertOpportunity(ctx, tenantId, leadId);
+    const chosenId = await preserveQualificationAuditMatchForScheduledMeeting(ctx, {
+      tenantId,
+      leadId,
+      opportunityId: secondDealId,
+      now: AT,
+    });
+    return {
+      chosenId,
+      unlinkedMatchId,
+      secondDealId,
+      firstDealId,
+      unlinked: await ctx.db.get("leadGenAuditMatches", unlinkedMatchId),
+      linked: await ctx.db.get("leadGenAuditMatches", linkedMatchId),
+    };
+  });
+  expect(result.chosenId).toBe(result.unlinkedMatchId);
+  expect(result.unlinked?.opportunityId).toBe(result.secondDealId);
+  expect(result.linked?.opportunityId).toBe(result.firstDealId);
+});
+
 it("rejects a source with more opportunities than one merge can move, and writes nothing", async () => {
   const h = await setup();
   const { t, tenantId, admin } = h;

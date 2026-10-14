@@ -195,15 +195,18 @@ export async function preserveQualificationAuditMatchForScheduledMeeting(
 
   // A lead has one accepted match per prospect it matched, and can match
   // several, for example after a merge. Use the one already on this
-  // opportunity, else the newest, which the lead page shows
-  // (`getAuditMatchForLead`).
+  // opportunity, else the newest one not yet linked to a deal, else the
+  // newest, which only confirms an existing link. The lead page shows the
+  // newest accepted match (`getAuditMatchForLead`).
   const acceptedMatches = matches.filter(
     (match) => match.matchStatus === "accepted",
   );
   const match =
     acceptedMatches.find(
       (candidate) => candidate.opportunityId === args.opportunityId,
-    ) ?? acceptedMatches[0];
+    ) ??
+    acceptedMatches.find((candidate) => candidate.opportunityId === undefined) ??
+    acceptedMatches[0];
   if (!match) {
     return null;
   }
