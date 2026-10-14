@@ -8,7 +8,10 @@ import { emitDomainEvent } from "../lib/domainEvents";
 import { type LeadType, leadTypeValidator } from "../lib/leadType";
 import { describeError, log, reportError } from "../lib/observability/log";
 import type { SocialPlatform } from "../lib/socialPlatform";
-import { updateTenantStats } from "../lib/tenantStatsHelper";
+import {
+  isActiveOpportunityStatus,
+  updateTenantStats,
+} from "../lib/tenantStatsHelper";
 import { rebuildQualificationRow } from "../operations/projections";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 import { upsertSlackUserOnSubmission } from "./users";
@@ -203,11 +206,10 @@ export const create = internalMutation({
       )
       .order("desc")
       .take(20);
-    const alreadyBooked = existingOppsForLead.find(
-      (opportunity) =>
-        opportunity.status !== "lost" &&
-        opportunity.status !== "canceled" &&
-        opportunity.status !== "no_show",
+    // Only a deal still in progress blocks a new qualification. A won deal
+    // doesn't: a second program is a new deal (ADR 0001, decision 3).
+    const alreadyBooked = existingOppsForLead.find((opportunity) =>
+      isActiveOpportunityStatus(opportunity.status),
     );
     if (alreadyBooked) {
       const resultKind =

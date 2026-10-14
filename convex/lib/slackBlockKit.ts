@@ -338,7 +338,7 @@ export function buildStaleDigest(args: {
       elements: [
         {
           type: "mrkdwn",
-          text: "Qualified more than 30 days ago with no booking yet. Daily digest, 8am ET.",
+          text: "Qualified more than 30 days ago with no booking yet. Each one closes as lost (stale) tomorrow. Daily digest, 8am ET.",
         },
       ],
     },

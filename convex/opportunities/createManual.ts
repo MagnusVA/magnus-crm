@@ -26,12 +26,14 @@ type NewLeadInput = {
   };
 };
 
-// Messages reach the browser, so they name the lead's status, never the lead.
+// A customer can buy a second program, so converted leads qualify; a merged
+// lead lives on as its target. Messages reach the browser, so they name the
+// lead's status, never the lead.
 function assertLeadCanStartManualSideDeal(lead: Doc<"leads">): void {
-  if (lead.status !== "active") {
+  if (lead.status === "merged") {
     throw rejectRequest(
       "opportunity.lead_not_active",
-      `This lead is ${lead.status}. Only active leads can be used for a new side-deal opportunity.`,
+      `This lead is ${lead.status}. Only active leads and customers can be used for a new side-deal opportunity.`,
       { tenantId: lead.tenantId, leadId: lead._id, leadStatus: lead.status },
     );
   }
@@ -96,10 +98,10 @@ async function resolveLeadForManualCreate(
       leadStatus: resolvedLead.status,
       resolvedVia: result.resolvedVia,
     };
-    if (resolvedLead.status !== "active") {
+    if (resolvedLead.status === "merged") {
       throw rejectRequest(
         "opportunity.lead_not_active",
-        `This ${resolvedBy} belongs to a ${resolvedLead.status} lead. Only active leads can be used for a new side-deal opportunity.`,
+        `This ${resolvedBy} belongs to a ${resolvedLead.status} lead. Only active leads and customers can be used for a new side-deal opportunity.`,
         rejectionAttrs,
       );
     }

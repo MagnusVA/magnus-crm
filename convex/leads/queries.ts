@@ -194,7 +194,8 @@ export const getLeadForPicker = query({
     if (!resolvedLead || resolvedLead.tenantId !== tenantId) {
       return null;
     }
-    if (resolvedLead.status !== "active") {
+    // Customers stay selectable: a second program is a new side deal.
+    if (resolvedLead.status === "merged") {
       return null;
     }
 
@@ -222,23 +223,25 @@ export const searchLeadsForPicker = query({
       return [];
     }
 
+    // Active leads and customers, in relevance order. A search filter takes
+    // one status, so filter merged leads out of a slightly larger page.
     const results = await ctx.db
       .query("leads")
       .withSearchIndex("search_leads", (q) =>
-        q
-          .search("searchText", term)
-          .eq("tenantId", tenantId)
-          .eq("status", "active"),
+        q.search("searchText", term).eq("tenantId", tenantId),
       )
-      .take(20);
+      .take(30);
 
-    return results.map((lead) => ({
-      _id: lead._id,
-      fullName: lead.fullName,
-      email: lead.email,
-      phone: lead.phone,
-      status: lead.status,
-    }));
+    return results
+      .filter((lead) => lead.status !== "merged")
+      .slice(0, 20)
+      .map((lead) => ({
+        _id: lead._id,
+        fullName: lead.fullName,
+        email: lead.email,
+        phone: lead.phone,
+        status: lead.status,
+      }));
   },
 });
 

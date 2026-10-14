@@ -1175,9 +1175,19 @@ export const process = internalMutation({
       if (!autoRescheduleTarget) blockBooking("identity_conflict");
       if (!["scheduled", "canceled", "no_show"].includes(autoRescheduleTarget.status)) blockBooking("booking_target_requires_review");
     } else {
-      const eligible = candidates.filter(o => (o.status === "no_show" || o.status === "canceled") && o.updatedAt > rescheduleCutoff);
-      if (eligible.length > 1) blockBooking("ambiguous_booking_target");
-      autoRescheduleTarget = eligible[0] ?? null;
+      // A Slack qualification inside the join window outranks the time-window
+      // guess: the setter just handed this person off, so the booking belongs
+      // to that deal. The Slack join below picks it up.
+      const freshSlackQualification = await findOpenSlackQualifiedOpportunity(ctx, {
+        tenantId,
+        leadId: lead._id,
+        referenceTime: now,
+      });
+      if (!freshSlackQualification) {
+        const eligible = candidates.filter(o => (o.status === "no_show" || o.status === "canceled") && o.updatedAt > rescheduleCutoff);
+        if (eligible.length > 1) blockBooking("ambiguous_booking_target");
+        autoRescheduleTarget = eligible[0] ?? null;
+      }
     }
 
 		if (
