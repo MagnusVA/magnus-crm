@@ -55,3 +55,20 @@ it.each(["different_leads", "different_email"] as const)(
     expect(state.opportunities).toHaveLength(0);
   },
 );
+
+it("rejects a placeholder email for a new side-deal lead", async () => {
+  vi.useFakeTimers();
+  const { t, closer } = await bookingHarness();
+  await expect(
+    closer.mutation(api.opportunities.createManual.createManual, {
+      clientRequestId: "manual-placeholder-email",
+      newLeadInput: { fullName: "Test Lead", email: "Email@Gmail.com" },
+    }),
+  ).rejects.toThrow("opportunity.placeholder_email");
+  const state = await t.run(async (ctx) => ({
+    leads: await ctx.db.query("leads").take(1),
+    opportunities: await ctx.db.query("opportunities").take(1),
+  }));
+  expect(state.leads).toHaveLength(0);
+  expect(state.opportunities).toHaveLength(0);
+});

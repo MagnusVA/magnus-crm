@@ -29,6 +29,7 @@ import { emitDomainEvent } from "../lib/domainEvents";
 import { preserveQualificationAuditMatchForScheduledMeeting } from "../leadGen/auditMatching";
 import { isRecord, getString } from "../lib/payloadExtraction";
 import {
+	isPlaceholderEmail,
 	normalizeEmail,
 	normalizeSocialHandle,
 	normalizePhone,
@@ -42,6 +43,7 @@ import {
 } from "../lib/tenantStatsHelper";
 import { buildLeadSearchText } from "../leads/searchTextBuilder";
 import {
+	blockIfSplitLocked,
 	resolveLeadIdentity,
   resolveExistingLeadIdentity,
 } from "../leads/identityResolution";
@@ -331,9 +333,12 @@ async function syncLeadFromBooking(
 		now: number;
 	},
 ): Promise<Doc<"leads">> {
+	// A placeholder email stays on the booking and never becomes the lead's.
+	const bookingEmail =
+		inviteeEmail && !isPlaceholderEmail(inviteeEmail) ? inviteeEmail : undefined;
 	const updatedLead: Doc<"leads"> = {
 		...lead,
-		email: lead.email ?? inviteeEmail,
+		email: lead.email ?? bookingEmail,
 		fullName: lead.fullName || inviteeName,
 		phone: lead.phone || inviteePhone,
 		customFields: mergeCustomFields(lead.customFields, latestCustomFields),
@@ -372,8 +377,9 @@ async function createLeadIdentifiers(
 	// Prepare all identifier operations (will run in parallel)
 	const identifierOperations: Promise<LeadIdentifierUpsertResult>[] = [];
 
-	// Email identifier (always created, "verified" confidence)
-	if (normalizedEmail) {
+	// Email identifier ("verified" confidence). A placeholder email is never
+	// an identity key.
+	if (normalizedEmail && !isPlaceholderEmail(normalizedEmail)) {
 		identifierOperations.push(
 			upsertLeadIdentifier(ctx, {
 				tenantId,
@@ -814,6 +820,7 @@ export const process = internalMutation({
 			) {
 				const previousTargetStatus = targetOpportunity.status;
 				const targetLead = await ctx.db.get("leads", targetOpportunity.leadId);
+				if (targetLead) blockIfSplitLocked(targetLead);
         const resolvedTarget = await resolveExistingLeadIdentity(ctx, { tenantId, email: inviteeEmail, phone: effectivePhone,
           socialHandle: extractedIdentifiers.socialHandle, identifierSource: "calendly_booking", createdAt: now });
         if (resolvedTarget && resolvedTarget.leadId !== targetOpportunity.leadId) blockBooking("identity_conflict");
