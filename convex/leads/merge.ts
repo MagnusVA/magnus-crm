@@ -596,17 +596,18 @@ export const continueLeadMerge = internalMutation({
       !source ||
       source.tenantId !== tenantId ||
       source.status !== "merged" ||
-      source.mergedIntoLeadId !== args.targetLeadId
+      !source.mergedIntoLeadId
     ) {
       log.warn("leads.merge.continuation_skipped", {
         ...args,
-        reason: "source_not_merged_into_target",
+        reason: "source_not_merged",
       });
       return null;
     }
 
-    // The target may have been merged into another lead since.
-    let target = await ctx.db.get("leads", args.targetLeadId);
+    // The target may have been merged into another lead since, which also
+    // repoints the source's `mergedIntoLeadId`.
+    let target = await ctx.db.get("leads", source.mergedIntoLeadId);
     for (
       let hops = 0;
       target?.status === "merged" && target.mergedIntoLeadId && hops < 5;
