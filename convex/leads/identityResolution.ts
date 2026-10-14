@@ -135,6 +135,32 @@ async function findLeadByIdentifier(
   return matches.values().next().value ?? null;
 }
 
+const POLLUTION_SCAN_LIMIT = 50;
+
+/**
+ * Before placeholder phones stopped being identity keys, every booker who
+ * typed one was attached to the same lead, which collected their emails and
+ * handles. Such a lead still holds a phone identifier that `normalizePhone`
+ * now rejects. Its email and handle identifiers can't be trusted, so bookings
+ * that only agree with them need review. A lead with more identifiers than we
+ * scan fails closed for the same reason.
+ * TODO: drop once the split migration in docs/plans/polluted-lead-split.md ships.
+ */
+async function isPlaceholderPollutedLead(
+  ctx: MutationCtx,
+  leadId: Id<"leads">,
+): Promise<boolean> {
+  const identifiers = await ctx.db
+    .query("leadIdentifiers")
+    .withIndex("by_leadId", (q) => q.eq("leadId", leadId))
+    .take(POLLUTION_SCAN_LIMIT + 1);
+  if (identifiers.length > POLLUTION_SCAN_LIMIT) return true;
+  return identifiers.some(
+    (identifier) =>
+      identifier.type === "phone" && normalizePhone(identifier.value) === undefined,
+  );
+}
+
 async function detectPotentialDuplicate(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
@@ -390,9 +416,18 @@ export async function resolveLeadIdentity(
   if (isBooking && new Set(matches.map(m => m.lead._id)).size > 1) blockBooking("identity_conflict");
   const match = matches[0];
   if (match) {
-    // A phone or handle is not permission to change a person's established email.
-    // Existing aliases also require review if the canonical contact disagrees.
-    if (isBooking && normalizedEmail && match.lead.email && normalizeEmail(match.lead.email) !== normalizedEmail) blockBooking("identity_conflict");
+    if (isBooking && normalizedEmail && match.lead.email && normalizeEmail(match.lead.email) !== normalizedEmail) {
+      // The canonical email is never changed here. All matches point at one
+      // lead (checked above), so an email match means the email is already
+      // one of this lead's known emails. Otherwise the email belongs to no
+      // lead: a social handle vouches for it (the pipeline stores it as an
+      // extra email identifier), but a phone alone does not, because shared
+      // and fake phones once merged dozens of people into one lead.
+      const emailIsKnown = matches.some(m => m.via === "email");
+      const handleMatched = matches.some(m => m.via === "social_handle");
+      if (!emailIsKnown && !handleMatched) blockBooking("identity_conflict");
+      if (await isPlaceholderPollutedLead(ctx, match.lead._id)) blockBooking("identity_conflict");
+    }
     const lead = await syncSubmittedIdentifiersForExistingLead(ctx, match.lead, args, normalizedEmail);
     return { lead, leadId: lead._id, created: false, isNewLead: false, resolvedVia: match.via };
   }

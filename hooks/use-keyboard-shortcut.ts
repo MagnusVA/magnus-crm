@@ -25,7 +25,10 @@ export function useKeyboardShortcut({
     if (!enabled) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== key.toLowerCase()) return;
+      // Some synthetic keydown events (autofill, password managers, IME) have no `key`.
+      if (typeof e.key !== "string" || e.key.toLowerCase() !== key.toLowerCase()) {
+        return;
+      }
 
       const modifierCheck = modifiers.every((mod) => {
         switch (mod) {
