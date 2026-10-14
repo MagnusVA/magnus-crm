@@ -19,6 +19,10 @@ import {
   replaceOperationsMeetingStats,
 } from "./operations/meetingStats";
 import { rebuildQualificationRow } from "./operations/projections";
+import {
+  expireStaleSlackOpportunity,
+  isStaleSlackBacklog,
+} from "./slack/staleExpiry";
 
 export const migrations = new Migrations<DataModel>(components.migrations);
 
@@ -242,6 +246,30 @@ export const assertQualificationRowsCurrent = migrations.define({
       row.assignedCloserId !== opportunity?.assignedCloserId
     ) {
       throw new Error(`Qualification event ${event._id} has a stale qualification row`);
+    }
+  },
+});
+
+// Closes the Slack opportunities that had already passed the stale expiry
+// before the hourly cron's cutover (slack/staleExpiry.ts). Check the count
+// with slack/staleExpiry:previewStaleSlackOpportunities first. Each closed
+// opportunity is a real lost deal, with its counters and domain event.
+export const expireStaleSlackBacklog = migrations.define({
+  table: "opportunities",
+  batchSize: 20,
+  migrateOne: async (ctx, opportunity) => {
+    if (isStaleSlackBacklog(opportunity)) {
+      await expireStaleSlackOpportunity(ctx, opportunity._id, Date.now());
+    }
+  },
+});
+
+export const assertStaleSlackBacklogExpired = migrations.define({
+  table: "opportunities",
+  batchSize: 200,
+  migrateOne: async (_ctx, opportunity) => {
+    if (isStaleSlackBacklog(opportunity)) {
+      throw new Error(`Slack opportunity ${opportunity._id} is still pending past the expiry`);
     }
   },
 });

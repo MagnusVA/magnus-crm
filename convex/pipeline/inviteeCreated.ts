@@ -51,7 +51,10 @@ import {
 	insertMeetingAggregate,
 	insertOpportunityAggregate,
 } from "../reporting/writeHooks";
-import { findOpenSlackQualifiedOpportunity } from "./slackJoinLookup";
+import {
+	findOpenSlackQualifiedOpportunity,
+	wasStaleExpiredAfter,
+} from "./slackJoinLookup";
 import { log, reportError } from "../lib/observability/log";
 import {
 	bookingHostOutcome,
@@ -1173,7 +1176,9 @@ export const process = internalMutation({
 		const rescheduleCutoff = now - RESCHEDULE_WINDOW_MS;
     const candidates = await ctx.db.query("opportunities").withIndex("by_tenantId_and_leadId", q => q.eq("tenantId", tenantId).eq("leadId", lead._id)).order("desc").take(129);
     if (candidates.length > 128) blockBooking("booking_history_requires_review");
-    if (candidates.some(o => o.updatedAt > now)) blockBooking("historical_booking_requires_review");
+    // The stale expiry can close a Slack deal after this booking happened; the
+    // Slack join below reopens it, so it doesn't make the booking historical.
+    if (candidates.some(o => o.updatedAt > now && !wasStaleExpiredAfter(o, now))) blockBooking("historical_booking_requires_review");
     let explicitSourceMeeting: Doc<"meetings"> | undefined;
     if (oldInvitee) {
       if (!previousMeeting) blockBooking("previous_booking_missing");
@@ -1182,9 +1187,19 @@ export const process = internalMutation({
       if (!autoRescheduleTarget) blockBooking("identity_conflict");
       if (!["scheduled", "canceled", "no_show"].includes(autoRescheduleTarget.status)) blockBooking("booking_target_requires_review");
     } else {
-      const eligible = candidates.filter(o => (o.status === "no_show" || o.status === "canceled") && o.updatedAt > rescheduleCutoff);
-      if (eligible.length > 1) blockBooking("ambiguous_booking_target");
-      autoRescheduleTarget = eligible[0] ?? null;
+      // A Slack qualification inside the join window outranks the time-window
+      // guess: the setter just handed this person off, so the booking belongs
+      // to that deal. The Slack join below picks it up.
+      const freshSlackQualification = await findOpenSlackQualifiedOpportunity(ctx, {
+        tenantId,
+        leadId: lead._id,
+        referenceTime: now,
+      });
+      if (!freshSlackQualification) {
+        const eligible = candidates.filter(o => (o.status === "no_show" || o.status === "canceled") && o.updatedAt > rescheduleCutoff);
+        if (eligible.length > 1) blockBooking("ambiguous_booking_target");
+        autoRescheduleTarget = eligible[0] ?? null;
+      }
     }
 
 		if (
@@ -1438,7 +1453,9 @@ export const process = internalMutation({
 			eventTypeConfigId;
 		let slackJoinEventOpportunityId: Id<"opportunities"> | undefined;
 		if (slackQualifiedOpportunity) {
+			const reopensStaleDeal = wasStaleExpiredAfter(slackQualifiedOpportunity, now);
 			if (
+				!reopensStaleDeal &&
 				!validateTransition(slackQualifiedOpportunity.status, "scheduled")
 			) {
 				throw new Error(
@@ -1468,12 +1485,16 @@ export const process = internalMutation({
 					hostCalendlyName,
 					eventTypeConfigId: meetingEventTypeConfigId,
 					updatedAt: now,
+					...(reopensStaleDeal
+						? { lostAt: undefined, lostReason: undefined, lostByUserId: undefined }
+						: {}),
 					// NOTE: utmParams intentionally NOT included here.
 					// The opportunity preserves attribution from its Slack qualification.
 					// The new meeting stores its own UTMs independently.
 				},
 				source: "pipeline",
 				occurredAt: now,
+				...(reopensStaleDeal ? { exception: "slack_stale_rejoin" as const } : {}),
 			});
 			if (closerChanged) {
 				await syncOpportunityMeetingsAssignedCloser(

@@ -2,6 +2,7 @@ import { requireReportingReady } from "../operations/reportingReadiness";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
+import { SLACK_STALE_LOST_REASON } from "../pipeline/slackJoinLookup";
 import { requireTenantUser } from "../requireTenantUser";
 import { opportunityByStatus } from "./aggregates";
 import {
@@ -303,10 +304,16 @@ export const getPipelineBacklogAndLoss = query({
       )
       .take(MAX_NO_SHOW_SCAN_ROWS);
 
+    // A loss is activity, so every deal lost in the range has activity at or
+    // after the start. Scanning from there skips old losses, and Slack deals
+    // closed as stale, which keep their earlier activity time.
     const lostOpportunityRows = await ctx.db
       .query("opportunities")
-      .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
-        q.eq("tenantId", tenantId).eq("status", "lost"),
+      .withIndex("by_tenantId_and_status_and_latestActivityAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("status", "lost")
+          .gte("latestActivityAt", startDate),
       )
       .take(MAX_LOSS_SCAN_ROWS);
 
@@ -330,7 +337,9 @@ export const getPipelineBacklogAndLoss = query({
         (opportunity) =>
           opportunity.lostAt !== undefined &&
           opportunity.lostAt >= startDate &&
-          opportunity.lostAt < endDate,
+          opportunity.lostAt < endDate &&
+          // A system expiry, not anyone's loss.
+          opportunity.lostReason !== SLACK_STALE_LOST_REASON,
       );
 
     const lossCountsByActor = new Map<Id<"users">, number>();

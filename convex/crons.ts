@@ -88,6 +88,15 @@ crons.cron(
   {},
 );
 
+// Closes Slack-qualified opportunities that never booked. See staleExpiry.ts
+// for why it runs a day after the stale digest first lists them.
+crons.cron(
+  "expire-stale-slack-opportunities",
+  "23 * * * *",
+  internal.slack.staleExpiry.expireStaleSlackOpportunities,
+  {},
+);
+
 crons.interval("reporting-work-health", { minutes: 15 }, internal.operations.workStatus.reportProblems, {});
 
 export default crons;

@@ -194,7 +194,8 @@ export const getLeadForPicker = query({
     if (!resolvedLead || resolvedLead.tenantId !== tenantId) {
       return null;
     }
-    if (resolvedLead.status !== "active") {
+    // Customers stay selectable: a second program is a new side deal.
+    if (resolvedLead.status === "merged") {
       return null;
     }
 
@@ -222,23 +223,33 @@ export const searchLeadsForPicker = query({
       return [];
     }
 
-    const results = await ctx.db
-      .query("leads")
-      .withSearchIndex("search_leads", (q) =>
+    // Active leads and customers. The lead/customer search rows hide merged
+    // leads, which keep their own searchText.
+    const rows = await ctx.db
+      .query("leadCustomerSearchRows")
+      .withSearchIndex("search_lead_customer_entities", (q) =>
         q
           .search("searchText", term)
           .eq("tenantId", tenantId)
-          .eq("status", "active"),
+          .eq("isSearchVisible", true),
       )
       .take(20);
+    const leads = await Promise.all(
+      rows.map((row) => ctx.db.get("leads", row.leadId)),
+    );
 
-    return results.map((lead) => ({
-      _id: lead._id,
-      fullName: lead.fullName,
-      email: lead.email,
-      phone: lead.phone,
-      status: lead.status,
-    }));
+    return leads
+      .filter(
+        (lead): lead is Doc<"leads"> =>
+          lead !== null && lead.tenantId === tenantId && lead.status !== "merged",
+      )
+      .map((lead) => ({
+        _id: lead._id,
+        fullName: lead.fullName,
+        email: lead.email,
+        phone: lead.phone,
+        status: lead.status,
+      }));
   },
 });
 
