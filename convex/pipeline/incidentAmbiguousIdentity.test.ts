@@ -104,6 +104,8 @@ const inviteeB = (counter: { total: number; active: number } | null, canceledAt?
 
 async function setup() {
   vi.useFakeTimers();
+  // Start before the incident timeline so the clock never runs backwards.
+  vi.setSystemTime(new Date("2026-08-01T00:00:00Z"));
   const harness = await bookingHarness();
   const { t, tenantId } = harness;
 

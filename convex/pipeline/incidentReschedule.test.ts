@@ -89,6 +89,8 @@ type EventType = "invitee.created" | "invitee.canceled" | "invitee_no_show.creat
 
 async function setup() {
   vi.useFakeTimers();
+  // Start before the incident timeline so the clock never runs backwards.
+  vi.setSystemTime(new Date("2026-08-01T00:00:00Z"));
   const harness = await bookingHarness();
   const { t, tenantId } = harness;
   await t.run(async (ctx) => {
