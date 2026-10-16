@@ -336,6 +336,46 @@ export const mergeLeadAsOperator = internalMutation({
   },
 });
 
+/**
+ * Puts back a deal's activity time where a merge's own write set it, from
+ * before moving a deal to another lead kept `updatedAt`. Acts only on a deal
+ * on a merge target whose `updatedAt` is still exactly that merge's time,
+ * and only moves it earlier, to no earlier than the deal's creation.
+ */
+export const restoreMergedActivityTime = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    opportunityId: v.id("opportunities"),
+    updatedAt: v.number(),
+  },
+  returns: v.null(),
+  handler: async (ctx, { tenantId, opportunityId, updatedAt }) => {
+    const opportunity = await ctx.db.get("opportunities", opportunityId);
+    if (!opportunity || opportunity.tenantId !== tenantId) {
+      throw new Error("Opportunity not found");
+    }
+    const merges = await ctx.db
+      .query("leadMergeHistory")
+      .withIndex("by_targetLeadId", (q) => q.eq("targetLeadId", opportunity.leadId))
+      .take(BOUNDED_READ_LIMIT);
+    if (!merges.some((merge) => merge.tenantId === tenantId && merge.mergedAt === opportunity.updatedAt)) {
+      throw new Error("The deal's last update isn't a merge's write");
+    }
+    if (updatedAt >= opportunity.updatedAt || updatedAt < opportunity.createdAt) {
+      throw new Error("The restored time must be earlier, and no earlier than the deal's creation");
+    }
+    // Recomputes latestActivityAt and the rows that copy it.
+    await patchOpportunityLifecycle(ctx, opportunityId, { updatedAt });
+    log.info("leads.merge.activity_restored", {
+      tenantId,
+      opportunityId,
+      from: opportunity.updatedAt,
+      to: updatedAt,
+    });
+    return null;
+  },
+});
+
 async function executeMerge(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
