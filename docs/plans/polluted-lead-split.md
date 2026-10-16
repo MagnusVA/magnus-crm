@@ -624,7 +624,17 @@ With them the rules flag 16 identifiers on 16 leads. The other 16 shared values 
 
 All 199 were approved by tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` and cleaned with `cleanLead`, with no failure. `leadPlaceholderCleanups` holds 215 rows (16 identifier deletes, 199 lead patches). Under #106's rules a second preview listed nothing, and `verifyTenant` showed 0 failures on every check.
 
-**Second run (after #108).** #108 adds the 12 reviewed numbers below, so the preview should list those 12 leads, each with one phone identifier and the `phone` field. Pending.
+**Second run (2026-10-16, after #108).** #108 added the 12 reviewed numbers below. The preview listed exactly those 12 leads, each with one phone identifier and the `phone` field, and skipped none. All 12 were cleaned with `cleanLead`, with no failure. Each keeps its email and Instagram identifiers, and the 2 kept numbers stay on their leads. `leadPlaceholderCleanups` now holds 239 rows: 215 from the first run, plus an identifier delete and a lead patch for each of the 12. Each cleaned lead also has a `lead.placeholders_removed` domain event. A third preview lists nothing. `verifyTenant` shows 0 failures on every check:
+
+| Check | Scanned |
+| --- | --- |
+| `identifier_meeting_consistency`, `placeholder_identifiers` | 19,557 |
+| `placeholder_lead_emails` | 10,464 |
+| `form_response_refs` | 43,795 |
+| `follow_up_refs` | 220 |
+| `slack_event_refs` | 8,271 |
+| `customer_refs` | 263 |
+| `meeting_opportunity_status` | 6,644 |
 
 ## Appendix A: IDs
 
