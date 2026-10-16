@@ -309,10 +309,11 @@ async function revertRow(ctx: MutationCtx, plan: Doc<"leadSplitPlans">, row: Doc
     const identifierId = row.docId as Id<"leadIdentifiers">;
     const identifier = await ctx.db.get("leadIdentifiers", identifierId);
     if (!identifier) return;
-    const leadId = restore.leadId as Id<"leads">;
+    // A moved identifier gets its lead back; a re-sourced one its meeting.
+    const fields = restore as Partial<Doc<"leadIdentifiers">>;
     touched.leads.add(identifier.leadId);
-    touched.leads.add(leadId);
-    await ctx.db.patch("leadIdentifiers", identifierId, { leadId });
+    if (fields.leadId) touched.leads.add(fields.leadId);
+    await ctx.db.patch("leadIdentifiers", identifierId, fields);
     return;
   }
 

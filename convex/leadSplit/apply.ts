@@ -1,6 +1,6 @@
 import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
+import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { buildSocialHandles } from "../leads/merge";
 import {
@@ -45,6 +45,7 @@ import {
   recordPatch,
   type AuditScope,
 } from "./audit";
+import { emailKey, identifierKey, phoneKey, socialKey } from "./identityKeys";
 import { leadSplitPlanStatusValidator, type LeadSplitOpportunityPlan } from "./schema";
 
 // Phase 5 of docs/plans/polluted-lead-split.md (§5.6). Each function handles
@@ -662,6 +663,75 @@ async function refreshLead(
 }
 
 /**
+ * An identifier a person holds although another person's booking sourced
+ * it: a shared email stays with its owner (§5.4). Its source becomes the
+ * holder's own latest meeting whose invitee used the value, or is cleared,
+ * so that every identifier's source meeting is on the identifier's lead.
+ */
+async function resourceIdentifiers(
+  ctx: MutationCtx,
+  scope: AuditScope,
+  person: Doc<"leadSplitPersons">,
+  leadId: Id<"leads">,
+): Promise<number> {
+  const own = new Set(person.meetingIds);
+  let resourced = 0;
+  for (const identifierId of person.identifierIds) {
+    const identifier = await ctx.db.get("leadIdentifiers", identifierId);
+    // Skip one that has since left the person's lead, such as in a later split.
+    if (!identifier?.sourceMeetingId || identifier.leadId !== leadId || own.has(identifier.sourceMeetingId)) continue;
+    const key = identifierKey(identifier);
+    let sourceMeetingId: Id<"meetings"> | undefined;
+    // In booking order, so the last match is the latest meeting.
+    for (const meetingId of person.meetingIds) {
+      const snapshot = await ctx.db
+        .query("leadSplitInviteeSnapshots")
+        .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
+        .first();
+      if (!key || snapshot?.outcome !== "ok") continue;
+      const keys = [
+        emailKey(snapshot.email),
+        phoneKey(snapshot.phone),
+        snapshot.social ? socialKey(snapshot.social.platform, snapshot.social.handle) : undefined,
+      ];
+      if (keys.includes(key)) sourceMeetingId = meetingId;
+    }
+    await recordPatch(ctx, scope, AUDIT_STEP.identifier, "leadIdentifiers", identifier, { sourceMeetingId });
+    await ctx.db.patch("leadIdentifiers", identifier._id, { sourceMeetingId });
+    resourced += 1;
+  }
+  return resourced;
+}
+
+/**
+ * Re-sources the shared identifiers of a plan applied before apply did it
+ * (`resourceIdentifiers`). Recorded in the plan's audit log, so rollback
+ * undoes it with the rest.
+ */
+export const resourceAppliedIdentifiers = internalMutation({
+  args: { planId: v.id("leadSplitPlans") },
+  returns: v.object({ planId: v.id("leadSplitPlans"), resourced: v.number() }),
+  handler: async (ctx, { planId }) => {
+    const plan = await ctx.db.get("leadSplitPlans", planId);
+    if (!plan || plan.status !== "applied") throw new Error("Only an applied plan can be re-sourced");
+    const now = Date.now();
+    let resourced = 0;
+    for (const person of await readPlanPersons(ctx, planId)) {
+      const leadId = person.role === "original" ? plan.sourceLeadId : person.targetLeadId;
+      if (!leadId) continue;
+      resourced += await resourceIdentifiers(
+        ctx,
+        { tenantId: plan.tenantId, planId, personKey: person.personKey, now },
+        person,
+        leadId,
+      );
+    }
+    log.info("lead_split.apply.identifiers_resourced", { tenantId: plan.tenantId, planId, resourced });
+    return { planId, resourced };
+  },
+});
+
+/**
  * A lead gen match moving onto a lead that already has a match for the same
  * prospect is merged into it and deleted (`repointAuditMatch`), which
  * rollback can't undo. No current plan has one, so apply stops instead.
@@ -755,6 +825,8 @@ export async function movePerson(
     }
   }
 
+  const identifiersResourced = await resourceIdentifiers(ctx, scope, person, targetLeadId);
+
   // A merge target takes the Slack and portal fields it lacks, as a merge does.
   let carryOver: Partial<Doc<"leads">> = {};
   if (person.role === "merge_into" && plan.slackFieldsPersonKey === person.personKey) {
@@ -821,6 +893,7 @@ export async function movePerson(
     role: person.role,
     targetLeadId,
     identifiersMoved,
+    identifiersResourced,
     opportunitiesMoved,
     meetings: person.meetingIds.length,
     slackEvents: person.slackEventIds.length,

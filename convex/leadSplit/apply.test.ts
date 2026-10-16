@@ -440,7 +440,7 @@ describe("apply", () => {
         status: "active",
         createdAt: AT + 100 * DAY,
       });
-      return { leadId, july, october, customerId, julyMeeting };
+      return { leadId, july, october, customerId, julyMeeting, octoberMeeting };
     });
     await asInProduction(harness);
     await discover(harness);
@@ -467,7 +467,26 @@ describe("apply", () => {
     expect(after.julyLead?.email).toBeUndefined();
     expect(after.julyDeal?.leadId).toBe(julyPerson.targetLeadId);
     await expectStatsMatchRecount(harness);
-    expect((await verifyTenant(harness)).customer_refs).toBe(0);
+    // The buyer keeps the email the July booking sourced; it is re-sourced to
+    // the buyer's own booking, which used it too.
+    const sharedEmail = await t.run(async (ctx) =>
+      (await ctx.db.query("leadIdentifiers").withIndex("by_leadId", (q) => q.eq("leadId", seeded.leadId)).take(10)).find(
+        (identifier) => identifier.type === "email",
+      ),
+    );
+    expect(sharedEmail?.sourceMeetingId).toBe(seeded.octoberMeeting);
+    expect(await verifyTenant(harness)).toMatchObject({ customer_refs: 0, identifier_meeting_consistency: 0 });
+    // A plan applied before apply re-sourced identifiers is fixed by the one-off.
+    await t.run((ctx) => ctx.db.patch("leadIdentifiers", sharedEmail!._id, { sourceMeetingId: seeded.julyMeeting }));
+    expect(await verifyTenant(harness)).toMatchObject({ identifier_meeting_consistency: 1 });
+    expect(await t.mutation(internal.leadSplit.apply.resourceAppliedIdentifiers, { planId: plan._id })).toEqual({
+      planId: plan._id,
+      resourced: 1,
+    });
+    expect(await verifyTenant(harness)).toMatchObject({ identifier_meeting_consistency: 0 });
+    expect((await t.run((ctx) => ctx.db.get("leadIdentifiers", sharedEmail!._id)))?.sourceMeetingId).toBe(
+      seeded.octoberMeeting,
+    );
 
     await rollback(harness, plan._id);
     expect(await state(harness)).toEqual(before);
