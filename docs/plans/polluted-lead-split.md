@@ -1,6 +1,6 @@
 # Polluted lead split: scope, attribution, and migration plan
 
-Status: Deploy 1 (the §5.0 guards) shipped in #95, and Deploy 2 in #98 (staging, §5.1 to §5.5) and #99 (apply, verification and rollback, §5.6 to §5.9). On 2026-10-16 the 4 Tier A plans and 15 Tier B plans were applied to production and verified (§8.1). Next: run `leadSplit/apply:resourceAppliedIdentifiers` on plan `v17bnz36dtq0dz0xx5e4k1h8b18gct53` and rerun `verifyTenant` (§8.1); the 24-hour recheck; the two restored deliveries (§5.10); and the Tier D cleanup. The decisions on the open questions are recorded in §7.
+Status: Deploy 1 (the §5.0 guards) shipped in #95, and Deploy 2 in #98 (staging, §5.1 to §5.5) and #99 (apply, verification and rollback, §5.6 to §5.9). On 2026-10-16 the 4 Tier A plans and 15 Tier B plans were applied to production and verified (§8.1). Next: restore the applied plans' activity times with `leadSplit/apply:restoreAppliedActivityTimes`, then retry the two restored deliveries (§5.10, §8.1); the 24-hour recheck; and the Tier D cleanup. The decisions on the open questions are recorded in §7.
 
 This file holds IDs and counts only; it contains no personal data. The working dataset (PII) stays in `/tmp` on the analyst's machine.
 
@@ -401,6 +401,7 @@ A rerun after a later approval needs `"reset": true`. A split document only move
    - F2: the source lead takes the original person's O5 fields: `email` (cleared when they have none), `fullName`, `phone` (cleared, so the placeholder phone goes), custom fields from their latest meeting with answers (cleared if none), and `firstSeenAt`. If the Slack fields went to another person, they are cleared here. The step stops if another active lead already has the email as its canonical email, because every booking with it would then be an identity conflict.
    - F4: the refresh chain above, which includes `syncCustomerSnapshot`, so the customer's name and email follow the corrected lead.
    - F5: the qualification rows of every opportunity and Slack event left on the lead.
+   - Restore activity times: the split's writes set `updatedAt` on every deal it creates or moves. Each deal still at the split's write time gets back its time from before the split; a deal the split created gets the latest time on its own record. Without this, split deals sort to the top by activity, and the pipeline holds any earlier booking for those people as `historical_booking_requires_review`. `leadSplit/apply:restoreAppliedActivityTimes` does the same for an already-applied plan.
    - F6: clear `splitLockedAt` on the source and every target, emit `lead.split` (`{ planId, personsMoved, opportunitiesCreated, meetingsMoved }`), and set the plan to `applied`.
 
 `firstSeenAt` for a person is their first meeting's `createdAt` or their first Slack qualification, whichever is earlier.
@@ -566,6 +567,8 @@ Verification after both:
   - Placeholder identifiers went from 18 to 13, and placeholder canonical emails from 4 to 2. Both remainders are Tier D.
   - `identifier_meeting_consistency` had 1 failure: the shared email on `jh7902yn…`, which the buyer keeps, was still sourced from the other booker's meeting. The re-sourcing step above fixes it.
 - `verifyBackfillCounts` can't run on this tenant: it reads whole tables and passes Convex's 16 MB read limit. This is unrelated to the split.
+- `resourceAppliedIdentifiers` re-sourced the 1 identifier on plan `v17bnz36dtq0dz0xx5e4k1h8b18gct53`, after which `identifier_meeting_consistency` was 0.
+- **Retries held as historical.** Retrying `t57bkmwf…` and `t57c3dr68…` blocked both again as `historical_booking_requires_review`. On each lead, the only deal updated after the booking arrived was one the split had just written (`js7884jk…` and `js79z9qt…`); before the split those deals were last updated in June. All 91 deals the split touched still had the split's write time. Restoring activity times fixes both.
 - **Identity probe.** `t57bkmwf…` resolves to one lead, `jh79mptftd4b41487tdx3mqd6d8gcwnc` (split from `jh74vyt5…`), and `t57c3dr68…` to `jh75xm6m…`. In both, the lead's email is the booking's. Neither booking has a meeting or a recorded cancellation; they were for 2026-09-29 and 2026-10-10.
 
 ## Appendix A: IDs

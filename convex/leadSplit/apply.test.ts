@@ -250,6 +250,24 @@ describe("apply", () => {
     // Pia's whole deal merged into her own lead, which clears the flag.
     expect(after.whole?.leadId).toBe(piaLeadId);
     expect(after.whole?.potentialDuplicateLeadId).toBeUndefined();
+    // The split's writes aren't activity: moved deals keep their own times,
+    // and Paula's new deal is as recent as its own cancellation.
+    expect([after.whole?.updatedAt, after.mixed?.updatedAt]).toEqual([AT, AT]);
+    expect(after.paulaDeal?.updatedAt).toBe(after.paulaDeal?.canceledAt);
+
+    // A deal still at the split's write time, as on plans finalized before
+    // finalize restored them, is fixed by the one-off.
+    const moveRow = await t.run(async (ctx) =>
+      (await ctx.db.query("leadSplitAudit").withIndex("by_planId_and_revertedAt", (q) => q.eq("planId", plan._id)).take(500)).find(
+        (row) => row.step === `move:${whole}`,
+      ),
+    );
+    await t.run((ctx) => ctx.db.patch("opportunities", whole, { updatedAt: moveRow!.createdAt }));
+    expect(await t.mutation(internal.leadSplit.apply.restoreAppliedActivityTimes, { planId: plan._id })).toEqual({
+      planId: plan._id,
+      restored: 1,
+    });
+    expect((await t.run((ctx) => ctx.db.get("opportunities", whole)))?.updatedAt).toBe(AT);
 
     const applied = await state(harness);
     expect(applied.stats).toEqual({
@@ -592,6 +610,8 @@ describe("probeDelivery", () => {
       leadIds: [pedro.targetLeadId],
       leadEmailMatches: true,
       resolvesToOneLead: true,
+      // So the pipeline won't hold the booking as historical.
+      newerOpportunityIds: [],
     });
   });
 });

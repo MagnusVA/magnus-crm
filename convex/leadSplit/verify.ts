@@ -346,6 +346,12 @@ export const probeDelivery = internalQuery({
     lockedLeadIds: v.array(v.id("leads")),
     leadEmailMatches: v.boolean(),
     resolvesToOneLead: v.boolean(),
+    /**
+     * Deals on the one matched lead changed after the booking arrived, so the
+     * pipeline holds it as historical (inviteeCreated.ts). Approximate: it
+     * doesn't apply the stale-expiry exception.
+     */
+    newerOpportunityIds: v.array(v.id("opportunities")),
   }),
   handler: async (ctx, { deliveryId }) => {
     const delivery = await ctx.db.get("webhookDeliveries", deliveryId);
@@ -399,8 +405,19 @@ export const probeDelivery = internalQuery({
     const [only] = leadIds.length === 1 ? [leads.get(leadIds[0])!] : [];
     const leadEmailMatches =
       only !== undefined && keys.email !== undefined && only.email === keyToIdentifier(keys.email).value;
+    const newerOpportunityIds = only
+      ? (
+          await ctx.db
+            .query("opportunities")
+            .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", delivery.tenantId).eq("leadId", only._id))
+            .take(129)
+        )
+          .filter((opportunity) => opportunity.updatedAt > delivery.occurredAt)
+          .map((opportunity) => opportunity._id)
+      : [];
     return {
       deliveryId,
+      newerOpportunityIds,
       status: delivery.status,
       reason: delivery.reason,
       payloadAvailable: invitee !== undefined,

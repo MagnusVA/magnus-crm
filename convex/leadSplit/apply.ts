@@ -704,6 +704,79 @@ async function resourceIdentifiers(
 }
 
 /**
+ * The split's own writes set `updatedAt` (and so `latestActivityAt`) on every
+ * deal it creates or moves. That is bookkeeping, not activity: it sends split
+ * deals to the top of activity-sorted lists, and makes the pipeline hold any
+ * earlier booking for those people as historical. This puts back each deal's
+ * time from before the split, or, for a deal the split created, the latest
+ * time on its own record. A deal changed since the split is left alone.
+ */
+async function restoreActivityTimes(
+  ctx: MutationCtx,
+  plan: Doc<"leadSplitPlans">,
+  now: number,
+): Promise<number> {
+  const rows = await ctx.db
+    .query("leadSplitAudit")
+    .withIndex("by_planId_and_revertedAt", (q) => q.eq("planId", plan._id).eq("revertedAt", undefined))
+    .take(AUDIT_ROW_LIMIT + 1);
+  if (rows.length > AUDIT_ROW_LIMIT) throw new Error(`Plan ${plan._id} has more than ${AUDIT_ROW_LIMIT} audit rows`);
+  const byOpportunity = new Map<Id<"opportunities">, Doc<"leadSplitAudit">[]>();
+  for (const row of rows) {
+    if (row.table !== "opportunities" || row.step.startsWith("activity:")) continue;
+    const id = row.docId as Id<"opportunities">;
+    byOpportunity.set(id, [...(byOpportunity.get(id) ?? []), row]);
+  }
+  let restored = 0;
+  for (const [opportunityId, opportunityRows] of byOpportunity) {
+    const opportunity = await ctx.db.get("opportunities", opportunityId);
+    if (!opportunity) continue;
+    // Only a deal whose last write is still the split's.
+    const splitTimes = new Set(opportunityRows.map((row) => row.createdAt));
+    if (!splitTimes.has(opportunity.updatedAt)) continue;
+    const firstPatch = opportunityRows.find((row) => row.op === "patch");
+    const updatedAt = firstPatch
+      ? (firstPatch.before as { updatedAt: number }).updatedAt
+      : Math.max(
+          opportunity.createdAt,
+          opportunity.canceledAt ?? 0,
+          opportunity.noShowAt ?? 0,
+          opportunity.lostAt ?? 0,
+          opportunity.paymentReceivedAt ?? 0,
+        );
+    if (updatedAt === opportunity.updatedAt) continue;
+    const scope: AuditScope = {
+      tenantId: plan.tenantId,
+      planId: plan._id,
+      personKey: opportunityRows[0].personKey,
+      now,
+    };
+    await recordPatch(ctx, scope, `activity:${opportunityId}`, "opportunities", opportunity, { updatedAt });
+    // Recomputes latestActivityAt and the rows that copy it.
+    await patchOpportunityLifecycle(ctx, opportunityId, { updatedAt });
+    restored += 1;
+  }
+  return restored;
+}
+
+/**
+ * Restores the activity times of an applied plan's deals
+ * (`restoreActivityTimes`), for plans finalized before finalize did it.
+ * Recorded in the audit log, so rollback undoes it with the rest.
+ */
+export const restoreAppliedActivityTimes = internalMutation({
+  args: { planId: v.id("leadSplitPlans") },
+  returns: v.object({ planId: v.id("leadSplitPlans"), restored: v.number() }),
+  handler: async (ctx, { planId }) => {
+    const plan = await ctx.db.get("leadSplitPlans", planId);
+    if (!plan || plan.status !== "applied") throw new Error("Only an applied plan's activity times can be restored");
+    const restored = await restoreActivityTimes(ctx, plan, Date.now());
+    log.info("lead_split.apply.activity_restored", { tenantId: plan.tenantId, planId, restored });
+    return { planId, restored };
+  },
+});
+
+/**
  * Re-sources the shared identifiers of a plan applied before apply did it
  * (`resourceIdentifiers`). Recorded in the plan's audit log, so rollback
  * undoes it with the rest.
@@ -992,6 +1065,7 @@ export async function finalizePlan(
     metadata: { planId: plan._id, personsMoved: moved.length, opportunitiesCreated, meetingsMoved },
     occurredAt: now,
   });
+  const activityRestored = await restoreActivityTimes(ctx, plan, now);
   await ctx.db.patch("leadSplitPlans", plan._id, { status: "applied", updatedAt: now });
   log.info("lead_split.apply.finalized", {
     tenantId: plan.tenantId,
@@ -1001,6 +1075,7 @@ export async function finalizePlan(
     personsMoved: moved.length,
     opportunitiesCreated,
     meetingsMoved,
+    activityRestored,
   });
   return { applied: true };
 }
