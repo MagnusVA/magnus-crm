@@ -624,7 +624,7 @@ jh7cvjzw3sc0kwd74qtsyvg5d98a255k jh703615btd6hk19dm4v3v7q298e0gbe
 - 16 leads with a placeholder identifier, 16 identifiers in all. Each lead also had the placeholder in a contact field: 2 `email`, 3 `socialHandles`, the rest `phone`.
 - 183 leads with a placeholder only in `phone`, which the guards had kept from becoming an identifier. 168 of them hold the booking form's example number `+1 234-567-8910`, 8 hold `+1 212-345-6789`, and 7 hold another listed fake.
 
-All 199 were approved, by Claudio Vasquez, and cleaned with `cleanLead`, with no failure. `leadPlaceholderCleanups` holds 215 rows (16 identifier deletes, 199 lead patches). A second preview lists nothing, and `verifyTenant` shows 0 failures on every check.
+All 199 were approved by tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` and cleaned with `cleanLead`, with no failure. `leadPlaceholderCleanups` holds 215 rows (16 identifier deletes, 199 lead patches). A second preview lists nothing, and `verifyTenant` shows 0 failures on every check.
 
 ## Appendix A: IDs
 
