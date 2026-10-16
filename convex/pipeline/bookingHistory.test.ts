@@ -9,6 +9,7 @@ async function statusAt(
   current: OpportunityStatus,
   changes: Array<[at: number, from: OpportunityStatus | undefined, to: OpportunityStatus]>,
   createdAt = T - 60_000,
+  otherEvents = 0,
 ) {
   const { t, tenantId } = await bookingHarness();
   return await t.run(async (ctx) => {
@@ -23,6 +24,11 @@ async function statusAt(
         tenantId, entityType: "opportunity", entityId: opportunityId,
         eventType: from ? "opportunity.status_changed" : "opportunity.created",
         occurredAt: at, source: "pipeline", fromStatus: from, toStatus: to,
+      });
+    for (let i = 0; i < otherEvents; i++)
+      await ctx.db.insert("domainEvents", {
+        tenantId, entityType: "opportunity", entityId: opportunityId,
+        eventType: "opportunity.stale_flagged", occurredAt: T + 1_000 + i, source: "system",
       });
     const opportunity = (await ctx.db.get("opportunities", opportunityId))!;
     return {
@@ -58,4 +64,13 @@ it("doesn't answer when the recorded changes don't account for the current statu
 
 it("treats a deal created after the time as within reach", async () => {
   expect(await statusAt("scheduled", [], T + 1_000)).toEqual({ status: "scheduled", unattachable: false });
+});
+
+it("doesn't count events that aren't status changes against the cap", async () => {
+  const flips = Array.from({ length: 32 }, (_, i): [number, OpportunityStatus, OpportunityStatus] =>
+    i % 2 === 0 ? [T + 100 + i, "scheduled", "canceled"] : [T + 100 + i, "canceled", "scheduled"]);
+  expect(await statusAt("scheduled", flips, T - 60_000, 1)).toEqual({ status: "scheduled", unattachable: true });
+  // More status changes than it reads: no answer.
+  expect(await statusAt("canceled", [...flips, [T + 200, "scheduled", "canceled"]]))
+    .toEqual({ status: undefined, unattachable: false });
 });
