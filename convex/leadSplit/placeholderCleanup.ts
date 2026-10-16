@@ -244,6 +244,13 @@ export const cleanLead = internalMutation({
     )
       throw new Error(`Lead ${leadId}'s placeholders changed since the preview`);
 
+    // One cleanup at a time per lead, so an undo restores all of it.
+    const pending = await ctx.db
+      .query("leadPlaceholderCleanups")
+      .withIndex("by_leadId_and_revertedAt", (q) => q.eq("leadId", leadId).eq("revertedAt", undefined))
+      .first();
+    if (pending) throw new Error(`Lead ${leadId} has a cleanup that hasn't been undone`);
+
     const now = Date.now();
     const audit = { tenantId, leadId, approvedBy, createdAt: now };
     for (const identifier of current.placeholderIdentifiers) {
@@ -317,6 +324,9 @@ export const undoLead = internalMutation({
       .withIndex("by_leadId_and_revertedAt", (q) => q.eq("leadId", leadId).eq("revertedAt", undefined))
       .take(IDENTIFIER_LIMIT + 2);
     if (rows.length === 0) throw new Error(`Lead ${leadId} has no cleanup to undo`);
+    // cleanLead allows one pending cleanup, with a row per identifier and one for the lead.
+    if (rows.length > IDENTIFIER_LIMIT + 1 || rows.some((row) => row.createdAt !== rows[0].createdAt))
+      throw new Error(`Lead ${leadId}'s cleanup log isn't one cleanup`);
     if (rows.some((row) => row.tenantId !== tenantId)) throw new Error(`Lead ${leadId} not found`);
     const lead = await ctx.db.get("leads", leadId);
     if (!lead) throw new Error(`Lead ${leadId} not found`);

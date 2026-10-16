@@ -124,6 +124,16 @@ it("removes exactly the reviewed placeholders, and undo puts the lead back", asy
   expect(after.lead.searchText).toContain("dana.coaching");
   expect(await leadState(harness, cleanLeadId)).toEqual(cleanBefore);
   expect((await preview(harness)).some((row) => row.leadId === leadId)).toBe(false);
+  // A new placeholder arrives before the first cleanup is undone: no second cleanup.
+  const lateId = await t.run((ctx) => insertIdentifier(ctx, tenantId, leadId, "instagram", "g"));
+  await expect(
+    t.mutation(internal.leadSplit.placeholderCleanup.cleanLead, {
+      ...args,
+      identifierIds: [lateId],
+      fields: [],
+    }),
+  ).rejects.toThrow("hasn't been undone");
+  await t.run((ctx) => ctx.db.delete("leadIdentifiers", lateId));
   // A second run has nothing left to remove.
   await expect(t.mutation(internal.leadSplit.placeholderCleanup.cleanLead, args)).rejects.toThrow(
     "changed since the preview",
