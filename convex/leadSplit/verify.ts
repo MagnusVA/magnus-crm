@@ -50,7 +50,8 @@ export async function assertPersonApplied(ctx: MutationCtx, person: Doc<"leadSpl
     const responses = await ctx.db
       .query("meetingFormResponses")
       .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
-      .take(ROW_LIMIT);
+      .take(ROW_LIMIT + 1);
+    if (responses.length > ROW_LIMIT) fail(`meeting ${meetingId} has more than ${ROW_LIMIT} form responses`);
     for (const response of responses) {
       if (response.leadId !== targetLeadId || response.opportunityId !== meeting.opportunityId) {
         fail(`form response ${response._id} points elsewhere`);
@@ -192,7 +193,7 @@ async function checkRow(
     case "form_response_refs": {
       const response = row as Doc<"meetingFormResponses">;
       const meeting = await reader.meeting(response.meetingId);
-      if (!meeting) return;
+      if (!meeting) return { docId: response._id, leadId: response.leadId, detail: "missing meeting" };
       const opportunity = await reader.opportunity(meeting.opportunityId);
       if (response.opportunityId !== meeting.opportunityId || response.leadId !== opportunity?.leadId) {
         return { docId: response._id, leadId: response.leadId, detail: `meeting ${meeting._id}` };
@@ -202,7 +203,8 @@ async function checkRow(
     case "follow_up_refs": {
       const followUp = row as Doc<"followUps">;
       const opportunity = await reader.opportunity(followUp.opportunityId);
-      return opportunity && opportunity.leadId !== followUp.leadId
+      if (!opportunity) return { docId: followUp._id, leadId: followUp.leadId, detail: "missing opportunity" };
+      return opportunity.leadId !== followUp.leadId
         ? { docId: followUp._id, leadId: followUp.leadId, detail: `opportunity on lead ${opportunity.leadId}` }
         : undefined;
     }
@@ -210,7 +212,8 @@ async function checkRow(
       const event = row as Doc<"slackQualificationEvents">;
       if (!event.opportunityId) return;
       const opportunity = await reader.opportunity(event.opportunityId);
-      return opportunity && opportunity.leadId !== event.leadId
+      if (!opportunity) return { docId: event._id, leadId: event.leadId, detail: "missing opportunity" };
+      return opportunity.leadId !== event.leadId
         ? { docId: event._id, leadId: event.leadId, detail: `opportunity on lead ${opportunity.leadId}` }
         : undefined;
     }

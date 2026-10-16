@@ -217,6 +217,13 @@ export async function moveOpportunityToLead(
   return result;
 }
 
+// A meeting moves with every row keyed by it, or not at all.
+function requireComplete(rows: unknown[], meetingId: Id<"meetings">, what: string) {
+  if (rows.length > ROW_LIMIT) {
+    throw new Error(`Meeting ${meetingId} has more than ${ROW_LIMIT} ${what} and can't move`);
+  }
+}
+
 export type MeetingMoveResult = {
   formResponses: number;
   webhookDeliveries: number;
@@ -285,7 +292,8 @@ export async function moveMeetingToOpportunity(
   const responses = await ctx.db
     .query("meetingFormResponses")
     .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
-    .take(ROW_LIMIT);
+    .take(ROW_LIMIT + 1);
+  requireComplete(responses, meetingId, "form responses");
   for (const response of responses) {
     if (response.opportunityId === toOpportunityId && response.leadId === to.leadId) {
       continue;
@@ -302,7 +310,8 @@ export async function moveMeetingToOpportunity(
     .withIndex("by_tenantId_and_inviteeUri_and_status", (q) =>
       q.eq("tenantId", tenantId).eq("inviteeUri", meeting.calendlyInviteeUri),
     )
-    .take(ROW_LIMIT);
+    .take(ROW_LIMIT + 1);
+  requireComplete(deliveries, meetingId, "webhook receipts");
   for (const delivery of deliveries) {
     if (delivery.meetingId !== meetingId) {
       continue;
@@ -320,7 +329,8 @@ export async function moveMeetingToOpportunity(
   const reassignments = await ctx.db
     .query("meetingReassignments")
     .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
-    .take(ROW_LIMIT);
+    .take(ROW_LIMIT + 1);
+  requireComplete(reassignments, meetingId, "reassignments");
   for (const reassignment of reassignments) {
     if (reassignment.opportunityId === toOpportunityId) {
       continue;
