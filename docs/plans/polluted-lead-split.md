@@ -605,15 +605,13 @@ Phone and handle answers typed on two or more leads gave three more placeholders
 
 With them the rules flag 16 identifiers on 16 leads. The other 16 shared values are real: one person on two leads, which is the alias case.
 
-**Left for a decision.** 14 more phone identifiers outside North America pass the rules but read like example numbers: a run of 6 or more sequential digits, such as `+46 70 123 45 67`. Each is on one lead and was typed by no one else. The pattern rule keeps them on purpose (Q1), because real numbers in those countries can match. Leads:
+**Reviewed one by one (2026-10-16).** 14 more phone identifiers outside North America passed the rules but read like example numbers: a run of 6 or more sequential digits, or a published example number. Each was on one lead and typed by no one else. The booking time zones had passed raw-payload retention, so each was judged on its digits, its number range, and the lead's email. The rule: a fake phone is cleaned, and the lead's email and handle stay as identifiers.
+- **Cleaned (12):**
+  - a straight sequence after the area or mobile prefix: `jh7ftgwtf001c9ba0zsh7m4vcx8dss3h` (MX), `jh77d3q1kak2hz86a19bydbdan8cq9az` (AT), `jh709b9203nkv5ptf9rs4kptmh85tgs8` (ID), `jh7f2n38fhv4jdeqah7dxqdvh98edbhh` (GB), `jh71d0zs93t3aa5dnne88djkr58dzg35` (AU), `jh708jfwhz9yedk37c753d3a1d8c7rv0` (BG), `jh71pjdyzv1yry4jn6dt1w0wzd89b2vw` (FR), `jh7cbzj152gb1me0z6gpscrnq98e19wg` (DE), `jh7cvjzw3sc0kwd74qtsyvg5d98a255k` (DE)
+  - a country's example number: `jh72zf2cpv2t38x4mb001tszn587cxsd` (KE), `jh7dy2977n7tytqjfp5sjqddsx88qqcf` (SE), `jh703615btd6hk19dm4v3v7q298e0gbe` (CH)
 
-```
-jh7ftgwtf001c9ba0zsh7m4vcx8dss3h jh77d3q1kak2hz86a19bydbdan8cq9az jh7eggf73hk6m61qawtnda0rhd8cyy8f
-jh709b9203nkv5ptf9rs4kptmh85tgs8 jh79mk8kqt1q979eqem5z6qky98bsafk jh7f2n38fhv4jdeqah7dxqdvh98edbhh
-jh72zf2cpv2t38x4mb001tszn587cxsd jh71d0zs93t3aa5dnne88djkr58dzg35 jh708jfwhz9yedk37c753d3a1d8c7rv0
-jh7dy2977n7tytqjfp5sjqddsx88qqcf jh71pjdyzv1yry4jn6dt1w0wzd89b2vw jh7cbzj152gb1me0z6gpscrnq98e19wg
-jh7cvjzw3sc0kwd74qtsyvg5d98a255k jh703615btd6hk19dm4v3v7q298e0gbe
-```
+  Their numbers are listed in `PLACEHOLDER_PHONE_DIGITS`.
+- **Kept (2):** `jh7eggf73hk6m61qawtnda0rhd8cyy8f` (DE mobile) and `jh79mk8kqt1q979eqem5z6qky98bsafk` (GB).
 
 **Code** (`convex/leadSplit/placeholderCleanup.ts`):
 - `preview` (action) lists every lead holding a placeholder identifier or contact field (`email`, `phone`, `socialHandles`), read-only. It marks merged leads, split-locked leads, leads with an open split plan, and leads with more than 50 identifiers as skipped.
