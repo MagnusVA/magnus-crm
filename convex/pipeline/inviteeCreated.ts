@@ -56,6 +56,7 @@ import {
 	wasStaleExpiredAfter,
 } from "./slackJoinLookup";
 import { log, reportError } from "../lib/observability/log";
+import { MAX_CHANGED_DEALS, wasUnattachableAt } from "./bookingHistory";
 import {
 	bookingHostOutcome,
 	extractHostMembership,
@@ -1169,9 +1170,23 @@ export const process = internalMutation({
 		const rescheduleCutoff = now - RESCHEDULE_WINDOW_MS;
     const candidates = await ctx.db.query("opportunities").withIndex("by_tenantId_and_leadId", q => q.eq("tenantId", tenantId).eq("leadId", lead._id)).order("desc").take(129);
     if (candidates.length > 128) blockBooking("booking_history_requires_review");
-    // The stale expiry can close a Slack deal after this booking happened; the
-    // Slack join below reopens it, so it doesn't make the booking historical.
-    if (candidates.some(o => o.updatedAt > now && !wasStaleExpiredAfter(o, now))) blockBooking("historical_booking_requires_review");
+    // A deal changed after this booking happened makes it historical: what the
+    // booking does depends on the deals' statuses at the time. Two changes
+    // don't. The stale expiry can close a Slack deal after this booking
+    // happened, and the Slack join below reopens it. And a deal that was
+    // booked or won at the time was out of this booking's reach, whatever
+    // happened to it since (a person books a new slot, then cancels the old
+    // one, and the booking is retried after the cancel). Such a deal is left
+    // out of the lookups below, which read current statuses. A provider
+    // reschedule's own deal must not have changed.
+    const changed = candidates.filter(o => o.updatedAt > now && !wasStaleExpiredAfter(o, now));
+    if (changed.length > MAX_CHANGED_DEALS) blockBooking("historical_booking_requires_review");
+    const outOfReach = new Set<Id<"opportunities">>();
+    for (const o of changed) {
+      if (o._id === previousMeeting?.opportunityId || !(await wasUnattachableAt(ctx, o, now))) blockBooking("historical_booking_requires_review");
+      outOfReach.add(o._id);
+    }
+    const reachable = candidates.filter(o => !outOfReach.has(o._id));
     let explicitSourceMeeting: Doc<"meetings"> | undefined;
     if (oldInvitee) {
       if (!previousMeeting) blockBooking("previous_booking_missing");
@@ -1189,7 +1204,7 @@ export const process = internalMutation({
         referenceTime: now,
       });
       if (!freshSlackQualification) {
-        const eligible = candidates.filter(o => (o.status === "no_show" || o.status === "canceled") && o.updatedAt > rescheduleCutoff);
+        const eligible = reachable.filter(o => (o.status === "no_show" || o.status === "canceled") && o.updatedAt > rescheduleCutoff);
         if (eligible.length > 1) blockBooking("ambiguous_booking_target");
         autoRescheduleTarget = eligible[0] ?? null;
       }
@@ -1387,7 +1402,7 @@ export const process = internalMutation({
 		// === End Feature B4: Opportunity linking + closer reassignment ===
 
 		let existingFollowUp: Doc<"opportunities"> | null = null;
-    const followUps = candidates.filter(o => o.status === "follow_up_scheduled");
+    const followUps = reachable.filter(o => o.status === "follow_up_scheduled");
     if (followUps.length > 1) blockBooking("ambiguous_booking_target");
     existingFollowUp = followUps[0] ?? null;
 

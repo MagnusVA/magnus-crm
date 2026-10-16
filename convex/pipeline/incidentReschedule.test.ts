@@ -22,6 +22,7 @@ import type { Id } from "../_generated/dataModel";
 import { bookingHarness, mapEventTypeToProgram } from "../../tests/bookingHarness";
 import { adoptRawDelivery } from "./receipts";
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
+import { transitionOpportunity } from "../lib/opportunityActivity";
 
 afterEach(() => vi.useRealTimers());
 
@@ -508,4 +509,127 @@ it("incident B recovery: retrying the legacy creates applies them and settles th
   expect(await h.meetingFor(p.lost)).toMatchObject({ status: "canceled", canceledAt: Date.parse("2026-10-09T08:48:33Z") });
   expect(await h.receipt("invitee.canceled", p.lostCanceled)).toMatchObject({ status: "applied", meetingId: lost.meetingId });
   expect(await h.meetingFor(p.rebooked)).toMatchObject({ status: "scheduled" });
+});
+
+// ---------------------------------------------------------------------------
+// Incident C (2026-10-14): a person books a new slot, then cancels the old one
+// ---------------------------------------------------------------------------
+// The new booking was held (an identity conflict, since resolved) and retried
+// after the old booking's cancel had closed its deal. A booking processed after
+// a later change to the person's deals gets the outcome it would have had in
+// arrival order, when the later change can't have affected it.
+
+const LEAD_C = { email: "lead.charlie@example.com", name: "Lead Charlie" };
+const C_OLD = { eventId: "55555555-aaaa-4aaa-8aaa-000000000005", inviteeId: "55555555-bbbb-4bbb-8bbb-000000000005" };
+const C_NEW = { eventId: "66666666-aaaa-4aaa-8aaa-000000000006", inviteeId: "66666666-bbbb-4bbb-8bbb-000000000006" };
+const C_LATER = { eventId: "77777777-aaaa-4aaa-8aaa-000000000007", inviteeId: "77777777-bbbb-4bbb-8bbb-000000000007" };
+
+function incidentCPayloads() {
+  const old = inviteePayload({
+    ...C_OLD, ...LEAD_C, host: CLOSER, start: "2026-10-14T18:30:00Z", end: "2026-10-14T19:00:00Z",
+  });
+  const oldCanceled = inviteePayload({
+    ...C_OLD, ...LEAD_C, host: CLOSER, start: "2026-10-14T18:30:00Z", end: "2026-10-14T19:00:00Z",
+    canceled: { at: "2026-10-14T09:13:44Z" },
+  });
+  const rebooked = inviteePayload({
+    ...C_NEW, ...LEAD_C, host: CLOSER, start: "2026-10-14T20:15:00Z", end: "2026-10-14T20:45:00Z",
+  });
+  return { old, oldCanceled, rebooked };
+}
+
+/** Each deal's status and the scheduled events of its meetings, order-free. */
+async function dealShapes(h: Awaited<ReturnType<typeof setup>>) {
+  return await h.t.run(async (ctx) => {
+    const opportunities = await ctx.db.query("opportunities").take(10);
+    const shapes = await Promise.all(opportunities.map(async (o) => ({
+      status: o.status,
+      meetings: (await ctx.db.query("meetings").withIndex("by_opportunityId", (q) => q.eq("opportunityId", o._id)).take(10))
+        .map((m) => `${m.calendlyEventUri}:${m.status}`).sort(),
+    })));
+    return shapes.sort((a, b) => a.meetings.join().localeCompare(b.meetings.join()));
+  });
+}
+
+it.each(["in arrival order", "after the cancel"] as const)(
+  "incident C: a new booking processed %s gets its own deal, and the old one stays canceled",
+  async (order) => {
+    const h = await setup();
+    const { old, oldCanceled, rebooked } = incidentCPayloads();
+    await h.deliver("invitee.created", old, "2026-10-14T01:00:23Z");
+    if (order === "in arrival order") {
+      await h.deliver("invitee.created", rebooked, "2026-10-14T09:13:23Z");
+      await h.deliver("invitee.canceled", oldCanceled, "2026-10-14T09:13:44Z");
+    } else {
+      await h.deliver("invitee.canceled", oldCanceled, "2026-10-14T09:13:44Z");
+      await h.deliver("invitee.created", rebooked, "2026-10-14T09:13:23Z");
+    }
+    expect(await h.receipt("invitee.created", rebooked)).toMatchObject({ status: "applied" });
+    expect(await dealShapes(h)).toEqual([
+      { status: "canceled", meetings: [`${old.scheduled_event.uri}:canceled`] },
+      { status: "scheduled", meetings: [`${rebooked.scheduled_event.uri}:scheduled`] },
+    ]);
+    expect(await h.counts()).toEqual({ meetings: 2, opportunities: 2, leads: 1 });
+  },
+);
+
+it("incident C: a late booking doesn't take a deal that became a follow-up after it", async () => {
+  const h = await setup();
+  const { old, rebooked } = incidentCPayloads();
+  await h.deliver("invitee.created", old, "2026-10-14T01:00:23Z");
+  const { opportunityId } = await h.receipt("invitee.created", old);
+  // The closer schedules a follow-up on the old deal after the rebooking happened.
+  const at = Date.parse("2026-10-14T10:00:00Z");
+  vi.setSystemTime(Math.max(Date.now(), at));
+  await h.t.run((ctx) => transitionOpportunity(ctx, opportunityId!, {
+    to: "follow_up_scheduled", source: "closer", occurredAt: at, fields: { updatedAt: at },
+  }));
+  await h.deliver("invitee.created", rebooked, "2026-10-14T09:13:23Z");
+  const receipt = await h.receipt("invitee.created", rebooked);
+  expect(receipt).toMatchObject({ status: "applied" });
+  expect(receipt.opportunityId).not.toBe(opportunityId);
+  expect(await dealShapes(h)).toEqual([
+    { status: "follow_up_scheduled", meetings: [`${old.scheduled_event.uri}:scheduled`] },
+    { status: "scheduled", meetings: [`${rebooked.scheduled_event.uri}:scheduled`] },
+  ]);
+});
+
+it("incident C guard: a booking stays held when a deal it could have taken changed after it", async () => {
+  const h = await setup();
+  const { old, rebooked } = incidentCPayloads();
+  const canceledEarly = inviteePayload({
+    ...C_OLD, ...LEAD_C, host: CLOSER, start: "2026-10-14T18:30:00Z", end: "2026-10-14T19:00:00Z",
+    canceled: { at: "2026-10-14T05:00:00Z" },
+  });
+  const later = inviteePayload({
+    ...C_LATER, ...LEAD_C, host: CLOSER, start: "2026-10-15T18:30:00Z", end: "2026-10-15T19:00:00Z",
+  });
+  // The old deal is canceled before the rebooking happens, so the rebooking
+  // would have rescheduled it. A later booking took the deal first.
+  await h.deliver("invitee.created", old, "2026-10-14T01:00:23Z");
+  await h.deliver("invitee.canceled", canceledEarly, "2026-10-14T05:00:00Z");
+  await h.deliver("invitee.created", later, "2026-10-14T12:00:00Z");
+  await h.deliver("invitee.created", rebooked, "2026-10-14T09:13:23Z");
+  expect(await h.receipt("invitee.created", rebooked)).toMatchObject({
+    status: "blocked", reason: "historical_booking_requires_review",
+  });
+});
+
+it("incident C guard: a provider reschedule stays held when its own deal changed after it", async () => {
+  const h = await setup();
+  const { old } = incidentCPayloads();
+  const replacement = inviteePayload({
+    ...C_NEW, ...LEAD_C, host: CLOSER, start: "2026-10-14T20:15:00Z", end: "2026-10-14T20:45:00Z",
+    oldInvitee: old.uri,
+  });
+  await h.deliver("invitee.created", old, "2026-10-14T01:00:23Z");
+  const { opportunityId } = await h.receipt("invitee.created", old);
+  // A closer acts on the deal after the reschedule happened, before it's processed.
+  await h.t.run((ctx) => forceOpportunityState(ctx, opportunityId!, {
+    status: "scheduled", updatedAt: Date.parse("2026-10-14T10:00:00Z"),
+  }));
+  await h.deliver("invitee.created", replacement, "2026-10-14T09:13:23Z");
+  expect(await h.receipt("invitee.created", replacement)).toMatchObject({
+    status: "blocked", reason: "historical_booking_requires_review",
+  });
 });
