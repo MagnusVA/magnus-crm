@@ -148,6 +148,7 @@ async function state(harness: Harness, limit = 100) {
         firstMeetingId: opportunity.firstMeetingId,
         canceledAt: opportunity.canceledAt,
         noShowAt: opportunity.noShowAt,
+        potentialDuplicateLeadId: opportunity.potentialDuplicateLeadId,
       })),
       meetings: meetings.map((meeting) => ({
         _id: meeting._id,
@@ -188,6 +189,8 @@ describe("apply", () => {
     const harness = await setup();
     const { t } = harness;
     const { leadId, piaLeadId, mixed, whole, meetings } = await seedTierA(harness);
+    // The pipeline flagged Pia's booking as a possible duplicate of her lead.
+    await t.run((ctx) => ctx.db.patch("opportunities", whole, { potentialDuplicateLeadId: piaLeadId }));
     await asInProduction(harness);
     await discover(harness);
     const plan = await planFor(harness, leadId);
@@ -244,8 +247,9 @@ describe("apply", () => {
       firstMeetingId: meetings.paula,
     });
     expect(paulaMeeting).toMatchObject({ opportunityId: paulaDealId, callClassification: "new", opportunityStatus: "canceled" });
-    // Pia's whole deal merged into her own lead.
+    // Pia's whole deal merged into her own lead, which clears the flag.
     expect(after.whole?.leadId).toBe(piaLeadId);
+    expect(after.whole?.potentialDuplicateLeadId).toBeUndefined();
 
     const applied = await state(harness);
     expect(applied.stats).toEqual({
@@ -265,6 +269,17 @@ describe("apply", () => {
       customer_refs: 0,
       meeting_opportunity_status: 0,
     });
+
+    // A booking on a deal the split created stops rollback before it starts.
+    const rebooked = await t.run(async (ctx) => {
+      const meeting = (await ctx.db.get("meetings", meetings.paula))!;
+      const { _id, _creationTime, ...fields } = meeting;
+      return await ctx.db.insert("meetings", { ...fields, calendlyInviteeUri: `${fields.calendlyInviteeUri}-2` });
+    });
+    await expect(
+      t.mutation(internal.leadSplit.rollback.rollbackPlan, { planId: plan._id }),
+    ).rejects.toThrow(`Meeting ${rebooked} was added to new opportunity ${paulaDealId} after the split`);
+    await t.run((ctx) => ctx.db.delete("meetings", rebooked));
 
     // Rollback, a few rows per call, restores every field the split changed.
     expect(await rollback(harness, plan._id, 4)).toBeGreaterThan(1);

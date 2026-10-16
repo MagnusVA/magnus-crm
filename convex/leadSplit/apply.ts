@@ -1,6 +1,6 @@
 import { v, type Infer } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { internalQuery, type MutationCtx } from "../_generated/server";
+import { internalQuery, type MutationCtx, type QueryCtx } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { buildSocialHandles } from "../leads/merge";
 import {
@@ -62,6 +62,7 @@ import { leadSplitPlanStatusValidator, type LeadSplitOpportunityPlan } from "./s
 
 const PERSON_LIMIT = 1000;
 const ROW_LIMIT = 200;
+const AUDIT_ROW_LIMIT = 5000;
 
 // Written onto the lead by Slack qualification or the DM portal (O5).
 const SLACK_AND_PORTAL_FIELDS = [
@@ -215,13 +216,18 @@ async function customFieldsFrom(ctx: MutationCtx, meetingId: Id<"meetings"> | un
 }
 
 /** O5: a person is first seen at their first booking or Slack qualification. */
-async function firstSeenAt(ctx: MutationCtx, person: Doc<"leadSplitPersons">, meetings: Doc<"meetings">[]) {
+async function firstSeenAt(
+  ctx: MutationCtx,
+  person: Doc<"leadSplitPersons">,
+  meetings: Doc<"meetings">[],
+  fallback: number,
+) {
   const times = meetings.map((meeting) => meeting.createdAt);
   for (const eventId of person.slackEventIds) {
     const event = await ctx.db.get("slackQualificationEvents", eventId);
     if (event) times.push(event.submittedAt);
   }
-  return Math.min(...times);
+  return times.length > 0 ? Math.min(...times) : fallback;
 }
 
 async function readLeadIdentifiers(ctx: MutationCtx, leadId: Id<"leads">) {
@@ -235,6 +241,15 @@ async function lockLead(ctx: MutationCtx, scope: AuditScope, lead: Doc<"leads">)
   if (lead.splitLockedAt !== undefined) return;
   await recordPatch(ctx, scope, AUDIT_STEP.lock, "leads", lead, { splitLockedAt: scope.now });
   await ctx.db.patch("leads", lead._id, { splitLockedAt: scope.now });
+}
+
+/** Whether this plan's own audit log holds the lock on the lead. */
+async function lockedByPlan(ctx: MutationCtx, planId: Id<"leadSplitPlans">, leadId: Id<"leads">) {
+  const rows = await ctx.db
+    .query("leadSplitAudit")
+    .withIndex("by_planId_and_revertedAt", (q) => q.eq("planId", planId).eq("revertedAt", undefined))
+    .take(AUDIT_ROW_LIMIT);
+  return rows.some((row) => row.step === AUDIT_STEP.lock && row.docId === leadId);
 }
 
 async function unlockLead(ctx: MutationCtx, scope: AuditScope, leadId: Id<"leads">) {
@@ -271,7 +286,7 @@ async function createLead(
     phone,
     ...(await customFieldsFrom(ctx, person.canonical.customFieldsMeetingId)),
     ...slackFields,
-    firstSeenAt: await firstSeenAt(ctx, person, meetings),
+    firstSeenAt: await firstSeenAt(ctx, person, meetings, source.firstSeenAt),
     updatedAt: scope.now,
     status: "active",
     socialHandles,
@@ -436,6 +451,11 @@ export async function extractPerson(
     if (target.status === "merged") {
       throw new Error(`Merge target ${target._id} was merged since the build. Rebuild the plan.`);
     }
+    if (target.splitLockedAt !== undefined && !(await lockedByPlan(ctx, plan._id, target._id))) {
+      // Another plan's finalize would unlock it, and its rollback would
+      // restore fields over this plan's writes.
+      throw new Error(`Merge target ${target._id} is locked by another split. Apply that plan first.`);
+    }
     await lockLead(ctx, scope, target);
     targetLeadId = target._id;
   } else {
@@ -575,10 +595,11 @@ async function remapSlackEvent(
         if (opportunity) resulting.push(opportunity);
       }
       resulting.sort((a, b) => a.createdAt - b.createdAt);
-      opportunityId = (
-        resulting.find((opportunity) => opportunity.createdAt >= event.submittedAt) ??
-        resulting[resulting.length - 1]
-      )?._id;
+      opportunityId =
+        (
+          resulting.find((opportunity) => opportunity.createdAt >= event.submittedAt) ??
+          resulting[resulting.length - 1]
+        )?._id ?? opportunityId;
     }
   }
   if (event.leadId !== targetLeadId || event.opportunityId !== opportunityId) {
@@ -635,6 +656,47 @@ async function refreshLead(
 }
 
 /**
+ * A lead gen match moving onto a lead that already has a match for the same
+ * prospect is merged into it and deleted (`repointAuditMatch`), which
+ * rollback can't undo. No current plan has one, so apply stops instead.
+ */
+async function checkAuditMatches(
+  ctx: Pick<QueryCtx, "db">,
+  tenantId: Id<"tenants">,
+  opportunityId: Id<"opportunities">,
+  targetLeadId: Id<"leads">,
+): Promise<Id<"leadGenAuditMatches"> | undefined> {
+  const matches = await ctx.db
+    .query("leadGenAuditMatches")
+    .withIndex("by_tenantId_and_opportunityId", (q) =>
+      q.eq("tenantId", tenantId).eq("opportunityId", opportunityId),
+    )
+    .take(ROW_LIMIT);
+  for (const match of matches) {
+    const onTarget = await ctx.db
+      .query("leadGenAuditMatches")
+      .withIndex("by_tenantId_and_prospectId_and_leadId", (q) =>
+        q.eq("tenantId", tenantId).eq("prospectId", match.prospectId).eq("leadId", targetLeadId),
+      )
+      .first();
+    if (onTarget) return match._id;
+  }
+  return undefined;
+}
+
+async function requireNoAuditMatchConflict(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  opportunityId: Id<"opportunities">,
+  targetLeadId: Id<"leads">,
+) {
+  const conflict = await checkAuditMatches(ctx, tenantId, opportunityId, targetLeadId);
+  if (conflict) {
+    throw new Error(`Lead gen match ${conflict} would merge into lead ${targetLeadId}'s own. Resolve it first.`);
+  }
+}
+
+/**
  * Pass 2 for one person: their identifiers, whole deals and kept deals move
  * to the target lead, their Slack events follow, and the target is refreshed.
  */
@@ -648,7 +710,7 @@ export async function movePerson(
   if (!plan || plan.status !== "applying") return skipped("plan_not_applying");
   if (person.status !== "pending") return skipped("already_applied");
   const persons = await readPlanPersons(ctx, plan._id);
-  if (persons.some((candidate) => candidate.extractedAt === undefined)) {
+  if (persons.some((candidate) => candidate.status === "pending" && candidate.extractedAt === undefined)) {
     throw new Error(`Plan ${plan._id} has persons not yet extracted. Run applyLeadSplitExtractions first.`);
   }
 
@@ -716,9 +778,13 @@ export async function movePerson(
       await normalizeMeetings(ctx, scope, await getMeetings(ctx, plan.tenantId, entry.meetingIds), own, false);
     }
     if (!moves) continue;
+    await requireNoAuditMatchConflict(ctx, plan.tenantId, document._id, targetLeadId);
     const current = (await ctx.db.get("opportunities", document._id))!;
+    // The move clears a duplicate flag naming the target; rollback restores it.
     await recordPatch(ctx, scope, AUDIT_STEP.move(document._id), "opportunities", current, {
       leadId: targetLeadId,
+      updatedAt: now,
+      ...(current.potentialDuplicateLeadId === targetLeadId ? { potentialDuplicateLeadId: undefined } : {}),
     });
     const result = await moveOpportunityToLead(ctx, {
       tenantId: plan.tenantId,
@@ -805,7 +871,7 @@ export async function finalizePlan(
     fullName: fullName ?? source.fullName,
     phone,
     ...(await customFieldsFrom(ctx, original.canonical.customFieldsMeetingId)),
-    firstSeenAt: await firstSeenAt(ctx, original, meetings),
+    firstSeenAt: await firstSeenAt(ctx, original, meetings, source.firstSeenAt),
     ...(slackFieldsMoved
       ? Object.fromEntries(SLACK_AND_PORTAL_FIELDS.map((field) => [field, undefined]))
       : {}),
@@ -872,6 +938,7 @@ const preflightProblemValidator = v.object({
     v.literal("identifier_moved"),
     v.literal("merge_target_unusable"),
     v.literal("email_taken"),
+    v.literal("audit_match_conflict"),
   ),
   personKey: v.optional(v.string()),
   opportunityId: v.optional(v.id("opportunities")),
@@ -969,6 +1036,13 @@ export const preflight = internalQuery({
         const target = person.targetLeadId ? await ctx.db.get("leads", person.targetLeadId) : null;
         if (!target || target.status === "merged" || target.splitLockedAt !== undefined) {
           problems.push({ code: "merge_target_unusable", personKey: person.personKey, leadId: person.targetLeadId });
+          continue;
+        }
+        for (const entry of person.opportunityPlan) {
+          if (entry.kind === "split_new") continue;
+          if (await checkAuditMatches(ctx, plan.tenantId, entry.opportunityId, target._id)) {
+            problems.push({ code: "audit_match_conflict", personKey: person.personKey, opportunityId: entry.opportunityId });
+          }
         }
         continue;
       }

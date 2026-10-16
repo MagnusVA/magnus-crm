@@ -376,7 +376,7 @@ A rerun after a later approval needs `"reset": true`. A split document only move
 
 1. **`applyLeadSplitExtractions`** (`extractPerson`, pass 1). For each pending person:
    - The first person of a plan moves it from `approved` to `applying`.
-   - Lock the source lead, and a `merge_into` target, with `splitLockedAt`.
+   - Lock the source lead, and a `merge_into` target, with `splitLockedAt`. A target already locked by another plan stops the run, because that plan's finalize would unlock it and its rollback would overwrite this plan's writes.
    - **Target lead.** For `role: "new"`, insert the lead with its O5 fields, status `active`, and locked. Then call `insertLeadAggregate`, add 1 to `totalLeads`, emit `lead.created` (`source: "system"`, metadata `{ splitFromLeadId, planId }`), and rebuild its lead/customer row. The new lead's ID is stored on the person as `targetLeadId`.
    - **Split opportunities.** For each `split_new` entry, check the document is still on the source lead with its built status, then insert the new opportunity on the target lead:
      - `status` from the entry. The status fields come from the person's own latest meeting (O2); with `inheritsOutcome`, the document's outcome fields are copied instead (cancellation, lost, no-show and payment fields, and the sold program).
@@ -392,7 +392,7 @@ A rerun after a later approval needs `"reset": true`. A split document only move
    - A `merge_into` target that will hold the Slack fields (`slackFieldsPersonKey`) takes the ones it lacks, as a merge does.
    - **Checks.** Every whole or kept document must still be on the source lead with its built status and exactly its planned meetings. A new booking or a status change since the build stops the run.
    - **Kept documents.** The status becomes the keeper's through `transitionOpportunity` (`lead_split` exception). Then the O3 caches and `createdAt` are recomputed through `patchOpportunityLifecycle`, which re-keys the aggregates, and the O4 meeting fields are fixed.
-   - **Moves.** For a moved person, each whole or kept document goes to the target lead with `moveOpportunityToLead`.
+   - **Moves.** For a moved person, each whole or kept document goes to the target lead with `moveOpportunityToLead`. The audit row keeps the duplicate flag the move clears. If a deal's lead gen match would merge into the target's own match for the same prospect, the run stops instead: `repointAuditMatch` deletes the loser, which rollback can't restore. No current plan has one.
    - **Slack events.** Each of the person's events moves to their lead (O7). It points at their part of the deal it named, or, if they had no part in it, at their first deal created at or after the qualification (else their latest). The qualification row is rebuilt.
    - **Refresh.** The target lead's `socialHandles` and `searchText` are rebuilt from identifiers, then the refresh chain runs: `refreshOpportunitySearchForLead` (which also rebuilds the lead/customer row), `syncLeadMeetingNames`, and `syncCustomerSnapshot`. The source lead's lead/customer row is rebuilt too.
    - The person is marked `applied`.
@@ -408,6 +408,8 @@ A rerun after a later approval needs `"reset": true`. A split document only move
 **Undo log.** Every write records a `leadSplitAudit` row in the same transaction (`convex/leadSplit/audit.ts`): an insert with its counter delta, or a patch or delete with the document as it was. The `step` names what to undo: `split:<opportunityId>`, `move:<opportunityId>`, `keep:<opportunityId>`, `identifier`, `slack_event`, `lock`, `refresh` or `finalize`. Projection rows, search rows and domain events are rebuilt or kept, not logged.
 
 **Idempotency.** A batch that throws rolls back whole, audit rows included. `extractedAt` and person and plan statuses make every step safe to rerun, and a failed run resumes where it stopped.
+
+**Failure.** A throw stops the whole chain, and every plan already started stays `applying` with its leads locked, so bookings for those people block as `identity_conflict`. Run `preflight` on every approved plan immediately before starting. If a run stops, fix the cause and rerun, or roll the plan back; either way, retry the blocked deliveries afterwards.
 
 **Transaction size.** Tested with transaction limits on, a plan shaped like `jh74vyt5…` (53 people, 28 deals, 65 meetings, 434 form answers) applies and rolls back inside Convex's limits (`apply.test.ts`).
 
@@ -456,7 +458,8 @@ The code is in `convex/leadSplit/verify.ts`. Run the checks after the apply migr
    - Inserted leads are deleted with their `leadTimeline` entry and lead/customer row, and `totalLeads` goes down.
    - Each batch ends with the refresh chain for every touched lead, and with meeting refs and qualification rows for every touched opportunity.
    - The last call resets the persons to `pending`, sets the plan to `rolled_back`, and emits `lead.split_rolled_back`. A rolled-back plan can be rebuilt.
-3. Rollback is only safe while nothing new has attached to the new leads. Before undoing anything, it checks that every opportunity on a new lead is one the plan put there, and stops otherwise. The split lock covers the apply window; after finalize clears it, move any later bookings off the new leads first.
+3. Rollback is only safe while nothing new has attached to what the split created, because each batch commits. Before undoing anything, it checks that nothing was added since: no unplanned opportunity, identifier or Slack event on a new lead, and no unplanned meeting, follow-up or payment on a new opportunity. It stops otherwise. The split lock covers the apply window; after finalize clears it, move any later rows off first.
+4. Each batch recomputes a touched lead's `socialHandles` and `searchText` from its identifiers rather than restoring the stored copies.
 
 ### 5.10 Pipeline recovery after the split
 

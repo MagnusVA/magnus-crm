@@ -2,6 +2,8 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
+import { buildSocialHandles } from "../leads/merge";
+import { buildLeadSearchText } from "../leads/searchTextBuilder";
 import {
   moveMeetingToOpportunity,
   moveOpportunityToLead,
@@ -35,6 +37,7 @@ import { leadSplitPlanStatusValidator } from "./schema";
 // its write left. Domain events stay: they record what happened.
 
 const DEFAULT_BATCH_SIZE = 25;
+const ROW_LIMIT = 200;
 const AUDIT_ROW_LIMIT = 5000;
 const ROLLBACK_STATUSES: ReadonlySet<Doc<"leadSplitPlans">["status"]> = new Set([
   "applying",
@@ -45,32 +48,86 @@ const ROLLBACK_STATUSES: ReadonlySet<Doc<"leadSplitPlans">["status"]> = new Set(
 type Touched = { leads: Set<Id<"leads">>; opportunities: Set<Id<"opportunities">> };
 
 /**
- * A lead the plan created can only be deleted while it holds nothing but
- * what the plan put there. Checked before the first row is undone, so a
- * booking that landed on a new lead stops the rollback before it starts.
+ * Rollback must be able to undo every row once it starts, because each batch
+ * commits. Before the first one, check that nothing landed after the split on
+ * what the plan created or moved: a booking, follow-up, Slack event or
+ * identifier on a new lead or deal, or a payment on a moved meeting.
  */
 async function checkNothingNewAttached(ctx: MutationCtx, plan: Doc<"leadSplitPlans">) {
   const rows = await ctx.db
     .query("leadSplitAudit")
     .withIndex("by_planId_and_revertedAt", (q) => q.eq("planId", plan._id))
     .take(AUDIT_ROW_LIMIT);
-  const planned = new Set(
-    rows.filter((row) => row.table === "opportunities").map((row) => row.docId),
-  );
+  const audited = (table: string) => new Set(rows.filter((row) => row.table === table).map((row) => row.docId));
+  const [opportunities, meetings, identifiers, events] = [
+    audited("opportunities"),
+    audited("meetings"),
+    audited("leadIdentifiers"),
+    audited("slackQualificationEvents"),
+  ];
+  const stop = (what: string, id: string, on: string): never => {
+    throw new Error(`${what} ${id} was added to ${on} after the split. Move it off before rolling back.`);
+  };
+  const { tenantId } = plan;
   for (const row of rows) {
-    if (row.table !== "leads" || row.op !== "insert") continue;
-    const opportunities = await ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_and_leadId", (q) =>
-        q.eq("tenantId", plan.tenantId).eq("leadId", row.docId as Id<"leads">),
-      )
-      .take(100);
-    const unplanned = opportunities.find((opportunity) => !planned.has(opportunity._id));
-    if (unplanned) {
-      throw new Error(
-        `Opportunity ${unplanned._id} was added to new lead ${row.docId} after the split. Move it before rolling back.`,
-      );
+    if (row.op !== "insert") continue;
+    if (row.table === "leads") {
+      const leadId = row.docId as Id<"leads">;
+      for (const opportunity of await ctx.db
+        .query("opportunities")
+        .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
+        .take(ROW_LIMIT)) {
+        if (!opportunities.has(opportunity._id)) stop("Opportunity", opportunity._id, `new lead ${leadId}`);
+      }
+      for (const identifier of await ctx.db
+        .query("leadIdentifiers")
+        .withIndex("by_leadId", (q) => q.eq("leadId", leadId))
+        .take(ROW_LIMIT)) {
+        if (!identifiers.has(identifier._id)) stop("Identifier", identifier._id, `new lead ${leadId}`);
+      }
+      for (const event of await ctx.db
+        .query("slackQualificationEvents")
+        .withIndex("by_tenantId_and_leadId_and_submittedAt", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
+        .take(ROW_LIMIT)) {
+        // An event on a moved deal moved with it.
+        const withDeal = event.opportunityId !== undefined && opportunities.has(event.opportunityId);
+        if (!events.has(event._id) && !withDeal) stop("Slack event", event._id, `new lead ${leadId}`);
+      }
     }
+    if (row.table === "opportunities") {
+      const opportunityId = row.docId as Id<"opportunities">;
+      for (const meeting of await ctx.db
+        .query("meetings")
+        .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunityId))
+        .take(ROW_LIMIT)) {
+        if (!meetings.has(meeting._id)) stop("Meeting", meeting._id, `new opportunity ${opportunityId}`);
+      }
+      const followUp = await ctx.db
+        .query("followUps")
+        .withIndex("by_opportunityId_and_status_and_reason", (q) => q.eq("opportunityId", opportunityId))
+        .first();
+      if (followUp) stop("Follow-up", followUp._id, `new opportunity ${opportunityId}`);
+      const payment = await ctx.db
+        .query("paymentRecords")
+        .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", opportunityId))
+        .first();
+      if (payment) stop("Payment", payment._id, `new opportunity ${opportunityId}`);
+    }
+  }
+}
+
+/** A restored lead's copies of its identifiers, recomputed rather than restored. */
+async function recomputeLeadCopies(ctx: MutationCtx, lead: Doc<"leads">, identifiers: Doc<"leadIdentifiers">[]) {
+  const socialHandles = buildSocialHandles(identifiers);
+  const searchText = buildLeadSearchText(
+    { ...lead, socialHandles },
+    identifiers.map((identifier) => identifier.value),
+  );
+  if (
+    JSON.stringify(socialHandles) !== JSON.stringify(lead.socialHandles) ||
+    searchText !== lead.searchText
+  ) {
+    await ctx.db.patch("leads", lead._id, { socialHandles, searchText });
   }
 }
 
@@ -131,6 +188,11 @@ async function revertRow(ctx: MutationCtx, plan: Doc<"leadSplitPlans">, row: Doc
     }
     await deleteOpportunityAggregate(ctx, opportunity);
     await ctx.db.delete("opportunities", opportunityId);
+    const job = await ctx.db
+      .query("opportunityProjectionJobs")
+      .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunityId))
+      .unique();
+    if (job) await ctx.db.delete("opportunityProjectionJobs", job._id);
     // The counters follow the status the opportunity has now.
     await updateTenantStats(ctx, tenantId, {
       totalOpportunities: -1,
@@ -186,6 +248,9 @@ async function revertRow(ctx: MutationCtx, plan: Doc<"leadSplitPlans">, row: Doc
         now: Date.now(),
         moveFormResponses: true,
       });
+      // The move cleared a duplicate flag naming the target, and set updatedAt.
+      const { leadId: _, ...fields } = restore as OpportunityFieldsPatch;
+      if (Object.keys(fields).length > 0) await patchOpportunityLifecycle(ctx, opportunityId, fields);
       return;
     }
     const { status, ...fields } = restore as OpportunityFieldsPatch & { status?: OpportunityStatus };
@@ -298,7 +363,8 @@ export const rollbackPlan = internalMutation({
       const identifiers = await ctx.db
         .query("leadIdentifiers")
         .withIndex("by_leadId", (q) => q.eq("leadId", leadId))
-        .take(200);
+        .take(ROW_LIMIT);
+      await recomputeLeadCopies(ctx, lead, identifiers);
       await refreshOpportunitySearchForLead(ctx, plan.tenantId, leadId);
       await syncLeadMeetingNames(ctx, plan.tenantId, leadId, leadDisplayString(lead, identifiers));
       await syncCustomerSnapshot(ctx, plan.tenantId, leadId);
