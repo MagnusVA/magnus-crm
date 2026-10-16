@@ -122,6 +122,11 @@ const PLACEHOLDER_PHONE_DIGITS = new Set([
   "12345678901",
   "12123456789",
   "12345678945",
+  // Outside North America the pattern rule below doesn't apply, so these are
+  // listed: each was typed by several bookers (Tier D, polluted-lead split).
+  "61423567890",
+  "61234567891",
+  "912345678990",
 ]);
 
 /**
@@ -184,17 +189,25 @@ export function normalizePhone(rawValue: string): string | undefined {
   const digits = stripped.replace(/\D/g, "");
   if (digits.length < 7 || digits.length > 15) return undefined;
   // Common placeholders must never become shared identity keys.
-  if (/^(\d)\1+$/.test(digits) || PLACEHOLDER_PHONE_DIGITS.has(digits)) return undefined;
+  if (isPlaceholderPhone(rawValue)) return undefined;
+  return formatE164(stripped);
+}
 
+/**
+ * True for a number `normalizePhone` rejects as a placeholder, as opposed to
+ * one it can't read. Cleanup uses this to clear only fake values.
+ */
+export function isPlaceholderPhone(rawValue: string): boolean {
+  const stripped = stripPhoneFormatting(rawValue);
+  const digits = stripped.replace(/\D/g, "");
+  if (digits.length < 7 || digits.length > 15) return false;
+  if (/^(\d)\1+$/.test(digits) || PLACEHOLDER_PHONE_DIGITS.has(digits)) return true;
   const normalized = formatE164(stripped);
-  if (
-    !normalized ||
-    PLACEHOLDER_PHONE_DIGITS.has(normalized.slice(1)) ||
-    isFakeNorthAmericanNumber(normalized)
-  ) {
-    return undefined;
-  }
-  return normalized;
+  return (
+    normalized !== undefined &&
+    (PLACEHOLDER_PHONE_DIGITS.has(normalized.slice(1)) ||
+      isFakeNorthAmericanNumber(normalized))
+  );
 }
 
 function formatE164(stripped: string): string | undefined {
@@ -263,13 +276,23 @@ const PLACEHOLDER_SOCIAL_HANDLES = new Set([
   "-",
   "...",
   ".",
+  "test",
 ]);
 const MIN_HANDLE_ALPHANUMERICS = 2;
 
 function rejectPlaceholderHandle(handle: string): string | undefined {
-  if (PLACEHOLDER_SOCIAL_HANDLES.has(handle)) return undefined;
+  return isPlaceholderHandle(handle) ? undefined : handle;
+}
+
+/**
+ * True for a handle `normalizeSocialHandle` rejects as a placeholder answer.
+ *
+ * @param handle A normalized handle: lowercase, without a leading @.
+ */
+export function isPlaceholderHandle(handle: string): boolean {
+  if (PLACEHOLDER_SOCIAL_HANDLES.has(handle)) return true;
   const alphanumerics = handle.match(/[\p{L}\p{N}]/gu)?.length ?? 0;
-  return alphanumerics >= MIN_HANDLE_ALPHANUMERICS ? handle : undefined;
+  return alphanumerics < MIN_HANDLE_ALPHANUMERICS;
 }
 
 /**

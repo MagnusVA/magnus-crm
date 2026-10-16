@@ -32,13 +32,13 @@ export const AUDIT_STEP = {
 
 // Convex object fields can't start with "_", so the stored copy drops them;
 // the row's `docId` names the document.
-function withoutSystemFields(doc: Record<string, unknown>): Record<string, unknown> {
+export function withoutSystemFields(doc: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.entries(doc).filter(([key]) => !key.startsWith("_")));
 }
 
 // Convex drops undefined fields, so a cleared field is stored as null to keep
 // its name.
-function storedPatch(patch: Record<string, unknown>): Record<string, unknown> {
+export function storedPatch(patch: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(patch).map(([key, value]) => [key, value === undefined ? null : value]),
   );

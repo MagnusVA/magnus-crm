@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   isPlaceholderEmail,
+  isPlaceholderHandle,
+  isPlaceholderPhone,
   normalizePhone,
   normalizeSocialHandle,
 } from "./normalization";
@@ -61,6 +63,33 @@ describe("normalizePhone", () => {
   ])("does not apply the pattern rule to a %s number", (_, raw, expected) => {
     expect(normalizePhone(raw)).toBe(expected);
   });
+
+  it.each([
+    // Each typed by several bookers in production (Tier D).
+    "+61 423 567 890",
+    "+61 234 567 891",
+    "+91 2345678990",
+  ])("rejects the listed fake %s outside North America", (raw) => {
+    expect(normalizePhone(raw)).toBeUndefined();
+  });
+});
+
+describe("isPlaceholderPhone", () => {
+  it.each(["+1 234-567-8912", "1234567890", "+1 111-111-1111", "+61 423 567 890"])(
+    "flags the placeholder %s",
+    (raw) => {
+      expect(isPlaceholderPhone(raw)).toBe(true);
+    },
+  );
+
+  it.each([
+    ["a real number", "+1 778-955-9253"],
+    ["a number too short to read", "12345"],
+    ["text", "n/a"],
+    ["a sequence outside North America", "+46 70 123 45 67"],
+  ])("doesn't flag %s", (_, raw) => {
+    expect(isPlaceholderPhone(raw)).toBe(false);
+  });
 });
 
 describe("isPlaceholderEmail", () => {
@@ -116,8 +145,19 @@ describe("normalizeSocialHandle", () => {
     "@j",
     "_._",
     "instagram.com/g",
+    "test",
     "",
   ])("rejects the placeholder handle %j", (raw) => {
     expect(normalizeSocialHandle(raw, "instagram")).toBeUndefined();
+  });
+});
+
+describe("isPlaceholderHandle", () => {
+  it.each(["na", "g", "test", "-"])("flags %j", (handle) => {
+    expect(isPlaceholderHandle(handle)).toBe(true);
+  });
+
+  it.each(["jo", "campos.coachpro", "testing.coach"])("doesn't flag %j", (handle) => {
+    expect(isPlaceholderHandle(handle)).toBe(false);
   });
 });
