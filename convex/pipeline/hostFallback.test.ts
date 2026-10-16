@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
+import { bookingHarness, bookingPayload, mapEventTypeToProgram } from "../../tests/bookingHarness";
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
 import { insertLeadAggregate, insertOpportunityAggregate } from "../reporting/writeHooks";
 
@@ -129,11 +129,19 @@ it.each(paths.flatMap((path) => [
   expect(after.opportunity.status).toBe("scheduled");
 });
 
-it.each(["admin", "unknown", "unmatched_member"])(
-  "does not create a meeting without an eligible opportunity or closer (%s)",
-  async (host) => {
+it.each([
+  { host: "admin", mapped: false, outcome: { status: "ignored", reason: "non_closer_host" } },
+  { host: "admin", mapped: true, outcome: { status: "ignored", reason: "non_closer_host" } },
+  { host: "unknown", mapped: true, outcome: { status: "blocked", reason: "host_not_linked" } },
+  { host: "unmatched_member", mapped: true, outcome: { status: "blocked", reason: "host_not_linked" } },
+  { host: "unknown", mapped: false, outcome: { status: "ignored", reason: "unlinked_host_unmapped_event_type" } },
+  { host: "unmatched_member", mapped: false, outcome: { status: "ignored", reason: "unlinked_host_unmapped_event_type" } },
+])(
+  "does not create a meeting without an eligible opportunity or closer ($host, program event type: $mapped)",
+  async ({ host, mapped, outcome }) => {
     vi.useFakeTimers();
     const { t, tenantId, admin } = await bookingHarness();
+    const payload = bookingPayload("untracked");
     await t.run(async (ctx) => {
       const adminUser = await ctx.db.query("users")
         .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_admin")).unique();
@@ -149,8 +157,8 @@ it.each(["admin", "unknown", "unmatched_member"])(
           name: "Unmatched member",
           lastSyncedAt: Date.now(),
         });
+      if (mapped) await mapEventTypeToProgram(ctx, tenantId, payload.scheduled_event.event_type);
     });
-    const payload = bookingPayload("untracked");
     payload.scheduled_event.event_memberships[0].user = `https://api.calendly.com/users/${host}`;
     await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
       tenantId,
@@ -162,16 +170,73 @@ it.each(["admin", "unknown", "unmatched_member"])(
     const [receipt] = (await admin.query(api.pipeline.delivery.list, {
       paginationOpts: { cursor: null, numItems: 10 },
     })).page;
-    expect(receipt).toMatchObject(host === "admin"
-      ? { status: "ignored", reason: "non_closer_host" }
-      : { status: "blocked", reason: "host_not_linked" });
+    expect(receipt).toMatchObject(outcome);
     expect(await t.run((ctx) => ctx.db.query("meetings").take(1))).toHaveLength(0);
     expect(await t.run((ctx) => ctx.db.query("opportunities").take(1))).toHaveLength(0);
     // A booking the pipeline does not track leaves no lead or identifier behind.
     expect(await t.run((ctx) => ctx.db.query("leads").take(1))).toHaveLength(0);
     expect(await t.run((ctx) => ctx.db.query("leadIdentifiers").take(1))).toHaveLength(0);
+    // An ignored delivery's raw event is settled, so it raises no stuck-event alert.
+    const raw = await t.run((ctx) => ctx.db.get("rawWebhookEvents", receipt.rawEventId));
+    expect(raw?.processed).toBe(outcome.status === "ignored");
   },
 );
+
+it("ignores the cancel of an unlinked host's booking on an unmapped event type", async () => {
+  vi.useFakeTimers();
+  const { t, tenantId, admin } = await bookingHarness();
+  const payload = bookingPayload("untracked");
+  payload.scheduled_event.event_memberships[0].user = "https://api.calendly.com/users/unknown";
+  for (const eventType of ["invitee.created", "invitee.canceled"]) {
+    await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+      tenantId,
+      calendlyEventUri: payload.uri,
+      eventType,
+      payload: JSON.stringify({ payload }),
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  }
+  const { page } = await admin.query(api.pipeline.delivery.list, {
+    paginationOpts: { cursor: null, numItems: 10 },
+  });
+  expect(page.map((row) => [row.eventType, row.status, row.reason]).sort()).toEqual([
+    ["invitee.canceled", "ignored", "unlinked_host_unmapped_event_type"],
+    ["invitee.created", "ignored", "unlinked_host_unmapped_event_type"],
+  ]);
+});
+
+it("replays an unlinked host's ignored booking once the host is linked", async () => {
+  vi.useFakeTimers();
+  const { t, tenantId, admin } = await bookingHarness();
+  const payload = bookingPayload("unlinked-closer");
+  payload.scheduled_event.event_memberships[0].user = "https://api.calendly.com/users/new_closer";
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: "invitee.created",
+    payload: JSON.stringify({ payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const list = async () => (await admin.query(api.pipeline.delivery.list, {
+    paginationOpts: { cursor: null, numItems: 10 },
+  })).page;
+  const [ignored] = await list();
+  expect(ignored).toMatchObject({ status: "ignored", reason: "unlinked_host_unmapped_event_type" });
+  await t.run(async (ctx) => {
+    const closer = await ctx.db.query("users")
+      .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_closer")).unique();
+    await ctx.db.patch("users", closer!._id, {
+      calendlyUserUri: "https://api.calendly.com/users/new_closer",
+    });
+  });
+  await admin.mutation(api.pipeline.recovery.retry, {
+    manifest: await admin.query(api.pipeline.recovery.preview, { deliveryIds: [ignored._id] }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [replayed] = await list();
+  expect(replayed).toMatchObject({ status: "applied" });
+  expect(replayed.meetingId).toBeDefined();
+});
 
 it("attaches an admin-hosted booking to the lead's Slack-qualified opportunity without a new lead", async () => {
   vi.useFakeTimers();

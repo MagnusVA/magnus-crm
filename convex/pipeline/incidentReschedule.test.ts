@@ -19,7 +19,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { bookingHarness } from "../../tests/bookingHarness";
+import { bookingHarness, mapEventTypeToProgram } from "../../tests/bookingHarness";
 import { adoptRawDelivery } from "./receipts";
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
 
@@ -47,6 +47,8 @@ const invitee = (eventId: string, inviteeId: string) =>
   `${event(eventId)}/invitees/${inviteeId}`;
 
 /** Shape of a Calendly invitee webhook payload (only fields the pipeline reads, plus reschedule links). */
+const INCIDENT_EVENT_TYPE = "https://api.calendly.com/event_types/00000000-0000-4000-8000-0000000000e1";
+
 function inviteePayload(args: {
   eventId: string;
   inviteeId: string;
@@ -75,7 +77,7 @@ function inviteePayload(args: {
     tracking: { utm_campaign: null, utm_source: null, utm_medium: null, utm_content: null, utm_term: null },
     scheduled_event: {
       uri: event(args.eventId),
-      event_type: "https://api.calendly.com/event_types/00000000-0000-4000-8000-0000000000e1",
+      event_type: INCIDENT_EVENT_TYPE,
       name: "Check In Call",
       status: canceled ? "canceled" : "active",
       start_time: args.start,
@@ -106,6 +108,8 @@ async function setup() {
     const adminUser = await ctx.db.query("users")
       .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_admin")).unique();
     await ctx.db.patch("users", adminUser!._id, { calendlyUserUri: CRM_ADMIN.user });
+    // The incident's event type is a program's sales call, so an unlinked host's booking is held.
+    await mapEventTypeToProgram(ctx, tenantId, INCIDENT_EVENT_TYPE);
   });
 
   /** A live webhook: Calendly's envelope created_at is `createdAt`; we receive it ~0.6s later.

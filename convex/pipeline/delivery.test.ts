@@ -226,10 +226,13 @@ it("accepts Unicode and multiline question labels without dropping the booking",
 
 it("recovers a reviewed host failure once and rejects reuse of its preview", async () => {
   vi.useFakeTimers();
-  const { bookingHarness, bookingPayload } =
+  const { bookingHarness, bookingPayload, mapEventTypeToProgram } =
     await import("../../tests/bookingHarness");
   const { t, tenantId, admin } = await bookingHarness();
   const payload = bookingPayload("unlinked");
+  await t.run((ctx) =>
+    mapEventTypeToProgram(ctx, tenantId, payload.scheduled_event.event_type),
+  );
   payload.scheduled_event.event_memberships[0].user =
     "https://api.calendly.com/users/new-host";
   await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {

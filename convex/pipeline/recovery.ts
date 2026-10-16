@@ -7,6 +7,7 @@ import {
   type MutationCtx,
 } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
+import { UNLINKED_HOST_UNMAPPED_EVENT_TYPE } from "./bookingHost";
 import { enqueueDelivery } from "./delivery";
 import { deliveryStatus } from "./schema";
 
@@ -68,7 +69,13 @@ async function retryOne(
     row.reason !== item.reason
   )
     throw new Error("Recovery preview is stale");
-  if (row.status !== "blocked" && row.status !== "failed")
+  // A booking ignored for an unlinked host on an unmapped event type may be an
+  // unlinked closer's, so it can be replayed once the host is linked.
+  if (
+    row.status !== "blocked" &&
+    row.status !== "failed" &&
+    !(row.status === "ignored" && row.reason === UNLINKED_HOST_UNMAPPED_EVENT_TYPE)
+  )
     throw new Error("Only blocked or failed deliveries can be retried");
   const raw = await ctx.db.get("rawWebhookEvents", row.rawEventId);
   if (!raw || raw.tenantId !== tenantId)

@@ -59,8 +59,10 @@ import { log, reportError } from "../lib/observability/log";
 import {
 	bookingHostOutcome,
 	extractHostMembership,
+	isProgramEventType,
 	resolveAssignedCloser,
 	type AssignedCloserResolution,
+	type BookingHostOutcome,
 } from "./bookingHost";
 
 function parseTimestamp(value: unknown): number | undefined {
@@ -521,40 +523,27 @@ async function lookupEventTypeConfig(
 }
 
 /**
- * Records an invitee.created dropped because its host isn't a closer. A host
- * known to be a non-closer CRM user is routine. A Calendly member not linked
- * to any CRM user (`org_member_unmatched`) usually means a closer whose
- * Calendly account was never linked, so their booking is lost.
+ * Records an invitee.created dropped because its host isn't a closer: a host
+ * known to be a non-closer CRM user, or a host the CRM can't place on an event
+ * type not mapped to a program. Both are routine, so they're logged, not
+ * reported. `outcome` says which.
  */
 function logNonCloserHostSkip(
 	attrs: {
 		reason:
-			| "non_closer_host_without_lead"
 			| "non_closer_host_without_opportunity"
 			| "non_closer_host_untracked_reschedule";
+		outcome: BookingHostOutcome & { status: "ignored" };
 		tenantId: Id<"tenants">;
 		rawEventId: Id<"rawWebhookEvents">;
 		closerResolution: AssignedCloserResolution["resolution"];
 	} & Record<string, unknown>,
 ) {
-	if (attrs.closerResolution === "org_member_unmatched") {
-		reportError(
-			"pipeline.event_dropped",
-			new Error(
-				"invitee.created hosted by a Calendly member not linked to a CRM closer",
-			),
-			{
-				...attrs,
-				severity: "warning",
-				integration: "calendly",
-				fingerprint:
-					"pipeline.event_dropped:invitee.created:org_member_unmatched",
-				eventType: "invitee.created",
-			},
-		);
-		return;
-	}
-	log.info("pipeline.invitee_created.skipped", attrs);
+	const { outcome, ...rest } = attrs;
+	log.info("pipeline.invitee_created.skipped", {
+		...rest,
+		outcome: outcome.reason,
+	});
 }
 
 async function resolveEventTypeConfigId(
@@ -1105,10 +1094,14 @@ export const process = internalMutation({
 					.unique()
 			: null;
 		if (oldInvitee && !previousMeeting) {
-			const hostOutcome = bookingHostOutcome(assignedCloserResolution);
+			const hostOutcome = bookingHostOutcome(
+				assignedCloserResolution,
+				await isProgramEventType(ctx, tenantId, eventTypeUri),
+			);
 			if (hostOutcome.status === "ignored") {
 				logNonCloserHostSkip({
 					reason: "non_closer_host_untracked_reschedule",
+					outcome: hostOutcome,
 					tenantId,
 					rawEventId,
 					closerResolution: assignedCloserResolution.resolution,
@@ -1414,7 +1407,10 @@ export const process = internalMutation({
 				? assignedCloserId ?? existingFollowUp.assignedCloserId
 				: assignedCloserId;
 		if (!meetingAssignedCloserId) {
-			const hostOutcome = bookingHostOutcome(assignedCloserResolution);
+			const hostOutcome = bookingHostOutcome(
+				assignedCloserResolution,
+				await isProgramEventType(ctx, tenantId, eventTypeUri),
+			);
 			if (
 				!slackQualifiedOpportunity && !existingFollowUp &&
 				hostOutcome.status === "ignored"
@@ -1423,6 +1419,7 @@ export const process = internalMutation({
 				// this booking's writes: an untracked booking leaves no lead behind.
 				logNonCloserHostSkip({
 					reason: "non_closer_host_without_opportunity",
+					outcome: hostOutcome,
 					tenantId,
 					rawEventId,
 					closerResolution: assignedCloserResolution.resolution,
