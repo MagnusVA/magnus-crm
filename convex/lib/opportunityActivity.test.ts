@@ -223,6 +223,7 @@ describe("transitionOpportunity", () => {
     ["no_show", "canceled", "calendly_webhook"],
     ["canceled", "no_show", "calendly_webhook"],
     ["no_show", "canceled", "lead_split"],
+    ["canceled", "no_show", "lead_split_rollback"],
   ] as const)(
     "allows %s -> %s only for the %s exception",
     async (from, to, exception) => {

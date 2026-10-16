@@ -66,7 +66,7 @@ function isActiveLikeLeadStatus(status: Doc<"leads">["status"]): boolean {
   return status === "active";
 }
 
-function buildSocialHandles(
+export function buildSocialHandles(
   identifiers: Doc<"leadIdentifiers">[],
 ): NonNullable<Doc<"leads">["socialHandles"]> | undefined {
   const seen = new Set<string>();

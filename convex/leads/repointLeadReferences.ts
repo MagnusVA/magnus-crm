@@ -7,6 +7,8 @@
  *
  * - `moveOpportunityToLead` moves one opportunity and every row keyed by it
  *   or by its meetings.
+ * - `moveMeetingToOpportunity` moves one meeting to another opportunity, for
+ *   a deal that two people's bookings ended up on.
  * - `moveRemainingLeadRows` moves the rows keyed only by the lead. Run after
  *   the opportunities, it also catches rows whose copied `leadId` disagreed
  *   with their opportunity.
@@ -29,6 +31,7 @@ import type { MutationCtx } from "../_generated/server";
 import { computeLatestActivityAt } from "../lib/opportunityActivity";
 import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
 import { rebuildQualificationRow } from "../operations/projections";
+import { replaceMeetingAggregate } from "../reporting/writeHooks";
 
 // Far above any real count per opportunity, meeting, or lead. The most
 // polluted lead in production has 65 meetings across all its opportunities.
@@ -211,6 +214,134 @@ export async function moveOpportunityToLead(
     result.auditMatches += 1;
   }
 
+  return result;
+}
+
+// A meeting moves with every row keyed by it, or not at all.
+function requireComplete(rows: unknown[], meetingId: Id<"meetings">, what: string) {
+  if (rows.length > ROW_LIMIT) {
+    throw new Error(`Meeting ${meetingId} has more than ${ROW_LIMIT} ${what} and can't move`);
+  }
+}
+
+export type MeetingMoveResult = {
+  formResponses: number;
+  webhookDeliveries: number;
+  reassignments: number;
+};
+
+/**
+ * Moves one meeting to another opportunity, with the rows keyed by it: its
+ * form responses, webhook receipts and reassignment history, which take the
+ * new opportunity and its lead. `fields` sets the meeting fields that depend
+ * on its opportunity, such as `callClassification`. The meeting's aggregates
+ * and projection follow; the caller runs `updateOpportunityMeetingRefs` on
+ * both opportunities after its last move.
+ *
+ * A payment names the meeting it was taken on, and stays on its own
+ * opportunity, so a meeting with a payment doesn't move.
+ */
+export async function moveMeetingToOpportunity(
+  ctx: MutationCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    meetingId: Id<"meetings">;
+    toOpportunityId: Id<"opportunities">;
+    /** The new lead's display name (`leadDisplayString`). */
+    leadName: string;
+    fields?: Partial<
+      Pick<Doc<"meetings">, "callClassification" | "rescheduledFromMeetingId">
+    >;
+  },
+): Promise<MeetingMoveResult> {
+  const { tenantId, meetingId, toOpportunityId } = args;
+  const meeting = await ctx.db.get("meetings", meetingId);
+  if (!meeting || meeting.tenantId !== tenantId) {
+    throw new Error("Meeting not found");
+  }
+  const to = await ctx.db.get("opportunities", toOpportunityId);
+  if (!to || to.tenantId !== tenantId) {
+    throw new Error("Opportunity not found");
+  }
+
+  if (meeting.opportunityId !== toOpportunityId) {
+    const payments = await ctx.db
+      .query("paymentRecords")
+      .withIndex("by_opportunityId_and_recordedAt", (q) =>
+        q.eq("opportunityId", meeting.opportunityId),
+      )
+      .take(ROW_LIMIT + 1);
+    // Payments have no meeting index, so a partial read could miss one.
+    requireComplete(payments, meetingId, "payments on its opportunity");
+    if (payments.some((payment) => payment.meetingId === meetingId)) {
+      throw new Error(`Meeting ${meetingId} has a payment and can't move`);
+    }
+  }
+
+  await ctx.db.patch("meetings", meetingId, {
+    opportunityId: toOpportunityId,
+    leadName: args.leadName,
+    ...args.fields,
+  });
+  // Also mirrors the new opportunity's status onto the meeting.
+  await replaceMeetingAggregate(ctx, meeting, meetingId);
+
+  const result: MeetingMoveResult = {
+    formResponses: 0,
+    webhookDeliveries: 0,
+    reassignments: 0,
+  };
+  const responses = await ctx.db
+    .query("meetingFormResponses")
+    .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
+    .take(ROW_LIMIT + 1);
+  requireComplete(responses, meetingId, "form responses");
+  for (const response of responses) {
+    if (response.opportunityId === toOpportunityId && response.leadId === to.leadId) {
+      continue;
+    }
+    await ctx.db.patch("meetingFormResponses", response._id, {
+      opportunityId: toOpportunityId,
+      leadId: to.leadId,
+    });
+    result.formResponses += 1;
+  }
+
+  const deliveries = await ctx.db
+    .query("webhookDeliveries")
+    .withIndex("by_tenantId_and_inviteeUri_and_status", (q) =>
+      q.eq("tenantId", tenantId).eq("inviteeUri", meeting.calendlyInviteeUri),
+    )
+    .take(ROW_LIMIT + 1);
+  requireComplete(deliveries, meetingId, "webhook receipts");
+  for (const delivery of deliveries) {
+    if (delivery.meetingId !== meetingId) {
+      continue;
+    }
+    if (delivery.opportunityId === toOpportunityId && delivery.leadId === to.leadId) {
+      continue;
+    }
+    await ctx.db.patch("webhookDeliveries", delivery._id, {
+      opportunityId: toOpportunityId,
+      leadId: to.leadId,
+    });
+    result.webhookDeliveries += 1;
+  }
+
+  const reassignments = await ctx.db
+    .query("meetingReassignments")
+    .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
+    .take(ROW_LIMIT + 1);
+  requireComplete(reassignments, meetingId, "reassignments");
+  for (const reassignment of reassignments) {
+    if (reassignment.opportunityId === toOpportunityId) {
+      continue;
+    }
+    await ctx.db.patch("meetingReassignments", reassignment._id, {
+      opportunityId: toOpportunityId,
+    });
+    result.reassignments += 1;
+  }
   return result;
 }
 
