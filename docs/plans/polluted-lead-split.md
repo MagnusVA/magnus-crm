@@ -1,6 +1,6 @@
 # Polluted lead split: scope, attribution, and migration plan
 
-Status: Deploy 1 (the §5.0 guards) shipped in #95, and Deploy 2 in #98 (staging, §5.1 to §5.5) and #99 (apply, verification and rollback, §5.6 to §5.9). On 2026-10-16 the 4 Tier A plans and 15 Tier B plans were applied to production and verified (§8.1), and every held booking was settled (§8.2, §8.3). Next: the Tier D cleanup (§8.4), and the 24-hour recheck. The decisions on the open questions are recorded in §7.
+Status: Deploy 1 (the §5.0 guards) shipped in #95, and Deploy 2 in #98 (staging, §5.1 to §5.5) and #99 (apply, verification and rollback, §5.6 to §5.9). On 2026-10-16 the 4 Tier A plans and 15 Tier B plans were applied to production and verified (§8.1), every held booking was settled (§8.2, §8.3), and the Tier D cleanup ran (§8.4). `verifyTenant` shows 0 failures on every check. Next: the 24-hour recheck. The decisions on the open questions are recorded in §7.
 
 This file holds IDs and counts only; it contains no personal data. The working dataset (PII) stays in `/tmp` on the analyst's machine.
 
@@ -620,7 +620,11 @@ jh7cvjzw3sc0kwd74qtsyvg5d98a255k jh703615btd6hk19dm4v3v7q298e0gbe
 - `cleanLead` (mutation, one lead) takes a lead's identifier IDs and fields from a reviewed preview, and refuses if the lead's placeholders no longer match them. It deletes the identifiers and clears the fields, keeping real handles in `socialHandles`. It recomputes `searchText`, rebuilds the rows that copy the lead (opportunity and lead/customer search, customer snapshot, meeting names, qualification rows), and emits `lead.placeholders_removed`. Each write is logged in `leadPlaceholderCleanups` with the document before.
 - `undoLead` re-creates the identifiers and restores the fields exactly. It refuses if a restored field has changed since, or if another lead now holds one of the identifiers.
 
-**Run.** Preview on production, review the list, then `cleanLead` per lead with `approvedBy`. Afterward, `verifyTenant` should show 0 for both placeholder checks.
+**Run (2026-10-16, after #106).** The production preview listed 199 leads and skipped none:
+- 16 leads with a placeholder identifier, 16 identifiers in all. Each lead also had the placeholder in a contact field: 2 `email`, 3 `socialHandles`, the rest `phone`.
+- 183 leads with a placeholder only in `phone`, which the guards had kept from becoming an identifier. 168 of them hold the booking form's example number `+1 234-567-8910`, 8 hold `+1 212-345-6789`, and 7 hold another listed fake.
+
+All 199 were approved by tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` and cleaned with `cleanLead`, with no failure. `leadPlaceholderCleanups` holds 215 rows (16 identifier deletes, 199 lead patches). A second preview lists nothing, and `verifyTenant` shows 0 failures on every check.
 
 ## Appendix A: IDs
 
