@@ -212,4 +212,22 @@ export const leadSplitTables = {
     .index("by_planId_and_personKey_and_step", ["planId", "personKey", "step"])
     // Rollback walks a plan's rows newest first, across persons.
     .index("by_planId_and_revertedAt", ["planId", "revertedAt"]),
+
+  // Undo log of the Tier D placeholder cleanup (§3.5): one row per identifier
+  // it deleted and per lead it patched, written in the same transaction.
+  leadPlaceholderCleanups: defineTable({
+    tenantId: v.id("tenants"),
+    leadId: v.id("leads"),
+    table: v.union(v.literal("leadIdentifiers"), v.literal("leads")),
+    docId: v.string(),
+    op: v.union(v.literal("delete"), v.literal("patch")),
+    /** The document before, without system fields. */
+    before: v.any(),
+    /** The patched fields, with cleared fields as null. */
+    after: v.optional(v.any()),
+    approvedBy: v.string(),
+    createdAt: v.number(),
+    /** Set when the cleanup of this lead has been undone. */
+    revertedAt: v.optional(v.number()),
+  }).index("by_leadId_and_revertedAt", ["leadId", "revertedAt"]),
 };

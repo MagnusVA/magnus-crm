@@ -1,6 +1,6 @@
 # Polluted lead split: scope, attribution, and migration plan
 
-Status: Deploy 1 (the §5.0 guards) shipped in #95, and Deploy 2 in #98 (staging, §5.1 to §5.5) and #99 (apply, verification and rollback, §5.6 to §5.9). On 2026-10-16 the 4 Tier A plans and 15 Tier B plans were applied to production and verified (§8.1). Recovery ran the same night (§8.2). Next: link the two Calendly hosts behind the 12 `host_not_linked` deliveries, the 24-hour recheck, and the Tier D cleanup. The decisions on the open questions are recorded in §7.
+Status: Deploy 1 (the §5.0 guards) shipped in #95, and Deploy 2 in #98 (staging, §5.1 to §5.5) and #99 (apply, verification and rollback, §5.6 to §5.9). On 2026-10-16 the 4 Tier A plans and 15 Tier B plans were applied to production and verified (§8.1), and every held booking was settled (§8.2, §8.3). Next: the Tier D cleanup (§8.4), and the 24-hour recheck. The decisions on the open questions are recorded in §7.
 
 This file holds IDs and counts only; it contains no personal data. The working dataset (PII) stays in `/tmp` on the analyst's machine.
 
@@ -580,8 +580,47 @@ Operator actions ran through `pipeline/recovery:retryAsOperator` and `leads/merg
 - **`t57c3dr68…`**: passed identity resolution, then blocked as `host_not_linked`. Its host is one of the two unlinked Calendly accounts.
 - **Two people with a Calendly lead and a Slack-qualified lead each.** Their bookings carried both the email and the handle, and both leads' names matched the booking.
   - `t575wsfm…`: `jh7f7pxz…` was merged into `jh7760jd…`. The merge's write on deal `js76n4pd…` was undone with `restoreMergedActivityTime`, and the retry applied: meeting `jn7ee7a84nphpv7vyqgfffg2b58gczzf` for 2026-10-16 19:00 UTC, on the Slack-qualified deal `js7eexyp40z3yzr8eszrahw06h8g81hy`.
-  - `t57cam0wcb…`: `jh7apgtz…` was merged into `jh7ccxj8…`, and deal `js7dhqx5…` restored. It stays held as `historical_booking_requires_review`: that deal was canceled 21 s after the booking arrived, which looks like a reschedule. The call (2026-10-14) has passed.
+  - `t57cam0wcb…`: `jh7apgtz…` was merged into `jh7ccxj8…`, and deal `js7dhqx5…` restored. It stayed held as `historical_booking_requires_review`, because that deal was canceled 21 s after the booking happened. §8.3 settles it.
 - **Verification afterward.** `verifyTenant` showed 0 failures except the Tier D placeholders (13 identifiers, 2 emails). The status counters match, and `assertLeadSplitPersonsApplied` plus both search-row asserts passed.
+
+### 8.3 Held bookings settled (2026-10-16)
+
+- **Unlinked hosts on event types with no program.** #104 ignores such a booking as `unlinked_host_unmapped_event_type` instead of holding it; on a program event type it's still held. The 13 `host_not_linked` deliveries (12 bookings and 1 cancel, from two coach calendars) were retried and are ignored.
+- **`t57cam0wcb…`.** The person booked a new slot at 09:13:23 and canceled the old one at 09:13:44; it isn't a Calendly reschedule. #105 judges a late booking by each deal's status when it happened, read from the deal's status changes. Deal `js7dhqx5…` was scheduled then, out of the booking's reach, so the retry applied as it would have in arrival order: new deal `js70n1bvxg2zqpaemkjcx1s6rx8g883y`, meeting `jn7bxmmyqsbrm7hvpjzr7xya998gcred` (2026-10-14 20:15 UTC), and `js7dhqx5…` stays canceled.
+- **Afterward.** No delivery is blocked, failed or queued, and no raw event is unprocessed. `verifyTenant` shows only the Tier D placeholders.
+
+### 8.4 Tier D cleanup
+
+On the 2026-10-16 data, the placeholder rules flag 13 identifiers on 13 leads and the canonical email of 2 of them. All are single-person leads (§3.5).
+
+**Detection.** Of the two §3.5 leads discovery missed:
+- `jh703aahrv3zdxjra744n3s49s8cyc8k` no longer holds the handle `j`; it has nothing to clean.
+- `jh7cfph9fczqhjwdkr9b1b727d8e13zb` holds `+61 423 567 890`, the AU example number: three different leads typed it on the booking form.
+
+Phone and handle answers typed on two or more leads gave three more placeholders. The pattern rule exempts numbers outside North America, so they are listed:
+- `+61 423 567 890`, on 3 leads
+- `+61 234 567 891`, on 2 leads; no lead holds it
+- `+91 2345678990`, on 2 leads; held by `jh7fj0w2bxkef2heqt5rrxd7rn892pv3`
+- the handle `test`, on 2 leads; held by `jh7bbnxjezkhn62c91wyfgtt1x8b4mm3`
+
+With them the rules flag 16 identifiers on 16 leads. The other 16 shared values are real: one person on two leads, which is the alias case.
+
+**Left for a decision.** 14 more phone identifiers outside North America pass the rules but read like example numbers: a run of 6 or more sequential digits, such as `+46 70 123 45 67`. Each is on one lead and was typed by no one else. The pattern rule keeps them on purpose (Q1), because real numbers in those countries can match. Leads:
+
+```
+jh7ftgwtf001c9ba0zsh7m4vcx8dss3h jh77d3q1kak2hz86a19bydbdan8cq9az jh7eggf73hk6m61qawtnda0rhd8cyy8f
+jh709b9203nkv5ptf9rs4kptmh85tgs8 jh79mk8kqt1q979eqem5z6qky98bsafk jh7f2n38fhv4jdeqah7dxqdvh98edbhh
+jh72zf2cpv2t38x4mb001tszn587cxsd jh71d0zs93t3aa5dnne88djkr58dzg35 jh708jfwhz9yedk37c753d3a1d8c7rv0
+jh7dy2977n7tytqjfp5sjqddsx88qqcf jh71pjdyzv1yry4jn6dt1w0wzd89b2vw jh7cbzj152gb1me0z6gpscrnq98e19wg
+jh7cvjzw3sc0kwd74qtsyvg5d98a255k jh703615btd6hk19dm4v3v7q298e0gbe
+```
+
+**Code** (`convex/leadSplit/placeholderCleanup.ts`):
+- `preview` (action) lists every lead holding a placeholder identifier or contact field (`email`, `phone`, `socialHandles`), read-only. It marks merged leads, split-locked leads, leads with an open split plan, and leads with more than 50 identifiers as skipped.
+- `cleanLead` (mutation, one lead) takes a lead's identifier IDs and fields from a reviewed preview, and refuses if the lead's placeholders no longer match them. It deletes the identifiers and clears the fields, keeping real handles in `socialHandles`. It recomputes `searchText`, rebuilds the rows that copy the lead (opportunity and lead/customer search, customer snapshot, meeting names, qualification rows), and emits `lead.placeholders_removed`. Each write is logged in `leadPlaceholderCleanups` with the document before.
+- `undoLead` re-creates the identifiers and restores the fields exactly. It refuses if a restored field has changed since, or if another lead now holds one of the identifiers.
+
+**Run.** Preview on production, review the list, then `cleanLead` per lead with `approvedBy`. Afterward, `verifyTenant` should show 0 for both placeholder checks.
 
 ## Appendix A: IDs
 
