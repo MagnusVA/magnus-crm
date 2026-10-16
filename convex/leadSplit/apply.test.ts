@@ -612,6 +612,7 @@ describe("probeDelivery", () => {
       resolvesToOneLead: true,
       // So the pipeline won't hold the booking as historical.
       newerOpportunityIds: [],
+      tooManyOpportunities: false,
     });
   });
 });
