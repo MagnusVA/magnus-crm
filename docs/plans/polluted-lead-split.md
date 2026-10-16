@@ -618,11 +618,13 @@ With them the rules flag 16 identifiers on 16 leads. The other 16 shared values 
 - `cleanLead` (mutation, one lead) takes a lead's identifier IDs and fields from a reviewed preview, and refuses if the lead's placeholders no longer match them. It deletes the identifiers and clears the fields, keeping real handles in `socialHandles`. It recomputes `searchText`, rebuilds the rows that copy the lead (opportunity and lead/customer search, customer snapshot, meeting names, qualification rows), and emits `lead.placeholders_removed`. Each write is logged in `leadPlaceholderCleanups` with the document before.
 - `undoLead` re-creates the identifiers and restores the fields exactly. It refuses if a restored field has changed since, or if another lead now holds one of the identifiers.
 
-**Run (2026-10-16, after #106).** The production preview listed 199 leads and skipped none:
+**First run (2026-10-16, #106's rules).** The production preview listed 199 leads and skipped none:
 - 16 leads with a placeholder identifier, 16 identifiers in all. Each lead also had the placeholder in a contact field: 2 `email`, 3 `socialHandles`, the rest `phone`.
 - 183 leads with a placeholder only in `phone`, which the guards had kept from becoming an identifier. 168 of them hold the booking form's example number `+1 234-567-8910`, 8 hold `+1 212-345-6789`, and 7 hold another listed fake.
 
-All 199 were approved by tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` and cleaned with `cleanLead`, with no failure. `leadPlaceholderCleanups` holds 215 rows (16 identifier deletes, 199 lead patches). A second preview lists nothing, and `verifyTenant` shows 0 failures on every check.
+All 199 were approved by tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` and cleaned with `cleanLead`, with no failure. `leadPlaceholderCleanups` holds 215 rows (16 identifier deletes, 199 lead patches). Under #106's rules a second preview listed nothing, and `verifyTenant` showed 0 failures on every check.
+
+**Second run (after #108).** #108 adds the 12 reviewed numbers below, so the preview should list those 12 leads, each with one phone identifier and the `phone` field. Pending.
 
 ## Appendix A: IDs
 
