@@ -22,6 +22,7 @@ import type { Id } from "../_generated/dataModel";
 import { bookingHarness } from "../../tests/bookingHarness";
 import { adoptRawDelivery } from "./receipts";
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
+import { transitionOpportunity } from "../lib/opportunityActivity";
 
 afterEach(() => vi.useRealTimers());
 
@@ -567,6 +568,27 @@ it.each(["in arrival order", "after the cancel"] as const)(
     expect(await h.counts()).toEqual({ meetings: 2, opportunities: 2, leads: 1 });
   },
 );
+
+it("incident C: a late booking doesn't take a deal that became a follow-up after it", async () => {
+  const h = await setup();
+  const { old, rebooked } = incidentCPayloads();
+  await h.deliver("invitee.created", old, "2026-10-14T01:00:23Z");
+  const { opportunityId } = await h.receipt("invitee.created", old);
+  // The closer schedules a follow-up on the old deal after the rebooking happened.
+  const at = Date.parse("2026-10-14T10:00:00Z");
+  vi.setSystemTime(Math.max(Date.now(), at));
+  await h.t.run((ctx) => transitionOpportunity(ctx, opportunityId!, {
+    to: "follow_up_scheduled", source: "closer", occurredAt: at, fields: { updatedAt: at },
+  }));
+  await h.deliver("invitee.created", rebooked, "2026-10-14T09:13:23Z");
+  const receipt = await h.receipt("invitee.created", rebooked);
+  expect(receipt).toMatchObject({ status: "applied" });
+  expect(receipt.opportunityId).not.toBe(opportunityId);
+  expect(await dealShapes(h)).toEqual([
+    { status: "follow_up_scheduled", meetings: [`${old.scheduled_event.uri}:scheduled`] },
+    { status: "scheduled", meetings: [`${rebooked.scheduled_event.uri}:scheduled`] },
+  ]);
+});
 
 it("incident C guard: a booking stays held when a deal it could have taken changed after it", async () => {
   const h = await setup();
