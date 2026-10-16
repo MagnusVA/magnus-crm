@@ -915,10 +915,19 @@ it("merges as an operator only on behalf of a user who may merge", async () => {
       isActive: true,
     }),
   }));
+  const sameTenantUser = (fields: Pick<Doc<"users">, "role" | "isActive">, workosUserId: string) =>
+    t.run((ctx) =>
+      ctx.db.insert("users", { tenantId, workosUserId, email: `${workosUserId}@example.com`, ...fields }),
+    );
+  const inactiveAdminId = await sameTenantUser({ role: "tenant_admin", isActive: false }, "user_inactive");
+  const leadGeneratorId = await sameTenantUser({ role: "lead_generator", isActive: true }, "user_lead_gen");
   const args = { tenantId, sourceLeadId: ids.sourceLeadId, targetLeadId: ids.targetLeadId };
-  await expect(
-    t.mutation(internal.leads.merge.mergeLeadAsOperator, { ...args, actorUserId: ids.otherTenantUserId }),
-  ).rejects.toThrow("The actor must be an active user who can merge leads");
+  // Another tenant's admin, an inactive admin, and a role that can't merge.
+  for (const actorUserId of [ids.otherTenantUserId, inactiveAdminId, leadGeneratorId]) {
+    await expect(
+      t.mutation(internal.leads.merge.mergeLeadAsOperator, { ...args, actorUserId }),
+    ).rejects.toThrow("The actor must be an active user who can merge leads");
+  }
 
   await t.mutation(internal.leads.merge.mergeLeadAsOperator, { ...args, actorUserId: ids.adminId });
   const state = await t.run(async (ctx) => ({
