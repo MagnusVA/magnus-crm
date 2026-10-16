@@ -136,6 +136,7 @@ export async function resolveAssignedCloser(
  * unlinked closer on an unmapped event type lands here too.
  */
 export const UNLINKED_HOST_UNMAPPED_EVENT_TYPE = "unlinked_host_unmapped_event_type";
+const MAX_EVENT_TYPE_CONFIGS = 8;
 
 /**
  * What a booking without an opportunity to fall back on gets from its host:
@@ -143,8 +144,8 @@ export const UNLINKED_HOST_UNMAPPED_EVENT_TYPE = "unlinked_host_unmapped_event_t
  * - `ignored`: a host known not to be a closer, or a host the CRM can't place
  *   on an event type not mapped to a program. Nothing to review.
  * - `blocked`: a host the CRM can't place (a Calendly member not linked to a
- *   CRM user, or no known host) on a program event type. Often an unlinked
- *   closer, so it's held for review.
+ *   CRM user, or no known host) on a program event type, or on one it can't
+ *   tell. Often an unlinked closer, so it's held for review.
  */
 export type BookingHostOutcome =
 	| { status: "closer"; assignedCloserId: Id<"users"> }
@@ -154,9 +155,10 @@ export type BookingHostOutcome =
 	  }
 	| { status: "blocked"; reason: "host_not_linked" };
 
+/** `programEventType` is undefined when it can't be told (see `isProgramEventType`). */
 export function bookingHostOutcome(
 	resolution: AssignedCloserResolution,
-	programEventType: boolean,
+	programEventType: boolean | undefined,
 ): BookingHostOutcome {
 	if (resolution.assignedCloserId)
 		return { status: "closer", assignedCloserId: resolution.assignedCloserId };
@@ -165,7 +167,7 @@ export function bookingHostOutcome(
 		resolution.resolution !== "org_member_unmatched"
 	)
 		return { status: "ignored", reason: "non_closer_host" };
-	if (!programEventType)
+	if (programEventType === false)
 		return { status: "ignored", reason: UNLINKED_HOST_UNMAPPED_EVENT_TYPE };
 	return { status: "blocked", reason: "host_not_linked" };
 }
@@ -173,21 +175,24 @@ export function bookingHostOutcome(
 /**
  * Whether a booking's Calendly event type is mapped to a program. With
  * duplicate configs for one event type, any mapped one counts, so a booking
- * that might be a sales call is held rather than ignored.
+ * that might be a sales call is held rather than ignored. Undefined when it
+ * can't be told: the payload names no event type, or there are more configs
+ * than this reads.
  */
 export async function isProgramEventType(
 	ctx: MutationCtx,
 	tenantId: Id<"tenants">,
 	eventTypeUri: string | undefined,
-) {
-	if (!eventTypeUri) return false;
+): Promise<boolean | undefined> {
+	if (!eventTypeUri) return undefined;
 	const configs = await ctx.db
 		.query("eventTypeConfigs")
 		.withIndex("by_tenantId_and_calendlyEventTypeUri", (q) =>
 			q.eq("tenantId", tenantId).eq("calendlyEventTypeUri", eventTypeUri),
 		)
-		.take(8);
-	return configs.some((config) => config.bookingProgramId !== undefined);
+		.take(MAX_EVENT_TYPE_CONFIGS + 1);
+	if (configs.some((config) => config.bookingProgramId !== undefined)) return true;
+	return configs.length > MAX_EVENT_TYPE_CONFIGS ? undefined : false;
 }
 
 /** Resolves and classifies the host of a Calendly invitee payload. Throws a

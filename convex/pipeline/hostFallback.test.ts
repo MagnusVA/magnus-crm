@@ -182,6 +182,25 @@ it.each([
   },
 );
 
+it("holds an unlinked host's booking whose payload names no event type", async () => {
+  vi.useFakeTimers();
+  const { t, tenantId, admin } = await bookingHarness();
+  const payload = bookingPayload("no-event-type");
+  payload.scheduled_event.event_memberships[0].user = "https://api.calendly.com/users/unknown";
+  const { event_type: _eventType, ...scheduledEvent } = payload.scheduled_event;
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: "invitee.created",
+    payload: JSON.stringify({ payload: { ...payload, scheduled_event: scheduledEvent } }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [receipt] = (await admin.query(api.pipeline.delivery.list, {
+    paginationOpts: { cursor: null, numItems: 10 },
+  })).page;
+  expect(receipt).toMatchObject({ status: "blocked", reason: "host_not_linked" });
+});
+
 it("ignores the cancel of an unlinked host's booking on an unmapped event type", async () => {
   vi.useFakeTimers();
   const { t, tenantId, admin } = await bookingHarness();
