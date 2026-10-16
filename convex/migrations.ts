@@ -19,6 +19,8 @@ import {
   replaceOperationsMeetingStats,
 } from "./operations/meetingStats";
 import { rebuildQualificationRow } from "./operations/projections";
+import { extractPerson, finalizePlan, movePerson } from "./leadSplit/apply";
+import { assertPersonApplied } from "./leadSplit/verify";
 import {
   expireStaleSlackOpportunity,
   isStaleSlackBacklog,
@@ -409,4 +411,28 @@ export const activateMeetingProjections = internalMutation({
     await ctx.db.patch("tenants", tenantId, { meetingProjectionVersion: 2 });
     return null;
   },
+});
+
+// Polluted-lead split, phase 5 (docs/plans/polluted-lead-split.md §5.6). Each
+// acts only on approved plans, one person or plan per transaction. Run in
+// this order, then the assert; `next` chains them:
+// npx convex run migrations:run '{"fn":"migrations:applyLeadSplitExtractions","next":["migrations:applyLeadSplitPersons","migrations:finalizeLeadSplitPlans"]}'
+// A run after a later approval needs `"reset": true`. Undo a plan with
+// leadSplit/rollback:rollbackPlan.
+export const applyLeadSplitExtractions = migrations.define({
+  table: "leadSplitPersons", batchSize: 1,
+  migrateOne: async (ctx, person) => { await extractPerson(ctx, person._id); },
+});
+export const applyLeadSplitPersons = migrations.define({
+  table: "leadSplitPersons", batchSize: 1,
+  migrateOne: async (ctx, person) => { await movePerson(ctx, person._id); },
+});
+export const finalizeLeadSplitPlans = migrations.define({
+  table: "leadSplitPlans", batchSize: 1,
+  migrateOne: async (ctx, plan) => { await finalizePlan(ctx, plan._id); },
+});
+// Tenant-wide checks run with leadSplit/verify:verifyTenant.
+export const assertLeadSplitPersonsApplied = migrations.define({
+  table: "leadSplitPersons", batchSize: 10,
+  migrateOne: async (ctx, person) => { await assertPersonApplied(ctx, person); },
 });

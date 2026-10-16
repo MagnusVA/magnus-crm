@@ -37,6 +37,7 @@ const REBUILDABLE: ReadonlySet<Doc<"leadSplitPlans">["status"]> = new Set([
   "needs_review",
   "approved",
   "dismissed",
+  "rolled_back",
 ] as const);
 const MATCH_LIMIT = 17;
 const MERGE_CHAIN_LIMIT = 5;

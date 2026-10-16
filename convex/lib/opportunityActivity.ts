@@ -166,6 +166,10 @@ const TRANSITION_EXCEPTIONS = {
   lead_split: {
     no_show: ["canceled"],
   },
+  // Rolling back a split undoes that move (§5.9).
+  lead_split_rollback: {
+    canceled: ["no_show"],
+  },
 } satisfies Record<
   string,
   Partial<Record<OpportunityStatus, OpportunityStatus[]>>

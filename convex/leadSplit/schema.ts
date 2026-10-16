@@ -102,6 +102,8 @@ export const leadSplitOpportunityPlanValidator = v.object({
   status: opportunityStatusValidator,
   /** The new opportunity takes the document's outcome fields (O1 exception). */
   inheritsOutcome: v.boolean(),
+  /** Set by apply on a `split_new` entry: the opportunity it created. */
+  newOpportunityId: v.optional(v.id("opportunities")),
 });
 export type LeadSplitOpportunityPlan = Infer<typeof leadSplitOpportunityPlanValidator>;
 
@@ -170,6 +172,7 @@ export const leadSplitTables = {
     /** The candidate persons merged into this one; just personKey if none. */
     candidateKeys: v.array(v.string()),
     role: leadSplitPersonRoleValidator,
+    /** For `new`, set by apply once the lead exists. */
     targetLeadId: v.optional(v.id("leads")),
     /** Set with merge_target_ambiguous: every lead the person's keys match. */
     mergeCandidateLeadIds: v.array(v.id("leads")),
@@ -178,6 +181,8 @@ export const leadSplitTables = {
     slackEventIds: v.array(v.id("slackQualificationEvents")),
     opportunityPlan: v.array(leadSplitOpportunityPlanValidator),
     canonical: leadSplitCanonicalValidator,
+    /** Apply's first pass is done: the target lead and split deals exist. */
+    extractedAt: v.optional(v.number()),
     status: v.union(
       v.literal("pending"),
       v.literal("applied"),
@@ -198,8 +203,13 @@ export const leadSplitTables = {
     op: v.union(v.literal("insert"), v.literal("patch"), v.literal("delete")),
     /** The full document before a patch or delete. */
     before: v.optional(v.any()),
-    /** The patched fields. */
+    /** The patched fields, with cleared fields as null. */
     after: v.optional(v.any()),
     createdAt: v.number(),
-  }).index("by_planId_and_personKey_and_step", ["planId", "personKey", "step"]),
+    /** Set when rollback has undone the row. */
+    revertedAt: v.optional(v.number()),
+  })
+    .index("by_planId_and_personKey_and_step", ["planId", "personKey", "step"])
+    // Rollback walks a plan's rows newest first, across persons.
+    .index("by_planId_and_revertedAt", ["planId", "revertedAt"]),
 };
