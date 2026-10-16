@@ -127,6 +127,20 @@ const PLACEHOLDER_PHONE_DIGITS = new Set([
   "61423567890",
   "61234567891",
   "912345678990",
+  // Example numbers typed by one booker each, reviewed one by one (Tier D):
+  // a country's published example number or a straight digit sequence.
+  "529876543210",
+  "431234567",
+  "6281234567890",
+  "447462345678",
+  "254712345678",
+  "61422345678",
+  "3593456789",
+  "46701234567",
+  "33234567891",
+  "493012345678",
+  "49234567891",
+  "41791234567",
 ]);
 
 /**
@@ -134,8 +148,8 @@ const PLACEHOLDER_PHONE_DIGITS = new Set([
  * 10-digit national number is fake when it contains an ascending or
  * descending run of SEQUENTIAL_RUN_MIN digits (2345678, 9876543), or when its
  * first REPEATED_GROUP_SPAN digits repeat one 3-digit group (234-234-234x).
- * Other country codes are exempt: the same patterns occur in real
- * Indonesian, Kenyan, and Swedish numbers.
+ * Other country codes are exempt: their numbering plans differ, and a real
+ * number can hold such a run, so fakes there are listed above one by one.
  */
 const SEQUENTIAL_RUN_MIN = 7;
 const REPEATED_GROUP_LENGTH = 3;

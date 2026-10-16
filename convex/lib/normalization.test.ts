@@ -57,9 +57,9 @@ describe("normalizePhone", () => {
   });
 
   it.each([
-    ["Indonesian", "+62 812-3456-7890", "+6281234567890"],
-    ["Kenyan", "+254 712 345 678", "+254712345678"],
-    ["Swedish", "+46 70 123 45 67", "+46701234567"],
+    // Both reviewed in Tier D and kept.
+    ["German", "+49 171 9876543", "+491719876543"],
+    ["UK", "+44 345 678 9101", "+443456789101"],
   ])("does not apply the pattern rule to a %s number", (_, raw, expected) => {
     expect(normalizePhone(raw)).toBe(expected);
   });
@@ -69,6 +69,19 @@ describe("normalizePhone", () => {
     "+61 423 567 890",
     "+61 234 567 891",
     "+91 2345678990",
+    // Reviewed one by one.
+    "+52 987 654 3210",
+    "+43 1 234567",
+    "+62 812-3456-7890",
+    "+44 7462 345678",
+    "+254 712 345678",
+    "+61 422 345 678",
+    "+359 34 567 89",
+    "+46 70 123 45 67",
+    "+33 2 34 56 78 91",
+    "+49 30 12345678",
+    "+49 234 567891",
+    "+41 79 123 45 67",
   ])("rejects the listed fake %s outside North America", (raw) => {
     expect(normalizePhone(raw)).toBeUndefined();
   });
@@ -86,7 +99,7 @@ describe("isPlaceholderPhone", () => {
     ["a real number", "+1 778-955-9253"],
     ["a number too short to read", "12345"],
     ["text", "n/a"],
-    ["a sequence outside North America", "+46 70 123 45 67"],
+    ["a sequence outside North America", "+49 171 9876543"],
   ])("doesn't flag %s", (_, raw) => {
     expect(isPlaceholderPhone(raw)).toBe(false);
   });
