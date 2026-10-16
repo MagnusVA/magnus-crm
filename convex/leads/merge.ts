@@ -308,6 +308,34 @@ export const mergeLead = mutation({
   },
 });
 
+/**
+ * The same merge, run from the CLI by an operator on a user's behalf. The
+ * user is named as `actorUserId`, checked for the roles `mergeLead` allows,
+ * and recorded as the one who merged.
+ */
+export const mergeLeadAsOperator = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    actorUserId: v.id("users"),
+    sourceLeadId: v.id("leads"),
+    targetLeadId: v.id("leads"),
+  },
+  returns: v.object({ targetLeadId: v.id("leads") }),
+  handler: async (ctx, { tenantId, actorUserId, sourceLeadId, targetLeadId }) => {
+    const actor = await ctx.db.get("users", actorUserId);
+    if (
+      !actor ||
+      actor.tenantId !== tenantId ||
+      !actor.isActive ||
+      !["tenant_master", "tenant_admin", "closer"].includes(actor.role)
+    ) {
+      throw new Error("The actor must be an active user who can merge leads");
+    }
+    await executeMerge(ctx, tenantId, actorUserId, sourceLeadId, targetLeadId);
+    return { targetLeadId };
+  },
+});
+
 async function executeMerge(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,

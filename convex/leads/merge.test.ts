@@ -892,3 +892,51 @@ it("merges a source at the opportunity bound into a busy target within Convex's 
     OPPORTUNITY_LIMIT * 3 * 3 + 2 * OPPORTUNITY_LIMIT * 3,
   );
 });
+
+it("merges as an operator only on behalf of a user who may merge", async () => {
+  const h = await setup();
+  const { t, tenantId } = h;
+  const ids = await t.run(async (ctx) => ({
+    sourceLeadId: await insertLead(ctx, tenantId, { fullName: "Sam One", email: "sam@x.com" }),
+    targetLeadId: await insertLead(ctx, tenantId, { fullName: "Sam One" }),
+    adminId: await userId(ctx, "user_admin"),
+    otherTenantUserId: await ctx.db.insert("users", {
+      tenantId: await ctx.db.insert("tenants", {
+        companyName: "Other",
+        contactEmail: "other@example.com",
+        workosOrgId: "org_other",
+        status: "active",
+        inviteExpiresAt: 0,
+        createdBy: "test",
+      }),
+      workosUserId: "user_other",
+      email: "other@example.com",
+      role: "tenant_admin",
+      isActive: true,
+    }),
+  }));
+  const sameTenantUser = (fields: Pick<Doc<"users">, "role" | "isActive">, workosUserId: string) =>
+    t.run((ctx) =>
+      ctx.db.insert("users", { tenantId, workosUserId, email: `${workosUserId}@example.com`, ...fields }),
+    );
+  const inactiveAdminId = await sameTenantUser({ role: "tenant_admin", isActive: false }, "user_inactive");
+  const leadGeneratorId = await sameTenantUser({ role: "lead_generator", isActive: true }, "user_lead_gen");
+  const args = { tenantId, sourceLeadId: ids.sourceLeadId, targetLeadId: ids.targetLeadId };
+  // Another tenant's admin, an inactive admin, and a role that can't merge.
+  for (const actorUserId of [ids.otherTenantUserId, inactiveAdminId, leadGeneratorId]) {
+    await expect(
+      t.mutation(internal.leads.merge.mergeLeadAsOperator, { ...args, actorUserId }),
+    ).rejects.toThrow("The actor must be an active user who can merge leads");
+  }
+
+  await t.mutation(internal.leads.merge.mergeLeadAsOperator, { ...args, actorUserId: ids.adminId });
+  const state = await t.run(async (ctx) => ({
+    source: await ctx.db.get("leads", ids.sourceLeadId),
+    target: await ctx.db.get("leads", ids.targetLeadId),
+    history: await ctx.db.query("leadMergeHistory").take(5),
+  }));
+  expect(state.source).toMatchObject({ status: "merged", mergedIntoLeadId: ids.targetLeadId });
+  // The target lacked an email, so the source's carries over, as in a merge from the app.
+  expect(state.target?.email).toBe("sam@x.com");
+  expect(state.history).toMatchObject([{ mergedByUserId: ids.adminId }]);
+});

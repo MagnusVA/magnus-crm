@@ -634,3 +634,34 @@ it("preserves legacy form answers when their keys are upgraded more than once", 
   expect(responses[0].answerText).toBe("Grow");
   expect(responses[0].fieldKey).toMatch(/^q_[a-f0-9]{64}$/);
 });
+
+it("retries as an operator only on behalf of an admin of the tenant", async () => {
+  vi.useFakeTimers();
+  const { bookingHarness } = await import("../../tests/bookingHarness");
+  const { t, tenantId, admin } = await bookingHarness();
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: "malformed",
+    eventType: "invitee.created",
+    payload: "{",
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [receipt] = (
+    await admin.query(api.pipeline.delivery.list, {
+      paginationOpts: { cursor: null, numItems: 1 },
+    })
+  ).page;
+  const users = await t.run((ctx) =>
+    ctx.db.query("users").withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)).take(10),
+  );
+  const adminId = users.find((user) => user.role === "tenant_admin")!._id;
+  const closerId = users.find((user) => user.role === "closer")!._id;
+  const args = { tenantId, deliveryIds: [receipt._id] };
+  await expect(
+    t.mutation(internal.pipeline.recovery.retryAsOperator, { ...args, actorUserId: closerId }),
+  ).rejects.toThrow("The actor must be an active admin of the tenant");
+
+  await t.mutation(internal.pipeline.recovery.retryAsOperator, { ...args, actorUserId: adminId });
+  const attempts = await t.run((ctx) => ctx.db.query("webhookRecoveryAttempts").take(5));
+  expect(attempts).toMatchObject([{ deliveryId: receipt._id, actorUserId: adminId, previousStatus: receipt.status }]);
+});
