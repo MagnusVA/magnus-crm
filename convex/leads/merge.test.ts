@@ -958,12 +958,24 @@ it("keeps a moved deal's activity time, and restores one a merge set", async () 
 
   // A deal a merge stamped before this change gets its time back.
   const mergedAt = (await t.run((ctx) => ctx.db.query("leadMergeHistory").take(1)))[0].mergedAt;
-  await t.run((ctx) => ctx.db.patch("opportunities", ids.opportunityId, { updatedAt: mergedAt }));
+  await t.run((ctx) =>
+    ctx.db.patch("opportunities", ids.opportunityId, { updatedAt: mergedAt, latestActivityAt: mergedAt }),
+  );
   const restore = (updatedAt: number) =>
     t.mutation(internal.leads.merge.restoreMergedActivityTime, { tenantId, opportunityId: ids.opportunityId, updatedAt });
   await expect(restore(mergedAt + 1)).rejects.toThrow("The restored time must be earlier");
+  await expect(restore(Number.NaN)).rejects.toThrow("The restored time must be finite");
   await restore(before!.updatedAt);
-  expect((await t.run((ctx) => ctx.db.get("opportunities", ids.opportunityId)))?.updatedAt).toBe(before!.updatedAt);
+  const restored = await t.run(async (ctx) => ({
+    opportunity: await ctx.db.get("opportunities", ids.opportunityId),
+    projection: await ctx.db
+      .query("opportunitySearch")
+      .withIndex("by_opportunityId", (q) => q.eq("opportunityId", ids.opportunityId))
+      .unique(),
+  }));
+  // The activity time and the search row that sorts by it follow.
+  expect(restored.opportunity).toMatchObject({ updatedAt: before!.updatedAt, latestActivityAt: before!.updatedAt });
+  expect(restored.projection?.latestActivityAt).toBe(before!.updatedAt);
   // Once restored, the deal's time is no longer a merge's write.
   await expect(restore(before!.updatedAt - 1)).rejects.toThrow("The deal's last update isn't a merge's write");
 });

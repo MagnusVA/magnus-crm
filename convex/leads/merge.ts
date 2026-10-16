@@ -361,6 +361,9 @@ export const restoreMergedActivityTime = internalMutation({
     if (!merges.some((merge) => merge.tenantId === tenantId && merge.mergedAt === opportunity.updatedAt)) {
       throw new Error("The deal's last update isn't a merge's write");
     }
+    if (!Number.isFinite(updatedAt)) {
+      throw new Error("The restored time must be finite");
+    }
     if (updatedAt >= opportunity.updatedAt || updatedAt < opportunity.createdAt) {
       throw new Error("The restored time must be earlier, and no earlier than the deal's creation");
     }
