@@ -22,16 +22,19 @@ type Reader = Pick<QueryCtx, "db">;
 const ROW_LIMIT = 200;
 
 /**
- * Throws unless an applied person's meetings, identifiers, form answers and
+ * Throws for a plan still applying, and unless an applied person's meetings, identifiers, form answers and
  * Slack events are on their target lead, and every deal apply rebuilt has
  * one `new` meeting, its earliest.
  */
 export async function assertPersonApplied(ctx: MutationCtx, person: Doc<"leadSplitPersons">) {
   const plan = await ctx.db.get("leadSplitPlans", person.planId);
-  if (!plan || plan.status !== "applied") return;
+  if (!plan) return;
   const fail = (message: string): never => {
     throw new Error(`Plan ${plan._id}, person ${person.personKey}: ${message}`);
   };
+  // A started plan that didn't finish must not pass as clean.
+  if (plan.status === "applying" || plan.status === "failed") fail(`plan is ${plan.status}`);
+  if (plan.status !== "applied") return;
   const targetLeadId = person.role === "original" ? plan.sourceLeadId : person.targetLeadId;
   if (!targetLeadId) fail("no target lead");
   if (person.status !== "applied") fail(`status is ${person.status}`);

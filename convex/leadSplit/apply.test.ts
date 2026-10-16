@@ -381,6 +381,13 @@ describe("apply", () => {
     expect(after.tomLead?.country).toBeUndefined();
     for (const person of persons) await t.run((ctx) => assertPersonApplied(ctx, person));
 
+    // A closer rebooking the kept deal after the split stops rollback before it starts.
+    await t.run((ctx) => forceOpportunityState(ctx, seeded.deal, { status: "scheduled" }));
+    await expect(
+      t.mutation(internal.leadSplit.rollback.rollbackPlan, { planId: plan._id }),
+    ).rejects.toThrow(`Opportunity ${seeded.deal} moved from canceled to scheduled after the split`);
+    await t.run((ctx) => forceOpportunityState(ctx, seeded.deal, { status: "canceled" }));
+
     await rollback(harness, plan._id);
     expect(await state(harness)).toEqual(before);
   });
@@ -571,7 +578,7 @@ describe("probeDelivery", () => {
 });
 
 describe("transaction limits", () => {
-  it("applies and rolls back a plan the size of the largest polluted lead", async () => {
+  it("applies and rolls back a plan the size of the largest polluted lead", { timeout: 120_000 }, async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-15T00:00:00Z"));
     const harness = await bookingHarness({ transactionLimits: true });

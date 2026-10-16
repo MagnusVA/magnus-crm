@@ -47,17 +47,26 @@ const ROLLBACK_STATUSES: ReadonlySet<Doc<"leadSplitPlans">["status"]> = new Set(
 
 type Touched = { leads: Set<Id<"leads">>; opportunities: Set<Id<"opportunities">> };
 
+/** A read that must be complete: past `limit` rows, rollback stops instead of guessing. */
+async function readAll<T>(query: { take(n: number): Promise<T[]> }, what: string, limit = ROW_LIMIT): Promise<T[]> {
+  const rows = await query.take(limit + 1);
+  if (rows.length > limit) throw new Error(`More than ${limit} ${what}; rollback can't check them all`);
+  return rows;
+}
+
 /**
- * Rollback must be able to undo every row once it starts, because each batch
- * commits. Before the first one, check that nothing landed after the split on
- * what the plan created or moved: a booking, follow-up, Slack event or
- * identifier on a new lead or deal, or a payment on a moved meeting.
+ * Rollback must be able to undo every row it reaches, because each batch
+ * commits. Before every batch, check that nothing changed since the split
+ * on what the plan created or moved: a booking, follow-up, payment, Slack
+ * event or identifier on a new lead or deal, or a kept deal whose status
+ * moved on. Each check matches a case where `revertRow` would throw.
  */
 async function checkNothingNewAttached(ctx: MutationCtx, plan: Doc<"leadSplitPlans">) {
-  const rows = await ctx.db
-    .query("leadSplitAudit")
-    .withIndex("by_planId_and_revertedAt", (q) => q.eq("planId", plan._id))
-    .take(AUDIT_ROW_LIMIT);
+  const rows = await readAll(
+    ctx.db.query("leadSplitAudit").withIndex("by_planId_and_revertedAt", (q) => q.eq("planId", plan._id)),
+    "audit rows",
+    AUDIT_ROW_LIMIT,
+  );
   const audited = (table: string) => new Set(rows.filter((row) => row.table === table).map((row) => row.docId));
   const [opportunities, meetings, identifiers, events] = [
     audited("opportunities"),
@@ -70,48 +79,71 @@ async function checkNothingNewAttached(ctx: MutationCtx, plan: Doc<"leadSplitPla
   };
   const { tenantId } = plan;
   for (const row of rows) {
+    if (row.table === "opportunities" && row.op === "patch" && row.revertedAt === undefined) {
+      // A kept deal's status goes back only from the status apply gave it.
+      const appliedStatus = (row.after as { status?: OpportunityStatus } | undefined)?.status;
+      const opportunity = appliedStatus ? await ctx.db.get("opportunities", row.docId as Id<"opportunities">) : null;
+      if (opportunity && opportunity.status !== appliedStatus) {
+        throw new Error(
+          `Opportunity ${opportunity._id} moved from ${appliedStatus} to ${opportunity.status} after the split. Resolve it before rolling back.`,
+        );
+      }
+    }
     if (row.op !== "insert") continue;
     if (row.table === "leads") {
       const leadId = row.docId as Id<"leads">;
-      for (const opportunity of await ctx.db
-        .query("opportunities")
-        .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
-        .take(ROW_LIMIT)) {
-        if (!opportunities.has(opportunity._id)) stop("Opportunity", opportunity._id, `new lead ${leadId}`);
+      const on = `new lead ${leadId}`;
+      for (const opportunity of await readAll(
+        ctx.db.query("opportunities").withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId)),
+        `opportunities on ${on}`,
+      )) {
+        if (!opportunities.has(opportunity._id)) stop("Opportunity", opportunity._id, on);
       }
-      for (const identifier of await ctx.db
-        .query("leadIdentifiers")
-        .withIndex("by_leadId", (q) => q.eq("leadId", leadId))
-        .take(ROW_LIMIT)) {
-        if (!identifiers.has(identifier._id)) stop("Identifier", identifier._id, `new lead ${leadId}`);
+      for (const identifier of await readAll(
+        ctx.db.query("leadIdentifiers").withIndex("by_leadId", (q) => q.eq("leadId", leadId)),
+        `identifiers on ${on}`,
+      )) {
+        if (!identifiers.has(identifier._id)) stop("Identifier", identifier._id, on);
       }
-      for (const event of await ctx.db
-        .query("slackQualificationEvents")
-        .withIndex("by_tenantId_and_leadId_and_submittedAt", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
-        .take(ROW_LIMIT)) {
+      for (const event of await readAll(
+        ctx.db
+          .query("slackQualificationEvents")
+          .withIndex("by_tenantId_and_leadId_and_submittedAt", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId)),
+        `Slack events on ${on}`,
+      )) {
         // An event on a moved deal moved with it.
         const withDeal = event.opportunityId !== undefined && opportunities.has(event.opportunityId);
-        if (!events.has(event._id) && !withDeal) stop("Slack event", event._id, `new lead ${leadId}`);
+        if (!events.has(event._id) && !withDeal) stop("Slack event", event._id, on);
       }
     }
     if (row.table === "opportunities") {
       const opportunityId = row.docId as Id<"opportunities">;
-      for (const meeting of await ctx.db
-        .query("meetings")
-        .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunityId))
-        .take(ROW_LIMIT)) {
-        if (!meetings.has(meeting._id)) stop("Meeting", meeting._id, `new opportunity ${opportunityId}`);
+      const on = `new opportunity ${opportunityId}`;
+      for (const meeting of await readAll(
+        ctx.db.query("meetings").withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunityId)),
+        `meetings on ${on}`,
+      )) {
+        if (!meetings.has(meeting._id)) stop("Meeting", meeting._id, on);
       }
       const followUp = await ctx.db
         .query("followUps")
         .withIndex("by_opportunityId_and_status_and_reason", (q) => q.eq("opportunityId", opportunityId))
         .first();
-      if (followUp) stop("Follow-up", followUp._id, `new opportunity ${opportunityId}`);
+      if (followUp) stop("Follow-up", followUp._id, on);
+      // Payments are taken on the meeting's deal, so this covers moved meetings.
       const payment = await ctx.db
         .query("paymentRecords")
         .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", opportunityId))
         .first();
-      if (payment) stop("Payment", payment._id, `new opportunity ${opportunityId}`);
+      if (payment) stop("Payment", payment._id, on);
+      for (const event of await readAll(
+        ctx.db
+          .query("slackQualificationEvents")
+          .withIndex("by_tenantId_and_opportunityId", (q) => q.eq("tenantId", tenantId).eq("opportunityId", opportunityId)),
+        `Slack events on ${on}`,
+      )) {
+        if (!events.has(event._id)) stop("Slack event", event._id, on);
+      }
     }
   }
 }
@@ -254,6 +286,10 @@ async function revertRow(ctx: MutationCtx, plan: Doc<"leadSplitPlans">, row: Doc
       return;
     }
     const { status, ...fields } = restore as OpportunityFieldsPatch & { status?: OpportunityStatus };
+    const appliedStatus = (row.after as { status?: OpportunityStatus }).status;
+    if (appliedStatus && opportunity.status !== appliedStatus) {
+      throw new Error(`Opportunity ${opportunityId} moved on from ${appliedStatus} after the split`);
+    }
     if (status && status !== opportunity.status) {
       await transitionOpportunity(ctx, opportunityId, {
         to: status,
@@ -332,11 +368,7 @@ export const rollbackPlan = internalMutation({
     if (!ROLLBACK_STATUSES.has(plan.status)) {
       throw new Error(`A ${plan.status} plan has nothing to roll back`);
     }
-    const startedAlready = await ctx.db
-      .query("leadSplitAudit")
-      .withIndex("by_planId_and_revertedAt", (q) => q.eq("planId", plan._id).gt("revertedAt", 0))
-      .first();
-    if (!startedAlready) await checkNothingNewAttached(ctx, plan);
+    await checkNothingNewAttached(ctx, plan);
 
     const batchSize = Math.max(1, Math.min(args.batchSize ?? DEFAULT_BATCH_SIZE, 100));
     const rows = await ctx.db
@@ -360,10 +392,10 @@ export const rollbackPlan = internalMutation({
     for (const leadId of touched.leads) {
       const lead = await ctx.db.get("leads", leadId);
       if (!lead) continue;
-      const identifiers = await ctx.db
-        .query("leadIdentifiers")
-        .withIndex("by_leadId", (q) => q.eq("leadId", leadId))
-        .take(ROW_LIMIT);
+      const identifiers = await readAll(
+        ctx.db.query("leadIdentifiers").withIndex("by_leadId", (q) => q.eq("leadId", leadId)),
+        `identifiers on lead ${leadId}`,
+      );
       await recomputeLeadCopies(ctx, lead, identifiers);
       await refreshOpportunitySearchForLead(ctx, plan.tenantId, leadId);
       await syncLeadMeetingNames(ctx, plan.tenantId, leadId, leadDisplayString(lead, identifiers));

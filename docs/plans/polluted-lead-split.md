@@ -409,7 +409,7 @@ A rerun after a later approval needs `"reset": true`. A split document only move
 
 **Idempotency.** A batch that throws rolls back whole, audit rows included. `extractedAt` and person and plan statuses make every step safe to rerun, and a failed run resumes where it stopped.
 
-**Failure.** A throw stops the whole chain, and every plan already started stays `applying` with its leads locked, so bookings for those people block as `identity_conflict`. Run `preflight` on every approved plan immediately before starting. If a run stops, fix the cause and rerun, or roll the plan back; either way, retry the blocked deliveries afterwards.
+**Failure.** A throw stops the whole chain. Plans finalized before it stay `applied` and unlocked. Plans that started and didn't finalize stay `applying` with their leads locked, so bookings for those people block as `identity_conflict`. Run `preflight` on every approved plan immediately before starting. If a run stops, check each plan's status, then fix the cause and rerun, or roll the unfinished plans back. Either way, retry the blocked deliveries afterward.
 
 **Transaction size.** Tested with transaction limits on, a plan shaped like `jh74vyt5…` (53 people, 28 deals, 65 meetings, 434 form answers) applies and rolls back inside Convex's limits (`apply.test.ts`).
 
@@ -427,7 +427,7 @@ A rerun after a later approval needs `"reset": true`. A split document only move
 
 The code is in `convex/leadSplit/verify.ts`. Run the checks after the apply migrations, once the projection queue drains (status changes reach meetings through it), and again 24 hours later.
 
-- **`assertLeadSplitPersonsApplied`** is a migration over `leadSplitPersons`. For each person of an `applied` plan, it throws unless:
+- **`assertLeadSplitPersonsApplied`** is a migration over `leadSplitPersons`. It throws for any person of a plan still `applying` or `failed`. For each person of an `applied` plan, it throws unless:
   - each of the person's meetings is on an opportunity on their target lead, and mirrors that opportunity's status
   - their form answers point at that meeting's opportunity and lead
   - their identifiers (the ones not deleted as duplicates) and Slack events are on the target lead
@@ -458,7 +458,7 @@ The code is in `convex/leadSplit/verify.ts`. Run the checks after the apply migr
    - Inserted leads are deleted with their `leadTimeline` entry and lead/customer row, and `totalLeads` goes down.
    - Each batch ends with the refresh chain for every touched lead, and with meeting refs and qualification rows for every touched opportunity.
    - The last call resets the persons to `pending`, sets the plan to `rolled_back`, and emits `lead.split_rolled_back`. A rolled-back plan can be rebuilt.
-3. Rollback is only safe while nothing new has attached to what the split created, because each batch commits. Before undoing anything, it checks that nothing was added since: no unplanned opportunity, identifier or Slack event on a new lead, and no unplanned meeting, follow-up or payment on a new opportunity. It stops otherwise. The split lock covers the apply window; after finalize clears it, move any later rows off first.
+3. Rollback is only safe while nothing new has attached to what the split created, because each batch commits. Before every batch, it checks that nothing changed since the split: no unplanned opportunity, identifier or Slack event on a new lead; no unplanned meeting, follow-up, payment or Slack event on a new opportunity; and no kept deal whose status moved on from the one apply gave it. It stops otherwise, and a read past its bound stops it too. The split lock covers the apply window; after finalize clears it, move any later rows off first.
 4. Each batch recomputes a touched lead's `socialHandles` and `searchText` from its identifiers rather than restoring the stored copies.
 
 ### 5.10 Pipeline recovery after the split

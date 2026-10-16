@@ -230,11 +230,14 @@ async function firstSeenAt(
   return times.length > 0 ? Math.min(...times) : fallback;
 }
 
+// The lead's copies of its identifiers must see all of them.
 async function readLeadIdentifiers(ctx: MutationCtx, leadId: Id<"leads">) {
-  return await ctx.db
+  const identifiers = await ctx.db
     .query("leadIdentifiers")
     .withIndex("by_leadId", (q) => q.eq("leadId", leadId))
-    .take(ROW_LIMIT);
+    .take(ROW_LIMIT + 1);
+  if (identifiers.length > ROW_LIMIT) throw new Error(`Lead ${leadId} has more than ${ROW_LIMIT} identifiers`);
+  return identifiers;
 }
 
 async function lockLead(ctx: MutationCtx, scope: AuditScope, lead: Doc<"leads">) {
@@ -440,6 +443,9 @@ export async function extractPerson(
     await ctx.db.patch("leadSplitPlans", plan._id, { status: "applying", updatedAt: now });
   }
   const source = await getLead(ctx, plan.tenantId, plan.sourceLeadId);
+  if (source.splitLockedAt !== undefined && !(await lockedByPlan(ctx, plan._id, source._id))) {
+    throw new Error(`Lead ${source._id} is locked by another split. Apply that plan first.`);
+  }
   await lockLead(ctx, scope, source);
 
   let targetLeadId: Id<"leads">;
