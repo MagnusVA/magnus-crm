@@ -28,7 +28,6 @@
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
-import { computeLatestActivityAt } from "../lib/opportunityActivity";
 import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
 import { rebuildQualificationRow } from "../operations/projections";
 import { replaceMeetingAggregate } from "../reporting/writeHooks";
@@ -100,11 +99,12 @@ export async function moveOpportunityToLead(
     // Not `patchOpportunityLifecycle`: it rebuilds the new lead's
     // lead/customer row on every call, once per moved opportunity. Neither
     // field keys an aggregate; the caller rebuilds both leads' rows once.
+    // `updatedAt` stays: moving the deal to another lead isn't activity on
+    // it, and a newer `updatedAt` makes the pipeline hold every earlier
+    // booking for this person as historical_booking_requires_review.
     await ctx.db.patch("opportunities", opportunityId, {
       leadId: toLeadId,
       ...(clearsDuplicateFlag ? { potentialDuplicateLeadId: undefined } : {}),
-      updatedAt: now,
-      latestActivityAt: computeLatestActivityAt({ ...opportunity, updatedAt: now }),
     });
   }
   await upsertOpportunitySearchProjection(ctx, opportunityId);
