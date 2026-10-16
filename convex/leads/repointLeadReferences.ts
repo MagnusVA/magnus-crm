@@ -270,7 +270,9 @@ export async function moveMeetingToOpportunity(
       .withIndex("by_opportunityId_and_recordedAt", (q) =>
         q.eq("opportunityId", meeting.opportunityId),
       )
-      .take(ROW_LIMIT);
+      .take(ROW_LIMIT + 1);
+    // Payments have no meeting index, so a partial read could miss one.
+    requireComplete(payments, meetingId, "payments on its opportunity");
     if (payments.some((payment) => payment.meetingId === meetingId)) {
       throw new Error(`Meeting ${meetingId} has a payment and can't move`);
     }

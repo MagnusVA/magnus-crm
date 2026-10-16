@@ -1015,7 +1015,11 @@ export const preflight = internalQuery({
       const payments = await ctx.db
         .query("paymentRecords")
         .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", opportunityId))
-        .take(ROW_LIMIT);
+        .take(ROW_LIMIT + 1);
+      // Too many to check means apply would refuse to move this deal's meetings.
+      if (payments.length > ROW_LIMIT && entries.some((entry) => entry.kind === "split_new")) {
+        problems.push({ code: "payment_on_moving_meeting", opportunityId });
+      }
       for (const payment of payments) {
         if (payment.meetingId && moving.has(payment.meetingId)) {
           problems.push({ code: "payment_on_moving_meeting", opportunityId, meetingId: payment.meetingId });
