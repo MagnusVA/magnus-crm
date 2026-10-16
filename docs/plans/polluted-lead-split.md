@@ -1,6 +1,6 @@
 # Polluted lead split: scope, attribution, and migration plan
 
-Status: Deploy 1 (the §5.0 guards) shipped in #95, and Deploy 2 in #98 (staging, §5.1 to §5.5) and #99 (apply, verification and rollback, §5.6 to §5.9). On 2026-10-16 the 4 Tier A plans and 15 Tier B plans were applied to production and verified (§8.1). Next: restore the applied plans' activity times with `leadSplit/apply:restoreAppliedActivityTimes`, then retry the two restored deliveries (§5.10, §8.1); the 24-hour recheck; and the Tier D cleanup. The decisions on the open questions are recorded in §7.
+Status: Deploy 1 (the §5.0 guards) shipped in #95, and Deploy 2 in #98 (staging, §5.1 to §5.5) and #99 (apply, verification and rollback, §5.6 to §5.9). On 2026-10-16 the 4 Tier A plans and 15 Tier B plans were applied to production and verified (§8.1). Recovery ran the same night (§8.2). Next: link the two Calendly hosts behind the 12 `host_not_linked` deliveries, the 24-hour recheck, and the Tier D cleanup. The decisions on the open questions are recorded in §7.
 
 This file holds IDs and counts only; it contains no personal data. The working dataset (PII) stays in `/tmp` on the analyst's machine.
 
@@ -570,6 +570,18 @@ Verification after both:
 - `resourceAppliedIdentifiers` re-sourced the 1 identifier on plan `v17bnz36dtq0dz0xx5e4k1h8b18gct53`, after which `identifier_meeting_consistency` was 0.
 - **Retries held as historical.** Retrying `t57bkmwf…` and `t57c3dr68…` blocked both again as `historical_booking_requires_review`. On each lead, the only deal updated after the booking arrived was one the split had just written (`js7884jk…` and `js79z9qt…`); before the split those deals were last updated in June. All 91 deals the split touched still had the split's write time. Restoring activity times fixes both.
 - **Identity probe.** `t57bkmwf…` resolves to one lead, `jh79mptftd4b41487tdx3mqd6d8gcwnc` (split from `jh74vyt5…`), and `t57c3dr68…` to `jh75xm6m…`. In both, the lead's email is the booking's. Neither booking has a meeting or a recorded cancellation; they were for 2026-09-29 and 2026-10-10.
+
+### 8.2 Recovery (2026-10-16)
+
+Operator actions ran through `pipeline/recovery:retryAsOperator` and `leads/merge:mergeLeadAsOperator`, on behalf of tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9`.
+
+- **Activity times.** #101 restored the pre-split `updatedAt` on all 91 deals the split touched (`restoreAppliedActivityTimes` over the 19 applied plans). #102 stopped `moveOpportunityToLead` from setting `updatedAt` at all, for merges as well as splits.
+- **`t57bkmwf…`**: applied. Meeting `jn70hs54esv907xy2qy1zzxtzh8gc26v` on `js74rkaf1j3r97x4d289bybcjs8gc1ca`, lead `jh79mptf…`.
+- **`t57c3dr68…`**: passed identity resolution, then blocked as `host_not_linked`. Its host is one of the two unlinked Calendly accounts.
+- **Two people with a Calendly lead and a Slack-qualified lead each.** Their bookings carried both the email and the handle, and both leads' names matched the booking.
+  - `t575wsfm…`: `jh7f7pxz…` was merged into `jh7760jd…`. The merge's write on deal `js76n4pd…` was undone with `restoreMergedActivityTime`, and the retry applied: meeting `jn7ee7a84nphpv7vyqgfffg2b58gczzf` for 2026-10-16 19:00 UTC, on the Slack-qualified deal `js7eexyp40z3yzr8eszrahw06h8g81hy`.
+  - `t57cam0wcb…`: `jh7apgtz…` was merged into `jh7ccxj8…`, and deal `js7dhqx5…` restored. It stays held as `historical_booking_requires_review`: that deal was canceled 21 s after the booking arrived, which looks like a reschedule. The call (2026-10-14) has passed.
+- **Verification afterward.** `verifyTenant` showed 0 failures except the Tier D placeholders (13 identifiers, 2 emails). The status counters match, and `assertLeadSplitPersonsApplied` plus both search-row asserts passed.
 
 ## Appendix A: IDs
 
