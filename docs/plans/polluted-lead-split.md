@@ -1,6 +1,8 @@
 # Polluted lead split: scope, attribution, and migration plan
 
-Status: proposal, nothing applied. This file holds IDs and counts only; it contains no personal data. The working dataset (PII) stays in `/tmp` on the analyst's machine.
+Status: Deploy 1 (the §5.0 guards) shipped in #95. Deploy 2 is in progress: the staging half (§5.1 to §5.5) is built; apply, verification and rollback (§5.6 to §5.9) come next. Nothing has been applied to production. The decisions on the open questions are recorded in §7.
+
+This file holds IDs and counts only; it contains no personal data. The working dataset (PII) stays in `/tmp` on the analyst's machine.
 
 ## 1. Summary
 
@@ -15,7 +17,7 @@ Before commit 12e6a6e (2026-10-08), identity resolution used placeholder contact
 
 Four leads are polluted with certainty (Tier A). Together they hold **68 people**, **43 opportunities**, **85 meetings**, **2 customers**, and **2 payments**. Every meeting can be assigned to a person from data we already store, except 3 meetings that need a Calendly lookup. Another 22 leads (Tier B) show two people behind one lead. Most look like a setter reusing one email for a different invitee, or one person who changed handle or phone. Those need a human decision.
 
-Right now polluted leads cause 1 blocked `identity_conflict` delivery. They are also linked to 3 `legacy_delivery_requires_review` deliveries.
+On 2026-10-13, polluted leads caused 1 blocked `identity_conflict` delivery and were linked to 3 `legacy_delivery_requires_review` deliveries. #92 has since dismissed all four (§3.3).
 
 The plan:
 
@@ -58,7 +60,7 @@ Details:
   - 54 email identifiers belong to 53 people: one person used two emails, joined by a shared phone and handle.
   - The canonical email belongs to the first booker. The lead's `fullName` belongs to the booker of 2026-10-05.
   - The pipeline's reschedule heuristic attached most later bookers to an earlier person's canceled or no-show opportunity as "follow-up" meetings. So 20 of 28 opportunities mix 2 to 4 people.
-  - The customer `kn77j2h9e3m2jny53x454ckhhx8b48ev` was converted from opportunity `js7a0x914hakbyjn1brbw35nq989cc03`, winning meeting `jn78ecey1r3qr1m9p7jt0d8pkd8azd4j`. That meeting belongs to a different person from the lead's canonical email. So the customer and its payment `jx78kt0sr6497xkqtphttf1bpx8b5z8n` must move to that person's new lead.
+  - The customer `kn77j2h9e3m2jny53x454ckhhx8b48ev` was converted from opportunity `js7a0x914hakbyjn1brbw35nq989cc03`, winning meeting `jn78ecey1r3qr1m9p7jt0d8pkd8azd4j`. That meeting belongs to a different person from the lead's canonical email. Under the Q5 decision, that person is the original: they keep the lead, the customer, and its payment `jx78kt0sr6497xkqtphttf1bpx8b5z8n`. The first booker, who owns the canonical email, moves out.
   - 7 Slack qualification events on this lead name handles of 4 different split-out people.
   - 434 form-response rows.
 - **`jh75xm6m…`**
@@ -97,7 +99,7 @@ Details:
 | Meetings | 85: 39 change opportunity, 81 change lead |
 | Lead identifiers | 134: 121 move, 5 placeholder identifiers deleted |
 | `meetingFormResponses` rows to repoint (`leadId`, and `opportunityId` for moved meetings) | about 510 |
-| Customers | 2: 1 moves (`kn77j2h9…`), 1 stays (`kn75pt08…`) |
+| Customers | 2: both stay. On `jh74vyt5…` the customer's person becomes the original (O6) |
 | Payments | 2: no repointing needed (see rule O1) |
 | Follow-ups / lead notes / portal edits | 0 / 0 / 0 |
 | Slack qualification events (and their qualification rows) | 8 (IDs in Appendix A) |
@@ -112,7 +114,19 @@ For the 23 split opportunities, the outcome can be derived without guesswork:
 - For every person who doesn't own the latest meeting, that person's own latest meeting is canceled (31) or no-show (4). None of them has a completed meeting needing a judgment call.
 - The one `payment_received` opportunity stays with the owner of its latest (completed) meeting.
 
-### 3.3 Blocked deliveries tied to polluted leads
+### 3.3 Deliveries tied to polluted leads
+
+Update 2026-10-15: #92 dismissed all four deliveries below as part of the pre-#91 backlog. Each is now `ignored` with reason `dismissed_backlog`, and its raw payload is deleted 30 days after receipt:
+
+- `t577r54…` and `t57exp269…`: payloads already deleted. They can't be retried and are dropped from §5.10.
+- `t57c3dr68…`: payload deleted about 2026-10-20.
+- `t57bkmwf…`: payload deleted about 2026-11-09.
+
+Retrying either of the last two needs `pipeline/dismissal:restoreDismissedDeliveries` first, before its payload goes; that is a production write. A restored `t57bkmwf…` blocks again as `identity_conflict` until the split, because `jh74vyt5…` still holds a placeholder phone.
+
+On 2026-10-15, 9 deliveries are blocked: 7 `host_not_linked` and 2 `identity_conflict`. Neither conflict involves a Tier A or Tier B lead.
+
+The table as of 2026-10-13:
 
 | Delivery | Reason | Cause | Unblocked by |
 | --- | --- | --- | --- |
@@ -171,7 +185,7 @@ Across the tenant, 290 meetings carry the placeholder phone answer, spread over 
    - the normalized Instagram answer, or the identifier sourced from that meeting
 
    Placeholder keys never join clusters. If clusters share no key but have the same snapshot name and email domain, they are flagged "possible same person" and merged only after human approval.
-2. **Original person.** The person whose meeting sourced the lead's earliest identifier stays on the existing lead ID. In all four Tier A leads this is also the first booker.
+2. **Original person.** The person whose meeting sourced the lead's earliest identifier stays on the existing lead ID. In all four Tier A leads this is also the first booker. On a lead with a customer, the customer's person stays instead (Q5, §5.4).
 3. **Merge-in target.** If a moved person's non-placeholder keys already resolve to exactly one other active lead, that lead receives the person; this checks identifiers, plus `leads.by_tenantId_and_email` for canonical emails. If they resolve to more than one lead, the person is flagged for review.
 4. **Identifier ownership.**
    - An identifier goes to the person who owns its `sourceMeetingId`.
@@ -202,38 +216,88 @@ Without these, the split leads re-pollute on the next booking and the retried de
 
 ### 5.1 Widen: staging tables (Deploy 2; new tables, no backfill)
 
+The tables live in `convex/leadSplit/schema.ts`. Every row carries `tenantId`.
+
 | Table | Purpose | Key fields |
 | --- | --- | --- |
-| `leadSplitInviteeSnapshots` | Calendly invitee data per meeting | `tenantId`, `meetingId`, `inviteeUri`, `email?`, `name?`, `phone?`, `instagram?`, `httpStatus`, `fetchedAt`. Index `by_meetingId` |
-| `leadSplitPlans` | One per source lead | `tenantId`, `sourceLeadId`, `tier` (`A` \| `B`), `status` (`draft` \| `needs_review` \| `approved` \| `applying` \| `applied` \| `rolled_back` \| `failed`), `flags[]`, `approvedBy?`, `approvedAt?`, `planVersion` |
-| `leadSplitPersons` | One per person in a plan | `planId`, `personKey` (stable hash of sorted keys), `role` (`original` \| `new` \| `merge_into`), `targetLeadId?`, `meetingIds[]`, `identifierIds[]`, `opportunityPlan[]`, `canonical` (`email?`, `fullName?`, `phone?`, `customFields?`), `status` (`pending` \| `applied` \| `skipped`). Indexes `by_planId`, `by_status` |
-| `leadSplitAudit` | Append-only undo log | `planId`, `personKey`, `step`, `table`, `docId`, `op` (`insert` \| `patch` \| `delete`), `before?` (full document), `after?` (patched fields). Index `by_planId` |
+| `leadSplitInviteeSnapshots` | Calendly invitee data per meeting | `meetingId`, `inviteeUri`, `outcome` (`ok` \| `not_found` \| `http_error` \| `network_error` \| `invalid_uri`), `httpStatus?`, `email?`, `name?`, `phone?`, `social?` (`platform`, `handle`), `fetchedAt`. Index `by_meetingId` |
+| `leadSplitPlans` | One per source lead | `sourceLeadId`, `tier` (`A` \| `B`), `status` (`draft` \| `needs_review` \| `approved` \| `applying` \| `applied` \| `rolled_back` \| `failed` \| `dismissed`), `planVersion`, `discoveryReasons[]`, `flags[]`, `flagDetails[]` (IDs only), `placeholderIdentifierIds[]`, `unattributedMeetingIds[]`, `slackFieldsPersonKey?`, `overrides?`, `builtAt?`, `approvedBy?`, `approvedAt?`. Indexes `by_tenantId_and_sourceLeadId`, `by_tenantId_and_status` |
+| `leadSplitPersons` | One per person in a plan | `planId`, `planVersion`, `personKey`, `candidateKeys[]`, `role` (`original` \| `new` \| `merge_into`), `targetLeadId?`, `mergeCandidateLeadIds[]`, `meetingIds[]`, `identifierIds[]`, `slackEventIds[]`, `opportunityPlan[]`, `canonical` (`email?`, `fullName?`, `phone?`, `customFieldsMeetingId?`), `status` (`pending` \| `applied` \| `skipped`). Indexes `by_planId_and_personKey`, `by_planId_and_status` |
+| `leadSplitAudit` | Append-only undo log | `planId`, `personKey`, `step`, `table`, `docId`, `op` (`insert` \| `patch` \| `delete`), `before?` (full document), `after?` (patched fields), `createdAt`. Index `by_planId_and_personKey_and_step` |
+
+- `personKey` is `p_` plus the person's first meeting ID. A hash of the keys would change whenever a booking adds a key, which would orphan reviewer overrides.
+- Each `opportunityPlan` entry has `opportunityId`, `kind` (`whole` \| `keep_document` \| `split_new`), the person's `meetingIds` on it, `statusAtBuild`, the resulting `status`, and `inheritsOutcome`. Apply stops if a document's status has moved since the build.
+- `canonical.customFieldsMeetingId` names the meeting whose form answers become the lead's custom fields; apply rebuilds them from that meeting rather than storing a copy.
 
 The arrays are bounded by plan size: at most 65 meetings, under 120 identifiers, and the largest plan has 53 persons. Move them to child rows if a plan ever exceeds about 1000 entries.
 
 ### 5.2 Phase 1: discover (read-only)
 
-- `leadSplit/discover:listCandidatesPage` is an `internalQuery` with `paginationOpts`. It scans `leadIdentifiers` and `leads` and returns leads that:
+- `leadSplit/discover:listCandidatesPage` is an `internalQuery` with `paginationOpts` over the tenant's leads. For each lead it clusters the meetings from stored keys only (no snapshots) and returns leads that:
   - hold a placeholder key under the new guards, or
   - have meetings forming more than one key cluster, or
   - have more than one `calendly_booking` email identifier.
-- An `internalAction` drives it page by page and writes `leadSplitPlans` drafts through an internal mutation. It is idempotent per `sourceLeadId` and `planVersion`.
-- Staff and test leads are skipped by an explicit allowlist passed as an argument.
+- Each candidate gets a tier: `A` (more than one person and a placeholder key), `B` (more than one person, no placeholder), `D` (a placeholder key, one person), `alias` (several booking emails, one person), or `bounds` (too large to read).
+- `leadSplit/discover:discover` is an `internalAction` with arguments `{ tenantId, dryRun, excludeLeadIds?, pageSize? }`. It drives the query page by page and writes a `draft` plan for each Tier A and Tier B lead through `recordCandidates`. A lead that already has a plan keeps it, so a rerun creates nothing new. It returns every candidate, so Tier D and alias leads are reported without getting a plan.
+- Staff and test leads are skipped through `excludeLeadIds`, the 7 IDs in §3.5.
 
 ### 5.3 Phase 2: snapshot invitees (read-only on our data)
 
-- `leadSplit/snapshot:fetchInvitees` is an `internalAction` with arguments `{ planId, dryRun }`. Use the existing `getValidAccessToken` from `convex/calendly/tokens.ts`.
+- `leadSplit/snapshot:fetchInvitees` is an `internalAction` with arguments `{ planId, dryRun, limit?, refetch? }`. It loads `tenantId` from the plan and gets the token from `getValidAccessToken` in `convex/calendly/tokens.ts`. That helper may refresh the token, the same as the token cron does.
 - For each meeting of the plan's lead, it sends `GET meeting.calendlyInviteeUri`. It writes one `leadSplitInviteeSnapshots` row per meeting: an upsert by `meetingId`, so it's idempotent.
-- About 150 calls in total. Run sequentially with backoff on 429, using `calendlyHttpError` and `CALENDLY_FETCH_TIMEOUT_MS` from `convex/calendly/apiErrors.ts`.
+  - Meetings that already have an `ok` snapshot are skipped unless `refetch` is set, and a failed fetch never replaces an `ok` snapshot.
+  - With `dryRun` it fetches but stores nothing. `limit` caps the calls, so a dry run can probe one meeting.
+  - It returns counts and meeting IDs only, never invitee data.
+- The token only goes to `https://api.calendly.com/scheduled_events/<event>/invitees/<invitee>`, with redirects disabled (§6.1).
+- About 150 calls in total, run sequentially. 429, 5xx and network failures are retried up to 4 times with backoff, honoring `Retry-After`, with `CALENDLY_FETCH_TIMEOUT_MS` per call. Three 401 or 403 responses in a row stop the run; a single forbidden invitee doesn't.
+- The snapshot stores the invitee's email, name, phone (the mapped phone answer, or `text_reminder_number`), and handle.
 - If a meeting gets a 404 or no response, it is flagged `snapshot_missing` and falls back to the offline keys.
 
 ### 5.4 Phase 3: build plans (staging writes only)
 
-`leadSplit/plan:buildPlan` is an `internalMutation` with arguments `{ planId }`. It reads the lead, identifiers, opportunities, meetings, form responses, snapshots, customers, payments, follow-ups, Slack events, and audit matches, then writes `leadSplitPersons`. Rebuilding replaces the persons for a `draft` or `needs_review` plan and bumps `planVersion`. Rules:
+`leadSplit/plan:buildPlan` is an `internalMutation` with arguments `{ planId, dryRun, overrides? }`. The rules are in `convex/leadSplit/planner.ts`.
 
-- Persons, original, merge-in targets, and identifier ownership follow section 4.
+- It reads the lead, identifiers, opportunities, meetings, form responses, snapshots, customers, payments, follow-ups, and Slack events, then writes `leadSplitPersons`.
+- A build replaces the persons of a `draft`, `needs_review`, `approved` or `dismissed` plan, bumps `planVersion`, and clears any approval.
+- Reads are bounded per lead (`EVIDENCE_LIMITS` in `evidence.ts`, including totals of 300 meetings and 1,500 form answers). A lead past a bound is flagged `bounds_exceeded`, and discovery reports it as tier `bounds`.
+- The status after a build:
+  - `dismissed` when fewer than two persons remain
+  - `needs_review` for Tier B or any flag
+  - `draft` otherwise
+- With `dryRun` it writes nothing and returns the would-be counts and flags (§6.1).
+
+Rules:
+
+- **Keys per meeting** (§2):
+  - identifiers sourced from the meeting
+  - its phone and handle answers
+  - the snapshot's email, phone, and handle
+
+  A form answer counts as a phone or handle when the event type's `customFieldMappings` names its question, by label or field key. Without a mapping it counts when the label says phone or Instagram, as every production label does. Placeholder values never become keys.
+- **Persons** (§4 rule 1, and the §6.1 shared-email note).
+  - Phones and handles join meetings outright.
+  - An email joins two groups only when they don't conflict. Two groups conflict when:
+    - both have phones and share none
+    - both have handles and share none
+    - both have snapshot names and neither name's words are all contained in the other's
+  - So a setter who reuses a prospect's email for someone else can't merge two people.
+  - An email that ends up with more than one person is flagged `shared_email`.
+- **Unattributed meetings** (no key at all) join the person who owns the rest of their opportunity, or the original. They are flagged `unattributed_meeting`.
+- **Original** (§4 rule 2, amended by Q5). On a lead with a customer, the original is the person who owns the customer's winning meeting, or, without one, the keeper of its winning opportunity.
+  - The customer therefore never moves, and the lead never goes from `converted` back to `active` (ADR rule 8).
+  - This replaces O6 and finalize step F3.
+  - Otherwise the original is the person whose meeting sourced the lead's earliest identifier, or the first booker.
+- Merge-in targets follow §4 rule 3:
+  - More than one matching lead flags `merge_target_ambiguous`, until the `mergeTargets` override picks one or a new lead.
+  - A target with a live plan of its own (`draft`, `needs_review`, `approved` or `applying`), or a split-locked target, flags `merge_target_in_plan`.
+- Identifier ownership follows §4 rule 4, with one addition: a shared email goes to the original when they used it, otherwise to whoever booked with it first.
 - **O1, which person keeps an opportunity document.** By default, the person on the latest meeting by `scheduledAt` keeps the existing document, with its status, outcome fields, closer, `calendlyEventUri`, payments, follow-ups, and `customers.winningOpportunityId`. Every other person gets a new opportunity.
-  - Exception: when `source` isn't `calendly` (`slack_qualified` or `side_deal`), the document stays with the first-meeting person, together with `source`, `qualifiedBy`, `manualCreationKey`, and the Slack event and qualification row. The outcome fields move to the latest owner's new opportunity. Tier A has one such case: `js7cgq0p…`.
+  - Exception: when `source` isn't `calendly` (`slack_qualified` or `side_deal`), the document stays with the person its earliest Slack event's handle names. Without such a person, it stays with the first-meeting person. It keeps `source`, `qualifiedBy`, `manualCreationKey`, and the Slack event and qualification row.
+  - The outcome fields move to the latest owner's new opportunity (`inheritsOutcome`).
+  - The keeper's status becomes that of their own latest meeting. The change goes through `transitionOpportunity` with the `lead_split` exception, which allows `no_show` to `canceled` only.
+  - Any other change is flagged `outcome_review`, even one the state machine allows: the document's other fields belong to its current status. So is a document whose outcome would leave its payments or follow-ups behind.
+  - The Slack event stays with the document. When its handle doesn't name the keeper, the plan is flagged `slack_event_mismatch`.
+  - Tier A has one such case: `js7cgq0p…`.
 - **O2, status for people who don't keep the document.** Status comes from their own latest meeting: `scheduled`, `canceled`, or `no_show`. `canceledAt` and `noShowAt` come from the meeting. If their latest meeting is `completed`, the plan is flagged `outcome_review`. That never happens in Tier A.
 - **O3, first-booking caches**, computed for every new or kept opportunity from its own earliest meeting:
   - `firstMeetingId` and `firstMeetingAt`
@@ -248,51 +312,73 @@ The arrays are bounded by plan size: at most 65 meetings, under 120 identifiers,
   - `rescheduledFromMeetingId` is cleared when it points at another person's meeting.
   - `leadName` is re-derived.
 - **O5, canonical lead fields per person.**
-  - `email`: the person's non-placeholder snapshot or identifier email. Left unset if they have none.
+  - `email`: the person's latest non-placeholder email they own (snapshot or identifier). The original keeps the lead's current email when it is theirs. Left unset if they have none (Q5).
   - `fullName`: the snapshot name from their latest meeting.
   - `phone`: the latest non-placeholder phone.
-  - `customFields` and `customFieldLabels`: rebuilt from the form responses of their latest meeting.
+  - `customFields` and `customFieldLabels`: rebuilt from the form responses of their latest meeting with answers (`customFieldsMeetingId`).
   - `socialHandles` and `searchText`: rebuilt from identifiers.
   - `firstSeenAt`: their first meeting's `createdAt`.
-  - Slack- and portal-entered fields (`country`, `leadType`, `initialSource`, `selfReportedIncome`) stay on the original person unless a Slack event's handle matches a moved person, in which case they follow that person. Either way they are flagged for review.
-- **O6, customer.** If `customers.winningMeetingId` belongs to a moved person, the customer moves:
-  - `customers.leadId` is set to that person's lead.
-  - That lead is created with `status: "converted"`.
-  - The source lead returns to `active`.
-
-  The move requires a non-placeholder email for the target person, because `customers.email` is required. Without one, the plan is flagged.
+  - Slack- and portal-entered fields (`country`, `leadType`, `initialSource`, `selfReportedIncome`) go to the person who owns the lead's latest Slack event, or to the original (`slackFieldsPersonKey`). Either way the plan is flagged `slack_fields_review`.
+- **O6, customer.** The customer stays on the source lead with the original (see Original above).
+  - The plan is flagged `winning_opportunity_mismatch` when the customer's winning meeting or winning opportunity would leave with another person.
+  - A lead with more than one customer is flagged `customer_review`.
 - **O7, other references.**
   - Slack qualification events are reassigned by `handleSnapshot` to the person who owns that handle. Their `opportunityId` becomes the person's opportunity open at `submittedAt`.
   - Follow-ups follow their opportunity document. A follow-up created between two different people's meetings is flagged.
   - Lead notes stay with the original person.
   - `linkPortalLeadEdits` (audit trail) and `domainEvents` stay as they are.
-- **Flags** that force `needs_review`:
-  - `snapshot_missing`
-  - `snapshot_disagrees`
-  - `possible_same_person`
-  - `merge_target_ambiguous`
-  - `outcome_review`
-  - `customer_without_email`
-  - `followup_between_people`
-  - every Tier B plan
+- **Flags** force `needs_review`. Every Tier B plan needs review too.
+  - Non-blocking flags; a named reviewer may approve with them:
+    - `snapshot_missing`
+    - `snapshot_disagrees` (the snapshot email isn't the email the meeting sourced)
+    - `possible_same_person` (no shared key, compatible names)
+    - `shared_email`
+    - `unattributed_meeting`
+    - `followup_between_people`
+    - `slack_fields_review`
+    - `slack_event_mismatch`
+  - Blocking flags; approval is refused until a rebuild clears them (`BLOCKING_FLAGS` in `plan.ts`):
+    - `outcome_review`
+    - `customer_review`
+    - `winning_opportunity_mismatch`
+    - `merge_target_ambiguous`
+    - `merge_target_in_plan`
+    - `stale_override`
+    - `bounds_exceeded`
 
 ### 5.5 Phase 4: review and approve
 
-- `leadSplit/plan:approve` is an `internalMutation` with arguments `{ planId, planVersion, reviewer, personMerges? }`. It sets `approved` only when the version matches.
-- A reviewer can merge two person clusters (same person), or mark a person `skipped` (left on the source lead).
-- A Tier A plan with no flags may be approved by the operator running the migration. A flagged plan needs a named reviewer.
-- `leadSplit/plan:describe` is an `internalQuery` that prints a plan as IDs and counts, for review and for this document's appendix.
+- **Overrides.** Reviewer decisions are `buildPlan` overrides, stored on the plan and reapplied on every rebuild:
+  - `merges`: groups of candidate persons that are one person
+  - `separate`: groups of meetings pulled out as their own person
+  - `skips`: candidate persons left on the source lead, as part of the original
+  - `originalPersonKey`: the person who stays on the source lead. On a lead with a customer, the customer stays with its winning meeting's person, so naming anyone else is flagged `winning_opportunity_mismatch`. If the winning meeting is attributed to the wrong person, fix it with `separate` or `merges`.
+  - `mergeTargets`: for a moved person, the lead to merge into (one of those their keys match), or none for a new lead.
+
+  Overrides name candidate persons by their `candidateKeys`, so a merged person can still be referred to by its parts. An override that names a person or meeting that no longer exists is flagged `stale_override`.
+- **Approval.** `leadSplit/plan:approve` is an `internalMutation` with arguments `{ planId, planVersion, reviewer }`.
+  - It approves only a built `draft` or `needs_review` plan whose version matches the one reviewed, and only when it has no blocking flag.
+  - A Tier A plan with no flags may be approved by the operator running the migration. A flagged plan needs a named reviewer.
+- **Inspection.** All internal queries:
+  - `leadSplit/plan:describe` prints a plan as IDs and counts, for review and for this document's appendix.
+  - `leadSplit/plan:reviewPacket` adds each person's names, emails, phones and handles. Write it to `/tmp`, delete it after review, and never commit it.
+  - `leadSplit/plan:listPlans` lists a tenant's plans.
 
 ### 5.6 Phase 5: apply (Deploy 2 code, run with the migrations component)
 
 Two `migrations.define` migrations in `convex/migrations.ts`, each paired with an `assert*` migration:
 
-- `applyLeadSplitPersons` runs over `leadSplitPersons` with `batchSize: 1`. Each `migrateOne` handles one person. It returns early unless the plan is `approved` or `applying`, the person is `pending`, and the role isn't `original`. Steps, all in one transaction, each recorded in `leadSplitAudit`:
+- `applyLeadSplitPersons` runs over `leadSplitPersons` with `batchSize: 1`. Each `migrateOne` handles one person. It returns early unless the plan is `approved` or `applying` and the person is `pending`.
+  - The original person is applied too when they have `split_new` entries: their meetings leave a document another person keeps.
+  - A split document only moves to its keeper's lead after every other person on it has taken their meetings out. So the migration runs in two passes: `split_new` extractions first, then whole moves and kept documents.
+  - It stops when a document's status no longer matches the entry's `statusAtBuild`.
+
+  Steps, all in one transaction, each recorded in `leadSplitAudit`:
   1. **Target lead.**
      - For `role: "new"`:
-       - insert the lead with O5 fields and the final status (`active`, or `converted` for an O6 customer move)
+       - insert the lead with O5 fields and status `active` (the customer never moves, see O6)
        - call `insertLeadAggregate`
-       - call `updateTenantStats({ totalLeads: +1 })` when the status is `active`
+       - call `updateTenantStats({ totalLeads: +1 })`
        - emit `lead.created` (`source: "system"`, metadata `{ splitFromLeadId, planId }`)
      - For `merge_into`: load the existing lead and leave its canonical fields alone.
      - Idempotency: on retry, look up an audit `insert` for `(planId, personKey, "lead")` before inserting again.
@@ -316,20 +402,18 @@ Two `migrations.define` migrations in `convex/migrations.ts`, each paired with a
        - emit `opportunity.created` (metadata `{ splitFromOpportunityId }`)
      - For each moved meeting:
        - read the old snapshot
-       - patch `opportunityId` and the O4 fields
+       - patch `opportunityId` and the O4 fields. `patchMeetingLifecycle` doesn't accept `opportunityId`, so PR 2 adds a meeting move helper next to `moveOpportunityToLead`
        - call `replaceMeetingAggregate(old, id)`, which also re-syncs `meetings.opportunityStatus` and enqueues the meeting projection
        - patch `meetingFormResponses.opportunityId` and `leadId`
        - repoint any `paymentRecords` with that `meetingId` to the new opportunity
      - Then:
        - call `updateOpportunityMeetingRefs` on both opportunities
-       - if the kept document's status, outcome, or `createdAt` changed: patch it, call `replaceOpportunityAggregate(old, id)` (which also enqueues `requestOpportunityProjections` when the status changed), and apply the matching `updateTenantStats` delta to `activeOpportunities`, `wonDeals`, and `lostDeals`
+       - if the kept document's status changed: `transitionOpportunity` with `exception: "lead_split"` and `source: "system"`. It owns the aggregates, projections, tenant counters, and the domain event.
+       - if its outcome fields or `createdAt` changed: `patchOpportunityLifecycle`
        - call `requestOpportunityProjections` on the new opportunity
        - call `rebuildQualificationRowsForOpportunity` on both
        - move the Slack event and qualification row per O7, then rebuild the row
-  5. **Customer (O6).**
-     - Patch `customers.leadId`.
-     - Call `syncCustomerSnapshot` for the target lead, then `syncCustomerPaymentSummary`.
-     - No new `customerConversions` aggregate entry and no `totalCustomers` delta, because the customer is moved, not created.
+  5. **Customer (O6).** Nothing: the customer stays with the original person.
   6. **Refresh the target.**
      - Recompute `socialHandles` and `searchText` from identifiers.
      - Call `refreshOpportunitySearchForLead`.
@@ -338,9 +422,9 @@ Two `migrations.define` migrations in `convex/migrations.ts`, each paired with a
   7. **Mark done.** Set the person to `applied`, and the plan to `applying`.
 - `finalizeLeadSplitPlans` runs over `leadSplitPlans` with `batchSize: 1`. It only acts on `applying` plans where every non-original person is `applied` or `skipped`.
   1. F1: delete the placeholder identifiers.
-  2. F2: patch the original lead's canonical fields (O5). For `jh75xm6m…`, the real email becomes canonical; for `jh7bycbz…`, the email is cleared.
-  3. F3: status. If the customer moved away, set `converted` to `active`. This deliberately bypasses `validateLeadTransition`, because `converted` has no outgoing transitions. Emit `lead.status_changed` with `reason: "lead_split"` and apply `updateTenantStats({ totalLeads: +1 })`.
-  4. F4: refresh chain, the same as step 6, plus `syncCustomerSnapshot` and `rebuildLeadCustomerSearchRow`.
+  2. F2: patch the original lead's canonical fields (O5). For `jh75xm6m…`, the real email becomes canonical; for `jh7bycbz…`, the email is cleared. For `jh74vyt5…`, the customer's person stays, so the lead's email becomes theirs.
+  3. F3: removed. The customer never moves, so no lead leaves `converted`.
+  4. F4: refresh chain, the same as step 6, plus `syncCustomerSnapshot` (the customer's email and name follow the corrected lead) and `rebuildLeadCustomerSearchRow`.
   5. F5: rebuild qualification rows for every opportunity left on the lead.
   6. F6: emit `lead.split` (metadata `{ planId, personsMoved, opportunitiesCreated, meetingsMoved }`), clear `splitLockedAt`, and set the plan to `applied`.
 
@@ -355,6 +439,8 @@ The split lock: `applyLeadSplitPersons` sets `splitLockedAt` on the source lead 
   - The apply migrations use the component's `dryRun: true`, which runs one batch and rolls it back: `npx convex run migrations:run '{"fn":"migrations:applyLeadSplitPersons","dryRun":true}'`.
   - Each `migrateOne` also logs a structured `leadSplit.apply.preview` event with IDs and counts, through `log` from `convex/lib/observability/log.ts`.
 - **Rehearsal.** Before production, import a production export into a dev deployment (`npx convex export --prod`, then `npx convex import` on dev) and run the whole pipeline there. Compare the assert results and dashboard totals.
+  - Leave `tenantCalendlyConnections` and `slackInstallations` out of the import. Dev runs the token refresh and Slack reminder crons; with production's tokens it would rotate production's refresh tokens and post to the real workspace.
+  - Without tokens, dev can't call Calendly. The rehearsal reuses the `leadSplitInviteeSnapshots` rows the production snapshot already wrote, which come with the export.
 - **Idempotency:**
   - Each person and plan carries a status, and audit rows are keyed by `(planId, personKey, step, docId)`.
   - A retried batch skips steps whose audit `after` state already matches the document.
@@ -377,7 +463,7 @@ Paired `assert*` migrations, plus internal queries. Run the asserts after the ap
   - `meetings.opportunityStatus` matches its opportunity's status
 - Each opportunity has exactly one `callClassification: "new"` meeting, and it is the earliest.
 - **Counts:**
-  - `tenantStats` must match a recompute from `seedTenantStatsInternal` logic (compare, don't write). `totalLeads` should rise by 55: 54 new active leads, plus 1 lead returned to active. The lead that receives customer `kn77j2h9…` is created as converted and doesn't count.
+  - `tenantStats` must match a recompute from `seedTenantStatsInternal` logic (compare, don't write). `totalLeads` should rise by the plans' `newLeads` total: every new lead is active, and no lead changes status.
   - `totalOpportunities` should rise by 35.
   - `verifyBackfillCounts` (`convex/reporting/verification.ts`) must pass.
   - Operations meeting projections must drain: the `rebuildMeetingProjections` assert family and `migrations.getStatus`.
@@ -399,7 +485,7 @@ Paired `assert*` migrations, plus internal queries. Run the asserts after the ap
 ### 5.10 Pipeline recovery after the split
 
 1. Confirm that the phase 5.0 guards are deployed.
-2. Run the identity probe (5.8) on `t57bkmwfp0k502wfq8ts9nft558g1hh5`, `t577r54phw7vqpa598w0kerdfx8fzqfc`, `t57exp269mx8na6t4amcyex7qh8fyh0x`, and `t57c3dr68vxfnyphync2s8y9hx8fysen`.
+2. Restore the dismissed deliveries with `pipeline/dismissal:restoreDismissedDeliveries` (§3.3), then run the identity probe (5.8) on `t57bkmwfp0k502wfq8ts9nft558g1hh5` and `t57c3dr68vxfnyphync2s8y9hx8fysen`. `t577r54…` and `t57exp269…` lost their payloads and can't be retried.
 3. As a tenant admin, call `pipeline/recovery:preview` with those IDs, then `pipeline/recovery:retry` with the returned manifest; there's a limit of 50 per call. The Operations pipeline recovery panel uses the same functions.
    - `retry` rejects stale manifests.
    - The raw payloads are retained, because they are unresolved.
@@ -421,28 +507,34 @@ Paired `assert*` migrations, plus internal queries. Run the asserts after the ap
 - **Lead `jh75xm6m…` and merge-ins.**
   - Confirm that the 3 unattributed meetings on `jh75xm6m…` (listed in 3.1) belong to the person the snapshot names.
   - Confirm that the 7 merge-in targets for that lead, and the 2 for `jh7bycbz…`, are the same people. They match by phone and handle; there is no email.
-- **Customer move.** Moving customer `kn77j2h9e3m2jny53x454ckhhx8b48ev` and lead status depends on winning meeting `jn78ecey…`. That meeting is attributed by its form answer (handle), not by a sourced email. The snapshot must confirm it.
+- **Customer's person.** On `jh74vyt5…`, who stays on the lead with customer `kn77j2h9e3m2jny53x454ckhhx8b48ev` depends on winning meeting `jn78ecey…`. That meeting is attributed by its form answer (handle), not by a sourced email. The snapshot must confirm it.
 - **Slack fields on `jh74vyt5…`.** Its `country`, `leadType`, and `customFields` are mixed. A reviewer should accept the O5 rebuild for the original person.
 - **Slack-qualified opportunity `js7cgq0p…`.** Apply the O1 exception, and confirm the lead-gen audit match stays with person 1.
 - **All 22 Tier B leads.** Decide distinct versus same person after the snapshot. For the confirmed shared-email cases, the extracted person gets no email.
-- **Two converted Tier B leads** (`jh7fvmppmdp2am47an1h56c5rn8dwkfw`, `jh7902ynjk28s6emf5vjr3g6f58a2f92`). Decide which person owns the customer.
+- **Two converted Tier B leads** (`jh7fvmppmdp2am47an1h56c5rn8dwkfw`, `jh7902ynjk28s6emf5vjr3g6f58a2f92`). Decide which person owns the customer. The plan gives it to the winning meeting's person; if the snapshot shows that meeting belongs to someone else, correct the clusters with `separate` or `merges`. On `jh7902yn…` the winning October booking reused the July booker's email, so the email stays with the customer's person and the July booker leaves without one.
 
-### 6.1 Design review notes to resolve before implementation
+### 6.1 Design review notes (resolved in Deploy 2)
 
-- **Shared emails.** A booking email that several people used (Tier B) must not join a cluster by itself in `buildPlan`, and reviewers need a way to split a cluster.
-- **Dry run.** `buildPlan` needs a `dryRun` argument that builds the plan without replacing `leadSplitPersons` or bumping `planVersion`, so phases 1–3 stay write-free on a dry run.
-- **Winning opportunity.** Before applying, check that the opportunity O1 keeps belongs to the lead that O6 assigns the customer to, or remap `customers.winningOpportunityId`. Reject the plan otherwise.
-- **Snapshot token.** `fetchInvitees` loads `tenantId` from the plan and passes it to `getValidAccessToken`. It only calls HTTPS URLs on `api.calendly.com` and disables redirects, so the token can't be sent elsewhere.
+- **Shared emails.** An email joins two groups only when they don't conflict, and is flagged `shared_email` otherwise (§5.4). Reviewers split a cluster with the `separate` override (§5.5).
+- **Dry run.** `buildPlan` takes `dryRun` and then writes nothing: no persons, no version bump.
+- **Winning opportunity.** The customer's person is the original, and a plan whose winning meeting or opportunity would leave with someone else is flagged `winning_opportunity_mismatch`, which blocks approval.
+- **Snapshot token.** `fetchInvitees` loads `tenantId` from the plan, calls only HTTPS invitee URLs on `api.calendly.com`, and disables redirects.
 
-## 7. Open questions
+## 7. Decisions
 
-- **Q1. Phone guard rule.** An explicit list is safe but leaks new fakes. A pattern rule (an ascending run of 7 or more digits, or a 3-digit group repeated 3 times) catches about 28 current identifiers. It also catches some plausible non-US numbers (Indonesian, Kenyan, Swedish formats). Pick a rule, and decide whether existing single-lead matches lose their identifier.
-- **Q2. Email guard scope.** Is a fixed denylist enough, or do we also want "local part is `email`" or "domain has no MX"? Placeholder emails still need to be stored on the meeting, just not used as identity.
-- **Q3. Opportunity ownership.** Confirm rule O1: the latest-meeting owner keeps the document, except for Slack-qualified or side-deal opportunities. Dashboards will show 35 more opportunities and different `createdAt` dates for split opportunities.
-- **Q4. Alias emails (resolved).** A booking email already stored as an identifier on the matched lead now counts as a match, and an Instagram handle match adds the new email as an identifier. Phone-only matches with a new email still block.
-- **Q5. Setter-reused emails (Tier B).** Should the extracted person's lead keep the shared email as a non-identity note, or carry no email? Without an email, that lead can't be converted, because `executeConversion` requires `lead.email`.
-- **Q6. Domain event naming.** Is `lead.split` (plus `opportunity.created` and `lead.created` with split metadata) acceptable for PostHog dashboards, or should split-created rows be excluded from "created" metrics?
-- **Q7. Raw read method.** The full identifier export used the paginated `_system/cli/tableData` query directly, because `npx convex data` can't page past 8192 rows. Is that acceptable for future audits, or should we add an internal paginated export query?
+Recorded 2026-10-15. The tenant is still a test tenant whose owner knows the data is mid-migration, so the decisions favour the simplest correct path.
+
+- **Q1. Phone guard rule.** Resolved in #95: the known fakes plus a pattern rule for +1 numbers only (an ascending or descending run of 7, or a repeated 3-digit group).
+- **Q2. Email guard scope.** Resolved in #95: a denylist, local part `email`, and domain `notanemail.com`.
+- **Q3. Opportunity ownership.** Rule O1 as written, with one refinement: a Slack or side-deal document stays with the person its Slack event's handle names, falling back to the first-meeting person. Dashboards will show about 35 more opportunities, with `createdAt` dates moved to each one's first meeting.
+- **Q4. Alias emails.** Resolved in #95.
+- **Q5. Setter-reused emails.** The extracted person gets no email. Since #95, recording a payment for a lead without an email asks for one first. On a converted lead, the customer's person stays on the source lead and keeps the email, so the customer never moves (O6) and no lead leaves `converted` (F3 is gone).
+- **Q6. Domain events.** Emit `lead.split`, and tag split-created `lead.created` and `opportunity.created` events with `{ splitFromLeadId | splitFromOpportunityId, planId }`.
+  - Tagging fixes PostHog only. The in-app new-leads report counts by `_creationTime`, and `verifyBackfillCounts` requires that count to match the `leads` table, so the new leads show as created on the apply day. This is accepted; Phase 1 moves lead counts to stage entry.
+  - New opportunities are backdated through `createdAt`.
+- **Status changes.** The one kept-document status change in current data, `js7cgq0p…` from `no_show` to `canceled`, goes through `transitionOpportunity` with a named `lead_split` exception that allows that move only. Any other move is flagged `outcome_review`.
+- **Rehearsal.** On dev, from a production export without `tenantCalendlyConnections` and `slackInstallations` (§5.7).
+- **Q7. Raw read method.** The split reads inside the deployment through paginated internal queries. Offline audits use `npx convex export`, which gives a consistent snapshot without the 8,192-row cap and without handling the deploy key by hand. `_system/cli/tableData` is not used again.
 
 ## Appendix A: IDs
 

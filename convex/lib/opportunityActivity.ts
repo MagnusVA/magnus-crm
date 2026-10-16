@@ -159,6 +159,13 @@ const TRANSITION_EXCEPTIONS = {
   slack_stale_rejoin: {
     lost: ["scheduled"],
   },
+  // The polluted-lead split gives a deal back to the person who keeps it,
+  // with the status of that person's own last meeting. A deal that was
+  // no-show for another person's booking can be canceled for its keeper.
+  // See docs/plans/polluted-lead-split.md §5.4 (O1).
+  lead_split: {
+    no_show: ["canceled"],
+  },
 } satisfies Record<
   string,
   Partial<Record<OpportunityStatus, OpportunityStatus[]>>
@@ -180,6 +187,17 @@ export type OpportunityTransition = {
   exception?: OpportunityTransitionException;
 };
 
+/** Whether the named exception, on its own, allows the move. */
+export function exceptionAllows(
+  exception: OpportunityTransitionException,
+  from: OpportunityStatus,
+  to: OpportunityStatus,
+): boolean {
+  const allowed: Partial<Record<OpportunityStatus, readonly OpportunityStatus[]>> =
+    TRANSITION_EXCEPTIONS[exception];
+  return allowed[from]?.includes(to) ?? false;
+}
+
 function isAllowedTransition(
   from: OpportunityStatus,
   to: OpportunityStatus,
@@ -191,9 +209,7 @@ function isAllowedTransition(
   if (!exception) {
     return false;
   }
-  const allowed: Partial<Record<OpportunityStatus, readonly OpportunityStatus[]>> =
-    TRANSITION_EXCEPTIONS[exception];
-  return allowed[from]?.includes(to) ?? false;
+  return exceptionAllows(exception, from, to);
 }
 
 // Mirrors how seedTenantStatsInternal counts: active, won and lost are pure
