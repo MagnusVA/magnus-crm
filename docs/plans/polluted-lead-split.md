@@ -1,6 +1,6 @@
 # Polluted lead split: scope, attribution, and migration plan
 
-Status: Deploy 1 (the §5.0 guards) shipped in #95. Deploy 2's staging half (§5.1 to §5.5) shipped in #98 and ran on production on 2026-10-15 (§8): 26 plans are built and none is approved. Apply, verification and rollback (§5.6 to §5.9) are built and not yet deployed. Nothing has been applied to production. The decisions on the open questions are recorded in §7.
+Status: Deploy 1 (the §5.0 guards) shipped in #95, and Deploy 2 in #98 (staging, §5.1 to §5.5) and #99 (apply, verification and rollback, §5.6 to §5.9). On 2026-10-16 the 4 Tier A plans and 15 Tier B plans were applied to production and verified (§8.1). Next: the 24-hour recheck, the two restored deliveries (§5.10), and the Tier D cleanup. The decisions on the open questions are recorded in §7.
 
 This file holds IDs and counts only; it contains no personal data. The working dataset (PII) stays in `/tmp` on the analyst's machine.
 
@@ -388,7 +388,7 @@ A rerun after a later approval needs `"reset": true`. A split document only move
      - Then `updateOpportunityMeetingRefs`, the qualification rows of both opportunities, and `requestOpportunityProjections` on the new one. The entry stores the new ID as `newOpportunityId`.
    - The person is marked `extractedAt`.
 2. **`applyLeadSplitPersons`** (`movePerson`, pass 2). It refuses to start a plan whose persons aren't all extracted. For each pending person:
-   - **Identifiers.** Each moves to the target lead, or is deleted when the target already has the same type and value.
+   - **Identifiers.** Each moves to the target lead, or is deleted when the target already has the same type and value. An identifier the person holds although another person's booking sourced it (a shared email kept by its owner) is re-sourced to the person's own latest meeting whose invitee used the value, or its source is cleared. `leadSplit/apply:resourceAppliedIdentifiers` does the same for a plan applied before this step existed.
    - A `merge_into` target that will hold the Slack fields (`slackFieldsPersonKey`) takes the ones it lacks, as a merge does.
    - **Checks.** Every whole or kept document must still be on the source lead with its built status and exactly its planned meetings. A new booking or a status change since the build stops the run.
    - **Kept documents.** The status becomes the keeper's through `transitionOpportunity` (`lead_split` exception). Then the O3 caches and `createdAt` are recomputed through `patchOpportunityLifecycle`, which re-keys the aggregates, and the O4 meeting fields are fixed.
@@ -548,6 +548,25 @@ Run against the one tenant after #98 deployed. Only the staging tables were writ
 - The merge-ins whose target lead's name differs from the moving person's are all Slack-qualified leads matched on the handle the setter logged.
 
 Final state: Tier A 3 `draft` and 1 `needs_review`; Tier B 7 `dismissed` and 15 `needs_review`. None is approved.
+
+### 8.1 Apply (2026-10-16)
+
+`#99` deployed, then a production export was taken for forensics and preflight passed on all 19 plans. Approvals were recorded as "Claude (delegated by Claudio)".
+
+- **Tier A**, 4 plans: 68 persons applied, 55 new leads, 9 merge-ins, 34 new opportunities. `totalLeads` went from 10,113 to 10,168 and `totalOpportunities` from 11,020 to 11,054. Active opportunities (4,100) and customers (262) didn't change.
+- **Tier B**, 15 plans: 30 persons applied, 4 new leads, 11 merge-ins, 2 new opportunities. `totalLeads` went to 10,172 and `totalOpportunities` to 11,056.
+- Before Tier B, a dry-run rebuild of its 15 plans confirmed that none of their persons matched a lead Tier A had just created.
+
+Verification after both:
+
+- `assertLeadSplitPersonsApplied`: passed for all 98 persons.
+- `assertOpportunitySearchProjectionBackfilled`, `assertLeadCustomerSearchRowsBackfilled`, `assertMeetingProjections`: passed.
+- `verifyTenantStatusCounters`: match.
+- `verifyTenant`: 0 failures on form response, follow-up, Slack event, customer and meeting-status refs.
+  - Placeholder identifiers went from 18 to 13, and placeholder canonical emails from 4 to 2. Both remainders are Tier D.
+  - `identifier_meeting_consistency` had 1 failure: the shared email on `jh7902yn…`, which the buyer keeps, was still sourced from the other booker's meeting. The re-sourcing step above fixes it.
+- `verifyBackfillCounts` can't run on this tenant: it reads whole tables and passes Convex's 16 MB read limit. This is unrelated to the split.
+- **Identity probe.** `t57bkmwf…` resolves to one lead, `jh79mptftd4b41487tdx3mqd6d8gcwnc` (split from `jh74vyt5…`), and `t57c3dr68…` to `jh75xm6m…`. In both, the lead's email is the booking's. Neither booking has a meeting or a recorded cancellation; they were for 2026-09-29 and 2026-10-10.
 
 ## Appendix A: IDs
 
