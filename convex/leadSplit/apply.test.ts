@@ -484,6 +484,9 @@ describe("apply", () => {
       resourced: 1,
     });
     expect(await verifyTenant(harness)).toMatchObject({ identifier_meeting_consistency: 0 });
+    expect((await t.run((ctx) => ctx.db.get("leadIdentifiers", sharedEmail!._id)))?.sourceMeetingId).toBe(
+      seeded.octoberMeeting,
+    );
 
     await rollback(harness, plan._id);
     expect(await state(harness)).toEqual(before);

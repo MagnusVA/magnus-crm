@@ -672,12 +672,14 @@ async function resourceIdentifiers(
   ctx: MutationCtx,
   scope: AuditScope,
   person: Doc<"leadSplitPersons">,
+  leadId: Id<"leads">,
 ): Promise<number> {
   const own = new Set(person.meetingIds);
   let resourced = 0;
   for (const identifierId of person.identifierIds) {
     const identifier = await ctx.db.get("leadIdentifiers", identifierId);
-    if (!identifier?.sourceMeetingId || own.has(identifier.sourceMeetingId)) continue;
+    // Skip one that has since left the person's lead, such as in a later split.
+    if (!identifier?.sourceMeetingId || identifier.leadId !== leadId || own.has(identifier.sourceMeetingId)) continue;
     const key = identifierKey(identifier);
     let sourceMeetingId: Id<"meetings"> | undefined;
     // In booking order, so the last match is the latest meeting.
@@ -715,10 +717,13 @@ export const resourceAppliedIdentifiers = internalMutation({
     const now = Date.now();
     let resourced = 0;
     for (const person of await readPlanPersons(ctx, planId)) {
+      const leadId = person.role === "original" ? plan.sourceLeadId : person.targetLeadId;
+      if (!leadId) continue;
       resourced += await resourceIdentifiers(
         ctx,
         { tenantId: plan.tenantId, planId, personKey: person.personKey, now },
         person,
+        leadId,
       );
     }
     log.info("lead_split.apply.identifiers_resourced", { tenantId: plan.tenantId, planId, resourced });
@@ -820,7 +825,7 @@ export async function movePerson(
     }
   }
 
-  const identifiersResourced = await resourceIdentifiers(ctx, scope, person);
+  const identifiersResourced = await resourceIdentifiers(ctx, scope, person, targetLeadId);
 
   // A merge target takes the Slack and portal fields it lacks, as a merge does.
   let carryOver: Partial<Doc<"leads">> = {};
