@@ -3,6 +3,8 @@ import aggregate from "@convex-dev/aggregate/test";
 import workpool from "@convex-dev/workpool/test";
 import schema from "../convex/schema";
 import { convexTestModules } from "../convex/test.setup";
+import type { Id } from "../convex/_generated/dataModel";
+import type { MutationCtx } from "../convex/_generated/server";
 
 // `transactionLimits: true` makes every function fail the way a deployment
 // would when it exceeds Convex's per-transaction read and write limits.
@@ -80,4 +82,33 @@ export function bookingPayload(key: string, email = "lead@example.com") {
       ],
     },
   };
+}
+
+/** Maps a Calendly event type to a new program. The pipeline holds an unlinked
+ * host's booking for review only on a program event type, and ignores it on
+ * any other. */
+export async function mapEventTypeToProgram(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  calendlyEventTypeUri: string,
+) {
+  const admin = await ctx.db.query("users")
+    .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_admin")).unique();
+  const programId = await ctx.db.insert("tenantPrograms", {
+    tenantId,
+    name: "Program",
+    normalizedName: "program",
+    createdAt: Date.now(),
+    createdByUserId: admin!._id,
+    updatedAt: Date.now(),
+  });
+  await ctx.db.insert("eventTypeConfigs", {
+    tenantId,
+    calendlyEventTypeUri,
+    displayName: "Strategy call",
+    createdAt: Date.now(),
+    bookingProgramId: programId,
+    bookingProgramName: "Program",
+    bookingProgramMappingStatus: "mapped",
+  });
 }

@@ -7,15 +7,19 @@ import type { Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
 import { recordBookingFact, reconcileBookingFact } from "./bookingFacts";
 import { isRecord } from "../lib/payloadExtraction";
-import { classifyBookingHost } from "./bookingHost";
+import {
+  classifyBookingHost,
+  UNLINKED_HOST_UNMAPPED_EVENT_TYPE,
+} from "./bookingHost";
 import { ignoreGroupEventDelivery } from "./bookingRelevance";
 import { log } from "../lib/observability/log";
 
 /**
  * A cancel or no-show for a booking without a meeting gets the outcome its
- * host gives the booking's invitee.created: a known non-closer host is
- * ignored, a host the CRM can't place is blocked with the same reason. Only a
- * closer's booking falls through to `booking_not_tracked`.
+ * host gives the booking's invitee.created: a known non-closer host, or a host
+ * the CRM can't place on an event type not mapped to a program, is ignored; a
+ * host the CRM can't place on a program event type is blocked with the same
+ * reason. Only a closer's booking falls through to `booking_not_tracked`.
  */
 async function settleFollowUpWithoutMeeting(
   ctx: MutationCtx,
@@ -56,7 +60,7 @@ async function settleFollowUpWithoutMeeting(
  * the booking's invitee.created produces a meeting. */
 const settlesWithMeeting: Record<"blocked" | "ignored", readonly string[]> = {
   blocked: ["booking_not_tracked", "host_not_linked", "host_inactive"],
-  ignored: ["non_closer_host"],
+  ignored: ["non_closer_host", UNLINKED_HOST_UNMAPPED_EVENT_TYPE],
 };
 
 /** A booking and its durable outcome commit in the same transaction. */
