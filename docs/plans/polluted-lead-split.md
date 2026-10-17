@@ -1,6 +1,6 @@
 # Polluted lead split: scope, attribution, and migration plan
 
-Status: Deploy 1 (the §5.0 guards) shipped in #95, and Deploy 2 in #98 (staging, §5.1 to §5.5) and #99 (apply, verification and rollback, §5.6 to §5.9). On 2026-10-16 the 4 Tier A plans and 15 Tier B plans were applied to production and verified (§8.1), every held booking was settled (§8.2, §8.3), and the Tier D cleanup ran (§8.4). `verifyTenant` shows 0 failures on every check. Next: the 24-hour recheck. The decisions on the open questions are recorded in §7.
+Status: Deploy 1 (the §5.0 guards) shipped in #95, and Deploy 2 in #98 (staging, §5.1 to §5.5) and #99 (apply, verification and rollback, §5.6 to §5.9). On 2026-10-16 the 4 Tier A plans and 15 Tier B plans were applied to production and verified (§8.1), every held booking was settled (§8.2, §8.3), and the Tier D cleanup ran (§8.4). `verifyTenant` shows 0 failures on every check. The 24-hour recheck on 2026-10-17 passed (§8.5), and the backup taken before the apply has been deleted. Next: Deploy 3 (§5.11), from 2026-11-16. The decisions on the open questions are recorded in §7.
 
 This file holds IDs and counts only; it contains no personal data. The working dataset (PII) stays in `/tmp` on the analyst's machine.
 
@@ -635,6 +635,40 @@ All 199 were approved by tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` and cle
 | `slack_event_refs` | 8,271 |
 | `customer_refs` | 263 |
 | `meeting_opportunity_status` | 6,644 |
+
+### 8.5 24-hour recheck (2026-10-17)
+
+The recheck ran from 04:29 to about 04:40 UTC, about 22.5 hours after the apply finished at 05:57 UTC on 2026-10-16. That is earlier than the 24 hours §5.8 asks for. Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` chose to run it then rather than wait. Every check passed:
+
+- `verifyTenant` shows 0 failures on all 8 checks. The scanned counts are a little higher than in §8.4, from a day of new bookings:
+
+  | Check | Scanned |
+  | --- | --- |
+  | `identifier_meeting_consistency`, `placeholder_identifiers` | 19,590 |
+  | `placeholder_lead_emails` | 10,489 |
+  | `form_response_refs` | 43,863 |
+  | `follow_up_refs` | 221 |
+  | `slack_event_refs` | 8,293 |
+  | `customer_refs` | 263 |
+  | `meeting_opportunity_status` | 6,654 |
+
+- `verifyTenantStatusCounters` matches: active 4,106, lost 4,306, won 263.
+- Each assert migration ran again with `reset: true` and passed:
+  - `assertLeadSplitPersonsApplied`: 105 rows
+  - `assertOpportunitySearchProjectionBackfilled`: 11,115 rows
+  - `assertLeadCustomerSearchRowsBackfilled`: 10,489 rows
+  - `assertMeetingProjections`: 6,654 rows
+- The Tier D `preview` lists nothing, so no new booking has brought in a placeholder the guards miss.
+- No `webhookDeliveries` row for the tenant is `blocked`, `failed` or `queued`, and no `rawWebhookEvents` row is unprocessed.
+
+The production export taken before the apply was deleted after the recheck. The owner's rule is that an export holding personal data is deleted once it has been used. No independent recovery point from before the apply remains. `rollbackPlan` (§5.9) can still undo a plan from its audit log, with two limits:
+
+- It stops when a later row has attached to something the split created. Such rows have to be moved off first.
+- It can't restore a lead gen match that `repointAuditMatch` deleted. Apply stops before that happens (§5.6), so no applied plan contains one.
+
+Anything rollback can't undo is fixed forward with a reviewed repair, as the recovery in §8.2 was.
+
+Deploy 3 (§5.11) can start 30 days after this recheck, on 2026-11-16.
 
 ## Appendix A: IDs
 
