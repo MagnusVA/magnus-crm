@@ -1,3 +1,4 @@
+import { recordMeeting } from "../lib/leadLifecycle";
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
 import { blockBooking, ignoreBooking } from "./blocked";
 import { v } from "convex/values";
@@ -1001,6 +1002,7 @@ export const process = internalMutation({
 						utmParams,
 					});
 					await insertMeetingAggregate(ctx, meetingId);
+					await recordMeeting(ctx, meetingId);
 					await syncMeetingFormResponsesForBooking(ctx, {
 						tenantId,
 						meetingId,
@@ -1123,6 +1125,7 @@ export const process = internalMutation({
 			identifierSource: "calendly_booking",
 			createdAt: now,
 			createIdentifiers: false,
+			initialLifecycle: { stage: "booked", at: now },
 		});
 
 		let lead = resolution.lead;
@@ -1339,6 +1342,7 @@ export const process = internalMutation({
 				utmParams,
 			});
 			await insertMeetingAggregate(ctx, meetingId);
+			await recordMeeting(ctx, meetingId);
 			await syncMeetingFormResponsesForBooking(ctx, {
 				tenantId,
 				meetingId,
@@ -1654,6 +1658,7 @@ export const process = internalMutation({
 			utmParams,
 		});
 		await insertMeetingAggregate(ctx, meetingId);
+		await recordMeeting(ctx, meetingId);
 		await syncMeetingFormResponsesForBooking(ctx, {
 			tenantId,
 			meetingId,

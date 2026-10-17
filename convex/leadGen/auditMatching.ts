@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { recordProspectCapture } from "../lib/leadLifecycle";
 import { normalizeSocialHandle } from "../lib/normalization";
 import { log } from "../lib/observability/log";
 import { leadGenAuditMatchSourceValidator } from "./validators";
@@ -115,6 +116,7 @@ async function createOrReuseAcceptedMatch(
     currentAuditMatchId: matchId,
     updatedAt: args.now,
   });
+  await recordProspectCapture(ctx, matchId);
 
   logMatchOutcome("matched_new", { ...logAttrs, matchId });
   return matchId;

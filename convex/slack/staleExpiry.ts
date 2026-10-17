@@ -6,6 +6,7 @@ import {
   internalQuery,
   type MutationCtx,
 } from "../_generated/server";
+import { recordSlackDealExpired } from "../lib/leadLifecycle";
 import { log } from "../lib/observability/log";
 import {
   computeLatestActivityAt,
@@ -81,6 +82,7 @@ export async function expireStaleSlackOpportunity(
     metadata: { trigger: "slack_join_window_expired" },
     occurredAt: now,
   });
+  await recordSlackDealExpired(ctx, opportunity.leadId, now);
   return true;
 }
 

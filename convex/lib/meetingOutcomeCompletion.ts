@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { recordMeeting } from "./leadLifecycle";
 import { patchMeetingLifecycle } from "./meetingLifecycle";
 import { validateMeetingTransition } from "./statusTransitions";
 
@@ -67,9 +68,13 @@ export async function completeMeetingForOutcome(
 
   assertTimingFreePatch(args.extraMeetingPatch);
 
-  return await patchMeetingLifecycle(ctx, meeting._id, {
+  const completed = await patchMeetingLifecycle(ctx, meeting._id, {
     status: toMeetingStatus,
     completedAt,
     ...args.extraMeetingPatch,
   });
+  if (toMeetingStatus === "completed") {
+    await recordMeeting(ctx, meeting._id);
+  }
+  return completed;
 }

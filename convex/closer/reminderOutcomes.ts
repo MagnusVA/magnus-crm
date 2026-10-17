@@ -5,6 +5,7 @@ import { mutation } from "../_generated/server";
 import { executeConversion } from "../customers/conversion";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
+import { recordPayment } from "../lib/leadLifecycle";
 import { transitionOpportunity } from "../lib/opportunityActivity";
 import {
   assertPaymentRow,
@@ -181,6 +182,7 @@ export const logReminderPayment = mutation({
       contextType: "opportunity",
       origin,
     });
+    await recordPayment(ctx, paymentId);
     await insertPaymentAggregate(ctx, paymentId);
     await setSoldProgramCaches(ctx, {
       tenantId,

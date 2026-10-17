@@ -3,6 +3,7 @@ import { mutation } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
+import { recordPayment } from "../lib/leadLifecycle";
 import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import {
   assertPaymentRow,
@@ -183,6 +184,7 @@ export const recordCustomerPayment = mutation({
     assertPaymentRow(row);
 
     const paymentId = await ctx.db.insert("paymentRecords", row);
+    await recordPayment(ctx, paymentId);
     await insertPaymentAggregate(ctx, paymentId);
     await setSoldProgramCaches(ctx, {
       tenantId,

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { correctLeadLifecycle } from "../lib/leadLifecycle";
 import { log } from "../lib/observability/log";
 import { transitionOpportunity } from "../lib/opportunityActivity";
 import {
@@ -113,6 +114,9 @@ export const voidPayment = mutation({
         await syncCustomerPaymentSummary(ctx, payment.customerId);
       }
     }
+    // Voiding corrects a payment that shouldn't count, so the person's stage
+    // follows what is left (docs/plans/phase-1-foundations.md §4.3).
+    await correctLeadLifecycle(ctx, opportunity.leadId, "payment_voided", userId);
 
     await emitDomainEvent(ctx, {
       tenantId,

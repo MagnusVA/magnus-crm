@@ -5,6 +5,7 @@ import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { resolveLeadIdentity } from "../leads/identityResolution";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { recordSlackQualification } from "../lib/leadLifecycle";
 import { type LeadType, leadTypeValidator } from "../lib/leadType";
 import { describeError, log, reportError } from "../lib/observability/log";
 import type { SocialPlatform } from "../lib/socialPlatform";
@@ -61,6 +62,7 @@ async function insertQualificationEvent(
     createdAt: args.now,
   });
   await rebuildQualificationRow(ctx, eventId);
+  await recordSlackQualification(ctx, eventId);
   return eventId;
 }
 
@@ -133,6 +135,7 @@ export const create = internalMutation({
       createIfMissing: true,
       createIdentifiers: true,
       createdAt: now,
+      initialLifecycle: { stage: "qualified", at: args.qualifiedBy.submittedAt },
     });
 
     await ctx.db.patch("leads", resolution.leadId, {

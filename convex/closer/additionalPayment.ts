@@ -3,6 +3,7 @@ import { mutation } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
+import { recordPayment } from "../lib/leadLifecycle";
 import {
   assertPaymentRow,
   syncCustomerPaymentSummary,
@@ -162,6 +163,7 @@ export const recordAdditionalPayment = mutation({
       contextType: "opportunity",
       origin,
     });
+    await recordPayment(ctx, paymentId);
 
     const paymentBeforeCustomerLink = await insertPaymentAggregate(
       ctx,

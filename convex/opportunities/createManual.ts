@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { recordOpportunity } from "../lib/leadLifecycle";
 import { isPlaceholderEmail, normalizeEmail } from "../lib/normalization";
 import { rejectRequest } from "../lib/observability/errors";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
@@ -96,6 +97,7 @@ async function resolveLeadForManualCreate(
     identifierSource: "side_deal",
     createdAt: args.now,
     createIdentifiers: true,
+    initialLifecycle: { stage: "showed", at: args.now },
   });
 
   if (!result.created) {
@@ -223,6 +225,7 @@ export const createManual = mutation({
       totalOpportunities: 1,
       activeOpportunities: 1,
     });
+    await recordOpportunity(ctx, opportunityId);
 
     if (leadWasCreated) {
       await emitDomainEvent(ctx, {

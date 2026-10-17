@@ -66,6 +66,11 @@ export function stageIndex(stage: LifecycleStage): number {
   return LIFECYCLE_STAGES.indexOf(stage);
 }
 
+/** Below Qualified: a prospect, whom lead counts and the default list leave out. */
+export function isProspectStage(stage: LifecycleStage): boolean {
+  return stageIndex(stage) < stageIndex("qualified");
+}
+
 /**
  * The person reached `stage` at `at`. The stage only moves forward, and each
  * entry time at or below `stage` becomes the earlier of the two, so a late

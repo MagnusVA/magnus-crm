@@ -13,9 +13,16 @@ import {
 } from "../lib/normalization";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
+import {
+  countsAsLead,
+  initialLifecycleFields,
+  readLifecycle,
+  syncLeadStageEntries,
+} from "../lib/leadLifecycle";
 import { reportError } from "../lib/observability/log";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { insertLeadAggregate } from "../reporting/writeHooks";
+import type { LifecycleEvidence } from "./lifecycle";
 import { buildLeadSearchText } from "./searchTextBuilder";
 
 type IdentifierSource =
@@ -41,6 +48,8 @@ export type ResolveLeadIdentityArgs = {
   createdAt: number;
   createIfMissing?: boolean;
   createIdentifiers?: boolean;
+  /** The stage a new person starts at, from the record that created them. */
+  initialLifecycle?: LifecycleEvidence;
 };
 
 export type ResolveLeadIdentityResult = {
@@ -466,9 +475,13 @@ export async function resolveLeadIdentity(
     );
   }
 
+  if (!args.initialLifecycle) {
+    throw new Error("Creating a lead needs its initial lifecycle stage.");
+  }
   const fullName = args.fullName?.trim() || undefined;
   const phone = args.phone?.trim() || undefined;
   const leadId = await ctx.db.insert("leads", {
+    ...initialLifecycleFields(args.initialLifecycle),
     tenantId: args.tenantId,
     email: identityEmail,
     fullName,
@@ -530,9 +543,12 @@ export async function resolveLeadIdentity(
   }
 
   await insertLeadAggregate(ctx, leadId);
-  await updateTenantStats(ctx, args.tenantId, {
-    totalLeads: 1,
-  });
+  await syncLeadStageEntries(ctx, args.tenantId, leadId, null, readLifecycle(newLead));
+  if (countsAsLead(newLead)) {
+    await updateTenantStats(ctx, args.tenantId, {
+      totalLeads: 1,
+    });
+  }
   await rebuildLeadCustomerSearchRow(ctx, args.tenantId, leadId);
 
   const potentialDuplicateLeadId = identityEmail
