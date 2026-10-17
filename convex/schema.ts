@@ -22,6 +22,12 @@ import {
 import { opportunityStatusValidator } from "./opportunities/validators";
 import { portalPasswordHashParamsValidator } from "./lib/linkPortal/validators";
 import { leadTypeValidator } from "./lib/leadType";
+import {
+  dispositionSourceValidator,
+  dispositionValidator,
+  lifecycleStageEnteredAtValidator,
+  lifecycleStageValidator,
+} from "./leads/lifecycle";
 import { paymentOriginValidator, paymentTypeValidator } from "./lib/paymentTypes";
 import { socialPlatformValidator } from "./lib/socialPlatform";
 import { utmParamsValidator } from "./lib/utmParams";
@@ -113,13 +119,29 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
     isActive: v.boolean(),
     // === End v0.5b: User Soft Delete ===
+
+    // The human behind this login (docs/plans/phase-1-foundations.md §6.1).
+    // Unset until the team member backfill reaches the row.
+    teamMemberId: v.optional(v.id("teamMembers")),
   })
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: the team list shows users in creation order
     .index("by_tenantId", ["tenantId"])
     .index("by_workosUserId", ["workosUserId"])
     .index("by_tenantId_and_email", ["tenantId", "email"])
     .index("by_tenantId_and_calendlyUserUri", ["tenantId", "calendlyUserUri"])
-    .index("by_tenantId_and_isActive", ["tenantId", "isActive"]),
+    .index("by_tenantId_and_isActive", ["tenantId", "isActive"])
+    .index("by_tenantId_and_teamMemberId", ["tenantId", "teamMemberId"]),
+
+  // One human on a tenant's team, whichever roles they work and whether or not
+  // they have a login (CONTEXT.md, "Team member"). The role tables (users,
+  // leadGenWorkers, slackUsers, dmClosers) keep their settings and point here
+  // through `teamMemberId`, since one human can hold several records of a kind.
+  teamMembers: defineTable({
+    tenantId: v.id("tenants"),
+    displayName: v.string(),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index("by_tenantId", ["tenantId"]),
 
   leadGenSettings: defineTable({
     tenantId: v.id("tenants"),
@@ -145,11 +167,14 @@ export default defineSchema({
     isActive: v.boolean(),
     createdAt: v.number(),
     updatedAt: v.number(),
+    // Always the linked user's team member.
+    teamMemberId: v.optional(v.id("teamMembers")),
   })
     .index("by_tenantId_and_userId", ["tenantId", "userId"])
     .index("by_tenantId_and_workosUserId", ["tenantId", "workosUserId"])
     .index("by_tenantId_and_isActive", ["tenantId", "isActive"])
-    .index("by_tenantId_and_teamId", ["tenantId", "teamId"]),
+    .index("by_tenantId_and_teamId", ["tenantId", "teamId"])
+    .index("by_tenantId_and_teamMemberId", ["tenantId", "teamMemberId"]),
 
   leadGenWorkerSchedules: defineTable({
     tenantId: v.id("tenants"),
@@ -521,6 +546,18 @@ export default defineSchema({
     // this lead (docs/plans/polluted-lead-split.md §5.0). Bookings that match
     // a locked lead block as `identity_conflict` and are retried afterwards.
     splitLockedAt: v.optional(v.number()),
+
+    // === Phase 1: lifecycle stage and disposition ===
+    // docs/plans/phase-1-foundations.md §3-§4. Unset until the lifecycle
+    // backfill reaches the lead; write paths skip a lead without a stage.
+    // `status` keeps `merged` as the identity flag.
+    lifecycleStage: v.optional(lifecycleStageValidator),
+    lifecycleStageEnteredAt: v.optional(lifecycleStageEnteredAtValidator),
+    disposition: v.optional(dispositionValidator),
+    dispositionSetAt: v.optional(v.number()),
+    dispositionSource: v.optional(dispositionSourceValidator),
+    dispositionReason: v.optional(v.string()),
+    // === End Phase 1 ===
   })
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: identity resolution scans the 50 newest leads
     .index("by_tenantId", ["tenantId"])
@@ -694,6 +731,8 @@ export default defineSchema({
     hourlyRateMinor: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
+    // The linked user's team member when `userId` is set, else its own.
+    teamMemberId: v.optional(v.id("teamMembers")),
   })
     .index("by_tenantId_and_teamId", ["tenantId", "teamId"])
     .index("by_tenantId_and_slug", ["tenantId", "slug"])
@@ -701,7 +740,8 @@ export default defineSchema({
       "tenantId",
       "normalizedUtmMedium",
     ])
-    .index("by_tenantId_and_userId", ["tenantId", "userId"]),
+    .index("by_tenantId_and_userId", ["tenantId", "userId"])
+    .index("by_tenantId_and_teamMemberId", ["tenantId", "teamMemberId"]),
 
   // Routes a DM team's portal links for one program and scheduling mode to a
   // specific Calendly event type (usually a round-robin pool of closers).
@@ -1881,6 +1921,11 @@ export default defineSchema({
     toStatus: v.optional(v.string()),
     reason: v.optional(v.string()),
     metadata: v.optional(v.string()),
+    // The person the event is about and the team member who acted, so the
+    // log can serve as the person timeline (docs/plans/phase-1-foundations.md
+    // §6.2). Unset on older events until the link backfill reaches them.
+    leadId: v.optional(v.id("leads")),
+    teamMemberId: v.optional(v.id("teamMembers")),
   })
     .index("by_entityId", ["entityId"])
     .index("by_tenantId_and_occurredAt", ["tenantId", "occurredAt"])
@@ -1898,6 +1943,16 @@ export default defineSchema({
     .index("by_tenantId_and_actorUserId_and_occurredAt", [
       "tenantId",
       "actorUserId",
+      "occurredAt",
+    ])
+    .index("by_tenantId_and_leadId_and_occurredAt", [
+      "tenantId",
+      "leadId",
+      "occurredAt",
+    ])
+    .index("by_tenantId_and_teamMemberId_and_occurredAt", [
+      "tenantId",
+      "teamMemberId",
       "occurredAt",
     ]),
   // === End v0.5b: Domain Events ===
@@ -2117,6 +2172,8 @@ export default defineSchema({
     firstSeenAt: v.number(),
     lastSeenAt: v.number(),
     lastSyncedAt: v.number(),
+    // The linked CRM user's team member when `crmUserId` is set, else its own.
+    teamMemberId: v.optional(v.id("teamMembers")),
   })
     .index("by_tenantId_and_slackUserId", ["tenantId", "slackUserId"])
     .index("by_installationId_and_slackUserId", [
@@ -2128,7 +2185,8 @@ export default defineSchema({
       "slackUserId",
     ])
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: qualifier lists show users in creation order
-    .index("by_tenantId", ["tenantId"]),
+    .index("by_tenantId", ["tenantId"])
+    .index("by_tenantId_and_teamMemberId", ["tenantId", "teamMemberId"]),
 
   /**
    * Redacted audit trail of inbound Slack payloads. Raw bodies are used only

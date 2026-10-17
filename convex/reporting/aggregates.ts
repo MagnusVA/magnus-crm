@@ -1,4 +1,5 @@
-import { TableAggregate } from "@convex-dev/aggregate";
+import { DirectAggregate, TableAggregate } from "@convex-dev/aggregate";
+import type { LifecycleStage } from "../leads/lifecycle";
 import { components } from "../_generated/api";
 import type { DataModel, Doc, Id } from "../_generated/dataModel";
 
@@ -97,6 +98,16 @@ export const leadTimeline = new TableAggregate<{
   namespace: (doc) => doc.tenantId,
   sortKey: (doc) => doc._creationTime,
 });
+
+// One entry per person and lifecycle stage reached, keyed by when they first
+// reached it (docs/plans/phase-1-foundations.md §3). Counting a stage over a
+// range counts the people who first reached it in that range. The id is
+// `${leadId}:${stage}`. A merged person has no entries.
+export const leadStageEntries = new DirectAggregate<{
+  Namespace: Id<"tenants">;
+  Key: [LifecycleStage, number];
+  Id: string;
+}>(components.leadStageEntries);
 
 export const customerConversions = new TableAggregate<{
   Namespace: Id<"tenants">;

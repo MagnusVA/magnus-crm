@@ -128,6 +128,7 @@ import type * as leadSplit_snapshot from "../leadSplit/snapshot.js";
 import type * as leadSplit_snapshotStore from "../leadSplit/snapshotStore.js";
 import type * as leadSplit_verify from "../leadSplit/verify.js";
 import type * as leads_identityResolution from "../leads/identityResolution.js";
+import type * as leads_lifecycle from "../leads/lifecycle.js";
 import type * as leads_merge from "../leads/merge.js";
 import type * as leads_mutations from "../leads/mutations.js";
 import type * as leads_notes from "../leads/notes.js";
@@ -493,6 +494,7 @@ declare const fullApi: ApiFromModules<{
   "leadSplit/snapshotStore": typeof leadSplit_snapshotStore;
   "leadSplit/verify": typeof leadSplit_verify;
   "leads/identityResolution": typeof leads_identityResolution;
+  "leads/lifecycle": typeof leads_lifecycle;
   "leads/merge": typeof leads_merge;
   "leads/mutations": typeof leads_mutations;
   "leads/notes": typeof leads_notes;
@@ -768,6 +770,7 @@ export declare const components: {
   paymentSums: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"paymentSums">;
   opportunityByStatus: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"opportunityByStatus">;
   leadTimeline: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"leadTimeline">;
+  leadStageEntries: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"leadStageEntries">;
   customerConversions: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"customerConversions">;
   slackQualificationsByUser: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"slackQualificationsByUser">;
   slackQualificationsByTime: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"slackQualificationsByTime">;
