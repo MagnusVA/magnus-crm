@@ -184,14 +184,16 @@ Every person starts at `open`. An admin sets any value with a reason (D4). An ex
 
 ### 6.1 Team members
 
-Write paths create or find the team member when a role record is created:
+`convex/lib/teamMembers.ts` creates or finds the team member when a role record is written (#115):
 
-- `users`: `createInvitedUser` and onboarding's `redeemInviteAndCreateUser` create one. A reactivated user keeps theirs.
-- `leadGenWorkers`: `syncWorkerProfileForUser` and the admin path in `leadGen/capture.ts` use the user's team member.
-- `slackUsers`: `upsertSlackUserOnSubmission` creates one, or uses the linked user's if `crmUserId` is ever set.
+- `users`: every user mutation creates one if missing, through the step they all share before the lead gen worker sync. Onboarding does the same. A user moved to another tenant at onboarding gets a new one.
+- `leadGenWorkers`: always the user's. A worker whose user is gone keeps its own.
+- `slackUsers`: its own, created on its first qualification or its next one, or the CRM user's if `crmUserId` is ever set. Its name updates when the Slack profile arrives.
 - `dmClosers`: `createDmCloser` uses the linked user's team member, or creates one. `updateDmCloser` relinking `userId` moves the DM closer to the user's team member, and unlinking gives it a new one.
 
-A role record without `teamMemberId` hasn't been backfilled, and code that needs one treats it as unknown.
+A role record without `teamMemberId` hasn't been reached yet, and code that needs one treats it as unknown.
+
+Name matches are joined only after the tenant admin approves them (D5). `teamMembers/linking:nameLinkCandidates` lists them by team member and record ID, and `teamMembers/linking:applyApprovedLinks` joins the approved pairs: it moves the role records and the events of one team member to the other, then deletes the first.
 
 ### 6.2 Domain events
 
@@ -242,40 +244,43 @@ The report recomputes every month from real stage times. Compared with today, by
 
 ### 7.3 Prospect filter
 
-`leadCustomers/queries.ts` gains a `prospect` lifecycle filter that reads `isSearchVisible: false` with `lifecycle: "prospect"`. The All, Leads and Customers views are unchanged, and the toolbar gets a Prospects toggle. No person is at Prospect until Phase 2, so the filter is empty until then.
+`leadCustomers/queries.ts` gains a `prospect` lifecycle filter that reads `isSearchVisible: false` with `lifecycle: "prospect"`. The All, Leads and Customers views are unchanged, and a prospect row reads "Prospect". No person is at Prospect until Phase 2, so the toolbar toggle ships with Phase 2 rather than as an empty tab; until then `?lifecycle=prospect` lists them.
 
 ## 8. Deploy order
 
 | PR | What | Safe alone because |
 | --- | --- | --- |
-| 1 | Schema widen (§3), the lifecycle module with its stage list and pure rules, tests | optional fields, a new table and an empty aggregate |
-| 2 | Write paths (§5, §6) | they skip rows the backfill hasn't reached |
+| 1 (#113) | Schema widen (§3), the lifecycle module with its stage list and pure rules, tests | optional fields, a new table and an empty aggregate |
+| 2a (#114) | Lifecycle write paths (§5) | they skip leads the backfill hasn't reached |
+| 2b (#115) | Team members and event links (§6) | a role record gets a team member when next written; older events lack the fields |
 | 3 | Backfill and assert migrations (§9) | nothing reads the fields yet |
 | 4 | Reporting switch and prospect filter (§7) | gated on `leadStageReportingVersion` |
 | 5 | Admin move-back, disposition editing and the lead page control (D4) | admin-only, and needs PR 3's data |
 
-Production runs, each with the tenant admin's approval:
+Production runs, each with the tenant admin's approval, in this order once PR 3 deploys (§9.5 has the commands):
 
-1. After PR 3 deploys: `backfillTeamMembers`, then `backfillLeadLifecycle`, then `backfillDomainEventLinks`, each with a dry run first, then its assert.
-2. After the asserts pass and PR 4 deploys: `activateLeadStageReporting`.
-3. `backfillDomainEventLinks` must finish before the split's Deploy 3 drops `leadSplitAudit`, from about 16 Nov, because its assert checks split deals against that table.
+1. The team member backfills, then their asserts.
+2. `nameLinkCandidates`, for the admin to approve, then `applyApprovedLinks` and `assertTeamMembersHeld` again.
+3. `backfillLeadLifecycle`, then `assertLeadLifecycle` and the stage totals.
+4. `backfillDomainEventLinks`, then `assertDomainEventLinks` and `leadSplit/verify:verifySplitEventLinks`. This must finish before the split's Deploy 3 drops `leadSplitAudit`, from about 16 Nov.
+5. After PR 4 deploys: `activateLeadStageReporting`.
 
 ## 9. Backfill and assert migrations (PR 3)
 
 All are `migrations.define` in `convex/migrations.ts`, so they run in batches and none hits the 16 MB read limit that stops `verifyBackfillCounts`.
 
-### 9.1 `backfillTeamMembers` / `assertTeamMembers`
+### 9.1 Team member backfills
 
-Over `users`, then the other three role tables, using explicit links only:
+Four migrations, one per role table, use the same functions as the write paths, so they link through explicit IDs only:
 
-- Each user without `teamMemberId` gets a new team member.
-- A lead gen worker takes its user's team member. The worker whose user is missing gets its own.
-- A DM closer with `userId` takes that user's team member. The other 19 get their own.
-- A Slack user gets its own; none is linked.
+- `backfillUserTeamMembers`: each user without `teamMemberId` gets a new team member.
+- `backfillLeadGenWorkerTeamMembers`: a worker takes its user's. The worker whose user is missing gets its own.
+- `backfillDmCloserTeamMembers`: a DM closer with `userId` takes that user's. The other 19 get their own.
+- `backfillSlackUserTeamMembers`: each Slack user gets its own; none is linked.
 
-The assert checks that every role record has a team member in its tenant, that every linked worker and DM closer shares its user's team member, and that every team member has at least one role record.
+The asserts are `assertUserTeamMembers`, `assertLeadGenWorkerTeamMembers`, `assertDmCloserTeamMembers`, `assertSlackUserTeamMembers` and `assertTeamMembersHeld`. They check that every role record has a team member in its tenant, and that a linked worker or DM closer shares its user's. They also check that every team member has a role record and at most one login.
 
-Name matches between Slack users, DM closers and users are not applied by code. §10 D5 covers them.
+Name matches between Slack users, DM closers and users are not applied by code. They wait for the admin's approval (§6.1, D5).
 
 ### 9.2 `backfillLeadLifecycle` / `assertLeadLifecycle`
 
@@ -283,17 +288,17 @@ Over `leads`, batch 25:
 
 - skip a merged lead
 - derive the stage and entry times from source data (§4.1), with the shared `deriveLifecycle`
-- write them, and the disposition from D3
+- write them, and, for a lead with no disposition, the one D3 gives: `unresponsive` from the real expiry time (`createdAt` plus the join window, not the backlog run's `lostAt`) when a Slack deal expired, no deal is open and nothing at Qualified or later came after; else `open`
 - insert the `leadStageEntries` entries
 - rebuild the lead/customer row only if its `lifecycle` changes, which doesn't happen with today's data
 
-It overwrites whatever PR 2 wrote, which is the same derivation. It emits no domain events: it records state, and 10,000 events would flood PostHog.
+It overwrites whatever PR 2 wrote, which is the same derivation, and keeps a disposition a write path already set. It emits no domain events: it records state, and 10,000 events would flood PostHog.
 
-The assert derives each lead again and throws on any difference in stage, entry times or aggregate entries. It also checks `status` against the stage (`converted` exactly when stage is `customer`) and that a merged lead has no entries. Later it can run as a health check, with a moved-back lead compared against its move-back event.
+The assert derives each lead again and throws on any difference in stage or entry times, or a missing aggregate entry. It also checks `status` against the stage (`converted` exactly when stage is `customer`), that every lead has a disposition, and that a merged lead has no entries. An entry for a stage a lead never reached can't be found from the lead, so `leads/lifecycleChecks:stageTotals` compares the aggregate's totals with a count of the leads. Later the assert can run as a health check, with a moved-back lead compared against its move-back event.
 
 ### 9.3 `backfillDomainEventLinks` / `assertDomainEventLinks`
 
-Over `domainEvents`, all 37,912 rows (D6), batch 200. It runs after `backfillTeamMembers` and applies the rules in §6.2, with one exception for split deals.
+Over `domainEvents`, all 37,912 rows (D6), batch 100. It runs after the team member backfills, fills only fields an event lacks, and applies the rules in §6.2 (`deriveStoredEventLinks`), with one exception for split deals. A Slack deal's `opportunity.created` takes the setter's team member from `qualifiedBy.slackUserId`.
 
 Deals moved whole, by a merge or by the split, keep their current `leadId` for every past event: the same human owned the whole deal.
 
@@ -308,7 +313,8 @@ A deal the split took apart is different. 25 such documents stayed with their ke
 The rule is general: an opportunity event whose same-transaction meeting now sits on another person's deal takes that person's lead. Only split meetings moved between deals, so nothing else is affected.
 
 - One `opportunity.deleted` event names a side deal that no longer exists and carries no lead. It stays without one.
-- The assert re-derives each event and also checks the 134 split events against `leadSplitAudit`'s meeting moves. That is why it must run before Deploy 3.
+- The assert re-derives each event. A live event whose lead has since merged into the derived one still passes, because the timeline follows the merge.
+- `leadSplit/verify:verifySplitEventLinks` checks the split events against `leadSplitAudit`'s meeting moves, an independent source. That is why it must run before Deploy 3.
 
 ### 9.4 Expected results
 
@@ -328,6 +334,26 @@ A read-only pass on 2026-10-17 applied the §4.1 rules to all 10,489 leads (`/tm
 - **Showed.** 661 people have a completed meeting and 7 a side deal.
 - **Customer.** All 263 customers have a payment that isn't disputed, so none falls back to `convertedAt`.
 - **Stale Slack deals.** 4,073 people have a deal that expired as `stale`. For 4,000 of them it is their only kind of deal, and they never got past Qualified. 72 booked on another deal.
+
+### 9.5 Commands
+
+Every run uses `--env-file .env.vercel.production`. `migrations:run` only starts the batches: poll `npx convex run --component migrations lib:getStatus '{"names":["migrations:<name>"]}'` until `isDone`. A dry run is `"dryRun": true`, and an assert runs again with `"reset": true`.
+
+```
+npx convex run migrations:run '{"fn":"migrations:backfillUserTeamMembers","next":["migrations:backfillLeadGenWorkerTeamMembers","migrations:backfillDmCloserTeamMembers","migrations:backfillSlackUserTeamMembers"]}'
+npx convex run migrations:run '{"fn":"migrations:assertUserTeamMembers","next":["migrations:assertLeadGenWorkerTeamMembers","migrations:assertDmCloserTeamMembers","migrations:assertSlackUserTeamMembers","migrations:assertTeamMembersHeld"]}'
+npx convex run teamMembers/linking:nameLinkCandidates '{"tenantId":"k57dqjfyf8qqy31bq375ng8gb984b24q"}'
+npx convex run teamMembers/linking:applyApprovedLinks '{"tenantId":"k57dqjfyf8qqy31bq375ng8gb984b24q","approvedByUserId":"k97fgy2ckqhn8w2xynw3etwdf984dwb9","links":[...]}'
+npx convex run migrations:run '{"fn":"migrations:backfillLeadLifecycle"}'
+npx convex run migrations:run '{"fn":"migrations:assertLeadLifecycle"}'
+npx convex run leads/lifecycleChecks:stageTotals '{"tenantId":"k57dqjfyf8qqy31bq375ng8gb984b24q"}'
+npx convex run migrations:run '{"fn":"migrations:backfillDomainEventLinks"}'
+npx convex run migrations:run '{"fn":"migrations:assertDomainEventLinks"}'
+npx convex run leadSplit/verify:verifySplitEventLinks '{}'
+npx convex run migrations:activateLeadStageReporting '{"tenantId":"k57dqjfyf8qqy31bq375ng8gb984b24q"}'
+```
+
+`stageTotals` must match a read-only count of the leads with each `lifecycleStageEnteredAt` field, and the §9.4 numbers plus whatever arrived since. `verifySplitEventLinks` must return 0 mismatches. The rest of the §2 checks (`verifyTenant`, the status counters, the search-row asserts) must still pass.
 
 ## 10. Decisions
 

@@ -7,6 +7,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "../_generated/server";
+import { SAME_TRANSACTION_EVENT_LIMIT } from "../lib/domainEventLinks";
 import { isRecord } from "../lib/payloadExtraction";
 import { parseInvitee } from "./inviteeSnapshot";
 import { emailKey, identifierKey, keyToIdentifier, phoneKey, socialKey } from "./identityKeys";
@@ -433,5 +434,61 @@ export const probeDelivery = internalQuery({
       leadEmailMatches,
       resolvesToOneLead: leadIds.length === 1 && only?.splitLockedAt === undefined,
     };
+  },
+});
+
+/**
+ * Phase 1 (docs/plans/phase-1-foundations.md §9.3): checks the person on the
+ * deal events a split took apart against this audit, which Deploy 3 drops.
+ * For each meeting the split moved, each event on its old deal written with
+ * one of its meeting events must name the meeting's new person.
+ */
+export const verifySplitEventLinks = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    // Fail closed: a truncated scan must never report zero mismatches.
+    const bounded = <T>(rows: T[], limit: number, what: string): T[] => {
+      if (rows.length > limit) throw new Error(`verifySplitEventLinks read more than ${limit} ${what}`);
+      return rows;
+    };
+    const rows = bounded(await ctx.db.query("leadSplitAudit").take(5001), 5000, "audit rows");
+    const mismatches: string[] = [];
+    let checked = 0;
+    for (const row of rows) {
+      if (row.revertedAt || row.table !== "meetings" || row.op !== "patch") continue;
+      const after = isRecord(row.after) ? row.after : undefined;
+      const before = isRecord(row.before) ? row.before : undefined;
+      const fromOpportunityId = typeof before?.opportunityId === "string" ? before.opportunityId : undefined;
+      const toOpportunityId = typeof after?.opportunityId === "string" ? after.opportunityId : undefined;
+      if (!fromOpportunityId || !toOpportunityId || fromOpportunityId === toOpportunityId) continue;
+      const toOpportunity = await ctx.db.get("opportunities", toOpportunityId as Id<"opportunities">);
+      const meetingEvents = bounded(
+        await ctx.db
+          .query("domainEvents")
+          .withIndex("by_entityId", (q) => q.eq("entityId", row.docId))
+          .take(101),
+        100,
+        `events for meeting ${row.docId}`,
+      );
+      for (const meetingEvent of meetingEvents) {
+        if (meetingEvent.occurredAt >= row.createdAt) continue;
+        const dealEvents = bounded(
+          await ctx.db
+            .query("domainEvents")
+            .withIndex("by_tenantId_and_occurredAt", (q) =>
+              q.eq("tenantId", row.tenantId).eq("occurredAt", meetingEvent.occurredAt),
+            )
+            .take(SAME_TRANSACTION_EVENT_LIMIT + 1),
+          SAME_TRANSACTION_EVENT_LIMIT,
+          `events at ${meetingEvent.occurredAt}`,
+        );
+        for (const dealEvent of dealEvents) {
+          if (dealEvent.entityId !== fromOpportunityId || dealEvent.eventType === "opportunity.created") continue;
+          checked += 1;
+          if (dealEvent.leadId !== toOpportunity?.leadId) mismatches.push(dealEvent._id);
+        }
+      }
+    }
+    return { checked, mismatches: mismatches.slice(0, 200), mismatchCount: mismatches.length };
   },
 });

@@ -1,6 +1,6 @@
 import { Migrations } from "@convex-dev/migrations";
 import { v } from "convex/values";
-import { internalMutation } from "./_generated/server";
+import { internalMutation, type MutationCtx } from "./_generated/server";
 import { adoptRawDelivery, deliveryMetadata } from "./pipeline/receipts";
 import {
   DISMISSED_REASON,
@@ -9,8 +9,17 @@ import {
 } from "./pipeline/dismissal";
 import { requestMeetingProjection, bucketKey, meetingDayKey } from "./operations/meetingStats";
 import { components, internal } from "./_generated/api";
-import type { DataModel } from "./_generated/dataModel";
+import type { DataModel, Id } from "./_generated/dataModel";
+import { deriveStoredEventLinks, storedLeadIdMatches } from "./lib/domainEventLinks";
+import { backfillLeadLifecycleRow, lifecycleProblems } from "./lib/leadLifecycle";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
+import {
+  ensureUserTeamMember,
+  linkDmCloserTeamMember,
+  linkLeadGenWorkerTeamMember,
+  linkSlackUserTeamMember,
+  teamMemberRoleRecords,
+} from "./lib/teamMembers";
 import { leadGenWeekdayForBusinessDate } from "./leadGen/schedules";
 import {
   isVisibleLifecycle,
@@ -438,4 +447,116 @@ export const finalizeLeadSplitPlans = migrations.define({
 export const assertLeadSplitPersonsApplied = migrations.define({
   table: "leadSplitPersons", batchSize: 10,
   migrateOne: async (ctx, person) => { await assertPersonApplied(ctx, person); },
+});
+
+// Phase 1 (docs/plans/phase-1-foundations.md §9). Team members first, since
+// the event links read them:
+// npx convex run migrations:run '{"fn":"migrations:backfillUserTeamMembers","next":["migrations:backfillLeadGenWorkerTeamMembers","migrations:backfillDmCloserTeamMembers","migrations:backfillSlackUserTeamMembers"]}'
+// then the matching assert* chain, then backfillLeadLifecycle and
+// assertLeadLifecycle, then backfillDomainEventLinks and
+// assertDomainEventLinks. Each is idempotent; rerun an assert with "reset".
+export const backfillUserTeamMembers = migrations.define({
+  table: "users", batchSize: 50,
+  migrateOne: async (ctx, user) => { await ensureUserTeamMember(ctx, user._id); },
+});
+export const backfillLeadGenWorkerTeamMembers = migrations.define({
+  table: "leadGenWorkers", batchSize: 50,
+  migrateOne: async (ctx, worker) => { await linkLeadGenWorkerTeamMember(ctx, worker._id); },
+});
+export const backfillDmCloserTeamMembers = migrations.define({
+  table: "dmClosers", batchSize: 50,
+  migrateOne: async (ctx, dmCloser) => {
+    if (!dmCloser.teamMemberId || dmCloser.userId) await linkDmCloserTeamMember(ctx, dmCloser._id);
+  },
+});
+export const backfillSlackUserTeamMembers = migrations.define({
+  table: "slackUsers", batchSize: 50,
+  migrateOne: async (ctx, slackUser) => {
+    if (!slackUser.teamMemberId || slackUser.crmUserId) await linkSlackUserTeamMember(ctx, slackUser._id);
+  },
+});
+async function assertTeamMemberOf(
+  ctx: MutationCtx,
+  record: { _id: string; tenantId: Id<"tenants">; teamMemberId?: Id<"teamMembers"> },
+  expected?: Id<"teamMembers">,
+) {
+  if (!record.teamMemberId) throw new Error(`${record._id} has no team member`);
+  const teamMember = await ctx.db.get("teamMembers", record.teamMemberId);
+  if (teamMember?.tenantId !== record.tenantId) throw new Error(`${record._id} has a team member outside its tenant`);
+  if (expected && record.teamMemberId !== expected) throw new Error(`${record._id} doesn't share its user's team member`);
+}
+async function linkedUserTeamMember(ctx: MutationCtx, userId: Id<"users"> | undefined) {
+  return userId ? (await ctx.db.get("users", userId))?.teamMemberId : undefined;
+}
+export const assertUserTeamMembers = migrations.define({
+  table: "users", batchSize: 100,
+  migrateOne: async (ctx, user) => { await assertTeamMemberOf(ctx, user); },
+});
+export const assertLeadGenWorkerTeamMembers = migrations.define({
+  table: "leadGenWorkers", batchSize: 100,
+  migrateOne: async (ctx, worker) => {
+    await assertTeamMemberOf(ctx, worker, await linkedUserTeamMember(ctx, worker.userId));
+  },
+});
+export const assertDmCloserTeamMembers = migrations.define({
+  table: "dmClosers", batchSize: 100,
+  migrateOne: async (ctx, dmCloser) => {
+    await assertTeamMemberOf(ctx, dmCloser, await linkedUserTeamMember(ctx, dmCloser.userId));
+  },
+});
+export const assertSlackUserTeamMembers = migrations.define({
+  table: "slackUsers", batchSize: 100,
+  migrateOne: async (ctx, slackUser) => {
+    await assertTeamMemberOf(ctx, slackUser, await linkedUserTeamMember(ctx, slackUser.crmUserId));
+  },
+});
+export const assertTeamMembersHeld = migrations.define({
+  table: "teamMembers", batchSize: 100,
+  migrateOne: async (ctx, teamMember) => {
+    const records = await teamMemberRoleRecords(ctx, teamMember.tenantId, teamMember._id);
+    if (Object.values(records).every((rows) => rows.length === 0)) {
+      throw new Error(`Team member ${teamMember._id} has no role record`);
+    }
+    if (records.users.length > 1) throw new Error(`Team member ${teamMember._id} has two logins`);
+  },
+});
+
+// Small batches: deriving a lead reads its deals, meetings, payments, Slack
+// events and lead gen matches.
+export const backfillLeadLifecycle = migrations.define({
+  table: "leads", batchSize: 25,
+  migrateOne: async (ctx, lead) => { await backfillLeadLifecycleRow(ctx, lead); },
+});
+export const assertLeadLifecycle = migrations.define({
+  table: "leads", batchSize: 25,
+  migrateOne: async (ctx, lead) => {
+    const problems = await lifecycleProblems(ctx, lead);
+    if (problems.length > 0) throw new Error(`Lead ${lead._id}: ${problems.join("; ")}`);
+  },
+});
+
+// Fills only what is missing: a live event keeps the links it was written with.
+export const backfillDomainEventLinks = migrations.define({
+  table: "domainEvents", batchSize: 100,
+  migrateOne: async (ctx, event) => {
+    if (event.leadId !== undefined && event.teamMemberId !== undefined) return;
+    const derived = await deriveStoredEventLinks(ctx, event);
+    const patch = {
+      ...(event.leadId === undefined && derived.leadId ? { leadId: derived.leadId } : {}),
+      ...(event.teamMemberId === undefined && derived.teamMemberId ? { teamMemberId: derived.teamMemberId } : {}),
+    };
+    if (Object.keys(patch).length > 0) await ctx.db.patch("domainEvents", event._id, patch);
+  },
+});
+export const assertDomainEventLinks = migrations.define({
+  table: "domainEvents", batchSize: 100,
+  migrateOne: async (ctx, event) => {
+    const derived = await deriveStoredEventLinks(ctx, event);
+    if (!(await storedLeadIdMatches(ctx, event.leadId, derived.leadId))) {
+      throw new Error(`Event ${event._id} has lead ${event.leadId}, expected ${derived.leadId}`);
+    }
+    if (event.teamMemberId !== derived.teamMemberId && derived.teamMemberId !== undefined) {
+      throw new Error(`Event ${event._id} has team member ${event.teamMemberId}, expected ${derived.teamMemberId}`);
+    }
+  },
 });
