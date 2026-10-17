@@ -13,6 +13,15 @@ export const LIFECYCLE_STAGES = [
 
 export type LifecycleStage = (typeof LIFECYCLE_STAGES)[number];
 
+export const LIFECYCLE_STAGE_LABELS: Record<LifecycleStage, string> = {
+  prospect: "Prospect",
+  in_conversation: "In conversation",
+  qualified: "Qualified",
+  booked: "Booked",
+  showed: "Showed",
+  customer: "Customer",
+};
+
 export const lifecycleStageValidator = v.union(
   v.literal("prospect"),
   v.literal("in_conversation"),
@@ -48,6 +57,14 @@ export const dispositionValidator = v.union(
 );
 
 export type Disposition = Infer<typeof dispositionValidator>;
+
+export const DISPOSITION_LABELS: Record<Disposition, string> = {
+  open: "Open",
+  nurture: "Nurture",
+  not_a_fit: "Not a fit",
+  unresponsive: "Unresponsive",
+  do_not_contact: "Do not contact",
+};
 
 // Who set the disposition. The system only ever changes a value it set.
 export const dispositionSourceValidator = v.union(
@@ -101,6 +118,24 @@ export function deriveLifecycle(
     (state, item) => advanceLifecycle(state, item.stage, item.at),
     null,
   );
+}
+
+/**
+ * An admin moves the person back to `stage` (plan §4.3). The stages above it
+ * lose their entry times, since they were wrong; new evidence can set them
+ * again.
+ */
+export function moveLifecycleBack(
+  state: LifecycleState,
+  stage: LifecycleStage,
+): LifecycleState {
+  const enteredAt: LifecycleStageEnteredAt = {};
+  for (const kept of LIFECYCLE_STAGES.slice(0, stageIndex(stage) + 1)) {
+    if (state.enteredAt[kept] !== undefined) {
+      enteredAt[kept] = state.enteredAt[kept];
+    }
+  }
+  return { stage, enteredAt };
 }
 
 /** Two records of one person, as a merge joins them. */

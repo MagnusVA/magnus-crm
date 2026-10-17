@@ -15,6 +15,7 @@ import {
 	TruncatingTooltip,
 } from "../../_components/entity-ui-tooltips";
 import { useEntityDetail } from "./entity-detail-context";
+import { EntityLifecycleSection } from "./entity-lifecycle-section";
 import { formatToken } from "./entity-detail-formatters";
 import { MicroLabel, SectionShell } from "./entity-detail-ui";
 
@@ -34,6 +35,8 @@ export function EntitySnapshotAside() {
 
 	return (
 		<>
+			<EntityLifecycleSection />
+
 			<SectionShell
 				title="Identity Path"
 				icon={<ListTreeIcon aria-hidden="true" />}

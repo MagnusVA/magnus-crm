@@ -129,6 +129,7 @@ import type * as leadSplit_snapshotStore from "../leadSplit/snapshotStore.js";
 import type * as leadSplit_verify from "../leadSplit/verify.js";
 import type * as leads_identityResolution from "../leads/identityResolution.js";
 import type * as leads_lifecycle from "../leads/lifecycle.js";
+import type * as leads_lifecycleAdmin from "../leads/lifecycleAdmin.js";
 import type * as leads_lifecycleChecks from "../leads/lifecycleChecks.js";
 import type * as leads_merge from "../leads/merge.js";
 import type * as leads_mutations from "../leads/mutations.js";
@@ -500,6 +501,7 @@ declare const fullApi: ApiFromModules<{
   "leadSplit/verify": typeof leadSplit_verify;
   "leads/identityResolution": typeof leads_identityResolution;
   "leads/lifecycle": typeof leads_lifecycle;
+  "leads/lifecycleAdmin": typeof leads_lifecycleAdmin;
   "leads/lifecycleChecks": typeof leads_lifecycleChecks;
   "leads/merge": typeof leads_merge;
   "leads/mutations": typeof leads_mutations;

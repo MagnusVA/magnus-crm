@@ -3,6 +3,7 @@ import {
   advanceLifecycle,
   combineLifecycles,
   deriveLifecycle,
+  moveLifecycleBack,
 } from "./lifecycle";
 
 const OCT_1 = Date.UTC(2026, 9, 1, 12);
@@ -135,5 +136,26 @@ describe("combineLifecycles", () => {
     const target = deriveLifecycle([{ stage: "booked", at: OCT_5 }]);
     expect(combineLifecycles(target, null)).toEqual(target);
     expect(combineLifecycles(null, target)).toEqual(target);
+  });
+});
+
+describe("moveLifecycleBack", () => {
+  test("an admin moving a person back clears the stages above, so they count again only on new evidence", () => {
+    const customer = deriveLifecycle([
+      { stage: "qualified", at: OCT_1 },
+      { stage: "booked", at: OCT_3 },
+      { stage: "customer", at: OCT_9 },
+    ])!;
+    const booked = moveLifecycleBack(customer, "booked");
+    expect(booked).toEqual({
+      stage: "booked",
+      enteredAt: {
+        prospect: OCT_1,
+        in_conversation: OCT_1,
+        qualified: OCT_1,
+        booked: OCT_3,
+      },
+    });
+    expect(advanceLifecycle(booked, "showed", OCT_9).enteredAt.showed).toBe(OCT_9);
   });
 });
