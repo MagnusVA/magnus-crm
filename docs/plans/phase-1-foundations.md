@@ -1,6 +1,6 @@
 # Phase 1: foundations
 
-Status: plan drafted 2026-10-17. The open decisions in §10 need answers before any code. Nothing has shipped or run in production.
+Status: plan approved 2026-10-17, with every §10 decision taken as recommended. Nothing has shipped or run in production yet.
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) and the Phase 1 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 0 history is in the [polluted lead split plan](polluted-lead-split.md).
 
@@ -146,7 +146,7 @@ Gaps in the evidence:
 
 The stage never moves back on its own. Three things move it back, and each one is a correction:
 
-- **An admin, with a reason** (decision D4). The entry times above the new stage are cleared and their aggregate entries deleted. The domain event keeps the old values.
+- **An admin, with a reason** (D4). The entry times above the new stage are cleared and their aggregate entries deleted. The domain event keeps the old values.
 - **Voiding a side-deal payment.** It already deletes the customer and returns the lead to `active` (`rollbackCustomerConversionIfEmpty`). The stage is derived again from what is left, and the event records reason `payment_voided`.
 - **A split or split rollback.** The split refresh chain derives the stage again for each lead it touched. The split ran once; this only matters if a rollback runs before Deploy 3 removes the code.
 
@@ -158,7 +158,7 @@ A lost deal, an expired Slack deal, a no-show or a cancellation never moves the 
 
 ### 4.5 Disposition
 
-Every person starts at `open`. An admin sets any value with a reason (D4). Decision D3 covers whether the stale Slack expiry sets `unresponsive`. The rule for a system-set value: only the system changes it, and an admin-set value never changes on its own.
+Every person starts at `open`. An admin sets any value with a reason (D4). An expired Slack deal sets `unresponsive` when the person has no other open deal and is still `open` (D3). Only the system changes a system-set value, and an admin-set value never changes on its own.
 
 ## 5. Write paths (PR 2)
 
@@ -251,7 +251,7 @@ The report recomputes every month from real stage times. Compared with today, by
 | 2 | Write paths (§5, §6) | they skip rows the backfill hasn't reached |
 | 3 | Backfill and assert migrations (§9) | nothing reads the fields yet |
 | 4 | Reporting switch and prospect filter (§7) | gated on `leadStageReportingVersion` |
-| 5 | Admin move-back and disposition, if D4 puts them in Phase 1 | admin-only, and needs PR 3's data |
+| 5 | Admin move-back, disposition editing and the lead page control (D4) | admin-only, and needs PR 3's data |
 
 Production runs, each with the tenant admin's approval:
 
@@ -328,19 +328,19 @@ A read-only pass on 2026-10-17 applied the §4.1 rules to all 10,489 leads (`/tm
 - **Customer.** All 263 customers have a payment that isn't disputed, so none falls back to `convertedAt`.
 - **Stale Slack deals.** 4,073 people have a deal that expired as `stale`. For 4,000 of them it is their only kind of deal, and they never got past Qualified. 72 booked on another deal.
 
-## 10. Open decisions
+## 10. Decisions
 
-Each has a recommendation. Answers get recorded here before PR 1.
+Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` accepted every recommendation below on 2026-10-17.
 
-- **D1. Backfill rule per stage.** Recommended: the table in §4.1, with entry times that fill forward over skipped stages. The other option records only the stages a person passed through, which makes "reached Qualified" a minimum over three fields and lets funnel counts go up from one stage to the next.
-- **D2. Which stage entry counts as a new lead.** Recommended: Qualified, which includes anyone who skipped it. History changes as §7.2 shows, and `totalLeads` goes up at Qualified. Booked would drop the 5,229 people who qualified and never booked. Prospect would count every capture in Phase 2.
-- **D3. Disposition defaults and stale expiry.** Recommended: everyone starts `open`. When a Slack deal expires and the person has no other open deal and is still `open`, the expiry sets `unresponsive` with source `system`. A later qualification or booking sets a system `unresponsive` back to `open`. The backfill applies the same rule to the 4,000 people in §9.4. The other option leaves them `open`, which makes 4,000 people with no live deal look workable.
-- **D4. Admin move-back.** Recommended: in Phase 1, as PR 5 after the asserts pass. It adds an admin-only mutation to move the stage back with a reason, a mutation to set the disposition, and a small control on the lead page. Without it, `nurture`, `not_a_fit` and `do_not_contact` can't be set at all. The other option ships only the backend and adds the control with Phase 2's person page.
-- **D5. Matching a human with several staff records.** Recommended: code links only through explicit IDs (`leadGenWorkers.userId`, `dmClosers.userId`, `slackUsers.crmUserId`). Matching names would repeat the placeholder mistake for staff. Name candidates go to the tenant admin as a list of IDs to approve, and a one-off internal mutation applies the approved pairs. Production candidates:
+- **D1. Backfill rule per stage.** Decided: the table in §4.1, with entry times that fill forward over skipped stages. The other option records only the stages a person passed through, which makes "reached Qualified" a minimum over three fields and lets funnel counts go up from one stage to the next.
+- **D2. Which stage entry counts as a new lead.** Decided: Qualified, which includes anyone who skipped it. History changes as §7.2 shows, and `totalLeads` goes up at Qualified. Booked would drop the 5,229 people who qualified and never booked. Prospect would count every capture in Phase 2.
+- **D3. Disposition defaults and stale expiry.** Decided: everyone starts `open`. When a Slack deal expires and the person has no other open deal and is still `open`, the expiry sets `unresponsive` with source `system`. A later qualification or booking sets a system `unresponsive` back to `open`. The backfill applies the same rule to the 4,000 people in §9.4. The other option leaves them `open`, which makes 4,000 people with no live deal look workable.
+- **D4. Admin move-back.** Decided: in Phase 1, as PR 5 after the asserts pass. It adds an admin-only mutation to move the stage back with a reason, a mutation to set the disposition, and a small control on the lead page. Without it, `nurture`, `not_a_fit` and `do_not_contact` can't be set at all. The other option ships only the backend and adds the control with Phase 2's person page.
+- **D5. Matching a human with several staff records.** Decided: code links only through explicit IDs (`leadGenWorkers.userId`, `dmClosers.userId`, `slackUsers.crmUserId`). Matching names would repeat the placeholder mistake for staff. Name candidates go to the tenant admin as a list of IDs to approve, and a one-off internal mutation applies the approved pairs. Production candidates:
   - Slack users: 10 match exactly one user by full name, 3 by first name only, 3 match none.
   - Unlinked DM closers: 6 match one user by full name, 3 by first name only, 10 match none.
   - 9 DM closers share a name with a Slack user.
-- **D6. How far back to backfill `domainEvents`.** Recommended: all 37,912, back to 2026-04-19. It takes about 190 batches, and the split rule in §9.3 covers the only events whose deal changed hands.
+- **D6. How far back to backfill `domainEvents`.** Decided: all 37,912, back to 2026-04-19. It takes about 190 batches, and the split rule in §9.3 covers the only events whose deal changed hands.
 
 ## 11. Rollback
 
