@@ -147,7 +147,7 @@ Gaps in the evidence:
 
 The stage never moves back on its own. Three things move it back, and each one is a correction:
 
-- **An admin, with a reason** (D4). The entry times above the new stage are cleared and their aggregate entries deleted. The domain event keeps the old values.
+- **An admin, with a reason** (D4, `leads/lifecycleAdmin:moveLifecycleStageBack`). The entry times above the new stage are cleared and their aggregate entries deleted. The domain event keeps the old values, and `lifecycleStageMovedBackAt` tells the assert the stage no longer follows the records. A person with a customer record can't be moved back this way; voiding the payment moves both.
 - **Voiding a side-deal payment.** It already deletes the customer and returns the lead to `active` (`rollbackCustomerConversionIfEmpty`). The stage is derived again from what is left, and the event records reason `payment_voided`.
 - **A split or split rollback.** The split refresh chain derives the stage again for each lead it touched, and gives a lead it created its first stage. The split ran once; this only matters if a rollback runs before Deploy 3 removes the code.
 
@@ -159,7 +159,7 @@ A lost deal, an expired Slack deal, a no-show or a cancellation never moves the 
 
 ### 4.5 Disposition
 
-Every person starts at `open`. An admin sets any value with a reason (D4). An expired Slack deal sets `unresponsive` when the person has no other open deal and is still `open` (D3). Only the system changes a system-set value, and an admin-set value never changes on its own.
+Every person starts at `open`. An admin sets any value with a reason (D4, `leads/lifecycleAdmin:setDisposition`). An expired Slack deal sets `unresponsive` when the person has no other open deal and is still `open` (D3). Only the system changes a system-set value, and an admin-set value never changes on its own.
 
 ## 5. Write paths (PR 2)
 

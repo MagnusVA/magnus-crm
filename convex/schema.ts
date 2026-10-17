@@ -561,6 +561,9 @@ export default defineSchema({
     dispositionSetAt: v.optional(v.number()),
     dispositionSource: v.optional(dispositionSourceValidator),
     dispositionReason: v.optional(v.string()),
+    // When an admin last moved the stage back (plan §4.3). The lifecycle
+    // assert then stops comparing the stage with the lead's records.
+    lifecycleStageMovedBackAt: v.optional(v.number()),
     // === End Phase 1 ===
   })
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: identity resolution scans the 50 newest leads

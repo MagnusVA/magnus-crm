@@ -7,6 +7,7 @@ import {
   combineLifecycles,
   deriveLifecycle,
   isProspectStage,
+  moveLifecycleBack,
   type Disposition,
   type LifecycleEvidence,
   type LifecycleStage,
@@ -809,7 +810,8 @@ export async function lifecycleProblems(
     return problems;
   }
   const derived = await deriveLeadLifecycle(ctx, lead);
-  if (!sameLifecycle(stored, derived)) {
+  // An admin's move-back is a correction the records don't show.
+  if (lead.lifecycleStageMovedBackAt === undefined && !sameLifecycle(stored, derived)) {
     problems.push("stage or entry times differ from its records");
   }
   for (const stage of LIFECYCLE_STAGES) {
@@ -837,4 +839,54 @@ export async function leadStageTotals(
     totals[stage] = await countLeadStageEntries(ctx, tenantId, stage, 0, Number.MAX_SAFE_INTEGER);
   }
   return totals;
+}
+
+// --- Admin controls (plan §4.3, §4.5, D4). ---
+
+/** An admin moves the stage back; the stages above it stop counting. */
+export async function adminMoveLifecycleBack(
+  ctx: MutationCtx,
+  lead: Doc<"leads">,
+  toStage: LifecycleStage,
+  write: { actorUserId: Id<"users">; reason: string; at: number },
+): Promise<void> {
+  const before = readLifecycle(lead);
+  if (!before) {
+    throw new Error("Lead has no lifecycle stage yet");
+  }
+  await writeLifecycle(ctx, lead, before, moveLifecycleBack(before, toStage), {
+    source: "admin",
+    actorUserId: write.actorUserId,
+    reason: write.reason,
+    occurredAt: write.at,
+    metadata: { enteredAtBefore: before.enteredAt },
+    extraPatch: { lifecycleStageMovedBackAt: write.at },
+  });
+}
+
+/** An admin sets the disposition; only an admin changes it from then on. */
+export async function adminSetDisposition(
+  ctx: MutationCtx,
+  lead: Doc<"leads">,
+  disposition: Disposition,
+  write: { actorUserId: Id<"users">; reason: string; at: number },
+): Promise<void> {
+  await ctx.db.patch("leads", lead._id, {
+    disposition,
+    dispositionSetAt: write.at,
+    dispositionSource: "admin",
+    dispositionReason: write.reason,
+  });
+  await emitDomainEvent(ctx, {
+    tenantId: lead.tenantId,
+    entityType: "lead",
+    entityId: lead._id,
+    eventType: "lead.disposition_changed",
+    source: "admin",
+    actorUserId: write.actorUserId,
+    fromStatus: lead.disposition,
+    toStatus: disposition,
+    reason: write.reason,
+    occurredAt: write.at,
+  });
 }
