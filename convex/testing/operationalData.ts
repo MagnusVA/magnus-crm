@@ -65,6 +65,7 @@ const OPERATIONAL_TABLES = [
   "dmClosers",
   "attributionTeams",
   "leads",
+  "teamMembers",
   "users",
   "tenants",
   "supportTickets",
@@ -148,6 +149,7 @@ export const getSnapshot = internalQuery({
   handler: async (ctx): Promise<SnapshotResult> => {
     const counts: Record<TableName, number> = {
       users: await countTableDocuments(ctx, "users"),
+      teamMembers: await countTableDocuments(ctx, "teamMembers"),
       calendlyOrgMembers: await countTableDocuments(ctx, "calendlyOrgMembers"),
       tenantCalendlyConnections: await countTableDocuments(
         ctx,
@@ -334,6 +336,7 @@ export const deleteOperationalDataBatch = internalMutation({
       v.literal("dmClosers"),
       v.literal("attributionTeams"),
       v.literal("leads"),
+      v.literal("teamMembers"),
       v.literal("users"),
       v.literal("tenants"),
       v.literal("supportTickets"),
@@ -440,6 +443,7 @@ export const resetOperationalData = internalAction({
       attributionTeams: 0,
       leads: 0,
       users: 0,
+      teamMembers: 0,
       tenants: 0,
       supportTickets: 0,
     };

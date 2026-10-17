@@ -6,6 +6,7 @@ import { dmCloserMemberIdentity } from "../lib/memberIdentity";
 import { log } from "../lib/observability/log";
 import { validateRequiredString } from "../lib/validation";
 import { requireTenantUser } from "../requireTenantUser";
+import { linkDmCloserTeamMember } from "../lib/teamMembers";
 
 function normalizeDmCloserInput(args: {
   displayName: string;
@@ -153,6 +154,7 @@ export const createDmCloser = mutation({
       createdAt: now,
       updatedAt: now,
     });
+    await linkDmCloserTeamMember(ctx, dmCloserId);
     log.info("attribution.dm_closer.created", {
       tenantId,
       dmCloserId,
@@ -216,6 +218,9 @@ export const updateDmCloser = mutation({
       userId: linkedUser?._id,
       updatedAt: Date.now(),
     });
+    if (dmCloser.userId !== linkedUser?._id || !dmCloser.teamMemberId) {
+      await linkDmCloserTeamMember(ctx, args.dmCloserId);
+    }
     log.info("attribution.dm_closer.updated", {
       tenantId,
       dmCloserId: args.dmCloserId,

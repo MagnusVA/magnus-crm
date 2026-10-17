@@ -16,6 +16,7 @@ import {
 } from "../lib/workosUserId";
 import { requireIdentity } from "../requireIdentity";
 import { internal } from "../_generated/api";
+import { ensureUserTeamMember } from "../lib/teamMembers";
 
 export const redeemInviteAndCreateUser = mutation({
   args: {
@@ -79,17 +80,21 @@ export const redeemInviteAndCreateUser = mutation({
         role: "tenant_master",
         isActive: true,
       });
+      await ensureUserTeamMember(ctx, userId);
     } else {
       userId = existingUser._id;
       const userPatch: {
         deletedAt?: undefined;
         isActive?: boolean;
+        teamMemberId?: undefined;
         tenantId?: Id<"tenants">;
         workosUserId?: string;
       } = {};
       if (existingUser.tenantId !== tenant._id) {
         // User exists in a different tenant — update to current tenant
         userPatch.tenantId = tenant._id;
+        // A team member belongs to one tenant, so the user gets a new one.
+        userPatch.teamMemberId = undefined;
         reportError(
           "onboarding.user_tenant_reassigned",
           new Error("Existing user moved to another tenant during onboarding"),
@@ -112,6 +117,7 @@ export const redeemInviteAndCreateUser = mutation({
       if (Object.keys(userPatch).length > 0) {
         await ctx.db.patch("users", existingUser._id, userPatch);
       }
+      await ensureUserTeamMember(ctx, userId);
     }
 
     logRequestContext({

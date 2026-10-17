@@ -1,5 +1,6 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { deriveDomainEventLinks } from "./domainEventLinks";
 import { captureDomainEvent } from "./observability/posthog";
 
 export type DomainEventEntityType =
@@ -26,6 +27,10 @@ export type EmitDomainEventParams = {
   reason?: string;
   metadata?: Record<string, unknown>;
   occurredAt?: number;
+  /** Overrides the person derived from the entity. */
+  leadId?: Id<"leads">;
+  /** Overrides the team member derived from `actorUserId`. */
+  teamMemberId?: Id<"teamMembers">;
 };
 
 export async function emitDomainEvent(
@@ -33,6 +38,9 @@ export async function emitDomainEvent(
   params: EmitDomainEventParams,
 ): Promise<Id<"domainEvents">> {
   const occurredAt = params.occurredAt ?? Date.now();
+  const derived = await deriveDomainEventLinks(ctx, params);
+  const leadId = params.leadId ?? derived.leadId;
+  const teamMemberId = params.teamMemberId ?? derived.teamMemberId;
 
   const domainEventId = await ctx.db.insert("domainEvents", {
     tenantId: params.tenantId,
@@ -46,9 +54,11 @@ export async function emitDomainEvent(
     toStatus: params.toStatus,
     reason: params.reason,
     metadata: params.metadata ? JSON.stringify(params.metadata) : undefined,
+    leadId,
+    teamMemberId,
   });
 
-  await captureDomainEvent(ctx, params, domainEventId, occurredAt);
+  await captureDomainEvent(ctx, { ...params, leadId, teamMemberId }, domainEventId, occurredAt);
 
   return domainEventId;
 }

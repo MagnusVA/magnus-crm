@@ -98,6 +98,8 @@ export async function captureDomainEvent(
       source: params.source,
       actor_user_id: params.actorUserId,
       actor_role: actor?.role,
+      lead_id: params.leadId,
+      team_member_id: params.teamMemberId,
       from_status: params.fromStatus,
       to_status: params.toStatus,
       // Coded reasons (`no_show`, `price`) are useful dimensions; free text

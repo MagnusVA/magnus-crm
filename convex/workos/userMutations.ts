@@ -15,6 +15,7 @@ import { getIdentityOrgId } from "../lib/identity";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { log } from "../lib/observability/log";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
+import { ensureUserTeamMember } from "../lib/teamMembers";
 
 const crmRoleValidator = v.union(
   v.literal("tenant_master"),
@@ -41,7 +42,10 @@ async function unlinkCalendlyMemberForUser(
   }
 }
 
+// Every user mutation ends here: the user's team member, then the lead gen
+// worker profile, which shares it.
 async function syncLeadGenWorkerProfile(ctx: MutationCtx, userId: Doc<"users">["_id"]) {
+  await ensureUserTeamMember(ctx, userId);
   await ctx.runMutation(internal.leadGen.workers.syncWorkerProfileForUser, {
     userId,
   });
