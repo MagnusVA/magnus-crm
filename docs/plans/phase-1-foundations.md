@@ -451,7 +451,9 @@ Not linked (first name only): nx7dkjkb9zv2xp3jqb5j2m73cn875j1k nx7acnv2bqt2f6jg3
 | Disposition `unresponsive` (expired Slack deal, nothing since) | 3,995 |
 | `converted` without stage Customer, or the reverse | 0 |
 
-`stageTotals` matches a scan of the stored stages exactly. It counts 10,493 people at each of Prospect, In conversation and Qualified, 5,259 at Booked, 668 at Showed and 263 at Customer. The current stages match the fresh read-only derivation (§9.4), plus one lead that arrived in between.
+`stageTotals` matches a scan of the stored stages exactly. It counts 10,493 people at each of Prospect, In conversation and Qualified, 5,259 at Booked, 668 at Showed and 263 at Customer.
+
+The backfill has 6 more people than the §9.4 snapshot (10,493 against 10,487), all new leads that arrived after the plan was written. Net of people who moved on, they add 5 at Qualified and 1 at Booked; Showed and Customer are unchanged. A second read-only derivation at about 06:30 found 10,492 people (5,233 Qualified, 4,591 Booked, 405 Showed, 263 Customer). The backfill matches it plus one Slack-qualified lead that arrived before the run.
 
 ### 12.5 Event links (07:43 to 08:15)
 
