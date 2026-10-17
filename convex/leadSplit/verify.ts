@@ -435,3 +435,46 @@ export const probeDelivery = internalQuery({
     };
   },
 });
+
+/**
+ * Phase 1 (docs/plans/phase-1-foundations.md §9.3): checks the person on the
+ * deal events a split took apart against this audit, which Deploy 3 drops.
+ * For each meeting the split moved, each event on its old deal written with
+ * one of its meeting events must name the meeting's new person.
+ */
+export const verifySplitEventLinks = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("leadSplitAudit").take(5000);
+    const mismatches: string[] = [];
+    let checked = 0;
+    for (const row of rows) {
+      if (row.revertedAt || row.table !== "meetings" || row.op !== "patch") continue;
+      const after = isRecord(row.after) ? row.after : undefined;
+      const before = isRecord(row.before) ? row.before : undefined;
+      const fromOpportunityId = typeof before?.opportunityId === "string" ? before.opportunityId : undefined;
+      const toOpportunityId = typeof after?.opportunityId === "string" ? after.opportunityId : undefined;
+      if (!fromOpportunityId || !toOpportunityId || fromOpportunityId === toOpportunityId) continue;
+      const toOpportunity = await ctx.db.get("opportunities", toOpportunityId as Id<"opportunities">);
+      const meetingEvents = await ctx.db
+        .query("domainEvents")
+        .withIndex("by_entityId", (q) => q.eq("entityId", row.docId))
+        .take(100);
+      for (const meetingEvent of meetingEvents) {
+        if (meetingEvent.occurredAt >= row.createdAt) continue;
+        const dealEvents = await ctx.db
+          .query("domainEvents")
+          .withIndex("by_tenantId_and_occurredAt", (q) =>
+            q.eq("tenantId", row.tenantId).eq("occurredAt", meetingEvent.occurredAt),
+          )
+          .take(50);
+        for (const dealEvent of dealEvents) {
+          if (dealEvent.entityId !== fromOpportunityId || dealEvent.eventType === "opportunity.created") continue;
+          checked += 1;
+          if (dealEvent.leadId !== toOpportunity?.leadId) mismatches.push(dealEvent._id);
+        }
+      }
+    }
+    return { checked, mismatches };
+  },
+});

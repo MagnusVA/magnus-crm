@@ -1,4 +1,4 @@
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { DomainEventEntityType } from "./domainEvents";
 
@@ -129,4 +129,125 @@ export async function deriveDomainEventLinks(
       : await metadataLeadId(ctx, input.tenantId, input.metadata));
   const teamMemberId = await userTeamMemberId(ctx, input.tenantId, input.actorUserId);
   return { leadId, teamMemberId };
+}
+
+// --- Older events (plan §9.3). ---
+
+function parseMetadata(metadata: string | undefined): Record<string, unknown> | undefined {
+  if (!metadata) {
+    return undefined;
+  }
+  try {
+    const parsed: unknown = JSON.parse(metadata);
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The lead of a deal event that a meeting caused, when the split has since
+ * moved that meeting to another person's deal. The pipeline writes the
+ * meeting event and the deal event in one transaction, at the same
+ * `occurredAt`. A deal the split took apart kept its old events, but some
+ * were caused by other people's meetings.
+ */
+async function splitMeetingLeadId(
+  ctx: Ctx,
+  event: Doc<"domainEvents">,
+): Promise<Id<"leads"> | undefined> {
+  if (event.entityType !== "opportunity" || event.eventType === "opportunity.created") {
+    return undefined;
+  }
+  const sameTransaction = await ctx.db
+    .query("domainEvents")
+    .withIndex("by_tenantId_and_occurredAt", (q) =>
+      q.eq("tenantId", event.tenantId).eq("occurredAt", event.occurredAt),
+    )
+    .take(50);
+  const otherLeads = new Set<Id<"leads">>();
+  for (const other of sameTransaction) {
+    if (other.entityType !== "meeting") {
+      continue;
+    }
+    const meetingId = ctx.db.normalizeId("meetings", other.entityId);
+    const meeting = meetingId && (await ctx.db.get("meetings", meetingId));
+    if (!meeting) {
+      continue;
+    }
+    if (meeting.opportunityId === event.entityId) {
+      // A meeting still on this deal caused it.
+      return undefined;
+    }
+    const leadId = await opportunityLeadId(ctx, event.tenantId, meeting.opportunityId);
+    if (leadId) {
+      otherLeads.add(leadId);
+    }
+  }
+  return otherLeads.size === 1 ? [...otherLeads][0] : undefined;
+}
+
+/** The setter behind a Slack deal's creation, who isn't a CRM user. */
+async function slackSetterTeamMemberId(
+  ctx: Ctx,
+  event: Doc<"domainEvents">,
+): Promise<Id<"teamMembers"> | undefined> {
+  if (
+    event.entityType !== "opportunity" ||
+    event.eventType !== "opportunity.created" ||
+    event.source !== "pipeline"
+  ) {
+    return undefined;
+  }
+  const opportunityId = ctx.db.normalizeId("opportunities", event.entityId);
+  const opportunity = opportunityId && (await ctx.db.get("opportunities", opportunityId));
+  const slackUserId = opportunity?.source === "slack_qualified" ? opportunity.qualifiedBy?.slackUserId : undefined;
+  if (!slackUserId) {
+    return undefined;
+  }
+  const slackUser = await ctx.db
+    .query("slackUsers")
+    .withIndex("by_tenantId_and_slackUserId", (q) =>
+      q.eq("tenantId", event.tenantId).eq("slackUserId", slackUserId),
+    )
+    .unique();
+  return slackUser?.teamMemberId;
+}
+
+/** The links an already-stored event should have. */
+export async function deriveStoredEventLinks(
+  ctx: Ctx,
+  event: Doc<"domainEvents">,
+): Promise<DomainEventLinks> {
+  const derived = await deriveDomainEventLinks(ctx, {
+    tenantId: event.tenantId,
+    entityType: event.entityType,
+    entityId: event.entityId,
+    actorUserId: event.actorUserId,
+    metadata: parseMetadata(event.metadata),
+  });
+  return {
+    leadId: (await splitMeetingLeadId(ctx, event)) ?? derived.leadId,
+    teamMemberId: derived.teamMemberId ?? (await slackSetterTeamMemberId(ctx, event)),
+  };
+}
+
+/**
+ * Whether an event's stored `leadId` is right. A live event names the lead
+ * at the time; if that lead has since merged into the derived one, it is
+ * still right, and the person timeline follows the merge.
+ */
+export async function storedLeadIdMatches(
+  ctx: Ctx,
+  stored: Id<"leads"> | undefined,
+  derived: Id<"leads"> | undefined,
+): Promise<boolean> {
+  if (stored === derived) {
+    return true;
+  }
+  if (!stored || !derived) {
+    return false;
+  }
+  const lead = await ctx.db.get("leads", stored);
+  return lead?.status === "merged" && lead.mergedIntoLeadId === derived;
 }

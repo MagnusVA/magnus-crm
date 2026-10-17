@@ -14,6 +14,10 @@ import {
 } from "../leads/lifecycle";
 import { leadStageEntries } from "../reporting/aggregates";
 import { emitDomainEvent, type DomainEventSource } from "./domainEvents";
+import {
+  SLACK_OPPORTUNITY_EXPIRY_MS,
+  SLACK_STALE_LOST_REASON,
+} from "../pipeline/slackJoinLookup";
 import { isActiveOpportunityStatus, updateTenantStats } from "./tenantStatsHelper";
 
 // Writes a person's lifecycle stage and disposition, with the aggregate
@@ -118,6 +122,8 @@ export async function countLeadStageEntries(
 }
 
 type LifecycleWrite = {
+  /** The backfill records state, not touches, so it emits no event. */
+  quiet?: boolean;
   source: DomainEventSource;
   actorUserId?: Id<"users">;
   reason: string;
@@ -151,10 +157,11 @@ async function writeLifecycle(
   if (wasProspect !== isProspect && lead.status === "active") {
     await updateTenantStats(ctx, lead.tenantId, { totalLeads: isProspect ? -1 : 1 });
   }
-  if (!before || wasProspect !== isProspect) {
+  // The row already shows a lead without a stage as a lead.
+  if (wasProspect !== isProspect) {
     await rebuildLeadCustomerSearchRow(ctx, lead.tenantId, lead._id);
   }
-  if (before && before.stage !== after.stage) {
+  if (!write.quiet && before && before.stage !== after.stage) {
     await emitDomainEvent(ctx, {
       tenantId: lead.tenantId,
       entityType: "lead",
@@ -457,7 +464,7 @@ function bounded<T>(rows: T[], what: string, leadId: Id<"leads">): T[] {
 export async function collectLifecycleEvidence(
   ctx: QueryCtx | MutationCtx,
   lead: Doc<"leads">,
-): Promise<LifecycleEvidence[]> {
+): Promise<{ evidence: LifecycleEvidence[]; opportunities: Doc<"opportunities">[] }> {
   const { tenantId, _id: leadId } = lead;
   const evidence: LifecycleEvidence[] = [];
   const opportunities = bounded(
@@ -538,7 +545,7 @@ export async function collectLifecycleEvidence(
     const prospect = await ctx.db.get("leadGenProspects", match.prospectId);
     evidence.push(...prospectCaptureEvidence(match, prospect));
   }
-  return evidence;
+  return { evidence, opportunities };
 }
 
 /** The lifecycle a lead's own records support, or null for a merged lead. */
@@ -549,7 +556,7 @@ export async function deriveLeadLifecycle(
   if (lead.status === "merged") {
     return null;
   }
-  return deriveLifecycle(await collectLifecycleEvidence(ctx, lead));
+  return deriveLifecycle((await collectLifecycleEvidence(ctx, lead)).evidence);
 }
 
 export type LifecycleCorrection = "payment_voided" | "lead_split";
@@ -672,4 +679,138 @@ export async function deleteLeadStageEntries(
   lead: Doc<"leads">,
 ): Promise<void> {
   await syncLeadStageEntries(ctx, lead.tenantId, lead._id, readLifecycle(lead), null);
+}
+
+// --- Backfill and assert (plan §9.2). ---
+
+/**
+ * The disposition the backfill gives a lead that has none (D3): unresponsive
+ * if a Slack deal expired, no deal is open, and nothing at Qualified or later
+ * happened after the expiry; else open.
+ */
+export function backfillDisposition(
+  state: LifecycleState,
+  evidence: readonly LifecycleEvidence[],
+  opportunities: readonly Doc<"opportunities">[],
+) {
+  const expiries = opportunities
+    .filter(
+      (opportunity) =>
+        opportunity.source === "slack_qualified" &&
+        opportunity.status === "lost" &&
+        opportunity.lostReason === SLACK_STALE_LOST_REASON,
+    )
+    // The backlog run stamped `lostAt` on 2026-10-16; the deal really expired
+    // a join window after it was created.
+    .map((opportunity) =>
+      Math.min(opportunity.lostAt ?? Infinity, opportunity.createdAt + SLACK_OPPORTUNITY_EXPIRY_MS),
+    );
+  const lastExpiry = expiries.length > 0 ? Math.max(...expiries) : undefined;
+  const reopened =
+    lastExpiry !== undefined &&
+    evidence.some((item) => !isProspectStage(item.stage) && item.at > lastExpiry);
+  const anyOpen = opportunities.some((opportunity) => isActiveOpportunityStatus(opportunity.status));
+  if (lastExpiry !== undefined && !reopened && !anyOpen) {
+    return {
+      disposition: "unresponsive" as const,
+      dispositionSetAt: lastExpiry,
+      dispositionSource: "system" as const,
+      dispositionReason: SLACK_STALE_DISPOSITION_REASON,
+    };
+  }
+  return {
+    disposition: "open" as const,
+    dispositionSetAt: state.enteredAt.prospect ?? state.enteredAt[state.stage],
+    dispositionSource: "system" as const,
+  };
+}
+
+/** Writes the lifecycle a lead's records support, and a disposition if it has none. */
+export async function backfillLeadLifecycleRow(
+  ctx: MutationCtx,
+  lead: Doc<"leads">,
+): Promise<"merged" | "no_evidence" | "unchanged" | "written"> {
+  if (lead.status === "merged") {
+    return "merged";
+  }
+  const { evidence, opportunities } = await collectLifecycleEvidence(ctx, lead);
+  const after = deriveLifecycle(evidence);
+  if (!after) {
+    return "no_evidence";
+  }
+  const before = readLifecycle(lead);
+  const disposition =
+    lead.disposition === undefined ? backfillDisposition(after, evidence, opportunities) : undefined;
+  if (sameLifecycle(before, after) && !disposition) {
+    return "unchanged";
+  }
+  await writeLifecycle(ctx, lead, before, after, {
+    quiet: true,
+    source: "system",
+    reason: "backfill",
+    extraPatch: disposition,
+  });
+  return "written";
+}
+
+async function hasStageEntry(
+  ctx: QueryCtx | MutationCtx,
+  lead: Doc<"leads">,
+  stage: LifecycleStage,
+  at: number,
+): Promise<boolean> {
+  const bound = { key: [stage, at] as [LifecycleStage, number], id: stageEntryId(lead._id, stage), inclusive: true };
+  return (
+    (await leadStageEntries.count(ctx, {
+      namespace: lead.tenantId,
+      bounds: { lower: bound, upper: bound },
+    })) === 1
+  );
+}
+
+/** What is wrong with a lead's stored lifecycle, compared with its records. */
+export async function lifecycleProblems(
+  ctx: QueryCtx | MutationCtx,
+  lead: Doc<"leads">,
+): Promise<string[]> {
+  const stored = readLifecycle(lead);
+  const problems: string[] = [];
+  if (lead.status === "merged") {
+    for (const stage of LIFECYCLE_STAGES) {
+      const at = stored?.enteredAt[stage];
+      if (at !== undefined && (await hasStageEntry(ctx, lead, stage, at))) {
+        problems.push(`merged lead has a ${stage} entry`);
+      }
+    }
+    return problems;
+  }
+  const derived = await deriveLeadLifecycle(ctx, lead);
+  if (!sameLifecycle(stored, derived)) {
+    problems.push("stage or entry times differ from its records");
+  }
+  for (const stage of LIFECYCLE_STAGES) {
+    const at = stored?.enteredAt[stage];
+    if (at !== undefined && !(await hasStageEntry(ctx, lead, stage, at))) {
+      problems.push(`missing ${stage} entry`);
+    }
+  }
+  if ((lead.status === "converted") !== (stored?.stage === "customer")) {
+    problems.push(`status ${lead.status} with stage ${stored?.stage}`);
+  }
+  if (lead.disposition === undefined) {
+    problems.push("no disposition");
+  }
+  return problems;
+}
+
+/** People who reached each stage, over all time, from `leadStageEntries`. */
+export async function leadStageTotals(
+  ctx: QueryCtx | MutationCtx,
+  tenantId: Id<"tenants">,
+): Promise<Record<LifecycleStage, number>> {
+  const totals = {} as Record<LifecycleStage, number>;
+  for (const stage of LIFECYCLE_STAGES) {
+    totals[stage] = await countLeadStageEntries(ctx, tenantId, stage, 0, Number.MAX_SAFE_INTEGER);
+  }
+  return totals;
 }
