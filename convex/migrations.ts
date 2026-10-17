@@ -12,7 +12,11 @@ import { components, internal } from "./_generated/api";
 import type { DataModel } from "./_generated/dataModel";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import { leadGenWeekdayForBusinessDate } from "./leadGen/schedules";
-import { rebuildLeadCustomerSearchRow } from "./leadCustomers/projection";
+import {
+  isVisibleLifecycle,
+  projectedLifecycle,
+  rebuildLeadCustomerSearchRow,
+} from "./leadCustomers/projection";
 import { upsertOpportunitySearchProjection } from "./lib/opportunitySearch";
 import {
   insertOperationsMeetingStats,
@@ -139,13 +143,12 @@ export const assertLeadCustomerSearchRowsBackfilled = migrations.define({
         q.eq("tenantId", lead.tenantId).eq("leadId", lead._id),
       )
       .first();
-    const expectedLifecycle =
-      lead.status === "merged" ? "merged" : customer ? "customer" : "lead";
+    const expectedLifecycle = projectedLifecycle(lead, customer !== null);
 
     if (row.lifecycle !== expectedLifecycle) {
       throw new Error(`Lead ${lead._id} has stale lifecycle projection`);
     }
-    if (row.isSearchVisible !== (expectedLifecycle !== "merged")) {
+    if (row.isSearchVisible !== isVisibleLifecycle(expectedLifecycle)) {
       throw new Error(`Lead ${lead._id} has invalid visibility projection`);
     }
     if (row.customerId !== customer?._id) {

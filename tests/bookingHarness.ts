@@ -20,6 +20,7 @@ export async function bookingHarness(options: { transactionLimits?: boolean } = 
     "meetingsByStatus",
     "opportunityByStatus",
     "leadTimeline",
+    "leadStageEntries",
     "slackQualificationsByUser",
     "slackQualificationsByTime",
     "paymentSums",

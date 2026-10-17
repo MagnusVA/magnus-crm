@@ -1,6 +1,8 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { isProspectStage } from "../leads/lifecycle";
 import { buildLeadCustomerSearchText } from "./searchText";
+import type { LeadCustomerLifecycle } from "./types";
 
 type ProjectionPatch = Omit<
   Doc<"leadCustomerSearchRows">,
@@ -84,6 +86,31 @@ function latestMeetingAtFor(opportunities: Doc<"opportunities">[]) {
   return latestMeetingAt > 0 ? latestMeetingAt : undefined;
 }
 
+/**
+ * The row's lifecycle. A person below Qualified is a prospect, kept out of
+ * the default list and search (docs/plans/phase-1-foundations.md §7.3). A
+ * lead the lifecycle backfill hasn't reached counts as a lead.
+ */
+export function projectedLifecycle(
+  lead: Doc<"leads">,
+  hasCustomer: boolean,
+): LeadCustomerLifecycle {
+  if (lead.status === "merged") {
+    return "merged";
+  }
+  if (hasCustomer) {
+    return "customer";
+  }
+  if (lead.lifecycleStage && isProspectStage(lead.lifecycleStage)) {
+    return "prospect";
+  }
+  return "lead";
+}
+
+export function isVisibleLifecycle(lifecycle: LeadCustomerLifecycle): boolean {
+  return lifecycle !== "merged" && lifecycle !== "prospect";
+}
+
 export async function rebuildLeadCustomerSearchRow(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
@@ -147,14 +174,13 @@ export async function rebuildLeadCustomerSearchRow(
     (paymentCurrencies.length === 1 ? paymentCurrencies[0] : undefined);
 
   const meetingIds = uniqueMeetingIds(opportunities);
-  const lifecycle =
-    lead.status === "merged" ? "merged" : customer ? "customer" : "lead";
+  const lifecycle = projectedLifecycle(lead, customer !== null);
   const row: ProjectionPatch = {
     tenantId,
     leadId,
     customerId: customer?._id,
     lifecycle,
-    isSearchVisible: lifecycle !== "merged",
+    isSearchVisible: isVisibleLifecycle(lifecycle),
     leadStatus: lead.status,
     customerStatus: customer?.status,
     displayName: customer?.fullName ?? displayNameForLead(lead),

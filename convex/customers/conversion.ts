@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { countsAsLead, recordCustomer } from "../lib/leadLifecycle";
 import { rejectRequest } from "../lib/observability/errors";
 import { log, reportError } from "../lib/observability/log";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
@@ -143,8 +144,9 @@ export async function executeConversion(
   });
   await updateTenantStats(ctx, tenantId, {
     totalCustomers: 1,
-    totalLeads: lead.status === "active" ? -1 : 0,
+    totalLeads: countsAsLead(lead) ? -1 : 0,
   });
+  await recordCustomer(ctx, customerId);
 
   await emitDomainEvent(ctx, {
     tenantId,

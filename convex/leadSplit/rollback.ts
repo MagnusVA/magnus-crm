@@ -10,6 +10,7 @@ import {
 } from "../leads/repointLeadReferences";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { leadDisplayString } from "../lib/leadDisplay";
+import { correctLeadLifecycle, deleteLeadStageEntries } from "../lib/leadLifecycle";
 import { log } from "../lib/observability/log";
 import {
   patchOpportunityLifecycle,
@@ -184,6 +185,7 @@ async function revertRow(ctx: MutationCtx, plan: Doc<"leadSplitPlans">, row: Doc
     }
     // `leadTimeline` has no delete hook in writeHooks.ts.
     await leadTimeline.deleteIfExists(ctx, lead);
+    await deleteLeadStageEntries(ctx, lead);
     await ctx.db.delete("leads", leadId);
     const searchRow = await ctx.db
       .query("leadCustomerSearchRows")
@@ -401,6 +403,7 @@ export const rollbackPlan = internalMutation({
       await refreshOpportunitySearchForLead(ctx, plan.tenantId, leadId);
       await syncLeadMeetingNames(ctx, plan.tenantId, leadId, leadDisplayString(lead, identifiers));
       await syncCustomerSnapshot(ctx, plan.tenantId, leadId);
+      await correctLeadLifecycle(ctx, leadId, "lead_split");
     }
 
     const continues = rows.length > batchSize;

@@ -11,6 +11,7 @@ import { buildLeadSearchText } from "../leads/searchTextBuilder";
 import { isInternalUtm } from "../lib/attribution/resolveAttribution";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { leadDisplayString } from "../lib/leadDisplay";
+import { correctLeadLifecycle } from "../lib/leadLifecycle";
 import { log } from "../lib/observability/log";
 import {
   computeLatestActivityAt,
@@ -660,6 +661,7 @@ async function refreshLead(
   await refreshOpportunitySearchForLead(ctx, scope.tenantId, leadId);
   await syncLeadMeetingNames(ctx, scope.tenantId, leadId, leadDisplayString(lead, identifiers));
   await syncCustomerSnapshot(ctx, scope.tenantId, leadId);
+  await correctLeadLifecycle(ctx, leadId, "lead_split");
 }
 
 /**

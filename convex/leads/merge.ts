@@ -12,6 +12,7 @@ import {
   moveRemainingLeadRows,
 } from "./repointLeadReferences";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { countsAsLead, mergeLeadLifecycle } from "../lib/leadLifecycle";
 import { rejectRequest } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
@@ -547,13 +548,16 @@ async function executeMerge(
     limit: FORM_RESPONSE_PAGE_SIZE,
   });
 
+  await mergeLeadLifecycle(ctx, sourceLead, targetLeadId, userId);
   await ctx.db.patch("leads", sourceLeadId, {
     status: "merged",
     mergedIntoLeadId: targetLeadId,
     updatedAt: now,
   });
-  // `totalLeads` counts active leads, and the source was active.
-  await updateTenantStats(ctx, tenantId, { totalLeads: -1 });
+  // `totalLeads` counts active leads past Prospect, and the source was active.
+  if (countsAsLead(sourceLead)) {
+    await updateTenantStats(ctx, tenantId, { totalLeads: -1 });
+  }
 
   // Leads merged into the source now point at the target, so merge chains
   // stay one hop deep. Identity resolution follows at most five.

@@ -38,6 +38,7 @@ The repo has no triggers. A mutation that inserts, updates, or deletes a meeting
 - the domain event log through `emitDomainEvent` (`convex/lib/domainEvents.ts`)
 - opportunity meeting refs through `updateOpportunityMeetingRefs` (`convex/lib/opportunityMeetingRefs.ts`), which also rebuilds the opportunity and lead/customer search rows
 - qualification rows through `rebuildQualificationRowsForOpportunity` (`convex/operations/projections.ts`)
+- the person's lifecycle stage through the `record*` hooks in `convex/lib/leadLifecycle.ts`: `recordMeeting` after a meeting is booked or completed, `recordPayment` after a payment insert, `recordOpportunity`, `recordSlackQualification`, `recordCustomer` and `recordProspectCapture`. Each reads the record and applies the same rule the backfill uses, so stage times always come from the record, never the write time. Creating a lead through `resolveLeadIdentity` needs `initialLifecycle`. Corrections that may move a stage back use `correctLeadLifecycle`; nothing else moves it back.
 
 Opportunity writes have two entry points in `convex/lib/opportunityActivity.ts`, and they make the calls above for you:
 
