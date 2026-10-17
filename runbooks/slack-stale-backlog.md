@@ -1,6 +1,8 @@
 # Close the stale Slack opportunity backlog
 
-Status: not run on production yet.
+Status: run on production on 2026-10-16 at 00:10 UTC, just after the cutover, and done. It closed the backlog of 4,026 opportunities: `activeOpportunities` went from 8,125 to 4,099 and `lostDeals` from 226 to 4,252. Step 3 passed, and the preview shows a backlog of 0. The cron handles every later opportunity, so don't run this again.
+
+Run it only after the cutover. `expireStaleSlackOpportunity` checks again that each opportunity is more than 31 days old, so a run before 2026-10-16 skips the youngest backlog opportunities and step 3 fails.
 
 ## What it does
 

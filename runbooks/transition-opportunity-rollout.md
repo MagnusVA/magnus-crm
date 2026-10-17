@@ -1,6 +1,6 @@
 # Repair data after the transitionOpportunity rollout
 
-Status: not run on production yet.
+Status: run on production on 2026-10-14. Before the run, step 2 failed on a stale qualification row, as expected. Step 3 rebuilt 8,160 events, and step 4 passed over all of them. Step 5 wasn't needed, because step 1 found no drift. Step 4 passed again on 2026-10-16. Step 1 passed again on 2026-10-16 and on 2026-10-17.
 
 ## Why
 
