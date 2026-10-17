@@ -586,11 +586,12 @@ export async function correctLeadLifecycle(
     return;
   }
   // After an admin's move-back the records overstate the stage, so a
-  // correction may only take the person lower.
+  // correction may only take the person lower; no evidence at all is lower.
   if (
     lead.lifecycleStageMovedBackAt !== undefined &&
     before &&
-    (!after || stageIndex(after.stage) >= stageIndex(before.stage))
+    after &&
+    stageIndex(after.stage) >= stageIndex(before.stage)
   ) {
     return;
   }

@@ -95,6 +95,31 @@ describe("admin lifecycle controls", () => {
     expect(lead?.lifecycleStage).toBe("booked");
   });
 
+  it("a correction that leaves a moved-back person no evidence still clears their stage", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-02T12:00:00Z"));
+    const harness = await bookingHarness();
+    const leadId = await heldPerson(harness);
+    await harness.admin.mutation(api.leads.lifecycleAdmin.moveLifecycleStageBack, {
+      leadId,
+      toStage: "booked",
+      reason: "Closer recorded the wrong meeting",
+    });
+
+    const result = await harness.t.run(async (ctx) => {
+      // A split moves the person's only deal and meeting to someone else.
+      for (const meeting of await ctx.db.query("meetings").take(10)) await ctx.db.delete("meetings", meeting._id);
+      for (const deal of await ctx.db.query("opportunities").take(10)) await ctx.db.delete("opportunities", deal._id);
+      await correctLeadLifecycle(ctx, leadId, "lead_split");
+      return {
+        lead: await ctx.db.get("leads", leadId),
+        booked: await countLeadStageEntries(ctx, harness.tenantId, "booked", ...ALL_TIME),
+      };
+    });
+    expect(result.lead?.lifecycleStage).toBeUndefined();
+    expect(result.booked).toBe(0);
+  });
+
   it("only admins can move a stage back, and only to a lower stage", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-02T12:00:00Z"));
