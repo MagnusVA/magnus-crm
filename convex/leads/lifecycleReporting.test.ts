@@ -90,14 +90,19 @@ describe("leads report", () => {
     const harness = await bookingHarness();
     const qualifiedAt = Date.parse("2026-09-20T10:00:00Z");
     const result = await harness.t.run(async (ctx) => {
-      const leadId = await ctx.db.insert("leads", {
-        tenantId: harness.tenantId, status: "active", firstSeenAt: qualifiedAt, updatedAt: qualifiedAt,
-      });
-      const opportunityId = await ctx.db.insert("opportunities", {
-        tenantId: harness.tenantId, leadId, status: "qualified_pending", source: "slack_qualified",
-        qualifiedAt, createdAt: qualifiedAt, updatedAt: qualifiedAt,
-      });
-      await correctLeadLifecycle(ctx, leadId, "lead_split");
+      const qualifiedLead = async () => {
+        const leadId = await ctx.db.insert("leads", {
+          tenantId: harness.tenantId, status: "active", firstSeenAt: qualifiedAt, updatedAt: qualifiedAt,
+        });
+        const opportunityId = await ctx.db.insert("opportunities", {
+          tenantId: harness.tenantId, leadId, status: "qualified_pending", source: "slack_qualified",
+          qualifiedAt, createdAt: qualifiedAt, updatedAt: qualifiedAt,
+        });
+        await correctLeadLifecycle(ctx, leadId, "lead_split");
+        return { leadId, opportunityId };
+      };
+      const { leadId, opportunityId } = await qualifiedLead();
+      const other = await qualifiedLead();
       const counted = await countLeadStageEntries(ctx, harness.tenantId, "qualified", SEPTEMBER.startDate, SEPTEMBER.endDate);
       // The split moves the person's only deal elsewhere.
       await ctx.db.delete("opportunities", opportunityId);
@@ -106,11 +111,14 @@ describe("leads report", () => {
         counted,
         after: await countLeadStageEntries(ctx, harness.tenantId, "qualified", SEPTEMBER.startDate, SEPTEMBER.endDate),
         lead: await ctx.db.get("leads", leadId),
+        other: await ctx.db.get("leads", other.leadId),
       };
     });
-    expect(result.counted).toBe(1);
-    expect(result.after).toBe(0);
+    expect(result.counted).toBe(2);
+    // Only this person's entry goes; the other person still counts.
+    expect(result.after).toBe(1);
     expect(result.lead?.lifecycleStage).toBeUndefined();
+    expect(result.other?.lifecycleStage).toBe("qualified");
   });
 });
 
