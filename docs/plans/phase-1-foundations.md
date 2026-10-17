@@ -42,7 +42,7 @@ Every lead has at least one deal, except the 2 merged ones. So every person toda
 
 ## 3. Schema (PR 1)
 
-All new fields are optional. Nothing else reads them until PR 4.
+All new fields are optional. The write paths (PR 2) and the asserts (PR 3) read them, and no report or screen does until PR 4.
 
 ### `leads`
 
@@ -66,7 +66,7 @@ dispositionReason: v.optional(v.string()),
 - `lifecycleStageValidator`: `prospect`, `in_conversation`, `qualified`, `booked`, `showed`, `customer`.
 - `dispositionValidator`: `open`, `nurture`, `not_a_fit`, `unresponsive`, `do_not_contact`.
 - Both lists live once, in `convex/leads/lifecycle.ts`, with the stage order.
-- `status` keeps `merged` and `converted`. `merged` stays the identity flag. `converted` stays until Phase 4, and from PR 2 on it always agrees with stage `customer`.
+- `status` keeps `merged` and `converted`. `merged` stays the identity flag. `converted` stays until Phase 4. Once a lead has a stage, it is `converted` exactly when the stage is `customer`; a lead the backfill hasn't reached has no stage yet.
 - No index on `leads`. Counts come from an aggregate (§7), and lists from `leadCustomerSearchRows`.
 - These fields don't touch `splitLockedAt`, so the split's Deploy 3 narrow can remove that field independently.
 
@@ -121,7 +121,7 @@ Entry times only ever come from the event that moved the person:
 | Qualified | `slackQualificationEvents.submittedAt`; a Slack deal's `qualifiedAt` or `qualifiedBy.submittedAt` |
 | Booked | `meetings.createdAt` of any meeting, whatever its status. It is the Calendly envelope's `created_at`. |
 | Showed | a `completed` meeting's `scheduledAt`, capped at its `completedAt`; a side deal's `createdAt` |
-| Customer | the `recordedAt` of a payment that isn't `disputed`; else `customers.convertedAt` |
+| Customer | the `recordedAt` of a payment that isn't `disputed`, or `customers.convertedAt` |
 
 `leads._creationTime` and `firstSeenAt` are never used, so a time the split, a merge or the placeholder cleanup wrote can't leak in. The split moved meetings, Slack events and audit matches to the right person, and preserved their `createdAt` and `submittedAt`.
 
@@ -138,7 +138,8 @@ Gaps in the evidence:
 - The stage becomes the higher of the current and the new one.
 - Each entry time at or below the new stage becomes the earlier of the stored value and `at`. A late-processed booking can move an entry time earlier.
 - It writes the `leadStageEntries` entries that changed.
-- When the stage changes, it emits `lead.lifecycle_stage_changed` with `fromStatus`, `toStatus` and the cause, and rebuilds the lead/customer row if its `lifecycle` changed.
+- When the stage changes, it emits `lead.lifecycle_stage_changed` with source `system`, `fromStatus`, `toStatus` and the cause as `reason`, and rebuilds the lead/customer row if its `lifecycle` changed. The record that caused it has its own event with the actor.
+- Evidence at Qualified or later that is newer than a system-set `unresponsive` sets the disposition back to `open` (D3).
 - A lead with no `lifecycleStage` hasn't been backfilled yet. The call does nothing, because the backfill derives the whole history from source data and will include this event.
 - A merged lead never advances.
 
@@ -148,7 +149,7 @@ The stage never moves back on its own. Three things move it back, and each one i
 
 - **An admin, with a reason** (D4). The entry times above the new stage are cleared and their aggregate entries deleted. The domain event keeps the old values.
 - **Voiding a side-deal payment.** It already deletes the customer and returns the lead to `active` (`rollbackCustomerConversionIfEmpty`). The stage is derived again from what is left, and the event records reason `payment_voided`.
-- **A split or split rollback.** The split refresh chain derives the stage again for each lead it touched. The split ran once; this only matters if a rollback runs before Deploy 3 removes the code.
+- **A split or split rollback.** The split refresh chain derives the stage again for each lead it touched, and gives a lead it created its first stage. The split ran once; this only matters if a rollback runs before Deploy 3 removes the code.
 
 A lost deal, an expired Slack deal, a no-show or a cancellation never moves the stage.
 
