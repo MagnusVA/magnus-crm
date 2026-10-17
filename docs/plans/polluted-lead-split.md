@@ -585,7 +585,7 @@ Operator actions ran through `pipeline/recovery:retryAsOperator` and `leads/merg
 
 ### 8.3 Held bookings settled (2026-10-16)
 
-- **Unlinked hosts on event types with no program.** #104 ignores such a booking as `unlinked_host_unmapped_event_type` instead of holding it; on a program event type it's still held. The 13 `host_not_linked` deliveries (12 bookings and 1 cancel, from two coach calendars) were retried and are ignored.
+- **Unlinked hosts on event types with no program.** #104 ignores such a booking as `unlinked_host_unmapped_event_type` instead of holding it; on a program event type it's still held. The 13 `host_not_linked` deliveries (12 bookings and 1 cancel, from two coach calendars) were retried and are ignored. An ignored booking is dropped for good: recovery won't retry it, even once its host is linked.
 - **`t57cam0wcb…`.** The person booked a new slot at 09:13:23 and canceled the old one at 09:13:44; it isn't a Calendly reschedule. #105 judges a late booking by each deal's status when it happened, read from the deal's status changes. Deal `js7dhqx5…` was scheduled then, out of the booking's reach, so the retry applied as it would have in arrival order: new deal `js70n1bvxg2zqpaemkjcx1s6rx8g883y`, meeting `jn7bxmmyqsbrm7hvpjzr7xya998gcred` (2026-10-14 20:15 UTC), and `js7dhqx5…` stays canceled.
 - **Afterward.** No delivery is blocked, failed or queued, and no raw event is unprocessed. `verifyTenant` shows only the Tier D placeholders.
 
