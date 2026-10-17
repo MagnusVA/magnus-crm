@@ -51,7 +51,7 @@ lifecycleStage: v.optional(lifecycleStageValidator),
 // First time the person reached each stage or a later one (§4.1).
 lifecycleStageEnteredAt: v.optional(v.object({
   prospect: v.optional(v.number()),
-  inConversation: v.optional(v.number()),
+  in_conversation: v.optional(v.number()),
   qualified: v.optional(v.number()),
   booked: v.optional(v.number()),
   showed: v.optional(v.number()),
