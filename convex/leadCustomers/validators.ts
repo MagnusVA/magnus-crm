@@ -1,6 +1,9 @@
 import { v } from "convex/values";
 
+// `prospect` is a person below Qualified (docs/plans/phase-1-foundations.md
+// §7.3). Its rows are hidden from the default list and search.
 export const leadCustomerLifecycleValidator = v.union(
+  v.literal("prospect"),
   v.literal("lead"),
   v.literal("customer"),
   v.literal("merged"),
