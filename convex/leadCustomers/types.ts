@@ -3,7 +3,7 @@ import type { EntityAttributionPayload } from "../lib/attribution/detailPayload"
 import type { CrmRole } from "../lib/roleMapping";
 
 export type LeadCustomerLifecycle = "prospect" | "lead" | "customer" | "merged";
-export type LeadCustomerLifecycleFilter = "all" | "lead" | "customer";
+export type LeadCustomerLifecycleFilter = "all" | "prospect" | "lead" | "customer";
 
 export type LeadCustomerSearchRowDto = {
   _id: Id<"leadCustomerSearchRows">;

@@ -14,7 +14,7 @@ import type {
 import { useDebouncedValue } from "./use-debounced-value";
 
 function parseLifecycle(value: string | null): EntityLifecycleFilter {
-	if (value === "lead" || value === "customer") return value;
+	if (value === "prospect" || value === "lead" || value === "customer") return value;
 	return "all";
 }
 

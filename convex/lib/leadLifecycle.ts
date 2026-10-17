@@ -580,7 +580,23 @@ export async function correctLeadLifecycle(
   }
   const before = readLifecycle(lead);
   const after = await deriveLeadLifecycle(ctx, lead);
-  if (!after || sameLifecycle(before, after)) {
+  if (sameLifecycle(before, after)) {
+    return;
+  }
+  if (!after) {
+    // No record supports any stage now, so the lead stops counting at all.
+    await ctx.db.patch("leads", leadId, {
+      lifecycleStage: undefined,
+      lifecycleStageEnteredAt: undefined,
+    });
+    await syncLeadStageEntries(ctx, lead.tenantId, leadId, before, null);
+    // A lead without a stage counts as a lead (`countsAsLead`).
+    if (before && isProspectStage(before.stage)) {
+      if (lead.status === "active") {
+        await updateTenantStats(ctx, lead.tenantId, { totalLeads: 1 });
+      }
+      await rebuildLeadCustomerSearchRow(ctx, lead.tenantId, leadId);
+    }
     return;
   }
   await writeLifecycle(ctx, lead, before, after, {
