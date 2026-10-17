@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
+import { linkSlackUserTeamMember, refreshSlackUserTeamMemberName } from "../lib/teamMembers";
 import {
   internalMutation,
   internalQuery,
@@ -59,6 +60,7 @@ export async function upsertSlackUserOnSubmission(
       lastSeenAt: args.now,
       lastSyncedAt: 0,
     });
+    await linkSlackUserTeamMember(ctx, id);
 
     await ctx.scheduler.runAfter(0, internal.slack.userActions.fetchAndSync, {
       slackUserRowId: id,
@@ -71,6 +73,9 @@ export async function upsertSlackUserOnSubmission(
     installationId: args.installationId,
     slackTeamId: args.slackTeamId,
   });
+  if (!existing.teamMemberId) {
+    await linkSlackUserTeamMember(ctx, existing._id);
+  }
 
   if (
     !hasSlackDisplayName(existing.displayName) ||
@@ -139,6 +144,7 @@ export const applyProfile = internalMutation({
     if (timezone !== undefined) patch.timezone = timezone;
 
     await ctx.db.patch("slackUsers", args.id, patch);
+    await refreshSlackUserTeamMemberName(ctx, args.id);
   },
 });
 

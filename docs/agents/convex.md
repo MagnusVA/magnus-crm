@@ -50,6 +50,10 @@ Meeting updates should use `patchMeetingLifecycle` with an ID so the mutation re
 
 Find an existing mutation that writes the same table and match its side-effect calls. A missed call leaves dashboards and counts wrong without any error.
 
+## Team members
+
+`teamMembers` holds one row per human, and `users`, `leadGenWorkers`, `slackUsers` and `dmClosers` point at it through `teamMemberId` (`convex/lib/teamMembers.ts`). A new role record gets its team member when it is created: a lead gen worker or a linked DM closer shares its user's, and an unlinked DM closer or Slack user gets its own. Only explicit links join records, never names. Don't add another staff table; a new role points at a team member.
+
 ## Reads
 
 - Bound live reads with `readLiveQueryRows` or `readLiveDocuments` (`convex/lib/liveQueryBounds.ts`). They stop at a 512 KB budget and return `capped` so the UI can say the data is partial. A `for await` loop over a query has no bound.
@@ -82,7 +86,7 @@ Read environment variables through `env` from `_generated/server`, not `process.
 
 Use `log` and `reportError` from `convex/lib/observability/log.ts` for process steps and handled failures, and `rejectRequest` from `convex/lib/observability/errors.ts` for errors the caller caused. They reach PostHog through the Convex log stream; `docs/agents/observability.md` covers the rules. Prefix any remaining `console` calls with a PascalCase `[Domain:Sub]` tag, such as `[Pipeline]`, `[Slack:OAuth]`, or `[WorkOS:Users]`.
 
-`emitDomainEvent` also sends each domain event to PostHog, so a new event type needs no extra analytics call.
+`emitDomainEvent` also sends each domain event to PostHog, so a new event type needs no extra analytics call. It derives the event's `leadId` from its entity and its `teamMemberId` from `actorUserId` (`convex/lib/domainEventLinks.ts`); pass either one only to override it, as the Slack deal's `opportunity.created` does to credit the setter.
 
 ## Tests
 

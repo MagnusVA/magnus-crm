@@ -16,6 +16,7 @@ import {
   updateLeadGenTeamOriginStats,
 } from "./aggregates";
 import { resolveLeadGenTeamIdForWrite } from "./sharedTeams";
+import { linkLeadGenWorkerTeamMember } from "../lib/teamMembers";
 
 const MAX_CLIENT_SUBMISSION_KEY_LENGTH = 200;
 type LeadGenSource = Doc<"leadGenSubmissions">["source"];
@@ -341,6 +342,7 @@ async function requireOperationalLeadGenWorker(
     createdAt: now,
     updatedAt: now,
   });
+  await linkLeadGenWorkerTeamMember(ctx, workerId);
   const worker = await ctx.db.get("leadGenWorkers", workerId);
   if (!worker) {
     throw new Error("Worker profile insert failed");

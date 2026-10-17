@@ -17,6 +17,8 @@ export async function emitDomainEventInAction(
     toStatus?: string;
     reason?: string;
     metadata?: Record<string, unknown>;
+    leadId?: Id<"leads">;
+    teamMemberId?: Id<"teamMembers">;
   },
 ): Promise<void> {
   await ctx.runMutation(internal.lib.domainEventsInternal.insert, args);

@@ -29,6 +29,8 @@ export const insert = internalMutation({
     reason: v.optional(v.string()),
     metadata: v.optional(v.record(v.string(), v.any())),
     occurredAt: v.optional(v.number()),
+    leadId: v.optional(v.id("leads")),
+    teamMemberId: v.optional(v.id("teamMembers")),
   },
   handler: async (ctx, args) => {
     return await emitDomainEvent(ctx, args);

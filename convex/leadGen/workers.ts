@@ -9,6 +9,7 @@ import {
   upsertSharedDmTeamFromName,
 } from "./sharedTeams";
 import { leadGenWeekdayValidator } from "./validators";
+import { linkLeadGenWorkerTeamMember } from "../lib/teamMembers";
 
 function displayNameForUser(user: Doc<"users">) {
   return user.fullName?.trim() || user.email;
@@ -37,7 +38,7 @@ export const syncWorkerProfileForUser = internalMutation({
     }
 
     if (!existing) {
-      return await ctx.db.insert("leadGenWorkers", {
+      const workerId = await ctx.db.insert("leadGenWorkers", {
         tenantId: user.tenantId,
         userId: user._id,
         workosUserId: user.workosUserId,
@@ -49,6 +50,8 @@ export const syncWorkerProfileForUser = internalMutation({
         createdAt: now,
         updatedAt: now,
       });
+      await linkLeadGenWorkerTeamMember(ctx, workerId);
+      return workerId;
     }
 
     await ctx.db.patch("leadGenWorkers", existing._id, {

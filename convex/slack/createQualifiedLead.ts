@@ -141,7 +141,7 @@ export const create = internalMutation({
       updatedAt: now,
     });
 
-    await upsertSlackUserOnSubmission(ctx, {
+    const slackUserRowId = await upsertSlackUserOnSubmission(ctx, {
       tenantId: args.tenantId,
       installationId: args.installationId,
       slackUserId: args.qualifiedBy.slackUserId,
@@ -325,6 +325,8 @@ export const create = internalMutation({
       source: "pipeline",
       toStatus: "qualified_pending",
       occurredAt: now,
+      // The setter who qualified the person acted, not a CRM user.
+      teamMemberId: (await ctx.db.get("slackUsers", slackUserRowId))?.teamMemberId,
       metadata: { source: "slack_qualified" },
     });
 
