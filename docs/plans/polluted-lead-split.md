@@ -638,7 +638,7 @@ All 199 were approved by tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` and cle
 
 ### 8.5 24-hour recheck (2026-10-17)
 
-The recheck ran from 04:29 to about 04:40 UTC, about 22.5 hours after the apply finished at 05:57 UTC on 2026-10-16. Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` approved starting it before the full 24 hours. Every check passed:
+The recheck ran from 04:29 to about 04:40 UTC, about 22.5 hours after the apply finished at 05:57 UTC on 2026-10-16. That is earlier than the 24 hours §5.8 asks for. Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` chose to run it then rather than wait. Every check passed:
 
 - `verifyTenant` shows 0 failures on all 8 checks. The scanned counts are a little higher than in §8.4, from a day of new bookings:
 
@@ -661,7 +661,14 @@ The recheck ran from 04:29 to about 04:40 UTC, about 22.5 hours after the apply 
 - The Tier D `preview` lists nothing, so no new booking has brought in a placeholder the guards miss.
 - No `webhookDeliveries` row for the tenant is `blocked`, `failed` or `queued`, and no `rawWebhookEvents` row is unprocessed.
 
-The production export taken before the apply was deleted after the recheck, because it held personal data. Rolling back a plan now goes only through `rollbackPlan` and the audit log (§5.9). Deploy 3 (§5.11) can start 30 days after this recheck, on 2026-11-16.
+The production export taken before the apply was deleted after the recheck. The owner's rule is that an export holding personal data is deleted once it has been used. No independent recovery point from before the apply remains. `rollbackPlan` (§5.9) can still undo a plan from its audit log, with two limits:
+
+- It stops when a later row has attached to something the split created. Such rows have to be moved off first.
+- It can't restore a lead gen match that `repointAuditMatch` deleted. Apply stops before that happens (§5.6), so no applied plan contains one.
+
+Anything rollback can't undo is fixed forward with a reviewed repair, as the recovery in §8.2 was.
+
+Deploy 3 (§5.11) can start 30 days after this recheck, on 2026-11-16.
 
 ## Appendix A: IDs
 
