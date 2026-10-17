@@ -560,3 +560,27 @@ export const assertDomainEventLinks = migrations.define({
     }
   },
 });
+
+// Switches the leads report from rows created to people reaching Qualified
+// (docs/plans/phase-1-foundations.md §7.1). Only after the lifecycle
+// backfill and its assert have both finished.
+export const activateLeadStageReporting = internalMutation({
+  args: { tenantId: v.id("tenants") }, returns: v.null(),
+  handler: async (ctx, { tenantId }) => {
+    const statuses = await migrations.getStatus(ctx, { migrations: [
+      internal.migrations.backfillLeadLifecycle, internal.migrations.assertLeadLifecycle,
+    ] });
+    if (statuses.length !== 2 || statuses.some((s) => !s.isDone || s.error)) {
+      throw new Error("Finish backfillLeadLifecycle and a passing assertLeadLifecycle before switching the report");
+    }
+    await ctx.db.patch("tenants", tenantId, { leadStageReportingVersion: 1 });
+    return null;
+  },
+});
+export const deactivateLeadStageReporting = internalMutation({
+  args: { tenantId: v.id("tenants") }, returns: v.null(),
+  handler: async (ctx, { tenantId }) => {
+    await ctx.db.patch("tenants", tenantId, { leadStageReportingVersion: undefined });
+    return null;
+  },
+});

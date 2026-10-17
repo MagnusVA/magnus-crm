@@ -29,7 +29,8 @@ export function formatMoneyMinor(value: number | undefined, currency = "USD") {
 }
 
 export function lifecycleLabel(row: LeadCustomerSearchRowDto) {
-	return row.lifecycle === "customer" ? "Customer" : "Lead";
+	if (row.lifecycle === "customer") return "Customer";
+	return row.lifecycle === "prospect" ? "Prospect" : "Lead";
 }
 
 export function primaryLine(row: LeadCustomerSearchRowDto) {

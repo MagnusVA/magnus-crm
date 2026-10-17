@@ -31,7 +31,8 @@ export const listEntities = query({
               (q) =>
                 q
                   .eq("tenantId", tenantId)
-                  .eq("isSearchVisible", true)
+                  // Prospect rows are hidden from the default views.
+                  .eq("isSearchVisible", lifecycle !== "prospect")
                   .eq("lifecycle", lifecycle),
             )
             .order("desc")
@@ -88,7 +89,7 @@ export const searchEntities = query({
               q
                 .search("searchText", term)
                 .eq("tenantId", tenantId)
-                .eq("isSearchVisible", true)
+                .eq("isSearchVisible", lifecycle !== "prospect")
                 .eq("lifecycle", lifecycle),
             )
             .take(50)

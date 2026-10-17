@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
+import { countLeadStageEntries } from "../lib/leadLifecycle";
 import { leadTimeline } from "./aggregates";
 import {
   assertValidDateRange,
@@ -28,10 +29,18 @@ export const getLeadConversionMetrics = query({
 
     const closers = await getActiveClosers(ctx, tenantId);
     const activeCloserIds = new Set<Id<"users">>(closers.map((closer) => closer._id));
-    const newLeads = await leadTimeline.count(ctx, {
-      namespace: tenantId,
-      bounds: makeDateBounds(startDate, endDate),
-    });
+    // A new lead is a person who reached Qualified in the range, once the
+    // lifecycle backfill is verified; until then, a row created in it.
+    const tenant = await ctx.db.get("tenants", tenantId);
+    const newLeadsBasis =
+      tenant?.leadStageReportingVersion === 1 ? ("reached_qualified" as const) : ("created" as const);
+    const newLeads =
+      newLeadsBasis === "reached_qualified"
+        ? await countLeadStageEntries(ctx, tenantId, "qualified", startDate, endDate)
+        : await leadTimeline.count(ctx, {
+            namespace: tenantId,
+            bounds: makeDateBounds(startDate, endDate),
+          });
 
     const customerRows = await ctx.db
       .query("customers")
@@ -125,6 +134,7 @@ export const getLeadConversionMetrics = query({
 
     return {
       newLeads,
+      newLeadsBasis,
       totalConversions,
       conversionRate:
         newLeads > 0 ? totalConversions / newLeads : null,

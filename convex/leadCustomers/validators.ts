@@ -11,6 +11,7 @@ export const leadCustomerLifecycleValidator = v.union(
 
 export const leadCustomerLifecycleFilterValidator = v.union(
   v.literal("all"),
+  v.literal("prospect"),
   v.literal("lead"),
   v.literal("customer"),
 );
