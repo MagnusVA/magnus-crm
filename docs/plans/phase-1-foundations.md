@@ -1,6 +1,6 @@
 # Phase 1: foundations
 
-Status: plan approved 2026-10-17, with every §10 decision taken as recommended. Nothing has shipped or run in production yet.
+Status: done, 2026-10-17. Every PR (#112 to #118) is merged and deployed, every backfill and assert ran clean in production, and the leads report counts people reaching Qualified (§12).
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) and the Phase 1 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 0 history is in the [polluted lead split plan](polluted-lead-split.md).
 
@@ -379,4 +379,112 @@ Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` accepted every recommendation be
 
 ## 12. Production log
 
-Nothing has run yet.
+All runs were on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q` on 2026-10-17, times in UTC. Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` delegated every Phase 1 production run and the D5 link decisions to the agent once CodeRabbit had approved the code.
+
+### 12.1 Deploys
+
+| PR | What | Deployed |
+| --- | --- | --- |
+| #113 | Schema widen, lifecycle rules | 05:40 |
+| #112 | This plan | 05:52 |
+| #115 | Team members, event links | 06:04 |
+| #114 | Lifecycle write paths | 06:11 |
+| #116 | Backfill and assert migrations | 06:44 |
+| #117 | Report switch, prospect filter | 07:14 |
+| #118 | Admin move-back and disposition | 07:42 |
+
+Before any backfill, the live paths were already working. A Slack-qualified lead created after #114 had its stage and stage entries. The Slack deal created at 06:08 carried its person and its setter's team member, made on demand.
+
+### 12.2 Team members (07:41)
+
+- Dry runs of the four backfills ran one batch each and committed nothing.
+- The real runs processed 55 users, 21 lead gen workers, 25 DM closers and 16 Slack users. That made 91 team members, 2 of them already created by live writes.
+  - 6 DM closers share their linked user's team member, and 19 have their own.
+  - The worker whose user is missing has its own.
+- All five asserts passed.
+
+### 12.3 Name links, D5 (07:42)
+
+`nameLinkCandidates` listed 22 candidates and 13 records with no match:
+- 16 match exactly one user by full name: 10 Slack users and 6 DM closers.
+- 6 match by first name only.
+
+The 16 full-name pairs were approved and applied with `applyApprovedLinks`, with none left unfinished. That brought the team members to 75. Seven users now share one team member across their login, their Slack user and their DM closer. The 6 first-name-only matches stay unlinked, because a first name alone doesn't decide identity. An admin can approve them later with the same function. The five asserts passed again.
+
+Applied pairs, as record, then team member from and into:
+
+```
+dmCloser nx74jajqe75jvf4z2691ramaj588as33: v97aqvaxvpz1b98wh8sjn6bnex8gemhh -> v979s5eyh87hjr3v7njcv31qhd8gfp2h
+dmCloser nx77w68njqwq4a16bv8jwcp461874f39: v97aq3shb0hh4x1dteyxnt2hms8germ6 -> v9703y6yay5wkrge41hn47erwx8gf8rj
+dmCloser nx721rpq5qtwqkaawqv28tp5xd875da9: v97db32t8j8z9wrrrwqpdcc0j98gebnx -> v97011psg4jdtn1nhnh38mcdf18gert3
+dmCloser nx7dnhs77gyqzmj5byfkedjccs875cr2: v972t4g9dah969z5rca2rcthcx8gerc9 -> v97b82gx89s69zmhg5992gzy9d8gfwke
+dmCloser nx7a00fftgq4gfwnnqc688308h8746qt: v972ct7ta1w7spyy9861465r9n8gf2qy -> v972g940bb4zb8g0vwyxybpwd18gewrb
+dmCloser nx726mtkb1vq1mbd0xtbe0szk98ctvq2: v979vbka0dpjw3g34he1js0szx8gfybc -> v97dvk4ekb8s5kv6ymp1fzcsf98gecbc
+slackUser nh7djs0vmxpq3svbkgbvbhykcs86wkwn: v97dsve82q1nbfejgk63j1n7s58gfk3x -> v97dgapp91s7btrxwkjz9cn9hs8gedfj
+slackUser nh706may6gpb258g14z673ze4n86zvaq: v976naw5fvc38pg7w0m89a5q498ge4jn -> v97fpgnpzmedxdtd2szbdcxmhs8gfbct
+slackUser nh73hfgcc1z944d7jh2sqpx4ah870asf: v973sr30wnwpmxqhxgnn1rqzrd8gedjq -> v972g940bb4zb8g0vwyxybpwd18gewrb
+slackUser nh72hahpzn1xbktqex5p120g05875eqv: v973sy149rmpzdhc30q06qpj898gepxj -> v97011psg4jdtn1nhnh38mcdf18gert3
+slackUser nh78hjfeq5csyb8y7tkhywfrmx878390: v9726kd75bdxgvjzpfc183tqf58gfftv -> v9770f22arxqn1s6sm475g0tws8gebbd
+slackUser nh74n37xpb3cvh8qrw7b30k9bx88b4y2: v972zawx5x7ycyhm9x7vqvg3k18gfty4 -> v979s5eyh87hjr3v7njcv31qhd8gfp2h
+slackUser nh7521hjseskyyhkadj0gnw9fd8ca74m: v976zeh5gxq05azascfy4f6ath8ge02n -> v97b82gx89s69zmhg5992gzy9d8gfwke
+slackUser nh7c9xb121qwm90kv9sxy331g18csjef: v97350tz18r0ygz207dd1jqpcn8gfmqr -> v97asctbexvnsaskfge5h6b8v58ge73a
+slackUser nh771atycehentdf37jhh1gjt58e5ayk: v97dh01bjd7hc0rqhd868cnbw98ge4xv -> v977zpjnazhwhk02fte4dh1ep18ge05c
+slackUser nh7cd37qtba87vwev58g8ds9qn8g51wm: v97bs19zmrfs0dccx1pckepdv58gf4w3 -> v97ek6q4jr6e92am9f5x9mc8a58gfqm6
+```
+
+Not linked (first name only): nx7dkjkb9zv2xp3jqb5j2m73cn875j1k nx7acnv2bqt2f6jg3cgjydt37h8758ds nx7fka2vxg7krrfb9s8d58mja1874chf nh71810awzjprf00nbbp8wy1ax86zfx1 nh72hf0r7wkvc4w65sm63bkwqx86yjmq nh78hyyrbz1hmrzk1n9knqzwjh871c79
+
+### 12.4 Lifecycle (07:42 to 08:24)
+
+- The dry run processed 25 leads and committed nothing.
+- `backfillLeadLifecycle` processed 10,495 leads (07:42 to 07:58) and skipped the 2 merged ones. It emitted no domain events.
+- `assertLeadLifecycle` passed on all 10,495 (08:13 to 08:24).
+
+| | People |
+| --- | --- |
+| Stage Qualified | 5,234 |
+| Stage Booked | 4,591 |
+| Stage Showed | 405 |
+| Stage Customer | 263 |
+| No stage | 0 |
+| Disposition `open` | 6,498 |
+| Disposition `unresponsive` (expired Slack deal, nothing since) | 3,995 |
+| `converted` without stage Customer, or the reverse | 0 |
+
+`stageTotals` matches a scan of the stored stages exactly. It counts 10,493 people at each of Prospect, In conversation and Qualified, 5,259 at Booked, 668 at Showed and 263 at Customer. The current stages match the fresh read-only derivation (§9.4), plus one lead that arrived in between.
+
+### 12.5 Event links (07:43 to 08:15)
+
+- The dry run processed 100 events and committed nothing.
+- `backfillDomainEventLinks` processed 37,926 events (07:43 to 07:47).
+- `assertDomainEventLinks` passed on all 37,926 (08:13 to 08:15).
+- `verifySplitEventLinks` checked the 52 deal events whose meetings the split moved, against `leadSplitAudit`, and found 0 mismatches. Deploy 3 can drop the audit table and this check with it.
+
+### 12.6 Checks afterward
+
+- `verifyTenant`: 0 failures on all 8 checks. It scanned 19,597 identifiers, 10,495 lead emails, 43,870 form responses, 221 follow-ups, 8,299 Slack events, 263 customers and 6,655 meetings.
+- `verifyTenantStatusCounters`: match, with 4,107 active, 4,311 lost and 263 won.
+- `assertLeadCustomerSearchRowsBackfilled`, re-run because the row's lifecycle rule changed: passed on 10,495.
+
+### 12.7 Report switch (08:25)
+
+`activateLeadStageReporting` set `leadStageReportingVersion` to 1, after confirming that the backfill and assert had finished and no split plan was applying. The leads report now counts people who first reached Qualified. By UTC month, from the stored stages:
+
+| Month | Rows created (before) | Reached Qualified (now) |
+| --- | --- | --- |
+| 2026-04 | 334 | 345 |
+| 2026-05 | 1,216 | 1,243 |
+| 2026-06 | 1,823 | 1,832 |
+| 2026-07 | 2,121 | 2,123 |
+| 2026-08 | 1,922 | 1,925 |
+| 2026-09 | 1,943 | 1,947 |
+| 2026-10 | 1,136 | 1,078 |
+
+The months match §7.2. To roll back, run `migrations:deactivateLeadStageReporting` with the tenant ID.
+
+### 12.8 Left for later
+
+- The Prospects toolbar toggle ships with Phase 2, when the first prospects exist (§7.3).
+- 6 first-name-only and 13 unmatched staff records have their own team members until an admin links them.
+- `leadTimeline`, `verifyBackfillCounts` and the creation-based branch of the report stay until a later narrow. So do the optional lifecycle fields, which a narrow can make required once no unstaged lead can be written.
+- Deploy 3 of the split, from about 16 Nov, removes `leadSplit/verify:verifySplitEventLinks` and the split's calls to `correctLeadLifecycle` with the rest of the split code.
