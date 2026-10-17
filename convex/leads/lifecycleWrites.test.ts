@@ -3,12 +3,15 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
 import { countLeadStageEntries } from "../lib/leadLifecycle";
+import { SLACK_OPPORTUNITY_EXPIRY_MS } from "../pipeline/slackJoinLookup";
+import { STALE_EXPIRY_CUTOVER_AT } from "../slack/staleExpiry";
 
 afterEach(() => vi.useRealTimers());
 
 type Harness = Awaited<ReturnType<typeof bookingHarness>>;
 
 const NOW = Date.parse("2026-10-10T12:00:00Z");
+const DAY_MS = 24 * 60 * 60 * 1000;
 const OCTOBER = [Date.parse("2026-10-01T00:00:00Z"), Date.parse("2026-11-01T00:00:00Z")] as const;
 
 async function slackInstallation(harness: Harness): Promise<Id<"slackInstallations">> {
@@ -258,7 +261,7 @@ describe("lifecycle write paths", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(NOW));
     const harness = await bookingHarness();
-    const earlier = NOW - 5 * 24 * 60 * 60 * 1000;
+    const earlier = NOW - 5 * DAY_MS;
     await qualify(harness, "ana.old", earlier);
     await qualify(harness, "ana.new", NOW - 2_000);
     const [source, target] = await harness.t.run(async (ctx) => {
@@ -283,12 +286,13 @@ describe("lifecycle write paths", () => {
 
   it("an expired Slack deal marks the person unresponsive, and a new qualification reopens them", async () => {
     vi.useFakeTimers();
-    const qualifiedAt = Date.parse("2026-10-20T12:00:00Z");
+    // After the cutover, so the hourly cron owns the expiry.
+    const qualifiedAt = STALE_EXPIRY_CUTOVER_AT + 4 * DAY_MS;
     vi.setSystemTime(new Date(qualifiedAt));
     const harness = await bookingHarness();
     await qualify(harness, "ana.lead", qualifiedAt);
 
-    const expiredAt = Date.parse("2026-11-21T12:30:00Z");
+    const expiredAt = qualifiedAt + SLACK_OPPORTUNITY_EXPIRY_MS + DAY_MS;
     vi.setSystemTime(new Date(expiredAt));
     await harness.t.mutation(internal.slack.staleExpiry.expireStaleSlackOpportunities, {});
     await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
@@ -301,7 +305,7 @@ describe("lifecycle write paths", () => {
       dispositionSetAt: expiredAt,
     });
 
-    const requalifiedAt = Date.parse("2026-11-25T09:00:00Z");
+    const requalifiedAt = expiredAt + 4 * DAY_MS;
     vi.setSystemTime(new Date(requalifiedAt));
     await qualify(harness, "ana.lead", requalifiedAt);
 

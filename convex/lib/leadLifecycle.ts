@@ -145,9 +145,10 @@ async function writeLifecycle(
   });
   await syncLeadStageEntries(ctx, lead.tenantId, lead._id, before, after);
 
+  // A lead without a stage counts as a lead (`countsAsLead`).
   const wasProspect = before ? isProspectStage(before.stage) : false;
   const isProspect = isProspectStage(after.stage);
-  if (before && wasProspect !== isProspect && lead.status === "active") {
+  if (wasProspect !== isProspect && lead.status === "active") {
     await updateTenantStats(ctx, lead.tenantId, { totalLeads: isProspect ? -1 : 1 });
   }
   if (!before || wasProspect !== isProspect) {
