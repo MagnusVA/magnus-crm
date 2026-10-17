@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { countLeadStageEntries, lifecycleProblems, recordMeeting } from "../lib/leadLifecycle";
+import {
+  correctLeadLifecycle,
+  countLeadStageEntries,
+  lifecycleProblems,
+  recordMeeting,
+} from "../lib/leadLifecycle";
 import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
 
 afterEach(() => vi.useRealTimers());
@@ -70,6 +75,24 @@ describe("admin lifecycle controls", () => {
     });
     // A moved-back person no longer matches their records, on purpose.
     expect(state.problems).toEqual([]);
+  });
+
+  it("a later correction doesn't undo the move-back", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-02T12:00:00Z"));
+    const harness = await bookingHarness();
+    const leadId = await heldPerson(harness);
+    await harness.admin.mutation(api.leads.lifecycleAdmin.moveLifecycleStageBack, {
+      leadId,
+      toStage: "booked",
+      reason: "Closer recorded the wrong meeting",
+    });
+
+    // The held meeting is still on record, so deriving again would say Showed.
+    await harness.t.run((ctx) => correctLeadLifecycle(ctx, leadId, "lead_split"));
+
+    const lead = await harness.t.run((ctx) => ctx.db.get("leads", leadId));
+    expect(lead?.lifecycleStage).toBe("booked");
   });
 
   it("only admins can move a stage back, and only to a lower stage", async () => {

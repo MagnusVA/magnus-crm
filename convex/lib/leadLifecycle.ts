@@ -8,6 +8,7 @@ import {
   deriveLifecycle,
   isProspectStage,
   moveLifecycleBack,
+  stageIndex,
   type Disposition,
   type LifecycleEvidence,
   type LifecycleStage,
@@ -582,6 +583,15 @@ export async function correctLeadLifecycle(
   const before = readLifecycle(lead);
   const after = await deriveLeadLifecycle(ctx, lead);
   if (sameLifecycle(before, after)) {
+    return;
+  }
+  // After an admin's move-back the records overstate the stage, so a
+  // correction may only take the person lower.
+  if (
+    lead.lifecycleStageMovedBackAt !== undefined &&
+    before &&
+    (!after || stageIndex(after.stage) >= stageIndex(before.stage))
+  ) {
     return;
   }
   if (!after) {
