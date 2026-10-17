@@ -88,6 +88,6 @@ Where a touch came from: lead gen, the DM portal, Slack, Calendly, or a side dea
 
 ## Flagged ambiguities
 
-- "Lead" means three things in today's code: the person (the `leads` table), the active lifecycle (`leads.status = active`), and, in reports, a newly created row. Say person, lifecycle stage, or new person.
+- "Lead" means three things in today's code: the person (the `leads` table), the active lifecycle (`leads.status = active`), and, in reports, a new lead. Say person, lifecycle stage, or new person. Once a tenant's lifecycle stages are verified, a new lead in the leads report is a person who first reached Qualified in the period, not a newly created row.
 - "Prospect" also names the `leadGenProspects` table, which records captures and is not yet linked to a person.
 - "Status" on an opportunity mixes deal stage, outcome, meeting attendance, and task state. Name the one you mean.
