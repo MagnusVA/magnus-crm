@@ -224,10 +224,10 @@ it("ignores the cancel of an unlinked host's booking on an unmapped event type",
   ]);
 });
 
-it("replays an unlinked host's ignored booking once the host is linked", async () => {
+it("won't replay an unlinked host's ignored booking, even once the host is linked", async () => {
   vi.useFakeTimers();
   const { t, tenantId, admin } = await bookingHarness();
-  const payload = bookingPayload("unlinked-closer");
+  const payload = bookingPayload("unlinked-host");
   payload.scheduled_event.event_memberships[0].user = "https://api.calendly.com/users/new_closer";
   await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
     tenantId,
@@ -236,10 +236,9 @@ it("replays an unlinked host's ignored booking once the host is linked", async (
     payload: JSON.stringify({ payload }),
   });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
-  const list = async () => (await admin.query(api.pipeline.delivery.list, {
+  const [ignored] = (await admin.query(api.pipeline.delivery.list, {
     paginationOpts: { cursor: null, numItems: 10 },
   })).page;
-  const [ignored] = await list();
   expect(ignored).toMatchObject({ status: "ignored", reason: "unlinked_host_unmapped_event_type" });
   await t.run(async (ctx) => {
     const closer = await ctx.db.query("users")
@@ -248,13 +247,13 @@ it("replays an unlinked host's ignored booking once the host is linked", async (
       calendlyUserUri: "https://api.calendly.com/users/new_closer",
     });
   });
-  await admin.mutation(api.pipeline.recovery.retry, {
-    manifest: await admin.query(api.pipeline.recovery.preview, { deliveryIds: [ignored._id] }),
-  });
-  await t.finishAllScheduledFunctions(vi.runAllTimers);
-  const [replayed] = await list();
-  expect(replayed).toMatchObject({ status: "applied" });
-  expect(replayed.meetingId).toBeDefined();
+  await expect(
+    (async () =>
+      await admin.mutation(api.pipeline.recovery.retry, {
+        manifest: await admin.query(api.pipeline.recovery.preview, { deliveryIds: [ignored._id] }),
+      }))(),
+  ).rejects.toThrow("Only blocked or failed deliveries can be retried");
+  expect(await t.run((ctx) => ctx.db.query("meetings").take(1))).toHaveLength(0);
 });
 
 it("attaches an admin-hosted booking to the lead's Slack-qualified opportunity without a new lead", async () => {
