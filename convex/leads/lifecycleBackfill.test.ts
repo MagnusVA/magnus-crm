@@ -184,6 +184,24 @@ describe("lifecycle backfill", () => {
     expect(state.stageEvents).toHaveLength(0);
   });
 
+  it("gives a lead with no records an open disposition and no stage", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));
+    const harness = await harnessWithMigrations();
+    const leadId = await harness.t.run(async (ctx) =>
+      await ctx.db.insert("leads", {
+        tenantId: harness.tenantId, fullName: "Empty", status: "active", firstSeenAt: QUALIFIED, updatedAt: QUALIFIED,
+      }),
+    );
+
+    await run(harness, "backfillLeadLifecycle");
+    expect((await run(harness, "assertLeadLifecycle"))?.error).toBeUndefined();
+
+    const lead = await harness.t.run((ctx) => ctx.db.get("leads", leadId));
+    expect(lead).toMatchObject({ disposition: "open", dispositionSource: "system", dispositionSetAt: QUALIFIED });
+    expect(lead?.lifecycleStage).toBeUndefined();
+  });
+
   it("keeps a person open whose later booking came after the Slack deal expired", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));

@@ -736,6 +736,14 @@ export async function backfillLeadLifecycleRow(
   const { evidence, opportunities } = await collectLifecycleEvidence(ctx, lead);
   const after = deriveLifecycle(evidence);
   if (!after) {
+    // No record to date a stage from, but every person has a disposition.
+    if (lead.disposition === undefined) {
+      await ctx.db.patch("leads", lead._id, {
+        disposition: "open",
+        dispositionSetAt: lead.firstSeenAt,
+        dispositionSource: "system",
+      });
+    }
     return "no_evidence";
   }
   const before = readLifecycle(lead);

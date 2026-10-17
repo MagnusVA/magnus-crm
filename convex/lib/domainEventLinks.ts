@@ -133,6 +133,10 @@ export async function deriveDomainEventLinks(
 
 // --- Older events (plan §9.3). ---
 
+// Far above the events one transaction writes (a backfill batch writes 20).
+// A bigger bucket throws rather than miss the meeting that caused an event.
+export const SAME_TRANSACTION_EVENT_LIMIT = 1000;
+
 function parseMetadata(metadata: string | undefined): Record<string, unknown> | undefined {
   if (!metadata) {
     return undefined;
@@ -164,7 +168,10 @@ async function splitMeetingLeadId(
     .withIndex("by_tenantId_and_occurredAt", (q) =>
       q.eq("tenantId", event.tenantId).eq("occurredAt", event.occurredAt),
     )
-    .take(50);
+    .take(SAME_TRANSACTION_EVENT_LIMIT + 1);
+  if (sameTransaction.length > SAME_TRANSACTION_EVENT_LIMIT) {
+    throw new Error(`More than ${SAME_TRANSACTION_EVENT_LIMIT} events at ${event.occurredAt}; event ${event._id} needs a review`);
+  }
   const otherLeads = new Set<Id<"leads">>();
   for (const other of sameTransaction) {
     if (other.entityType !== "meeting") {

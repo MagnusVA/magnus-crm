@@ -148,6 +148,7 @@ async function isUsersTeamMember(
 // the pair (D5). Code never decides this from names. ---
 
 const ROLE_TABLES = ["users", "leadGenWorkers", "slackUsers", "dmClosers"] as const;
+const ROLE_RECORD_PAGE = 50;
 const EVENT_REPOINT_BATCH = 200;
 
 /** The role records that point at a team member, by table. */
@@ -163,7 +164,7 @@ export async function teamMemberRoleRecords(
         .withIndex("by_tenantId_and_teamMemberId", (q) =>
           q.eq("tenantId", tenantId).eq("teamMemberId", teamMemberId),
         )
-        .take(50),
+        .take(ROLE_RECORD_PAGE),
     ),
   );
   return {
@@ -210,6 +211,10 @@ export async function mergeTeamMembers(
     for (const record of moving[table]) {
       await ctx.db.patch(table, record._id, { teamMemberId: intoTeamMemberId });
     }
+  }
+  // A full page may have more behind it; keep the team member until it's empty.
+  if (ROLE_TABLES.some((table) => moving[table].length === ROLE_RECORD_PAGE)) {
+    return false;
   }
   const events = await ctx.db
     .query("domainEvents")
