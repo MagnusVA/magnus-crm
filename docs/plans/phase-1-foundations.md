@@ -217,7 +217,7 @@ Name matches are joined only after the tenant admin approves them (D5). `teamMem
 
 `getLeadConversionMetrics` (`reporting/leadConversion.ts:31`) counts `newLeads` from `leadStageEntries` at the stage chosen in D2, instead of `leadTimeline`. The card reads "New leads: people who reached Qualified in the period". Conversions keep counting `customers` by `convertedAt`.
 
-The report reads the new aggregate only once tenant field `leadStageReportingVersion` is set, the way `meetingProjectionVersion` gates meeting reports. `activateLeadStageReporting`, an internal mutation, sets it after `assertLeadLifecycle` passes. Before that it reads `leadTimeline`, so PR 4 can deploy first.
+The report reads the new aggregate only once tenant field `leadStageReportingVersion` is set, the way `meetingProjectionVersion` gates meeting reports. `activateLeadStageReporting`, an internal mutation, sets it after `assertLeadLifecycle` passes. Before that it reads `leadTimeline`, so PR 4 can deploy first. The narrow retired this gate (§12.9): the report now always counts by stage.
 
 ### 7.2 Historical counts
 
@@ -374,7 +374,7 @@ Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` accepted every recommendation be
 - **PR 1.** Revert. The optional fields are empty, the table is empty and the aggregate holds nothing.
 - **PR 2.** Revert. New rows keep the fields they got, which nothing reads, and PR 3's backfill rewrites them anyway.
 - **PR 3 data.** Nothing reads it before activation. `clearLeadLifecycle` and `clearDomainEventLinks` unset the fields and clear the aggregate namespace, in batches. Team members are deleted after their role records are unlinked.
-- **PR 4.** Unset `leadStageReportingVersion` with `deactivateLeadStageReporting`, and the report reads `leadTimeline` again. Reverting the code does the same. The narrow in §12.9 removes the switch. After it, reverting the narrow PR brings back creation counts, since the field is cleared.
+- **PR 4.** Unset `leadStageReportingVersion` with `deactivateLeadStageReporting`, and the report reads `leadTimeline` again. Reverting the code does the same. The narrow in §12.9 removes the switch. Reverting the narrow PR brings back the switch: before `clearLeadStageReportingVersion` has run, the report keeps counting by stage; after it, by creation date until `activateLeadStageReporting` runs again.
 - **PR 5.** Revert. Any move-back already made stays, with its domain event. A later re-derivation, run lead by lead, undoes it.
 
 ## 12. Production log
