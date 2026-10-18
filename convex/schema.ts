@@ -74,9 +74,6 @@ export default defineSchema({
     slackQualificationDailyTeamQuota: v.optional(v.number()),
     // Phase 0 Billing Ops release gate. Undefined is treated as disabled.
     billingOpsEnabled: v.optional(v.boolean()),
-    // Retired: the leads report always counts people reaching Qualified.
-    // migrations:clearLeadStageReportingVersion unsets it; then it goes.
-    leadStageReportingVersion: v.optional(v.literal(1)),
   })
     .index("by_contactEmail", ["contactEmail"])
     .index("by_workosOrgId", ["workosOrgId"])
