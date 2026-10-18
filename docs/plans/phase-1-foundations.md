@@ -374,7 +374,7 @@ Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` accepted every recommendation be
 - **PR 1.** Revert. The optional fields are empty, the table is empty and the aggregate holds nothing.
 - **PR 2.** Revert. New rows keep the fields they got, which nothing reads, and PR 3's backfill rewrites them anyway.
 - **PR 3 data.** Nothing reads it before activation. `clearLeadLifecycle` and `clearDomainEventLinks` unset the fields and clear the aggregate namespace, in batches. Team members are deleted after their role records are unlinked.
-- **PR 4.** Unset `leadStageReportingVersion` with `deactivateLeadStageReporting`, and the report reads `leadTimeline` again. Reverting the code does the same. The narrow in §12.9 removes the switch. Reverting the narrow PR brings back the switch: before `clearLeadStageReportingVersion` has run, the report keeps counting by stage; after it, by creation date until `activateLeadStageReporting` runs again.
+- **PR 4.** Unset `leadStageReportingVersion` with `deactivateLeadStageReporting`, and the report reads `leadTimeline` again. Reverting the code does the same. The narrow in §12.9 removes the switch. Reverting the narrow PR brings back the switch: a tenant with `leadStageReportingVersion` set counts by stage, and a tenant with it unset, including every tenant once `clearLeadStageReportingVersion` has run, counts by creation date until `activateLeadStageReporting` runs again.
 - **PR 5.** Revert. Any move-back already made stays, with its domain event. A later re-derivation, run lead by lead, undoes it.
 
 ## 12. Production log
