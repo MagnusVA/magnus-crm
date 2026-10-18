@@ -263,7 +263,7 @@ Production runs, each with the tenant admin's approval, in this order once PR 3 
 2. `nameLinkCandidates`, for the admin to approve, then `applyApprovedLinks` and `assertTeamMembersHeld` again.
 3. `backfillLeadLifecycle`, then `assertLeadLifecycle` and the stage totals.
 4. `backfillDomainEventLinks`, then `assertDomainEventLinks` and `leadSplit/verify:verifySplitEventLinks`. This must finish before the split's Deploy 3 drops `leadSplitAudit`, from about 16 Nov.
-5. After PR 4 deploys: `activateLeadStageReporting`. The narrow retired it (§12.9).
+5. After PR 4 deploys: `activateLeadStageReporting`. Historical: #120 removed it (§12.9).
 
 ## 9. Backfill and assert migrations (PR 3)
 
@@ -350,10 +350,9 @@ npx convex run leads/lifecycleChecks:stageTotals '{"tenantId":"k57dqjfyf8qqy31bq
 npx convex run migrations:run '{"fn":"migrations:backfillDomainEventLinks"}'
 npx convex run migrations:run '{"fn":"migrations:assertDomainEventLinks"}'
 npx convex run leadSplit/verify:verifySplitEventLinks '{}'
-npx convex run migrations:activateLeadStageReporting '{"tenantId":"k57dqjfyf8qqy31bq375ng8gb984b24q"}'
 ```
 
-The narrow removed `activateLeadStageReporting`; §12.9 has the commands that replaced it.
+Phase 1 then ran `migrations:activateLeadStageReporting` with the tenant ID. That's a historical record: #120 removed the function, so the command no longer runs (§12.9).
 
 `stageTotals` must match a read-only count of the leads with each `lifecycleStageEnteredAt` field, and the §9.4 numbers plus whatever arrived since. `verifySplitEventLinks` must return 0 mismatches. The rest of the §2 checks (`verifyTenant`, the status counters, the search-row asserts) must still pass.
 
@@ -376,7 +375,7 @@ Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` accepted every recommendation be
 - **PR 1.** Revert. The optional fields are empty, the table is empty and the aggregate holds nothing.
 - **PR 2.** Revert. New rows keep the fields they got, which nothing reads, and PR 3's backfill rewrites them anyway.
 - **PR 3 data.** Nothing reads it before activation. `clearLeadLifecycle` and `clearDomainEventLinks` unset the fields and clear the aggregate namespace, in batches. Team members are deleted after their role records are unlinked.
-- **PR 4.** Unset `leadStageReportingVersion` with `deactivateLeadStageReporting`, and the report reads `leadTimeline` again. Reverting the code does the same. The narrow in §12.9 removes the switch. To bring the switch back, revert the schema narrow, then the report narrow. Every tenant then counts by creation date until `activateLeadStageReporting` runs again, since the clear has run.
+- **PR 4.** Before #120, `deactivateLeadStageReporting` unset `leadStageReportingVersion` and the report read `leadTimeline` again. #120 and #121 removed the switch and the field (§12.9). To bring it back, revert #121, then #120. Every tenant then counts by creation date, since the clear has run, until the restored `activateLeadStageReporting` runs.
 - **PR 5.** Revert. Any move-back already made stays, with its domain event. A later re-derivation, run lead by lead, undoes it.
 
 ## 12. Production log
