@@ -50,19 +50,6 @@ describe("leads report", () => {
     expect(await report(SEPTEMBER)).toMatchObject({ newLeads: 1 });
   });
 
-  it("clears the retired report switch from tenants", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-10-16T12:00:00Z"));
-    const harness = await bookingHarness();
-    migrationsTest.register(harness.t);
-    await harness.t.run((ctx) => ctx.db.patch("tenants", harness.tenantId, { leadStageReportingVersion: 1 }));
-
-    await run(harness, "clearLeadStageReportingVersion");
-    await run(harness, "assertLeadStageReportingVersionCleared");
-
-    const tenant = await harness.t.run((ctx) => ctx.db.get("tenants", harness.tenantId));
-    expect(tenant?.leadStageReportingVersion).toBeUndefined();
-  });
 
   it("a correction that leaves no evidence stops counting the person", async () => {
     vi.useFakeTimers();

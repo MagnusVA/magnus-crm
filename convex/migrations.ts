@@ -560,19 +560,3 @@ export const assertDomainEventLinks = migrations.define({
     }
   },
 });
-
-// The leads report no longer reads tenants.leadStageReportingVersion
-// (docs/plans/phase-1-foundations.md §12.9). Unset it so the field can go.
-export const clearLeadStageReportingVersion = migrations.define({
-  table: "tenants",
-  migrateOne: (_ctx, tenant) =>
-    tenant.leadStageReportingVersion === undefined ? undefined : { leadStageReportingVersion: undefined },
-});
-export const assertLeadStageReportingVersionCleared = migrations.define({
-  table: "tenants",
-  migrateOne: (_ctx, tenant) => {
-    if (tenant.leadStageReportingVersion !== undefined) {
-      throw new Error(`Tenant ${tenant._id} still has leadStageReportingVersion`);
-    }
-  },
-});
