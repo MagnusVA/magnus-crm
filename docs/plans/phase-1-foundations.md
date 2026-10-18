@@ -506,7 +506,7 @@ Re-checked on 2026-10-18 before the narrow, read-only: 10,578 people (85 new sin
    ```
 
    A dry run reported 1 tenant to change. The clear processed 1 tenant and the assert passed, both with no error, and the tenant's `leadStageReportingVersion` reads unset.
-2. **Schema narrow.** With the field cleared, a follow-up PR removes `tenants.leadStageReportingVersion` from the schema, with the clear and assert migrations, which have nothing left to do.
+2. **Schema narrow.** With the field cleared, #121 removes `tenants.leadStageReportingVersion` from the schema, along with the clear and assert migrations, which have nothing left to do.
 3. **Field narrow.** After Deploy 3 of the split: a read-only check that no lead lacks a stage or disposition, then a PR that makes `lifecycleStage`, `lifecycleStageEnteredAt` and `disposition` required.
 
 `leadTimeline` stays: the split's rollback still deletes from it, and `verifyBackfillCounts` checks it with six other reporting aggregates. It can go with Deploy 3.
