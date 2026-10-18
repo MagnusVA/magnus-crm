@@ -67,7 +67,6 @@ export function LeadsReportPageClient() {
         <>
           <ConversionKpiCards
             newLeads={metrics.newLeads}
-            newLeadsBasis={metrics.newLeadsBasis}
             totalConversions={metrics.totalConversions}
             conversionRate={metrics.conversionRate}
           />

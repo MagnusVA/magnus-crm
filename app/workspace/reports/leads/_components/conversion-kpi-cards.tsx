@@ -10,15 +10,12 @@ import { UsersIcon, UserCheckIcon, TrendingUpIcon } from "lucide-react";
 
 interface ConversionKpiCardsProps {
   newLeads: number;
-  // "reached_qualified" once the tenant's lifecycle stages are verified.
-  newLeadsBasis: "created" | "reached_qualified";
   totalConversions: number;
   conversionRate: number | null;
 }
 
 export function ConversionKpiCards({
   newLeads,
-  newLeadsBasis,
   totalConversions,
   conversionRate,
 }: ConversionKpiCardsProps) {
@@ -32,9 +29,7 @@ export function ConversionKpiCards({
         <CardContent>
           <div className="text-2xl font-bold">{newLeads.toLocaleString()}</div>
           <p className="text-xs text-muted-foreground">
-            {newLeadsBasis === "reached_qualified"
-              ? "People who reached Qualified in period"
-              : "Leads created in period"}
+            People who reached Qualified in period
           </p>
         </CardContent>
       </Card>

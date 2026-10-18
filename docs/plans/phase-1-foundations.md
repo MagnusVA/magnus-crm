@@ -1,6 +1,6 @@
 # Phase 1: foundations
 
-Status: done, 2026-10-17. Every PR (#112 to #118) is merged and deployed, every backfill and assert ran clean in production, and the leads report counts people reaching Qualified (§12).
+Status: widen and migrate done, 2026-10-17. Every PR (#112 to #118) is merged and deployed, every backfill and assert ran clean in production, and the leads report counts people reaching Qualified (§12). The narrow is in progress (§12.9).
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) and the Phase 1 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 0 history is in the [polluted lead split plan](polluted-lead-split.md).
 
@@ -217,7 +217,7 @@ Name matches are joined only after the tenant admin approves them (D5). `teamMem
 
 `getLeadConversionMetrics` (`reporting/leadConversion.ts:31`) counts `newLeads` from `leadStageEntries` at the stage chosen in D2, instead of `leadTimeline`. The card reads "New leads: people who reached Qualified in the period". Conversions keep counting `customers` by `convertedAt`.
 
-The report reads the new aggregate only once tenant field `leadStageReportingVersion` is set, the way `meetingProjectionVersion` gates meeting reports. `activateLeadStageReporting`, an internal mutation, sets it after `assertLeadLifecycle` passes. Before that it reads `leadTimeline`, so PR 4 can deploy first.
+The report reads the new aggregate only once tenant field `leadStageReportingVersion` is set, the way `meetingProjectionVersion` gates meeting reports. `activateLeadStageReporting`, an internal mutation, sets it after `assertLeadLifecycle` passes. Before that it reads `leadTimeline`, so PR 4 can deploy first. The narrow retired this gate (§12.9): the report now always counts by stage.
 
 ### 7.2 Historical counts
 
@@ -374,7 +374,7 @@ Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` accepted every recommendation be
 - **PR 1.** Revert. The optional fields are empty, the table is empty and the aggregate holds nothing.
 - **PR 2.** Revert. New rows keep the fields they got, which nothing reads, and PR 3's backfill rewrites them anyway.
 - **PR 3 data.** Nothing reads it before activation. `clearLeadLifecycle` and `clearDomainEventLinks` unset the fields and clear the aggregate namespace, in batches. Team members are deleted after their role records are unlinked.
-- **PR 4.** Unset `leadStageReportingVersion` with `deactivateLeadStageReporting`, and the report reads `leadTimeline` again. Reverting the code does the same.
+- **PR 4.** Unset `leadStageReportingVersion` with `deactivateLeadStageReporting`, and the report reads `leadTimeline` again. Reverting the code does the same. The narrow in §12.9 removes the switch. Reverting the narrow PR brings back the switch: a tenant with `leadStageReportingVersion` set counts by stage, and a tenant with it unset, including every tenant once `clearLeadStageReportingVersion` has run, counts by creation date until `activateLeadStageReporting` runs again.
 - **PR 5.** Revert. Any move-back already made stays, with its domain event. A later re-derivation, run lead by lead, undoes it.
 
 ## 12. Production log
@@ -482,11 +482,21 @@ The backfill has 6 more people than the §9.4 snapshot (10,493 against 10,487), 
 | 2026-09 | 1,943 | 1,947 |
 | 2026-10 | 1,136 | 1,078 |
 
-The months match §7.2. To roll back, run `migrations:deactivateLeadStageReporting` with the tenant ID.
+The months match §7.2. The narrow in §12.9 retired the switch.
 
 ### 12.8 Left for later
 
 - The Prospects toolbar toggle ships with Phase 2, when the first prospects exist (§7.3).
 - 6 first-name-only and 13 unmatched staff records have their own team members until an admin links them.
-- `leadTimeline`, `verifyBackfillCounts` and the creation-based branch of the report stay until a later narrow. So do the optional lifecycle fields, which a narrow can make required once no unstaged lead can be written.
+- The optional lifecycle fields stay optional until Deploy 3 of the split, because a split correction that leaves a person no records clears their stage. A narrow makes them required after that (§12.9).
 - Deploy 3 of the split, from about 16 Nov, removes `leadSplit/verify:verifySplitEventLinks` and the split's calls to `correctLeadLifecycle` with the rest of the split code.
+
+### 12.9 Narrow
+
+Re-checked on 2026-10-18 before the narrow, read-only: 10,578 people (85 new since the backfill), each with a stage and a disposition, and 2 merged. `stageTotals` matches a scan at every stage, `converted` agrees with Customer on all 267, `verifyTenantStatusCounters` matches (4,087 active, 4,403 lost, 267 won), and `leadStageReportingVersion` is 1.
+
+1. **Report narrow.** `getLeadConversionMetrics` always counts people reaching Qualified, and drops `newLeadsBasis`. `activateLeadStageReporting` and `deactivateLeadStageReporting` are gone. `clearLeadStageReportingVersion` unsets the field on every tenant, and `assertLeadStageReportingVersionCleared` checks it. A new tenant counts by stage from its first lead, since every lead is created with a stage.
+2. **Schema narrow.** After the clear and its assert pass, a follow-up PR removes `tenants.leadStageReportingVersion` from the schema.
+3. **Field narrow.** After Deploy 3 of the split: a read-only check that no lead lacks a stage or disposition, then a PR that makes `lifecycleStage`, `lifecycleStageEnteredAt` and `disposition` required.
+
+`leadTimeline` stays: the split's rollback still deletes from it, and `verifyBackfillCounts` checks it with six other reporting aggregates. It can go with Deploy 3.
