@@ -36,52 +36,32 @@ async function splitCreatedPerson(harness: Harness) {
 }
 
 describe("leads report", () => {
-  it("counts people reaching Qualified once the verified backfill is activated", async () => {
+  it("counts people in the month they reached Qualified, not the month their row was created", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-16T12:00:00Z"));
     const harness = await bookingHarness();
     migrationsTest.register(harness.t);
     await splitCreatedPerson(harness);
+    await run(harness, "backfillLeadLifecycle");
 
     const report = (range: typeof SEPTEMBER) =>
       harness.admin.query(api.reporting.leadConversion.getLeadConversionMetrics, range);
-    expect(await report(OCTOBER)).toMatchObject({ newLeads: 1, newLeadsBasis: "created" });
-
-    await expect(
-      harness.t.mutation(internal.migrations.activateLeadStageReporting, { tenantId: harness.tenantId }),
-    ).rejects.toThrow("assertLeadLifecycle");
-
-    await run(harness, "backfillLeadLifecycle");
-    await run(harness, "assertLeadLifecycle");
-    await harness.t.mutation(internal.migrations.activateLeadStageReporting, { tenantId: harness.tenantId });
-
-    expect(await report(OCTOBER)).toMatchObject({ newLeads: 0, newLeadsBasis: "reached_qualified" });
-    expect(await report(SEPTEMBER)).toMatchObject({ newLeads: 1, newLeadsBasis: "reached_qualified" });
-
-    await harness.t.mutation(internal.migrations.deactivateLeadStageReporting, { tenantId: harness.tenantId });
-    expect(await report(OCTOBER)).toMatchObject({ newLeads: 1, newLeadsBasis: "created" });
+    expect(await report(OCTOBER)).toMatchObject({ newLeads: 0 });
+    expect(await report(SEPTEMBER)).toMatchObject({ newLeads: 1 });
   });
 
-  it("won't switch while a lead split is still applying", async () => {
+  it("clears the retired report switch from tenants", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-16T12:00:00Z"));
     const harness = await bookingHarness();
     migrationsTest.register(harness.t);
-    await splitCreatedPerson(harness);
-    await run(harness, "backfillLeadLifecycle");
-    await run(harness, "assertLeadLifecycle");
-    await harness.t.run(async (ctx) => {
-      const lead = (await ctx.db.query("leads").first())!;
-      await ctx.db.insert("leadSplitPlans", {
-        tenantId: harness.tenantId, sourceLeadId: lead._id, tier: "A", status: "applying", planVersion: 1,
-        discoveryReasons: [], discoveredAt: 0, flags: [], flagDetails: [], placeholderIdentifierIds: [],
-        unattributedMeetingIds: [], updatedAt: 0,
-      });
-    });
+    await harness.t.run((ctx) => ctx.db.patch("tenants", harness.tenantId, { leadStageReportingVersion: 1 }));
 
-    await expect(
-      harness.t.mutation(internal.migrations.activateLeadStageReporting, { tenantId: harness.tenantId }),
-    ).rejects.toThrow("still applying");
+    await run(harness, "clearLeadStageReportingVersion");
+    await run(harness, "assertLeadStageReportingVersionCleared");
+
+    const tenant = await harness.t.run((ctx) => ctx.db.get("tenants", harness.tenantId));
+    expect(tenant?.leadStageReportingVersion).toBeUndefined();
   });
 
   it("a correction that leaves no evidence stops counting the person", async () => {
