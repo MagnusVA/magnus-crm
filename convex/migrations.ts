@@ -423,14 +423,6 @@ export const activateMeetingProjections = internalMutation({
   },
 });
 
-// Polluted-lead split cleanup (docs/plans/polluted-lead-split.md §5.11). The
-// invitee snapshot holds contact details the split needed only to tell people
-// apart; the leads keep what it decided. Approved by the tenant admin.
-export const deleteLeadSplitInviteeSnapshots = migrations.define({
-  table: "leadSplitInviteeSnapshots", batchSize: 100,
-  migrateOne: async (ctx, snapshot) => { await ctx.db.delete("leadSplitInviteeSnapshots", snapshot._id); },
-});
-
 // Phase 1 (docs/plans/phase-1-foundations.md §9). Team members first, since
 // the event links read them:
 // npx convex run migrations:run '{"fn":"migrations:backfillUserTeamMembers","next":["migrations:backfillLeadGenWorkerTeamMembers","migrations:backfillDmCloserTeamMembers","migrations:backfillSlackUserTeamMembers"]}'
