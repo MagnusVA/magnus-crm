@@ -398,6 +398,42 @@ describe("prospect backfill", () => {
     expect(await events(harness, "lead.created")).toHaveLength(0);
   });
 
+  it("links a prospect the backfill hasn't reached when its submission is retried", async () => {
+    const harness = await setup();
+    const { prospectId, submissionId } = await harness.t.run(async (ctx) => {
+      const ids = await legacyProspect(ctx, harness.tenantId, "ana.lead", NOW - 1_000);
+      await ctx.db.patch("leadGenSubmissions", ids.submissionId, { clientSubmissionKey: "retry-key" });
+      return ids;
+    });
+
+    const result = await harness.admin.mutation(api.leadGen.capture.submit, {
+      source: "instagram", rawHandleOrProfileUrl: "@ana.lead", originKind: "follower", clientSubmissionKey: "retry-key",
+    });
+
+    const prospect = await harness.t.run((ctx) => ctx.db.get("leadGenProspects", prospectId));
+    expect(result).toMatchObject({ submissionId, duplicateRetry: true });
+    expect(result.leadId).toBeDefined();
+    expect(prospect?.leadId).toBe(result.leadId);
+  });
+
+  it("finds a submission's capture event among many others in the same millisecond", async () => {
+    const harness = await setup();
+    await harness.t.run(async (ctx) => {
+      const { submissionId } = await legacyProspect(ctx, harness.tenantId, "ana.lead", NOW);
+      for (let i = 0; i < 150; i++) {
+        await ctx.db.insert("domainEvents", {
+          tenantId: harness.tenantId, entityType: "lead", entityId: `other-${i}`, eventType: "lead.captured",
+          occurredAt: NOW, source: "pipeline", metadata: JSON.stringify({ submissionId: `other-${i}` }),
+        });
+      }
+      return submissionId;
+    });
+
+    expect((await run(harness, "linkProspectPeople")).state).toBe("success");
+    expect((await run(harness, "backfillCaptureEvents")).state).toBe("success");
+    expect((await run(harness, "assertCaptureEvents")).state).toBe("success");
+  });
+
   it("fails the assert for a prospect with no person", async () => {
     const harness = await setup();
     await harness.t.run((ctx) => legacyProspect(ctx, harness.tenantId, "brand.new", NOW));

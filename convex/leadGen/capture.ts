@@ -67,11 +67,17 @@ export const submit = mutation({
           workerId: worker._id,
           submissionId: existingSubmission._id,
         });
+        // A prospect the link backfill hasn't reached gets its person now.
         const existingProspect = await ctx.db.get("leadGenProspects", existingSubmission.prospectId);
+        const leadId =
+          existingProspect?.leadId ??
+          (existingProspect
+            ? (await linkProspectPersonForCapture(ctx, existingProspect._id)).leadId
+            : undefined);
         return {
           submissionId: existingSubmission._id,
           prospectId: existingSubmission.prospectId,
-          leadId: existingProspect?.leadId,
+          leadId,
           duplicateRetry: true,
           duplicateProspect: false,
         };

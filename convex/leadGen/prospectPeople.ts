@@ -81,8 +81,9 @@ export async function linkProspectPerson(
 export const LEAD_CAPTURED = "lead.captured";
 export const LEAD_CAPTURE_VOIDED = "lead.capture_voided";
 
-// Far above the captures that share one millisecond.
-const SAME_TIME_EVENT_LIMIT = 100;
+// Far above the events of one type that share one millisecond; a scan past
+// it throws rather than miss the submission's event.
+const SAME_TIME_EVENT_SCAN_LIMIT = 2000;
 
 function metadataSubmissionId(metadata: string | undefined): unknown {
   if (!metadata) {
@@ -105,16 +106,22 @@ export async function submissionEvents(
   eventType: typeof LEAD_CAPTURED | typeof LEAD_CAPTURE_VOIDED,
   occurredAt: number,
 ): Promise<Doc<"domainEvents">[]> {
-  const events = await ctx.db
+  const matches: Doc<"domainEvents">[] = [];
+  let scanned = 0;
+  for await (const event of ctx.db
     .query("domainEvents")
     .withIndex("by_tenantId_and_eventType_and_occurredAt", (q) =>
       q.eq("tenantId", submission.tenantId).eq("eventType", eventType).eq("occurredAt", occurredAt),
-    )
-    .take(SAME_TIME_EVENT_LIMIT + 1);
-  if (events.length > SAME_TIME_EVENT_LIMIT) {
-    throw new Error(`More than ${SAME_TIME_EVENT_LIMIT} ${eventType} events at ${occurredAt}`);
+    )) {
+    scanned += 1;
+    if (scanned > SAME_TIME_EVENT_SCAN_LIMIT) {
+      throw new Error(`More than ${SAME_TIME_EVENT_SCAN_LIMIT} ${eventType} events at ${occurredAt}`);
+    }
+    if (metadataSubmissionId(event.metadata) === submission._id) {
+      matches.push(event);
+    }
   }
-  return events.filter((event) => metadataSubmissionId(event.metadata) === submission._id);
+  return matches;
 }
 
 function captureMetadata(submission: Doc<"leadGenSubmissions">) {
