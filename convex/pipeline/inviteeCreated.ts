@@ -44,7 +44,6 @@ import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMee
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { buildLeadSearchText } from "../leads/searchTextBuilder";
 import {
-	blockIfSplitLocked,
 	resolveLeadIdentity,
   resolveExistingLeadIdentity,
 } from "../leads/identityResolution";
@@ -814,7 +813,6 @@ export const process = internalMutation({
 			) {
 				const previousTargetStatus = targetOpportunity.status;
 				const targetLead = await ctx.db.get("leads", targetOpportunity.leadId);
-				if (targetLead) blockIfSplitLocked(targetLead);
         const resolvedTarget = await resolveExistingLeadIdentity(ctx, { tenantId, email: inviteeEmail, phone: effectivePhone,
           socialHandle: extractedIdentifiers.socialHandle, identifierSource: "calendly_booking", createdAt: now });
         if (resolvedTarget && resolvedTarget.leadId !== targetOpportunity.leadId) blockBooking("identity_conflict");

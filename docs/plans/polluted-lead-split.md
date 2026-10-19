@@ -1,6 +1,6 @@
 # Polluted lead split: scope, attribution, and migration plan
 
-Status: Deploy 1 (the §5.0 guards) shipped in #95, and Deploy 2 in #98 (staging, §5.1 to §5.5) and #99 (apply, verification and rollback, §5.6 to §5.9). On 2026-10-16 the 4 Tier A plans and 15 Tier B plans were applied to production and verified (§8.1), every held booking was settled (§8.2, §8.3), and the Tier D cleanup ran (§8.4). `verifyTenant` shows 0 failures on every check. The 24-hour recheck on 2026-10-17 passed (§8.5), and the backup taken before the apply has been deleted. Next: Deploy 3 (§5.11), from 2026-11-16. The decisions on the open questions are recorded in §7.
+Status: Deploy 1 (the §5.0 guards) shipped in #95, and Deploy 2 in #98 (staging, §5.1 to §5.5) and #99 (apply, verification and rollback, §5.6 to §5.9). On 2026-10-16 the 4 Tier A plans and 15 Tier B plans were applied to production and verified (§8.1), every held booking was settled (§8.2, §8.3), and the Tier D cleanup ran (§8.4). `verifyTenant` shows 0 failures on every check. The 24-hour recheck on 2026-10-17 passed (§8.5), and the backup taken before the apply has been deleted. On 2026-10-18 the tenant admin chose to retire the split's code early rather than wait to 2026-11-16 (#122, Phase 1 plan §12.9); the staging tables keep their rows until a later PR drops them. The decisions on the open questions are recorded in §7.
 
 This file holds IDs and counts only; it contains no personal data. The working dataset (PII) stays in `/tmp` on the analyst's machine.
 
@@ -474,6 +474,8 @@ The code is in `convex/leadSplit/verify.ts`. Run the checks after the apply migr
 5. **Tier B leads:** after each approved plan, look for deliveries whose `inviteeUri` belongs to that lead's people and retry them the same way.
 
 ### 5.11 Narrow (Deploy 3)
+
+Started early, on 2026-10-18: #122 removes the split lock, the `leads.splitLockedAt` field, the migration definitions and the rest of the split's code. The staging tables and their rows remain, for the steps below.
 
 - After 30 days with clean asserts:
   - delete the staging tables' rows (the snapshot table holds PII)

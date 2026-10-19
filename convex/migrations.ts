@@ -32,8 +32,6 @@ import {
   replaceOperationsMeetingStats,
 } from "./operations/meetingStats";
 import { rebuildQualificationRow } from "./operations/projections";
-import { extractPerson, finalizePlan, movePerson } from "./leadSplit/apply";
-import { assertPersonApplied } from "./leadSplit/verify";
 import {
   expireStaleSlackOpportunity,
   isStaleSlackBacklog,
@@ -425,30 +423,6 @@ export const activateMeetingProjections = internalMutation({
   },
 });
 
-// Polluted-lead split, phase 5 (docs/plans/polluted-lead-split.md §5.6). Each
-// acts only on approved plans, one person or plan per transaction. Run in
-// this order, then the assert; `next` chains them:
-// npx convex run migrations:run '{"fn":"migrations:applyLeadSplitExtractions","next":["migrations:applyLeadSplitPersons","migrations:finalizeLeadSplitPlans"]}'
-// A run after a later approval needs `"reset": true`. Undo a plan with
-// leadSplit/rollback:rollbackPlan.
-export const applyLeadSplitExtractions = migrations.define({
-  table: "leadSplitPersons", batchSize: 1,
-  migrateOne: async (ctx, person) => { await extractPerson(ctx, person._id); },
-});
-export const applyLeadSplitPersons = migrations.define({
-  table: "leadSplitPersons", batchSize: 1,
-  migrateOne: async (ctx, person) => { await movePerson(ctx, person._id); },
-});
-export const finalizeLeadSplitPlans = migrations.define({
-  table: "leadSplitPlans", batchSize: 1,
-  migrateOne: async (ctx, plan) => { await finalizePlan(ctx, plan._id); },
-});
-// Tenant-wide checks run with leadSplit/verify:verifyTenant.
-export const assertLeadSplitPersonsApplied = migrations.define({
-  table: "leadSplitPersons", batchSize: 10,
-  migrateOne: async (ctx, person) => { await assertPersonApplied(ctx, person); },
-});
-
 // Phase 1 (docs/plans/phase-1-foundations.md §9). Team members first, since
 // the event links read them:
 // npx convex run migrations:run '{"fn":"migrations:backfillUserTeamMembers","next":["migrations:backfillLeadGenWorkerTeamMembers","migrations:backfillDmCloserTeamMembers","migrations:backfillSlackUserTeamMembers"]}'
@@ -532,6 +506,34 @@ export const assertLeadLifecycle = migrations.define({
   migrateOne: async (ctx, lead) => {
     const problems = await lifecycleProblems(ctx, lead);
     if (problems.length > 0) throw new Error(`Lead ${lead._id}: ${problems.join("; ")}`);
+  },
+});
+
+// Phase 1 narrow (docs/plans/phase-1-foundations.md §12.9). The backfill
+// skips merged leads, so the people merged before Phase 1 have no stage.
+// Every lead then was created at Qualified or later, so each gets Qualified
+// from its first-seen time. A merged lead is frozen and holds no stage entry.
+export const fillMergedLeadLifecycle = migrations.define({
+  table: "leads", batchSize: 200,
+  migrateOne: (_ctx, lead) => {
+    if (lead.status !== "merged") return;
+    return {
+      ...(lead.lifecycleStage === undefined
+        ? { lifecycleStage: "qualified" as const, lifecycleStageEnteredAt: { qualified: lead.firstSeenAt } }
+        : {}),
+      ...(lead.disposition === undefined
+        ? { disposition: "open" as const, dispositionSetAt: lead.firstSeenAt, dispositionSource: "system" as const }
+        : {}),
+    };
+  },
+});
+// The next PR makes these fields required; its schema push fails otherwise.
+export const assertLeadLifecycleFieldsSet = migrations.define({
+  table: "leads", batchSize: 200,
+  migrateOne: (_ctx, lead) => {
+    if (lead.lifecycleStage === undefined || lead.lifecycleStageEnteredAt === undefined || lead.disposition === undefined) {
+      throw new Error(`Lead ${lead._id} has no stage, entry times or disposition`);
+    }
   },
 });
 

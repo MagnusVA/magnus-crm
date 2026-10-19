@@ -561,14 +561,13 @@ export async function deriveLeadLifecycle(
   return deriveLifecycle((await collectLifecycleEvidence(ctx, lead)).evidence);
 }
 
-export type LifecycleCorrection = "payment_voided" | "lead_split";
+export type LifecycleCorrection = "payment_voided";
 
 /**
  * Sets the lead's lifecycle to what its records support now, which can move
- * it back. Only corrections call this: a voided payment, or a split moving
- * another person's records off the lead (plan §4.3). A lead without a stage
- * gets one, so a lead the split creates is counted; its disposition is left
- * for the backfill.
+ * it back. Only corrections call this, today a voided payment (plan §4.3).
+ * A lead whose records support no stage keeps the one it has: every person
+ * has a stage.
  */
 export async function correctLeadLifecycle(
   ctx: MutationCtx,
@@ -582,33 +581,16 @@ export async function correctLeadLifecycle(
   }
   const before = readLifecycle(lead);
   const after = await deriveLeadLifecycle(ctx, lead);
-  if (sameLifecycle(before, after)) {
+  if (!after || sameLifecycle(before, after)) {
     return;
   }
   // After an admin's move-back the records overstate the stage, so a
-  // correction may only take the person lower; no evidence at all is lower.
+  // correction may only take the person lower.
   if (
     lead.lifecycleStageMovedBackAt !== undefined &&
     before &&
-    after &&
     stageIndex(after.stage) >= stageIndex(before.stage)
   ) {
-    return;
-  }
-  if (!after) {
-    // No record supports any stage now, so the lead stops counting at all.
-    await ctx.db.patch("leads", leadId, {
-      lifecycleStage: undefined,
-      lifecycleStageEnteredAt: undefined,
-    });
-    await syncLeadStageEntries(ctx, lead.tenantId, leadId, before, null);
-    // A lead without a stage counts as a lead (`countsAsLead`).
-    if (before && isProspectStage(before.stage)) {
-      if (lead.status === "active") {
-        await updateTenantStats(ctx, lead.tenantId, { totalLeads: 1 });
-      }
-      await rebuildLeadCustomerSearchRow(ctx, lead.tenantId, leadId);
-    }
     return;
   }
   await writeLifecycle(ctx, lead, before, after, {

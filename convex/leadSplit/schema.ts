@@ -5,7 +5,8 @@ import { socialPlatformValidator } from "../lib/socialPlatform";
 
 // Staging tables for the polluted-lead split (docs/plans/polluted-lead-split.md
 // §5.1). They hold the plan and its undo log, and the invitee snapshot holds
-// PII. Deploy 3 deletes the rows and drops the tables.
+// PII. The split's code is retired (§5.11); the rows stay as its record until
+// a later PR deletes them and drops the tables.
 
 export const leadSplitTierValidator = v.union(v.literal("A"), v.literal("B"));
 

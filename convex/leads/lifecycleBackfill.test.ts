@@ -226,6 +226,42 @@ describe("lifecycle backfill", () => {
   });
 });
 
+describe("merged lead fill", () => {
+  it("gives a person merged before Phase 1 Qualified from first seen, without counting them", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-18T12:00:00Z"));
+    const harness = await harnessWithMigrations();
+    const { leadId: customerId } = await legacyCustomer(harness);
+    await run(harness, "backfillLeadLifecycle");
+    const mergedId = await harness.t.run(async (ctx) =>
+      await ctx.db.insert("leads", {
+        tenantId: harness.tenantId, status: "merged", mergedIntoLeadId: customerId, firstSeenAt: QUALIFIED, updatedAt: QUALIFIED,
+      }),
+    );
+
+    expect((await run(harness, "assertLeadLifecycleFieldsSet"))?.error).toContain(mergedId);
+    expect((await run(harness, "fillMergedLeadLifecycle"))?.isDone).toBe(true);
+    expect((await rerun(harness, "assertLeadLifecycleFieldsSet"))?.error).toBeUndefined();
+    expect((await rerun(harness, "assertLeadLifecycle"))?.error).toBeUndefined();
+
+    const state = await harness.t.run(async (ctx) => ({
+      merged: await ctx.db.get("leads", mergedId),
+      customer: await ctx.db.get("leads", customerId),
+      totals: await leadStageTotals(ctx, harness.tenantId),
+    }));
+    expect(state.merged).toMatchObject({
+      lifecycleStage: "qualified",
+      lifecycleStageEnteredAt: { qualified: QUALIFIED },
+      disposition: "open",
+      dispositionSetAt: QUALIFIED,
+      dispositionSource: "system",
+    });
+    expect(state.customer?.lifecycleStage).toBe("customer");
+    // Only the customer counts: a merged lead holds no stage entry.
+    expect(state.totals.qualified).toBe(1);
+  });
+});
+
 describe("team member and event link backfills", () => {
   it("gives every role record a team member, then links older events to person and actor", async () => {
     vi.useFakeTimers();

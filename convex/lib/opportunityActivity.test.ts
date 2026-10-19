@@ -222,8 +222,6 @@ describe("transitionOpportunity", () => {
     ["payment_received", "lost", "payment_voided"],
     ["no_show", "canceled", "calendly_webhook"],
     ["canceled", "no_show", "calendly_webhook"],
-    ["no_show", "canceled", "lead_split"],
-    ["canceled", "no_show", "lead_split_rollback"],
   ] as const)(
     "allows %s -> %s only for the %s exception",
     async (from, to, exception) => {
@@ -256,21 +254,6 @@ describe("transitionOpportunity", () => {
         });
       }),
     ).rejects.toThrow('Cannot transition opportunity from "payment_received" to "lost"');
-  });
-
-  it("limits the lead_split exception to no-show -> canceled", async () => {
-    const harness = await bookingHarness();
-    const { opportunityId } = await slackOpportunity(harness, "canceled");
-
-    await expect(
-      harness.t.run(async (ctx) => {
-        await transitionOpportunity(ctx, opportunityId, {
-          to: "no_show",
-          source: "system",
-          exception: "lead_split",
-        });
-      }),
-    ).rejects.toThrow('Cannot transition opportunity from "canceled" to "no_show"');
   });
 });
 

@@ -2,7 +2,6 @@ import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
-import { correctLeadLifecycle, countLeadStageEntries } from "../lib/leadLifecycle";
 import { insertLeadAggregate } from "../reporting/writeHooks";
 import { bookingHarness } from "../../tests/bookingHarness";
 
@@ -48,44 +47,6 @@ describe("leads report", () => {
       harness.admin.query(api.reporting.leadConversion.getLeadConversionMetrics, range);
     expect(await report(OCTOBER)).toMatchObject({ newLeads: 0 });
     expect(await report(SEPTEMBER)).toMatchObject({ newLeads: 1 });
-  });
-
-
-  it("a correction that leaves no evidence stops counting the person", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-10-16T12:00:00Z"));
-    const harness = await bookingHarness();
-    const qualifiedAt = Date.parse("2026-09-20T10:00:00Z");
-    const result = await harness.t.run(async (ctx) => {
-      const qualifiedLead = async () => {
-        const leadId = await ctx.db.insert("leads", {
-          tenantId: harness.tenantId, status: "active", firstSeenAt: qualifiedAt, updatedAt: qualifiedAt,
-        });
-        const opportunityId = await ctx.db.insert("opportunities", {
-          tenantId: harness.tenantId, leadId, status: "qualified_pending", source: "slack_qualified",
-          qualifiedAt, createdAt: qualifiedAt, updatedAt: qualifiedAt,
-        });
-        await correctLeadLifecycle(ctx, leadId, "lead_split");
-        return { leadId, opportunityId };
-      };
-      const { leadId, opportunityId } = await qualifiedLead();
-      const other = await qualifiedLead();
-      const counted = await countLeadStageEntries(ctx, harness.tenantId, "qualified", SEPTEMBER.startDate, SEPTEMBER.endDate);
-      // The split moves the person's only deal elsewhere.
-      await ctx.db.delete("opportunities", opportunityId);
-      await correctLeadLifecycle(ctx, leadId, "lead_split");
-      return {
-        counted,
-        after: await countLeadStageEntries(ctx, harness.tenantId, "qualified", SEPTEMBER.startDate, SEPTEMBER.endDate),
-        lead: await ctx.db.get("leads", leadId),
-        other: await ctx.db.get("leads", other.leadId),
-      };
-    });
-    expect(result.counted).toBe(2);
-    // Only this person's entry goes; the other person still counts.
-    expect(result.after).toBe(1);
-    expect(result.lead?.lifecycleStage).toBeUndefined();
-    expect(result.other?.lifecycleStage).toBe("qualified");
   });
 });
 

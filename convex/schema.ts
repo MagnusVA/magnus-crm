@@ -542,11 +542,6 @@ export default defineSchema({
     selfReportedIncome: v.optional(v.number()),
     // === End NIM-17 ===
 
-    // Set while the polluted-lead split migration moves people off or onto
-    // this lead (docs/plans/polluted-lead-split.md §5.0). Bookings that match
-    // a locked lead block as `identity_conflict` and are retried afterwards.
-    splitLockedAt: v.optional(v.number()),
-
     // === Phase 1: lifecycle stage and disposition ===
     // docs/plans/phase-1-foundations.md §3-§4. Unset until the lifecycle
     // backfill reaches the lead; write paths skip a lead without a stage.

@@ -149,7 +149,7 @@ The stage never moves back on its own. Three things move it back, and each one i
 
 - **An admin, with a reason** (D4, `leads/lifecycleAdmin:moveLifecycleStageBack`). The entry times above the new stage are cleared and their aggregate entries deleted. The domain event keeps the old values, and `lifecycleStageMovedBackAt` tells the assert the stage no longer follows the records. A person with a customer record can't be moved back this way; voiding the payment moves both.
 - **Voiding a side-deal payment.** It already deletes the customer and returns the lead to `active` (`rollbackCustomerConversionIfEmpty`). The stage is derived again from what is left, and the event records reason `payment_voided`.
-- **A split or split rollback.** The split refresh chain derives the stage again for each lead it touched, and gives a lead it created its first stage. The split ran once; this only matters if a rollback runs before Deploy 3 removes the code.
+- **A split or split rollback.** The split refresh chain derives the stage again for each lead it touched, and gives a lead it created its first stage. The split ran once, and #122 removed its code (§12.9).
 
 A lost deal, an expired Slack deal, a no-show or a cancellation never moves the stage.
 
@@ -489,8 +489,7 @@ The months match §7.2. The narrow in §12.9 retired the switch.
 
 - The Prospects toolbar toggle ships with Phase 2, when the first prospects exist (§7.3).
 - 6 first-name-only and 13 unmatched staff records have their own team members until an admin links them.
-- The optional lifecycle fields stay optional until Deploy 3 of the split, because a split correction that leaves a person no records clears their stage. A narrow makes them required after that (§12.9).
-- Deploy 3 of the split, from about 16 Nov, removes `leadSplit/verify:verifySplitEventLinks` and the split's calls to `correctLeadLifecycle` with the rest of the split code.
+- The optional lifecycle fields stayed optional while the split's code could clear a person's stage. #122 retired that code early, and the field narrow follows it (§12.9).
 
 ### 12.9 Narrow
 
@@ -506,6 +505,6 @@ Re-checked on 2026-10-18 before the narrow, read-only: 10,578 people (85 new sin
 
    A dry run reported 1 tenant to change. The clear processed 1 tenant and the assert passed, both with no error, and the tenant's `leadStageReportingVersion` reads unset.
 2. **Schema narrow.** With the field cleared, #121 removes `tenants.leadStageReportingVersion` from the schema, along with the clear and assert migrations, which have nothing left to do.
-3. **Field narrow.** After Deploy 3 of the split: a read-only check that no lead lacks a stage or disposition, then a PR that makes `lifecycleStage`, `lifecycleStageEnteredAt` and `disposition` required.
-
-`leadTimeline` stays: the split's rollback still deletes from it, and `verifyBackfillCounts` checks it with six other reporting aggregates. It can go with Deploy 3.
+3. **Split code retired early.** The split plan held its code for 30 days after the recheck, to 2026-11-16, so a plan could still be rolled back. On 2026-10-18 tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` chose not to wait: the tenant is a beta test tenant, and the split's rollback stops as soon as a new record attaches to a person it created. #122 removes the split's code: discovery, plans, apply, rollback, verification, the Tier D cleanup, the `lead_split` transition exceptions, and the split lock with `leads.splitLockedAt`, which no lead had. The staging tables keep their rows as the split's record.
+   With the split gone, a correction whose records support no stage leaves the stage as it is, so no code path clears one. A read-only check found 10,599 leads, of which only the 2 merged before Phase 1 had no stage, entry times or disposition; the backfill skips merged leads. `fillMergedLeadLifecycle` gives them Qualified from their first-seen time, which is when every lead of that time reached Qualified or later, and an open disposition. A merged lead holds no stage entry, so the counts don't change. `assertLeadLifecycleFieldsSet` then checks that every lead has a stage, entry times and a disposition.
+4. **Field narrow.** After the fill and its assert: a PR that makes `lifecycleStage`, `lifecycleStageEnteredAt` and `disposition` required, and removes `leadTimeline`, which nothing reads since #120.

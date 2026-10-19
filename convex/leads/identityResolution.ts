@@ -122,16 +122,6 @@ async function followMergeChain(
   return current;
 }
 
-/**
- * The polluted-lead split (docs/plans/polluted-lead-split.md) locks the leads
- * it is moving people between. A booking that matches one blocks like any
- * identity conflict, so its delivery waits in pipeline recovery and is
- * retried once the split clears the lock.
- */
-export function blockIfSplitLocked(lead: Doc<"leads">): void {
-  if (lead.splitLockedAt !== undefined) blockBooking("identity_conflict");
-}
-
 async function findLeadByIdentifier(
   ctx: MutationCtx,
   args: {
@@ -149,7 +139,6 @@ async function findLeadByIdentifier(
     if (!lead || lead.tenantId !== args.tenantId) blockBooking("invalid_identity_relationship");
     const resolved = await followMergeChain(ctx, lead);
     if (!resolved) blockBooking("invalid_identity_relationship");
-    blockIfSplitLocked(resolved);
     matches.set(resolved._id, resolved);
   }
   if (matches.size > 1) blockBooking("identity_conflict");
@@ -428,7 +417,6 @@ export async function resolveLeadIdentity(
     for (const lead of legacy) {
       const resolved = await followMergeChain(ctx, lead);
       if (!resolved) blockBooking("invalid_identity_relationship");
-      blockIfSplitLocked(resolved);
       matches.push({ lead: resolved, via: "email" });
     }
     const lead = await findLeadByIdentifier(ctx, { tenantId: args.tenantId, type: "email", value: identityEmail });
