@@ -10,6 +10,7 @@ import schema from "../schema";
 import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
 import { preserveQualificationAuditMatchForScheduledMeeting } from "../leadGen/auditMatching";
 import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
+import { countProspectConversions } from "../lib/prospectConversions";
 import { rebuildQualificationRow } from "../operations/projections";
 
 afterEach(() => vi.useRealTimers());
@@ -920,6 +921,14 @@ it("moves prospects past the first page in scheduled batches", async () => {
 
   expect(await countProspects(ids.sourceLeadId)).toBe(0);
   expect(await countProspects(ids.targetLeadId)).toBe(250);
+  // Every moved prospect counts toward the target in the conversion report.
+  const conversions = await t.run(async (ctx) => {
+    const prospect = await ctx.db.query("leadGenProspects").first();
+    return await countProspectConversions(
+      ctx, tenantId, prospect!.firstCapturedByWorkerId, "prospect", 0, Number.MAX_SAFE_INTEGER,
+    );
+  });
+  expect(conversions).toBe(250);
 });
 
 it("merges a source at the opportunity bound into a busy target within Convex's transaction limits", async () => {

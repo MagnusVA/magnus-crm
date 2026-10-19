@@ -2,6 +2,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { LIFECYCLE_STAGES, type LifecycleStage } from "../leads/lifecycle";
 import { prospectConversions } from "../reporting/aggregates";
+import { reportError } from "./observability/log";
 
 // Keeps `prospectConversions` in step with each linked prospect and its
 // person (docs/plans/phase-2-person-first.md §7). A prospect counts at
@@ -78,12 +79,27 @@ export async function personProspects(
   return prospects;
 }
 
-/** Re-syncs every prospect of a person whose stage times changed. */
+/**
+ * Re-syncs every prospect of a person whose stage times changed. A stage
+ * write never fails on this: a person past the bound is reported, and
+ * `assertProspectPeople` names their prospects.
+ */
 export async function syncPersonProspectConversions(
   ctx: MutationCtx,
   lead: Doc<"leads">,
 ): Promise<void> {
-  for (const prospect of await personProspects(ctx, lead.tenantId, lead._id)) {
+  const prospects = await ctx.db
+    .query("leadGenProspects")
+    .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", lead.tenantId).eq("leadId", lead._id))
+    .take(PERSON_PROSPECT_LIMIT + 1);
+  if (prospects.length > PERSON_PROSPECT_LIMIT) {
+    reportError("lead_gen.prospect_conversions.bound_hit", new Error("Person has more prospects than one sync reads"), {
+      fingerprint: "lead_gen.prospect_conversions.bound_hit",
+      tenantId: lead.tenantId,
+      leadId: lead._id,
+    });
+  }
+  for (const prospect of prospects.slice(0, PERSON_PROSPECT_LIMIT)) {
     await syncProspectConversions(ctx, prospect, lead);
   }
 }
