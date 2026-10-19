@@ -484,7 +484,7 @@ Started early, on 2026-10-18, instead of after 30 days with clean asserts. #122 
 - delete the staging tables' rows (the snapshot table holds PII)
 - drop the tables
 
-On 2026-10-19 tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` approved deleting the invitee snapshot first: `migrations:deleteLeadSplitInviteeSnapshots` (#125) ran in production after a dry run, deleted all 145 rows with no error, and left the table empty. #126 then dropped the table and the migration. The other four tables (`leadSplitPlans`, `leadSplitPersons`, `leadSplitAudit`, `leadPlaceholderCleanups`) hold mostly IDs and stay until 2026-11-16, as a record for any hand repair.
+On 2026-10-19 tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` approved deleting the invitee snapshot first: `migrations:deleteLeadSplitInviteeSnapshots` (#125) ran in production after a dry run, deleted all 145 rows with no error, and left the table empty. The dev deployment held no snapshot rows, no split plans and no audit rows (34 leads, so no production import), and the production log records no rehearsal. #126 then dropped the table and the migration; reverting #126 brings the migration back if another deployment turns out to hold a copy. The other four tables (`leadSplitPlans`, `leadSplitPersons`, `leadSplitAudit`, `leadPlaceholderCleanups`) hold mostly IDs and stay until 2026-11-16, as a record for any hand repair.
 
 ## 6. Cases needing human review
 
