@@ -672,7 +672,7 @@ The production export taken before the apply was deleted after the recheck. The 
 
 Anything rollback can't undo is fixed forward with a reviewed repair, as the recovery in §8.2 was.
 
-Deploy 3 (§5.11) can start 30 days after this recheck, on 2026-11-16.
+Deploy 3 (§5.11) was planned for 30 days after this recheck, on 2026-11-16. The tenant admin chose not to wait, and it ran on 2026-10-18 and 2026-10-19.
 
 ## Appendix A: IDs
 
