@@ -1,6 +1,6 @@
 # Phase 2: person first
 
-Status: plan written, 2026-10-19. Waiting on the tenant admin's answers to §11.
+Status: plan accepted, 2026-10-19. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11, and the production runs in §9 run without further approval stops. PR 1 next.
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (findings F1, F3 and F9) and the Phase 2 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 1 is in [phase-1-foundations.md](phase-1-foundations.md).
 
@@ -275,7 +275,7 @@ npx convex run migrations:run '{"fn":"migrations:assertDomainEventLinks","reset"
 
 ## 11. Decisions
 
-Each has a recommendation. The tenant admin answers them once; the phase then runs to the end.
+Each has a recommendation. The tenant admin accepted all nine recommendations on 2026-10-19; the phase runs to the end on them.
 
 - **D1. A prospect with a placeholder handle.** Recommended: a new person with no identifier, as a Calendly booking with only a placeholder email gets today. The 5 prospects and their 13 submissions are kept, and nothing can ever match them. The other option deletes the 5 prospects and voids their 13 submissions, which changes 3 workers' historical counts.
 - **D2. A prospect whose handle belongs to a customer or a merged lead.** Recommended: link to that person, following a merge to the surviving lead. 121 prospects link to customers and none to a merged lead. The capture is a touch on the customer, and it can't move the stage back.
