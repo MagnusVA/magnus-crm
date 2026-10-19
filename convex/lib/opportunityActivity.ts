@@ -159,17 +159,6 @@ const TRANSITION_EXCEPTIONS = {
   slack_stale_rejoin: {
     lost: ["scheduled"],
   },
-  // The polluted-lead split gives a deal back to the person who keeps it,
-  // with the status of that person's own last meeting. A deal that was
-  // no-show for another person's booking can be canceled for its keeper.
-  // See docs/plans/polluted-lead-split.md §5.4 (O1).
-  lead_split: {
-    no_show: ["canceled"],
-  },
-  // Rolling back a split undoes that move (§5.9).
-  lead_split_rollback: {
-    canceled: ["no_show"],
-  },
 } satisfies Record<
   string,
   Partial<Record<OpportunityStatus, OpportunityStatus[]>>
