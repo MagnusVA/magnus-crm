@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { internal } from "../_generated/api";
-import { insertLeadAggregate, insertOpportunityAggregate } from "../reporting/writeHooks";
-import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
+import { insertOpportunityAggregate } from "../reporting/writeHooks";
+import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
 
 afterEach(() => vi.useRealTimers());
 
@@ -14,14 +14,13 @@ it.each(["canceled", "no_show"] as const)(
     vi.setSystemTime(new Date("2026-10-02T00:00:00Z"));
     const { t, tenantId } = await bookingHarness();
     const { oldOpportunityId, slackOpportunityId } = await t.run(async (ctx) => {
-      const leadId = await ctx.db.insert("leads", {
+      const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(Date.parse("2026-09-20T08:00:00Z")),
         tenantId,
         email: "lead@example.com",
         status: "active",
         firstSeenAt: Date.parse("2026-09-20T08:00:00Z"),
         updatedAt: Date.parse("2026-09-28T09:00:00Z"),
       });
-      await insertLeadAggregate(ctx, leadId);
       const oldOpportunityId = await ctx.db.insert("opportunities", {
         tenantId,
         leadId,
@@ -75,14 +74,13 @@ it("still reuses a recent canceled deal when there is no Slack qualification", a
   vi.setSystemTime(new Date("2026-10-02T00:00:00Z"));
   const { t, tenantId } = await bookingHarness();
   const oldOpportunityId = await t.run(async (ctx) => {
-    const leadId = await ctx.db.insert("leads", {
+    const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(Date.parse("2026-09-20T08:00:00Z")),
       tenantId,
       email: "lead@example.com",
       status: "active",
       firstSeenAt: Date.parse("2026-09-20T08:00:00Z"),
       updatedAt: Date.parse("2026-09-28T09:00:00Z"),
     });
-    await insertLeadAggregate(ctx, leadId);
     const opportunityId = await ctx.db.insert("opportunities", {
       tenantId,
       leadId,

@@ -89,16 +89,6 @@ export const slackQualificationsByTime = new TableAggregate<{
   sortKey: (doc) => slackQualificationSubmittedAt(doc),
 });
 
-export const leadTimeline = new TableAggregate<{
-  Namespace: Id<"tenants">;
-  Key: number;
-  DataModel: DataModel;
-  TableName: "leads";
-}>(components.leadTimeline, {
-  namespace: (doc) => doc.tenantId,
-  sortKey: (doc) => doc._creationTime,
-});
-
 // One entry per person and lifecycle stage reached, keyed by when they first
 // reached it (docs/plans/phase-1-foundations.md §3). Counting a stage over a
 // range counts the people who first reached it in that range. The id is

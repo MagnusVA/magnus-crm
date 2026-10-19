@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { bookingHarness } from "../../tests/bookingHarness";
+import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
 import { opportunityStatusAt, wasUnattachableAt } from "./bookingHistory";
 import type { OpportunityStatus } from "../lib/statusTransitions";
 
@@ -13,7 +13,7 @@ async function statusAt(
 ) {
   const { t, tenantId } = await bookingHarness();
   return await t.run(async (ctx) => {
-    const leadId = await ctx.db.insert("leads", {
+    const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(createdAt),
       tenantId, email: "lead@example.com", status: "active", firstSeenAt: createdAt, updatedAt: createdAt,
     });
     const opportunityId = await ctx.db.insert("opportunities", {

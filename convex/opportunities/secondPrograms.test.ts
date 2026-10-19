@@ -3,7 +3,7 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
-import { bookingHarness } from "../../tests/bookingHarness";
+import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
 
 afterEach(() => vi.useRealTimers());
 
@@ -22,7 +22,7 @@ async function customerWithWonDeal(harness: Harness) {
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
       .take(10);
     const adminId = users.find((user) => user.role === "tenant_admin")!._id;
-    const leadId = await ctx.db.insert("leads", {
+    const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(now),
       tenantId,
       fullName: "Repeat Buyer",
       email: "repeat@example.com",
@@ -212,7 +212,7 @@ describe("a second program", () => {
     vi.useFakeTimers();
     const harness = await bookingHarness();
     const leadId = await harness.t.run((ctx) =>
-      ctx.db.insert("leads", {
+      ctx.db.insert("leads", { ...qualifiedLifecycle(0),
         tenantId: harness.tenantId,
         email: "merged@example.com",
         status: "merged",
@@ -234,7 +234,7 @@ describe("a second program", () => {
     const harness = await bookingHarness();
     const { leadId } = await customerWithWonDeal(harness);
     await harness.t.run(async (ctx) => {
-      const mergedId = await ctx.db.insert("leads", {
+      const mergedId = await ctx.db.insert("leads", { ...qualifiedLifecycle(0),
         tenantId: harness.tenantId,
         fullName: "Repeat Buyer",
         email: "repeat.old@example.com",

@@ -21,7 +21,6 @@ import {
 } from "../lib/leadLifecycle";
 import { reportError } from "../lib/observability/log";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
-import { insertLeadAggregate } from "../reporting/writeHooks";
 import type { LifecycleEvidence } from "./lifecycle";
 import { buildLeadSearchText } from "./searchTextBuilder";
 
@@ -530,7 +529,6 @@ export async function resolveLeadIdentity(
     throw new Error("Lead not found after creation.");
   }
 
-  await insertLeadAggregate(ctx, leadId);
   await syncLeadStageEntries(ctx, args.tenantId, leadId, null, readLifecycle(newLead));
   if (countsAsLead(newLead)) {
     await updateTenantStats(ctx, args.tenantId, {

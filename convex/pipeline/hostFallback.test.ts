@@ -1,8 +1,8 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { bookingHarness, bookingPayload, mapEventTypeToProgram } from "../../tests/bookingHarness";
+import { bookingHarness, bookingPayload, mapEventTypeToProgram, qualifiedLifecycle } from "../../tests/bookingHarness";
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
-import { insertLeadAggregate, insertOpportunityAggregate } from "../reporting/writeHooks";
+import { insertOpportunityAggregate } from "../reporting/writeHooks";
 
 afterEach(() => vi.useRealTimers());
 
@@ -18,7 +18,7 @@ it.each(["utm_follow_up", "heuristic_reschedule", "follow_up", "slack_qualified"
       await ctx.db.patch("users", user!._id, {
         calendlyUserUri: "https://api.calendly.com/users/admin",
       });
-      const leadId = await ctx.db.insert("leads", {
+      const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(Date.parse("2026-10-01T08:00:00Z")),
         tenantId,
         email: "lead@example.com",
         status: "active",
@@ -268,7 +268,7 @@ it("attaches an admin-hosted booking to the lead's Slack-qualified opportunity w
     });
     const closer = await ctx.db.query("users")
       .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_closer")).unique();
-    const leadId = await ctx.db.insert("leads", {
+    const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(Date.parse("2026-09-30T08:00:00Z")),
       tenantId,
       email: "lead@example.com",
       status: "active",
@@ -283,7 +283,6 @@ it("attaches an admin-hosted booking to the lead's Slack-qualified opportunity w
       createdAt: Date.parse("2026-09-30T08:00:00Z"),
       updatedAt: Date.parse("2026-09-30T08:00:00Z"),
     });
-    await insertLeadAggregate(ctx, leadId);
     await insertOpportunityAggregate(ctx, opportunityId);
     return { leadId, opportunityId, closerId: closer!._id };
   });

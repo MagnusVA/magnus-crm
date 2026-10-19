@@ -8,6 +8,7 @@ import {
 } from "../lib/slackBlockKit";
 import schema from "../schema";
 import { convexTestModules } from "../test.setup";
+import { qualifiedLifecycle } from "../../tests/bookingHarness";
 
 async function fixture(options: { leadGenChannelId?: string } = {}) {
   const t = convexTest(schema, convexTestModules);
@@ -56,7 +57,7 @@ describe("qualified lead notification", () => {
   it("uses the submitted values when the lead already existed with other data", async () => {
     const { t, tenantId, installationId } = await fixture();
     const ids = await t.run(async (ctx) => {
-      const leadId = await ctx.db.insert("leads", {
+      const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(0),
         tenantId, fullName: "old calendly name", country: "Spain", leadType: "content",
         status: "active", firstSeenAt: 0, updatedAt: 0,
       });

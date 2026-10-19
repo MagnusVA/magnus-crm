@@ -11,7 +11,7 @@ import { requestMeetingProjection, bucketKey, meetingDayKey } from "./operations
 import { components, internal } from "./_generated/api";
 import type { DataModel, Id } from "./_generated/dataModel";
 import { deriveStoredEventLinks, storedLeadIdMatches } from "./lib/domainEventLinks";
-import { backfillLeadLifecycleRow, lifecycleProblems } from "./lib/leadLifecycle";
+import { lifecycleProblems } from "./lib/leadLifecycle";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import {
   ensureUserTeamMember,
@@ -426,8 +426,7 @@ export const activateMeetingProjections = internalMutation({
 // Phase 1 (docs/plans/phase-1-foundations.md §9). Team members first, since
 // the event links read them:
 // npx convex run migrations:run '{"fn":"migrations:backfillUserTeamMembers","next":["migrations:backfillLeadGenWorkerTeamMembers","migrations:backfillDmCloserTeamMembers","migrations:backfillSlackUserTeamMembers"]}'
-// then the matching assert* chain, then backfillLeadLifecycle and
-// assertLeadLifecycle, then backfillDomainEventLinks and
+// then the matching assert* chain, then backfillDomainEventLinks and
 // assertDomainEventLinks. Each is idempotent; rerun an assert with "reset".
 export const backfillUserTeamMembers = migrations.define({
   table: "users", batchSize: 50,
@@ -496,44 +495,12 @@ export const assertTeamMembersHeld = migrations.define({
 });
 
 // Small batches: deriving a lead reads its deals, meetings, payments, Slack
-// events and lead gen matches.
-export const backfillLeadLifecycle = migrations.define({
-  table: "leads", batchSize: 25,
-  migrateOne: async (ctx, lead) => { await backfillLeadLifecycleRow(ctx, lead); },
-});
+// events and lead gen matches. A health check: rerun it with "reset".
 export const assertLeadLifecycle = migrations.define({
   table: "leads", batchSize: 25,
   migrateOne: async (ctx, lead) => {
     const problems = await lifecycleProblems(ctx, lead);
     if (problems.length > 0) throw new Error(`Lead ${lead._id}: ${problems.join("; ")}`);
-  },
-});
-
-// Phase 1 narrow (docs/plans/phase-1-foundations.md §12.9). The backfill
-// skips merged leads, so the people merged before Phase 1 have no stage.
-// Every lead then was created at Qualified or later, so each gets Qualified
-// from its first-seen time. A merged lead is frozen and holds no stage entry.
-export const fillMergedLeadLifecycle = migrations.define({
-  table: "leads", batchSize: 200,
-  migrateOne: (_ctx, lead) => {
-    if (lead.status !== "merged") return;
-    return {
-      ...(lead.lifecycleStage === undefined
-        ? { lifecycleStage: "qualified" as const, lifecycleStageEnteredAt: { qualified: lead.firstSeenAt } }
-        : {}),
-      ...(lead.disposition === undefined
-        ? { disposition: "open" as const, dispositionSetAt: lead.firstSeenAt, dispositionSource: "system" as const }
-        : {}),
-    };
-  },
-});
-// The next PR makes these fields required; its schema push fails otherwise.
-export const assertLeadLifecycleFieldsSet = migrations.define({
-  table: "leads", batchSize: 200,
-  migrateOne: (_ctx, lead) => {
-    if (lead.lifecycleStage === undefined || lead.lifecycleStageEnteredAt === undefined || lead.disposition === undefined) {
-      throw new Error(`Lead ${lead._id} has no stage, entry times or disposition`);
-    }
   },
 });
 

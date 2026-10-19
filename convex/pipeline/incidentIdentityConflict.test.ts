@@ -6,8 +6,8 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
-import { insertLeadAggregate, insertOpportunityAggregate } from "../reporting/writeHooks";
+import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
+import { insertOpportunityAggregate } from "../reporting/writeHooks";
 
 afterEach(() => vi.useRealTimers());
 
@@ -104,7 +104,7 @@ async function seedIncidentA(harness: Harness) {
   const { t, tenantId } = harness;
   const slackAt = Date.parse("2026-09-28T02:14:00Z");
   const leadId = await t.run(async (ctx) => {
-    const leadId = await ctx.db.insert("leads", {
+    const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(slackAt),
       tenantId,
       fullName: "Jane Coach",
       status: "active",
@@ -130,7 +130,6 @@ async function seedIncidentA(harness: Harness) {
       createdAt: slackAt,
       updatedAt: slackAt,
     });
-    await insertLeadAggregate(ctx, leadId);
     await insertOpportunityAggregate(ctx, opportunityId);
     return leadId;
   });
@@ -205,7 +204,7 @@ it(
     const { t, tenantId } = harness;
     const at = Date.parse("2026-09-01T00:00:00Z");
     const targetId = await t.run(async (ctx) => {
-      const targetId = await ctx.db.insert("leads", {
+      const targetId = await ctx.db.insert("leads", { ...qualifiedLifecycle(at),
         tenantId,
         fullName: "Jane Coach",
         email: "owner@acme-coaching.example",
@@ -213,7 +212,7 @@ it(
         firstSeenAt: at,
         updatedAt: at,
       });
-      await ctx.db.insert("leads", {
+      await ctx.db.insert("leads", { ...qualifiedLifecycle(at),
         tenantId,
         fullName: "Jane Coach",
         email: "jane.personal@hotmail.example",
@@ -252,7 +251,7 @@ async function seedLead(
 ) {
   return await t.run(async (ctx) => {
     const at = Date.parse("2026-09-01T00:00:00Z");
-    const leadId = await ctx.db.insert("leads", {
+    const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(at),
       tenantId,
       ...lead,
       status: "active",
@@ -270,7 +269,6 @@ async function seedLead(
         confidence: "verified",
         createdAt: at,
       });
-    await insertLeadAggregate(ctx, leadId);
     return leadId;
   });
 }
@@ -487,7 +485,7 @@ it("incident B: blocks a returning booker whose email alias sits on a placeholde
   const { t, tenantId } = harness;
   const polluted = await t.run(async (ctx) => {
     const at = Date.parse("2026-04-19T22:33:00Z");
-    const leadId = await ctx.db.insert("leads", {
+    const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(at),
       tenantId,
       fullName: "Most Recent Booker", // overwritten by each booking's name
       email: "first.booker@gmail.example", // never overwritten
@@ -527,7 +525,6 @@ it("incident B: blocks a returning booker whose email alias sits on a placeholde
       createdAt: Date.parse("2026-06-27T00:12:00Z"),
       updatedAt: Date.parse("2026-06-27T00:12:00Z"),
     });
-    await insertLeadAggregate(ctx, leadId);
     await insertOpportunityAggregate(ctx, opportunityId);
     return leadId;
   });

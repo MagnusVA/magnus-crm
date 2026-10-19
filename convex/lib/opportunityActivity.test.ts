@@ -5,7 +5,7 @@ import type { Id } from "../_generated/dataModel";
 import { rebuildQualificationRow } from "../operations/projections";
 import { opportunityByStatus } from "../reporting/aggregates";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
-import { bookingHarness } from "../../tests/bookingHarness";
+import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
 import { migrations } from "../migrations";
 import {
@@ -36,7 +36,7 @@ async function slackOpportunity(
       .take(10);
     const closerId = users.find((user) => user.role === "closer")!._id;
     const now = Date.now();
-    const leadId = await ctx.db.insert("leads", {
+    const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(now),
       tenantId,
       email: "slack-lead@example.com",
       status: "active",

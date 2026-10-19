@@ -231,32 +231,6 @@ describe("lifecycle write paths", () => {
     expect(await stageCount(harness, "customer")).toBe(0);
   });
 
-  it("leaves a lead the backfill hasn't reached alone", async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-09-30T11:00:00Z"));
-    const harness = await bookingHarness();
-    const leadId = await harness.t.run(async (ctx) =>
-      await ctx.db.insert("leads", {
-        tenantId: harness.tenantId,
-        email: "lead@example.com",
-        status: "active",
-        firstSeenAt: Date.parse("2026-09-01T00:00:00Z"),
-        updatedAt: Date.parse("2026-09-01T00:00:00Z"),
-      }),
-    );
-
-    await book(harness, "legacy", "2026-09-30T10:00:00Z");
-
-    const lead = await harness.t.run((ctx) => ctx.db.get("leads", leadId));
-    expect(lead?.lifecycleStage).toBeUndefined();
-    expect(lead?.lifecycleStageEnteredAt).toBeUndefined();
-    expect(
-      await harness.t.run((ctx) =>
-        countLeadStageEntries(ctx, harness.tenantId, "booked", 0, Date.parse("2027-01-01T00:00:00Z")),
-      ),
-    ).toBe(0);
-  });
-
   it("a merge keeps the earlier qualification and counts the person once", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(NOW));

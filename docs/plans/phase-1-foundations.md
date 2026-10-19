@@ -1,6 +1,6 @@
 # Phase 1: foundations
 
-Status: widen and migrate done, 2026-10-17. Every PR (#112 to #118) is merged and deployed, every backfill and assert ran clean in production, and the leads report counts people reaching Qualified (§12). The narrow is in progress (§12.9).
+Status: widen and migrate done, 2026-10-17. Every PR (#112 to #118) is merged and deployed, every backfill and assert ran clean in production, and the leads report counts people reaching Qualified (§12). The narrow is in progress: #120 to #122 are merged, and #123 finishes it (§12.9).
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) and the Phase 1 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 0 history is in the [polluted lead split plan](polluted-lead-split.md).
 
@@ -238,9 +238,7 @@ The report recomputes every month from real stage times. Compared with today, by
 - 59 move to an earlier month. 57 of them are the split's new leads, created on 2026-10-16 with real dates from April to October. That is the fix the split plan deferred to Phase 1 (its §7, Q6).
 - The 2 merged leads drop out, because a merged person is counted once, on the lead they merged into.
 
-`leadTimeline` stays as it is until a later narrow, and `verifyBackfillCounts` keeps comparing it with the `leads` table.
-
-`leadTimeline` stays as it is until a later narrow, and `verifyBackfillCounts` keeps comparing it with the `leads` table.
+`leadTimeline` stayed until the narrow, which removed it with its `verifyBackfillCounts` check (#123, §12.9).
 
 ### 7.3 Prospect filter
 
@@ -352,6 +350,8 @@ npx convex run migrations:run '{"fn":"migrations:assertDomainEventLinks"}'
 npx convex run leadSplit/verify:verifySplitEventLinks '{}'
 ```
 
+`backfillLeadLifecycle` and `verifySplitEventLinks` are gone too: #123 and #122 removed them (§12.9). `assertLeadLifecycle` stays as a health check.
+
 Phase 1 then ran `migrations:activateLeadStageReporting` with the tenant ID. That's a historical record: #120 removed the function, so the command no longer runs (§12.9).
 
 `stageTotals` must match a read-only count of the leads with each `lifecycleStageEnteredAt` field, and the §9.4 numbers plus whatever arrived since. `verifySplitEventLinks` must return 0 mismatches. The rest of the §2 checks (`verifyTenant`, the status counters, the search-row asserts) must still pass.
@@ -375,7 +375,7 @@ Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` accepted every recommendation be
 - **PR 1.** Revert. The optional fields are empty, the table is empty and the aggregate holds nothing.
 - **PR 2.** Revert. New rows keep the fields they got, which nothing reads, and PR 3's backfill rewrites them anyway.
 - **PR 3 data.** Nothing reads it before activation. `clearLeadLifecycle` and `clearDomainEventLinks` unset the fields and clear the aggregate namespace, in batches. Team members are deleted after their role records are unlinked.
-- **PR 4.** Before #120, `deactivateLeadStageReporting` unset `leadStageReportingVersion` and the report read `leadTimeline` again. #120 and #121 removed the switch and the field (§12.9). To bring it back, revert #121, then #120. Every tenant then counts by creation date, since the clear has run, until the restored `activateLeadStageReporting` runs.
+- **PR 4.** Before #120, `deactivateLeadStageReporting` unset `leadStageReportingVersion` and the report read `leadTimeline` again. #120 and #121 removed the switch and the field (§12.9). To bring it back, revert #123's `leadTimeline` removal, then run the restored `reporting/backfill:backfillLeadsAggregate`, which adds entries for the leads created while the write hook was gone, and check that `verifyBackfillCounts` matches. Then revert #121, then #120. Every tenant then counts by creation date, since the clear has run, until the restored `activateLeadStageReporting` runs.
 - **PR 5.** Revert. Any move-back already made stays, with its domain event. A later re-derivation, run lead by lead, undoes it.
 
 ## 12. Production log
@@ -507,4 +507,5 @@ Re-checked on 2026-10-18 before the narrow, read-only: 10,578 people (85 new sin
 2. **Schema narrow.** With the field cleared, #121 removes `tenants.leadStageReportingVersion` from the schema, along with the clear and assert migrations, which have nothing left to do.
 3. **Split code retired early.** The split plan held its code for 30 days after the recheck, to 2026-11-16, so a plan could still be rolled back. On 2026-10-18 tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` chose not to wait: the tenant is a beta test tenant, and the split's rollback stops as soon as a new record attaches to a person it created. #122 removes the split's code: discovery, plans, apply, rollback, verification, the Tier D cleanup, the `lead_split` transition exceptions, and the split lock with `leads.splitLockedAt`, which no lead had. The staging tables keep their rows as the split's record.
    With the split gone, a correction whose records support no stage leaves the stage as it is, so no code path clears one. A read-only check found 10,599 leads, of which only the 2 merged before Phase 1 had no stage, entry times or disposition; the backfill skips merged leads. `fillMergedLeadLifecycle` gives them Qualified from their first-seen time, which is when every lead of that time reached Qualified or later, and an open disposition. A merged lead holds no stage entry, so the counts don't change. `assertLeadLifecycleFieldsSet` then checks that every lead has a stage, entry times and a disposition.
-4. **Field narrow.** After the fill and its assert: a PR that makes `lifecycleStage`, `lifecycleStageEnteredAt` and `disposition` required, and removes `leadTimeline`, which nothing reads since #120.
+   #122 merged at 02:55 UTC on 2026-10-19. In production, the fill and then the assert each processed 10,601 leads with no error. A read-only scan found no lead without a stage, entry times or disposition, and no split lock. `stageTotals` reads 10,599 at Qualified, every lead but the 2 merged, so the fill added no entry.
+4. **Field narrow.** After the fill and its assert, #123 makes `lifecycleStage`, `lifecycleStageEnteredAt` and `disposition` required, so the schema push itself checks every lead. With every lead holding a stage, `backfillLeadLifecycle`, `fillMergedLeadLifecycle` and `assertLeadLifecycleFieldsSet` have nothing left to do and go. `assertLeadLifecycle` stays as a health check. #123 also removes `leadTimeline`, which nothing has read since #120: the component, its write hook, its backfill, and its row in `verifyBackfillCounts`. Unmounting the component keeps its data.
