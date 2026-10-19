@@ -891,6 +891,37 @@ it("moves form responses past the first page in scheduled batches", async () => 
   expect(await rowsNaming(h, ids.sourceLeadId)).toEqual([]);
 });
 
+it("moves prospects past the first page in scheduled batches", async () => {
+  const h = await setup();
+  const { t, tenantId, admin } = h;
+  const ids = await t.run(async (ctx) => {
+    const sourceLeadId = await insertLead(ctx, tenantId, { fullName: "Source" });
+    const targetLeadId = await insertLead(ctx, tenantId, { fullName: "Target" });
+    for (let i = 0; i < 250; i++) {
+      const prospectId = await insertProspect(ctx, tenantId, `paged.${i}`);
+      await ctx.db.patch("leadGenProspects", prospectId, { leadId: sourceLeadId });
+    }
+    return { sourceLeadId, targetLeadId };
+  });
+  const countProspects = (leadId: Id<"leads">) =>
+    t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("leadGenProspects")
+          .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
+          .take(1_000)
+      ).length,
+    );
+
+  await admin.mutation(api.leads.merge.mergeLead, ids);
+  // The merge moved the first page; the rest wait for the scheduled batches.
+  expect(await countProspects(ids.sourceLeadId)).toBe(50);
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(await countProspects(ids.sourceLeadId)).toBe(0);
+  expect(await countProspects(ids.targetLeadId)).toBe(250);
+});
+
 it("merges a source at the opportunity bound into a busy target within Convex's transaction limits", async () => {
   const h = await setup({ transactionLimits: true });
   const { t, tenantId, admin } = h;
