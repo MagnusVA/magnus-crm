@@ -1,97 +1,133 @@
 "use client";
 
+import { useState } from "react";
+import { useQuery } from "convex/react";
 import { ActivityIcon } from "lucide-react";
+import { api } from "@/convex/_generated/api";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import {
-	LabelWithInfoTooltip,
-	leadsCustomersTooltips,
-} from "../../_components/entity-ui-tooltips";
 import { useEntityDetail } from "./entity-detail-context";
-import {
-	formatDateTime,
-	formatMoneyMinor,
-	formatToken,
-} from "./entity-detail-formatters";
+import { formatDateTime } from "./entity-detail-formatters";
 import { SectionShell } from "./entity-detail-ui";
 
-type ActivityEvent = ReturnType<typeof useEntityDetail>["activity"][number];
+const PAGE_SIZE = 100;
 
-function activityLabel(event: ActivityEvent) {
-	if (event.kind === "payment") {
-		return `Payment ${formatMoneyMinor(event.amountMinor, event.currency)}`;
+// The person's timeline: every touch and change, from the event log
+// (docs/plans/phase-2-person-first.md §6.1).
+function dotClass(eventType: string) {
+	if (eventType.startsWith("payment.") || eventType.startsWith("customer.")) {
+		return "bg-emerald-500";
 	}
-	if (event.kind === "customer") {
-		return `Customer ${formatToken(event.status)}`;
+	if (eventType.startsWith("meeting.") || eventType.startsWith("followUp.")) {
+		return "bg-blue-500";
 	}
-	if (event.kind === "meeting") {
-		return `Meeting ${formatToken(event.status)}`;
+	if (eventType.startsWith("opportunity.")) {
+		return "bg-violet-500";
 	}
-	return `Opportunity ${formatToken(event.status)}`;
+	if (
+		eventType === "lead.captured" ||
+		eventType.startsWith("lead.portal_") ||
+		eventType === "lead.slack_qualified"
+	) {
+		return "bg-amber-500";
+	}
+	return "bg-primary";
 }
 
-const ACTIVITY_DOT_CLASS: Record<ActivityEvent["kind"], string> = {
-	payment: "bg-emerald-500",
-	customer: "bg-primary",
-	meeting: "bg-blue-500",
-	opportunity_status: "bg-violet-500",
-};
-
 export function EntityActivitySection() {
-	const { activity, caps } = useEntityDetail();
+	const { lead } = useEntityDetail();
+	const [limit, setLimit] = useState(PAGE_SIZE);
+	const latest = useQuery(api.leadCustomers.timeline.getLeadTimeline, {
+		leadId: lead._id,
+		limit,
+	});
+	// Keeps the entries on screen while "Show older" loads a bigger page.
+	const [shown, setShown] = useState<{ leadId: string; data: typeof latest }>({
+		leadId: lead._id,
+		data: undefined,
+	});
+	if (latest !== undefined && (shown.data !== latest || shown.leadId !== lead._id)) {
+		setShown({ leadId: lead._id, data: latest });
+	}
+	const timeline =
+		latest ?? (shown.leadId === lead._id ? shown.data : undefined);
+	const entries = timeline?.entries ?? [];
 
 	return (
 		<SectionShell
-			title="Activity"
+			title="Timeline"
 			icon={<ActivityIcon aria-hidden="true" />}
-			count={activity.length || undefined}
-			meta={
-				caps.activity ? (
-					<LabelWithInfoTooltip
-						label={`Latest ${caps.maxActivity}`}
-						description={leadsCustomersTooltips.listCap(
-							`${caps.maxActivity} activity events`,
-						)}
-					/>
-				) : null
-			}
+			count={entries.length || undefined}
 			bodyClassName="p-4"
 		>
-			{activity.length === 0 ? (
+			{timeline === undefined ? (
+				<div className="flex flex-col gap-3">
+					<Skeleton className="h-8 w-full" />
+					<Skeleton className="h-8 w-full" />
+				</div>
+			) : entries.length === 0 ? (
 				<div className="text-sm text-muted-foreground">No activity yet.</div>
 			) : (
-				<ol className="relative flex flex-col">
-					{activity.map((event, index) => (
-						<li
-							key={`${event.kind}:${event.at}`}
-							className="relative grid grid-cols-[auto_1fr] gap-x-3 pb-3.5 last:pb-0"
-						>
-							{index < activity.length - 1 ? (
+				<div className="flex flex-col gap-3">
+					<ol className="relative flex flex-col">
+						{entries.map((entry, index) => (
+							<li
+								key={entry.eventId}
+								className="relative grid grid-cols-[auto_1fr] gap-x-3 pb-3.5 last:pb-0"
+							>
+								{index < entries.length - 1 ? (
+									<span
+										aria-hidden="true"
+										className="absolute top-3 left-[3.5px] h-full w-px bg-border/70"
+									/>
+								) : null}
 								<span
 									aria-hidden="true"
-									className="absolute top-3 left-[3.5px] h-full w-px bg-border/70"
+									className={cn(
+										"relative z-10 mt-1 size-2 shrink-0 rounded-full ring-2 ring-card",
+										dotClass(entry.eventType),
+									)}
 								/>
-							) : null}
-							<span
-								aria-hidden="true"
-								className={cn(
-									"relative z-10 mt-1 size-2 shrink-0 rounded-full ring-2 ring-card",
-									ACTIVITY_DOT_CLASS[event.kind],
-								)}
-							/>
-							<div className="flex min-w-0 flex-col gap-0.5">
-								<span className="text-sm font-medium" translate="no">
-									{activityLabel(event)}
-								</span>
-								<time
-									className="text-[11px] text-muted-foreground tabular-nums"
-									dateTime={new Date(event.at).toISOString()}
-								>
-									{formatDateTime(event.at)}
-								</time>
-							</div>
-						</li>
-					))}
-				</ol>
+								<div className="flex min-w-0 flex-col gap-0.5">
+									<span className="text-sm font-medium">
+										{entry.label}
+										{entry.fromStatus || entry.toStatus ? (
+											<span className="font-normal text-muted-foreground">
+												{" "}
+												{entry.fromStatus ? `${entry.fromStatus} → ` : ""}
+												{entry.toStatus}
+											</span>
+										) : null}
+									</span>
+									<span className="text-[11px] text-muted-foreground tabular-nums">
+										<time dateTime={new Date(entry.occurredAt).toISOString()}>
+											{formatDateTime(entry.occurredAt)}
+										</time>
+										{entry.actorName ? ` · ${entry.actorName}` : null}
+										{entry.detail ? ` · ${entry.detail}` : null}
+									</span>
+								</div>
+							</li>
+						))}
+					</ol>
+					{timeline?.capped ? (
+						<p className="text-xs text-muted-foreground">
+							Older events aren&apos;t shown.
+						</p>
+					) : null}
+					{timeline?.hasMore ? (
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							className="self-start"
+							onClick={() => setLimit((current) => current + PAGE_SIZE)}
+						>
+							Show older
+						</Button>
+					) : null}
+				</div>
 			)}
 		</SectionShell>
 	);

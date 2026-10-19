@@ -2,8 +2,8 @@
 
 import { createContext, use, type ReactNode } from "react";
 
-// "prospect" has no toolbar toggle until Phase 2 creates the first prospects;
-// `?lifecycle=prospect` already lists them.
+// "prospect" lists people below Qualified: lead gen captures and people a
+// DM closer is talking to (docs/plans/phase-2-person-first.md §6.2).
 export type EntityLifecycleFilter = "all" | "prospect" | "lead" | "customer";
 
 type EntityBrowserState = {

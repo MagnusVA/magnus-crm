@@ -48,6 +48,7 @@ import {
   replaceOperationsMeetingStats,
 } from "./operations/meetingStats";
 import { rebuildQualificationRow } from "./operations/projections";
+import { SLACK_QUALIFIED, emitSlackQualifiedTouch } from "./slack/createQualifiedLead";
 import {
   expireStaleSlackOpportunity,
   isStaleSlackBacklog,
@@ -700,5 +701,41 @@ export const assertPortalEditTouches = migrations.define({
   table: "linkPortalLeadEdits", batchSize: 100,
   migrateOne: async (ctx, edit) => {
     await assertPortalTouch(ctx, edit, PORTAL_PROFILE_UPDATED, edit.createdAt);
+  },
+});
+
+// Phase 2 PR 4 (§10.4): a touch for each Slack qualification written before
+// they were touches. Then assertSlackTouches, and assertDomainEventLinks with
+// "reset" over every event.
+async function slackTouches(ctx: MutationCtx, event: DataModel["slackQualificationEvents"]["document"]) {
+  return await eventsForRecord(ctx, {
+    tenantId: event.tenantId, eventType: SLACK_QUALIFIED, occurredAt: event.submittedAt,
+    field: "qualificationEventId", value: event._id,
+  });
+}
+export const backfillSlackTouches = migrations.define({
+  table: "slackQualificationEvents", batchSize: 100,
+  migrateOne: async (ctx, event) => {
+    if (!event.leadId || (await slackTouches(ctx, event)).length > 0) return;
+    const setter = await ctx.db
+      .query("slackUsers")
+      .withIndex("by_tenantId_and_slackUserId", (q) => q.eq("tenantId", event.tenantId).eq("slackUserId", event.slackUserId))
+      .first();
+    await emitSlackQualifiedTouch(ctx, {
+      tenantId: event.tenantId, leadId: event.leadId, qualificationEventId: event._id,
+      opportunityId: event.opportunityId, resultKind: event.resultKind,
+      setterTeamMemberId: setter?.teamMemberId, at: event.submittedAt, skipAnalytics: true,
+    });
+  },
+});
+export const assertSlackTouches = migrations.define({
+  table: "slackQualificationEvents", batchSize: 100,
+  migrateOne: async (ctx, event) => {
+    if (!event.leadId) return;
+    const touches = await slackTouches(ctx, event);
+    if (touches.length !== 1) throw new Error(`Slack event ${event._id}: ${touches.length} ${SLACK_QUALIFIED} events`);
+    if (!(await storedLeadIdMatches(ctx, touches[0].leadId, event.leadId))) {
+      throw new Error(`Slack event ${event._id}: touch names ${touches[0].leadId}, not ${event.leadId}`);
+    }
   },
 });

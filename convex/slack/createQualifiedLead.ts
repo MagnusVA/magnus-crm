@@ -41,6 +41,8 @@ async function insertQualificationEvent(
       slackTeamId: string;
       submittedAt: number;
     };
+    /** The setter who qualified the person. */
+    setterTeamMemberId: Id<"teamMembers"> | undefined;
     now: number;
   },
 ) {
@@ -63,7 +65,55 @@ async function insertQualificationEvent(
   });
   await rebuildQualificationRow(ctx, eventId);
   await recordSlackQualification(ctx, eventId);
+  if (args.leadId) {
+    await emitSlackQualifiedTouch(ctx, {
+      tenantId: args.tenantId,
+      leadId: args.leadId,
+      qualificationEventId: eventId,
+      opportunityId: args.opportunityId,
+      resultKind: args.resultKind,
+      setterTeamMemberId: args.setterTeamMemberId,
+      at: args.qualifiedBy.submittedAt,
+    });
+  }
   return eventId;
+}
+
+export const SLACK_QUALIFIED = "lead.slack_qualified";
+
+/**
+ * Every qualification is a touch on the person's timeline, by the setter,
+ * including the ones that join an open deal
+ * (docs/plans/phase-2-person-first.md §5).
+ */
+export async function emitSlackQualifiedTouch(
+  ctx: MutationCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    leadId: Id<"leads">;
+    qualificationEventId: Id<"slackQualificationEvents">;
+    opportunityId?: Id<"opportunities">;
+    resultKind: string;
+    setterTeamMemberId: Id<"teamMembers"> | undefined;
+    at: number;
+    skipAnalytics?: boolean;
+  },
+): Promise<void> {
+  await emitDomainEvent(ctx, {
+    tenantId: args.tenantId,
+    entityType: "lead",
+    entityId: args.leadId,
+    eventType: SLACK_QUALIFIED,
+    source: "pipeline",
+    teamMemberId: args.setterTeamMemberId,
+    metadata: {
+      qualificationEventId: args.qualificationEventId,
+      opportunityId: args.opportunityId,
+      resultKind: args.resultKind,
+    },
+    occurredAt: args.at,
+    skipAnalytics: args.skipAnalytics,
+  });
 }
 
 export const create = internalMutation({
@@ -151,6 +201,7 @@ export const create = internalMutation({
       slackTeamId: args.qualifiedBy.slackTeamId,
       now,
     });
+    const setterTeamMemberId = (await ctx.db.get("slackUsers", slackUserRowId))?.teamMemberId;
 
     const lookbackCutoff = now - SLACK_JOIN_LOOKBACK_MS;
     const recent = await ctx.db
@@ -188,6 +239,7 @@ export const create = internalMutation({
         country: args.country,
         leadType: args.leadType,
         qualifiedBy: args.qualifiedBy,
+        setterTeamMemberId,
         now,
       });
       await scheduleLeadGenAuditMatch({
@@ -238,6 +290,7 @@ export const create = internalMutation({
         country: args.country,
         leadType: args.leadType,
         qualifiedBy: args.qualifiedBy,
+        setterTeamMemberId,
         now,
       });
       await scheduleLeadGenAuditMatch({
@@ -312,6 +365,7 @@ export const create = internalMutation({
       country: args.country,
       leadType: args.leadType,
       qualifiedBy: args.qualifiedBy,
+      setterTeamMemberId,
       now,
     });
 
@@ -329,7 +383,7 @@ export const create = internalMutation({
       toStatus: "qualified_pending",
       occurredAt: now,
       // The setter who qualified the person acted, not a CRM user.
-      teamMemberId: (await ctx.db.get("slackUsers", slackUserRowId))?.teamMemberId,
+      teamMemberId: setterTeamMemberId,
       metadata: { source: "slack_qualified" },
     });
 
