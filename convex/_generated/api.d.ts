@@ -200,6 +200,7 @@ import type * as linkPortal_leadSession from "../linkPortal/leadSession.js";
 import type * as linkPortal_passwordActions from "../linkPortal/passwordActions.js";
 import type * as linkPortal_portalActions from "../linkPortal/portalActions.js";
 import type * as linkPortal_portalQueries from "../linkPortal/portalQueries.js";
+import type * as linkPortal_portalTouches from "../linkPortal/portalTouches.js";
 import type * as linkPortal_rateLimitMutations from "../linkPortal/rateLimitMutations.js";
 import type * as linkPortal_sessionToken from "../linkPortal/sessionToken.js";
 import type * as linkPortal_slugActions from "../linkPortal/slugActions.js";
@@ -560,6 +561,7 @@ declare const fullApi: ApiFromModules<{
   "linkPortal/passwordActions": typeof linkPortal_passwordActions;
   "linkPortal/portalActions": typeof linkPortal_portalActions;
   "linkPortal/portalQueries": typeof linkPortal_portalQueries;
+  "linkPortal/portalTouches": typeof linkPortal_portalTouches;
   "linkPortal/rateLimitMutations": typeof linkPortal_rateLimitMutations;
   "linkPortal/sessionToken": typeof linkPortal_sessionToken;
   "linkPortal/slugActions": typeof linkPortal_slugActions;

@@ -1,6 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import { emitDomainEvent } from "../lib/domainEvents";
+import { emitDomainEvent, eventsForRecord } from "../lib/domainEvents";
 import { advanceLeadLifecycle } from "../lib/leadLifecycle";
 import { syncProspectConversions } from "../lib/prospectConversions";
 import { followMergeChain, resolveLeadIdentity } from "../leads/identityResolution";
@@ -81,47 +81,20 @@ export async function linkProspectPerson(
 export const LEAD_CAPTURED = "lead.captured";
 export const LEAD_CAPTURE_VOIDED = "lead.capture_voided";
 
-// Far above the events of one type that share one millisecond; a scan past
-// it throws rather than miss the submission's event.
-const SAME_TIME_EVENT_SCAN_LIMIT = 2000;
-
-function metadataSubmissionId(metadata: string | undefined): unknown {
-  if (!metadata) {
-    return undefined;
-  }
-  try {
-    return (JSON.parse(metadata) as Record<string, unknown>).submissionId;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * The submission's events of `eventType` at `occurredAt`. Found by type and
- * time rather than by person, so a person merged since still finds them.
- */
+/** The submission's events of `eventType` at `occurredAt`. */
 export async function submissionEvents(
   ctx: QueryCtx | MutationCtx,
   submission: Doc<"leadGenSubmissions">,
   eventType: typeof LEAD_CAPTURED | typeof LEAD_CAPTURE_VOIDED,
   occurredAt: number,
 ): Promise<Doc<"domainEvents">[]> {
-  const matches: Doc<"domainEvents">[] = [];
-  let scanned = 0;
-  for await (const event of ctx.db
-    .query("domainEvents")
-    .withIndex("by_tenantId_and_eventType_and_occurredAt", (q) =>
-      q.eq("tenantId", submission.tenantId).eq("eventType", eventType).eq("occurredAt", occurredAt),
-    )) {
-    scanned += 1;
-    if (scanned > SAME_TIME_EVENT_SCAN_LIMIT) {
-      throw new Error(`More than ${SAME_TIME_EVENT_SCAN_LIMIT} ${eventType} events at ${occurredAt}`);
-    }
-    if (metadataSubmissionId(event.metadata) === submission._id) {
-      matches.push(event);
-    }
-  }
-  return matches;
+  return await eventsForRecord(ctx, {
+    tenantId: submission.tenantId,
+    eventType,
+    occurredAt,
+    field: "submissionId",
+    value: submission._id,
+  });
 }
 
 function captureMetadata(submission: Doc<"leadGenSubmissions">) {

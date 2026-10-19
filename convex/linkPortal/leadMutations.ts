@@ -22,6 +22,11 @@ import {
   requirePortalLead,
 } from "./leadSession";
 import { expectedError } from "../lib/observability/errors";
+import {
+  PORTAL_NOTE_ADDED,
+  PORTAL_PROFILE_UPDATED,
+  recordPortalTouch,
+} from "./portalTouches";
 
 // Light write rate limit for portal writes (notes AND profile edits): per DM
 // closer per minute, plus a tenant-wide flood guard, both computed from a
@@ -69,7 +74,7 @@ export const updateLeadProfileForSession = internalMutation({
   returns: v.null(),
   handler: async (ctx, args) => {
     await assertActivePortalSession(ctx, args);
-    await requirePortalDmCloser(ctx, {
+    const dmCloser = await requirePortalDmCloser(ctx, {
       tenantId: args.tenantId,
       dmCloserId: args.dmCloserId,
     });
@@ -152,13 +157,21 @@ export const updateLeadProfileForSession = internalMutation({
     await ctx.db.patch("leads", args.leadId, patch);
 
     // Durable audit row (also the rate-limit window source above).
-    await ctx.db.insert("linkPortalLeadEdits", {
+    const editId = await ctx.db.insert("linkPortalLeadEdits", {
       tenantId: args.tenantId,
       leadId: args.leadId,
       dmCloserId: args.dmCloserId,
       sessionIdHash: args.sessionIdHash,
       createdAt: now,
       changedFields: Object.keys(changes),
+    });
+    await recordPortalTouch(ctx, {
+      tenantId: args.tenantId,
+      leadId: args.leadId,
+      dmCloser,
+      eventType: PORTAL_PROFILE_UPDATED,
+      at: now,
+      metadata: { editId, changedFields: Object.keys(changes) },
     });
 
     log.info("link_portal.lead.profile_updated", {
@@ -186,7 +199,7 @@ export const insertLeadNoteForSession = internalMutation({
   returns: v.id("leadNotes"),
   handler: async (ctx, args) => {
     await assertActivePortalSession(ctx, args);
-    await requirePortalDmCloser(ctx, {
+    const dmCloser = await requirePortalDmCloser(ctx, {
       tenantId: args.tenantId,
       dmCloserId: args.dmCloserId,
     });
@@ -243,6 +256,14 @@ export const insertLeadNoteForSession = internalMutation({
       createdAt: now,
       authorKind: "dm_closer",
       dmCloserId: args.dmCloserId,
+    });
+    await recordPortalTouch(ctx, {
+      tenantId: args.tenantId,
+      leadId: args.leadId,
+      dmCloser,
+      eventType: PORTAL_NOTE_ADDED,
+      at: now,
+      metadata: { noteId },
     });
 
     log.info("link_portal.lead.note_added", {

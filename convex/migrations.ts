@@ -11,8 +11,14 @@ import { requestMeetingProjection, bucketKey, meetingDayKey } from "./operations
 import { components, internal } from "./_generated/api";
 import type { DataModel, Id } from "./_generated/dataModel";
 import { deriveStoredEventLinks, storedLeadIdMatches } from "./lib/domainEventLinks";
-import { lifecycleProblems } from "./lib/leadLifecycle";
+import { advanceLeadLifecycle, lifecycleProblems } from "./lib/leadLifecycle";
+import { eventsForRecord } from "./lib/domainEvents";
 import { normalizeSocialHandle } from "./lib/normalization";
+import {
+  PORTAL_NOTE_ADDED,
+  PORTAL_PROFILE_UPDATED,
+  emitPortalTouch,
+} from "./linkPortal/portalTouches";
 import { prospectConversionProblems } from "./lib/prospectConversions";
 import {
   LEAD_CAPTURED,
@@ -628,5 +634,71 @@ export const assertCaptureEvents = migrations.define({
         throw new Error(`Submission ${submission._id}: ${eventType} event names ${events[0].leadId}, not ${prospect.leadId}`);
       }
     }
+  },
+});
+
+// Phase 2 PR 3 (§10.3): the portal notes and edits written before they were
+// touches. The copies made before then name no person (D7). Run
+// backfillPortalNoteTouches with next ["migrations:backfillPortalEditTouches"],
+// then the two asserts, then assertLeadLifecycle with "reset".
+async function backfillPortalTouch(
+  ctx: MutationCtx,
+  record: { _id: string; tenantId: Id<"tenants">; leadId: Id<"leads">; dmCloserId?: Id<"dmClosers"> },
+  eventType: typeof PORTAL_NOTE_ADDED | typeof PORTAL_PROFILE_UPDATED,
+  at: number,
+  metadata: Record<string, unknown>,
+) {
+  const field = eventType === PORTAL_NOTE_ADDED ? "noteId" : "editId";
+  const existing = await eventsForRecord(ctx, {
+    tenantId: record.tenantId, eventType, occurredAt: at, field, value: record._id,
+  });
+  if (existing.length > 0) return;
+  const dmCloser = record.dmCloserId ? await ctx.db.get("dmClosers", record.dmCloserId) : null;
+  if (!dmCloser) throw new Error(`${record._id} has no DM closer`);
+  await advanceLeadLifecycle(ctx, record.leadId, { stage: "in_conversation", at, cause: "dm_portal" });
+  await emitPortalTouch(ctx, {
+    tenantId: record.tenantId, leadId: record.leadId, dmCloser, eventType, at,
+    metadata: { [field]: record._id, ...metadata }, skipAnalytics: true,
+  });
+}
+
+async function assertPortalTouch(
+  ctx: MutationCtx,
+  record: { _id: string; tenantId: Id<"tenants">; leadId: Id<"leads"> },
+  eventType: typeof PORTAL_NOTE_ADDED | typeof PORTAL_PROFILE_UPDATED,
+  at: number,
+) {
+  const events = await eventsForRecord(ctx, {
+    tenantId: record.tenantId, eventType, occurredAt: at,
+    field: eventType === PORTAL_NOTE_ADDED ? "noteId" : "editId", value: record._id,
+  });
+  if (events.length !== 1) throw new Error(`${record._id}: ${events.length} ${eventType} events`);
+  if (!(await storedLeadIdMatches(ctx, events[0].leadId, record.leadId))) {
+    throw new Error(`${record._id}: ${eventType} event names ${events[0].leadId}, not ${record.leadId}`);
+  }
+}
+
+export const backfillPortalNoteTouches = migrations.define({
+  table: "leadNotes", batchSize: 100,
+  migrateOne: async (ctx, note) => {
+    if (note.authorKind === "dm_closer") await backfillPortalTouch(ctx, note, PORTAL_NOTE_ADDED, note.createdAt, {});
+  },
+});
+export const backfillPortalEditTouches = migrations.define({
+  table: "linkPortalLeadEdits", batchSize: 100,
+  migrateOne: async (ctx, edit) => {
+    await backfillPortalTouch(ctx, edit, PORTAL_PROFILE_UPDATED, edit.createdAt, { changedFields: edit.changedFields });
+  },
+});
+export const assertPortalNoteTouches = migrations.define({
+  table: "leadNotes", batchSize: 100,
+  migrateOne: async (ctx, note) => {
+    if (note.authorKind === "dm_closer") await assertPortalTouch(ctx, note, PORTAL_NOTE_ADDED, note.createdAt);
+  },
+});
+export const assertPortalEditTouches = migrations.define({
+  table: "linkPortalLeadEdits", batchSize: 100,
+  migrateOne: async (ctx, edit) => {
+    await assertPortalTouch(ctx, edit, PORTAL_PROFILE_UPDATED, edit.createdAt);
   },
 });

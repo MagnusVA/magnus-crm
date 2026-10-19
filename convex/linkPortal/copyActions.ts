@@ -5,7 +5,11 @@ import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { action } from "../_generated/server";
+import type { Infer } from "convex/values";
+import type { portalPersonLookupValidator } from "./leadQueries";
 import { verifyPortalSessionToken } from "./sessionToken";
+
+type PortalPersonLookup = Infer<typeof portalPersonLookupValidator>;
 
 function hashSessionId(jti: string) {
   return createHash("sha256").update(jti).digest("base64url");
@@ -18,8 +22,12 @@ export const recordCopyEvent = action({
     eventTypeConfigId: v.id("eventTypeConfigs"),
     dmCloserId: v.id("dmClosers"),
     campaignPresetId: v.id("linkPortalCampaignPresets"),
+    instagramHandle: v.string(),
   },
-  handler: async (ctx, args): Promise<Id<"linkPortalCopyEvents">> => {
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ copyEventId: Id<"linkPortalCopyEvents">; leadId: Id<"leads"> }> => {
     const session = verifyPortalSessionToken(args.sessionToken, args.portalSlug);
 
     return await ctx.runMutation(
@@ -32,7 +40,25 @@ export const recordCopyEvent = action({
         eventTypeConfigId: args.eventTypeConfigId,
         dmCloserId: args.dmCloserId,
         campaignPresetId: args.campaignPresetId,
+        instagramHandle: args.instagramHandle,
       },
     );
+  },
+});
+
+export const lookupPortalPerson = action({
+  args: {
+    portalSlug: v.string(),
+    sessionToken: v.string(),
+    instagramHandle: v.string(),
+  },
+  handler: async (ctx, args): Promise<PortalPersonLookup> => {
+    const session = verifyPortalSessionToken(args.sessionToken, args.portalSlug);
+    return await ctx.runQuery(internal.linkPortal.leadQueries.lookupPersonForSession, {
+      tenantId: session.tenantId,
+      publicSlug: args.portalSlug,
+      sessionVersion: session.sessionVersion,
+      instagramHandle: args.instagramHandle,
+    });
   },
 });

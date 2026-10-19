@@ -64,7 +64,7 @@ export type ResolveLeadIdentityResult = {
   leadId: Id<"leads">;
   created: boolean;
   isNewLead: boolean;
-  resolvedVia: "email" | "social_handle" | "phone" | "new";
+  resolvedVia: "email" | "social_handle" | "phone" | "booking_link" | "new";
   potentialDuplicateLeadId?: Id<"leads">;
 };
 
@@ -588,4 +588,99 @@ export async function resolveExistingLeadIdentity(
     }
     throw error;
   }
+}
+
+/**
+ * The person a DM portal booking link names in `utm_content`
+ * (docs/plans/phase-2-person-first.md §4.4), followed through merges. The
+ * follow-up links (`utm_source=ptdom`) use `utm_content` for other IDs.
+ */
+export async function bookingLinkPerson(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  utmParams: { utm_source?: string; utm_content?: string } | undefined,
+): Promise<Doc<"leads"> | undefined> {
+  const content = utmParams?.utm_content?.trim();
+  if (!content || utmParams?.utm_source === "ptdom") {
+    return undefined;
+  }
+  const leadId = ctx.db.normalizeId("leads", content);
+  const lead = leadId && (await ctx.db.get("leads", leadId));
+  if (!lead || lead.tenantId !== tenantId) {
+    return undefined;
+  }
+  return await followMergeChain(ctx, lead);
+}
+
+/**
+ * Whether a booking whose identifiers found nobody may join the link's
+ * person: the person has no other email than the booking's, and no other
+ * handle on the booking's platform. Otherwise a forwarded link would attach
+ * a stranger to the person it was made for.
+ */
+async function linkPersonAccepts(
+  ctx: MutationCtx,
+  linkLead: Doc<"leads">,
+  args: ResolveLeadIdentityArgs,
+): Promise<boolean> {
+  const email = args.email ? normalizeEmail(args.email) : undefined;
+  const identityEmail = email && !isPlaceholderEmail(email) ? email : undefined;
+  const handle = args.socialHandle
+    ? normalizeSocialHandle(
+        args.socialHandle.rawValue ?? args.socialHandle.handle ?? "",
+        args.socialHandle.platform,
+      )
+    : undefined;
+  const identifiers = await ctx.db
+    .query("leadIdentifiers")
+    .withIndex("by_leadId", (q) => q.eq("leadId", linkLead._id))
+    .take(POLLUTION_SCAN_LIMIT + 1);
+  if (identifiers.length > POLLUTION_SCAN_LIMIT) {
+    return false;
+  }
+  const leadEmail = linkLead.email ? normalizeEmail(linkLead.email) : undefined;
+  const otherEmail =
+    identityEmail !== undefined &&
+    ((leadEmail !== undefined && leadEmail !== identityEmail) ||
+      identifiers.some((identifier) => identifier.type === "email" && identifier.value !== identityEmail));
+  const otherHandle =
+    handle !== undefined &&
+    identifiers.some(
+      (identifier) => identifier.type === args.socialHandle?.platform && identifier.value !== handle,
+    );
+  return !otherEmail && !otherHandle;
+}
+
+/**
+ * `resolveLeadIdentity` for a booking from a DM portal link that names a
+ * person (§4.4). Identifiers still win: a booking they match joins that
+ * person, and the link's person, if different, becomes the deal's
+ * `potentialDuplicateLeadId`. A booking they don't match joins the link's
+ * person, unless the person has a different email or handle.
+ */
+export async function resolveLeadIdentityWithLink(
+  ctx: MutationCtx,
+  args: ResolveLeadIdentityArgs,
+  linkLead: Doc<"leads"> | undefined,
+): Promise<ResolveLeadIdentityResult> {
+  if (!linkLead) {
+    return await resolveLeadIdentity(ctx, args);
+  }
+  const existing = await resolveExistingLeadIdentity(ctx, args);
+  if (existing) {
+    return existing.leadId === linkLead._id
+      ? existing
+      : { ...existing, potentialDuplicateLeadId: linkLead._id };
+  }
+  if (await linkPersonAccepts(ctx, linkLead, args)) {
+    return {
+      lead: linkLead,
+      leadId: linkLead._id,
+      created: false,
+      isNewLead: false,
+      resolvedVia: "booking_link",
+    };
+  }
+  const created = await resolveLeadIdentity(ctx, args);
+  return { ...created, potentialDuplicateLeadId: linkLead._id };
 }

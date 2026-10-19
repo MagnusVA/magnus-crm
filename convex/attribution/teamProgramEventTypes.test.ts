@@ -4,6 +4,7 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import schema from "../schema";
 import { convexTestModules } from "../test.setup";
+import { registerComponents } from "../../tests/bookingHarness";
 
 const PORTAL_SLUG = "team-routes";
 
@@ -104,6 +105,7 @@ describe("team program event types", () => {
         eventTypeConfigId,
         dmCloserId,
         campaignPresetId: fixture.campaignId,
+        instagramHandle: "ana.lead",
       });
 
     await expect(copy(fixture.dmCloserA, fixture.poolA)).resolves.toBeDefined();
@@ -134,6 +136,7 @@ describe("team program event types", () => {
         eventTypeConfigId: fixture.poolA,
         dmCloserId: fixture.dmCloserA,
         campaignPresetId: fixture.campaignId,
+        instagramHandle: "ana.lead",
       }),
     ).rejects.toThrow("not available for this team");
   });
@@ -155,6 +158,7 @@ async function routeTeamA(fixture: Fixture) {
 
 async function createFixture() {
   const t = convexTest({ schema, modules: convexTestModules });
+  registerComponents(t);
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
     const tenantId = await ctx.db.insert("tenants", {

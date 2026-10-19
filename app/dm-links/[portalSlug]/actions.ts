@@ -28,11 +28,23 @@ export type PortalCopyInput = {
 	eventTypeConfigId: string;
 	dmCloserId: string;
 	campaignPresetId: string;
+	/** The person the link is for. */
+	instagramHandle: string;
 };
 
-export type PortalCopyResult = {
-	recorded: boolean;
-};
+/** A copied link names its person, so a copy that fails gives no link. */
+export type PortalCopyResult =
+	| { status: "ok"; leadId: string }
+	| { status: "logged_out" }
+	| { status: "error"; message: string };
+
+export type PortalPersonLookupResult =
+	| { status: "invalid" }
+	| { status: "new"; handle: string }
+	| { status: "conflict"; handle: string }
+	| { status: "found"; handle: string; displayName: string; stageLabel: string }
+	| { status: "logged_out" }
+	| { status: "error"; message: string };
 
 // === NIM-17 Phase 5: portal lead surface ===
 
@@ -121,6 +133,7 @@ async function hashRequesterIp() {
 type PortalAction =
 	| "unlock"
 	| "record_copy"
+	| "lookup_person"
 	| "search_leads"
 	| "update_lead_profile"
 	| "add_lead_note"
@@ -202,37 +215,66 @@ export async function logoutPortal(rawPortalSlug: string, _formData: FormData) {
 	redirect(portalSessionCookiePath(portalSlug));
 }
 
+const COPY_ERROR_MESSAGES: Record<string, string> = {
+	"link_portal.copy.invalid_handle": "Enter the person's Instagram handle.",
+	"link_portal.copy.identity_conflict":
+		"This handle belongs to more than one person in the CRM. Ask an admin to merge them.",
+	"link_portal.copy_rate_limited":
+		"You're copying links too quickly. Wait a minute and try again.",
+};
+
 export async function recordPortalCopy(
 	rawPortalSlug: string,
 	input: PortalCopyInput,
 ): Promise<PortalCopyResult> {
-	const portalSlug = normalizePortalSlugParam(rawPortalSlug);
-	if (!portalSlug) {
-		return { recorded: false };
-	}
-
-	const cookieStore = await cookies();
-	const sessionToken = cookieStore.get(
-		portalSessionCookieName(portalSlug),
-	)?.value;
-	if (!sessionToken) {
-		return { recorded: false };
+	const session = await readPortalSession(rawPortalSlug);
+	if (!session) {
+		return { status: "logged_out" };
 	}
 
 	try {
-		await fetchAction(api.linkPortal.copyActions.recordCopyEvent, {
-			portalSlug,
-			sessionToken,
+		const result = await fetchAction(api.linkPortal.copyActions.recordCopyEvent, {
+			portalSlug: session.portalSlug,
+			sessionToken: session.sessionToken,
 			eventTypeConfigId: input.eventTypeConfigId as Id<"eventTypeConfigs">,
 			dmCloserId: input.dmCloserId as Id<"dmClosers">,
 			campaignPresetId:
 				input.campaignPresetId as Id<"linkPortalCampaignPresets">,
+			instagramHandle: input.instagramHandle,
 		});
-		return { recorded: true };
+		return { status: "ok", leadId: result.leadId };
 	} catch (error) {
-		console.warn("[LinkPortal] copy audit failed", error);
+		console.warn("[LinkPortal] copy failed", error);
 		await reportPortalError(error, "record_copy");
-		return { recorded: false };
+		const code = getErrorCode(error);
+		return {
+			status: "error",
+			message:
+				(code && COPY_ERROR_MESSAGES[code]) ??
+				"Could not create the link. Try again in a moment.",
+		};
+	}
+}
+
+export async function lookupPortalPerson(
+	rawPortalSlug: string,
+	instagramHandle: string,
+): Promise<PortalPersonLookupResult> {
+	const session = await readPortalSession(rawPortalSlug);
+	if (!session) {
+		return { status: "logged_out" };
+	}
+
+	try {
+		return await fetchAction(api.linkPortal.copyActions.lookupPortalPerson, {
+			portalSlug: session.portalSlug,
+			sessionToken: session.sessionToken,
+			instagramHandle,
+		});
+	} catch (error) {
+		console.warn("[LinkPortal] person lookup failed", error);
+		await reportPortalError(error, "lookup_person");
+		return { status: "error", message: "Could not look up the handle." };
 	}
 }
 
