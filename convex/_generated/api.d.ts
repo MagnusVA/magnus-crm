@@ -100,6 +100,7 @@ import type * as leadGen_auditMatching from "../leadGen/auditMatching.js";
 import type * as leadGen_auditQueries from "../leadGen/auditQueries.js";
 import type * as leadGen_backfills from "../leadGen/backfills.js";
 import type * as leadGen_capture from "../leadGen/capture.js";
+import type * as leadGen_conversions from "../leadGen/conversions.js";
 import type * as leadGen_corrections from "../leadGen/corrections.js";
 import type * as leadGen_exports from "../leadGen/exports.js";
 import type * as leadGen_normalization from "../leadGen/normalization.js";
@@ -461,6 +462,7 @@ declare const fullApi: ApiFromModules<{
   "leadGen/auditQueries": typeof leadGen_auditQueries;
   "leadGen/backfills": typeof leadGen_backfills;
   "leadGen/capture": typeof leadGen_capture;
+  "leadGen/conversions": typeof leadGen_conversions;
   "leadGen/corrections": typeof leadGen_corrections;
   "leadGen/exports": typeof leadGen_exports;
   "leadGen/normalization": typeof leadGen_normalization;
