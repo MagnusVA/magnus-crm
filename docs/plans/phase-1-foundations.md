@@ -380,7 +380,7 @@ Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` accepted every recommendation be
 
 ## 12. Production log
 
-All runs were on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q` on 2026-10-17, times in UTC. Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` delegated every Phase 1 production run and the D5 link decisions to the agent once CodeRabbit had approved the code.
+All runs were on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC. The widen and migrate runs were on 2026-10-17, the narrow in §12.9 on 2026-10-18 and 2026-10-19, and the first-name link review in §12.3 on 2026-10-19. Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` delegated every Phase 1 production run and the D5 link decisions to the agent once CodeRabbit had approved the code.
 
 ### 12.1 Deploys
 
