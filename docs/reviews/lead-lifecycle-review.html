@@ -609,14 +609,25 @@
 
 <!-- ============================================================ -->
 <h2 id="roadmap"><span class="num">7</span>Migration path</h2>
-<p class="sub">Revised on 14 October after the decisions in section 9. Production has one live tenant with real data, so every phase follows widen, migrate, narrow and ships on its own. Sizes are rough: S is days, M one to two weeks, L several weeks.</p>
+<p class="sub">Revised on 14 October after the decisions in section 9, and again on 19 October after Phase 1, when the tenant admin changed how phases run. Production has one live beta tenant that accepts the risk, so every phase follows widen, migrate, narrow and ships on its own, but nothing waits for a date and nothing is left for a later phase. Each phase runs in one thread, end to end, and the thread stops when the phase is done. The rule in full is "How a phase runs" in <a href="../adr/0001-lead-lifecycle-model.md">ADR 0001</a>.</p>
+
+<div class="box">
+  <h3 style="margin-top:0">How a phase runs (19 October)</h3>
+  <ul class="small" style="margin-bottom:0">
+    <li><strong>One phase per thread, finished end to end.</strong> Plan, decisions, code, deploy, backfill, assert, narrow, record. The thread does not start the next phase.</li>
+    <li><strong>Nothing is deferred.</strong> A phase ends when every item in its card is live and its narrow has shipped. Work that belongs to a later phase is written into that phase's card, not into a "left for later" list.</li>
+    <li><strong>No waiting periods.</strong> No 24-hour recheck, no 30-day hold before a narrow. A narrow ships as soon as the backfill and assert pass and a read-only recheck agrees. Rollback is a reviewed fix-forward repair. A pre-migration export is deleted when the phase ends.</li>
+    <li><strong>Data changes stay deliberate.</strong> The plan doc holds the snapshot, schema, write paths, each backfill with its assert and expected counts, deploy order, decisions and rollback. Every decision and every production run, deletions included, goes to the tenant admin in one batch. Once answered, the phase runs to the end without further approval stops.</li>
+    <li><strong>Each PR deploys alone.</strong> Merging deploys to production. Additive schema first, code that tolerates unbackfilled rows, and a required-field narrow only after its assert has passed in production.</li>
+  </ul>
+</div>
 
 <div class="box" style="padding-top:4px;padding-bottom:4px">
 <div class="phase">
-  <div class="tag">First<span>this week</span></div>
+  <div class="tag">First<span>done</span></div>
   <div>
     <h3>Write the decisions down</h3>
-    <div class="meta"><span class="pill info">S</span><span class="pill good">No code</span></div>
+    <div class="meta"><span class="pill good">Done, #93</span><span class="pill good">No code</span></div>
     <ul>
       <li>Record the five decisions and the target model as a decision record in the repo, with a short glossary: person, prospect, deal, stage, outcome, touch, attribution, enrollment.</li>
       <li>Point <code>AGENTS.md</code> and <code>docs/agents/convex.md</code> at it, so every agent working on a lead, deal or report follows the new model instead of extending the old one.</li>
@@ -624,10 +635,10 @@
   </div>
 </div>
 <div class="phase">
-  <div class="tag">Phase 0<span>stabilize</span></div>
+  <div class="tag">Phase 0<span>stabilize, done</span></div>
   <div>
     <h3>Stop the damage and unblock second programs</h3>
-    <div class="meta"><span class="pill info">S to M</span><span class="pill good">Low risk</span><span class="pill low">No schema change</span></div>
+    <div class="meta"><span class="pill good">Done, #91 to #111 and #122 to #128</span><span class="pill low">No schema change</span></div>
     <ul>
       <li>Finish the polluted-lead split, guards first. It has to land before phase 2, whose backfill matches prospects to leads by handle. A polluted lead would absorb even more people.</li>
       <li>Run the Slack-opportunity check before the 14-day reschedule heuristic, or require a strong identifier match for the heuristic.</li>
@@ -635,32 +646,36 @@
       <li>Build one <code>transitionOpportunity</code> function that validates the move and owns tenant stats, the domain event and the qualification row rebuild. Route all 25 <code>patchOpportunityLifecycle</code> callers and the 15 raw patches through it. That fixes the stale qualification statuses and both state machine bypasses (<code>bookingFacts.ts</code>, <code>voidPayment.ts</code>). Phase 5 then changes one function instead of 40 call sites.</li>
       <li>Make <code>mergeLead</code> repoint every lead-keyed table. The split plan already lists them.</li>
       <li>Remove the two rules that block a second program (decision 3). Slack answers <code>already_booked</code> whenever a won deal is among the lead's newest 20 opportunities (<code>slack/createQualifiedLead.ts:199-262</code>), and side deals reject converted leads (<code>opportunities/createManual.ts:30-37, 99-105</code>). A won deal should no longer count as "already booked".</li>
+      <li><strong>Ended with:</strong> the split applied and verified, its staging tables and code gone, and only the identity guards live (<a href="../plans/polluted-lead-split.md">plan</a>).</li>
     </ul>
   </div>
 </div>
 <div class="phase">
-  <div class="tag">Phase 1<span>foundations</span></div>
+  <div class="tag">Phase 1<span>foundations, done</span></div>
   <div>
     <h3>Lifecycle stage, team members, timeline</h3>
-    <div class="meta"><span class="pill info">M</span><span class="pill good">Low risk</span><span class="pill low">Additive fields and one new table</span></div>
+    <div class="meta"><span class="pill good">Done, #112 to #129</span><span class="pill low">Additive fields and one new table, then narrow</span></div>
     <ul>
       <li>Add <code>lifecycleStage</code>, stage entry timestamps and disposition to <code>leads</code>. Backfill them from opportunities, meetings and customers. Keep <code>merged</code> as its own flag, because it describes identity housekeeping, not lifecycle.</li>
       <li>Count by stage before the leads table grows. The leads report counts every <code>leads</code> row as a new lead (<code>reporting/leadConversion.ts:31</code>, through the <code>leadTimeline</code> aggregate keyed on creation time), and <code>tenantStats.totalLeads</code> goes up on every insert. Once captures become persons, both would count every Instagram handle. Key them to a stage entry, such as reaching Qualified. Also add a <code>prospect</code> lifecycle to the lead/customer search projection, hidden by default.</li>
       <li>Add a <code>teamMembers</code> table with one row per human, linked to their user, lead gen worker, Slack user and DM closer records. Backfill it. The existing tables keep their role-specific settings, and nothing changes for users yet.</li>
       <li>Give <code>domainEvents</code> an optional <code>leadId</code> and <code>teamMemberId</code> so it can serve as the person timeline. That avoids starting a second log.</li>
+      <li><strong>Ended with:</strong> the three lifecycle fields required on every lead, <code>leadTimeline</code> gone, 73 team members with the name links reviewed, and the leads report counting people who reach Qualified (<a href="../plans/phase-1-foundations.md">plan</a>). The Prospects view in the leads list moved to Phase 2, because no person is at Prospect until then.</li>
     </ul>
   </div>
 </div>
 <div class="phase">
-  <div class="tag">Phase 2<span>person first</span></div>
+  <div class="tag">Phase 2<span>person first, next</span></div>
   <div>
     <h3>Every capture and every DM becomes part of the person</h3>
-    <div class="meta"><span class="pill info">M</span><span class="pill med">Medium risk</span><span class="pill low">Widen: prospect.leadId, copy event leadId</span></div>
+    <div class="meta"><span class="pill med">Medium risk</span><span class="pill low">Widen: prospect.leadId, copy event leadId; then narrow</span></div>
     <ul>
       <li>Lead gen capture calls <code>resolveLeadIdentity</code> with the Instagram handle and creates the person at the Prospect stage (decision 1). Both sides already normalize handles through <code>normalizeSocialHandle</code>, so they match. The worker and source become the person's frozen first touch.</li>
       <li>Backfill every existing prospect: link it to a lead through the handle identifier, or create one. Count production prospects first to size the migration batches.</li>
       <li>The DM portal finds or creates the person (decision 4). It records each copied link against that person (<code>linkPortalCopyEvents</code> gets a <code>leadId</code>), and the booking link carries the person ID so the booking joins without guessing. Portal activity moves the person to In conversation.</li>
       <li>The person page shows one timeline: captures, portal activity, Slack qualification, bookings, outcomes and payments.</li>
+      <li>The leads list gets its Prospects view (the toggle Phase 1 held back), and prospect-to-customer conversion by lead gen worker becomes a report. Prospects stay out of <code>tenantStats.totalLeads</code> and the leads report, which count from Qualified.</li>
+      <li><strong>Ends with:</strong> <code>leadGenProspects.leadId</code> required, every prospect on a person, and no code path that creates a prospect, a portal session or a booking without a person.</li>
     </ul>
   </div>
 </div>
@@ -668,12 +683,13 @@
   <div class="tag">Phase 3<span>attribution</span></div>
   <div>
     <h3>Attribution as its own record</h3>
-    <div class="meta"><span class="pill info">M</span><span class="pill med">Medium risk</span><span class="pill low">New table</span></div>
+    <div class="meta"><span class="pill med">Medium risk</span><span class="pill low">New table, then narrow the copies</span></div>
     <ul>
       <li><code>dealAttributions</code>: one row per deal, role and team member. Roles are lead gen, setter, DM closer and closer. Each row stores where it came from (prospect, Slack event, UTM or Calendly host) and when. Rows are written when a deal is created and when a booking joins it. Reassigning a meeting adds a row.</li>
       <li>The person keeps a frozen first touch and an updating latest touch.</li>
       <li>Booked Calls, qualifications and lead gen operations read attribution rows instead of copied columns. The six copies of <code>attributionTeamId</code> and <code>dmCloserId</code> retire as each reader moves.</li>
       <li>No shares and no commission fields (decision 2). When commissions arrive, add an optional share and a freeze-when-won rule to this table.</li>
+      <li><strong>Ends with:</strong> every reader on <code>dealAttributions</code>, and the copied <code>attributionTeamId</code> and <code>dmCloserId</code> columns and their projection copies removed from the schema.</li>
     </ul>
   </div>
 </div>
@@ -681,11 +697,12 @@
   <div class="tag">Phase 4<span>customers</span></div>
   <div>
     <h3>Enrollments replace the customer copy</h3>
-    <div class="meta"><span class="pill info">M</span><span class="pill med">Medium risk</span><span class="pill low">New table, then narrow customers</span></div>
+    <div class="meta"><span class="pill med">Medium risk</span><span class="pill low">New table, then narrow customers</span></div>
     <ul>
       <li>Each won deal creates an enrollment (person × program). A second program is a second deal and a second enrollment (decision 3).</li>
       <li>Backfill one enrollment per customer program, and one per later program purchase found in payments. An admin payment for a new program goes through a new deal instead of <code>recordCustomerPayment</code>.</li>
       <li>Customer pages read the person plus enrollments. Drop the copied contact fields and the email requirement, which lets Slack-only leads convert.</li>
+      <li><strong>Ends with:</strong> one enrollment per program bought, the copied contact fields gone from <code>customers</code>, and <code>recordCustomerPayment</code> retired. The plan decides whether a <code>customers</code> row survives at all, and says why if it does.</li>
     </ul>
   </div>
 </div>
@@ -693,25 +710,31 @@
   <div class="tag">Phase 5<span>deal status</span></div>
   <div>
     <h3>Split the opportunity status</h3>
-    <div class="meta"><span class="pill info">L</span><span class="pill high">Highest risk</span><span class="pill low">Widen, dual-write, narrow</span></div>
+    <div class="meta"><span class="pill high">Highest risk</span><span class="pill low">Widen, dual-write, narrow</span></div>
     <ul>
       <li>Add <code>stage</code> and <code>outcome</code> (open, won, lost) beside the old status, written from <code>transitionOpportunity</code>.</li>
       <li>The funnel is locked (decision 5), so stages stay literals in code. Define them once, in one module, with an open, won or lost category on each. That keeps configurable pipelines a contained change if they are ever needed.</li>
-      <li>Move readers one dashboard at a time: aggregates keyed by status, projections, reports, the closer pipeline. Narrow last.</li>
+      <li>Move readers one dashboard at a time: aggregates keyed by status, projections, reports, the closer pipeline. Narrow last, in the same phase.</li>
+      <li><strong>Ends with:</strong> <code>opportunities.status</code> and its seven copies gone, every reader on stage and outcome, and the stage list defined once in one module.</li>
+    </ul>
+  </div>
+</div>
+<div class="phase">
+  <div class="tag">Phase 6<span>runtime cleanup</span></div>
+  <div>
+    <h3>The runtime fixes from F11</h3>
+    <div class="meta"><span class="pill good">Low risk</span><span class="pill low">Narrow</span></div>
+    <ul>
+      <li>Move the counters in <code>tenantStats</code> into the aggregate components that already exist, or shard the document, so bookings stop conflicting with each other and with dashboards.</li>
+      <li>Bound the open loops in <code>adminStats</code> and the closer dashboard with aggregates.</li>
+      <li>Drop the roughly 24 unused indexes and the dead fields (<code>meetingOutcome</code>, <code>meetings.notes</code>, the legacy daily stats table), including the closer × source × status index combinations that Phase 5 frees.</li>
+      <li>Pick one definition of "day" per screen and say which one in the UI.</li>
+      <li><strong>Ends with:</strong> no item from F11 open.</li>
     </ul>
   </div>
 </div>
 </div>
-<p>Phases 0 to 2 deliver the reporting you asked for. Every capture is a person, and prospect-to-customer conversion by lead gen worker becomes one query. Phase 1 has to ship before phase 2, or the leads report counts every Instagram capture as a new lead. Phases 4 and 5 don't depend on each other and can swap. Configurable pipelines are off the roadmap until a tenant needs a different funnel.</p>
-<div class="box">
-  <h3 style="margin-top:0">Alongside the phases: runtime fixes from F11</h3>
-  <ul class="small" style="margin-bottom:0">
-    <li>Move the counters in <code>tenantStats</code> into the aggregate components that already exist, or shard the document, so bookings stop conflicting with each other and with dashboards. This matters more once every capture creates a lead.</li>
-    <li>Bound the open loops in <code>adminStats</code> and the closer dashboard with aggregates.</li>
-    <li>Drop the roughly 24 unused indexes and the dead fields (<code>meetingOutcome</code>, <code>meetings.notes</code>, the legacy daily stats table). Phase 5 then frees the closer × source × status index combinations.</li>
-    <li>Pick one definition of "day" per screen and say which one in the UI.</li>
-  </ul>
-</div>
+<p>Phases 0 to 2 deliver the reporting you asked for. Every capture is a person, and prospect-to-customer conversion by lead gen worker becomes one query. Phase 1 had to ship before phase 2, or the leads report would count every Instagram capture as a new lead. Phases 4 and 5 don't depend on each other and can swap. Phase 6 runs last, because Phase 5 frees the indexes it drops. Configurable pipelines are off the roadmap until a tenant needs a different funnel.</p>
 
 <!-- ============================================================ -->
 <h2 id="avoid"><span class="num">8</span>What not to copy</h2>
