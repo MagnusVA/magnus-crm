@@ -234,10 +234,14 @@ export default defineSchema({
     contactAttemptCount: v.number(),
     distinctWorkerCount: v.number(),
     currentAuditMatchId: v.optional(v.id("leadGenAuditMatches")),
+    // The person this prospect is (docs/plans/phase-2-person-first.md §3).
+    // Unset only on prospects the link backfill hasn't reached.
+    leadId: v.optional(v.id("leads")),
     createdAt: v.number(),
     updatedAt: v.number(),
   })
     .index("by_tenantId_and_dedupeKey", ["tenantId", "dedupeKey"])
+    .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
     .index("by_tenantId_and_normalizedHandle", [
       "tenantId",
       "normalizedHandle",
@@ -582,6 +586,8 @@ export default defineSchema({
       v.literal("merge"), // Created during a lead merge operation (Feature C)
       v.literal("side_deal"), // Created during manual side-deal opportunity entry
       v.literal("slack_qualified"), // Created from Slack /qualify-lead
+      v.literal("lead_gen"), // Created from a lead gen capture
+      v.literal("dm_portal"), // Created from a DM portal link copy
     ),
     sourceMeetingId: v.optional(v.id("meetings")), // Which meeting provided this identifier
     confidence: v.union(
@@ -821,8 +827,16 @@ export default defineSchema({
     campaignPresetId: v.id("linkPortalCampaignPresets"),
     utmCampaign: v.string(),
     copiedAt: v.number(),
+    // The person the link was copied for. Copies made before
+    // docs/plans/phase-2-person-first.md §4.3 shipped have none (D7).
+    leadId: v.optional(v.id("leads")),
   })
     .index("by_tenantId_and_copiedAt", ["tenantId", "copiedAt"])
+    .index("by_tenantId_and_leadId_and_copiedAt", [
+      "tenantId",
+      "leadId",
+      "copiedAt",
+    ])
     .index("by_tenantId_and_dmCloserId_and_copiedAt", [
       "tenantId",
       "dmCloserId",

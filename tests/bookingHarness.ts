@@ -24,6 +24,7 @@ export async function bookingHarness(options: { transactionLimits?: boolean } = 
     "slackQualificationsByTime",
     "paymentSums",
     "customerConversions",
+    "prospectConversions",
     "billingPaymentsByStatus",
     "billingPaymentsByStatusProgram",
     "billingPaymentsByStatusType",

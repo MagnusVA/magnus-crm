@@ -158,17 +158,32 @@ export const searchLeads = query({
     }
     const effectiveStatus = statusFilter ?? "active";
 
-    const results = await ctx.db
-      .query("leads")
-      .withSearchIndex("search_leads", (q) =>
-        q
-          .search("searchText", trimmed)
-          .eq("tenantId", tenantId)
-          .eq("status", effectiveStatus),
+    // Searches the lead/customer rows, which leave prospects out: there are
+    // far more of them than leads, and they would fill the 20 results
+    // (docs/plans/phase-2-person-first.md §8).
+    const rows = await ctx.db
+      .query("leadCustomerSearchRows")
+      .withSearchIndex("search_lead_customer_entities", (q) =>
+        effectiveStatus === "merged"
+          ? q
+              .search("searchText", trimmed)
+              .eq("tenantId", tenantId)
+              .eq("leadStatus", "merged")
+          : q
+              .search("searchText", trimmed)
+              .eq("tenantId", tenantId)
+              .eq("isSearchVisible", true)
+              .eq("leadStatus", effectiveStatus),
       )
       .take(20);
+    const leads = await Promise.all(
+      rows.map((row) => ctx.db.get("leads", row.leadId)),
+    );
 
-    return results;
+    return leads.filter(
+      (lead): lead is Doc<"leads"> =>
+        lead !== null && lead.tenantId === tenantId && lead.status === effectiveStatus,
+    );
   },
 });
 

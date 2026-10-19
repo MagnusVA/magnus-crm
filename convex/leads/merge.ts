@@ -622,6 +622,8 @@ async function executeMerge(
       webhookDeliveriesMoved: moved.webhookDeliveries,
       notesMoved: leadRows.notes,
       portalEditsMoved: leadRows.portalEdits,
+      prospectsMoved: leadRows.prospects,
+      copyEventsMoved: leadRows.copyEvents,
       formResponsesMoved: formResponses.moved,
       earlierMergesRepointed,
       fieldsCarriedOver: Object.keys(carryOver).length,

@@ -22,6 +22,7 @@ import {
   extractQuestionsAndAnswers,
   writeMeetingFormResponses,
 } from "../lib/meetingFormResponses";
+import { countsAsLead } from "../lib/leadLifecycle";
 import { log } from "../lib/observability/log";
 import { getString, isRecord } from "../lib/payloadExtraction";
 import {
@@ -107,31 +108,6 @@ type TenantCurrencyAudit = {
   tenantId: string;
 };
 
-type Phase6ReadinessReport = {
-  followUpsMissingType: number;
-  leadsInvalidCustomFields: number;
-  leadsMissingStatus: number;
-  meetingsMissingAssignedCloserId: number;
-  paymentsMissingAmountMinor: number;
-  paymentsMissingContextType: number;
-  paymentsWithLegacyAmountField: number;
-  sampleIds: {
-    followUpsMissingType: string[];
-    leadsInvalidCustomFields: string[];
-    leadsMissingStatus: string[];
-    meetingsMissingAssignedCloserId: string[];
-    paymentsMissingAmountMinor: string[];
-    paymentsMissingContextType: string[];
-    paymentsWithLegacyAmountField: string[];
-    tenantsMissingCalendlyConnection: string[];
-    tenantsWithLegacyOAuthFields: string[];
-    usersMissingIsActive: string[];
-  };
-  tenantsMissingCalendlyConnection: number;
-  tenantsWithLegacyOAuthFields: number;
-  usersMissingIsActive: number;
-};
-
 type PaymentProgramsCutoverAudit = {
   customersMissingProgramId: number;
   customersWithLegacyProgramType: number;
@@ -174,49 +150,6 @@ type LegacyPaymentMigrationRow = Doc<"paymentRecords"> & {
   loggedByAdminUserId?: Id<"users">;
   origin?: string;
 };
-
-type TenantScopedTable =
-  | "calendlyOrgMembers"
-  | "closerUnavailability"
-  | "customers"
-  | "domainEvents"
-  | "eventTypeConfigs"
-  | "eventTypeFieldCatalog"
-  | "followUps"
-  | "leadIdentifiers"
-  | "leadMergeHistory"
-  | "leads"
-  | "meetingFormResponses"
-  | "meetingReassignments"
-  | "meetings"
-  | "opportunities"
-  | "paymentRecords"
-  | "rawWebhookEvents"
-  | "tenantCalendlyConnections"
-  | "tenantStats"
-  | "users";
-
-const TENANT_SCOPED_TABLES: readonly TenantScopedTable[] = [
-  "users",
-  "leads",
-  "opportunities",
-  "meetings",
-  "paymentRecords",
-  "customers",
-  "followUps",
-  "eventTypeConfigs",
-  "calendlyOrgMembers",
-  "rawWebhookEvents",
-  "closerUnavailability",
-  "meetingReassignments",
-  "leadIdentifiers",
-  "leadMergeHistory",
-  "domainEvents",
-  "tenantStats",
-  "meetingFormResponses",
-  "eventTypeFieldCatalog",
-  "tenantCalendlyConnections",
-];
 
 async function requireSystemAdmin(
   ctx: AdminFunctionCtx,
@@ -580,11 +513,53 @@ export const repairTenantStatusCounters = internalMutation({
   },
 });
 
+const LEAD_COUNT_PAGE_SIZE = 2000;
+
+/** One page of `tenantStats.totalLeads`: the leads `countsAsLead` counts. */
+export const countTenantLeadsPage = internalQuery({
+  args: { tenantId: v.id("tenants"), cursor: v.union(v.string(), v.null()) },
+  handler: async (ctx, { tenantId, cursor }) => {
+    const page = await ctx.db
+      .query("leads")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .paginate({ cursor, numItems: LEAD_COUNT_PAGE_SIZE });
+    return {
+      count: page.page.filter(countsAsLead).length,
+      continueCursor: page.continueCursor,
+      isDone: page.isDone,
+    };
+  },
+});
+
+/**
+ * Counts the tenant's leads in pages: prospects make the table far larger
+ * than one transaction can read (docs/plans/phase-2-person-first.md §8).
+ */
+async function countTenantLeads(
+  ctx: ActionCtx,
+  tenantId: Id<"tenants">,
+): Promise<number> {
+  let total = 0;
+  let cursor: string | null = null;
+  for (;;) {
+    const page: { count: number; continueCursor: string; isDone: boolean } =
+      await ctx.runQuery(internal.admin.migrations.countTenantLeadsPage, {
+        tenantId,
+        cursor,
+      });
+    total += page.count;
+    if (page.isDone) {
+      return total;
+    }
+    cursor = page.continueCursor;
+  }
+}
+
 export const seedTenantStatsInternal = internalMutation({
-  args: { tenantId: v.id("tenants") },
+  args: { tenantId: v.id("tenants"), totalLeads: v.number() },
   handler: async (
     ctx,
-    { tenantId },
+    { tenantId, totalLeads },
   ): Promise<SeedTenantStatsInternalResult> => {
     const users = await ctx.db
       .query("users")
@@ -619,12 +594,6 @@ export const seedTenantStatsInternal = internalMutation({
       0,
     );
 
-    const leads = await ctx.db
-      .query("leads")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .collect();
-    const activeLeads = leads.filter((lead) => lead.status === "active");
-
     const customers = await ctx.db
       .query("customers")
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
@@ -639,7 +608,7 @@ export const seedTenantStatsInternal = internalMutation({
       lostDeals: lostDeals.length,
       totalRevenueMinor,
       totalPaymentRecords: nonDisputedPayments.length,
-      totalLeads: activeLeads.length,
+      totalLeads,
       totalCustomers: customers.length,
       lastUpdatedAt: Date.now(),
     };
@@ -1131,33 +1100,6 @@ async function inferOpportunityAssignedCloserId(
       return { assignedCloserId: bestCloserId, reason: "meeting_history" };
   }
 }
-
-export const backfillLeadStatus = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await requireSystemAdmin(ctx);
-    log.info("admin.migration.started", { migration: "backfill_lead_status" });
-
-    const leads = await ctx.db.query("leads").collect();
-    let updated = 0;
-    for (const lead of leads) {
-      if (lead.status !== undefined) {
-        continue;
-      }
-
-      await ctx.db.patch("leads", lead._id, { status: "active" });
-      updated += 1;
-    }
-
-    log.info("admin.migration.completed", {
-      migration: "backfill_lead_status",
-      updated,
-      total: leads.length,
-    });
-
-    return { updated, total: leads.length };
-  },
-});
 
 export const backfillUserIsActive = mutation({
   args: {},
@@ -1801,15 +1743,15 @@ export const backfillPaymentProgramsAndTypes = mutation({
   },
 });
 
-export const seedTenantStats = mutation({
+export const seedTenantStats = action({
   args: { tenantId: v.id("tenants") },
-  handler: async (ctx, { tenantId }) => {
+  handler: async (ctx, { tenantId }): Promise<SeedTenantStatsInternalResult> => {
     await requireSystemAdmin(ctx);
     log.info("admin.migration.started", { migration: "seed_tenant_stats", tenantId });
 
     const result: SeedTenantStatsInternalResult = await ctx.runMutation(
       internal.admin.migrations.seedTenantStatsInternal,
-      { tenantId },
+      { tenantId, totalLeads: await countTenantLeads(ctx, tenantId) },
     );
 
     log.info("admin.migration.completed", {
@@ -1839,7 +1781,7 @@ export const seedAllTenantStats = action({
     for (const tenantId of tenantIds) {
       const result: SeedTenantStatsInternalResult = await ctx.runMutation(
         internal.admin.migrations.seedTenantStatsInternal,
-        { tenantId },
+        { tenantId, totalLeads: await countTenantLeads(ctx, tenantId) },
       );
       if (result.action === "created") {
         created += 1;
@@ -1935,49 +1877,6 @@ export const deduplicateAllEventTypeConfigs = action({
       fieldCatalogRowsMerged,
       opportunitiesRepointed,
       responsesRepointed,
-    };
-  },
-});
-
-export const auditOrphanedTenantRows = query({
-  args: {},
-  handler: async (ctx) => {
-    await requireSystemAdmin(ctx);
-
-    const tenantIds = new Set<Id<"tenants">>();
-    for await (const tenant of ctx.db.query("tenants")) {
-      tenantIds.add(tenant._id);
-    }
-
-    const orphans: Partial<Record<TenantScopedTable, number>> = {};
-    const samples: Partial<Record<TenantScopedTable, string[]>> = {};
-    let totalOrphans = 0;
-
-    for (const table of TENANT_SCOPED_TABLES) {
-      let count = 0;
-      const sampleIds: string[] = [];
-      for await (const row of ctx.db.query(table)) {
-        if (tenantIds.has(row.tenantId)) {
-          continue;
-        }
-
-        count += 1;
-        totalOrphans += 1;
-        if (sampleIds.length < 5) {
-          sampleIds.push(row._id);
-        }
-      }
-
-      if (count > 0) {
-        orphans[table] = count;
-        samples[table] = sampleIds;
-      }
-    }
-
-    return {
-      totalOrphans,
-      orphans,
-      samples,
     };
   },
 });
@@ -2302,145 +2201,6 @@ export const backfillTenantCalendlyConnections = mutation({
       skippedExisting,
       total: tenants.length,
     };
-  },
-});
-
-export const auditPhase6Readiness = query({
-  args: {},
-  handler: async (ctx): Promise<Phase6ReadinessReport> => {
-    await requireSystemAdmin(ctx);
-
-    const report: Phase6ReadinessReport = {
-      followUpsMissingType: 0,
-      leadsInvalidCustomFields: 0,
-      leadsMissingStatus: 0,
-      meetingsMissingAssignedCloserId: 0,
-      paymentsMissingAmountMinor: 0,
-      paymentsMissingContextType: 0,
-      paymentsWithLegacyAmountField: 0,
-      sampleIds: {
-        followUpsMissingType: [],
-        leadsInvalidCustomFields: [],
-        leadsMissingStatus: [],
-        meetingsMissingAssignedCloserId: [],
-        paymentsMissingAmountMinor: [],
-        paymentsMissingContextType: [],
-        paymentsWithLegacyAmountField: [],
-        tenantsMissingCalendlyConnection: [],
-        tenantsWithLegacyOAuthFields: [],
-        usersMissingIsActive: [],
-      },
-      tenantsMissingCalendlyConnection: 0,
-      tenantsWithLegacyOAuthFields: 0,
-      usersMissingIsActive: 0,
-    };
-
-    const tenants = await ctx.db.query("tenants").collect();
-    const connectionTenantIds = new Set<Id<"tenants">>();
-    for await (const connection of ctx.db.query("tenantCalendlyConnections")) {
-      connectionTenantIds.add(connection.tenantId);
-    }
-
-    const deprecatedTenantOAuthFields = [
-      "calendlyAccessToken",
-      "calendlyRefreshToken",
-      "calendlyTokenExpiresAt",
-      "calendlyRefreshLockUntil",
-      "lastTokenRefreshAt",
-      "codeVerifier",
-      "calendlyOrgUri",
-      "calendlyOwnerUri",
-      "calendlyWebhookUri",
-      "webhookSigningKey",
-      "webhookProvisioningStartedAt",
-    ] as const;
-
-    for (const tenant of tenants) {
-      if (!connectionTenantIds.has(tenant._id)) {
-        report.tenantsMissingCalendlyConnection += 1;
-        addSampleId(
-          report.sampleIds.tenantsMissingCalendlyConnection,
-          tenant._id,
-        );
-      }
-
-      const rawTenant = tenant as Record<string, unknown>;
-      if (
-        deprecatedTenantOAuthFields.some((field) =>
-          hasDefinedField(rawTenant, field),
-        )
-      ) {
-        report.tenantsWithLegacyOAuthFields += 1;
-        addSampleId(report.sampleIds.tenantsWithLegacyOAuthFields, tenant._id);
-      }
-    }
-
-    for await (const user of ctx.db.query("users")) {
-      if (user.isActive === undefined) {
-        report.usersMissingIsActive += 1;
-        addSampleId(report.sampleIds.usersMissingIsActive, user._id);
-      }
-    }
-
-    for await (const lead of ctx.db.query("leads")) {
-      if (lead.status === undefined) {
-        report.leadsMissingStatus += 1;
-        addSampleId(report.sampleIds.leadsMissingStatus, lead._id);
-      }
-
-      if (lead.customFields === undefined) {
-        continue;
-      }
-
-      if (
-        typeof lead.customFields !== "object" ||
-        lead.customFields === null ||
-        Array.isArray(lead.customFields)
-      ) {
-        report.leadsInvalidCustomFields += 1;
-        addSampleId(report.sampleIds.leadsInvalidCustomFields, lead._id);
-        continue;
-      }
-
-      const values = Object.values(lead.customFields as Record<string, unknown>);
-      if (values.some((value) => typeof value !== "string")) {
-        report.leadsInvalidCustomFields += 1;
-        addSampleId(report.sampleIds.leadsInvalidCustomFields, lead._id);
-      }
-    }
-
-    for await (const meeting of ctx.db.query("meetings")) {
-      if (meeting.assignedCloserId === undefined) {
-        report.meetingsMissingAssignedCloserId += 1;
-        addSampleId(report.sampleIds.meetingsMissingAssignedCloserId, meeting._id);
-      }
-    }
-
-    for await (const followUp of ctx.db.query("followUps")) {
-      if (followUp.type === undefined) {
-        report.followUpsMissingType += 1;
-        addSampleId(report.sampleIds.followUpsMissingType, followUp._id);
-      }
-    }
-
-    for await (const payment of ctx.db.query("paymentRecords")) {
-      if (payment.amountMinor === undefined) {
-        report.paymentsMissingAmountMinor += 1;
-        addSampleId(report.sampleIds.paymentsMissingAmountMinor, payment._id);
-      }
-
-      if (payment.contextType === undefined) {
-        report.paymentsMissingContextType += 1;
-        addSampleId(report.sampleIds.paymentsMissingContextType, payment._id);
-      }
-
-      if (hasDefinedField(payment as Record<string, unknown>, "amount")) {
-        report.paymentsWithLegacyAmountField += 1;
-        addSampleId(report.sampleIds.paymentsWithLegacyAmountField, payment._id);
-      }
-    }
-
-    return report;
   },
 });
 

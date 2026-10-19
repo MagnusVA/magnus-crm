@@ -423,6 +423,7 @@ it("moves every row that names the source lead onto the target", async () => {
 
     // One prospect matched only the source; another matched both leads.
     const prospectId = await insertProspect(ctx, tenantId, "samsource");
+    await ctx.db.patch("leadGenProspects", prospectId, { leadId: sourceLeadId });
     const sourceMatchId = await insertMatch(ctx, prospectId, sourceLeadId, {
       opportunityId: booked.opportunityId,
     });
@@ -462,6 +463,42 @@ it("moves every row that names the source lead onto the target", async () => {
       createdAt: AT,
       changedFields: ["initialSource"],
     });
+    const programId = await ctx.db.insert("tenantPrograms", {
+      tenantId,
+      name: "Program",
+      normalizedName: "program",
+      createdAt: AT,
+      createdByUserId: adminId,
+      updatedAt: AT,
+    });
+    await ctx.db.insert("linkPortalCopyEvents", {
+      tenantId,
+      sessionIdHash: "session",
+      eventTypeConfigId: await ctx.db.insert("eventTypeConfigs", {
+        tenantId,
+        calendlyEventTypeUri: "https://api.calendly.com/event_types/portal",
+        displayName: "Strategy call",
+        createdAt: AT,
+      }),
+      bookingProgramId: programId,
+      attributionTeamId: teamId,
+      dmCloserId,
+      campaignPresetId: await ctx.db.insert("linkPortalCampaignPresets", {
+        tenantId,
+        slug: "dm",
+        label: "DM",
+        utmCampaign: "dm",
+        normalizedUtmCampaign: "dm",
+        isDefault: true,
+        isActive: true,
+        sortOrder: 0,
+        createdAt: AT,
+        updatedAt: AT,
+      }),
+      utmCampaign: "dm",
+      copiedAt: AT,
+      leadId: sourceLeadId,
+    });
     await ctx.db.insert("leadNotes", {
       tenantId,
       leadId: sourceLeadId,
@@ -488,9 +525,11 @@ it("moves every row that names the source lead onto the target", async () => {
   expect([...tablesBefore].sort()).toEqual([
     "followUps",
     "leadGenAuditMatches",
+    "leadGenProspects",
     "leadIdentifiers",
     "leadNotes",
     "leads",
+    "linkPortalCopyEvents",
     "linkPortalLeadEdits",
     "meetingFormResponses",
     "operationsQualificationRows",

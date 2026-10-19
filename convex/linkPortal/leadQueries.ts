@@ -76,7 +76,10 @@ export const searchLeadsForSession = internalQuery({
         .take(SEARCH_RESULT_LIMIT),
     ]);
 
-    const leads = [...activeLeads, ...convertedLeads].slice(
+    // Customers first: active leads include every prospect lead gen
+    // captured, which would otherwise push customers out of the results
+    // (docs/plans/phase-2-person-first.md §4.3).
+    const leads = [...convertedLeads, ...activeLeads].slice(
       0,
       SEARCH_RESULT_LIMIT,
     );

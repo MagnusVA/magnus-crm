@@ -52,6 +52,8 @@ export type LeadRowsMoveResult = {
   followUps: number;
   qualificationEvents: number;
   auditMatches: number;
+  prospects: number;
+  copyEvents: number;
   boundsHit: string[];
 };
 
@@ -367,6 +369,8 @@ export async function moveRemainingLeadRows(
     followUps: 0,
     qualificationEvents: 0,
     auditMatches: 0,
+    prospects: 0,
+    copyEvents: 0,
     boundsHit: [],
   };
 
@@ -430,6 +434,32 @@ export async function moveRemainingLeadRows(
     await ctx.db.patch("followUps", followUp._id, { leadId: toLeadId });
   }
   result.followUps = followUps.length;
+
+  // Lead gen prospects and DM portal copies are the person's touches
+  // (docs/plans/phase-2-person-first.md §5).
+  const prospects = await ctx.db
+    .query("leadGenProspects")
+    .withIndex("by_tenantId_and_leadId", (q) =>
+      q.eq("tenantId", tenantId).eq("leadId", fromLeadId),
+    )
+    .take(ROW_LIMIT);
+  noteBound(result.boundsHit, "prospects", prospects);
+  for (const prospect of prospects) {
+    await ctx.db.patch("leadGenProspects", prospect._id, { leadId: toLeadId, updatedAt: now });
+  }
+  result.prospects = prospects.length;
+
+  const copyEvents = await ctx.db
+    .query("linkPortalCopyEvents")
+    .withIndex("by_tenantId_and_leadId_and_copiedAt", (q) =>
+      q.eq("tenantId", tenantId).eq("leadId", fromLeadId),
+    )
+    .take(ROW_LIMIT);
+  noteBound(result.boundsHit, "copy_events", copyEvents);
+  for (const copyEvent of copyEvents) {
+    await ctx.db.patch("linkPortalCopyEvents", copyEvent._id, { leadId: toLeadId });
+  }
+  result.copyEvents = copyEvents.length;
 
   return result;
 }
