@@ -1,6 +1,6 @@
 # Phase 2: person first
 
-Status: plan accepted, 2026-10-19. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11, and the production runs in §9 run without further approval stops. PR 1 next.
+Status: plan accepted, 2026-10-19. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11, and the production runs in §9 run without further approval stops. PR 1 (#132) in review; PRs 2 to 4 (#133 to #135) stacked on it.
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (findings F1, F3 and F9) and the Phase 2 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 1 is in [phase-1-foundations.md](phase-1-foundations.md).
 
@@ -186,11 +186,11 @@ The backfill takes `leads` from 10,609 to about 89,000 rows, 78,367 of them pros
 
 | Where | Problem | Fix |
 | --- | --- | --- |
-| `leads/identityResolution.ts:detectPotentialDuplicate` | reads the 50 newest leads, which would all be prospects with no email, so duplicate detection would stop | reads the 50 newest visible lead/customer rows |
+| `leads/identityResolution.ts:detectPotentialDuplicate` | reads the 50 newest leads, which would all be prospects with no email, so duplicate detection would stop | reads the 50 newest visible lead rows, through a new `leadCustomerSearchRows` index on `firstSeenAt` |
 | `leads/queries.ts:searchLeads`, the merge picker | prospects match by handle and fill the 20 results | searches visible lead/customer rows only |
 | `admin/migrations.ts:seedTenantStatsInternal` | collects every lead and counts active rows: over the read limit, and it would count prospects | counts with `countsAsLead`, in pages |
 | `linkPortal/leadQueries.ts:searchLeadsForSession` | prospects can push customers out of the 20 results | §4.3 |
-| `reporting/teamActions.ts` | reads the first 5,000 events in the range; the touches add about 1,000 a day, so closer actions would be cut off | reads each closer's events through the actor index |
+| `reporting/teamActions.ts` | reads the first 5,000 events in the range; the touches add about 1,000 a day, so closer actions would be cut off | reads only `source: "closer"` events, through a new `domainEvents` index on `source` |
 | `admin/migrations.ts`: `backfillLeadStatus`, `auditOrphanedTenantRows`, `auditPhase6Readiness` | one-off admin scans of the whole table, over the read limit at the new size | removed; nothing calls them |
 
 The activity report's summary already stops at 10,000 events and says so. With the touches it stops for ranges longer than about nine days. Phase 6's row in the ADR gains it: the summary counts from an aggregate.
@@ -284,7 +284,7 @@ Each has a recommendation. The tenant admin accepted all nine recommendations on
 - **D5. Where the conversion report lives.** Recommended: the lead gen operations page, beside the other per-worker numbers. The leads report keeps counting people who reached Qualified. The other option adds it to both pages, which means two copies to keep in step.
 - **D6. Which stages credit the worker.** Recommended: a stage counts for a prospect only when the person reached it at or after the first capture; every captured prospect counts in Prospects. The other option counts every stage the person ever reached, which credits 1,205 captures of people who were already qualified when captured (1,176 identifier-only, 29 matched).
 - **D7. The 5,227 copy events with no person.** Recommended: keep them, unlinked; `leadId` stays optional in the schema for them, and the copy mutation requires it from PR 3 on. The other option deletes them, which loses the DM closers' copy history from May to now.
-- **D8. Touches in the event log.** Recommended: every capture, portal action and Slack qualification is a domain event, history included: about 147,000 events now and 1,000 a day. The timeline is then one read, and Phase 3 derives first and latest touch from it. Team actions moves to the actor index (§8); the activity summary's aggregate goes to Phase 6. The other option backfills only each prospect's first capture (84,075) and reads repeat captures from `leadGenSubmissions`, which leaves two sources for one timeline.
+- **D8. Touches in the event log.** Recommended: every capture, portal action and Slack qualification is a domain event, history included: about 147,000 events now and 1,000 a day. The timeline is then one read, and Phase 3 derives first and latest touch from it. Team actions reads closer events through a source index (§8); the activity summary's aggregate goes to Phase 6. The other option backfills only each prospect's first capture (84,075) and reads repeat captures from `leadGenSubmissions`, which leaves two sources for one timeline.
 - **D9. Production runs.** Recommended: the order in §9, batch 50 for `linkProspectPeople` (about 1,700 batches) and 200 for `backfillCaptureEvents` (about 700), one migration at a time so the `leadStageEntries` and `prospectConversions` writes don't contend. No deletions. Dry run first for `linkProspectPeople`, then each run as soon as the previous assert passes, with no approval stop in between.
 
 ## 12. Rollback
