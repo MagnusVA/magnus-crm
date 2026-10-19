@@ -32,15 +32,19 @@ const stageCountsValidator = v.object({
 
 export const listProspectConversions = query({
   args: { startDayKey: v.string(), endDayKey: v.string() },
-  returns: v.array(
-    v.object({
-      workerId: v.id("leadGenWorkers"),
-      worker: memberAvatarIdentityValidator,
-      displayName: v.string(),
-      teamId: v.union(v.id("attributionTeams"), v.null()),
-      counts: stageCountsValidator,
-    }),
-  ),
+  returns: v.object({
+    rows: v.array(
+      v.object({
+        workerId: v.id("leadGenWorkers"),
+        worker: memberAvatarIdentityValidator,
+        displayName: v.string(),
+        teamId: v.union(v.id("attributionTeams"), v.null()),
+        counts: stageCountsValidator,
+      }),
+    ),
+    // More workers than one read covers; the table is partial.
+    capped: v.boolean(),
+  }),
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
     if (args.startDayKey > args.endDayKey) {
@@ -52,9 +56,10 @@ export const listProspectConversions = query({
     const workers = await ctx.db
       .query("leadGenWorkers")
       .withIndex("by_tenantId_and_isActive", (q) => q.eq("tenantId", tenantId))
-      .take(WORKER_LIMIT);
+      .take(WORKER_LIMIT + 1);
+    const capped = workers.length > WORKER_LIMIT;
     const rows = [];
-    for (const worker of workers) {
+    for (const worker of workers.slice(0, WORKER_LIMIT)) {
       const counts = {} as Record<(typeof LIFECYCLE_STAGES)[number], number>;
       for (const stage of LIFECYCLE_STAGES) {
         counts[stage] = await countProspectConversions(ctx, tenantId, worker._id, stage, startAt, endAt);
@@ -70,6 +75,9 @@ export const listProspectConversions = query({
         counts,
       });
     }
-    return rows.sort((left, right) => right.counts.prospect - left.counts.prospect);
+    return {
+      rows: rows.sort((left, right) => right.counts.prospect - left.counts.prospect),
+      capped,
+    };
   },
 });

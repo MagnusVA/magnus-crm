@@ -47,13 +47,14 @@ it("credits each worker's prospects, and only the stages reached after the captu
     endDayKey: "2026-10-31",
   });
 
-  expect(rows).toHaveLength(1);
-  expect(rows[0].counts).toEqual({
+  expect(rows.capped).toBe(false);
+  expect(rows.rows).toHaveLength(1);
+  expect(rows.rows[0].counts).toEqual({
     prospect: 3, in_conversation: 1, qualified: 1, booked: 0, showed: 0, customer: 0,
   });
   const outside = await h.admin.query(api.leadGen.conversions.listProspectConversions, {
     startDayKey: "2026-09-01",
     endDayKey: "2026-09-30",
   });
-  expect(outside).toEqual([]);
+  expect(outside).toEqual({ rows: [], capped: false });
 });

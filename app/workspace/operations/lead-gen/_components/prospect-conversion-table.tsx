@@ -25,9 +25,10 @@ import {
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import { OverviewHelpTooltip } from "@/app/workspace/_components/overview-help-tooltip";
 
-type ConversionRow = FunctionReturnType<
+type ConversionReport = FunctionReturnType<
   typeof api.leadGen.conversions.listProspectConversions
->[number];
+>;
+type ConversionRow = ConversionReport["rows"][number];
 type Stage = keyof ConversionRow["counts"];
 
 const STAGES: Array<{ stage: Stage; label: string }> = [
@@ -50,11 +51,19 @@ const percentFormatter = new Intl.NumberFormat(undefined, {
 const SECTION_TOOLTIP =
   "Prospects each specialist first captured in the selected range, and how many of those people went on to reach each stage. A stage counts only if the person reached it after the capture, so capturing someone already qualified credits the prospect, not the qualification. All sources.";
 
-function Cell({ count, prospects }: { count: number; prospects: number }) {
+function Cell({
+  count,
+  prospects,
+  showShare,
+}: {
+  count: number;
+  prospects: number;
+  showShare: boolean;
+}) {
   return (
     <TableCell className="text-right tabular-nums">
       {numberFormatter.format(count)}
-      {prospects > 0 && count !== prospects ? (
+      {showShare && prospects > 0 ? (
         <span className="ml-1 text-xs text-muted-foreground">
           {percentFormatter.format(count / prospects)}
         </span>
@@ -64,10 +73,11 @@ function Cell({ count, prospects }: { count: number; prospects: number }) {
 }
 
 export function ProspectConversionTable({
-  rows,
+  report,
 }: {
-  rows: ConversionRow[] | undefined;
+  report: ConversionReport | undefined;
 }) {
+  const rows = report?.rows;
   const totals = Object.fromEntries(
     STAGES.map(({ stage }) => [
       stage,
@@ -89,6 +99,7 @@ export function ProspectConversionTable({
         <CardDescription className="text-xs">
           Prospects first captured in the selected range, by the specialist who
           captured them.
+          {report?.capped ? " Showing the first 500 specialists only." : null}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -130,6 +141,7 @@ export function ProspectConversionTable({
                         key={stage}
                         count={row.counts[stage]}
                         prospects={row.counts.prospect}
+                        showShare={stage !== "prospect"}
                       />
                     ))}
                   </TableRow>
@@ -137,7 +149,12 @@ export function ProspectConversionTable({
                 <TableRow className="bg-muted/40 font-semibold hover:bg-muted/40">
                   <TableCell>Total</TableCell>
                   {STAGES.map(({ stage }) => (
-                    <Cell key={stage} count={totals[stage]} prospects={totals.prospect} />
+                    <Cell
+                      key={stage}
+                      count={totals[stage]}
+                      prospects={totals.prospect}
+                      showShare={stage !== "prospect"}
+                    />
                   ))}
                 </TableRow>
               </TableBody>

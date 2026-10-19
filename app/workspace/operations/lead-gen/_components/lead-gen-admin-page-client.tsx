@@ -168,7 +168,7 @@ export function LeadGenAdminPageClient() {
 
 			<LeadGenSummaryCards data={displayOverview} specialistCount={displayWorkers?.length} />
 			<SpecialistPerformanceTable rows={displayWorkers} teams={displayTeams} />
-			<ProspectConversionTable rows={conversions} />
+			<ProspectConversionTable report={conversions} />
 			<TopOriginsTable groups={displayOrigins} />
 
 			<RawSubmissionsTable filters={filters} />
