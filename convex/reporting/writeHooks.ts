@@ -21,7 +21,6 @@ import {
 import {
   customerConversions,
   isSlackQualificationAggregateEligible,
-  leadTimeline,
   meetingsByStatus,
   opportunityByStatus,
   paymentSums,
@@ -187,18 +186,6 @@ export async function deleteOpportunityAggregate(
     await slackQualificationsByTime.deleteIfExists(ctx, oldOpportunity);
   }
   await deleteOpportunitySearchProjection(ctx, oldOpportunity._id);
-}
-
-export async function insertLeadAggregate(
-  ctx: MutationCtx,
-  leadId: Id<"leads">,
-): Promise<Doc<"leads">> {
-  const lead = await ctx.db.get("leads", leadId);
-  if (!lead) {
-    throw new Error(`Lead ${leadId} not found for reporting aggregate sync`);
-  }
-  await leadTimeline.insert(ctx, lead);
-  return lead;
 }
 
 export async function insertPaymentAggregate(

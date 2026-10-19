@@ -1,9 +1,8 @@
-import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, internal } from "../_generated/api";
+import { api } from "../_generated/api";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
-import { insertLeadAggregate } from "../reporting/writeHooks";
-import { bookingHarness } from "../../tests/bookingHarness";
+import { readLifecycle, syncLeadStageEntries } from "../lib/leadLifecycle";
+import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
 
 afterEach(() => vi.useRealTimers());
 
@@ -12,25 +11,16 @@ type Harness = Awaited<ReturnType<typeof bookingHarness>>;
 const SEPTEMBER = { startDate: Date.parse("2026-09-01T00:00:00Z"), endDate: Date.parse("2026-10-01T00:00:00Z") };
 const OCTOBER = { startDate: Date.parse("2026-10-01T00:00:00Z"), endDate: Date.parse("2026-11-01T00:00:00Z") };
 
-async function run(harness: Harness, name: string) {
-  await harness.t.mutation(internal.migrations.run, { fn: `migrations:${name}` });
-  await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
-}
-
-// A person the split created on 16 October, whose real qualification was in
-// September: today's report counts them in October.
-async function splitCreatedPerson(harness: Harness) {
+// A person whose row was created on 16 October, with a September
+// qualification on record.
+async function lateRowPerson(harness: Harness) {
   await harness.t.run(async (ctx) => {
     const qualifiedAt = Date.parse("2026-09-20T10:00:00Z");
     const leadId = await ctx.db.insert("leads", {
-      tenantId: harness.tenantId, fullName: "Split", status: "active", firstSeenAt: qualifiedAt, updatedAt: qualifiedAt,
+      ...qualifiedLifecycle(qualifiedAt),
+      tenantId: harness.tenantId, fullName: "Late", status: "active", firstSeenAt: qualifiedAt, updatedAt: qualifiedAt,
     });
-    await insertLeadAggregate(ctx, leadId);
-    await ctx.db.insert("opportunities", {
-      tenantId: harness.tenantId, leadId, status: "qualified_pending", source: "slack_qualified",
-      qualifiedAt, qualifiedBy: { slackUserId: "U1", slackTeamId: "T1", submittedAt: qualifiedAt },
-      createdAt: qualifiedAt, updatedAt: qualifiedAt,
-    });
+    await syncLeadStageEntries(ctx, harness.tenantId, leadId, null, readLifecycle((await ctx.db.get("leads", leadId))!));
   });
 }
 
@@ -39,9 +29,7 @@ describe("leads report", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-16T12:00:00Z"));
     const harness = await bookingHarness();
-    migrationsTest.register(harness.t);
-    await splitCreatedPerson(harness);
-    await run(harness, "backfillLeadLifecycle");
+    await lateRowPerson(harness);
 
     const report = (range: typeof SEPTEMBER) =>
       harness.admin.query(api.reporting.leadConversion.getLeadConversionMetrics, range);

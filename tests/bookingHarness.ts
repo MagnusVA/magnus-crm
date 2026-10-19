@@ -19,7 +19,6 @@ export async function bookingHarness(options: { transactionLimits?: boolean } = 
   for (const name of [
     "meetingsByStatus",
     "opportunityByStatus",
-    "leadTimeline",
     "leadStageEntries",
     "slackQualificationsByUser",
     "slackQualificationsByTime",
@@ -64,6 +63,15 @@ export async function bookingHarness(options: { transactionLimits?: boolean } = 
     closer: t.withIdentity({ subject: "user_closer", org_id: "org_test" }),
   };
 }
+/** The lifecycle fields every lead has, for a person who reached Qualified at `at`. */
+export function qualifiedLifecycle(at: number) {
+  return {
+    lifecycleStage: "qualified" as const,
+    lifecycleStageEnteredAt: { qualified: at },
+    disposition: "open" as const,
+  };
+}
+
 export function bookingPayload(key: string, email = "lead@example.com") {
   return {
     uri: `https://api.calendly.com/scheduled_events/${key}/invitees/person`,

@@ -27,13 +27,13 @@ export function EntityLifecycleSection() {
 	const { lead } = useEntityDetail();
 	const { isAdmin } = useRole();
 	const [mode, setMode] = useState<LifecycleChangeMode | null>(null);
-	const stage = lead.lifecycleStage;
-	if (!stage || lead.status === "merged") {
+	if (lead.status === "merged") {
 		return null;
 	}
-	const disposition = lead.disposition ?? "open";
+	const stage = lead.lifecycleStage;
+	const disposition = lead.disposition;
 	const reached = LIFECYCLE_STAGES.filter(
-		(option) => lead.lifecycleStageEnteredAt?.[option] !== undefined,
+		(option) => lead.lifecycleStageEnteredAt[option] !== undefined,
 	);
 	// A customer's stage follows their payments; voiding the payment moves it.
 	const canMoveBack = stage !== "prospect" && lead.status !== "converted";
@@ -59,7 +59,7 @@ export function EntityLifecycleSection() {
 							<MicroLabel>{LIFECYCLE_STAGE_LABELS[option]}</MicroLabel>
 						</dt>
 						<dd className="text-right text-xs tabular-nums">
-							{formatDate(lead.lifecycleStageEnteredAt?.[option])}
+							{formatDate(lead.lifecycleStageEnteredAt[option])}
 						</dd>
 					</div>
 				))}

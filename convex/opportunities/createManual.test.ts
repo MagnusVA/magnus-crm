@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../_generated/api";
-import { bookingHarness } from "../../tests/bookingHarness";
+import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
 
 afterEach(() => vi.useRealTimers());
 
@@ -10,7 +10,7 @@ it.each(["different_leads", "different_email"] as const)(
     vi.useFakeTimers();
     const { t, tenantId, closer } = await bookingHarness();
     await t.run(async (ctx) => {
-      const phoneLeadId = await ctx.db.insert("leads", {
+      const phoneLeadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(Date.now()),
         tenantId,
         email: "phone-owner@example.com",
         status: "active",
@@ -28,7 +28,7 @@ it.each(["different_leads", "different_email"] as const)(
         createdAt: Date.now(),
       });
       if (conflict === "different_leads")
-        await ctx.db.insert("leads", {
+        await ctx.db.insert("leads", { ...qualifiedLifecycle(Date.now()),
           tenantId,
           email: "submitted@example.com",
           status: "active",
@@ -83,7 +83,7 @@ it("asks for the lead's email when a payment would convert a lead without one", 
       .take(10);
     const adminId = users.find((user) => user.role === "tenant_admin")!._id;
     // What a booking with only a placeholder email now leaves behind.
-    const leadId = await ctx.db.insert("leads", {
+    const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(Date.now()),
       tenantId,
       fullName: "No Email",
       status: "active",

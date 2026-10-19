@@ -16,10 +16,6 @@ import {
 } from "../leads/lifecycle";
 import { leadStageEntries } from "../reporting/aggregates";
 import { emitDomainEvent, type DomainEventSource } from "./domainEvents";
-import {
-  SLACK_OPPORTUNITY_EXPIRY_MS,
-  SLACK_STALE_LOST_REASON,
-} from "../pipeline/slackJoinLookup";
 import { isActiveOpportunityStatus, updateTenantStats } from "./tenantStatsHelper";
 
 // Writes a person's lifecycle stage and disposition, with the aggregate
@@ -35,22 +31,13 @@ export type LifecycleCause =
   | "meeting_held"
   | "payment";
 
-export function readLifecycle(lead: Doc<"leads">): LifecycleState | null {
-  if (!lead.lifecycleStage) {
-    return null;
-  }
-  return {
-    stage: lead.lifecycleStage,
-    enteredAt: lead.lifecycleStageEnteredAt ?? {},
-  };
+export function readLifecycle(lead: Doc<"leads">): LifecycleState {
+  return { stage: lead.lifecycleStage, enteredAt: lead.lifecycleStageEnteredAt };
 }
 
 /** Whether `tenantStats.totalLeads` counts this lead. */
 export function countsAsLead(lead: Doc<"leads">): boolean {
-  return (
-    lead.status === "active" &&
-    (lead.lifecycleStage === undefined || !isProspectStage(lead.lifecycleStage))
-  );
+  return lead.status === "active" && !isProspectStage(lead.lifecycleStage);
 }
 
 /** The lifecycle and disposition fields of a person created by `evidence`. */
@@ -124,8 +111,6 @@ export async function countLeadStageEntries(
 }
 
 type LifecycleWrite = {
-  /** The backfill records state, not touches, so it emits no event. */
-  quiet?: boolean;
   source: DomainEventSource;
   actorUserId?: Id<"users">;
   reason: string;
@@ -142,7 +127,7 @@ type LifecycleWrite = {
 async function writeLifecycle(
   ctx: MutationCtx,
   lead: Doc<"leads">,
-  before: LifecycleState | null,
+  before: LifecycleState,
   after: LifecycleState,
   write: LifecycleWrite,
 ): Promise<void> {
@@ -153,17 +138,15 @@ async function writeLifecycle(
   });
   await syncLeadStageEntries(ctx, lead.tenantId, lead._id, before, after);
 
-  // A lead without a stage counts as a lead (`countsAsLead`).
-  const wasProspect = before ? isProspectStage(before.stage) : false;
+  const wasProspect = isProspectStage(before.stage);
   const isProspect = isProspectStage(after.stage);
   if (wasProspect !== isProspect && lead.status === "active") {
     await updateTenantStats(ctx, lead.tenantId, { totalLeads: isProspect ? -1 : 1 });
   }
-  // The row already shows a lead without a stage as a lead.
   if (wasProspect !== isProspect) {
     await rebuildLeadCustomerSearchRow(ctx, lead.tenantId, lead._id);
   }
-  if (!write.quiet && before && before.stage !== after.stage) {
+  if (before.stage !== after.stage) {
     await emitDomainEvent(ctx, {
       tenantId: lead.tenantId,
       entityType: "lead",
@@ -188,9 +171,7 @@ function sameLifecycle(a: LifecycleState | null, b: LifecycleState | null): bool
 }
 
 /**
- * The lead reached `evidence.stage` at `evidence.at`. A lead the lifecycle
- * backfill hasn't reached yet is left alone: the backfill derives its whole
- * history from source data, this event included. A merged lead never moves.
+ * The lead reached `evidence.stage` at `evidence.at`. A merged lead never moves.
  * The system moves the stage, so its events have source `system` and the
  * cause as their reason.
  */
@@ -204,9 +185,6 @@ export async function advanceLeadLifecycle(
     return;
   }
   const before = readLifecycle(lead);
-  if (!before) {
-    return;
-  }
   const after = advanceLifecycle(before, evidence.stage, evidence.at);
   // Newer evidence of interest reopens a person the system set aside (D3).
   const reopens =
@@ -588,7 +566,6 @@ export async function correctLeadLifecycle(
   // correction may only take the person lower.
   if (
     lead.lifecycleStageMovedBackAt !== undefined &&
-    before &&
     stageIndex(after.stage) >= stageIndex(before.stage)
   ) {
     return;
@@ -597,7 +574,7 @@ export async function correctLeadLifecycle(
     source: actorUserId ? "admin" : "system",
     actorUserId,
     reason: correction,
-    metadata: before ? { enteredAtBefore: before.enteredAt } : undefined,
+    metadata: { enteredAtBefore: before.enteredAt },
   });
 }
 
@@ -617,13 +594,11 @@ export async function mergeLeadLifecycle(
   await syncLeadStageEntries(ctx, sourceLead.tenantId, sourceLead._id, source, null);
 
   const target = await ctx.db.get("leads", targetLeadId);
-  const before = target && readLifecycle(target);
-  if (!target || !before) {
+  if (!target) {
     return;
   }
-  const after = source
-    ? combineLifecycles(before, source)
-    : await deriveLeadLifecycle(ctx, target);
+  const before = readLifecycle(target);
+  const after = combineLifecycles(before, source);
   if (!after || sameLifecycle(before, after)) {
     return;
   }
@@ -649,8 +624,7 @@ export function shouldMarkUnresponsive(
 ): boolean {
   return (
     lead.status !== "merged" &&
-    readLifecycle(lead) !== null &&
-    (lead.disposition ?? "open") === "open" &&
+    lead.disposition === "open" &&
     !opportunities.some((opportunity) => isActiveOpportunityStatus(opportunity.status))
   );
 }
@@ -691,85 +665,7 @@ export async function deleteLeadStageEntries(
   await syncLeadStageEntries(ctx, lead.tenantId, lead._id, readLifecycle(lead), null);
 }
 
-// --- Backfill and assert (plan §9.2). ---
-
-/**
- * The disposition the backfill gives a lead that has none (D3): unresponsive
- * if a Slack deal expired, no deal is open, and nothing at Qualified or later
- * happened after the expiry; else open.
- */
-export function backfillDisposition(
-  state: LifecycleState,
-  evidence: readonly LifecycleEvidence[],
-  opportunities: readonly Doc<"opportunities">[],
-) {
-  const expiries = opportunities
-    .filter(
-      (opportunity) =>
-        opportunity.source === "slack_qualified" &&
-        opportunity.status === "lost" &&
-        opportunity.lostReason === SLACK_STALE_LOST_REASON,
-    )
-    // The backlog run stamped `lostAt` on 2026-10-16; the deal really expired
-    // a join window after it was created.
-    .map((opportunity) =>
-      Math.min(opportunity.lostAt ?? Infinity, opportunity.createdAt + SLACK_OPPORTUNITY_EXPIRY_MS),
-    );
-  const lastExpiry = expiries.length > 0 ? Math.max(...expiries) : undefined;
-  const reopened =
-    lastExpiry !== undefined &&
-    evidence.some((item) => !isProspectStage(item.stage) && item.at > lastExpiry);
-  const anyOpen = opportunities.some((opportunity) => isActiveOpportunityStatus(opportunity.status));
-  if (lastExpiry !== undefined && !reopened && !anyOpen) {
-    return {
-      disposition: "unresponsive" as const,
-      dispositionSetAt: lastExpiry,
-      dispositionSource: "system" as const,
-      dispositionReason: SLACK_STALE_DISPOSITION_REASON,
-    };
-  }
-  return {
-    disposition: "open" as const,
-    dispositionSetAt: state.enteredAt.prospect ?? state.enteredAt[state.stage],
-    dispositionSource: "system" as const,
-  };
-}
-
-/** Writes the lifecycle a lead's records support, and a disposition if it has none. */
-export async function backfillLeadLifecycleRow(
-  ctx: MutationCtx,
-  lead: Doc<"leads">,
-): Promise<"merged" | "no_evidence" | "unchanged" | "written"> {
-  if (lead.status === "merged") {
-    return "merged";
-  }
-  const { evidence, opportunities } = await collectLifecycleEvidence(ctx, lead);
-  const after = deriveLifecycle(evidence);
-  if (!after) {
-    // No record to date a stage from, but every person has a disposition.
-    if (lead.disposition === undefined) {
-      await ctx.db.patch("leads", lead._id, {
-        disposition: "open",
-        dispositionSetAt: lead.firstSeenAt,
-        dispositionSource: "system",
-      });
-    }
-    return "no_evidence";
-  }
-  const before = readLifecycle(lead);
-  const disposition =
-    lead.disposition === undefined ? backfillDisposition(after, evidence, opportunities) : undefined;
-  if (sameLifecycle(before, after) && !disposition) {
-    return "unchanged";
-  }
-  await writeLifecycle(ctx, lead, before, after, {
-    quiet: true,
-    source: "system",
-    reason: "backfill",
-    extraPatch: disposition,
-  });
-  return "written";
-}
+// --- Assert (plan §9.2). ---
 
 async function hasStageEntry(
   ctx: QueryCtx | MutationCtx,
@@ -795,7 +691,7 @@ export async function lifecycleProblems(
   const problems: string[] = [];
   if (lead.status === "merged") {
     for (const stage of LIFECYCLE_STAGES) {
-      const at = stored?.enteredAt[stage];
+      const at = stored.enteredAt[stage];
       if (at !== undefined && (await hasStageEntry(ctx, lead, stage, at))) {
         problems.push(`merged lead has a ${stage} entry`);
       }
@@ -808,16 +704,13 @@ export async function lifecycleProblems(
     problems.push("stage or entry times differ from its records");
   }
   for (const stage of LIFECYCLE_STAGES) {
-    const at = stored?.enteredAt[stage];
+    const at = stored.enteredAt[stage];
     if (at !== undefined && !(await hasStageEntry(ctx, lead, stage, at))) {
       problems.push(`missing ${stage} entry`);
     }
   }
-  if ((lead.status === "converted") !== (stored?.stage === "customer")) {
-    problems.push(`status ${lead.status} with stage ${stored?.stage}`);
-  }
-  if (lead.disposition === undefined) {
-    problems.push("no disposition");
+  if ((lead.status === "converted") !== (stored.stage === "customer")) {
+    problems.push(`status ${lead.status} with stage ${stored.stage}`);
   }
   return problems;
 }
@@ -844,9 +737,6 @@ export async function adminMoveLifecycleBack(
   write: { actorUserId: Id<"users">; reason: string; at: number },
 ): Promise<void> {
   const before = readLifecycle(lead);
-  if (!before) {
-    throw new Error("Lead has no lifecycle stage yet");
-  }
   await writeLifecycle(ctx, lead, before, moveLifecycleBack(before, toStage), {
     source: "admin",
     actorUserId: write.actorUserId,

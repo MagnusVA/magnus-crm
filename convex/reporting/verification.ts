@@ -11,7 +11,6 @@ import { ACTIVE_OPPORTUNITY_STATUSES } from "../lib/tenantStatsHelper";
 import {
   customerConversions,
   isSlackQualificationAggregateEligible,
-  leadTimeline,
   meetingsByStatus,
   opportunityByStatus,
   paymentSums,
@@ -54,7 +53,6 @@ async function countAggregateRows(
   ctx: QueryCtx,
   aggregate:
     | typeof customerConversions
-    | typeof leadTimeline
     | typeof meetingsByStatus
     | typeof opportunityByStatus
     | typeof paymentSums
@@ -76,8 +74,6 @@ export const verifyBackfillCounts = internalQuery({
     const [
       customerAggregateCount,
       customerTableCount,
-      leadAggregateCount,
-      leadTableCount,
       meetingsAggregateCount,
       meetingsTableCount,
       opportunitiesAggregateCount,
@@ -93,8 +89,6 @@ export const verifyBackfillCounts = internalQuery({
     ] = await Promise.all([
       countAggregateRows(ctx, customerConversions),
       countTableRows(ctx, "customers"),
-      countAggregateRows(ctx, leadTimeline),
-      countTableRows(ctx, "leads"),
       countAggregateRows(ctx, meetingsByStatus),
       countTableRows(ctx, "meetings"),
       countAggregateRows(ctx, opportunityByStatus),
@@ -138,11 +132,6 @@ export const verifyBackfillCounts = internalQuery({
         aggregate: customerAggregateCount,
         match: customerAggregateCount === customerTableCount,
         table: customerTableCount,
-      },
-      leads: {
-        aggregate: leadAggregateCount,
-        match: leadAggregateCount === leadTableCount,
-        table: leadTableCount,
       },
       meetings: {
         aggregate: meetingsAggregateCount,

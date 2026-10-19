@@ -7,7 +7,7 @@ import { api, internal } from "../_generated/api";
 import type { Doc, Id, TableNames } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import schema from "../schema";
-import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
+import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
 import { preserveQualificationAuditMatchForScheduledMeeting } from "../leadGen/auditMatching";
 import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
 import { rebuildQualificationRow } from "../operations/projections";
@@ -46,6 +46,7 @@ async function insertLead(
 ) {
   return await ctx.db.insert("leads", {
     tenantId,
+    ...qualifiedLifecycle(AT),
     status: "active",
     firstSeenAt: AT,
     updatedAt: AT,

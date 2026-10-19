@@ -11,6 +11,7 @@ import {
   bookedCallsDashboardFromLive,
   bookedCallsDashboardFromSnapshot,
 } from "./booked-dashboard";
+import { qualifiedLifecycle } from "../../tests/bookingHarness";
 
 const range = {
   kind: "custom" as const,
@@ -287,7 +288,7 @@ it("keeps booked calls live dashboard and worker-backed snapshot view models ali
       updatedByUserId: adminId,
       updatedAt: timestamp,
     });
-    const leadId = await ctx.db.insert("leads", {
+    const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(timestamp),
       tenantId,
       fullName: "Booked Prospect",
       firstSeenAt: timestamp,

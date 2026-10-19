@@ -6,8 +6,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Doc } from "../_generated/dataModel";
-import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
-import { insertLeadAggregate } from "../reporting/writeHooks";
+import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
 
 afterEach(() => vi.useRealTimers());
 
@@ -91,7 +90,7 @@ async function seedLead(
 ) {
   return await t.run(async (ctx) => {
     const at = Date.parse("2026-09-01T00:00:00Z");
-    const leadId = await ctx.db.insert("leads", {
+    const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(at),
       tenantId,
       ...lead,
       status: "active",
@@ -109,7 +108,6 @@ async function seedLead(
         confidence: "verified",
         createdAt: at,
       });
-    await insertLeadAggregate(ctx, leadId);
     return leadId;
   });
 }

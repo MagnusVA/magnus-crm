@@ -101,7 +101,7 @@ export function projectedLifecycle(
   if (hasCustomer) {
     return "customer";
   }
-  if (lead.lifecycleStage && isProspectStage(lead.lifecycleStage)) {
+  if (isProspectStage(lead.lifecycleStage)) {
     return "prospect";
   }
   return "lead";

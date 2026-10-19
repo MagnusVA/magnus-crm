@@ -543,12 +543,12 @@ export default defineSchema({
     // === End NIM-17 ===
 
     // === Phase 1: lifecycle stage and disposition ===
-    // docs/plans/phase-1-foundations.md §3-§4. Unset until the lifecycle
-    // backfill reaches the lead; write paths skip a lead without a stage.
+    // docs/plans/phase-1-foundations.md §3-§4. Every person has a stage and a
+    // disposition; a merged lead keeps the ones it had when it merged.
     // `status` keeps `merged` as the identity flag.
-    lifecycleStage: v.optional(lifecycleStageValidator),
-    lifecycleStageEnteredAt: v.optional(lifecycleStageEnteredAtValidator),
-    disposition: v.optional(dispositionValidator),
+    lifecycleStage: lifecycleStageValidator,
+    lifecycleStageEnteredAt: lifecycleStageEnteredAtValidator,
+    disposition: dispositionValidator,
     dispositionSetAt: v.optional(v.number()),
     dispositionSource: v.optional(dispositionSourceValidator),
     dispositionReason: v.optional(v.string()),

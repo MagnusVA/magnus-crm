@@ -5,9 +5,9 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { migrations } from "../migrations";
 import { rebuildQualificationRow } from "../operations/projections";
 import { slackQualificationsByUser } from "../reporting/aggregates";
-import { insertLeadAggregate, insertOpportunityAggregate } from "../reporting/writeHooks";
+import { insertOpportunityAggregate } from "../reporting/writeHooks";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
-import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
+import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
 import { STALE_EXPIRY_CUTOVER_AT } from "./staleExpiry";
 
 afterEach(() => vi.useRealTimers());
@@ -28,7 +28,7 @@ async function slackOpportunity(
   const { t, tenantId } = harness;
   return await t.run(async (ctx) => {
     const createdAt = NOW - ageDays * DAY_MS;
-    const leadId = await ctx.db.insert("leads", {
+    const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(createdAt),
       tenantId,
       fullName: `Lead ${ageDays}`,
       email: options.email,
@@ -36,7 +36,6 @@ async function slackOpportunity(
       firstSeenAt: createdAt,
       updatedAt: createdAt,
     });
-    await insertLeadAggregate(ctx, leadId);
     const qualifiedBy = { slackUserId: "U1", slackTeamId: "T1", submittedAt: createdAt };
     const opportunityId = await ctx.db.insert("opportunities", {
       tenantId,
@@ -268,7 +267,7 @@ it("keeps stale expiries out of the pipeline health loss attribution", async () 
       .withIndex("by_tenantId", (q) => q.eq("tenantId", harness.tenantId))
       .take(10);
     const closerId = users.find((user) => user.role === "closer")!._id;
-    const leadId = await ctx.db.insert("leads", {
+    const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(NOW - 60 * DAY_MS),
       tenantId: harness.tenantId,
       status: "active",
       firstSeenAt: NOW - 60 * DAY_MS,
