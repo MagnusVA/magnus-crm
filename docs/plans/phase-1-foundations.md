@@ -494,11 +494,13 @@ The backfill has 6 more people than the §9.4 snapshot (10,493 against 10,487), 
 
 The months match §7.2. The narrow in §12.9 retired the switch.
 
-### 12.8 Left for later
+### 12.8 Closed out
 
-- The Prospects toolbar toggle ships with Phase 2, when the first prospects exist (§7.3).
-- The 6 first-name-only matches were reviewed on 2026-10-19: 2 linked, 4 are different people (§12.3). The 13 unmatched staff records keep their own team members.
-- The optional lifecycle fields stayed optional while the split's code could clear a person's stage. #122 retired that code early, and the field narrow follows it (§12.9).
+Nothing from Phase 1 is open. Under the ADR's "How a phase runs" (19 October), a phase leaves no deferred items; the three that this section used to hold are settled as follows.
+
+- The Prospects toolbar toggle belongs to Phase 2, which creates the first prospects. It is in the ADR's Phase 2 row and the review's Phase 2 card, not held here (§7.3).
+- The 6 first-name-only matches were reviewed on 2026-10-19: 2 linked, 4 are different people (§12.3). The 13 unmatched staff records keep their own team members, which is their final state: a staff record with no matching user is its own team member by design (D5).
+- The lifecycle fields are required since #123 (§12.9). #122 retired the split's code, which was the only path that could clear a stage.
 
 ### 12.9 Narrow
 
