@@ -199,6 +199,8 @@ Across the tenant, 290 meetings carry the placeholder phone answer, spread over 
 
 ## 5. Migration design
 
+§5.1 to §5.10 are historical. #122 removed the split's pipeline, rollback and verification code, and #126 dropped `leadSplitInviteeSnapshots`, so these procedures can't run again. The §5.0 guards are still live. §5.11 records what is left.
+
 ### 5.0 Prerequisite code fixes (Deploy 1, before any data change)
 
 Without these, the split leads re-pollute on the next booking and the retried deliveries recreate bad keys.
@@ -418,6 +420,8 @@ A rerun after a later approval needs `"reset": true`. A split document only move
 
 ### 5.7 Dry run and idempotency
 
+Historical: this rehearsal ran before the apply. Its code and the snapshot table are gone (§5.11).
+
 - **Dry run.** Every phase-1 to phase-3 function takes `dryRun`. For apply, `preflight` is the dry run that reads real data. The migrations component's `dryRun: true` runs one batch and rolls it back, but the first batch is whichever person comes first in the table, so it shows little.
 - **Rehearsal.** Import a production export into a dev deployment (`npx convex export --prod`, then `npx convex import` on dev) and run the whole pipeline there. Compare the assert results and dashboard totals.
   - Leave `tenantCalendlyConnections` and `slackInstallations` out of the import. Dev runs the token refresh and Slack reminder crons; with production's tokens it would rotate production's refresh tokens and post to the real workspace.
@@ -480,7 +484,7 @@ Started early, on 2026-10-18, instead of after 30 days with clean asserts. #122 
 - delete the staging tables' rows (the snapshot table holds PII)
 - drop the tables
 
-On 2026-10-19 tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` approved deleting the invitee snapshot first: `migrations:deleteLeadSplitInviteeSnapshots` deletes its 145 rows, and a later PR drops the table. The other four tables (`leadSplitPlans`, `leadSplitPersons`, `leadSplitAudit`, `leadPlaceholderCleanups`) hold mostly IDs and stay until 2026-11-16, as a record for any hand repair.
+On 2026-10-19 tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` approved deleting the invitee snapshot first: `migrations:deleteLeadSplitInviteeSnapshots` (#125) ran in production after a dry run, deleted all 145 rows with no error, and left the table empty. The dev deployment held no snapshot rows, no split plans and no audit rows (34 leads, so no production import), and the production log records no rehearsal. #126 then dropped the table and the migration; reverting #126 brings the migration back if another deployment turns out to hold a copy. The other four tables (`leadSplitPlans`, `leadSplitPersons`, `leadSplitAudit`, `leadPlaceholderCleanups`) hold mostly IDs and stay until 2026-11-16, as a record for any hand repair.
 
 ## 6. Cases needing human review
 

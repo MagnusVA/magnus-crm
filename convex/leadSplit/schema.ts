@@ -1,12 +1,11 @@
 import { defineTable } from "convex/server";
 import { v, type Infer } from "convex/values";
 import { opportunityStatusValidator } from "../opportunities/validators";
-import { socialPlatformValidator } from "../lib/socialPlatform";
 
 // Staging tables for the polluted-lead split (docs/plans/polluted-lead-split.md
-// §5.1). They hold the plan and its undo log, and the invitee snapshot holds
-// PII. The split's code is retired (§5.11); the rows stay as its record until
-// a later PR deletes them and drops the tables.
+// §5.1): the plans, the people they separated, the undo log, and the
+// placeholder cleanup record. The split's code is retired (§5.11), and the
+// invitee snapshot is deleted. The rows stay as its record until 2026-11-16.
 
 export const leadSplitTierValidator = v.union(v.literal("A"), v.literal("B"));
 
@@ -116,30 +115,7 @@ export const leadSplitCanonicalValidator = v.object({
   customFieldsMeetingId: v.optional(v.id("meetings")),
 });
 
-export const leadSplitSnapshotOutcomeValidator = v.union(
-  v.literal("ok"),
-  v.literal("not_found"),
-  v.literal("http_error"),
-  v.literal("network_error"),
-  v.literal("invalid_uri"),
-);
-
 export const leadSplitTables = {
-  leadSplitInviteeSnapshots: defineTable({
-    tenantId: v.id("tenants"),
-    meetingId: v.id("meetings"),
-    inviteeUri: v.string(),
-    outcome: leadSplitSnapshotOutcomeValidator,
-    httpStatus: v.optional(v.number()),
-    email: v.optional(v.string()),
-    name: v.optional(v.string()),
-    phone: v.optional(v.string()),
-    social: v.optional(
-      v.object({ platform: socialPlatformValidator, handle: v.string() }),
-    ),
-    fetchedAt: v.number(),
-  }).index("by_meetingId", ["meetingId"]),
-
   leadSplitPlans: defineTable({
     tenantId: v.id("tenants"),
     sourceLeadId: v.id("leads"),
