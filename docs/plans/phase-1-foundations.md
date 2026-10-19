@@ -435,6 +435,15 @@ slackUser nh7cd37qtba87vwev58g8ds9qn8g51wm: v97bs19zmrfs0dccx1pckepdv58gf4w3 -> 
 
 Not linked (first name only): nx7dkjkb9zv2xp3jqb5j2m73cn875j1k nx7acnv2bqt2f6jg3cgjydt37h8758ds nx7fka2vxg7krrfb9s8d58mja1874chf nh71810awzjprf00nbbp8wy1ax86zfx1 nh72hf0r7wkvc4w65sm63bkwqx86yjmq nh78hyyrbz1hmrzk1n9knqzwjh871c79
 
+On 2026-10-19 tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` reviewed the 6 by name. Two Slack users are the same person as the user they matched; their full names add a middle name and a second surname. Both were applied with `applyApprovedLinks`, and the second took several calls to move its events:
+
+```
+slackUser nh71810awzjprf00nbbp8wy1ax86zfx1: v97btb6w5sbak3a2ry3rjzp6698gf3jf -> v97bhwwha0a89vnbk645g25d918gfcrn
+slackUser nh78hyyrbz1hmrzk1n9knqzwjh871c79: v979zkv0ene2ax5sjxh09j9vb98gfk62 -> v97dvk4ekb8s5kv6ymp1fzcsf98gecbc
+```
+
+The other 4 are different people from the user they matched, and stay on their own team members: `nx7dkjkb…`, `nx7acnv2…`, `nx7fka2v…` and `nh72hf0r…`. Both old team members are deleted, with no event left on them, which brings the team members to 73. The five asserts passed again.
+
 ### 12.4 Lifecycle (07:42 to 08:24)
 
 - The dry run processed 25 leads and committed nothing.
@@ -488,7 +497,7 @@ The months match §7.2. The narrow in §12.9 retired the switch.
 ### 12.8 Left for later
 
 - The Prospects toolbar toggle ships with Phase 2, when the first prospects exist (§7.3).
-- 6 first-name-only and 13 unmatched staff records have their own team members until an admin links them.
+- The 6 first-name-only matches were reviewed on 2026-10-19: 2 linked, 4 are different people (§12.3). The 13 unmatched staff records keep their own team members.
 - The optional lifecycle fields stayed optional while the split's code could clear a person's stage. #122 retired that code early, and the field narrow follows it (§12.9).
 
 ### 12.9 Narrow
