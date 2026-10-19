@@ -220,6 +220,16 @@ describe("lead gen capture", () => {
     expect(await harness.t.run((ctx) => ctx.db.query("leadGenSubmissions").take(1))).toEqual([]);
   });
 
+  it("asks for a repair, not a merge, when the handle's identifier points at a missing person", async () => {
+    const harness = await setup();
+    await harness.t.run(async (ctx) => {
+      const leadId = await existingLead(ctx, harness.tenantId, "ana.lead", NOW - 1);
+      await ctx.db.delete("leads", leadId);
+    });
+
+    await expect(capture(harness, "ana.lead")).rejects.toThrow(/needs repair/);
+  });
+
   it("voiding a submission is a touch on the person", async () => {
     const harness = await setup();
     const { submissionId, leadId } = await capture(harness, "ana.lead");

@@ -250,8 +250,9 @@ export const submit = mutation({
 });
 
 /**
- * Links the prospect to its person. A handle that two persons hold can't
- * decide who this is, so the capture fails until an admin merges them.
+ * Links the prospect to its person. A handle that two persons hold, or whose
+ * identifier points at a broken record, can't decide who this is, so the
+ * capture fails until an admin merges or repairs them.
  */
 async function linkProspectPersonForCapture(
   ctx: MutationCtx,
@@ -264,13 +265,15 @@ async function linkProspectPersonForCapture(
     if (!reason) {
       throw error;
     }
-    reportError("lead_gen.capture.identity_conflict", new Error("Lead gen handle matches more than one person"), {
-      fingerprint: "lead_gen.capture.identity_conflict",
+    reportError("lead_gen.capture.identity_blocked", new Error("Lead gen handle can't decide the person"), {
+      fingerprint: `lead_gen.capture.identity_blocked:${reason}`,
       reason,
       prospectId,
     });
     throw new ConvexError(
-      "This handle belongs to more than one person in the CRM. Ask an admin to merge them, then submit again.",
+      reason === "identity_conflict"
+        ? "This handle belongs to more than one person in the CRM. Ask an admin to merge them, then submit again."
+        : "This handle points at a person record that needs repair. Ask an admin to check it, then submit again.",
     );
   }
 }
