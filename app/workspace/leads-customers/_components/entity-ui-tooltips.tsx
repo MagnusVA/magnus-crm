@@ -113,6 +113,8 @@ export const leadsCustomersTooltips = {
 	lifecycle: {
 		all: "Show both leads and converted customers.",
 		lead: "People who have not yet converted to a paying customer.",
+		prospect:
+			"People captured by lead gen or in a DM conversation, not yet qualified. Leads and the leads report leave them out.",
 		customer: "Converted customers with a customer record and payment history.",
 	},
 	columns: {

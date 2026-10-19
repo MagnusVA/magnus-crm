@@ -4,7 +4,6 @@ import { buildOpportunityAttributionPayload } from "../lib/attribution/detailPay
 import { userMemberIdentity } from "../lib/memberIdentity";
 import type { CrmRole } from "../lib/roleMapping";
 import { normalizeOpportunitySource } from "../lib/sideDeals";
-import { buildEntityActivity } from "./activity";
 import {
   canOpenMeetingDetail,
   canOpenOpportunityDetail,
@@ -20,7 +19,6 @@ const MAX_COMMENTS_PER_MEETING = 5;
 const MAX_TOTAL_COMMENTS = 250;
 const MAX_PAYMENTS = 50;
 const MAX_PAYMENTS_PER_OPPORTUNITY = 10;
-const MAX_ACTIVITY = 75;
 
 function compactOpportunity(opportunity: Doc<"opportunities">) {
   return {
@@ -333,14 +331,6 @@ export async function buildEntityDetailPayload(
       );
     },
   );
-  const activity = buildEntityActivity({
-    customer: input.customer,
-    opportunities,
-    meetings,
-    payments: visiblePayments,
-    maxActivity: MAX_ACTIVITY,
-  });
-
   return {
     kind: "detail" as const,
     viewer: {
@@ -354,14 +344,11 @@ export async function buildEntityDetailPayload(
     meetings: compactMeetings,
     comments,
     payments: compactPayments,
-    activity,
     caps: {
       opportunities: input.opportunities.length >= MAX_OPPORTUNITIES,
       meetings: rawMeetings.length > MAX_MEETINGS,
       comments: comments.length >= MAX_TOTAL_COMMENTS,
       payments: rawPayments.length > MAX_PAYMENTS,
-      activity: activity.length >= MAX_ACTIVITY,
-      maxActivity: MAX_ACTIVITY,
     },
   };
 }

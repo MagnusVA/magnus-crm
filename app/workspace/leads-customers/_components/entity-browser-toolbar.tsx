@@ -20,6 +20,11 @@ const lifecycleItems: Array<{
 	{ value: "all", label: "All", tooltip: leadsCustomersTooltips.lifecycle.all },
 	{ value: "lead", label: "Leads", tooltip: leadsCustomersTooltips.lifecycle.lead },
 	{
+		value: "prospect",
+		label: "Prospects",
+		tooltip: leadsCustomersTooltips.lifecycle.prospect,
+	},
+	{
 		value: "customer",
 		label: "Customers",
 		tooltip: leadsCustomersTooltips.lifecycle.customer,
