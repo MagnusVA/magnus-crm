@@ -26,6 +26,7 @@ import { isActiveOpportunityStatus, updateTenantStats } from "./tenantStatsHelpe
 
 export type LifecycleCause =
   | "lead_gen_capture"
+  | "dm_portal"
   | "slack_qualification"
   | "booking"
   | "side_deal"
@@ -301,6 +302,29 @@ export function prospectEvidence(
   return [{ stage: "prospect", at: prospect.firstCapturedAt }];
 }
 
+/**
+ * A DM closer worked the person in the portal: copied a booking link for
+ * them, wrote a note, or edited their profile
+ * (docs/plans/phase-2-person-first.md §4.2).
+ */
+export function portalCopyEvidence(
+  copy: Doc<"linkPortalCopyEvents">,
+): LifecycleEvidence[] {
+  return [{ stage: "in_conversation", at: copy.copiedAt }];
+}
+
+export function portalNoteEvidence(note: Doc<"leadNotes">): LifecycleEvidence[] {
+  return note.authorKind === "dm_closer"
+    ? [{ stage: "in_conversation", at: note.createdAt }]
+    : [];
+}
+
+export function portalEditEvidence(
+  edit: Doc<"linkPortalLeadEdits">,
+): LifecycleEvidence[] {
+  return [{ stage: "in_conversation", at: edit.createdAt }];
+}
+
 export function prospectCaptureEvidence(
   match: Doc<"leadGenAuditMatches">,
   prospect: Doc<"leadGenProspects"> | null,
@@ -541,6 +565,32 @@ export async function collectLifecycleEvidence(
   }
   for (const prospect of await personProspects(ctx, tenantId, leadId)) {
     evidence.push(...prospectEvidence(prospect));
+  }
+  // Only the earliest portal touch can set a time, so one row each.
+  const firstCopy = await ctx.db
+    .query("linkPortalCopyEvents")
+    .withIndex("by_tenantId_and_leadId_and_copiedAt", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
+    .first();
+  if (firstCopy) {
+    evidence.push(...portalCopyEvidence(firstCopy));
+  }
+  const firstEdit = await ctx.db
+    .query("linkPortalLeadEdits")
+    .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
+    .first();
+  if (firstEdit) {
+    evidence.push(...portalEditEvidence(firstEdit));
+  }
+  const notes = bounded(
+    await ctx.db
+      .query("leadNotes")
+      .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
+      .take(DERIVE_READ_LIMIT + 1),
+    "notes",
+    leadId,
+  );
+  for (const note of notes) {
+    evidence.push(...portalNoteEvidence(note));
   }
   return { evidence, opportunities };
 }

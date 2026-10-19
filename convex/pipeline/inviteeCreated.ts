@@ -44,8 +44,9 @@ import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMee
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { buildLeadSearchText } from "../leads/searchTextBuilder";
 import {
-	resolveLeadIdentity,
-  resolveExistingLeadIdentity,
+	bookingLinkPerson,
+	resolveExistingLeadIdentity,
+	resolveLeadIdentityWithLink,
 } from "../leads/identityResolution";
 import {
 	insertMeetingAggregate,
@@ -1114,17 +1115,22 @@ export const process = internalMutation({
 		}
 
 		// === Feature E: Multi-identifier identity resolution ===
-		const resolution = await resolveLeadIdentity(ctx, {
-			tenantId,
-			email: inviteeEmail,
-			fullName: inviteeName,
-			phone: effectivePhone,
-			socialHandle: extractedIdentifiers.socialHandle,
-			identifierSource: "calendly_booking",
-			createdAt: now,
-			createIdentifiers: false,
-			initialLifecycle: { stage: "booked", at: now },
-		});
+		// A DM portal link names its person (docs/plans/phase-2-person-first.md §4.4).
+		const resolution = await resolveLeadIdentityWithLink(
+			ctx,
+			{
+				tenantId,
+				email: inviteeEmail,
+				fullName: inviteeName,
+				phone: effectivePhone,
+				socialHandle: extractedIdentifiers.socialHandle,
+				identifierSource: "calendly_booking",
+				createdAt: now,
+				createIdentifiers: false,
+				initialLifecycle: { stage: "booked", at: now },
+			},
+			await bookingLinkPerson(ctx, tenantId, utmParams),
+		);
 
 		let lead = resolution.lead;
 
@@ -1610,6 +1616,21 @@ export const process = internalMutation({
 				},
 				occurredAt: now,
 			});
+		}
+
+		// A portal link that named someone else: the deal keeps them as a
+		// likely duplicate for an admin to merge (§4.4, D4).
+		if (resolution.potentialDuplicateLeadId) {
+			const target = await ctx.db.get("opportunities", opportunityId);
+			if (
+				target &&
+				target.potentialDuplicateLeadId === undefined &&
+				target.leadId !== resolution.potentialDuplicateLeadId
+			) {
+				await ctx.db.patch("opportunities", opportunityId, {
+					potentialDuplicateLeadId: resolution.potentialDuplicateLeadId,
+				});
+			}
 		}
 
 		const meetingLocation = extractMeetingLocation(scheduledEvent.location);
