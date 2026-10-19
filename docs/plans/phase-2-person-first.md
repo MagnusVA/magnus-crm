@@ -1,6 +1,6 @@
 # Phase 2: person first
 
-Status: plan accepted, 2026-10-19. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11, and the production runs in §9 run without further approval stops. PR 1 (#132) in review; PRs 2 to 4 (#133 to #135) stacked on it.
+Status: plan accepted, 2026-10-19. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11, and the production runs in §9 run without further approval stops. PR 1 (#132) in review; PRs 2 to 5 (#133 to #136) stacked on it. Production runs start once PR 2 deploys.
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (findings F1, F3 and F9) and the Phase 2 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 1 is in [phase-1-foundations.md](phase-1-foundations.md).
 
