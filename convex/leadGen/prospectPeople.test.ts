@@ -414,6 +414,7 @@ describe("prospect backfill", () => {
     expect(result).toMatchObject({ submissionId, duplicateRetry: true });
     expect(result.leadId).toBeDefined();
     expect(prospect?.leadId).toBe(result.leadId);
+    expect(await events(harness, "lead.created")).toMatchObject([{ leadId: result.leadId }]);
   });
 
   it("finds a submission's capture event among many others in the same millisecond", async () => {

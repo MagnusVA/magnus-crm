@@ -69,11 +69,14 @@ export const submit = mutation({
         });
         // A prospect the link backfill hasn't reached gets its person now.
         const existingProspect = await ctx.db.get("leadGenProspects", existingSubmission.prospectId);
-        const leadId =
-          existingProspect?.leadId ??
-          (existingProspect
-            ? (await linkProspectPersonForCapture(ctx, existingProspect._id)).leadId
-            : undefined);
+        let leadId = existingProspect?.leadId;
+        if (existingProspect && !leadId) {
+          const person = await linkProspectPersonForCapture(ctx, existingProspect._id);
+          if (person.created) {
+            await emitLeadCreated(ctx, access.tenantId, person.leadId, access.userId, now);
+          }
+          leadId = person.leadId;
+        }
         return {
           submissionId: existingSubmission._id,
           prospectId: existingSubmission.prospectId,
@@ -166,16 +169,7 @@ export const submit = mutation({
     // touch on their timeline.
     const person = await linkProspectPersonForCapture(ctx, prospect._id);
     if (person.created) {
-      await emitDomainEvent(ctx, {
-        tenantId: access.tenantId,
-        entityType: "lead",
-        entityId: person.leadId,
-        eventType: "lead.created",
-        source: "pipeline",
-        actorUserId: access.userId,
-        toStatus: "active",
-        occurredAt: now,
-      });
+      await emitLeadCreated(ctx, access.tenantId, person.leadId, access.userId, now);
     }
     const submission = await ctx.db.get("leadGenSubmissions", submissionId);
     if (!submission) {
@@ -282,6 +276,26 @@ async function linkProspectPersonForCapture(
         : "This handle points at a person record that needs repair. Ask an admin to check it, then submit again.",
     );
   }
+}
+
+/** A capture created the person, as the other channels record it. */
+async function emitLeadCreated(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  leadId: Id<"leads">,
+  actorUserId: Id<"users">,
+  at: number,
+) {
+  await emitDomainEvent(ctx, {
+    tenantId,
+    entityType: "lead",
+    entityId: leadId,
+    eventType: "lead.created",
+    source: "pipeline",
+    actorUserId,
+    toStatus: "active",
+    occurredAt: at,
+  });
 }
 
 /** Posts to the tenant's lead gen Slack channel, when one is configured. */
