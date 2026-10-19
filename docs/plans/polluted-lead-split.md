@@ -475,14 +475,10 @@ The code is in `convex/leadSplit/verify.ts`. Run the checks after the apply migr
 
 ### 5.11 Narrow (Deploy 3)
 
-Started early, on 2026-10-18: #122 removes the split lock, the `leads.splitLockedAt` field, the migration definitions and the rest of the split's code. The staging tables and their rows remain, for the steps below.
+Started early, on 2026-10-18, instead of after 30 days with clean asserts. #122 removed the split lock and the `leads.splitLockedAt` field (no lead had it), the migration definitions, and the rest of the split's code, `verifyTenant` and `assertIdentifierMeetingConsistency` included. Remaining:
 
-- After 30 days with clean asserts:
-  - delete the staging tables' rows (the snapshot table holds PII)
-  - drop the tables
-  - remove the split-lock check and the `leads.splitLockedAt` field (deprecate it first, then remove it once no document has it)
-  - remove the migration definitions
-- Keep `assertIdentifierMeetingConsistency` as a scheduled health check, or turn it into an operations health banner item.
+- delete the staging tables' rows (the snapshot table holds PII)
+- drop the tables
 
 ## 6. Cases needing human review
 
