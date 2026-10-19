@@ -38,10 +38,20 @@ function dotClass(eventType: string) {
 export function EntityActivitySection() {
 	const { lead } = useEntityDetail();
 	const [limit, setLimit] = useState(PAGE_SIZE);
-	const timeline = useQuery(api.leadCustomers.timeline.getLeadTimeline, {
+	const latest = useQuery(api.leadCustomers.timeline.getLeadTimeline, {
 		leadId: lead._id,
 		limit,
 	});
+	// Keeps the entries on screen while "Show older" loads a bigger page.
+	const [shown, setShown] = useState<{ leadId: string; data: typeof latest }>({
+		leadId: lead._id,
+		data: undefined,
+	});
+	if (latest !== undefined && (shown.data !== latest || shown.leadId !== lead._id)) {
+		setShown({ leadId: lead._id, data: latest });
+	}
+	const timeline =
+		latest ?? (shown.leadId === lead._id ? shown.data : undefined);
 	const entries = timeline?.entries ?? [];
 
 	return (
@@ -101,6 +111,11 @@ export function EntityActivitySection() {
 							</li>
 						))}
 					</ol>
+					{timeline?.capped ? (
+						<p className="text-xs text-muted-foreground">
+							Older events aren&apos;t shown.
+						</p>
+					) : null}
 					{timeline?.hasMore ? (
 						<Button
 							type="button"

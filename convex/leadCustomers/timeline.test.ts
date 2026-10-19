@@ -101,6 +101,46 @@ async function run(h: Harness, name: string, reset = false) {
   return status;
 }
 
+describe("person timeline across merges and limits", () => {
+  it("includes events of a lead merged into one that was merged in later", async () => {
+    const h = await setup();
+    await qualify(h, "ana.first", NOW - 3_000);
+    await qualify(h, "ana.second", NOW - 2_000);
+    await qualify(h, "ana.third", NOW - 1_000);
+    const [first, second, third] = await h.t.run(async (ctx) =>
+      (await ctx.db.query("leads").take(3)).map((lead) => lead._id),
+    );
+
+    await h.admin.mutation(api.leads.merge.mergeLead, { sourceLeadId: first, targetLeadId: second });
+    await h.admin.mutation(api.leads.merge.mergeLead, { sourceLeadId: second, targetLeadId: third });
+    await h.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const touches = (await timeline(h, third)).filter((entry) => entry.eventType === "lead.slack_qualified");
+    expect(touches).toHaveLength(3);
+  });
+
+  it("stops offering older events at the largest page, and says so", async () => {
+    const h = await setup();
+    await qualify(h, "ana.lead", NOW - 1_000);
+    const leadId = await h.t.run(async (ctx) => {
+      const lead = (await ctx.db.query("leads").first())!;
+      for (let i = 0; i < 1_005; i++) {
+        await ctx.db.insert("domainEvents", {
+          tenantId: h.tenantId, entityType: "lead", entityId: lead._id, eventType: "lead.portal_note_added",
+          occurredAt: NOW - 100_000 - i, source: "pipeline", leadId: lead._id,
+        });
+      }
+      return lead._id;
+    });
+
+    const page = await h.admin.query(api.leadCustomers.timeline.getLeadTimeline, { leadId, limit: 100 });
+    const largest = await h.admin.query(api.leadCustomers.timeline.getLeadTimeline, { leadId, limit: 5_000 });
+
+    expect(page).toMatchObject({ hasMore: true, capped: false, limit: 100 });
+    expect(largest).toMatchObject({ hasMore: false, capped: true, limit: 1_000 });
+  });
+});
+
 describe("Slack touches", () => {
   it("records a touch for every qualification, including one that joins an open deal", async () => {
     const h = await setup();

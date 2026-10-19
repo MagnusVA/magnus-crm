@@ -5,6 +5,11 @@ import { LIFECYCLE_STAGE_LABELS, type LifecycleStage } from "../leads/lifecycle"
 import { EVENT_LABELS } from "../reporting/lib/eventLabels";
 import { getUserDisplayName } from "../reporting/lib/helpers";
 import { requireTenantUser } from "../requireTenantUser";
+import {
+  createLiveReadState,
+  LIVE_QUERY_BYTE_BUDGET,
+  readLiveQueryRows,
+} from "../lib/liveQueryBounds";
 import { canViewPaymentDetail, isAdminRole } from "./permissions";
 
 // One timeline per person, read from `domainEvents` by `leadId`
@@ -141,11 +146,42 @@ const timelineEntryValidator = v.object({
   detail: v.union(v.string(), v.null()),
 });
 
+/**
+ * The person and every lead merged into them, following earlier merges too:
+ * a merge doesn't repoint the history rows of leads merged into its source.
+ */
+async function mergedLeadIds(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  leadId: Id<"leads">,
+): Promise<Id<"leads">[]> {
+  const leadIds: Id<"leads">[] = [leadId];
+  for (let index = 0; index < leadIds.length && leadIds.length < MERGED_SOURCE_LIMIT; index += 1) {
+    const merges = await ctx.db
+      .query("leadMergeHistory")
+      .withIndex("by_targetLeadId", (q) => q.eq("targetLeadId", leadIds[index]))
+      .take(MERGED_SOURCE_LIMIT);
+    for (const merge of merges) {
+      if (merge.tenantId === tenantId && !leadIds.includes(merge.sourceLeadId) && leadIds.length < MERGED_SOURCE_LIMIT) {
+        leadIds.push(merge.sourceLeadId);
+      }
+    }
+  }
+  return leadIds;
+}
+
 export const getLeadTimeline = query({
   args: { leadId: v.id("leads"), limit: v.optional(v.number()) },
   returns: v.union(
     v.null(),
-    v.object({ entries: v.array(timelineEntryValidator), hasMore: v.boolean(), limit: v.number() }),
+    v.object({
+      entries: v.array(timelineEntryValidator),
+      hasMore: v.boolean(),
+      // The read stopped at its byte budget or the largest page, so older
+      // events exist that the page doesn't show.
+      capped: v.boolean(),
+      limit: v.number(),
+    }),
   ),
   handler: async (ctx, { leadId, limit }) => {
     const { tenantId, userId, role } = await requireTenantUser(ctx, [
@@ -159,25 +195,41 @@ export const getLeadTimeline = query({
     }
     const pageLimit = Math.min(Math.max(1, Math.floor(limit ?? TIMELINE_PAGE_SIZE)), TIMELINE_MAX_LIMIT);
 
-    const merges = await ctx.db
-      .query("leadMergeHistory")
-      .withIndex("by_targetLeadId", (q) => q.eq("targetLeadId", leadId))
-      .take(MERGED_SOURCE_LIMIT);
-    const leadIds = [leadId, ...merges.filter((merge) => merge.tenantId === tenantId).map((merge) => merge.sourceLeadId)];
-
-    const perLead = await Promise.all(
-      leadIds.map((id) =>
+    // One byte budget for the whole read; each lead reads at most a page.
+    let bytesLeft = LIVE_QUERY_BYTE_BUDGET;
+    let moreEvents = false;
+    let budgetHit = false;
+    const events: Doc<"domainEvents">[] = [];
+    for (const id of await mergedLeadIds(ctx, tenantId, leadId)) {
+      if (bytesLeft <= 0) {
+        budgetHit = true;
+        break;
+      }
+      const state = createLiveReadState();
+      const read = await readLiveQueryRows(
         ctx.db
           .query("domainEvents")
           .withIndex("by_tenantId_and_leadId_and_occurredAt", (q) => q.eq("tenantId", tenantId).eq("leadId", id))
-          .order("desc")
-          .take(pageLimit + 1),
-      ),
+          .order("desc"),
+        pageLimit,
+        state,
+        bytesLeft,
+      );
+      bytesLeft -= state.bytesRead;
+      events.push(...read.rows);
+      if (read.capped) {
+        if (read.rows.length >= pageLimit) {
+          moreEvents = true;
+        } else {
+          budgetHit = true;
+        }
+      }
+    }
+    const merged = events.sort(
+      (left, right) => right.occurredAt - left.occurredAt || right._creationTime - left._creationTime,
     );
-    const merged = perLead
-      .flat()
-      .sort((left, right) => right.occurredAt - left.occurredAt || right._creationTime - left._creationTime);
-    const hasMore = merged.length > pageLimit;
+    moreEvents ||= merged.length > pageLimit;
+    const atLargestPage = pageLimit >= TIMELINE_MAX_LIMIT;
 
     const names = new Map<string, string | null>();
     const entries: TimelineEntry[] = [];
@@ -193,6 +245,11 @@ export const getLeadTimeline = query({
         ...describe(event),
       });
     }
-    return { entries, hasMore, limit: pageLimit };
+    return {
+      entries,
+      hasMore: moreEvents && !budgetHit && !atLargestPage,
+      capped: budgetHit || (moreEvents && atLargestPage),
+      limit: pageLimit,
+    };
   },
 });
