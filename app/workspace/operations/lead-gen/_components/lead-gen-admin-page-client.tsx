@@ -28,6 +28,7 @@ import {
 } from "../../_components/use-operations-report-job";
 import { LeadGenFilterBar } from "./lead-gen-filter-bar";
 import { LeadGenSummaryCards } from "./lead-gen-summary-cards";
+import { ProspectConversionTable } from "./prospect-conversion-table";
 import { RawSubmissionsTable } from "./raw-submissions-table";
 import { SpecialistPerformanceTable } from "./specialist-performance-table";
 import { TopOriginsTable } from "./top-origins-table";
@@ -74,6 +75,11 @@ export function LeadGenAdminPageClient() {
 		api.leadGen.reporting.listTopOriginsByTeam,
 		needsSnapshot || overview === undefined ? "skip" : { ...filters, limitPerTeam: 10, sortBy: "submissions" },
 	);
+	// Counted from an aggregate, so it stays live for any range.
+	const conversions = useQuery(api.leadGen.conversions.listProspectConversions, {
+		startDayKey: filters.startDayKey,
+		endDayKey: filters.endDayKey,
+	});
 	const snapshot = useOperationsDashboardReport({
 		reportKind: "lead-gen",
 		range: queryRange,
@@ -162,6 +168,7 @@ export function LeadGenAdminPageClient() {
 
 			<LeadGenSummaryCards data={displayOverview} specialistCount={displayWorkers?.length} />
 			<SpecialistPerformanceTable rows={displayWorkers} teams={displayTeams} />
+			<ProspectConversionTable rows={conversions} />
 			<TopOriginsTable groups={displayOrigins} />
 
 			<RawSubmissionsTable filters={filters} />
