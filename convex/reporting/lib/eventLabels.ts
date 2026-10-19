@@ -32,6 +32,14 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "expired a follow-up",
     iconHint: "calendar-x-2",
   },
+  "lead.captured": {
+    verb: "captured a prospect",
+    iconHint: "user-round-plus",
+  },
+  "lead.capture_voided": {
+    verb: "voided a lead gen capture",
+    iconHint: "user-x",
+  },
   "lead.created": {
     verb: "created a lead",
     iconHint: "user-plus",

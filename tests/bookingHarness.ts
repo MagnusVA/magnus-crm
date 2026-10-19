@@ -6,14 +6,8 @@ import { convexTestModules } from "../convex/test.setup";
 import type { Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
 
-// `transactionLimits: true` makes every function fail the way a deployment
-// would when it exceeds Convex's per-transaction read and write limits.
-export async function bookingHarness(options: { transactionLimits?: boolean } = {}) {
-  const t = convexTest({
-    schema,
-    modules: convexTestModules,
-    transactionLimits: options.transactionLimits ?? false,
-  });
+/** Registers the workpools and aggregates the app mounts. */
+export function registerComponents(t: ReturnType<typeof convexTest>) {
   for (const name of ["webhookWorkpool", "reportingWorkpool"])
     workpool.register(t, name);
   for (const name of [
@@ -31,6 +25,17 @@ export async function bookingHarness(options: { transactionLimits?: boolean } = 
     "billingPaymentsByStatusProgramType",
   ])
     aggregate.register(t, name);
+}
+
+// `transactionLimits: true` makes every function fail the way a deployment
+// would when it exceeds Convex's per-transaction read and write limits.
+export async function bookingHarness(options: { transactionLimits?: boolean } = {}) {
+  const t = convexTest({
+    schema,
+    modules: convexTestModules,
+    transactionLimits: options.transactionLimits ?? false,
+  });
+  registerComponents(t);
   const tenantId = await t.run(async (ctx) => {
     const tenantId = await ctx.db.insert("tenants", {
       companyName: "Test",

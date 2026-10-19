@@ -16,6 +16,7 @@ import {
 } from "../leads/lifecycle";
 import { leadStageEntries } from "../reporting/aggregates";
 import { emitDomainEvent, type DomainEventSource } from "./domainEvents";
+import { personProspects, syncPersonProspectConversions } from "./prospectConversions";
 import { isActiveOpportunityStatus, updateTenantStats } from "./tenantStatsHelper";
 
 // Writes a person's lifecycle stage and disposition, with the aggregate
@@ -137,6 +138,12 @@ async function writeLifecycle(
     ...write.extraPatch,
   });
   await syncLeadStageEntries(ctx, lead.tenantId, lead._id, before, after);
+  await syncPersonProspectConversions(ctx, {
+    ...lead,
+    ...write.extraPatch,
+    lifecycleStage: after.stage,
+    lifecycleStageEnteredAt: after.enteredAt,
+  });
 
   const wasProspect = isProspectStage(before.stage);
   const isProspect = isProspectStage(after.stage);
@@ -285,6 +292,13 @@ export function customerEvidence(
   customer: Doc<"customers">,
 ): LifecycleEvidence[] {
   return [{ stage: "customer", at: customer.convertedAt }];
+}
+
+/** Lead gen captured the person (docs/plans/phase-2-person-first.md §4.2). */
+export function prospectEvidence(
+  prospect: Doc<"leadGenProspects">,
+): LifecycleEvidence[] {
+  return [{ stage: "prospect", at: prospect.firstCapturedAt }];
 }
 
 export function prospectCaptureEvidence(
@@ -524,6 +538,9 @@ export async function collectLifecycleEvidence(
   for (const match of matches) {
     const prospect = await ctx.db.get("leadGenProspects", match.prospectId);
     evidence.push(...prospectCaptureEvidence(match, prospect));
+  }
+  for (const prospect of await personProspects(ctx, tenantId, leadId)) {
+    evidence.push(...prospectEvidence(prospect));
   }
   return { evidence, opportunities };
 }

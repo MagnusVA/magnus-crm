@@ -8,10 +8,11 @@ import {
 } from "../lib/slackBlockKit";
 import schema from "../schema";
 import { convexTestModules } from "../test.setup";
-import { qualifiedLifecycle } from "../../tests/bookingHarness";
+import { qualifiedLifecycle, registerComponents } from "../../tests/bookingHarness";
 
 async function fixture(options: { leadGenChannelId?: string } = {}) {
   const t = convexTest(schema, convexTestModules);
+  registerComponents(t);
   const ids = await t.run(async (ctx) => {
     const tenantId = await ctx.db.insert("tenants", {
       companyName: "Slack test", contactEmail: "test@example.test", workosOrgId: "org_slack",

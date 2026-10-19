@@ -1,3 +1,4 @@
+import { ConvexError } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, type MutationCtx } from "../_generated/server";
@@ -17,6 +18,9 @@ import {
 } from "./aggregates";
 import { resolveLeadGenTeamIdForWrite } from "./sharedTeams";
 import { linkLeadGenWorkerTeamMember } from "../lib/teamMembers";
+import { emitDomainEvent } from "../lib/domainEvents";
+import { blockedReason } from "../pipeline/blocked";
+import { emitCaptureEvent, linkProspectPerson } from "./prospectPeople";
 
 const MAX_CLIENT_SUBMISSION_KEY_LENGTH = 200;
 type LeadGenSource = Doc<"leadGenSubmissions">["source"];
@@ -63,9 +67,20 @@ export const submit = mutation({
           workerId: worker._id,
           submissionId: existingSubmission._id,
         });
+        // A prospect the link backfill hasn't reached gets its person now.
+        const existingProspect = await ctx.db.get("leadGenProspects", existingSubmission.prospectId);
+        let leadId = existingProspect?.leadId;
+        if (existingProspect && !leadId) {
+          const person = await linkProspectPersonForCapture(ctx, existingProspect._id);
+          if (person.created) {
+            await emitLeadCreated(ctx, access.tenantId, person.leadId, access.userId, now);
+          }
+          leadId = person.leadId;
+        }
         return {
           submissionId: existingSubmission._id,
           prospectId: existingSubmission.prospectId,
+          leadId,
           duplicateRetry: true,
           duplicateProspect: false,
         };
@@ -149,6 +164,19 @@ export const submit = mutation({
       createdAt: now,
     });
 
+    // The prospect is a person, found by handle or created at Prospect
+    // (docs/plans/phase-2-person-first.md §4.1), and each submission is a
+    // touch on their timeline.
+    const person = await linkProspectPersonForCapture(ctx, prospect._id);
+    if (person.created) {
+      await emitLeadCreated(ctx, access.tenantId, person.leadId, access.userId, now);
+    }
+    const submission = await ctx.db.get("leadGenSubmissions", submissionId);
+    if (!submission) {
+      throw new Error("Submission insert failed");
+    }
+    await emitCaptureEvent(ctx, submission, person.leadId);
+
     await ctx.db.patch("leadGenProspects", prospect._id, {
       lastSubmittedByWorkerId: worker._id,
       lastSubmittedAt: now,
@@ -214,11 +242,61 @@ export const submit = mutation({
     return {
       submissionId,
       prospectId: prospect._id,
+      leadId: person.leadId,
       duplicateRetry: false,
       duplicateProspect,
     };
   },
 });
+
+/**
+ * Links the prospect to its person. A handle that two persons hold, or whose
+ * identifier points at a broken record, can't decide who this is, so the
+ * capture fails until an admin merges or repairs them.
+ */
+async function linkProspectPersonForCapture(
+  ctx: MutationCtx,
+  prospectId: Id<"leadGenProspects">,
+) {
+  try {
+    return await linkProspectPerson(ctx, prospectId);
+  } catch (error) {
+    const reason = blockedReason(error);
+    if (!reason) {
+      throw error;
+    }
+    reportError("lead_gen.capture.identity_blocked", new Error("Lead gen handle can't decide the person"), {
+      fingerprint: `lead_gen.capture.identity_blocked:${reason}`,
+      reason,
+      prospectId,
+    });
+    throw new ConvexError(
+      reason === "identity_conflict"
+        ? "This handle belongs to more than one person in the CRM. Ask an admin to merge them, then submit again."
+        : "This handle points at a person record that needs repair. Ask an admin to check it, then submit again.",
+    );
+  }
+}
+
+/** A capture created the person, as the other channels record it. */
+async function emitLeadCreated(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  leadId: Id<"leads">,
+  actorUserId: Id<"users">,
+  at: number,
+) {
+  await emitDomainEvent(ctx, {
+    tenantId,
+    entityType: "lead",
+    entityId: leadId,
+    eventType: "lead.created",
+    source: "pipeline",
+    actorUserId,
+    toStatus: "active",
+    occurredAt: at,
+  });
+}
 
 /** Posts to the tenant's lead gen Slack channel, when one is configured. */
 async function scheduleSlackLeadGenNotification(

@@ -12,6 +12,16 @@ import { components, internal } from "./_generated/api";
 import type { DataModel, Id } from "./_generated/dataModel";
 import { deriveStoredEventLinks, storedLeadIdMatches } from "./lib/domainEventLinks";
 import { lifecycleProblems } from "./lib/leadLifecycle";
+import { normalizeSocialHandle } from "./lib/normalization";
+import { prospectConversionProblems } from "./lib/prospectConversions";
+import {
+  LEAD_CAPTURED,
+  LEAD_CAPTURE_VOIDED,
+  emitCaptureEvent,
+  emitCaptureVoidedEvent,
+  linkProspectPerson,
+  submissionEvents,
+} from "./leadGen/prospectPeople";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import {
   ensureUserTeamMember,
@@ -526,6 +536,97 @@ export const assertDomainEventLinks = migrations.define({
     }
     if (event.teamMemberId !== derived.teamMemberId && derived.teamMemberId !== undefined) {
       throw new Error(`Event ${event._id} has team member ${event.teamMemberId}, expected ${derived.teamMemberId}`);
+    }
+  },
+});
+
+// Phase 2 (docs/plans/phase-2-person-first.md §10). Run one at a time, in
+// order: linkProspectPeople (dry run first), assertProspectPeople,
+// backfillCaptureEvents, assertCaptureEvents, then assertLeadLifecycle with
+// "reset". The narrow removes these four.
+
+// Small batches: a new person writes the lead, its identifier, search row,
+// stage entry and six conversion entries.
+export const linkProspectPeople = migrations.define({
+  table: "leadGenProspects", batchSize: 50,
+  migrateOne: async (ctx, prospect) => {
+    if (!prospect.leadId) await linkProspectPerson(ctx, prospect._id);
+  },
+});
+
+async function prospectPersonProblems(
+  ctx: MutationCtx,
+  prospect: DataModel["leadGenProspects"]["document"],
+): Promise<string[]> {
+  if (!prospect.leadId) return ["no person"];
+  const lead = await ctx.db.get("leads", prospect.leadId);
+  if (!lead || lead.tenantId !== prospect.tenantId) return [`person ${prospect.leadId} is missing or in another tenant`];
+  const problems: string[] = [];
+  if (lead.status === "merged") problems.push(`person ${lead._id} is merged`);
+  const handle = normalizeSocialHandle(prospect.normalizedHandle, "instagram");
+  if (handle) {
+    const identifiers = await ctx.db
+      .query("leadIdentifiers")
+      .withIndex("by_tenantId_and_type_and_value", (q) =>
+        q.eq("tenantId", prospect.tenantId).eq("type", "instagram").eq("value", handle),
+      )
+      .take(10);
+    const match = prospect.currentAuditMatchId
+      ? await ctx.db.get("leadGenAuditMatches", prospect.currentAuditMatchId)
+      : null;
+    const holdsHandle = identifiers.some((identifier) => identifier.leadId === lead._id);
+    const isMatchLead = match?.matchStatus === "accepted" && match.leadId === lead._id;
+    if (!holdsHandle && !isMatchLead) problems.push(`person ${lead._id} neither holds the handle nor is the audit match's lead`);
+  }
+  if ((lead.lifecycleStageEnteredAt.prospect ?? Number.POSITIVE_INFINITY) > prospect.firstCapturedAt) {
+    problems.push(`person ${lead._id} entered Prospect after the first capture`);
+  }
+  problems.push(...(await prospectConversionProblems(ctx, prospect, lead)));
+  return problems;
+}
+
+export const assertProspectPeople = migrations.define({
+  table: "leadGenProspects", batchSize: 100,
+  migrateOne: async (ctx, prospect) => {
+    const problems = await prospectPersonProblems(ctx, prospect);
+    if (problems.length > 0) throw new Error(`Prospect ${prospect._id}: ${problems.join("; ")}`);
+  },
+});
+
+// Writes past events, so PostHog is skipped. Run after linkProspectPeople.
+export const backfillCaptureEvents = migrations.define({
+  table: "leadGenSubmissions", batchSize: 200,
+  migrateOne: async (ctx, submission) => {
+    const prospect = await ctx.db.get("leadGenProspects", submission.prospectId);
+    if (!prospect?.leadId) return;
+    if ((await submissionEvents(ctx, submission, LEAD_CAPTURED, submission.submittedAt)).length === 0) {
+      await emitCaptureEvent(ctx, submission, prospect.leadId, { skipAnalytics: true });
+    }
+    if (
+      submission.voidedAt !== undefined &&
+      (await submissionEvents(ctx, submission, LEAD_CAPTURE_VOIDED, submission.voidedAt)).length === 0
+    ) {
+      await emitCaptureVoidedEvent(ctx, submission, prospect.leadId, { skipAnalytics: true });
+    }
+  },
+});
+
+export const assertCaptureEvents = migrations.define({
+  table: "leadGenSubmissions", batchSize: 200,
+  migrateOne: async (ctx, submission) => {
+    const prospect = await ctx.db.get("leadGenProspects", submission.prospectId);
+    if (!prospect?.leadId) throw new Error(`Submission ${submission._id}: prospect has no person`);
+    const checks: Array<[typeof LEAD_CAPTURED | typeof LEAD_CAPTURE_VOIDED, number | undefined]> = [
+      [LEAD_CAPTURED, submission.submittedAt],
+      [LEAD_CAPTURE_VOIDED, submission.voidedAt],
+    ];
+    for (const [eventType, at] of checks) {
+      if (at === undefined) continue;
+      const events = await submissionEvents(ctx, submission, eventType, at);
+      if (events.length !== 1) throw new Error(`Submission ${submission._id}: ${events.length} ${eventType} events`);
+      if (!(await storedLeadIdMatches(ctx, events[0].leadId, prospect.leadId))) {
+        throw new Error(`Submission ${submission._id}: ${eventType} event names ${events[0].leadId}, not ${prospect.leadId}`);
+      }
     }
   },
 });

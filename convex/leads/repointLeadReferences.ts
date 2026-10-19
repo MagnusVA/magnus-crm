@@ -30,6 +30,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
+import { syncProspectConversions } from "../lib/prospectConversions";
 import { rebuildQualificationRow } from "../operations/projections";
 import { replaceMeetingAggregate } from "../reporting/writeHooks";
 
@@ -478,8 +479,11 @@ export async function moveTouchRowsPage(
       q.eq("tenantId", tenantId).eq("leadId", fromLeadId),
     )
     .take(limit);
+  const toLead = prospects.length > 0 ? await ctx.db.get("leads", toLeadId) : null;
   for (const prospect of prospects) {
     await ctx.db.patch("leadGenProspects", prospect._id, { leadId: toLeadId, updatedAt: now });
+    // The prospect now counts toward the target's stages.
+    await syncProspectConversions(ctx, { ...prospect, leadId: toLeadId, updatedAt: now }, toLead);
   }
   const copyEvents = await ctx.db
     .query("linkPortalCopyEvents")
