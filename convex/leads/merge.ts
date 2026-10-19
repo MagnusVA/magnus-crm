@@ -12,6 +12,7 @@ import {
   moveOpportunityToLead,
   moveRemainingLeadRows,
 } from "./repointLeadReferences";
+import { syncPersonProspectConversions } from "../lib/prospectConversions";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { countsAsLead, mergeLeadLifecycle } from "../lib/leadLifecycle";
 import { rejectRequest } from "../lib/observability/errors";
@@ -552,6 +553,11 @@ async function executeMerge(
   });
 
   await mergeLeadLifecycle(ctx, sourceLead, targetLeadId, userId);
+  // The moved prospects now count toward the target's stages.
+  const mergedTarget = await ctx.db.get("leads", targetLeadId);
+  if (mergedTarget) {
+    await syncPersonProspectConversions(ctx, mergedTarget);
+  }
   await ctx.db.patch("leads", sourceLeadId, {
     status: "merged",
     mergedIntoLeadId: targetLeadId,

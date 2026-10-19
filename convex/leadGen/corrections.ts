@@ -3,6 +3,7 @@ import { mutation } from "../_generated/server";
 import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 import { applyLeadGenAggregateDelta } from "./aggregates";
+import { emitCaptureVoidedEvent } from "./prospectPeople";
 
 const MIN_CORRECTION_REASON_LENGTH = 3;
 const MAX_CORRECTION_REASON_LENGTH = 1000;
@@ -66,6 +67,13 @@ export const voidSubmission = mutation({
       voidedByUserId: userId,
       voidReason: reason,
     });
+
+    // The void is a touch on the person's timeline. A prospect the link
+    // backfill hasn't reached gets it from the capture backfill.
+    const prospect = await ctx.db.get("leadGenProspects", submission.prospectId);
+    if (prospect?.leadId) {
+      await emitCaptureVoidedEvent(ctx, afterSnapshot, prospect.leadId);
+    }
 
     await ctx.db.insert("leadGenCorrectionEvents", {
       tenantId,
