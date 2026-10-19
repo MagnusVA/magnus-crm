@@ -48,7 +48,12 @@ export function PersonHandleField({
 		let cancelled = false;
 		const timeoutId = window.setTimeout(async () => {
 			onLookup({ status: "checking" });
-			const result = await lookupPortalPerson(portalSlug, handle);
+			let result: PersonLookupState;
+			try {
+				result = await lookupPortalPerson(portalSlug, handle);
+			} catch {
+				result = { status: "error", message: "Could not look up the handle. Try again." };
+			}
 			if (!cancelled) {
 				onLookup(result);
 			}

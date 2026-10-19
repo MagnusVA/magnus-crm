@@ -24,6 +24,8 @@ import {
 } from "./leadSession";
 
 const SEARCH_RESULT_LIMIT = 20;
+// Matches `followMergeChain` in leads/identityResolution.ts.
+const MERGE_CHAIN_LIMIT = 5;
 const NOTES_RESULT_LIMIT = 50;
 // Raw rows scanned per lead for the "20+" note count; must comfortably exceed
 // PORTAL_LEAD_NOTE_COUNT_CAP + 1 so soft-deleted rows can't deflate the count.
@@ -174,9 +176,17 @@ export const lookupPersonForSession = internalQuery({
       .take(5);
     const leadIds = new Set<Id<"leads">>();
     for (const identifier of identifiers) {
-      const lead = await ctx.db.get("leads", identifier.leadId);
-      if (lead && lead.tenantId === args.tenantId) {
-        leadIds.add(lead.status === "merged" && lead.mergedIntoLeadId ? lead.mergedIntoLeadId : lead._id);
+      // Follows merges as far as the copy does (`followMergeChain`).
+      let lead = await ctx.db.get("leads", identifier.leadId);
+      for (
+        let hops = 0;
+        lead && lead.status === "merged" && lead.mergedIntoLeadId && hops < MERGE_CHAIN_LIMIT;
+        hops += 1
+      ) {
+        lead = await ctx.db.get("leads", lead.mergedIntoLeadId);
+      }
+      if (lead && lead.tenantId === args.tenantId && lead.status !== "merged") {
+        leadIds.add(lead._id);
       }
     }
     if (leadIds.size > 1) {

@@ -581,16 +581,18 @@ export async function collectLifecycleEvidence(
   if (firstEdit) {
     evidence.push(...portalEditEvidence(firstEdit));
   }
-  const notes = bounded(
-    await ctx.db
-      .query("leadNotes")
-      .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
-      .take(DERIVE_READ_LIMIT + 1),
-    "notes",
-    leadId,
-  );
-  for (const note of notes) {
-    evidence.push(...portalNoteEvidence(note));
+  // Notes come in creation order, so the first DM closer note is the
+  // earliest; other notes before it don't count, and only a read that ends
+  // without one is partial.
+  const notes = await ctx.db
+    .query("leadNotes")
+    .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
+    .take(DERIVE_READ_LIMIT + 1);
+  const firstPortalNote = notes.find((note) => portalNoteEvidence(note).length > 0);
+  if (firstPortalNote) {
+    evidence.push(...portalNoteEvidence(firstPortalNote));
+  } else {
+    bounded(notes, "notes", leadId);
   }
   return { evidence, opportunities };
 }

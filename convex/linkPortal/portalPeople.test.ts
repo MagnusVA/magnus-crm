@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
-import { syncLeadStageEntries } from "../lib/leadLifecycle";
+import { collectLifecycleEvidence, syncLeadStageEntries } from "../lib/leadLifecycle";
 import { migrations } from "../migrations";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 
@@ -169,6 +169,53 @@ describe("DM portal copy", () => {
 
     const lead = await h.t.run((ctx) => ctx.db.get("leads", leadId));
     expect(lead?.lifecycleStage).toBe("qualified");
+  });
+
+  it("looks a handle up through a chain of merges, as the copy does", async () => {
+    const h = await setup();
+    const survivorId = await existingPerson(h, {});
+    await h.t.run(async (ctx) => {
+      const middleId = await ctx.db.insert("leads", {
+        tenantId: h.tenantId, status: "merged", mergedIntoLeadId: survivorId, firstSeenAt: 0, updatedAt: 0,
+        lifecycleStage: "qualified", lifecycleStageEnteredAt: { qualified: 0 }, disposition: "open",
+      });
+      const firstId = await ctx.db.insert("leads", {
+        tenantId: h.tenantId, status: "merged", mergedIntoLeadId: middleId, firstSeenAt: 0, updatedAt: 0,
+        lifecycleStage: "qualified", lifecycleStageEnteredAt: { qualified: 0 }, disposition: "open",
+      });
+      await ctx.db.insert("leadIdentifiers", {
+        tenantId: h.tenantId, leadId: firstId, type: "instagram", value: "ana.lead", rawValue: "ana.lead",
+        source: "manual_entry", confidence: "verified", createdAt: 0,
+      });
+    });
+
+    const lookup = await h.t.query(internal.linkPortal.leadQueries.lookupPersonForSession, {
+      tenantId: h.tenantId, publicSlug: PORTAL_SLUG, sessionVersion: 1, instagramHandle: "ana.lead",
+    });
+
+    expect(lookup).toMatchObject({ status: "found", stageLabel: "Qualified" });
+    expect((await copy(h, "ana.lead")).leadId).toBe(survivorId);
+  });
+
+  it("dates In conversation from the first portal note, however many notes follow", async () => {
+    const h = await setup();
+    const leadId = await existingPerson(h, { handle: "ana.lead" });
+    await h.t.run(async (ctx) => {
+      await ctx.db.insert("leadNotes", {
+        tenantId: h.tenantId, leadId, content: "First", createdAt: NOW - 10_000,
+        authorKind: "dm_closer", dmCloserId: h.dmCloserId,
+      });
+      for (let i = 0; i < 210; i++) {
+        await ctx.db.insert("leadNotes", { tenantId: h.tenantId, leadId, content: `n${i}`, createdAt: NOW, authorKind: "user" });
+      }
+    });
+
+    const evidence = await h.t.run(async (ctx) => {
+      const lead = await ctx.db.get("leads", leadId);
+      return (await collectLifecycleEvidence(ctx, lead!)).evidence;
+    });
+
+    expect(evidence).toContainEqual({ stage: "in_conversation", at: NOW - 10_000 });
   });
 
   it("refuses a copy without a usable handle", async () => {
