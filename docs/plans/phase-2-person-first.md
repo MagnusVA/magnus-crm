@@ -38,7 +38,7 @@ Read-only inline queries against tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, the 
 
 ### 2.1 How each prospect finds its person
 
-The same rules as `resolveLeadIdentity`: an Instagram handle identifier decides, a merged lead is followed to the lead it merged into, and a placeholder handle (`isPlaceholderHandle`, the §5.0 guard) never decides.
+The same rules as `resolveLeadIdentity`: an Instagram handle identifier decides, a merged lead is followed to the lead it merged into, and a placeholder handle (`isPlaceholderHandle` in `convex/lib/normalization.ts`) never decides.
 
 | Class | Prospects | Person |
 | --- | --- | --- |
@@ -202,7 +202,7 @@ The activity report's summary already stops at 10,000 events and says so. With t
 | 1 | Schema widen (§3), the §8 fixes, merge moves prospects and copy events, `emitDomainEvent` option to skip PostHog for backfills | optional fields and an empty aggregate; the fixes work on today's data |
 | 2 | Capture write path (§4.1), lifecycle evidence (§4.2), `prospectConversions` writes, the capture backfills and asserts (§10.1, §10.2) | a prospect without a `leadId` is one the backfill hasn't reached, and the evidence reads both sources |
 | 3 | DM portal (§4.3), booking join (§4.4), the portal backfill (§10.3) | a copy needs a person only in the new client, which ships with the backend; a booking without a portal person ID takes today's path |
-| 4 | Timeline and Prospects view (§6), Slack touches and their backfill (§10.4) | reads only |
+| 4 | Timeline and Prospects view (§6), Slack touches and their backfill (§10.4) | the timeline and view only read; the Slack touch is one more event beside the qualification's existing writes, and the backfill skips a Slack event that already has its touch, so new and backfilled touches never double |
 | 5 | Conversion report (§7) | reads only |
 | 6 | Narrow (§10.5), the ADR status and the review's Phase 2 card | after every backfill and assert passed in production |
 | 0 | This plan | docs |
