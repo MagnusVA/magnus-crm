@@ -423,6 +423,27 @@ export const activateMeetingProjections = internalMutation({
   },
 });
 
+// Polluted-lead split cleanup (docs/plans/polluted-lead-split.md §5.11). No
+// code reads these tables since #122. Approved by the tenant admin. Run as one
+// chain, then drop the tables:
+// npx convex run migrations:run '{"fn":"migrations:deleteLeadSplitPersons","next":["migrations:deleteLeadSplitAudit","migrations:deleteLeadSplitPlans","migrations:deleteLeadPlaceholderCleanups"]}'
+export const deleteLeadSplitPersons = migrations.define({
+  table: "leadSplitPersons", batchSize: 100,
+  migrateOne: async (ctx, row) => { await ctx.db.delete("leadSplitPersons", row._id); },
+});
+export const deleteLeadSplitAudit = migrations.define({
+  table: "leadSplitAudit", batchSize: 100,
+  migrateOne: async (ctx, row) => { await ctx.db.delete("leadSplitAudit", row._id); },
+});
+export const deleteLeadSplitPlans = migrations.define({
+  table: "leadSplitPlans", batchSize: 100,
+  migrateOne: async (ctx, row) => { await ctx.db.delete("leadSplitPlans", row._id); },
+});
+export const deleteLeadPlaceholderCleanups = migrations.define({
+  table: "leadPlaceholderCleanups", batchSize: 100,
+  migrateOne: async (ctx, row) => { await ctx.db.delete("leadPlaceholderCleanups", row._id); },
+});
+
 // Phase 1 (docs/plans/phase-1-foundations.md §9). Team members first, since
 // the event links read them:
 // npx convex run migrations:run '{"fn":"migrations:backfillUserTeamMembers","next":["migrations:backfillLeadGenWorkerTeamMembers","migrations:backfillDmCloserTeamMembers","migrations:backfillSlackUserTeamMembers"]}'
