@@ -36,13 +36,11 @@ import { operationsReportTables } from "./operations/reports/schema";
 
 import { meetingProjectionTables } from "./operations/meetingProjectionSchema";
 import { pipelineTables } from "./pipeline/schema";
-import { leadSplitTables } from "./leadSplit/schema";
 
 export default defineSchema({
   ...pipelineTables,
   ...meetingProjectionTables,
   ...operationsReportTables,
-  ...leadSplitTables,
   tenants: defineTable({
     meetingProjectionVersion: v.optional(v.literal(2)),
     // Identity

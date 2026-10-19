@@ -1,6 +1,6 @@
 # Polluted lead split: scope, attribution, and migration plan
 
-Status: Deploy 1 (the §5.0 guards) shipped in #95, and Deploy 2 in #98 (staging, §5.1 to §5.5) and #99 (apply, verification and rollback, §5.6 to §5.9). On 2026-10-16 the 4 Tier A plans and 15 Tier B plans were applied to production and verified (§8.1), every held booking was settled (§8.2, §8.3), and the Tier D cleanup ran (§8.4). `verifyTenant` shows 0 failures on every check. The 24-hour recheck on 2026-10-17 passed (§8.5), and the backup taken before the apply has been deleted. On 2026-10-18 the tenant admin chose to retire the split's code early rather than wait to 2026-11-16 (#122, Phase 1 plan §12.9); the staging tables keep their rows until a later PR drops them. The decisions on the open questions are recorded in §7.
+Status: Deploy 1 (the §5.0 guards) shipped in #95, and Deploy 2 in #98 (staging, §5.1 to §5.5) and #99 (apply, verification and rollback, §5.6 to §5.9). On 2026-10-16 the 4 Tier A plans and 15 Tier B plans were applied to production and verified (§8.1), every held booking was settled (§8.2, §8.3), and the Tier D cleanup ran (§8.4). `verifyTenant` shows 0 failures on every check. The 24-hour recheck on 2026-10-17 passed (§8.5), and the backup taken before the apply has been deleted. On 2026-10-18 the tenant admin chose to retire the split's code early rather than wait to 2026-11-16 (#122, Phase 1 plan §12.9). On 2026-10-19 #125 to #128 deleted the staging rows and dropped the tables, which finished the split (§5.11). The decisions on the open questions are recorded in §7.
 
 This file holds IDs and counts only; it contains no personal data. The working dataset (PII) stays in `/tmp` on the analyst's machine.
 
@@ -199,7 +199,7 @@ Across the tenant, 290 meetings carry the placeholder phone answer, spread over 
 
 ## 5. Migration design
 
-§5.1 to §5.10 are historical. #122 removed the split's pipeline, rollback and verification code, and #126 dropped `leadSplitInviteeSnapshots`, so these procedures can't run again. The §5.0 guards are still live. §5.11 records what is left.
+§5.1 to §5.10 are historical. #122 removed the split's pipeline, rollback and verification code, and #126 dropped `leadSplitInviteeSnapshots`, so these procedures can't run again. The §5.0 guards are still live. §5.11 records the cleanup, which is finished.
 
 ### 5.0 Prerequisite code fixes (Deploy 1, before any data change)
 
@@ -481,10 +481,10 @@ The code is in `convex/leadSplit/verify.ts`. Run the checks after the apply migr
 
 Started early, on 2026-10-18, instead of after 30 days with clean asserts. #122 removed the split lock and the `leads.splitLockedAt` field (no lead had it), the migration definitions, and the rest of the split's code, `verifyTenant` and `assertIdentifierMeetingConsistency` included. Remaining:
 
-- delete the staging tables' rows (the snapshot table holds PII)
-- drop the tables
+- ~~delete the staging tables' rows (the snapshot table holds PII)~~ done, #125 and #127
+- ~~drop the tables~~ done, #126 and #128
 
-On 2026-10-19 tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` approved deleting the invitee snapshot first: `migrations:deleteLeadSplitInviteeSnapshots` (#125) ran in production after a dry run, deleted all 145 rows with no error, and left the table empty. The dev deployment held no snapshot rows, no split plans and no audit rows (34 leads, so no production import), and the production log records no rehearsal. #126 then dropped the table and the migration; reverting #126 brings the migration back if another deployment turns out to hold a copy. The tenant admin then chose not to keep the other four tables (`leadSplitPlans`, `leadSplitPersons`, `leadSplitAudit`, `leadPlaceholderCleanups`) to 2026-11-16. #127 adds a deletion migration for each, run as one chain, and a later PR drops the tables. A wrong split found later is fixed forward with a reviewed repair, without the audit log.
+On 2026-10-19 tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` approved deleting the invitee snapshot first: `migrations:deleteLeadSplitInviteeSnapshots` (#125) ran in production after a dry run, deleted all 145 rows with no error, and left the table empty. The dev deployment held no snapshot rows, no split plans and no audit rows (34 leads, so no production import), and the production log records no rehearsal. #126 then dropped the table and the migration; reverting #126 brings the migration back if another deployment turns out to hold a copy. The tenant admin then chose not to keep the other four tables (`leadSplitPlans`, `leadSplitPersons`, `leadSplitAudit`, `leadPlaceholderCleanups`) to 2026-11-16. #127 added a deletion migration for each. After a dry run, the chain ran in production on 2026-10-19 and deleted 105 persons, 787 audit rows, 26 plans and 239 cleanup rows with no error, leaving all four tables empty. #128 then dropped the tables, `convex/leadSplit/schema.ts` and the migrations. The split's own code and staging tables are gone. The §5.0 identity guards, which stop placeholder emails, phones and handles from deciding identity, stay live. A wrong split found later is fixed forward with a reviewed repair, without the audit log.
 
 ## 6. Cases needing human review
 
