@@ -423,6 +423,7 @@ it("moves every row that names the source lead onto the target", async () => {
 
     // One prospect matched only the source; another matched both leads.
     const prospectId = await insertProspect(ctx, tenantId, "samsource");
+    await ctx.db.patch("leadGenProspects", prospectId, { leadId: sourceLeadId });
     const sourceMatchId = await insertMatch(ctx, prospectId, sourceLeadId, {
       opportunityId: booked.opportunityId,
     });
@@ -462,6 +463,42 @@ it("moves every row that names the source lead onto the target", async () => {
       createdAt: AT,
       changedFields: ["initialSource"],
     });
+    const programId = await ctx.db.insert("tenantPrograms", {
+      tenantId,
+      name: "Program",
+      normalizedName: "program",
+      createdAt: AT,
+      createdByUserId: adminId,
+      updatedAt: AT,
+    });
+    await ctx.db.insert("linkPortalCopyEvents", {
+      tenantId,
+      sessionIdHash: "session",
+      eventTypeConfigId: await ctx.db.insert("eventTypeConfigs", {
+        tenantId,
+        calendlyEventTypeUri: "https://api.calendly.com/event_types/portal",
+        displayName: "Strategy call",
+        createdAt: AT,
+      }),
+      bookingProgramId: programId,
+      attributionTeamId: teamId,
+      dmCloserId,
+      campaignPresetId: await ctx.db.insert("linkPortalCampaignPresets", {
+        tenantId,
+        slug: "dm",
+        label: "DM",
+        utmCampaign: "dm",
+        normalizedUtmCampaign: "dm",
+        isDefault: true,
+        isActive: true,
+        sortOrder: 0,
+        createdAt: AT,
+        updatedAt: AT,
+      }),
+      utmCampaign: "dm",
+      copiedAt: AT,
+      leadId: sourceLeadId,
+    });
     await ctx.db.insert("leadNotes", {
       tenantId,
       leadId: sourceLeadId,
@@ -488,9 +525,11 @@ it("moves every row that names the source lead onto the target", async () => {
   expect([...tablesBefore].sort()).toEqual([
     "followUps",
     "leadGenAuditMatches",
+    "leadGenProspects",
     "leadIdentifiers",
     "leadNotes",
     "leads",
+    "linkPortalCopyEvents",
     "linkPortalLeadEdits",
     "meetingFormResponses",
     "operationsQualificationRows",
@@ -850,6 +889,37 @@ it("moves form responses past the first page in scheduled batches", async () => 
   expect(await countFormResponses(h, ids.sourceLeadId)).toBe(0);
   expect(await countFormResponses(h, ids.targetLeadId)).toBe(450);
   expect(await rowsNaming(h, ids.sourceLeadId)).toEqual([]);
+});
+
+it("moves prospects past the first page in scheduled batches", async () => {
+  const h = await setup();
+  const { t, tenantId, admin } = h;
+  const ids = await t.run(async (ctx) => {
+    const sourceLeadId = await insertLead(ctx, tenantId, { fullName: "Source" });
+    const targetLeadId = await insertLead(ctx, tenantId, { fullName: "Target" });
+    for (let i = 0; i < 250; i++) {
+      const prospectId = await insertProspect(ctx, tenantId, `paged.${i}`);
+      await ctx.db.patch("leadGenProspects", prospectId, { leadId: sourceLeadId });
+    }
+    return { sourceLeadId, targetLeadId };
+  });
+  const countProspects = (leadId: Id<"leads">) =>
+    t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("leadGenProspects")
+          .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
+          .take(1_000)
+      ).length,
+    );
+
+  await admin.mutation(api.leads.merge.mergeLead, ids);
+  // The merge moved the first page; the rest wait for the scheduled batches.
+  expect(await countProspects(ids.sourceLeadId)).toBe(50);
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(await countProspects(ids.sourceLeadId)).toBe(0);
+  expect(await countProspects(ids.targetLeadId)).toBe(250);
 });
 
 it("merges a source at the opportunity bound into a busy target within Convex's transaction limits", async () => {

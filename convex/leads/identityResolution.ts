@@ -29,7 +29,9 @@ type IdentifierSource =
   | "manual_entry"
   | "merge"
   | "side_deal"
-  | "slack_qualified";
+  | "slack_qualified"
+  | "lead_gen"
+  | "dm_portal";
 
 type SocialHandleInput = {
   rawValue?: string;
@@ -188,14 +190,21 @@ async function detectPotentialDuplicate(
     return undefined;
   }
 
-  const recentLeads = await ctx.db
-    .query("leads")
-    .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+  // The 50 newest leads. Prospects are left out: they have no email, and
+  // there are far more of them than leads
+  // (docs/plans/phase-2-person-first.md §8).
+  const recentRows = await ctx.db
+    .query("leadCustomerSearchRows")
+    .withIndex("by_tenantId_visible_lifecycle_firstSeenAt", (q) =>
+      q.eq("tenantId", tenantId).eq("isSearchVisible", true).eq("lifecycle", "lead"),
+    )
     .order("desc")
     .take(50);
 
-  for (const candidate of recentLeads) {
+  for (const row of recentRows) {
+    const candidate = await ctx.db.get("leads", row.leadId);
     if (
+      !candidate ||
       candidate._id === newLeadId ||
       candidate.status === "merged" ||
       candidate.status === "converted"

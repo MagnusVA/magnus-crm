@@ -8,6 +8,7 @@ import { requireTenantUser } from "../requireTenantUser";
 import { buildLeadSearchText } from "./searchTextBuilder";
 import {
   moveFormResponsesPage,
+  moveTouchRowsPage,
   moveOpportunityToLead,
   moveRemainingLeadRows,
 } from "./repointLeadReferences";
@@ -36,6 +37,8 @@ const BOUNDED_READ_LIMIT = 100;
 // page of form responses; `continueLeadMerge` moves the rest and clears the
 // flags.
 const FORM_RESPONSE_PAGE_SIZE = 200;
+// Prospects and copy events past the first page move in the background too.
+const TOUCH_ROW_PAGE_SIZE = 200;
 // Clearing a flag rebuilds its lead's lead/customer row.
 const DUPLICATE_FLAG_PAGE_SIZE = 25;
 
@@ -592,7 +595,7 @@ async function executeMerge(
 
   const hasDuplicateFlags =
     (await duplicateFlagsQuery(ctx, tenantId, sourceLeadId).first()) !== null;
-  const continues = formResponses.hasMore || hasDuplicateFlags;
+  const continues = formResponses.hasMore || hasDuplicateFlags || leadRows.hasMoreTouches;
   if (continues) {
     await ctx.scheduler.runAfter(0, internal.leads.merge.continueLeadMerge, {
       tenantId,
@@ -622,6 +625,8 @@ async function executeMerge(
       webhookDeliveriesMoved: moved.webhookDeliveries,
       notesMoved: leadRows.notes,
       portalEditsMoved: leadRows.portalEdits,
+      prospectsMoved: leadRows.prospects,
+      copyEventsMoved: leadRows.copyEvents,
       formResponsesMoved: formResponses.moved,
       earlierMergesRepointed,
       fieldsCarriedOver: Object.keys(carryOver).length,
@@ -709,12 +714,21 @@ export const continueLeadMerge = internalMutation({
       tenantId,
       sourceLeadId,
     );
-    const continues = formResponses.hasMore || duplicateFlags.hasMore;
+    const touches = await moveTouchRowsPage(ctx, {
+      tenantId,
+      fromLeadId: sourceLeadId,
+      toLeadId: target._id,
+      now: Date.now(),
+      limit: TOUCH_ROW_PAGE_SIZE,
+    });
+    const continues = formResponses.hasMore || duplicateFlags.hasMore || touches.hasMore;
     log.info("leads.merge.continued", {
       ...args,
       resolvedTargetLeadId: target._id,
       formResponsesMoved: formResponses.moved,
       duplicateFlagsCleared: duplicateFlags.cleared,
+      prospectsMoved: touches.prospects,
+      copyEventsMoved: touches.copyEvents,
       continues,
     });
     if (continues) {

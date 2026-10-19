@@ -755,6 +755,7 @@ export declare const components: {
   opportunityByStatus: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"opportunityByStatus">;
   leadStageEntries: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"leadStageEntries">;
   customerConversions: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"customerConversions">;
+  prospectConversions: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"prospectConversions">;
   slackQualificationsByUser: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"slackQualificationsByUser">;
   slackQualificationsByTime: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"slackQualificationsByTime">;
   billingPaymentsByStatus: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"billingPaymentsByStatus">;

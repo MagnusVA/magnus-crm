@@ -23,7 +23,8 @@
  *
  * Every read is bounded. When a read in `moveOpportunityToLead` or
  * `moveRemainingLeadRows` fills its bound, its name goes in `boundsHit` and
- * rows past the bound stay where they were; the caller logs it.
+ * rows past the bound stay where they were; the caller logs it. Prospects and
+ * copy events instead page through `moveTouchRowsPage`.
  */
 
 import type { Doc, Id } from "../_generated/dataModel";
@@ -52,6 +53,10 @@ export type LeadRowsMoveResult = {
   followUps: number;
   qualificationEvents: number;
   auditMatches: number;
+  prospects: number;
+  copyEvents: number;
+  /** More prospects or copy events than one page; continue with `moveTouchRowsPage`. */
+  hasMoreTouches: boolean;
   boundsHit: string[];
 };
 
@@ -367,6 +372,9 @@ export async function moveRemainingLeadRows(
     followUps: 0,
     qualificationEvents: 0,
     auditMatches: 0,
+    prospects: 0,
+    copyEvents: 0,
+    hasMoreTouches: false,
     boundsHit: [],
   };
 
@@ -431,7 +439,62 @@ export async function moveRemainingLeadRows(
   }
   result.followUps = followUps.length;
 
+  // Lead gen prospects and DM portal copies are the person's touches
+  // (docs/plans/phase-2-person-first.md §5). A person can have more than one
+  // page of them, so the caller continues while `hasMoreTouches` is set.
+  const touches = await moveTouchRowsPage(ctx, {
+    tenantId,
+    fromLeadId,
+    toLeadId,
+    now,
+    limit: ROW_LIMIT,
+  });
+  result.prospects = touches.prospects;
+  result.copyEvents = touches.copyEvents;
+  result.hasMoreTouches = touches.hasMore;
+
   return result;
+}
+
+/**
+ * Moves up to `limit` lead gen prospects and up to `limit` DM portal copy
+ * events from `fromLeadId` to `toLeadId`. `hasMore` is true when either page
+ * was full, so the caller runs another page.
+ */
+export async function moveTouchRowsPage(
+  ctx: MutationCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    fromLeadId: Id<"leads">;
+    toLeadId: Id<"leads">;
+    now: number;
+    limit: number;
+  },
+): Promise<{ prospects: number; copyEvents: number; hasMore: boolean }> {
+  const { tenantId, fromLeadId, toLeadId, now, limit } = args;
+  const prospects = await ctx.db
+    .query("leadGenProspects")
+    .withIndex("by_tenantId_and_leadId", (q) =>
+      q.eq("tenantId", tenantId).eq("leadId", fromLeadId),
+    )
+    .take(limit);
+  for (const prospect of prospects) {
+    await ctx.db.patch("leadGenProspects", prospect._id, { leadId: toLeadId, updatedAt: now });
+  }
+  const copyEvents = await ctx.db
+    .query("linkPortalCopyEvents")
+    .withIndex("by_tenantId_and_leadId_and_copiedAt", (q) =>
+      q.eq("tenantId", tenantId).eq("leadId", fromLeadId),
+    )
+    .take(limit);
+  for (const copyEvent of copyEvents) {
+    await ctx.db.patch("linkPortalCopyEvents", copyEvent._id, { leadId: toLeadId });
+  }
+  return {
+    prospects: prospects.length,
+    copyEvents: copyEvents.length,
+    hasMore: prospects.length === limit || copyEvents.length === limit,
+  };
 }
 
 /**

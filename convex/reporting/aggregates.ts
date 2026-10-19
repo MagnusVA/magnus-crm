@@ -99,6 +99,17 @@ export const leadStageEntries = new DirectAggregate<{
   Id: string;
 }>(components.leadStageEntries);
 
+// One entry per linked lead gen prospect at Prospect, and one at each later
+// stage its person reached at or after the prospect's first capture
+// (docs/plans/phase-2-person-first.md §7, D6). Counting a worker's stage over
+// a range of capture dates counts the prospects they first captured then that
+// went on to reach it. The id is `${prospectId}:${stage}`.
+export const prospectConversions = new DirectAggregate<{
+  Namespace: Id<"tenants">;
+  Key: [Id<"leadGenWorkers">, LifecycleStage, number];
+  Id: string;
+}>(components.prospectConversions);
+
 export const customerConversions = new TableAggregate<{
   Namespace: Id<"tenants">;
   Key: [Id<"users">, number];

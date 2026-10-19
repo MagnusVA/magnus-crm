@@ -24,10 +24,17 @@ export const getActionsPerCloserPerDay = query({
       "tenant_admin",
     ]);
 
+    // Closer events only, through the source index, so the pipeline's
+    // touches (about 1,000 a day, docs/plans/phase-2-person-first.md §8)
+    // don't use up the scan.
     const eventRows = await ctx.db
       .query("domainEvents")
-      .withIndex("by_tenantId_and_occurredAt", (q) =>
-        q.eq("tenantId", tenantId).gte("occurredAt", startDate).lt("occurredAt", endDate),
+      .withIndex("by_tenantId_and_source_and_occurredAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("source", "closer")
+          .gte("occurredAt", startDate)
+          .lt("occurredAt", endDate),
       )
       .take(MAX_EVENTS_SCAN + 1);
 
@@ -35,7 +42,7 @@ export const getActionsPerCloserPerDay = query({
     const closerActions = new Map<Id<"users">, number>();
 
     for (const event of events) {
-      if (event.source !== "closer" || !event.actorUserId) {
+      if (!event.actorUserId) {
         continue;
       }
 

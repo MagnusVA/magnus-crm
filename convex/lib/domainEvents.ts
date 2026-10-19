@@ -31,6 +31,8 @@ export type EmitDomainEventParams = {
   leadId?: Id<"leads">;
   /** Overrides the team member derived from `actorUserId`. */
   teamMemberId?: Id<"teamMembers">;
+  /** Skips PostHog, for backfills that write past events in bulk. */
+  skipAnalytics?: boolean;
 };
 
 export async function emitDomainEvent(
@@ -58,7 +60,9 @@ export async function emitDomainEvent(
     teamMemberId,
   });
 
-  await captureDomainEvent(ctx, { ...params, leadId, teamMemberId }, domainEventId, occurredAt);
+  if (!params.skipAnalytics) {
+    await captureDomainEvent(ctx, { ...params, leadId, teamMemberId }, domainEventId, occurredAt);
+  }
 
   return domainEventId;
 }
