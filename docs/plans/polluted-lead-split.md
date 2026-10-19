@@ -480,6 +480,8 @@ Started early, on 2026-10-18, instead of after 30 days with clean asserts. #122 
 - delete the staging tables' rows (the snapshot table holds PII)
 - drop the tables
 
+On 2026-10-19 tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` approved deleting the invitee snapshot first: `migrations:deleteLeadSplitInviteeSnapshots` deletes its 145 rows, and a later PR drops the table. The other four tables (`leadSplitPlans`, `leadSplitPersons`, `leadSplitAudit`, `leadPlaceholderCleanups`) hold mostly IDs and stay until 2026-11-16, as a record for any hand repair.
+
 ## 6. Cases needing human review
 
 - **Lead `jh75xm6m…` and merge-ins.**
