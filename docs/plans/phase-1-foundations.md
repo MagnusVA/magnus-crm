@@ -375,7 +375,7 @@ Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` accepted every recommendation be
 - **PR 1.** Revert. The optional fields are empty, the table is empty and the aggregate holds nothing.
 - **PR 2.** Revert. New rows keep the fields they got, which nothing reads, and PR 3's backfill rewrites them anyway.
 - **PR 3 data.** Nothing reads it before activation. `clearLeadLifecycle` and `clearDomainEventLinks` unset the fields and clear the aggregate namespace, in batches. Team members are deleted after their role records are unlinked.
-- **PR 4.** Before #120, `deactivateLeadStageReporting` unset `leadStageReportingVersion` and the report read `leadTimeline` again. #120 and #121 removed the switch and the field (§12.9). To bring it back, revert #123's `leadTimeline` removal, then #121, then #120. Every tenant then counts by creation date, since the clear has run, until the restored `activateLeadStageReporting` runs.
+- **PR 4.** Before #120, `deactivateLeadStageReporting` unset `leadStageReportingVersion` and the report read `leadTimeline` again. #120 and #121 removed the switch and the field (§12.9). To bring it back, revert #123's `leadTimeline` removal, then run the restored `reporting/backfill:backfillLeadsAggregate`, which adds entries for the leads created while the write hook was gone, and check that `verifyBackfillCounts` matches. Then revert #121, then #120. Every tenant then counts by creation date, since the clear has run, until the restored `activateLeadStageReporting` runs.
 - **PR 5.** Revert. Any move-back already made stays, with its domain event. A later re-derivation, run lead by lead, undoes it.
 
 ## 12. Production log
