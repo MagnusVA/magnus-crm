@@ -199,6 +199,8 @@ Across the tenant, 290 meetings carry the placeholder phone answer, spread over 
 
 ## 5. Migration design
 
+§5.1 to §5.10 are historical. #122 removed the split's pipeline, rollback and verification code, and #126 dropped `leadSplitInviteeSnapshots`, so these procedures can't run again. The §5.0 guards are still live. §5.11 records what is left.
+
 ### 5.0 Prerequisite code fixes (Deploy 1, before any data change)
 
 Without these, the split leads re-pollute on the next booking and the retried deliveries recreate bad keys.
@@ -417,6 +419,8 @@ A rerun after a later approval needs `"reset": true`. A split document only move
 **Preflight.** `leadSplit/apply:preflight` is a read-only query that runs every check above against current data for an unapplied plan, and returns the problems by ID: a deal whose status or meetings changed since the build, a moved identifier, an unusable merge target, a payment on a meeting that would move, or an email another lead already holds.
 
 ### 5.7 Dry run and idempotency
+
+Historical: this rehearsal ran before the apply. Its code and the snapshot table are gone (§5.11).
 
 - **Dry run.** Every phase-1 to phase-3 function takes `dryRun`. For apply, `preflight` is the dry run that reads real data. The migrations component's `dryRun: true` runs one batch and rolls it back, but the first batch is whichever person comes first in the table, so it shows little.
 - **Rehearsal.** Import a production export into a dev deployment (`npx convex export --prod`, then `npx convex import` on dev) and run the whole pipeline there. Compare the assert results and dashboard totals.
