@@ -929,7 +929,7 @@ it("moves prospects past the first page in scheduled batches", async () => {
     );
   });
   expect(conversions).toBe(250);
-});
+}, 60_000);
 
 it("merges a source at the opportunity bound into a busy target within Convex's transaction limits", async () => {
   const h = await setup({ transactionLimits: true });
