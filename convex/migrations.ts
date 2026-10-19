@@ -425,8 +425,9 @@ export const activateMeetingProjections = internalMutation({
 
 // Polluted-lead split cleanup (docs/plans/polluted-lead-split.md §5.11). No
 // code reads these tables since #122. Approved by the tenant admin. Run as one
-// chain, then drop the tables:
-// npx convex run migrations:run '{"fn":"migrations:deleteLeadSplitPersons","next":["migrations:deleteLeadSplitAudit","migrations:deleteLeadSplitPlans","migrations:deleteLeadPlaceholderCleanups"]}'
+// chain in production, poll lib:getStatus until each is done, then drop the
+// tables:
+// npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:deleteLeadSplitPersons","next":["migrations:deleteLeadSplitAudit","migrations:deleteLeadSplitPlans","migrations:deleteLeadPlaceholderCleanups"]}'
 export const deleteLeadSplitPersons = migrations.define({
   table: "leadSplitPersons", batchSize: 100,
   migrateOne: async (ctx, row) => { await ctx.db.delete("leadSplitPersons", row._id); },
