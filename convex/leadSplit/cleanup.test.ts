@@ -23,9 +23,10 @@ it("deletes every invitee snapshot row and leaves the meeting alone", async () =
       tenantId: harness.tenantId, opportunityId, assignedCloserId: closer._id, calendlyEventUri: "e1",
       calendlyInviteeUri: "i1", scheduledAt: 0, durationMinutes: 30, status: "scheduled", createdAt: 0,
     });
-    for (const inviteeUri of ["https://api.calendly.com/invitees/1", "https://api.calendly.com/invitees/2"]) {
+    // As many rows as production holds, so the run spans two batches of 100.
+    for (let index = 0; index < 145; index++) {
       await ctx.db.insert("leadSplitInviteeSnapshots", {
-        tenantId: harness.tenantId, meetingId, inviteeUri, outcome: "ok",
+        tenantId: harness.tenantId, meetingId, inviteeUri: `https://api.calendly.com/invitees/${index}`, outcome: "ok",
         email: "person@example.com", name: "Person", fetchedAt: 0,
       });
     }
