@@ -8,8 +8,7 @@ import {
   reportingUserIdentity,
 } from "./lib/helpers";
 
-const MAX_USERS_SCAN = 200;
-const MAX_EVENTS_PER_USER = 1000;
+const MAX_EVENTS_SCAN = 5000;
 const DAY_MS = 86_400_000;
 
 export const getActionsPerCloserPerDay = query({
@@ -25,39 +24,32 @@ export const getActionsPerCloserPerDay = query({
       "tenant_admin",
     ]);
 
-    // Reads each closer's events through the actor index, so pipeline touches
-    // (about 1,000 a day, docs/plans/phase-2-person-first.md §8) don't use
-    // up the scan.
-    const users = await ctx.db
-      .query("users")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .take(MAX_USERS_SCAN);
-    const closerActions = new Map<Id<"users">, number>();
-    let isTruncated = false;
+    // Closer events only, through the source index, so the pipeline's
+    // touches (about 1,000 a day, docs/plans/phase-2-person-first.md §8)
+    // don't use up the scan.
+    const eventRows = await ctx.db
+      .query("domainEvents")
+      .withIndex("by_tenantId_and_source_and_occurredAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("source", "closer")
+          .gte("occurredAt", startDate)
+          .lt("occurredAt", endDate),
+      )
+      .take(MAX_EVENTS_SCAN + 1);
 
-    for (const user of users) {
-      if (user.role !== "closer") {
+    const events = eventRows.slice(0, MAX_EVENTS_SCAN);
+    const closerActions = new Map<Id<"users">, number>();
+
+    for (const event of events) {
+      if (!event.actorUserId) {
         continue;
       }
-      const eventRows = await ctx.db
-        .query("domainEvents")
-        .withIndex("by_tenantId_and_actorUserId_and_occurredAt", (q) =>
-          q
-            .eq("tenantId", tenantId)
-            .eq("actorUserId", user._id)
-            .gte("occurredAt", startDate)
-            .lt("occurredAt", endDate),
-        )
-        .take(MAX_EVENTS_PER_USER + 1);
-      if (eventRows.length > MAX_EVENTS_PER_USER) {
-        isTruncated = true;
-      }
-      const count = eventRows
-        .slice(0, MAX_EVENTS_PER_USER)
-        .filter((event) => event.source === "closer").length;
-      if (count > 0) {
-        closerActions.set(user._id, count);
-      }
+
+      closerActions.set(
+        event.actorUserId,
+        (closerActions.get(event.actorUserId) ?? 0) + 1,
+      );
     }
 
     const topEntries = Array.from(closerActions.entries())
@@ -91,7 +83,7 @@ export const getActionsPerCloserPerDay = query({
           ? totalCloserActions / distinctCloserActors / daySpanDays
           : null,
       topCloserActors,
-      isTruncated,
+      isTruncated: eventRows.length > MAX_EVENTS_SCAN,
     };
   },
 });

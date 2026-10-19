@@ -74,6 +74,34 @@ it("flags a likely duplicate behind more than 50 newer prospects", async () => {
   expect(result.potentialDuplicateLeadId).toBe(existingId);
 });
 
+it("checks the newest leads, whatever their activity", async () => {
+  const { t, tenantId } = await setup();
+  const newestId = await t.run(async (ctx) => {
+    for (let i = 0; i < 55; i++) {
+      const leadId = await insertPerson(ctx, tenantId, { fullName: `Busy ${i}`, email: `busy${i}@other.io`, at: AT - 1_000 - i });
+      const row = await ctx.db
+        .query("leadCustomerSearchRows")
+        .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
+        .unique();
+      await ctx.db.patch("leadCustomerSearchRows", row!._id, { latestActivityAt: AT + 10_000 });
+    }
+    return await insertPerson(ctx, tenantId, { fullName: "Sam Smith", email: "sam@acme.io" });
+  });
+
+  const result = await t.run((ctx) =>
+    resolveLeadIdentity(ctx, {
+      tenantId,
+      fullName: "Sam Smith",
+      email: "samuel@acme.io",
+      identifierSource: "calendly_booking",
+      createdAt: AT + 100,
+      initialLifecycle: { stage: "booked", at: AT + 100 },
+    }),
+  );
+
+  expect(result.potentialDuplicateLeadId).toBe(newestId);
+});
+
 it("leaves prospects out of the merge picker's search", async () => {
   const { t, tenantId, admin } = await setup();
   const leadId = await t.run(async (ctx) => {
@@ -105,13 +133,14 @@ it("counts tenantStats.totalLeads in pages, leaving out prospects", async () => 
   expect(page).toMatchObject({ count: 1, isDone: true });
 });
 
-it("counts closer actions past 5,000 pipeline events in the range", async () => {
+it("counts closer actions past 5,000 pipeline events, including a closer since made an admin", async () => {
   const { t, tenantId, admin } = await setup();
   await t.run(async (ctx) => {
     const closer = await ctx.db
       .query("users")
       .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_closer"))
       .unique();
+    await ctx.db.patch("users", closer!._id, { role: "tenant_admin" });
     for (let i = 0; i < 5_001; i++) {
       await ctx.db.insert("domainEvents", {
         tenantId,

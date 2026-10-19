@@ -190,12 +190,12 @@ async function detectPotentialDuplicate(
     return undefined;
   }
 
-  // The 50 most recently active leads. Prospects are left out: they have no
-  // email, and there are far more of them than leads
+  // The 50 newest leads. Prospects are left out: they have no email, and
+  // there are far more of them than leads
   // (docs/plans/phase-2-person-first.md §8).
   const recentRows = await ctx.db
     .query("leadCustomerSearchRows")
-    .withIndex("by_tenantId_visible_lifecycle_latestActivityAt", (q) =>
+    .withIndex("by_tenantId_visible_lifecycle_firstSeenAt", (q) =>
       q.eq("tenantId", tenantId).eq("isSearchVisible", true).eq("lifecycle", "lead"),
     )
     .order("desc")

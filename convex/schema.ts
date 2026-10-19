@@ -675,6 +675,12 @@ export default defineSchema({
       "lifecycle",
       "latestActivityAt",
     ])
+    .index("by_tenantId_visible_lifecycle_firstSeenAt", [
+      "tenantId",
+      "isSearchVisible",
+      "lifecycle",
+      "firstSeenAt",
+    ])
     .index("by_tenantId_and_leadStatus_and_latestActivityAt", [
       "tenantId",
       "leadStatus",
@@ -1953,6 +1959,13 @@ export default defineSchema({
     .index("by_tenantId_and_actorUserId_and_occurredAt", [
       "tenantId",
       "actorUserId",
+      "occurredAt",
+    ])
+    // Closer actions without the pipeline's touches
+    // (docs/plans/phase-2-person-first.md §8).
+    .index("by_tenantId_and_source_and_occurredAt", [
+      "tenantId",
+      "source",
       "occurredAt",
     ])
     .index("by_tenantId_and_leadId_and_occurredAt", [
