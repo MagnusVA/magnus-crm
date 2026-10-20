@@ -3,77 +3,46 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { emitDomainEvent, eventsForRecord } from "../lib/domainEvents";
 import { advanceLeadLifecycle } from "../lib/leadLifecycle";
 import { syncProspectConversions } from "../lib/prospectConversions";
-import { followMergeChain, resolveLeadIdentity } from "../leads/identityResolution";
+import { resolveLeadIdentity } from "../leads/identityResolution";
 
 // Every lead gen prospect is a person (docs/plans/phase-2-person-first.md
-// §4.1). The capture, the Slack audit match and the link backfill all link a
-// prospect through `linkProspectPerson`, so they agree on who it is.
+// §4.1): the capture finds or creates them before it inserts the prospect.
 
 /**
- * The person a prospect is: its accepted audit match's lead, followed through
- * merges; else the person who holds its Instagram handle; else a new person
- * at Prospect. A placeholder handle gets a person with no identifier (D1).
+ * The person who holds this Instagram handle, or a new person at Prospect,
+ * first seen at `capturedAt`.
  */
-async function findOrCreateProspectPerson(
+export async function findOrCreateHandlePerson(
   ctx: MutationCtx,
-  prospect: Doc<"leadGenProspects">,
+  args: { tenantId: Id<"tenants">; normalizedHandle: string; capturedAt: number },
 ): Promise<{ lead: Doc<"leads">; created: boolean }> {
-  if (prospect.currentAuditMatchId) {
-    const match = await ctx.db.get("leadGenAuditMatches", prospect.currentAuditMatchId);
-    const matched =
-      match?.matchStatus === "accepted" && match.prospectId === prospect._id
-        ? await ctx.db.get("leads", match.leadId)
-        : null;
-    const lead =
-      matched && matched.tenantId === prospect.tenantId
-        ? await followMergeChain(ctx, matched)
-        : undefined;
-    if (lead) {
-      return { lead, created: false };
-    }
-  }
   const resolution = await resolveLeadIdentity(ctx, {
-    tenantId: prospect.tenantId,
-    socialHandle: { platform: "instagram", rawValue: prospect.normalizedHandle },
+    tenantId: args.tenantId,
+    socialHandle: { platform: "instagram", rawValue: args.normalizedHandle },
     identifierSource: "lead_gen",
-    createdAt: prospect.firstCapturedAt,
+    createdAt: args.capturedAt,
     createIdentifiers: true,
-    initialLifecycle: { stage: "prospect", at: prospect.firstCapturedAt },
-    allowNoIdentifier: true,
+    initialLifecycle: { stage: "prospect", at: args.capturedAt },
   });
   return { lead: resolution.lead, created: resolution.isNewLead };
 }
 
 /**
- * Sets the prospect's person, if it has none, and the person's Prospect
- * entry time and conversion entries. Safe to run again.
+ * The person's Prospect entry time and the prospect's conversion entries,
+ * after the prospect is inserted.
  */
-export async function linkProspectPerson(
+export async function settleProspectPerson(
   ctx: MutationCtx,
-  prospectId: Id<"leadGenProspects">,
-): Promise<{ leadId: Id<"leads">; created: boolean }> {
-  const prospect = await ctx.db.get("leadGenProspects", prospectId);
-  if (!prospect) {
-    throw new Error(`Prospect ${prospectId} not found`);
-  }
-  if (prospect.leadId) {
-    return { leadId: prospect.leadId, created: false };
-  }
-  const { lead, created } = await findOrCreateProspectPerson(ctx, prospect);
-  await ctx.db.patch("leadGenProspects", prospect._id, { leadId: lead._id });
+  prospect: Doc<"leadGenProspects">,
+): Promise<void> {
   // Moves the Prospect entry time earlier when the capture came first; never
   // changes a later stage.
-  await advanceLeadLifecycle(ctx, lead._id, {
+  await advanceLeadLifecycle(ctx, prospect.leadId, {
     stage: "prospect",
     at: prospect.firstCapturedAt,
     cause: "lead_gen_capture",
   });
-  await syncProspectConversions(
-    ctx,
-    { ...prospect, leadId: lead._id },
-    await ctx.db.get("leads", lead._id),
-  );
-  return { leadId: lead._id, created };
+  await syncProspectConversions(ctx, prospect, await ctx.db.get("leads", prospect.leadId));
 }
 
 // --- Touch events. ---

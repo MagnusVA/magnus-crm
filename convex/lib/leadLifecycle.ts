@@ -325,15 +325,6 @@ export function portalEditEvidence(
   return [{ stage: "in_conversation", at: edit.createdAt }];
 }
 
-export function prospectCaptureEvidence(
-  match: Doc<"leadGenAuditMatches">,
-  prospect: Doc<"leadGenProspects"> | null,
-): LifecycleEvidence[] {
-  return match.matchStatus === "accepted" && prospect
-    ? [{ stage: "prospect", at: prospect.firstCapturedAt }]
-    : [];
-}
-
 // --- Hooks: each write path calls the one for the record it wrote. ---
 
 async function applyEvidence(
@@ -447,24 +438,6 @@ export async function recordCustomer(
   }
 }
 
-/** Lead gen had captured the person before they were qualified. */
-export async function recordProspectCapture(
-  ctx: MutationCtx,
-  matchId: Id<"leadGenAuditMatches">,
-): Promise<void> {
-  const match = await ctx.db.get("leadGenAuditMatches", matchId);
-  if (!match) {
-    return;
-  }
-  const prospect = await ctx.db.get("leadGenProspects", match.prospectId);
-  await applyEvidence(
-    ctx,
-    match.leadId,
-    prospectCaptureEvidence(match, prospect),
-    "lead_gen_capture",
-  );
-}
-
 // --- Deriving from source data: the backfill, its assert, and corrections. ---
 
 // Far above any production lead (the largest has 19 deals). A lead past a
@@ -550,18 +523,6 @@ export async function collectLifecycleEvidence(
   );
   for (const event of events) {
     evidence.push(...slackQualificationEvidence(event));
-  }
-  const matches = bounded(
-    await ctx.db
-      .query("leadGenAuditMatches")
-      .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
-      .take(DERIVE_READ_LIMIT + 1),
-    "lead gen matches",
-    leadId,
-  );
-  for (const match of matches) {
-    const prospect = await ctx.db.get("leadGenProspects", match.prospectId);
-    evidence.push(...prospectCaptureEvidence(match, prospect));
   }
   for (const prospect of await personProspects(ctx, tenantId, leadId)) {
     evidence.push(...prospectEvidence(prospect));

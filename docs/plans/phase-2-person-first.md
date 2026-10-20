@@ -1,6 +1,6 @@
 # Phase 2: person first
 
-Status: plan accepted, 2026-10-19. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11, and the production runs in §9 run without further approval stops. PR 1 (#132) in review; PRs 2 to 5 (#133 to #136) stacked on it. Production runs start once PR 2 deploys.
+Status: done, 2026-10-20. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11 on 2026-10-19, and on 2026-10-20 revised the DM portal (§4.3). Code PRs #132 to #137 are merged and deployed, every backfill and assert passed in production (§13), and the narrow is #138.
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (findings F1, F3 and F9) and the Phase 2 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 1 is in [phase-1-foundations.md](phase-1-foundations.md).
 
@@ -242,7 +242,8 @@ Over `slackQualificationEvents`, batch 100: one `lead.slack_qualified` event per
 - `leadGenProspects.leadId` becomes required. The schema push itself checks every row.
 - `linkPortalCopyEvents.leadId` stays optional: copies name no person after PR 7 (§4.3), and the 10 made while PR 3 was live keep theirs.
 - The Prospect evidence reads prospects only; the audit match evidence goes.
-- `linkProspectPeople`, `backfillCaptureEvents`, `backfillPortalTouches` and `backfillSlackTouches` go, with their asserts. `assertLeadLifecycle` stays as a health check.
+- The capture finds or creates the person by handle before it inserts the prospect, so the prospect is born with its `leadId`. The Slack audit match no longer links prospects, and `resolveLeadIdentity` loses `allowNoIdentifier`, which only the 5 placeholder prospects used (D1).
+- `linkProspectPeople`, `backfillCaptureEvents`, `backfillPortalNoteTouches`, `backfillPortalEditTouches` and `backfillSlackTouches` go, with their asserts. `assertLeadLifecycle` stays as a health check.
 - The ADR's Phase 2 status and the review's Phase 2 card are updated.
 
 ### 10.6 Commands
@@ -291,4 +292,42 @@ Fix forward, reviewed, as the split's recovery was. No snapshot is held.
 
 ## 13. Production log
 
-Empty until the first run.
+All runs were on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env-file .env.vercel.production`. Tenant admin `k97fgy2ckqhn8w2xynw3etwdf984dwb9` delegated every run to the agent (D9).
+
+### 13.1 Baseline, 2026-10-19
+
+Read-only, before PR 2: `tenantStats.totalLeads` 10,364; `stageTotals` 10,634 at Prospect, In conversation and Qualified, 5,307 Booked, 685 Showed, 270 Customer.
+
+### 13.2 Deploys
+
+| PR | Deployed |
+| --- | --- |
+| 1 (#132) | 2026-10-19 19:02 |
+| 2 (#133) | 2026-10-19 20:25 |
+| 3 (#134) | 2026-10-19 20:46 |
+| 4 (#135) | 2026-10-19 22:50 |
+| 5 (#136) | 2026-10-19 23:07 |
+| 7 (#137) | 2026-10-20 05:11 |
+
+### 13.3 Runs
+
+| When | Run | Result |
+| --- | --- | --- |
+| 10-19 20:25 | `linkProspectPeople` dry run | 50 processed, nothing committed |
+| 10-19 20:25 | `linkProspectPeople`, batch 50 | failed at 2,700 processed: a batch of 50 hit Convex's "too many system operations" limit, about 8 aggregate calls per prospect. The failed batch committed nothing. |
+| 10-19 20:34 | `linkProspectPeople` resumed, batch 20 | about 7 prospects a second; done by 10-20 00:39, 84,440 processed |
+| 10-20 01:36 | `assertProspectPeople` | passed, 84,464 (captures since the link run included) |
+| 10-20 03:25 | `backfillCaptureEvents` dry run, then run, batch 200 | 200 processed, nothing committed; then 139,833 processed by 04:17 |
+| 10-20 04:30 | `assertCaptureEvents` | passed, 139,850: each submission has exactly one capture event on its prospect's person |
+| 10-20 05:25 | `assertLeadLifecycle` (reset) | passed, 89,471 leads |
+| 10-20 05:33 | read-only recheck | below |
+| 10-20 05:33 | `backfillPortalNoteTouches` dry run, then run; `backfillPortalEditTouches` | 105 notes, 32 edits |
+| 10-20 05:34 | `assertPortalNoteTouches`, `assertPortalEditTouches` | passed, 105 and 32 |
+| 10-20 05:35 | `backfillSlackTouches` dry run, then run | 8,470 Slack qualification events |
+| 10-20 05:37 | `assertSlackTouches` | passed, 8,470 |
+| 10-20 05:48 | `assertDomainEventLinks` (reset) | passed, 187,731 events |
+| 10-20 | `assertLeadLifecycle` (reset), after the portal and Slack touches | running when #138 opened; recorded before it merges |
+
+The read-only recheck at 05:33: `stageTotals` 89,472 at Prospect (78,838 more than the baseline), 10,711 In conversation, 10,708 Qualified, 5,346 Booked, 696 Showed, 274 Customer; `tenantStats.totalLeads` 10,434. The lead count is Qualified minus Customer, as at the baseline (10,634 − 270 = 10,364). Every stage but Prospect moved only by the day's new qualifications, bookings and payments. The 3 more at In conversation than at Qualified are persons the portal created by handle while PR 3 was live; the 10 copies made then named 8 persons.
+
+One lifecycle assert covers both the portal and the Slack touches: the Slack touches change no stage.

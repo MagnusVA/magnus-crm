@@ -1,17 +1,15 @@
 /**
  * Every lead gen prospect is a person (docs/plans/phase-2-person-first.md
- * §4.1, §10.1, §10.2).
+ * §4.1).
  */
-import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
 import { countLeadStageEntries, syncLeadStageEntries } from "../lib/leadLifecycle";
 import { countProspectConversions } from "../lib/prospectConversions";
 import type { LifecycleStage } from "../leads/lifecycle";
-import { migrations } from "../migrations";
 
 afterEach(() => vi.useRealTimers());
 
@@ -23,9 +21,7 @@ const ALL_TIME = [0, Number.MAX_SAFE_INTEGER] as const;
 async function setup() {
   vi.useFakeTimers();
   vi.setSystemTime(new Date(NOW));
-  const harness = await bookingHarness();
-  migrationsTest.register(harness.t);
-  return harness;
+  return await bookingHarness();
 }
 
 async function capture(harness: Harness, handle: string) {
@@ -244,51 +240,6 @@ describe("lead gen capture", () => {
   });
 });
 
-// --- Backfill (§10.1, §10.2). ---
-
-async function workerId(ctx: MutationCtx, tenantId: Id<"tenants">) {
-  const user = (await ctx.db
-    .query("users")
-    .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_admin"))
-    .unique())!;
-  const existing = await ctx.db
-    .query("leadGenWorkers")
-    .withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", tenantId).eq("userId", user._id))
-    .unique();
-  return (
-    existing?._id ??
-    (await ctx.db.insert("leadGenWorkers", {
-      tenantId, userId: user._id, workosUserId: "user_admin", email: "admin@example.com",
-      isActive: true, createdAt: 0, updatedAt: 0,
-    }))
-  );
-}
-
-/** A prospect and its submissions as they were before Phase 2: no person. */
-async function legacyProspect(
-  ctx: MutationCtx,
-  tenantId: Id<"tenants">,
-  handle: string,
-  capturedAt: number,
-  fields: Partial<Doc<"leadGenProspects">> = {},
-) {
-  const worker = await workerId(ctx, tenantId);
-  const user = (await ctx.db.get("leadGenWorkers", worker))!.userId;
-  const prospectId = await ctx.db.insert("leadGenProspects", {
-    tenantId, firstSource: "instagram", latestSource: "instagram",
-    dedupeKey: `instagram:${handle}`, normalizedHandle: handle, rawHandle: handle,
-    profileUrl: `https://instagram.com/${handle}`, firstCapturedByWorkerId: worker,
-    firstCapturedAt: capturedAt, lastSubmittedByWorkerId: worker, lastSubmittedAt: capturedAt,
-    latestOriginKind: "follower", contactAttemptCount: 1, distinctWorkerCount: 1,
-    createdAt: capturedAt, updatedAt: capturedAt, ...fields,
-  });
-  const submissionId = await ctx.db.insert("leadGenSubmissions", {
-    tenantId, prospectId, workerId: worker, userId: user, source: "instagram",
-    originKind: "follower", originRankable: true, submittedAt: capturedAt, createdAt: capturedAt,
-  });
-  return { prospectId, submissionId, worker };
-}
-
 async function existingLead(ctx: MutationCtx, tenantId: Id<"tenants">, handle: string, qualifiedAt: number) {
   const lifecycle = qualifiedLifecycle(qualifiedAt);
   const leadId = await ctx.db.insert("leads", {
@@ -312,135 +263,3 @@ async function existingLead(ctx: MutationCtx, tenantId: Id<"tenants">, handle: s
   });
   return leadId;
 }
-
-async function run(harness: Harness, name: string, reset = false) {
-  await harness.t.mutation(internal.migrations.run, { fn: `migrations:${name}`, reset });
-  await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
-  const [status] = await harness.t.run((ctx) =>
-    migrations.getStatus(ctx, { migrations: [`migrations:${name}`] as never }),
-  );
-  return status;
-}
-
-describe("prospect backfill", () => {
-  it("links each prospect by audit match, then handle, then a new person, and the asserts pass", async () => {
-    const harness = await setup();
-    const { tenantId } = harness;
-    const CAPTURED = NOW - 10 * 86_400_000;
-    const QUALIFIED = NOW - 5 * 86_400_000;
-    const ids = await harness.t.run(async (ctx) => {
-      // Matched by Slack before Phase 2.
-      const matchedLeadId = await existingLead(ctx, tenantId, "matched.one", QUALIFIED);
-      const matched = await legacyProspect(ctx, tenantId, "matched.one", CAPTURED);
-      const matchId = await ctx.db.insert("leadGenAuditMatches", {
-        tenantId, prospectId: matched.prospectId, leadId: matchedLeadId, matchSource: "slack_qualification",
-        matchStatus: "accepted", matchedVia: "social_handle", normalizedHandle: "matched.one",
-        createdAt: QUALIFIED, updatedAt: QUALIFIED,
-      });
-      await ctx.db.patch("leadGenProspects", matched.prospectId, { currentAuditMatchId: matchId });
-      // Captured before the person was qualified, never matched.
-      const handleLeadId = await existingLead(ctx, tenantId, "handle.only", QUALIFIED);
-      const byHandle = await legacyProspect(ctx, tenantId, "handle.only", CAPTURED);
-      // Nobody holds the handle.
-      const fresh = await legacyProspect(ctx, tenantId, "brand.new", CAPTURED);
-      // A placeholder handle, captured before the form rejected them.
-      const placeholder = await legacyProspect(ctx, tenantId, "na", CAPTURED);
-      await ctx.db.patch("leadGenSubmissions", placeholder.submissionId, {
-        voidedAt: CAPTURED + 1, voidReason: "Placeholder",
-      });
-      await ctx.db.insert("tenantStats", {
-        tenantId, totalTeamMembers: 2, totalClosers: 1, totalOpportunities: 0, activeOpportunities: 0,
-        wonDeals: 0, lostDeals: 0, totalRevenueMinor: 0, totalPaymentRecords: 0, totalLeads: 2,
-        totalCustomers: 0, lastUpdatedAt: 0,
-      });
-      return { matchedLeadId, handleLeadId, matched, byHandle, fresh, placeholder };
-    });
-
-    expect((await run(harness, "linkProspectPeople")).state).toBe("success");
-    expect((await run(harness, "assertProspectPeople")).state).toBe("success");
-    expect((await run(harness, "backfillCaptureEvents")).state).toBe("success");
-    // Running it again writes nothing new.
-    expect((await run(harness, "backfillCaptureEvents", true)).state).toBe("success");
-    expect((await run(harness, "assertCaptureEvents")).state).toBe("success");
-    expect((await run(harness, "assertLeadLifecycle")).state).toBe("success");
-
-    const state = await harness.t.run(async (ctx) => ({
-      matched: await ctx.db.get("leadGenProspects", ids.matched.prospectId),
-      byHandle: await ctx.db.get("leadGenProspects", ids.byHandle.prospectId),
-      fresh: await ctx.db.get("leadGenProspects", ids.fresh.prospectId),
-      placeholder: await ctx.db.get("leadGenProspects", ids.placeholder.prospectId),
-      handleLead: await ctx.db.get("leads", ids.handleLeadId),
-      leads: await ctx.db.query("leads").take(10),
-      identifiers: await ctx.db.query("leadIdentifiers").take(10),
-    }));
-    expect(state.matched?.leadId).toBe(ids.matchedLeadId);
-    expect(state.byHandle?.leadId).toBe(ids.handleLeadId);
-    // Captured first: the Prospect time moves earlier, the stage stays.
-    expect(state.handleLead).toMatchObject({
-      lifecycleStage: "qualified",
-      lifecycleStageEnteredAt: { prospect: CAPTURED, in_conversation: QUALIFIED, qualified: QUALIFIED },
-    });
-    expect(state.leads).toHaveLength(4);
-    const freshLead = state.leads.find((lead) => lead._id === state.fresh?.leadId);
-    expect(freshLead).toMatchObject({ lifecycleStage: "prospect", lifecycleStageEnteredAt: { prospect: CAPTURED } });
-    const placeholderLead = state.leads.find((lead) => lead._id === state.placeholder?.leadId);
-    expect(placeholderLead).toMatchObject({ lifecycleStage: "prospect" });
-    expect(state.identifiers.filter((identifier) => identifier.leadId === placeholderLead?._id)).toEqual([]);
-
-    expect(await totalLeads(harness)).toBe(2);
-    expect(await stageCount(harness, "prospect")).toBe(4);
-    expect(await stageCount(harness, "qualified")).toBe(2);
-    expect(await conversions(harness, ids.fresh.worker)).toEqual({
-      prospect: 4, in_conversation: 2, qualified: 2, booked: 0,
-    });
-    expect(await events(harness, "lead.captured")).toHaveLength(4);
-    expect(await events(harness, "lead.capture_voided")).toHaveLength(1);
-    expect(await events(harness, "lead.created")).toHaveLength(0);
-  });
-
-  it("links a prospect the backfill hasn't reached when its submission is retried", async () => {
-    const harness = await setup();
-    const { prospectId, submissionId } = await harness.t.run(async (ctx) => {
-      const ids = await legacyProspect(ctx, harness.tenantId, "ana.lead", NOW - 1_000);
-      await ctx.db.patch("leadGenSubmissions", ids.submissionId, { clientSubmissionKey: "retry-key" });
-      return ids;
-    });
-
-    const result = await harness.admin.mutation(api.leadGen.capture.submit, {
-      source: "instagram", rawHandleOrProfileUrl: "@ana.lead", originKind: "follower", clientSubmissionKey: "retry-key",
-    });
-
-    const prospect = await harness.t.run((ctx) => ctx.db.get("leadGenProspects", prospectId));
-    expect(result).toMatchObject({ submissionId, duplicateRetry: true });
-    expect(result.leadId).toBeDefined();
-    expect(prospect?.leadId).toBe(result.leadId);
-    expect(await events(harness, "lead.created")).toMatchObject([{ leadId: result.leadId }]);
-  });
-
-  it("finds a submission's capture event among many others in the same millisecond", async () => {
-    const harness = await setup();
-    await harness.t.run(async (ctx) => {
-      const { submissionId } = await legacyProspect(ctx, harness.tenantId, "ana.lead", NOW);
-      for (let i = 0; i < 150; i++) {
-        await ctx.db.insert("domainEvents", {
-          tenantId: harness.tenantId, entityType: "lead", entityId: `other-${i}`, eventType: "lead.captured",
-          occurredAt: NOW, source: "pipeline", metadata: JSON.stringify({ submissionId: `other-${i}` }),
-        });
-      }
-      return submissionId;
-    });
-
-    expect((await run(harness, "linkProspectPeople")).state).toBe("success");
-    expect((await run(harness, "backfillCaptureEvents")).state).toBe("success");
-    expect((await run(harness, "assertCaptureEvents")).state).toBe("success");
-  });
-
-  it("fails the assert for a prospect with no person", async () => {
-    const harness = await setup();
-    await harness.t.run((ctx) => legacyProspect(ctx, harness.tenantId, "brand.new", NOW));
-
-    const status = await run(harness, "assertProspectPeople");
-
-    expect(status.state).toBe("failed");
-  });
-});

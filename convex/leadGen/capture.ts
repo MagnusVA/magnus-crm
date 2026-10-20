@@ -20,7 +20,11 @@ import { resolveLeadGenTeamIdForWrite } from "./sharedTeams";
 import { linkLeadGenWorkerTeamMember } from "../lib/teamMembers";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { blockedReason } from "../pipeline/blocked";
-import { emitCaptureEvent, linkProspectPerson } from "./prospectPeople";
+import {
+  emitCaptureEvent,
+  findOrCreateHandlePerson,
+  settleProspectPerson,
+} from "./prospectPeople";
 
 const MAX_CLIENT_SUBMISSION_KEY_LENGTH = 200;
 type LeadGenSource = Doc<"leadGenSubmissions">["source"];
@@ -67,20 +71,11 @@ export const submit = mutation({
           workerId: worker._id,
           submissionId: existingSubmission._id,
         });
-        // A prospect the link backfill hasn't reached gets its person now.
         const existingProspect = await ctx.db.get("leadGenProspects", existingSubmission.prospectId);
-        let leadId = existingProspect?.leadId;
-        if (existingProspect && !leadId) {
-          const person = await linkProspectPersonForCapture(ctx, existingProspect._id);
-          if (person.created) {
-            await emitLeadCreated(ctx, access.tenantId, person.leadId, access.userId, now);
-          }
-          leadId = person.leadId;
-        }
         return {
           submissionId: existingSubmission._id,
           prospectId: existingSubmission.prospectId,
-          leadId,
+          leadId: existingProspect?.leadId,
           duplicateRetry: true,
           duplicateProspect: false,
         };
@@ -106,9 +101,19 @@ export const submit = mutation({
       )
       .unique();
 
+    // The prospect is a person, found by handle or created at Prospect
+    // (docs/plans/phase-2-person-first.md §4.1).
+    let createdLeadId: Id<"leads"> | undefined;
     if (!prospect) {
+      const person = await findOrCreateCapturePerson(ctx, {
+        tenantId: access.tenantId,
+        normalizedHandle: normalized.normalizedHandle,
+        capturedAt: now,
+      });
+      createdLeadId = person.created ? person.lead._id : undefined;
       const prospectId = await ctx.db.insert("leadGenProspects", {
         tenantId: access.tenantId,
+        leadId: person.lead._id,
         firstSource: args.source,
         latestSource: args.source,
         dedupeKey: normalized.dedupeKey,
@@ -131,6 +136,7 @@ export const submit = mutation({
       if (!prospect) {
         throw new Error("Prospect insert failed");
       }
+      await settleProspectPerson(ctx, prospect);
     }
 
     const priorWorkerSubmission = await ctx.db
@@ -164,18 +170,15 @@ export const submit = mutation({
       createdAt: now,
     });
 
-    // The prospect is a person, found by handle or created at Prospect
-    // (docs/plans/phase-2-person-first.md §4.1), and each submission is a
-    // touch on their timeline.
-    const person = await linkProspectPersonForCapture(ctx, prospect._id);
-    if (person.created) {
-      await emitLeadCreated(ctx, access.tenantId, person.leadId, access.userId, now);
+    // Each submission is a touch on the person's timeline.
+    if (createdLeadId) {
+      await emitLeadCreated(ctx, access.tenantId, createdLeadId, access.userId, now);
     }
     const submission = await ctx.db.get("leadGenSubmissions", submissionId);
     if (!submission) {
       throw new Error("Submission insert failed");
     }
-    await emitCaptureEvent(ctx, submission, person.leadId);
+    await emitCaptureEvent(ctx, submission, prospect.leadId);
 
     await ctx.db.patch("leadGenProspects", prospect._id, {
       lastSubmittedByWorkerId: worker._id,
@@ -242,7 +245,7 @@ export const submit = mutation({
     return {
       submissionId,
       prospectId: prospect._id,
-      leadId: person.leadId,
+      leadId: prospect.leadId,
       duplicateRetry: false,
       duplicateProspect,
     };
@@ -250,16 +253,16 @@ export const submit = mutation({
 });
 
 /**
- * Links the prospect to its person. A handle that two persons hold, or whose
- * identifier points at a broken record, can't decide who this is, so the
- * capture fails until an admin merges or repairs them.
+ * The capture's person. A handle that two persons hold, or whose identifier
+ * points at a broken record, can't decide who this is, so the capture fails
+ * until an admin merges or repairs them.
  */
-async function linkProspectPersonForCapture(
+async function findOrCreateCapturePerson(
   ctx: MutationCtx,
-  prospectId: Id<"leadGenProspects">,
+  args: Parameters<typeof findOrCreateHandlePerson>[1],
 ) {
   try {
-    return await linkProspectPerson(ctx, prospectId);
+    return await findOrCreateHandlePerson(ctx, args);
   } catch (error) {
     const reason = blockedReason(error);
     if (!reason) {
@@ -268,7 +271,7 @@ async function linkProspectPersonForCapture(
     reportError("lead_gen.capture.identity_blocked", new Error("Lead gen handle can't decide the person"), {
       fingerprint: `lead_gen.capture.identity_blocked:${reason}`,
       reason,
-      prospectId,
+      tenantId: args.tenantId,
     });
     throw new ConvexError(
       reason === "identity_conflict"
