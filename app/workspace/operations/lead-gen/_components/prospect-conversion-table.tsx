@@ -51,6 +51,9 @@ const percentFormatter = new Intl.NumberFormat(undefined, {
 const SECTION_TOOLTIP =
   "Prospects each specialist first captured in the selected range, and how many of those people went on to reach each stage. A stage counts only if the person reached it after the capture, so capturing someone already qualified credits the prospect, not the qualification. All sources.";
 
+const DEALS_TOOLTIP =
+  "Deals whose person this specialist found first: their capture was the person's first touch when the deal was created. Counted by the capture's date.";
+
 function Cell({
   count,
   prospects,
@@ -84,6 +87,7 @@ export function ProspectConversionTable({
       (rows ?? []).reduce((sum, row) => sum + row.counts[stage], 0),
     ]),
   ) as Record<Stage, number>;
+  const totalDeals = (rows ?? []).reduce((sum, row) => sum + row.deals, 0);
 
   return (
     <Card className="min-w-0" size="sm">
@@ -100,6 +104,9 @@ export function ProspectConversionTable({
           Prospects first captured in the selected range, by the specialist who
           captured them.
           {report?.capped ? " Showing the first 500 specialists only." : null}
+          {report?.dealsCapped
+            ? " Deals is partial: this range holds more deals than one read covers."
+            : null}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -128,6 +135,15 @@ export function ProspectConversionTable({
                       {label}
                     </TableHead>
                   ))}
+                  <TableHead className="text-right font-semibold text-foreground/80">
+                    <OverviewHelpTooltip
+                      description={DEALS_TOOLTIP}
+                      label="Deals"
+                      triggerClassName="w-full justify-end"
+                    >
+                      Deals
+                    </OverviewHelpTooltip>
+                  </TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -144,6 +160,11 @@ export function ProspectConversionTable({
                         showShare={stage !== "prospect"}
                       />
                     ))}
+                    <Cell
+                      count={row.deals}
+                      prospects={row.counts.prospect}
+                      showShare={false}
+                    />
                   </TableRow>
                 ))}
                 <TableRow className="bg-muted/40 font-semibold hover:bg-muted/40">
@@ -156,6 +177,11 @@ export function ProspectConversionTable({
                       showShare={stage !== "prospect"}
                     />
                   ))}
+                  <Cell
+                    count={totalDeals}
+                    prospects={totals.prospect}
+                    showShare={false}
+                  />
                 </TableRow>
               </TableBody>
             </Table>
