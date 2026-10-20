@@ -7,6 +7,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "../_generated/server";
+import { createLiveReadState, readLiveQueryRows } from "../lib/liveQueryBounds";
 import { reportingPool } from "../pipeline/workpools";
 import { meetingContribution } from "./meetingProjectionSchema";
 
@@ -350,6 +351,8 @@ export const MEETING_STATS_BUCKET_LIMIT = 8192;
 export const CREDITED_MEETING_LIMIT = 2000;
 // Rows read for one DM closer, its team member's other records included.
 const CREDITED_ROW_SCAN_LIMIT = 4 * CREDITED_MEETING_LIMIT;
+// A row is about 400 bytes; the default 512 KB would stop near 1,300 rows.
+const CREDITED_ROW_BYTE_BUDGET = 4 * 1024 * 1024;
 
 /** Meetings counted by closer, booked program and status: a bucket, or one meeting. */
 export type MeetingStatsCount = Pick<
@@ -389,22 +392,26 @@ async function creditedMeetingIds(
 
   // The team's bookings in range, by meeting.
   const teamMeetings = async () => {
-    const rows = await ctx.db
-      .query("dealAttributions")
-      .withIndex("by_tenantId_and_role_and_teamId_and_meetingScheduledAt", (q) =>
-        q
-          .eq("tenantId", tenantId)
-          .eq("role", "dm_team")
-          .eq("teamId", attributionTeamId)
-          .gte("meetingScheduledAt", start)
-          .lt("meetingScheduledAt", end),
-      )
-      .take(CREDITED_MEETING_LIMIT + 1);
+    const read = await readLiveQueryRows(
+      ctx.db
+        .query("dealAttributions")
+        .withIndex("by_tenantId_and_role_and_teamId_and_meetingScheduledAt", (q) =>
+          q
+            .eq("tenantId", tenantId)
+            .eq("role", "dm_team")
+            .eq("teamId", attributionTeamId)
+            .gte("meetingScheduledAt", start)
+            .lt("meetingScheduledAt", end),
+        ),
+      CREDITED_MEETING_LIMIT,
+      createLiveReadState(),
+      CREDITED_ROW_BYTE_BUDGET,
+    );
     const meetingIds = new Set<Id<"meetings">>();
-    for (const row of rows.slice(0, CREDITED_MEETING_LIMIT)) {
+    for (const row of read.rows) {
       if (row.meetingId) meetingIds.add(row.meetingId);
     }
-    return { meetingIds: [...meetingIds], truncated: rows.length > CREDITED_MEETING_LIMIT };
+    return { meetingIds: [...meetingIds], truncated: read.capped };
   };
 
   if (!dmCloserId) {
@@ -416,34 +423,33 @@ async function creditedMeetingIds(
     return { meetingIds: [], truncated: false };
   }
   // The team member's rows can belong to another of their DM closer records,
-  // so the cap counts only this record's rows; the scan itself is bounded too.
+  // so only this record's rows count toward the meeting cap; the read itself
+  // is bounded by rows and bytes.
+  const read = await readLiveQueryRows(
+    ctx.db
+      .query("dealAttributions")
+      .withIndex("by_tenantId_and_role_and_teamMemberId_and_meetingScheduledAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("role", "dm_closer")
+          .eq("teamMemberId", dmCloser.teamMemberId)
+          .gte("meetingScheduledAt", start)
+          .lt("meetingScheduledAt", end),
+      ),
+    CREDITED_ROW_SCAN_LIMIT,
+    createLiveReadState(),
+    CREDITED_ROW_BYTE_BUDGET,
+  );
   const meetingIds = new Set<Id<"meetings">>();
-  let matched = 0;
-  let scanned = 0;
-  let truncated = false;
-  for await (const row of ctx.db
-    .query("dealAttributions")
-    .withIndex("by_tenantId_and_role_and_teamMemberId_and_meetingScheduledAt", (q) =>
-      q
-        .eq("tenantId", tenantId)
-        .eq("role", "dm_closer")
-        .eq("teamMemberId", dmCloser.teamMemberId)
-        .gte("meetingScheduledAt", start)
-        .lt("meetingScheduledAt", end),
-    )) {
-    scanned += 1;
-    if (scanned > CREDITED_ROW_SCAN_LIMIT) {
-      truncated = true;
-      break;
-    }
+  let truncated = read.capped;
+  for (const row of read.rows) {
     if (!row.meetingId || row.source.kind !== "booking_utm" || row.source.dmCloserId !== dmCloserId) {
       continue;
     }
-    if (matched === CREDITED_MEETING_LIMIT) {
+    if (meetingIds.size === CREDITED_MEETING_LIMIT) {
       truncated = true;
       break;
     }
-    matched += 1;
     meetingIds.add(row.meetingId);
   }
   if (!attributionTeamId) return { meetingIds: [...meetingIds], truncated };
