@@ -432,7 +432,7 @@ Over `opportunities`, batch 100. The snapshot is the person's earliest and lates
 
 `backfillBookingAttributions`, over `meetings`, batch 100: the rows of §4.1 from each meeting's copied team and DM closer and its `assignedCloserId`, with `attributedAt` its `createdAt`. A meeting that already has its rows is skipped. The 1,071 meetings that were never resolved get only their `closer` row (D11). Expected: 5,265 `dm_team`, 4,793 `dm_closer`, 6,798 `closer`.
 
-`backfillDealAttributions`, over `opportunities`, batch 100: the lead gen, setter and side deal rows of §4.2 to §4.4, using the deal's touch snapshot from §10.2. Expected: 4,749 `lead_gen`, 8,508 `setter` (156 of them from `qualifiedBy`; 90 deals with more than one), 8 side deal `closer`.
+`backfillDealAttributions`, over `opportunities`, batch 100. The lead gen row comes from the deal's touch snapshot (§10.2): the capture its first touch names. Setters don't use the snapshot: they come from the deal's `slackQualificationEvents` in `submittedAt` order, each one that credits a setter (§4.4) through `recordSetterAttribution`, which keeps the earliest per team member, so a later qualification by the same setter adds nothing. A deal with no such event and a `qualifiedBy` gets one setter row from `qualifiedBy`. A side deal gets its closer row. Expected: 4,749 `lead_gen`, 8,508 `setter` (156 of them from `qualifiedBy`; 90 deals with more than one), 8 side deal `closer`.
 
 `assertBookingAttributions` checks, for each meeting, one `dm_team` row exactly when the copy has a team and for that team, one `dm_closer` row exactly when it has a DM closer and for that record and its team member, and one `booking_closer` row naming the closer the meeting was booked with: its `reassignedFromCloserId` if it has one, else its `assignedCloserId`. The one allowed difference is a meeting the pipeline moved to a later booking's host (§2.1): then a later booking on the same deal has a `booking_closer` row for the meeting's current `assignedCloserId`. After PR 6 clears the copies, it checks the rows against the meeting's resolution instead: `mapped` has a `dm_team` row, and anything else has none. `assertDealAttributions` recomputes the deal rows and checks them, that no row's team member or team belongs to another tenant, and, while the copies exist, that the deal's first booking's rows credit the same team and DM closer as the deal's copy.
 
@@ -465,6 +465,8 @@ The existing migration, run with `reset`: it re-queues every meeting (6,798), an
 ### 10.7 Commands
 
 Every command runs against production with `--env-file .env.vercel.production`; without it the CLI targets the dev deployment. Filter dry-run output with `grep -E '"processed"|"DryRun"|error'`.
+
+Each migration runs the same way: dry run, run, then poll `lib:getStatus` until it reports `"isDone": true` (a background loop that waits 30 seconds between calls), read any error it reports, and only then run its assert, which is polled the same way. The next migration starts only after the previous assert is done and passed; the projection rebuild and the clear start only after every migration before them in §9 is done.
 
 ```
 npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:backfillPersonTouches","dryRun":true}'
