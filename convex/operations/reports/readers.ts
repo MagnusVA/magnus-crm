@@ -2,6 +2,7 @@ import { requireReportingReady } from "../reportingReadiness";
 import type { PaginationOptions, PaginationResult } from "convex/server";
 import { v } from "convex/values";
 import { internalQuery, type QueryCtx } from "../../_generated/server";
+import { bookingCreditForMeeting } from "../../lib/attribution/dealAttributions";
 import { leadDisplayFromShape } from "../../lib/leadDisplay";
 import {
   dmCloserMemberIdentity,
@@ -330,11 +331,18 @@ async function readQualificationEvents(ctx: QueryCtx, args: ReportSourcePageRequ
   return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "qualification_event", eventId: row._id, submittedAt: row.submittedAt, slackUserId: row.slackUserId, slackTeamId: row.slackTeamId, fullNameSnapshot: row.fullNameSnapshot, platform: row.platform, handleSnapshot: row.handleSnapshot, leadId: row.leadId ?? null, opportunityId: row.opportunityId ?? null, resultKind: row.resultKind })));
 }
 
+// First bookings (anything but a follow_up) with their credit from the
+// booking's dm_team and dm_closer rows, as Booked Calls counts them (§6.1).
+// Team-only bookings come along for their team's goal; the reducer keeps them
+// out of the DM closer counts and the raw list. Two meetings a page, so rows
+// are read by meeting.
 async function readBookedMeetings(ctx: QueryCtx, args: ReportSourcePageRequest) {
   const result = await ctx.db.query("meetings").withIndex("by_tenantId_and_createdAt", (q) => q.eq("tenantId", args.tenantId).gte("createdAt", args.startTimestamp).lt("createdAt", args.endTimestampExclusive)).paginate(pagination(args.cursor, 2));
-  const meetings = result.page.filter((row) => row.dmCloserId !== undefined && row.callClassification !== "follow_up");
-  const page = await Promise.all(meetings.map(async (meeting): Promise<ReportSourceRow> => {
-    const [opportunity, team, dmCloser] = await Promise.all([ctx.db.get("opportunities", meeting.opportunityId), meeting.attributionTeamId ? ctx.db.get("attributionTeams", meeting.attributionTeamId) : Promise.resolve(null), ctx.db.get("dmClosers", meeting.dmCloserId!)]);
+  const firstBookings = result.page.filter((row) => row.callClassification !== "follow_up");
+  const credited = await Promise.all(firstBookings.map(async (meeting) => ({ meeting, credit: await bookingCreditForMeeting(ctx, args.tenantId, meeting._id) })));
+  const booked = credited.filter(({ credit }) => credit.dmCloserId !== undefined || credit.teamId !== undefined);
+  const page = await Promise.all(booked.map(async ({ meeting, credit }): Promise<ReportSourceRow> => {
+    const [opportunity, team, dmCloser] = await Promise.all([ctx.db.get("opportunities", meeting.opportunityId), credit.teamId ? ctx.db.get("attributionTeams", credit.teamId) : Promise.resolve(null), credit.dmCloserId ? ctx.db.get("dmClosers", credit.dmCloserId) : Promise.resolve(null)]);
     const tenantOpportunity = opportunity?.tenantId === args.tenantId ? opportunity : null;
     const tenantTeam = team?.tenantId === args.tenantId ? team : null;
     const tenantDmCloser = dmCloser?.tenantId === args.tenantId ? dmCloser : null;
@@ -348,8 +356,8 @@ async function readBookedMeetings(ctx: QueryCtx, args: ReportSourcePageRequest) 
       leadLabel: lead ? leadDisplayFromShape({ fullName: lead.fullName, email: lead.email, leadId: lead._id }) : meeting.leadName?.trim() || "Unknown lead",
       leadHandle: lead?.socialHandles?.[0]?.handle ?? lead?.email ?? lead?.phone ?? null,
       initialSource: lead?.initialSource ?? null, selfReportedIncome: lead?.selfReportedIncome ?? null,
-      attributionTeamId: meeting.attributionTeamId ?? null, attributionTeamLabel: tenantTeam?.displayName ?? null,
-      dmCloserId: meeting.dmCloserId!, dmCloserLabel: tenantDmCloser?.displayName ?? null,
+      attributionTeamId: credit.teamId ?? null, attributionTeamLabel: tenantTeam?.displayName ?? null,
+      dmCloserId: credit.dmCloserId ?? null, dmCloserLabel: tenantDmCloser?.displayName ?? null,
     };
   }));
   return projectedPage(result, page);

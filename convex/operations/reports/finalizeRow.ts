@@ -10,7 +10,7 @@ export const summaryDefaults: Record<string, ScalarRecord> = {
     workersActive: 0,
   },
   qualifications_summary: { totalQualified: 0, dailyQuota: null, target: null },
-  booked_calls_summary: { totalBooked: 0, totalTarget: null },
+  booked_calls_summary: { totalBooked: 0, teamOnlyBooked: 0, totalTarget: null },
   sales_calls_summary: { booked: 0, showed: 0, canceled: 0, noShows: 0 },
 };
 
@@ -50,8 +50,9 @@ export async function finalizeReportRow(
   }
   if (section === "booking_team") {
     // The live dashboard only includes teams present in the current registry.
-    // Unattributed bookings and bookings attributed to deleted teams still
-    // contribute to the global total, but do not create goal-team rows.
+    // DM-closer bookings with no team row, or one for a deleted team, still
+    // count toward the global total, but create no goal-team rows. A
+    // team-only booking counts toward its team here (D9).
     if (typeof fields.teamId !== "string") return null;
   }
   if (section === "sales_summary_money") {

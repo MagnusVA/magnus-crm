@@ -329,11 +329,21 @@ function reduceBookedMeeting(
   row: Extract<ReportSourceRow, { kind: "booked_meeting" }>,
 ) {
   const teamKey = row.attributionTeamId ?? "unassigned";
+  const teamProgress = metric("booking_team", teamKey, "progress", "sum", 1);
+  if (row.dmCloserId === null) {
+    // A team-only booking (D9) counts toward its team and the goal, as on
+    // the live dashboard, but not toward any DM closer, their total, or the
+    // raw list of DM-closer bookings.
+    return [
+      teamProgress,
+      metric("booked_calls_summary", "main", "teamOnlyBooked", "sum", 1),
+    ];
+  }
   return [
     metric("booked_calls_summary", "main", "totalBooked", "sum", 1),
     metric("booked_closer", row.dmCloserId, "booked", "sum", 1),
     set("booked_closer", row.dmCloserId, "dmCloserId", row.dmCloserId),
-    metric("booking_team", teamKey, "progress", "sum", 1),
+    teamProgress,
     ...fieldsToSetContributions("raw_booking", row.meetingId, {
       meetingId: row.meetingId,
       opportunityId: row.opportunityId,
@@ -763,13 +773,18 @@ export function finalizeAggregateRecord(args: {
       payload.lastEventAt = typeof payload.lastEventAt === "number" ? payload.lastEventAt : null;
       break;
     }
-    case "booked_calls_summary":
-      payload.progress = numberField(payload, "totalBooked");
+    case "booked_calls_summary": {
+      // Goal progress is the DM-closer bookings plus the team-only ones;
+      // totalBooked stays the DM-closer bookings (D9).
+      const teamOnlyBooked = numberField(payload, "teamOnlyBooked");
+      payload.teamOnlyBooked = teamOnlyBooked;
+      payload.progress = numberField(payload, "totalBooked") + teamOnlyBooked;
       payload.businessDayCount = args.range.dayCount;
       payload.start = args.range.startTimestamp;
       payload.end = args.range.endTimestampExclusive;
       if (payload.totalTarget === undefined) payload.totalTarget = null;
       break;
+    }
     case "booked_closer": {
       const booked = numberField(payload, "booked");
       const scheduledHours = numberField(args.relatedFields ?? {}, "scheduledHours");

@@ -290,6 +290,58 @@ describe("operations report reducers", () => {
     ).toBeNull();
   });
 
+  it("counts a team-only booking toward its team and the goal, not a DM closer or the raw list", () => {
+    const booking = (meetingId: string, dmCloserId: string | null, teamId: string) =>
+      ({
+        kind: "booked_meeting",
+        meetingId,
+        opportunityId: `deal-${meetingId}`,
+        leadId: null,
+        bookedAt: range.startTimestamp,
+        scheduledAt: range.startTimestamp,
+        meetingStatus: "scheduled",
+        opportunityStatus: "scheduled",
+        bookingProgramId: null,
+        bookingProgramName: null,
+        leadLabel: "Lead",
+        leadHandle: null,
+        initialSource: null,
+        selfReportedIncome: null,
+        attributionTeamId: teamId,
+        attributionTeamLabel: "Team",
+        dmCloserId,
+        dmCloserLabel: dmCloserId ? "Closer" : null,
+      }) satisfies ReportSourceRow;
+    const records = applyContributions([
+      reduceReportSourcePage({
+        sourceKey: "booked_meetings",
+        range,
+        rows: [booking("withCloser", "closer", "north"), booking("teamOnly", null, "south")],
+      }),
+    ]);
+
+    expect(records.get("booked_calls_summary/main")).toMatchObject({
+      totalBooked: 1,
+      teamOnlyBooked: 1,
+    });
+    expect(records.get("booked_closer/closer")).toMatchObject({ booked: 1 });
+    expect(records.get("booking_team/north")).toMatchObject({ progress: 1 });
+    expect(records.get("booking_team/south")).toMatchObject({ progress: 1 });
+    expect(records.has("raw_booking/withCloser")).toBe(true);
+    expect(records.has("raw_booking/teamOnly")).toBe(false);
+    expect([...records.keys()].filter((key) => key.startsWith("booked_closer/"))).toEqual([
+      "booked_closer/closer",
+    ]);
+    expect(
+      finalizeAggregateRecord({
+        section: "booked_calls_summary",
+        rowKey: "main",
+        fields: records.get("booked_calls_summary/main")!,
+        range,
+      })?.payload,
+    ).toMatchObject({ totalBooked: 1, progress: 2 });
+  });
+
   it("computes long-range schedule occurrences without expanding the range", () => {
     const longRange = { ...range, dayCount: 10_000, endDayKeyExclusive: "2053-05-19" };
     const contributions = reduceReportSourcePage({
