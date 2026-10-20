@@ -428,3 +428,30 @@ describe("qualification attribution parity", () => {
     expect((await h.run("assertQualificationAttributionParity"))?.error).toContain("unmapped");
   });
 });
+
+describe("a closer whose user was deleted", () => {
+  it("keeps its row without a team member, and only then", async () => {
+    const h = await attributionHarness();
+    await backfillAll(h);
+    const closerRow = rowsOf(await attributionRows(h), { meetingId: h.ids.meetings.m1, role: "closer" })[0];
+    await h.t.run((ctx) => ctx.db.patch("dealAttributions", closerRow._id, { teamMemberId: undefined }));
+
+    // Its user still exists: the row should name the user's team member.
+    expect((await h.rerun("assertBookingAttributions"))?.error).toContain(closerRow._id);
+    expect((await h.rerun("assertDealAttributions"))?.error).toContain(closerRow._id);
+
+    // Once the user is gone there is no team member to name; the user ID stays.
+    const userId = closerRow.source.kind === "booking_closer" ? closerRow.source.userId : undefined;
+    if (!userId) throw new Error("expected a booking closer row");
+    await h.t.run(async (ctx) => {
+      for (const row of await ctx.db.query("dealAttributions").take(500)) {
+        if (row._id !== closerRow._id && "userId" in row.source && row.source.userId === userId) {
+          await ctx.db.patch("dealAttributions", row._id, { teamMemberId: undefined });
+        }
+      }
+      await ctx.db.delete("users", userId);
+    });
+    expect((await h.rerun("assertBookingAttributions"))?.error).toBeUndefined();
+    expect((await h.rerun("assertDealAttributions"))?.error).toBeUndefined();
+  });
+});
