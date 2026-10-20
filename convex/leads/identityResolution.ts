@@ -51,12 +51,6 @@ export type ResolveLeadIdentityArgs = {
   createIdentifiers?: boolean;
   /** The stage a new person starts at, from the record that created them. */
   initialLifecycle?: LifecycleEvidence;
-  /**
-   * Creates a person with no identifier when every identifier given is a
-   * placeholder: a lead gen prospect captured with a placeholder handle
-   * before the capture form rejected them (docs/plans/phase-2-person-first.md D1).
-   */
-  allowNoIdentifier?: boolean;
 };
 
 export type ResolveLeadIdentityResult = {
@@ -471,7 +465,7 @@ export async function resolveLeadIdentity(
   }
   // A placeholder email still counts as input here: a booking that has only
   // one gets a lead with no email and no identifiers.
-  if (!normalizedEmail && !normalizedSocialHandle && !normalizedPhone && !args.allowNoIdentifier) {
+  if (!normalizedEmail && !normalizedSocialHandle && !normalizedPhone) {
     throw new Error(
       "Cannot create lead - at least one of email, socialHandle, or phone is required.",
     );

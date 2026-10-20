@@ -112,7 +112,7 @@ async function legacyCustomer(harness: Harness) {
       createdAt: 0, updatedAt: 0,
     });
     const prospectId = await ctx.db.insert("leadGenProspects", {
-      tenantId, firstSource: "instagram", latestSource: "instagram", dedupeKey: "instagram:buyer",
+      tenantId, leadId, firstSource: "instagram", latestSource: "instagram", dedupeKey: "instagram:buyer",
       normalizedHandle: "buyer", rawHandle: "buyer", profileUrl: "https://instagram.com/buyer",
       firstCapturedByWorkerId: workerId, firstCapturedAt: CAPTURED, lastSubmittedByWorkerId: workerId,
       lastSubmittedAt: CAPTURED, latestOriginKind: "follower", contactAttemptCount: 1, distinctWorkerCount: 1,

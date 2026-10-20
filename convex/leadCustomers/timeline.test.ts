@@ -1,12 +1,10 @@
 /**
  * One timeline per person, from the event log, and a Slack touch for every
- * qualification (docs/plans/phase-2-person-first.md §6.1, §10.4).
+ * qualification (docs/plans/phase-2-person-first.md §5, §6.1).
  */
-import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { bookingHarness } from "../../tests/bookingHarness";
-import { migrations } from "../migrations";
 
 afterEach(() => vi.useRealTimers());
 
@@ -18,7 +16,6 @@ async function setup() {
   vi.useFakeTimers();
   vi.setSystemTime(new Date(NOW));
   const harness = await bookingHarness();
-  migrationsTest.register(harness.t);
   const installationId = await harness.t.run(async (ctx) =>
     await ctx.db.insert("slackInstallations", {
       tenantId: harness.tenantId, teamId: "T1", teamName: "Team", isEnterpriseInstall: false,
@@ -92,15 +89,6 @@ describe("person timeline", () => {
   });
 });
 
-async function run(h: Harness, name: string, reset = false) {
-  await h.t.mutation(internal.migrations.run, { fn: `migrations:${name}`, reset });
-  await h.t.finishAllScheduledFunctions(vi.runAllTimers);
-  const [status] = await h.t.run((ctx) =>
-    migrations.getStatus(ctx, { migrations: [`migrations:${name}`] as never }),
-  );
-  return status;
-}
-
 describe("person timeline across merges and limits", () => {
   it("includes events of a lead merged into one that was merged in later", async () => {
     const h = await setup();
@@ -151,22 +139,5 @@ describe("Slack touches", () => {
       (await ctx.db.query("domainEvents").take(100)).filter((event) => event.eventType === "lead.slack_qualified"),
     );
     expect(touches).toHaveLength(2);
-    expect((await run(h, "assertSlackTouches")).state).toBe("success");
-  });
-
-  it("backfills the touches of earlier qualifications once", async () => {
-    const h = await setup();
-    await qualify(h, "ana.lead", NOW - 1_000);
-    await h.t.run(async (ctx) => {
-      for (const event of await ctx.db.query("domainEvents").take(100)) {
-        if (event.eventType === "lead.slack_qualified") await ctx.db.delete("domainEvents", event._id);
-      }
-    });
-
-    expect((await run(h, "assertSlackTouches")).state).toBe("failed");
-    expect((await run(h, "backfillSlackTouches")).state).toBe("success");
-    expect((await run(h, "backfillSlackTouches", true)).state).toBe("success");
-    expect((await run(h, "assertSlackTouches", true)).state).toBe("success");
-    expect((await run(h, "assertDomainEventLinks")).state).toBe("success");
   });
 });

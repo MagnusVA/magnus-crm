@@ -209,7 +209,12 @@ async function seedDeal(
   return opportunityId;
 }
 
-async function insertProspect(ctx: MutationCtx, tenantId: Id<"tenants">, handle: string) {
+async function insertProspect(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  handle: string,
+  leadId?: Id<"leads">,
+) {
   const adminId = await userId(ctx, "user_admin");
   const worker = await ctx.db
     .query("leadGenWorkers")
@@ -228,6 +233,8 @@ async function insertProspect(ctx: MutationCtx, tenantId: Id<"tenants">, handle:
     }));
   return await ctx.db.insert("leadGenProspects", {
     tenantId,
+    // Every prospect is a person; one of its own unless the test names one.
+    leadId: leadId ?? (await insertLead(ctx, tenantId, { fullName: handle })),
     firstSource: "instagram",
     latestSource: "instagram",
     dedupeKey: `instagram:${handle}`,
@@ -423,8 +430,7 @@ it("moves every row that names the source lead onto the target", async () => {
     await rebuildQualificationRow(ctx, targetEventId);
 
     // One prospect matched only the source; another matched both leads.
-    const prospectId = await insertProspect(ctx, tenantId, "samsource");
-    await ctx.db.patch("leadGenProspects", prospectId, { leadId: sourceLeadId });
+    const prospectId = await insertProspect(ctx, tenantId, "samsource", sourceLeadId);
     const sourceMatchId = await insertMatch(ctx, prospectId, sourceLeadId, {
       opportunityId: booked.opportunityId,
     });

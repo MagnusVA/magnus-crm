@@ -665,22 +665,22 @@
   </div>
 </div>
 <div class="phase">
-  <div class="tag">Phase 2<span>person first, next</span></div>
+  <div class="tag">Phase 2<span>person first, done</span></div>
   <div>
-    <h3>Every capture and every DM becomes part of the person</h3>
-    <div class="meta"><span class="pill med">Medium risk</span><span class="pill low">Widen: prospect.leadId, copy event leadId; then narrow</span></div>
+    <h3>Every capture becomes part of the person</h3>
+    <div class="meta"><span class="pill good">Done, #131 to #138</span><span class="pill low">Widen: prospect.leadId, copy event leadId; then narrow</span></div>
     <ul>
-      <li>Lead gen capture calls <code>resolveLeadIdentity</code> with the Instagram handle and creates the person at the Prospect stage (decision 1). Both sides already normalize handles through <code>normalizeSocialHandle</code>, so they match. The worker and source become the person's frozen first touch.</li>
-      <li>Backfill every existing prospect: link it to a lead through the handle identifier, or create one. Count production prospects first to size the migration batches.</li>
-      <li>The DM portal finds or creates the person (decision 4). It records each copied link against that person (<code>linkPortalCopyEvents</code> gets a <code>leadId</code>), and the booking link carries the person ID so the booking joins without guessing. Portal activity moves the person to In conversation.</li>
-      <li>The person page shows one timeline: captures, portal activity, Slack qualification, bookings, outcomes and payments.</li>
-      <li>The leads list gets its Prospects view (the toggle Phase 1 held back), and prospect-to-customer conversion by lead gen worker becomes a report. Prospects stay out of <code>tenantStats.totalLeads</code> and the leads report, which count from Qualified.</li>
-      <li><strong>Ends with:</strong> <code>leadGenProspects.leadId</code> required, every prospect on a person, and no code path that creates a prospect, a portal session or a booking without a person.</li>
+      <li>Lead gen capture calls <code>resolveLeadIdentity</code> with the Instagram handle and creates the person at the Prospect stage (decision 1). Each submission is a touch on the person's timeline.</li>
+      <li>Every existing prospect is on a person: 4,313 through their audit match, 1,395 through a handle identifier, and the rest as new persons at Prospect.</li>
+      <li>Portal notes and edits are touches on their person and move them to In conversation. Copied links name no person: DM closers work people Slack already qualified, the booking finds them by the Instagram handle on the Calendly form, and the UTMs name the team and DM closer (decision 4, revised 20 October). Every Slack qualification is a touch with the setter.</li>
+      <li>The person page shows one timeline from <code>domainEvents</code>: captures, portal notes and edits, Slack qualifications, bookings, outcomes and payments, merged persons included.</li>
+      <li>The leads list has its Prospects view, and the lead gen operations page reports prospect conversion by the worker who first captured each prospect. A stage counts only if the person reached it after the capture. Prospects stay out of <code>tenantStats.totalLeads</code> and the leads report.</li>
+      <li><strong>Ended with:</strong> <code>leadGenProspects.leadId</code> required, every prospect on a person, and no code path that creates a prospect without a person (<a href="../plans/phase-2-person-first.md">plan</a>).</li>
     </ul>
   </div>
 </div>
 <div class="phase">
-  <div class="tag">Phase 3<span>attribution</span></div>
+  <div class="tag">Phase 3<span>attribution, next</span></div>
   <div>
     <h3>Attribution as its own record</h3>
     <div class="meta"><span class="pill med">Medium risk</span><span class="pill low">New table, then narrow the copies</span></div>

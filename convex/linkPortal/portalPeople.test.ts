@@ -1,13 +1,11 @@
 /**
  * Portal notes and edits are touches on their person; a copied link names
- * no one (docs/plans/phase-2-person-first.md §4.3, §10.3).
+ * no one (docs/plans/phase-2-person-first.md §4.3).
  */
-import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { internal } from "../_generated/api";
 import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
 import { collectLifecycleEvidence, syncLeadStageEntries } from "../lib/leadLifecycle";
-import { migrations } from "../migrations";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 
 afterEach(() => vi.useRealTimers());
@@ -21,7 +19,6 @@ async function setup() {
   vi.useFakeTimers();
   vi.setSystemTime(new Date(NOW));
   const harness = await bookingHarness();
-  migrationsTest.register(harness.t);
   const ids = await harness.t.run(async (ctx) => {
     const { tenantId } = harness;
     const admin = (await ctx.db
@@ -176,49 +173,6 @@ describe("DM portal copy", () => {
     const lead = await h.t.run((ctx) => ctx.db.get("leads", leadId));
     expect(lead).toMatchObject({ lifecycleStage: "in_conversation", lifecycleStageEnteredAt: { in_conversation: NOW } });
     expect(await events(h, "lead.portal_note_added")).toMatchObject([{ leadId, teamMemberId: h.teamMemberId }]);
-  });
-});
-
-async function run(h: Harness, name: string) {
-  await h.t.mutation(internal.migrations.run, { fn: `migrations:${name}` });
-  await h.t.finishAllScheduledFunctions(vi.runAllTimers);
-  const [status] = await h.t.run((ctx) =>
-    migrations.getStatus(ctx, { migrations: [`migrations:${name}`] as never }),
-  );
-  return status;
-}
-
-describe("portal touch backfill", () => {
-  it("gives each earlier portal note and edit its touch, once", async () => {
-    const h = await setup();
-    const leadId = await existingPerson(h, { handle: "ana.lead" });
-    await h.t.run(async (ctx) => {
-      await ctx.db.insert("leadNotes", {
-        tenantId: h.tenantId, leadId, content: "Earlier note", createdAt: NOW - 500,
-        authorKind: "dm_closer", dmCloserId: h.dmCloserId,
-      });
-      await ctx.db.insert("linkPortalLeadEdits", {
-        tenantId: h.tenantId, leadId, dmCloserId: h.dmCloserId, sessionIdHash: "s",
-        createdAt: NOW - 400, changedFields: ["initialSource"],
-      });
-    });
-
-    expect((await run(h, "assertPortalNoteTouches")).state).toBe("failed");
-    expect((await run(h, "backfillPortalNoteTouches")).state).toBe("success");
-    expect((await run(h, "backfillPortalEditTouches")).state).toBe("success");
-    await h.t.mutation(internal.migrations.run, { fn: "migrations:backfillPortalNoteTouches", reset: true });
-    await h.t.finishAllScheduledFunctions(vi.runAllTimers);
-    await h.t.mutation(internal.migrations.run, { fn: "migrations:assertPortalNoteTouches", reset: true });
-    await h.t.finishAllScheduledFunctions(vi.runAllTimers);
-    const [noteAssert] = await h.t.run((ctx) =>
-      migrations.getStatus(ctx, { migrations: ["migrations:assertPortalNoteTouches"] as never }),
-    );
-    expect(noteAssert.state).toBe("success");
-    expect((await run(h, "assertPortalEditTouches")).state).toBe("success");
-    expect((await run(h, "assertLeadLifecycle")).state).toBe("success");
-
-    expect(await events(h, "lead.portal_note_added")).toHaveLength(1);
-    expect(await events(h, "lead.portal_profile_updated")).toHaveLength(1);
   });
 });
 

@@ -2,10 +2,8 @@ import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
-import { recordProspectCapture } from "../lib/leadLifecycle";
 import { normalizeSocialHandle } from "../lib/normalization";
 import { log } from "../lib/observability/log";
-import { linkProspectPerson } from "./prospectPeople";
 import { leadGenAuditMatchSourceValidator } from "./validators";
 
 type MatchOutcome =
@@ -117,7 +115,6 @@ async function createOrReuseAcceptedMatch(
     currentAuditMatchId: matchId,
     updatedAt: args.now,
   });
-  await recordProspectCapture(ctx, matchId);
 
   logMatchOutcome("matched_new", { ...logAttrs, matchId });
   return matchId;
@@ -167,7 +164,7 @@ export const matchQualifiedLead = internalMutation({
       return null;
     }
 
-    const matchId = await createOrReuseAcceptedMatch(ctx, {
+    return await createOrReuseAcceptedMatch(ctx, {
       tenantId: args.tenantId,
       prospect: prospects[0],
       leadId: args.leadId,
@@ -176,12 +173,6 @@ export const matchQualifiedLead = internalMutation({
       matchSource: args.matchSource,
       now: Date.now(),
     });
-    // A prospect the link backfill hasn't reached is this person
-    // (docs/plans/phase-2-person-first.md §5).
-    if (matchId && !prospects[0].leadId) {
-      await linkProspectPerson(ctx, prospects[0]._id);
-    }
-    return matchId;
   },
 });
 

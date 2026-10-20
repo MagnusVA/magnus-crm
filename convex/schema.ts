@@ -235,8 +235,7 @@ export default defineSchema({
     distinctWorkerCount: v.number(),
     currentAuditMatchId: v.optional(v.id("leadGenAuditMatches")),
     // The person this prospect is (docs/plans/phase-2-person-first.md §3).
-    // Unset only on prospects the link backfill hasn't reached.
-    leadId: v.optional(v.id("leads")),
+    leadId: v.id("leads"),
     createdAt: v.number(),
     updatedAt: v.number(),
   })

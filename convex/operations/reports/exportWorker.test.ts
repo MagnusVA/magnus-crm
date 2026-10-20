@@ -86,6 +86,15 @@ async function fixture() {
       });
     const prospectId = await ctx.db.insert("leadGenProspects", {
       tenantId,
+      leadId: await ctx.db.insert("leads", {
+        tenantId,
+        status: "active",
+        firstSeenAt: 0,
+        updatedAt: 0,
+        lifecycleStage: "prospect",
+        lifecycleStageEnteredAt: { prospect: 0 },
+        disposition: "open",
+      }),
       firstSource: "instagram",
       latestSource: "instagram",
       dedupeKey: "fixture",

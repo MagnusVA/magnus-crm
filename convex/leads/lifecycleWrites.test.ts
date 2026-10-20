@@ -293,24 +293,11 @@ describe("lifecycle write paths", () => {
     vi.setSystemTime(new Date(NOW));
     const harness = await bookingHarness();
     const capturedAt = Date.parse("2026-09-15T08:00:00Z");
-    await harness.t.run(async (ctx) => {
-      const user = (await ctx.db
-        .query("users")
-        .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_admin"))
-        .unique())!;
-      const workerId = await ctx.db.insert("leadGenWorkers", {
-        tenantId: harness.tenantId, userId: user._id, workosUserId: "user_admin",
-        email: "admin@example.com", isActive: true, createdAt: 0, updatedAt: 0,
-      });
-      await ctx.db.insert("leadGenProspects", {
-        tenantId: harness.tenantId, firstSource: "instagram", latestSource: "instagram",
-        dedupeKey: "instagram:ana.lead", normalizedHandle: "ana.lead", rawHandle: "ana.lead",
-        profileUrl: "https://instagram.com/ana.lead", firstCapturedByWorkerId: workerId,
-        firstCapturedAt: capturedAt, lastSubmittedByWorkerId: workerId, lastSubmittedAt: capturedAt,
-        latestOriginKind: "follower", contactAttemptCount: 1, distinctWorkerCount: 1,
-        createdAt: capturedAt, updatedAt: capturedAt,
-      });
+    vi.setSystemTime(new Date(capturedAt));
+    await harness.admin.mutation(api.leadGen.capture.submit, {
+      source: "instagram", rawHandleOrProfileUrl: "@ana.lead", originKind: "follower",
     });
+    vi.setSystemTime(new Date(NOW));
 
     await qualify(harness, "ana.lead", NOW - 2_000);
     await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
