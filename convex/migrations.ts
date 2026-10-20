@@ -619,6 +619,19 @@ export const assertDealTouches = migrations.define({
   },
 });
 
+/**
+ * A closer row names its user's team member, except when that user was
+ * deleted: the row keeps the user ID, and there is no team member to name
+ * (12 meetings in production, booked in 2026-06 with a closer since removed).
+ */
+async function teamMemberMissing(ctx: MutationCtx, row: DealAttribution) {
+  if (row.teamMemberId) return false;
+  if (row.role === "closer" && "userId" in row.source) {
+    return (await ctx.db.get("users", row.source.userId)) !== null;
+  }
+  return true;
+}
+
 function isBookingRow(row: DealAttribution) {
   return row.source.kind === "booking_utm" || row.source.kind === "booking_closer";
 }
@@ -715,7 +728,7 @@ export const assertBookingAttributions = migrations.define({
     const [team] = teamRows;
     const [dm] = dmRows;
     const [closer] = closerRows;
-    if (!closer.teamMemberId) throw fail(`booking_closer row ${closer._id} has no team member`);
+    if (await teamMemberMissing(ctx, closer)) throw fail(`booking_closer row ${closer._id} has no team member`);
     if (closer.source.kind === "booking_closer") {
       const bookedWith = meeting.reassignedFromCloserId ?? meeting.assignedCloserId;
       if (closer.source.userId !== bookedWith && !(await movedToLaterHost(ctx, meeting))) {
@@ -842,7 +855,7 @@ export const assertDealAttributions = migrations.define({
       if (!SOURCE_KINDS_BY_ROLE[row.role].includes(row.source.kind)) {
         throw fail(`${row.role} row ${row._id} has a ${row.source.kind} source`);
       }
-      if (row.role === "dm_team" ? !row.teamId || row.teamMemberId : !row.teamMemberId) {
+      if (row.role === "dm_team" ? !row.teamId || row.teamMemberId : await teamMemberMissing(ctx, row)) {
         throw fail(row.role === "dm_team"
           ? `dm_team row ${row._id} must name a team and no team member`
           : `${row.role} row ${row._id} has no team member`);
