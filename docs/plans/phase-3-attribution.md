@@ -216,7 +216,7 @@ latestTouch: v.optional(touchSnapshotValidator),
 ```
 
 - A snapshot names its event, not a team member. Who made the touch is the event's `teamMemberId`, which `mergeTeamMembers` keeps current; for a Calendly booking it is the booking's `dm_closer` row. So a team member merge never leaves a snapshot pointing at a deleted team member.
-- The fields stay optional: a person is inserted before the event that touches them, in the same transaction. §10.5 counts any person left without one.
+- The fields stay optional: a person is inserted before the event that touches them, in the same transaction. The read-only recheck after the backfill counts any person left without one.
 
 ### 3.3 Fields that change in the narrow (PR 7)
 
@@ -264,7 +264,7 @@ Each row has the meeting's `meetingId` and `meetingScheduledAt`, and `attributed
 
 ### 4.3 Lead gen
 
-The lead gen row credits the worker of the person's first touch, when that touch is a capture (D4). The source is the capture event, its prospect and its worker; `attributedAt` is the capture time. One row at most: other workers who submitted the same handle later get none. A worker who captures someone Slack or Calendly reached first gets no deal credit, as Phase 2 D3 and D6 decided for the person.
+The lead gen row credits the worker of the person's first touch, when that touch is a capture (D4). The source is the capture event, its prospect and its worker; `attributedAt` is the capture time. One row at most: other workers who submitted the same handle later get none. A worker who captures someone Slack or Calendly reached first gets no deal credit, as Phase 2 D3 and D6 decided for the person. Voiding a capture changes neither the prospect's first worker nor the first touch, as voiding never changed `firstCapturedByWorkerId`; production has no voided captures.
 
 ### 4.4 Setters
 
@@ -305,6 +305,7 @@ A reassignment adds a `closer` row with source `reassignment` and never removes 
 - `mergeLead` moves deals with their IDs (`moveOpportunityToLead`), so their rows move with them and need no write. It combines first and latest touch (§4.5).
 - `moveMeetingToOpportunity` moves the meeting's rows to the new deal.
 - `mergeTeamMembers` repoints `dealAttributions.teamMemberId`, role by role, in pages, as it does events.
+- Linking a DM closer, Slack user or lead gen worker to a login changes its team member without a merge. That record's rows move to the new team member in pages (`attribution/teamMemberRepoint.ts`), so a filter by DM closer still finds its earlier bookings.
 
 ### 4.9 One row per fact
 
@@ -343,7 +344,7 @@ Until PR 6 the pipeline keeps writing the copied columns beside the rows, so the
 
 ### 6.1 Booked Calls and the Overview leaderboard
 
-`buildDmCloserEfficiencyRows` keeps its one bounded meetings read by `createdAt`, for the first-booking population, and adds two range reads on `by_tenantId_and_role_and_attributedAt` (`dm_closer` and `dm_team`) over the same window, joined by `meetingId`. A DM closer's count is the first bookings with a `dm_closer` row for that DM closer record; a team's progress is the first bookings with a `dm_team` row for that team (D9). `listBookedCallsDetails`, `searchBookedCallsDetails` (rows by deal, not by meeting) and the operations report's `readBookedMeetings` read the same rows.
+`buildDmCloserEfficiencyRows` keeps its one bounded meetings read by `createdAt`, for the first-booking population, and adds two range reads on `by_tenantId_and_role_and_attributedAt` (`dm_closer` and `dm_team`) over the same window, joined by `meetingId`. A DM closer's count is the first bookings with a `dm_closer` row for that DM closer record; a team's progress is the first bookings with a `dm_team` row for that team (D9), and the goal's progress is the DM closer total plus the team-only first bookings. `listBookedCallsDetails`, `searchBookedCallsDetails` (rows by deal, not by meeting) and the operations report's `readBookedMeetings` read the same rows.
 
 ### 6.2 Qualifications
 
@@ -355,7 +356,7 @@ Until PR 6 the pipeline keeps writing the copied columns beside the rows, so the
 
 ### 6.4 Show-rate filters
 
-`reporting/pipelineHealth.getSchedulingShowRateByOperationsDimensions` and `reporting/teamPerformance.getTeamOperationsDimensions` keep their bucket read when no team or DM closer is chosen. With one chosen, they read the matching rows on `by_tenantId_and_role_and_teamId_and_meetingScheduledAt` or `by_tenantId_and_role_and_teamMemberId_and_meetingScheduledAt` over the range (filtering a DM closer's rows to that record), and each row's `meetingProjections` row for its status, closer and program. They keep the 8,192 cap and `truncated`. The meeting stats bucket key drops team and DM closer, and `rebuildMeetingProjections` re-keys every meeting (§10.6).
+`reporting/pipelineHealth.getSchedulingShowRateByOperationsDimensions` and `reporting/teamPerformance.getTeamOperationsDimensions` keep their bucket read when no team or DM closer is chosen. With one chosen, they read the matching rows on `by_tenantId_and_role_and_teamId_and_meetingScheduledAt` or `by_tenantId_and_role_and_teamMemberId_and_meetingScheduledAt` over the range (filtering a DM closer's rows to that record), and each row's `meetingProjections` row for its status, closer and program. The filtered path stops at 2,000 rows, since each row costs a projection read, and says `truncated` past it; the bucket path keeps its 8,192. The meeting stats bucket key drops team and DM closer, and `rebuildMeetingProjections` re-keys every meeting (§10.6).
 
 ### 6.5 Detail payloads and billing
 
