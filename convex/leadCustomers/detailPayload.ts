@@ -1,6 +1,10 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
-import { buildOpportunityAttributionPayload } from "../lib/attribution/detailPayload";
+import {
+  buildOpportunityAttributionPayload,
+  resolveTouches,
+  teamMemberDirectory,
+} from "../lib/attribution/detailPayload";
 import { userMemberIdentity } from "../lib/memberIdentity";
 import type { CrmRole } from "../lib/roleMapping";
 import { normalizeOpportunitySource } from "../lib/sideDeals";
@@ -262,6 +266,8 @@ export async function buildEntityDetailPayload(
     )
     .slice(0, MAX_PAYMENTS);
 
+  // Deals of one person share their team members; resolve each once.
+  const teamMembers = teamMemberDirectory(ctx, input.tenantId);
   const opportunitiesWithAttribution = await Promise.all(
     opportunities.map(async (opportunity) => {
       const canOpenOpportunity = canOpenOpportunityDetail({
@@ -284,7 +290,7 @@ export async function buildEntityDetailPayload(
           ? closerById.get(opportunity.assignedCloserId) ?? null
           : null,
         attribution: canOpenOpportunity
-          ? await buildOpportunityAttributionPayload(ctx, opportunity)
+          ? await buildOpportunityAttributionPayload(ctx, opportunity, { teamMembers })
           : null,
         permissions,
       };
@@ -331,6 +337,9 @@ export async function buildEntityDetailPayload(
       );
     },
   );
+  // The person's first and latest touch, with who made each.
+  const { firstTouch, latestTouch } = await resolveTouches(ctx, input.lead, teamMembers);
+
   return {
     kind: "detail" as const,
     viewer: {
@@ -338,6 +347,8 @@ export async function buildEntityDetailPayload(
       role: input.viewerRole,
     },
     lead: input.lead,
+    firstTouch,
+    latestTouch,
     customer: input.customer,
     identifiers: input.identifiers,
     opportunities: opportunitiesWithAttribution,

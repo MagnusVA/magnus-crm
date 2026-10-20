@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
 export type MemberAvatarIdentity = {
@@ -141,6 +141,59 @@ export async function dmCloserMemberIdentity(
     secondaryLabel: null,
     isActive: dmCloser.isActive,
     source: "dm_closer",
+  };
+}
+
+/**
+ * A team member's name and avatar. The name is the team member's; the avatar
+ * comes from the first role record that points at them: their login, then
+ * their Slack user, lead gen worker or DM closer.
+ */
+export async function teamMemberIdentity(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  teamMemberId: Id<"teamMembers">,
+): Promise<{ name: string; identity: MemberAvatarIdentity } | null> {
+  const teamMember = await ctx.db.get("teamMembers", teamMemberId);
+  if (!teamMember || teamMember.tenantId !== tenantId) {
+    return null;
+  }
+
+  const roleIdentity = await (async (): Promise<MemberAvatarIdentity> => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_tenantId_and_teamMemberId", (q) =>
+        q.eq("tenantId", tenantId).eq("teamMemberId", teamMemberId),
+      )
+      .first();
+    if (user) return await userMemberIdentity(ctx, user);
+    const slackUser = await ctx.db
+      .query("slackUsers")
+      .withIndex("by_tenantId_and_teamMemberId", (q) =>
+        q.eq("tenantId", tenantId).eq("teamMemberId", teamMemberId),
+      )
+      .first();
+    if (slackUser) return slackMemberIdentity(slackUser);
+    const worker = await ctx.db
+      .query("leadGenWorkers")
+      .withIndex("by_tenantId_and_teamMemberId", (q) =>
+        q.eq("tenantId", tenantId).eq("teamMemberId", teamMemberId),
+      )
+      .first();
+    if (worker) return await leadGenWorkerMemberIdentity(ctx, worker);
+    const dmCloser = await ctx.db
+      .query("dmClosers")
+      .withIndex("by_tenantId_and_teamMemberId", (q) =>
+        q.eq("tenantId", tenantId).eq("teamMemberId", teamMemberId),
+      )
+      .first();
+    if (dmCloser) return await dmCloserMemberIdentity(ctx, dmCloser, null);
+    return { ...unknownMemberIdentity(teamMember.displayName, "unknown"), id: teamMember._id };
+  })();
+
+  return {
+    name: teamMember.displayName,
+    identity: { ...roleIdentity, name: teamMember.displayName },
   };
 }
 

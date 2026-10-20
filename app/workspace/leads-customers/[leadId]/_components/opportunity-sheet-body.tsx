@@ -3,6 +3,7 @@
 import type { FunctionReturnType } from "convex/server";
 import { CalendarClockIcon, CalendarXIcon, TagsIcon } from "lucide-react";
 import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
+import { DealCreditList } from "@/app/workspace/_components/deal-credit-list";
 import type { EntityAttribution } from "@/app/workspace/_components/entity-attribution-card";
 import { AddOpportunityPaymentDialog } from "@/app/workspace/opportunities/[opportunityId]/_components/add-opportunity-payment-dialog";
 import { OpportunityActivityTimeline } from "@/app/workspace/opportunities/[opportunityId]/_components/opportunity-activity-timeline";
@@ -144,6 +145,13 @@ function SheetAttribution({ attribution }: { attribution: EntityAttribution }) {
 					</div>
 				))}
 			</dl>
+			<DealCreditList
+				className="mt-4 border-t border-border/60 pt-4"
+				credits={attribution.credits}
+				firstTouch={attribution.firstTouch}
+				latestTouch={attribution.latestTouch}
+				labelClassName="text-[10px] font-medium uppercase tracking-[0.09em] text-muted-foreground"
+			/>
 		</SectionShell>
 	);
 }

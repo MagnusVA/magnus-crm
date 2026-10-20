@@ -34,6 +34,8 @@ import {
 import { cn } from "@/lib/utils";
 import { meetingStatusConfig, type MeetingStatus } from "@/lib/status-config";
 import type { Doc } from "@/convex/_generated/dataModel";
+import type { DealAttributionDetail } from "@/convex/lib/attribution/detailPayload";
+import { DealCreditList } from "@/app/workspace/_components/deal-credit-list";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
@@ -57,6 +59,8 @@ type MeetingOverviewCardProps = {
   attributionTeam?: Doc<"attributionTeams"> | null;
   dmCloser?: Doc<"dmClosers"> | null;
   dmCloserIdentity?: MemberAvatarIdentity | null;
+  /** Every attribution row on the deal, and its first and latest touch. */
+  dealAttribution?: DealAttributionDetail | null;
 };
 
 /**
@@ -75,6 +79,7 @@ export function MeetingOverviewCard({
   attributionTeam,
   dmCloser,
   dmCloserIdentity,
+  dealAttribution,
 }: MeetingOverviewCardProps) {
   const statusKey = meeting.status as MeetingStatus;
   const statusCfg = meetingStatusConfig[statusKey];
@@ -221,6 +226,15 @@ export function MeetingOverviewCard({
               identity={dmCloserIdentity}
             />
           </dl>
+          {dealAttribution ? (
+            <DealCreditList
+              className="mt-3.5"
+              credits={dealAttribution.credits}
+              firstTouch={dealAttribution.firstTouch}
+              latestTouch={dealAttribution.latestTouch}
+              labelClassName="text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+            />
+          ) : null}
         </div>
       </CardContent>
     </Card>

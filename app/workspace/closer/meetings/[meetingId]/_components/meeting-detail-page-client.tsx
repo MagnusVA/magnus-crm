@@ -101,6 +101,7 @@ export function MeetingDetailPageClient({
     dmCloser,
     assignedCloserIdentity,
     dmCloserIdentity,
+    dealAttribution,
   } = detail;
 
   const statusKey = opportunity.status as OpportunityStatus;
@@ -227,6 +228,7 @@ export function MeetingDetailPageClient({
             attributionTeam={attributionTeam}
             dmCloser={dmCloser}
             dmCloserIdentity={dmCloserIdentity}
+            dealAttribution={dealAttribution}
           />
           <MeetingHistoryCard meetingHistory={meetingHistory} />
         </div>

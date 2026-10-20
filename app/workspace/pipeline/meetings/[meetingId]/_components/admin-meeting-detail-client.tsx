@@ -93,6 +93,7 @@ export function AdminMeetingDetailClient({
     dmCloser,
     assignedCloserIdentity,
     dmCloserIdentity,
+    dealAttribution,
   } = detail;
 
   const statusKey = opportunity.status as OpportunityStatus;
@@ -216,6 +217,7 @@ export function AdminMeetingDetailClient({
             attributionTeam={attributionTeam}
             dmCloser={dmCloser}
             dmCloserIdentity={dmCloserIdentity}
+            dealAttribution={dealAttribution}
           />
 
           {/* v2: Fathom Recording link — admin can save/update for any

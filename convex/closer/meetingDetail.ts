@@ -2,7 +2,10 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import {
-  dmCloserMemberIdentity,
+  buildDealAttributionDetail,
+  resolveBookingDmAttribution,
+} from "../lib/attribution/detailPayload";
+import {
   type MemberAvatarIdentity,
   userMemberIdentity,
 } from "../lib/memberIdentity";
@@ -43,6 +46,8 @@ type EnrichedPayment = Omit<
  * - meetingHistory: All meetings for this lead across all opportunities
  * - paymentLinks: From the event type config (if configured)
  * - payments: Payment records for this opportunity
+ * - attributionTeam / dmCloser / dmCloserIdentity: from the booking rows
+ * - dealAttribution: every attribution row on the deal, and its touches
  *
  * Authorization:
  * - Closers can only view meetings for their assigned opportunities
@@ -80,14 +85,6 @@ export const getMeetingDetail = query({
       throw new Error("Lead not found");
     }
 
-    const useMeetingAttribution = meeting.attributionResolution !== undefined;
-    const attributionTeamId = useMeetingAttribution
-      ? meeting.attributionTeamId
-      : meeting.attributionTeamId ?? opportunity.attributionTeamId;
-    const dmCloserId = useMeetingAttribution
-      ? meeting.dmCloserId
-      : meeting.dmCloserId ?? opportunity.dmCloserId;
-
     const [
       leadOpportunities,
       eventTypeConfig,
@@ -98,8 +95,8 @@ export const getMeetingDetail = query({
       potentialDuplicateLead,
       originalMeeting,
       activeFollowUp,
-      attributionTeam,
-      dmCloser,
+      dmAttribution,
+      dealAttribution,
     ] = await Promise.all([
       ctx.db
         .query("opportunities")
@@ -136,8 +133,10 @@ export const getMeetingDetail = query({
         ? ctx.db.get("meetings", meeting.rescheduledFromMeetingId)
         : Promise.resolve(null),
       loadActiveFollowUpSummary(ctx, opportunity._id),
-      attributionTeamId ? ctx.db.get("attributionTeams", attributionTeamId) : Promise.resolve(null),
-      dmCloserId ? ctx.db.get("dmClosers", dmCloserId) : Promise.resolve(null),
+      // The meeting's own booking, or the deal's first when it was never
+      // resolved (docs/plans/phase-3-attribution.md §6.5).
+      resolveBookingDmAttribution(ctx, { tenantId, opportunity, meeting }),
+      buildDealAttributionDetail(ctx, opportunity),
     ]);
 
     const opportunityStatusById = new Map<
@@ -274,17 +273,6 @@ export const getMeetingDetail = query({
       assignedCloser && assignedCloser.tenantId === tenantId
         ? await userMemberIdentity(ctx, assignedCloser)
         : null;
-    const validDmCloser =
-      dmCloser && dmCloser.tenantId === tenantId ? dmCloser : null;
-    const linkedDmCloserUser =
-      validDmCloser?.userId ? await ctx.db.get("users", validDmCloser.userId) : null;
-    const validLinkedDmCloserUser =
-      linkedDmCloserUser && linkedDmCloserUser.tenantId === tenantId
-        ? linkedDmCloserUser
-        : null;
-    const dmCloserIdentity = validDmCloser
-      ? await dmCloserMemberIdentity(ctx, validDmCloser, validLinkedDmCloserUser)
-      : null;
 
     // === Feature H: Load reassignment metadata ===
     let reassignmentInfo: {
@@ -350,12 +338,10 @@ export const getMeetingDetail = query({
       potentialDuplicate,
       rescheduledFromMeeting,
       assignedCloserIdentity,
-      attributionTeam:
-        attributionTeam && attributionTeam.tenantId === tenantId
-          ? attributionTeam
-          : null,
-      dmCloser: validDmCloser,
-      dmCloserIdentity,
+      attributionTeam: dmAttribution.team,
+      dmCloser: dmAttribution.dmCloser,
+      dmCloserIdentity: dmAttribution.dmCloserIdentity,
+      dealAttribution,
       activeFollowUp,
     };
   },
