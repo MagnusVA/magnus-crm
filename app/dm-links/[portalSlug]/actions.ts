@@ -30,9 +30,9 @@ export type PortalCopyInput = {
 	campaignPresetId: string;
 };
 
-export type PortalCopyResult = {
-	recorded: boolean;
-};
+export type PortalCopyResult =
+	| { recorded: true }
+	| { recorded: false; reason: "logged_out" | "failed" };
 
 // === NIM-17 Phase 5: portal lead surface ===
 
@@ -206,23 +206,15 @@ export async function recordPortalCopy(
 	rawPortalSlug: string,
 	input: PortalCopyInput,
 ): Promise<PortalCopyResult> {
-	const portalSlug = normalizePortalSlugParam(rawPortalSlug);
-	if (!portalSlug) {
-		return { recorded: false };
-	}
-
-	const cookieStore = await cookies();
-	const sessionToken = cookieStore.get(
-		portalSessionCookieName(portalSlug),
-	)?.value;
-	if (!sessionToken) {
-		return { recorded: false };
+	const session = await readPortalSession(rawPortalSlug);
+	if (!session) {
+		return { recorded: false, reason: "logged_out" };
 	}
 
 	try {
 		await fetchAction(api.linkPortal.copyActions.recordCopyEvent, {
-			portalSlug,
-			sessionToken,
+			portalSlug: session.portalSlug,
+			sessionToken: session.sessionToken,
 			eventTypeConfigId: input.eventTypeConfigId as Id<"eventTypeConfigs">,
 			dmCloserId: input.dmCloserId as Id<"dmClosers">,
 			campaignPresetId:
@@ -232,12 +224,12 @@ export async function recordPortalCopy(
 	} catch (error) {
 		console.warn("[LinkPortal] copy audit failed", error);
 		await reportPortalError(error, "record_copy");
-		return { recorded: false };
+		return { recorded: false, reason: "failed" };
 	}
 }
 
-// Mirrors the recordPortalCopy session handling: normalize the slug, read the
-// httpOnly session cookie, and treat a missing cookie as logged out.
+// Normalizes the slug, reads the httpOnly session cookie, and treats a
+// missing cookie as logged out.
 async function readPortalSession(rawPortalSlug: string) {
 	const portalSlug = normalizePortalSlugParam(rawPortalSlug);
 	if (!portalSlug) {

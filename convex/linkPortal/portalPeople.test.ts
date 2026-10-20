@@ -125,6 +125,17 @@ describe("DM portal copy", () => {
     expect(await events(h, "lead.portal_link_copied")).toEqual([]);
   });
 
+  it("limits how many links a DM closer records in a minute", async () => {
+    const h = await setup();
+    for (let i = 0; i < 10; i++) {
+      await copy(h);
+    }
+
+    await expect(copy(h)).rejects.toThrow("Too many links");
+    vi.setSystemTime(new Date(NOW + 61_000));
+    await expect(copy(h)).resolves.toBeDefined();
+  });
+
   it("dates In conversation from the first portal note, however many notes follow", async () => {
     const h = await setup();
     const leadId = await existingPerson(h, { handle: "ana.lead" });

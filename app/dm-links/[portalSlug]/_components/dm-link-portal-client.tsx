@@ -419,6 +419,8 @@ function UnlockedPortal({
 	const [copyStates, setCopyStates] = useState<
 		Record<string, LinkCopyState>
 	>({});
+	// The copy reached the clipboard but wasn't recorded: the session ended.
+	const [sessionEnded, setSessionEnded] = useState(false);
 
 	const closer = bootstrap.dmClosers.find((row) => row.id === selectedCloserId);
 	const groupedPrograms = useMemo(
@@ -678,7 +680,7 @@ function UnlockedPortal({
 			return;
 		}
 
-		let auditResult: PortalCopyResult = { recorded: false };
+		let auditResult: PortalCopyResult = { recorded: false, reason: "failed" };
 		try {
 			auditResult = await recordPortalCopy(portalSlug, {
 				eventTypeConfigId: activeLink.eventTypeConfigId,
@@ -687,6 +689,9 @@ function UnlockedPortal({
 			});
 		} catch (error) {
 			console.warn("[LinkPortal] copy audit action failed", error);
+		}
+		if (!auditResult.recorded && auditResult.reason === "logged_out") {
+			setSessionEnded(true);
 		}
 
 		if (isPostHogEnabled()) {
@@ -804,6 +809,29 @@ function UnlockedPortal({
 					</TabsList>
 
 					<TabsContent value="links" className="flex flex-col gap-4">
+				{sessionEnded ? (
+					<Alert variant="destructive">
+						<AlertCircleIcon aria-hidden="true" />
+						<AlertTitle>Portal Session Expired</AlertTitle>
+						<AlertDescription>
+							<p>
+								The link was copied, but not recorded. Reload the page and
+								enter the portal password again.
+							</p>
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								className="mt-2"
+								onClick={() => window.location.reload()}
+							>
+								<RefreshCwIcon data-icon="inline-start" aria-hidden="true" />
+								Reload
+							</Button>
+						</AlertDescription>
+					</Alert>
+				) : null}
+
 				{preparedLinks.status === "all_invalid" ? (
 					<Alert variant="destructive">
 						<AlertCircleIcon aria-hidden="true" />
