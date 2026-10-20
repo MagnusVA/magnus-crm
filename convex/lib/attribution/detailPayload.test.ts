@@ -33,16 +33,13 @@ const NONE = {
   rawMedium: null,
 };
 
-async function dmAttributionOf(
-  scenario: ScenarioName,
-  options: { copies: boolean; view: "meeting" | "deal" },
-) {
+async function dmAttributionOf(scenario: ScenarioName, view: "meeting" | "deal") {
   const h = await bookingHarness();
   return await h.t.run(async (ctx) => {
-    const seeded = await seedScenario(ctx, h.tenantId, scenario, options);
+    const seeded = await seedScenario(ctx, h.tenantId, scenario);
     const opportunity = (await ctx.db.get("opportunities", seeded.opportunityId))!;
     const meeting =
-      options.view === "meeting" && seeded.meetingId
+      view === "meeting" && seeded.meetingId
         ? await ctx.db.get("meetings", seeded.meetingId)
         : null;
     const payload = await buildOpportunityAttributionPayload(ctx, opportunity, { meeting });
@@ -50,13 +47,10 @@ async function dmAttributionOf(
   });
 }
 
-describe.each([
-  { copies: true, label: "with the copied columns beside the rows" },
-  { copies: false, label: "from the rows alone" },
-])("dmAttribution $label", ({ copies }) => {
+describe("dmAttribution", () => {
   it("shows a booking through a team and a DM closer", async () => {
     for (const view of ["meeting", "deal"] as const) {
-      const { dmAttribution, dmCloserId } = await dmAttributionOf("team_and_dm_closer", { copies, view });
+      const { dmAttribution, dmCloserId } = await dmAttributionOf("team_and_dm_closer", view);
       expect(dmAttribution).toEqual({
         status: "mapped",
         teamName: "Alpha Team",
@@ -69,7 +63,7 @@ describe.each([
   });
 
   it("shows a team-only booking with its team and no DM closer", async () => {
-    const { dmAttribution } = await dmAttributionOf("team_only", { copies, view: "meeting" });
+    const { dmAttribution } = await dmAttributionOf("team_only", "meeting");
     expect(dmAttribution).toEqual({
       status: "mapped",
       teamName: "Alpha Team",
@@ -81,7 +75,7 @@ describe.each([
   });
 
   it("falls back to the deal's first booking for a meeting that was never resolved", async () => {
-    const { dmAttribution, dmCloserId } = await dmAttributionOf("unresolved_rebook", { copies, view: "meeting" });
+    const { dmAttribution, dmCloserId } = await dmAttributionOf("unresolved_rebook", "meeting");
     expect(dmAttribution).toEqual({
       status: "mapped",
       teamName: "Alpha Team",
@@ -93,13 +87,13 @@ describe.each([
   });
 
   it("shows an internal rebook as internal, and its deal as its first booking", async () => {
-    const meeting = await dmAttributionOf("internal_rebook", { copies, view: "meeting" });
+    const meeting = await dmAttributionOf("internal_rebook", "meeting");
     expect(meeting.dmAttribution).toEqual({
       ...NONE,
       status: "internal",
       rawSource: "ptdom",
     });
-    const deal = await dmAttributionOf("internal_rebook", { copies, view: "deal" });
+    const deal = await dmAttributionOf("internal_rebook", "deal");
     expect(deal.dmAttribution).toEqual({
       status: "mapped",
       teamName: "Alpha Team",
@@ -111,7 +105,7 @@ describe.each([
   });
 
   it("shows nothing for a deal no booking has reached", async () => {
-    const { dmAttribution } = await dmAttributionOf("no_bookings", { copies, view: "deal" });
+    const { dmAttribution } = await dmAttributionOf("no_bookings", "deal");
     expect(dmAttribution).toEqual(NONE);
   });
 });
@@ -187,7 +181,7 @@ describe("credits and touches", () => {
     const h = await bookingHarness();
     const touches = await h.t.run(async (ctx) => {
       const credited = await seedCreditedDeal(ctx, h.tenantId);
-      const teamOnly = await seedScenario(ctx, h.tenantId, "team_only", { copies: true });
+      const teamOnly = await seedScenario(ctx, h.tenantId, "team_only");
       const teamOnlyEvent = (await ctx.db
         .query("domainEvents")
         .withIndex("by_tenantId_and_entityType_and_entityId_and_occurredAt", (q) =>
@@ -213,7 +207,7 @@ describe("credits and touches", () => {
   it("has no credits or touches on a deal with none", async () => {
     const h = await bookingHarness();
     const payload = await h.t.run(async (ctx) => {
-      const seeded = await seedScenario(ctx, h.tenantId, "no_bookings", { copies: false });
+      const seeded = await seedScenario(ctx, h.tenantId, "no_bookings");
       const opportunity = (await ctx.db.get("opportunities", seeded.opportunityId))!;
       return await buildOpportunityAttributionPayload(ctx, opportunity);
     });

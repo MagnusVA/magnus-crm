@@ -245,26 +245,6 @@ function touch(event: Doc<"domainEvents">, channel: string) {
   return { eventId: event._id, eventType: event.eventType, channel, occurredAt: event.occurredAt };
 }
 
-// The copied credit the pipeline and the qualification projection no longer
-// write (docs/plans/phase-3-attribution.md §3.3). Meetings keep their
-// resolution, which is the booking's own record.
-const DEAL_COPIES = [
-  "attributionTeamId",
-  "dmCloserId",
-  "attributionResolution",
-  "attributionResolvedAt",
-  "attributionResolutionVersion",
-];
-const MEETING_COPIES = ["attributionTeamId", "dmCloserId"];
-const QUALIFICATION_ROW_COPIES = ["attributionTeamId", "dmCloserId", "attributionResolution"];
-
-/** The fields of `copies` that `row` holds; `{}` when it holds none. */
-function heldCopies(row: object | null | undefined, copies: readonly string[]) {
-  return Object.fromEntries(
-    Object.entries(row ?? {}).filter(([field, value]) => copies.includes(field) && value !== undefined),
-  );
-}
-
 async function qualificationRows(harness: Harness) {
   return await harness.t.run((ctx) => ctx.db.query("operationsQualificationRows").take(50));
 }
@@ -315,10 +295,8 @@ describe("Calendly bookings", () => {
     });
     expect(closer.teamMemberId).toBeDefined();
 
-    // The credit is the rows alone: neither the meeting nor the deal gets a
-    // copy. The meeting keeps its UTMs and resolution; the deal its first
-    // booking caches and UTMs.
-    expect(heldCopies(meeting, MEETING_COPIES)).toEqual({});
+    // The credit is the rows alone. The meeting keeps its UTMs and
+    // resolution; the deal its first booking caches and UTMs.
     expect(meeting).toMatchObject({
       utmParams: { utm_source: "team-a", utm_medium: "dana" },
       utmTruncated: false,
@@ -327,7 +305,6 @@ describe("Calendly bookings", () => {
       attributionResolvedAt: expect.any(Number),
     });
     const deal = await get(harness, "opportunities", meeting.opportunityId);
-    expect(heldCopies(deal, DEAL_COPIES)).toEqual({});
     expect(deal).toMatchObject({
       firstMeetingId: meeting._id,
       firstMeetingAt: meeting.scheduledAt,
@@ -416,13 +393,9 @@ describe("Calendly bookings", () => {
     );
     expect(ofRole(rows, "closer")).toHaveLength(2);
 
-    // The rebook's meeting has its own resolution and no copy, and the deal
-    // still has none.
+    // The rebook's meeting has its own resolution.
     const rebooked = await get(harness, "meetings", second._id);
-    expect(heldCopies(rebooked, MEETING_COPIES)).toEqual({});
     expect(rebooked?.attributionResolution).toBe("mapped");
-    expect(heldCopies(await get(harness, "meetings", first._id), MEETING_COPIES)).toEqual({});
-    expect(heldCopies(await get(harness, "opportunities", first.opportunityId), DEAL_COPIES)).toEqual({});
 
     // The deal keeps its snapshot from creation; the person's latest touch moves.
     const firstBooked = touch(await meetingCreatedEvent(harness, first._id), "calendly");
@@ -498,10 +471,8 @@ describe("Calendly bookings", () => {
       ...bookingRowBase(meeting),
       source: { kind: "booking_closer", userId: closer._id },
     });
-    expect(heldCopies(meeting, MEETING_COPIES)).toEqual({});
     expect(meeting.attributionResolution).toBe("internal");
     const deal = await get(harness, "opportunities", opportunityId);
-    expect(heldCopies(deal, DEAL_COPIES)).toEqual({});
     // A booking that joins a deal doesn't snapshot it.
     expect(deal?.firstTouch).toBeUndefined();
   });
@@ -639,15 +610,11 @@ describe("Slack qualifications", () => {
     expect(deal?.firstTouch).toEqual(snapshot?.firstTouch);
     expect(deal?.latestTouch).toEqual(snapshot?.latestTouch);
 
-    // The booking rebuilt the qualification rows from the deal, without a
-    // copy of its credit.
-    expect(heldCopies(deal, DEAL_COPIES)).toEqual({});
-    expect(heldCopies(meeting, MEETING_COPIES)).toEqual({});
+    // The booking rebuilt the qualification rows from the deal.
     const qualifications = await qualificationRows(harness);
     expect(qualifications).toHaveLength(2);
     for (const row of qualifications) {
       expect(row).toMatchObject({ opportunityId: result.opportunityId, firstMeetingId: meeting._id });
-      expect(heldCopies(row, QUALIFICATION_ROW_COPIES)).toEqual({});
     }
   });
 });

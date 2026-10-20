@@ -945,11 +945,6 @@ export default defineSchema({
     ),
     soldProgramId: v.optional(v.id("tenantPrograms")),
     soldProgramName: v.optional(v.string()),
-    attributionTeamId: v.optional(v.id("attributionTeams")),
-    dmCloserId: v.optional(v.id("dmClosers")),
-    attributionResolution: v.optional(attributionResolutionValidator),
-    attributionResolvedAt: v.optional(v.number()),
-    attributionResolutionVersion: v.optional(v.number()),
     firstBookedAt: v.optional(v.number()),
     firstMeetingId: v.optional(v.id("meetings")),
     firstMeetingAt: v.optional(v.number()),
@@ -1074,16 +1069,6 @@ export default defineSchema({
     .index("by_tenantId_and_source_and_qualifiedAt", [
       "tenantId",
       "source",
-      "qualifiedAt",
-    ])
-    .index("by_tenantId_and_attributionTeamId_and_qualifiedAt", [
-      "tenantId",
-      "attributionTeamId",
-      "qualifiedAt",
-    ])
-    .index("by_tenantId_and_dmCloserId_and_qualifiedAt", [
-      "tenantId",
-      "dmCloserId",
       "qualifiedAt",
     ])
     .index("by_tenantId_and_firstBookingProgramId_and_qualifiedAt", [
@@ -1252,12 +1237,6 @@ export default defineSchema({
     firstMeetingId: v.optional(v.id("meetings")),
     firstMeetingAt: v.optional(v.number()),
     assignedCloserId: v.optional(v.id("users")),
-    // Copies of the deal's first booking's credit, no longer written; cleared
-    // by migrations:clearQualificationRowAttributionCopies and dropped in the
-    // narrow (docs/plans/phase-3-attribution.md §3.3).
-    attributionTeamId: v.optional(v.id("attributionTeams")),
-    dmCloserId: v.optional(v.id("dmClosers")),
-    attributionResolution: v.optional(attributionResolutionValidator),
     searchText: v.string(),
     updatedAt: v.number(),
   })
@@ -1283,16 +1262,6 @@ export default defineSchema({
       "slackUserId",
       "qualifiedAt",
     ])
-    .index("by_tenantId_and_attributionTeamId_and_qualifiedAt", [
-      "tenantId",
-      "attributionTeamId",
-      "qualifiedAt",
-    ])
-    .index("by_tenantId_and_dmCloserId_and_qualifiedAt", [
-      "tenantId",
-      "dmCloserId",
-      "qualifiedAt",
-    ])
     .index("by_tenantId_and_firstMeetingAt", ["tenantId", "firstMeetingAt"])
     .index("by_tenantId_and_bookingProgramId_and_firstMeetingAt", [
       "tenantId",
@@ -1314,16 +1283,6 @@ export default defineSchema({
       "assignedCloserId",
       "firstMeetingAt",
     ])
-    .index("by_tenantId_and_attributionTeamId_and_firstMeetingAt", [
-      "tenantId",
-      "attributionTeamId",
-      "firstMeetingAt",
-    ])
-    .index("by_tenantId_and_dmCloserId_and_firstMeetingAt", [
-      "tenantId",
-      "dmCloserId",
-      "firstMeetingAt",
-    ])
     .searchIndex("search_qualification_rows", {
       searchField: "searchText",
       filterFields: [
@@ -1332,8 +1291,6 @@ export default defineSchema({
         "bookingProgramId",
         "soldProgramId",
         "slackUserId",
-        "attributionTeamId",
-        "dmCloserId",
       ],
     }),
 
@@ -1385,8 +1342,9 @@ export default defineSchema({
     soldProgramId: v.optional(v.id("tenantPrograms")),
     soldProgramName: v.optional(v.string()),
     opportunityStatus: v.optional(opportunityStatusValidator),
-    attributionTeamId: v.optional(v.id("attributionTeams")),
-    dmCloserId: v.optional(v.id("dmClosers")),
+    // The booking's own record of whether its UTMs matched the registry. Its
+    // team and DM closer credit is the booking's dealAttributions rows
+    // (docs/plans/phase-3-attribution.md §3.3).
     attributionResolution: v.optional(attributionResolutionValidator),
     attributionResolvedAt: v.optional(v.number()),
     attributionResolutionVersion: v.optional(v.number()),
@@ -1476,16 +1434,6 @@ export default defineSchema({
       "assignedCloserId",
       "scheduledAt",
     ])
-    .index("by_tenantId_and_attributionTeamId_and_scheduledAt", [
-      "tenantId",
-      "attributionTeamId",
-      "scheduledAt",
-    ])
-    .index("by_tenantId_and_dmCloserId_and_scheduledAt", [
-      "tenantId",
-      "dmCloserId",
-      "scheduledAt",
-    ])
     .index("by_tenantId_and_bookingProgramId_and_scheduledAt", [
       "tenantId",
       "bookingProgramId",
@@ -1508,8 +1456,6 @@ export default defineSchema({
     assignedCloserId: v.id("users"),
     bookingProgramId: v.optional(v.id("tenantPrograms")),
     soldProgramId: v.optional(v.id("tenantPrograms")),
-    attributionTeamId: v.optional(v.id("attributionTeams")),
-    dmCloserId: v.optional(v.id("dmClosers")),
     opportunityStatus: v.optional(opportunityStatusValidator),
     meetingStatus: v.union(
       v.literal("scheduled"),

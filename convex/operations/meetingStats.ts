@@ -18,9 +18,8 @@ export function meetingDayKey(timestamp: number) {
 /**
  * The bucket a contribution counts in. Attribution is not part of it: the
  * show-rate filters read `dealAttributions` (docs/plans/phase-3-attribution.md
- * §6.4). Rows projected before that keep an eight-part key with the team and
- * DM closer until they re-project, so a decrement always uses the key the
- * projection stored, never this function on its old contribution.
+ * §6.4). A decrement uses the key the projection stored, never this function
+ * on its old contribution, so a change to the key format re-keys cleanly.
  */
 export function bucketKey(c: Contribution) {
   return JSON.stringify([

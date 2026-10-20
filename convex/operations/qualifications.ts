@@ -177,8 +177,7 @@ async function enrichQualificationRows(
 
     return {
       ...row,
-      // The deal's first booking credit, which the row's copied
-      // attributionTeamId, dmCloserId and attributionResolution held.
+      // The deal's first booking credit: its team, DM closer and resolution.
       ...creditFor(row),
       fullNameSnapshot: event?.fullNameSnapshot ?? "Unknown lead",
       handleSnapshot: event?.handleSnapshot ?? "",

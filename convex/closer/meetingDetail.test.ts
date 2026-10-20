@@ -12,21 +12,18 @@ import {
   type ScenarioName,
 } from "../../tests/detailAttributionFixtures";
 
-async function meetingDetailOf(scenario: ScenarioName, copies: boolean) {
+async function meetingDetailOf(scenario: ScenarioName) {
   const h = await bookingHarness();
-  const seeded = await h.t.run((ctx) => seedScenario(ctx, h.tenantId, scenario, { copies }));
+  const seeded = await h.t.run((ctx) => seedScenario(ctx, h.tenantId, scenario));
   const detail = await h.admin.query(api.closer.meetingDetail.getMeetingDetail, {
     meetingId: seeded.meetingId!,
   });
   return { h, seeded, detail };
 }
 
-describe.each([
-  { copies: true, label: "with the copied columns beside the rows" },
-  { copies: false, label: "from the rows alone" },
-])("meeting detail attribution $label", ({ copies }) => {
+describe("meeting detail attribution", () => {
   it("shows a booking's team and DM closer", async () => {
-    const { seeded, detail } = await meetingDetailOf("team_and_dm_closer", copies);
+    const { seeded, detail } = await meetingDetailOf("team_and_dm_closer");
     expect(detail.attributionTeam?._id).toBe(seeded.teamId);
     expect(detail.dmCloser?._id).toBe(seeded.dm.dmCloserId);
     expect(detail.dmCloserIdentity).toMatchObject({
@@ -37,20 +34,20 @@ describe.each([
   });
 
   it("shows a team-only booking's team and no DM closer", async () => {
-    const { seeded, detail } = await meetingDetailOf("team_only", copies);
+    const { seeded, detail } = await meetingDetailOf("team_only");
     expect(detail.attributionTeam?._id).toBe(seeded.teamId);
     expect(detail.dmCloser).toBeNull();
     expect(detail.dmCloserIdentity).toBeNull();
   });
 
   it("falls back to the deal's first booking for a meeting never resolved", async () => {
-    const { seeded, detail } = await meetingDetailOf("unresolved_rebook", copies);
+    const { seeded, detail } = await meetingDetailOf("unresolved_rebook");
     expect(detail.attributionTeam?._id).toBe(seeded.teamId);
     expect(detail.dmCloser?._id).toBe(seeded.dm.dmCloserId);
   });
 
   it("shows no team or DM closer on an internal rebook", async () => {
-    const { detail } = await meetingDetailOf("internal_rebook", copies);
+    const { detail } = await meetingDetailOf("internal_rebook");
     expect(detail.attributionTeam).toBeNull();
     expect(detail.dmCloser).toBeNull();
     expect(detail.dmCloserIdentity).toBeNull();

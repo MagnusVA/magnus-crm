@@ -22,13 +22,6 @@ function utc(day: string, hour: number) {
   return Date.parse(`${day}T${String(hour).padStart(2, "0")}:00:00.000Z`);
 }
 
-/**
- * How the copied `attributionTeamId` / `dmCloserId` columns are set:
- * "pipeline" sets them the way the Calendly pipeline still writes them, and
- * "none" leaves them unset, so only the `dealAttributions` rows carry credit.
- */
-export type BookedCallsCopies = "pipeline" | "none";
-
 type MeetingKey =
   | "firstNorthA"
   | "rebookNorthB"
@@ -67,12 +60,9 @@ export type BookedCallsFixture = {
  *
  * and outsideWindow (deal F, 2026-08-13, North + DM closer B). DM closers A
  * and A2 are two records of one team member. DM closer C (South) has only a
- * schedule.
+ * schedule. Credit is only in each booking's `dealAttributions` rows.
  */
-export async function seedBookedCallsFixture(
-  ctx: MutationCtx,
-  options: { copies: BookedCallsCopies },
-): Promise<BookedCallsFixture> {
+export async function seedBookedCallsFixture(ctx: MutationCtx): Promise<BookedCallsFixture> {
   const day = "2026-08-14";
   const now = utc(day, 12);
   const tenantId = await ctx.db.insert("tenants", {
@@ -181,7 +171,6 @@ export async function seedBookedCallsFixture(
     { key: "legacyNorthB", deal: "G", leadName: "Golf Prospect", createdAt: utc(day, 21), callClassification: undefined, resolution: "mapped", teamId: north, dmCloserId: northB },
   ];
 
-  const copies = options.copies === "pipeline";
   for (const booking of bookings) {
     let opportunityId = deals.get(booking.deal);
     if (!opportunityId) {
@@ -193,7 +182,6 @@ export async function seedBookedCallsFixture(
         updatedAt: booking.createdAt,
         status: "active",
       });
-      // A deal's copy is its first external booking's (§2.1).
       opportunityId = await ctx.db.insert("opportunities", {
         tenantId,
         leadId,
@@ -201,13 +189,6 @@ export async function seedBookedCallsFixture(
         assignedCloserId: hostId,
         createdAt: booking.createdAt,
         updatedAt: booking.createdAt,
-        ...(copies
-          ? {
-              attributionTeamId: booking.teamId,
-              dmCloserId: booking.dmCloserId,
-              attributionResolution: booking.resolution,
-            }
-          : {}),
       });
       await ctx.db.insert("opportunitySearch", {
         tenantId,
@@ -239,9 +220,6 @@ export async function seedBookedCallsFixture(
       createdAt: booking.createdAt,
       attributionResolution: booking.resolution,
       attributionResolvedAt: booking.createdAt,
-      ...(copies
-        ? { attributionTeamId: booking.teamId, dmCloserId: booking.dmCloserId }
-        : {}),
     });
     const meeting = await ctx.db.get("meetings", meetingId);
     await recordBookingAttribution(ctx, {

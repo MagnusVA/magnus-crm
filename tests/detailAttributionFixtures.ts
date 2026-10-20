@@ -10,9 +10,8 @@ import type { UtmParams } from "../convex/lib/utmParams";
 import { qualifiedLifecycle } from "./bookingHarness";
 
 // Deals, bookings and their attribution rows as production holds them after
-// the Phase 3 backfills (docs/plans/phase-3-attribution.md §10.3): every
-// booking has its rows, and until PR 6 the copied team and DM closer columns
-// sit beside them. `copies: false` leaves the columns out, as PR 6 will.
+// Phase 3 (docs/plans/phase-3-attribution.md §4): every booking has its rows,
+// and keeps its own resolution.
 
 export const T0 = Date.parse("2026-09-01T12:00:00Z");
 const HOUR = 60 * 60 * 1000;
@@ -151,7 +150,6 @@ export async function insertBooking(
     resolution?: Resolution;
     teamId?: Id<"attributionTeams">;
     dmCloserId?: Id<"dmClosers">;
-    copies: boolean;
   },
 ) {
   const opportunity = await ctx.db.get("opportunities", args.opportunityId);
@@ -170,9 +168,6 @@ export async function insertBooking(
     createdAt: args.createdAt,
     utmParams: args.utmParams,
     attributionResolution: args.resolution,
-    ...(args.copies && resolved
-      ? { attributionTeamId: args.teamId, dmCloserId: args.dmCloserId }
-      : {}),
   });
   const meeting = (await ctx.db.get("meetings", meetingId))!;
   await recordBookingAttribution(ctx, {
@@ -196,13 +191,6 @@ export async function insertBooking(
       firstMeetingAt: meeting.scheduledAt,
       firstBookedAt: meeting.scheduledAt,
       ...(args.utmParams ? { utmParams: args.utmParams } : {}),
-      ...(args.copies && resolved
-        ? {
-            attributionTeamId: args.teamId,
-            dmCloserId: args.dmCloserId,
-            attributionResolution: args.resolution,
-          }
-        : {}),
     });
   }
   return { meeting, eventId };
@@ -318,7 +306,7 @@ export async function seedCreditedDeal(ctx: MutationCtx, tenantId: Id<"tenants">
   });
   await recordDealCreation(ctx, opportunityId);
 
-  const base = { tenantId, opportunityId, closerId: closer._id, copies: true, resolution: "mapped" as const, teamId };
+  const base = { tenantId, opportunityId, closerId: closer._id, resolution: "mapped" as const, teamId };
   const first = await insertBooking(ctx, {
     ...base,
     createdAt: T0,
@@ -363,7 +351,6 @@ export async function seedScenario(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
   scenario: ScenarioName,
-  options: { copies: boolean },
 ) {
   const closer = await userByWorkosId(ctx, "user_closer");
   const teamId = await insertTeam(ctx, tenantId, "Alpha Team", "alpha");
@@ -374,7 +361,7 @@ export async function seedScenario(
     utmMedium: "dana",
   });
   const leadId = await insertPerson(ctx, tenantId);
-  const base = { tenantId, closerId: closer._id, copies: options.copies };
+  const base = { tenantId, closerId: closer._id };
 
   if (scenario === "no_bookings") {
     const opportunityId = await insertDeal(ctx, {

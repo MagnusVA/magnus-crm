@@ -82,7 +82,7 @@ it("labels each sales call from its own booking's rows", async () => {
       updatedAt: 0,
     });
     const meetingIds: Id<"meetings">[] = [];
-    // The copies on each meeting say d1; the rows are what the booking credited.
+    // Each meeting's label comes from its own booking's rows.
     const bookings = [
       { at: "2026-10-01T12:00:00Z", credit: { teamId: t1, dmCloserId: d1 }, resolution: "mapped" as const },
       { at: "2026-10-02T12:00:00Z", credit: { teamId: t2, dmCloserId: d2 }, resolution: "mapped" as const },
@@ -102,8 +102,6 @@ it("labels each sales call from its own booking's rows", async () => {
         status: "scheduled",
         callClassification: index === 0 ? "new" : "follow_up",
         createdAt: scheduledAt - 3_600_000,
-        attributionTeamId: t1,
-        dmCloserId: d1,
         attributionResolution: booking.resolution,
       });
       await recordBookingAttribution(ctx, {

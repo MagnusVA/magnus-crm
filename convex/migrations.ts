@@ -13,14 +13,8 @@ import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import {
   attributionsForDeal,
   attributionsForMeeting,
-  dealBookingCredit,
   expectedLeadGenRow,
   qualificationCreditsSetter,
-  recordBookingAttribution,
-  recordCloserReassignment,
-  recordDealCreation,
-  recordSetterAttribution,
-  type BookingCredit,
   type DealAttribution,
 } from "./lib/attribution/dealAttributions";
 import { deriveStoredEventLinks, storedLeadIdMatches } from "./lib/domainEventLinks";
@@ -50,10 +44,8 @@ import {
   isStaleSlackBacklog,
 } from "./slack/staleExpiry";
 import {
-  computeDealTouches,
   computePersonTouches,
   sameTouch,
-  snapshotDealTouches,
   type TouchSnapshot,
 } from "./lib/touches";
 
@@ -550,18 +542,14 @@ export const assertDomainEventLinks = migrations.define({
   },
 });
 
-// Phase 3 (docs/plans/phase-3-attribution.md §10). For each backfill a dry
-// run, the run, then its assert, in this order:
-// npx convex run migrations:run '{"fn":"migrations:backfillPersonTouches","dryRun":true}'
-//   1. backfillPersonTouches, assertPersonTouches
-//   2. backfillDealTouches, assertDealTouches
-//   3. backfillBookingAttributions, assertBookingAttributions
-//   4. backfillDealAttributions, assertDealAttributions
-//   5. assertQualificationAttributionParity, then the read-only queries in
-//      attribution/parity.ts
-// None emits an event, moves a stage or changes a counter. Each backfill
-// skips what is already written, so a rerun or a resumed batch adds nothing
-// (§4.9). Rerun an assert with "reset".
+// Phase 3 (docs/plans/phase-3-attribution.md §10). The backfills, the parity
+// check and the copy clears ran in production and left with the narrow
+// (§3.3). These three asserts stay as health checks, and none writes. Run
+// one with "reset" at any time:
+// npx convex run migrations:run '{"fn":"migrations:assertPersonTouches","reset":true}'
+//   - assertPersonTouches: each person's first and latest touch (§4.5)
+//   - assertBookingAttributions: each booking's rows, against its resolution
+//   - assertDealAttributions: each deal's lead gen, setter and closer rows
 
 const TOUCH_FIELDS = ["firstTouch", "latestTouch"] as const;
 type TouchFields = Partial<Pick<Doc<"leads">, (typeof TOUCH_FIELDS)[number]>>;
@@ -575,17 +563,6 @@ function touchEventId(touch: TouchSnapshot | undefined) {
   return touch?.eventId ?? "none";
 }
 
-export const backfillPersonTouches = migrations.define({
-  table: "leads", batchSize: 100,
-  migrateOne: async (ctx, lead) => {
-    if (lead.status === "merged") return;
-    const computed = await computePersonTouches(ctx, { tenantId: lead.tenantId, leadId: lead._id });
-    const patch: TouchFields = {};
-    for (const field of touchMismatches(lead, computed)) patch[field] = computed[field];
-    // Only the touch fields: `updatedAt` stays, so the search rows don't move.
-    if (Object.keys(patch).length > 0) await ctx.db.patch("leads", lead._id, patch);
-  },
-});
 export const assertPersonTouches = migrations.define({
   table: "leads", batchSize: 100,
   migrateOne: async (ctx, lead) => {
@@ -594,27 +571,6 @@ export const assertPersonTouches = migrations.define({
     const [field] = touchMismatches(lead, computed);
     if (field) {
       throw new Error(`Lead ${lead._id} has ${field} ${touchEventId(lead[field])}, expected ${touchEventId(computed[field])}`);
-    }
-  },
-});
-
-export const backfillDealTouches = migrations.define({
-  table: "opportunities", batchSize: 100,
-  migrateOne: async (ctx, opportunity) => {
-    if (!opportunity.firstTouch && !opportunity.latestTouch) await snapshotDealTouches(ctx, opportunity._id);
-  },
-});
-export const assertDealTouches = migrations.define({
-  table: "opportunities", batchSize: 100,
-  migrateOne: async (ctx, opportunity) => {
-    const missing = TOUCH_FIELDS.filter((field) => !opportunity[field]);
-    if (missing.length > 0) {
-      throw new Error(`Opportunity ${opportunity._id} has no touch snapshot for ${missing.join(" and ")}`);
-    }
-    const computed = await computeDealTouches(ctx, opportunity);
-    const [field] = touchMismatches(opportunity, computed);
-    if (field) {
-      throw new Error(`Opportunity ${opportunity._id} has ${field} ${touchEventId(opportunity[field])}, expected ${touchEventId(computed[field])}`);
     }
   },
 });
@@ -632,58 +588,6 @@ async function teamMemberMissing(ctx: MutationCtx, row: DealAttribution) {
   return true;
 }
 
-function isBookingRow(row: DealAttribution) {
-  return row.source.kind === "booking_utm" || row.source.kind === "booking_closer";
-}
-
-/** When the meeting was last reassigned to its closer, else its booking time. */
-async function reassignedToCloserAt(ctx: MutationCtx, meeting: Doc<"meetings">) {
-  const reassignments = await ctx.db
-    .query("meetingReassignments")
-    .withIndex("by_meetingId", (q) => q.eq("meetingId", meeting._id))
-    .take(50);
-  let at: number | undefined;
-  for (const reassignment of reassignments) {
-    if (reassignment.tenantId === meeting.tenantId && reassignment.toCloserId === meeting.assignedCloserId) {
-      at = Math.max(at ?? reassignment.reassignedAt, reassignment.reassignedAt);
-    }
-  }
-  return at ?? meeting.createdAt;
-}
-
-// The booking rows of §4.1 from each meeting's copied team and DM closer.
-// The meetings never resolved have no copy and get only their closer row
-// (D11).
-export const backfillBookingAttributions = migrations.define({
-  table: "meetings", batchSize: 100,
-  migrateOne: async (ctx, meeting) => {
-    const existing = await attributionsForMeeting(ctx, meeting.tenantId, meeting._id);
-    if (existing.some(isBookingRow)) return;
-    // Reassigned before the rows existed: the booking went to the closer it
-    // came from, and a reassignment row moves it on.
-    const fromUserId = meeting.reassignedFromCloserId;
-    const reassigned = fromUserId !== undefined && fromUserId !== meeting.assignedCloserId;
-    await recordBookingAttribution(ctx, {
-      meeting,
-      credit: { teamId: meeting.attributionTeamId, dmCloserId: meeting.dmCloserId },
-      closerUserId: reassigned ? fromUserId : undefined,
-    });
-    const moved = existing.some(
-      (row) => row.source.kind === "reassignment" && row.source.userId === meeting.assignedCloserId,
-    );
-    if (reassigned && !moved) {
-      await recordCloserReassignment(ctx, {
-        tenantId: meeting.tenantId,
-        opportunityId: meeting.opportunityId,
-        meeting,
-        toUserId: meeting.assignedCloserId,
-        fromUserId,
-        at: await reassignedToCloserAt(ctx, meeting),
-      });
-    }
-  },
-});
-
 /**
  * Whether the pipeline moved this meeting to a later booking's host
  * (`syncOpportunityMeetingsAssignedCloser`): a booking on the same deal made
@@ -700,9 +604,9 @@ async function movedToLaterHost(ctx: MutationCtx, meeting: Doc<"meetings">) {
   );
 }
 
-// Checks the copies while the meeting has them, and the resolution always,
-// so it still holds after PR 6 clears the copies: a `mapped` booking has its
-// dm_team row and any other has none.
+// One set of rows per booking (§4.9), on the booking's deal and with its
+// times, checked against the booking's own resolution: a `mapped` booking
+// has its dm_team row and any other has none.
 export const assertBookingAttributions = migrations.define({
   table: "meetings", batchSize: 100,
   migrateOne: async (ctx, meeting) => {
@@ -747,27 +651,13 @@ export const assertBookingAttributions = migrations.define({
       // A DM closer always brings its team.
       if (!team) throw fail(`dm_closer row ${dm._id} has no dm_team row beside it`);
     }
-
-    // The copies, while the meeting still has them.
-    if (meeting.attributionTeamId && team?.teamId !== meeting.attributionTeamId) {
-      throw fail(`dm_team row credits ${team?.teamId ?? "no team"}, the copy ${meeting.attributionTeamId}`);
-    }
-    const dmCloserCredited = dm?.source.kind === "booking_utm" ? dm.source.dmCloserId : undefined;
-    if (meeting.dmCloserId && dmCloserCredited !== meeting.dmCloserId) {
-      throw fail(`dm_closer row credits ${dmCloserCredited ?? "no DM closer"}, the copy ${meeting.dmCloserId}`);
-    }
-    if (meeting.attributionTeamId && !meeting.dmCloserId && dm) {
-      throw fail(`dm_closer row ${dm._id} on a booking whose copy names no DM closer`);
-    }
-
-    // The resolution, which the meeting keeps after the copies go.
     if ((meeting.attributionResolution === "mapped") !== (team !== undefined)) {
       throw fail(`resolution ${meeting.attributionResolution ?? "unset"} with ${team ? "a" : "no"} dm_team row`);
     }
   },
 });
 
-// Far above the qualifications one deal gets; past it the backfill stops.
+// Far above the qualifications one deal gets; past it the assert stops.
 const QUALIFICATIONS_PER_DEAL_LIMIT = 100;
 
 /** The Slack qualifications that credit a deal's setters, oldest first (§4.4). */
@@ -802,18 +692,6 @@ async function dealSetters(ctx: MutationCtx, opportunity: Doc<"opportunities">) 
     : [];
 }
 
-// The lead gen, setter and side deal rows of §4.2 to §4.4. Run after
-// backfillDealTouches: the lead gen row reads the deal's snapshot.
-export const backfillDealAttributions = migrations.define({
-  table: "opportunities", batchSize: 100,
-  migrateOne: async (ctx, opportunity) => {
-    await recordDealCreation(ctx, opportunity._id);
-    for (const setter of await dealSetters(ctx, opportunity)) {
-      await recordSetterAttribution(ctx, { tenantId: opportunity.tenantId, opportunityId: opportunity._id, ...setter });
-    }
-  },
-});
-
 const SOURCE_KINDS_BY_ROLE: Record<DealAttribution["role"], readonly DealAttribution["source"]["kind"][]> = {
   lead_gen: ["capture"],
   setter: ["slack_qualification"],
@@ -842,8 +720,7 @@ function captureCredit(row: Pick<DealAttribution, "source" | "teamMemberId">) {
 
 // Checks every row on the deal (a team member on every person's role, and
 // references inside the tenant and on this deal), then recomputes its lead
-// gen, setter and side deal rows with one fact per identity (§4.9), and,
-// while the deal has its copy, checks it against its first booking's rows.
+// gen, setter and side deal rows with one fact per identity (§4.9).
 export const assertDealAttributions = migrations.define({
   table: "opportunities", batchSize: 100,
   migrateOne: async (ctx, opportunity) => {
@@ -912,164 +789,10 @@ export const assertDealAttributions = migrations.define({
       throw fail(`setters missing ${missing.join(", ") || "none"}, unexpected ${unexpected.join(", ") || "none"}`);
     }
 
-    // The deal's copy, while it has one, is its first booking's credit: the
-    // detail readers' fallback for a meeting that was never resolved.
-    if (opportunity.attributionTeamId || opportunity.dmCloserId) {
-      const credit = await dealBookingCredit(ctx, opportunity);
-      if (
-        (credit.teamId ?? null) !== (opportunity.attributionTeamId ?? null) ||
-        (credit.dmCloserId ?? null) !== (opportunity.dmCloserId ?? null)
-      ) {
-        throw fail(
-          `the copy credits team ${opportunity.attributionTeamId ?? "none"} and DM closer ${opportunity.dmCloserId ?? "none"}, ` +
-            `the first booking's rows team ${credit.teamId ?? "none"} and DM closer ${credit.dmCloserId ?? "none"}`,
-        );
-      }
-    }
-
     const sideDealRows = rows.filter((row) => row.source.kind === "side_deal").length;
     const expectedSideDealRows = opportunity.source === "side_deal" && opportunity.assignedCloserId ? 1 : 0;
     if (sideDealRows !== expectedSideDealRows) {
       throw fail(`${sideDealRows} side_deal closer rows, expected ${expectedSideDealRows}`);
     }
-  },
-});
-
-// The qualifications queue's labels and badge, from the deal's first booking
-// (§6.2), against the copy each qualification row holds (§10.4).
-export const assertQualificationAttributionParity = migrations.define({
-  table: "operationsQualificationRows", batchSize: 100,
-  migrateOne: async (ctx, row) => {
-    const opportunity = row.opportunityId ? await ctx.db.get("opportunities", row.opportunityId) : null;
-    const deal = opportunity?.tenantId === row.tenantId ? opportunity : null;
-    const credit: BookingCredit = deal ? await dealBookingCredit(ctx, deal) : {};
-    const firstMeeting = deal?.firstMeetingId ? await ctx.db.get("meetings", deal.firstMeetingId) : null;
-    const copy = {
-      teamId: row.attributionTeamId ?? null,
-      dmCloserId: row.dmCloserId ?? null,
-      resolution: row.attributionResolution,
-    };
-    const fromRows = {
-      teamId: credit.teamId ?? null,
-      dmCloserId: credit.dmCloserId ?? null,
-      resolution: firstMeeting?.attributionResolution ?? "none",
-    };
-    if (copy.teamId !== fromRows.teamId || copy.dmCloserId !== fromRows.dmCloserId || copy.resolution !== fromRows.resolution) {
-      throw new Error(`Qualification row ${row._id}: the copy has ${JSON.stringify(copy)}, the rows ${JSON.stringify(fromRows)}`);
-    }
-  },
-});
-
-// Phase 3, PR 6 (docs/plans/phase-3-attribution.md §10.5). Deploy after PRs 2
-// to 5, so no reader reads the copies, and this PR stops writing them. Then a
-// dry run, the run, then its assert, one table at a time:
-// npx convex run migrations:run '{"fn":"migrations:clearOpportunityAttributionCopies","dryRun":true}'
-//   1. clearOpportunityAttributionCopies, assertOpportunityAttributionCopiesCleared
-//   2. clearMeetingAttributionCopies, assertMeetingAttributionCopiesCleared
-//   3. clearQualificationRowAttributionCopies,
-//      assertQualificationRowAttributionCopiesCleared
-//   4. clearMeetingDailyStatAttributionCopies,
-//      assertMeetingDailyStatAttributionCopiesCleared
-//   5. assertBookingAttributions with "reset": without the copies it checks
-//      each meeting's rows against its resolution
-// Each patches only the rows that still hold a copy, and nothing else: no
-// event, stage, counter or projection. Meetings keep their resolution, UTMs
-// and utmTruncated, the booking's own record. operationsMeetingStatsV2 and
-// meetingProjections lost their copies in PR 4's rebuildMeetingProjections.
-// After the clear, assertQualificationAttributionParity has no copy to compare
-// and fails, so don't rerun it. PR 7 drops the fields.
-
-const OPPORTUNITY_ATTRIBUTION_COPIES = [
-  "attributionTeamId",
-  "dmCloserId",
-  "attributionResolution",
-  "attributionResolvedAt",
-  "attributionResolutionVersion",
-] as const satisfies readonly (keyof Doc<"opportunities">)[];
-const MEETING_ATTRIBUTION_COPIES = [
-  "attributionTeamId",
-  "dmCloserId",
-] as const satisfies readonly (keyof Doc<"meetings">)[];
-const QUALIFICATION_ROW_ATTRIBUTION_COPIES = [
-  "attributionTeamId",
-  "dmCloserId",
-  "attributionResolution",
-] as const satisfies readonly (keyof Doc<"operationsQualificationRows">)[];
-const MEETING_DAILY_STAT_ATTRIBUTION_COPIES = [
-  "attributionTeamId",
-  "dmCloserId",
-] as const satisfies readonly (keyof Doc<"operationsMeetingDailyStats">)[];
-
-/** The copy fields `row` still holds. */
-function heldCopies<Row, Field extends keyof Row>(row: Row, fields: readonly Field[]) {
-  return fields.filter((field) => row[field] !== undefined);
-}
-
-/** A patch that unsets `fields`. */
-function unsetPatch<Field extends string>(fields: readonly Field[]) {
-  return Object.fromEntries(fields.map((field) => [field, undefined])) as { [F in Field]?: undefined };
-}
-
-function copiesLeft(label: string, id: string, fields: readonly string[]) {
-  return new Error(`${label} ${id} still has ${fields.join(", ")}`);
-}
-
-export const clearOpportunityAttributionCopies = migrations.define({
-  table: "opportunities", batchSize: 200,
-  migrateOne: async (ctx, opportunity) => {
-    const held = heldCopies(opportunity, OPPORTUNITY_ATTRIBUTION_COPIES);
-    if (held.length > 0) await ctx.db.patch("opportunities", opportunity._id, unsetPatch(held));
-  },
-});
-export const assertOpportunityAttributionCopiesCleared = migrations.define({
-  table: "opportunities", batchSize: 200,
-  migrateOne: async (_ctx, opportunity) => {
-    const held = heldCopies(opportunity, OPPORTUNITY_ATTRIBUTION_COPIES);
-    if (held.length > 0) throw copiesLeft("Opportunity", opportunity._id, held);
-  },
-});
-
-export const clearMeetingAttributionCopies = migrations.define({
-  table: "meetings", batchSize: 200,
-  migrateOne: async (ctx, meeting) => {
-    const held = heldCopies(meeting, MEETING_ATTRIBUTION_COPIES);
-    if (held.length > 0) await ctx.db.patch("meetings", meeting._id, unsetPatch(held));
-  },
-});
-export const assertMeetingAttributionCopiesCleared = migrations.define({
-  table: "meetings", batchSize: 200,
-  migrateOne: async (_ctx, meeting) => {
-    const held = heldCopies(meeting, MEETING_ATTRIBUTION_COPIES);
-    if (held.length > 0) throw copiesLeft("Meeting", meeting._id, held);
-  },
-});
-
-export const clearQualificationRowAttributionCopies = migrations.define({
-  table: "operationsQualificationRows", batchSize: 200,
-  migrateOne: async (ctx, row) => {
-    const held = heldCopies(row, QUALIFICATION_ROW_ATTRIBUTION_COPIES);
-    if (held.length > 0) await ctx.db.patch("operationsQualificationRows", row._id, unsetPatch(held));
-  },
-});
-export const assertQualificationRowAttributionCopiesCleared = migrations.define({
-  table: "operationsQualificationRows", batchSize: 200,
-  migrateOne: async (_ctx, row) => {
-    const held = heldCopies(row, QUALIFICATION_ROW_ATTRIBUTION_COPIES);
-    if (held.length > 0) throw copiesLeft("Qualification row", row._id, held);
-  },
-});
-
-export const clearMeetingDailyStatAttributionCopies = migrations.define({
-  table: "operationsMeetingDailyStats", batchSize: 200,
-  migrateOne: async (ctx, row) => {
-    const held = heldCopies(row, MEETING_DAILY_STAT_ATTRIBUTION_COPIES);
-    if (held.length > 0) await ctx.db.patch("operationsMeetingDailyStats", row._id, unsetPatch(held));
-  },
-});
-export const assertMeetingDailyStatAttributionCopiesCleared = migrations.define({
-  table: "operationsMeetingDailyStats", batchSize: 200,
-  migrateOne: async (_ctx, row) => {
-    const held = heldCopies(row, MEETING_DAILY_STAT_ATTRIBUTION_COPIES);
-    if (held.length > 0) throw copiesLeft("Meeting daily stats row", row._id, held);
   },
 });

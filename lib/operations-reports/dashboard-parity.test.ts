@@ -218,15 +218,14 @@ it("keeps qualifications live dashboard and worker-backed snapshot view models a
 });
 
 // The fixture's booking rows are the ones the pipeline writes for each booking
-// (recordBookingAttribution). The copied columns are either set the way the
-// pipeline still writes them or left unset; the numbers must not change.
-describe.each(["pipeline", "none"] as const)(
-  "booked calls parity with copies: %s",
-  (copies) => {
+// (recordBookingAttribution).
+describe(
+  "booked calls parity",
+  () => {
     it("keeps the live dashboard and the worker-backed snapshot aligned", async () => {
       const t = convexTest({ schema, modules: convexTestModules });
       const fixture = await t.run(
-        async (ctx) => await seedBookedCallsFixture(ctx, { copies }),
+        async (ctx) => await seedBookedCallsFixture(ctx),
       );
       const authed = t.withIdentity(BOOKED_CALLS_ADMIN);
 
@@ -275,7 +274,7 @@ describe.each(["pipeline", "none"] as const)(
         {
           reportKind: "booked-calls",
           range: BOOKED_CALLS_RANGE,
-          requestToken: `booked-dashboard-parity-${copies}`,
+          requestToken: "booked-dashboard-parity",
         },
       );
       for (let step = 0; step < 40; step += 1) {

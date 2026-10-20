@@ -5,7 +5,6 @@ import { rebuildQualificationRow } from "./projections";
 import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
 import {
   type BookingFixture,
-  clearAttributionCopies,
   insertAttributionTeam,
   insertBooking,
   insertDmCloser,
@@ -268,17 +267,6 @@ it("labels each qualification with its deal's first booking credit", async () =>
   const listed = await listAll(harness);
   expect(listed).toHaveLength(8);
   expect(credits(listed)).toEqual(expected);
-  expect(credits(await search(harness))).toEqual(expected);
-  expect(credits(await scheduling(harness))).toEqual(bookedOnly(expected));
-});
-
-it("reads the credit from the attribution rows once the copies are gone", async () => {
-  const harness = await bookingHarness();
-  const ids = await seed(harness);
-  await harness.t.run(async (ctx) => await clearAttributionCopies(ctx, harness.tenantId));
-  const expected = expectedCredits(ids);
-
-  expect(credits(await listAll(harness))).toEqual(expected);
   expect(credits(await search(harness))).toEqual(expected);
   expect(credits(await scheduling(harness))).toEqual(bookedOnly(expected));
 });

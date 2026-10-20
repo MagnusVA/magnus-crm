@@ -3,13 +3,23 @@ import { vi } from "vitest";
 import { internal } from "../convex/_generated/api";
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
+import {
+  qualificationCreditsSetter,
+  recordBookingAttribution,
+  recordCloserReassignment,
+  recordDealCreation,
+  recordSetterAttribution,
+} from "../convex/lib/attribution/dealAttributions";
+import { computePersonTouches } from "../convex/lib/touches";
 import { migrations } from "../convex/migrations";
 import { rebuildQualificationRow } from "../convex/operations/projections";
 import { bookingHarness, qualifiedLifecycle } from "./bookingHarness";
 
-// Phase 3 attribution data as production held it before PR 1: copied team
-// and DM closer columns, touch events, qualification events, and no touch
-// snapshots or attribution rows (docs/plans/phase-3-attribution.md §2).
+// Phase 3 attribution data as production holds it after the phase
+// (docs/plans/phase-3-attribution.md §4): touch events, qualification
+// events, each person's first and latest touch, each deal's snapshot, and the
+// attribution rows each booking, deal and qualification writes. Meetings keep
+// their resolution; nothing holds a copied team or DM closer.
 
 export const AT = {
   CAPTURED: Date.parse("2026-08-01T10:00:00Z"),
@@ -37,7 +47,11 @@ export async function attributionHarness() {
   vi.setSystemTime(new Date("2026-10-20T12:00:00Z"));
   const harness = await bookingHarness();
   migrationsTest.register(harness.t);
-  const ids = await harness.t.run((ctx) => seed(ctx, harness.tenantId));
+  const ids = await harness.t.run(async (ctx) => {
+    const seeded = await seed(ctx, harness.tenantId);
+    await writeAttribution(ctx, seeded);
+    return seeded;
+  });
 
   async function status(name: string) {
     await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
@@ -57,19 +71,6 @@ export async function attributionHarness() {
   return { ...harness, ids, run, rerun };
 }
 
-/** Runs every backfill in the plan's order and fails on the first error. */
-export async function backfillAll(harness: AttributionHarness) {
-  for (const name of [
-    "backfillPersonTouches",
-    "backfillDealTouches",
-    "backfillBookingAttributions",
-    "backfillDealAttributions",
-  ]) {
-    const result = await harness.run(name);
-    if (result?.error || !result?.isDone) throw new Error(`${name}: ${result?.error ?? "not done"}`);
-  }
-}
-
 export async function attributionRows(harness: AttributionHarness) {
   return await harness.t.run((ctx) => ctx.db.query("dealAttributions").take(500));
 }
@@ -85,23 +86,52 @@ async function user(ctx: MutationCtx, workosUserId: string): Promise<Doc<"users"
     .unique())!;
 }
 
+type Seeded = Awaited<ReturnType<typeof seed>>;
+
 /**
- * The deal's copied attribution, as the qualification projection wrote it
- * before PR 6 stopped copying it (operations/projections.ts).
+ * What the live write paths leave behind (§5): each person's touches
+ * (`recordPersonTouch`), each deal's snapshot and its lead gen and side deal
+ * rows (`recordDealCreation`), a setter row for each qualification that
+ * credits one, the Slack deal older than the qualification events through its
+ * `qualifiedBy`, and the rows of every booking (§4.1). The booking never
+ * resolved went to the admin, and its reassignment moved it on (§4.6).
  */
-async function copyDealAttributionOntoQualificationRow(
-  ctx: MutationCtx,
-  qualificationEventId: Id<"slackQualificationEvents">,
-) {
-  const row = (await ctx.db
-    .query("operationsQualificationRows")
-    .withIndex("by_qualificationEventId", (q) => q.eq("qualificationEventId", qualificationEventId))
-    .unique())!;
-  const deal = row.opportunityId ? await ctx.db.get("opportunities", row.opportunityId) : null;
-  await ctx.db.patch("operationsQualificationRows", row._id, {
-    attributionTeamId: deal?.attributionTeamId,
-    dmCloserId: deal?.dmCloserId,
-    attributionResolution: deal?.attributionResolution ?? "none",
+async function writeAttribution(ctx: MutationCtx, seeded: Seeded) {
+  const { tenantId, leads, opportunities, meetings, teamA, teamB, dana, adminId, closerId } = seeded;
+  for (const leadId of [leads.p1, leads.p2, leads.p3, leads.p4, leads.p5]) {
+    await ctx.db.patch("leads", leadId, await computePersonTouches(ctx, { tenantId, leadId }));
+  }
+  for (const opportunityId of Object.values(opportunities)) {
+    await recordDealCreation(ctx, opportunityId);
+  }
+
+  for (const qualificationEventId of Object.values(seeded.qualifications)) {
+    const event = (await ctx.db.get("slackQualificationEvents", qualificationEventId))!;
+    if (!event.opportunityId || !qualificationCreditsSetter(event.resultKind)) continue;
+    await recordSetterAttribution(ctx, {
+      tenantId, opportunityId: event.opportunityId, slackUserId: event.slackUserId,
+      submittedAt: event.submittedAt, qualificationEventId,
+    });
+  }
+  await recordSetterAttribution(ctx, {
+    tenantId, opportunityId: opportunities.o3, slackUserId: "U2", submittedAt: AT.EARLY_SLACK,
+  });
+
+  const book = async (meetingId: Id<"meetings">, credit: Parameters<typeof recordBookingAttribution>[1]["credit"]) =>
+    await recordBookingAttribution(ctx, { meeting: (await ctx.db.get("meetings", meetingId))!, credit });
+  await book(meetings.m1, { teamId: teamA, dmCloserId: dana });
+  await book(meetings.m2, { teamId: teamB });
+  await book(meetings.m4, { teamId: teamA });
+
+  await book(meetings.m3, {});
+  await ctx.db.patch("meetings", meetings.m3, { assignedCloserId: closerId, reassignedFromCloserId: adminId });
+  await ctx.db.insert("meetingReassignments", {
+    tenantId, meetingId: meetings.m3, opportunityId: opportunities.o2, fromCloserId: adminId, toCloserId: closerId,
+    reason: "unavailable", reassignedByUserId: adminId, reassignedAt: AT.REASSIGNED,
+  });
+  await recordCloserReassignment(ctx, {
+    tenantId, opportunityId: opportunities.o2, meeting: (await ctx.db.get("meetings", meetings.m3))!,
+    toUserId: closerId, fromUserId: adminId, at: AT.REASSIGNED,
   });
 }
 
@@ -184,15 +214,14 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
     tenantId, leadId: p1, status: "scheduled", source: "slack_qualified", assignedCloserId: closer._id,
     qualifiedBy: { slackUserId: "U1", slackTeamId: "T1", submittedAt: AT.QUALIFIED }, qualifiedAt: AT.QUALIFIED,
     createdAt: AT.QUALIFIED, updatedAt: AT.QUALIFIED,
-    attributionTeamId: teamA, dmCloserId: dana, attributionResolution: "mapped",
   });
   const m1 = await meeting({
     opportunityId: o1, scheduledAt: AT.CALL, createdAt: AT.BOOKED, status: "completed", callClassification: "new",
-    attributionTeamId: teamA, dmCloserId: dana, attributionResolution: "mapped",
+    attributionResolution: "mapped",
   });
   const m2 = await meeting({
     opportunityId: o1, scheduledAt: AT.RECALL, createdAt: AT.REBOOKED, callClassification: "follow_up",
-    attributionTeamId: teamB, attributionResolution: "mapped",
+    attributionResolution: "mapped",
   });
   await ctx.db.patch("opportunities", o1, { firstMeetingId: m1, firstMeetingAt: AT.CALL, firstBookedAt: AT.BOOKED });
   const captured = await event({
@@ -243,10 +272,10 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
   };
   for (const id of Object.values(qualifications)) {
     await rebuildQualificationRow(ctx, id);
-    await copyDealAttributionOntoQualificationRow(ctx, id);
   }
 
-  // P2: a Calendly booking never resolved, reassigned from the admin.
+  // P2: a Calendly booking never resolved, booked with the admin; the
+  // reassignment in writeAttribution moves it to the closer.
   const p2 = await lead();
   const o2 = await ctx.db.insert("opportunities", {
     tenantId, leadId: p2, status: "scheduled", source: "calendly", assignedCloserId: closer._id,
@@ -254,13 +283,9 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
   });
   const m3 = await meeting({
     opportunityId: o2, scheduledAt: AT.CALENDLY_CALL, createdAt: AT.CALENDLY_BOOKED, callClassification: "new",
-    status: "no_show", reassignedFromCloserId: admin._id,
+    status: "no_show", assignedCloserId: admin._id,
   });
   await ctx.db.patch("opportunities", o2, { firstMeetingId: m3, firstMeetingAt: AT.CALENDLY_CALL });
-  await ctx.db.insert("meetingReassignments", {
-    tenantId, meetingId: m3, opportunityId: o2, fromCloserId: admin._id, toCloserId: closer._id,
-    reason: "unavailable", reassignedByUserId: admin._id, reassignedAt: AT.REASSIGNED,
-  });
   const m3Created = await event({
     entityType: "meeting", entityId: m3, eventType: "meeting.created", occurredAt: AT.CALENDLY_BOOKED, leadId: p2,
   });
@@ -292,18 +317,17 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
   const p5 = await lead();
   const o5 = await ctx.db.insert("opportunities", {
     tenantId, leadId: p5, status: "scheduled", source: "calendly", assignedCloserId: closer._id,
-    createdAt: AT.TEAM_ONLY_BOOKED, updatedAt: AT.TEAM_ONLY_BOOKED, attributionTeamId: teamA,
-    attributionResolution: "mapped",
+    createdAt: AT.TEAM_ONLY_BOOKED, updatedAt: AT.TEAM_ONLY_BOOKED,
   });
   const m4 = await meeting({
     opportunityId: o5, scheduledAt: AT.TEAM_ONLY_CALL, createdAt: AT.TEAM_ONLY_BOOKED, callClassification: "new",
-    attributionTeamId: teamA, attributionResolution: "mapped",
+    attributionResolution: "mapped",
   });
   await ctx.db.patch("opportunities", o5, { firstMeetingId: m4, firstMeetingAt: AT.TEAM_ONLY_CALL });
   await event({ entityType: "meeting", entityId: m4, eventType: "meeting.created", occurredAt: AT.TEAM_ONLY_BOOKED, leadId: p5 });
 
   return {
-    adminId: admin._id, closerId: closer._id, tm, teamA, teamB, dana, workerId, prospectId,
+    tenantId, adminId: admin._id, closerId: closer._id, tm, teamA, teamB, dana, workerId, prospectId,
     leads: { p1, p2, p3, p4, p5, merged },
     opportunities: { o1, o2, o3, o4, o5 },
     meetings: { m1, m2, m3, m4 },
