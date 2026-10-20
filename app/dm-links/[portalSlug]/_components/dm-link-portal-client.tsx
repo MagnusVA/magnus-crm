@@ -421,7 +421,9 @@ function UnlockedPortal({
 	>({});
 	// The copy reached the clipboard but wasn't recorded.
 	const [sessionEnded, setSessionEnded] = useState(false);
-	const [copyRateLimited, setCopyRateLimited] = useState(false);
+	const [unrecordedCopies, setUnrecordedCopies] = useState<
+		Record<string, "rate_limited" | "failed">
+	>({});
 
 	const closer = bootstrap.dmClosers.find((row) => row.id === selectedCloserId);
 	const groupedPrograms = useMemo(
@@ -509,6 +511,7 @@ function UnlockedPortal({
 		setCurrentStep("closer");
 		setGeneratedBatch(null);
 		setCopyStates({});
+		setUnrecordedCopies({});
 		setNow(0);
 	}
 
@@ -534,6 +537,7 @@ function UnlockedPortal({
 	function resetGeneratedLinks() {
 		setGeneratedBatch(null);
 		setCopyStates({});
+		setUnrecordedCopies({});
 		setNow(0);
 	}
 
@@ -625,6 +629,7 @@ function UnlockedPortal({
 		const generatedAt = Date.now();
 		setNow(generatedAt);
 		setCopyStates({});
+		setUnrecordedCopies({});
 		setGeneratedBatch({
 			generatedAt,
 			expiresAt: generatedAt + LINK_EXPIRATION_MS,
@@ -694,9 +699,12 @@ function UnlockedPortal({
 		if (!auditResult.recorded && auditResult.reason === "logged_out") {
 			setSessionEnded(true);
 		}
-		setCopyRateLimited(
-			!auditResult.recorded && auditResult.reason === "rate_limited",
-		);
+		setUnrecordedCopies((current) => {
+			const { [activeLink.eventTypeConfigId]: _cleared, ...rest } = current;
+			return !auditResult.recorded && auditResult.reason !== "logged_out"
+				? { ...rest, [activeLink.eventTypeConfigId]: auditResult.reason }
+				: rest;
+		});
 
 		if (isPostHogEnabled()) {
 			posthog.capture("dm_link_copied", {
@@ -813,17 +821,6 @@ function UnlockedPortal({
 					</TabsList>
 
 					<TabsContent value="links" className="flex flex-col gap-4">
-				{copyRateLimited && !sessionEnded ? (
-					<Alert>
-						<AlertCircleIcon aria-hidden="true" />
-						<AlertTitle>Copy Not Recorded</AlertTitle>
-						<AlertDescription>
-							The link was copied, but too many links were copied in the last
-							minute to record this one. Wait a minute before the next copy.
-						</AlertDescription>
-					</Alert>
-				) : null}
-
 				{sessionEnded ? (
 					<Alert variant="destructive">
 						<AlertCircleIcon aria-hidden="true" />
@@ -1126,7 +1123,21 @@ function UnlockedPortal({
 															</div>
 															<div aria-live="polite">
 																{copyState === "copied" ? (
-																	<FieldDescription>Copied.</FieldDescription>
+																	<FieldDescription
+																		className={
+																			unrecordedCopies[link.eventTypeConfigId]
+																				? "text-destructive"
+																				: undefined
+																		}
+																	>
+																		{unrecordedCopies[link.eventTypeConfigId] ===
+																		"rate_limited"
+																			? "Copied, but not recorded: too many links in the last minute."
+																			: unrecordedCopies[link.eventTypeConfigId] ===
+																					"failed"
+																				? "Copied, but not recorded."
+																				: "Copied."}
+																	</FieldDescription>
 																) : null}
 																{copyState === "manual" ? (
 																	<FieldDescription>

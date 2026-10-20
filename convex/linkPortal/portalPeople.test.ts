@@ -5,7 +5,7 @@
 import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { internal } from "../_generated/api";
-import { bookingHarness } from "../../tests/bookingHarness";
+import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
 import { collectLifecycleEvidence, syncLeadStageEntries } from "../lib/leadLifecycle";
 import { migrations } from "../migrations";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
@@ -219,5 +219,35 @@ describe("portal touch backfill", () => {
 
     expect(await events(h, "lead.portal_note_added")).toHaveLength(1);
     expect(await events(h, "lead.portal_profile_updated")).toHaveLength(1);
+  });
+});
+
+describe("booking from a link copied while the portal named the person", () => {
+  it("ignores the person ID in utm_content and matches by identifiers only", async () => {
+    const h = await setup();
+    const linkPersonId = await existingPerson(h, { handle: "ana.lead" });
+    const payload = {
+      ...bookingPayload("legacy-link", "stranger@example.com"),
+      tracking: { utm_source: "team", utm_medium: "dm", utm_campaign: "default", utm_content: linkPersonId },
+    };
+
+    await h.t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+      tenantId: h.tenantId,
+      calendlyEventUri: payload.uri,
+      eventType: "invitee.created",
+      payload: JSON.stringify({ created_at: new Date(NOW + 60_000).toISOString(), payload }),
+    });
+    await h.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const opportunity = await h.t.run(async (ctx) => {
+      const meeting = await ctx.db
+        .query("meetings")
+        .withIndex("by_tenantId_and_calendlyInviteeUri", (q) => q.eq("tenantId", h.tenantId).eq("calendlyInviteeUri", payload.uri))
+        .unique();
+      return meeting && (await ctx.db.get("opportunities", meeting.opportunityId));
+    });
+    expect(opportunity).not.toBeNull();
+    expect(opportunity?.leadId).not.toBe(linkPersonId);
+    expect(opportunity?.potentialDuplicateLeadId).toBeUndefined();
   });
 });
