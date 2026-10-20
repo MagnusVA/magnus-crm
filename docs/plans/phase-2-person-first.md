@@ -326,7 +326,7 @@ Read-only, before PR 2: `tenantStats.totalLeads` 10,364; `stageTotals` 10,634 at
 | 10-20 05:35 | `backfillSlackTouches` dry run, then run | 8,470 Slack qualification events |
 | 10-20 05:37 | `assertSlackTouches` | passed, 8,470 |
 | 10-20 05:48 | `assertDomainEventLinks` (reset) | passed, 187,731 events |
-| 10-20 | `assertLeadLifecycle` (reset), after the portal and Slack touches | running when #138 opened; recorded before it merges |
+| 10-20 06:46 | `assertLeadLifecycle` (reset), after the portal and Slack touches | passed, 89,510 leads |
 
 The read-only recheck at 05:33: `stageTotals` 89,472 at Prospect (78,838 more than the baseline), 10,711 In conversation, 10,708 Qualified, 5,346 Booked, 696 Showed, 274 Customer; `tenantStats.totalLeads` 10,434. The lead count is Qualified minus Customer, as at the baseline (10,634 − 270 = 10,364). Every stage but Prospect moved only by the day's new qualifications, bookings and payments. The 3 more at In conversation than at Qualified are persons the portal created by handle while PR 3 was live; the 10 copies made then named 8 persons.
 
