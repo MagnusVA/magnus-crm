@@ -433,7 +433,7 @@ Over `opportunities`, batch 100. The snapshot is the person's earliest and lates
 
 `backfillDealAttributions`, over `opportunities`, batch 100: the lead gen, setter and side deal rows of §4.2 to §4.4, using the deal's touch snapshot from §10.2. Expected: 4,749 `lead_gen`, 8,508 `setter` (156 of them from `qualifiedBy`; 90 deals with more than one), 8 side deal `closer`.
 
-`assertBookingAttributions` checks, for each meeting, one `dm_team` row exactly when the copy has a team and for that team, one `dm_closer` row exactly when it has a DM closer and for that record and its team member, and one `booking_closer` row. After PR 6 clears the copies, it checks the rows against the meeting's resolution instead: `mapped` has a `dm_team` row, and anything else has none. `assertDealAttributions` recomputes the deal rows and checks them, and that no row's team member or team belongs to another tenant.
+`assertBookingAttributions` checks, for each meeting, one `dm_team` row exactly when the copy has a team and for that team, one `dm_closer` row exactly when it has a DM closer and for that record and its team member, and one `booking_closer` row naming the closer the meeting was booked with: its `reassignedFromCloserId` if it has one, else its `assignedCloserId`. The one allowed difference is a meeting the pipeline moved to a later booking's host (§2.1): then a later booking on the same deal has a `booking_closer` row for the meeting's current `assignedCloserId`. After PR 6 clears the copies, it checks the rows against the meeting's resolution instead: `mapped` has a `dm_team` row, and anything else has none. `assertDealAttributions` recomputes the deal rows and checks them, and that no row's team member or team belongs to another tenant.
 
 Total about 30,100 rows.
 
@@ -443,7 +443,7 @@ Every reader takes its credit from one of two places, and each has a check that 
 
 | Reader | Reads | Proved by |
 | --- | --- | --- |
-| Booked Calls rows and labels, the details list and search, the operations report's booked rows, sales calls labels, meeting detail, billing labels | one meeting's booking rows | `assertBookingAttributions`: every one of the 6,798 meetings' rows equals its copied team and DM closer |
+| Booked Calls rows and labels, the details list and search, the operations report's booked rows, sales calls labels, meeting detail, billing labels | one meeting's booking rows | `assertBookingAttributions`: for every one of the 6,798 meetings, the rows equal its copied team and DM closer, and its one `booking_closer` row names the closer it was booked with |
 | Qualifications queue, deal detail, billing for a payment without a meeting | the deal's first booking's rows | `assertQualificationAttributionParity`: for all 8,510 qualification rows, the team, DM closer and badge from the deal's first booking equal the row's copy; and `assertBookingAttributions` for the first bookings themselves |
 
 The counts are checked as well, by internal queries in `attribution/parity.ts` that compute each report both ways and return the differences:
