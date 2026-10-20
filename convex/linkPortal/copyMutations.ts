@@ -1,14 +1,9 @@
 import { v } from "convex/values";
 import { internalMutation } from "../_generated/server";
 import { canTeamUseEventType } from "../lib/attribution/teamEventTypeRoutes";
-import { emitDomainEvent } from "../lib/domainEvents";
 import { isPortalBookable } from "../lib/eventTypeBookability";
-import { normalizeSocialHandle } from "../lib/normalization";
 import { expectedError } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
-import { resolveLeadIdentity } from "../leads/identityResolution";
-import { blockedReason } from "../pipeline/blocked";
-import { PORTAL_LINK_COPIED, recordPortalTouch } from "./portalTouches";
 
 // The same limits as portal notes and edits (leadMutations.ts): per DM
 // closer per minute, plus a tenant-wide flood guard.
@@ -25,13 +20,7 @@ export const insertCopyEvent = internalMutation({
     eventTypeConfigId: v.id("eventTypeConfigs"),
     dmCloserId: v.id("dmClosers"),
     campaignPresetId: v.id("linkPortalCampaignPresets"),
-    // The person the link is for (docs/plans/phase-2-person-first.md §4.3).
-    instagramHandle: v.string(),
   },
-  returns: v.object({
-    copyEventId: v.id("linkPortalCopyEvents"),
-    leadId: v.id("leads"),
-  }),
   handler: async (ctx, args) => {
     const config = await ctx.db
       .query("linkPortalConfigs")
@@ -113,11 +102,6 @@ export const insertCopyEvent = internalMutation({
       throw new Error("Campaign preset is not available.");
     }
 
-    const handle = normalizeSocialHandle(args.instagramHandle, "instagram");
-    if (!handle) {
-      throw expectedError("link_portal.copy.invalid_handle", "Enter the person's Instagram handle.");
-    }
-
     const now = Date.now();
     const recentCopies = await ctx.db
       .query("linkPortalCopyEvents")
@@ -142,41 +126,7 @@ export const insertCopyEvent = internalMutation({
       throw expectedError("link_portal.copy_rate_limited", "Too many links in a short time. Try again in a minute.");
     }
 
-    // The person the link is for: found by handle, or created at In
-    // conversation, since the DM closer is talking to them.
-    let person;
-    try {
-      person = await resolveLeadIdentity(ctx, {
-        tenantId: args.tenantId,
-        socialHandle: { platform: "instagram", rawValue: handle },
-        identifierSource: "dm_portal",
-        createdAt: now,
-        createIdentifiers: true,
-        initialLifecycle: { stage: "in_conversation", at: now },
-      });
-    } catch (error) {
-      if (!blockedReason(error)) {
-        throw error;
-      }
-      throw expectedError(
-        "link_portal.copy.identity_conflict",
-        "This handle belongs to more than one person in the CRM. Ask an admin to merge them.",
-      );
-    }
-    if (person.isNewLead) {
-      await emitDomainEvent(ctx, {
-        tenantId: args.tenantId,
-        entityType: "lead",
-        entityId: person.leadId,
-        eventType: "lead.created",
-        source: "pipeline",
-        teamMemberId: dmCloser.teamMemberId,
-        toStatus: "active",
-        occurredAt: now,
-      });
-    }
-
-    const copyEventId = await ctx.db.insert("linkPortalCopyEvents", {
+    return await ctx.db.insert("linkPortalCopyEvents", {
       tenantId: args.tenantId,
       sessionIdHash: args.sessionIdHash,
       eventTypeConfigId: eventTypeConfig._id,
@@ -186,22 +136,6 @@ export const insertCopyEvent = internalMutation({
       campaignPresetId: campaign._id,
       utmCampaign: campaign.utmCampaign,
       copiedAt: now,
-      leadId: person.leadId,
     });
-    await recordPortalTouch(ctx, {
-      tenantId: args.tenantId,
-      leadId: person.leadId,
-      dmCloser,
-      eventType: PORTAL_LINK_COPIED,
-      at: now,
-      metadata: {
-        copyEventId,
-        eventTypeConfigId: eventTypeConfig._id,
-        campaignPresetId: campaign._id,
-        utmCampaign: campaign.utmCampaign,
-      },
-    });
-
-    return { copyEventId, leadId: person.leadId };
   },
 });

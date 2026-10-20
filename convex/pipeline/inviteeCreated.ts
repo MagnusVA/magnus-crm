@@ -44,9 +44,8 @@ import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMee
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { buildLeadSearchText } from "../leads/searchTextBuilder";
 import {
-	bookingLinkPerson,
+	resolveLeadIdentity,
 	resolveExistingLeadIdentity,
-	resolveLeadIdentityWithLink,
 } from "../leads/identityResolution";
 import {
 	insertMeetingAggregate,
@@ -321,29 +320,6 @@ async function updateLeadSocialHandles(
 			{ type: platform, handle: normalizedHandle },
 		],
 	});
-}
-
-/**
- * A portal link that named someone else: the deal keeps them as a likely
- * duplicate for an admin to merge (docs/plans/phase-2-person-first.md §4.4,
- * D4). A deal that already names one keeps it.
- */
-async function flagLinkPersonDuplicate(
-	ctx: MutationCtx,
-	opportunityId: Id<"opportunities">,
-	potentialDuplicateLeadId: Id<"leads"> | undefined,
-): Promise<void> {
-	if (!potentialDuplicateLeadId) {
-		return;
-	}
-	const target = await ctx.db.get("opportunities", opportunityId);
-	if (
-		target &&
-		target.potentialDuplicateLeadId === undefined &&
-		target.leadId !== potentialDuplicateLeadId
-	) {
-		await ctx.db.patch("opportunities", opportunityId, { potentialDuplicateLeadId });
-	}
 }
 
 async function syncLeadFromBooking(
@@ -1138,22 +1114,17 @@ export const process = internalMutation({
 		}
 
 		// === Feature E: Multi-identifier identity resolution ===
-		// A DM portal link names its person (docs/plans/phase-2-person-first.md §4.4).
-		const resolution = await resolveLeadIdentityWithLink(
-			ctx,
-			{
-				tenantId,
-				email: inviteeEmail,
-				fullName: inviteeName,
-				phone: effectivePhone,
-				socialHandle: extractedIdentifiers.socialHandle,
-				identifierSource: "calendly_booking",
-				createdAt: now,
-				createIdentifiers: false,
-				initialLifecycle: { stage: "booked", at: now },
-			},
-			await bookingLinkPerson(ctx, tenantId, utmParams),
-		);
+		const resolution = await resolveLeadIdentity(ctx, {
+			tenantId,
+			email: inviteeEmail,
+			fullName: inviteeName,
+			phone: effectivePhone,
+			socialHandle: extractedIdentifiers.socialHandle,
+			identifierSource: "calendly_booking",
+			createdAt: now,
+			createIdentifiers: false,
+			initialLifecycle: { stage: "booked", at: now },
+		});
 
 		let lead = resolution.lead;
 
@@ -1370,7 +1341,6 @@ export const process = internalMutation({
 			});
 			await insertMeetingAggregate(ctx, meetingId);
 			await recordMeeting(ctx, meetingId);
-			await flagLinkPersonDuplicate(ctx, reschedOpportunityId, resolution.potentialDuplicateLeadId);
 			await syncMeetingFormResponsesForBooking(ctx, {
 				tenantId,
 				meetingId,
@@ -1641,8 +1611,6 @@ export const process = internalMutation({
 				occurredAt: now,
 			});
 		}
-
-		await flagLinkPersonDuplicate(ctx, opportunityId, resolution.potentialDuplicateLeadId);
 
 		const meetingLocation = extractMeetingLocation(scheduledEvent.location);
 		const meetingNotes = getString(scheduledEvent, "meeting_notes_plain");

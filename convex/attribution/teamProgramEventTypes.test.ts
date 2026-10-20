@@ -105,7 +105,6 @@ describe("team program event types", () => {
         eventTypeConfigId,
         dmCloserId,
         campaignPresetId: fixture.campaignId,
-        instagramHandle: "ana.lead",
       });
 
     await expect(copy(fixture.dmCloserA, fixture.poolA)).resolves.toBeDefined();
@@ -136,7 +135,6 @@ describe("team program event types", () => {
         eventTypeConfigId: fixture.poolA,
         dmCloserId: fixture.dmCloserA,
         campaignPresetId: fixture.campaignId,
-        instagramHandle: "ana.lead",
       }),
     ).rejects.toThrow("not available for this team");
   });
