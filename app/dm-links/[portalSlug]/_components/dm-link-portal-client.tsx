@@ -419,8 +419,9 @@ function UnlockedPortal({
 	const [copyStates, setCopyStates] = useState<
 		Record<string, LinkCopyState>
 	>({});
-	// The copy reached the clipboard but wasn't recorded: the session ended.
+	// The copy reached the clipboard but wasn't recorded.
 	const [sessionEnded, setSessionEnded] = useState(false);
+	const [copyRateLimited, setCopyRateLimited] = useState(false);
 
 	const closer = bootstrap.dmClosers.find((row) => row.id === selectedCloserId);
 	const groupedPrograms = useMemo(
@@ -693,6 +694,9 @@ function UnlockedPortal({
 		if (!auditResult.recorded && auditResult.reason === "logged_out") {
 			setSessionEnded(true);
 		}
+		setCopyRateLimited(
+			!auditResult.recorded && auditResult.reason === "rate_limited",
+		);
 
 		if (isPostHogEnabled()) {
 			posthog.capture("dm_link_copied", {
@@ -809,6 +813,17 @@ function UnlockedPortal({
 					</TabsList>
 
 					<TabsContent value="links" className="flex flex-col gap-4">
+				{copyRateLimited && !sessionEnded ? (
+					<Alert>
+						<AlertCircleIcon aria-hidden="true" />
+						<AlertTitle>Copy Not Recorded</AlertTitle>
+						<AlertDescription>
+							The link was copied, but too many links were copied in the last
+							minute to record this one. Wait a minute before the next copy.
+						</AlertDescription>
+					</Alert>
+				) : null}
+
 				{sessionEnded ? (
 					<Alert variant="destructive">
 						<AlertCircleIcon aria-hidden="true" />

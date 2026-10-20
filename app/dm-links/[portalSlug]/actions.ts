@@ -32,7 +32,7 @@ export type PortalCopyInput = {
 
 export type PortalCopyResult =
 	| { recorded: true }
-	| { recorded: false; reason: "logged_out" | "failed" };
+	| { recorded: false; reason: "logged_out" | "rate_limited" | "failed" };
 
 // === NIM-17 Phase 5: portal lead surface ===
 
@@ -222,6 +222,9 @@ export async function recordPortalCopy(
 		});
 		return { recorded: true };
 	} catch (error) {
+		if (getErrorCode(error) === "link_portal.copy_rate_limited") {
+			return { recorded: false, reason: "rate_limited" };
+		}
 		console.warn("[LinkPortal] copy audit failed", error);
 		await reportPortalError(error, "record_copy");
 		return { recorded: false, reason: "failed" };
