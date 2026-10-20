@@ -7,7 +7,6 @@ import {
 	addPortalLeadNote,
 	listPortalLeadNotes,
 	logoutPortal,
-	lookupPortalPerson,
 	recordPortalCopy,
 	searchPortalLeads,
 	unlockPortal,
@@ -56,7 +55,6 @@ export default async function DmLinksPage({ params }: Props) {
 			unlockPortal={unlockPortal}
 			logoutPortal={logoutPortal}
 			recordPortalCopy={recordPortalCopy}
-			lookupPortalPerson={lookupPortalPerson}
 			searchPortalLeads={searchPortalLeads}
 			updatePortalLeadProfile={updatePortalLeadProfile}
 			addPortalLeadNote={addPortalLeadNote}

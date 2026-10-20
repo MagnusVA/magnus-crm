@@ -12,7 +12,7 @@ Phase 2 makes every channel find or create the person before anything else happe
 
 1. **Lead gen capture** finds or creates the person by Instagram handle, at Prospect. The prospect row gets a `leadId`, and each submission is a touch on the person's timeline.
 2. **Every existing prospect** gets a person: 4,313 through their audit match, 1,395 through a handle identifier, and 78,367 new persons.
-3. **The DM portal** works on a person. A DM closer names the person by Instagram handle before copying a link; the copy is recorded against the person, moves them to In conversation, and the booking link carries the person's ID so the booking joins them without guessing.
+3. **The DM portal**: a portal note or edit is a touch on its person and moves them to In conversation. A copied link names no person: DM closers work people Slack already qualified, and the booking finds them by the Instagram handle on the Calendly form (§4.3, revised 2026-10-20).
 4. **One timeline** on the person page, read from `domainEvents`, and the Prospects view in the leads list.
 5. **A report**: prospect-to-customer conversion by lead gen worker.
 6. **The narrow**: `leadGenProspects.leadId` required, and no code path that creates a prospect, a copied portal link or a booking without a person.
@@ -114,26 +114,16 @@ A handle two leads hold makes `resolveLeadIdentity` refuse; the capture then fai
 
 ### 4.3 The DM portal
 
-The DM closer names the person before copying a link:
+Revised on 2026-10-20 by the tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`), after PR 3 shipped. DM closers work people who are already qualified; they don't create them. The booking finds its person by the Instagram handle the invitee enters on the Calendly form: of the Slack-qualified deals created 30 to 60 days before 2026-10-20 that booked, 511 of 516 booked through event types whose form asks for it. The UTMs name the team and the DM closer. So the portal doesn't name the person on a copied link:
 
-1. After choosing their name and the campaign, they enter the person's Instagram handle. The portal looks it up by handle identifier and shows the person it found, or "new person".
-2. The copy button calls one internal mutation that finds or creates the person (`identifierSource: "dm_portal"`, created at In conversation at the copy time), inserts the copy event with the `leadId`, and returns the booking URL with `utm_content=<leadId>`. The browser writes it to the clipboard; the existing manual-copy fallback covers a browser that refuses.
-3. The copy, a portal note and a portal edit each move the person to In conversation and emit `lead.portal_link_copied`, `lead.portal_note_added` or `lead.portal_profile_updated`, with the DM closer's team member.
+1. Copying a link records the copy event as before Phase 2: DM closer, team, event type and campaign, no person. The link carries no person ID, and the copy moves no one's stage.
+2. A portal note and a portal edit already name their person. Each moves the person to In conversation and emits `lead.portal_note_added` or `lead.portal_profile_updated`, with the DM closer's team member.
 
-The same per-DM-closer and tenant-wide write limits the notes use cover copies. The portal search keeps showing customers first, then the rest, so prospects don't push customers out of the 20 results.
+PR 3 had the DM closer enter the person's Instagram handle before copying, found or created the person from it, and put the person's ID in the link's `utm_content`. PR 7 removes that. The 10 copies made while it was live keep their `leadId` and `lead.portal_link_copied` touches, and the persons they created stay; the lifecycle evidence still reads copies that have a person. The portal search keeps showing customers first, then the rest, so prospects don't push customers out of the 20 results.
 
 ### 4.4 A booking from a portal link
 
-`pipeline/inviteeCreated.ts` reads `utm_content` as the link's person when `utm_source` isn't `ptdom` (the follow-up links) and the value is a lead ID in this tenant. A merged person is followed to the lead it merged into. Identifiers still win (D4):
-
-| The booking's identifiers find | Booking joins |
-| --- | --- |
-| the link's person | the link's person |
-| nobody, and the link's person has no other email and no other Instagram handle than the booking's | the link's person; the booking's email and phone become their identifiers |
-| nobody, but the link's person has a different email or handle | a new person, as today; the deal records the link's person as `potentialDuplicateLeadId` |
-| another person | that person, as today; the deal records the link's person as `potentialDuplicateLeadId` |
-
-So a forwarded link can't attach a stranger to the person it was made for, and a person the portal created by handle gets their email at their first booking.
+Joins its person as any Calendly booking does: by the invitee's email, phone or Instagram handle (`resolveLeadIdentity`). PR 3's join on the link's person ID is removed with the portal handle (§4.3). A link copied while PR 3 was live still carries a lead ID in `utm_content`; the booking ignores it.
 
 ## 5. Write paths
 
@@ -142,9 +132,9 @@ So a forwarded link can't attach a stranger to the person it was made for, and a
 | Lead gen capture | `leadGen/capture.ts:submit` | §4.1 |
 | Submission voided | `leadGen/corrections.ts:voidSubmission` | `lead.capture_voided` |
 | Slack audit match | `leadGen/auditMatching.ts` | sets the prospect's `leadId` when it has none |
-| Portal copy | `linkPortal/copyMutations.ts`, `copyActions.ts`, the portal client and server actions | §4.3 |
+| Portal copy | `linkPortal/copyMutations.ts` | none: the copy names no person (§4.3) |
 | Portal note, edit | `linkPortal/leadMutations.ts` | In conversation, touch event |
-| Calendly booking | `pipeline/inviteeCreated.ts`, `leads/identityResolution.ts` | §4.4 |
+| Calendly booking | `pipeline/inviteeCreated.ts` | none (§4.4) |
 | Slack qualification | `slack/createQualifiedLead.ts` | `lead.slack_qualified` touch with the setter's team member, for every qualification, including the ones that join an open deal |
 | Merge | `leads/repointLeadReferences.ts:moveRemainingLeadRows` | moves prospects and copy events, and re-syncs `prospectConversions` |
 | Any stage write | `lib/leadLifecycle.ts:writeLifecycle` | re-syncs `prospectConversions` for the person's prospects |
@@ -202,6 +192,7 @@ The activity report's summary already stops at 10,000 events and says so. With t
 | 1 | Schema widen (§3), the §8 fixes, merge moves prospects and copy events, `emitDomainEvent` option to skip PostHog for backfills | optional fields and an empty aggregate; the fixes work on today's data |
 | 2 | Capture write path (§4.1), lifecycle evidence (§4.2), `prospectConversions` writes, the capture backfills and asserts (§10.1, §10.2) | a prospect without a `leadId` is one the backfill hasn't reached, and the evidence reads both sources |
 | 3 | DM portal (§4.3), booking join (§4.4), the portal backfill (§10.3) | a copy needs a person only in the new client, which ships with the backend; a booking without a portal person ID takes today's path |
+| 7 | Removes the portal handle and the booking join (§4.3, §4.4); ships before PR 6 | the copy goes back to its pre-Phase 2 shape, and a booking matches by identifiers, as one without a portal person ID already did |
 | 4 | Timeline and Prospects view (§6), Slack touches and their backfill (§10.4) | the timeline and view only read; the Slack touch is one more event beside the qualification's existing writes, and the backfill skips a Slack event that already has its touch, so new and backfilled touches never double |
 | 5 | Conversion report (§7) | reads only |
 | 6 | Narrow (§10.5), the ADR status and the review's Phase 2 card | after every backfill and assert passed in production |
@@ -249,7 +240,7 @@ Over `slackQualificationEvents`, batch 100: one `lead.slack_qualified` event per
 ### 10.5 Narrow (PR 6)
 
 - `leadGenProspects.leadId` becomes required. The schema push itself checks every row.
-- `insertCopyEvent` requires a `leadId`, and `linkPortalCopyEvents.leadId` stays optional only for the 5,227 copies made before PR 3 (D7).
+- `linkPortalCopyEvents.leadId` stays optional: copies name no person after PR 7 (§4.3), and the 10 made while PR 3 was live keep theirs.
 - The Prospect evidence reads prospects only; the audit match evidence goes.
 - `linkProspectPeople`, `backfillCaptureEvents`, `backfillPortalTouches` and `backfillSlackTouches` go, with their asserts. `assertLeadLifecycle` stays as a health check.
 - The ADR's Phase 2 status and the review's Phase 2 card are updated.
@@ -280,10 +271,10 @@ Each has a recommendation. The tenant admin accepted all nine recommendations on
 - **D1. A prospect with a placeholder handle.** Recommended: a new person with no identifier, as a Calendly booking with only a placeholder email gets today. The 5 prospects and their 13 submissions are kept, and nothing can ever match them. The other option deletes the 5 prospects and voids their 13 submissions, which changes 3 workers' historical counts.
 - **D2. A prospect whose handle belongs to a customer or a merged lead.** Recommended: link to that person, following a merge to the surviving lead. 121 prospects link to customers and none to a merged lead. The capture is a touch on the customer, and it can't move the stage back.
 - **D3. First touch on a person who already has a Slack or Calendly history.** Recommended: first touch is the earliest touch in time, whatever the channel. A capture of someone already qualified is a later touch, not their first. Phase 2 stores no first-touch field: the capture event and the prospect's existing `firstCapturedByWorkerId` and `firstSource` hold it, and Phase 3 freezes it on the person from the timeline. The other option makes a lead gen capture always the first touch, which would credit a worker for a person Slack brought in earlier.
-- **D4. A portal booking whose identifiers disagree with the link's person.** Recommended: §4.4. Identifiers win, and the link's person becomes the deal's `potentialDuplicateLeadId` for an admin to merge. The other option holds the booking for review, which keeps a real booking off the closer's calendar until an admin acts.
+- **D4. A portal booking whose identifiers disagree with the link's person.** Moot since PR 7 (§4.4): links carry no person. Recommended: §4.4. Identifiers win, and the link's person becomes the deal's `potentialDuplicateLeadId` for an admin to merge. The other option holds the booking for review, which keeps a real booking off the closer's calendar until an admin acts.
 - **D5. Where the conversion report lives.** Recommended: the lead gen operations page, beside the other per-worker numbers. The leads report keeps counting people who reached Qualified. The other option adds it to both pages, which means two copies to keep in step.
 - **D6. Which stages credit the worker.** Recommended: a stage counts for a prospect only when the person reached it at or after the first capture; every captured prospect counts in Prospects. The other option counts every stage the person ever reached, which credits 1,205 captures of people who were already qualified when captured (1,176 identifier-only, 29 matched).
-- **D7. The 5,227 copy events with no person.** Recommended: keep them, unlinked; `leadId` stays optional in the schema for them, and the copy mutation requires it from PR 3 on. The other option deletes them, which loses the DM closers' copy history from May to now.
+- **D7. The 5,227 copy events with no person.** Recommended: keep them, unlinked; `leadId` stays optional in the schema for them, and the copy mutation required it from PR 3 to PR 7, and copies name no person after PR 7 (§4.3). The other option deletes them, which loses the DM closers' copy history from May to now.
 - **D8. Touches in the event log.** Recommended: every capture, portal action and Slack qualification is a domain event, history included: about 147,000 events now and 1,000 a day. The timeline is then one read, and Phase 3 derives first and latest touch from it. Team actions reads closer events through a source index (§8); the activity summary's aggregate goes to Phase 6. The other option backfills only each prospect's first capture (84,075) and reads repeat captures from `leadGenSubmissions`, which leaves two sources for one timeline.
 - **D9. Production runs.** Recommended: the order in §9, batch 50 for `linkProspectPeople` (about 1,700 batches) and 200 for `backfillCaptureEvents` (about 700), one migration at a time so the `leadStageEntries` and `prospectConversions` writes don't contend. No deletions. Dry run first for `linkProspectPeople`, then each run as soon as the previous assert passes, with no approval stop in between.
 

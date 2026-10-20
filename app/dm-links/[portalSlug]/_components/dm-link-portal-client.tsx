@@ -33,7 +33,6 @@ import type {
 	PortalLeadProfileInput,
 	PortalLeadProfileResult,
 	PortalLeadSearchResult,
-	PortalPersonLookupResult,
 	PortalUnlockState,
 } from "../actions";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -77,12 +76,6 @@ import {
 	type SchedulingMode,
 	programHasSchedulingMode,
 } from "./group-bookable-programs";
-import { addBookingPerson } from "./build-booking-url";
-import {
-	canCopyForPerson,
-	PersonHandleField,
-	type PersonLookupState,
-} from "./person-handle-field";
 import { PortalLeadsPanel } from "./portal-leads-panel";
 import { prepareProgramLinks } from "./prepare-program-links";
 
@@ -133,12 +126,10 @@ type ActiveGeneratedLink = {
 type GeneratedLinkBatch = {
 	generatedAt: number;
 	expiresAt: number;
-	/** The person the links are for. */
-	instagramHandle: string;
 	links: ActiveGeneratedLink[];
 };
 
-type LinkCopyState = "idle" | "copying" | "copied" | "manual" | "error";
+type LinkCopyState = "idle" | "copying" | "copied" | "manual";
 
 type PortalBootstrap = {
 	tenantName: string;
@@ -174,10 +165,6 @@ type DmLinkPortalClientProps = {
 		portalSlug: string,
 		input: PortalCopyInput,
 	) => Promise<PortalCopyResult>;
-	lookupPortalPerson: (
-		portalSlug: string,
-		instagramHandle: string,
-	) => Promise<PortalPersonLookupResult>;
 	searchPortalLeads: (
 		portalSlug: string,
 		searchTerm: string,
@@ -278,7 +265,6 @@ export function DmLinkPortalClient({
 	unlockPortal,
 	logoutPortal,
 	recordPortalCopy,
-	lookupPortalPerson,
 	searchPortalLeads,
 	updatePortalLeadProfile,
 	addPortalLeadNote,
@@ -296,7 +282,6 @@ export function DmLinkPortalClient({
 			bootstrap={bootstrap}
 			logoutPortal={logoutPortal}
 			recordPortalCopy={recordPortalCopy}
-			lookupPortalPerson={lookupPortalPerson}
 			searchPortalLeads={searchPortalLeads}
 			updatePortalLeadProfile={updatePortalLeadProfile}
 			addPortalLeadNote={addPortalLeadNote}
@@ -408,7 +393,6 @@ function UnlockedPortal({
 	bootstrap,
 	logoutPortal,
 	recordPortalCopy,
-	lookupPortalPerson,
 	searchPortalLeads,
 	updatePortalLeadProfile,
 	addPortalLeadNote,
@@ -418,7 +402,6 @@ function UnlockedPortal({
 	bootstrap: PortalBootstrap;
 	logoutPortal: DmLinkPortalClientProps["logoutPortal"];
 	recordPortalCopy: DmLinkPortalClientProps["recordPortalCopy"];
-	lookupPortalPerson: DmLinkPortalClientProps["lookupPortalPerson"];
 	searchPortalLeads: DmLinkPortalClientProps["searchPortalLeads"];
 	updatePortalLeadProfile: DmLinkPortalClientProps["updatePortalLeadProfile"];
 	addPortalLeadNote: DmLinkPortalClientProps["addPortalLeadNote"];
@@ -436,13 +419,6 @@ function UnlockedPortal({
 	const [copyStates, setCopyStates] = useState<
 		Record<string, LinkCopyState>
 	>({});
-	// The copied link names its person, so it exists only after a copy.
-	const [copiedUrls, setCopiedUrls] = useState<Record<string, string>>({});
-	const [copyErrors, setCopyErrors] = useState<Record<string, string>>({});
-	const [personHandle, setPersonHandle] = useState("");
-	const [personLookup, setPersonLookup] = useState<PersonLookupState>({
-		status: "empty",
-	});
 
 	const closer = bootstrap.dmClosers.find((row) => row.id === selectedCloserId);
 	const groupedPrograms = useMemo(
@@ -521,8 +497,7 @@ function UnlockedPortal({
 	const canGenerate =
 		!setupIncomplete &&
 		preparedLinks.status === "ready" &&
-		preparedLinks.readyLinks.length > 0 &&
-		canCopyForPerson(personLookup);
+		preparedLinks.readyLinks.length > 0;
 
 	function resetPortalState() {
 		setSelectedCloserId("");
@@ -531,10 +506,6 @@ function UnlockedPortal({
 		setCurrentStep("closer");
 		setGeneratedBatch(null);
 		setCopyStates({});
-		setCopiedUrls({});
-		setCopyErrors({});
-		setPersonHandle("");
-		setPersonLookup({ status: "empty" });
 		setNow(0);
 	}
 
@@ -560,16 +531,7 @@ function UnlockedPortal({
 	function resetGeneratedLinks() {
 		setGeneratedBatch(null);
 		setCopyStates({});
-		setCopiedUrls({});
-		setCopyErrors({});
 		setNow(0);
-	}
-
-	function changePersonHandle(value: string) {
-		if (value !== personHandle) {
-			resetGeneratedLinks();
-		}
-		setPersonHandle(value);
 	}
 
 	function selectCloser(value: string) {
@@ -660,12 +622,9 @@ function UnlockedPortal({
 		const generatedAt = Date.now();
 		setNow(generatedAt);
 		setCopyStates({});
-		setCopiedUrls({});
-		setCopyErrors({});
 		setGeneratedBatch({
 			generatedAt,
 			expiresAt: generatedAt + LINK_EXPIRATION_MS,
-			instagramHandle: personHandle.trim(),
 			links: preparedLinks.readyLinks.map((link) => ({
 				url: link.url,
 				generatedAt,
@@ -697,90 +656,37 @@ function UnlockedPortal({
 			...current,
 			[activeLink.eventTypeConfigId]: "copying",
 		}));
-		setCopyErrors((current) => {
-			const { [activeLink.eventTypeConfigId]: _cleared, ...rest } = current;
-			return rest;
-		});
 
-		// The server finds or creates the person and records the copy; the
-		// link carries the person's ID (docs/plans/phase-2-person-first.md
-		// §4.3). The clipboard takes the pending URL, so the browser keeps
-		// the click's permission while the server answers.
-		const urlPromise = recordPortalCopy(portalSlug, {
-			eventTypeConfigId: activeLink.eventTypeConfigId,
-			dmCloserId: activeLink.dmCloserId,
-			campaignPresetId: activeLink.campaignPresetId,
-			instagramHandle: generatedBatch.instagramHandle,
-		}).then((result) => {
-			if (result.status === "ok") {
-				return addBookingPerson(activeLink.url, result.leadId);
-			}
-			throw new Error(
-				result.status === "error"
-					? result.message
-					: "Your portal session ended. Unlock the portal again.",
-			);
-		});
-		const recorded: Promise<
-			{ url: string; error: null } | { url: null; error: string }
-		> = urlPromise.then(
-			(url) => ({ url, error: null }),
-			(error: unknown) => ({
-				url: null,
-				error:
-					error instanceof Error
-						? error.message
-						: "Could not create the link. Try again in a moment.",
-			}),
-		);
-
-		let clipboardFailed = false;
 		try {
-			if (typeof ClipboardItem !== "undefined" && navigator.clipboard?.write) {
-				await navigator.clipboard.write([
-					new ClipboardItem({
-						"text/plain": urlPromise.then(
-							(url) => new Blob([url], { type: "text/plain" }),
-						),
-					}),
-				]);
-			} else {
-				await navigator.clipboard.writeText(await urlPromise);
-			}
-		} catch {
-			clipboardFailed = true;
-		}
-
-		const outcome = await recorded;
-		if (outcome.url === null) {
-			setCopyErrors((current) => ({
-				...current,
-				[activeLink.eventTypeConfigId]: outcome.error,
-			}));
+			await navigator.clipboard.writeText(activeLink.url);
 			setCopyStates((current) => ({
 				...current,
-				[activeLink.eventTypeConfigId]: "error",
+				[activeLink.eventTypeConfigId]: "copied",
+			}));
+		} catch {
+			const input = document.getElementById(
+				`generated-booking-url-${activeLink.eventTypeConfigId}`,
+			);
+			if (input instanceof HTMLInputElement) {
+				input.focus();
+				input.select();
+			}
+			setCopyStates((current) => ({
+				...current,
+				[activeLink.eventTypeConfigId]: "manual",
 			}));
 			return;
 		}
-		setCopiedUrls((current) => ({
-			...current,
-			[activeLink.eventTypeConfigId]: outcome.url,
-		}));
-		setCopyStates((current) => ({
-			...current,
-			[activeLink.eventTypeConfigId]: clipboardFailed ? "manual" : "copied",
-		}));
-		if (clipboardFailed) {
-			window.requestAnimationFrame(() => {
-				const input = document.getElementById(
-					`generated-booking-url-${activeLink.eventTypeConfigId}`,
-				);
-				if (input instanceof HTMLInputElement) {
-					input.focus();
-					input.select();
-				}
+
+		let auditResult: PortalCopyResult = { recorded: false };
+		try {
+			auditResult = await recordPortalCopy(portalSlug, {
+				eventTypeConfigId: activeLink.eventTypeConfigId,
+				dmCloserId: activeLink.dmCloserId,
+				campaignPresetId: activeLink.campaignPresetId,
 			});
+		} catch (error) {
+			console.warn("[LinkPortal] copy audit action failed", error);
 		}
 
 		if (isPostHogEnabled()) {
@@ -793,8 +699,7 @@ function UnlockedPortal({
 				campaign: activeLink.campaign,
 				scheduling_mode: activeLink.schedulingMode,
 				copy_audit_attempted: true,
-				copy_audit_recorded: true,
-				clipboard_failed: clipboardFailed,
+				copy_audit_recorded: auditResult.recorded,
 			});
 		}
 	}
@@ -1078,15 +983,6 @@ function UnlockedPortal({
 										))}
 									</div>
 
-									<PersonHandleField
-										portalSlug={portalSlug}
-										value={personHandle}
-										onChange={changePersonHandle}
-										lookup={personLookup}
-										onLookup={setPersonLookup}
-										lookupPortalPerson={lookupPortalPerson}
-									/>
-
 									<div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
 										<div className="min-w-0">
 											<p className="font-medium">Ready for a fresh link</p>
@@ -1152,8 +1048,7 @@ function UnlockedPortal({
 															<div className="flex min-w-0 flex-col gap-2 sm:flex-row">
 																<Input
 																	id={`generated-booking-url-${link.eventTypeConfigId}`}
-																	value={copiedUrls[link.eventTypeConfigId] ?? ""}
-																	placeholder="Copy to create the link for this person"
+																	value={link.url}
 																	readOnly
 																	onFocus={(event) =>
 																		event.currentTarget.select()
@@ -1194,11 +1089,6 @@ function UnlockedPortal({
 																	<FieldDescription>
 																		Clipboard access failed. The link is selected
 																		for manual copy.
-																	</FieldDescription>
-																) : null}
-																{copyState === "error" ? (
-																	<FieldDescription className="text-destructive">
-																		{copyErrors[link.eventTypeConfigId]}
 																	</FieldDescription>
 																) : null}
 															</div>

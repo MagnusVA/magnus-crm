@@ -7,8 +7,6 @@
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { internalQuery } from "../_generated/server";
-import { LIFECYCLE_STAGE_LABELS } from "../leads/lifecycle";
-import { normalizeSocialHandle } from "../lib/normalization";
 import {
   isPortalSearchTermPiiProbe,
   PORTAL_LEAD_NOTE_COUNT_CAP,
@@ -24,8 +22,6 @@ import {
 } from "./leadSession";
 
 const SEARCH_RESULT_LIMIT = 20;
-// Matches `followMergeChain` in leads/identityResolution.ts.
-const MERGE_CHAIN_LIMIT = 5;
 const NOTES_RESULT_LIMIT = 50;
 // Raw rows scanned per lead for the "20+" note count; must comfortably exceed
 // PORTAL_LEAD_NOTE_COUNT_CAP + 1 so soft-deleted rows can't deflate the count.
@@ -134,75 +130,6 @@ export const searchLeadsForSession = internalQuery({
     );
 
     return filteredRows;
-  },
-});
-
-export const portalPersonLookupValidator = v.union(
-  v.object({ status: v.literal("invalid") }),
-  v.object({ status: v.literal("new"), handle: v.string() }),
-  v.object({ status: v.literal("conflict"), handle: v.string() }),
-  v.object({
-    status: v.literal("found"),
-    handle: v.string(),
-    displayName: v.string(),
-    stageLabel: v.string(),
-  }),
-);
-
-/**
- * Who a link copied for this Instagram handle would be for
- * (docs/plans/phase-2-person-first.md §4.3). Shows only what the portal
- * search already shows: the display name and the stage.
- */
-export const lookupPersonForSession = internalQuery({
-  args: {
-    tenantId: v.id("tenants"),
-    publicSlug: v.string(),
-    sessionVersion: v.number(),
-    instagramHandle: v.string(),
-  },
-  returns: portalPersonLookupValidator,
-  handler: async (ctx, args) => {
-    await assertActivePortalSession(ctx, args);
-    const handle = normalizeSocialHandle(args.instagramHandle, "instagram");
-    if (!handle) {
-      return { status: "invalid" as const };
-    }
-    const identifiers = await ctx.db
-      .query("leadIdentifiers")
-      .withIndex("by_tenantId_and_type_and_value", (q) =>
-        q.eq("tenantId", args.tenantId).eq("type", "instagram").eq("value", handle),
-      )
-      .take(5);
-    const leadIds = new Set<Id<"leads">>();
-    for (const identifier of identifiers) {
-      // Follows merges as far as the copy does (`followMergeChain`).
-      let lead = await ctx.db.get("leads", identifier.leadId);
-      for (
-        let hops = 0;
-        lead && lead.status === "merged" && lead.mergedIntoLeadId && hops < MERGE_CHAIN_LIMIT;
-        hops += 1
-      ) {
-        lead = await ctx.db.get("leads", lead.mergedIntoLeadId);
-      }
-      if (lead && lead.tenantId === args.tenantId && lead.status !== "merged") {
-        leadIds.add(lead._id);
-      }
-    }
-    if (leadIds.size > 1) {
-      return { status: "conflict" as const, handle };
-    }
-    const [leadId] = leadIds;
-    const lead = leadId ? await ctx.db.get("leads", leadId) : null;
-    if (!lead || lead.tenantId !== args.tenantId || lead.status === "merged") {
-      return { status: "new" as const, handle };
-    }
-    return {
-      status: "found" as const,
-      handle,
-      displayName: portalLeadDisplayName(lead),
-      stageLabel: LIFECYCLE_STAGE_LABELS[lead.lifecycleStage],
-    };
   },
 });
 
