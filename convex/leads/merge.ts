@@ -20,6 +20,7 @@ import { log } from "../lib/observability/log";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
 import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
+import { mergedTouches } from "../lib/touches";
 import { leadDisplayString } from "../lib/leadDisplay";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { rebuildQualificationRow } from "../operations/projections";
@@ -557,6 +558,12 @@ async function executeMerge(
   const mergedTarget = await ctx.db.get("leads", targetLeadId);
   if (mergedTarget) {
     await syncPersonProspectConversions(ctx, mergedTarget);
+    // The earlier first touch and the later latest touch of the two. Deals
+    // keep their IDs, so their attribution rows moved with them.
+    const touches = mergedTouches(mergedTarget, sourceLead);
+    if (touches.firstTouch || touches.latestTouch) {
+      await ctx.db.patch("leads", targetLeadId, touches);
+    }
   }
   await ctx.db.patch("leads", sourceLeadId, {
     status: "merged",

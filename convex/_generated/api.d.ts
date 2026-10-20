@@ -20,6 +20,8 @@ import type * as admin_tenantsMutations from "../admin/tenantsMutations.js";
 import type * as admin_tenantsQueries from "../admin/tenantsQueries.js";
 import type * as attribution_backfills from "../attribution/backfills.js";
 import type * as attribution_dmClosers from "../attribution/dmClosers.js";
+import type * as attribution_parity from "../attribution/parity.js";
+import type * as attribution_teamMemberRepoint from "../attribution/teamMemberRepoint.js";
 import type * as attribution_teamProgramEventTypes from "../attribution/teamProgramEventTypes.js";
 import type * as attribution_teams from "../attribution/teams.js";
 import type * as auth from "../auth.js";
@@ -386,6 +388,8 @@ declare const fullApi: ApiFromModules<{
   "admin/tenantsQueries": typeof admin_tenantsQueries;
   "attribution/backfills": typeof attribution_backfills;
   "attribution/dmClosers": typeof attribution_dmClosers;
+  "attribution/parity": typeof attribution_parity;
+  "attribution/teamMemberRepoint": typeof attribution_teamMemberRepoint;
   "attribution/teamProgramEventTypes": typeof attribution_teamProgramEventTypes;
   "attribution/teams": typeof attribution_teams;
   auth: typeof auth;

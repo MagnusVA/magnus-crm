@@ -29,6 +29,7 @@
 
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { moveMeetingAttributions } from "../lib/attribution/dealAttributions";
 import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
 import { syncProspectConversions } from "../lib/prospectConversions";
 import { rebuildQualificationRow } from "../operations/projections";
@@ -238,11 +239,12 @@ export type MeetingMoveResult = {
 
 /**
  * Moves one meeting to another opportunity, with the rows keyed by it: its
- * form responses, webhook receipts and reassignment history, which take the
- * new opportunity and its lead. `fields` sets the meeting fields that depend
- * on its opportunity, such as `callClassification`. The meeting's aggregates
- * and projection follow; the caller runs `updateOpportunityMeetingRefs` on
- * both opportunities after its last move.
+ * form responses, webhook receipts, reassignment history and attribution
+ * rows, which take the new opportunity and its lead. `fields` sets the
+ * meeting fields that depend on its opportunity, such as
+ * `callClassification`. The meeting's aggregates and projection follow; the
+ * caller runs `updateOpportunityMeetingRefs` on both opportunities after its
+ * last move.
  *
  * A payment names the meeting it was taken on, and stays on its own
  * opportunity, so a meeting with a payment doesn't move.
@@ -348,6 +350,8 @@ export async function moveMeetingToOpportunity(
     });
     result.reassignments += 1;
   }
+
+  await moveMeetingAttributions(ctx, { tenantId, meetingId, toOpportunityId });
   return result;
 }
 

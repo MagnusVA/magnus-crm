@@ -1,5 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { internal } from "../_generated/api";
+import { repointDealAttributionTeamMember } from "./attribution/dealAttributions";
 
 // One team member per human (CONTEXT.md, "Team member"). The role records
 // point at it through `teamMemberId`. Only explicit links join two records:
@@ -17,6 +19,32 @@ async function insertTeamMember(
     displayName,
     createdAt: now,
     updatedAt: now,
+  });
+}
+
+/**
+ * A role record moved to another team member: its attribution rows follow,
+ * since they credit the same human (docs/plans/phase-3-attribution.md §4.8).
+ */
+async function moveRecordAttributions(
+  ctx: MutationCtx,
+  args: {
+    tenantId: Id<"tenants">;
+    role: "lead_gen" | "setter" | "dm_closer";
+    recordKey: string;
+    fromTeamMemberId: Id<"teamMembers"> | undefined;
+    intoTeamMemberId: Id<"teamMembers">;
+  },
+): Promise<void> {
+  if (!args.fromTeamMemberId || args.fromTeamMemberId === args.intoTeamMemberId) {
+    return;
+  }
+  await ctx.scheduler.runAfter(0, internal.attribution.teamMemberRepoint.repointRoleRecordRows, {
+    tenantId: args.tenantId,
+    role: args.role,
+    recordKey: args.recordKey,
+    fromTeamMemberId: args.fromTeamMemberId,
+    intoTeamMemberId: args.intoTeamMemberId,
   });
 }
 
@@ -68,6 +96,13 @@ export async function linkLeadGenWorkerTeamMember(
     (await insertTeamMember(ctx, worker.tenantId, worker.displayName?.trim() || worker.email));
   if (worker.teamMemberId !== teamMemberId) {
     await ctx.db.patch("leadGenWorkers", workerId, { teamMemberId });
+    await moveRecordAttributions(ctx, {
+      tenantId: worker.tenantId,
+      role: "lead_gen",
+      recordKey: workerId,
+      fromTeamMemberId: worker.teamMemberId,
+      intoTeamMemberId: teamMemberId,
+    });
   }
 }
 
@@ -86,6 +121,13 @@ export async function linkSlackUserTeamMember(
       (await insertTeamMember(ctx, slackUser.tenantId, slackUserTeamMemberName(slackUser))));
   if (teamMemberId && slackUser.teamMemberId !== teamMemberId) {
     await ctx.db.patch("slackUsers", slackUserRowId, { teamMemberId });
+    await moveRecordAttributions(ctx, {
+      tenantId: slackUser.tenantId,
+      role: "setter",
+      recordKey: slackUser.slackUserId,
+      fromTeamMemberId: slackUser.teamMemberId,
+      intoTeamMemberId: teamMemberId,
+    });
   }
 }
 
@@ -127,6 +169,13 @@ export async function linkDmCloserTeamMember(
   }
   if (teamMemberId && dmCloser.teamMemberId !== teamMemberId) {
     await ctx.db.patch("dmClosers", dmCloserId, { teamMemberId });
+    await moveRecordAttributions(ctx, {
+      tenantId: dmCloser.tenantId,
+      role: "dm_closer",
+      recordKey: dmCloserId,
+      fromTeamMemberId: dmCloser.teamMemberId,
+      intoTeamMemberId: teamMemberId,
+    });
   }
 }
 
@@ -176,9 +225,10 @@ export async function teamMemberRoleRecords(
 }
 
 /**
- * Moves every record and event of `fromTeamMemberId` to `intoTeamMemberId`,
- * then deletes it. A human can hold one login, so the two can't both have a
- * user. Returns false while domain events are left to repoint; call again.
+ * Moves every record, event and attribution row of `fromTeamMemberId` to
+ * `intoTeamMemberId`, then deletes it. A human can hold one login, so the two
+ * can't both have a user. Returns false while events or rows are left to
+ * repoint; call again.
  */
 export async function mergeTeamMembers(
   ctx: MutationCtx,
@@ -226,6 +276,15 @@ export async function mergeTeamMembers(
     await ctx.db.patch("domainEvents", event._id, { teamMemberId: intoTeamMemberId });
   }
   if (events.length === EVENT_REPOINT_BATCH) {
+    return false;
+  }
+  const rowsMoved = await repointDealAttributionTeamMember(ctx, {
+    tenantId,
+    fromTeamMemberId,
+    intoTeamMemberId,
+    limit: EVENT_REPOINT_BATCH,
+  });
+  if (rowsMoved === EVENT_REPOINT_BATCH) {
     return false;
   }
   await ctx.db.delete("teamMembers", fromTeamMemberId);

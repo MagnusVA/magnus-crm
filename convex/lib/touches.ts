@@ -270,8 +270,9 @@ export async function computeDealTouches(
 
 /**
  * Snapshots the person's touches onto a deal, once. Live writes call it after
- * the event that created the deal; it computes the snapshot the way the
- * backfill does, so a webhook processed late can't make the two disagree.
+ * the event that created the deal, and it computes the snapshot the way the
+ * backfill does. The snapshot is frozen: a merge or a webhook processed late
+ * can change what `computeDealTouches` returns later, never the snapshot.
  */
 export async function snapshotDealTouches(
   ctx: MutationCtx,

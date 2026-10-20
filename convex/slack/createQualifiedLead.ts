@@ -4,6 +4,11 @@ import { internalMutation } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { resolveLeadIdentity } from "../leads/identityResolution";
+import {
+  qualificationCreditsSetter,
+  recordDealCreation,
+  recordSetterAttribution,
+} from "../lib/attribution/dealAttributions";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { recordSlackQualification } from "../lib/leadLifecycle";
 import { type LeadType, leadTypeValidator } from "../lib/leadType";
@@ -63,6 +68,17 @@ async function insertQualificationEvent(
     submittedAt: args.qualifiedBy.submittedAt,
     createdAt: args.now,
   });
+  // A qualification that created the deal or joined it while it waits for a
+  // booking credits its setter (docs/plans/phase-3-attribution.md §4.4).
+  if (args.opportunityId && qualificationCreditsSetter(args.resultKind)) {
+    await recordSetterAttribution(ctx, {
+      tenantId: args.tenantId,
+      opportunityId: args.opportunityId,
+      slackUserId: args.qualifiedBy.slackUserId,
+      submittedAt: args.qualifiedBy.submittedAt,
+      qualificationEventId: eventId,
+    });
+  }
   await rebuildQualificationRow(ctx, eventId);
   await recordSlackQualification(ctx, eventId);
   if (args.leadId) {
@@ -386,6 +402,7 @@ export const create = internalMutation({
       teamMemberId: setterTeamMemberId,
       metadata: { source: "slack_qualified" },
     });
+    await recordDealCreation(ctx, opportunityId);
 
     await ctx.scheduler.runAfter(0, internal.slack.notify.postConfirmation, {
       tenantId: args.tenantId,
