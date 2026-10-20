@@ -992,7 +992,7 @@ describe("role record relinks", () => {
     });
     await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
 
-    const relinked = await get(harness, "dmClosers", dana._id);
+    const relinked = await harness.t.run((ctx) => ctx.db.get("dmClosers", dana._id));
     expect(relinked?.teamMemberId).toBe(closer.teamMemberId);
     const rows = await dealRows(harness, meeting.opportunityId);
     expect(ofRole(rows, "dm_closer")[0]).toMatchObject({
