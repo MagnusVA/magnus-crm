@@ -1,8 +1,227 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
+import type { Doc } from "../_generated/dataModel";
 import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
+import { bucketKey, requestMeetingProjection } from "./meetingStats";
 
 afterEach(() => vi.useRealTimers());
+
+/** The bucket key before Phase 3 took attribution out of it. */
+function legacyBucketKey(c: NonNullable<Doc<"meetingProjections">["contribution"]>) {
+  return JSON.stringify([
+    c.dayKey,
+    c.assignedCloserId,
+    c.bookingProgramId ?? null,
+    c.soldProgramId ?? null,
+    c.attributionTeamId ?? null,
+    c.dmCloserId ?? null,
+    c.opportunityStatus ?? null,
+    c.meetingStatus,
+  ]);
+}
+
+it("re-keys a meeting projected under the old bucket key, and deletes the old bucket at zero", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-02T00:00:00Z"));
+  const { t, tenantId, admin } = await bookingHarness();
+  const payload = bookingPayload("legacy-key");
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: "invitee.created",
+    payload: JSON.stringify({ created_at: "2026-10-01T09:00:00Z", payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [delivery] = (
+    await admin.query(api.pipeline.delivery.list, {
+      paginationOpts: { cursor: null, numItems: 1 },
+    })
+  ).page;
+  if (!delivery.meetingId) throw new Error("Fixture booking failed");
+  const firstId = delivery.meetingId;
+
+  // Put two meetings back where the old code left them: the team and DM
+  // closer in the contribution and in one shared eight-part bucket key.
+  const { secondId, oldKey } = await t.run(async (ctx) => {
+    const teamId = await ctx.db.insert("attributionTeams", {
+      tenantId,
+      slug: "team",
+      displayName: "Team",
+      utmSource: "team",
+      normalizedUtmSource: "team",
+      isActive: true,
+      createdAt: 0,
+      updatedAt: 0,
+    });
+    const dmCloserId = await ctx.db.insert("dmClosers", {
+      tenantId,
+      teamId,
+      slug: "dm",
+      displayName: "DM",
+      utmMedium: "dm",
+      normalizedUtmMedium: "dm",
+      isActive: true,
+      createdAt: 0,
+      updatedAt: 0,
+    });
+    const first = (await ctx.db.get("meetings", firstId))!;
+    const { _id, _creationTime, ...fields } = first;
+    void _id;
+    void _creationTime;
+    const secondId = await ctx.db.insert("meetings", {
+      ...fields,
+      calendlyEventUri: "https://api.calendly.com/scheduled_events/legacy-key-2",
+      calendlyInviteeUri: "https://api.calendly.com/scheduled_events/legacy-key-2/invitees/person",
+    });
+    const projection = await ctx.db
+      .query("meetingProjections")
+      .withIndex("by_meetingId", (q) => q.eq("meetingId", firstId))
+      .unique();
+    if (!projection?.contribution || !projection.bucketKey) throw new Error("Fixture projection missing");
+    const newBucket = await ctx.db
+      .query("operationsMeetingStatsV2")
+      .withIndex("by_tenantId_and_bucketKey", (q) =>
+        q.eq("tenantId", tenantId).eq("bucketKey", projection.bucketKey!),
+      )
+      .unique();
+    await ctx.db.delete("operationsMeetingStatsV2", newBucket!._id);
+    const contribution = { ...projection.contribution, attributionTeamId: teamId, dmCloserId };
+    const oldKey = legacyBucketKey(contribution);
+    await ctx.db.insert("operationsMeetingStatsV2", {
+      tenantId,
+      ...contribution,
+      bucketKey: oldKey,
+      count: 2,
+      updatedAt: 0,
+    });
+    for (const meetingId of [firstId, secondId]) {
+      await ctx.db.patch("meetings", meetingId, { attributionTeamId: teamId, dmCloserId });
+    }
+    await ctx.db.patch("meetingProjections", projection._id, { contribution, bucketKey: oldKey });
+    await ctx.db.insert("meetingProjections", {
+      tenantId,
+      meetingId: secondId,
+      generation: 1,
+      status: "applied",
+      requestedAt: 0,
+      appliedAt: 0,
+      contribution,
+      bucketKey: oldKey,
+    });
+    return { secondId, oldKey };
+  });
+  const bucketCount = (key: string) =>
+    t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query("operationsMeetingStatsV2")
+          .withIndex("by_tenantId_and_bucketKey", (q) => q.eq("tenantId", tenantId).eq("bucketKey", key))
+          .unique()
+      )?.count ?? 0,
+    );
+  const projectionOf = (meetingId: typeof firstId) =>
+    t.run(async (ctx) =>
+      await ctx.db
+        .query("meetingProjections")
+        .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
+        .unique(),
+    );
+  const stats = () =>
+    admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+      scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
+      scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
+    });
+
+  // The rebuild: nothing about the meeting changed but the key format.
+  await t.run(async (ctx) => await requestMeetingProjection(ctx, tenantId, firstId));
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const rekeyed = await projectionOf(firstId);
+  expect(rekeyed).toMatchObject({ status: "applied" });
+  expect(rekeyed?.contribution).not.toHaveProperty("attributionTeamId");
+  expect(rekeyed?.contribution).not.toHaveProperty("dmCloserId");
+  expect(rekeyed?.bucketKey).toBe(bucketKey(rekeyed!.contribution!));
+  expect(rekeyed?.bucketKey).not.toBe(oldKey);
+  expect(await bucketCount(oldKey)).toBe(1);
+  expect(await bucketCount(rekeyed!.bucketKey!)).toBe(1);
+  // Old and new buckets coexist; each meeting counts once.
+  expect(await stats()).toMatchObject({ scheduled: 2, noShows: 0 });
+
+  // A status change on the other meeting decrements its stored old key. The
+  // copy is not in the status aggregate, so patch it the way the write path
+  // would for the projection.
+  await t.run(async (ctx) => {
+    await ctx.db.patch("meetings", secondId, { status: "no_show" });
+    await requestMeetingProjection(ctx, tenantId, secondId);
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const second = await projectionOf(secondId);
+  expect(second).toMatchObject({ status: "applied" });
+  expect(second?.bucketKey).toBe(bucketKey(second!.contribution!));
+  expect(await bucketCount(oldKey)).toBe(0);
+  expect(await bucketCount(second!.bucketKey!)).toBe(1);
+  expect(await stats()).toMatchObject({ scheduled: 2, noShows: 1 });
+  const failed = await admin.query(api.operations.workStatus.list, {
+    kind: "meeting",
+    status: "failed",
+    paginationOpts: { cursor: null, numItems: 10 },
+  });
+  expect(failed.page).toHaveLength(0);
+});
+
+it("decrements a deleted meeting's old-key bucket", async () => {
+  vi.useFakeTimers();
+  const { t, tenantId, admin } = await bookingHarness();
+  const payload = bookingPayload("legacy-delete");
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: "invitee.created",
+    payload: JSON.stringify({ payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [delivery] = (
+    await admin.query(api.pipeline.delivery.list, {
+      paginationOpts: { cursor: null, numItems: 1 },
+    })
+  ).page;
+  if (!delivery.meetingId) throw new Error("Fixture booking failed");
+  const meetingId = delivery.meetingId;
+  const oldKey = await t.run(async (ctx) => {
+    const projection = (await ctx.db
+      .query("meetingProjections")
+      .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
+      .unique())!;
+    const bucket = (await ctx.db
+      .query("operationsMeetingStatsV2")
+      .withIndex("by_tenantId_and_bucketKey", (q) =>
+        q.eq("tenantId", tenantId).eq("bucketKey", projection.bucketKey!),
+      )
+      .unique())!;
+    const oldKey = legacyBucketKey(projection.contribution!);
+    await ctx.db.patch("operationsMeetingStatsV2", bucket._id, { bucketKey: oldKey });
+    await ctx.db.patch("meetingProjections", projection._id, { bucketKey: oldKey });
+    // Deleting a meeting requests its projection first (docs/agents/convex.md).
+    await requestMeetingProjection(ctx, tenantId, meetingId);
+    await ctx.db.delete("meetings", meetingId);
+    return oldKey;
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  await t.run(async (ctx) => {
+    const projection = await ctx.db
+      .query("meetingProjections")
+      .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
+      .unique();
+    expect(projection).toMatchObject({ status: "applied" });
+    expect(projection?.contribution).toBeUndefined();
+    expect(projection?.bucketKey).toBeUndefined();
+    expect(
+      await ctx.db
+        .query("operationsMeetingStatsV2")
+        .withIndex("by_tenantId_and_bucketKey", (q) => q.eq("tenantId", tenantId).eq("bucketKey", oldKey))
+        .unique(),
+    ).toBeNull();
+  });
+});
 it("counts a booked meeting once after recording a no-show", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-02T00:00:00Z"));

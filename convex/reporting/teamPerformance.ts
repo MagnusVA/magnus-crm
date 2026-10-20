@@ -1,7 +1,12 @@
+import {
+  meetingDayKey,
+  readMeetingStatsCounts,
+} from "../operations/meetingStats";
 import { requireReportingReady } from "../operations/reportingReadiness";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
+import { memberAvatarIdentityValidator } from "../lib/memberIdentity";
 import { requireTenantUser } from "../requireTenantUser";
 import { meetingsByStatus } from "./aggregates";
 import {
@@ -22,7 +27,6 @@ const MEETING_STATUSES = [
   "canceled",
   "no_show",
 ] as const satisfies ReadonlyArray<Doc<"meetings">["status"]>;
-const MAX_OPERATIONS_STATS_ROWS = 8192;
 
 type CallClassification = (typeof CALL_CLASSIFICATIONS)[number];
 type MeetingStatus = (typeof MEETING_STATUSES)[number];
@@ -289,6 +293,30 @@ export const getTeamOperationsDimensions = query({
     attributionTeamId: v.optional(v.id("attributionTeams")),
     dmCloserId: v.optional(v.id("dmClosers")),
   },
+  returns: v.object({
+    rows: v.array(
+      v.object({
+        closerId: v.id("users"),
+        closerName: v.string(),
+        closer: memberAvatarIdentityValidator,
+        scheduled: v.number(),
+        completed: v.number(),
+        canceled: v.number(),
+        noShows: v.number(),
+        showRate: v.union(v.number(), v.null()),
+        noShowRate: v.union(v.number(), v.null()),
+      }),
+    ),
+    totals: v.object({
+      scheduled: v.number(),
+      completed: v.number(),
+      canceled: v.number(),
+      noShows: v.number(),
+      showRate: v.union(v.number(), v.null()),
+      noShowRate: v.union(v.number(), v.null()),
+    }),
+    truncated: v.boolean(),
+  }),
   handler: async (ctx, args) => {
     assertValidDateRange(args.startDate, args.endDate);
 
@@ -298,19 +326,19 @@ export const getTeamOperationsDimensions = query({
     ]);
     await requireReportingReady(ctx, tenantId);
 
-    const startDayKey = new Date(args.startDate).toISOString().slice(0, 10);
-    const endDayKeyExclusive = new Date(args.endDate).toISOString().slice(0, 10);
-    const [closers, statsRows] = await Promise.all([
+    const startDayKey = meetingDayKey(args.startDate);
+    const endDayKeyExclusive = meetingDayKey(args.endDate);
+    // A team or DM closer filter reads the credited meetings' rows
+    // (dealAttributions); otherwise the buckets.
+    const [closers, { counts, truncated }] = await Promise.all([
       getActiveClosers(ctx, tenantId),
-      ctx.db
-        .query("operationsMeetingStatsV2")
-        .withIndex("by_tenantId_and_dayKey", (q) =>
-          q
-            .eq("tenantId", tenantId)
-            .gte("dayKey", startDayKey)
-            .lt("dayKey", endDayKeyExclusive),
-        )
-        .take(MAX_OPERATIONS_STATS_ROWS + 1),
+      readMeetingStatsCounts(ctx, {
+        tenantId,
+        startDayKey,
+        endDayKeyExclusive,
+        attributionTeamId: args.attributionTeamId,
+        dmCloserId: args.dmCloserId,
+      }),
     ]);
 
     const closerNameById = new Map(
@@ -327,20 +355,11 @@ export const getTeamOperationsDimensions = query({
       }
     >();
 
-    for (const row of statsRows.slice(0, MAX_OPERATIONS_STATS_ROWS)) {
+    for (const row of counts) {
       if (
         args.bookingProgramId &&
         row.bookingProgramId !== args.bookingProgramId
       ) {
-        continue;
-      }
-      if (
-        args.attributionTeamId &&
-        row.attributionTeamId !== args.attributionTeamId
-      ) {
-        continue;
-      }
-      if (args.dmCloserId && row.dmCloserId !== args.dmCloserId) {
         continue;
       }
 
@@ -404,7 +423,7 @@ export const getTeamOperationsDimensions = query({
         showRate: toRate(totals.completed, denominator),
         noShowRate: toRate(totals.noShows, denominator),
       },
-      truncated: statsRows.length > MAX_OPERATIONS_STATS_ROWS,
+      truncated,
     };
   },
 });

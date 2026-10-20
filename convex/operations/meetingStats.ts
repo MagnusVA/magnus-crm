@@ -2,7 +2,12 @@ import { v, type Infer } from "convex/values";
 import { vOnCompleteArgs } from "@convex-dev/workpool";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internal } from "../_generated/api";
-import { internalMutation, type MutationCtx } from "../_generated/server";
+import {
+  internalMutation,
+  type MutationCtx,
+  type QueryCtx,
+} from "../_generated/server";
+import { createLiveReadState, readLiveQueryRows } from "../lib/liveQueryBounds";
 import { reportingPool } from "../pipeline/workpools";
 import { meetingContribution } from "./meetingProjectionSchema";
 
@@ -10,23 +15,27 @@ type Contribution = Infer<typeof meetingContribution>;
 export function meetingDayKey(timestamp: number) {
   return new Date(timestamp).toISOString().slice(0, 10);
 }
+/**
+ * The bucket a contribution counts in. Attribution is not part of it: the
+ * show-rate filters read `dealAttributions` (docs/plans/phase-3-attribution.md
+ * §6.4). Rows projected before that keep an eight-part key with the team and
+ * DM closer until they re-project, so a decrement always uses the key the
+ * projection stored, never this function on its old contribution.
+ */
 export function bucketKey(c: Contribution) {
   return JSON.stringify([
     c.dayKey,
     c.assignedCloserId,
     c.bookingProgramId ?? null,
     c.soldProgramId ?? null,
-    c.attributionTeamId ?? null,
-    c.dmCloserId ?? null,
     c.opportunityStatus ?? null,
     c.meetingStatus,
   ]);
 }
-async function increment(
+async function addToBucket(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
   c: Contribution,
-  delta: 1 | -1,
 ) {
   const key = bucketKey(c);
   const row = await ctx.db
@@ -36,7 +45,6 @@ async function increment(
     )
     .unique();
   if (!row) {
-    if (delta < 0) throw new Error("Missing recorded meeting contribution");
     await ctx.db.insert("operationsMeetingStatsV2", {
       tenantId,
       ...c,
@@ -44,11 +52,31 @@ async function increment(
       count: 1,
       updatedAt: Date.now(),
     });
-  } else if (row.count + delta === 0) {
+  } else {
+    await ctx.db.patch("operationsMeetingStatsV2", row._id, {
+      count: row.count + 1,
+      updatedAt: Date.now(),
+    });
+  }
+}
+/** Takes one count from the bucket under `key`, deleting it at zero. */
+async function removeFromBucket(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  key: string,
+) {
+  const row = await ctx.db
+    .query("operationsMeetingStatsV2")
+    .withIndex("by_tenantId_and_bucketKey", (q) =>
+      q.eq("tenantId", tenantId).eq("bucketKey", key),
+    )
+    .unique();
+  if (!row) throw new Error("Missing recorded meeting contribution");
+  if (row.count <= 1) {
     await ctx.db.delete("operationsMeetingStatsV2", row._id);
   } else {
     await ctx.db.patch("operationsMeetingStatsV2", row._id, {
-      count: row.count + delta,
+      count: row.count - 1,
       updatedAt: Date.now(),
     });
   }
@@ -123,8 +151,6 @@ export const project = internalMutation({
         assignedCloserId: meeting.assignedCloserId,
         bookingProgramId: meeting.bookingProgramId,
         soldProgramId: opportunity.soldProgramId,
-        attributionTeamId: meeting.attributionTeamId,
-        dmCloserId: meeting.dmCloserId,
         opportunityStatus: opportunity.status,
         meetingStatus: meeting.status,
       };
@@ -141,14 +167,18 @@ export const project = internalMutation({
       }
     }
     const old = projection.contribution;
-    if ((old && bucketKey(old)) !== (next && bucketKey(next))) {
+    // The stored key, not bucketKey(old): a projection applied under the
+    // earlier key format still counts in its old bucket.
+    const oldKey = old ? (projection.bucketKey ?? bucketKey(old)) : undefined;
+    const nextKey = next ? bucketKey(next) : undefined;
+    if (oldKey !== nextKey) {
       // Sequential writes matter when two changes touch the same bucket.
-      if (old) await increment(ctx, projection.tenantId, old, -1);
-      if (next) await increment(ctx, projection.tenantId, next, 1);
+      if (oldKey) await removeFromBucket(ctx, projection.tenantId, oldKey);
+      if (next) await addToBucket(ctx, projection.tenantId, next);
     }
     await ctx.db.patch("meetingProjections", projectionId, {
       contribution: next,
-      bucketKey: next ? bucketKey(next) : undefined,
+      bucketKey: nextKey,
       status: "applied",
       appliedAt: Date.now(),
       reason: undefined,
@@ -306,3 +336,184 @@ export const opportunityPageCompleted = internalMutation({
     return null;
   },
 });
+
+// ---------------------------------------------------------------------------
+// Reads for the show-rate reports
+// ---------------------------------------------------------------------------
+
+/** A range with more buckets than this reports `truncated`. */
+export const MEETING_STATS_BUCKET_LIMIT = 8192;
+/**
+ * A team or DM closer filter reads this many credited meetings at most. Each
+ * costs a projection read, so the bucket limit would pass a query's read
+ * limit.
+ */
+export const CREDITED_MEETING_LIMIT = 2000;
+// Rows read for one DM closer, its team member's other records included.
+const CREDITED_ROW_SCAN_LIMIT = 4 * CREDITED_MEETING_LIMIT;
+// A row is about 400 bytes; the default 512 KB would stop near 1,300 rows.
+const CREDITED_ROW_BYTE_BUDGET = 4 * 1024 * 1024;
+
+/** Meetings counted by closer, booked program and status: a bucket, or one meeting. */
+export type MeetingStatsCount = Pick<
+  Contribution,
+  "assignedCloserId" | "bookingProgramId" | "meetingStatus"
+> & { count: number };
+
+type MeetingStatsRange = {
+  tenantId: Id<"tenants">;
+  /** UTC day keys of `scheduledAt`, as the buckets key them. */
+  startDayKey: string;
+  endDayKeyExclusive: string;
+  attributionTeamId?: Id<"attributionTeams">;
+  dmCloserId?: Id<"dmClosers">;
+};
+
+function dayStart(dayKey: string) {
+  const at = Date.parse(`${dayKey}T00:00:00Z`);
+  if (!Number.isFinite(at)) throw new Error("Invalid day key");
+  return at;
+}
+
+/**
+ * The meetings scheduled in the range whose booking credited the team or DM
+ * closer (docs/plans/phase-3-attribution.md §6.4). A DM closer's rows are read
+ * by its team member, then kept to that record, since one team member can
+ * hold two DM closer records. With a team too, the meeting must also have a
+ * dm_team row for it.
+ */
+async function creditedMeetingIds(
+  ctx: QueryCtx,
+  args: MeetingStatsRange,
+): Promise<{ meetingIds: Id<"meetings">[]; truncated: boolean }> {
+  const start = dayStart(args.startDayKey);
+  const end = dayStart(args.endDayKeyExclusive);
+  const { tenantId, attributionTeamId, dmCloserId } = args;
+
+  // The team's bookings in range, by meeting.
+  const teamMeetings = async () => {
+    const read = await readLiveQueryRows(
+      ctx.db
+        .query("dealAttributions")
+        .withIndex("by_tenantId_and_role_and_teamId_and_meetingScheduledAt", (q) =>
+          q
+            .eq("tenantId", tenantId)
+            .eq("role", "dm_team")
+            .eq("teamId", attributionTeamId)
+            .gte("meetingScheduledAt", start)
+            .lt("meetingScheduledAt", end),
+        ),
+      CREDITED_MEETING_LIMIT,
+      createLiveReadState(),
+      CREDITED_ROW_BYTE_BUDGET,
+    );
+    const meetingIds = new Set<Id<"meetings">>();
+    for (const row of read.rows) {
+      if (row.meetingId) meetingIds.add(row.meetingId);
+    }
+    return { meetingIds: [...meetingIds], truncated: read.capped };
+  };
+
+  if (!dmCloserId) {
+    return attributionTeamId ? await teamMeetings() : { meetingIds: [], truncated: false };
+  }
+
+  const dmCloser = await ctx.db.get("dmClosers", dmCloserId);
+  if (!dmCloser || dmCloser.tenantId !== tenantId || !dmCloser.teamMemberId) {
+    return { meetingIds: [], truncated: false };
+  }
+  // The team member's rows can belong to another of their DM closer records,
+  // so only this record's rows count toward the meeting cap; the read itself
+  // is bounded by rows and bytes.
+  const read = await readLiveQueryRows(
+    ctx.db
+      .query("dealAttributions")
+      .withIndex("by_tenantId_and_role_and_teamMemberId_and_meetingScheduledAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("role", "dm_closer")
+          .eq("teamMemberId", dmCloser.teamMemberId)
+          .gte("meetingScheduledAt", start)
+          .lt("meetingScheduledAt", end),
+      ),
+    CREDITED_ROW_SCAN_LIMIT,
+    createLiveReadState(),
+    CREDITED_ROW_BYTE_BUDGET,
+  );
+  const meetingIds = new Set<Id<"meetings">>();
+  let truncated = read.capped;
+  for (const row of read.rows) {
+    if (!row.meetingId || row.source.kind !== "booking_utm" || row.source.dmCloserId !== dmCloserId) {
+      continue;
+    }
+    if (meetingIds.size === CREDITED_MEETING_LIMIT) {
+      truncated = true;
+      break;
+    }
+    meetingIds.add(row.meetingId);
+  }
+  if (!attributionTeamId) return { meetingIds: [...meetingIds], truncated };
+
+  const team = await teamMeetings();
+  const onTeam = new Set(team.meetingIds);
+  return {
+    meetingIds: [...meetingIds].filter((meetingId) => onTeam.has(meetingId)),
+    truncated: truncated || team.truncated,
+  };
+}
+
+/**
+ * Meeting counts for a range of UTC days. With no team or DM closer, the
+ * buckets. With one, each credited meeting counted from its applied
+ * projection contribution, the values its bucket holds, so the totals match
+ * the bucket read; a meeting not yet projected counts nowhere.
+ */
+export async function readMeetingStatsCounts(
+  ctx: QueryCtx,
+  args: MeetingStatsRange,
+): Promise<{ counts: MeetingStatsCount[]; truncated: boolean }> {
+  if (!args.attributionTeamId && !args.dmCloserId) {
+    const rows = await ctx.db
+      .query("operationsMeetingStatsV2")
+      .withIndex("by_tenantId_and_dayKey", (q) =>
+        q
+          .eq("tenantId", args.tenantId)
+          .gte("dayKey", args.startDayKey)
+          .lt("dayKey", args.endDayKeyExclusive),
+      )
+      .take(MEETING_STATS_BUCKET_LIMIT + 1);
+    return {
+      counts: rows.slice(0, MEETING_STATS_BUCKET_LIMIT),
+      truncated: rows.length > MEETING_STATS_BUCKET_LIMIT,
+    };
+  }
+
+  const { meetingIds, truncated } = await creditedMeetingIds(ctx, args);
+  const projections = await Promise.all(
+    meetingIds.map((meetingId) =>
+      ctx.db
+        .query("meetingProjections")
+        .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
+        .unique(),
+    ),
+  );
+  const counts: MeetingStatsCount[] = [];
+  for (const projection of projections) {
+    const contribution = projection?.contribution;
+    if (!contribution || projection.tenantId !== args.tenantId) continue;
+    // The bucket read keys by the contribution's day, so this does too.
+    if (
+      contribution.dayKey < args.startDayKey ||
+      contribution.dayKey >= args.endDayKeyExclusive
+    ) {
+      continue;
+    }
+    counts.push({
+      assignedCloserId: contribution.assignedCloserId,
+      bookingProgramId: contribution.bookingProgramId,
+      meetingStatus: contribution.meetingStatus,
+      count: 1,
+    });
+  }
+  return { counts, truncated };
+}
