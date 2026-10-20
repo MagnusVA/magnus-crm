@@ -342,8 +342,8 @@ export async function expectedLeadGenRow(
   const prospectId = ctx.db.normalizeId("leadGenProspects", String(metadata.prospectId ?? ""));
   const workerId = ctx.db.normalizeId("leadGenWorkers", String(metadata.workerId ?? ""));
   if (!prospectId || !workerId) return null;
-  // Credit names a team member; a worker always has one (Phase 1).
-  const teamMemberId = (await leadGenWorkerTeamMember(ctx, workerId)) ?? event.teamMemberId;
+  // Credit names the worker's team member; a worker always has one (Phase 1).
+  const teamMemberId = await leadGenWorkerTeamMember(ctx, workerId);
   if (!teamMemberId) return null;
   return {
     tenantId: opportunity.tenantId,
