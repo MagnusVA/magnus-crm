@@ -1,6 +1,6 @@
 # Phase 2: person first
 
-Status: done, 2026-10-20. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11 on 2026-10-19, and on 2026-10-20 revised the DM portal (§4.3). Code PRs #132 to #137 are merged and deployed, every backfill and assert passed in production (§13), and the narrow is #138.
+Status: done, 2026-10-20. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11 on 2026-10-19, and on 2026-10-20 revised the DM portal (§4.3). Code PRs #132 to #137 are merged and deployed, every backfill finished and every assert passed in production (`linkProspectPeople` failed one batch on its first run and finished on a resumed run), and the narrow (#138) deployed on 2026-10-20 at 07:16 with a lifecycle assert after it (§13).
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (findings F1, F3 and F9) and the Phase 2 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 1 is in [phase-1-foundations.md](phase-1-foundations.md).
 
@@ -301,6 +301,7 @@ Read-only, before PR 2: `tenantStats.totalLeads` 10,364; `stageTotals` 10,634 at
 | 4 (#135) | 2026-10-19 22:50 |
 | 5 (#136) | 2026-10-19 23:07 |
 | 7 (#137) | 2026-10-20 05:11 |
+| 6 (#138) | 2026-10-20 07:16; the schema push accepted the required `leadId` on every prospect |
 
 ### 13.3 Runs
 
@@ -320,7 +321,11 @@ Read-only, before PR 2: `tenantStats.totalLeads` 10,364; `stageTotals` 10,634 at
 | 10-20 05:37 | `assertSlackTouches` | passed, 8,470 |
 | 10-20 05:48 | `assertDomainEventLinks` (reset) | passed, 187,731 events |
 | 10-20 06:46 | `assertLeadLifecycle` (reset), after the portal and Slack touches | passed, 89,510 leads |
+| 10-20 16:33 | read-only recheck after the narrow | below |
+| 10-20 16:33 | `assertLeadLifecycle` (reset), after the narrow | passed, 89,656 leads, done 17:38 |
 
 The read-only recheck at 05:33: `stageTotals` 89,472 at Prospect (78,838 more than the baseline), 10,711 In conversation, 10,708 Qualified, 5,346 Booked, 696 Showed, 274 Customer; `tenantStats.totalLeads` 10,434. The lead count is Qualified minus Customer, as at the baseline (10,634 − 270 = 10,364). Every stage but Prospect moved only by the day's new qualifications, bookings and payments. The 3 more at In conversation than at Qualified are persons the portal created by handle while PR 3 was live; the 10 copies made then named 8 persons.
 
 One lifecycle assert covers both the portal and the Slack touches: the Slack touches change no stage.
+
+The read-only recheck at 16:33, after the narrow: `stageTotals` 89,618 at Prospect, 10,741 In conversation, 10,738 Qualified, 5,360 Booked, 696 Showed, 274 Customer; `tenantStats.totalLeads` 10,464, which is still Qualified minus Customer. The gap between In conversation and Qualified is still the 3 portal persons.
