@@ -959,3 +959,117 @@ export const assertQualificationAttributionParity = migrations.define({
     }
   },
 });
+
+// Phase 3, PR 6 (docs/plans/phase-3-attribution.md §10.5). Deploy after PRs 2
+// to 5, so no reader reads the copies, and this PR stops writing them. Then a
+// dry run, the run, then its assert, one table at a time:
+// npx convex run migrations:run '{"fn":"migrations:clearOpportunityAttributionCopies","dryRun":true}'
+//   1. clearOpportunityAttributionCopies, assertOpportunityAttributionCopiesCleared
+//   2. clearMeetingAttributionCopies, assertMeetingAttributionCopiesCleared
+//   3. clearQualificationRowAttributionCopies,
+//      assertQualificationRowAttributionCopiesCleared
+//   4. clearMeetingDailyStatAttributionCopies,
+//      assertMeetingDailyStatAttributionCopiesCleared
+//   5. assertBookingAttributions with "reset": without the copies it checks
+//      each meeting's rows against its resolution
+// Each patches only the rows that still hold a copy, and nothing else: no
+// event, stage, counter or projection. Meetings keep their resolution, UTMs
+// and utmTruncated, the booking's own record. operationsMeetingStatsV2 and
+// meetingProjections lost their copies in PR 4's rebuildMeetingProjections.
+// After the clear, assertQualificationAttributionParity has no copy to compare
+// and fails, so don't rerun it. PR 7 drops the fields.
+
+const OPPORTUNITY_ATTRIBUTION_COPIES = [
+  "attributionTeamId",
+  "dmCloserId",
+  "attributionResolution",
+  "attributionResolvedAt",
+  "attributionResolutionVersion",
+] as const satisfies readonly (keyof Doc<"opportunities">)[];
+const MEETING_ATTRIBUTION_COPIES = [
+  "attributionTeamId",
+  "dmCloserId",
+] as const satisfies readonly (keyof Doc<"meetings">)[];
+const QUALIFICATION_ROW_ATTRIBUTION_COPIES = [
+  "attributionTeamId",
+  "dmCloserId",
+  "attributionResolution",
+] as const satisfies readonly (keyof Doc<"operationsQualificationRows">)[];
+const MEETING_DAILY_STAT_ATTRIBUTION_COPIES = [
+  "attributionTeamId",
+  "dmCloserId",
+] as const satisfies readonly (keyof Doc<"operationsMeetingDailyStats">)[];
+
+/** The copy fields `row` still holds. */
+function heldCopies<Row, Field extends keyof Row>(row: Row, fields: readonly Field[]) {
+  return fields.filter((field) => row[field] !== undefined);
+}
+
+/** A patch that unsets `fields`. */
+function unsetPatch<Field extends string>(fields: readonly Field[]) {
+  return Object.fromEntries(fields.map((field) => [field, undefined])) as { [F in Field]?: undefined };
+}
+
+function copiesLeft(label: string, id: string, fields: readonly string[]) {
+  return new Error(`${label} ${id} still has ${fields.join(", ")}`);
+}
+
+export const clearOpportunityAttributionCopies = migrations.define({
+  table: "opportunities", batchSize: 200,
+  migrateOne: async (ctx, opportunity) => {
+    const held = heldCopies(opportunity, OPPORTUNITY_ATTRIBUTION_COPIES);
+    if (held.length > 0) await ctx.db.patch("opportunities", opportunity._id, unsetPatch(held));
+  },
+});
+export const assertOpportunityAttributionCopiesCleared = migrations.define({
+  table: "opportunities", batchSize: 200,
+  migrateOne: async (_ctx, opportunity) => {
+    const held = heldCopies(opportunity, OPPORTUNITY_ATTRIBUTION_COPIES);
+    if (held.length > 0) throw copiesLeft("Opportunity", opportunity._id, held);
+  },
+});
+
+export const clearMeetingAttributionCopies = migrations.define({
+  table: "meetings", batchSize: 200,
+  migrateOne: async (ctx, meeting) => {
+    const held = heldCopies(meeting, MEETING_ATTRIBUTION_COPIES);
+    if (held.length > 0) await ctx.db.patch("meetings", meeting._id, unsetPatch(held));
+  },
+});
+export const assertMeetingAttributionCopiesCleared = migrations.define({
+  table: "meetings", batchSize: 200,
+  migrateOne: async (_ctx, meeting) => {
+    const held = heldCopies(meeting, MEETING_ATTRIBUTION_COPIES);
+    if (held.length > 0) throw copiesLeft("Meeting", meeting._id, held);
+  },
+});
+
+export const clearQualificationRowAttributionCopies = migrations.define({
+  table: "operationsQualificationRows", batchSize: 200,
+  migrateOne: async (ctx, row) => {
+    const held = heldCopies(row, QUALIFICATION_ROW_ATTRIBUTION_COPIES);
+    if (held.length > 0) await ctx.db.patch("operationsQualificationRows", row._id, unsetPatch(held));
+  },
+});
+export const assertQualificationRowAttributionCopiesCleared = migrations.define({
+  table: "operationsQualificationRows", batchSize: 200,
+  migrateOne: async (_ctx, row) => {
+    const held = heldCopies(row, QUALIFICATION_ROW_ATTRIBUTION_COPIES);
+    if (held.length > 0) throw copiesLeft("Qualification row", row._id, held);
+  },
+});
+
+export const clearMeetingDailyStatAttributionCopies = migrations.define({
+  table: "operationsMeetingDailyStats", batchSize: 200,
+  migrateOne: async (ctx, row) => {
+    const held = heldCopies(row, MEETING_DAILY_STAT_ATTRIBUTION_COPIES);
+    if (held.length > 0) await ctx.db.patch("operationsMeetingDailyStats", row._id, unsetPatch(held));
+  },
+});
+export const assertMeetingDailyStatAttributionCopiesCleared = migrations.define({
+  table: "operationsMeetingDailyStats", batchSize: 200,
+  migrateOne: async (_ctx, row) => {
+    const held = heldCopies(row, MEETING_DAILY_STAT_ATTRIBUTION_COPIES);
+    if (held.length > 0) throw copiesLeft("Meeting daily stats row", row._id, held);
+  },
+});

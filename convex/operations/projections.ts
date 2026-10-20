@@ -59,9 +59,8 @@ export async function rebuildQualificationRow(
     firstMeetingId: opportunity?.firstMeetingId,
     firstMeetingAt: opportunity?.firstMeetingAt,
     assignedCloserId: opportunity?.assignedCloserId,
-    attributionTeamId: opportunity?.attributionTeamId,
-    dmCloserId: opportunity?.dmCloserId,
-    attributionResolution: opportunity?.attributionResolution ?? ("none" as const),
+    // No attribution: the queue reads the deal's first booking's rows and
+    // resolution (docs/plans/phase-3-attribution.md §6.2).
     searchText: buildQualificationSearchText({ event, lead, opportunity }),
     updatedAt: Date.now(),
   };

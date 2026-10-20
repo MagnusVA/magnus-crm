@@ -1252,9 +1252,12 @@ export default defineSchema({
     firstMeetingId: v.optional(v.id("meetings")),
     firstMeetingAt: v.optional(v.number()),
     assignedCloserId: v.optional(v.id("users")),
+    // Copies of the deal's first booking's credit, no longer written; cleared
+    // by migrations:clearQualificationRowAttributionCopies and dropped in the
+    // narrow (docs/plans/phase-3-attribution.md §3.3).
     attributionTeamId: v.optional(v.id("attributionTeams")),
     dmCloserId: v.optional(v.id("dmClosers")),
-    attributionResolution: attributionResolutionValidator,
+    attributionResolution: v.optional(attributionResolutionValidator),
     searchText: v.string(),
     updatedAt: v.number(),
   })

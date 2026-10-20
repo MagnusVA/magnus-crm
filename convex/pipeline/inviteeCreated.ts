@@ -22,8 +22,8 @@ import {
 	recordDealCreation,
 } from "../lib/attribution/dealAttributions";
 import {
-	attributionPatch,
 	isInternalUtm,
+	resolutionPatch,
 	resolveAttributionForTenant,
 	type ResolvedAttribution,
 } from "../lib/attribution/resolveAttribution";
@@ -143,6 +143,11 @@ async function loadEventTypeConfig(
 	return eventTypeConfigId ? await ctx.db.get("eventTypeConfigs", eventTypeConfigId) : null;
 }
 
+/**
+ * The deal's caches of its first external booking. Attribution isn't one of
+ * them: the deal's credit is its first booking's `dealAttributions` rows, and
+ * the resolution stays on the meeting (docs/plans/phase-3-attribution.md §3.3).
+ */
 async function patchFirstExternalBookingCaches(
 	ctx: MutationCtx,
 	args: {
@@ -150,7 +155,6 @@ async function patchFirstExternalBookingCaches(
 		meetingId: Id<"meetings">;
 		scheduledAt: number;
 		eventTypeConfig: Doc<"eventTypeConfigs"> | null | undefined;
-		resolvedAttribution: ResolvedAttribution;
 		utmParams: ReturnType<typeof extractUtmParams>;
 	},
 ) {
@@ -169,7 +173,6 @@ async function patchFirstExternalBookingCaches(
 		firstMeetingId: args.meetingId,
 		firstMeetingAt: args.scheduledAt,
 		...utmPatch,
-		...attributionPatch(args.resolvedAttribution),
 	});
 }
 
@@ -1014,7 +1017,7 @@ export const process = internalMutation({
 						utmParams,
 						utmTruncated,
 						...bookedProgramPatch(effectiveEventTypeConfig),
-						...attributionPatch(resolvedAttribution),
+						...resolutionPatch(resolvedAttribution),
 						rescheduledFromMeetingId,
 					});
 					await recordMeetingBookingAttribution(
@@ -1027,7 +1030,6 @@ export const process = internalMutation({
 						meetingId,
 						scheduledAt,
 						eventTypeConfig: effectiveEventTypeConfig,
-						resolvedAttribution,
 						utmParams,
 					});
 					await insertMeetingAggregate(ctx, meetingId);
@@ -1359,7 +1361,7 @@ export const process = internalMutation({
 				utmParams,
 				utmTruncated,
 				...bookedProgramPatch(effectiveEventTypeConfig),
-				...attributionPatch(resolvedAttribution),
+				...resolutionPatch(resolvedAttribution),
 				rescheduledFromMeetingId,
 			});
 			await recordMeetingBookingAttribution(ctx, meetingId, resolvedAttribution);
@@ -1368,7 +1370,6 @@ export const process = internalMutation({
 				meetingId,
 				scheduledAt,
 				eventTypeConfig: effectiveEventTypeConfig,
-				resolvedAttribution,
 				utmParams,
 			});
 			await insertMeetingAggregate(ctx, meetingId);
@@ -1679,7 +1680,7 @@ export const process = internalMutation({
 			utmParams,
 			utmTruncated,
 			...bookedProgramPatch(meetingEventTypeConfig),
-			...attributionPatch(resolvedAttribution),
+			...resolutionPatch(resolvedAttribution),
 		});
 		await recordMeetingBookingAttribution(ctx, meetingId, resolvedAttribution);
 		await patchFirstExternalBookingCaches(ctx, {
@@ -1687,7 +1688,6 @@ export const process = internalMutation({
 			meetingId,
 			scheduledAt,
 			eventTypeConfig: meetingEventTypeConfig,
-			resolvedAttribution,
 			utmParams,
 		});
 		await insertMeetingAggregate(ctx, meetingId);

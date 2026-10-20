@@ -173,7 +173,7 @@ function SubmissionDetail({ row }: { row: SubmissionRow }) {
           {row.dmCloser ? (
             <MemberIdentity identity={row.dmCloser} textClassName="text-sm" />
           ) : (
-            <Badge variant="outline">{titleCase(row.attributionResolution)}</Badge>
+            <Badge variant="outline">{titleCase(row.attributionResolution ?? "none")}</Badge>
           )}
         </DetailField>
         <DetailField label="Assigned closer">
