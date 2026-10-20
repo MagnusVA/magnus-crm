@@ -57,11 +57,15 @@ async function hasAttributionContext(
   if (opportunity?.qualifiedBy || opportunity?.utmParams || meeting?.utmParams) {
     return true;
   }
-  const [meetingCredit, dealCredit] = await Promise.all([
-    meeting ? bookingCreditForMeeting(ctx, tenantId, meeting._id) : {},
-    opportunity ? dealBookingCredit(ctx, opportunity) : {},
-  ]);
-  return creditsSomeone(meetingCredit) || creditsSomeone(dealCredit);
+  if (meeting && creditsSomeone(await bookingCreditForMeeting(ctx, tenantId, meeting._id))) {
+    return true;
+  }
+  // The deal's credit is its first booking's; skip it when that is the
+  // meeting just read.
+  if (!opportunity?.firstMeetingId || opportunity.firstMeetingId === meeting?._id) {
+    return false;
+  }
+  return creditsSomeone(await dealBookingCredit(ctx, opportunity));
 }
 
 export async function buildPaymentAuditSnapshot(
