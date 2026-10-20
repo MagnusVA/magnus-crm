@@ -178,9 +178,11 @@ export type ReportSourceRow =
       leadHandle: string | null;
       initialSource: string | null;
       selfReportedIncome: number | null;
+      // From the booking's dm_team and dm_closer rows. A team-only booking
+      // has no DM closer and counts toward its team's goal only (D9).
       attributionTeamId: string | null;
       attributionTeamLabel: string | null;
-      dmCloserId: string;
+      dmCloserId: string | null;
       dmCloserLabel: string | null;
     }
   | ({

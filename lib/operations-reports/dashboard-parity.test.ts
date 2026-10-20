@@ -1,5 +1,5 @@
 import { convexTest } from "convex-test";
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { api, internal } from "../../convex/_generated/api";
 import schema from "../../convex/schema";
 import { convexTestModules } from "../../convex/test.setup";
@@ -10,8 +10,13 @@ import {
 import {
   bookedCallsDashboardFromLive,
   bookedCallsDashboardFromSnapshot,
+  type BookedCallsDashboardViewModel,
 } from "./booked-dashboard";
-import { qualifiedLifecycle } from "../../tests/bookingHarness";
+import {
+  BOOKED_CALLS_ADMIN,
+  BOOKED_CALLS_RANGE,
+  seedBookedCallsFixture,
+} from "../../tests/bookedCallsFixture";
 
 const range = {
   kind: "custom" as const,
@@ -212,228 +217,158 @@ it("keeps qualifications live dashboard and worker-backed snapshot view models a
   });
 });
 
-it("keeps booked calls live dashboard and worker-backed snapshot view models aligned", async () => {
-  const t = convexTest({ schema, modules: convexTestModules });
-  const fixture = await t.run(async (ctx) => {
-    const tenantId = await ctx.db.insert("tenants", {
-      companyName: "Booked parity",
-      contactEmail: "booked-parity@example.invalid",
-      workosOrgId: "org_booked_parity",
-      status: "active",
-      inviteExpiresAt: timestamp + 60_000,
-      createdBy: "test",
-    });
-    const adminId = await ctx.db.insert("users", {
-      tenantId,
-      workosUserId: "booked-admin",
-      email: "booked-admin@example.invalid",
-      role: "tenant_admin",
-      isActive: true,
-    });
-    const linkedUserId = await ctx.db.insert("users", {
-      tenantId,
-      workosUserId: "linked-dm-user",
-      email: "linked-dm-user@example.invalid",
-      fullName: "Linked User Name",
-      profilePictureUrl: "https://example.invalid/linked-user.png",
-      role: "closer",
-      isActive: true,
-    });
-    const teamId = await ctx.db.insert("attributionTeams", {
-      tenantId,
-      slug: "north",
-      displayName: "North Team",
-      utmSource: "north",
-      normalizedUtmSource: "north",
-      isActive: true,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    });
-    const activeCloserId = await ctx.db.insert("dmClosers", {
-      tenantId,
-      teamId,
-      slug: "original-dm",
-      displayName: "Original DM Display",
-      utmMedium: "original-dm",
-      normalizedUtmMedium: "original-dm",
-      userId: linkedUserId,
-      isActive: true,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    });
-    const zeroCloserId = await ctx.db.insert("dmClosers", {
-      tenantId,
-      teamId,
-      slug: "scheduled-zero",
-      displayName: "Scheduled Zero",
-      utmMedium: "scheduled-zero",
-      normalizedUtmMedium: "scheduled-zero",
-      isActive: true,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    });
-    await ctx.db.insert("dmCloserSchedules", {
-      tenantId,
-      dmCloserId: activeCloserId,
-      weekday: "friday",
-      scheduledHours: 4,
-      updatedByUserId: adminId,
-      updatedAt: timestamp,
-    });
-    await ctx.db.insert("dmCloserSchedules", {
-      tenantId,
-      dmCloserId: zeroCloserId,
-      weekday: "friday",
-      scheduledHours: 2,
-      updatedByUserId: adminId,
-      updatedAt: timestamp,
-    });
-    const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(timestamp),
-      tenantId,
-      fullName: "Booked Prospect",
-      firstSeenAt: timestamp,
-      updatedAt: timestamp,
-      status: "active",
-    });
-    const opportunityId = await ctx.db.insert("opportunities", {
-      tenantId,
-      leadId,
-      status: "scheduled",
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    });
-    for (const [suffix, attributionTeamId] of [
-      ["attributed", teamId],
-      ["unattributed", undefined],
-    ] as const) {
-      await ctx.db.insert("meetings", {
-        tenantId,
-        opportunityId,
-        assignedCloserId: adminId,
-        calendlyEventUri: `https://example.invalid/event/${suffix}`,
-        calendlyInviteeUri: `https://example.invalid/invitee/${suffix}`,
-        scheduledAt: timestamp + 3_600_000,
-        durationMinutes: 30,
-        status: "scheduled",
-        callClassification: "new",
-        leadName: "Booked Prospect",
-        createdAt: timestamp,
-        attributionTeamId,
-        dmCloserId: activeCloserId,
-      });
-    }
-    return { activeCloserId, linkedUserId, teamId, zeroCloserId };
-  });
-  const authed = t.withIdentity({
-    subject: "booked-admin",
-    org_id: "org_booked_parity",
-  });
+// The fixture's booking rows are the ones the pipeline writes for each booking
+// (recordBookingAttribution). The copied columns are either set the way the
+// pipeline still writes them or left unset; the numbers must not change.
+describe.each(["pipeline", "none"] as const)(
+  "booked calls parity with copies: %s",
+  (copies) => {
+    it("keeps the live dashboard and the worker-backed snapshot aligned", async () => {
+      const t = convexTest({ schema, modules: convexTestModules });
+      const fixture = await t.run(
+        async (ctx) => await seedBookedCallsFixture(ctx, { copies }),
+      );
+      const authed = t.withIdentity(BOOKED_CALLS_ADMIN);
 
-  const live = await authed.query(
-    api.operations.bookedCallsDashboard.getBookedCallsDashboard,
-    { range },
-  );
-  expect(live.capped).toBe(false);
-  expect(live.goal.totalTarget).toBeNull();
-  expect(live.goal.teams).toEqual([
-    expect.objectContaining({
-      teamId: fixture.teamId,
-      label: "North Team",
-      dailyQuota: null,
-      progress: 1,
-    }),
-  ]);
-  expect(live.dmClosers).toEqual(
-    expect.arrayContaining([
-      expect.objectContaining({
-        key: fixture.activeCloserId,
-        label: "Original DM Display",
-        booked: 2,
-        scheduledHours: 4,
-        hourlyRateMinor: null,
-        avatar: expect.objectContaining({
-          id: fixture.linkedUserId,
-          name: "Linked User Name",
-          imageSource: "workos",
-          source: "crm_user",
+      const live = await authed.query(
+        api.operations.bookedCallsDashboard.getBookedCallsDashboard,
+        { range: BOOKED_CALLS_RANGE },
+      );
+      expect(live.capped).toBe(false);
+      expect(live.goal.totalTarget).toBe(3);
+      // South's only first booking named a team and no DM closer (D9).
+      expect(live.goal.teams).toEqual([
+        expect.objectContaining({ teamId: fixture.teams.north, progress: 3 }),
+        expect.objectContaining({ teamId: fixture.teams.south, progress: 1 }),
+      ]);
+      expect(live.totalBooked).toBe(3);
+      expect(live.goal.progress).toBe(4);
+      expect(live.dmClosers).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            key: fixture.dmClosers.northA,
+            label: "Avery North",
+            teamLabel: "North Team",
+            booked: 1,
+            scheduledHours: 4,
+            hourlyRateMinor: null,
+            avatar: expect.objectContaining({
+              id: fixture.linkedUserId,
+              name: "Avery Linked",
+              imageSource: "workos",
+              source: "crm_user",
+            }),
+          }),
+          expect.objectContaining({
+            key: fixture.dmClosers.southC,
+            label: "Casey South",
+            teamLabel: "South Team",
+            booked: 0,
+            scheduledHours: 2,
+          }),
+        ]),
+      );
+      expect(live.dmClosers.reduce((sum, row) => sum + row.booked, 0)).toBe(3);
+
+      const { jobId } = await authed.mutation(
+        api.operations.reports.jobs.requestDashboardReport,
+        {
+          reportKind: "booked-calls",
+          range: BOOKED_CALLS_RANGE,
+          requestToken: `booked-dashboard-parity-${copies}`,
+        },
+      );
+      for (let step = 0; step < 40; step += 1) {
+        await t.action(internal.operations.reports.worker.run, { jobId });
+        const job = await t.run(async (ctx) => await ctx.db.get(jobId));
+        if (job?.status === "ready") break;
+        expect(job?.status).toBe("queued");
+      }
+
+      const [summary, closers, teams] = await Promise.all([
+        authed.query(api.operations.reports.jobs.getDashboardReportSummary, {
+          jobId,
         }),
-      }),
-      expect.objectContaining({
-        key: fixture.zeroCloserId,
-        label: "Scheduled Zero",
-        booked: 0,
-        scheduledHours: 2,
-        hourlyRateMinor: null,
-      }),
-    ]),
-  );
+        authed.query(api.operations.reports.jobs.listDashboardReportRows, {
+          jobId,
+          section: "booked_closer",
+          paginationOpts: { cursor: null, numItems: 100 },
+        }),
+        authed.query(api.operations.reports.jobs.listDashboardReportRows, {
+          jobId,
+          section: "booking_team",
+          paginationOpts: { cursor: null, numItems: 100 },
+        }),
+      ]);
+      expect(summary).not.toBeNull();
+      expect(summary!.payload).toMatchObject({ totalBooked: 3, progress: 4 });
+      expect(closers.isDone).toBe(true);
+      expect(teams.isDone).toBe(true);
+      expect(closers.page).toContainEqual(
+        expect.objectContaining({
+          rowKey: fixture.dmClosers.northA,
+          payload: expect.objectContaining({
+            label: "Avery North",
+            teamId: fixture.teams.north,
+            teamLabel: "North Team",
+            booked: 1,
+            hourlyRateMinor: null,
+            identityId: fixture.linkedUserId,
+            identityName: "Avery Linked",
+            identityImageSource: "workos",
+          }),
+        }),
+      );
+      expect(
+        Object.fromEntries(
+          closers.page.map((row) => [row.rowKey, row.payload.booked]),
+        ),
+      ).toEqual({
+        [fixture.dmClosers.northA]: 1,
+        [fixture.dmClosers.northA2]: 1,
+        [fixture.dmClosers.northB]: 1,
+        [fixture.dmClosers.southC]: 0,
+      });
+      expect(
+        Object.fromEntries(
+          teams.page.map((row) => [row.rowKey, row.payload.progress]),
+        ),
+      ).toEqual({ [fixture.teams.north]: 3, [fixture.teams.south]: 1 });
+      expect(teams.page).toContainEqual(
+        expect.objectContaining({
+          rowKey: fixture.teams.south,
+          payload: expect.objectContaining({
+            label: "South Team",
+            dailyQuota: 1,
+            target: 1,
+            progress: 1,
+          }),
+        }),
+      );
 
-  const { jobId } = await authed.mutation(
-    api.operations.reports.jobs.requestDashboardReport,
-    {
-      reportKind: "booked-calls",
-      range,
-      requestToken: "booked-dashboard-parity",
+      const snapshot = bookedCallsDashboardFromSnapshot({
+        summary: summary!,
+        dmClosers: closers.page,
+        teams: teams.page,
+      });
+      expect(snapshot.error).toBeNull();
+      // Rows that tie on their count can come back in another order.
+      expect(inStableOrder(snapshot.data!)).toEqual(
+        inStableOrder(bookedCallsDashboardFromLive(live)),
+      );
+    });
+  },
+);
+
+function inStableOrder(view: BookedCallsDashboardViewModel) {
+  return {
+    ...view,
+    dmClosers: [...view.dmClosers].sort((a, b) => a.key.localeCompare(b.key)),
+    goal: {
+      ...view.goal,
+      teams: [...view.goal.teams].sort((a, b) =>
+        a.label.localeCompare(b.label),
+      ),
     },
-  );
-  for (let step = 0; step < 20; step += 1) {
-    await t.action(internal.operations.reports.worker.run, { jobId });
-    const job = await t.run(async (ctx) => await ctx.db.get(jobId));
-    if (job?.status === "ready") break;
-    expect(job?.status).toBe("queued");
-  }
-
-  const [summary, closers, teams] = await Promise.all([
-    authed.query(api.operations.reports.jobs.getDashboardReportSummary, {
-      jobId,
-    }),
-    authed.query(api.operations.reports.jobs.listDashboardReportRows, {
-      jobId,
-      section: "booked_closer",
-      paginationOpts: { cursor: null, numItems: 100 },
-    }),
-    authed.query(api.operations.reports.jobs.listDashboardReportRows, {
-      jobId,
-      section: "booking_team",
-      paginationOpts: { cursor: null, numItems: 100 },
-    }),
-  ]);
-  expect(summary).not.toBeNull();
-  expect(closers.isDone).toBe(true);
-  expect(teams.isDone).toBe(true);
-  expect(closers.page).toContainEqual(
-    expect.objectContaining({
-      rowKey: fixture.activeCloserId,
-      payload: expect.objectContaining({
-        label: "Original DM Display",
-        teamId: fixture.teamId,
-        teamLabel: "North Team",
-        hourlyRateMinor: null,
-        identityId: fixture.linkedUserId,
-        identityName: "Linked User Name",
-        identityImageSource: "workos",
-      }),
-    }),
-  );
-  expect(teams.page).toEqual([
-    expect.objectContaining({
-      rowKey: fixture.teamId,
-      payload: expect.objectContaining({
-        label: "North Team",
-        dailyQuota: null,
-        target: null,
-        progress: 1,
-      }),
-    }),
-  ]);
-
-  const snapshot = bookedCallsDashboardFromSnapshot({
-    summary: summary!,
-    dmClosers: closers.page,
-    teams: teams.page,
-  });
-  expect(snapshot).toEqual({
-    data: bookedCallsDashboardFromLive(live),
-    error: null,
-  });
-});
+  };
+}

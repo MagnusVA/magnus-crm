@@ -9,6 +9,12 @@ import {
   deriveOverviewRange,
   overviewRangeValidator,
 } from "../dashboard/overviewRange";
+import {
+  attributionsForDeal,
+  bookingCreditForMeeting,
+  bookingCreditsByMeeting,
+  type BookingCredit,
+} from "../lib/attribution/dealAttributions";
 import { leadDisplayFromShape } from "../lib/leadDisplay";
 import {
   LIVE_QUERY_BYTE_BUDGET,
@@ -79,19 +85,44 @@ const bookedCallRowValidator = v.object({
   dmCloserLabel: v.union(v.string(), v.null()),
 });
 
-type BookedCallMeeting = Doc<"meetings"> & { dmCloserId: Id<"dmClosers"> };
+type BookedCall = {
+  meeting: Doc<"meetings">;
+  credit: BookingCredit & { dmCloserId: Id<"dmClosers"> };
+};
 
-// Booked-call population: the exact semantics of the Overview's DM-closer
-// machinery (buildDmCloserEfficiencyRows) — meetings whose createdAt falls in
-// the range's business-day UTC window, excluding follow_up classifications,
-// with a resolved dmCloserId.
-function isBookedCallMeeting(
+// The details list is the DM closer table's bookings, the population of the
+// Overview's DM closer machinery (buildDmCloserEfficiencyRows): first
+// bookings (anything but a follow_up) whose createdAt falls in the window and
+// whose booking rows name a DM closer. Team-only bookings count toward their
+// team's goal but are not listed here.
+function isFirstBooking(meeting: Doc<"meetings">) {
+  return meeting.callClassification !== "follow_up";
+}
+
+function bookedCall(
   meeting: Doc<"meetings">,
-): meeting is BookedCallMeeting {
-  return (
-    meeting.dmCloserId !== undefined &&
-    meeting.callClassification !== "follow_up"
+  credit: BookingCredit | undefined,
+  dmCloserId: Id<"dmClosers"> | undefined,
+): BookedCall | null {
+  if (!credit?.dmCloserId) return null;
+  if (dmCloserId !== undefined && credit.dmCloserId !== dmCloserId) return null;
+  return { meeting, credit: { ...credit, dmCloserId: credit.dmCloserId } };
+}
+
+/** Each deal's DM team and DM closer rows, keyed by booking. */
+async function bookingCreditsForDeals(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  opportunityIds: Id<"opportunities">[],
+) {
+  const rows = await Promise.all(
+    opportunityIds.flatMap((opportunityId) =>
+      (["dm_team", "dm_closer"] as const).map((role) =>
+        attributionsForDeal(ctx, tenantId, opportunityId, role),
+      ),
+    ),
   );
+  return bookingCreditsByMeeting(rows.flat());
 }
 
 function isNonNull<T>(value: T | null): value is T {
@@ -126,8 +157,9 @@ function compareLabels(left: string, right: string) {
 async function enrichBookedCallRows(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
-  meetings: BookedCallMeeting[],
+  bookedCalls: BookedCall[],
 ) {
+  const meetings = bookedCalls.map((call) => call.meeting);
   const opportunityIds = uniqueIds(meetings.map((m) => m.opportunityId));
   const opportunities = await Promise.all(
     opportunityIds.map((id) => ctx.db.get("opportunities", id)),
@@ -142,8 +174,8 @@ async function enrichBookedCallRows(
   const leadIds = uniqueIds(
     [...opportunityById.values()].map((opportunity) => opportunity.leadId),
   );
-  const teamIds = uniqueIds(meetings.map((m) => m.attributionTeamId));
-  const dmCloserIds = uniqueIds(meetings.map((m) => m.dmCloserId));
+  const teamIds = uniqueIds(bookedCalls.map((call) => call.credit.teamId));
+  const dmCloserIds = uniqueIds(bookedCalls.map((call) => call.credit.dmCloserId));
 
   const [leads, teams, dmClosers] = await Promise.all([
     Promise.all(leadIds.map((id) => ctx.db.get("leads", id))),
@@ -170,13 +202,11 @@ async function enrichBookedCallRows(
       .map((closer) => [closer._id, closer]),
   );
 
-  return meetings.map((meeting) => {
+  return bookedCalls.map(({ meeting, credit }) => {
     const opportunity = opportunityById.get(meeting.opportunityId) ?? null;
     const lead = opportunity ? (leadById.get(opportunity.leadId) ?? null) : null;
-    const team = meeting.attributionTeamId
-      ? (teamById.get(meeting.attributionTeamId) ?? null)
-      : null;
-    const dmCloser = dmCloserById.get(meeting.dmCloserId) ?? null;
+    const team = credit.teamId ? (teamById.get(credit.teamId) ?? null) : null;
+    const dmCloser = dmCloserById.get(credit.dmCloserId) ?? null;
     const fallbackLeadName = meeting.leadName?.trim();
 
     return {
@@ -208,9 +238,9 @@ async function enrichBookedCallRows(
         null,
       initialSource: lead?.initialSource ?? null,
       selfReportedIncome: lead?.selfReportedIncome ?? null,
-      attributionTeamId: meeting.attributionTeamId ?? null,
+      attributionTeamId: credit.teamId ?? null,
       attributionTeamLabel: team?.displayName ?? null,
-      dmCloserId: meeting.dmCloserId,
+      dmCloserId: credit.dmCloserId,
       dmCloserLabel: dmCloser?.displayName ?? null,
     };
   });
@@ -252,8 +282,9 @@ export const getBookedCallsDashboard = query({
 
     // Same machinery as the Overview's Top DM Closers section: one bounded
     // meetings read (by_tenantId_and_createdAt over the business-day UTC
-    // window), booked = new-classification meetings with a dmCloserId,
-    // scheduled hours via loadDmCloserScheduledHoursForRange inside.
+    // window) for the first bookings, and the dm_team and dm_closer rows over
+    // the same window for their credit. Scheduled hours come from
+    // loadDmCloserScheduledHoursForRange inside.
     //
     // buildDmCloserEfficiencyRows THROWS when the meetings read exceeds its
     // cap; mirror the Overview leaderboard's handling (overview
@@ -290,7 +321,7 @@ export const getBookedCallsDashboard = query({
       }
       throw error;
     }
-    const { rows, truncated, bookedByTeam } = builderResult;
+    const { rows, truncated, bookedByTeam, teamOnlyBooked } = builderResult;
     if (truncated) {
       return {
         totalBooked: 0,
@@ -308,6 +339,7 @@ export const getBookedCallsDashboard = query({
         capped: true,
       };
     }
+    // The DM closer table and its total count DM-closer bookings only.
     const totalBooked = rows.reduce((sum, row) => sum + row.booked, 0);
 
     const [registryCloserScan, teamScan] = await Promise.all([
@@ -439,8 +471,9 @@ export const getBookedCallsDashboard = query({
         right.booked - left.booked || compareLabels(left.label, right.label),
     );
 
-    // Per-team goal: dailyQuota x business days in range. Progress groups
-    // the same booked population by the meeting's attributionTeamId.
+    // Per-team goal: dailyQuota x business days in range. A team's progress
+    // is the first bookings its dm_team row names, with or without a DM
+    // closer (D9).
     const goalTeams = teams
       .filter(
         (team) => team.isActive || (bookedByTeam.get(team._id) ?? 0) > 0,
@@ -470,7 +503,9 @@ export const getBookedCallsDashboard = query({
       dmClosers: dmCloserRows,
       goal: {
         totalTarget,
-        progress: totalBooked,
+        // The DM-closer bookings plus the team-only ones, which count toward
+        // their team's goal but no DM closer (D9).
+        progress: totalBooked + teamOnlyBooked,
         businessDayCount: range.dayCount,
         teams: goalTeams,
       },
@@ -484,10 +519,10 @@ export const getBookedCallsDashboard = query({
 });
 
 /**
- * Paginated bookings for the collapsible details list. Same population as
- * getBookedCallsDashboard (new-classification, DM-closer-attributed meetings
- * by createdAt window), newest booking first. Pass the dashboard's `window`
- * as start/end so both surfaces agree.
+ * Paginated bookings for the collapsible details list: the DM closer table's
+ * population (first bookings by createdAt window whose rows name a DM
+ * closer), newest booking first. Pass the dashboard's `window` as start/end
+ * so both surfaces agree.
  */
 export const listBookedCallsDetails = query({
   args: {
@@ -530,16 +565,22 @@ export const listBookedCallsDetails = query({
         maximumBytesRead: LIVE_QUERY_BYTE_BUDGET,
       });
 
-    // Follow-up and non-DM-attributed meetings are excluded post-read within
-    // the page (there is no createdAt index carrying those dimensions), so
-    // pages can come back shorter than numItems; the cursor stays correct.
-    const bookedCalls = result.page
-      .filter(isBookedCallMeeting)
-      .filter(
-        (meeting) =>
-          args.dmCloserId === undefined ||
-          meeting.dmCloserId === args.dmCloserId,
-      );
+    // Follow-ups and bookings no DM closer row names are excluded post-read
+    // within the page (there is no createdAt index carrying those
+    // dimensions), so pages can come back shorter than numItems; the cursor
+    // stays correct. A page holds at most two meetings, so their rows are
+    // read by meeting.
+    const firstBookings = result.page.filter(isFirstBooking);
+    const credits = await Promise.all(
+      firstBookings.map((meeting) =>
+        bookingCreditForMeeting(ctx, tenantId, meeting._id),
+      ),
+    );
+    const bookedCalls = firstBookings
+      .map((meeting, index) =>
+        bookedCall(meeting, credits[index], args.dmCloserId),
+      )
+      .filter(isNonNull);
 
     return {
       page: await enrichBookedCallRows(ctx, tenantId, bookedCalls),
@@ -555,7 +596,9 @@ export const listBookedCallsDetails = query({
  * Search bookings by lead/prospect name for the collapsible details list.
  * Uses the opportunitySearch projection (searchText embeds the lead's search
  * text), then follows by_opportunityId_and_scheduledAt to the meetings and
- * post-filters to the booked-call window. Bounded fan-out, ~50 rows max.
+ * post-filters to the booked-call window. Credit comes from each deal's
+ * dm_team and dm_closer rows, two reads per deal rather than one per meeting.
+ * Bounded fan-out, ~50 rows max.
  */
 export const searchBookedCallsDetails = query({
   args: {
@@ -601,17 +644,22 @@ export const searchBookedCallsDetails = query({
       ),
     );
 
-    const bookedCalls = meetingsPerOpportunity
+    const firstBookings = meetingsPerOpportunity
       .flat()
       .filter((meeting) => meeting.tenantId === tenantId)
       .filter((meeting) => meeting.createdAt >= start && meeting.createdAt < end)
-      .filter(isBookedCallMeeting)
-      .filter(
-        (meeting) =>
-          args.dmCloserId === undefined ||
-          meeting.dmCloserId === args.dmCloserId,
+      .filter(isFirstBooking);
+    const credits = await bookingCreditsForDeals(
+      ctx,
+      tenantId,
+      uniqueIds(firstBookings.map((meeting) => meeting.opportunityId)),
+    );
+    const bookedCalls = firstBookings
+      .map((meeting) =>
+        bookedCall(meeting, credits.get(meeting._id), args.dmCloserId),
       )
-      .sort((left, right) => right.createdAt - left.createdAt)
+      .filter(isNonNull)
+      .sort((left, right) => right.meeting.createdAt - left.meeting.createdAt)
       .slice(0, SEARCH_RESULT_LIMIT);
 
     return await enrichBookedCallRows(ctx, tenantId, bookedCalls);

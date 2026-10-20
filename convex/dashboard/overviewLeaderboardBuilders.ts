@@ -20,6 +20,10 @@ import {
 } from "../workSchedules/rangeHours";
 import { compareNullableEfficiency } from "./efficiencySort";
 import {
+  bookingCreditsInWindow,
+  type BookingCredit,
+} from "../lib/attribution/dealAttributions";
+import {
   createLiveReadState,
   readLiveDocuments,
   readLiveQueryRows,
@@ -108,26 +112,36 @@ function countBookedSlackOpportunities(
   }).length;
 }
 
+// Booked Calls credit (docs/plans/phase-3-attribution.md §6.1, D9). The
+// population is first bookings: every meeting but a follow_up. A DM closer
+// record counts the first bookings its dm_closer row names; a team counts the
+// first bookings its dm_team row names, whether or not they name a DM closer.
 function countBookedMeetings(
   meetings: Doc<"meetings">[],
+  credits: ReadonlyMap<Id<"meetings">, BookingCredit>,
 ) {
   const byDmCloser = new Map<Id<"dmClosers">, number>();
   const byAttributionTeam = new Map<Id<"attributionTeams">, number>();
+  let teamOnlyBooked = 0;
   for (const meeting of meetings) {
-    if (!meeting.dmCloserId) continue;
     if (meeting.callClassification === "follow_up") continue;
-    byDmCloser.set(
-      meeting.dmCloserId,
-      (byDmCloser.get(meeting.dmCloserId) ?? 0) + 1,
-    );
-    if (meeting.attributionTeamId) {
-      byAttributionTeam.set(
-        meeting.attributionTeamId,
-        (byAttributionTeam.get(meeting.attributionTeamId) ?? 0) + 1,
+    const credit = credits.get(meeting._id);
+    if (!credit) continue;
+    if (credit.dmCloserId) {
+      byDmCloser.set(
+        credit.dmCloserId,
+        (byDmCloser.get(credit.dmCloserId) ?? 0) + 1,
       );
     }
+    if (credit.teamId) {
+      byAttributionTeam.set(
+        credit.teamId,
+        (byAttributionTeam.get(credit.teamId) ?? 0) + 1,
+      );
+      if (!credit.dmCloserId) teamOnlyBooked += 1;
+    }
   }
-  return { byDmCloser, byAttributionTeam };
+  return { byDmCloser, byAttributionTeam, teamOnlyBooked };
 }
 
 export async function buildLeadGenEfficiencyRows(
@@ -348,29 +362,55 @@ export async function buildDmCloserEfficiencyRows(
 ): Promise<{
   rows: TopDmCloserRow[];
   truncated: boolean;
-  // Booked (new-classification, DM-closer-attributed) meetings in range,
-  // grouped by the meeting's resolved attributionTeamId. Same population as
-  // the per-closer `booked` counts; meetings without an attributionTeamId
-  // count toward totalBooked but no team.
+  // First bookings in range per team, from their dm_team rows: the DM-closer
+  // bookings and the team-only ones (D9). A first booking whose team row names
+  // a team outside the registry still counts here; callers show registry
+  // teams only.
   bookedByTeam: Map<Id<"attributionTeams">, number>;
+  // First bookings with a dm_team row and no dm_closer row. They count toward
+  // their team and the goal, never toward a DM closer or the DM closer total.
+  teamOnlyBooked: number;
 }> {
-  const meetingScan = await readLiveQueryRows(
-    ctx.db
-      .query("meetings")
-      .withIndex("by_tenantId_and_createdAt", (q) =>
-        q
-          .eq("tenantId", args.tenantId)
-          .gte("createdAt", args.range.slackWindowStart)
-          .lt("createdAt", args.range.slackWindowEnd),
-      ),
-    TOP_DM_CLOSER_BOOKING_LIMIT,
-  );
-  if (meetingScan.capped) {
-    return { rows: [], truncated: true, bookedByTeam: new Map() };
+  // One bounded meetings read for the population and two bounded row reads
+  // (dm_team, dm_closer) for the credit, over the same window: a booking's
+  // rows have attributedAt equal to the meeting's createdAt. Rows per role
+  // never outnumber the meetings, so the row cap matches the meeting cap.
+  const [meetingScan, creditScan] = await Promise.all([
+    readLiveQueryRows(
+      ctx.db
+        .query("meetings")
+        .withIndex("by_tenantId_and_createdAt", (q) =>
+          q
+            .eq("tenantId", args.tenantId)
+            .gte("createdAt", args.range.slackWindowStart)
+            .lt("createdAt", args.range.slackWindowEnd),
+        ),
+      TOP_DM_CLOSER_BOOKING_LIMIT,
+    ),
+    bookingCreditsInWindow(ctx, {
+      tenantId: args.tenantId,
+      start: args.range.slackWindowStart,
+      end: args.range.slackWindowEnd,
+      maxRowsPerRole: TOP_DM_CLOSER_BOOKING_LIMIT,
+    }),
+  ]);
+  if (meetingScan.capped || creditScan.capped) {
+    return {
+      rows: [],
+      truncated: true,
+      bookedByTeam: new Map(),
+      teamOnlyBooked: 0,
+    };
   }
-  const meetings = meetingScan.rows;
 
-  const { byDmCloser, byAttributionTeam } = countBookedMeetings(meetings);
+  const { byDmCloser, byAttributionTeam, teamOnlyBooked } =
+    countBookedMeetings(meetingScan.rows, creditScan.credits);
+  const truncatedResult = {
+    rows: [],
+    truncated: true,
+    bookedByTeam: byAttributionTeam,
+    teamOnlyBooked,
+  };
 
   const [dmCloserScan, dmCloserScheduleScan] = await Promise.all([
     readLiveQueryRows(
@@ -407,11 +447,7 @@ export async function buildDmCloserEfficiencyRows(
     dmCloserScheduleScan.capped ||
     candidateDmCloserIds.size > DM_CLOSER_LIVE_CANDIDATE_LIMIT
   ) {
-    return {
-      rows: [],
-      truncated: true,
-      bookedByTeam: byAttributionTeam,
-    };
+    return truncatedResult;
   }
 
   const dmCloserById = new Map(dmClosers.map((closer) => [closer._id, closer]));
@@ -427,7 +463,7 @@ export async function buildDmCloserEfficiencyRows(
     },
   );
   if (scheduleReadState.capped) {
-    return { rows: [], truncated: true, bookedByTeam: byAttributionTeam };
+    return truncatedResult;
   }
 
   const missingCloserScan = await readLiveDocuments(
@@ -435,7 +471,7 @@ export async function buildDmCloserEfficiencyRows(
     async (id) => await ctx.db.get("dmClosers", id),
   );
   if (missingCloserScan.capped) {
-    return { rows: [], truncated: true, bookedByTeam: byAttributionTeam };
+    return truncatedResult;
   }
   for (const closer of missingCloserScan.rows) {
     if (closer.tenantId === args.tenantId) dmCloserById.set(closer._id, closer);
@@ -445,7 +481,7 @@ export async function buildDmCloserEfficiencyRows(
     async (id) => await ctx.db.get("attributionTeams", id),
   );
   if (teamScan.capped) {
-    return { rows: [], truncated: true, bookedByTeam: byAttributionTeam };
+    return truncatedResult;
   }
   const teamById = new Map(
     teamScan.rows
@@ -483,7 +519,12 @@ export async function buildDmCloserEfficiencyRows(
     }),
   );
 
-  return { rows, truncated: false, bookedByTeam: byAttributionTeam };
+  return {
+    rows,
+    truncated: false,
+    bookedByTeam: byAttributionTeam,
+    teamOnlyBooked,
+  };
 }
 
 function normalizeSearchQuery(search: string) {
