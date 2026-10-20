@@ -7,7 +7,6 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "../_generated/server";
-import { attributionsForMeeting } from "../lib/attribution/dealAttributions";
 import { reportingPool } from "../pipeline/workpools";
 import { meetingContribution } from "./meetingProjectionSchema";
 
@@ -345,10 +344,12 @@ export const opportunityPageCompleted = internalMutation({
 export const MEETING_STATS_BUCKET_LIMIT = 8192;
 /**
  * A team or DM closer filter reads this many credited meetings at most. Each
- * costs a projection read, and with both filters the meeting's own rows, so
- * the bucket limit would pass a query's read limit.
+ * costs a projection read, so the bucket limit would pass a query's read
+ * limit.
  */
 export const CREDITED_MEETING_LIMIT = 2000;
+// Rows read for one DM closer, its team member's other records included.
+const CREDITED_ROW_SCAN_LIMIT = 4 * CREDITED_MEETING_LIMIT;
 
 /** Meetings counted by closer, booked program and status: a bucket, or one meeting. */
 export type MeetingStatsCount = Pick<
@@ -385,27 +386,10 @@ async function creditedMeetingIds(
   const start = dayStart(args.startDayKey);
   const end = dayStart(args.endDayKeyExclusive);
   const { tenantId, attributionTeamId, dmCloserId } = args;
-  let rows: Doc<"dealAttributions">[];
-  if (dmCloserId) {
-    const dmCloser = await ctx.db.get("dmClosers", dmCloserId);
-    if (!dmCloser || dmCloser.tenantId !== tenantId) {
-      return { meetingIds: [], truncated: false };
-    }
-    rows = await ctx.db
-      .query("dealAttributions")
-      .withIndex(
-        "by_tenantId_and_role_and_teamMemberId_and_meetingScheduledAt",
-        (q) =>
-          q
-            .eq("tenantId", tenantId)
-            .eq("role", "dm_closer")
-            .eq("teamMemberId", dmCloser.teamMemberId)
-            .gte("meetingScheduledAt", start)
-            .lt("meetingScheduledAt", end),
-      )
-      .take(CREDITED_MEETING_LIMIT + 1);
-  } else if (attributionTeamId) {
-    rows = await ctx.db
+
+  // The team's bookings in range, by meeting.
+  const teamMeetings = async () => {
+    const rows = await ctx.db
       .query("dealAttributions")
       .withIndex("by_tenantId_and_role_and_teamId_and_meetingScheduledAt", (q) =>
         q
@@ -416,38 +400,56 @@ async function creditedMeetingIds(
           .lt("meetingScheduledAt", end),
       )
       .take(CREDITED_MEETING_LIMIT + 1);
-  } else {
-    return { meetingIds: [], truncated: false };
+    return {
+      meetingIds: rows.slice(0, CREDITED_MEETING_LIMIT).flatMap((row) => (row.meetingId ? [row.meetingId] : [])),
+      truncated: rows.length > CREDITED_MEETING_LIMIT,
+    };
+  };
+
+  if (!dmCloserId) {
+    return attributionTeamId ? await teamMeetings() : { meetingIds: [], truncated: false };
   }
 
-  const truncated = rows.length > CREDITED_MEETING_LIMIT;
-  const meetingIds = new Set<Id<"meetings">>();
-  for (const row of rows.slice(0, CREDITED_MEETING_LIMIT)) {
-    if (!row.meetingId) continue;
-    if (
-      dmCloserId &&
-      (row.source.kind !== "booking_utm" ||
-        row.source.dmCloserId !== dmCloserId)
-    ) {
+  const dmCloser = await ctx.db.get("dmClosers", dmCloserId);
+  if (!dmCloser || dmCloser.tenantId !== tenantId || !dmCloser.teamMemberId) {
+    return { meetingIds: [], truncated: false };
+  }
+  // The team member's rows can belong to another of their DM closer records,
+  // so the cap counts only this record's rows; the scan itself is bounded too.
+  const meetingIds: Id<"meetings">[] = [];
+  let scanned = 0;
+  let truncated = false;
+  for await (const row of ctx.db
+    .query("dealAttributions")
+    .withIndex("by_tenantId_and_role_and_teamMemberId_and_meetingScheduledAt", (q) =>
+      q
+        .eq("tenantId", tenantId)
+        .eq("role", "dm_closer")
+        .eq("teamMemberId", dmCloser.teamMemberId)
+        .gte("meetingScheduledAt", start)
+        .lt("meetingScheduledAt", end),
+    )) {
+    scanned += 1;
+    if (scanned > CREDITED_ROW_SCAN_LIMIT) {
+      truncated = true;
+      break;
+    }
+    if (!row.meetingId || row.source.kind !== "booking_utm" || row.source.dmCloserId !== dmCloserId) {
       continue;
     }
-    meetingIds.add(row.meetingId);
+    if (meetingIds.length === CREDITED_MEETING_LIMIT) {
+      truncated = true;
+      break;
+    }
+    meetingIds.push(row.meetingId);
   }
-  if (!dmCloserId || !attributionTeamId) {
-    return { meetingIds: [...meetingIds], truncated };
-  }
-  const withTeam = await Promise.all(
-    [...meetingIds].map(async (meetingId) =>
-      (await attributionsForMeeting(ctx, tenantId, meetingId)).some(
-        (row) => row.role === "dm_team" && row.teamId === attributionTeamId,
-      )
-        ? meetingId
-        : null,
-    ),
-  );
+  if (!attributionTeamId) return { meetingIds, truncated };
+
+  const team = await teamMeetings();
+  const onTeam = new Set(team.meetingIds);
   return {
-    meetingIds: withTeam.filter((id): id is Id<"meetings"> => id !== null),
-    truncated,
+    meetingIds: meetingIds.filter((meetingId) => onTeam.has(meetingId)),
+    truncated: truncated || team.truncated,
   };
 }
 
