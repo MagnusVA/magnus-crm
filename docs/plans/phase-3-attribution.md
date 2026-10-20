@@ -306,6 +306,20 @@ A reassignment adds a `closer` row with source `reassignment` and never removes 
 - `moveMeetingToOpportunity` moves the meeting's rows to the new deal.
 - `mergeTeamMembers` repoints `dealAttributions.teamMemberId`, role by role, in pages, as it does events.
 
+### 4.9 One row per fact
+
+The table has no unique constraint, so every writer checks for its row before inserting, in the same mutation. Convex mutations are serializable transactions, so a check and an insert in one mutation can't race another writer, and a retried or resumed batch finds the row the first attempt wrote. Each row's identity:
+
+| Row | Identity | Writers |
+| --- | --- | --- |
+| `dm_team`, `dm_closer`, booking `closer` | the meeting: one set per booking | `recordBookingAttribution` skips a meeting that already has booking rows; the live booking and `backfillBookingAttributions` both call it |
+| `lead_gen` | the deal: one | `recordDealCreation` skips a deal that has one; the live deal and `backfillDealAttributions` both call it |
+| `setter` | the deal and the setter's team member | `recordSetterAttribution` skips a setter the deal already credits |
+| side deal `closer` | the deal | `recordDealCreation` skips a deal that has one |
+| `reassignment` `closer` | the reassignment: written once by the mutation that reassigns | live only; nothing backfills them except a meeting's `reassignedFromCloserId` |
+
+Rebooks, reassignments and second setters are separate facts and get their own rows. `assertBookingAttributions` and `assertDealAttributions` fail on a second row with the same identity.
+
 ## 5. Write paths
 
 | Event | Where | Change |
@@ -411,7 +425,7 @@ Expected: 89,761 persons with both touches (§2.8), plus the persons created in 
 
 ### 10.2 `backfillDealTouches` / `assertDealTouches` (PR 1)
 
-Over `opportunities`, batch 100. The snapshot is the person's earliest and latest touch at or before the deal's `createdAt`, plus the event that created the deal: its `opportunity.created`, or for a Calendly deal or side deal its earliest meeting's `meeting.created`. Expected: all 11,403 deals get both.
+Over `opportunities`, batch 100. The snapshot is the person's earliest and latest touch at or before the deal's `createdAt`, plus the event that created the deal: its `opportunity.created` for a Slack deal or side deal, or its earliest meeting's `meeting.created` for a Calendly deal. Expected: all 11,403 deals get both.
 
 ### 10.3 `backfillBookingAttributions` / `backfillDealAttributions` and their asserts (PR 1)
 
@@ -425,15 +439,19 @@ Total about 30,100 rows.
 
 ### 10.4 Parity (PR 1, run before the reader PRs deploy)
 
-`assertQualificationAttributionParity`, over `operationsQualificationRows`: the team and DM closer from the deal's first booking's rows equal the row's copy, for all 8,510.
+Every reader takes its credit from one of two places, and each has a check that compares it with the copies over the whole table:
 
-`attribution/parity.ts:compareReaders`, an internal query that computes each report both ways and returns the differences:
+| Reader | Reads | Proved by |
+| --- | --- | --- |
+| Booked Calls rows and labels, the details list and search, the operations report's booked rows, sales calls labels, meeting detail, billing labels | one meeting's booking rows | `assertBookingAttributions`: every one of the 6,798 meetings' rows equals its copied team and DM closer |
+| Qualifications queue, deal detail, billing for a payment without a meeting | the deal's first booking's rows | `assertQualificationAttributionParity`: for all 8,510 qualification rows, the team, DM closer and badge from the deal's first booking equal the row's copy; and `assertBookingAttributions` for the first bookings themselves |
 
-- Booked Calls for each month from 2026-05 and the last 7 days: DM closer counts, the total, and team progress both with and without the team-only bookings;
-- the two show-rate reports for each team and each DM closer, for each month;
-- the operations report's booked rows for one month.
+The counts are checked as well, by internal queries in `attribution/parity.ts` that compute each report both ways and return the differences:
 
-Every "none" in §7 must come back with no difference. The results go into §13.
+- `compareBookedCalls`, for each month from 2026-05 and the last 7 days: DM closer counts, the total, and team progress both within the DM-closer population and with the team-only bookings;
+- `compareShowRateFilter`, for each team and each DM closer, for each month.
+
+The lead gen conversion counts don't change source; their tests pin them. Every "none" in §7 must come back with no difference before the reader PRs deploy. The results go into §13.
 
 ### 10.5 `clearAttributionCopies` / `assertAttributionCopiesCleared` (PR 6)
 
@@ -445,12 +463,14 @@ The existing migration, run with `reset`: it re-queues every meeting (6,798), an
 
 ### 10.7 Commands
 
-Every run uses `--env-file .env.vercel.production`. Poll `npx convex run --component migrations lib:getStatus '{"names":["migrations:<name>"]}'` until `isDone`. Filter dry-run output with `grep -E '"processed"|"DryRun"|error'`.
+Every command runs against production with `--env-file .env.vercel.production`; without it the CLI targets the dev deployment. Filter dry-run output with `grep -E '"processed"|"DryRun"|error'`.
 
 ```
-npx convex run migrations:run '{"fn":"migrations:backfillPersonTouches","dryRun":true}'
-npx convex run migrations:run '{"fn":"migrations:backfillPersonTouches"}'
-npx convex run migrations:run '{"fn":"migrations:assertPersonTouches"}'
+npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:backfillPersonTouches","dryRun":true}'
+npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:backfillPersonTouches"}'
+npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:backfillPersonTouches"]}'
+npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertPersonTouches"}'
+npx convex run --env-file .env.vercel.production attribution/parity:compareBookedCalls '{"tenantId":"k57dqjfyf8qqy31bq375ng8gb984b24q","start":<ms>,"end":<ms>}'
 ```
 
 and the same for each migration in §9's order.
