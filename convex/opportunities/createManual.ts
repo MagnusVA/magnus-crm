@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
+import { recordDealCreation } from "../lib/attribution/dealAttributions";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { recordOpportunity } from "../lib/leadLifecycle";
 import { isPlaceholderEmail, normalizeEmail } from "../lib/normalization";
@@ -252,6 +253,7 @@ export const createManual = mutation({
       occurredAt: now,
       metadata: { source: "side_deal", assignedCloserId },
     });
+    await recordDealCreation(ctx, opportunityId);
 
     return { opportunityId, leadId, leadWasCreated };
   },

@@ -1,7 +1,8 @@
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
+import { recordCloserReassignment } from "../lib/attribution/dealAttributions";
 import { log } from "../lib/observability/log";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMeetingsAssignedCloser";
@@ -126,6 +127,7 @@ export const autoDistributeMeetings = mutation({
 
     const meetingsToAssign: Array<{
       meetingId: (typeof args.meetingIds)[number];
+      meetingDoc: Doc<"meetings">;
       opportunityId: Id<"opportunities">;
       scheduledAt: number;
       durationMinutes: number;
@@ -181,6 +183,7 @@ export const autoDistributeMeetings = mutation({
 
       meetingsToAssign.push({
         meetingId,
+        meetingDoc: meeting,
         opportunityId: meeting.opportunityId,
         scheduledAt: meeting.scheduledAt,
         durationMinutes: meeting.durationMinutes,
@@ -260,6 +263,14 @@ export const autoDistributeMeetings = mutation({
         unavailabilityId: args.unavailabilityId,
         reassignedByUserId: userId,
         reassignedAt: now,
+      });
+      await recordCloserReassignment(ctx, {
+        tenantId,
+        opportunityId: meeting.opportunityId,
+        meeting: meeting.meetingDoc,
+        toUserId: bestCandidate.closerId,
+        fromUserId: meeting.fromCloserId,
+        at: now,
       });
 
       bestCandidate.meetings.push({
@@ -390,6 +401,14 @@ export const manuallyResolveMeeting = mutation({
         unavailabilityId: args.unavailabilityId,
         reassignedByUserId: userId,
         reassignedAt: now,
+      });
+      await recordCloserReassignment(ctx, {
+        tenantId,
+        opportunityId: opportunity._id,
+        meeting,
+        toUserId: targetCloser._id,
+        fromUserId: unavailability.closerId,
+        at: now,
       });
 
       log.info("unavailability.redistribution.manual_assigned", {

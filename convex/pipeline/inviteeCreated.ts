@@ -18,6 +18,10 @@ import { validateTransition } from "../lib/statusTransitions";
 import { extractUtmParams } from "../lib/utmParams";
 import { clampUtmValue } from "../lib/attribution/normalize";
 import {
+	recordBookingAttribution,
+	recordDealCreation,
+} from "../lib/attribution/dealAttributions";
+import {
 	attributionPatch,
 	isInternalUtm,
 	resolveAttributionForTenant,
@@ -166,6 +170,28 @@ async function patchFirstExternalBookingCaches(
 		firstMeetingAt: args.scheduledAt,
 		...utmPatch,
 		...attributionPatch(args.resolvedAttribution),
+	});
+}
+
+/**
+ * The booking's attribution rows (docs/plans/phase-3-attribution.md §4.1),
+ * written right after each meeting insert.
+ */
+async function recordMeetingBookingAttribution(
+	ctx: MutationCtx,
+	meetingId: Id<"meetings">,
+	resolvedAttribution: ResolvedAttribution,
+) {
+	const meeting = await ctx.db.get("meetings", meetingId);
+	if (!meeting) {
+		throw new Error("[Pipeline] Meeting disappeared after insert");
+	}
+	await recordBookingAttribution(ctx, {
+		meeting,
+		credit: {
+			teamId: resolvedAttribution.teamId,
+			dmCloserId: resolvedAttribution.dmCloserId,
+		},
 	});
 }
 
@@ -991,6 +1017,11 @@ export const process = internalMutation({
 						...attributionPatch(resolvedAttribution),
 						rescheduledFromMeetingId,
 					});
+					await recordMeetingBookingAttribution(
+						ctx,
+						meetingId,
+						resolvedAttribution,
+					);
 					await patchFirstExternalBookingCaches(ctx, {
 						opportunity: targetOpportunity,
 						meetingId,
@@ -1331,6 +1362,7 @@ export const process = internalMutation({
 				...attributionPatch(resolvedAttribution),
 				rescheduledFromMeetingId,
 			});
+			await recordMeetingBookingAttribution(ctx, meetingId, resolvedAttribution);
 			await patchFirstExternalBookingCaches(ctx, {
 				opportunity: autoRescheduleTarget,
 				meetingId,
@@ -1466,6 +1498,7 @@ export const process = internalMutation({
 		let meetingEventTypeConfigId: Id<"eventTypeConfigs"> | undefined =
 			eventTypeConfigId;
 		let slackJoinEventOpportunityId: Id<"opportunities"> | undefined;
+		let createdOpportunityId: Id<"opportunities"> | undefined;
 		if (slackQualifiedOpportunity) {
 			const reopensStaleDeal = wasStaleExpiredAfter(slackQualifiedOpportunity, now);
 			if (
@@ -1593,6 +1626,7 @@ export const process = internalMutation({
 				utmParams,
 				potentialDuplicateLeadId: resolution.potentialDuplicateLeadId,
 			});
+			createdOpportunityId = opportunityId;
 			await insertOpportunityAggregate(ctx, opportunityId);
 			await updateTenantStats(ctx, tenantId, {
 				totalOpportunities: 1,
@@ -1647,6 +1681,7 @@ export const process = internalMutation({
 			...bookedProgramPatch(meetingEventTypeConfig),
 			...attributionPatch(resolvedAttribution),
 		});
+		await recordMeetingBookingAttribution(ctx, meetingId, resolvedAttribution);
 		await patchFirstExternalBookingCaches(ctx, {
 			opportunity: opportunityForFirstBooking,
 			meetingId,
@@ -1678,6 +1713,12 @@ export const process = internalMutation({
 			},
 			occurredAt: now,
 		});
+		// A new Calendly deal's snapshot includes the booking that created it,
+		// so it runs after meeting.created. A deal this booking joined keeps
+		// the one it got when it was created.
+		if (createdOpportunityId) {
+			await recordDealCreation(ctx, createdOpportunityId);
+		}
 		if (slackJoinEventOpportunityId) {
 			await emitDomainEvent(ctx, {
 				tenantId,

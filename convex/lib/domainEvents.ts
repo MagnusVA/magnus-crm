@@ -2,6 +2,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { deriveDomainEventLinks } from "./domainEventLinks";
 import { captureDomainEvent } from "./observability/posthog";
+import { recordPersonTouch } from "./touches";
 
 export type DomainEventEntityType =
   | "opportunity"
@@ -58,6 +59,15 @@ export async function emitDomainEvent(
     metadata: params.metadata ? JSON.stringify(params.metadata) : undefined,
     leadId,
     teamMemberId,
+  });
+
+  await recordPersonTouch(ctx, {
+    tenantId: params.tenantId,
+    leadId,
+    eventId: domainEventId,
+    eventType: params.eventType,
+    occurredAt,
+    metadataSource: params.metadata?.source,
   });
 
   if (!params.skipAnalytics) {

@@ -5,6 +5,7 @@ import { LIFECYCLE_STAGE_LABELS, type LifecycleStage } from "../leads/lifecycle"
 import { EVENT_LABELS } from "../reporting/lib/eventLabels";
 import { getUserDisplayName } from "../reporting/lib/helpers";
 import { requireTenantUser } from "../requireTenantUser";
+import { mergedLeadIds } from "../lib/mergedLeads";
 import {
   createLiveReadState,
   LIVE_QUERY_BYTE_BUDGET,
@@ -18,8 +19,6 @@ import { canViewPaymentDetail, isAdminRole } from "./permissions";
 
 export const TIMELINE_PAGE_SIZE = 100;
 const TIMELINE_MAX_LIMIT = 1000;
-// Far above the leads merged into one person.
-const MERGED_SOURCE_LIMIT = 20;
 
 export type TimelineEntry = {
   eventId: Id<"domainEvents">;
@@ -145,30 +144,6 @@ const timelineEntryValidator = v.object({
   toStatus: v.union(v.string(), v.null()),
   detail: v.union(v.string(), v.null()),
 });
-
-/**
- * The person and every lead merged into them, following earlier merges too:
- * a merge doesn't repoint the history rows of leads merged into its source.
- */
-async function mergedLeadIds(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-  leadId: Id<"leads">,
-): Promise<Id<"leads">[]> {
-  const leadIds: Id<"leads">[] = [leadId];
-  for (let index = 0; index < leadIds.length && leadIds.length < MERGED_SOURCE_LIMIT; index += 1) {
-    const merges = await ctx.db
-      .query("leadMergeHistory")
-      .withIndex("by_targetLeadId", (q) => q.eq("targetLeadId", leadIds[index]))
-      .take(MERGED_SOURCE_LIMIT);
-    for (const merge of merges) {
-      if (merge.tenantId === tenantId && !leadIds.includes(merge.sourceLeadId) && leadIds.length < MERGED_SOURCE_LIMIT) {
-        leadIds.push(merge.sourceLeadId);
-      }
-    }
-  }
-  return leadIds;
-}
 
 export const getLeadTimeline = query({
   args: { leadId: v.id("leads"), limit: v.optional(v.number()) },

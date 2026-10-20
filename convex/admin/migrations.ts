@@ -22,6 +22,10 @@ import {
   extractQuestionsAndAnswers,
   writeMeetingFormResponses,
 } from "../lib/meetingFormResponses";
+import {
+  deleteDealAttributions,
+  deleteMeetingAttributions,
+} from "../lib/attribution/dealAttributions";
 import { countsAsLead } from "../lib/leadLifecycle";
 import { log } from "../lib/observability/log";
 import { getString, isRecord } from "../lib/payloadExtraction";
@@ -2255,8 +2259,9 @@ export const auditPaymentCurrencies = query({
 // Blocker A: opportunities whose meetings have no assignedCloserId
 //   (the Calendly host could not be mapped to a closer user).
 //   → cascade-deletes: opportunity, meetings, followUps, paymentRecords,
-//     meetingFormResponses, meetingReassignments, domainEvents, and any
-//     customers whose winningOpportunityId points to the deleted opportunity.
+//     meetingFormResponses, meetingReassignments, dealAttributions,
+//     domainEvents, and any customers whose winningOpportunityId points to
+//     the deleted opportunity.
 //
 // Blocker B: paymentRecords that still carry the legacy `amount` field
 //   (cannot be stripped while the deployed schema still requires it).
@@ -2460,14 +2465,20 @@ export const purgePhase6BlockerRecords = mutation({
         }
       }
 
-      // 10. Delete meetings
+      // 10. Delete meetings, with their attribution rows
       for (const meeting of oppMeetings) {
+        await deleteMeetingAttributions(ctx, meeting.tenantId, meeting._id);
         await requestMeetingProjection(ctx, meeting.tenantId, meeting._id);
         await ctx.db.delete("meetings", meeting._id);
         counts.meetings++;
       }
 
-      // 11. Delete the opportunity
+      // 11. Delete the opportunity, with the rest of its attribution rows
+      if (opportunity) {
+        while (!(await deleteDealAttributions(ctx, opportunity.tenantId, oppId))) {
+          // Each call deletes one page.
+        }
+      }
       await ctx.db.delete("opportunities", oppId);
       counts.opportunities++;
     }

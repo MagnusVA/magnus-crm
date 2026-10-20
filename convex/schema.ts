@@ -10,7 +10,10 @@ import {
 import {
   attributionResolutionValidator,
   bookingProgramMappingStatusValidator,
+  dealAttributionRoleValidator,
+  dealAttributionSourceValidator,
 } from "./lib/attribution/validators";
+import { touchSnapshotValidator } from "./lib/touchValidators";
 import {
   leadCustomerCustomerStatusValidator,
   leadCustomerLeadStatusValidator,
@@ -557,6 +560,12 @@ export default defineSchema({
     // assert then stops comparing the stage with the lead's records.
     lifecycleStageMovedBackAt: v.optional(v.number()),
     // === End Phase 1 ===
+
+    // The person's first touch, set once from the earliest touch event, and
+    // their latest (docs/plans/phase-3-attribution.md §4.5). Optional: a
+    // person is inserted before the event that touches them.
+    firstTouch: v.optional(touchSnapshotValidator),
+    latestTouch: v.optional(touchSnapshotValidator),
   })
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: identity resolution scans the 50 newest leads
     .index("by_tenantId", ["tenantId"])
@@ -953,6 +962,11 @@ export default defineSchema({
     // Cleared when a merge is performed (Feature C) or manually dismissed.
     potentialDuplicateLeadId: v.optional(v.id("leads")),
     // === End Feature E ===
+
+    // The person's first and latest touch when this deal was created. Never
+    // changed afterwards (docs/plans/phase-3-attribution.md §4.2).
+    firstTouch: v.optional(touchSnapshotValidator),
+    latestTouch: v.optional(touchSnapshotValidator),
   })
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: the opportunity list paginates newest first
     .index("by_tenantId", ["tenantId"])
@@ -1129,6 +1143,51 @@ export default defineSchema({
         "activityMonthKey",
       ],
     }),
+
+  // Credit: one row per deal, role and team member, and for the roles a
+  // booking credits, one per booking (docs/plans/phase-3-attribution.md §3.1).
+  // Rows are only added; reassigning a meeting adds a closer row.
+  dealAttributions: defineTable({
+    tenantId: v.id("tenants"),
+    opportunityId: v.id("opportunities"),
+    role: dealAttributionRoleValidator,
+    // The human credited. Every role but dm_team.
+    teamMemberId: v.optional(v.id("teamMembers")),
+    // The team credited. dm_team only.
+    teamId: v.optional(v.id("attributionTeams")),
+    source: dealAttributionSourceValidator,
+    // The booking or meeting the row came from, and its scheduled time, which
+    // no code changes after the meeting is inserted.
+    meetingId: v.optional(v.id("meetings")),
+    meetingScheduledAt: v.optional(v.number()),
+    // When the fact happened: the capture, the qualification, the booking
+    // (the meeting's createdAt) or the reassignment.
+    attributedAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_tenantId_and_opportunityId_and_role", [
+      "tenantId",
+      "opportunityId",
+      "role",
+    ])
+    .index("by_tenantId_and_meetingId", ["tenantId", "meetingId"])
+    .index("by_tenantId_and_role_and_attributedAt", [
+      "tenantId",
+      "role",
+      "attributedAt",
+    ])
+    .index("by_tenantId_and_role_and_teamMemberId_and_meetingScheduledAt", [
+      "tenantId",
+      "role",
+      "teamMemberId",
+      "meetingScheduledAt",
+    ])
+    .index("by_tenantId_and_role_and_teamId_and_meetingScheduledAt", [
+      "tenantId",
+      "role",
+      "teamId",
+      "meetingScheduledAt",
+    ]),
 
   slackQualificationEvents: defineTable({
     tenantId: v.id("tenants"),

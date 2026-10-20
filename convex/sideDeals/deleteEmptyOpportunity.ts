@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
+import { deleteDealAttributions } from "../lib/attribution/dealAttributions";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { isSideDeal } from "../lib/sideDeals";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
@@ -123,6 +124,10 @@ export const deleteEmptyOpportunity = mutation({
 
     for (const followUp of followUps) {
       await ctx.db.delete("followUps", followUp._id);
+    }
+    // An empty side deal has its one closer row, far below a page.
+    if (!(await deleteDealAttributions(ctx, tenantId, opportunityId))) {
+      throw new Error("Too many attribution rows are attached to delete safely.");
     }
     await deleteOpportunityAggregate(ctx, opportunity);
     await updateTenantStats(ctx, tenantId, {

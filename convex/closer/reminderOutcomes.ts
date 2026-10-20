@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
 import { executeConversion } from "../customers/conversion";
+import { recordCloserReassignment } from "../lib/attribution/dealAttributions";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
 import { recordPayment } from "../lib/leadLifecycle";
@@ -192,12 +193,12 @@ export const logReminderPayment = mutation({
       programName: program.name,
     });
 
+    const reassignsCloser =
+      role !== "closer" && opportunity.assignedCloserId !== followUp.closerId;
     await transitionOpportunity(ctx, opportunity._id, {
       to: "payment_received",
       fields: {
-        ...(role !== "closer" && opportunity.assignedCloserId !== followUp.closerId
-          ? { assignedCloserId: followUp.closerId }
-          : {}),
+        ...(reassignsCloser ? { assignedCloserId: followUp.closerId } : {}),
         paymentReceivedAt: now,
         updatedAt: now,
       },
@@ -206,6 +207,17 @@ export const logReminderPayment = mutation({
       metadata: { paymentId, followUpId: args.followUpId },
       occurredAt: now,
     });
+    if (reassignsCloser) {
+      // The deal moves to the reminder's closer: a reassignment of the deal,
+      // not of a meeting (docs/plans/phase-3-attribution.md §4.6).
+      await recordCloserReassignment(ctx, {
+        tenantId,
+        opportunityId: opportunity._id,
+        toUserId: followUp.closerId,
+        fromUserId: opportunity.assignedCloserId,
+        at: now,
+      });
+    }
     await applyPaymentStatsDelta(ctx, tenantId, {
       commissionable: true,
       paymentType,
