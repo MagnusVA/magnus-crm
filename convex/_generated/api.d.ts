@@ -18,7 +18,6 @@ import type * as admin_supportTickets from "../admin/supportTickets.js";
 import type * as admin_tenants from "../admin/tenants.js";
 import type * as admin_tenantsMutations from "../admin/tenantsMutations.js";
 import type * as admin_tenantsQueries from "../admin/tenantsQueries.js";
-import type * as attribution_backfills from "../attribution/backfills.js";
 import type * as attribution_dmClosers from "../attribution/dmClosers.js";
 import type * as attribution_parity from "../attribution/parity.js";
 import type * as attribution_teamMemberRepoint from "../attribution/teamMemberRepoint.js";
@@ -221,6 +220,7 @@ import type * as operations_meetingProjectionSchema from "../operations/meetingP
 import type * as operations_meetingStats from "../operations/meetingStats.js";
 import type * as operations_phoneSales from "../operations/phoneSales.js";
 import type * as operations_projections from "../operations/projections.js";
+import type * as operations_qualificationCredit from "../operations/qualificationCredit.js";
 import type * as operations_qualifications from "../operations/qualifications.js";
 import type * as operations_qualificationsDashboard from "../operations/qualificationsDashboard.js";
 import type * as operations_reportingReadiness from "../operations/reportingReadiness.js";
@@ -386,7 +386,6 @@ declare const fullApi: ApiFromModules<{
   "admin/tenants": typeof admin_tenants;
   "admin/tenantsMutations": typeof admin_tenantsMutations;
   "admin/tenantsQueries": typeof admin_tenantsQueries;
-  "attribution/backfills": typeof attribution_backfills;
   "attribution/dmClosers": typeof attribution_dmClosers;
   "attribution/parity": typeof attribution_parity;
   "attribution/teamMemberRepoint": typeof attribution_teamMemberRepoint;
@@ -589,6 +588,7 @@ declare const fullApi: ApiFromModules<{
   "operations/meetingStats": typeof operations_meetingStats;
   "operations/phoneSales": typeof operations_phoneSales;
   "operations/projections": typeof operations_projections;
+  "operations/qualificationCredit": typeof operations_qualificationCredit;
   "operations/qualifications": typeof operations_qualifications;
   "operations/qualificationsDashboard": typeof operations_qualificationsDashboard;
   "operations/reportingReadiness": typeof operations_reportingReadiness;

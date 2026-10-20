@@ -6,13 +6,13 @@ import type { QueryCtx } from "../_generated/server";
 import { leadDisplayFromShape } from "../lib/leadDisplay";
 import { LIVE_QUERY_BYTE_BUDGET } from "../lib/liveQueryBounds";
 import {
-  dmCloserMemberIdentity,
   slackMemberIdentity,
   unknownMemberIdentity,
   userMemberIdentity,
 } from "../lib/memberIdentity";
 import { opportunityStatusValidator } from "../opportunities/validators";
 import { requireTenantUser } from "../requireTenantUser";
+import { loadQualificationRowCredits } from "./qualificationCredit";
 
 type QualificationRowDoc = Doc<"operationsQualificationRows">;
 
@@ -22,8 +22,6 @@ type QualificationFilterArgs = {
   bookingProgramId?: Id<"tenantPrograms">;
   soldProgramId?: Id<"tenantPrograms">;
   slackUserId?: string;
-  attributionTeamId?: Id<"attributionTeams">;
-  dmCloserId?: Id<"dmClosers">;
   qualifiedAfter?: number;
   qualifiedBefore?: number;
 };
@@ -34,8 +32,6 @@ function assertSinglePrimaryFilter(args: QualificationFilterArgs) {
     args.bookingProgramId,
     args.soldProgramId,
     args.slackUserId,
-    args.attributionTeamId,
-    args.dmCloserId,
   ].filter(Boolean).length;
 
   if (primaryFilterCount > 1) {
@@ -103,34 +99,6 @@ function qualificationRowsQuery(ctx: QueryCtx, args: QualificationFilterArgs) {
       });
   }
 
-  if (args.attributionTeamId) {
-    return ctx.db
-      .query("operationsQualificationRows")
-      .withIndex("by_tenantId_and_attributionTeamId_and_qualifiedAt", (q) => {
-        const base = q
-          .eq("tenantId", args.tenantId)
-          .eq("attributionTeamId", args.attributionTeamId);
-        const ranged = base.gte("qualifiedAt", args.qualifiedAfter ?? 0);
-        return args.qualifiedBefore === undefined
-          ? ranged
-          : ranged.lt("qualifiedAt", args.qualifiedBefore);
-      });
-  }
-
-  if (args.dmCloserId) {
-    return ctx.db
-      .query("operationsQualificationRows")
-      .withIndex("by_tenantId_and_dmCloserId_and_qualifiedAt", (q) => {
-        const base = q
-          .eq("tenantId", args.tenantId)
-          .eq("dmCloserId", args.dmCloserId);
-        const ranged = base.gte("qualifiedAt", args.qualifiedAfter ?? 0);
-        return args.qualifiedBefore === undefined
-          ? ranged
-          : ranged.lt("qualifiedAt", args.qualifiedBefore);
-      });
-  }
-
   return ctx.db
     .query("operationsQualificationRows")
     .withIndex("by_tenantId_and_qualifiedAt", (q) => {
@@ -164,20 +132,6 @@ async function enrichQualificationRows(
   const leadIds = [
     ...new Set(rows.map((row) => row.leadId).filter((id): id is Id<"leads"> => Boolean(id))),
   ];
-  const teamIds = [
-    ...new Set(
-      rows
-        .map((row) => row.attributionTeamId)
-        .filter((id): id is Id<"attributionTeams"> => Boolean(id)),
-    ),
-  ];
-  const dmCloserIds = [
-    ...new Set(
-      rows
-        .map((row) => row.dmCloserId)
-        .filter((id): id is Id<"dmClosers"> => Boolean(id)),
-    ),
-  ];
   const userIds = [
     ...new Set(
       rows
@@ -187,11 +141,9 @@ async function enrichQualificationRows(
   ];
   const slackUserIds = [...new Set(rows.map((row) => row.slackUserId))];
 
-  const [events, leads, teams, dmClosers, users, slackUsers] = await Promise.all([
+  const [events, leads, users, slackUsers, creditFor] = await Promise.all([
     Promise.all(eventIds.map((id) => ctx.db.get("slackQualificationEvents", id))),
     Promise.all(leadIds.map((id) => ctx.db.get("leads", id))),
-    Promise.all(teamIds.map((id) => ctx.db.get("attributionTeams", id))),
-    Promise.all(dmCloserIds.map((id) => ctx.db.get("dmClosers", id))),
     Promise.all(userIds.map((id) => ctx.db.get("users", id))),
     Promise.all(
       slackUserIds.map((slackUserId) =>
@@ -203,14 +155,11 @@ async function enrichQualificationRows(
           .unique(),
       ),
     ),
+    loadQualificationRowCredits(ctx, tenantId, rows),
   ]);
 
   const eventById = new Map(events.filter(isNonNull).map((event) => [event._id, event]));
   const leadById = new Map(leads.filter(isNonNull).map((lead) => [lead._id, lead]));
-  const teamById = new Map(teams.filter(isNonNull).map((team) => [team._id, team]));
-  const dmCloserById = new Map(
-    dmClosers.filter(isNonNull).map((dmCloser) => [dmCloser._id, dmCloser]),
-  );
   const userById = new Map(users.filter(isNonNull).map((user) => [user._id, user]));
   const slackUserBySlackId = new Map(
     slackUsers
@@ -221,27 +170,16 @@ async function enrichQualificationRows(
   return await Promise.all(rows.map(async (row) => {
     const event = eventById.get(row.qualificationEventId);
     const lead = row.leadId ? leadById.get(row.leadId) : undefined;
-    const team = row.attributionTeamId
-      ? teamById.get(row.attributionTeamId)
-      : undefined;
-    const dmCloser = row.dmCloserId
-      ? dmCloserById.get(row.dmCloserId)
-      : undefined;
     const assignedCloser = row.assignedCloserId
       ? userById.get(row.assignedCloserId)
       : undefined;
     const slackUser = slackUserBySlackId.get(row.slackUserId);
-    const linkedDmCloserUserCandidate =
-      dmCloser?.userId
-        ? (userById.get(dmCloser.userId) ?? await ctx.db.get("users", dmCloser.userId))
-        : undefined;
-    const linkedDmCloserUser =
-      linkedDmCloserUserCandidate?.tenantId === tenantId
-        ? linkedDmCloserUserCandidate
-        : undefined;
 
     return {
       ...row,
+      // The deal's first booking credit, which the row's copied
+      // attributionTeamId, dmCloserId and attributionResolution held.
+      ...creditFor(row),
       fullNameSnapshot: event?.fullNameSnapshot ?? "Unknown lead",
       handleSnapshot: event?.handleSnapshot ?? "",
       platform: event?.platform ?? "other_social",
@@ -254,11 +192,6 @@ async function enrichQualificationRows(
         : event?.fullNameSnapshot ?? "Unknown lead",
       slackUserLabel: slackUserLabel(slackUser),
       slackUser: slackMemberIdentity(slackUser, `slack:${row.slackUserId}`),
-      attributionTeamName: team?.displayName,
-      dmCloserName: dmCloser?.displayName,
-      dmCloser: dmCloser
-        ? await dmCloserMemberIdentity(ctx, dmCloser, linkedDmCloserUser)
-        : null,
       assignedCloserName:
         assignedCloser?.fullName ?? assignedCloser?.email ?? undefined,
       assignedCloser: assignedCloser
@@ -275,8 +208,6 @@ export const listQualificationQueue = query({
     bookingProgramId: v.optional(v.id("tenantPrograms")),
     soldProgramId: v.optional(v.id("tenantPrograms")),
     slackUserId: v.optional(v.string()),
-    attributionTeamId: v.optional(v.id("attributionTeams")),
-    dmCloserId: v.optional(v.id("dmClosers")),
     qualifiedAfter: v.optional(v.number()),
     qualifiedBefore: v.optional(v.number()),
   },
@@ -292,8 +223,6 @@ export const listQualificationQueue = query({
       bookingProgramId: args.bookingProgramId,
       soldProgramId: args.soldProgramId,
       slackUserId: args.slackUserId,
-      attributionTeamId: args.attributionTeamId,
-      dmCloserId: args.dmCloserId,
       qualifiedAfter: args.qualifiedAfter,
       qualifiedBefore: args.qualifiedBefore,
     })
@@ -319,8 +248,6 @@ export const searchQualificationQueue = query({
     bookingProgramId: v.optional(v.id("tenantPrograms")),
     soldProgramId: v.optional(v.id("tenantPrograms")),
     slackUserId: v.optional(v.string()),
-    attributionTeamId: v.optional(v.id("attributionTeams")),
-    dmCloserId: v.optional(v.id("dmClosers")),
     qualifiedAfter: v.optional(v.number()),
     qualifiedBefore: v.optional(v.number()),
   },
@@ -352,12 +279,6 @@ export const searchQualificationQueue = query({
         if (args.slackUserId) {
           search = search.eq("slackUserId", args.slackUserId);
         }
-        if (args.attributionTeamId) {
-          search = search.eq("attributionTeamId", args.attributionTeamId);
-        }
-        if (args.dmCloserId) {
-          search = search.eq("dmCloserId", args.dmCloserId);
-        }
         return search;
       })
       .take(50);
@@ -381,7 +302,7 @@ export const listQualificationFilterOptions = query({
       "tenant_admin",
     ]);
 
-    const [programs, slackUsers, attributionTeams, dmClosers, closers] = await Promise.all([
+    const [programs, slackUsers, closers] = await Promise.all([
       ctx.db
         .query("tenantPrograms")
         .withIndex("by_tenantId_and_archivedAt", (q) => q.eq("tenantId", tenantId))
@@ -389,14 +310,6 @@ export const listQualificationFilterOptions = query({
       ctx.db
         .query("slackUsers")
         .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-        .take(300),
-      ctx.db
-        .query("attributionTeams")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-        .take(200),
-      ctx.db
-        .query("dmClosers")
-        .withIndex("by_tenantId_and_teamId", (q) => q.eq("tenantId", tenantId))
         .take(300),
       ctx.db
         .query("users")
@@ -415,23 +328,6 @@ export const listQualificationFilterOptions = query({
         name: slackUserLabel(user) ?? user.slackUserId,
         identity: slackMemberIdentity(user, `slack:${user.slackUserId}`),
       })),
-      attributionTeams: attributionTeams
-        .filter((team) => team.isActive)
-        .map((team) => ({ id: team._id, name: team.displayName })),
-      dmClosers: await Promise.all(dmClosers
-        .filter((closer) => closer.isActive)
-        .map(async (closer) => {
-          const linkedUser = closer.userId ? await ctx.db.get("users", closer.userId) : null;
-          return {
-            id: closer._id,
-            name: closer.displayName,
-            identity: await dmCloserMemberIdentity(
-              ctx,
-              closer,
-              linkedUser?.tenantId === tenantId ? linkedUser : null,
-            ),
-          };
-        })),
       closers: await Promise.all(closers
         .filter((user) => user.role === "closer")
         .map(async (user) => ({
