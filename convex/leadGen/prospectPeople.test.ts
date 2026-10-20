@@ -128,6 +128,31 @@ describe("lead gen capture", () => {
     });
   });
 
+  it("returns the original capture for a keyed retry, even with another handle", async () => {
+    const harness = await setup();
+    const submit = (handle: string) =>
+      harness.admin.mutation(api.leadGen.capture.submit, {
+        source: "instagram",
+        rawHandleOrProfileUrl: `@${handle}`,
+        originKind: "follower",
+        clientSubmissionKey: "capture-retry-1",
+      });
+
+    const first = await submit("ana.lead");
+    const retry = await submit("different.lead");
+
+    expect(retry).toMatchObject({
+      submissionId: first.submissionId,
+      prospectId: first.prospectId,
+      leadId: first.leadId,
+      duplicateRetry: true,
+    });
+    expect(await leads(harness)).toHaveLength(1);
+    expect(await harness.t.run((ctx) => ctx.db.query("leadGenProspects").take(10))).toHaveLength(1);
+    expect(await harness.t.run((ctx) => ctx.db.query("leadGenSubmissions").take(10))).toHaveLength(1);
+    expect(await events(harness, "lead.captured")).toHaveLength(1);
+  });
+
   it("is one person across repeat captures, with a touch for each", async () => {
     const harness = await setup();
 

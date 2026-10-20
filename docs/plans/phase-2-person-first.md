@@ -250,18 +250,11 @@ Over `slackQualificationEvents`, batch 100: one `lead.slack_qualified` event per
 
 Every run uses `--env-file .env.vercel.production`. Poll `npx convex run --component migrations lib:getStatus '{"names":["migrations:<name>"]}'` until `isDone`. Filter dry-run output with `grep -E '"processed"|"DryRun"|error'`.
 
+The backfills and their asserts ran as §13 records and were removed in the narrow (§10.5). The health checks that stay:
+
 ```
-npx convex run migrations:run '{"fn":"migrations:linkProspectPeople","dryRun":true}'
-npx convex run migrations:run '{"fn":"migrations:linkProspectPeople"}'
-npx convex run migrations:run '{"fn":"migrations:assertProspectPeople"}'
-npx convex run migrations:run '{"fn":"migrations:backfillCaptureEvents"}'
-npx convex run migrations:run '{"fn":"migrations:assertCaptureEvents"}'
 npx convex run migrations:run '{"fn":"migrations:assertLeadLifecycle","reset":true}'
 npx convex run leads/lifecycleChecks:stageTotals '{"tenantId":"k57dqjfyf8qqy31bq375ng8gb984b24q"}'
-npx convex run migrations:run '{"fn":"migrations:backfillPortalTouches"}'
-npx convex run migrations:run '{"fn":"migrations:assertPortalTouches"}'
-npx convex run migrations:run '{"fn":"migrations:backfillSlackTouches"}'
-npx convex run migrations:run '{"fn":"migrations:assertSlackTouches"}'
 npx convex run migrations:run '{"fn":"migrations:assertDomainEventLinks","reset":true}'
 ```
 
