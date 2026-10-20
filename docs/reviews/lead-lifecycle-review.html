@@ -194,7 +194,8 @@
 <div class="box answer">
 <p><strong>Your read is right.</strong> The CRM has no record of a person until a Slack qualifier or a Calendly booking creates one. Lead gen and DM work happen outside the lead. One opportunity status field carries four different jobs. A customer is a second copy of the lead.</p>
 <p><strong>Whether it scales depends on what you mean by scale.</strong> At runtime it holds up. One tenant has about 10,800 opportunities and 19,000 identifiers, and the reads are bounded, the counts come from aggregates, and the webhook pipeline is durable. As a model it does not scale. Slack setters, lead gen and DM closers each arrived with their own person table, staff table, schedule table, attribution fields and projections. The next role will repeat the pattern. And the 68 people merged into 4 leads are the predictable result of deciding who someone is at booking time, with heuristics, instead of at first contact.</p>
-<p><strong>I would not rewrite it.</strong> Make the lead (I will call it the person) the first record in the funnel, and give each concern its own field. Lifecycle stage goes on the person. Stage and outcome go on the deal. Attendance goes on the meeting. Due dates go on tasks. Attribution goes to team members through one table. Section 7 splits this into six phases, revised after your decisions in section 9. Each phase ships on its own, using the widen, migrate, narrow pattern the repo already follows.</p>
+<p><strong>I would not rewrite it.</strong> Make the lead (I will call it the person) the first record in the funnel, and give each concern its own field. Lifecycle stage goes on the person. Stage and outcome go on the deal. Attendance goes on the meeting. Due dates go on tasks. Attribution goes to team members through one table. Section 7 splits this into seven phases, 0 to 6, revised after your decisions in section 9. Each phase ships on its own, using the widen, migrate, narrow pattern the repo already follows.</p>
+<p class="small muted">This answer describes the CRM on 14 October. By 20 October Phases 0 to 2 were done: a lead gen capture creates or finds the person at the Prospect stage, Slack qualifications and DM portal notes and edits are touches on that person, and a Calendly booking finds the person by the identifiers the invitee enters. Section 7 has each phase's status.</p>
 </div>
 
 <div class="grid4">
@@ -580,10 +581,10 @@
 
 <h3>Rules that make the model hold</h3>
 <ol>
-  <li><strong>Every channel creates or finds the person.</strong> Lead gen capture, the DM portal, Slack, Calendly and side deals all call the same identity function, so the person exists before any deal does. Every lead gen capture becomes a person in the Prospect stage (decision 1), keyed by the Instagram identifier, and the prospect row keeps a real <code>leadId</code>.</li>
+  <li><strong>Every channel that brings a person in creates or finds them.</strong> Lead gen capture, Slack, Calendly and side deals all call the same identity function, so the person exists before any deal does. The DM portal creates no one: DM closers work people Slack already qualified, and the Calendly booking finds its person by the identifiers the invitee enters (decision 4, revised 20 October). Every lead gen capture becomes a person in the Prospect stage (decision 1), keyed by the Instagram identifier, and the prospect row keeps a real <code>leadId</code>.</li>
   <li><strong>Identity uses strong keys only.</strong> Placeholder values never count as keys, and no time-window heuristic can join a booking to another deal. An ambiguous match goes to a review queue, the way <code>potentialDuplicateLeadId</code> works today.</li>
   <li><strong>Each fact has one owner.</strong> Attendance lives on the meeting, the next step on a task, and credit in deal attributions. Projections can copy them for speed, but a projection rebuilds from the owner and never the other way round.</li>
-  <li><strong>Attribution is resolved once.</strong> When a deal is created, the CRM writes attribution rows for the lead gen worker (from the prospect), the setter (from Slack), the DM team and closer (from UTMs) and the closer (from the host). Reassigning a meeting adds a row and never replaces one. There are no shares yet (decision 2). When commissions arrive, each row can take a share the way Salesforce splits do: revenue credit totalling 100%, or overlay credit with no cap, frozen when the deal is won.</li>
+  <li><strong>Attribution is resolved once.</strong> When a deal is created, the CRM writes attribution rows for the lead gen worker (from the prospect), the setter (from Slack), the DM team and DM closer (from UTMs) and the closer (from the host). Reassigning a meeting adds a row and never replaces one. There are no shares yet (decision 2). When commissions arrive, each row can take a share the way Salesforce splits do: revenue credit totalling 100%, or overlay credit with no cap, frozen when the deal is won.</li>
   <li><strong>The first source is frozen.</strong> The person keeps a first touch (who found them, through which channel) that nothing overwrites, plus a latest touch that updates. Each deal takes a snapshot of both when it is created, so later edits cannot change past commission.</li>
   <li><strong>Each entity has one write path.</strong> One function per entity, such as <code>transitionOpportunity(ctx, opportunityId, change)</code>, owns the state machine and domain events, and no other code patches <code>status</code>. Aggregates and projections that only copy data hang off <code>convex-helpers</code> triggers, so a new write path cannot forget them.</li>
   <li><strong>A customer is a stage, not a table.</strong> The person reaches Customer at their first payment. Each program they buy is an enrollment with its own active, paused or churned status. The contact fields stay on the person.</li>
@@ -605,7 +606,7 @@
 </table></div>
 
 <h3>Considered and not recommended (yet)</h3>
-<p>HubSpot's Leads object and iClosed's discovery calls give setter qualification its own record, with qualified and disqualified as final states, before any deal exists. That fits teams whose setters run a multi-step pipeline inside the CRM. Your setters qualify in one Slack step and send a booking link right away, so a deal that starts at Qualified, plus touches for the conversation, covers it with one entity fewer. Decision 4 tracks setter activity per person, but that activity happens in the DM portal and fits as touches. A separate record would only pay off if setters ran multi-step sequences inside the CRM.</p>
+<p>HubSpot's Leads object and iClosed's discovery calls give setter qualification its own record, with qualified and disqualified as final states, before any deal exists. That fits teams whose setters run a multi-step pipeline inside the CRM. Your setters qualify in one Slack step, and a DM closer then sends the booking link, so a deal that starts at Qualified, plus touches for the conversation, covers it with one entity fewer. Decision 4 tracks setter activity per person, and that activity fits as touches: each Slack qualification, and each DM portal note or edit. A separate record would only pay off if setters ran multi-step sequences inside the CRM.</p>
 
 <!-- ============================================================ -->
 <h2 id="roadmap"><span class="num">7</span>Migration path</h2>
@@ -686,6 +687,7 @@
     <div class="meta"><span class="pill med">Medium risk</span><span class="pill low">New table, then narrow the copies</span></div>
     <ul>
       <li><code>dealAttributions</code>: one row per deal, role and team member. Roles are lead gen, setter, DM closer and closer. Each row stores where it came from (prospect, Slack event, UTM or Calendly host) and when. Rows are written when a deal is created and when a booking joins it. Reassigning a meeting adds a row.</li>
+      <li>Each role comes from its own source, as the team works today: the lead gen worker from the prospect's first capture, the setter from the Slack qualification, the DM team and DM closer from the booking's UTMs, and the closer from the Calendly host. A booking's UTMs can name a DM team and no DM closer, so the rows hold team credit on its own; the Phase 3 plan decides whether that is a DM team role or a team on the row. The booking link names no person, and the booking finds its person by identifiers alone.</li>
       <li>The person keeps a frozen first touch and an updating latest touch.</li>
       <li>Booked Calls, qualifications and lead gen operations read attribution rows instead of copied columns. The six copies of <code>attributionTeamId</code> and <code>dmCloserId</code> retire as each reader moves.</li>
       <li>No shares and no commission fields (decision 2). When commissions arrive, add an optional share and a freeze-when-won rule to this table.</li>
@@ -729,7 +731,8 @@
       <li>Bound the open loops in <code>adminStats</code> and the closer dashboard with aggregates.</li>
       <li>Drop the roughly 24 unused indexes and the dead fields (<code>meetingOutcome</code>, <code>meetings.notes</code>, the legacy daily stats table), including the closer × source × status index combinations that Phase 5 frees.</li>
       <li>Pick one definition of "day" per screen and say which one in the UI.</li>
-      <li><strong>Ends with:</strong> no item from F11 open.</li>
+      <li>Count the activity report's summary from an aggregate instead of reading up to 10,000 events. Phase 2's touch events, about 1,000 a day, cut it off for ranges longer than about nine days.</li>
+      <li><strong>Ends with:</strong> no item from F11 open, and the activity summary counts every event in its range.</li>
     </ul>
   </div>
 </div>
@@ -758,7 +761,7 @@
     <tr><td>Should every lead gen capture become a person?</td><td>Yes. It is the default, and it makes reporting work.</td><td>Phase 2 creates a person for every capture and backfills all prospects. Phase 1 must first make lead counts stage-aware.</td></tr>
     <tr><td>Who gets credit, and how much?</td><td>No commissions yet. Attribution has to be tracked and shown correctly.</td><td>Phase 3 stores role-based attribution rows with no shares. Shares can be added later as one optional field.</td></tr>
     <tr><td>Is a second program a new deal?</td><td>Yes.</td><td>Phase 0 removes the Slack and side-deal rules that block it. Phase 4 adds enrollments.</td></tr>
-    <tr><td>Should setter activity be tracked per person?</td><td>Yes, through the DM portal they already use.</td><td>Phase 2 links portal activity to a person and puts the person ID in booking links.</td></tr>
+    <tr><td>Should setter activity be tracked per person?</td><td>Yes, through the DM portal they already use.</td><td>Phase 2 records each Slack qualification as a touch with the setter, and portal notes and edits as touches on their person. Revised 20 October: copied links name no person. The Calendly booking finds the person by the identifiers the invitee enters, and the UTMs name the team and DM closer.</td></tr>
     <tr><td>Will tenants run different funnels?</td><td>Not for now. The PT Domination funnel is locked, and most tenants will come through them.</td><td>Configurable pipelines are dropped. The stage list is defined once in code (phase 5).</td></tr>
   </tbody>
 </table></div>
