@@ -1,6 +1,6 @@
 # Phase 2: person first
 
-Status: done, 2026-10-20. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11 on 2026-10-19, and on 2026-10-20 revised the DM portal (§4.3). Code PRs #132 to #137 are merged and deployed, every backfill and assert passed in production, and the narrow (#138) deployed on 2026-10-20 at 07:16 with a lifecycle assert after it (§13).
+Status: done, 2026-10-20. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11 on 2026-10-19, and on 2026-10-20 revised the DM portal (§4.3). Code PRs #132 to #137 are merged and deployed, every backfill finished and every assert passed in production (`linkProspectPeople` failed one batch on its first run and finished on a resumed run), and the narrow (#138) deployed on 2026-10-20 at 07:16 with a lifecycle assert after it (§13).
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (findings F1, F3 and F9) and the Phase 2 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 1 is in [phase-1-foundations.md](phase-1-foundations.md).
 
