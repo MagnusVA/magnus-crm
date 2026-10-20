@@ -27,10 +27,16 @@ const CHANNEL_LABELS: Record<AttributionTouch["channel"], string> = {
   side_deal: "Side deal",
 };
 
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", { dateStyle: "medium" });
+// Business time (Honduras), so the server render and the browser agree.
+const DISPLAY_TIME_ZONE = "America/Tegucigalpa";
+const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  dateStyle: "medium",
+  timeZone: DISPLAY_TIME_ZONE,
+});
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
   dateStyle: "medium",
   timeStyle: "short",
+  timeZone: DISPLAY_TIME_ZONE,
 });
 
 const DEFAULT_LABEL_CLASS = "text-xs font-medium text-muted-foreground";
