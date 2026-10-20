@@ -1,3 +1,4 @@
+import { readMeetingStatsCounts } from "../operations/meetingStats";
 import { requireReportingReady } from "../operations/reportingReadiness";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -35,7 +36,6 @@ const REPORT_ROW_CAP = 2000;
 const MAX_UNRESOLVED_REMINDER_SCAN_ROWS = REPORT_ROW_CAP + 1;
 const MAX_NO_SHOW_SCAN_ROWS = REPORT_ROW_CAP + 1;
 const MAX_LOSS_SCAN_ROWS = REPORT_ROW_CAP + 1;
-const MAX_OPERATIONS_STATS_ROWS = 8192;
 const STALE_THRESHOLD_MS = 14 * 24 * 60 * 60 * 1000;
 
 type NoShowSource = "closer" | "calendly_webhook" | "none";
@@ -411,6 +411,15 @@ export const getSchedulingShowRateByOperationsDimensions = query({
     attributionTeamId: v.optional(v.id("attributionTeams")),
     dmCloserId: v.optional(v.id("dmClosers")),
   },
+  returns: v.object({
+    scheduled: v.number(),
+    shown: v.number(),
+    canceled: v.number(),
+    noShows: v.number(),
+    showRate: v.union(v.number(), v.null()),
+    noShowRate: v.union(v.number(), v.null()),
+    truncated: v.boolean(),
+  }),
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
@@ -422,34 +431,21 @@ export const getSchedulingShowRateByOperationsDimensions = query({
       throw new Error("startDayKey must be before endDayKeyExclusive");
     }
 
-    const rows = await ctx.db
-      .query("operationsMeetingStatsV2")
-      .withIndex("by_tenantId_and_dayKey", (q) =>
-        q
-          .eq("tenantId", tenantId)
-          .gte("dayKey", args.startDayKey)
-          .lt("dayKey", args.endDayKeyExclusive),
-      )
-      .take(MAX_OPERATIONS_STATS_ROWS + 1);
-
-    const filtered = rows.slice(0, MAX_OPERATIONS_STATS_ROWS).filter((row) => {
-      if (
-        args.bookingProgramId &&
-        row.bookingProgramId !== args.bookingProgramId
-      ) {
-        return false;
-      }
-      if (
-        args.attributionTeamId &&
-        row.attributionTeamId !== args.attributionTeamId
-      ) {
-        return false;
-      }
-      if (args.dmCloserId && row.dmCloserId !== args.dmCloserId) {
-        return false;
-      }
-      return true;
+    // A team or DM closer filter reads the credited meetings' rows
+    // (dealAttributions); otherwise the buckets.
+    const { counts, truncated } = await readMeetingStatsCounts(ctx, {
+      tenantId,
+      startDayKey: args.startDayKey,
+      endDayKeyExclusive: args.endDayKeyExclusive,
+      attributionTeamId: args.attributionTeamId,
+      dmCloserId: args.dmCloserId,
     });
+
+    const filtered = counts.filter(
+      (row) =>
+        !args.bookingProgramId ||
+        row.bookingProgramId === args.bookingProgramId,
+    );
 
     let scheduled = 0;
     let shown = 0;
@@ -476,7 +472,7 @@ export const getSchedulingShowRateByOperationsDimensions = query({
       noShows,
       showRate: toRate(shown, denominator),
       noShowRate: toRate(noShows, denominator),
-      truncated: rows.length > MAX_OPERATIONS_STATS_ROWS,
+      truncated,
     };
   },
 });

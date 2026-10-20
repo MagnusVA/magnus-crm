@@ -7,6 +7,11 @@ export const meetingContribution = v.object({
   assignedCloserId: v.id("users"),
   bookingProgramId: v.optional(v.id("tenantPrograms")),
   soldProgramId: v.optional(v.id("tenantPrograms")),
+  // No longer written or read: the show-rate filters read dealAttributions,
+  // and the bucket key leaves them out. Contributions and buckets projected
+  // before that still hold them until rebuildMeetingProjections re-keys every
+  // meeting; the narrow then removes both fields
+  // (docs/plans/phase-3-attribution.md §3.3, §10.6).
   attributionTeamId: v.optional(v.id("attributionTeams")),
   dmCloserId: v.optional(v.id("dmClosers")),
   opportunityStatus: v.optional(opportunityStatusValidator),

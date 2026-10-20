@@ -400,7 +400,7 @@ export const assertMeetingProjections = migrations.define({
     if (!opportunity || opportunity.tenantId !== meeting.tenantId) throw new Error("Invalid meeting relationship");
     const key = bucketKey({ dayKey: meetingDayKey(meeting.scheduledAt), assignedCloserId: meeting.assignedCloserId,
       bookingProgramId: meeting.bookingProgramId, soldProgramId: opportunity.soldProgramId,
-      attributionTeamId: meeting.attributionTeamId, dmCloserId: meeting.dmCloserId, opportunityStatus: opportunity.status, meetingStatus: meeting.status });
+      opportunityStatus: opportunity.status, meetingStatus: meeting.status });
     const bucket = await ctx.db.query("operationsMeetingStatsV2").withIndex("by_tenantId_and_bucketKey", q => q.eq("tenantId", meeting.tenantId).eq("bucketKey", key)).unique();
     if (!bucket || projection?.tenantId !== meeting.tenantId || projection.status !== "applied" || projection.bucketKey !== key) throw new Error("Meeting projection is missing or stale; drain and rerun assertion");
   },

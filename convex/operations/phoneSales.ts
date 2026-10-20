@@ -4,6 +4,7 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import type { QueryCtx } from "../_generated/server";
+import { bookingCreditForMeeting } from "../lib/attribution/dealAttributions";
 import { leadDisplayFromShape } from "../lib/leadDisplay";
 import { LIVE_QUERY_BYTE_BUDGET } from "../lib/liveQueryBounds";
 import {
@@ -61,8 +62,6 @@ type PhoneSalesFilterArgs = {
   soldProgramId?: Id<"tenantPrograms">;
   meetingStatus?: MeetingStatus;
   opportunityStatus?: OpportunityStatus;
-  attributionTeamId?: Id<"attributionTeams">;
-  dmCloserId?: Id<"dmClosers">;
   scheduledFrom?: number;
   scheduledTo?: number;
 };
@@ -74,8 +73,6 @@ function assertSinglePhoneSalesPrimaryFilter(args: PhoneSalesFilterArgs) {
     args.soldProgramId,
     args.meetingStatus,
     args.opportunityStatus,
-    args.attributionTeamId,
-    args.dmCloserId,
   ].filter(Boolean).length;
 
   if (primaryFilterCount > 1) {
@@ -166,37 +163,6 @@ function phoneSalesMeetingsQuery(ctx: QueryCtx, args: PhoneSalesFilterArgs) {
     );
   }
 
-  if (args.attributionTeamId) {
-    const attributionTeamId = args.attributionTeamId;
-    return ctx.db.query("meetings").withIndex(
-      "by_tenantId_and_attributionTeamId_and_scheduledAt",
-      (q) => {
-        const ranged = q
-          .eq("tenantId", args.tenantId)
-          .eq("attributionTeamId", attributionTeamId)
-          .gte("scheduledAt", from);
-        return args.scheduledTo === undefined
-          ? ranged
-          : ranged.lt("scheduledAt", args.scheduledTo);
-      },
-    );
-  }
-
-  if (args.dmCloserId) {
-    const dmCloserId = args.dmCloserId;
-    return ctx.db
-      .query("meetings")
-      .withIndex("by_tenantId_and_dmCloserId_and_scheduledAt", (q) => {
-        const ranged = q
-          .eq("tenantId", args.tenantId)
-          .eq("dmCloserId", dmCloserId)
-          .gte("scheduledAt", from);
-        return args.scheduledTo === undefined
-          ? ranged
-          : ranged.lt("scheduledAt", args.scheduledTo);
-      });
-  }
-
   return ctx.db
     .query("meetings")
     .withIndex("by_tenantId_and_scheduledAt", (q) => {
@@ -226,11 +192,16 @@ export async function enrichPhoneSalesRows(
 ) {
   const opportunityIds = [...new Set(meetings.map((meeting) => meeting.opportunityId))];
   const closerIds = [...new Set(meetings.map((meeting) => meeting.assignedCloserId))];
+  // Each meeting is labeled from its own booking's rows, so a follow-up
+  // booked through another DM closer shows that one.
+  const credits = await Promise.all(
+    meetings.map((meeting) => bookingCreditForMeeting(ctx, meeting.tenantId, meeting._id)),
+  );
   const teamIds = [
-    ...new Set(meetings.map((meeting) => meeting.attributionTeamId).filter((id): id is Id<"attributionTeams"> => Boolean(id))),
+    ...new Set(credits.map((credit) => credit.teamId).filter((id): id is Id<"attributionTeams"> => Boolean(id))),
   ];
   const dmCloserIds = [
-    ...new Set(meetings.map((meeting) => meeting.dmCloserId).filter((id): id is Id<"dmClosers"> => Boolean(id))),
+    ...new Set(credits.map((credit) => credit.dmCloserId).filter((id): id is Id<"dmClosers"> => Boolean(id))),
   ];
 
   const [opportunities, closers, teams, dmClosers] = await Promise.all([
@@ -278,12 +249,13 @@ export async function enrichPhoneSalesRows(
   const dmCloserById = new Map(dmClosers.filter(isNonNull).map((closer) => [closer._id, closer]));
   const slackUserBySlackId = new Map(slackUsers.filter(isNonNull).map((user) => [user.slackUserId, user]));
 
-  return await Promise.all(meetings.map(async (meeting) => {
+  return await Promise.all(meetings.map(async (meeting, index) => {
     const opportunity = opportunityById.get(meeting.opportunityId);
     const lead = opportunity ? leadById.get(opportunity.leadId) : undefined;
     const closer = closerById.get(meeting.assignedCloserId);
-    const team = meeting.attributionTeamId ? teamById.get(meeting.attributionTeamId) : undefined;
-    const dmCloser = meeting.dmCloserId ? dmCloserById.get(meeting.dmCloserId) : undefined;
+    const credit = credits[index];
+    const team = credit.teamId ? teamById.get(credit.teamId) : undefined;
+    const dmCloser = credit.dmCloserId ? dmCloserById.get(credit.dmCloserId) : undefined;
     const slackUserId = opportunity?.qualifiedBy?.slackUserId;
     const slackUser = slackUserId
       ? slackUserBySlackId.get(slackUserId)
@@ -355,12 +327,6 @@ function rowMatchesStatsFilter(
   if (args.opportunityStatus && row.opportunityStatus !== args.opportunityStatus) {
     return false;
   }
-  if (args.attributionTeamId && row.attributionTeamId !== args.attributionTeamId) {
-    return false;
-  }
-  if (args.dmCloserId && row.dmCloserId !== args.dmCloserId) {
-    return false;
-  }
   return true;
 }
 
@@ -374,8 +340,6 @@ export const listPhoneSalesMeetings = query({
     scheduledTo: v.optional(v.number()),
     meetingStatus: v.optional(meetingStatusValidator),
     opportunityStatus: v.optional(phoneSalesOpportunityStatusValidator),
-    attributionTeamId: v.optional(v.id("attributionTeams")),
-    dmCloserId: v.optional(v.id("dmClosers")),
   },
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [
@@ -390,8 +354,6 @@ export const listPhoneSalesMeetings = query({
       soldProgramId: args.soldProgramId,
       meetingStatus: args.meetingStatus,
       opportunityStatus: args.opportunityStatus,
-      attributionTeamId: args.attributionTeamId,
-      dmCloserId: args.dmCloserId,
       scheduledFrom: args.scheduledFrom,
       scheduledTo: args.scheduledTo,
     })
@@ -419,8 +381,6 @@ export const getPhoneSalesStats = query({
     soldProgramId: v.optional(v.id("tenantPrograms")),
     meetingStatus: v.optional(meetingStatusValidator),
     opportunityStatus: v.optional(phoneSalesOpportunityStatusValidator),
-    attributionTeamId: v.optional(v.id("attributionTeams")),
-    dmCloserId: v.optional(v.id("dmClosers")),
   },
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [
@@ -435,8 +395,6 @@ export const getPhoneSalesStats = query({
       soldProgramId: args.soldProgramId,
       meetingStatus: args.meetingStatus,
       opportunityStatus: args.opportunityStatus,
-      attributionTeamId: args.attributionTeamId,
-      dmCloserId: args.dmCloserId,
     });
 
     const startKey = meetingDayKey(args.scheduledFrom);
@@ -473,8 +431,6 @@ export const getPhoneSalesStats = query({
         soldProgramId: args.soldProgramId,
         meetingStatus: args.meetingStatus,
         opportunityStatus: args.opportunityStatus,
-        attributionTeamId: args.attributionTeamId,
-        dmCloserId: args.dmCloserId,
       })) {
         continue;
       }

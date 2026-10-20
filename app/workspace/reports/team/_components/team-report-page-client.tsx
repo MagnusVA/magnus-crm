@@ -142,7 +142,7 @@ export function TeamReportPageClient() {
       id: "operations-rollup-cap",
       title: "Operations rollup sample capped",
       description:
-        "Booked-program and DM attribution filters are capped at 1,000 daily rollup rows. Narrow the date range for full operations-dimension reporting.",
+        "This range has more than 8,192 daily rollup rows, or more than 2,000 meetings for the chosen DM team or DM closer. Narrow the date range for full operations-dimension reporting.",
     });
   }
 
