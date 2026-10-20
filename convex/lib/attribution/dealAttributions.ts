@@ -2,6 +2,7 @@ import type { Infer } from "convex/values";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { readLiveQueryRows } from "../liveQueryBounds";
+import { log } from "../observability/log";
 import {
   ensureUserTeamMember,
   linkDmCloserTeamMember,
@@ -285,15 +286,19 @@ export async function recordSetterAttribution(
     qualificationEventId?: Id<"slackQualificationEvents">;
   },
 ): Promise<void> {
+  // Credit names a team member. A qualification always upserts its Slack
+  // user first, which links one, so a miss means the Slack user is gone.
   const teamMemberId = await slackUserTeamMember(ctx, args.tenantId, args.slackUserId);
+  if (!teamMemberId) {
+    log.error("attribution.setter_without_team_member", {
+      tenantId: args.tenantId,
+      opportunityId: args.opportunityId,
+      slackUserId: args.slackUserId,
+    });
+    return;
+  }
   const setters = await attributionsForDeal(ctx, args.tenantId, args.opportunityId, "setter");
-  if (
-    setters.some((row) =>
-      teamMemberId
-        ? row.teamMemberId === teamMemberId
-        : row.source.kind === "slack_qualification" && row.source.slackUserId === args.slackUserId,
-    )
-  ) {
+  if (setters.some((row) => row.teamMemberId === teamMemberId)) {
     return;
   }
   await insertRow(ctx, {
@@ -337,11 +342,14 @@ export async function expectedLeadGenRow(
   const prospectId = ctx.db.normalizeId("leadGenProspects", String(metadata.prospectId ?? ""));
   const workerId = ctx.db.normalizeId("leadGenWorkers", String(metadata.workerId ?? ""));
   if (!prospectId || !workerId) return null;
+  // Credit names a team member; a worker always has one (Phase 1).
+  const teamMemberId = (await leadGenWorkerTeamMember(ctx, workerId)) ?? event.teamMemberId;
+  if (!teamMemberId) return null;
   return {
     tenantId: opportunity.tenantId,
     opportunityId: opportunity._id,
     role: "lead_gen",
-    teamMemberId: (await leadGenWorkerTeamMember(ctx, workerId)) ?? event.teamMemberId,
+    teamMemberId,
     source: { kind: "capture", prospectId, workerId, eventId: event._id },
     attributedAt: event.occurredAt,
   };

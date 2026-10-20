@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { moveMeetingToOpportunity } from "../leads/repointLeadReferences";
+import { recordSetterAttribution } from "../lib/attribution/dealAttributions";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
@@ -1001,5 +1002,24 @@ describe("role record relinks", () => {
     });
     // The closer row already credited the login's team member.
     expect(ofRole(rows, "closer")[0].teamMemberId).toBe(closer.teamMemberId);
+  });
+});
+
+describe("credit names a team member", () => {
+  it("a setter with no Slack user record gets no row", async () => {
+    const harness = await setup();
+    await qualify(harness, { handle: "ana", submittedAt: NOW });
+    const deal = await harness.t.run(async (ctx) => (await ctx.db.query("opportunities").first())!);
+    await harness.t.run(async (ctx) => {
+      await recordSetterAttribution(ctx, {
+        tenantId: harness.tenantId,
+        opportunityId: deal._id,
+        slackUserId: "U_GONE",
+        submittedAt: NOW,
+      });
+    });
+    const setters = ofRole(await dealRows(harness, deal._id), "setter");
+    expect(setters).toHaveLength(1);
+    expect(setters.every((row) => row.teamMemberId !== undefined)).toBe(true);
   });
 });

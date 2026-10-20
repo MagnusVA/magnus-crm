@@ -810,9 +810,6 @@ const SOURCE_KINDS_BY_ROLE: Record<DealAttribution["role"], readonly DealAttribu
 };
 
 /** A setter's identity on a deal: its team member, else its Slack user. */
-function setterKey(teamMemberId: Id<"teamMembers"> | undefined, slackUserId: string) {
-  return teamMemberId ?? `slack user ${slackUserId}`;
-}
 
 async function slackUserTeamMemberId(ctx: MutationCtx, tenantId: Id<"tenants">, slackUserId: string) {
   const slackUser = await ctx.db
@@ -885,16 +882,16 @@ export const assertDealAttributions = migrations.define({
 
     const setters = rows.flatMap((row) =>
       row.role === "setter" && row.source.kind === "slack_qualification"
-        ? [setterKey(row.teamMemberId, row.source.slackUserId)]
+        ? [row.teamMemberId ?? `no team member (${row._id})`]
         : [],
     );
     const duplicate = setters.find((key, index) => setters.indexOf(key) !== index);
     if (duplicate) throw fail(`two setter rows for ${duplicate}`);
     const expectedSetters = new Set<string>();
+    // A setter with no team member gets no row (recordSetterAttribution).
     for (const setter of await dealSetters(ctx, opportunity)) {
-      expectedSetters.add(
-        setterKey(await slackUserTeamMemberId(ctx, opportunity.tenantId, setter.slackUserId), setter.slackUserId),
-      );
+      const teamMemberId = await slackUserTeamMemberId(ctx, opportunity.tenantId, setter.slackUserId);
+      if (teamMemberId) expectedSetters.add(teamMemberId);
     }
     const missing = [...expectedSetters].filter((key) => !setters.includes(key));
     const unexpected = setters.filter((key) => !expectedSetters.has(key));
