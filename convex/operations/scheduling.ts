@@ -5,12 +5,12 @@ import { query } from "../_generated/server";
 import type { QueryCtx } from "../_generated/server";
 import { leadDisplayFromShape } from "../lib/leadDisplay";
 import {
-  dmCloserMemberIdentity,
   slackMemberIdentity,
   unknownMemberIdentity,
   userMemberIdentity,
 } from "../lib/memberIdentity";
 import { requireTenantUser } from "../requireTenantUser";
+import { loadQualificationRowCredits } from "./qualificationCredit";
 
 type SchedulingFilterArgs = {
   tenantId: Id<"tenants">;
@@ -18,8 +18,6 @@ type SchedulingFilterArgs = {
   soldProgramId?: Id<"tenantPrograms">;
   slackUserId?: string;
   assignedCloserId?: Id<"users">;
-  attributionTeamId?: Id<"attributionTeams">;
-  dmCloserId?: Id<"dmClosers">;
   scheduledFrom?: number;
   scheduledTo?: number;
 };
@@ -30,8 +28,6 @@ function assertSingleSchedulingPrimaryFilter(args: SchedulingFilterArgs) {
     args.soldProgramId,
     args.slackUserId,
     args.assignedCloserId,
-    args.attributionTeamId,
-    args.dmCloserId,
   ].filter(Boolean).length;
 
   if (primaryFilterCount > 1) {
@@ -103,36 +99,6 @@ function schedulingRowsQuery(ctx: QueryCtx, args: SchedulingFilterArgs) {
       });
   }
 
-  if (args.attributionTeamId) {
-    const attributionTeamId = args.attributionTeamId;
-    return ctx.db
-      .query("operationsQualificationRows")
-      .withIndex("by_tenantId_and_attributionTeamId_and_firstMeetingAt", (q) => {
-        const ranged = q
-          .eq("tenantId", args.tenantId)
-          .eq("attributionTeamId", attributionTeamId)
-          .gte("firstMeetingAt", from);
-        return args.scheduledTo === undefined
-          ? ranged
-          : ranged.lt("firstMeetingAt", args.scheduledTo);
-      });
-  }
-
-  if (args.dmCloserId) {
-    const dmCloserId = args.dmCloserId;
-    return ctx.db
-      .query("operationsQualificationRows")
-      .withIndex("by_tenantId_and_dmCloserId_and_firstMeetingAt", (q) => {
-        const ranged = q
-          .eq("tenantId", args.tenantId)
-          .eq("dmCloserId", dmCloserId)
-          .gte("firstMeetingAt", from);
-        return args.scheduledTo === undefined
-          ? ranged
-          : ranged.lt("firstMeetingAt", args.scheduledTo);
-      });
-  }
-
   return ctx.db
     .query("operationsQualificationRows")
     .withIndex("by_tenantId_and_firstMeetingAt", (q) => {
@@ -164,21 +130,13 @@ async function enrichSchedulingRows(
   const leadIds = [
     ...new Set(rows.map((row) => row.leadId).filter((id): id is Id<"leads"> => Boolean(id))),
   ];
-  const teamIds = [
-    ...new Set(rows.map((row) => row.attributionTeamId).filter((id): id is Id<"attributionTeams"> => Boolean(id))),
-  ];
-  const dmCloserIds = [
-    ...new Set(rows.map((row) => row.dmCloserId).filter((id): id is Id<"dmClosers"> => Boolean(id))),
-  ];
   const userIds = [
     ...new Set(rows.map((row) => row.assignedCloserId).filter((id): id is Id<"users"> => Boolean(id))),
   ];
   const slackUserIds = [...new Set(rows.map((row) => row.slackUserId))];
 
-  const [leads, teams, dmClosers, users, slackUsers] = await Promise.all([
+  const [leads, users, slackUsers, creditFor] = await Promise.all([
     Promise.all(leadIds.map((id) => ctx.db.get("leads", id))),
-    Promise.all(teamIds.map((id) => ctx.db.get("attributionTeams", id))),
-    Promise.all(dmCloserIds.map((id) => ctx.db.get("dmClosers", id))),
     Promise.all(userIds.map((id) => ctx.db.get("users", id))),
     Promise.all(
       slackUserIds.map((slackUserId) =>
@@ -190,31 +148,22 @@ async function enrichSchedulingRows(
           .unique(),
       ),
     ),
+    loadQualificationRowCredits(ctx, tenantId, rows),
   ]);
 
   const leadById = new Map(leads.filter(isNonNull).map((lead) => [lead._id, lead]));
-  const teamById = new Map(teams.filter(isNonNull).map((team) => [team._id, team]));
-  const dmCloserById = new Map(dmClosers.filter(isNonNull).map((closer) => [closer._id, closer]));
   const userById = new Map(users.filter(isNonNull).map((user) => [user._id, user]));
   const slackUserBySlackId = new Map(slackUsers.filter(isNonNull).map((user) => [user.slackUserId, user]));
 
   return await Promise.all(rows.map(async (row) => {
     const lead = row.leadId ? leadById.get(row.leadId) : undefined;
-    const team = row.attributionTeamId ? teamById.get(row.attributionTeamId) : undefined;
-    const dmCloser = row.dmCloserId ? dmCloserById.get(row.dmCloserId) : undefined;
     const assignedCloser = row.assignedCloserId ? userById.get(row.assignedCloserId) : undefined;
     const slackUser = slackUserBySlackId.get(row.slackUserId);
-    const linkedDmCloserUserCandidate =
-      dmCloser?.userId
-        ? (userById.get(dmCloser.userId) ?? await ctx.db.get("users", dmCloser.userId))
-        : undefined;
-    const linkedDmCloserUser =
-      linkedDmCloserUserCandidate?.tenantId === tenantId
-        ? linkedDmCloserUserCandidate
-        : undefined;
 
     return {
       ...row,
+      // The deal's first booking credit, as in the qualifications queue.
+      ...creditFor(row),
       leadLabel: lead
         ? leadDisplayFromShape({
             fullName: lead.fullName,
@@ -224,11 +173,6 @@ async function enrichSchedulingRows(
         : "Unknown lead",
       slackUserLabel: slackUserLabel(slackUserBySlackId.get(row.slackUserId)),
       slackUser: slackMemberIdentity(slackUser, `slack:${row.slackUserId}`),
-      attributionTeamName: team?.displayName,
-      dmCloserName: dmCloser?.displayName,
-      dmCloser: dmCloser
-        ? await dmCloserMemberIdentity(ctx, dmCloser, linkedDmCloserUser)
-        : null,
       assignedCloserName: assignedCloser?.fullName ?? assignedCloser?.email,
       assignedCloser: assignedCloser
         ? await userMemberIdentity(ctx, assignedCloser)
@@ -246,8 +190,6 @@ export const listSchedulingQueue = query({
     soldProgramId: v.optional(v.id("tenantPrograms")),
     slackUserId: v.optional(v.string()),
     assignedCloserId: v.optional(v.id("users")),
-    attributionTeamId: v.optional(v.id("attributionTeams")),
-    dmCloserId: v.optional(v.id("dmClosers")),
   },
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [
@@ -261,8 +203,6 @@ export const listSchedulingQueue = query({
       soldProgramId: args.soldProgramId,
       slackUserId: args.slackUserId,
       assignedCloserId: args.assignedCloserId,
-      attributionTeamId: args.attributionTeamId,
-      dmCloserId: args.dmCloserId,
       scheduledFrom: args.scheduledFrom,
       scheduledTo: args.scheduledTo,
     })

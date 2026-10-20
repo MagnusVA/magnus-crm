@@ -3,6 +3,11 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
+  type BookingCredit,
+  bookingCreditForMeeting,
+  dealBookingCredit,
+} from "../lib/attribution/dealAttributions";
+import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatiblePaymentCommissionable,
 } from "../lib/paymentTypes";
@@ -34,19 +39,33 @@ function tenantOwned<T extends { tenantId: Id<"tenants"> }>(
   return doc && doc.tenantId === tenantId ? doc : null;
 }
 
-function hasAttributionContext(
+function creditsSomeone(credit: BookingCredit) {
+  return credit.teamId !== undefined || credit.dmCloserId !== undefined;
+}
+
+/**
+ * Whether a payment has anything to attribute it by: a Slack qualification,
+ * UTMs, or a team or DM closer credited by the payment's meeting's booking or
+ * by the deal's first booking (docs/plans/phase-3-attribution.md §6.5).
+ */
+async function hasAttributionContext(
+  ctx: QueryCtx | MutationCtx,
+  tenantId: Id<"tenants">,
   opportunity: Doc<"opportunities"> | null,
   meeting: Doc<"meetings"> | null,
 ) {
-  return Boolean(
-    opportunity?.qualifiedBy ??
-      opportunity?.utmParams ??
-      opportunity?.attributionTeamId ??
-      opportunity?.dmCloserId ??
-      meeting?.utmParams ??
-      meeting?.attributionTeamId ??
-      meeting?.dmCloserId,
-  );
+  if (opportunity?.qualifiedBy || opportunity?.utmParams || meeting?.utmParams) {
+    return true;
+  }
+  if (meeting && creditsSomeone(await bookingCreditForMeeting(ctx, tenantId, meeting._id))) {
+    return true;
+  }
+  // The deal's credit is its first booking's; skip it when that is the
+  // meeting just read.
+  if (!opportunity?.firstMeetingId || opportunity.firstMeetingId === meeting?._id) {
+    return false;
+  }
+  return creditsSomeone(await dealBookingCredit(ctx, opportunity));
 }
 
 export async function buildPaymentAuditSnapshot(
@@ -131,7 +150,7 @@ export async function buildPaymentAuditSnapshot(
           archived: program?.archivedAt !== undefined,
         },
         attribution: {
-          hasContext: hasAttributionContext(opportunity, meeting),
+          hasContext: await hasAttributionContext(ctx, tenantId, opportunity, meeting),
           slackContributorEvents: slackEvents.length,
         },
         proof: {
@@ -224,7 +243,7 @@ export async function buildPaymentAuditSnapshot(
       const opportunity = opportunityId
         ? tenantOwned(await ctx.db.get("opportunities", opportunityId), tenantId)
         : null;
-      if (!hasAttributionContext(opportunity, meeting)) {
+      if (!(await hasAttributionContext(ctx, tenantId, opportunity, meeting))) {
         metrics.missingAttributionContext += 1;
       }
 
