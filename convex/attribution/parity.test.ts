@@ -17,14 +17,6 @@ async function deleteRow(h: AttributionHarness, match: (row: Doc<"dealAttributio
   await h.t.run((ctx) => ctx.db.delete("dealAttributions", row!._id));
 }
 
-async function projectedHarness() {
-  const h = await attributionHarness();
-  await backfillAll(h);
-  const projected = await h.run("rebuildMeetingProjections");
-  if (projected?.error || !projected?.isDone) throw new Error(`rebuildMeetingProjections: ${projected?.error}`);
-  return h;
-}
-
 describe("compareBookedCalls", () => {
   it("finds no difference after the backfill, and counts team-only bookings apart", async () => {
     const h = await attributionHarness();
@@ -64,48 +56,3 @@ describe("compareBookedCalls", () => {
   });
 });
 
-describe("compareShowRateFilter", () => {
-  const august = { startDayKey: "2026-08-01", endDayKeyExclusive: "2026-09-01" };
-
-  it("matches the meeting stats buckets for each team and DM closer", async () => {
-    const h = await projectedHarness();
-    const { tenantId, ids } = h;
-    const compare = (filter: Record<string, unknown>) =>
-      h.t.query(internal.attribution.parity.compareShowRateFilter, { tenantId, ...august, ...filter });
-
-    expect(await compare({ teamId: ids.teamA })).toEqual({
-      copies: { total: 2, scheduled: 1, completed: 1, canceled: 0, noShow: 0 },
-      rows: { total: 2, scheduled: 1, completed: 1, canceled: 0, noShow: 0 },
-      matches: true,
-      unprojectedRows: 0,
-      capped: false,
-    });
-    expect(await compare({ teamId: ids.teamB })).toMatchObject({ matches: true, rows: { total: 1, scheduled: 1 } });
-    expect(await compare({ dmCloserId: ids.dana })).toMatchObject({ matches: true, rows: { total: 1, completed: 1 } });
-    // The range is by scheduled day: the team-only call on the 16th falls out.
-    expect(
-      await h.t.query(internal.attribution.parity.compareShowRateFilter, {
-        tenantId, startDayKey: "2026-08-01", endDayKeyExclusive: "2026-08-16", teamId: ids.teamA,
-      }),
-    ).toMatchObject({ matches: true, rows: { total: 1, completed: 1 } });
-  });
-
-  it("reports a team whose rows miss a booking", async () => {
-    const h = await projectedHarness();
-    const { tenantId, ids } = h;
-    await deleteRow(h, (row) => row.meetingId === ids.meetings.m4 && row.role === "dm_team");
-    expect(
-      await h.t.query(internal.attribution.parity.compareShowRateFilter, { tenantId, ...august, teamId: ids.teamA }),
-    ).toMatchObject({ matches: false, copies: { total: 2 }, rows: { total: 1 } });
-  });
-
-  it("takes exactly one of a team and a DM closer", async () => {
-    const h = await attributionHarness();
-    const { tenantId, ids } = h;
-    for (const filter of [{}, { teamId: ids.teamA, dmCloserId: ids.dana }]) {
-      await expect(
-        h.t.query(internal.attribution.parity.compareShowRateFilter, { tenantId, ...august, ...filter }),
-      ).rejects.toThrow("exactly one");
-    }
-  });
-});

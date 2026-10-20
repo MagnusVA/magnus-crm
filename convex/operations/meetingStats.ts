@@ -400,10 +400,11 @@ async function creditedMeetingIds(
           .lt("meetingScheduledAt", end),
       )
       .take(CREDITED_MEETING_LIMIT + 1);
-    return {
-      meetingIds: rows.slice(0, CREDITED_MEETING_LIMIT).flatMap((row) => (row.meetingId ? [row.meetingId] : [])),
-      truncated: rows.length > CREDITED_MEETING_LIMIT,
-    };
+    const meetingIds = new Set<Id<"meetings">>();
+    for (const row of rows.slice(0, CREDITED_MEETING_LIMIT)) {
+      if (row.meetingId) meetingIds.add(row.meetingId);
+    }
+    return { meetingIds: [...meetingIds], truncated: rows.length > CREDITED_MEETING_LIMIT };
   };
 
   if (!dmCloserId) {
@@ -416,7 +417,8 @@ async function creditedMeetingIds(
   }
   // The team member's rows can belong to another of their DM closer records,
   // so the cap counts only this record's rows; the scan itself is bounded too.
-  const meetingIds: Id<"meetings">[] = [];
+  const meetingIds = new Set<Id<"meetings">>();
+  let matched = 0;
   let scanned = 0;
   let truncated = false;
   for await (const row of ctx.db
@@ -437,18 +439,19 @@ async function creditedMeetingIds(
     if (!row.meetingId || row.source.kind !== "booking_utm" || row.source.dmCloserId !== dmCloserId) {
       continue;
     }
-    if (meetingIds.length === CREDITED_MEETING_LIMIT) {
+    if (matched === CREDITED_MEETING_LIMIT) {
       truncated = true;
       break;
     }
-    meetingIds.push(row.meetingId);
+    matched += 1;
+    meetingIds.add(row.meetingId);
   }
-  if (!attributionTeamId) return { meetingIds, truncated };
+  if (!attributionTeamId) return { meetingIds: [...meetingIds], truncated };
 
   const team = await teamMeetings();
   const onTeam = new Set(team.meetingIds);
   return {
-    meetingIds: meetingIds.filter((meetingId) => onTeam.has(meetingId)),
+    meetingIds: [...meetingIds].filter((meetingId) => onTeam.has(meetingId)),
     truncated: truncated || team.truncated,
   };
 }
