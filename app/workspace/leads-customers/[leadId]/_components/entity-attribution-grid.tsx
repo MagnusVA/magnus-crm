@@ -1,11 +1,15 @@
 "use client";
 
+import { DealCreditList } from "@/app/workspace/_components/deal-credit-list";
 import type { EntityAttributionPayload } from "@/convex/lib/attribution/detailPayload";
 import {
 	LabelWithInfoTooltip,
 	TruncatingTooltip,
 } from "../../_components/entity-ui-tooltips";
 import { formatDateTime } from "./entity-detail-formatters";
+
+const LABEL_CLASS =
+	"text-[10px] font-medium tracking-[0.09em] text-muted-foreground uppercase";
 
 const attributionFieldHelp: Record<string, string> = {
 	Slack: "Slack user who qualified this opportunity, if applicable.",
@@ -45,23 +49,31 @@ export function EntityAttributionGrid({
 	] as const;
 
 	return (
-		<dl className="grid gap-x-4 gap-y-2.5 rounded-lg border border-border/60 bg-muted/30 p-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
-			{fields.map(([key, value]) => (
-				<div key={key} className="flex min-w-0 flex-col gap-0.5">
-					<dt className="truncate">
-						<LabelWithInfoTooltip
-							label={key}
-							description={attributionFieldHelp[key]}
-							className="text-[10px] font-medium tracking-[0.09em] text-muted-foreground uppercase"
-						/>
-					</dt>
-					<TruncatingTooltip content={value}>
-						<dd className="truncate text-xs font-medium" translate="no">
-							{value}
-						</dd>
-					</TruncatingTooltip>
-				</div>
-			))}
-		</dl>
+		<div className="flex flex-col gap-3 rounded-lg border border-border/60 bg-muted/30 p-3 text-sm">
+			<dl className="grid gap-x-4 gap-y-2.5 sm:grid-cols-2 lg:grid-cols-4">
+				{fields.map(([key, value]) => (
+					<div key={key} className="flex min-w-0 flex-col gap-0.5">
+						<dt className="truncate">
+							<LabelWithInfoTooltip
+								label={key}
+								description={attributionFieldHelp[key]}
+								className={LABEL_CLASS}
+							/>
+						</dt>
+						<TruncatingTooltip content={value}>
+							<dd className="truncate text-xs font-medium" translate="no">
+								{value}
+							</dd>
+						</TruncatingTooltip>
+					</div>
+				))}
+			</dl>
+			<DealCreditList
+				credits={attribution.credits}
+				firstTouch={attribution.firstTouch}
+				latestTouch={attribution.latestTouch}
+				labelClassName={LABEL_CLASS}
+			/>
+		</div>
 	);
 }

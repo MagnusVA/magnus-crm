@@ -1,5 +1,8 @@
 import type { Doc, Id } from "../_generated/dataModel";
-import type { EntityAttributionPayload } from "../lib/attribution/detailPayload";
+import type {
+  AttributionTouch,
+  EntityAttributionPayload,
+} from "../lib/attribution/detailPayload";
 import type { CrmRole } from "../lib/roleMapping";
 
 export type LeadCustomerLifecycle = "prospect" | "lead" | "customer" | "merged";
@@ -71,6 +74,8 @@ export type EntityDetailPayload = {
     role: CrmRole;
   };
   lead: Doc<"leads">;
+  firstTouch: AttributionTouch | null;
+  latestTouch: AttributionTouch | null;
   customer: Doc<"customers"> | null;
   identifiers: Doc<"leadIdentifiers">[];
   opportunities: EntityDetailOpportunity[];

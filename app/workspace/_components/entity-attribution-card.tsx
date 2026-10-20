@@ -18,6 +18,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import type {
+  AttributionCredit,
+  AttributionTouch,
+} from "@/convex/lib/attribution/detailPayload";
+import { DealCreditList } from "./deal-credit-list";
 import { MemberIdentity } from "./member-identity";
 import type { MemberAvatarIdentity } from "./member-avatar";
 
@@ -46,6 +51,9 @@ export type EntityAttribution = {
     firstMeetingAt: number | null;
     paymentReceivedAt: number | null;
   };
+  credits: AttributionCredit[];
+  firstTouch: AttributionTouch | null;
+  latestTouch: AttributionTouch | null;
 };
 
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
@@ -99,7 +107,7 @@ export function EntityAttributionCard({
               Attribution
             </CardTitle>
             <CardDescription>
-              Qualification, booking, sales, and payment context.
+              Qualification, booking, sales, payment, and who gets credit.
             </CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -170,6 +178,14 @@ export function EntityAttributionCard({
             value={formatDateTime(attribution.timeline.paymentReceivedAt)}
           />
         </div>
+
+        <Separator />
+
+        <DealCreditList
+          credits={attribution.credits}
+          firstTouch={attribution.firstTouch}
+          latestTouch={attribution.latestTouch}
+        />
       </CardContent>
     </Card>
   );

@@ -1,8 +1,10 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
-import { buildOpportunityAttributionPayload } from "../lib/attribution/detailPayload";
 import {
-  dmCloserMemberIdentity,
+  buildOpportunityAttributionSummary,
+  resolveBookingDmAttribution,
+} from "../lib/attribution/detailPayload";
+import {
   slackMemberIdentity,
   unknownMemberIdentity,
   userMemberIdentity,
@@ -129,20 +131,17 @@ async function resolveBillingMeeting(
   return null;
 }
 
+/**
+ * A payment with a meeting and no deal: the meeting's own booking rows. With
+ * a deal, `buildOpportunityAttributionSummary` reads the payment's meeting,
+ * else the deal's first booking.
+ */
 async function resolveDirectDmAttribution(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
-  source:
-    | Pick<
-        Doc<"meetings">,
-        | "attributionResolution"
-        | "attributionTeamId"
-        | "dmCloserId"
-        | "utmParams"
-      >
-    | null,
+  meeting: Doc<"meetings"> | null,
 ): Promise<BillingDmAttribution> {
-  if (!source) {
+  if (!meeting) {
     return {
       status: "none",
       teamName: null,
@@ -153,29 +152,18 @@ async function resolveDirectDmAttribution(
     };
   }
 
-  const [team, dmCloser] = await Promise.all([
-    source.attributionTeamId
-      ? ctx.db.get("attributionTeams", source.attributionTeamId)
-      : Promise.resolve(null),
-    source.dmCloserId ? ctx.db.get("dmClosers", source.dmCloserId) : Promise.resolve(null),
-  ]);
-  const tenantDmCloser = dmCloser && dmCloser.tenantId === tenantId ? dmCloser : null;
-  const linkedUser =
-    tenantDmCloser?.userId !== undefined
-      ? await ctx.db.get("users", tenantDmCloser.userId)
-      : null;
-  const tenantLinkedUser =
-    linkedUser && linkedUser.tenantId === tenantId ? linkedUser : null;
-
+  const dm = await resolveBookingDmAttribution(ctx, {
+    tenantId,
+    opportunity: null,
+    meeting,
+  });
   return {
-    status: source.attributionResolution ?? "none",
-    teamName: team && team.tenantId === tenantId ? team.displayName : null,
-    dmCloserName: tenantDmCloser ? tenantDmCloser.displayName : null,
-    dmCloser: tenantDmCloser
-      ? await dmCloserMemberIdentity(ctx, tenantDmCloser, tenantLinkedUser)
-      : null,
-    rawSource: source.utmParams?.utm_source ?? null,
-    rawMedium: source.utmParams?.utm_medium ?? null,
+    status: dm.status,
+    teamName: dm.team?.displayName ?? null,
+    dmCloserName: dm.dmCloser?.displayName ?? null,
+    dmCloser: dm.dmCloserIdentity,
+    rawSource: meeting.utmParams?.utm_source ?? null,
+    rawMedium: meeting.utmParams?.utm_medium ?? null,
   };
 }
 
@@ -275,7 +263,7 @@ async function resolveBillingAttribution(
     await Promise.all([
       fallbackCloserId ? ctx.db.get("users", fallbackCloserId) : Promise.resolve(null),
       opportunity
-        ? buildOpportunityAttributionPayload(ctx, opportunity, { meeting })
+        ? buildOpportunityAttributionSummary(ctx, opportunity, { meeting })
         : Promise.resolve(null),
       opportunity ? Promise.resolve(null) : resolveDirectDmAttribution(ctx, tenantId, meeting),
       resolveSlackContributorSummary(ctx, tenantId, opportunity),

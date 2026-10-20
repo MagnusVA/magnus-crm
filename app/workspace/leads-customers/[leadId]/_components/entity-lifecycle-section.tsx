@@ -3,6 +3,7 @@
 import { useState } from "react";
 import dynamic from "next/dynamic";
 import { MilestoneIcon } from "lucide-react";
+import { TouchLines } from "@/app/workspace/_components/deal-credit-list";
 import { useRole } from "@/components/auth/role-context";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,10 +22,11 @@ const LifecycleChangeDialog = dynamic(() =>
 	import("./lifecycle-change-dialog").then((module) => module.LifecycleChangeDialog),
 );
 
-// How far the person has ever got, with the date they reached each stage, and
-// whether the team should keep working them (CONTEXT.md).
+// How far the person has ever got, with the date they reached each stage,
+// whether the team should keep working them, and their first and latest
+// touch (CONTEXT.md).
 export function EntityLifecycleSection() {
-	const { lead } = useEntityDetail();
+	const { lead, firstTouch, latestTouch } = useEntityDetail();
 	const { isAdmin } = useRole();
 	const [mode, setMode] = useState<LifecycleChangeMode | null>(null);
 	if (lead.status === "merged") {
@@ -64,6 +66,12 @@ export function EntityLifecycleSection() {
 					</div>
 				))}
 			</dl>
+			<TouchLines
+				className="border-t border-border/60 pt-3"
+				firstTouch={firstTouch}
+				latestTouch={latestTouch}
+				labelClassName="text-[10px] font-medium uppercase tracking-[0.09em] text-muted-foreground"
+			/>
 			{isAdmin ? (
 				<div className="flex flex-wrap gap-2">
 					<Button size="sm" variant="outline" disabled={!canMoveBack} onClick={() => setMode("move_back")}>
