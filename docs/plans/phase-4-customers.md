@@ -436,6 +436,8 @@ Fix forward, reviewed. Every repair is an internal migration with its own assert
   3. rebuilds the customers' search rows with the reverted projection, which writes the new `customerId`;
   4. refills `customerConversions` with its backfill, which the revert brings back.
 
+  Writes don't stop during the repair, and don't need to. The reverted write paths maintain customer rows again, as they did before PR 4: a payment during the repair converts its person or updates the row's totals and links itself, and a status change or merge writes the row as it used to. Every step re-derives from current records, so rerunning one gives the same rows. The asserts run after the last step, and if one fails because a write landed between steps, the whole repair reruns before anything else.
+
   Only payments, search rows, the aggregate and the 274 old `customer.converted` events name a customer ID. The events keep their stored `leadId` and stay history, so the original IDs don't need to come back. `assertLeadCustomerSearchRowsBackfilled` and `reporting/verification.ts` read the restored values.
 
 - **PR 5.** Revert brings the table and fields back as optional; the values come back through the same repair.
