@@ -484,6 +484,7 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | #153 | the plan | docs, merged 10-21 09:10 |
 | #154 | widen: `enrollments`, `syncPersonEnrollments` beside every payment path, D14, the backfill and asserts | 10-21 09:26 |
 | #155 | the enrollment reads and the parity queries | 10-21 10:33 |
+| #156 | the list, search, reports and billing read the person and enrollments | 10-21 11:02 |
 
 ### 13.3 Runs
 
@@ -498,3 +499,6 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | 10-21 10:35 | `compareLeadConversion`, 8 ranges: each month from 2026-04 and the last 7 days | no difference: 274 conversions both ways (3, 11, 55, 65, 24, 69 and 47 by month; 18 in the last 7 days), and every metric, `newCustomers` and every closer's count equal |
 | 10-21 10:36 | `compareSearchRows`, 274 customers in 3 pages | no difference in lifecycle, status, total, currency, conversion time or latest activity. Contact labels change on 6 rows: 4 names and 2 handle lists, the drift in §2.4 |
 | 10-21 10:36 | `compareBillingRows`, 279 payments in 3 pages | no difference in deal or meeting, and no label changes |
+| 10-21 11:02 | `rebuildCustomerSearchRows` dry run, then run, batch 50 | 50, nothing committed; then done 11:02, 274 enrollments: 274 rows rebuilt |
+| 10-21 11:02 | `assertLeadCustomerSearchRowsBackfilled` (reset) | passed 11:21, 90,107 leads |
+| 10-21 11:22 | read-only recheck | all 274 enrolled people's rows are `customer`, `active`, with a total and no `customerId`; no row in the table names a customer |
