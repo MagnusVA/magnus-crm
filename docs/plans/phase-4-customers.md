@@ -1,6 +1,6 @@
 # Phase 4: customers
 
-Status: done, 2026-10-21. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted D1 to D16 and answered Q1 to Q4 (§11.1), and approved every production run in §9 and §10. PRs #153 to #160 are merged and deployed, and every run in §13 passed, through the checks after the narrow (#160), which dropped the `customers` table and the fields that named it.
+Status: done, 2026-10-21. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted D1 to D16 and answered Q1 to Q4 (§11.1), and approved every production run in §9 and §10. PRs #153 to #160 are merged (#153 is this plan; #154 to #160 deployed), and every run in §13 passed, through the checks after the narrow (#160), which dropped the `customers` table and the fields that named it. The customers export was deleted when the phase ended; #161 records the narrow's deploy and the checks after it.
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (finding F4, target rule "A customer is a stage, not a table" in §6) and the Phase 4 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 3 is in [phase-3-attribution.md](phase-3-attribution.md).
 
@@ -495,6 +495,8 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | #157 | the person page reads enrollments, with the status control; the orphaned customer UI removed | 10-21 11:29 |
 | #158 | stop writing customers: conversion through enrollments, no email requirement, the retirements, the clears and the deletion | 10-21 11:47 |
 | #159 | merges accept customers and move their enrollments | 10-21 12:29 |
+| #160 | the narrow: the `customers` table, the payment and search row fields that named it, and the `customerConversions` aggregate dropped; this record, the ADR row and the review card | 10-21 13:21; the schema push accepted every row |
+| #161 | docs only: the narrow's deploy, the checks after it and the export's deletion | docs |
 
 ### 13.3 Runs
 
@@ -526,3 +528,7 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | 10-21 11:49 | `assertDealAttributions` (reset), since PR 4 changed the side deal form | passed, 11,444 deals |
 | 10-21 11:52 | `assertBookingAttributions` (reset) | passed, 6,823 meetings |
 | 10-21 11:55 | read-only checks before the narrow | 0 customer rows; none of the 279 payments has `customerId`, `contextType` or `originatingOpportunityId`; no search row names a customer (1 tenant); no pending program rename job among the latest 1,500 scheduled functions |
+| 10-21 13:19 | read-only recheck just before merging #160 | 0 customer rows; none of the 279 payments carries a removed field; no search row names a customer |
+| 10-21 13:22 | `assertEnrollments` (reset), after the narrow | passed, 274 enrollments |
+| 10-21 13:22 | `assertPaymentEnrollments` (reset), after the narrow | passed, 279 payments |
+| 10-21 13:22 | the export of §10.7 deleted with its directory | gone from its parent directory's listing |
