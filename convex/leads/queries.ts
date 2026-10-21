@@ -1,7 +1,11 @@
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { query } from "../_generated/server";
+import { query, type QueryCtx } from "../_generated/server";
+import { listPersonEnrollments } from "../enrollments/read";
+import { planEnrollmentMerge } from "../lib/enrollments";
+import { mergeExceedsLimit } from "./merge";
+import { validateLeadTransition } from "../lib/statusTransitions";
 import {
   type MemberAvatarIdentity,
   slackMemberIdentity,
@@ -623,10 +627,11 @@ export const getMergePreview = query({
     if (!target || target.tenantId !== tenantId) {
       throw new Error("Target lead not found");
     }
-    if (source.status !== "active") {
+    // Customers merge either way (docs/plans/phase-4-customers.md §4.7, D7).
+    if (!validateLeadTransition(source.status, "merged")) {
       throw new Error(`Source lead cannot be merged from status "${source.status}"`);
     }
-    if (target.status !== "active") {
+    if (target.status === "merged") {
       throw new Error(`Target lead cannot receive a merge from status "${target.status}"`);
     }
 
@@ -666,6 +671,17 @@ export const getMergePreview = query({
       targetIdentifierKeys.has(`${identifier.type}:${identifier.value}`),
     );
 
+    // The enrollments the merge moves, and the ones it combines with the
+    // target's in the same program, as `mergePersonEnrollments` will.
+    const enrollmentPlan = planEnrollmentMerge(
+      await listPersonEnrollments(ctx, tenantId, sourceLeadId),
+      await listPersonEnrollments(ctx, tenantId, targetLeadId),
+    );
+    const programName = await programNames(ctx, tenantId, [
+      ...enrollmentPlan.moves.map((enrollment) => enrollment.programId),
+      ...enrollmentPlan.combines.map(({ target }) => target.programId),
+    ]);
+
     return {
       source: {
         lead: source,
@@ -683,7 +699,39 @@ export const getMergePreview = query({
         opportunitiesToMove: sourceOpportunities.length,
         totalOpportunitiesAfterMerge:
           sourceOpportunities.length + targetOpportunities.length,
+        // The merge would be refused for size; the page says so before the
+        // confirmation instead of letting it fail.
+        exceedsMergeLimit: await mergeExceedsLimit(ctx, tenantId, source, target),
+        enrollmentsToMove: enrollmentPlan.moves.map((enrollment) => ({
+          programId: enrollment.programId,
+          programName: programName(enrollment.programId),
+          status: enrollment.status,
+        })),
+        enrollmentsToCombine: enrollmentPlan.combines.map(({ source: from, target: into, status }) => ({
+          programId: into.programId,
+          programName: programName(into.programId),
+          sourceStatus: from.status,
+          targetStatus: into.status,
+          status,
+        })),
       },
     };
   },
 });
+
+/** Each program's current name; a program that is gone reads "Unknown program". */
+async function programNames(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  programIds: Id<"tenantPrograms">[],
+) {
+  const names = new Map<Id<"tenantPrograms">, string>();
+  for (const programId of new Set(programIds)) {
+    const program = await ctx.db.get("tenantPrograms", programId);
+    if (program && program.tenantId === tenantId) {
+      names.set(programId, program.name);
+    }
+  }
+  return (programId: Id<"tenantPrograms">) => names.get(programId) ?? "Unknown program";
+}
+

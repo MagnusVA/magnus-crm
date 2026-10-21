@@ -1,6 +1,7 @@
 /**
  * Lead merge. After a merge, only history (leadMergeHistory, domainEvents)
- * and the merged source lead's own records may still name the source lead.
+ * and the merged source lead's own records may still name the source lead;
+ * every other table is checked, enrollments among them.
  */
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
@@ -1065,3 +1066,296 @@ it("keeps a moved deal's activity time, and restores one a merge set", async () 
   // Once restored, the deal's time is no longer a merge's write.
   await expect(restore(before!.updatedAt - 1)).rejects.toThrow("The deal's last update isn't a merge's write");
 });
+
+// --- Customers (docs/plans/phase-4-customers.md §4.7, D7). ---
+
+const PAID_EARLY = Date.parse("2026-08-01T10:00:00Z");
+const PAID_LATE = Date.parse("2026-09-01T10:00:00Z");
+const CHANGED = Date.parse("2026-09-15T10:00:00Z");
+
+async function insertProgram(ctx: MutationCtx, tenantId: Id<"tenants">, name: string) {
+  return await ctx.db.insert("tenantPrograms", {
+    tenantId, name, normalizedName: name.toLowerCase(), createdAt: 0, createdByUserId: await userId(ctx, "user_admin"), updatedAt: 0,
+  });
+}
+
+async function seedStats(ctx: MutationCtx, tenantId: Id<"tenants">) {
+  await ctx.db.insert("tenantStats", {
+    tenantId, totalTeamMembers: 0, totalClosers: 0, totalOpportunities: 0, activeOpportunities: 0, wonDeals: 0,
+    lostDeals: 0, totalRevenueMinor: 0, totalPaymentRecords: 0, totalLeads: 10, totalCustomers: 5, lastUpdatedAt: 0,
+  });
+}
+
+/** A won side deal with one payment, and the enrollment it made, for `leadId`. */
+async function paidDeal(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  leadId: Id<"leads">,
+  programId: Id<"tenantPrograms">,
+  paidAt: number,
+  enrollment: Fields<"enrollments"> | null = {},
+) {
+  const adminId = await userId(ctx, "user_admin");
+  const opportunityId = await insertOpportunity(ctx, tenantId, leadId, { status: "payment_received", source: "side_deal" });
+  await ctx.db.insert("paymentRecords", {
+    tenantId, opportunityId, attributedCloserId: adminId, recordedByUserId: adminId, commissionable: true,
+    amountMinor: 50_000, currency: "USD", programId, programName: "Program", paymentType: "pif",
+    status: "recorded", recordedAt: paidAt, origin: "admin_side_deal",
+  });
+  const enrollmentId = enrollment
+    ? await ctx.db.insert("enrollments", {
+        tenantId, leadId, programId, opportunityId, enrolledAt: paidAt, status: "active", createdAt: paidAt, ...enrollment,
+      })
+    : null;
+  return { opportunityId, enrollmentId };
+}
+
+async function customer(ctx: MutationCtx, tenantId: Id<"tenants">, fullName: string, paidAt: number) {
+  return await insertLead(ctx, tenantId, {
+    fullName,
+    status: "converted",
+    lifecycleStage: "customer",
+    lifecycleStageEnteredAt: { qualified: AT - 1_000, customer: paidAt },
+  });
+}
+
+async function personState({ t, tenantId }: Harness, leadId: Id<"leads">) {
+  return await t.run(async (ctx) => ({
+    lead: (await ctx.db.get("leads", leadId))!,
+    enrollments: await ctx.db
+      .query("enrollments")
+      .withIndex("by_tenantId_and_leadId_and_programId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
+      .take(10),
+  }));
+}
+
+async function counters({ t, tenantId }: Harness) {
+  return await t.run(async (ctx) => {
+    const stats = (await ctx.db.query("tenantStats").withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)).unique())!;
+    return { totalLeads: stats.totalLeads, totalCustomers: stats.totalCustomers };
+  });
+}
+
+async function enrollmentEvents({ t }: Harness) {
+  return await t.run(async (ctx) =>
+    (await ctx.db.query("domainEvents").take(200))
+      .filter((event) => event.entityType === "enrollment" || event.eventType === "lead.status_changed")
+      .map(({ eventType, entityId, fromStatus, toStatus, reason, leadId, actorUserId }) => ({
+        eventType, entityId, fromStatus, toStatus, reason, leadId, actorUserId,
+      })),
+  );
+}
+
+it("merges two customers in the same program into one enrollment, with the most recent status", async () => {
+  const h = await setup();
+  const { t, tenantId, admin } = h;
+  const ids = await t.run(async (ctx) => {
+    await seedStats(ctx, tenantId);
+    const programA = await insertProgram(ctx, tenantId, "A");
+    // An admin paused the source's enrollment; that user's row is gone since.
+    const goneUserId = await ctx.db.insert("users", {
+      tenantId, workosUserId: "user_gone", email: "gone@example.com", role: "tenant_admin", isActive: false,
+    });
+    await ctx.db.delete("users", goneUserId);
+    const sourceLeadId = await customer(ctx, tenantId, "Sam Source", PAID_LATE);
+    const targetLeadId = await customer(ctx, tenantId, "Sam Target", PAID_EARLY);
+    const source = await paidDeal(ctx, tenantId, sourceLeadId, programA, PAID_LATE, {
+      status: "paused", statusChangedAt: CHANGED, statusChangedByUserId: goneUserId,
+    });
+    const target = await paidDeal(ctx, tenantId, targetLeadId, programA, PAID_EARLY);
+    return { programA, goneUserId, sourceLeadId, targetLeadId, source, target };
+  });
+
+  const preview = await admin.query(api.leads.queries.getMergePreview, {
+    sourceLeadId: ids.sourceLeadId, targetLeadId: ids.targetLeadId,
+  });
+  expect(preview.preview.enrollmentsToMove).toEqual([]);
+  expect(preview.preview.enrollmentsToCombine).toEqual([
+    { programId: ids.programA, programName: "A", sourceStatus: "paused", targetStatus: "active", status: "paused" },
+  ]);
+
+  await admin.mutation(api.leads.merge.mergeLead, { sourceLeadId: ids.sourceLeadId, targetLeadId: ids.targetLeadId });
+
+  const target = await personState(h, ids.targetLeadId);
+  expect(target.lead.status).toBe("converted");
+  // The target's enrollment stays, on the earliest payment of the two.
+  expect(target.enrollments).toEqual([
+    expect.objectContaining({
+      _id: ids.target.enrollmentId, programId: ids.programA, opportunityId: ids.target.opportunityId,
+      enrolledAt: PAID_EARLY, status: "paused", statusChangedAt: CHANGED, statusChangedByUserId: ids.goneUserId,
+    }),
+  ]);
+  expect((await personState(h, ids.sourceLeadId)).lead.status).toBe("merged");
+  const adminId = await t.run((ctx) => userId(ctx, "user_admin"));
+  expect(await enrollmentEvents(h)).toEqual([
+    {
+      eventType: "enrollment.status_changed", entityId: ids.target.enrollmentId, fromStatus: "active", toStatus: "paused",
+      reason: "merge", leadId: ids.targetLeadId, actorUserId: adminId,
+    },
+    {
+      eventType: "enrollment.removed", entityId: ids.source.enrollmentId, fromStatus: undefined, toStatus: undefined,
+      reason: "merge", leadId: ids.sourceLeadId, actorUserId: adminId,
+    },
+  ]);
+  // Two customers become one.
+  expect(await counters(h)).toEqual({ totalLeads: 10, totalCustomers: 4 });
+  expect(await rowsNaming(h, ids.sourceLeadId)).toEqual([]);
+});
+
+it("moves a customer's enrollment in another program, keeping its ID and status", async () => {
+  const h = await setup();
+  const { t, tenantId, admin } = h;
+  const ids = await t.run(async (ctx) => {
+    await seedStats(ctx, tenantId);
+    const programA = await insertProgram(ctx, tenantId, "A");
+    const programB = await insertProgram(ctx, tenantId, "B");
+    const sourceLeadId = await customer(ctx, tenantId, "Sam Source", PAID_EARLY);
+    const targetLeadId = await customer(ctx, tenantId, "Sam Target", PAID_LATE);
+    const source = await paidDeal(ctx, tenantId, sourceLeadId, programA, PAID_EARLY, {
+      status: "churned", statusChangedAt: CHANGED, statusChangedByUserId: await userId(ctx, "user_admin"),
+    });
+    const target = await paidDeal(ctx, tenantId, targetLeadId, programB, PAID_LATE);
+    return { programA, programB, sourceLeadId, targetLeadId, source, target };
+  });
+
+  const preview = await admin.query(api.leads.queries.getMergePreview, {
+    sourceLeadId: ids.sourceLeadId, targetLeadId: ids.targetLeadId,
+  });
+  expect(preview.preview.enrollmentsToMove).toEqual([{ programId: ids.programA, programName: "A", status: "churned" }]);
+  expect(preview.preview.enrollmentsToCombine).toEqual([]);
+
+  await admin.mutation(api.leads.merge.mergeLead, { sourceLeadId: ids.sourceLeadId, targetLeadId: ids.targetLeadId });
+
+  const target = await personState(h, ids.targetLeadId);
+  expect(target.enrollments.map(({ _id, programId, opportunityId, status }) => ({ _id, programId, opportunityId, status }))).toEqual(
+    expect.arrayContaining([
+      { _id: ids.source.enrollmentId, programId: ids.programA, opportunityId: ids.source.opportunityId, status: "churned" },
+      { _id: ids.target.enrollmentId, programId: ids.programB, opportunityId: ids.target.opportunityId, status: "active" },
+    ]),
+  );
+  expect(target.enrollments).toHaveLength(2);
+  // Nothing was created or removed, and the target already was a customer.
+  expect(await enrollmentEvents(h)).toEqual([]);
+  expect(await counters(h)).toEqual({ totalLeads: 10, totalCustomers: 4 });
+  expect(await rowsNaming(h, ids.sourceLeadId)).toEqual([]);
+  const row = await t.run((ctx) =>
+    ctx.db.query("leadCustomerSearchRows").withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", ids.targetLeadId)).unique(),
+  );
+  expect(row).toMatchObject({ lifecycle: "customer", customerStatus: "active", totalPaidMinor: 100_000, convertedAt: PAID_EARLY });
+});
+
+it("makes a non-customer target a customer, and leaves totalCustomers as it was", async () => {
+  const h = await setup();
+  const { t, tenantId, admin } = h;
+  const ids = await t.run(async (ctx) => {
+    await seedStats(ctx, tenantId);
+    const programA = await insertProgram(ctx, tenantId, "A");
+    const sourceLeadId = await customer(ctx, tenantId, "Sam Source", PAID_EARLY);
+    // An active person past Prospect, counted in totalLeads, with an open deal.
+    const targetLeadId = await insertLead(ctx, tenantId, { fullName: "Sam Target" });
+    await insertOpportunity(ctx, tenantId, targetLeadId);
+    const source = await paidDeal(ctx, tenantId, sourceLeadId, programA, PAID_EARLY);
+    return { programA, sourceLeadId, targetLeadId, source };
+  });
+
+  await admin.mutation(api.leads.merge.mergeLead, { sourceLeadId: ids.sourceLeadId, targetLeadId: ids.targetLeadId });
+
+  const target = await personState(h, ids.targetLeadId);
+  expect(target.lead).toMatchObject({ status: "converted", lifecycleStage: "customer" });
+  expect(target.enrollments).toEqual([
+    expect.objectContaining({ _id: ids.source.enrollmentId, programId: ids.programA, opportunityId: ids.source.opportunityId }),
+  ]);
+  expect(await enrollmentEvents(h)).toEqual([
+    expect.objectContaining({ eventType: "lead.status_changed", fromStatus: "active", toStatus: "converted", leadId: ids.targetLeadId }),
+  ]);
+  // The source leaves the customers and the target joins them; the target
+  // leaves the leads.
+  expect(await counters(h)).toEqual({ totalLeads: 9, totalCustomers: 5 });
+  expect(await rowsNaming(h, ids.sourceLeadId)).toEqual([]);
+});
+
+it("merges a non-customer into a customer, leaving the customer count alone", async () => {
+  const h = await setup();
+  const { t, tenantId, admin } = h;
+  const ids = await t.run(async (ctx) => {
+    await seedStats(ctx, tenantId);
+    const programA = await insertProgram(ctx, tenantId, "A");
+    const sourceLeadId = await insertLead(ctx, tenantId, { fullName: "Sam Source" });
+    await insertOpportunity(ctx, tenantId, sourceLeadId);
+    const targetLeadId = await customer(ctx, tenantId, "Sam Target", PAID_EARLY);
+    const target = await paidDeal(ctx, tenantId, targetLeadId, programA, PAID_EARLY);
+    return { sourceLeadId, targetLeadId, target };
+  });
+
+  await admin.mutation(api.leads.merge.mergeLead, { sourceLeadId: ids.sourceLeadId, targetLeadId: ids.targetLeadId });
+
+  const target = await personState(h, ids.targetLeadId);
+  expect(target.lead.status).toBe("converted");
+  expect(target.enrollments.map((enrollment) => enrollment._id)).toEqual([ids.target.enrollmentId]);
+  expect(await enrollmentEvents(h)).toEqual([]);
+  expect(await counters(h)).toEqual({ totalLeads: 9, totalCustomers: 5 });
+});
+
+it("refuses a customer merge whose deals pass what the enrollments can be worked out from", async () => {
+  const h = await setup();
+  const { t, tenantId, admin } = h;
+  const ids = await t.run(async (ctx) => {
+    const programA = await insertProgram(ctx, tenantId, "A");
+    const sourceLeadId = await customer(ctx, tenantId, "Sam Source", PAID_EARLY);
+    await paidDeal(ctx, tenantId, sourceLeadId, programA, PAID_EARLY);
+    const targetLeadId = await insertLead(ctx, tenantId, { fullName: "Sam Target" });
+    for (let index = 0; index < 100; index += 1) {
+      await insertOpportunity(ctx, tenantId, targetLeadId, { status: "lost" });
+    }
+    return { sourceLeadId, targetLeadId };
+  });
+  const before = await t.run(dumpTables);
+
+  // The preview says so before the confirmation, from the same counts.
+  const preview = await admin.query(api.leads.queries.getMergePreview, ids);
+  expect(preview.preview.exceedsMergeLimit).toBe(true);
+
+  await expect(admin.mutation(api.leads.merge.mergeLead, ids)).rejects.toThrow("lead.merge_too_many_opportunities");
+  expect(await t.run(dumpTables)).toEqual(before);
+});
+
+it("refuses a merge that would leave a customer target past the limit, even from a non-customer", async () => {
+  const h = await setup();
+  const { t, tenantId, admin } = h;
+  const ids = await t.run(async (ctx) => {
+    const programA = await insertProgram(ctx, tenantId, "A");
+    const sourceLeadId = await insertLead(ctx, tenantId, { fullName: "Sam Source" });
+    await insertOpportunity(ctx, tenantId, sourceLeadId);
+    const targetLeadId = await customer(ctx, tenantId, "Sam Target", PAID_EARLY);
+    await paidDeal(ctx, tenantId, targetLeadId, programA, PAID_EARLY);
+    for (let index = 0; index < 99; index += 1) {
+      await insertOpportunity(ctx, tenantId, targetLeadId, { status: "lost" });
+    }
+    return { sourceLeadId, targetLeadId };
+  });
+  const before = await t.run(dumpTables);
+
+  const preview = await admin.query(api.leads.queries.getMergePreview, ids);
+  expect(preview.preview.exceedsMergeLimit).toBe(true);
+  await expect(admin.mutation(api.leads.merge.mergeLead, ids)).rejects.toThrow("lead.merge_too_many_opportunities");
+  expect(await t.run(dumpTables)).toEqual(before);
+});
+
+it("previews a merge under the limit as allowed", async () => {
+  const h = await setup();
+  const { t, tenantId, admin } = h;
+  const ids = await t.run(async (ctx) => {
+    const programA = await insertProgram(ctx, tenantId, "A");
+    const sourceLeadId = await customer(ctx, tenantId, "Sam Source", PAID_EARLY);
+    await paidDeal(ctx, tenantId, sourceLeadId, programA, PAID_EARLY);
+    const targetLeadId = await insertLead(ctx, tenantId, { fullName: "Sam Target" });
+    for (let index = 0; index < 98; index += 1) {
+      await insertOpportunity(ctx, tenantId, targetLeadId, { status: "lost" });
+    }
+    return { sourceLeadId, targetLeadId };
+  });
+
+  const preview = await admin.query(api.leads.queries.getMergePreview, ids);
+  expect(preview.preview.exceedsMergeLimit).toBe(false);
+});
+

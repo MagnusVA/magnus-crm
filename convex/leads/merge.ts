@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import type { MutationCtx } from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internalMutation, mutation } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { requireTenantUser } from "../requireTenantUser";
@@ -14,6 +14,12 @@ import {
 } from "./repointLeadReferences";
 import { syncPersonProspectConversions } from "../lib/prospectConversions";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { listPersonEnrollments } from "../enrollments/read";
+import {
+  ENROLLMENT_DEAL_LIMIT,
+  mergePersonEnrollments,
+  syncPersonEnrollments,
+} from "../lib/enrollments";
 import { countsAsLead, mergeLeadLifecycle } from "../lib/leadLifecycle";
 import { rejectRequest } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
@@ -21,6 +27,7 @@ import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
 import { mergedTouches } from "../lib/touches";
 import { leadDisplayString } from "../lib/leadDisplay";
+import { validateLeadTransition } from "../lib/statusTransitions";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { rebuildQualificationRow } from "../operations/projections";
 
@@ -28,6 +35,56 @@ import { rebuildQualificationRow } from "../operations/projections";
 // opportunities, the count the merge preview shows, a merge stays well
 // inside Convex's per-transaction read limits (see merge.test.ts).
 const MERGE_OPPORTUNITY_LIMIT = 50;
+
+/**
+ * Whether the merged person's enrollments are derived from the combined
+ * deals, now or on the next payment: either person is a customer, or the
+ * source has an enrollment. Then the combined deals must stay within what
+ * the derivation reads (ENROLLMENT_DEAL_LIMIT).
+ */
+async function combinedDealsMustFitDerivation(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  sourceLead: Doc<"leads">,
+  targetLead: Doc<"leads">,
+): Promise<boolean> {
+  return (
+    sourceLead.status === "converted" ||
+    targetLead.status === "converted" ||
+    (await listPersonEnrollments(ctx, tenantId, sourceLead._id)).length > 0
+  );
+}
+
+/**
+ * Whether `mergeLead` would refuse these two people for size, from the same
+ * reads it makes: a source with more deals than one merge moves, or, when
+ * the merged person's enrollments derive from the combined deals, more of
+ * them than the derivation reads. The merge preview shows it before the
+ * confirmation.
+ */
+export async function mergeExceedsLimit(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  sourceLead: Doc<"leads">,
+  targetLead: Doc<"leads">,
+): Promise<boolean> {
+  const targetLeadId = targetLead._id;
+  const sourceDeals = await ctx.db
+    .query("opportunities")
+    .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", sourceLead._id))
+    .take(MERGE_OPPORTUNITY_LIMIT + 1);
+  if (sourceDeals.length > MERGE_OPPORTUNITY_LIMIT) {
+    return true;
+  }
+  if (!(await combinedDealsMustFitDerivation(ctx, tenantId, sourceLead, targetLead))) {
+    return false;
+  }
+  const targetDeals = await ctx.db
+    .query("opportunities")
+    .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", targetLeadId))
+    .take(ENROLLMENT_DEAL_LIMIT + 1);
+  return targetDeals.length + sourceDeals.length > ENROLLMENT_DEAL_LIMIT;
+}
 const MERGE_IDENTIFIER_LIMIT = 100;
 // Bounds reads that don't decide whether the merge can run: the target's own
 // opportunities, meetings, and Slack events, and leads merged into the
@@ -66,10 +123,6 @@ type ProfileCarryOver = Partial<
     | "selfReportedIncome"
   >
 >;
-
-function isActiveLikeLeadStatus(status: Doc<"leads">["status"]): boolean {
-  return status === "active";
-}
 
 export function buildSocialHandles(
   identifiers: Doc<"leadIdentifiers">[],
@@ -406,12 +459,14 @@ async function executeMerge(
   if (!targetLead || targetLead.tenantId !== tenantId) {
     throw new Error("Target lead not found");
   }
-  if (!isActiveLikeLeadStatus(sourceLead.status)) {
+  // Active people and customers merge either way; a merged lead lives on as
+  // its target (docs/plans/phase-4-customers.md §4.7, D7).
+  if (!validateLeadTransition(sourceLead.status, "merged")) {
     throw new Error(
       `Source lead cannot be merged from status "${sourceLead.status}"`,
     );
   }
-  if (!isActiveLikeLeadStatus(targetLead.status)) {
+  if (targetLead.status === "merged") {
     throw new Error(
       `Target lead cannot receive a merge from status "${targetLead.status}"`,
     );
@@ -431,6 +486,30 @@ async function executeMerge(
       `This lead has more than ${MERGE_OPPORTUNITY_LIMIT} opportunities, which is more than one merge can move. Nothing was merged.`,
       { tenantId, sourceLeadId, targetLeadId },
     );
+  }
+  // A source with an enrollment, or a customer, makes the target's
+  // enrollments re-derive from both people's deals, which reads at most
+  // ENROLLMENT_DEAL_LIMIT of them. A source with neither has no payment that
+  // counts, so the target's enrollments stay as they are.
+  const syncsTargetEnrollments =
+    sourceLead.status === "converted" ||
+    (await listPersonEnrollments(ctx, tenantId, sourceLeadId)).length > 0;
+  // A customer target counts too: its next payment derives from every deal
+  // it then has, so the merge mustn't leave it past the limit.
+  if (await combinedDealsMustFitDerivation(ctx, tenantId, sourceLead, targetLead)) {
+    const targetDeals = await ctx.db
+      .query("opportunities")
+      .withIndex("by_tenantId_and_leadId", (q) =>
+        q.eq("tenantId", tenantId).eq("leadId", targetLeadId),
+      )
+      .take(ENROLLMENT_DEAL_LIMIT + 1);
+    if (targetDeals.length + sourceOpportunities.length > ENROLLMENT_DEAL_LIMIT) {
+      throw rejectRequest(
+        "lead.merge_too_many_opportunities",
+        `These leads have more than ${ENROLLMENT_DEAL_LIMIT} opportunities between them, more than one merge can work out their programs from. Nothing was merged.`,
+        { tenantId, sourceLeadId, targetLeadId },
+      );
+    }
   }
   const sourceIdentifiers = await ctx.db
     .query("leadIdentifiers")
@@ -552,6 +631,27 @@ async function executeMerge(
     limit: FORM_RESPONSE_PAGE_SIZE,
   });
 
+  // The source's enrollments move to the target or combine with the
+  // target's own. Then the target's re-derive from every payment its deals
+  // now hold, which makes the target a customer if the source was one.
+  const enrollments = await mergePersonEnrollments(ctx, {
+    tenantId,
+    sourceLeadId,
+    targetLeadId,
+    now,
+    source: "admin",
+    actorUserId: userId,
+  });
+  if (syncsTargetEnrollments) {
+    await syncPersonEnrollments(ctx, {
+      tenantId,
+      leadId: targetLeadId,
+      now,
+      source: "admin",
+      actorUserId: userId,
+    });
+  }
+
   await mergeLeadLifecycle(ctx, sourceLead, targetLeadId, userId);
   // The moved prospects now count toward the target's stages.
   const mergedTarget = await ctx.db.get("leads", targetLeadId);
@@ -569,9 +669,15 @@ async function executeMerge(
     mergedIntoLeadId: targetLeadId,
     updatedAt: now,
   });
-  // `totalLeads` counts active leads past Prospect, and the source was active.
-  if (countsAsLead(sourceLead)) {
-    await updateTenantStats(ctx, tenantId, { totalLeads: -1 });
+  // The source stops counting: `totalLeads` counts active leads past
+  // Prospect, and a customer source leaves `totalCustomers`. The target's
+  // conversion, if any, counted itself in the sync above.
+  const sourceWasCustomer = sourceLead.status === "converted";
+  if (countsAsLead(sourceLead) || sourceWasCustomer) {
+    await updateTenantStats(ctx, tenantId, {
+      totalLeads: countsAsLead(sourceLead) ? -1 : 0,
+      totalCustomers: sourceWasCustomer ? -1 : 0,
+    });
   }
 
   // Leads merged into the source now point at the target, so merge chains
@@ -637,6 +743,8 @@ async function executeMerge(
       prospectsMoved: leadRows.prospects,
       copyEventsMoved: leadRows.copyEvents,
       formResponsesMoved: formResponses.moved,
+      enrollmentsMoved: enrollments.moves.length,
+      enrollmentsCombined: enrollments.combines.length,
       earlierMergesRepointed,
       fieldsCarriedOver: Object.keys(carryOver).length,
       continuesInBackground: continues,

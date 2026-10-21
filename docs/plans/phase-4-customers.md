@@ -225,6 +225,13 @@ From PR 4, `mergeLead` accepts a source or target that is a customer (D7):
 
 The lifecycle and touches combine as now. The merge page's target search includes customers, and `getMergePreview` lists the enrollments that move and the ones that combine. `syncCustomerSnapshot` goes.
 
+What PR 4 adds to these rules:
+
+- A tie on `statusChangedAt` keeps the target's status. The kept enrollment takes the winning `statusChangedAt` and `statusChangedByUserId` with the status, and when that changes its status it emits `enrollment.status_changed` with the reason `merge`, so the timeline shows why. Events name the merging user as the actor, with source `admin`, as `lead.merged` does.
+- The target's sync runs only when the source has an enrollment or is a customer: a person with neither has no payment that counts, so the target's enrollments can't change. When it runs, a target and source with more than 100 deals between them, the derivation's bound (§4.1), are refused before any write with `lead.merge_too_many_opportunities`.
+- `lead.merged` records `enrollmentsMoved` and `enrollmentsCombined` in its metadata. The preview gives, for each program that moves, its name and status, and for each that combines, both statuses and the one kept.
+- The target search reads `searchLeadsForPicker`, which returns active people and customers, and marks customers.
+
 ### 4.8 One row per fact
 
 Every writer of an enrollment runs inside one mutation: `syncPersonEnrollments` reads the person's enrollments and writes the difference, so a retried batch, a concurrent payment or the backfill finds what the first writer wrote (mutations are serializable). The identity is the person and the program. `assertEnrollments` fails on two enrollments with the same person and program, on an enrollment with no payment behind it, and on a payment with no enrollment.
@@ -380,7 +387,7 @@ Every "none" in §7 must come back with no difference before PRs 2 and 3 deploy.
 
 From PR 4 no payment field names a customer (D12), so `customerCopy.ts` reaches a customer row's payments through its person's deals, and a payment's customer row through its deal's person. For production's payments, each on a deal of its customer's person (§2.2), those are the same rows.
 
-The parity queries only mean something before PRs 2 and 3, and nothing runs them after. From PR 4 they report expected differences rather than fail: a customer row keeps the status it had when PR 4 deployed, and a person who converts later has no row.
+The parity queries only mean something before PRs 2 and 3, and nothing runs them after. From PR 4 they report expected differences rather than fail: a customer row keeps the status it had when PR 4 deployed, and a person who converts later has no row. A merged customer's row, until `deleteCustomers` removes it, names the merged person. No assert or reader trips on it: `assertEnrollments` and the lifecycle derivation no longer read customer rows, the customer redirect follows the merge, and a pasted customer ID finds the merged person's hidden row, as pasting that person's own ID does.
 
 ### 10.4 `rebuildCustomerSearchRows` (PR 2)
 

@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { listPersonEnrollments } from "../enrollments/read";
+import type { EnrollmentStatus } from "../enrollments/validators";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { emitDomainEvent, type DomainEventSource } from "./domainEvents";
 import { countsAsLead } from "./leadLifecycle";
@@ -398,3 +399,112 @@ export async function syncPersonEnrollments(
   await rebuildLeadCustomerSearchRow(ctx, tenantId, leadId);
   return { ...result, leadStatusChange };
 }
+
+// --- Merges (docs/plans/phase-4-customers.md §4.7, D7). ---
+
+type StatusFields = Pick<Doc<"enrollments">, "status" | "statusChangedAt" | "statusChangedByUserId">;
+type CombinedStatus = {
+  status: EnrollmentStatus;
+  statusChangedAt: number | undefined;
+  statusChangedByUserId: Id<"users"> | undefined;
+};
+
+/**
+ * Where a person who merges into another has an enrollment in a program the
+ * other also has, one stays, with the status an admin changed most recently:
+ * by `statusChangedAt`, the target's on a tie, and `active` if neither was
+ * changed.
+ */
+export function combinedEnrollmentStatus(
+  source: StatusFields,
+  target: StatusFields,
+): CombinedStatus {
+  const latest = [target, source]
+    .filter((enrollment) => enrollment.statusChangedAt !== undefined)
+    .sort((left, right) => right.statusChangedAt! - left.statusChangedAt!)[0];
+  return latest
+    ? {
+        status: latest.status,
+        statusChangedAt: latest.statusChangedAt,
+        statusChangedByUserId: latest.statusChangedByUserId,
+      }
+    : { status: "active", statusChangedAt: undefined, statusChangedByUserId: undefined };
+}
+
+export type EnrollmentMergePlan = {
+  /** Source enrollments in a program the target has none in: they move. */
+  moves: Doc<"enrollments">[];
+  /** Programs both have: the target's stays with `status`, the source's goes. */
+  combines: Array<{ source: Doc<"enrollments">; target: Doc<"enrollments"> } & CombinedStatus>;
+};
+
+/** What a merge does with each source enrollment; the preview shows the same. */
+export function planEnrollmentMerge(
+  sourceEnrollments: readonly Doc<"enrollments">[],
+  targetEnrollments: readonly Doc<"enrollments">[],
+): EnrollmentMergePlan {
+  // Should a person hold two for one program, the oldest is the one the sync keeps.
+  const targetByProgram = new Map<Id<"tenantPrograms">, Doc<"enrollments">>();
+  for (const enrollment of [...targetEnrollments].sort((left, right) => left._creationTime - right._creationTime)) {
+    if (!targetByProgram.has(enrollment.programId)) {
+      targetByProgram.set(enrollment.programId, enrollment);
+    }
+  }
+  const plan: EnrollmentMergePlan = { moves: [], combines: [] };
+  for (const source of sourceEnrollments) {
+    const target = targetByProgram.get(source.programId);
+    if (target) {
+      plan.combines.push({ source, target, ...combinedEnrollmentStatus(source, target) });
+    } else {
+      plan.moves.push(source);
+    }
+  }
+  return plan;
+}
+
+/**
+ * Moves the source person's enrollments to the target in a merge. A source
+ * enrollment in a program the target lacks changes `leadId` and keeps its ID
+ * and status. Where both have one, the target's takes the combined status,
+ * with an `enrollment.status_changed` event when it changes, and the source's
+ * is deleted with `enrollment.removed`, reason `merge`. Call it after the
+ * source's deals have moved, then `syncPersonEnrollments` for the target,
+ * which re-derives the times from every payment the target now has.
+ */
+export async function mergePersonEnrollments(
+  ctx: MutationCtx,
+  args: { tenantId: Id<"tenants">; sourceLeadId: Id<"leads">; targetLeadId: Id<"leads">; now: number } & EnrollmentSyncActor,
+): Promise<EnrollmentMergePlan> {
+  const { tenantId, now } = args;
+  const actor = { source: args.source, actorUserId: args.actorUserId };
+  const plan = planEnrollmentMerge(
+    await listPersonEnrollments(ctx, tenantId, args.sourceLeadId),
+    await listPersonEnrollments(ctx, tenantId, args.targetLeadId),
+  );
+  for (const enrollment of plan.moves) {
+    await ctx.db.patch("enrollments", enrollment._id, { leadId: args.targetLeadId });
+  }
+  for (const { source, target, status, statusChangedAt, statusChangedByUserId } of plan.combines) {
+    if (
+      status !== target.status ||
+      statusChangedAt !== target.statusChangedAt ||
+      statusChangedByUserId !== target.statusChangedByUserId
+    ) {
+      await ctx.db.patch("enrollments", target._id, { status, statusChangedAt, statusChangedByUserId });
+    }
+    if (status !== target.status) {
+      await emitEnrollmentEvent(ctx, { ...target, status }, {
+        ...actor,
+        eventType: "enrollment.status_changed",
+        fromStatus: target.status,
+        toStatus: status,
+        reason: "merge",
+        occurredAt: now,
+      });
+    }
+    await ctx.db.delete("enrollments", source._id);
+    await emitEnrollmentEvent(ctx, source, { ...actor, eventType: "enrollment.removed", reason: "merge", occurredAt: now });
+  }
+  return plan;
+}
+
