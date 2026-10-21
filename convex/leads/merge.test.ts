@@ -1319,6 +1319,28 @@ it("refuses a customer merge whose deals pass what the enrollments can be worked
   expect(await t.run(dumpTables)).toEqual(before);
 });
 
+it("refuses a merge that would leave a customer target past the limit, even from a non-customer", async () => {
+  const h = await setup();
+  const { t, tenantId, admin } = h;
+  const ids = await t.run(async (ctx) => {
+    const programA = await insertProgram(ctx, tenantId, "A");
+    const sourceLeadId = await insertLead(ctx, tenantId, { fullName: "Sam Source" });
+    await insertOpportunity(ctx, tenantId, sourceLeadId);
+    const targetLeadId = await customer(ctx, tenantId, "Sam Target", PAID_EARLY);
+    await paidDeal(ctx, tenantId, targetLeadId, programA, PAID_EARLY);
+    for (let index = 0; index < 99; index += 1) {
+      await insertOpportunity(ctx, tenantId, targetLeadId, { status: "lost" });
+    }
+    return { sourceLeadId, targetLeadId };
+  });
+  const before = await t.run(dumpTables);
+
+  const preview = await admin.query(api.leads.queries.getMergePreview, ids);
+  expect(preview.preview.exceedsMergeLimit).toBe(true);
+  await expect(admin.mutation(api.leads.merge.mergeLead, ids)).rejects.toThrow("lead.merge_too_many_opportunities");
+  expect(await t.run(dumpTables)).toEqual(before);
+});
+
 it("previews a merge under the limit as allowed", async () => {
   const h = await setup();
   const { t, tenantId, admin } = h;

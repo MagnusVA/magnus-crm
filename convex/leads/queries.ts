@@ -701,7 +701,7 @@ export const getMergePreview = query({
           sourceOpportunities.length + targetOpportunities.length,
         // The merge would be refused for size; the page says so before the
         // confirmation instead of letting it fail.
-        exceedsMergeLimit: await mergeExceedsLimit(ctx, tenantId, source, targetLeadId),
+        exceedsMergeLimit: await mergeExceedsLimit(ctx, tenantId, source, target),
         enrollmentsToMove: enrollmentPlan.moves.map((enrollment) => ({
           programId: enrollment.programId,
           programName: programName(enrollment.programId),

@@ -37,18 +37,38 @@ import { rebuildQualificationRow } from "../operations/projections";
 const MERGE_OPPORTUNITY_LIMIT = 50;
 
 /**
+ * Whether the merged person's enrollments are derived from the combined
+ * deals, now or on the next payment: either person is a customer, or the
+ * source has an enrollment. Then the combined deals must stay within what
+ * the derivation reads (ENROLLMENT_DEAL_LIMIT).
+ */
+async function combinedDealsMustFitDerivation(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  sourceLead: Doc<"leads">,
+  targetLead: Doc<"leads">,
+): Promise<boolean> {
+  return (
+    sourceLead.status === "converted" ||
+    targetLead.status === "converted" ||
+    (await listPersonEnrollments(ctx, tenantId, sourceLead._id)).length > 0
+  );
+}
+
+/**
  * Whether `mergeLead` would refuse these two people for size, from the same
  * reads it makes: a source with more deals than one merge moves, or, when
- * the target's enrollments re-derive (a source with an enrollment or a
- * customer), more combined deals than the derivation reads. The merge
- * preview shows it before the confirmation.
+ * the merged person's enrollments derive from the combined deals, more of
+ * them than the derivation reads. The merge preview shows it before the
+ * confirmation.
  */
 export async function mergeExceedsLimit(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   sourceLead: Doc<"leads">,
-  targetLeadId: Id<"leads">,
+  targetLead: Doc<"leads">,
 ): Promise<boolean> {
+  const targetLeadId = targetLead._id;
   const sourceDeals = await ctx.db
     .query("opportunities")
     .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", sourceLead._id))
@@ -56,10 +76,7 @@ export async function mergeExceedsLimit(
   if (sourceDeals.length > MERGE_OPPORTUNITY_LIMIT) {
     return true;
   }
-  const syncsTargetEnrollments =
-    sourceLead.status === "converted" ||
-    (await listPersonEnrollments(ctx, tenantId, sourceLead._id)).length > 0;
-  if (!syncsTargetEnrollments) {
+  if (!(await combinedDealsMustFitDerivation(ctx, tenantId, sourceLead, targetLead))) {
     return false;
   }
   const targetDeals = await ctx.db
@@ -477,7 +494,9 @@ async function executeMerge(
   const syncsTargetEnrollments =
     sourceLead.status === "converted" ||
     (await listPersonEnrollments(ctx, tenantId, sourceLeadId)).length > 0;
-  if (syncsTargetEnrollments) {
+  // A customer target counts too: its next payment derives from every deal
+  // it then has, so the merge mustn't leave it past the limit.
+  if (await combinedDealsMustFitDerivation(ctx, tenantId, sourceLead, targetLead)) {
     const targetDeals = await ctx.db
       .query("opportunities")
       .withIndex("by_tenantId_and_leadId", (q) =>
