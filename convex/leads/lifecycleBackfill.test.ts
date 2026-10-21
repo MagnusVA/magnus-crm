@@ -97,15 +97,10 @@ async function legacyCustomer(harness: Harness) {
     const programId = await ctx.db.insert("tenantPrograms", {
       tenantId, name: "Program", normalizedName: "program", createdAt: 0, createdByUserId: adminId, updatedAt: 0,
     });
-    const customerId = await ctx.db.insert("customers", {
-      tenantId, leadId, fullName: "Buyer", email: "buyer@example.com", convertedAt: PAID, convertedByUserId: closerId,
-      winningOpportunityId: opportunityId, winningMeetingId: meetingId, programId, programName: "Program",
-      status: "active", createdAt: PAID,
-    });
     await ctx.db.insert("paymentRecords", {
       tenantId, opportunityId, meetingId, attributedCloserId: closerId, amountMinor: 100000, currency: "USD",
       recordedByUserId: closerId, commissionable: true, programId, programName: "Program", paymentType: "pif",
-      status: "recorded", recordedAt: PAID, customerId, contextType: "opportunity", origin: "closer_meeting",
+      status: "recorded", recordedAt: PAID, origin: "closer_meeting",
     });
     const workerId = await ctx.db.insert("leadGenWorkers", {
       tenantId, userId: adminId, workosUserId: "user_admin", email: "admin@example.com", isActive: true,
@@ -122,7 +117,7 @@ async function legacyCustomer(harness: Harness) {
       tenantId, prospectId, leadId, opportunityId, matchSource: "slack_qualification", matchStatus: "accepted",
       matchedVia: "social_handle", normalizedHandle: "buyer", createdAt: QUALIFIED, updatedAt: QUALIFIED,
     });
-    return { leadId, opportunityId, meetingId, closerId };
+    return { leadId, opportunityId, meetingId, closerId, programId };
   });
 }
 
@@ -149,6 +144,30 @@ describe("lifecycle assert", () => {
     await harness.t.run((ctx) =>
       ctx.db.patch("leads", leadId, { lifecycleStageEnteredAt: { ...CUSTOMER_LIFECYCLE_STATE.enteredAt, showed: PAID } }),
     );
+    expect((await rerun(harness, "assertLeadLifecycle"))?.error).toContain("differ from its records");
+  });
+
+  it("takes the Customer stage from payments only, not from a customer row (D9)", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));
+    const harness = await harnessWithMigrations();
+    const { leadId, opportunityId, closerId, programId } = await legacyCustomer(harness);
+    // A customer row converted earlier than the first payment no longer
+    // gives the stage an earlier time.
+    await harness.t.run((ctx) =>
+      ctx.db.insert("customers", {
+        tenantId: harness.tenantId, leadId, fullName: "Buyer", email: "buyer@example.com", convertedAt: CALL,
+        convertedByUserId: closerId, winningOpportunityId: opportunityId, programId, programName: "Program",
+        status: "active", createdAt: CALL,
+      }),
+    );
+    expect((await run(harness, "assertLeadLifecycle"))?.error).toBeUndefined();
+
+    // With the payment disputed, nothing supports the stage, row or no row.
+    await harness.t.run(async (ctx) => {
+      const payment = (await ctx.db.query("paymentRecords").first())!;
+      await ctx.db.patch("paymentRecords", payment._id, { status: "disputed" });
+    });
     expect((await rerun(harness, "assertLeadLifecycle"))?.error).toContain("differ from its records");
   });
 });

@@ -289,12 +289,6 @@ export function paymentEvidence(
     : [{ stage: "customer", at: payment.recordedAt }];
 }
 
-export function customerEvidence(
-  customer: Doc<"customers">,
-): LifecycleEvidence[] {
-  return [{ stage: "customer", at: customer.convertedAt }];
-}
-
 /** Lead gen captured the person (docs/plans/phase-2-person-first.md §4.2). */
 export function prospectEvidence(
   prospect: Doc<"leadGenProspects">,
@@ -395,46 +389,19 @@ export async function recordOpportunity(
   }
 }
 
-/** A payment was recorded, on a deal or on a customer. */
+/**
+ * A payment was recorded on a deal. The Customer stage comes from payments
+ * only (docs/plans/phase-4-customers.md D9).
+ */
 export async function recordPayment(
   ctx: MutationCtx,
   paymentId: Id<"paymentRecords">,
 ): Promise<void> {
   const payment = await ctx.db.get("paymentRecords", paymentId);
-  if (!payment) {
-    return;
-  }
-  const leadId = await paymentLeadId(ctx, payment);
-  if (leadId) {
-    await applyEvidence(ctx, leadId, paymentEvidence(payment), "payment");
-  }
-}
-
-async function paymentLeadId(
-  ctx: MutationCtx,
-  payment: Doc<"paymentRecords">,
-): Promise<Id<"leads"> | undefined> {
-  if (payment.opportunityId) {
-    const opportunity = await ctx.db.get("opportunities", payment.opportunityId);
-    if (opportunity) {
-      return opportunity.leadId;
-    }
-  }
-  if (payment.customerId) {
-    const customer = await ctx.db.get("customers", payment.customerId);
-    return customer?.leadId;
-  }
-  return undefined;
-}
-
-/** A lead was converted, by a payment or by an admin. */
-export async function recordCustomer(
-  ctx: MutationCtx,
-  customerId: Id<"customers">,
-): Promise<void> {
-  const customer = await ctx.db.get("customers", customerId);
-  if (customer) {
-    await applyEvidence(ctx, customer.leadId, customerEvidence(customer), "payment");
+  const opportunity =
+    payment?.opportunityId && (await ctx.db.get("opportunities", payment.opportunityId));
+  if (payment && opportunity) {
+    await applyEvidence(ctx, opportunity.leadId, paymentEvidence(payment), "payment");
   }
 }
 
@@ -466,7 +433,6 @@ export async function collectLifecycleEvidence(
     "deals",
     leadId,
   );
-  const paymentIds = new Set<Id<"paymentRecords">>();
   for (const opportunity of opportunities) {
     evidence.push(...opportunityEvidence(opportunity));
     const meetings = bounded(
@@ -489,28 +455,7 @@ export async function collectLifecycleEvidence(
       leadId,
     );
     for (const payment of payments) {
-      paymentIds.add(payment._id);
       evidence.push(...paymentEvidence(payment));
-    }
-  }
-  const customer = await ctx.db
-    .query("customers")
-    .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
-    .first();
-  if (customer) {
-    evidence.push(...customerEvidence(customer));
-    const customerPayments = bounded(
-      await ctx.db
-        .query("paymentRecords")
-        .withIndex("by_customerId_and_recordedAt", (q) => q.eq("customerId", customer._id))
-        .take(DERIVE_READ_LIMIT + 1),
-      "customer payments",
-      leadId,
-    );
-    for (const payment of customerPayments) {
-      if (!paymentIds.has(payment._id)) {
-        evidence.push(...paymentEvidence(payment));
-      }
     }
   }
   const events = bounded(
