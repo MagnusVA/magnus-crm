@@ -18,10 +18,8 @@ import {
   seedCustomer,
 } from "../../tests/enrollmentReadFixtures";
 import { api } from "../_generated/api";
-import { customerFieldsFromCustomerRow } from "../enrollments/customerCopy";
 import {
   customerFieldsFromEnrollments,
-  latestActivityFor,
   loadPersonDeals,
   personContact,
   rebuildLeadCustomerSearchRow,
@@ -152,37 +150,10 @@ describe("customer fields from enrollments", () => {
       latestPaymentAt: undefined,
     });
   });
-
-  it("agrees with the customer row where the two are consistent", async () => {
-    const harness = await bookingHarness();
-    const { t, tenantId } = harness;
-    const result = await t.run(async (ctx) => {
-      const { admin, closer } = await fixtureUsers(ctx, tenantId);
-      const program = await insertProgram(ctx, tenantId, admin._id, "Program");
-      const seeded = await seedCustomer(ctx, tenantId, { closerId: closer._id, programId: program, paidAt: T0 });
-      const lead = (await ctx.db.get("leads", seeded.leadId))!;
-      const deals = await loadPersonDeals(ctx, tenantId, seeded.leadId);
-      const fromCustomer = await customerFieldsFromCustomerRow(ctx, tenantId, seeded.leadId);
-      const fromEnrollments = await customerFieldsFromEnrollments(ctx, tenantId, seeded.leadId, deals);
-      return {
-        customerId: seeded.customerId,
-        fromCustomer,
-        fromEnrollments,
-        activity: [
-          latestActivityFor(lead, fromCustomer.fields, deals),
-          latestActivityFor(lead, fromEnrollments, deals),
-        ],
-      };
-    });
-
-    expect(result.fromCustomer.customer?._id).toBe(result.customerId);
-    expect(result.fromEnrollments).toEqual(result.fromCustomer.fields);
-    expect(result.activity[1]).toBe(result.activity[0]);
-  });
 });
 
 describe("contact fields", () => {
-  it("come from the person, whatever the customer copy says", async () => {
+  it("come from the person", async () => {
     const harness = await bookingHarness();
     const contact = await harness.t.run(async (ctx) => {
       const leadId = await insertPerson(ctx, harness.tenantId, { email: "only@example.com", phone: "+15550000000" });

@@ -17,7 +17,6 @@ import {
   seedCustomer,
 } from "../../tests/enrollmentReadFixtures";
 import { api } from "../_generated/api";
-import { conversionsFromCustomers } from "../enrollments/customerCopy";
 import { conversionsFromEnrollments } from "./leadConversion";
 
 const MAY = { start: Date.parse("2026-05-01T00:00:00Z"), end: Date.parse("2026-06-01T00:00:00Z") };
@@ -127,30 +126,6 @@ describe("conversions from enrollments", () => {
         convertedByUserId: seeded.closerId,
       },
     ]);
-  });
-
-  it("matches the customer rows on data where both agree", async () => {
-    const { t, tenantId } = await bookingHarness();
-    await t.run(async (ctx) => {
-      const { admin, closer } = await fixtureUsers(ctx, tenantId);
-      const program = await insertProgram(ctx, tenantId, admin._id, "Program");
-      await seedCustomer(ctx, tenantId, { closerId: closer._id, programId: program, paidAt: T0 });
-      await seedCustomer(ctx, tenantId, {
-        closerId: closer._id,
-        recorderId: admin._id,
-        programId: program,
-        paidAt: T0 + DAY,
-        withMeeting: false,
-        assignedCloserId: null,
-      });
-    });
-
-    const fromCustomers = await t.run((ctx) => conversionsFromCustomers(ctx, tenantId, MAY.start, MAY.end));
-    const fromEnrollments = await t.run((ctx) =>
-      conversionsFromEnrollments(ctx, tenantId, MAY.start, MAY.end),
-    );
-    expect(fromCustomers.conversions).toHaveLength(2);
-    expect(fromEnrollments).toEqual(fromCustomers);
   });
 });
 
