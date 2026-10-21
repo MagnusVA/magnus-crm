@@ -122,6 +122,12 @@ export function BookingReviewsPageClient() {
         </Card>
       )}
 
+      {reviews.some((review) => review.namesCapped) && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Some names didn&apos;t load. Open a review to see everyone it matched.
+        </p>
+      )}
+
       {(status === "CanLoadMore" || status === "LoadingMore") && (
         <Button
           variant="outline"

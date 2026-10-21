@@ -647,6 +647,17 @@ it("setting the channel posts every waiting review, past the first page", async 
       });
   });
 
+  // The banner count stops at its bound and says so.
+  expect(await harness.admin.query(api.pipeline.bookingReviews.openCount, {})).toEqual({
+    count: 99,
+    capped: true,
+  });
+  const firstPage = await harness.admin.query(api.pipeline.bookingReviews.list, {
+    paginationOpts: { cursor: null, numItems: 200 },
+  });
+  expect(firstPage.page).toHaveLength(50);
+  expect(firstPage.isDone).toBe(false);
+
   await saveChannels(harness, { channelId: "C_REVIEWS", channelName: "reviews" });
   await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
 

@@ -10,6 +10,12 @@ import {
 } from "../_generated/server";
 import { followMergeChain } from "../leads/identityResolution";
 import { executeMerge } from "../leads/merge";
+import {
+  createLiveReadState,
+  LIVE_QUERY_BYTE_BUDGET,
+  readLiveDocuments,
+  readLiveQueryRows,
+} from "../lib/liveQueryBounds";
 import { areNamesSimilar } from "../lib/normalization";
 import { log } from "../lib/observability/log";
 import { getString, isRecord } from "../lib/payloadExtraction";
@@ -294,28 +300,45 @@ export const list = query({
         q.eq("tenantId", tenantId).eq("status", "open"),
       )
       .order("desc")
-      .paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, LIST_PAGE_LIMIT) });
-    return {
-      ...page,
-      page: await Promise.all(
-        page.page.map(async (review) => {
-          const lead = review.leadId ? await ctx.db.get("leads", review.leadId) : null;
-          const others = await Promise.all(
-            [...new Set(review.conflicts.map((c) => c.leadId))].map((id) => ctx.db.get("leads", id)),
-          );
-          return {
-            reviewId: review._id,
-            kind: review.kind,
-            reason: review.reason,
-            createdAt: review.createdAt,
-            bookingName: review.booking.name,
-            bookedLeadName: lead?.fullName,
-            otherNames: others.map((other) => other?.fullName ?? other?.email ?? "Unnamed person"),
-            matchedBy: [...new Set(review.conflicts.map((c) => c.via))],
-          };
-        }),
-      ),
-    };
+      .paginate({
+        ...paginationOpts,
+        numItems: Math.min(paginationOpts.numItems, LIST_PAGE_LIMIT),
+        maximumRowsRead: LIST_PAGE_LIMIT,
+        maximumBytesRead: LIVE_QUERY_BYTE_BUDGET,
+      });
+    // The people's names share one byte budget across the page; past it, the
+    // rest show as unnamed and the row's `namesCapped` says so.
+    const names = createLiveReadState();
+    const rows = [];
+    for (const review of page.page) {
+      const leadIds = [
+        ...(review.leadId ? [review.leadId] : []),
+        ...new Set(review.conflicts.map((c) => c.leadId)),
+      ];
+      const { rows: leads, capped: namesCapped } = await readLiveDocuments(
+        leadIds,
+        (id) => ctx.db.get("leads", id),
+        names,
+      );
+      const nameOf = (id: Id<"leads">) => {
+        const lead = leads.find((l) => l._id === id);
+        return lead?.fullName ?? lead?.email;
+      };
+      rows.push({
+        reviewId: review._id,
+        kind: review.kind,
+        reason: review.reason,
+        createdAt: review.createdAt,
+        bookingName: review.booking.name,
+        bookedLeadName: review.leadId ? nameOf(review.leadId) : undefined,
+        otherNames: [...new Set(review.conflicts.map((c) => c.leadId))].map(
+          (id) => nameOf(id) ?? "Unnamed person",
+        ),
+        matchedBy: [...new Set(review.conflicts.map((c) => c.via))],
+        namesCapped,
+      });
+    }
+    return { ...page, page: rows };
   },
 });
 
@@ -325,13 +348,17 @@ export const openCount = query({
   returns: v.object({ count: v.number(), capped: v.boolean() }),
   handler: async (ctx) => {
     const { tenantId } = await requireTenantUser(ctx, [...ADMIN_ROLES]);
-    const open = await ctx.db
-      .query("bookingReviews")
-      .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
-        q.eq("tenantId", tenantId).eq("status", "open"),
-      )
-      .take(OPEN_COUNT_LIMIT + 1);
-    return { count: Math.min(open.length, OPEN_COUNT_LIMIT), capped: open.length > OPEN_COUNT_LIMIT };
+    // A bounded live read, not an aggregate: the banner shows "99+" past the
+    // bound, and the queue is empty on most days.
+    const { rows, capped } = await readLiveQueryRows(
+      ctx.db
+        .query("bookingReviews")
+        .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
+          q.eq("tenantId", tenantId).eq("status", "open"),
+        ),
+      OPEN_COUNT_LIMIT,
+    );
+    return { count: rows.length, capped };
   },
 });
 
