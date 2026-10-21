@@ -1,5 +1,6 @@
 "use client";
 
+import type { ComponentProps } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
 	ENROLLMENT_STATUS_LABELS,
@@ -13,15 +14,16 @@ const STATUS_CLASS: Record<EnrollmentStatus, string> = {
 	churned: "bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/25",
 };
 
+// Passes other props through, so it can be a tooltip trigger.
 export function EnrollmentStatusBadge({
 	status,
 	className,
-}: {
+	...props
+}: Omit<ComponentProps<typeof Badge>, "variant" | "children"> & {
 	status: EnrollmentStatus;
-	className?: string;
 }) {
 	return (
-		<Badge variant="outline" className={cn(STATUS_CLASS[status], className)}>
+		<Badge variant="outline" className={cn(STATUS_CLASS[status], className)} {...props}>
 			{ENROLLMENT_STATUS_LABELS[status]}
 		</Badge>
 	);

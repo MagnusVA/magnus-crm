@@ -6,7 +6,10 @@ import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { z } from "zod";
 import { toast } from "sonner";
 import { api } from "@/convex/_generated/api";
-import { ENROLLMENT_STATUS_LABELS } from "@/convex/enrollments/validators";
+import {
+	ENROLLMENT_STATUS_LABELS,
+	type EnrollmentStatus,
+} from "@/convex/enrollments/validators";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -47,11 +50,15 @@ export function EnrollmentStatusDialog({
 	onOpenChange,
 	enrollment,
 	status,
+	expectedStatus,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	enrollment: EntityDetailEnrollment;
 	status: "paused" | "churned";
+	// The status the page showed when the select changed; a change since makes
+	// the request stale.
+	expectedStatus: EnrollmentStatus;
 }) {
 	const updateStatus = useMutation(api.enrollments.mutations.updateEnrollmentStatus);
 	const form = useForm({
@@ -68,7 +75,7 @@ export function EnrollmentStatusDialog({
 				enrollmentId: enrollment.enrollmentId,
 				status,
 				reason: values.reason || undefined,
-				expectedStatus: enrollment.status,
+				expectedStatus,
 			});
 			announceStatusOutcome(outcome, enrollment.programName, status);
 			form.reset();

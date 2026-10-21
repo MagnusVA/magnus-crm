@@ -35,14 +35,18 @@ export function EnrollmentStatusControl({
 	enrollment: EntityDetailEnrollment;
 }) {
 	const updateStatus = useMutation(api.enrollments.mutations.updateEnrollmentStatus);
-	const [pending, setPending] = useState<"paused" | "churned" | null>(null);
+	// The status asked for, and the one the page showed when it was asked.
+	const [pending, setPending] = useState<{
+		status: "paused" | "churned";
+		expectedStatus: EnrollmentStatus;
+	} | null>(null);
 	const [isUpdating, setIsUpdating] = useState(false);
 
 	const handleChange = async (value: string) => {
 		const status = value as EnrollmentStatus;
 		if (status === enrollment.status) return;
 		if (status !== "active") {
-			setPending(status);
+			setPending({ status, expectedStatus: enrollment.status });
 			return;
 		}
 		setIsUpdating(true);
@@ -85,7 +89,8 @@ export function EnrollmentStatusControl({
 						if (!open) setPending(null);
 					}}
 					enrollment={enrollment}
-					status={pending}
+					status={pending.status}
+					expectedStatus={pending.expectedStatus}
 				/>
 			) : null}
 		</>

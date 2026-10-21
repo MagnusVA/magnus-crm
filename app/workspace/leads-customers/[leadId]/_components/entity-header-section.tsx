@@ -4,13 +4,13 @@ import Link from "next/link";
 import { ArrowLeftIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import {
 	leadsCustomersTooltips,
 	SimpleTooltip,
 	TruncatingTooltip,
 } from "../../_components/entity-ui-tooltips";
 import { useEntityDetail } from "./entity-detail-context";
-import { cn } from "@/lib/utils";
 import {
 	formatDate,
 	formatPaidTotal,
