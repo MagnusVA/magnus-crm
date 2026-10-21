@@ -383,11 +383,14 @@ Before the clear, only the `customers` table is exported, into a new directory f
 
 ```
 DIR=$(mktemp -d) && chmod 700 "$DIR"
-npx convex data --env-file .env.vercel.production customers --format jsonl --limit 1000 > "$DIR/customers.jsonl"
+npx convex data --env-file .env.vercel.production customers --format jsonl --limit 1000 > "$DIR/customers.jsonl" \
+  || { rm -rf "$DIR"; false; }
 wc -l < "$DIR/customers.jsonl"
 ```
 
-PR 4 has stopped writing customer rows by then, so their count is fixed. A read-only inline query counts the `customers` rows (274 expected), and the export's line count must equal it, with the limit above it. Any other count stops the phase before `clearPaymentCustomerFields` runs. The file stays on the operator's machine: it is never printed, committed, copied or uploaded, and only its line count is read. The operator's disk is encrypted (FileVault on). The file is deleted with its directory when the phase ends, or 7 days after the deletion run if the phase stops before then, whichever comes first; a stopped phase's handoff names the deadline. The deletion is checked by listing the parent directory, and the log records the row count and when it was deleted. Recovery doesn't depend on the export: every field but `status` re-derives from the person and the first payment (§2.4), and all 274 statuses are active, so a repair after the export is gone rebuilds the rows from those. No other table is exported; the payments, search rows and aggregate are rebuilt from the customer rows and the payments (§12).
+A failed or interrupted export deletes the directory at once (`rm -rf "$DIR"` on a non-zero exit; after an interruption, the operator removes it before retrying), so no partial file is left. The retention deadline below counts from when the directory is created.
+
+PR 4 has stopped writing customer rows by then, so their count is fixed. A read-only inline query counts the `customers` rows (274 expected), and the export's line count must equal it, with the limit above it. Any other count stops the phase before `clearPaymentCustomerFields` runs. The file stays on the operator's machine: it is never printed, committed, copied or uploaded, and only its line count is read. The operator's disk is encrypted (FileVault on). The file is deleted with its directory when the phase ends, or 7 days after the directory was created if the phase stops before then, whichever comes first; a stopped phase's handoff names the deadline. The deletion is checked by listing the parent directory, and the log records the row count and when it was deleted. Recovery doesn't depend on the export: every field but `status` re-derives from the person and the first payment (§2.4), and all 274 statuses are active, so a repair after the export is gone rebuilds the rows from those. No other table is exported; the payments, search rows and aggregate are rebuilt from the customer rows and the payments (§12).
 
 The health checks that stay after the phase: `assertEnrollments` and `assertPaymentEnrollments`, with `"reset":true`, beside Phase 3's.
 
@@ -428,8 +431,8 @@ Fix forward, reviewed. Every repair is an internal migration with its own assert
 - **PR 1.** Revert. The enrollments are new and nothing reads them yet; a wrong one is fixed by re-running `syncPersonEnrollments` for its person in a reviewed repair.
 - **PRs 2 and 3.** Revert: the readers go back to the customer rows, which PR 4 hasn't stopped writing.
 - **PR 4.** Before the clear and the deletion run, revert. After them, revert PR 4 (and PRs 2 and 3 if the readers must go back too), then one reviewed, idempotent repair migration rebuilds every cleared artifact from the current records, each with its assert:
-  1. inserts a customer row for every converted person who lacks one, derived as §2.4 shows every field can be: contact fields from the person, `convertedAt`, `convertedByUserId`, `winningOpportunityId` and `winningMeetingId` from the first enrollment's first payment, program from the first enrollment, totals from the person's payments, and status from the person-level status of the enrollments (§4.4). That covers people who became customers after the export and statuses changed after it. The export only cross-checks the rows for the people it holds;
-  2. sets `paymentRecords.customerId` and `contextType: "opportunity"` on each payment from its deal's person's customer row;
+  1. inserts a customer row for every converted person who lacks one, derived as §2.4 shows every field can be: contact fields from the person, `convertedAt`, `convertedByUserId`, `winningOpportunityId` and `winningMeetingId` from the first enrollment's first payment, program from the first enrollment, totals from the person's payments, and `status` from the enrollment for that program, with `pausedAt` or `churnedAt` from its `statusChangedAt`, so `assertEnrollments` holds (§10.2). That covers people who became customers after the export and statuses changed after it. The export only cross-checks the rows for the people it holds;
+  2. sets `contextType: "opportunity"` on every payment, and `customerId` from its deal's person's customer row where one exists (a person whose last enrollment went has none, and their payments keep `customerId` unset);
   3. rebuilds the customers' search rows with the reverted projection, which writes the new `customerId`;
   4. refills `customerConversions` with its backfill, which the revert brings back.
 
