@@ -115,7 +115,7 @@ export const leadsCustomersTooltips = {
 		lead: "People who have not yet converted to a paying customer.",
 		prospect:
 			"People captured by lead gen or in a DM conversation, not yet qualified. Leads and the leads report leave them out.",
-		customer: "Converted customers with a customer record and payment history.",
+		customer: "People who have bought a program. Each program they bought is an enrollment with its own status.",
 	},
 	columns: {
 		identity: "Primary display name with a secondary contact value or identifier.",
