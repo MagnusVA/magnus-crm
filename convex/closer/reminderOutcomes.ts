@@ -5,6 +5,7 @@ import { mutation } from "../_generated/server";
 import { executeConversion } from "../customers/conversion";
 import { recordCloserReassignment } from "../lib/attribution/dealAttributions";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { syncPersonEnrollments } from "../lib/enrollments";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
 import { recordPayment } from "../lib/leadLifecycle";
 import { transitionOpportunity } from "../lib/opportunityActivity";
@@ -269,6 +270,10 @@ export const logReminderPayment = mutation({
       },
       occurredAt: now,
     });
+
+    // The person's enrollments follow their payments
+    // (docs/plans/phase-4-customers.md §4.1).
+    await syncPersonEnrollments(ctx, { tenantId, leadId: opportunity.leadId, now });
 
     const customerId = await executeConversion(ctx, {
       tenantId,

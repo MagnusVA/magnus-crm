@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { syncPersonEnrollments } from "../lib/enrollments";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
 import { recordPayment } from "../lib/leadLifecycle";
 import {
@@ -186,6 +187,9 @@ export const recordAdditionalPayment = mutation({
       await replacePaymentAggregate(ctx, paymentBeforeCustomerLink, paymentId);
       await syncCustomerPaymentSummary(ctx, customer._id);
     }
+    // The person's enrollments follow their payments (§4.1). A payment for a
+    // program the person already has changes nothing.
+    await syncPersonEnrollments(ctx, { tenantId, leadId: opportunity.leadId, now });
 
     // Revenue delta only — the deal was already counted as won, and the
     // opportunity is already inactive, so no wonDeal / activeOpportunity change.

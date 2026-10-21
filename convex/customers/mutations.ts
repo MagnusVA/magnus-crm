@@ -2,6 +2,8 @@ import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { getPersonProgramEnrollment } from "../enrollments/read";
+import { syncPersonEnrollments } from "../lib/enrollments";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
 import { recordPayment } from "../lib/leadLifecycle";
 import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
@@ -68,7 +70,7 @@ export const updateCustomerStatus = mutation({
     ),
   },
   handler: async (ctx, args) => {
-    const { tenantId } = await requireTenantUser(ctx, [
+    const { userId, tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
@@ -84,6 +86,23 @@ export const updateCustomerStatus = mutation({
       churnedAt: args.status === "churned" ? now : undefined,
       pausedAt: args.status === "paused" ? now : undefined,
     });
+    // Until PR 4 retires this mutation, the enrollment for the customer's
+    // program takes the same status, so the two can't disagree
+    // (docs/plans/phase-4-customers.md §4.4). A person the backfill hasn't
+    // reached has no enrollment yet; the backfill carries the status.
+    const enrollment = await getPersonProgramEnrollment(
+      ctx,
+      tenantId,
+      customer.leadId,
+      customer.programId,
+    );
+    if (enrollment) {
+      await ctx.db.patch("enrollments", enrollment._id, {
+        status: args.status,
+        statusChangedAt: now,
+        statusChangedByUserId: userId,
+      });
+    }
     await rebuildLeadCustomerSearchRow(ctx, tenantId, customer.leadId);
     await emitDomainEvent(ctx, {
       tenantId,
@@ -194,6 +213,9 @@ export const recordCustomerPayment = mutation({
       programName: program.name,
     });
     await syncCustomerPaymentSummary(ctx, args.customerId);
+    // A payment with no deal counts toward no enrollment (§4.1), so this
+    // changes nothing unless the person's enrollments were already behind.
+    await syncPersonEnrollments(ctx, { tenantId, leadId: customer.leadId, now });
     await applyPaymentStatsDelta(ctx, tenantId, {
       commissionable: false,
       paymentType,

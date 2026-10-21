@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { executeConversion } from "../customers/conversion";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { syncPersonEnrollments } from "../lib/enrollments";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
 import { recordPayment } from "../lib/leadLifecycle";
 import { transitionOpportunity } from "../lib/opportunityActivity";
@@ -130,6 +131,10 @@ export const logPayment = mutation({
       paymentType,
       amountMinorDelta: amountMinor,
     });
+
+    // The person's enrollments follow their payments
+    // (docs/plans/phase-4-customers.md §4.1).
+    await syncPersonEnrollments(ctx, { tenantId, leadId: opportunity.leadId, now });
 
     let customerId = await executeConversion(ctx, {
       tenantId,
