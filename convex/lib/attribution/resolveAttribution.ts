@@ -19,10 +19,14 @@ export function isInternalUtm(utmParams: UtmParams | undefined) {
   return normalizeUtmValue(utmParams?.utm_source) === "ptdom";
 }
 
-export function attributionPatch(resolved: ResolvedAttribution) {
+/**
+ * The booking's own record of whether its UTMs matched the registry, for the
+ * meeting insert. Credit for the team and DM closer goes to the booking's
+ * `dealAttributions` rows (`recordBookingAttribution`), never onto the
+ * meeting or the deal (docs/plans/phase-3-attribution.md §3.3).
+ */
+export function resolutionPatch(resolved: ResolvedAttribution) {
   return {
-    attributionTeamId: resolved.teamId,
-    dmCloserId: resolved.dmCloserId,
     attributionResolution: resolved.resolutionStatus,
     attributionResolvedAt: resolved.resolvedAt,
     attributionResolutionVersion: resolved.resolutionVersion,

@@ -55,9 +55,6 @@ const QUALIFICATION_ROW_FIELDS = [
   "firstBookedAt",
   "firstMeetingId",
   "firstMeetingAt",
-  "attributionTeamId",
-  "dmCloserId",
-  "attributionResolution",
 ] as const;
 
 function changesAny(

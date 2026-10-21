@@ -7,6 +7,7 @@ import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { moveMeetingToOpportunity } from "../leads/repointLeadReferences";
 import { recordSetterAttribution } from "../lib/attribution/dealAttributions";
+import { ATTRIBUTION_RESOLUTION_VERSION } from "../lib/attribution/resolveAttribution";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
@@ -215,7 +216,7 @@ function roles(rows: Doc<"dealAttributions">[]) {
   return rows.map((row) => row.role).sort();
 }
 
-async function get<T extends "leads" | "opportunities" | "meetings" | "teamMembers">(
+async function get<T extends "leads" | "opportunities" | "meetings" | "teamMembers" | "dmClosers">(
   harness: Harness,
   table: T,
   id: Id<T>,
@@ -242,6 +243,30 @@ async function meetingCreatedEvent(harness: Harness, meetingId: Id<"meetings">) 
 
 function touch(event: Doc<"domainEvents">, channel: string) {
   return { eventId: event._id, eventType: event.eventType, channel, occurredAt: event.occurredAt };
+}
+
+// The copied credit the pipeline and the qualification projection no longer
+// write (docs/plans/phase-3-attribution.md §3.3). Meetings keep their
+// resolution, which is the booking's own record.
+const DEAL_COPIES = [
+  "attributionTeamId",
+  "dmCloserId",
+  "attributionResolution",
+  "attributionResolvedAt",
+  "attributionResolutionVersion",
+];
+const MEETING_COPIES = ["attributionTeamId", "dmCloserId"];
+const QUALIFICATION_ROW_COPIES = ["attributionTeamId", "dmCloserId", "attributionResolution"];
+
+/** The fields of `copies` that `row` holds; `{}` when it holds none. */
+function heldCopies(row: object | null | undefined, copies: readonly string[]) {
+  return Object.fromEntries(
+    Object.entries(row ?? {}).filter(([field, value]) => copies.includes(field) && value !== undefined),
+  );
+}
+
+async function qualificationRows(harness: Harness) {
+  return await harness.t.run((ctx) => ctx.db.query("operationsQualificationRows").take(50));
 }
 
 function bookingRowBase(meeting: Doc<"meetings">) {
@@ -290,10 +315,25 @@ describe("Calendly bookings", () => {
     });
     expect(closer.teamMemberId).toBeDefined();
 
-    // The copied columns are still written until the readers move.
-    expect(meeting).toMatchObject({ attributionTeamId: teamId, dmCloserId: dana._id });
+    // The credit is the rows alone: neither the meeting nor the deal gets a
+    // copy. The meeting keeps its UTMs and resolution; the deal its first
+    // booking caches and UTMs.
+    expect(heldCopies(meeting, MEETING_COPIES)).toEqual({});
+    expect(meeting).toMatchObject({
+      utmParams: { utm_source: "team-a", utm_medium: "dana" },
+      utmTruncated: false,
+      attributionResolution: "mapped",
+      attributionResolutionVersion: ATTRIBUTION_RESOLUTION_VERSION,
+      attributionResolvedAt: expect.any(Number),
+    });
     const deal = await get(harness, "opportunities", meeting.opportunityId);
-    expect(deal).toMatchObject({ attributionTeamId: teamId, dmCloserId: dana._id });
+    expect(heldCopies(deal, DEAL_COPIES)).toEqual({});
+    expect(deal).toMatchObject({
+      firstMeetingId: meeting._id,
+      firstMeetingAt: meeting.scheduledAt,
+      firstBookedAt: meeting.scheduledAt,
+      utmParams: { utm_source: "team-a", utm_medium: "dana" },
+    });
 
     // The deal's snapshot includes the booking that created it; the
     // Calendly deal's own opportunity.created is not a touch.
@@ -376,6 +416,14 @@ describe("Calendly bookings", () => {
     );
     expect(ofRole(rows, "closer")).toHaveLength(2);
 
+    // The rebook's meeting has its own resolution and no copy, and the deal
+    // still has none.
+    const rebooked = await get(harness, "meetings", second._id);
+    expect(heldCopies(rebooked, MEETING_COPIES)).toEqual({});
+    expect(rebooked?.attributionResolution).toBe("mapped");
+    expect(heldCopies(await get(harness, "meetings", first._id), MEETING_COPIES)).toEqual({});
+    expect(heldCopies(await get(harness, "opportunities", first.opportunityId), DEAL_COPIES)).toEqual({});
+
     // The deal keeps its snapshot from creation; the person's latest touch moves.
     const firstBooked = touch(await meetingCreatedEvent(harness, first._id), "calendly");
     const deal = await get(harness, "opportunities", first.opportunityId);
@@ -450,8 +498,12 @@ describe("Calendly bookings", () => {
       ...bookingRowBase(meeting),
       source: { kind: "booking_closer", userId: closer._id },
     });
+    expect(heldCopies(meeting, MEETING_COPIES)).toEqual({});
+    expect(meeting.attributionResolution).toBe("internal");
+    const deal = await get(harness, "opportunities", opportunityId);
+    expect(heldCopies(deal, DEAL_COPIES)).toEqual({});
     // A booking that joins a deal doesn't snapshot it.
-    expect((await get(harness, "opportunities", opportunityId))?.firstTouch).toBeUndefined();
+    expect(deal?.firstTouch).toBeUndefined();
   });
 });
 
@@ -586,6 +638,17 @@ describe("Slack qualifications", () => {
     const deal = await get(harness, "opportunities", result.opportunityId);
     expect(deal?.firstTouch).toEqual(snapshot?.firstTouch);
     expect(deal?.latestTouch).toEqual(snapshot?.latestTouch);
+
+    // The booking rebuilt the qualification rows from the deal, without a
+    // copy of its credit.
+    expect(heldCopies(deal, DEAL_COPIES)).toEqual({});
+    expect(heldCopies(meeting, MEETING_COPIES)).toEqual({});
+    const qualifications = await qualificationRows(harness);
+    expect(qualifications).toHaveLength(2);
+    for (const row of qualifications) {
+      expect(row).toMatchObject({ opportunityId: result.opportunityId, firstMeetingId: meeting._id });
+      expect(heldCopies(row, QUALIFICATION_ROW_COPIES)).toEqual({});
+    }
   });
 });
 

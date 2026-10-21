@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import {
   AT,
   attributionHarness,
@@ -453,5 +453,196 @@ describe("a closer whose user was deleted", () => {
     });
     expect((await h.rerun("assertBookingAttributions"))?.error).toBeUndefined();
     expect((await h.rerun("assertDealAttributions"))?.error).toBeUndefined();
+  });
+});
+
+describe("clearing the attribution copies", () => {
+  // The fields each clear unsets (docs/plans/phase-3-attribution.md §3.3).
+  // Meetings keep their resolution, UTMs and utmTruncated.
+  const COPIES = {
+    opportunities: [
+      "attributionTeamId",
+      "dmCloserId",
+      "attributionResolution",
+      "attributionResolvedAt",
+      "attributionResolutionVersion",
+    ],
+    meetings: ["attributionTeamId", "dmCloserId"],
+    operationsQualificationRows: ["attributionTeamId", "dmCloserId", "attributionResolution"],
+    operationsMeetingDailyStats: ["attributionTeamId", "dmCloserId"],
+  } as const;
+  type CopyTable = keyof typeof COPIES;
+  const MIGRATIONS: Record<CopyTable, { clear: string; assert: string }> = {
+    opportunities: {
+      clear: "clearOpportunityAttributionCopies",
+      assert: "assertOpportunityAttributionCopiesCleared",
+    },
+    meetings: {
+      clear: "clearMeetingAttributionCopies",
+      assert: "assertMeetingAttributionCopiesCleared",
+    },
+    operationsQualificationRows: {
+      clear: "clearQualificationRowAttributionCopies",
+      assert: "assertQualificationRowAttributionCopiesCleared",
+    },
+    operationsMeetingDailyStats: {
+      clear: "clearMeetingDailyStatAttributionCopies",
+      assert: "assertMeetingDailyStatAttributionCopiesCleared",
+    },
+  };
+  const TABLES = Object.keys(COPIES) as CopyTable[];
+
+  function held(row: object, table: CopyTable) {
+    const copies: readonly string[] = COPIES[table];
+    return Object.entries(row).filter(([field, value]) => copies.includes(field) && value !== undefined);
+  }
+
+  function withoutCopies(row: object, table: CopyTable) {
+    const copies: readonly string[] = COPIES[table];
+    return Object.fromEntries(Object.entries(row).filter(([field]) => !copies.includes(field)));
+  }
+
+  async function readAll(h: AttributionHarness) {
+    return await h.t.run(async (ctx) => ({
+      opportunities: await ctx.db.query("opportunities").take(100),
+      meetings: await ctx.db.query("meetings").take(100),
+      operationsQualificationRows: await ctx.db.query("operationsQualificationRows").take(100),
+      operationsMeetingDailyStats: await ctx.db.query("operationsMeetingDailyStats").take(100),
+      dealAttributions: await ctx.db.query("dealAttributions").take(500),
+      domainEvents: await ctx.db.query("domainEvents").take(500),
+    }));
+  }
+
+  /** The legacy daily stats, which kept a copy in their key; one has none. */
+  async function seedDailyStats(h: AttributionHarness) {
+    const { closerId, teamA, dana } = h.ids;
+    return await h.t.run(async (ctx) => {
+      const base = {
+        tenantId: h.tenantId, assignedCloserId: closerId, meetingStatus: "completed" as const, updatedAt: 0,
+      };
+      return {
+        withCopies: await ctx.db.insert("operationsMeetingDailyStats", {
+          ...base, dayKey: "2026-08-06", attributionTeamId: teamA, dmCloserId: dana, count: 2,
+        }),
+        without: await ctx.db.insert("operationsMeetingDailyStats", { ...base, dayKey: "2026-08-12", count: 1 }),
+      };
+    });
+  }
+
+  async function qualificationRowId(h: AttributionHarness, qualificationEventId: Id<"slackQualificationEvents">) {
+    const row = await h.t.run((ctx) =>
+      ctx.db
+        .query("operationsQualificationRows")
+        .withIndex("by_qualificationEventId", (q) => q.eq("qualificationEventId", qualificationEventId))
+        .unique(),
+    );
+    return row!._id;
+  }
+
+  /** Production after PR 1's backfills: rows beside the copies. */
+  async function clearHarness() {
+    const h = await attributionHarness();
+    await backfillAll(h);
+    const { opportunities, meetings } = h.ids;
+    const utmParams = { utm_source: "alpha", utm_medium: "dana" };
+    await h.t.run(async (ctx) => {
+      const resolved = { attributionResolvedAt: AT.BOOKED, attributionResolutionVersion: 2 };
+      await ctx.db.patch("opportunities", opportunities.o1, { ...resolved, utmParams });
+      await ctx.db.patch("meetings", meetings.m1, { ...resolved, utmParams, utmTruncated: false });
+    });
+    const daily = await seedDailyStats(h);
+    return { h, daily, utmParams };
+  }
+
+  it("unsets every copy on the four tables and changes nothing else", async () => {
+    const { h, daily, utmParams } = await clearHarness();
+    const { opportunities, meetings, qualifications } = h.ids;
+    const before = await readAll(h);
+    // Copies to clear on every table: o1 and o5; m1, m2 and m4; every
+    // qualification row (the unlinked one holds its "none" badge); one daily
+    // stats row.
+    const holding = (table: CopyTable) =>
+      before[table].filter((row) => held(row, table).length > 0).map((row) => row._id).sort();
+    expect(holding("opportunities")).toEqual([opportunities.o1, opportunities.o5].sort());
+    expect(holding("meetings")).toEqual([meetings.m1, meetings.m2, meetings.m4].sort());
+    expect(holding("operationsQualificationRows")).toHaveLength(Object.keys(qualifications).length);
+    expect(holding("operationsMeetingDailyStats")).toEqual([daily.withCopies]);
+
+    // Each assert fails first, on the first row with a copy.
+    expect((await h.run(MIGRATIONS.opportunities.assert))?.error).toContain(
+      `Opportunity ${opportunities.o1} still has attributionTeamId, dmCloserId, attributionResolution, attributionResolvedAt, attributionResolutionVersion`,
+    );
+    expect((await h.run(MIGRATIONS.meetings.assert))?.error).toContain(
+      `Meeting ${meetings.m1} still has attributionTeamId, dmCloserId`,
+    );
+    expect((await h.run(MIGRATIONS.operationsQualificationRows.assert))?.error).toContain(
+      `Qualification row ${await qualificationRowId(h, qualifications.created)} still has`,
+    );
+    expect((await h.run(MIGRATIONS.operationsMeetingDailyStats.assert))?.error).toContain(
+      `Meeting daily stats row ${daily.withCopies} still has attributionTeamId, dmCloserId`,
+    );
+
+    for (const table of TABLES) {
+      const result = await h.run(MIGRATIONS[table].clear);
+      expect(result?.error).toBeUndefined();
+      expect(result?.isDone).toBe(true);
+    }
+
+    const after = await readAll(h);
+    for (const table of TABLES) {
+      expect(after[table].flatMap((row) => held(row, table))).toEqual([]);
+      expect(after[table].map((row) => withoutCopies(row, table))).toEqual(
+        before[table].map((row) => withoutCopies(row, table)),
+      );
+      expect((await h.rerun(MIGRATIONS[table].assert))?.error).toBeUndefined();
+    }
+    // The booking keeps its own record; the deal its first booking caches.
+    expect(after.meetings.find((row) => row._id === meetings.m1)).toMatchObject({
+      attributionResolution: "mapped", attributionResolvedAt: AT.BOOKED, attributionResolutionVersion: 2,
+      utmParams, utmTruncated: false,
+    });
+    expect(after.meetings.find((row) => row._id === meetings.m2)?.attributionResolution).toBe("mapped");
+    expect(after.opportunities.find((row) => row._id === opportunities.o1)).toMatchObject({
+      firstMeetingId: meetings.m1, utmParams,
+    });
+    // No row, event or daily stats count moves.
+    expect(after.dealAttributions).toEqual(before.dealAttributions);
+    expect(after.domainEvents).toEqual(before.domainEvents);
+    expect(after.operationsMeetingDailyStats.map((row) => row.count)).toEqual([2, 1]);
+
+    // The rows still pass, now against each meeting's resolution.
+    expect((await h.rerun("assertBookingAttributions"))?.error).toBeUndefined();
+    expect((await h.rerun("assertDealAttributions"))?.error).toBeUndefined();
+
+    // A rerun finds nothing to clear.
+    for (const table of TABLES) {
+      expect((await h.rerun(MIGRATIONS[table].clear))?.error).toBeUndefined();
+    }
+    expect(await readAll(h)).toEqual(after);
+  });
+
+  it("each assert names a row that holds a copy again, and its field", async () => {
+    const { h, daily } = await clearHarness();
+    const { opportunities, meetings, qualifications, teamA, dana } = h.ids;
+    for (const table of TABLES) await h.run(MIGRATIONS[table].clear);
+
+    const joinedRow = await qualificationRowId(h, qualifications.joined);
+    await h.t.run(async (ctx) => {
+      await ctx.db.patch("opportunities", opportunities.o3, { attributionResolvedAt: AT.LATER });
+      await ctx.db.patch("meetings", meetings.m2, { dmCloserId: dana });
+      await ctx.db.patch("operationsQualificationRows", joinedRow, { attributionResolution: "none" });
+      await ctx.db.patch("operationsMeetingDailyStats", daily.without, { attributionTeamId: teamA });
+    });
+
+    expect((await h.run(MIGRATIONS.opportunities.assert))?.error).toContain(
+      `Opportunity ${opportunities.o3} still has attributionResolvedAt`,
+    );
+    expect((await h.run(MIGRATIONS.meetings.assert))?.error).toContain(`Meeting ${meetings.m2} still has dmCloserId`);
+    expect((await h.run(MIGRATIONS.operationsQualificationRows.assert))?.error).toContain(
+      `Qualification row ${joinedRow} still has attributionResolution`,
+    );
+    expect((await h.run(MIGRATIONS.operationsMeetingDailyStats.assert))?.error).toContain(
+      `Meeting daily stats row ${daily.without} still has attributionTeamId`,
+    );
   });
 });

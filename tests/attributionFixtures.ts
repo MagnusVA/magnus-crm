@@ -85,6 +85,26 @@ async function user(ctx: MutationCtx, workosUserId: string): Promise<Doc<"users"
     .unique())!;
 }
 
+/**
+ * The deal's copied attribution, as the qualification projection wrote it
+ * before PR 6 stopped copying it (operations/projections.ts).
+ */
+async function copyDealAttributionOntoQualificationRow(
+  ctx: MutationCtx,
+  qualificationEventId: Id<"slackQualificationEvents">,
+) {
+  const row = (await ctx.db
+    .query("operationsQualificationRows")
+    .withIndex("by_qualificationEventId", (q) => q.eq("qualificationEventId", qualificationEventId))
+    .unique())!;
+  const deal = row.opportunityId ? await ctx.db.get("opportunities", row.opportunityId) : null;
+  await ctx.db.patch("operationsQualificationRows", row._id, {
+    attributionTeamId: deal?.attributionTeamId,
+    dmCloserId: deal?.dmCloserId,
+    attributionResolution: deal?.attributionResolution ?? "none",
+  });
+}
+
 async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
   const admin = await user(ctx, "user_admin");
   const closer = await user(ctx, "user_closer");
@@ -221,7 +241,10 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
     alreadyBooked: await qualification({ slackUserId: "U3", resultKind: "already_booked", submittedAt: AT.LATER, opportunityId: o1, leadId: p1 }),
     unlinked: await qualification({ slackUserId: "U3", resultKind: "unlinked", submittedAt: AT.LATER }),
   };
-  for (const id of Object.values(qualifications)) await rebuildQualificationRow(ctx, id);
+  for (const id of Object.values(qualifications)) {
+    await rebuildQualificationRow(ctx, id);
+    await copyDealAttributionOntoQualificationRow(ctx, id);
+  }
 
   // P2: a Calendly booking never resolved, reassigned from the admin.
   const p2 = await lead();
