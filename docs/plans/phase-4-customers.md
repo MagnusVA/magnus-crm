@@ -302,7 +302,7 @@ Since the row reads enrollments, a payment path must rebuild it after `syncPerso
 | Leads & Conversions: conversions, by closer, excluded, conversion rate, meetings per sale, time to conversion | none; §10.3 proves it month by month. Once someone buys a second program, it still counts them once, at their first. |
 | Admin dashboard `newCustomers` (not shown) | none |
 | Leads and customers list: lifecycle, status, total paid | none for the 274 customers |
-| Leads and customers list and billing: name, email, phone | the person's current details instead of the copy: the 4 names and 2 handle lists in §2.4 change |
+| Leads and customers list and billing: name, email, phone | the person's current details instead of the copy: in the list, the 4 names and 2 handle lists in §2.4 change; billing's labels already matched the person on all 279 payments (§13.3) |
 | Billing phone closer and DM credit for payments without a meeting | none (§6.4) |
 | Activity summary by entity and event type | from PR 4, a new customer counts as one `lead.status_changed` and one `enrollment.created` per program instead of `customer.converted`; earlier events don't change |
 | Revenue, team report, sales calls, closer dashboard, operations export, billing counts | none: they read payment fields that this phase doesn't change |
@@ -466,6 +466,7 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | --- | --- | --- |
 | #153 | the plan | docs, merged 10-21 09:10 |
 | #154 | widen: `enrollments`, `syncPersonEnrollments` beside every payment path, D14, the backfill and asserts | 10-21 09:26 |
+| #155 | the enrollment reads and the parity queries | 10-21 10:33 |
 
 ### 13.3 Runs
 
@@ -477,3 +478,6 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | 10-21 09:26 | `assertEnrollments` | passed, 274 enrollments |
 | 10-21 09:27 | `assertPaymentEnrollments` | passed, 279 payments |
 | 10-21 09:27 | read-only recheck | 274 enrollments for 274 people; every converted person has one and every enrolled person is converted; each matches its customer row's program, status, `convertedAt` and winning deal |
+| 10-21 10:35 | `compareLeadConversion`, 8 ranges: each month from 2026-04 and the last 7 days | no difference: 274 conversions both ways (3, 11, 55, 65, 24, 69 and 47 by month; 18 in the last 7 days), and every metric, `newCustomers` and every closer's count equal |
+| 10-21 10:36 | `compareSearchRows`, 274 customers in 3 pages | no difference in lifecycle, status, total, currency, conversion time or latest activity. Contact labels change on 6 rows: 4 names and 2 handle lists, the drift in §2.4 |
+| 10-21 10:36 | `compareBillingRows`, 279 payments in 3 pages | no difference in deal or meeting, and no label changes |
