@@ -80,6 +80,7 @@ import type * as dashboard_overviewOrigins from "../dashboard/overviewOrigins.js
 import type * as dashboard_overviewRange from "../dashboard/overviewRange.js";
 import type * as dashboard_overviewSlack from "../dashboard/overviewSlack.js";
 import type * as dashboard_overviewTypes from "../dashboard/overviewTypes.js";
+import type * as enrollments_customerCopy from "../enrollments/customerCopy.js";
 import type * as enrollments_firstEnrollments from "../enrollments/firstEnrollments.js";
 import type * as enrollments_parity from "../enrollments/parity.js";
 import type * as enrollments_read from "../enrollments/read.js";
@@ -452,6 +453,7 @@ declare const fullApi: ApiFromModules<{
   "dashboard/overviewRange": typeof dashboard_overviewRange;
   "dashboard/overviewSlack": typeof dashboard_overviewSlack;
   "dashboard/overviewTypes": typeof dashboard_overviewTypes;
+  "enrollments/customerCopy": typeof enrollments_customerCopy;
   "enrollments/firstEnrollments": typeof enrollments_firstEnrollments;
   "enrollments/parity": typeof enrollments_parity;
   "enrollments/read": typeof enrollments_read;

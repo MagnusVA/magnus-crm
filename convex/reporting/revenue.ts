@@ -277,7 +277,6 @@ export const getRevenueDetails = query({
             "Unknown closer",
           ),
           contextType: payment.contextType,
-          customerId: payment.customerId ?? null,
           meetingId: payment.meetingId ?? null,
           opportunityId: payment.opportunityId ?? null,
           originatingOpportunityId: payment.originatingOpportunityId ?? null,

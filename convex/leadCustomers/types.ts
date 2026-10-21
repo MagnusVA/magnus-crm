@@ -11,7 +11,6 @@ export type LeadCustomerLifecycleFilter = "all" | "prospect" | "lead" | "custome
 export type LeadCustomerSearchRowDto = {
   _id: Id<"leadCustomerSearchRows">;
   leadId: Id<"leads">;
-  customerId?: Id<"customers">;
   lifecycle: LeadCustomerLifecycle;
   displayName: string;
   email?: string;

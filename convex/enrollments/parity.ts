@@ -1,20 +1,13 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalQuery, type QueryCtx } from "../_generated/server";
+import { countNewCustomersFromEnrollments } from "../dashboard/adminStats";
 import {
-  countNewCustomersFromCustomers,
-  countNewCustomersFromEnrollments,
-} from "../dashboard/adminStats";
-import {
-  customerBillingLabels,
   personBillingLabels,
-  resolveBillingFromCustomer,
   resolveBillingFromPerson,
   type BillingLabels,
 } from "../billing/enrichment";
 import {
-  customerCopyContact,
-  customerFieldsFromCustomerRow,
   customerFieldsFromEnrollments,
   latestActivityFor,
   loadPersonDeals,
@@ -27,16 +20,24 @@ import { businessDateToUtcStart } from "../reporting/lib/hondurasBusinessTime";
 import { assertValidDateRange, getActiveClosers } from "../reporting/lib/helpers";
 import {
   computeLeadConversionMetrics,
-  conversionsFromCustomers,
   conversionsFromEnrollments,
   type LeadConversion,
   type LeadConversionMetrics,
 } from "../reporting/leadConversion";
+import {
+  conversionsFromCustomers,
+  countNewCustomersFromCustomers,
+  customerBillingLabels,
+  customerCopyContact,
+  customerFieldsFromCustomerRow,
+  resolveBillingFromCustomer,
+} from "./customerCopy";
 
-// Each number the Phase 4 readers show, computed from the customer rows and
-// from the person and their enrollments, with the differences by ID
-// (docs/plans/phase-4-customers.md §10.3). Production runs these before the
-// readers switch and again after; the narrow removes this module.
+// Each number the Phase 4 readers show, computed from the customer rows
+// (customerCopy.ts) and from the person and their enrollments, with the
+// differences by ID (docs/plans/phase-4-customers.md §10.3). Production runs
+// these before the readers switch and again after; the narrow removes this
+// module and customerCopy.ts.
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const FIRST_PARITY_MONTH = { year: 2026, month: 4 };

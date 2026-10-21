@@ -10,17 +10,18 @@ import { seedScenario, T0, type ScenarioName } from "../../tests/detailAttributi
 import {
   DAY,
   fixtureUsers,
+  insertDeal,
   insertMeeting,
   insertPayment as insertDealPayment,
   insertPerson,
   insertProgram,
   seedCustomer,
 } from "../../tests/enrollmentReadFixtures";
+import { customerBillingLabels, resolveBillingFromCustomer } from "../enrollments/customerCopy";
 import {
-  customerBillingLabels,
+  enrichBillingPaymentListRows,
   enrichBillingPaymentRows,
   personBillingLabels,
-  resolveBillingFromCustomer,
   resolveBillingFromPerson,
 } from "./enrichment";
 
@@ -253,5 +254,56 @@ describe("billing context from the person", () => {
       return personBillingLabels((await ctx.db.get("leads", leadId))!);
     });
     expect(labels).toEqual({ fullName: "only@example.com", email: "only@example.com", phone: null });
+  });
+});
+
+describe("billing rows", () => {
+  it("name the person and resolve the meeting from the deal's payments, not the customer row", async () => {
+    const h = await bookingHarness();
+    const result = await h.t.run(async (ctx) => {
+      const { admin, closer } = await fixtureUsers(ctx, h.tenantId);
+      const program = await insertProgram(ctx, h.tenantId, admin._id, "Program");
+      const seeded = await seedCustomer(ctx, h.tenantId, {
+        closerId: closer._id,
+        programId: program,
+        paidAt: T0,
+        fullName: "Copied Name",
+      });
+      await ctx.db.patch("leads", seeded.leadId, { fullName: "Current Name" });
+      // A customer row that points elsewhere changes nothing billing shows.
+      const otherDeal = await insertDeal(ctx, { tenantId: h.tenantId, leadId: seeded.leadId });
+      const otherMeeting = await insertMeeting(ctx, {
+        tenantId: h.tenantId,
+        opportunityId: otherDeal,
+        closerId: closer._id,
+        scheduledAt: T0 - 9 * DAY,
+      });
+      await ctx.db.patch("customers", seeded.customerId, {
+        winningOpportunityId: otherDeal,
+        winningMeetingId: otherMeeting,
+      });
+      const additionalId = await insertDealPayment(ctx, {
+        tenantId: h.tenantId,
+        opportunityId: seeded.opportunityId,
+        programId: program,
+        recordedByUserId: closer._id,
+        recordedAt: T0 + DAY,
+        origin: "closer_additional",
+      });
+      const additional = (await ctx.db.get("paymentRecords", additionalId))!;
+      const [row] = await enrichBillingPaymentRows(ctx, h.tenantId, [additional]);
+      const [listRow] = await enrichBillingPaymentListRows(ctx, h.tenantId, [additional]);
+      return { row, listRow, seeded };
+    });
+
+    expect(result.row.customer).toEqual({
+      leadId: result.seeded.leadId,
+      fullName: "Current Name",
+      email: "customer@example.com",
+      phone: null,
+    });
+    expect(result.listRow.customer.fullName).toBe("Current Name");
+    expect(result.row.opportunity.id).toBe(result.seeded.opportunityId);
+    expect(result.row.meeting.id).toBe(result.seeded.meetingId);
   });
 });

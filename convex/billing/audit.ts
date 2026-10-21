@@ -21,7 +21,7 @@ const SLACK_CONTRIBUTOR_LIMIT = 25;
 
 type BillingAuditIssue = {
   paymentRecordId: Id<"paymentRecords">;
-  issue: BillingAuditMetric | "unresolvedCustomer" | "unresolvedMeeting";
+  issue: BillingAuditMetric | "unresolvedMeeting";
   detail: string;
 };
 
@@ -68,6 +68,27 @@ async function hasAttributionContext(
   return creditsSomeone(await dealBookingCredit(ctx, opportunity));
 }
 
+/**
+ * The enrollment a payment belongs to: its deal's person's, for its program
+ * (docs/plans/phase-4-customers.md §6.4).
+ */
+async function paymentEnrollment(
+  ctx: QueryCtx | MutationCtx,
+  tenantId: Id<"tenants">,
+  opportunity: Doc<"opportunities"> | null,
+  programId: Id<"tenantPrograms">,
+) {
+  if (!opportunity) {
+    return null;
+  }
+  return await ctx.db
+    .query("enrollments")
+    .withIndex("by_tenantId_and_leadId_and_programId", (q) =>
+      q.eq("tenantId", tenantId).eq("leadId", opportunity.leadId).eq("programId", programId),
+    )
+    .first();
+}
+
 export async function buildPaymentAuditSnapshot(
   ctx: QueryCtx | MutationCtx,
   tenantId: Id<"tenants">,
@@ -81,7 +102,7 @@ export async function buildPaymentAuditSnapshot(
     .take(sampleLimit);
 
   const metrics: Record<BillingAuditMetric, number> = {
-    missingCustomerId: 0,
+    missingEnrollment: 0,
     missingMeetingId: 0,
     missingAttributedCloserOnCommissionable: 0,
     missingRecordedByUser: 0,
@@ -103,10 +124,9 @@ export async function buildPaymentAuditSnapshot(
 
   const sampleDiagnostics = await Promise.all(
     payments.slice(0, ISSUE_SAMPLE_LIMIT).map(async (payment) => {
-      const [recordedBy, program, customer, meetingById] = await Promise.all([
+      const [recordedBy, program, meetingById] = await Promise.all([
         ctx.db.get("users", payment.recordedByUserId),
         ctx.db.get("tenantPrograms", payment.programId),
-        payment.customerId ? ctx.db.get("customers", payment.customerId) : Promise.resolve(null),
         payment.meetingId ? ctx.db.get("meetings", payment.meetingId) : Promise.resolve(null),
       ]);
       const meeting = tenantOwned(meetingById, tenantId);
@@ -117,6 +137,7 @@ export async function buildPaymentAuditSnapshot(
       const opportunity = opportunityId
         ? tenantOwned(await ctx.db.get("opportunities", opportunityId), tenantId)
         : null;
+      const enrollment = await paymentEnrollment(ctx, tenantId, opportunity, payment.programId);
       const slackEvents =
         opportunity &&
         (opportunity.source === "slack_qualified" || opportunity.qualifiedBy)
@@ -134,9 +155,8 @@ export async function buildPaymentAuditSnapshot(
         paymentRecordId: payment._id,
         status: payment.status,
         recordedAt: payment.recordedAt,
-        customer: {
-          hasId: payment.customerId !== undefined,
-          resolved: customer !== null && customer.tenantId === tenantId,
+        enrollment: {
+          resolved: enrollment !== null,
         },
         meeting: {
           hasId: payment.meetingId !== undefined,
@@ -172,9 +192,6 @@ export async function buildPaymentAuditSnapshot(
           verifiedRowsMissingReviewedAt += 1;
         }
       }
-      if (payment.customerId === undefined) {
-        metrics.missingCustomerId += 1;
-      }
       if (payment.meetingId === undefined) {
         metrics.missingMeetingId += 1;
       }
@@ -188,10 +205,9 @@ export async function buildPaymentAuditSnapshot(
         metrics.missingAttributedCloserOnCommissionable += 1;
       }
 
-      const [recordedBy, program, customer, meetingById] = await Promise.all([
+      const [recordedBy, program, meetingById] = await Promise.all([
         ctx.db.get("users", payment.recordedByUserId),
         ctx.db.get("tenantPrograms", payment.programId),
-        payment.customerId ? ctx.db.get("customers", payment.customerId) : Promise.resolve(null),
         payment.meetingId ? ctx.db.get("meetings", payment.meetingId) : Promise.resolve(null),
       ]);
 
@@ -215,16 +231,6 @@ export async function buildPaymentAuditSnapshot(
           });
         }
       }
-      if (payment.customerId && (!customer || customer.tenantId !== tenantId)) {
-        if (issues.length < ISSUE_SAMPLE_LIMIT) {
-          issues.push({
-            paymentRecordId: payment._id,
-            issue: "unresolvedCustomer",
-            detail: "customerId does not resolve to a tenant customer",
-          });
-        }
-      }
-
       const meeting = tenantOwned(meetingById, tenantId);
       if (payment.meetingId && !meeting) {
         if (issues.length < ISSUE_SAMPLE_LIMIT) {
@@ -243,6 +249,19 @@ export async function buildPaymentAuditSnapshot(
       const opportunity = opportunityId
         ? tenantOwned(await ctx.db.get("opportunities", opportunityId), tenantId)
         : null;
+      if (
+        payment.status !== "disputed" &&
+        !(await paymentEnrollment(ctx, tenantId, opportunity, payment.programId))
+      ) {
+        metrics.missingEnrollment += 1;
+        if (issues.length < ISSUE_SAMPLE_LIMIT) {
+          issues.push({
+            paymentRecordId: payment._id,
+            issue: "missingEnrollment",
+            detail: "no enrollment for the payment's person and program",
+          });
+        }
+      }
       if (!(await hasAttributionContext(ctx, tenantId, opportunity, meeting))) {
         metrics.missingAttributionContext += 1;
       }

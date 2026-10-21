@@ -27,7 +27,7 @@ export const BILLING_PAYMENT_STATUSES = [
 ] as const satisfies readonly BillingPaymentStatus[];
 
 export type BillingAuditMetric =
-  | "missingCustomerId"
+  | "missingEnrollment"
   | "missingMeetingId"
   | "missingAttributedCloserOnCommissionable"
   | "missingRecordedByUser"
@@ -90,8 +90,9 @@ export type BillingPaymentRow = {
     fathomLink: string | null;
     commissionable: boolean;
   };
+  // The person the payment's deal belongs to.
   customer: {
-    id: Id<"customers"> | null;
+    leadId: Id<"leads"> | null;
     fullName: string | null;
     email: string | null;
     phone: string | null;

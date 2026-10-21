@@ -18,7 +18,7 @@ import {
 // handful; the cap only bounds the read.
 const MAX_MEETINGS_PER_WINNER = 200;
 
-const MAX_CONVERSION_SCAN_ROWS = 2500;
+export const MAX_CONVERSION_SCAN_ROWS = 2500;
 
 /** One person becoming a customer, as the Leads & Conversions report counts it. */
 export type LeadConversion = {
@@ -33,30 +33,6 @@ export type LeadConversionList = {
   conversions: LeadConversion[];
   isTruncated: boolean;
 };
-
-/** The conversions in [startDate, endDate), read from the customer rows. */
-export async function conversionsFromCustomers(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-  startDate: number,
-  endDate: number,
-): Promise<LeadConversionList> {
-  const customerRows = await ctx.db
-    .query("customers")
-    .withIndex("by_tenantId_and_convertedAt", (q) =>
-      q.eq("tenantId", tenantId).gte("convertedAt", startDate).lt("convertedAt", endDate),
-    )
-    .take(MAX_CONVERSION_SCAN_ROWS + 1);
-  return {
-    conversions: customerRows.slice(0, MAX_CONVERSION_SCAN_ROWS).map((customer) => ({
-      leadId: customer.leadId,
-      convertedAt: customer.convertedAt,
-      winningOpportunityId: customer.winningOpportunityId,
-      convertedByUserId: customer.convertedByUserId,
-    })),
-    isTruncated: customerRows.length > MAX_CONVERSION_SCAN_ROWS,
-  };
-}
 
 /**
  * The conversions in [startDate, endDate), read from first enrollments
@@ -220,7 +196,7 @@ export const getLeadConversionMetrics = query({
     // A new lead is a person who reached Qualified in the range, not a row
     // created in it (docs/plans/phase-1-foundations.md §7.1).
     const newLeads = await countLeadStageEntries(ctx, tenantId, "qualified", startDate, endDate);
-    const list = await conversionsFromCustomers(ctx, tenantId, startDate, endDate);
+    const list = await conversionsFromEnrollments(ctx, tenantId, startDate, endDate);
     const { conversionsByCloser, ...metrics } = await computeLeadConversionMetrics(ctx, {
       newLeads,
       list,
@@ -251,7 +227,6 @@ export const getLeadConversionMetrics = query({
       timeToConversionSampleCount: metrics.timeToConversionSampleCount,
       byCloser,
       excludedConversions: metrics.excludedConversions,
-      isCustomersTruncated: metrics.isConversionDataTruncated,
       isConversionDataTruncated: metrics.isConversionDataTruncated,
     };
   },
