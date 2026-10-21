@@ -22,6 +22,7 @@ import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-av
 const ENTITY_TYPE_OPTIONS = [
   { label: "All", value: "__all__" },
   { label: "Customer", value: "customer" },
+  { label: "Enrollment", value: "enrollment" },
   { label: "Follow-Up", value: "followUp" },
   { label: "Lead", value: "lead" },
   { label: "Meeting", value: "meeting" },
@@ -44,6 +45,7 @@ const PAYMENT_RELATED_EVENT_PREFIXES = ["payment.", "customer.paid", "deal."];
 
 type EntityType =
   | "customer"
+  | "enrollment"
   | "followUp"
   | "lead"
   | "meeting"

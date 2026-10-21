@@ -29,6 +29,7 @@ interface ActivityFeedListProps {
     actor: MemberAvatarIdentity | null;
     occurredAt: number;
     source: string;
+    reason?: string;
     metadata: Record<string, unknown> | null;
     paymentMetadata?: PaymentMetadata | null;
   }>;

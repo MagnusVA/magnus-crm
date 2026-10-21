@@ -20,6 +20,7 @@ import { ActivityFeedList } from "./activity-feed-list";
 
 type EntityType =
   | "customer"
+  | "enrollment"
   | "followUp"
   | "lead"
   | "meeting"

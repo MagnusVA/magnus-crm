@@ -16,7 +16,11 @@ const PAGE_SIZE = 100;
 // The person's timeline: every touch and change, from the event log
 // (docs/plans/phase-2-person-first.md §6.1).
 function dotClass(eventType: string) {
-	if (eventType.startsWith("payment.") || eventType.startsWith("customer.")) {
+	if (
+		eventType.startsWith("payment.") ||
+		eventType.startsWith("customer.") ||
+		eventType.startsWith("enrollment.")
+	) {
 		return "bg-emerald-500";
 	}
 	if (eventType.startsWith("meeting.") || eventType.startsWith("followUp.")) {

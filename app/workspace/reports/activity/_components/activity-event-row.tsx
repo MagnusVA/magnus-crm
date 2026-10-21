@@ -98,6 +98,7 @@ interface ActivityEventRowProps {
     source: string;
     fromStatus?: string;
     toStatus?: string;
+    reason?: string;
     metadata: Record<string, unknown> | null;
     paymentMetadata?: PaymentMetadata | null;
   };
@@ -149,6 +150,13 @@ export function ActivityEventRow({ event }: ActivityEventRowProps) {
             {fromStatus} &rarr; {toStatus}
           </p>
         )}
+
+        {/* An admin's reason for pausing or churning a program. */}
+        {event.entityType === "enrollment" && event.reason ? (
+          <p className="text-xs break-words text-muted-foreground">
+            Reason: {event.reason}
+          </p>
+        ) : null}
 
         {paymentMetadata ? (
           <div className="flex flex-wrap items-center gap-1.5 pt-0.5">

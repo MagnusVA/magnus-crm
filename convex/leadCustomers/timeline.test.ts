@@ -5,6 +5,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { bookingHarness } from "../../tests/bookingHarness";
+import { seedEnrolledCustomer } from "../../tests/enrollmentPageFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -126,6 +127,28 @@ describe("person timeline across merges and limits", () => {
 
     expect(page).toMatchObject({ hasMore: true, capped: false, limit: 100 });
     expect(largest).toMatchObject({ hasMore: false, capped: true, limit: 1_000 });
+  });
+});
+
+describe("enrollment events", () => {
+  it("shows a program's status change with its program and reason", async () => {
+    const h = await setup();
+    const seeded = await h.t.run((ctx) => seedEnrolledCustomer(ctx, h.tenantId));
+    await h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
+      enrollmentId: seeded.enrollmentA,
+      status: "paused",
+      reason: "Moving abroad",
+    });
+
+    const entries = await timeline(h, seeded.leadId);
+
+    expect(entries.find((entry) => entry.eventType === "enrollment.status_changed")).toMatchObject({
+      label: "Changed a program enrollment status",
+      fromStatus: "Active",
+      toStatus: "Paused",
+      detail: "Program A · Moving abroad",
+      actorName: "admin@example.com",
+    });
   });
 });
 

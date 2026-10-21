@@ -14,6 +14,7 @@ const MAX_ACTIVITY_SUMMARY_EVENTS = 10000;
 
 const DOMAIN_EVENT_ENTITY_TYPES = [
   "customer",
+  "enrollment",
   "followUp",
   "lead",
   "meeting",
@@ -104,6 +105,7 @@ export const getActivityFeed = query({
     entityType: v.optional(
       v.union(
         v.literal("customer"),
+        v.literal("enrollment"),
         v.literal("followUp"),
         v.literal("lead"),
         v.literal("meeting"),
