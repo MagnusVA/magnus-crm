@@ -699,7 +699,7 @@
   <div class="tag">Phase 4<span>customers, done</span></div>
   <div>
     <h3>Enrollments replace the customer copy</h3>
-    <div class="meta"><span class="pill good">Done, #153 to #PR5</span><span class="pill low">New table, then narrow customers</span></div>
+    <div class="meta"><span class="pill good">Done, #153 to #160</span><span class="pill low">New table, then narrow customers</span></div>
     <ul>
       <li><code>enrollments</code>: one row per person and program bought, with its own status (active, paused or churned) and its times. The earliest payment for a program on any of the person's deals created it, and one function derived it from the payments for every write path, the backfill and the assert. A second program was a second deal and a second enrollment (decision 3); an admin changed each enrollment's status on the person page.</li>
       <li>The person became the customer, and the email requirement went, so a person with no email, such as a Slack-only lead, became a customer at their first payment. The person page, the leads and customers list, billing and the reports read the person for contact details and enrollments for programs and status.</li>

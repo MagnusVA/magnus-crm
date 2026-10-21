@@ -1,6 +1,6 @@
 # Phase 4: customers
 
-Status: done, 2026-10-21. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted D1 to D16 and answered Q1 to Q4 (§11.1), and approved every production run in §9 and §10. PRs #153 to #PR5 are merged and deployed, and every run in §13 passed, through the checks after the narrow (#PR5), which dropped the `customers` table and the fields that named it.
+Status: done, 2026-10-21. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted D1 to D16 and answered Q1 to Q4 (§11.1), and approved every production run in §9 and §10. PRs #153 to #160 are merged and deployed, and every run in §13 passed, through the checks after the narrow (#160), which dropped the `customers` table and the fields that named it.
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (finding F4, target rule "A customer is a stage, not a table" in §6) and the Phase 4 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 3 is in [phase-3-attribution.md](phase-3-attribution.md).
 
@@ -492,6 +492,9 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | #154 | widen: `enrollments`, `syncPersonEnrollments` beside every payment path, D14, the backfill and asserts | 10-21 09:26 |
 | #155 | the enrollment reads and the parity queries | 10-21 10:33 |
 | #156 | the list, search, reports and billing read the person and enrollments | 10-21 11:02 |
+| #157 | the person page reads enrollments, with the status control; the orphaned customer UI removed | 10-21 11:29 |
+| #158 | stop writing customers: conversion through enrollments, no email requirement, the retirements, the clears and the deletion | 10-21 11:47 |
+| #159 | merges accept customers and move their enrollments | 10-21 12:29 |
 
 ### 13.3 Runs
 
@@ -509,3 +512,17 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | 10-21 11:02 | `rebuildCustomerSearchRows` dry run, then run, batch 50 | 50, nothing committed; then done 11:02, 274 enrollments: 274 rows rebuilt |
 | 10-21 11:02 | `assertLeadCustomerSearchRowsBackfilled` (reset) | passed 11:21, 90,107 leads |
 | 10-21 11:22 | read-only recheck | all 274 enrolled people's rows are `customer`, `active`, with a total and no `customerId`; no row in the table names a customer |
+| 10-21 11:46 | search of the deployed commit (`e12db65`) for readers of `paymentRecords.contextType`, `customerId` and `originatingOpportunityId` | none outside `schema.ts` and the clear and its assert; the other hits name customer IDs (redirects, parity, the search row's own field) |
+| 10-21 11:47 | read-only count | 274 customers, 274 enrollments, 274 converted people, 279 payments, all 279 with `customerId` and `contextType`, none with `originatingOpportunityId` |
+| 10-21 11:47 | export of `customers` (§10.7) | 274 lines, equal to the 274 rows, in a mode 700 temp directory |
+| 10-21 11:47 | `clearPaymentCustomerFields` dry run, then run, batch 100 | 100, nothing committed; then done 11:47, 279 payments |
+| 10-21 11:47 | `assertPaymentCustomerFieldsCleared` | passed, 279 payments |
+| 10-21 11:48 | `deleteCustomers` dry run, then run, batch 100 | 100, nothing committed; then done 11:48, 274 rows deleted |
+| 10-21 11:48 | `assertCustomersDeleted` | passed, none left |
+| 10-21 11:48 | `clearCustomerConversions` dry run, run, dry run | 274 entries in 1 namespace; cleared; then 0 |
+| 10-21 11:48 | `assertEnrollments` (reset) | passed, 274 enrollments |
+| 10-21 11:49 | `assertPaymentEnrollments` (reset) | passed, 279 payments |
+| 10-21 11:49 | `assertDealAttributions` (reset), since PR 4 changed the side deal form | passed, 11,444 deals |
+| 10-21 11:52 | `assertBookingAttributions` (reset) | passed, 6,823 meetings |
+| 10-21 11:48 | `assertLeadLifecycle` (reset), in the background, since PR 4 changed how the Customer stage is derived | running |
+| 10-21 11:55 | read-only checks before the narrow | 0 customer rows; none of the 279 payments has `customerId`, `contextType` or `originatingOpportunityId`; no search row names a customer (1 tenant); no pending program rename job among the latest 1,500 scheduled functions |
