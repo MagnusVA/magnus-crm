@@ -10,6 +10,7 @@ export const insert = internalMutation({
       v.literal("meeting"),
       v.literal("lead"),
       v.literal("customer"),
+      v.literal("enrollment"),
       v.literal("followUp"),
       v.literal("user"),
       v.literal("payment"),

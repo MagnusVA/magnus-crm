@@ -80,6 +80,8 @@ import type * as dashboard_overviewOrigins from "../dashboard/overviewOrigins.js
 import type * as dashboard_overviewRange from "../dashboard/overviewRange.js";
 import type * as dashboard_overviewSlack from "../dashboard/overviewSlack.js";
 import type * as dashboard_overviewTypes from "../dashboard/overviewTypes.js";
+import type * as enrollments_read from "../enrollments/read.js";
+import type * as enrollments_validators from "../enrollments/validators.js";
 import type * as eventTypeConfigs_mutations from "../eventTypeConfigs/mutations.js";
 import type * as eventTypeConfigs_queries from "../eventTypeConfigs/queries.js";
 import type * as http from "../http.js";
@@ -138,6 +140,7 @@ import type * as lib_domainEventLinks from "../lib/domainEventLinks.js";
 import type * as lib_domainEvents from "../lib/domainEvents.js";
 import type * as lib_domainEventsAction from "../lib/domainEventsAction.js";
 import type * as lib_domainEventsInternal from "../lib/domainEventsInternal.js";
+import type * as lib_enrollments from "../lib/enrollments.js";
 import type * as lib_eventTypeBookability from "../lib/eventTypeBookability.js";
 import type * as lib_eventTypeFields from "../lib/eventTypeFields.js";
 import type * as lib_formatMoney from "../lib/formatMoney.js";
@@ -447,6 +450,8 @@ declare const fullApi: ApiFromModules<{
   "dashboard/overviewRange": typeof dashboard_overviewRange;
   "dashboard/overviewSlack": typeof dashboard_overviewSlack;
   "dashboard/overviewTypes": typeof dashboard_overviewTypes;
+  "enrollments/read": typeof enrollments_read;
+  "enrollments/validators": typeof enrollments_validators;
   "eventTypeConfigs/mutations": typeof eventTypeConfigs_mutations;
   "eventTypeConfigs/queries": typeof eventTypeConfigs_queries;
   http: typeof http;
@@ -505,6 +510,7 @@ declare const fullApi: ApiFromModules<{
   "lib/domainEvents": typeof lib_domainEvents;
   "lib/domainEventsAction": typeof lib_domainEventsAction;
   "lib/domainEventsInternal": typeof lib_domainEventsInternal;
+  "lib/enrollments": typeof lib_enrollments;
   "lib/eventTypeBookability": typeof lib_eventTypeBookability;
   "lib/eventTypeFields": typeof lib_eventTypeFields;
   "lib/formatMoney": typeof lib_formatMoney;

@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
 import type { MutationCtx } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { syncPersonEnrollments } from "../lib/enrollments";
 import { log } from "../lib/observability/log";
 import { toAmountMinor } from "../lib/formatMoney";
 import {
@@ -271,6 +272,17 @@ export const correctPayment = mutation({
       paymentRecordId: args.paymentRecordId,
       changedKeys,
     });
+    // A program correction moves the payment to its new program's enrollment,
+    // and an enrollment it empties moves with it when the new program had
+    // none (docs/plans/phase-4-customers.md §4.6). Other fields change no
+    // enrollment, and the sync then writes nothing. A payment with no deal
+    // counts toward no enrollment.
+    if (nextPayment.opportunityId) {
+      const opportunity = await ctx.db.get("opportunities", nextPayment.opportunityId);
+      if (opportunity && opportunity.tenantId === tenantId) {
+        await syncPersonEnrollments(ctx, { tenantId, leadId: opportunity.leadId, now });
+      }
+    }
 
     await emitDomainEvent(ctx, {
       tenantId,

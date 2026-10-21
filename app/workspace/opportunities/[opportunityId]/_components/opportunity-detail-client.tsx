@@ -143,7 +143,7 @@ export function OpportunityDetailClient({
             {permissions.canRecordAdditionalPayment ? (
               <AddOpportunityPaymentDialog
                 opportunityId={opportunity._id}
-                programName={opportunity.soldProgramName ?? null}
+                programName={permissions.additionalPaymentProgramName}
               />
             ) : null}
             {permissions.canMarkLost ? (

@@ -114,7 +114,10 @@ export function AddOpportunityPaymentDialog({
   programName,
 }: {
   opportunityId: Id<"opportunities">;
-  /** The opportunity's sold program — payments always inherit it (read-only). */
+  /**
+   * The program the payment inherits (read-only): the sold program, or the
+   * earliest payment's on a deal won without one.
+   */
   programName: string | null;
 }) {
   const [open, setOpen] = useState(false);

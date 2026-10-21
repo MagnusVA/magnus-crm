@@ -158,12 +158,14 @@ These stay:
 
 ### 4.1 What an enrollment is
 
-`syncPersonEnrollments(ctx, leadId)` in `convex/lib/enrollments.ts` is the one place enrollments are written, apart from an admin's status change and a merge (§4.7). It reads the person's deals (`opportunities.by_tenantId_and_leadId`) and each deal's payments, as `collectLifecycleEvidence` does, and throws past 100 deals or 50 payments a deal rather than derive from part of them (the largest person has 19 deals).
+`syncPersonEnrollments(ctx, { tenantId, leadId })` in `convex/lib/enrollments.ts` is the one place enrollments are written, apart from an admin's status change and a merge (§4.7). It reads the person's deals (`opportunities.by_tenantId_and_leadId`) and each deal's payments, as `collectLifecycleEvidence` does, and throws past 100 deals or 50 payments a deal rather than derive from part of them (the largest person has 19 deals). The derivation on its own is `derivePersonEnrollments`, which the assert uses.
 
-1. It groups the payments that aren't disputed by `programId`, and takes the earliest of each group by `recordedAt`, then `_creationTime`.
+1. It groups the payments that aren't disputed by `programId`, and takes the earliest of each group by `recordedAt`, then `_creationTime`. A payment with no deal doesn't count: only `recordCustomerPayment` writes one, and it has never run in production (§2.2).
 2. A program with such a payment has one enrollment: its `opportunityId` and `enrolledAt` come from that payment. A missing one is inserted as `active`; an existing one whose times differ is patched.
-3. An enrollment whose program has no such payment left is deleted (§4.3), except in the program correction case (§4.6).
-4. It rebuilds the person's search row when anything changed.
+3. An enrollment whose program has no such payment left is deleted (§4.3), except in the program correction case (§4.6). If two enrollments exist for one person and program, the oldest by creation stays and the others are deleted.
+4. From PR 2, it rebuilds the person's search row when anything changed. In PR 1 nothing reads enrollments, so it writes only enrollments: no event, counter, lead status or search row.
+
+It returns what it created, moved, repointed and deleted, and whether the person had an enrollment before and has one after, which is what PR 4's conversion side effects need (§4.2, §4.3).
 
 A second deal for a program the person already has adds its payments to that enrollment and creates nothing. Payments don't store their enrollment: a payment's enrollment is its deal's person and its program, one indexed read (D1).
 
@@ -192,7 +194,7 @@ Status belongs to the enrollment (D3). An admin changes it per enrollment (`upda
 - Under a changed status the section shows when and by whom, from `statusChangedAt` and `statusChangedByUserId`; a deleted user shows as "Removed user".
 - A select to the current status, or a stale one (the enrollment changed since the page loaded), changes nothing. The person-level status the list shows (`leadCustomerSearchRows.customerStatus`) is `active` if any enrollment is active, else `paused` if any is paused, else `churned`.
 
-Until PR 4, the two statuses are kept equal in both directions. `updateCustomerStatus` sets the status of the enrollment for the customer's program as well; nothing calls it from the app (§2.7). `updateEnrollmentStatus` sets the customer row's status (with `pausedAt` or `churnedAt`) when the enrollment is for the customer's program, then rebuilds the search row. That mirror only keeps `assertEnrollments` true: nothing reads the customer row's status once PR 2 is live, and PR 2 merges before PR 3, so the status control never exists while the list reads the customer row. The list's status is always the person-level status of every enrollment.
+Until PR 4, the two statuses are kept equal in both directions. `updateCustomerStatus` sets the status of the enrollment for the customer's program as well, with `statusChangedAt` and `statusChangedByUserId`; a person the backfill hasn't reached has no enrollment yet, and the backfill carries the status. Nothing calls it from the app (§2.7). `updateEnrollmentStatus` sets the customer row's status (with `pausedAt` or `churnedAt`) when the enrollment is for the customer's program, then rebuilds the search row. That mirror only keeps `assertEnrollments` true: nothing reads the customer row's status once PR 2 is live, and PR 2 merges before PR 3, so the status control never exists while the list reads the customer row. The list's status is always the person-level status of every enrollment.
 
 ### 4.5 A second program
 
@@ -201,6 +203,8 @@ A second program is a new deal (decision 3, rule 7), and its first payment creat
 ### 4.6 Program corrections
 
 `correctPayment` in billing can change a payment's program, and today it then patches the customer's program if the payment is on the winning deal. From PR 1 it calls `syncPersonEnrollments`: the payment joins the enrollment for its new program, created if none exists. When that leaves the old program's enrollment with no payment and the new program had none, the enrollment changes program instead of being deleted and recreated, so it keeps its ID, status and status history (D13).
+
+One correction pairs one enrollment with one program. When a sync finds several of each, as one that catches up on several changes can, it pairs them in a fixed order. First an enrollment pairs with the program whose earliest payment is the one the enrollment followed (same deal and time), since that payment changed program. The rest pair oldest with oldest: enrollments by `enrolledAt`, then creation, and programs by their earliest payment.
 
 ### 4.7 Merges
 
@@ -234,10 +238,10 @@ Every writer of an enrollment runs inside one mutation: `syncPersonEnrollments` 
 | Payment on a meeting | `closer/payments.ts:logPayment` | `syncPersonEnrollments` after the payment | replaces `executeConversion` and the customer link |
 | Payment on a reminder | `closer/reminderOutcomes.ts` | same | same |
 | Payment on a side deal | `sideDeals/logPayment.ts` | same | same |
-| Additional payment | `closer/additionalPayment.ts` | same; the program falls back to the deal's earliest payment's when the deal has no sold program (D14) | stops linking the customer |
-| Customer payment | `customers/mutations.ts:recordCustomerPayment` | same | retired |
-| Side deal payment voided | `sideDeals/voidPayment.ts` | same, after the dispute | replaces `rollbackCustomerConversionIfEmpty` |
-| Payment corrected | `billing/mutations.ts:correctPayment` | same, when the program changes (§4.6) | stops syncing the customer's totals |
+| Additional payment | `closer/additionalPayment.ts` | same; the program falls back to the deal's earliest payment's when the deal has no sold program (D14), and `opportunities/detailQuery.ts` offers the control on those deals and names that program | stops linking the customer |
+| Customer payment | `customers/mutations.ts:recordCustomerPayment` | same; the payment has no deal, so it counts toward no enrollment and the sync changes nothing | retired |
+| Side deal payment voided | `sideDeals/voidPayment.ts` | same, after the dispute and the rollback | replaces `rollbackCustomerConversionIfEmpty` |
+| Payment corrected | `billing/mutations.ts:correctPayment` | same, after every correction of a payment on a deal; only a program change moves an enrollment (§4.6) | stops syncing the customer's totals |
 | Customer status | `customers/mutations.ts:updateCustomerStatus` | also sets the enrollment's status (§4.4) | retired; `updateEnrollmentStatus` |
 | Manual conversion | `customers/mutations.ts:convertLeadToCustomer` | | retired |
 | Person merged | `leads/merge.ts` | | moves enrollments (§4.7) |
@@ -246,6 +250,8 @@ Every writer of an enrollment runs inside one mutation: `syncPersonEnrollments` 
 | Program corrected | `lib/soldProgramCache.ts` | | stops patching the customer's program |
 | Side deal for a new person | `opportunities/createManual.ts` | | email optional; at least one of email, phone or handle (D8) |
 | Tenant data purge | `admin/tenantsMutations.ts`, `testing/operationalData.ts` | delete enrollments too | stop deleting customers |
+
+Other writes to payments and deals need no sync in PR 1. `billing/mutations.ts:markReviewed` moves a payment from recorded to verified, and both count. `tenantPrograms/sync.ts` renames, `reporting/backfill.ts` sets `origin`, and conversion and its rollback set `customerId`; an enrollment reads none of them. A merge is the only write that moves a deal to another person (`moveOpportunityToLead`), and until PR 4 it accepts only active people, who have no payment that counts, since a payment converts its person. The one-off `purgePhase6BlockerRecords` in `admin/migrations.ts` ran before this phase and isn't run again.
 
 Every path that inserts a payment already calls `recordPayment` (lifecycle), `insertPaymentAggregate`, `applyPaymentStatsDelta` and `emitDomainEvent`; none of that changes. `assertPaymentRow` stops requiring a customer for a non-commissionable row in PR 4: every payment is on a deal.
 
@@ -335,13 +341,13 @@ The expected counts are the §2 snapshot. Payments and customers keep arriving b
 
 ### 10.1 `backfillEnrollments` (PR 1)
 
-Over `customers`, batch 50. For each customer, `syncPersonEnrollments` for its person, then the enrollment for the customer's program takes the customer's status (with `statusChangedAt` from `churnedAt` or `pausedAt`). Expected: 274 enrollments, one per customer, all active, each with the customer's program, `enrolledAt` equal to its `convertedAt` and `opportunityId` its `winningOpportunityId`. 6 batches.
+Over `customers`, batch 50. For each customer, `syncPersonEnrollments` for its person, then the enrollment for the customer's program takes the customer's status (with `statusChangedAt` from `churnedAt` or `pausedAt` when the status isn't active). `statusChangedByUserId` stays unset, since the row doesn't say who changed it. It writes only what differs, so a rerun changes nothing. A customer whose program has no enrollment after the sync stops the run with the customer's and program's IDs, since its status would have nowhere to go; production has none (§2.2). Expected: 274 enrollments, one per customer, all active, each with the customer's program, `enrolledAt` equal to its `convertedAt` and `opportunityId` its `winningOpportunityId`. 6 batches.
 
 ### 10.2 `assertEnrollments` and `assertPaymentEnrollments` (PR 1)
 
-`assertEnrollments`, over `enrollments`, batch 100: each one re-derives to the same `opportunityId` and `enrolledAt` (§4.1); has at least one payment behind it; is the only one for its person and program; belongs to a converted person who isn't merged; and, while customer rows exist, agrees with the person's customer row. Only two comparisons are made against the row: the person's first enrollment (earliest `enrolledAt`) has the row's program, with `enrolledAt` equal to `convertedAt`; and the enrollment for the row's program has the row's status. A later enrollment for another program is checked only against its payments, as every enrollment is.
+`assertEnrollments`, over `enrollments`, batch 100: each one re-derives to the same `opportunityId` and `enrolledAt` (§4.1); has at least one payment behind it; is the only one for its person and program; belongs to a converted person who isn't merged; and, while customer rows exist, agrees with the person's customer row. Only two comparisons are made against the row: the enrollment for the row's program has the row's status, and the person's first enrollment (earliest `enrolledAt`) has `enrolledAt` equal to `convertedAt`, with the row's program among the person's enrollments. A later enrollment for another program is checked only against its payments, as every enrollment is. It throws on the first problem, with IDs and times only.
 
-`assertPaymentEnrollments`, over `paymentRecords`, batch 100: each payment that isn't disputed has an enrollment for its deal's person and its program, with `enrolledAt` no later than the payment.
+`assertPaymentEnrollments`, over `paymentRecords`, batch 100: each payment that isn't disputed and has a deal has an enrollment for its deal's person and its program, with `enrolledAt` no later than the payment.
 
 The read-only recheck after each run checks the other direction: every converted person has an enrollment and every person with an enrollment is converted (the 274 converted people, read through `leads.by_tenantId_and_status`).
 

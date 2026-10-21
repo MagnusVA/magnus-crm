@@ -9,6 +9,7 @@ export type DomainEventEntityType =
   | "meeting"
   | "lead"
   | "customer"
+  | "enrollment"
   | "followUp"
   | "user"
   | "payment"

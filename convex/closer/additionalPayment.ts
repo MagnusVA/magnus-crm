@@ -2,6 +2,11 @@ import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
 import { emitDomainEvent } from "../lib/domainEvents";
+import {
+  earliestCountingPayment,
+  readDealPayments,
+  syncPersonEnrollments,
+} from "../lib/enrollments";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
 import { recordPayment } from "../lib/leadLifecycle";
 import {
@@ -92,13 +97,19 @@ export const recordAdditionalPayment = mutation({
     // The program is inherited from the opportunity's sold program — the
     // closer does not pick it. We read it directly (rather than via
     // resolveProgramForWrite) so a later-archived program does not block
-    // legitimate follow-on payments on an already-won deal.
-    if (!opportunity.soldProgramId) {
+    // legitimate follow-on payments on an already-won deal. A deal won
+    // before the sold program cache existed has none (10 in production), so
+    // its earliest payment that isn't disputed names the program instead
+    // (docs/plans/phase-4-customers.md D14).
+    const programId =
+      opportunity.soldProgramId ??
+      earliestCountingPayment(await readDealPayments(ctx, opportunity._id))?.programId;
+    if (!programId) {
       throw new Error(
-        "This opportunity has no sold program on record to attribute the payment to.",
+        "This opportunity has no sold program or payment to take the program from.",
       );
     }
-    const program = await ctx.db.get("tenantPrograms", opportunity.soldProgramId);
+    const program = await ctx.db.get("tenantPrograms", programId);
     if (!program || program.tenantId !== tenantId) {
       throw new Error("Sold program for this opportunity was not found.");
     }
@@ -186,6 +197,9 @@ export const recordAdditionalPayment = mutation({
       await replacePaymentAggregate(ctx, paymentBeforeCustomerLink, paymentId);
       await syncCustomerPaymentSummary(ctx, customer._id);
     }
+    // The person's enrollments follow their payments (§4.1). A payment for a
+    // program the person already has changes nothing.
+    await syncPersonEnrollments(ctx, { tenantId, leadId: opportunity.leadId, now });
 
     // Revenue delta only — the deal was already counted as won, and the
     // opportunity is already inactive, so no wonDeal / activeOpportunity change.

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { syncPersonEnrollments } from "../lib/enrollments";
 import { correctLeadLifecycle } from "../lib/leadLifecycle";
 import { log } from "../lib/observability/log";
 import { transitionOpportunity } from "../lib/opportunityActivity";
@@ -114,6 +115,9 @@ export const voidPayment = mutation({
         await syncCustomerPaymentSummary(ctx, payment.customerId);
       }
     }
+    // A disputed payment no longer counts: the enrollment it held moves to
+    // the earliest payment left for its program, or goes (§4.3).
+    await syncPersonEnrollments(ctx, { tenantId, leadId: opportunity.leadId, now });
     // Voiding corrects a payment that shouldn't count, so the person's stage
     // follows what is left (docs/plans/phase-1-foundations.md §4.3).
     await correctLeadLifecycle(ctx, opportunity.leadId, "payment_voided", userId);
