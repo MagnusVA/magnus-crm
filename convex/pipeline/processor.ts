@@ -1,6 +1,13 @@
 import { enqueueDelivery } from "./delivery";
 import { adoptRawDelivery } from "./receipts";
-import { blockBooking, blockedReason, ignoreBooking, ignoredReason } from "./blocked";
+import {
+  blockBooking,
+  blockedIdentity,
+  blockedReason,
+  ignoreBooking,
+  ignoredReason,
+} from "./blocked";
+import { settleBookingReview } from "./bookingReviewRecords";
 import { v } from "convex/values";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 import type { Id } from "../_generated/dataModel";
@@ -150,6 +157,11 @@ export const processRawEvent = internalMutation({
           reason: blocked,
           processedAt: Date.now(),
         });
+        await settleBookingReview(ctx, receipt, {
+          status: "blocked",
+          reason: blocked,
+          identity: blockedIdentity(error),
+        });
         return null;
       }
     }
@@ -223,15 +235,25 @@ export const processRawEvent = internalMutation({
       processed: Boolean(reason || meeting),
       processingReason: reason,
     });
-    if (receipt)
+    if (receipt) {
+      const status = reason ? "ignored" : meeting ? "applied" : "blocked";
+      const outcomeReason = reason ?? (meeting ? undefined : "booking_not_tracked");
       await ctx.db.patch("webhookDeliveries", receipt._id, {
-        status: reason ? "ignored" : meeting ? "applied" : "blocked",
-        reason: reason ?? (meeting ? undefined : "booking_not_tracked"),
+        status,
+        reason: outcomeReason,
         processedAt: Date.now(),
         meetingId: meeting?._id,
         opportunityId: opportunity?._id,
         leadId: opportunity?.leadId,
       });
+      await settleBookingReview(
+        ctx,
+        receipt,
+        status === "blocked"
+          ? { status, reason: outcomeReason! }
+          : { status },
+      );
+    }
     return null;
   },
 });

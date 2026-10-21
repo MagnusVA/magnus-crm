@@ -1,4 +1,8 @@
-import { blockBooking } from "../pipeline/blocked";
+import {
+  blockBooking,
+  type BookingIdentifiers,
+  type IdentityConflict,
+} from "../pipeline/blocked";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import {
@@ -60,7 +64,29 @@ export type ResolveLeadIdentityResult = {
   isNewLead: boolean;
   resolvedVia: "email" | "social_handle" | "phone" | "new";
   potentialDuplicateLeadId?: Id<"leads">;
+  /**
+   * The other people a booking's email or phone named when its social handle
+   * decided who it belongs to. They keep those identifiers, and the booking
+   * opens a review.
+   */
+  conflicts?: IdentityConflict[];
+  /** The booking's identifiers, normalized, when `conflicts` is set. */
+  booking?: BookingIdentifiers;
 };
+
+function distinctConflicts(
+  matches: { lead: Doc<"leads">; via: IdentityConflict["via"] }[],
+): IdentityConflict[] {
+  const seen = new Set<string>();
+  const conflicts: IdentityConflict[] = [];
+  for (const { lead, via } of matches) {
+    const key = `${lead._id}:${via}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    conflicts.push({ leadId: lead._id, via });
+  }
+  return conflicts;
+}
 
 /** Public email domains excluded from fuzzy duplicate detection. */
 const PUBLIC_EMAIL_DOMAINS = new Set([
@@ -439,7 +465,26 @@ export async function resolveLeadIdentity(
     if (lead) matches.push({ lead, via: "phone" });
   }
   const isBooking = args.identifierSource === "calendly_booking";
-  if (isBooking && new Set(matches.map(m => m.lead._id)).size > 1) blockBooking("identity_conflict");
+  const booking: BookingIdentifiers = {
+    ...(args.fullName?.trim() && { name: args.fullName.trim() }),
+    ...(identityEmail && { email: identityEmail }),
+    ...(normalizedPhone && { phone: normalizedPhone }),
+    ...(normalizedSocialHandle && args.socialHandle && {
+      socialHandle: { platform: args.socialHandle.platform, handle: normalizedSocialHandle },
+    }),
+  };
+  let conflicts: IdentityConflict[] | undefined;
+  if (isBooking && new Set(matches.map(m => m.lead._id)).size > 1) {
+    // The social handle (the Instagram username on the Calendly form) decides.
+    // Setters and DM closers book calls for the people they talk to, and may
+    // type someone else's email or phone; the handle is the one the person
+    // was qualified under. The other people keep their identifiers, and the
+    // booking opens a review (docs/adr/0001-lead-lifecycle-model.md).
+    const handleMatch = matches.find(m => m.via === "social_handle");
+    if (!handleMatch) blockBooking("identity_conflict", { conflicts: distinctConflicts(matches), booking });
+    conflicts = distinctConflicts(matches.filter(m => m.lead._id !== handleMatch.lead._id));
+    matches.splice(0, matches.length, handleMatch);
+  }
   const match = matches[0];
   if (match) {
     if (isBooking && normalizedEmail && match.lead.email && normalizeEmail(match.lead.email) !== normalizedEmail) {
@@ -454,10 +499,32 @@ export async function resolveLeadIdentity(
       const emailIsKnown = matches.some(m => m.via === "email");
       const handleMatched = matches.some(m => m.via === "social_handle");
       if (!emailIsKnown && !handleMatched) blockBooking("identity_conflict");
-      if (await isPlaceholderPollutedLead(ctx, match.lead._id)) blockBooking("identity_conflict");
+      if (await isPlaceholderPollutedLead(ctx, match.lead._id))
+        blockBooking("identity_conflict", conflicts && {
+          conflicts: [{ leadId: match.lead._id, via: match.via }, ...conflicts],
+          booking,
+        });
     }
-    const lead = await syncSubmittedIdentifiersForExistingLead(ctx, match.lead, args, identityEmail);
-    return { lead, leadId: lead._id, created: false, isNewLead: false, resolvedVia: match.via };
+    // An identifier another person holds is theirs, not this booking's.
+    const contested = new Set(conflicts?.map(c => c.via));
+    const lead = await syncSubmittedIdentifiersForExistingLead(
+      ctx,
+      match.lead,
+      {
+        ...args,
+        ...(contested.has("email") && { email: undefined }),
+        ...(contested.has("phone") && { phone: undefined }),
+      },
+      contested.has("email") ? undefined : identityEmail,
+    );
+    return {
+      lead,
+      leadId: lead._id,
+      created: false,
+      isNewLead: false,
+      resolvedVia: match.via,
+      ...(conflicts && { conflicts, booking }),
+    };
   }
 
   if (!createIfMissing) {

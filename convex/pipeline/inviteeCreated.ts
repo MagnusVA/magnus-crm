@@ -49,7 +49,9 @@ import { buildLeadSearchText } from "../leads/searchTextBuilder";
 import {
 	resolveLeadIdentity,
 	resolveExistingLeadIdentity,
+	type ResolveLeadIdentityResult,
 } from "../leads/identityResolution";
+import { recordAttachedReview } from "./bookingReviewRecords";
 import {
 	insertMeetingAggregate,
 	insertOpportunityAggregate,
@@ -68,6 +70,44 @@ import {
 	type AssignedCloserResolution,
 	type BookingHostOutcome,
 } from "./bookingHost";
+
+/**
+ * The booking's email and phone as its person may take them. One that names
+ * another person stays theirs, and the booking's review shows it.
+ */
+function ownIdentifiers(
+	resolution: ResolveLeadIdentityResult | null,
+	booking: { email?: string; rawEmail?: string; phone?: string },
+) {
+	const contested = new Set(resolution?.conflicts?.map((c) => c.via));
+	const emailContested = contested.has("email");
+	return {
+		email: emailContested ? undefined : booking.email,
+		rawEmail: emailContested ? undefined : booking.rawEmail,
+		phone: contested.has("phone") ? undefined : booking.phone,
+	};
+}
+
+async function recordConflictReview(
+	ctx: MutationCtx,
+	args: {
+		tenantId: Id<"tenants">;
+		rawEventId: Id<"rawWebhookEvents">;
+		resolution: ResolveLeadIdentityResult | null;
+		now: number;
+	},
+) {
+	const { resolution } = args;
+	if (!resolution?.conflicts?.length || !resolution.booking) return;
+	await recordAttachedReview(ctx, {
+		tenantId: args.tenantId,
+		rawEventId: args.rawEventId,
+		leadId: resolution.leadId,
+		conflicts: resolution.conflicts,
+		booking: resolution.booking,
+		now: args.now,
+	});
+}
 
 function parseTimestamp(value: unknown): number | undefined {
 	if (typeof value !== "string") {
@@ -399,8 +439,8 @@ async function createLeadIdentifiers(
 	tenantId: Id<"tenants">,
 	leadId: Id<"leads">,
 	meetingId: Id<"meetings">,
-	normalizedEmail: string,
-	rawEmail: string,
+	normalizedEmail: string | undefined,
+	rawEmail: string | undefined,
 	phone: string | undefined,
 	socialHandle:
 		| { rawValue: string; platform: SocialPlatformType }
@@ -419,7 +459,7 @@ async function createLeadIdentifiers(
 				leadId,
 				type: "email",
 				value: normalizedEmail,
-				rawValue: rawEmail,
+				rawValue: rawEmail ?? normalizedEmail,
 				source: "calendly_booking",
 				sourceMeetingId: meetingId,
 				confidence: "verified",
@@ -847,6 +887,8 @@ export const process = internalMutation({
         // to the target lead (a known email, or a handle vouching for a new one),
         // the same rule a booking without a link gets.
         if (!resolvedTarget && targetLead?.email && normalizeEmail(targetLead.email) !== inviteeEmail) blockBooking("identity_conflict");
+        const targetIdentifiers = ownIdentifiers(resolvedTarget, { email: inviteeEmail, rawEmail: rawInviteeEmail, phone: effectivePhone });
+        await recordConflictReview(ctx, { tenantId, rawEventId, resolution: resolvedTarget, now });
 				if (!targetLead || targetLead.tenantId !== tenantId) {
 					reportError(
 						"pipeline.data_inconsistency",
@@ -864,9 +906,9 @@ export const process = internalMutation({
 					);
 				} else {
 					const lead = await syncLeadFromBooking(ctx, targetLead, {
-						inviteeEmail,
+						inviteeEmail: targetIdentifiers.email,
 						inviteeName,
-						inviteePhone: effectivePhone,
+						inviteePhone: targetIdentifiers.phone,
 						latestCustomFields,
 						now,
 					});
@@ -1067,9 +1109,9 @@ export const process = internalMutation({
 						tenantId,
 						lead._id,
 						meetingId,
-						inviteeEmail,
-						rawInviteeEmail,
-						effectivePhone,
+						targetIdentifiers.email,
+						targetIdentifiers.rawEmail,
+						targetIdentifiers.phone,
 						extractedIdentifiers.socialHandle,
 						now,
 					);
@@ -1158,13 +1200,15 @@ export const process = internalMutation({
 		});
 
 		let lead = resolution.lead;
+		const leadIdentifiers = ownIdentifiers(resolution, { email: inviteeEmail, rawEmail: rawInviteeEmail, phone: effectivePhone });
+		await recordConflictReview(ctx, { tenantId, rawEventId, resolution, now });
 
 		// If existing lead, update fields (existing behavior, preserved)
 		if (!resolution.isNewLead) {
 			lead = await syncLeadFromBooking(ctx, lead, {
-				inviteeEmail,
+				inviteeEmail: leadIdentifiers.email,
 				inviteeName,
-				inviteePhone: effectivePhone,
+				inviteePhone: leadIdentifiers.phone,
 				latestCustomFields,
 				now,
 			});
@@ -1400,9 +1444,9 @@ export const process = internalMutation({
 				tenantId,
 				lead._id,
 				meetingId,
-				inviteeEmail,
-				rawInviteeEmail,
-				effectivePhone,
+				leadIdentifiers.email,
+				leadIdentifiers.rawEmail,
+				leadIdentifiers.phone,
 				extractedIdentifiers.socialHandle,
 				now,
 			);
@@ -1742,9 +1786,9 @@ export const process = internalMutation({
 			tenantId,
 			lead._id,
 			meetingId,
-			inviteeEmail,
-			rawInviteeEmail,
-			effectivePhone,
+			leadIdentifiers.email,
+			leadIdentifiers.rawEmail,
+			leadIdentifiers.phone,
 			extractedIdentifiers.socialHandle,
 			now,
 		);

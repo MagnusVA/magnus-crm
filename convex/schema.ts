@@ -2109,6 +2109,17 @@ export default defineSchema({
         occurredAt: v.number(),
       }),
     ),
+    // Booking review alerts post here, or to notifyChannelId when unset.
+    bookingReviewChannelId: v.optional(v.string()),
+    bookingReviewChannelName: v.optional(v.string()),
+    bookingReviewChannelError: v.optional(
+      v.object({
+        code: v.string(),
+        channelId: v.string(),
+        channelName: v.optional(v.string()),
+        occurredAt: v.number(),
+      }),
+    ),
 
     installedByWorkosUserId: v.string(),
     installedAt: v.number(),
