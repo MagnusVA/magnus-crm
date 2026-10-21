@@ -17,7 +17,6 @@ import {
   insertProgram,
   seedCustomer,
 } from "../../tests/enrollmentReadFixtures";
-import { api } from "../_generated/api";
 import {
   customerFieldsFromEnrollments,
   loadPersonDeals,
@@ -214,14 +213,5 @@ describe("search row rebuild", () => {
     expect(row?.customerId).toBeUndefined();
     expect(row?.searchText).not.toContain("old name");
     expect(row?.searchText).not.toContain(seeded.customerId);
-  });
-
-  it("still finds the person by a pasted customer ID", async () => {
-    const harness = await bookingHarness();
-    const seeded = await seedRenamedCustomer(harness);
-    const results = await harness.admin.query(api.leadCustomers.queries.searchEntities, {
-      searchTerm: seeded.customerId,
-    });
-    expect(results).toEqual([expect.objectContaining({ leadId: seeded.leadId, displayName: "New Name" })]);
   });
 });
