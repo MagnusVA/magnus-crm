@@ -37,9 +37,11 @@ export const socialHandleValidator = v.object({
   handle: v.string(),
 });
 
+// A side deal's new person needs an email, a phone or a social handle, at
+// least one (docs/plans/phase-4-customers.md D8); createManual checks it.
 export const newLeadInputValidator = v.object({
   fullName: v.string(),
-  email: v.string(),
+  email: v.optional(v.string()),
   phone: v.optional(v.string()),
   socialHandle: v.optional(socialHandleValidator),
 });

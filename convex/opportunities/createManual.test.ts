@@ -123,3 +123,62 @@ it("makes a person with no email a customer through a side deal payment", async 
   expect(state.enrollments).toMatchObject([{ leadId, programId, opportunityId }]);
   expect(state.customers).toEqual([]);
 });
+
+it.each([
+  ["a phone", { phone: "+1 778 955 9253" }, "phone"],
+  ["a social handle", { socialHandle: { platform: "instagram" as const, handle: "@jane.coach" } }, "instagram"],
+])("creates a new side-deal person with only %s, and their payment makes them a customer", async (_label, contact, identifierType) => {
+  vi.useFakeTimers();
+  const { t, tenantId, closer } = await bookingHarness();
+  const programId = await t.run(async (ctx) => {
+    const admin = (await ctx.db
+      .query("users")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .take(10)).find((user) => user.role === "tenant_admin")!;
+    return await ctx.db.insert("tenantPrograms", {
+      tenantId, name: "Program", normalizedName: "program", createdAt: 0, createdByUserId: admin._id, updatedAt: 0,
+    });
+  });
+
+  const created = await closer.mutation(api.opportunities.createManual.createManual, {
+    clientRequestId: `contact-${identifierType}`,
+    newLeadInput: { fullName: "Jane Coach", ...contact },
+  });
+  expect(created.leadWasCreated).toBe(true);
+  await closer.mutation(api.sideDeals.logPayment.logPayment, {
+    opportunityId: created.opportunityId, amount: 100, currency: "USD", programId, paymentType: "pif",
+  });
+
+  const state = await t.run(async (ctx) => ({
+    lead: await ctx.db.get("leads", created.leadId),
+    identifiers: await ctx.db
+      .query("leadIdentifiers")
+      .withIndex("by_leadId", (q) => q.eq("leadId", created.leadId))
+      .take(5),
+  }));
+  expect(state.lead).toMatchObject({ status: "converted", lifecycleStage: "customer" });
+  expect(state.lead?.email).toBeUndefined();
+  expect(state.identifiers.map((identifier) => identifier.type)).toEqual([identifierType]);
+});
+
+it.each([
+  ["nothing", {}],
+  ["a blank email", { email: "  " }],
+  ["a placeholder phone", { phone: "555-555-5555" }],
+  ["a placeholder handle", { socialHandle: { platform: "instagram" as const, handle: "na" } }],
+])("refuses a new side-deal person with %s to identify them", async (_label, contact) => {
+  vi.useFakeTimers();
+  const { t, closer } = await bookingHarness();
+  await expect(
+    closer.mutation(api.opportunities.createManual.createManual, {
+      clientRequestId: "no-identifier",
+      newLeadInput: { fullName: "Nobody", ...contact },
+    }),
+  ).rejects.toThrow("opportunity.identifier_required");
+  const state = await t.run(async (ctx) => ({
+    leads: await ctx.db.query("leads").take(1),
+    opportunities: await ctx.db.query("opportunities").take(1),
+  }));
+  expect(state.leads).toHaveLength(0);
+  expect(state.opportunities).toHaveLength(0);
+});
