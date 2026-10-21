@@ -6,7 +6,6 @@ import {
 	type PaymentOrigin,
 } from "../lib/paymentTypes";
 import {
-  customerConversions,
   isSlackQualificationAggregateEligible,
   meetingsByStatus,
   opportunityByStatus,
@@ -218,37 +217,6 @@ export const backfillSlackQualificationAggregates = internalMutation({
 			hasMore: !result.isDone,
 			processed: result.page.length,
 			inserted,
-		};
-	},
-});
-
-export const backfillCustomersAggregate = internalMutation({
-	args: { cursor: v.optional(v.string()) },
-	handler: async (ctx, { cursor }) => {
-		const result = await ctx.db.query("customers").paginate({
-			numItems: AGGREGATE_PAGE_SIZE,
-			cursor: cursor ?? null,
-		});
-
-		for (const customer of result.page) {
-			await customerConversions.insertIfDoesNotExist(ctx, customer);
-		}
-
-		logBackfillBatch("customers_aggregate", result.isDone, {
-			processed: result.page.length,
-		});
-
-		if (!result.isDone) {
-			await ctx.scheduler.runAfter(
-				0,
-				internal.reporting.backfill.backfillCustomersAggregate,
-				{ cursor: result.continueCursor },
-			);
-		}
-
-		return {
-			hasMore: !result.isDone,
-			inserted: result.page.length,
 		};
 	},
 });

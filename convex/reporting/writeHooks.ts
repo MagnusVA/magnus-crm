@@ -19,7 +19,6 @@ import {
   replaceOperationsMeetingStats,
 } from "../operations/meetingStats";
 import {
-  customerConversions,
   isSlackQualificationAggregateEligible,
   meetingsByStatus,
   opportunityByStatus,
@@ -222,29 +221,4 @@ export async function replacePaymentAggregate(
     await paymentSums.insertIfDoesNotExist(ctx, payment);
   }
   return payment;
-}
-
-export async function insertCustomerAggregate(
-  ctx: MutationCtx,
-  customerId: Id<"customers">,
-): Promise<Doc<"customers">> {
-  const customer = await ctx.db.get("customers", customerId);
-  if (!customer) {
-    throw new Error(
-      `Customer ${customerId} not found for reporting aggregate sync`,
-    );
-  }
-  await customerConversions.insert(ctx, customer);
-  return customer;
-}
-
-export async function deleteCustomerAggregate(
-  ctx: MutationCtx,
-  customerId: Id<"customers">,
-): Promise<void> {
-  const customer = await ctx.db.get("customers", customerId);
-  if (!customer) {
-    return;
-  }
-  await customerConversions.delete(ctx, customer);
 }
