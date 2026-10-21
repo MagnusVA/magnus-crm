@@ -32,6 +32,7 @@ import {
   lifecycleStageValidator,
 } from "./leads/lifecycle";
 import { paymentOriginValidator, paymentTypeValidator } from "./lib/paymentTypes";
+import { enrollmentStatusValidator } from "./enrollments/validators";
 import { socialPlatformValidator } from "./lib/socialPlatform";
 import { utmParamsValidator } from "./lib/utmParams";
 import { weekdayValidator } from "./lib/workSchedule";
@@ -1691,6 +1692,30 @@ export default defineSchema({
     ]),
   // === End Feature D ===
 
+  // One per person and program bought (docs/plans/phase-4-customers.md §3.1).
+  // Derived from payments by syncPersonEnrollments; it holds no copy of the
+  // person, the program or the payments.
+  enrollments: defineTable({
+    tenantId: v.id("tenants"),
+    leadId: v.id("leads"),
+    programId: v.id("tenantPrograms"),
+    // From the earliest payment for this program, on any of the person's
+    // deals, that isn't disputed (§4.1). Re-derived when payments change.
+    opportunityId: v.id("opportunities"),
+    enrolledAt: v.number(), // that payment's recordedAt
+    status: enrollmentStatusValidator,
+    // Set when an admin changes the status; unset while it was never changed.
+    statusChangedAt: v.optional(v.number()),
+    statusChangedByUserId: v.optional(v.id("users")),
+    createdAt: v.number(),
+  })
+    .index("by_tenantId_and_leadId_and_programId", [
+      "tenantId",
+      "leadId",
+      "programId",
+    ])
+    .index("by_tenantId_and_enrolledAt", ["tenantId", "enrolledAt"]),
+
   paymentRecords: defineTable({
     tenantId: v.id("tenants"),
     opportunityId: v.optional(v.id("opportunities")),
@@ -1925,6 +1950,7 @@ export default defineSchema({
       v.literal("meeting"),
       v.literal("lead"),
       v.literal("customer"),
+      v.literal("enrollment"),
       v.literal("followUp"),
       v.literal("user"),
       v.literal("payment"),

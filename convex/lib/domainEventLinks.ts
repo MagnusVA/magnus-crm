@@ -80,6 +80,12 @@ export async function entityLeadId(
     }
     case "customer":
       return await customerLeadId(ctx, tenantId, ctx.db.normalizeId("customers", entityId) ?? undefined);
+    case "enrollment": {
+      // A removed enrollment is gone; its event's metadata names the person.
+      const enrollmentId = ctx.db.normalizeId("enrollments", entityId);
+      const enrollment = enrollmentId && (await ctx.db.get("enrollments", enrollmentId));
+      return enrollment && enrollment.tenantId === tenantId ? enrollment.leadId : undefined;
+    }
     case "followUp": {
       const followUpId = ctx.db.normalizeId("followUps", entityId);
       const followUp = followUpId && (await ctx.db.get("followUps", followUpId));
