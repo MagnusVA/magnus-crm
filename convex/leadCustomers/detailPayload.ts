@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
+import { personCustomerStatus } from "../enrollments/read";
 import {
   buildOpportunityAttributionPayload,
   resolveTouches,
@@ -8,6 +9,7 @@ import {
 import { userMemberIdentity } from "../lib/memberIdentity";
 import type { CrmRole } from "../lib/roleMapping";
 import { normalizeOpportunitySource } from "../lib/sideDeals";
+import { getUserDisplayName } from "../reporting/lib/helpers";
 import {
   canOpenMeetingDetail,
   canOpenOpportunityDetail,
@@ -22,7 +24,9 @@ const MAX_MEETINGS_PER_OPPORTUNITY = 10;
 const MAX_COMMENTS_PER_MEETING = 5;
 const MAX_TOTAL_COMMENTS = 250;
 const MAX_PAYMENTS = 50;
-const MAX_PAYMENTS_PER_OPPORTUNITY = 10;
+// syncPersonEnrollments derives from at most 50 payments a deal, so a
+// program's total counts every payment behind its enrollment.
+const MAX_PAYMENTS_PER_OPPORTUNITY = 50;
 
 function compactOpportunity(opportunity: Doc<"opportunities">) {
   return {
@@ -80,8 +84,6 @@ function compactPayment(
     opportunityId: payment.opportunityId,
     meetingId: payment.meetingId,
     attributedCloserId: payment.attributedCloserId,
-    customerId: payment.customerId,
-    originatingOpportunityId: payment.originatingOpportunityId,
     amountMinor: payment.amountMinor,
     currency: payment.currency,
     commissionable: payment.commissionable,
@@ -90,25 +92,90 @@ function compactPayment(
     paymentType: payment.paymentType,
     status: payment.status,
     recordedAt: payment.recordedAt,
-    contextType: payment.contextType,
     origin: payment.origin,
     permissions,
   };
 }
 
-function uniqueById<T extends { _id: string }>(rows: T[]) {
-  const seen = new Set<string>();
-  const unique: T[] = [];
+/** What payments that aren't disputed add up to; no currency when they mix. */
+function paidTotals(payments: ReadonlyArray<Doc<"paymentRecords">>) {
+  const counted = payments.filter((payment) => payment.status !== "disputed");
+  const currencies = new Set(counted.map((payment) => payment.currency));
+  return {
+    totalPaidMinor: counted.reduce((sum, payment) => sum + payment.amountMinor, 0),
+    currency: currencies.size === 1 ? [...currencies][0] : null,
+    paymentCount: counted.length,
+  };
+}
 
-  for (const row of rows) {
-    if (seen.has(row._id)) {
-      continue;
+/**
+ * Each of the person's programs with its status, deal and what its payments
+ * on the person's deals add up to, and the person as a customer: their status
+ * across programs, total, "Customer since" and the first enrollment's deal
+ * (docs/plans/phase-4-customers.md §4.4, §6.2). Nothing reads the customer row.
+ */
+async function buildEnrollmentsPayload(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  enrollments: Doc<"enrollments">[],
+  payments: Doc<"paymentRecords">[],
+) {
+  const programIds = [...new Set(enrollments.map((enrollment) => enrollment.programId))];
+  const changerIds = [
+    ...new Set(
+      enrollments
+        .map((enrollment) => enrollment.statusChangedByUserId)
+        .filter((userId): userId is Id<"users"> => userId !== undefined),
+    ),
+  ];
+  const [programs, changers] = await Promise.all([
+    Promise.all(programIds.map((programId) => ctx.db.get("tenantPrograms", programId))),
+    Promise.all(changerIds.map((userId) => ctx.db.get("users", userId))),
+  ]);
+  const programNameById = new Map<Id<"tenantPrograms">, string>();
+  for (const program of programs) {
+    if (program && program.tenantId === tenantId) {
+      programNameById.set(program._id, program.name);
     }
-    seen.add(row._id);
-    unique.push(row);
+  }
+  // A changer whose users row is gone has no name; the page says "Removed user".
+  const changerNameById = new Map<Id<"users">, string>();
+  for (const user of changers) {
+    if (user && user.tenantId === tenantId) {
+      changerNameById.set(user._id, getUserDisplayName(user));
+    }
   }
 
-  return unique;
+  const rows = enrollments.map((enrollment) => ({
+    enrollmentId: enrollment._id,
+    programId: enrollment.programId,
+    programName: programNameById.get(enrollment.programId) ?? "Unknown program",
+    status: enrollment.status,
+    enrolledAt: enrollment.enrolledAt,
+    opportunityId: enrollment.opportunityId,
+    statusChangedAt: enrollment.statusChangedAt ?? null,
+    statusChangedByName: enrollment.statusChangedByUserId
+      ? (changerNameById.get(enrollment.statusChangedByUserId) ?? null)
+      : null,
+    ...paidTotals(payments.filter((payment) => payment.programId === enrollment.programId)),
+  }));
+
+  const status = personCustomerStatus(enrollments);
+  const [first] = enrollments;
+  const enrolledProgramIds = new Set(programIds);
+  const customerSummary =
+    status && first
+      ? {
+          status,
+          ...paidTotals(payments.filter((payment) => enrolledProgramIds.has(payment.programId))),
+          // Enrollments come oldest first.
+          customerSince: first.enrolledAt,
+          programNames: rows.map((row) => row.programName),
+          winningOpportunityId: first.opportunityId,
+        }
+      : null;
+
+  return { enrollments: rows, customerSummary };
 }
 
 export async function buildEntityDetailPayload(
@@ -118,7 +185,8 @@ export async function buildEntityDetailPayload(
     viewerUserId: Id<"users">;
     viewerRole: CrmRole;
     lead: Doc<"leads">;
-    customer: Doc<"customers"> | null;
+    // Oldest first, as listPersonEnrollments returns them.
+    enrollments: Doc<"enrollments">[];
     identifiers: Doc<"leadIdentifiers">[];
     opportunities: Doc<"opportunities">[];
   },
@@ -135,7 +203,7 @@ export async function buildEntityDetailPayload(
     ),
   ];
 
-  const [closers, meetingBatches, customerPayments, opportunityPaymentBatches] =
+  const [closers, meetingBatches, opportunityPaymentBatches] =
     await Promise.all([
       Promise.all(
         closerIds.map(async (closerId) => ({
@@ -154,15 +222,6 @@ export async function buildEntityDetailPayload(
             .take(MAX_MEETINGS_PER_OPPORTUNITY),
         ),
       ),
-      input.customer
-        ? ctx.db
-            .query("paymentRecords")
-            .withIndex("by_customerId_and_recordedAt", (q) =>
-              q.eq("customerId", input.customer!._id),
-            )
-            .order("desc")
-            .take(MAX_PAYMENTS)
-        : Promise.resolve([]),
       Promise.all(
         opportunities.map((opportunity) =>
           ctx.db
@@ -249,12 +308,14 @@ export async function buildEntityDetailPayload(
     )
     .slice(0, MAX_TOTAL_COMMENTS);
 
-  const rawPayments = uniqueById([
-    ...customerPayments,
-    ...opportunityPaymentBatches.flat(),
-  ])
+  // The payments on the person's deals; every payment is on a deal (§2.2).
+  const rawPayments = opportunityPaymentBatches
+    .flat()
     .filter((payment) => payment.tenantId === input.tenantId)
     .sort((left, right) => right.recordedAt - left.recordedAt);
+  const paymentsCappedPerDeal = opportunityPaymentBatches.some(
+    (batch) => batch.length >= MAX_PAYMENTS_PER_OPPORTUNITY,
+  );
   const visiblePayments = rawPayments
     .filter((payment) =>
       canViewPaymentDetail({
@@ -316,10 +377,8 @@ export async function buildEntityDetailPayload(
 
   const compactPayments = visiblePayments.map((payment) =>
     {
-      const paymentOpportunityId =
-        payment.opportunityId ?? payment.originatingOpportunityId;
-      const paymentOpportunity = paymentOpportunityId
-        ? opportunityById.get(paymentOpportunityId)
+      const paymentOpportunity = payment.opportunityId
+        ? opportunityById.get(payment.opportunityId)
         : undefined;
 
       return compactPayment(
@@ -339,6 +398,14 @@ export async function buildEntityDetailPayload(
   );
   // The person's first and latest touch, with who made each.
   const { firstTouch, latestTouch } = await resolveTouches(ctx, input.lead, teamMembers);
+  // Totals count every payment on the person's deals, whoever is viewing, as
+  // the customer row's total did.
+  const { enrollments, customerSummary } = await buildEnrollmentsPayload(
+    ctx,
+    input.tenantId,
+    input.enrollments,
+    rawPayments,
+  );
 
   return {
     kind: "detail" as const,
@@ -349,7 +416,8 @@ export async function buildEntityDetailPayload(
     lead: input.lead,
     firstTouch,
     latestTouch,
-    customer: input.customer,
+    enrollments,
+    customerSummary,
     identifiers: input.identifiers,
     opportunities: opportunitiesWithAttribution,
     meetings: compactMeetings,
@@ -359,7 +427,7 @@ export async function buildEntityDetailPayload(
       opportunities: input.opportunities.length >= MAX_OPPORTUNITIES,
       meetings: rawMeetings.length > MAX_MEETINGS,
       comments: comments.length >= MAX_TOTAL_COMMENTS,
-      payments: rawPayments.length > MAX_PAYMENTS,
+      payments: rawPayments.length > MAX_PAYMENTS || paymentsCappedPerDeal,
     },
   };
 }

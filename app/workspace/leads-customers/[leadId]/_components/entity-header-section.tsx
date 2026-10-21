@@ -10,28 +10,20 @@ import {
 	TruncatingTooltip,
 } from "../../_components/entity-ui-tooltips";
 import { useEntityDetail } from "./entity-detail-context";
+import { cn } from "@/lib/utils";
 import {
 	formatDate,
-	formatMoneyMinor,
+	formatPaidTotal,
 	formatToken,
 } from "./entity-detail-formatters";
 import { MicroLabel, Surface } from "./entity-detail-ui";
+import { EnrollmentStatusBadge } from "./enrollment-status-badge";
 
 export function EntityHeaderSection() {
-	const { lead, customer, opportunities } = useEntityDetail();
+	const { lead, customerSummary } = useEntityDetail();
 	const displayName = lead.fullName ?? lead.email ?? "Unknown lead";
-	const isCustomer = customer !== null;
-
-	const winning = customer
-		? opportunities.find(
-				({ opportunity }) => opportunity._id === customer.winningOpportunityId,
-			)
-		: undefined;
-	const winningLabel =
-		winning?.opportunity.soldProgramName ??
-		winning?.opportunity.firstBookingProgramName ??
-		(customer?.winningOpportunityId ? formatToken(winning?.opportunity.status) : null) ??
-		"Not linked";
+	// A person with an enrollment is a customer (docs/plans/phase-4-customers.md §6.2).
+	const isCustomer = customerSummary !== null;
 
 	const contactItems = [
 		lead.email,
@@ -74,13 +66,15 @@ export function EntityHeaderSection() {
 											{isCustomer ? "Customer" : "Lead"}
 										</Badge>
 									</SimpleTooltip>
-									<SimpleTooltip
-										content={`Current ${isCustomer ? "customer" : "lead"} pipeline status`}
-									>
-										<Badge variant="outline">
-											{customer ? formatToken(customer.status) : formatToken(lead.status)}
-										</Badge>
-									</SimpleTooltip>
+									{customerSummary ? (
+										<SimpleTooltip content="Active if any program is active, else paused if any is paused, else churned">
+											<EnrollmentStatusBadge status={customerSummary.status} />
+										</SimpleTooltip>
+									) : (
+										<SimpleTooltip content="Current lead pipeline status">
+											<Badge variant="outline">{formatToken(lead.status)}</Badge>
+										</SimpleTooltip>
+									)}
 								</div>
 							</div>
 
@@ -104,19 +98,22 @@ export function EntityHeaderSection() {
 							) : null}
 						</div>
 
-						{customer ? (
-							<dl className="grid shrink-0 grid-cols-2 gap-px overflow-hidden rounded-lg bg-border/70 ring-1 ring-border/70 sm:grid-cols-4 lg:max-w-xl">
+						{customerSummary ? (
+							<dl className="grid shrink-0 grid-cols-2 gap-px overflow-hidden rounded-lg bg-border/70 ring-1 ring-border/70 sm:grid-cols-3 lg:max-w-xl">
 								<HeaderMetric
 									label="Total Paid"
 									tone="money"
-									value={formatMoneyMinor(customer.totalPaidMinor, customer.paymentCurrency)}
+									value={formatPaidTotal(customerSummary)}
 								/>
-								<HeaderMetric label="Converted" value={formatDate(customer.convertedAt)} />
 								<HeaderMetric
-									label="Program"
-									value={customer.programName ?? "Not set"}
+									label="Customer Since"
+									value={formatDate(customerSummary.customerSince)}
 								/>
-								<HeaderMetric label="Winning Deal" value={winningLabel} />
+								<HeaderMetric
+									label={customerSummary.programNames.length === 1 ? "Program" : "Programs"}
+									value={customerSummary.programNames.join(", ")}
+									className="col-span-2 sm:col-span-1"
+								/>
 							</dl>
 						) : null}
 					</div>
@@ -129,13 +126,15 @@ function HeaderMetric({
 	label,
 	value,
 	tone = "default",
+	className,
 }: {
 	label: string;
 	value: string;
 	tone?: "default" | "money";
+	className?: string;
 }) {
 	return (
-		<div className="flex min-w-0 flex-col gap-1 bg-card px-3.5 py-2.5">
+		<div className={cn("flex min-w-0 flex-col gap-1 bg-card px-3.5 py-2.5", className)}>
 			<dt>
 				<MicroLabel>{label}</MicroLabel>
 			</dt>

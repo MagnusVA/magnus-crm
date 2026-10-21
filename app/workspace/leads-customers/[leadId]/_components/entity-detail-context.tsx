@@ -11,6 +11,7 @@ export type EntityDetailPayload = Extract<EntityDetailResult, { kind: "detail" }
 export type EntityDetailOpportunity = EntityDetailPayload["opportunities"][number];
 export type EntityDetailMeeting = EntityDetailPayload["meetings"][number];
 export type EntityDetailComment = EntityDetailPayload["comments"][number];
+export type EntityDetailEnrollment = EntityDetailPayload["enrollments"][number];
 
 const EntityDetailContext = createContext<EntityDetailPayload | null>(null);
 

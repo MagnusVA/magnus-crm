@@ -1,5 +1,6 @@
 import { v } from "convex/values";
 import { query } from "../_generated/server";
+import { listPersonEnrollments } from "../enrollments/read";
 import { requireTenantUser } from "../requireTenantUser";
 import { buildEntityDetailPayload } from "./detailPayload";
 
@@ -25,13 +26,8 @@ export const getEntityDetail = query({
       return { kind: "redirect" as const, leadId: targetLead._id };
     }
 
-    const [customer, opportunities, identifiers] = await Promise.all([
-      ctx.db
-        .query("customers")
-        .withIndex("by_tenantId_and_leadId", (q) =>
-          q.eq("tenantId", tenantId).eq("leadId", leadId),
-        )
-        .first(),
+    const [enrollments, opportunities, identifiers] = await Promise.all([
+      listPersonEnrollments(ctx, tenantId, leadId),
       ctx.db
         .query("opportunities")
         .withIndex("by_tenantId_and_leadId", (q) =>
@@ -51,7 +47,7 @@ export const getEntityDetail = query({
       viewerUserId: userId,
       viewerRole: role,
       lead,
-      customer,
+      enrollments,
       identifiers,
       opportunities,
     });

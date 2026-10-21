@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { InitialSourceBadge } from "@/app/workspace/_components/initial-source-badge";
+import { ENROLLMENT_STATUS_LABELS } from "@/convex/enrollments/validators";
 import {
 	LabelWithInfoTooltip,
 	leadsCustomersTooltips,
@@ -24,11 +25,12 @@ const incomeFormatter = new Intl.NumberFormat("en-US", {
 });
 
 export function EntitySnapshotAside() {
-	const { lead, customer, opportunities, identifiers } = useEntityDetail();
+	const { lead, customerSummary, opportunities, identifiers } = useEntityDetail();
 	const customFields = Object.entries(lead.customFields ?? {});
-	const winning = customer
+	// The winning deal is the first enrollment's deal.
+	const winning = customerSummary
 		? opportunities.find(
-				({ opportunity }) => opportunity._id === customer.winningOpportunityId,
+				({ opportunity }) => opportunity._id === customerSummary.winningOpportunityId,
 			)
 		: undefined;
 	const leadLabel = lead.fullName ?? lead.email ?? lead._id;
@@ -44,10 +46,10 @@ export function EntitySnapshotAside() {
 			>
 				<ol className="flex flex-col gap-0">
 					<ChainStep badge={<Badge variant="secondary">Lead</Badge>} value={leadLabel} />
-					{customer ? (
+					{customerSummary ? (
 						<ChainStep
 							badge={<Badge>Customer</Badge>}
-							value={formatToken(customer.status)}
+							value={ENROLLMENT_STATUS_LABELS[customerSummary.status]}
 							connected
 						/>
 					) : null}
