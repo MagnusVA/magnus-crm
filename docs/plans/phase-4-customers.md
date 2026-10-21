@@ -192,7 +192,7 @@ Status belongs to the enrollment (D3). An admin changes it per enrollment (`upda
 - Under a changed status the section shows when and by whom, from `statusChangedAt` and `statusChangedByUserId`; a deleted user shows as "Removed user".
 - A select to the current status, or a stale one (the enrollment changed since the page loaded), changes nothing. The person-level status the list shows (`leadCustomerSearchRows.customerStatus`) is `active` if any enrollment is active, else `paused` if any is paused, else `churned`.
 
-Until PR 4, the two statuses are kept equal in both directions. `updateCustomerStatus` sets the status of the enrollment for the customer's program as well; nothing calls it from the app (§2.7). `updateEnrollmentStatus` sets the customer row's status (with `pausedAt` or `churnedAt`) when the enrollment is for the customer's program, then rebuilds the search row. So PR 3 can deploy before PR 2: the list shows the change whether its projection reads the customer row or the enrollments.
+Until PR 4, the two statuses are kept equal in both directions. `updateCustomerStatus` sets the status of the enrollment for the customer's program as well; nothing calls it from the app (§2.7). `updateEnrollmentStatus` sets the customer row's status (with `pausedAt` or `churnedAt`) when the enrollment is for the customer's program, then rebuilds the search row. That mirror only keeps `assertEnrollments` true: nothing reads the customer row's status once PR 2 is live, and PR 2 merges before PR 3, so the status control never exists while the list reads the customer row. The list's status is always the person-level status of every enrollment.
 
 ### 4.5 A second program
 
@@ -318,7 +318,7 @@ The search text drops the customer copy; the person's own name, email, phone and
 | 4 | Stop writing customers: conversion through `syncPersonEnrollments`, no email requirement, the merge, the retirements, `contextType` optional and every reader of `contextType`, `customerId` and `originatingOpportunityId` removed (§3.2, §4.2 to §4.7, §5 PR 4 column, D12); the clear and delete migrations; the non-commissionable origins added to the ADR's Phase 6 row (Q3) | no reader reads the customer rows after PRs 2 and 3 |
 | 5 | Narrow (§3.3), the ADR status, the review's Phase 4 card, this plan's status | after the clears, the deletion and their asserts pass in production |
 
-PRs 2 and 3 can merge in either order.
+PR 2 merges before PR 3, so the list reads the person-level status from enrollments before the status control exists (§4.4).
 
 Production runs, in this order (§10.6 has the commands):
 
@@ -379,7 +379,15 @@ The other migrations run the same way, in §9's order. The dry run must finish w
 
 ### 10.7 The export
 
-Before the deletion, only the `customers` table is exported, with `npx convex data customers --format jsonl` and a limit above its row count, into a new directory from `mktemp -d` outside the repository, with mode 700. The file stays on the operator's machine: it is never printed, committed, copied or uploaded, and only its line count is read. The operator's disk is encrypted (FileVault on). The file is deleted with its directory when the phase ends, or 7 days after the deletion run if the phase stops before then, whichever comes first; a stopped phase's handoff names the deadline. The deletion is checked by listing the parent directory, and the log records the row count and when it was deleted. Recovery doesn't depend on the export: every field but `status` re-derives from the person and the first payment (§2.4), and all 274 statuses are active, so a repair after the export is gone rebuilds the rows from those. No other table is exported; the payments, search rows and aggregate are rebuilt from the customer rows and the payments (§12).
+Before the clear, only the `customers` table is exported, into a new directory from `mktemp -d` outside the repository, with mode 700:
+
+```
+DIR=$(mktemp -d) && chmod 700 "$DIR"
+npx convex data --env-file .env.vercel.production customers --format jsonl --limit 1000 > "$DIR/customers.jsonl"
+wc -l < "$DIR/customers.jsonl"
+```
+
+PR 4 has stopped writing customer rows by then, so their count is fixed. A read-only inline query counts the `customers` rows (274 expected), and the export's line count must equal it, with the limit above it. Any other count stops the phase before `clearPaymentCustomerFields` runs. The file stays on the operator's machine: it is never printed, committed, copied or uploaded, and only its line count is read. The operator's disk is encrypted (FileVault on). The file is deleted with its directory when the phase ends, or 7 days after the deletion run if the phase stops before then, whichever comes first; a stopped phase's handoff names the deadline. The deletion is checked by listing the parent directory, and the log records the row count and when it was deleted. Recovery doesn't depend on the export: every field but `status` re-derives from the person and the first payment (§2.4), and all 274 statuses are active, so a repair after the export is gone rebuilds the rows from those. No other table is exported; the payments, search rows and aggregate are rebuilt from the customer rows and the payments (§12).
 
 The health checks that stay after the phase: `assertEnrollments` and `assertPaymentEnrollments`, with `"reset":true`, beside Phase 3's.
 
@@ -419,13 +427,14 @@ Fix forward, reviewed. Every repair is an internal migration with its own assert
 
 - **PR 1.** Revert. The enrollments are new and nothing reads them yet; a wrong one is fixed by re-running `syncPersonEnrollments` for its person in a reviewed repair.
 - **PRs 2 and 3.** Revert: the readers go back to the customer rows, which PR 4 hasn't stopped writing.
-- **PR 4.** Before the clear and the deletion run, revert. After them, revert PR 4 (and PRs 2 and 3 if the readers must go back too), then one reviewed repair migration restores every cleared artifact, each with its assert:
-  1. reinserts the customer rows from the export (they get new IDs);
+- **PR 4.** Before the clear and the deletion run, revert. After them, revert PR 4 (and PRs 2 and 3 if the readers must go back too), then one reviewed, idempotent repair migration rebuilds every cleared artifact from the current records, each with its assert:
+  1. inserts a customer row for every converted person who lacks one, derived as §2.4 shows every field can be: contact fields from the person, `convertedAt`, `convertedByUserId`, `winningOpportunityId` and `winningMeetingId` from the first enrollment's first payment, program from the first enrollment, totals from the person's payments, and status from the person-level status of the enrollments (§4.4). That covers people who became customers after the export and statuses changed after it. The export only cross-checks the rows for the people it holds;
   2. sets `paymentRecords.customerId` and `contextType: "opportunity"` on each payment from its deal's person's customer row;
   3. rebuilds the customers' search rows with the reverted projection, which writes the new `customerId`;
   4. refills `customerConversions` with its backfill, which the revert brings back.
 
   Only payments, search rows, the aggregate and the 274 old `customer.converted` events name a customer ID. The events keep their stored `leadId` and stay history, so the original IDs don't need to come back. `assertLeadCustomerSearchRowsBackfilled` and `reporting/verification.ts` read the restored values.
+
 - **PR 5.** Revert brings the table and fields back as optional; the values come back through the same repair.
 
 ## 13. Production log
