@@ -12,6 +12,7 @@ import {
   patchOpportunityLifecycle,
   transitionOpportunity,
 } from "./opportunityActivity";
+import { countsAsLead } from "./leadLifecycle";
 import type { OpportunityStatus } from "./statusTransitions";
 import {
   isActiveOpportunityStatus,
@@ -157,6 +158,30 @@ async function expectStatsMatchRecount(harness: Harness) {
     ).length,
     wonDeals: opportunities.filter((o) => o.status === "payment_received").length,
     lostDeals: opportunities.filter((o) => o.status === "lost").length,
+  });
+}
+
+// totalCustomers and totalLeads must equal a recount from the people, as
+// seedTenantStatsInternal and countTenantLeadsPage compute them: a customer
+// is a converted person (docs/plans/phase-4-customers.md §4.2, §4.3, §8).
+async function expectPersonCountersMatchRecount(harness: Harness) {
+  const { t, tenantId } = harness;
+  const { stats, leads } = await t.run(async (ctx) => ({
+    stats: await ctx.db
+      .query("tenantStats")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .unique(),
+    leads: await ctx.db
+      .query("leads")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .take(100),
+  }));
+  expect({
+    totalCustomers: stats?.totalCustomers ?? 0,
+    totalLeads: stats?.totalLeads ?? 0,
+  }).toEqual({
+    totalCustomers: leads.filter((lead) => lead.status === "converted").length,
+    totalLeads: leads.filter(countsAsLead).length,
   });
 }
 
@@ -358,6 +383,7 @@ describe("status changes through the public mutations", () => {
     });
     expect((await readState(harness, opportunityId)).wonCount).toBe(1);
     await expectStatsMatchRecount(harness);
+    await expectPersonCountersMatchRecount(harness);
 
     await admin.mutation(api.sideDeals.voidPayment.voidPayment, {
       paymentId,
@@ -373,6 +399,7 @@ describe("status changes through the public mutations", () => {
       ["payment_received", "lost"],
     ]);
     await expectStatsMatchRecount(harness);
+    await expectPersonCountersMatchRecount(harness);
   });
 });
 
@@ -438,5 +465,30 @@ describe("status counter repair", () => {
       }),
     ).toMatchObject({ match: true });
     await expectStatsMatchRecount(harness);
+  });
+});
+
+describe("seedTenantStatsInternal", () => {
+  it("counts converted people as customers, whatever customer rows exist", async () => {
+    const harness = await bookingHarness();
+    const { tenantId } = harness;
+    await harness.t.run(async (ctx) => {
+      const person = (status: "active" | "converted" | "merged") =>
+        ctx.db.insert("leads", {
+          ...qualifiedLifecycle(0), tenantId, status, firstSeenAt: 0, updatedAt: 0,
+        });
+      await person("converted");
+      await person("converted");
+      await person("active");
+      await person("merged");
+    });
+
+    await harness.t.mutation(internal.admin.migrations.seedTenantStatsInternal, { tenantId, totalLeads: 1 });
+
+    const stats = await harness.t.run((ctx) =>
+      ctx.db.query("tenantStats").withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)).unique(),
+    );
+    expect(stats).toMatchObject({ totalCustomers: 2, totalLeads: 1 });
+    await expectPersonCountersMatchRecount(harness);
   });
 });

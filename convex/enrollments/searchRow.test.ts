@@ -39,6 +39,7 @@ describe("the search row after a payment write", () => {
     });
 
     expect(await searchRowOf(harness, leadId)).toMatchObject({
+      leadStatus: "converted",
       lifecycle: "customer",
       customerStatus: "active",
       totalPaidMinor: 100_000,
@@ -75,6 +76,24 @@ describe("the search row after a payment write", () => {
 
     const row = await searchRowOf(harness, created.leadId);
     expect(row?.lifecycle).not.toBe("customer");
+    expect(row?.leadStatus).toBe("active");
     expect(row?.customerStatus).toBeUndefined();
+  });
+
+  it("follows an amount correction in billing", async () => {
+    const harness = await enrollmentHarness();
+    await harness.t.run((ctx) => ctx.db.patch("tenants", harness.tenantId, { billingOpsEnabled: true }));
+    const { programA } = await programs(harness);
+    const created = await sideDeal(harness, "corrected", { email: "buyer@example.com" });
+    const paymentId = await paySideDeal(harness, created.opportunityId, programA, CALL_LOGGED);
+
+    await harness.admin.mutation(api.billing.mutations.correctPayment, {
+      paymentRecordId: paymentId, amount: 450, reason: "Amount typo",
+    });
+
+    expect(await searchRowOf(harness, created.leadId)).toMatchObject({
+      lifecycle: "customer",
+      totalPaidMinor: 45_000,
+    });
   });
 });
