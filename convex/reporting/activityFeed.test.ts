@@ -21,7 +21,8 @@ describe("activity feed enrollment events", () => {
     const seeded = await h.t.run(async (ctx) => {
       const seeded = await seedEnrolledCustomer(ctx, h.tenantId);
       await ctx.db.insert("domainEvents", {
-        tenantId: h.tenantId, entityType: "customer", entityId: seeded.customerId,
+        // An old event keeps the ID of a customer row that is gone.
+        tenantId: h.tenantId, entityType: "customer", entityId: "k170000000000000000000000000000",
         eventType: "customer.converted", occurredAt: NOW - 1_000, source: "closer",
         leadId: seeded.leadId,
       });

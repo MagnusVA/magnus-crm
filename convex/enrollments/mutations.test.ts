@@ -2,7 +2,7 @@
  * An admin changes an enrollment's status (docs/plans/phase-4-customers.md
  * §4.4): a no-op when unchanged or stale, an optional reason for Paused and
  * Churned, an `enrollment.status_changed` event, and the person-level status
- * on the search row. The customer row is no longer written (PR 4).
+ * on the search row.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../_generated/api";
@@ -198,14 +198,13 @@ describe("updateEnrollmentStatus", () => {
     expect(touchesAfter).toEqual(touchesBefore);
   });
 
-  it("rebuilds the search row with the person-level status and leaves the customer row alone", async () => {
+  it("rebuilds the search row with the person-level status", async () => {
     const { h, seeded } = await setup({ secondProgram: true });
     type Status = "active" | "paused" | "churned";
     const update = (enrollmentId: Id<"enrollments">, status: Status, expectedStatus: Status) =>
       h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, { enrollmentId, status, expectedStatus });
     const read = () =>
       h.t.run(async (ctx) => ({
-        customer: await ctx.db.get("customers", seeded.customerId),
         row: await ctx.db
           .query("leadCustomerSearchRows")
           .withIndex("by_tenantId_and_leadId", (q) =>
@@ -213,7 +212,6 @@ describe("updateEnrollmentStatus", () => {
           )
           .unique(),
       }));
-    const customerBefore = (await read()).customer;
 
     await update(seeded.enrollmentA, "paused", "active");
     let state = await read();
@@ -228,7 +226,5 @@ describe("updateEnrollmentStatus", () => {
     await update(seeded.enrollmentA, "churned", "paused");
     state = await read();
     expect(state.row?.customerStatus).toBe("churned");
-    // From PR 4 the customer row, for Program A, keeps the status it had.
-    expect(state.customer).toEqual(customerBefore);
   });
 });

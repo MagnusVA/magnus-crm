@@ -11,9 +11,6 @@ export const syncRenamedProgram = internalMutation({
   args: {
     programId: v.id("tenantPrograms"),
     paymentCursor: v.optional(v.string()),
-    // Ignored. Accepted so a chain scheduled before customer rows stopped
-    // being patched still runs; the narrow can drop it.
-    customerCursor: v.optional(v.string()),
   },
   returns: v.object({ syncedPayments: v.number(), hasMore: v.boolean() }),
   handler: async (ctx, args) => {

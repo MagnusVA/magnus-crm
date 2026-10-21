@@ -172,9 +172,6 @@ export const assertLeadCustomerSearchRowsBackfilled = migrations.define({
     if (row.isSearchVisible !== isVisibleLifecycle(expectedLifecycle)) {
       throw new Error(`Lead ${lead._id} has invalid visibility projection`);
     }
-    if (row.customerId !== undefined) {
-      throw new Error(`Lead ${lead._id} has a projection that still names a customer`);
-    }
     for (const field of [
       "customerStatus",
       "totalPaidMinor",

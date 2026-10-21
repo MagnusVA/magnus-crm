@@ -175,9 +175,9 @@ describe("search row rebuild", () => {
       const seeded = await seedCustomer(ctx, tenantId, {
         closerId: closer._id, programId: program, paidAt: T0, fullName: "Old Name",
       });
-      // The row as the customer projection wrote it, then the person renamed.
+      // A row from before the rename, then the person renamed.
       await ctx.db.insert("leadCustomerSearchRows", {
-        tenantId, leadId: seeded.leadId, customerId: seeded.customerId, lifecycle: "customer",
+        tenantId, leadId: seeded.leadId, lifecycle: "customer",
         isSearchVisible: true, leadStatus: "converted", customerStatus: "active", displayName: "Old Name",
         searchText: "old name", opportunityCount: 1, wonOpportunityCount: 1, meetingCount: 1,
         latestActivityAt: T0, firstSeenAt: T0 - 3 * DAY, convertedAt: T0, updatedAt: T0,
@@ -198,7 +198,7 @@ describe("search row rebuild", () => {
     );
   }
 
-  it("projects enrollments and the person, and no longer names the customer", async () => {
+  it("projects enrollments and the person", async () => {
     const harness = await bookingHarness();
     const seeded = await seedRenamedCustomer(harness);
     const row = await searchRow(harness, seeded.leadId);
@@ -210,8 +210,6 @@ describe("search row rebuild", () => {
       totalPaidMinor: 100_000,
       paymentCurrency: "USD",
     });
-    expect(row?.customerId).toBeUndefined();
     expect(row?.searchText).not.toContain("old name");
-    expect(row?.searchText).not.toContain(seeded.customerId);
   });
 });

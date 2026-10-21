@@ -116,12 +116,10 @@ it("makes a person with no email a customer through a side deal payment", async 
   const state = await t.run(async (ctx) => ({
     lead: await ctx.db.get("leads", leadId),
     enrollments: await ctx.db.query("enrollments").take(2),
-    customers: await ctx.db.query("customers").take(1),
   }));
   expect(state.lead).toMatchObject({ status: "converted", lifecycleStage: "customer" });
   expect(state.lead?.email).toBeUndefined();
   expect(state.enrollments).toMatchObject([{ leadId, programId, opportunityId }]);
-  expect(state.customers).toEqual([]);
 });
 
 it.each([

@@ -130,7 +130,7 @@ describe("conversions from enrollments", () => {
 });
 
 describe("Leads & Conversions report", () => {
-  it("counts first enrollments, including a person with no customer row", async () => {
+  it("counts first enrollments, including a person with no email", async () => {
     const harness = await bookingHarness();
     const { t, tenantId } = harness;
     await t.run(async (ctx) => {
@@ -146,7 +146,7 @@ describe("Leads & Conversions report", () => {
       await insertEnrollment(ctx, {
         tenantId, leadId: seeded.leadId, programId: second, opportunityId: secondDeal, enrolledAt: T0 + DAY,
       });
-      // A person with an enrollment and no customer row counts once.
+      // A person with no email counts once.
       const leadId = await insertPerson(ctx, tenantId, { fullName: "No email", status: "converted" });
       const dealId = await insertDeal(ctx, { tenantId, leadId, assignedCloserId: closer._id });
       await insertPayment(ctx, {

@@ -506,7 +506,8 @@ export default defineSchema({
     // Status for lead merge and conversion tracking.
     // "active" = normal operating state (default for all existing + new leads).
     // "merged" = this lead was merged into another lead; mergedIntoLeadId points to the target.
-    // "converted" = lead became a customer (Feature D).
+    // "converted" = the person has an enrollment, so is a customer
+    // (docs/plans/phase-4-customers.md §4.2).
     status: v.union(
       v.literal("active"),
       v.literal("converted"),
@@ -650,7 +651,6 @@ export default defineSchema({
   leadCustomerSearchRows: defineTable({
     tenantId: v.id("tenants"),
     leadId: v.id("leads"),
-    customerId: v.optional(v.id("customers")),
     lifecycle: leadCustomerLifecycleValidator,
     isSearchVisible: v.boolean(),
     leadStatus: leadCustomerLeadStatusValidator,
@@ -672,7 +672,6 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
-    .index("by_tenantId_and_customerId", ["tenantId", "customerId"])
     .index("by_tenantId_and_isSearchVisible_and_latestActivityAt", [
       "tenantId",
       "isSearchVisible",
@@ -1645,53 +1644,6 @@ export default defineSchema({
       "normalizedName",
     ]),
 
-  // === Feature D: Lead-to-Customer Conversion ===
-  customers: defineTable({
-    tenantId: v.id("tenants"),
-    leadId: v.id("leads"),
-    fullName: v.string(),
-    email: v.string(),
-    phone: v.optional(v.string()),
-    socialHandles: v.optional(
-      v.array(
-        v.object({
-          type: v.string(),
-          handle: v.string(),
-        }),
-      ),
-    ),
-    convertedAt: v.number(),
-    convertedByUserId: v.id("users"),
-    winningOpportunityId: v.id("opportunities"),
-    winningMeetingId: v.optional(v.id("meetings")),
-    programId: v.id("tenantPrograms"),
-    programName: v.string(),
-    notes: v.optional(v.string()),
-    status: v.union(
-      v.literal("active"),
-      v.literal("churned"),
-      v.literal("paused"),
-    ),
-    totalPaidMinor: v.optional(v.number()),
-    totalPaymentCount: v.optional(v.number()),
-    paymentCurrency: v.optional(v.string()),
-    churnedAt: v.optional(v.number()),
-    pausedAt: v.optional(v.number()),
-    createdAt: v.number(),
-  })
-    // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: the customer list paginates newest first
-    .index("by_tenantId", ["tenantId"])
-    .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
-    .index("by_tenantId_and_status", ["tenantId", "status"])
-    .index("by_tenantId_and_convertedAt", ["tenantId", "convertedAt"])
-    .index("by_tenantId_and_programId", ["tenantId", "programId"])
-    .index("by_tenantId_and_convertedByUserId_and_status", [
-      "tenantId",
-      "convertedByUserId",
-      "status",
-    ]),
-  // === End Feature D ===
-
   // One per person and program bought (docs/plans/phase-4-customers.md §3.1).
   // Derived from payments by syncPersonEnrollments; it holds no copy of the
   // person, the program or the payments.
@@ -1750,15 +1702,6 @@ export default defineSchema({
     // `recordedAt` is the effective "paid at" timestamp used by all reporting
     // queries.
     recordedAt: v.number(),
-    // Phase 4 stops writing and reading these three; its clear unsets
-    // `customerId` and `contextType`, and the narrow drops all three with
-    // their indexes (docs/plans/phase-4-customers.md §3.2, §3.3, D12). Every
-    // payment is a deal payment.
-    customerId: v.optional(v.id("customers")),
-    originatingOpportunityId: v.optional(v.id("opportunities")),
-    contextType: v.optional(
-      v.union(v.literal("opportunity"), v.literal("customer")),
-    ),
     origin: paymentOriginValidator,
   })
     .index("by_opportunityId_and_recordedAt", [
@@ -1766,18 +1709,12 @@ export default defineSchema({
       "recordedAt",
     ])
     .index("by_opportunityId_and_status_and_recordedAt", ["opportunityId", "status", "recordedAt"])
-    .index("by_originatingOpportunityId_and_status_and_recordedAt", ["originatingOpportunityId", "status", "recordedAt"])
-    .index("by_originatingOpportunityId_and_recordedAt", [
-      "originatingOpportunityId",
-      "recordedAt",
-    ])
     .index("by_tenantId_and_recordedAt", ["tenantId", "recordedAt"])
     .index("by_tenantId_and_status_and_recordedAt", [
       "tenantId",
       "status",
       "recordedAt",
     ])
-    .index("by_customerId_and_recordedAt", ["customerId", "recordedAt"])
     .index("by_tenantId_and_attributedCloserId_and_recordedAt", [
       "tenantId",
       "attributedCloserId",
@@ -1949,6 +1886,7 @@ export default defineSchema({
       v.literal("opportunity"),
       v.literal("meeting"),
       v.literal("lead"),
+      // The old customer.* events; nothing emits it since Phase 4.
       v.literal("customer"),
       v.literal("enrollment"),
       v.literal("followUp"),

@@ -55,7 +55,6 @@ async function insertPayment(
     paymentType: "pif",
     status: "recorded",
     recordedAt: T0 + 1_000,
-    contextType: "opportunity",
     origin: "closer_meeting",
   });
 }
@@ -248,7 +247,7 @@ describe("billing context from the person", () => {
 });
 
 describe("billing rows", () => {
-  it("name the person and resolve the meeting from the deal's payments, not the customer row", async () => {
+  it("name the person and resolve the meeting from the deal's payments", async () => {
     const h = await bookingHarness();
     const result = await h.t.run(async (ctx) => {
       const { admin, closer } = await fixtureUsers(ctx, h.tenantId);
@@ -260,17 +259,14 @@ describe("billing rows", () => {
         fullName: "Copied Name",
       });
       await ctx.db.patch("leads", seeded.leadId, { fullName: "Current Name" });
-      // A customer row that points elsewhere changes nothing billing shows.
+      // Another of the person's deals, with an earlier meeting, changes
+      // nothing billing shows.
       const otherDeal = await insertDeal(ctx, { tenantId: h.tenantId, leadId: seeded.leadId });
-      const otherMeeting = await insertMeeting(ctx, {
+      await insertMeeting(ctx, {
         tenantId: h.tenantId,
         opportunityId: otherDeal,
         closerId: closer._id,
         scheduledAt: T0 - 9 * DAY,
-      });
-      await ctx.db.patch("customers", seeded.customerId, {
-        winningOpportunityId: otherDeal,
-        winningMeetingId: otherMeeting,
       });
       const additionalId = await insertDealPayment(ctx, {
         tenantId: h.tenantId,

@@ -321,7 +321,6 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
         status: "recorded",
         statusChangedAt: recordedAt,
         recordedAt,
-        contextType: "opportunity",
         origin: "admin_side_deal",
       });
     }
