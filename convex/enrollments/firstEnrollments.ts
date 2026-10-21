@@ -1,9 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
+import { ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT } from "../lib/enrollments";
 import { listPersonEnrollments } from "./read";
-
-// Payments on one deal at one instant: a handful at most.
-const SAME_TIME_PAYMENT_LIMIT = 20;
 
 /**
  * The enrollments in [startDate, endDate) that are their person's first, in
@@ -57,7 +55,9 @@ export async function enrollmentFirstPayment(
     .withIndex("by_opportunityId_and_recordedAt", (q) =>
       q.eq("opportunityId", enrollment.opportunityId).eq("recordedAt", enrollment.enrolledAt),
     )
-    .take(SAME_TIME_PAYMENT_LIMIT);
+    // The derivation reads at most this many payments on a deal, so every
+    // payment it could have taken at this instant is here.
+    .take(ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT);
   return (
     payments.find(
       (payment) =>

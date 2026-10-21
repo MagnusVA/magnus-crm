@@ -4,6 +4,7 @@ import { internalQuery, type QueryCtx } from "../_generated/server";
 import {
   countNewCustomersFromCustomers,
   countNewCustomersFromEnrollments,
+  MAX_NEW_CUSTOMER_SCAN_ROWS,
 } from "../dashboard/adminStats";
 import {
   customerBillingLabels,
@@ -158,7 +159,18 @@ async function compareLeadConversionRange(
     countNewCustomersFromCustomers(ctx, tenantId, startDate, endDate),
     countNewCustomersFromEnrollments(ctx, tenantId, startDate, endDate),
   ]);
-  if (newCustomersFromCustomers !== newCustomersFromEnrollments) {
+  // A count at the cap may stand for more rows, so two capped counts prove
+  // nothing: report the range instead of calling it equal.
+  const capped =
+    newCustomersFromCustomers >= MAX_NEW_CUSTOMER_SCAN_ROWS ||
+    newCustomersFromEnrollments >= MAX_NEW_CUSTOMER_SCAN_ROWS;
+  if (capped) {
+    metrics.push({
+      metric: "newCustomersCapped",
+      fromCustomers: newCustomersFromCustomers,
+      fromEnrollments: newCustomersFromEnrollments,
+    });
+  } else if (newCustomersFromCustomers !== newCustomersFromEnrollments) {
     metrics.push({
       metric: "newCustomers",
       fromCustomers: newCustomersFromCustomers,

@@ -11,7 +11,7 @@ import {
 
 // New customers the dashboard reads in one period at most; past it the count
 // is a lower bound. Production has 274 customers in all.
-const MAX_NEW_CUSTOMER_SCAN_ROWS = 2500;
+export const MAX_NEW_CUSTOMER_SCAN_ROWS = 2500;
 
 /** Customers converted in [periodStart, periodEnd), from the customer rows. */
 export async function countNewCustomersFromCustomers(
