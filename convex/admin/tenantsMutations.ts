@@ -12,6 +12,7 @@ const TENANT_INDEX_BY_TABLE = {
   closerUnavailability: "by_tenantId_and_date",
   customers: "by_tenantId",
   dealAttributions: "by_tenantId_and_meetingId",
+  enrollments: "by_tenantId_and_enrolledAt",
   eventTypeConfigs: "by_tenantId",
   followUps: "by_tenantId_and_closerId_and_status",
   leadIdentifiers: "by_tenantId_and_value",
