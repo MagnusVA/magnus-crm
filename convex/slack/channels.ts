@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
 import { log } from "../lib/observability/log";
+import { schedulePendingBookingReviewAlerts } from "./bookingReviewNotify";
 import { requireTenantUser } from "../requireTenantUser";
 
 export type InstallationStatus =
@@ -102,8 +103,8 @@ export const setSlackNotifyChannels = mutation({
         v.object({ channelId: v.string(), channelName: v.string() }),
       ),
     ),
-    // Booking review alerts: omitted leaves it unchanged, null posts them to
-    // the notify channel.
+    // Opt-in channel for booking review alerts: omitted leaves it unchanged,
+    // null turns it off.
     bookingReviewChannel: v.optional(
       v.union(
         v.null(),
@@ -170,6 +171,11 @@ export const setSlackNotifyChannels = mutation({
       leadGenNotifyChannelChanged:
         installation.leadGenNotifyChannelId !== leadGenNotifyChannelId,
     });
+
+    // Turning booking review alerts on posts the reviews still waiting for
+    // one.
+    if (bookingReviewChannel && !installation.bookingReviewChannelId)
+      await schedulePendingBookingReviewAlerts(ctx, tenantId);
   },
 });
 

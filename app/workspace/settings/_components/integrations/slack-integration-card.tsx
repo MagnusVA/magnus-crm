@@ -407,7 +407,7 @@ function repickChannelCopy(
     case "lead_gen":
       return "Lead gen posts are off. Pick a new lead gen channel to turn them back on.";
     case "booking_review":
-      return "Booking reviews now post to the notify channel. Pick a new booking review channel to move them back.";
+      return "Booking review posts are off. Pick a new channel to turn them back on; reviews still open are posted then.";
   }
 }
 
@@ -443,9 +443,7 @@ function ChannelSummary({ status }: { status: ConnectedStatus }) {
         <dd className="truncate font-medium">
           {status.bookingReviewChannelName
             ? `#${status.bookingReviewChannelName}`
-            : status.notifyChannelName
-              ? `#${status.notifyChannelName} (notify channel)`
-              : "Not configured"}
+            : "Off"}
         </dd>
       </div>
     </dl>

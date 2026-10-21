@@ -1,6 +1,12 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
-import { env, internalAction, internalMutation } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import {
+  env,
+  internalAction,
+  internalMutation,
+  type MutationCtx,
+} from "../_generated/server";
 import { emitDomainEventInAction } from "../lib/domainEventsAction";
 import { log } from "../lib/observability/log";
 import { buildBookingReviewNotification } from "../lib/slackBlockKit";
@@ -41,6 +47,10 @@ export const post = internalAction({
       logSlackNotifySkipped("review_resolved", { tenantId, kind, reviewId });
       return null;
     }
+    if (alert.alertPostedAt !== undefined) {
+      logSlackNotifySkipped("already_posted", { tenantId, kind, reviewId });
+      return null;
+    }
     const installation = await ctx.runQuery(internal.slack.installations.byTenantId, {
       tenantId,
     });
@@ -52,7 +62,9 @@ export const post = internalAction({
       });
       return null;
     }
-    const channelId = installation.bookingReviewChannelId ?? installation.notifyChannelId;
+    // Opt-in: with no booking review channel the alert goes nowhere, and the
+    // review is posted when an admin picks one.
+    const channelId = installation.bookingReviewChannelId;
     if (!channelId) {
       logSlackNotifySkipped("no_channel_configured", {
         tenantId,
@@ -95,30 +107,22 @@ export const post = internalAction({
       },
     );
     if (response.ok) {
+      await ctx.runMutation(internal.slack.bookingReviewNotify.markPosted, { reviewId });
       logSlackNotifyPosted(notifyAttrs);
       return null;
     }
 
     const slackErr = response.error ?? "unknown";
     reportSlackNotifyFailed(slackErr, notifyAttrs);
-    if (ACTION_REQUIRED_ERRORS.has(slackErr) && installation.bookingReviewChannelId === channelId) {
+    // A cleared channel turns alerts off; this review stays unposted and goes
+    // out when an admin picks a new channel.
+    if (ACTION_REQUIRED_ERRORS.has(slackErr))
       await ctx.runMutation(internal.slack.bookingReviewNotify.recordChannelFailure, {
         installationId: installation._id,
         channelId,
         slackErr,
         clearChannel: CLEAR_CHANNEL_ERRORS.has(slackErr),
       });
-      // A cleared booking review channel falls back to the notify channel,
-      // so this alert goes there rather than being lost.
-      if (CLEAR_CHANNEL_ERRORS.has(slackErr))
-        await ctx.scheduler.runAfter(0, internal.slack.bookingReviewNotify.post, { reviewId });
-    } else if (ACTION_REQUIRED_ERRORS.has(slackErr)) {
-      await ctx.runMutation(internal.slack.notifyData.recordNotifyFailure, {
-        installationId: installation._id,
-        slackErr,
-        clearChannel: CLEAR_CHANNEL_ERRORS.has(slackErr),
-      });
-    }
     await emitDomainEventInAction(ctx, {
       tenantId,
       entityType: "slackInstallation",
@@ -131,6 +135,49 @@ export const post = internalAction({
     return null;
   },
 });
+
+export const markPosted = internalMutation({
+  args: { reviewId: v.id("bookingReviews") },
+  returns: v.null(),
+  handler: async (ctx, { reviewId }) => {
+    if (await ctx.db.get("bookingReviews", reviewId))
+      await ctx.db.patch("bookingReviews", reviewId, { alertPostedAt: Date.now() });
+    return null;
+  },
+});
+
+/** Open reviews posted when a booking review channel is first set. */
+const PENDING_ALERT_LIMIT = 100;
+/** Spaces the posts out under Slack's one-message-per-second channel limit. */
+const PENDING_ALERT_SPACING_MS = 1_100;
+
+/**
+ * Posts every open review whose alert never went out: those opened while no
+ * booking review channel was set, or whose channel was cleared. Called when
+ * an admin sets the channel.
+ */
+export async function schedulePendingBookingReviewAlerts(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+) {
+  const open = await ctx.db
+    .query("bookingReviews")
+    .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
+      q.eq("tenantId", tenantId).eq("status", "open"),
+    )
+    .order("asc")
+    .take(PENDING_ALERT_LIMIT + 1);
+  const pending = open.slice(0, PENDING_ALERT_LIMIT).filter((r) => r.alertPostedAt === undefined);
+  for (const [index, review] of pending.entries())
+    await ctx.scheduler.runAfter(index * PENDING_ALERT_SPACING_MS, internal.slack.bookingReviewNotify.post, {
+      reviewId: review._id,
+    });
+  log.info("slack.booking_review.pending_scheduled", {
+    tenantId,
+    count: pending.length,
+    capped: open.length > PENDING_ALERT_LIMIT,
+  });
+}
 
 export const recordChannelFailure = internalMutation({
   args: {

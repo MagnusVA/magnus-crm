@@ -60,6 +60,9 @@ export const pipelineTables = {
     createdAt: v.number(),
     updatedAt: v.number(),
     alertScheduledAt: v.optional(v.number()),
+    // Set once Slack accepts the alert. An open review without it is posted
+    // when an admin first picks a booking review channel.
+    alertPostedAt: v.optional(v.number()),
     resolution: v.optional(bookingReviewResolution),
     resolvedAt: v.optional(v.number()),
     resolvedByUserId: v.optional(v.id("users")),

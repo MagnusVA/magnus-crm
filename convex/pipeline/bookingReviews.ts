@@ -332,7 +332,11 @@ export const getForAlert = internalQuery({
   handler: async (ctx, { reviewId }) => {
     const review = await ctx.db.get("bookingReviews", reviewId);
     if (!review) return null;
-    return { tenantId: review.tenantId, detail: await loadBookingReviewDetail(ctx, review) };
+    return {
+      tenantId: review.tenantId,
+      alertPostedAt: review.alertPostedAt,
+      detail: await loadBookingReviewDetail(ctx, review),
+    };
   },
 });
 

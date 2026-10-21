@@ -518,38 +518,106 @@ it("retrying a held booking an admin kept separate leaves the decision and alert
   expect(await alertJobs(harness)).toHaveLength(1);
 });
 
-it("an alert whose booking review channel is gone posts to the notify channel instead", async () => {
-  const harness = await setup();
-  await seedIncidentC(harness);
-  const installationId = await harness.t.run((ctx) =>
+async function seedInstallation(harness: Harness, bookingReviewChannelId?: string) {
+  return await harness.t.run((ctx) =>
     ctx.db.insert("slackInstallations", {
       tenantId: harness.tenantId, teamId: "T1", teamName: "Team", isEnterpriseInstall: false,
       appId: "A1", botUserId: "B1", botAccessToken: "xoxb", scopes: [],
       notifyChannelId: "C_NOTIFY", notifyChannelName: "qualified",
-      bookingReviewChannelId: "C_GONE", bookingReviewChannelName: "reviews",
+      staleReminderChannelId: "C_STALE", staleReminderChannelName: "stale",
+      ...(bookingReviewChannelId && {
+        bookingReviewChannelId,
+        bookingReviewChannelName: "reviews",
+      }),
       installedByWorkosUserId: "user_admin", installedAt: 0,
       tokenExpiresAt: Date.parse("2027-01-01T00:00:00Z"), refreshToken: "r", status: "active",
     }),
   );
+}
+
+/** Stubs Slack and records the channel of each post; `failing` channels are gone. */
+function stubSlack(failing: string[] = []) {
   vi.stubEnv("APP_URL", "https://crm.example");
   const channels: string[] = [];
   vi.stubGlobal("fetch", async (_url: string, init: { body: string }) => {
     const { channel } = JSON.parse(init.body) as { channel: string };
     channels.push(channel);
     return new Response(
-      JSON.stringify(channel === "C_GONE" ? { ok: false, error: "channel_not_found" } : { ok: true }),
+      JSON.stringify(failing.includes(channel) ? { ok: false, error: "channel_not_found" } : { ok: true }),
     );
   });
+  return channels;
+}
+
+function saveChannels(harness: Harness, bookingReviewChannel: { channelId: string; channelName: string } | null) {
+  return harness.admin.mutation(api.slack.channels.setSlackNotifyChannels, {
+    notifyChannelId: "C_NOTIFY",
+    notifyChannelName: "qualified",
+    staleReminderChannelId: "C_STALE",
+    staleReminderChannelName: "stale",
+    bookingReviewChannel,
+  });
+}
+
+it("with no booking review channel, alerts go nowhere, and the open ones post once a channel is set", async () => {
+  const harness = await setup();
+  await seedIncidentC(harness);
+  await seedInstallation(harness);
+  const channels = stubSlack();
+
+  await deliver(harness, incidentCBooking);
+  await seedPerson(harness, { fullName: "Lead A", email: "lead.a@example.com" }, [
+    ["email", "lead.a@example.com"],
+  ]);
+  await seedPerson(harness, { fullName: "Lead B", phone: "+1 416-555-0142" }, [
+    ["phone", "+14165550142"],
+  ]);
+  await deliver(
+    harness,
+    booking("decided-before-channel", { email: "lead.a@example.com", name: "Lead A", phone: "+1 416-555-0142" }),
+  );
+  // Not the notify channel, nor anywhere else.
+  expect(channels).toEqual([]);
+  const [open, decided] = await reviews(harness);
+  await harness.admin.mutation(api.pipeline.bookingReviews.keepSeparate, { reviewId: decided._id });
+
+  await saveChannels(harness, { channelId: "C_REVIEWS", channelName: "reviews" });
+  await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  // Only the review still open is posted, to the new channel.
+  expect(channels).toEqual(["C_REVIEWS"]);
+  const after = await harness.t.run((ctx) => ctx.db.get("bookingReviews", open._id));
+  expect(after?.alertPostedAt).toBeDefined();
+
+  // Moving to another channel doesn't post it again.
+  await saveChannels(harness, { channelId: "C_OTHER", channelName: "other" });
+  await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(channels).toEqual(["C_REVIEWS"]);
+});
+
+it("an alert whose booking review channel is gone turns alerts off and waits for a new channel", async () => {
+  const harness = await setup();
+  await seedIncidentC(harness);
+  const installationId = await seedInstallation(harness, "C_GONE");
+  const channels = stubSlack(["C_GONE"]);
 
   await deliver(harness, incidentCBooking);
 
-  expect(channels).toEqual(["C_GONE", "C_NOTIFY"]);
-  const installation = await harness.t.run((ctx) => ctx.db.get("slackInstallations", installationId));
-  expect(installation?.bookingReviewChannelId).toBeUndefined();
-  expect(installation?.bookingReviewChannelError).toMatchObject({
+  expect(channels).toEqual(["C_GONE"]);
+  const state = await harness.t.run(async (ctx) => ({
+    installation: await ctx.db.get("slackInstallations", installationId),
+    review: (await ctx.db.query("bookingReviews").take(1))[0],
+  }));
+  expect(state.installation?.bookingReviewChannelId).toBeUndefined();
+  expect(state.installation?.bookingReviewChannelError).toMatchObject({
     code: "channel_not_found",
     channelId: "C_GONE",
   });
+  expect(state.review.alertPostedAt).toBeUndefined();
+
+  await saveChannels(harness, { channelId: "C_NEW", channelName: "new" });
+  await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(channels).toEqual(["C_GONE", "C_NEW"]);
 });
 
 it("a booking whose identifiers all name one person opens no review", async () => {

@@ -49,7 +49,7 @@ const channelPickerSchema = z.object({
   staleReminderChannelId: z.string().min(1, "Pick a reminder channel"),
   // Optional: empty turns lead gen notifications off.
   leadGenNotifyChannelId: z.string(),
-  // Optional: empty posts booking reviews to the notify channel.
+  // Optional: empty turns booking review alerts off.
   bookingReviewChannelId: z.string(),
 });
 
@@ -295,8 +295,8 @@ export function SlackChannelPickerDialog({
           : leadGen
             ? { channelId: leadGen.id, channelName: leadGen.name }
             : null,
-        // Omitted leaves the saved booking review channel as is; null posts
-        // booking reviews to the notify channel.
+        // Omitted leaves the saved booking review channel as is; null turns
+        // booking review alerts off.
         bookingReviewChannel: keepUnavailableBookingReview
           ? undefined
           : bookingReview
@@ -320,8 +320,7 @@ export function SlackChannelPickerDialog({
           <DialogDescription>
             New-lead confirmations and stale-lead digests post to these
             channels. Lead gen submissions post only if you pick a channel
-            for them. Booking reviews post to the notify channel unless you
-            pick one.
+            for them, and so do booking reviews.
           </DialogDescription>
         </DialogHeader>
 
@@ -416,12 +415,12 @@ export function SlackChannelPickerDialog({
                         channels={bookingReviewChannels ?? channels}
                         value={field.value}
                         onValueChange={field.onChange}
-                        placeholder="Notify channel - search channels…"
+                        placeholder="Off - search channels…"
                       />
                       <FormDescription>
                         {bookingReviewUnchangedAndUnavailable
-                          ? "Magnus can't find this channel in Slack's channel list. Saving keeps it; pick another channel or clear it to use the notify channel."
-                          : "Posts a booking whose details match two people, with a link to decide. Clear it to use the notify channel."}
+                          ? "Magnus can't find this channel in Slack's channel list. Saving keeps it; pick another channel or clear it to turn these posts off."
+                          : "Posts a booking whose details match two people, with a link to decide. When you first pick a channel, reviews still waiting are posted too. Clear it to turn these posts off."}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
