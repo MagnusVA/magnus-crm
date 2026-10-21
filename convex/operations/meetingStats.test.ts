@@ -1,20 +1,23 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import type { Doc } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
 import { bucketKey, requestMeetingProjection } from "./meetingStats";
 
 afterEach(() => vi.useRealTimers());
 
-/** The bucket key before Phase 3 took attribution out of it. */
-function legacyBucketKey(c: NonNullable<Doc<"meetingProjections">["contribution"]>) {
+/** The bucket key before Phase 3 took the team and DM closer out of it. */
+function legacyBucketKey(
+  c: NonNullable<Doc<"meetingProjections">["contribution"]>,
+  attribution: { teamId?: Id<"attributionTeams">; dmCloserId?: Id<"dmClosers"> } = {},
+) {
   return JSON.stringify([
     c.dayKey,
     c.assignedCloserId,
     c.bookingProgramId ?? null,
     c.soldProgramId ?? null,
-    c.attributionTeamId ?? null,
-    c.dmCloserId ?? null,
+    attribution.teamId ?? null,
+    attribution.dmCloserId ?? null,
     c.opportunityStatus ?? null,
     c.meetingStatus,
   ]);
@@ -40,8 +43,8 @@ it("re-keys a meeting projected under the old bucket key, and deletes the old bu
   if (!delivery.meetingId) throw new Error("Fixture booking failed");
   const firstId = delivery.meetingId;
 
-  // Put two meetings back where the old code left them: the team and DM
-  // closer in the contribution and in one shared eight-part bucket key.
+  // Put two meetings back where the old code left them: one shared
+  // eight-part bucket key with the team and DM closer in it.
   const { secondId, oldKey } = await t.run(async (ctx) => {
     const teamId = await ctx.db.insert("attributionTeams", {
       tenantId,
@@ -85,8 +88,8 @@ it("re-keys a meeting projected under the old bucket key, and deletes the old bu
       )
       .unique();
     await ctx.db.delete("operationsMeetingStatsV2", newBucket!._id);
-    const contribution = { ...projection.contribution, attributionTeamId: teamId, dmCloserId };
-    const oldKey = legacyBucketKey(contribution);
+    const contribution = projection.contribution;
+    const oldKey = legacyBucketKey(contribution, { teamId, dmCloserId });
     await ctx.db.insert("operationsMeetingStatsV2", {
       tenantId,
       ...contribution,
@@ -94,9 +97,6 @@ it("re-keys a meeting projected under the old bucket key, and deletes the old bu
       count: 2,
       updatedAt: 0,
     });
-    for (const meetingId of [firstId, secondId]) {
-      await ctx.db.patch("meetings", meetingId, { attributionTeamId: teamId, dmCloserId });
-    }
     await ctx.db.patch("meetingProjections", projection._id, { contribution, bucketKey: oldKey });
     await ctx.db.insert("meetingProjections", {
       tenantId,
@@ -137,8 +137,6 @@ it("re-keys a meeting projected under the old bucket key, and deletes the old bu
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   const rekeyed = await projectionOf(firstId);
   expect(rekeyed).toMatchObject({ status: "applied" });
-  expect(rekeyed?.contribution).not.toHaveProperty("attributionTeamId");
-  expect(rekeyed?.contribution).not.toHaveProperty("dmCloserId");
   expect(rekeyed?.bucketKey).toBe(bucketKey(rekeyed!.contribution!));
   expect(rekeyed?.bucketKey).not.toBe(oldKey);
   expect(await bucketCount(oldKey)).toBe(1);

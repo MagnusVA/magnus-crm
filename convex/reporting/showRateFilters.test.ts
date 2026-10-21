@@ -150,8 +150,6 @@ async function seed() {
         callClassification: options.deal ? "follow_up" : "new",
         createdAt: scheduledAt - 86_400_000,
         bookingProgramId: options.programId,
-        attributionTeamId: credit.teamId,
-        dmCloserId: credit.dmCloserId,
         attributionResolution: credit.teamId ? "mapped" : "none",
       });
       meetings.set(key, meetingId);

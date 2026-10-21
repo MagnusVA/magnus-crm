@@ -130,8 +130,8 @@ export async function bookingCreditForMeeting(
 }
 
 /**
- * The deal-level DM credit: its first external booking's, as the copied
- * columns held it. A deal no booking has reached has none.
+ * The deal-level DM credit: its first external booking's rows. A deal no
+ * booking has reached has none.
  */
 export async function dealBookingCredit(
   ctx: ReadCtx,
@@ -207,20 +207,17 @@ async function insertRow(
  * The rows one booking writes (§4.1): a dm_team row when its UTMs named a
  * team, a dm_closer row when they named a DM closer, and always a closer row
  * for the closer the meeting was assigned to. Runs once per meeting; a
- * meeting that already has its booking rows is left alone. `closerUserId`
- * overrides the booking closer for the backfill of a meeting reassigned
- * before the rows existed: its booking went to the closer it came from.
+ * meeting that already has its booking rows is left alone.
  */
 export async function recordBookingAttribution(
   ctx: MutationCtx,
   args: {
     meeting: Doc<"meetings">;
     credit: { teamId?: Id<"attributionTeams">; dmCloserId?: Id<"dmClosers"> };
-    closerUserId?: Id<"users">;
   },
 ): Promise<void> {
   const { meeting, credit } = args;
-  const bookingCloserId = args.closerUserId ?? meeting.assignedCloserId;
+  const bookingCloserId = meeting.assignedCloserId;
   const existing = await attributionsForMeeting(ctx, meeting.tenantId, meeting._id);
   if (existing.some((row) => row.source.kind === "booking_utm" || row.source.kind === "booking_closer")) {
     return;

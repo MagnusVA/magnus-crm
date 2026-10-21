@@ -14,10 +14,10 @@ type SourcePage = FunctionReturnType<
   typeof internal.operations.reports.readers.readReportSourcePage
 >;
 
-describe.each(["pipeline", "none"] as const)("booked meetings report source with copies: %s", (copies) => {
+describe("booked meetings report source", () => {
   it("reads each first booking's team and DM closer from its rows", async () => {
     const t = convexTest({ schema, modules: convexTestModules });
-    const fixture = await t.run(async (ctx) => await seedBookedCallsFixture(ctx, { copies }));
+    const fixture = await t.run(async (ctx) => await seedBookedCallsFixture(ctx));
 
     const rows: SourcePage["page"] = [];
     let cursor: string | null = null;

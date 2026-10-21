@@ -4,7 +4,6 @@ import type { Id } from "../_generated/dataModel";
 import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
 import {
   type BookingFixture,
-  clearAttributionCopies,
   insertAttributionTeam,
   insertBooking,
   insertDmCloser,
@@ -153,12 +152,5 @@ function expected(ids: Awaited<ReturnType<typeof seed>>) {
 it("finds attribution context on the payment's booking or the deal's first booking", async () => {
   const harness = await bookingHarness();
   const ids = await seed(harness);
-  expect(await contexts(harness)).toEqual(expected(ids));
-});
-
-it("reads the booking credit from the attribution rows once the copies are gone", async () => {
-  const harness = await bookingHarness();
-  const ids = await seed(harness);
-  await harness.t.run(async (ctx) => await clearAttributionCopies(ctx, harness.tenantId));
   expect(await contexts(harness)).toEqual(expected(ids));
 });

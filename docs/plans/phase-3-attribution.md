@@ -1,6 +1,6 @@
 # Phase 3: attribution
 
-Status: in progress, 2026-10-20. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11 on 2026-10-20 and delegated every production run in §9 to the agent.
+Status: last step in review, 2026-10-21. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11 on 2026-10-20 and delegated every production run in §9 to the agent. PRs #141 to #149 are merged and deployed; every backfill finished and every assert passed in production, the parity checks found no difference, and the clear passed its asserts. The narrow (#150) is the last step: the phase is done when it deploys and its checks (§13.4) pass, which the follow-up record states.
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (findings F5 and F6, target rules 3 to 5 in §6) and the Phase 3 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 2 is in [phase-2-person-first.md](phase-2-person-first.md).
 
@@ -464,19 +464,26 @@ The existing migration, run with `reset`: it re-queues every meeting (6,798), an
 
 ### 10.7 Commands
 
+The backfills, the clears, `assertDealTouches`, `assertQualificationAttributionParity` and `attribution/parity.ts` ran as §13 records and were removed in the narrow (#150); `compareShowRateFilter` was removed earlier, with the bucket copies, in #145. The health checks that stay are `assertPersonTouches`, `assertBookingAttributions` and `assertDealAttributions`, run with `"reset":true`.
+
 Every command runs against production with `--env-file .env.vercel.production`; without it the CLI targets the dev deployment. Filter dry-run output with `grep -E '"processed"|"DryRun"|error'`.
 
 Each migration runs the same way. The dry run must finish without an error and process rows of the table it names; an error, or a dry run that would write rows the plan doesn't expect, stops the phase for a fix in a reviewed PR. Then the run, then poll `lib:getStatus` until it reports `"isDone": true` (a background loop that waits 30 seconds between calls), read any error it reports, and only then run its assert, which is polled the same way. A batch that fails on a known Convex limit ("too many system operations", a read limit) commits nothing and resumes from its cursor at a smaller batch, as in Phase 2. Any other failed migration, and any failed assert, stops the phase until a reviewed fix ships and the failed step and its assert pass again (§12). The next migration starts only after the previous assert is done and passed; the projection rebuild and the clear start only after every migration before them in §9 is done.
 
+The health checks, after the narrow:
+
 ```
-npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:backfillPersonTouches","dryRun":true}'
-npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:backfillPersonTouches"}'
-npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:backfillPersonTouches"]}'
-npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertPersonTouches"}'
-npx convex run --env-file .env.vercel.production attribution/parity:compareBookedCalls '{"tenantId":"k57dqjfyf8qqy31bq375ng8gb984b24q","start":<ms>,"end":<ms>}'
+npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertBookingAttributions","reset":true}'
+npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:assertBookingAttributions"]}'
+npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertDealAttributions","reset":true}'
+npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:assertDealAttributions"]}'
+npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertPersonTouches","reset":true}'
+npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:assertPersonTouches"]}'
 ```
 
-and the same for each migration in §9's order.
+Poll each `lib:getStatus` until it reports `"isDone": true` and no error before starting the next check.
+
+The removed migrations ran the same way, in §9's order, as §13.3 records.
 
 ## 11. Decisions
 
@@ -515,10 +522,61 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 
 ### 13.2 Deploys
 
-| PR | Deployed |
-| --- | --- |
+| PR | What | Deployed |
+| --- | --- | --- |
+| #141 | the plan | docs, merged 10-20 22:30 |
+| #142 | widen: `dealAttributions`, the touch fields, every write path, the backfills, asserts and parity queries | 10-20 22:34 |
+| #148 | the asserts accept a closer row with no team member when its user was deleted | 10-20 22:45 |
+| #143 | Booked Calls, the Overview leaderboard and the report export read the rows | 10-20 22:55 |
+| #144 | qualifications, scheduling and the billing audit read the rows; `attribution/backfills.ts` deleted | 10-20 22:55 |
+| #145 | show-rate filters and sales call labels read the rows; bucket key without attribution | 10-20 22:56 |
+| #146 | lead gen conversion's Deals column | 10-20 22:58 |
+| #147 | meeting, deal and billing credit from the rows; credit and touches on the cards | 10-20 23:01 |
+| #149 | the pipeline and projections stop writing the copies; the clears | 10-21 00:02 |
+| #150 | the narrow, this record, the ADR row and the review card | see §13.4 |
 
 ### 13.3 Runs
 
+The four backfills of §10.1 to §10.3 write different tables (`leads`, `opportunities`, `dealAttributions` from meetings, `dealAttributions` from deals), so the first three ran side by side instead of one at a time (D13), and `backfillDealAttributions` started as soon as the deal snapshots it reads were done. Each assert ran after its backfill finished.
+
 | When | Run | Result |
 | --- | --- | --- |
+| 10-20 22:35 | dry runs: `backfillPersonTouches`, `backfillDealTouches`, `backfillBookingAttributions` | 100 each, nothing committed |
+| 10-20 22:35 | `backfillBookingAttributions`, batch 100 | done 22:37, 6,808 meetings: 6,808 booking closer, 4,800 DM closer and 5,272 DM team rows. 12 closer rows have no team member: their meetings (booked 2026-06-13 to 06-16) are assigned to a user since deleted, so there is none to name; #148 lets the asserts accept exactly that |
+| 10-20 22:35 | `backfillDealTouches`, batch 100 | done 22:40, 11,418 deals |
+| 10-20 22:37 | `assertBookingAttributions` | failed at one of the 12 meetings above, for the reason above |
+| 10-20 22:40 | `assertDealTouches` | passed, 11,418 deals |
+| 10-20 22:41 | `backfillDealAttributions` dry run, then run, batch 100 | 100, nothing committed; then done 22:43, 11,418 deals: 4,755 lead gen, 8,518 setter (156 from `qualifiedBy`; 90 deals with more than one) and 8 side deal closer rows, each naming a team member |
+| 10-20 22:46 | `assertBookingAttributions` (reset), after #148 deployed | passed, 6,809 meetings |
+| 10-20 22:47 | `assertQualificationAttributionParity` | passed, 8,521 qualification rows |
+| 10-20 22:47 | `assertDealAttributions` | passed, 11,418 deals |
+| 10-20 22:48 | the parity queries (§10.4) | no difference anywhere (§13.5) |
+| 10-20 22:35 | `backfillPersonTouches`, batch 100 | done 22:51, 89,847 leads |
+| 10-20 22:52 | read-only recheck | the 89,845 unmerged leads all have both touches; first touch 83,650 lead gen, 4,033 Slack, 2,158 Calendly, 3 DM portal, 1 side deal |
+| 10-20 22:52 | `assertPersonTouches` | passed, 89,850 leads |
+| 10-20 22:56 | `rebuildMeetingProjections` dry run, then run (reset), batch 32 | 32, nothing committed; then 6,811 meetings queued by 22:59; the queue drained by 23:16, with old-key and new-key buckets holding exactly the 6,811 meetings throughout; no old-key bucket left |
+| 10-20 23:17 | `assertMeetingProjections`, `assertMeetingProjectionBuckets`, `assertMeetingProjectionSources` (reset) | passed: 6,811 meetings, 3,847 buckets, 6,811 projections |
+| 10-21 00:03 | dry runs of the four clears | 200 each, nothing committed |
+| 10-21 00:03 | the four clears, batch 200 | done by 00:05: 11,422 deals, 6,813 meetings, 8,526 qualification rows, 5,761 daily stats rows |
+| 10-21 00:05 | the four `assert…Cleared` | passed on the same counts |
+| 10-21 00:06 | `assertBookingAttributions` (reset), with no copies left | passed, 6,813 meetings: every `mapped` booking has its DM team row and no other has one |
+
+### 13.4 The narrow
+
+#150 removes the fields and indexes of §3.3 from `opportunities`, `meetings`, `operationsQualificationRows`, `operationsMeetingDailyStats` and `meetingContribution`, the one-time migrations named in §10.7, `attribution/parity.ts`, and the booking backfill's `closerUserId` override. Meetings keep their UTMs and resolution, and the four actor `dmCloserId` columns stay (§3.3). The schema push on deploy checks that no row still holds a removed field; the clear left none. `assertBookingAttributions` and `assertDealAttributions` run once more after it deploys, and the follow-up record gives their results.
+
+### 13.5 Parity
+
+`compareBookedCalls` and `compareShowRateFilter`, run on 2026-10-20 at 22:48 against the copies and the rows:
+
+| Range | First bookings | DM closer bookings, copies and rows | Team progress, copies and rows | Team progress with team-only bookings | Differences |
+| --- | --- | --- | --- | --- | --- |
+| 2026-05 | 882 | 234 | 234 | 270 | none |
+| 2026-06 | 986 | 825 | 825 | 949 | none |
+| 2026-07 | 1,108 | 874 | 874 | 993 | none |
+| 2026-08 | 997 | 893 | 893 | 927 | none |
+| 2026-09 | 937 | 876 | 876 | 888 | none |
+| 2026-10, to the 20th | 661 | 550 | 550 | 618 | none |
+| last 7 days | 237 | 192 | 192 | 219 | none |
+
+The show-rate filters matched for every one of the 5 teams and 25 DM closers in each month from 2026-05 to 2026-10 (180 comparisons), with no row capped and none unprojected. The only number that changed when the readers moved is Booked Calls' team progress, which now counts team-only first bookings (D9), by the last column's difference.

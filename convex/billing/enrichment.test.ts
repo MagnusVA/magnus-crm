@@ -47,12 +47,11 @@ async function insertPayment(
 
 async function paymentDmAttribution(
   scenario: ScenarioName,
-  copies: boolean,
   options: { withDeal: boolean } = { withDeal: true },
 ) {
   const h = await bookingHarness();
   return await h.t.run(async (ctx) => {
-    const seeded = await seedScenario(ctx, h.tenantId, scenario, { copies });
+    const seeded = await seedScenario(ctx, h.tenantId, scenario);
     const paymentId = await insertPayment(ctx, h.tenantId, {
       closerId: seeded.closer._id,
       opportunityId: options.withDeal ? seeded.opportunityId : undefined,
@@ -64,12 +63,9 @@ async function paymentDmAttribution(
   });
 }
 
-describe.each([
-  { copies: true, label: "with the copied columns beside the rows" },
-  { copies: false, label: "from the rows alone" },
-])("billing DM attribution $label", ({ copies }) => {
+describe("billing DM attribution", () => {
   it("labels a payment from its meeting's booking", async () => {
-    const { dmAttribution, seeded } = await paymentDmAttribution("team_and_dm_closer", copies);
+    const { dmAttribution, seeded } = await paymentDmAttribution("team_and_dm_closer");
     expect(dmAttribution).toMatchObject({
       status: "mapped",
       teamName: "Alpha Team",
@@ -81,7 +77,7 @@ describe.each([
   });
 
   it("labels a payment on a meeting never resolved from the deal's first booking", async () => {
-    const { dmAttribution } = await paymentDmAttribution("unresolved_rebook", copies);
+    const { dmAttribution } = await paymentDmAttribution("unresolved_rebook");
     expect(dmAttribution).toMatchObject({
       status: "mapped",
       teamName: "Alpha Team",
@@ -90,7 +86,7 @@ describe.each([
   });
 
   it("labels an internal rebook's payment as internal", async () => {
-    const { dmAttribution } = await paymentDmAttribution("internal_rebook", copies);
+    const { dmAttribution } = await paymentDmAttribution("internal_rebook");
     expect(dmAttribution).toMatchObject({
       status: "internal",
       teamName: null,
@@ -100,7 +96,7 @@ describe.each([
   });
 
   it("labels a payment with a meeting and no deal from the meeting's rows", async () => {
-    const { dmAttribution, seeded } = await paymentDmAttribution("team_and_dm_closer", copies, {
+    const { dmAttribution, seeded } = await paymentDmAttribution("team_and_dm_closer", {
       withDeal: false,
     });
     expect(dmAttribution).toEqual({

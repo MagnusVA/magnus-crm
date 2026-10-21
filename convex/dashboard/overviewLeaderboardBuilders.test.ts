@@ -7,7 +7,6 @@ import {
   BOOKED_CALLS_RANGE,
   BOOKED_CALLS_WINDOW,
   seedBookedCallsFixture,
-  type BookedCallsCopies,
 } from "../../tests/bookedCallsFixture";
 import {
   buildDmCloserEfficiencyRows,
@@ -18,15 +17,15 @@ import { deriveOverviewRange } from "./overviewRange";
 
 const range = deriveOverviewRange(BOOKED_CALLS_RANGE, BOOKED_CALLS_WINDOW.end + 86_400_000);
 
-async function setup(copies: BookedCallsCopies) {
+async function setup() {
   const t = convexTest({ schema, modules: convexTestModules });
-  const fixture = await t.run(async (ctx) => await seedBookedCallsFixture(ctx, { copies }));
+  const fixture = await t.run(async (ctx) => await seedBookedCallsFixture(ctx));
   return { t, fixture };
 }
 
-describe.each(["pipeline", "none"] as const)("DM closer leaderboard with copies: %s", (copies) => {
+describe("DM closer leaderboard", () => {
   it("credits first bookings by DM closer record and by team from the rows", async () => {
-    const { t, fixture } = await setup(copies);
+    const { t, fixture } = await setup();
     const result = await t.run(async (ctx) => {
       const built = await buildDmCloserEfficiencyRows(ctx, {
         tenantId: fixture.tenantId,
@@ -57,7 +56,7 @@ describe.each(["pipeline", "none"] as const)("DM closer leaderboard with copies:
   });
 
   it("shows the same counts in the Overview's Top DM Closers", async () => {
-    const { t, fixture } = await setup(copies);
+    const { t, fixture } = await setup();
     const { section, expanded } = await t.run(async (ctx) => ({
       section: await getTopDmClosersOverviewSection(ctx, fixture.tenantId, range),
       expanded: await buildExpandedOverviewLeaderboard(ctx, {
@@ -86,7 +85,7 @@ describe.each(["pipeline", "none"] as const)("DM closer leaderboard with copies:
 });
 
 it("is truncated when the booking rows read is capped, like a capped meetings read", async () => {
-  const { t, fixture } = await setup("none");
+  const { t, fixture } = await setup();
   const result = await t.run(async (ctx) => {
     const opportunityId = (await ctx.db.get("meetings", fixture.meetings.firstNorthA))!.opportunityId;
     for (let index = 0; index <= TOP_DM_CLOSER_BOOKING_LIMIT; index += 1) {

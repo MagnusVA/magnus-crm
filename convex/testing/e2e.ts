@@ -153,6 +153,11 @@ export const getBookingResultByInviteeEmail = internalQuery({
 			? await ctx.db.get("users", opportunity.assignedCloserId)
 			: null;
 
+		// The deal keeps no resolution of its own: its first booking holds it.
+		const firstMeeting = opportunity.firstMeetingId
+			? await ctx.db.get("meetings", opportunity.firstMeetingId)
+			: null;
+
 		return {
 			lead: leadShape,
 			opportunity: {
@@ -166,7 +171,7 @@ export const getBookingResultByInviteeEmail = internalQuery({
 				nextMeetingAt: opportunity.nextMeetingAt ?? null,
 				utmParams: opportunity.utmParams ?? null,
 				attributionResolution:
-					opportunity.attributionResolution ?? null,
+					firstMeeting?.attributionResolution ?? null,
 				eventTypeConfigId: opportunity.eventTypeConfigId ?? null,
 				createdAt: opportunity.createdAt,
 			},

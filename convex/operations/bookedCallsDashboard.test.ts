@@ -11,12 +11,11 @@ import {
   BOOKED_CALLS_RANGE,
   BOOKED_CALLS_WINDOW,
   seedBookedCallsFixture,
-  type BookedCallsCopies,
 } from "../../tests/bookedCallsFixture";
 
-async function setup(copies: BookedCallsCopies) {
+async function setup() {
   const t = convexTest({ schema, modules: convexTestModules });
-  const fixture = await t.run(async (ctx) => await seedBookedCallsFixture(ctx, { copies }));
+  const fixture = await t.run(async (ctx) => await seedBookedCallsFixture(ctx));
   return { t, fixture, admin: t.withIdentity(BOOKED_CALLS_ADMIN) };
 }
 
@@ -42,11 +41,9 @@ async function listAllDetails(admin: Admin, dmCloserId?: Id<"dmClosers">) {
   throw new Error("listBookedCallsDetails never finished.");
 }
 
-// "pipeline" keeps the copied columns set the way the pipeline still writes
-// them; "none" leaves only the rows. The numbers must not depend on the copies.
-describe.each(["pipeline", "none"] as const)("Booked Calls with copies: %s", (copies) => {
+describe("Booked Calls", () => {
   it("counts each DM closer record's first bookings, and the total, from the rows", async () => {
-    const { fixture, admin } = await setup(copies);
+    const { fixture, admin } = await setup();
     const dashboard = await admin.query(
       api.operations.bookedCallsDashboard.getBookedCallsDashboard,
       { range: BOOKED_CALLS_RANGE },
@@ -73,7 +70,7 @@ describe.each(["pipeline", "none"] as const)("Booked Calls with copies: %s", (co
   });
 
   it("counts a team-only first booking toward its team and the goal, not a DM closer (D9)", async () => {
-    const { fixture, admin } = await setup(copies);
+    const { fixture, admin } = await setup();
     const dashboard = await admin.query(
       api.operations.bookedCallsDashboard.getBookedCallsDashboard,
       { range: BOOKED_CALLS_RANGE },
@@ -93,7 +90,7 @@ describe.each(["pipeline", "none"] as const)("Booked Calls with copies: %s", (co
   });
 
   it("lists the DM closer's first bookings in the window with labels from the rows", async () => {
-    const { fixture, admin } = await setup(copies);
+    const { fixture, admin } = await setup();
     const rows = await listAllDetails(admin);
 
     expect(rows.map((row) => row.meetingId)).toEqual([
@@ -118,7 +115,7 @@ describe.each(["pipeline", "none"] as const)("Booked Calls with copies: %s", (co
   });
 
   it("searches the same population, reading each deal's rows", async () => {
-    const { fixture, admin } = await setup(copies);
+    const { fixture, admin } = await setup();
     const search = async (searchTerm: string, dmCloserId?: Id<"dmClosers">) =>
       await admin.query(api.operations.bookedCallsDashboard.searchBookedCallsDetails, {
         searchTerm,
@@ -148,7 +145,7 @@ describe.each(["pipeline", "none"] as const)("Booked Calls with copies: %s", (co
 });
 
 it("returns a capped dashboard when the booking rows read is capped", async () => {
-  const { t, fixture, admin } = await setup("pipeline");
+  const { t, fixture, admin } = await setup();
   await t.run(async (ctx) => {
     const opportunityId = (await ctx.db.get("meetings", fixture.meetings.firstNorthA))!.opportunityId;
     for (let index = 0; index <= TOP_DM_CLOSER_BOOKING_LIMIT; index += 1) {

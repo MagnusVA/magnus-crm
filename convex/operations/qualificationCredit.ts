@@ -54,8 +54,8 @@ async function firstBookingCredit(
 /**
  * The DM team, DM closer and resolution each qualification row shows: its
  * deal's first external booking's (docs/plans/phase-3-attribution.md §6.2),
- * read from that booking's attribution rows and its meeting, not from the
- * row's copied columns. A row with no deal, or a deal never booked, shows none.
+ * read from that booking's attribution rows and its meeting. A row with no
+ * deal, or a deal never booked, shows none.
  */
 export async function loadQualificationRowCredits(
   ctx: QueryCtx,
