@@ -524,5 +524,5 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | 10-21 11:49 | `assertPaymentEnrollments` (reset) | passed, 279 payments |
 | 10-21 11:49 | `assertDealAttributions` (reset), since PR 4 changed the side deal form | passed, 11,444 deals |
 | 10-21 11:52 | `assertBookingAttributions` (reset) | passed, 6,823 meetings |
-| 10-21 11:48 | `assertLeadLifecycle` (reset), in the background, since PR 4 changed how the Customer stage is derived | running |
+| 10-21 11:48 | `assertLeadLifecycle` (reset), in the background, since PR 4 changed how the Customer stage is derived | passed 12:47, 90,127 people |
 | 10-21 11:55 | read-only checks before the narrow | 0 customer rows; none of the 279 payments has `customerId`, `contextType` or `originatingOpportunityId`; no search row names a customer (1 tenant); no pending program rename job among the latest 1,500 scheduled functions |
