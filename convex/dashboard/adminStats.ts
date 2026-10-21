@@ -1,11 +1,63 @@
 import { v } from "convex/values";
-import { query } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { query, type QueryCtx } from "../_generated/server";
+import { listFirstEnrollmentsInRange } from "../enrollments/firstEnrollments";
+import { readLiveQueryRows } from "../lib/liveQueryBounds";
 import { requireTenantUser } from "../requireTenantUser";
 import { isSideDealOrigin } from "../lib/sideDeals";
 import {
   getNonDisputedPaymentsInRange,
   splitPaymentsForRevenueReporting,
 } from "../reporting/lib/helpers";
+
+// New customers the dashboard reads in one period at most; past it the count
+// is a lower bound. Production has 274 customers in all.
+const MAX_NEW_CUSTOMER_SCAN_ROWS = 2500;
+
+/** A period's new customers; `isTruncated` says the read stopped at its cap. */
+export type NewCustomerCount = { count: number; isTruncated: boolean };
+
+/** Customers converted in [periodStart, periodEnd), from the customer rows. */
+export async function countNewCustomersFromCustomers(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  periodStart: number,
+  periodEnd: number,
+): Promise<NewCustomerCount> {
+  // Bounded by rows and by bytes; either stop marks the count truncated.
+  const { rows, capped } = await readLiveQueryRows(
+    ctx.db
+      .query("customers")
+      .withIndex("by_tenantId_and_convertedAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .gte("convertedAt", periodStart)
+          .lt("convertedAt", periodEnd),
+      ),
+    MAX_NEW_CUSTOMER_SCAN_ROWS,
+  );
+  return { count: rows.length, isTruncated: capped };
+}
+
+/**
+ * People whose first enrollment falls in [periodStart, periodEnd): a second
+ * program doesn't count a person again (docs/plans/phase-4-customers.md §6.3).
+ */
+export async function countNewCustomersFromEnrollments(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  periodStart: number,
+  periodEnd: number,
+): Promise<NewCustomerCount> {
+  const { enrollments, isTruncated } = await listFirstEnrollmentsInRange(
+    ctx,
+    tenantId,
+    periodStart,
+    periodEnd,
+    MAX_NEW_CUSTOMER_SCAN_ROWS,
+  );
+  return { count: enrollments.length, isTruncated };
+}
 
 /**
  * Aggregate stats for tenant owner/admin dashboard cards.
@@ -190,17 +242,12 @@ export const getTimePeriodStats = query({
       postConversionDepositsInPeriod;
 
     // 4. New customers converted in period
-    let newCustomers = 0;
-    for await (const customer of ctx.db
-      .query("customers")
-      .withIndex("by_tenantId_and_convertedAt", (q) =>
-        q
-          .eq("tenantId", tenantId)
-          .gte("convertedAt", periodStart)
-          .lt("convertedAt", periodEnd),
-      )) {
-      newCustomers += customer._id ? 1 : 0;
-    }
+    const { count: newCustomers } = await countNewCustomersFromCustomers(
+      ctx,
+      tenantId,
+      periodStart,
+      periodEnd,
+    );
 
     return {
       newOpportunities,

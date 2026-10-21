@@ -356,8 +356,10 @@ The read-only recheck after each run checks the other direction: every converted
 Internal queries in `convex/enrollments/parity.ts` compute each number both ways and return the differences:
 
 - `compareLeadConversion`, for each month from 2026-04 and the last 7 days: every Leads & Conversions metric from the customer rows and from first enrollments.
-- `compareSearchRows`: for each of the 274 customers, the search row projected from the customer and from the enrollments: `lifecycle`, `customerStatus`, `totalPaidMinor`, `paymentCurrency`, `convertedAt`, `latestActivityAt`; and the count of rows whose name, email or phone changes (expected: the drift in §2.4).
+- `compareSearchRows`: for each of the 274 customers, the search row projected from the customer and from the enrollments: `lifecycle`, `customerStatus`, `totalPaidMinor`, `paymentCurrency`, `convertedAt`, `latestActivityAt`; and the count of rows whose name, email, phone or social handles change (expected: the drift in §2.4).
 - `compareBillingRows`: for each of the 279 payments, the deal and meeting billing resolves both ways, and the count whose customer labels change.
+
+Each takes the `tenantId` and returns IDs and values, no contact details. `compareLeadConversion` takes optional `ranges` (each business month from 2026-04 and the last 7 days by default) and a `cursor`, the index of the next range; it stops after about 200 conversions read both ways and returns `continueCursor` until it is null. The other two page by `cursor` and `numItems` (100 by default, 200 at most) over `customers.by_tenantId` and `paymentRecords.by_tenantId_and_recordedAt`, so production's 274 customers take 3 calls and 279 payments 3 calls. Both ways of each number are functions beside the reader that shows it: `conversionsFromCustomers` and `conversionsFromEnrollments` in `reporting/leadConversion.ts`, `countNewCustomersFromCustomers` and `countNewCustomersFromEnrollments` in `dashboard/adminStats.ts`, `customerFieldsFromCustomerRow` and `customerFieldsFromEnrollments` in `leadCustomers/projection.ts`, and `resolveBillingFromCustomer` and `resolveBillingFromPerson` in `billing/enrichment.ts`. First enrollments come from `enrollments/firstEnrollments.ts`.
 
 Every "none" in §7 must come back with no difference before PRs 2 and 3 deploy. The results go into §13.
 
@@ -381,7 +383,7 @@ npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migratio
 npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:backfillEnrollments"]}'
 ```
 
-The other migrations run the same way, in §9's order. The dry run must finish without an error and process rows of the table it names; an error, or a dry run that would write rows the plan doesn't expect, stops the phase for a fix in a reviewed PR. Then the run, then poll `lib:getStatus` until it reports `"isDone": true` (a background loop that waits 30 seconds between calls), read any error, and only then run its assert, polled the same way. A batch that fails on a known Convex limit commits nothing and resumes from its cursor at a smaller batch. Any other failure, and any failed assert, stops the phase until a reviewed fix ships and the failed step and its assert pass again (§12). The parity queries run with `npx convex run --env-file .env.vercel.production enrollments/parity:<name> '<args>'`.
+The other migrations run the same way, in §9's order. The dry run must finish without an error and process rows of the table it names; an error, or a dry run that would write rows the plan doesn't expect, stops the phase for a fix in a reviewed PR. Then the run, then poll `lib:getStatus` until it reports `"isDone": true` (a background loop that waits 30 seconds between calls), read any error, and only then run its assert, polled the same way. A batch that fails on a known Convex limit commits nothing and resumes from its cursor at a smaller batch. Any other failure, and any failed assert, stops the phase until a reviewed fix ships and the failed step and its assert pass again (§12). The parity queries run with `npx convex run --env-file .env.vercel.production enrollments/parity:<name> '<args>'`, for example `enrollments/parity:compareSearchRows '{"tenantId":"k57dqjfyf8qqy31bq375ng8gb984b24q","cursor":null}'`, then again with each `continueCursor` until `isDone`.
 
 ### 10.7 The export
 
@@ -437,7 +439,7 @@ Fix forward, reviewed. Every repair is an internal migration with its own assert
 - **PR 1.** Revert. The enrollments are new and nothing reads them yet; a wrong one is fixed by re-running `syncPersonEnrollments` for its person in a reviewed repair.
 - **PRs 2 and 3.** Revert: the readers go back to the customer rows, which PR 4 hasn't stopped writing.
 - **PR 4.** Before the clear and the deletion run, revert. After them, revert PR 4 (and PRs 2 and 3 if the readers must go back too), except that `recordCustomerPayment` and `convertLeadToCustomer` stay deleted: no screen has reached them since PR 3, and with them gone nothing can write a payment off a deal. Before any repair write, a read-only preflight over every payment must find none with no deal or with origin `customer_direct` or `bookkeeper_direct`; if it finds one, the repair doesn't start. Then one reviewed, idempotent repair migration rebuilds every cleared artifact from the current records, each with its assert:
-  1. writes a customer row for every converted person, inserting a missing one and replacing every field of an existing one (a `deleteCustomers` that stopped part way leaves some), derived as §2.4 shows every field can be: contact fields from the person, `convertedAt`, `convertedByUserId`, `winningOpportunityId` and `winningMeetingId` from the first enrollment's first payment, program from the first enrollment, totals from the person's payments, and `status` from the enrollment for that program, with `pausedAt` or `churnedAt` from its `statusChangedAt`, so `assertEnrollments` holds (§10.2). That covers people who became customers after the export and statuses changed after it. The export only cross-checks the rows for the people it holds;
+  1. writes a customer row for every converted person, inserting a missing one and replacing every field of an existing one (a `deleteCustomers` that stopped part way leaves some), derived as §2.4 shows every field can be: contact fields from the person, `convertedAt`, `convertedByUserId`, `winningOpportunityId` and `winningMeetingId` from the first enrollment's first payment, program from the first enrollment, totals from the person's payments, `status` from the enrollment for that program, with `pausedAt` or `churnedAt` from its `statusChangedAt`, so `assertEnrollments` holds (§10.2). That covers people who became customers after the export and statuses changed after it. `notes` comes from the export, which holds every customer row there was when PR 4 stopped creating and editing them; a person who became a customer after the export has no row in it and gets no notes. The assert checks the notes of each row the export holds against it and skips the rest. None of the 274 rows has notes (§2.1);
   2. sets `contextType: "opportunity"` on every payment, and `customerId` from its deal's current person's customer row where one exists (a person whose last enrollment went has none, and their payments keep `customerId` unset; after a merge the deal's person is the target, whose row step 1 wrote). Every payment is on a deal: no payment has origin `customer_direct` or `bookkeeper_direct` (§2.2), none can be written after PR 4, and the preflight checked it, so `opportunity` was every payment's value;
   3. rebuilds the customers' search rows with the reverted projection, which writes the new `customerId`;
   4. refills `customerConversions` with its backfill, which the revert brings back.
@@ -455,3 +457,21 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 ### 13.1 Baseline, 2026-10-21
 
 §2.
+
+### 13.2 Deploys
+
+| PR | What | Deployed |
+| --- | --- | --- |
+| #153 | the plan | docs, merged 10-21 09:10 |
+| #154 | widen: `enrollments`, `syncPersonEnrollments` beside every payment path, D14, the backfill and asserts | 10-21 09:26 |
+
+### 13.3 Runs
+
+| When | Run | Result |
+| --- | --- | --- |
+| 10-21 09:26 | read-only count before the backfill | 274 customers, 274 converted people, 279 payments, 0 enrollments: the §2 snapshot still held |
+| 10-21 09:26 | `backfillEnrollments` dry run, batch 50 | 50, nothing committed |
+| 10-21 09:26 | `backfillEnrollments`, batch 50 | done 09:26, 274 customers: 274 enrollments, all `active` |
+| 10-21 09:26 | `assertEnrollments` | passed, 274 enrollments |
+| 10-21 09:27 | `assertPaymentEnrollments` | passed, 279 payments |
+| 10-21 09:27 | read-only recheck | 274 enrollments for 274 people; every converted person has one and every enrolled person is converted; each matches its customer row's program, status, `convertedAt` and winning deal |
