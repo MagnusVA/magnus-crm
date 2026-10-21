@@ -3,14 +3,8 @@
 import { useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useQuery, useMutation } from "convex/react";
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Id } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
-
-type LeadListItem = Doc<"leads"> & {
-	opportunityCount: number;
-	latestMeetingAt: number | null;
-	assignedCloserName: string | null;
-};
 import { usePageTitle } from "@/hooks/use-page-title";
 import { toast } from "sonner";
 
@@ -61,9 +55,10 @@ export function MergePageClient() {
 		leadId: sourceLeadId,
 	});
 
-	// Search for merge targets (only when user is searching)
+	// Search for merge targets, active people and customers alike (only
+	// when user is searching)
 	const searchResults = useQuery(
-		api.leads.queries.searchLeads,
+		api.leads.queries.searchLeadsForPicker,
 		searchTerm.length >= 2 ? { searchTerm } : "skip",
 	);
 
@@ -78,8 +73,7 @@ export function MergePageClient() {
 	const mergeLead = useMutation(api.leads.merge.mergeLead);
 
 	// Filter out the source lead from search results
-	// searchLeads returns enriched LeadListItem at runtime
-	const filteredResults = (searchResults as LeadListItem[] | undefined)?.filter(
+	const filteredResults = searchResults?.filter(
 		(lead) => lead._id !== sourceLeadId,
 	);
 
@@ -170,8 +164,8 @@ export function MergePageClient() {
 					<span className="font-medium text-foreground">
 						{sourceLead.fullName ?? "Unknown Lead"}
 					</span>{" "}
-					into another lead. The source lead will be absorbed and marked
-					as merged.
+					into another lead or customer. The source lead will be absorbed
+					and marked as merged, and its programs move with it.
 				</p>
 			</div>
 
@@ -181,6 +175,9 @@ export function MergePageClient() {
 					<div className="flex items-center gap-2">
 						<UserIcon className="h-4 w-4 text-muted-foreground" />
 						<CardTitle className="text-base">Source Lead</CardTitle>
+						{sourceLead.status === "converted" && (
+							<Badge variant="outline">Customer</Badge>
+						)}
 						<Badge variant="destructive" className="ml-auto">
 							Will be absorbed
 						</Badge>
@@ -220,7 +217,8 @@ export function MergePageClient() {
 					</CardHeader>
 					<CardContent className="flex flex-col gap-4">
 						<p className="text-sm text-muted-foreground">
-							Search for the lead that should survive after the merge.
+							Search for the lead or customer that should survive after the
+							merge.
 						</p>
 						<LeadSearchInput
 							value={searchTerm}
@@ -241,11 +239,7 @@ export function MergePageClient() {
 											<button
 												key={lead._id}
 												type="button"
-												onClick={() =>
-													handleSelectTarget(
-														lead._id as Id<"leads">,
-													)
-												}
+												onClick={() => handleSelectTarget(lead._id)}
 												className="flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-muted/50"
 											>
 												<UserIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -259,21 +253,20 @@ export function MergePageClient() {
 														</p>
 													)}
 												</div>
-												<Badge
-													variant="outline"
-													className="shrink-0 text-xs"
-												>
-													{lead.opportunityCount}{" "}
-													{lead.opportunityCount === 1
-														? "opp"
-														: "opps"}
-												</Badge>
+												{lead.status === "converted" && (
+													<Badge
+														variant="outline"
+														className="shrink-0 text-xs"
+													>
+														Customer
+													</Badge>
+												)}
 											</button>
 										))}
 									</div>
 								) : (
 									<p className="py-4 text-center text-sm text-muted-foreground">
-										No matching leads found.
+										No matching leads or customers found.
 									</p>
 								)}
 							</div>
@@ -355,7 +348,8 @@ export function MergePageClient() {
 							<span className="font-medium text-foreground">
 								{mergePreview?.target.lead.fullName ?? "the target lead"}
 							</span>
-							. All identifiers and opportunities will be transferred.
+							. All identifiers, opportunities and programs will be
+							transferred.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>

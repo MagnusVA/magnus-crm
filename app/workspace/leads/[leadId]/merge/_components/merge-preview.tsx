@@ -1,5 +1,7 @@
 "use client";
 
+import type { FunctionReturnType } from "convex/server";
+import type { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,26 +12,11 @@ import {
 	AtSignIcon,
 	UserIcon,
 	MergeIcon,
+	GraduationCapIcon,
 } from "lucide-react";
+import { EnrollmentStatusBadge } from "@/app/workspace/leads-customers/[leadId]/_components/enrollment-status-badge";
 
-type MergePreviewData = {
-	source: {
-		lead: Doc<"leads">;
-		identifiers: Doc<"leadIdentifiers">[];
-		opportunityCount: number;
-	};
-	target: {
-		lead: Doc<"leads">;
-		identifiers: Doc<"leadIdentifiers">[];
-		opportunityCount: number;
-	};
-	preview: {
-		identifiersToMove: number;
-		duplicateIdentifiers: number;
-		opportunitiesToMove: number;
-		totalOpportunitiesAfterMerge: number;
-	};
-};
+type MergePreviewData = FunctionReturnType<typeof api.leads.queries.getMergePreview>;
 
 function identifierIcon(type: string) {
 	switch (type) {
@@ -96,6 +83,9 @@ function LeadCard({
 						<CardTitle className="text-base">
 							{lead.fullName ?? "Unknown"}
 						</CardTitle>
+						{lead.status === "converted" && (
+							<Badge variant="outline">Customer</Badge>
+						)}
 					</div>
 					<Badge
 						variant={isSource ? "destructive" : "default"}
@@ -143,6 +133,69 @@ function LeadCard({
 					<span>
 						{opportunityCount === 1 ? "opportunity" : "opportunities"}
 					</span>
+				</div>
+			</CardContent>
+		</Card>
+	);
+}
+
+/**
+ * The programs the merge moves to the target, and the ones both people have,
+ * which become one with the status an admin changed most recently
+ * (docs/plans/phase-4-customers.md §4.7).
+ */
+function ProgramsCard({ preview }: { preview: MergePreviewData["preview"] }) {
+	const { enrollmentsToMove, enrollmentsToCombine } = preview;
+	if (enrollmentsToMove.length === 0 && enrollmentsToCombine.length === 0) {
+		return null;
+	}
+	return (
+		<Card>
+			<CardHeader className="pb-3">
+				<div className="flex items-center gap-2">
+					<GraduationCapIcon className="h-4 w-4 text-muted-foreground" />
+					<CardTitle className="text-base">Programs</CardTitle>
+				</div>
+			</CardHeader>
+			<CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+				<div className="flex flex-col gap-2">
+					<span className="text-sm font-medium">Programs to transfer</span>
+					{enrollmentsToMove.length === 0 ? (
+						<span className="text-sm text-muted-foreground">None</span>
+					) : (
+						<ul className="flex flex-col gap-1.5">
+							{enrollmentsToMove.map((enrollment) => (
+								<li
+									key={enrollment.programId}
+									className="flex items-center justify-between gap-2 text-sm"
+								>
+									<span className="truncate">{enrollment.programName}</span>
+									<EnrollmentStatusBadge status={enrollment.status} />
+								</li>
+							))}
+						</ul>
+					)}
+				</div>
+				<div className="flex flex-col gap-2">
+					<span className="text-sm font-medium">Programs both have (combined)</span>
+					{enrollmentsToCombine.length === 0 ? (
+						<span className="text-sm text-muted-foreground">None</span>
+					) : (
+						<ul className="flex flex-col gap-1.5">
+							{enrollmentsToCombine.map((enrollment) => (
+								<li key={enrollment.programId} className="flex flex-col gap-1 text-sm">
+									<span className="truncate">{enrollment.programName}</span>
+									<span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+										<EnrollmentStatusBadge status={enrollment.sourceStatus} />
+										<span>and</span>
+										<EnrollmentStatusBadge status={enrollment.targetStatus} />
+										<ArrowRightIcon className="h-3 w-3" aria-label="become" />
+										<EnrollmentStatusBadge status={enrollment.status} />
+									</span>
+								</li>
+							))}
+						</ul>
+					)}
 				</div>
 			</CardContent>
 		</Card>
@@ -254,6 +307,8 @@ export function MergePreview({ data }: { data: MergePreviewData }) {
 					</div>
 				</CardContent>
 			</Card>
+
+			<ProgramsCard preview={preview} />
 		</div>
 	);
 }
