@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
 import { listFirstEnrollmentsInRange } from "../enrollments/firstEnrollments";
+import { readLiveQueryRows } from "../lib/liveQueryBounds";
 import { requireTenantUser } from "../requireTenantUser";
 import { isSideDealOrigin } from "../lib/sideDeals";
 import {
@@ -23,19 +24,19 @@ export async function countNewCustomersFromCustomers(
   periodStart: number,
   periodEnd: number,
 ): Promise<NewCustomerCount> {
-  const customers = await ctx.db
-    .query("customers")
-    .withIndex("by_tenantId_and_convertedAt", (q) =>
-      q
-        .eq("tenantId", tenantId)
-        .gte("convertedAt", periodStart)
-        .lt("convertedAt", periodEnd),
-    )
-    .take(MAX_NEW_CUSTOMER_SCAN_ROWS + 1);
-  return {
-    count: Math.min(customers.length, MAX_NEW_CUSTOMER_SCAN_ROWS),
-    isTruncated: customers.length > MAX_NEW_CUSTOMER_SCAN_ROWS,
-  };
+  // Bounded by rows and by bytes; either stop marks the count truncated.
+  const { rows, capped } = await readLiveQueryRows(
+    ctx.db
+      .query("customers")
+      .withIndex("by_tenantId_and_convertedAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .gte("convertedAt", periodStart)
+          .lt("convertedAt", periodEnd),
+      ),
+    MAX_NEW_CUSTOMER_SCAN_ROWS,
+  );
+  return { count: rows.length, isTruncated: capped };
 }
 
 /**
