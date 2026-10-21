@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query } from "../_generated/server";
 import { buildOpportunityAttributionPayload } from "../lib/attribution/detailPayload";
+import { earliestCountingPayment } from "../lib/enrollments";
 import { isSideDealOrigin, normalizeOpportunitySource } from "../lib/sideDeals";
 import { requireTenantUser } from "../requireTenantUser";
 
@@ -83,6 +84,14 @@ export const getOpportunityDetail = query({
     const payments = paymentRows.filter(
       (payment) => payment.tenantId === tenantId,
     ).sort((left, right) => right.recordedAt - left.recordedAt);
+    // The program an additional payment inherits: the sold program, or the
+    // earliest payment's on a deal won without one (phase-4-customers.md D14).
+    const inheritedFromPayment =
+      opportunity.soldProgramId === undefined ? earliestCountingPayment(payments) : undefined;
+    const additionalPaymentProgramName =
+      opportunity.soldProgramId !== undefined
+        ? (opportunity.soldProgramName ?? null)
+        : (inheritedFromPayment?.programName ?? null);
 
     const paymentEventsNested = await Promise.all(
       payments.map((payment) =>
@@ -197,9 +206,11 @@ export const getOpportunityDetail = query({
         // closer seeing this flag is always the self-crediting assigned closer.
         canRecordAdditionalPayment:
           opportunity.status === "payment_received" &&
-          opportunity.soldProgramId !== undefined &&
+          (opportunity.soldProgramId !== undefined ||
+            inheritedFromPayment !== undefined) &&
           (role === "closer" ||
             (isAdmin && opportunity.assignedCloserId !== undefined)),
+        additionalPaymentProgramName,
         canMarkLost: isSideDeal && opportunity.status === "scheduled",
         canVoidPayment:
           isAdmin &&
