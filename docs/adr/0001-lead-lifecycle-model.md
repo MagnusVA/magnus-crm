@@ -1,6 +1,6 @@
 # 0001. One person record, deals with a stage and an outcome
 
-Status: accepted, 14 October 2026. Amended 19 October 2026 with "How a phase runs" and the phase statuses, and 20 October 2026: the DM portal creates no one, and booking links name no person.
+Status: accepted, 14 October 2026. Amended 19 October 2026 with "How a phase runs" and the phase statuses; 20 October 2026: the DM portal creates no one, and booking links name no person; 21 October 2026: rule 4 says credit is a `dealAttributions` row.
 
 Source: the [lead lifecycle review](../reviews/lead-lifecycle-review.html). Findings are in [§3](../reviews/lead-lifecycle-review.html#findings), the target model in [§6](../reviews/lead-lifecycle-review.html#target), the migration path in [§7](../reviews/lead-lifecycle-review.html#roadmap), and the locked decisions in [§9](../reviews/lead-lifecycle-review.html#decisions). Terms are defined in [`CONTEXT.md`](../../CONTEXT.md).
 
@@ -76,7 +76,7 @@ The migration runs one phase at a time, and the old model stays live until each 
 1. **No new opportunity status.** Every literal costs 30 to 40 files and a backfill, and Phase 5 has to map it. If a feature seems to need one, it is probably a task, a meeting fact, or a deal stage. Raise it before adding it.
 2. **Opportunity status changes go through one function.** `transitionOpportunity` in `convex/lib/opportunityActivity.ts` is that function. No code calls `ctx.db.patch` on an opportunity's `status`, and no code moves a status without the state machine in `convex/lib/statusTransitions.ts`. Exceptions are named transitions inside that function, not bypasses at the call site.
 3. **No new person, staff, or schedule table.** A new channel finds or creates the person through `resolveLeadIdentity`. A new role becomes a team member role (Phase 1), not another table like `leadGenWorkers` or `dmClosers`.
-4. **No new attribution column.** Don't add another `*CloserId`, `*TeamId`, or `qualifiedBy` shape. Until `dealAttributions` exists, extend the existing columns and say so in the PR.
+4. **No new attribution column.** Don't add another `*CloserId`, `*TeamId`, or `qualifiedBy` shape. Credit is a `dealAttributions` row (Phase 3), and every row has both a role and a source, written through `convex/lib/attribution/dealAttributions.ts`. A new kind of credit adds a role or a source kind to that table, not a column.
 5. **No new copies of person fields.** Read contact details from the lead. Don't add fields to `customers`, because customer is becoming a stage.
 6. **Strong identifiers only.** Don't add a key that a placeholder value can satisfy, and don't add a time-window join between bookings and deals.
 7. **A won deal never blocks a new one.** A second program is a new deal for the same person.
