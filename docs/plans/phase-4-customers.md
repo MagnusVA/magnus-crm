@@ -190,9 +190,9 @@ Status belongs to the enrollment (D3). An admin changes it per enrollment (`upda
 
 - The person page's Programs section shows each enrollment's status with a select for users with `customer:edit` (Active, Paused, Churned).
 - Moving to Paused or Churned opens a dialog with an optional reason (up to 500 characters). Moving back to Active needs no reason.
-- The reason lives only in the event's metadata, beside `fromStatus` and `toStatus`; the enrollment stores no note. The timeline shows the change and its reason.
+- The reason lives only on the event, in its `reason` column beside `fromStatus` and `toStatus`; the enrollment stores no note. A reason is trimmed, and refused past 500 characters or with Active. The event's metadata holds `leadId`, `programId` and `opportunityId` (§4.10). The timeline shows the change, its program and its reason.
 - Under a changed status the section shows when and by whom, from `statusChangedAt` and `statusChangedByUserId`; a deleted user shows as "Removed user".
-- A select to the current status, or a stale one (the enrollment changed since the page loaded), changes nothing. The person-level status the list shows (`leadCustomerSearchRows.customerStatus`) is `active` if any enrollment is active, else `paused` if any is paused, else `churned`.
+- A select to the current status, or a stale one (the enrollment changed since the page loaded), changes nothing. The page sends the status it showed as `expectedStatus`; the mutation returns `changed`, `unchanged` or `stale`, and the page shows each as a toast. The person-level status the list shows (`leadCustomerSearchRows.customerStatus`) is `active` if any enrollment is active, else `paused` if any is paused, else `churned`.
 
 Until PR 4, the two statuses are kept equal in both directions. `updateCustomerStatus` sets the status of the enrollment for the customer's program as well, with `statusChangedAt` and `statusChangedByUserId`; a person the backfill hasn't reached has no enrollment yet, and the backfill carries the status. Nothing calls it from the app (§2.7). `updateEnrollmentStatus` sets the customer row's status (with `pausedAt` or `churnedAt`) when the enrollment is for the customer's program, then rebuilds the search row. That mirror only keeps `assertEnrollments` true: nothing reads the customer row's status once PR 2 is live, and PR 2 merges before PR 3, so the status control never exists while the list reads the customer row. The list's status is always the person-level status of every enrollment.
 
@@ -229,7 +229,7 @@ Every writer of an enrollment runs inside one mutation: `syncPersonEnrollments` 
 
 - New entity type `enrollment`, with `enrollment.created`, `enrollment.status_changed` and `enrollment.removed`. Each carries `leadId`, `programId` and `opportunityId` in its metadata, so `domainEventLinks` finds the person after the enrollment is gone. None is a touch.
 - From PR 4, `customer.converted`, `customer.status_changed` and `customer.conversion_rolled_back` are no longer emitted. The person's conversion is its `lead.status_changed` event and its first `enrollment.created`.
-- The activity feed's entity filter gains Enrollment and keeps Customer for the old events. The timeline colours `enrollment.*` as it does `customer.*`.
+- The activity feed's entity filter gains Enrollment and keeps Customer for the old events. The timeline colours `enrollment.*` as it does `customer.*`. PR 3 adds the labels of all three events; the timeline shows an enrollment event's program and reason, and the feed its reason.
 
 ## 5. Write paths
 
@@ -277,6 +277,8 @@ Since the row reads enrollments, a payment path must rebuild it after `syncPerso
 
 `getEntityDetail` returns the person's enrollments instead of the customer row: for each, the program and its current name, status, `enrolledAt`, the deal, and the total and count of its payments. The header shows Customer when the person has an enrollment, the person-level status, the total paid across programs, "Customer since" (the earliest enrollment) and the programs. A new Programs section lists each enrollment with its status, its deal and what it has paid, with the status control for admins (§4.4). The payments section lists the payments on the person's deals; there are no customer-only payments (§2.2). The snapshot aside's identity path shows the first enrollment's deal as the winning deal.
 
+The payload's `enrollments` give, for each: `enrollmentId`, `programId`, the program's current name, `status`, `enrolledAt`, `opportunityId`, `statusChangedAt`, the name of the user who changed it (null when that `users` row is gone; the page shows "Removed user") and the total, currency and count of its payments that aren't disputed. Its `customerSummary` gives the person-level status, the total across programs, "Customer since", the program names and the first enrollment's deal, and is null for a person with no enrollment. Totals count every payment, whoever views the page, as the customer row's total did. To count every payment behind an enrollment, the page reads up to 50 payments a deal, the cap `syncPersonEnrollments` uses, instead of 10. The payments it returns drop `customerId`, `originatingOpportunityId` and `contextType`.
+
 ### 6.3 Reports (PR 2)
 
 - **Leads & Conversions** (`reporting/leadConversion.ts`): conversions in the range are the enrollments in the range that are their person's first, with the enrollment's deal as the winning deal and the recorder of its first payment as the fallback closer, as `convertedByUserId` was (all 274 won deals have a closer, so the fallback isn't used today). The first payment is the one on the enrollment's deal, for its program, not disputed, whose `recordedAt` equals `enrolledAt`, earliest created. Counting every enrollment would count a person twice once they buy a second program. The report reads at most 2,500 enrollments in a range, as it read customers, and stops returning `isCustomersTruncated`, which no page read; `isConversionDataTruncated` stays.
@@ -292,7 +294,7 @@ Since the row reads enrollments, a payment path must rebuild it after `syncPerso
 
 ### 6.5 Removed
 
-- PR 3: `convex/customers/queries.ts`; the orphaned customer list and detail components under `app/workspace/customers/`, the record payment dialog, the convert dialog and the orphaned `lead-detail-page-client.tsx` that renders it. The two redirect pages stay.
+- PR 3: `convex/customers/queries.ts`; the orphaned customer list and detail components under `app/workspace/customers/` (7 files, the record payment dialog among them), the convert dialog, and the orphaned `lead-detail-page-client.tsx` that renders it with its 6 tabs, which nothing else imports: 16 files. The two redirect pages and their loading states stay.
 - PR 4: `customers/conversion.ts`, `customers/mutations.ts`, `lib/syncCustomerSnapshot.ts`, `syncCustomerPaymentSummary` and `rollbackCustomerConversionIfEmpty`, the `customerConversions` write hooks and backfill, `reporting/lib/programDimensions.ts` (no importers), and the customer parts of the old one-off migrations in `admin/migrations.ts`.
 - PR 5: `leadCustomers/redirects.ts`, the customer ID branch of `identifierResolution.ts`, the parity module (`enrollments/parity.ts` and `enrollments/customerCopy.ts`, which holds the customer-row computations the readers used before PR 2), and the `customerId: undefined` line in `rebuildLeadCustomerSearchRow`. `/workspace/customers/[customerId]` redirects to the customers list, since a customer ID no longer names anything; only the deleted components linked to it.
 
