@@ -137,6 +137,7 @@ describe("enrollment events", () => {
     await h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
       enrollmentId: seeded.enrollmentA,
       status: "paused",
+      expectedStatus: "active",
       reason: "Moving abroad",
     });
 

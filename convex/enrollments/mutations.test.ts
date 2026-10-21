@@ -42,6 +42,7 @@ describe("updateEnrollmentStatus", () => {
       h.closer.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
         enrollmentId: seeded.enrollmentA,
         status: "paused",
+        expectedStatus: "active",
       }),
     ).rejects.toThrow("auth.insufficient_permissions");
 
@@ -74,6 +75,7 @@ describe("updateEnrollmentStatus", () => {
       otherAdmin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
         enrollmentId: seeded.enrollmentA,
         status: "churned",
+        expectedStatus: "active",
       }),
     ).rejects.toThrow("enrollment.not_found");
 
@@ -84,19 +86,20 @@ describe("updateEnrollmentStatus", () => {
 
   it("changes nothing for the current status or a stale page", async () => {
     const { h, seeded } = await setup();
+    const update = (args: { status: "active" | "paused" | "churned"; expectedStatus: "active" | "paused" | "churned" }) =>
+      h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
+        enrollmentId: seeded.enrollmentA,
+        ...args,
+      });
 
-    const unchanged = await h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
-      enrollmentId: seeded.enrollmentA,
-      status: "active",
-    });
-    // The page loaded while it was paused; it is active now.
-    const stale = await h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
-      enrollmentId: seeded.enrollmentA,
-      status: "churned",
-      expectedStatus: "paused",
-    });
+    const unchanged = await update({ status: "active", expectedStatus: "active" });
+    // The page loaded while it was paused; it is active now. Picking the
+    // status it already has is unchanged, not stale.
+    const alreadyThere = await update({ status: "active", expectedStatus: "paused" });
+    const stale = await update({ status: "churned", expectedStatus: "paused" });
 
     expect(unchanged).toBe("unchanged");
+    expect(alreadyThere).toBe("unchanged");
     expect(stale).toBe("stale");
     const enrollment = await h.t.run((ctx) => ctx.db.get("enrollments", seeded.enrollmentA));
     expect(enrollment).toMatchObject({ status: "active" });
@@ -105,23 +108,43 @@ describe("updateEnrollmentStatus", () => {
     expect(await statusEvents(h, seeded.enrollmentA)).toHaveLength(0);
   });
 
+  it("requires the status the page showed", async () => {
+    const { h, seeded } = await setup();
+
+    await expect(
+      h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
+        enrollmentId: seeded.enrollmentA,
+        status: "paused",
+      } as never),
+    ).rejects.toThrow(/expectedStatus/);
+
+    const enrollment = await h.t.run((ctx) => ctx.db.get("enrollments", seeded.enrollmentA));
+    expect(enrollment?.status).toBe("active");
+  });
+
   it("takes a trimmed reason of up to 500 characters for Paused and Churned, and none for Active", async () => {
     const { h, seeded } = await setup();
-    const update = (args: { status: "active" | "paused" | "churned"; reason?: string }) =>
+    const update = (args: {
+      status: "active" | "paused" | "churned";
+      expectedStatus: "active" | "paused" | "churned";
+      reason?: string;
+    }) =>
       h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
         enrollmentId: seeded.enrollmentA,
         ...args,
       });
 
-    await expect(update({ status: "paused", reason: "x".repeat(501) })).rejects.toThrow(
-      "enrollment.reason_too_long",
-    );
-    await expect(update({ status: "active", reason: "Back" })).rejects.toThrow(
-      "enrollment.reason_not_allowed",
-    );
-    expect(await update({ status: "paused", reason: `  ${"y".repeat(500)}  ` })).toBe("changed");
+    await expect(
+      update({ status: "paused", expectedStatus: "active", reason: "x".repeat(501) }),
+    ).rejects.toThrow("enrollment.reason_too_long");
+    await expect(
+      update({ status: "active", expectedStatus: "active", reason: "Back" }),
+    ).rejects.toThrow("enrollment.reason_not_allowed");
+    expect(
+      await update({ status: "paused", expectedStatus: "active", reason: `  ${"y".repeat(500)}  ` }),
+    ).toBe("changed");
     // A blank reason is no reason.
-    expect(await update({ status: "churned", reason: "   " })).toBe("changed");
+    expect(await update({ status: "churned", expectedStatus: "paused", reason: "   " })).toBe("changed");
 
     const events = await statusEvents(h, seeded.enrollmentA);
     expect(events.map((event) => event.reason)).toEqual(["y".repeat(500), undefined]);
@@ -177,10 +200,12 @@ describe("updateEnrollmentStatus", () => {
 
   it("mirrors the status onto the customer row for the same program and rebuilds the search row", async () => {
     const { h, seeded } = await setup();
-    const update = (status: "active" | "paused" | "churned") =>
+    type Status = "active" | "paused" | "churned";
+    const update = (status: Status, expectedStatus: Status) =>
       h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
         enrollmentId: seeded.enrollmentA,
         status,
+        expectedStatus,
       });
     const read = () =>
       h.t.run(async (ctx) => ({
@@ -193,20 +218,20 @@ describe("updateEnrollmentStatus", () => {
           .unique(),
       }));
 
-    await update("paused");
+    await update("paused", "active");
     let state = await read();
     expect(state.customer).toMatchObject({ status: "paused", pausedAt: NOW });
     expect(state.customer?.churnedAt).toBeUndefined();
     expect(state.row?.customerStatus).toBe("paused");
 
     vi.setSystemTime(new Date(NOW + 1_000));
-    await update("churned");
+    await update("churned", "paused");
     state = await read();
     expect(state.customer).toMatchObject({ status: "churned", churnedAt: NOW + 1_000 });
     expect(state.customer?.pausedAt).toBeUndefined();
     expect(state.row?.customerStatus).toBe("churned");
 
-    await update("active");
+    await update("active", "churned");
     state = await read();
     expect(state.customer?.status).toBe("active");
     expect(state.customer?.pausedAt).toBeUndefined();
@@ -220,6 +245,7 @@ describe("updateEnrollmentStatus", () => {
     await h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
       enrollmentId: seeded.second!.enrollmentId,
       status: "churned",
+      expectedStatus: "active",
     });
 
     const state = await h.t.run(async (ctx) => ({
@@ -231,5 +257,29 @@ describe("updateEnrollmentStatus", () => {
     expect(state.customer?.churnedAt).toBeUndefined();
     expect(state.first?.status).toBe("active");
     expect(state.second?.status).toBe("churned");
+  });
+
+  it("keeps the person active in the list while another program is active", async () => {
+    const { h, seeded } = await setup({ secondProgram: true });
+
+    await h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
+      enrollmentId: seeded.enrollmentA,
+      status: "paused",
+      expectedStatus: "active",
+    });
+
+    const row = await h.t.run((ctx) =>
+      ctx.db
+        .query("leadCustomerSearchRows")
+        .withIndex("by_tenantId_and_leadId", (q) =>
+          q.eq("tenantId", h.tenantId).eq("leadId", seeded.leadId),
+        )
+        .unique(),
+    );
+    // Program A is paused and Program B active, so the person is active (§4.4),
+    // even though the customer row, for Program A, is paused.
+    expect(row?.customerStatus).toBe("active");
+    const customer = await h.t.run((ctx) => ctx.db.get("customers", seeded.customerId));
+    expect(customer?.status).toBe("paused");
   });
 });

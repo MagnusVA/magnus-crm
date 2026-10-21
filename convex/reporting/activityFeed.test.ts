@@ -29,6 +29,7 @@ describe("activity feed enrollment events", () => {
     await h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
       enrollmentId: seeded.enrollmentA,
       status: "churned",
+      expectedStatus: "active",
       reason: "Stopped paying",
     });
 

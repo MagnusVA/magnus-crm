@@ -78,7 +78,7 @@ export const updateEnrollmentStatus = mutation({
     reason: v.optional(v.string()),
     // The status the page showed. When the enrollment has changed since, the
     // request is stale and changes nothing.
-    expectedStatus: v.optional(enrollmentStatusValidator),
+    expectedStatus: enrollmentStatusValidator,
   },
   returns: v.union(v.literal("changed"), v.literal("unchanged"), v.literal("stale")),
   handler: async (ctx, args) => {
@@ -93,14 +93,7 @@ export const updateEnrollmentStatus = mutation({
       });
     }
 
-    if (args.expectedStatus !== undefined && args.expectedStatus !== enrollment.status) {
-      log.info("enrollment.status_change.skipped", {
-        tenantId,
-        enrollmentId: enrollment._id,
-        reason: "stale",
-      });
-      return "stale" as const;
-    }
+    // Already the status picked: nothing to do, however stale the page.
     if (enrollment.status === args.status) {
       log.info("enrollment.status_change.skipped", {
         tenantId,
@@ -108,6 +101,14 @@ export const updateEnrollmentStatus = mutation({
         reason: "unchanged",
       });
       return "unchanged" as const;
+    }
+    if (args.expectedStatus !== enrollment.status) {
+      log.info("enrollment.status_change.skipped", {
+        tenantId,
+        enrollmentId: enrollment._id,
+        reason: "stale",
+      });
+      return "stale" as const;
     }
 
     const now = Date.now();
