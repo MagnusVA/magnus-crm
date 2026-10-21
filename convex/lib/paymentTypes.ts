@@ -44,7 +44,6 @@ export type LegacyCompatiblePaymentFields = {
   attributedCloserId?: Id<"users">;
   closerId?: Id<"users">;
   commissionable?: boolean;
-  contextType?: "opportunity" | "customer";
   origin?: string | null;
   recordedByUserId?: Id<"users">;
   loggedByAdminUserId?: Id<"users">;
@@ -122,9 +121,9 @@ export function isLegacyCompatibleNonCommissionableOrigin(
   );
 }
 
+/** A stored origin as one of today's; a missing one is a deal payment's (D12). */
 export function normalizePaymentOrigin(
   origin: string | undefined | null,
-  contextType?: "opportunity" | "customer",
 ): PaymentOrigin {
   if (origin === "customer_flow") {
     return "customer_direct";
@@ -132,7 +131,7 @@ export function normalizePaymentOrigin(
   if (isCommissionableOrigin(origin) || isNonCommissionableOrigin(origin)) {
     return origin;
   }
-  return contextType === "customer" ? "customer_direct" : "closer_meeting";
+  return "closer_meeting";
 }
 
 export function resolvePaymentType(
@@ -145,21 +144,21 @@ export function resolvePaymentType(
 export function resolveLegacyCompatiblePaymentCommissionable(
   payment: Pick<
     LegacyCompatiblePaymentFields,
-    "commissionable" | "contextType" | "origin"
+    "commissionable" | "origin"
   >,
 ): boolean {
   if (payment.commissionable !== undefined) {
     return payment.commissionable;
   }
   return !isLegacyCompatibleNonCommissionableOrigin(
-    normalizePaymentOrigin(payment.origin, payment.contextType),
+    normalizePaymentOrigin(payment.origin),
   );
 }
 
 export function resolveLegacyCompatibleAttributedCloserId(
   payment: Pick<
     LegacyCompatiblePaymentFields,
-    "attributedCloserId" | "closerId" | "commissionable" | "contextType" | "origin"
+    "attributedCloserId" | "closerId" | "commissionable" | "origin"
   >,
 ): Id<"users"> | undefined {
   if (payment.attributedCloserId !== undefined) {
@@ -177,7 +176,6 @@ export function resolveLegacyCompatibleRecordedByUserId(
     | "loggedByAdminUserId"
     | "closerId"
     | "commissionable"
-    | "contextType"
     | "origin"
   >,
 ): Id<"users"> | undefined {

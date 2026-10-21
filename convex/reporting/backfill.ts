@@ -239,10 +239,8 @@ export const backfillPaymentOrigin = internalMutation({
 				continue;
 			}
 
-			let origin: PaymentOrigin =
-				payment.contextType === "customer"
-					? "customer_direct"
-					: "closer_meeting";
+			// Every payment is a deal payment (docs/plans/phase-4-customers.md D12).
+			let origin: PaymentOrigin = "closer_meeting";
 			let usedDefault = false;
 
 			const events = await ctx.db
@@ -261,16 +259,13 @@ export const backfillPaymentOrigin = internalMutation({
 					(event) => event.eventType === "payment.recorded",
 				) ?? null;
 
-			if (recordedEvent && payment.contextType !== "customer") {
+			if (recordedEvent) {
 				if (recordedEvent.source === "admin") {
 					origin = "admin_meeting";
-				} else if (recordedEvent.source === "closer") {
-					origin = "closer_meeting";
-				} else {
-					origin = "closer_meeting";
+				} else if (recordedEvent.source !== "closer") {
 					usedDefault = true;
 				}
-			} else if (payment.contextType !== "customer") {
+			} else {
 				usedDefault = true;
 			}
 
@@ -338,10 +333,7 @@ export const auditPaymentOriginBackfill = internalQuery({
 				if (payment.origin) {
 					withOrigin += 1;
 					byOrigin[
-						normalizePaymentOrigin(
-							payment.origin,
-							payment.contextType,
-						)
+						normalizePaymentOrigin(payment.origin)
 					] += 1;
 				}
 				if (payment.origin?.startsWith("admin_")) {

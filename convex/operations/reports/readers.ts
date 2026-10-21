@@ -384,7 +384,7 @@ async function readSalesCalls(ctx: QueryCtx, args: ReportSourcePageRequest) {
 async function readSalesPayments(ctx: QueryCtx, args: ReportSourcePageRequest) {
   const result = await ctx.db.query("paymentRecords").withIndex("by_tenantId_and_recordedAt", (q) => q.eq("tenantId", args.tenantId).gte("recordedAt", args.startTimestamp).lt("recordedAt", args.endTimestampExclusive)).paginate(pagination(args.cursor));
   const eligible = result.page.filter((payment) => payment.status !== "disputed" && resolveLegacyCompatiblePaymentCommissionable(payment) && resolvePaymentType(payment.paymentType) !== "deposit");
-  return projectedPage(result, eligible.map((row): ReportSourceRow => ({ kind: "sales_payment", paymentId: row._id, recordedAt: row.recordedAt, opportunityId: row.opportunityId ?? row.originatingOpportunityId ?? null, amountMinor: row.amountMinor, currency: row.currency, paymentType: resolvePaymentType(row.paymentType), programId: row.programId, programName: row.programName, effectiveCloserId: resolveLegacyCompatibleAttributedCloserId(row) ?? null })));
+  return projectedPage(result, eligible.map((row): ReportSourceRow => ({ kind: "sales_payment", paymentId: row._id, recordedAt: row.recordedAt, opportunityId: row.opportunityId ?? null, amountMinor: row.amountMinor, currency: row.currency, paymentType: resolvePaymentType(row.paymentType), programId: row.programId, programName: row.programName, effectiveCloserId: resolveLegacyCompatibleAttributedCloserId(row) ?? null })));
 }
 
 export async function readSourcePage(ctx: QueryCtx, args: ReportSourcePageRequest): Promise<ReportSourcePage> {

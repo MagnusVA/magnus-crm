@@ -109,8 +109,7 @@ export async function refreshSoldProgramCachesForPaymentContext(
     payment: Doc<"paymentRecords">;
   },
 ) {
-  const opportunityId =
-    args.payment.opportunityId ?? args.payment.originatingOpportunityId;
+  const opportunityId = args.payment.opportunityId;
   if (!opportunityId) {
     return;
   }
@@ -130,8 +129,9 @@ async function latestValidPayments(
   ctx: MutationCtx,
   opportunityId: Id<"opportunities">,
 ) {
+  // Every payment is a deal payment (docs/plans/phase-4-customers.md D12).
   const rows = await Promise.all(
-    (["recorded", "verified"] as const).flatMap((status) => [
+    (["recorded", "verified"] as const).map((status) =>
       ctx.db
         .query("paymentRecords")
         .withIndex("by_opportunityId_and_status_and_recordedAt", (q) =>
@@ -139,18 +139,7 @@ async function latestValidPayments(
         )
         .order("desc")
         .first(),
-      ctx.db
-        .query("paymentRecords")
-        .withIndex(
-          "by_originatingOpportunityId_and_status_and_recordedAt",
-          (q) =>
-            q
-              .eq("originatingOpportunityId", opportunityId)
-              .eq("status", status),
-        )
-        .order("desc")
-        .first(),
-    ]),
+    ),
   );
   return rows.filter((row): row is Doc<"paymentRecords"> => row !== null);
 }

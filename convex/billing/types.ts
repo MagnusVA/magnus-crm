@@ -83,7 +83,6 @@ export type BillingPaymentRow = {
     programId: Id<"tenantPrograms">;
     programName: string;
     origin: Doc<"paymentRecords">["origin"];
-    contextType: Doc<"paymentRecords">["contextType"];
     referenceCode: string | null;
     note: string | null;
     hasProofFile: boolean;

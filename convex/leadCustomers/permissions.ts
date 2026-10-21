@@ -40,10 +40,9 @@ export function canViewPaymentDetail(input: {
     return true;
   }
 
-  const opportunityId =
-    input.payment.opportunityId ?? input.payment.originatingOpportunityId;
-  const opportunity = opportunityId
-    ? input.opportunityById.get(opportunityId)
+  // Every payment is a deal payment (docs/plans/phase-4-customers.md D12).
+  const opportunity = input.payment.opportunityId
+    ? input.opportunityById.get(input.payment.opportunityId)
     : undefined;
 
   return opportunity?.assignedCloserId === input.viewerUserId;
