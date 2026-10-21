@@ -3,12 +3,7 @@ import { mutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { syncPersonEnrollments } from "../lib/enrollments";
 import { correctLeadLifecycle } from "../lib/leadLifecycle";
-import { log } from "../lib/observability/log";
 import { transitionOpportunity } from "../lib/opportunityActivity";
-import {
-  rollbackCustomerConversionIfEmpty,
-  syncCustomerPaymentSummary,
-} from "../lib/paymentHelpers";
 import { isSideDeal, isSideDealOrigin } from "../lib/sideDeals";
 import { refreshSoldProgramCachesForOpportunity } from "../lib/soldProgramCache";
 import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
@@ -99,25 +94,16 @@ export const voidPayment = mutation({
       amountMinorDelta: -payment.amountMinor,
     });
 
-    if (payment.customerId) {
-      const rollback = await rollbackCustomerConversionIfEmpty(ctx, {
-        customerId: payment.customerId,
-        opportunityId: payment.opportunityId,
-        actorUserId: userId,
-      });
-      if (!rollback.rolledBack) {
-        log.info("side_deals.void_payment.rollback_skipped", {
-          tenantId,
-          paymentId,
-          customerId: payment.customerId,
-          reason: "customer_retained",
-        });
-        await syncCustomerPaymentSummary(ctx, payment.customerId);
-      }
-    }
     // A disputed payment no longer counts: the enrollment it held moves to
-    // the earliest payment left for its program, or goes (§4.3).
-    await syncPersonEnrollments(ctx, { tenantId, leadId: opportunity.leadId, now });
+    // the earliest payment left for its program, or goes, and a person left
+    // with none is no longer a customer (§4.3).
+    await syncPersonEnrollments(ctx, {
+      tenantId,
+      leadId: opportunity.leadId,
+      now,
+      source: "admin",
+      actorUserId: userId,
+    });
     // Voiding corrects a payment that shouldn't count, so the person's stage
     // follows what is left (docs/plans/phase-1-foundations.md §4.3).
     await correctLeadLifecycle(ctx, opportunity.leadId, "payment_voided", userId);

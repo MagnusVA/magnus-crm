@@ -34,7 +34,7 @@ interface TopDealsTableProps {
     attributedCloserName: string;
     attributedCloser: MemberAvatarIdentity;
     recordedAt: number;
-    contextType: string;
+    contextType?: string;
     programId?: string | null;
     programName?: string | null;
     paymentType?: string | null;
@@ -48,7 +48,7 @@ function formatCurrency(minor: number): string {
   })}`;
 }
 
-function formatSource(contextType: string): string {
+function formatSource(contextType: string | undefined): string {
   if (!contextType) return "\u2014";
   return contextType.charAt(0).toUpperCase() + contextType.slice(1);
 }

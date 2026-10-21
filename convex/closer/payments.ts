@@ -1,6 +1,5 @@
 import { v } from "convex/values";
 import { mutation, query } from "../_generated/server";
-import { executeConversion } from "../customers/conversion";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { syncPersonEnrollments } from "../lib/enrollments";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
@@ -8,7 +7,6 @@ import { recordPayment } from "../lib/leadLifecycle";
 import {
   assertPaymentRow,
   resolveProgramForWrite,
-  syncCustomerPaymentSummary,
   type CommissionableOrigin,
 } from "../lib/paymentHelpers";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
@@ -100,9 +98,7 @@ export const logPayment = mutation({
       attributedCloserId,
       recordedByUserId: userId,
       origin,
-      contextType: "opportunity",
       opportunityId: args.opportunityId,
-      customerId: undefined,
       programId: program._id,
       paymentType,
     });
@@ -123,7 +119,6 @@ export const logPayment = mutation({
       status: "recorded",
       statusChangedAt: now,
       recordedAt: now,
-      contextType: "opportunity",
       origin,
     });
     await recordPayment(ctx, paymentId);
@@ -180,33 +175,15 @@ export const logPayment = mutation({
       occurredAt: now,
     });
 
-    // The person's enrollments follow their payments
-    // (docs/plans/phase-4-customers.md §4.1).
-    await syncPersonEnrollments(ctx, { tenantId, leadId: opportunity.leadId, now });
-
-    const customerId = await executeConversion(ctx, {
+    // The person's enrollments follow their payments, and their first one
+    // makes them a customer (docs/plans/phase-4-customers.md §4.1, §4.2).
+    await syncPersonEnrollments(ctx, {
       tenantId,
       leadId: opportunity.leadId,
-      convertedByUserId: userId,
-      winningOpportunityId: args.opportunityId,
-      winningMeetingId: args.meetingId,
+      now,
+      source: role === "closer" ? "closer" : "admin",
+      actorUserId: userId,
     });
-
-    if (customerId) {
-      await ctx.db.patch("paymentRecords", paymentId, { customerId });
-      await syncCustomerPaymentSummary(ctx, customerId);
-    } else {
-      const existingCustomer = await ctx.db
-        .query("customers")
-        .withIndex("by_tenantId_and_leadId", (q) =>
-          q.eq("tenantId", tenantId).eq("leadId", opportunity.leadId),
-        )
-        .first();
-      if (existingCustomer) {
-        await ctx.db.patch("paymentRecords", paymentId, { customerId: existingCustomer._id });
-        await syncCustomerPaymentSummary(ctx, existingCustomer._id);
-      }
-    }
 
     return paymentId;
   },

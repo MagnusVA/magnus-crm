@@ -32,22 +32,10 @@ export function assertPaymentRow(row: AssertablePaymentShape): void {
     );
   }
 
-  if (
-    row.commissionable &&
-    (row.contextType !== "opportunity" || row.opportunityId === undefined)
-  ) {
-    throw new Error(
-      "[Payments] invariant: commissionable row must link to an opportunity",
-    );
-  }
-
-  if (
-    !row.commissionable &&
-    (row.contextType !== "customer" || row.customerId === undefined)
-  ) {
-    throw new Error(
-      "[Payments] invariant: non-commissionable row must link to a customer",
-    );
+  // Every payment is on a deal: the customer payment that had none is
+  // retired (docs/plans/phase-4-customers.md §5).
+  if (row.opportunityId === undefined) {
+    throw new Error("[Payments] invariant: payment row must link to an opportunity");
   }
 
   const originIsNonCommissionable = isNonCommissionableOrigin(row.origin);

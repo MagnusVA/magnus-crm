@@ -130,7 +130,7 @@ type PaymentProgramsCutoverAudit = {
   }>;
   sampleLegacyPayments: Array<{
     amountMinor: number;
-    contextType: "opportunity" | "customer";
+    contextType?: "opportunity" | "customer";
     customerId: string | null;
     opportunityId: string | null;
     origin: string | null;

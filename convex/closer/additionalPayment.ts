@@ -11,23 +11,20 @@ import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
 import { recordPayment } from "../lib/leadLifecycle";
 import {
   assertPaymentRow,
-  syncCustomerPaymentSummary,
   type CommissionableOrigin,
 } from "../lib/paymentHelpers";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import { requireTenantUser } from "../requireTenantUser";
-import {
-  insertPaymentAggregate,
-  replacePaymentAggregate,
-} from "../reporting/writeHooks";
+import { insertPaymentAggregate } from "../reporting/writeHooks";
 
 /**
  * Records an ADDITIONAL commissionable payment against an already-won
  * opportunity (`status === "payment_received"`), for the case where a customer
  * makes a further payment after the initial win. Unlike every other payment
  * path, this does NOT transition the opportunity status (the deal is already
- * won / terminal) and does NOT run conversion (a customer already exists).
+ * won / terminal). The person is already a customer, so the enrollment sync
+ * only adds the payment to their total.
  *
  * Attribution follows the "any closer, self-credit" rule: a closer credits
  * themselves; an admin recording on behalf credits the opportunity's assigned
@@ -46,7 +43,6 @@ export const recordAdditionalPayment = mutation({
   },
   returns: v.object({
     paymentId: v.id("paymentRecords"),
-    customerId: v.optional(v.id("customers")),
   }),
   handler: async (ctx, args) => {
     const { userId, tenantId, role } = await requireTenantUser(ctx, [
@@ -146,9 +142,7 @@ export const recordAdditionalPayment = mutation({
       attributedCloserId,
       recordedByUserId: userId,
       origin,
-      contextType: "opportunity",
       opportunityId: args.opportunityId,
-      customerId: undefined,
       programId: program._id,
       paymentType,
     });
@@ -171,35 +165,23 @@ export const recordAdditionalPayment = mutation({
       status: "recorded",
       statusChangedAt: now,
       recordedAt: now,
-      contextType: "opportunity",
       origin,
     });
     await recordPayment(ctx, paymentId);
 
-    const paymentBeforeCustomerLink = await insertPaymentAggregate(
-      ctx,
-      paymentId,
-    );
+    await insertPaymentAggregate(ctx, paymentId);
 
-    // Link the payment to the existing customer (the opportunity is already
-    // won, so a customer record exists) so the customer "Total Paid" rollup
-    // stays accurate. We deliberately do NOT touch the opportunity status,
-    // sold-program cache, or run conversion again.
-    const customer = await ctx.db
-      .query("customers")
-      .withIndex("by_tenantId_and_leadId", (q) =>
-        q.eq("tenantId", tenantId).eq("leadId", opportunity.leadId),
-      )
-      .first();
-
-    if (customer) {
-      await ctx.db.patch("paymentRecords", paymentId, { customerId: customer._id });
-      await replacePaymentAggregate(ctx, paymentBeforeCustomerLink, paymentId);
-      await syncCustomerPaymentSummary(ctx, customer._id);
-    }
     // The person's enrollments follow their payments (§4.1). A payment for a
-    // program the person already has changes nothing.
-    await syncPersonEnrollments(ctx, { tenantId, leadId: opportunity.leadId, now });
+    // program the person already has creates no enrollment, and the sync
+    // rebuilds the search row, whose total includes it. We deliberately do
+    // NOT touch the opportunity status or sold-program cache.
+    await syncPersonEnrollments(ctx, {
+      tenantId,
+      leadId: opportunity.leadId,
+      now,
+      source: isAdmin ? "admin" : "closer",
+      actorUserId: userId,
+    });
 
     // Revenue delta only — the deal was already counted as won, and the
     // opportunity is already inactive, so no wonDeal / activeOpportunity change.
@@ -236,6 +218,6 @@ export const recordAdditionalPayment = mutation({
       },
     });
 
-    return { paymentId, customerId: customer?._id };
+    return { paymentId };
   },
 });

@@ -19,11 +19,7 @@ import {
 } from "./lib/attribution/dealAttributions";
 import { deriveStoredEventLinks, storedLeadIdMatches } from "./lib/domainEventLinks";
 import { getPersonProgramEnrollment } from "./enrollments/read";
-import {
-  derivePersonEnrollments,
-  paymentCounts,
-  syncPersonEnrollments,
-} from "./lib/enrollments";
+import { derivePersonEnrollments, paymentCounts } from "./lib/enrollments";
 import { lifecycleProblems } from "./lib/leadLifecycle";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import {
@@ -826,38 +822,15 @@ export const assertDealAttributions = migrations.define({
   },
 });
 
-// Phase 4 (docs/plans/phase-4-customers.md §10.1, §10.2). The backfill writes
-// each customer's person's enrollments from their payments and carries the
-// customer row's status onto the enrollment for its program. The two asserts
-// stay as health checks; run them with "reset" at any time.
+// Phase 4 (docs/plans/phase-4-customers.md §10.2). The two asserts stay as
+// health checks; run them with "reset" at any time. `backfillEnrollments`
+// (§10.1) ran before PR 4 and is gone: from PR 4 the enrollment's status is
+// no longer copied to the customer row, so a rerun would overwrite a newer
+// status with the row's.
 
-/** The status fields an enrollment takes from its customer row, if any differ. */
-function customerStatusPatch(customer: Doc<"customers">, enrollment: Doc<"enrollments">) {
-  const patch: Partial<Pick<Doc<"enrollments">, "status" | "statusChangedAt">> = {};
-  if (enrollment.status !== customer.status) patch.status = customer.status;
-  const changedAt = customer.status === "active" ? undefined : (customer.churnedAt ?? customer.pausedAt);
-  if (changedAt !== undefined && enrollment.statusChangedAt !== changedAt) patch.statusChangedAt = changedAt;
-  return patch;
-}
-
-// No event, counter or stage: the customer rows already did those. A rerun
-// finds what the first run wrote and changes nothing.
-export const backfillEnrollments = migrations.define({
-  table: "customers", batchSize: 50,
-  migrateOne: async (ctx, customer) => {
-    const { tenantId, leadId } = customer;
-    await syncPersonEnrollments(ctx, { tenantId, leadId });
-    const enrollment = await getPersonProgramEnrollment(ctx, tenantId, leadId, customer.programId);
-    if (!enrollment) {
-      throw new Error(`Customer ${customer._id}: no payment for its program ${customer.programId}, so no enrollment to take its status`);
-    }
-    const patch = customerStatusPatch(customer, enrollment);
-    if (Object.keys(patch).length > 0) await ctx.db.patch("enrollments", enrollment._id, patch);
-  },
-});
-
-// Each enrollment against the payments it derives from, the person it
-// belongs to, and, until PR 4 deletes them, the person's customer row.
+// Each enrollment against the payments it derives from and the person it
+// belongs to. From PR 4 no customer row is written or kept in step, so none
+// is compared.
 export const assertEnrollments = migrations.define({
   table: "enrollments", batchSize: 100,
   migrateOne: async (ctx, enrollment) => {
@@ -879,23 +852,6 @@ export const assertEnrollments = migrations.define({
     const lead = await ctx.db.get("leads", leadId);
     if (!lead || lead.tenantId !== tenantId) throw fail(`person ${leadId} is missing`);
     if (lead.status !== "converted") throw fail(`person ${leadId} is ${lead.status}, expected converted`);
-
-    const customer = await ctx.db
-      .query("customers")
-      .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
-      .first();
-    if (!customer) return;
-    if (customer.programId === programId && customer.status !== enrollment.status) {
-      throw fail(`status ${enrollment.status}, its customer ${customer._id} is ${customer.status}`);
-    }
-    // The person's first enrollment checks the person-level facts once.
-    if (derived[0].programId !== programId) return;
-    if (enrollment.enrolledAt !== customer.convertedAt) {
-      throw fail(`first enrollment at ${enrollment.enrolledAt}, its customer ${customer._id} converted at ${customer.convertedAt}`);
-    }
-    if (!derived.some((entry) => entry.programId === customer.programId)) {
-      throw fail(`customer ${customer._id}'s program ${customer.programId} has no enrollment`);
-    }
   },
 });
 

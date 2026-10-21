@@ -2,10 +2,16 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { listPersonEnrollments } from "../enrollments/read";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
+import { emitDomainEvent, type DomainEventSource } from "./domainEvents";
+import { countsAsLead } from "./leadLifecycle";
+import { validateLeadTransition } from "./statusTransitions";
+import { updateTenantStats } from "./tenantStatsHelper";
 
 // A person's enrollments come from their payments, and this module is the one
 // place that derives and writes them (docs/plans/phase-4-customers.md §4.1).
-// Every payment write path, the backfill and the assert call it.
+// Every payment write path and the assert call it. A person with an
+// enrollment is a customer: the sync also keeps `leads.status` and the
+// customer counters in step (§4.2, §4.3).
 
 // The largest person in production has 19 deals. Past these limits the
 // derivation would read part of the payments, so it throws instead.
@@ -65,8 +71,8 @@ export async function readDealPayments(
  * earliest payment on any of the person's deals that isn't disputed, by
  * `recordedAt`, then creation order. Oldest first.
  *
- * A payment with no deal doesn't count. Only `recordCustomerPayment` writes
- * one, and it has never run in production.
+ * A payment with no deal doesn't count. Only the retired
+ * `recordCustomerPayment` wrote one, and it never ran in production.
  */
 export async function derivePersonEnrollments(
   ctx: QueryCtx | MutationCtx,
@@ -106,6 +112,9 @@ export async function derivePersonEnrollments(
 
 export type EnrollmentChange = { before: Doc<"enrollments">; after: Doc<"enrollments"> };
 
+/** Why an enrollment was deleted. A merge deletes the source's copy of a program the target has (§4.7). */
+export type EnrollmentRemovalReason = "no_payment" | "duplicate" | "merge";
+
 export type EnrollmentSyncResult = {
   /** Inserted as `active`, one per program that had none. */
   created: Doc<"enrollments">[];
@@ -116,6 +125,21 @@ export type EnrollmentSyncResult = {
   removed: Array<{ enrollment: Doc<"enrollments">; reason: "no_payment" | "duplicate" }>;
   hadEnrollments: boolean;
   hasEnrollments: boolean;
+};
+
+/** Who caused a sync, for the events it emits. */
+export type EnrollmentSyncActor = {
+  source: DomainEventSource;
+  /** Missing for a system write; may name a user whose row is gone. */
+  actorUserId?: Id<"users">;
+};
+
+export type PersonEnrollmentSyncResult = EnrollmentSyncResult & {
+  /**
+   * How `leads.status` moved: `converted` when a person with an enrollment
+   * was `active`, `reverted` when a person with none was `converted`.
+   */
+  leadStatusChange: "converted" | "reverted" | null;
 };
 
 /**
@@ -152,10 +176,7 @@ function pairRepoints(orphans: Doc<"enrollments">[], unmatched: DerivedEnrollmen
 
 /**
  * Writes the difference between a person's enrollments and what their
- * payments call for (§4.1). Call it after any write that adds a payment,
- * disputes one, changes its program or time, or moves its deal to another
- * person. It runs inside the caller's mutation, so a retried or concurrent
- * write finds what this one wrote (§4.8).
+ * payments call for (§4.1), and nothing else.
  *
  * - A program with a counting payment and no enrollment gets one, `active`.
  * - An enrollment whose deal or time differs from its program's earliest
@@ -164,19 +185,13 @@ function pairRepoints(orphans: Doc<"enrollments">[], unmatched: DerivedEnrollmen
  *   unless a program with no enrollment appeared at the same time: then it
  *   moves to that program (`pairRepoints`).
  * - Two enrollments for one program: the oldest stays, the others go.
- *
- * It then rebuilds the person's search row, whose lifecycle, status and
- * totals come from the enrollments and payments (§6.1). It rebuilds on every
- * call: an additional payment or an amount correction changes the total
- * without changing an enrollment. Until PR 4 it writes no event, counter or
- * lead status; the result lists every change so PR 4 can add those.
  */
-export async function syncPersonEnrollments(
+async function writeEnrollmentDifference(
   ctx: MutationCtx,
-  args: { tenantId: Id<"tenants">; leadId: Id<"leads">; now?: number },
+  tenantId: Id<"tenants">,
+  leadId: Id<"leads">,
+  now: number,
 ): Promise<EnrollmentSyncResult> {
-  const { tenantId, leadId } = args;
-  const now = args.now ?? Date.now();
   const derived = await derivePersonEnrollments(ctx, tenantId, leadId);
   const existing = await listPersonEnrollments(ctx, tenantId, leadId);
   const result: EnrollmentSyncResult = {
@@ -243,7 +258,143 @@ export async function syncPersonEnrollments(
     await ctx.db.delete("enrollments", enrollment._id);
     result.removed.push({ enrollment, reason: "no_payment" });
   }
-
-  await rebuildLeadCustomerSearchRow(ctx, tenantId, leadId);
   return result;
+}
+
+/**
+ * The enrollment rows only, for migrations: no event, counter or lead
+ * status (§10). It rebuilds the person's search row, which is a projection
+ * of the rows it writes.
+ */
+export async function writePersonEnrollments(
+  ctx: MutationCtx,
+  args: { tenantId: Id<"tenants">; leadId: Id<"leads">; now?: number },
+): Promise<EnrollmentSyncResult> {
+  const result = await writeEnrollmentDifference(ctx, args.tenantId, args.leadId, args.now ?? Date.now());
+  await rebuildLeadCustomerSearchRow(ctx, args.tenantId, args.leadId);
+  return result;
+}
+
+/**
+ * An `enrollment.*` event. Its metadata names the person, program and deal,
+ * so the event finds the person after the enrollment is gone (§4.10). None
+ * is a touch.
+ */
+export async function emitEnrollmentEvent(
+  ctx: MutationCtx,
+  enrollment: Doc<"enrollments">,
+  event: EnrollmentSyncActor & {
+    eventType: "enrollment.created" | "enrollment.removed" | "enrollment.status_changed";
+    occurredAt: number;
+    reason?: string;
+    fromStatus?: string;
+    toStatus?: string;
+  },
+): Promise<void> {
+  await emitDomainEvent(ctx, {
+    tenantId: enrollment.tenantId,
+    entityType: "enrollment",
+    entityId: enrollment._id,
+    eventType: event.eventType,
+    source: event.source,
+    actorUserId: event.actorUserId,
+    fromStatus: event.fromStatus,
+    toStatus: event.toStatus,
+    reason: event.reason,
+    occurredAt: event.occurredAt,
+    metadata: {
+      leadId: enrollment.leadId,
+      programId: enrollment.programId,
+      opportunityId: enrollment.opportunityId,
+    },
+  });
+}
+
+/**
+ * Keeps `leads.status` equal to whether the person has an enrollment. The
+ * state comes from the lead, not from what the sync found before, so a
+ * person left `converted` with no counting payment goes back too.
+ */
+async function syncLeadConversion(
+  ctx: MutationCtx,
+  args: { tenantId: Id<"tenants">; leadId: Id<"leads">; now: number; hasEnrollments: boolean } & EnrollmentSyncActor,
+): Promise<PersonEnrollmentSyncResult["leadStatusChange"]> {
+  const lead = await ctx.db.get("leads", args.leadId);
+  // A merged person's deals and enrollments have moved to the target.
+  if (!lead || lead.tenantId !== args.tenantId || lead.status === "merged") {
+    return null;
+  }
+  const to = args.hasEnrollments ? "converted" : "active";
+  if (lead.status === to) {
+    return null;
+  }
+  if (!validateLeadTransition(lead.status, to)) {
+    throw new Error(`Person ${lead._id} can't move from ${lead.status} to ${to}`);
+  }
+  await ctx.db.patch("leads", lead._id, { status: to, updatedAt: args.now });
+  // `totalLeads` counts active people past Prospect (`countsAsLead`).
+  await updateTenantStats(
+    ctx,
+    args.tenantId,
+    args.hasEnrollments
+      ? { totalCustomers: 1, totalLeads: countsAsLead(lead) ? -1 : 0 }
+      : { totalCustomers: -1, totalLeads: countsAsLead({ ...lead, status: to }) ? 1 : 0 },
+  );
+  await emitDomainEvent(ctx, {
+    tenantId: args.tenantId,
+    entityType: "lead",
+    entityId: lead._id,
+    eventType: "lead.status_changed",
+    source: args.source,
+    actorUserId: args.actorUserId,
+    fromStatus: lead.status,
+    toStatus: to,
+    reason: args.hasEnrollments ? "enrolled" : "no_enrollment",
+    occurredAt: args.now,
+  });
+  return args.hasEnrollments ? "converted" : "reverted";
+}
+
+/**
+ * Brings a person's enrollments, customer state and search row up to date
+ * with their payments. Every live write that adds a payment, disputes one,
+ * changes its program or time, or moves its deal to another person calls it
+ * once, inside its own mutation, so a retried or concurrent write finds what
+ * this one wrote (§4.8).
+ *
+ * After writing the enrollments (`writeEnrollmentDifference`), it emits
+ * `enrollment.created` and `enrollment.removed` for each row it inserted or
+ * deleted; moving one to another payment or program emits nothing. Then a
+ * person with an enrollment who is `active` becomes `converted`, and one
+ * with none who is `converted` goes back to `active`, with the customer and
+ * lead counters and a `lead.status_changed` event (§4.2, §4.3). The
+ * lifecycle stage is not its business: `recordPayment` and
+ * `correctLeadLifecycle` move it.
+ *
+ * It rebuilds the search row on every call: an additional payment or an
+ * amount correction changes the total without changing an enrollment.
+ */
+export async function syncPersonEnrollments(
+  ctx: MutationCtx,
+  args: { tenantId: Id<"tenants">; leadId: Id<"leads">; now?: number } & EnrollmentSyncActor,
+): Promise<PersonEnrollmentSyncResult> {
+  const { tenantId, leadId } = args;
+  const now = args.now ?? Date.now();
+  const actor = { source: args.source, actorUserId: args.actorUserId };
+  const result = await writeEnrollmentDifference(ctx, tenantId, leadId, now);
+  for (const { enrollment, reason } of result.removed) {
+    await emitEnrollmentEvent(ctx, enrollment, { ...actor, eventType: "enrollment.removed", reason, occurredAt: now });
+  }
+  for (const enrollment of result.created) {
+    await emitEnrollmentEvent(ctx, enrollment, { ...actor, eventType: "enrollment.created", occurredAt: now });
+  }
+  const leadStatusChange = await syncLeadConversion(ctx, {
+    tenantId,
+    leadId,
+    now,
+    hasEnrollments: result.hasEnrollments,
+    ...actor,
+  });
+  await rebuildLeadCustomerSearchRow(ctx, tenantId, leadId);
+  return { ...result, leadStatusChange };
 }

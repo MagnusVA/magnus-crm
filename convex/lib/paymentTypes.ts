@@ -48,7 +48,7 @@ export type LegacyCompatiblePaymentFields = {
   attributedCloserId?: Id<"users">;
   closerId?: Id<"users">;
   commissionable?: boolean;
-  contextType: "opportunity" | "customer";
+  contextType?: "opportunity" | "customer";
   origin?: string | null;
   recordedByUserId?: Id<"users">;
   loggedByAdminUserId?: Id<"users">;
@@ -128,7 +128,7 @@ export function isLegacyCompatibleNonCommissionableOrigin(
 
 export function normalizePaymentOrigin(
   origin: string | undefined | null,
-  contextType: "opportunity" | "customer",
+  contextType?: "opportunity" | "customer",
 ): PaymentOrigin {
   if (origin === "customer_flow") {
     return "customer_direct";
@@ -225,9 +225,7 @@ export type AssertablePaymentShape = {
   attributedCloserId: Id<"users"> | undefined;
   recordedByUserId: Id<"users">;
   origin: PaymentOrigin;
-  contextType: "opportunity" | "customer";
   opportunityId: Id<"opportunities"> | undefined;
-  customerId: Id<"customers"> | undefined;
   programId: Id<"tenantPrograms">;
   paymentType: PaymentType;
 };

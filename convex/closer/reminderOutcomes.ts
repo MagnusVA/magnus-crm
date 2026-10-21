@@ -2,7 +2,6 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { mutation } from "../_generated/server";
-import { executeConversion } from "../customers/conversion";
 import { recordCloserReassignment } from "../lib/attribution/dealAttributions";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { syncPersonEnrollments } from "../lib/enrollments";
@@ -12,7 +11,6 @@ import { transitionOpportunity } from "../lib/opportunityActivity";
 import {
   assertPaymentRow,
   resolveProgramForWrite,
-  syncCustomerPaymentSummary,
   type CommissionableOrigin,
 } from "../lib/paymentHelpers";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
@@ -158,9 +156,7 @@ export const logReminderPayment = mutation({
       attributedCloserId,
       recordedByUserId: userId,
       origin,
-      contextType: "opportunity",
       opportunityId: opportunity._id,
-      customerId: undefined,
       programId: program._id,
       paymentType,
     });
@@ -181,7 +177,6 @@ export const logReminderPayment = mutation({
       status: "recorded",
       statusChangedAt: now,
       recordedAt: now,
-      contextType: "opportunity",
       origin,
     });
     await recordPayment(ctx, paymentId);
@@ -271,33 +266,15 @@ export const logReminderPayment = mutation({
       occurredAt: now,
     });
 
-    // The person's enrollments follow their payments
-    // (docs/plans/phase-4-customers.md §4.1).
-    await syncPersonEnrollments(ctx, { tenantId, leadId: opportunity.leadId, now });
-
-    const customerId = await executeConversion(ctx, {
+    // The person's enrollments follow their payments, and their first one
+    // makes them a customer (docs/plans/phase-4-customers.md §4.1, §4.2).
+    await syncPersonEnrollments(ctx, {
       tenantId,
       leadId: opportunity.leadId,
-      convertedByUserId: userId,
-      winningOpportunityId: opportunity._id,
-      winningMeetingId: meetingId,
+      now,
+      source: role === "closer" ? "closer" : "admin",
+      actorUserId: userId,
     });
-
-    if (customerId) {
-      await ctx.db.patch("paymentRecords", paymentId, { customerId });
-      await syncCustomerPaymentSummary(ctx, customerId);
-    } else {
-      const existingCustomer = await ctx.db
-        .query("customers")
-        .withIndex("by_tenantId_and_leadId", (q) =>
-          q.eq("tenantId", tenantId).eq("leadId", opportunity.leadId),
-        )
-        .first();
-      if (existingCustomer) {
-        await ctx.db.patch("paymentRecords", paymentId, { customerId: existingCustomer._id });
-        await syncCustomerPaymentSummary(ctx, existingCustomer._id);
-      }
-    }
 
     return paymentId;
   },

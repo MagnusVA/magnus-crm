@@ -73,7 +73,7 @@ it("rejects a placeholder email for a new side-deal lead", async () => {
   expect(state.opportunities).toHaveLength(0);
 });
 
-it("asks for the lead's email when a payment would convert a lead without one", async () => {
+it("makes a person with no email a customer through a side deal payment", async () => {
   vi.useFakeTimers();
   const { t, tenantId, closer } = await bookingHarness();
   const { leadId, programId } = await t.run(async (ctx) => {
@@ -105,15 +105,21 @@ it("asks for the lead's email when a payment would convert a lead without one", 
     { clientRequestId: "no-email", existingLeadId: leadId },
   );
 
-  await expect(
-    closer.mutation(api.sideDeals.logPayment.logPayment, {
-      opportunityId,
-      amount: 100,
-      currency: "USD",
-      programId,
-      paymentType: "pif",
-    }),
-  ).rejects.toThrow("customer.lead_email_missing");
-  const payments = await t.run((ctx) => ctx.db.query("paymentRecords").take(1));
-  expect(payments).toHaveLength(0);
+  await closer.mutation(api.sideDeals.logPayment.logPayment, {
+    opportunityId,
+    amount: 100,
+    currency: "USD",
+    programId,
+    paymentType: "pif",
+  });
+
+  const state = await t.run(async (ctx) => ({
+    lead: await ctx.db.get("leads", leadId),
+    enrollments: await ctx.db.query("enrollments").take(2),
+    customers: await ctx.db.query("customers").take(1),
+  }));
+  expect(state.lead).toMatchObject({ status: "converted", lifecycleStage: "customer" });
+  expect(state.lead?.email).toBeUndefined();
+  expect(state.enrollments).toMatchObject([{ leadId, programId, opportunityId }]);
+  expect(state.customers).toEqual([]);
 });

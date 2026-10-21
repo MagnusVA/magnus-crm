@@ -11,8 +11,8 @@ type Harness = Awaited<ReturnType<typeof bookingHarness>>;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-// A customer: a converted lead with a customer row and the won Slack deal
-// that converted it.
+// A customer: a converted lead, the won Slack deal whose payment converted
+// it, and the enrollment that payment made.
 async function customerWithWonDeal(harness: Harness) {
   const { t, tenantId } = harness;
   return await t.run(async (ctx) => {
@@ -60,16 +60,27 @@ async function customerWithWonDeal(harness: Harness) {
       createdByUserId: adminId,
       updatedAt: 0,
     });
-    const customerId = await ctx.db.insert("customers", {
+    await ctx.db.insert("paymentRecords", {
       tenantId,
-      leadId,
-      fullName: "Repeat Buyer",
-      email: "repeat@example.com",
-      convertedAt: now,
-      convertedByUserId: adminId,
-      winningOpportunityId: opportunityId,
+      opportunityId,
+      attributedCloserId: adminId,
+      recordedByUserId: adminId,
+      commissionable: true,
+      amountMinor: 50000,
+      currency: "USD",
       programId,
       programName: "First Program",
+      paymentType: "pif",
+      status: "recorded",
+      recordedAt: now,
+      origin: "admin_meeting",
+    });
+    await ctx.db.insert("enrollments", {
+      tenantId,
+      leadId,
+      programId,
+      opportunityId,
+      enrolledAt: now,
       status: "active",
       createdAt: now,
     });
@@ -80,7 +91,7 @@ async function customerWithWonDeal(harness: Harness) {
       notifyChannelName: "qualified", installedByWorkosUserId: "user_slack",
       installedAt: 0, tokenExpiresAt: 0, refreshToken: "r", status: "active",
     });
-    return { leadId, opportunityId, customerId, programId, installationId };
+    return { leadId, opportunityId, programId, installationId, adminId };
   });
 }
 
@@ -154,42 +165,66 @@ describe("a second program", () => {
     expect(pending).toHaveLength(2);
   });
 
-  it("records a customer's side-deal payment on the same customer", async () => {
+  it("adds a customer's side-deal payment to their enrollment, or enrolls them in a second program", async () => {
     vi.useFakeTimers();
     const harness = await bookingHarness();
-    const { leadId, customerId, programId } = await customerWithWonDeal(harness);
+    const { leadId, opportunityId, programId, adminId } = await customerWithWonDeal(harness);
+    const secondProgramId = await harness.t.run((ctx) =>
+      ctx.db.insert("tenantPrograms", {
+        tenantId: harness.tenantId, name: "Second Program", normalizedName: "second program",
+        createdAt: 0, createdByUserId: adminId, updatedAt: 0,
+      }),
+    );
+    const pay = async (key: string, program: Id<"tenantPrograms">) => {
+      const created = await harness.closer.mutation(
+        api.opportunities.createManual.createManual,
+        { clientRequestId: key, existingLeadId: leadId },
+      );
+      expect(created).toMatchObject({ leadId, leadWasCreated: false });
+      vi.setSystemTime(Date.now() + DAY_MS);
+      const { paymentId } = await harness.closer.mutation(api.sideDeals.logPayment.logPayment, {
+        opportunityId: created.opportunityId, amount: 250, currency: "USD", programId: program, paymentType: "pif",
+      });
+      return { opportunityId: created.opportunityId, paymentId };
+    };
+    const enrollments = () =>
+      harness.t.run((ctx) =>
+        ctx.db
+          .query("enrollments")
+          .withIndex("by_tenantId_and_leadId_and_programId", (q) =>
+            q.eq("tenantId", harness.tenantId).eq("leadId", leadId),
+          )
+          .take(5),
+      );
+    const [first] = await enrollments();
 
-    const created = await harness.closer.mutation(
-      api.opportunities.createManual.createManual,
-      { clientRequestId: "second-program", existingLeadId: leadId },
-    );
-    expect(created).toMatchObject({ leadId, leadWasCreated: false });
-    const { paymentId } = await harness.closer.mutation(
-      api.sideDeals.logPayment.logPayment,
-      {
-        opportunityId: created.opportunityId,
-        amount: 250,
-        currency: "USD",
-        programId,
-        paymentType: "pif",
-      },
-    );
+    const renewal = await pay("same-program", programId);
+    expect(await enrollments()).toEqual([first]);
+    const second = await pay("second-program", secondProgramId);
 
     const state = await harness.t.run(async (ctx) => ({
-      payment: await ctx.db.get("paymentRecords", paymentId),
-      customers: await ctx.db
-        .query("customers")
-        .withIndex("by_tenantId_and_leadId", (q) =>
-          q.eq("tenantId", harness.tenantId).eq("leadId", leadId),
-        )
-        .take(5),
+      payment: await ctx.db.get("paymentRecords", renewal.paymentId),
+      customers: await ctx.db.query("customers").take(5),
       lead: await ctx.db.get("leads", leadId),
+      row: await ctx.db
+        .query("leadCustomerSearchRows")
+        .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", harness.tenantId).eq("leadId", leadId))
+        .unique(),
     }));
-    expect(state.payment?.customerId).toBe(customerId);
-    expect(state.customers.map((customer) => customer._id)).toEqual([customerId]);
-    expect(state.customers[0]).toMatchObject({ totalPaidMinor: 25000 });
+    expect(state.payment?.customerId).toBeUndefined();
+    expect(state.customers).toEqual([]);
     expect(state.lead?.status).toBe("converted");
+    expect(await enrollments()).toEqual(
+      expect.arrayContaining([
+        first,
+        expect.objectContaining({ programId: secondProgramId, opportunityId: second.opportunityId, status: "active" }),
+      ]),
+    );
+    expect(first).toMatchObject({ opportunityId, programId });
+    // The list's total counts every deal's payments.
+    expect(state.row).toMatchObject({ lifecycle: "customer", totalPaidMinor: 50000 + 25000 + 25000 });
     expect((await leadOpportunities(harness, leadId)).map((o) => o.status).sort()).toEqual([
+      "payment_received",
       "payment_received",
       "payment_received",
     ]);
