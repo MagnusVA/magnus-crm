@@ -11,7 +11,10 @@ import {
 
 // New customers the dashboard reads in one period at most; past it the count
 // is a lower bound. Production has 274 customers in all.
-export const MAX_NEW_CUSTOMER_SCAN_ROWS = 2500;
+const MAX_NEW_CUSTOMER_SCAN_ROWS = 2500;
+
+/** A period's new customers; `isTruncated` says the read stopped at its cap. */
+export type NewCustomerCount = { count: number; isTruncated: boolean };
 
 /** Customers converted in [periodStart, periodEnd), from the customer rows. */
 export async function countNewCustomersFromCustomers(
@@ -19,7 +22,7 @@ export async function countNewCustomersFromCustomers(
   tenantId: Id<"tenants">,
   periodStart: number,
   periodEnd: number,
-): Promise<number> {
+): Promise<NewCustomerCount> {
   const customers = await ctx.db
     .query("customers")
     .withIndex("by_tenantId_and_convertedAt", (q) =>
@@ -28,8 +31,11 @@ export async function countNewCustomersFromCustomers(
         .gte("convertedAt", periodStart)
         .lt("convertedAt", periodEnd),
     )
-    .take(MAX_NEW_CUSTOMER_SCAN_ROWS);
-  return customers.length;
+    .take(MAX_NEW_CUSTOMER_SCAN_ROWS + 1);
+  return {
+    count: Math.min(customers.length, MAX_NEW_CUSTOMER_SCAN_ROWS),
+    isTruncated: customers.length > MAX_NEW_CUSTOMER_SCAN_ROWS,
+  };
 }
 
 /**
@@ -41,15 +47,15 @@ export async function countNewCustomersFromEnrollments(
   tenantId: Id<"tenants">,
   periodStart: number,
   periodEnd: number,
-): Promise<number> {
-  const { enrollments } = await listFirstEnrollmentsInRange(
+): Promise<NewCustomerCount> {
+  const { enrollments, isTruncated } = await listFirstEnrollmentsInRange(
     ctx,
     tenantId,
     periodStart,
     periodEnd,
     MAX_NEW_CUSTOMER_SCAN_ROWS,
   );
-  return enrollments.length;
+  return { count: enrollments.length, isTruncated };
 }
 
 /**
@@ -235,7 +241,7 @@ export const getTimePeriodStats = query({
       postConversionDepositsInPeriod;
 
     // 4. New customers converted in period
-    const newCustomers = await countNewCustomersFromCustomers(
+    const { count: newCustomers } = await countNewCustomersFromCustomers(
       ctx,
       tenantId,
       periodStart,

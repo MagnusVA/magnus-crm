@@ -53,8 +53,8 @@ describe("admin dashboard new customers", () => {
     const fromCustomers = await t.run((ctx) =>
       countNewCustomersFromCustomers(ctx, tenantId, JUNE.start, JUNE.end),
     );
-    expect(fromEnrollments).toBe(2);
-    expect(fromCustomers).toBe(2);
+    expect(fromEnrollments).toEqual({ count: 2, isTruncated: false });
+    expect(fromCustomers).toEqual({ count: 2, isTruncated: false });
   });
 
   it("reports the period's new customers", async () => {
