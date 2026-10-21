@@ -1,6 +1,6 @@
 # Phase 4: customers
 
-Status: done, 2026-10-21. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted D1 to D16 and answered Q1 to Q4 (§11.1), and approved every production run in §9 and §10. PRs #153 to #160 are merged and deployed, and every run in §13 passed, through the checks after the narrow (#160), which dropped the `customers` table and the fields that named it. The customers export was deleted when the phase ended; #161 records the narrow's deploy and the checks after it.
+Status: done, 2026-10-21. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted D1 to D16 and answered Q1 to Q4 (§11.1), and approved every production run in §9 and §10. PRs #153 to #160 are merged (#153 is this plan; #154 to #160 deployed), and every run in §13 passed, through the checks after the narrow (#160), which dropped the `customers` table and the fields that named it. The customers export was deleted when the phase ended; #161 records the narrow's deploy and the checks after it.
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (finding F4, target rule "A customer is a stage, not a table" in §6) and the Phase 4 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 3 is in [phase-3-attribution.md](phase-3-attribution.md).
 
