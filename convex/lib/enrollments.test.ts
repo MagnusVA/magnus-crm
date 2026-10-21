@@ -10,7 +10,12 @@ import {
   insertProgram,
   type EnrollmentHarness,
 } from "../../tests/enrollmentFixtures";
-import { derivePersonEnrollments, syncPersonEnrollments, writePersonEnrollments } from "./enrollments";
+import {
+  combinedEnrollmentStatus,
+  derivePersonEnrollments,
+  syncPersonEnrollments,
+  writePersonEnrollments,
+} from "./enrollments";
 
 // The one rule that derives a person's enrollments from their payments, and
 // the customer state that follows them (docs/plans/phase-4-customers.md §4.1
@@ -492,3 +497,40 @@ describe("syncPersonEnrollments: the person becomes a customer and back (§4.2, 
     expect(await events(harness)).toEqual([]);
   });
 });
+
+describe("combinedEnrollmentStatus (§4.7)", () => {
+  const admin = "admin" as Id<"users">;
+  const closer = "closer" as Id<"users">;
+
+  it("takes the status an admin changed most recently", () => {
+    expect(
+      combinedEnrollmentStatus(
+        { status: "churned", statusChangedAt: T2, statusChangedByUserId: closer },
+        { status: "paused", statusChangedAt: T1, statusChangedByUserId: admin },
+      ),
+    ).toEqual({ status: "churned", statusChangedAt: T2, statusChangedByUserId: closer });
+    expect(
+      combinedEnrollmentStatus(
+        { status: "churned", statusChangedAt: T1, statusChangedByUserId: closer },
+        { status: "paused", statusChangedAt: T2, statusChangedByUserId: admin },
+      ),
+    ).toEqual({ status: "paused", statusChangedAt: T2, statusChangedByUserId: admin });
+  });
+
+  it("keeps the target's on a tie, and a changed one over one never changed", () => {
+    expect(
+      combinedEnrollmentStatus(
+        { status: "churned", statusChangedAt: T1, statusChangedByUserId: closer },
+        { status: "paused", statusChangedAt: T1, statusChangedByUserId: admin },
+      ).status,
+    ).toBe("paused");
+    expect(combinedEnrollmentStatus({ status: "active" }, { status: "churned", statusChangedAt: T1 }).status).toBe("churned");
+  });
+
+  it("is active when neither was changed", () => {
+    expect(combinedEnrollmentStatus({ status: "paused" }, { status: "churned" })).toEqual({
+      status: "active", statusChangedAt: undefined, statusChangedByUserId: undefined,
+    });
+  });
+});
+
