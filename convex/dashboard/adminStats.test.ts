@@ -10,13 +10,11 @@ import {
   insertDeal,
   insertEnrollment,
   insertPayment,
+  insertPerson,
   insertProgram,
   seedCustomer,
 } from "../../tests/enrollmentReadFixtures";
-import {
-  countNewCustomersFromCustomers,
-  countNewCustomersFromEnrollments,
-} from "./adminStats";
+import { countNewCustomersFromEnrollments } from "./adminStats";
 
 const JUNE = { start: Date.parse("2026-06-01T00:00:00Z"), end: Date.parse("2026-07-01T00:00:00Z") };
 
@@ -40,6 +38,13 @@ async function seed() {
     // Two new customers in June.
     await seedCustomer(ctx, tenantId, { closerId: closer._id, programId: first, paidAt: Date.parse("2026-06-10T12:00:00Z") });
     await seedCustomer(ctx, tenantId, { closerId: closer._id, programId: second, paidAt: Date.parse("2026-06-11T12:00:00Z") });
+    // A third with an enrollment and no customer row, as a person with no
+    // email becomes a customer from PR 4 on.
+    const noEmail = await insertPerson(ctx, tenantId, { fullName: "No email", status: "converted" });
+    const noEmailDeal = await insertDeal(ctx, { tenantId, leadId: noEmail, assignedCloserId: closer._id });
+    const noEmailPaidAt = Date.parse("2026-06-15T12:00:00Z");
+    await insertPayment(ctx, { tenantId, opportunityId: noEmailDeal, programId: first, recordedByUserId: closer._id, recordedAt: noEmailPaidAt });
+    await insertEnrollment(ctx, { tenantId, leadId: noEmail, programId: first, opportunityId: noEmailDeal, enrolledAt: noEmailPaidAt });
   });
   return harness;
 }
@@ -50,19 +55,15 @@ describe("admin dashboard new customers", () => {
     const fromEnrollments = await t.run((ctx) =>
       countNewCustomersFromEnrollments(ctx, tenantId, JUNE.start, JUNE.end),
     );
-    const fromCustomers = await t.run((ctx) =>
-      countNewCustomersFromCustomers(ctx, tenantId, JUNE.start, JUNE.end),
-    );
-    expect(fromEnrollments).toEqual({ count: 2, isTruncated: false });
-    expect(fromCustomers).toEqual({ count: 2, isTruncated: false });
+    expect(fromEnrollments).toEqual({ count: 3, isTruncated: false });
   });
 
-  it("reports the period's new customers", async () => {
+  it("reports the period's new customers from enrollments", async () => {
     const { admin } = await seed();
     const stats = await admin.query(api.dashboard.adminStats.getTimePeriodStats, {
       periodStart: JUNE.start,
       periodEnd: JUNE.end,
     });
-    expect(stats.newCustomers).toBe(2);
+    expect(stats.newCustomers).toBe(3);
   });
 });

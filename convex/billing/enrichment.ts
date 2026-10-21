@@ -90,18 +90,6 @@ export function personBillingLabels(person: Doc<"leads"> | null): BillingLabels 
   };
 }
 
-/** The customer name, email and phone from the customer copy. */
-export function customerBillingLabels(customer: Doc<"customers"> | null): BillingLabels {
-  if (!customer) {
-    return NO_LABELS;
-  }
-  return {
-    fullName: customer.fullName || null,
-    email: customer.email || null,
-    phone: customer.phone ?? null,
-  };
-}
-
 async function firstResolvedMeeting(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
@@ -185,7 +173,7 @@ async function resolvePaymentMeeting(
   ]);
 }
 
-/** A payment's deal, meeting and person, as billing reads them from Phase 4 on. */
+/** A payment's deal, meeting and person: the customer billing names is the deal's person. */
 export async function resolveBillingFromPerson(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
@@ -197,97 +185,6 @@ export async function resolveBillingFromPerson(
     resolvePaymentMeeting(ctx, tenantId, payment, opportunity),
   ]);
   return { person, opportunity, meeting };
-}
-
-async function resolveCustomerFromOpportunity(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-  opportunity: Doc<"opportunities"> | null,
-) {
-  if (!opportunity) {
-    return null;
-  }
-  return await ctx.db
-    .query("customers")
-    .withIndex("by_tenantId_and_leadId", (q) =>
-      q.eq("tenantId", tenantId).eq("leadId", opportunity.leadId),
-    )
-    .first();
-}
-
-async function resolveBillingOpportunity(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-  payment: Doc<"paymentRecords">,
-  customer: Doc<"customers"> | null,
-) {
-  const opportunityIds = [
-    payment.opportunityId,
-    payment.originatingOpportunityId,
-    customer?.winningOpportunityId,
-  ].filter(
-    (opportunityId): opportunityId is Id<"opportunities"> =>
-      opportunityId !== undefined,
-  );
-
-  for (const opportunityId of opportunityIds) {
-    const opportunity = tenantOwned(await ctx.db.get("opportunities", opportunityId), tenantId);
-    if (opportunity) {
-      return opportunity;
-    }
-  }
-
-  return null;
-}
-
-async function resolveBillingMeeting(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-  payment: Doc<"paymentRecords">,
-  customer: Doc<"customers"> | null,
-  opportunity: Doc<"opportunities"> | null,
-) {
-  return await firstResolvedMeeting(ctx, tenantId, [
-    async () => payment.meetingId,
-    async () => customer?.winningMeetingId,
-    async () => opportunity?.firstMeetingId,
-    async () => opportunity?.latestMeetingId,
-  ]);
-}
-
-/**
- * A payment's customer row, deal and meeting, as billing read them before
- * Phase 4: the payment's customer, else its deal's person's, with the
- * customer's winning deal and meeting as fallbacks.
- */
-export async function resolveBillingFromCustomer(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-  payment: Doc<"paymentRecords">,
-) {
-  const directCustomer = payment.customerId
-    ? tenantOwned(await ctx.db.get("customers", payment.customerId), tenantId)
-    : null;
-  const opportunity = await resolveBillingOpportunity(
-    ctx,
-    tenantId,
-    payment,
-    directCustomer,
-  );
-  const fallbackCustomer = await resolveCustomerFromOpportunity(
-    ctx,
-    tenantId,
-    opportunity,
-  );
-  const customer = directCustomer ?? tenantOwned(fallbackCustomer, tenantId);
-  const meeting = await resolveBillingMeeting(
-    ctx,
-    tenantId,
-    payment,
-    customer,
-    opportunity,
-  );
-  return { customer, opportunity, meeting };
 }
 
 /**
@@ -469,25 +366,11 @@ async function enrichOneBillingPaymentListRow(
     throw new Error("Cross-tenant payment read blocked.");
   }
 
-  const directCustomer = payment.customerId
-    ? tenantOwned(await ctx.db.get("customers", payment.customerId), tenantId)
-    : null;
-
-  let customer = directCustomer;
-  if (!customer) {
-    const opportunity = await resolveBillingOpportunity(
-      ctx,
-      tenantId,
-      payment,
-      null,
-    );
-    const fallbackCustomer = await resolveCustomerFromOpportunity(
-      ctx,
-      tenantId,
-      opportunity,
-    );
-    customer = tenantOwned(fallbackCustomer, tenantId);
-  }
+  const person = await resolveDealPerson(
+    ctx,
+    tenantId,
+    await resolvePaymentDeal(ctx, tenantId, payment),
+  );
 
   return {
     payment: {
@@ -500,7 +383,7 @@ async function enrichOneBillingPaymentListRow(
       programName: payment.programName,
       hasProofFile: payment.proofFileId !== undefined,
     },
-    customer: customerBillingLabels(customer),
+    customer: personBillingLabels(person),
   };
 }
 
@@ -513,7 +396,7 @@ async function enrichOneBillingPaymentRow(
     throw new Error("Cross-tenant payment read blocked.");
   }
 
-  const { customer, opportunity, meeting } = await resolveBillingFromCustomer(
+  const { person, opportunity, meeting } = await resolveBillingFromPerson(
     ctx,
     tenantId,
     payment,
@@ -549,7 +432,7 @@ async function enrichOneBillingPaymentRow(
       fathomLink: payment.fathomLink ?? null,
       commissionable: payment.commissionable,
     },
-    customer: { id: customer?._id ?? null, ...customerBillingLabels(customer) },
+    customer: { leadId: person?._id ?? null, ...personBillingLabels(person) },
     opportunity: opportunity
       ? {
           id: opportunity._id,

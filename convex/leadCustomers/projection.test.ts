@@ -17,8 +17,9 @@ import {
   insertProgram,
   seedCustomer,
 } from "../../tests/enrollmentReadFixtures";
+import { api } from "../_generated/api";
+import { customerFieldsFromCustomerRow } from "../enrollments/customerCopy";
 import {
-  customerFieldsFromCustomerRow,
   customerFieldsFromEnrollments,
   latestActivityFor,
   loadPersonDeals,
@@ -36,7 +37,7 @@ async function fieldsFromEnrollments(harness: Harness, leadId: Id<"leads">) {
 }
 
 describe("customer fields from enrollments", () => {
-  it("throws rather than total part of a deal's payments past the derivation's limit", async () => {
+  it("shows no total rather than part of one past the derivation's limit, without failing", async () => {
     const harness = await bookingHarness();
     const { t, tenantId } = harness;
     const leadId = await t.run(async (ctx) => {
@@ -57,9 +58,10 @@ describe("customer fields from enrollments", () => {
       }
       return seeded.leadId;
     });
-    await expect(fieldsFromEnrollments(harness, leadId)).rejects.toThrow(
-      `more than ${ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT} payments`,
-    );
+    const fields = await fieldsFromEnrollments(harness, leadId);
+    expect(fields).toMatchObject({ isCustomer: true, customerStatus: "active", convertedAt: T0 });
+    expect(fields.totalPaidMinor).toBeUndefined();
+    expect(fields.paymentCurrency).toBeUndefined();
   });
 
   it("sums the person's payments that aren't disputed, across deals and programs", async () => {
@@ -194,33 +196,61 @@ describe("contact fields", () => {
   });
 });
 
-describe("search row rebuild before the readers switch", () => {
-  it("still projects the customer row and its copy", async () => {
-    const harness = await bookingHarness();
+describe("search row rebuild", () => {
+  async function seedRenamedCustomer(harness: Harness) {
     const { t, tenantId } = harness;
-    const { row, customerId } = await t.run(async (ctx) => {
+    return await t.run(async (ctx) => {
       const { admin, closer } = await fixtureUsers(ctx, tenantId);
       const program = await insertProgram(ctx, tenantId, admin._id, "Program");
       const seeded = await seedCustomer(ctx, tenantId, {
         closerId: closer._id, programId: program, paidAt: T0, fullName: "Old Name",
       });
+      // The row as the customer projection wrote it, then the person renamed.
+      await ctx.db.insert("leadCustomerSearchRows", {
+        tenantId, leadId: seeded.leadId, customerId: seeded.customerId, lifecycle: "customer",
+        isSearchVisible: true, leadStatus: "converted", customerStatus: "active", displayName: "Old Name",
+        searchText: "old name", opportunityCount: 1, wonOpportunityCount: 1, meetingCount: 1,
+        latestActivityAt: T0, firstSeenAt: T0 - 3 * DAY, convertedAt: T0, updatedAt: T0,
+      });
       await ctx.db.patch("leads", seeded.leadId, { fullName: "New Name" });
+      await ctx.db.patch("enrollments", seeded.enrollmentId, { status: "paused" });
       await rebuildLeadCustomerSearchRow(ctx, tenantId, seeded.leadId);
-      const row = await ctx.db
-        .query("leadCustomerSearchRows")
-        .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", seeded.leadId))
-        .unique();
-      return { row, customerId: seeded.customerId };
+      return seeded;
     });
+  }
 
+  async function searchRow(harness: Harness, leadId: Id<"leads">) {
+    return await harness.t.run((ctx) =>
+      ctx.db
+        .query("leadCustomerSearchRows")
+        .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", harness.tenantId).eq("leadId", leadId))
+        .unique(),
+    );
+  }
+
+  it("projects enrollments and the person, and no longer names the customer", async () => {
+    const harness = await bookingHarness();
+    const seeded = await seedRenamedCustomer(harness);
+    const row = await searchRow(harness, seeded.leadId);
     expect(row).toMatchObject({
-      customerId,
       lifecycle: "customer",
-      customerStatus: "active",
-      displayName: "Old Name",
+      customerStatus: "paused",
+      displayName: "New Name",
       convertedAt: T0,
       totalPaidMinor: 100_000,
       paymentCurrency: "USD",
     });
+    expect(row?.customerId).toBeUndefined();
+    expect(row?.searchText).not.toContain("old name");
+    expect(row?.searchText).not.toContain(seeded.customerId);
+  });
+
+  it("still finds the person by a pasted customer ID", async () => {
+    const harness = await bookingHarness();
+    const seeded = await seedRenamedCustomer(harness);
+    const results = await harness.admin.query(api.leadCustomers.queries.searchEntities, {
+      searchTerm: seeded.customerId,
+    });
+    expect(results).toEqual([expect.objectContaining({ leadId: seeded.leadId, displayName: "New Name" })]);
   });
 });

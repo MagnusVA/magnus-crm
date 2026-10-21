@@ -9,7 +9,6 @@ function pushValue(parts: string[], value: string | undefined) {
 
 export function buildLeadCustomerSearchText(input: {
   lead: Doc<"leads">;
-  customer: Doc<"customers"> | null;
   identifiers: Array<Doc<"leadIdentifiers">>;
   opportunities: Array<
     Pick<
@@ -29,16 +28,8 @@ export function buildLeadCustomerSearchText(input: {
   pushValue(parts, input.lead.fullName);
   pushValue(parts, input.lead.email);
   pushValue(parts, input.lead.phone);
-  pushValue(parts, input.customer?._id);
-  pushValue(parts, input.customer?.fullName);
-  pushValue(parts, input.customer?.email);
-  pushValue(parts, input.customer?.phone);
 
   for (const handle of input.lead.socialHandles ?? []) {
-    pushValue(parts, handle.type);
-    pushValue(parts, handle.handle);
-  }
-  for (const handle of input.customer?.socialHandles ?? []) {
     pushValue(parts, handle.type);
     pushValue(parts, handle.handle);
   }

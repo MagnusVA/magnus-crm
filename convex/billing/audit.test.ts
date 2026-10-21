@@ -8,6 +8,12 @@ import {
   insertBooking,
   insertDmCloser,
 } from "../../tests/bookingCreditFixtures";
+import {
+  fixtureUsers,
+  insertPayment,
+  insertProgram,
+  seedCustomer,
+} from "../../tests/enrollmentReadFixtures";
 
 // A payment has attribution context when its deal was qualified in Slack, a
 // booking carried UTMs, or the payment's meeting's booking or the deal's
@@ -153,4 +159,47 @@ it("finds attribution context on the payment's booking or the deal's first booki
   const harness = await bookingHarness();
   const ids = await seed(harness);
   expect(await contexts(harness)).toEqual(expected(ids));
+});
+
+// A payment that isn't disputed belongs to the enrollment for its deal's
+// person and its program (docs/plans/phase-4-customers.md §6.4).
+it("counts a payment with no enrollment for its person and program", async () => {
+  const harness = await bookingHarness();
+  const ids = await harness.t.run(async (ctx) => {
+    const { admin, closer } = await fixtureUsers(ctx, harness.tenantId);
+    const program = await insertProgram(ctx, harness.tenantId, admin._id, "Program");
+    const other = await insertProgram(ctx, harness.tenantId, admin._id, "Other");
+    const seeded = await seedCustomer(ctx, harness.tenantId, {
+      closerId: closer._id,
+      programId: program,
+      paidAt: AT,
+    });
+    const unenrolled = await insertPayment(ctx, {
+      tenantId: harness.tenantId,
+      opportunityId: seeded.opportunityId,
+      programId: other,
+      recordedByUserId: closer._id,
+      recordedAt: AT + 1_000,
+    });
+    await insertPayment(ctx, {
+      tenantId: harness.tenantId,
+      opportunityId: seeded.opportunityId,
+      programId: other,
+      recordedByUserId: closer._id,
+      recordedAt: AT + 2_000,
+      status: "disputed",
+    });
+    return { unenrolled, paymentId: seeded.paymentId };
+  });
+
+  const audit = await harness.admin.query(api.billing.audit.getPaymentAuditSnapshot, { limit: 50 });
+  expect(audit.metrics.missingEnrollment).toBe(1);
+  expect(audit.issueSamples).toEqual([
+    expect.objectContaining({ paymentRecordId: ids.unenrolled, issue: "missingEnrollment" }),
+  ]);
+  const resolved = Object.fromEntries(
+    audit.sampleDiagnostics.map((row) => [row.paymentRecordId, row.enrollment.resolved]),
+  );
+  expect(resolved[ids.paymentId]).toBe(true);
+  expect(resolved[ids.unenrolled]).toBe(false);
 });

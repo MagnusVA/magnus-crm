@@ -3,7 +3,8 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { listPersonEnrollments, personCustomerStatus } from "../enrollments/read";
 import type { EnrollmentStatus } from "../enrollments/validators";
 import { isProspectStage } from "../leads/lifecycle";
-import { ENROLLMENT_DEAL_LIMIT, readDealPayments } from "../lib/enrollments";
+import { ENROLLMENT_DEAL_LIMIT, ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT } from "../lib/enrollments";
+import { reportError } from "../lib/observability/log";
 import { buildLeadCustomerSearchText } from "./searchText";
 import type { LeadCustomerLifecycle } from "./types";
 
@@ -15,7 +16,6 @@ type ProjectionPatch = Omit<
 // The row reads a person's newest deals up to this, plus one so a customer
 // past the enrollment derivation's limit is caught (customerFieldsFromEnrollments).
 const PERSON_DEAL_LIMIT = 100;
-const CUSTOMER_PAYMENT_LIMIT = 100;
 
 /**
  * The fields of a person's search row that say whether, since when, and how
@@ -37,7 +37,7 @@ export type SearchRowContact = {
   phone: string | undefined;
 };
 
-const NO_CUSTOMER_FIELDS: CustomerSearchFields = {
+export const NO_CUSTOMER_FIELDS: CustomerSearchFields = {
   isCustomer: false,
   customerStatus: undefined,
   totalPaidMinor: undefined,
@@ -59,18 +59,6 @@ export function personContact(lead: Doc<"leads">): SearchRowContact {
   };
 }
 
-/** The name, email and phone a row shows while it reads the customer copy. */
-export function customerCopyContact(
-  lead: Doc<"leads">,
-  customer: Doc<"customers"> | null,
-): SearchRowContact {
-  return {
-    displayName: customer?.fullName ?? displayNameForLead(lead),
-    email: customer?.email ?? lead.email,
-    phone: customer?.phone ?? lead.phone,
-  };
-}
-
 export function latestActivityFor(
   lead: Doc<"leads">,
   fields: Pick<CustomerSearchFields, "convertedAt" | "latestPaymentAt">,
@@ -87,7 +75,7 @@ export function latestActivityFor(
   );
 }
 
-function paymentSummary(payments: Doc<"paymentRecords">[]) {
+export function summarizePayments(payments: Doc<"paymentRecords">[]) {
   const nonDisputed = payments.filter((payment) => payment.status !== "disputed");
   const currencies = [...new Set(nonDisputed.map((payment) => payment.currency))];
   return {
@@ -132,63 +120,51 @@ export async function customerFieldsFromEnrollments(
   if (enrollments.length === 0) {
     return NO_CUSTOMER_FIELDS;
   }
-  // A customer's total reads every payment their enrollments derive from, so
-  // it stops at the derivation's limits and throws past them rather than
-  // show a partial total.
-  if (deals.length > ENROLLMENT_DEAL_LIMIT) {
-    throw new Error(
-      `Person ${leadId} has more than ${ENROLLMENT_DEAL_LIMIT} deals; their total can't be read from part of them`,
+  const customerStatus = personCustomerStatus(enrollments);
+  const convertedAt = enrollments[0].enrolledAt;
+  // A customer's total reads every payment their enrollments derive from, up
+  // to the derivation's limits. Past them the total would be partial, so the
+  // row shows none and the error is reported. Rebuilding the row runs inside
+  // other writes (bookings, deal changes), and one oversized person mustn't
+  // make those fail.
+  const paymentsByDeal =
+    deals.length > ENROLLMENT_DEAL_LIMIT
+      ? null
+      : await Promise.all(
+          deals.map((deal) =>
+            ctx.db
+              .query("paymentRecords")
+              .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", deal._id))
+              .take(ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT + 1),
+          ),
+        );
+  if (
+    paymentsByDeal === null ||
+    paymentsByDeal.some((payments) => payments.length > ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT)
+  ) {
+    reportError(
+      "leadCustomers.projection.total_over_limit",
+      new Error("A customer's deals or payments exceed the enrollment derivation's limits"),
+      { tenantId, leadId, severity: "warning", fingerprint: "leadCustomers.projection.total_over_limit" },
     );
+    return {
+      isCustomer: true,
+      customerStatus,
+      totalPaidMinor: undefined,
+      paymentCurrency: undefined,
+      convertedAt,
+      latestPaymentAt: undefined,
+    };
   }
-  const payments = (await Promise.all(deals.map((deal) => readDealPayments(ctx, deal._id))))
-    .flat()
-    .filter((payment) => payment.tenantId === tenantId);
-  const summary = paymentSummary(payments);
+  const payments = paymentsByDeal.flat().filter((payment) => payment.tenantId === tenantId);
+  const summary = summarizePayments(payments);
   return {
     isCustomer: true,
-    customerStatus: personCustomerStatus(enrollments),
+    customerStatus,
     totalPaidMinor: summary.totalPaidMinor,
     paymentCurrency: summary.paymentCurrency,
-    convertedAt: enrollments[0].enrolledAt,
+    convertedAt,
     latestPaymentAt: summary.latestPaymentAt,
-  };
-}
-
-/** The customer fields from the person's customer row and its payments. */
-export async function customerFieldsFromCustomerRow(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-  leadId: Id<"leads">,
-): Promise<{ customer: Doc<"customers"> | null; fields: CustomerSearchFields }> {
-  const customer = await ctx.db
-    .query("customers")
-    .withIndex("by_tenantId_and_leadId", (q) =>
-      q.eq("tenantId", tenantId).eq("leadId", leadId),
-    )
-    .first();
-  if (!customer) {
-    return { customer: null, fields: NO_CUSTOMER_FIELDS };
-  }
-  const paymentRows = await ctx.db
-    .query("paymentRecords")
-    .withIndex("by_customerId_and_recordedAt", (q) =>
-      q.eq("customerId", customer._id),
-    )
-    .order("desc")
-    .take(CUSTOMER_PAYMENT_LIMIT);
-  const summary = paymentSummary(paymentRows);
-  return {
-    customer,
-    fields: {
-      isCustomer: true,
-      customerStatus: customer.status,
-      totalPaidMinor:
-        customer.totalPaidMinor ??
-        (summary.nonDisputed.length > 0 ? summary.totalPaidMinor : undefined),
-      paymentCurrency: customer.paymentCurrency ?? summary.paymentCurrency,
-      convertedAt: customer.convertedAt,
-      latestPaymentAt: summary.latestPaymentAt,
-    },
   };
 }
 
@@ -287,8 +263,7 @@ export async function rebuildLeadCustomerSearchRow(
     return;
   }
 
-  const [{ customer, fields }, identifiers, opportunities] = await Promise.all([
-    customerFieldsFromCustomerRow(ctx, tenantId, leadId),
+  const [identifiers, opportunities] = await Promise.all([
     ctx.db
       .query("leadIdentifiers")
       .withIndex("by_leadId", (q) => q.eq("leadId", leadId))
@@ -296,14 +271,17 @@ export async function rebuildLeadCustomerSearchRow(
       .take(100),
     loadPersonDeals(ctx, tenantId, leadId),
   ]);
-  const contact = customerCopyContact(lead, customer);
+  const fields = await customerFieldsFromEnrollments(ctx, tenantId, leadId, opportunities);
+  const contact = personContact(lead);
 
   const meetingIds = uniqueMeetingIds(opportunities);
   const lifecycle = projectedLifecycle(lead, fields.isCustomer);
   const row: ProjectionPatch = {
     tenantId,
     leadId,
-    customerId: customer?._id,
+    // Unset on patch: the row no longer names a customer
+    // (docs/plans/phase-4-customers.md §6.1). The narrow drops the field.
+    customerId: undefined,
     lifecycle,
     isSearchVisible: isVisibleLifecycle(lifecycle),
     leadStatus: lead.status,
@@ -317,7 +295,6 @@ export async function rebuildLeadCustomerSearchRow(
       lead.socialHandles?.[0]?.handle,
     searchText: buildLeadCustomerSearchText({
       lead,
-      customer,
       identifiers,
       opportunities,
       meetingIds,

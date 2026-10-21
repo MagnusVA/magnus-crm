@@ -26,7 +26,6 @@ export function toLeadCustomerSearchRowDto(
   return {
     _id: row._id,
     leadId: row.leadId,
-    customerId: row.customerId,
     lifecycle: row.lifecycle,
     displayName: row.displayName,
     email: row.email,

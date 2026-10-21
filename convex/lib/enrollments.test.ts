@@ -282,7 +282,7 @@ describe("syncPersonEnrollments", () => {
     expect(enrollments[0]).toMatchObject({ _id: oldest, opportunityId: s.dealA, enrolledAt: T1, status: "paused" });
   });
 
-  it("writes no event, counter, lead status or search row", async () => {
+  it("writes no event, counter or lead status, and rebuilds the search row", async () => {
     const harness = await enrollmentHarness();
     const s = await seed(harness);
     const { tenantId } = harness;
@@ -295,11 +295,12 @@ describe("syncPersonEnrollments", () => {
         lead: await ctx.db.get("leads", s.leadId),
         events: await ctx.db.query("domainEvents").take(10),
         stats: await ctx.db.query("tenantStats").take(10),
-        searchRows: await ctx.db.query("leadCustomerSearchRows").take(10),
       }));
     const before = await snapshot();
 
     expect((await sync(harness, s.leadId)).created).toHaveLength(1);
     expect(await snapshot()).toEqual(before);
+    const rows = await harness.t.run((ctx) => ctx.db.query("leadCustomerSearchRows").take(10));
+    expect(rows).toMatchObject([{ leadId: s.leadId, lifecycle: "customer", customerStatus: "active" }]);
   });
 });

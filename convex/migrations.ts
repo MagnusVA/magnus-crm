@@ -35,7 +35,9 @@ import {
 } from "./lib/teamMembers";
 import { leadGenWeekdayForBusinessDate } from "./leadGen/schedules";
 import {
+  customerFieldsFromEnrollments,
   isVisibleLifecycle,
+  loadPersonDeals,
   projectedLifecycle,
   rebuildLeadCustomerSearchRow,
 } from "./leadCustomers/projection";
@@ -162,13 +164,11 @@ export const assertLeadCustomerSearchRowsBackfilled = migrations.define({
       throw new Error(`Lead ${lead._id} has stale leadStatus projection`);
     }
 
-    const customer = await ctx.db
-      .query("customers")
-      .withIndex("by_tenantId_and_leadId", (q) =>
-        q.eq("tenantId", lead.tenantId).eq("leadId", lead._id),
-      )
-      .first();
-    const expectedLifecycle = projectedLifecycle(lead, customer !== null);
+    // The customer fields as the projection derives them from enrollments
+    // (docs/plans/phase-4-customers.md §6.1, §8).
+    const deals = await loadPersonDeals(ctx, lead.tenantId, lead._id);
+    const expected = await customerFieldsFromEnrollments(ctx, lead.tenantId, lead._id, deals);
+    const expectedLifecycle = projectedLifecycle(lead, expected.isCustomer);
 
     if (row.lifecycle !== expectedLifecycle) {
       throw new Error(`Lead ${lead._id} has stale lifecycle projection`);
@@ -176,9 +176,32 @@ export const assertLeadCustomerSearchRowsBackfilled = migrations.define({
     if (row.isSearchVisible !== isVisibleLifecycle(expectedLifecycle)) {
       throw new Error(`Lead ${lead._id} has invalid visibility projection`);
     }
-    if (row.customerId !== customer?._id) {
-      throw new Error(`Lead ${lead._id} has stale customer projection`);
+    if (row.customerId !== undefined) {
+      throw new Error(`Lead ${lead._id} has a projection that still names a customer`);
     }
+    for (const field of [
+      "customerStatus",
+      "totalPaidMinor",
+      "paymentCurrency",
+      "convertedAt",
+    ] as const) {
+      if (row[field] !== expected[field]) {
+        throw new Error(`Lead ${lead._id} has stale ${field} projection`);
+      }
+    }
+  },
+});
+
+// Phase 4 PR 2: each customer's person's row, projected from enrollments and
+// without the customer copy (docs/plans/phase-4-customers.md §10.4).
+// Every person with an enrollment, whether or not a customer row exists, so
+// no customer's row keeps the customer projection (§10.4). A person with two
+// enrollments is rebuilt twice, to the same row.
+export const rebuildCustomerSearchRows = migrations.define({
+  table: "enrollments",
+  batchSize: 50,
+  migrateOne: async (ctx, enrollment) => {
+    await rebuildLeadCustomerSearchRow(ctx, enrollment.tenantId, enrollment.leadId);
   },
 });
 
