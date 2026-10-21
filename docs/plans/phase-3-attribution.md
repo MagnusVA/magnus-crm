@@ -476,8 +476,12 @@ The health checks, after the narrow:
 npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertBookingAttributions","reset":true}'
 npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:assertBookingAttributions"]}'
 npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertDealAttributions","reset":true}'
+npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:assertDealAttributions"]}'
 npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertPersonTouches","reset":true}'
+npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:assertPersonTouches"]}'
 ```
+
+Poll each `lib:getStatus` until it reports `"isDone": true` and no error before starting the next check.
 
 The removed migrations ran the same way, in §9's order, as §13.3 records.
 
