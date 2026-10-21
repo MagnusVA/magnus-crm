@@ -681,22 +681,22 @@
   </div>
 </div>
 <div class="phase">
-  <div class="tag">Phase 3<span>attribution, next</span></div>
+  <div class="tag">Phase 3<span>attribution, done</span></div>
   <div>
     <h3>Attribution as its own record</h3>
-    <div class="meta"><span class="pill med">Medium risk</span><span class="pill low">New table, then narrow the copies</span></div>
+    <div class="meta"><span class="pill good">Done, #141 to #150</span><span class="pill low">New table, then narrow the copies</span></div>
     <ul>
-      <li><code>dealAttributions</code>: one row per deal, role and team member. Roles are lead gen, setter, DM closer and closer. Each row stores where it came from (prospect, Slack event, UTM or Calendly host) and when. Rows are written when a deal is created and when a booking joins it. Reassigning a meeting adds a row.</li>
-      <li>Each role comes from its own source, as the team works today: the lead gen worker from the prospect's first capture, the setter from the Slack qualification, the DM team and DM closer from the booking's UTMs, and the closer from the Calendly host. A booking's UTMs can name a DM team and no DM closer, so the rows hold team credit on its own; the Phase 3 plan decides whether that is a DM team role or a team on the row. The booking link names no person, and the booking finds its person by identifiers alone.</li>
+      <li><code>dealAttributions</code>: one row per deal, role and team member, and for the roles a booking credits, one per booking. Roles are lead gen, setter, DM team, DM closer and closer. Each row stores where it came from (prospect, Slack event, UTM or Calendly host) and when. Rows are written when a deal is created and when a booking joins it. Reassigning a meeting adds a row.</li>
+      <li>Each role comes from its own source, as the team works today: the lead gen worker from the prospect's first capture, the setter from the Slack qualification, the DM team and DM closer from the booking's UTMs, and the closer from the Calendly host. A booking's UTMs can name a DM team and no DM closer, so the rows hold team credit on its own, as a DM team role whose row names the team. The booking link names no person, and the booking finds its person by identifiers alone.</li>
       <li>The person keeps a frozen first touch and an updating latest touch.</li>
       <li>Booked Calls, qualifications and lead gen operations read attribution rows instead of copied columns. The six copies of <code>attributionTeamId</code> and <code>dmCloserId</code> retire as each reader moves.</li>
       <li>No shares and no commission fields (decision 2). When commissions arrive, add an optional share and a freeze-when-won rule to this table.</li>
-      <li><strong>Ends with:</strong> every reader on <code>dealAttributions</code>, and the copied <code>attributionTeamId</code> and <code>dmCloserId</code> columns and their projection copies removed from the schema.</li>
+      <li><strong>Ended with:</strong> every reader on <code>dealAttributions</code>, about 30,100 rows backfilled and asserted, first and latest touch on all 89,845 unmerged persons and a snapshot on all 11,418 deals, and the copied <code>attributionTeamId</code> and <code>dmCloserId</code> columns, the deal's copy of the resolution, and their projection copies removed from the schema (<a href="../plans/phase-3-attribution.md">plan</a>). Team-only bookings now count toward their team's progress in Booked Calls; every other number is unchanged.</li>
     </ul>
   </div>
 </div>
 <div class="phase">
-  <div class="tag">Phase 4<span>customers</span></div>
+  <div class="tag">Phase 4<span>customers, next</span></div>
   <div>
     <h3>Enrollments replace the customer copy</h3>
     <div class="meta"><span class="pill med">Medium risk</span><span class="pill low">New table, then narrow customers</span></div>
