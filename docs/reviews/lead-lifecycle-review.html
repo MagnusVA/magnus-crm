@@ -696,20 +696,22 @@
   </div>
 </div>
 <div class="phase">
-  <div class="tag">Phase 4<span>customers, next</span></div>
+  <div class="tag">Phase 4<span>customers, done</span></div>
   <div>
     <h3>Enrollments replace the customer copy</h3>
-    <div class="meta"><span class="pill med">Medium risk</span><span class="pill low">New table, then narrow customers</span></div>
+    <div class="meta"><span class="pill good">Done, #153 to #PR5</span><span class="pill low">New table, then narrow customers</span></div>
     <ul>
-      <li>Each won deal creates an enrollment (person × program). A second program is a second deal and a second enrollment (decision 3).</li>
-      <li>Backfill one enrollment per customer program, and one per later program purchase found in payments. An admin payment for a new program goes through a new deal instead of <code>recordCustomerPayment</code>.</li>
-      <li>Customer pages read the person plus enrollments. Drop the copied contact fields and the email requirement, which lets Slack-only leads convert.</li>
-      <li><strong>Ends with:</strong> one enrollment per program bought, the copied contact fields gone from <code>customers</code>, and <code>recordCustomerPayment</code> retired. The plan decides whether a <code>customers</code> row survives at all, and says why if it does.</li>
+      <li><code>enrollments</code>: one row per person and program bought, with its own status (active, paused or churned) and its times. The earliest payment for a program on any of the person's deals created it, and one function derived it from the payments for every write path, the backfill and the assert. A second program was a second deal and a second enrollment (decision 3); an admin changed each enrollment's status on the person page.</li>
+      <li>The person became the customer, and the email requirement went, so a person with no email, such as a Slack-only lead, became a customer at their first payment. The person page, the leads and customers list, billing and the reports read the person for contact details and enrollments for programs and status.</li>
+      <li>An admin payment for a new program went through a new deal, a side deal or a new booking, and <code>recordCustomerPayment</code> was retired with <code>convertLeadToCustomer</code> and <code>updateCustomerStatus</code>.</li>
+      <li>Customers could be merged: the source's enrollments moved to the target, and where both had bought the same program, one remained.</li>
+      <li>No <code>customers</code> row survived (D1). Every field but the status was a copy of the person or the first payment, and the status moved to the enrollments.</li>
+      <li><strong>Ended with:</strong> 274 enrollments backfilled and asserted, 279 payments asserted, 274 customer rows deleted after an export, and the <code>customers</code> table, <code>paymentRecords.customerId</code>, <code>leadCustomerSearchRows.customerId</code> and the payment fields only <code>recordCustomerPayment</code> wrote dropped from the schema (<a href="../plans/phase-4-customers.md">plan</a>). Report numbers are unchanged, apart from the contact labels where the copy had drifted and the activity summary counting a new customer under Enrollment.</li>
     </ul>
   </div>
 </div>
 <div class="phase">
-  <div class="tag">Phase 5<span>deal status</span></div>
+  <div class="tag">Phase 5<span>deal status, next</span></div>
   <div>
     <h3>Split the opportunity status</h3>
     <div class="meta"><span class="pill high">Highest risk</span><span class="pill low">Widen, dual-write, narrow</span></div>
