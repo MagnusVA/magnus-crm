@@ -36,6 +36,14 @@ export type InstallationStatus =
         channelName?: string;
         occurredAt: number;
       };
+      bookingReviewChannelId?: string;
+      bookingReviewChannelName?: string;
+      bookingReviewChannelError?: {
+        code: string;
+        channelId: string;
+        channelName?: string;
+        occurredAt: number;
+      };
       lastRefreshedAt?: number;
     };
 
@@ -72,6 +80,9 @@ export const getInstallationStatus = query({
       leadGenNotifyChannelId: installation.leadGenNotifyChannelId,
       leadGenNotifyChannelName: installation.leadGenNotifyChannelName,
       leadGenNotifyChannelError: installation.leadGenNotifyChannelError,
+      bookingReviewChannelId: installation.bookingReviewChannelId,
+      bookingReviewChannelName: installation.bookingReviewChannelName,
+      bookingReviewChannelError: installation.bookingReviewChannelError,
       lastRefreshedAt: installation.lastRefreshedAt,
     };
   },
@@ -86,6 +97,14 @@ export const setSlackNotifyChannels = mutation({
     // Opt-in channel for lead gen submissions: omitted leaves it unchanged,
     // null turns it off.
     leadGenNotifyChannel: v.optional(
+      v.union(
+        v.null(),
+        v.object({ channelId: v.string(), channelName: v.string() }),
+      ),
+    ),
+    // Booking review alerts: omitted leaves it unchanged, null posts them to
+    // the notify channel.
+    bookingReviewChannel: v.optional(
       v.union(
         v.null(),
         v.object({ channelId: v.string(), channelName: v.string() }),
@@ -113,6 +132,7 @@ export const setSlackNotifyChannels = mutation({
     }
 
     const leadGenChannel = args.leadGenNotifyChannel;
+    const bookingReviewChannel = args.bookingReviewChannel;
     await ctx.db.patch("slackInstallations", installation._id, {
       notifyChannelId: args.notifyChannelId,
       notifyChannelName: args.notifyChannelName,
@@ -124,6 +144,11 @@ export const setSlackNotifyChannels = mutation({
         leadGenNotifyChannelId: leadGenChannel?.channelId,
         leadGenNotifyChannelName: leadGenChannel?.channelName,
         leadGenNotifyChannelError: undefined,
+      }),
+      ...(bookingReviewChannel !== undefined && {
+        bookingReviewChannelId: bookingReviewChannel?.channelId,
+        bookingReviewChannelName: bookingReviewChannel?.channelName,
+        bookingReviewChannelError: undefined,
       }),
     });
 
@@ -137,6 +162,8 @@ export const setSlackNotifyChannels = mutation({
       notifyChannelId: args.notifyChannelId,
       staleReminderChannelId: args.staleReminderChannelId,
       leadGenNotifyChannelId,
+      bookingReviewChannelChanged: bookingReviewChannel !== undefined &&
+        installation.bookingReviewChannelId !== bookingReviewChannel?.channelId,
       notifyChannelChanged: installation.notifyChannelId !== args.notifyChannelId,
       staleReminderChannelChanged:
         installation.staleReminderChannelId !== args.staleReminderChannelId,

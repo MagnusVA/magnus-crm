@@ -6,6 +6,7 @@ import {
   LEAD_TYPES,
   type LeadType,
 } from "./leadType";
+import type { BookingReviewDetail, BookingReviewPerson } from "../pipeline/bookingReviews";
 import { normalizeSocialHandle } from "./normalization";
 import {
   SOCIAL_PLATFORM_LABELS,
@@ -384,6 +385,148 @@ export function buildStaleDigest(args: {
   return {
     text: headline,
     blocks,
+  };
+}
+
+const DEAL_STATUS_LABELS: Record<Doc<"opportunities">["status"], string> = {
+  qualified_pending: "Qualified, not booked",
+  scheduled: "Scheduled",
+  payment_received: "Won",
+  follow_up_scheduled: "Follow-up",
+  reschedule_link_sent: "Reschedule link sent",
+  lost: "Lost",
+  canceled: "Canceled",
+  no_show: "No-show",
+};
+
+const MATCH_LABELS = {
+  email: "email",
+  phone: "phone",
+  social_handle: "Instagram handle",
+} as const;
+
+const MAX_REVIEW_DEALS = 3;
+
+function bookingReviewPersonText(person: BookingReviewPerson) {
+  const contact = [
+    person.email && escapeSlackMrkdwn(person.email),
+    person.phone && escapeSlackMrkdwn(person.phone),
+    ...person.handles.map((h) => escapeSlackMrkdwn(`@${h.handle}`)),
+  ].filter(Boolean);
+  const deals = person.deals.slice(0, MAX_REVIEW_DEALS).map((deal) => {
+    const parts = [DEAL_STATUS_LABELS[deal.status]];
+    const closer = deal.closerName ?? deal.hostName;
+    if (closer) parts.push(`with ${escapeSlackMrkdwn(closer)}`);
+    if (deal.latestMeetingAt !== undefined) parts.push(`call ${slackDate(deal.latestMeetingAt)}`);
+    if (deal.qualifiedByName) parts.push(`qualified by ${escapeSlackMrkdwn(deal.qualifiedByName)}`);
+    return parts.join(", ");
+  });
+  const more = person.deals.length > MAX_REVIEW_DEALS ? ` (+${person.deals.length - MAX_REVIEW_DEALS} more)` : "";
+  return [
+    `*${escapeSlackMrkdwn(person.name ?? "Unnamed person")}*${contact.length ? `  ·  ${contact.join("  ·  ")}` : ""}`,
+    deals.length ? `Deals: ${deals.join("; ")}${more}` : "No deals",
+  ].join("\n");
+}
+
+export function buildBookingReviewNotification(
+  detail: BookingReviewDetail,
+  appUrl: string,
+) {
+  const { booking } = detail;
+  const invitee = escapeSlackMrkdwn(booking.inviteeName ?? "Someone");
+  const booked = detail.people.find((p) => p.role === "booked");
+  const matched = detail.people.filter((p) => p.role === "matched");
+  const call = [
+    booking.eventName && `*${escapeSlackMrkdwn(booking.eventName)}*`,
+    booking.hostName && `with ${escapeSlackMrkdwn(booking.hostName)}`,
+    booking.startTime !== undefined && `for ${slackDate(booking.startTime)}`,
+  ].filter(Boolean).join(" ");
+  const handle = booking.socialHandle ? escapeSlackMrkdwn(`@${booking.socialHandle.handle}`) : null;
+  const named = matched
+    .map((p) => `its ${p.matchedBy.map((via) => MATCH_LABELS[via]).join(" and ")} belongs to *${escapeSlackMrkdwn(p.name ?? "an unnamed person")}*`)
+    .join(", and ");
+
+  const summary =
+    detail.kind === "attached" && booked
+      ? `${invitee} booked ${call || "a call"}. The Instagram handle ${handle ?? ""} belongs to *${escapeSlackMrkdwn(booked.name ?? "an unnamed person")}*, so the call went to them, but ${named}. Are they the same person?`
+      : `${invitee} booked ${call || "a call"}. The CRM is holding it: ${named || "its details name more than one person"}. The call is not in the CRM until someone decides.`;
+
+  const fields = [
+    { label: "Invitee", value: booking.inviteeName },
+    { label: "Email", value: booking.email },
+    { label: "Phone", value: booking.phone },
+    { label: "Instagram", value: booking.socialHandle && `@${booking.socialHandle.handle}` },
+    { label: "Time zone", value: booking.timezone },
+    { label: "Booked via", value: booking.bookedVia },
+  ].flatMap(({ label, value }) =>
+    value ? [{ type: "mrkdwn" as const, text: `*${label}:*\n${escapeSlackMrkdwn(value)}` }] : [],
+  );
+
+  const blocks: KnownBlock[] = [
+    {
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: detail.kind === "attached" ? "🔀 Booking matched two people" : "⏸️ Booking held for review",
+        emoji: true,
+      },
+    },
+    { type: "section", text: { type: "mrkdwn", text: summary } },
+  ];
+  if (fields.length) blocks.push({ type: "section", fields });
+  if (booked)
+    blocks.push({
+      type: "section",
+      text: { type: "mrkdwn", text: `*Booking went to*\n${bookingReviewPersonText(booked)}` },
+    });
+  for (const person of matched) {
+    const checks = person.checks;
+    const same = checks.filter((c) => c.same).map((c) => c.label);
+    const different = checks.filter((c) => !c.same).map((c) => c.label);
+    blocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Also matched by ${person.matchedBy.map((via) => MATCH_LABELS[via]).join(" and ")}*\n${bookingReviewPersonText(person)}`,
+      },
+    });
+    if (checks.length)
+      blocks.push({
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: [
+              same.length ? `Same as the booking: ${same.join(", ")}` : null,
+              different.length ? `Different: ${different.join(", ")}` : null,
+            ].filter(Boolean).join("  ·  "),
+          },
+        ],
+      });
+  }
+  const reviewUrl = new URL(
+    `/workspace/operations/booking-reviews/${detail.reviewId}`,
+    appUrl.replace(/\/$/, ""),
+  ).toString();
+  blocks.push({
+    type: "actions",
+    elements: [
+      {
+        type: "button",
+        style: "primary",
+        text: { type: "plain_text", text: "Review and decide", emoji: true },
+        url: reviewUrl,
+      },
+    ],
+  });
+
+  return {
+    text:
+      detail.kind === "attached"
+        ? `${invitee}'s booking went to ${booked?.name ?? "the Instagram handle's person"}, but ${named}. Review: ${reviewUrl}`
+        : `${invitee}'s booking is held: ${named || "it names more than one person"}. Review: ${reviewUrl}`,
+    blocks,
+    reviewUrl,
   };
 }
 

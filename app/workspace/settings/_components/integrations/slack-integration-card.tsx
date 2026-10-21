@@ -149,7 +149,8 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
       !status.staleReminderChannelId ||
       Boolean(status.notifyChannelError) ||
       Boolean(status.staleReminderChannelError) ||
-      Boolean(status.leadGenNotifyChannelError));
+      Boolean(status.leadGenNotifyChannelError) ||
+      Boolean(status.bookingReviewChannelError));
 
   return (
     <>
@@ -202,6 +203,10 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
             error={status.leadGenNotifyChannelError}
             kind="lead_gen"
           />
+          <ChannelErrorAlert
+            error={status.bookingReviewChannelError}
+            kind="booking_review"
+          />
           <LifecycleAlert status={status.status} />
           <ChannelSummary status={status} />
         </CardContent>
@@ -241,6 +246,8 @@ export function SlackIntegrationCard({ preloadedStatus }: Props) {
         initialStaleChannelId={status.staleReminderChannelId}
         initialLeadGenChannelId={status.leadGenNotifyChannelId}
         initialLeadGenChannelName={status.leadGenNotifyChannelName}
+        initialBookingReviewChannelId={status.bookingReviewChannelId}
+        initialBookingReviewChannelName={status.bookingReviewChannelName}
       />
 
       <AlertDialog open={disconnectOpen} onOpenChange={setDisconnectOpen}>
@@ -349,7 +356,7 @@ function ChannelErrorAlert({
   kind,
 }: {
   error: ConnectedStatus["notifyChannelError"];
-  kind: "notify" | "stale" | "lead_gen";
+  kind: "notify" | "stale" | "lead_gen" | "booking_review";
 }) {
   const content = useMemo(() => {
     if (!error) return null;
@@ -389,7 +396,9 @@ function ChannelErrorAlert({
   );
 }
 
-function repickChannelCopy(kind: "notify" | "stale" | "lead_gen") {
+function repickChannelCopy(
+  kind: "notify" | "stale" | "lead_gen" | "booking_review",
+) {
   switch (kind) {
     case "notify":
       return "Pick a new notification channel before the next lead is qualified.";
@@ -397,12 +406,14 @@ function repickChannelCopy(kind: "notify" | "stale" | "lead_gen") {
       return "Pick a new reminder channel before the next stale-lead digest.";
     case "lead_gen":
       return "Lead gen posts are off. Pick a new lead gen channel to turn them back on.";
+    case "booking_review":
+      return "Booking reviews now post to the notify channel. Pick a new booking review channel to move them back.";
   }
 }
 
 function ChannelSummary({ status }: { status: ConnectedStatus }) {
   return (
-    <dl className="grid gap-3 text-sm sm:grid-cols-3">
+    <dl className="grid gap-3 text-sm sm:grid-cols-2">
       <div className="min-w-0 rounded-lg border p-3">
         <dt className="text-muted-foreground">Notify Channel</dt>
         <dd className="truncate font-medium">
@@ -425,6 +436,16 @@ function ChannelSummary({ status }: { status: ConnectedStatus }) {
           {status.leadGenNotifyChannelName
             ? `#${status.leadGenNotifyChannelName}`
             : "Off"}
+        </dd>
+      </div>
+      <div className="min-w-0 rounded-lg border p-3">
+        <dt className="text-muted-foreground">Booking Reviews</dt>
+        <dd className="truncate font-medium">
+          {status.bookingReviewChannelName
+            ? `#${status.bookingReviewChannelName}`
+            : status.notifyChannelName
+              ? `#${status.notifyChannelName} (notify channel)`
+              : "Not configured"}
         </dd>
       </div>
     </dl>
