@@ -1,5 +1,5 @@
 import { v } from "convex/values";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { internalQuery, type QueryCtx } from "../_generated/server";
 import {
   customerBillingLabels,
@@ -259,9 +259,19 @@ function contactChanges<T extends SearchRowContact | BillingLabels>(before: T, a
   return (Object.keys(before) as Array<keyof T>).filter((field) => before[field] !== after[field]);
 }
 
+type SocialHandles = Doc<"leads">["socialHandles"];
+
+/** Whether two handle lists name different handles, ignoring order. */
+function socialHandlesDiffer(left: SocialHandles, right: SocialHandles) {
+  const key = (handles: SocialHandles) =>
+    (handles ?? []).map((entry) => `${entry.type}:${entry.handle}`).sort().join("\n");
+  return key(left) !== key(right);
+}
+
 /**
  * Per customer, the search row fields from the customer row and from the
- * enrollments (§6.1), and how many rows' name, email or phone change.
+ * enrollments (§6.1), and how many rows' name, email, phone or social
+ * handles change.
  */
 export const compareSearchRows = internalQuery({
   args: {
@@ -285,6 +295,7 @@ export const compareSearchRows = internalQuery({
       displayName: v.number(),
       email: v.number(),
       phone: v.number(),
+      socialHandles: v.number(),
       leadIds: v.array(v.id("leads")),
     }),
     continueCursor: v.string(),
@@ -303,7 +314,14 @@ export const compareSearchRows = internalQuery({
       fromCustomers: ParityValue;
       fromEnrollments: ParityValue;
     }> = [];
-    const changes = { rows: 0, displayName: 0, email: 0, phone: 0, leadIds: [] as Id<"leads">[] };
+    const changes = {
+      rows: 0,
+      displayName: 0,
+      email: 0,
+      phone: 0,
+      socialHandles: 0,
+      leadIds: [] as Id<"leads">[],
+    };
 
     for (const customer of page.page) {
       const lead = await ctx.db.get("leads", customer.leadId);
@@ -351,11 +369,16 @@ export const compareSearchRows = internalQuery({
       }
 
       const changed = contactChanges(customerCopyContact(lead, legacy.customer), personContact(lead));
-      if (changed.length > 0) {
+      const handlesChanged =
+        legacy.customer !== null && socialHandlesDiffer(legacy.customer.socialHandles, lead.socialHandles);
+      if (changed.length > 0 || handlesChanged) {
         changes.rows += 1;
         changes.leadIds.push(lead._id);
         for (const field of changed) {
           changes[field] += 1;
+        }
+        if (handlesChanged) {
+          changes.socialHandles += 1;
         }
       }
     }

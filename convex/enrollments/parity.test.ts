@@ -204,6 +204,9 @@ describe("compareSearchRows", () => {
       await ctx.db.patch("enrollments", seeded.meetingWin.enrollmentId, { status: "paused" });
       await ctx.db.patch("customers", seeded.additional.customerId, { totalPaidMinor: 40_000 });
       await ctx.db.patch("leads", seeded.sideDeal.leadId, { fullName: "Renamed", phone: "+15550000003" });
+      await ctx.db.patch("customers", seeded.additional.customerId, {
+        socialHandles: [{ type: "instagram", handle: "old_handle" }],
+      });
     });
     const [page] = await allSearchRows(harness, 100);
     expect(page.differences).toEqual(
@@ -227,11 +230,12 @@ describe("compareSearchRows", () => {
     expect(page.differences).toHaveLength(2);
     // The copy holds no phone, so the row already showed the person's.
     expect(page.contactChanges).toEqual({
-      rows: 1,
+      rows: 2,
       displayName: 1,
       email: 0,
       phone: 0,
-      leadIds: [seeded.sideDeal.leadId],
+      socialHandles: 1,
+      leadIds: expect.arrayContaining([seeded.sideDeal.leadId, seeded.additional.leadId]),
     });
   });
 
