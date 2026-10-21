@@ -520,9 +520,9 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | 10-21 11:48 | `deleteCustomers` dry run, then run, batch 100 | 100, nothing committed; then done 11:48, 274 rows deleted |
 | 10-21 11:48 | `assertCustomersDeleted` | passed, none left |
 | 10-21 11:48 | `clearCustomerConversions` dry run, run, dry run | 274 entries in 1 namespace; cleared; then 0 |
+| 10-21 11:48 | `assertLeadLifecycle` (reset), in the background, since PR 4 changed how the Customer stage is derived | passed 12:47, 90,127 people |
 | 10-21 11:48 | `assertEnrollments` (reset) | passed, 274 enrollments |
 | 10-21 11:49 | `assertPaymentEnrollments` (reset) | passed, 279 payments |
 | 10-21 11:49 | `assertDealAttributions` (reset), since PR 4 changed the side deal form | passed, 11,444 deals |
 | 10-21 11:52 | `assertBookingAttributions` (reset) | passed, 6,823 meetings |
-| 10-21 11:48 | `assertLeadLifecycle` (reset), in the background, since PR 4 changed how the Customer stage is derived | passed 12:47, 90,127 people |
 | 10-21 11:55 | read-only checks before the narrow | 0 customer rows; none of the 279 payments has `customerId`, `contextType` or `originatingOpportunityId`; no search row names a customer (1 tenant); no pending program rename job among the latest 1,500 scheduled functions |
