@@ -115,7 +115,7 @@ export const leadsCustomersTooltips = {
 		lead: "People who have not yet converted to a paying customer.",
 		prospect:
 			"People captured by lead gen or in a DM conversation, not yet qualified. Leads and the leads report leave them out.",
-		customer: "Converted customers with a customer record and payment history.",
+		customer: "People who have bought a program. Each program they bought is an enrollment with its own status.",
 	},
 	columns: {
 		identity: "Primary display name with a secondary contact value or identifier.",
@@ -133,11 +133,6 @@ export const leadsCustomersTooltips = {
 	totalPaid: "Lifetime commissionable payments recorded for this customer.",
 	identityChain:
 		"How this person moved from lead to customer and which opportunity won the conversion.",
-	customerConverted: "When this lead first became a paying customer.",
-	customerTotalPaid: "Sum of recorded payments in the customer's currency.",
-	customerProgram: "Program name on the winning customer record.",
-	customerWinningOpportunity:
-		"Opportunity that closed the sale and created the customer record.",
 	listCap: (entity: string) =>
 		`Only the ${entity} most recent items are loaded. Older history may exist in Convex.`,
 	commissionable:

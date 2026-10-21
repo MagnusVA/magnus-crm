@@ -1,5 +1,7 @@
 import { v } from "convex/values";
 import { query } from "../_generated/server";
+import { listPersonEnrollments } from "../enrollments/read";
+import { ENROLLMENT_DEAL_LIMIT } from "../lib/enrollments";
 import { requireTenantUser } from "../requireTenantUser";
 import { buildEntityDetailPayload } from "./detailPayload";
 
@@ -25,20 +27,17 @@ export const getEntityDetail = query({
       return { kind: "redirect" as const, leadId: targetLead._id };
     }
 
-    const [customer, opportunities, identifiers] = await Promise.all([
-      ctx.db
-        .query("customers")
-        .withIndex("by_tenantId_and_leadId", (q) =>
-          q.eq("tenantId", tenantId).eq("leadId", leadId),
-        )
-        .first(),
+    const [enrollments, opportunities, identifiers] = await Promise.all([
+      listPersonEnrollments(ctx, tenantId, leadId),
       ctx.db
         .query("opportunities")
         .withIndex("by_tenantId_and_leadId", (q) =>
           q.eq("tenantId", tenantId).eq("leadId", leadId),
         )
         .order("desc")
-        .take(50),
+        // Every deal enrollments derive from, so the page's program totals
+        // count all their payments; it lists the newest 50.
+        .take(ENROLLMENT_DEAL_LIMIT),
       ctx.db
         .query("leadIdentifiers")
         .withIndex("by_leadId", (q) => q.eq("leadId", leadId))
@@ -51,7 +50,7 @@ export const getEntityDetail = query({
       viewerUserId: userId,
       viewerRole: role,
       lead,
-      customer,
+      enrollments,
       identifiers,
       opportunities,
     });

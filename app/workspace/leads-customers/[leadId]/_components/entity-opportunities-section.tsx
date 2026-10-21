@@ -18,7 +18,7 @@ export function EntityOpportunitiesSection() {
 		const map = new Map<Id<"opportunities">, { minor: number; currency: string }>();
 		for (const payment of payments) {
 			if (payment.status === "disputed") continue;
-			const opportunityId = payment.opportunityId ?? payment.originatingOpportunityId;
+			const opportunityId = payment.opportunityId;
 			if (!opportunityId) continue;
 			const existing = map.get(opportunityId);
 			map.set(opportunityId, {

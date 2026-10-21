@@ -8,3 +8,9 @@ export const enrollmentStatusValidator = v.union(
 );
 
 export type EnrollmentStatus = Infer<typeof enrollmentStatusValidator>;
+
+export const ENROLLMENT_STATUS_LABELS: Record<EnrollmentStatus, string> = {
+  active: "Active",
+  paused: "Paused",
+  churned: "Churned",
+};

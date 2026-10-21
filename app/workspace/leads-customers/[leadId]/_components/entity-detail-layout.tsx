@@ -6,6 +6,7 @@ import { EntityMeetingsSection } from "./entity-meetings-section";
 import { EntityOpportunitiesSection } from "./entity-opportunities-section";
 import { EntityPaymentsSection } from "./entity-payments-section";
 import { EntityPortalNotesSection } from "./entity-portal-notes-section";
+import { EntityProgramsSection } from "./entity-programs-section";
 import { EntitySnapshotAside } from "./entity-snapshot-aside";
 import { OpportunityDetailSheet } from "./opportunity-detail-sheet";
 import { OpportunitySheetProvider } from "./opportunity-sheet-context";
@@ -17,6 +18,7 @@ export function EntityDetailFrame() {
 				<EntityHeaderSection />
 				<div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_21rem] xl:grid-cols-[minmax(0,1fr)_23rem]">
 					<div className="flex min-w-0 flex-col gap-5">
+						<EntityProgramsSection />
 						<EntityOpportunitiesSection />
 						<EntityMeetingsSection />
 						<EntityPortalNotesSection />

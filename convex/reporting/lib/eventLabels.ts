@@ -16,6 +16,18 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "changed a customer status",
     iconHint: "refresh-cw",
   },
+  "enrollment.created": {
+    verb: "enrolled a customer in a program",
+    iconHint: "badge-check",
+  },
+  "enrollment.removed": {
+    verb: "removed a program enrollment",
+    iconHint: "undo-2",
+  },
+  "enrollment.status_changed": {
+    verb: "changed a program enrollment status",
+    iconHint: "refresh-cw",
+  },
   "followUp.booked": {
     verb: "booked a follow-up",
     iconHint: "calendar-check",

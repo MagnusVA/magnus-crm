@@ -40,3 +40,17 @@ export function formatToken(value: string | undefined) {
 	if (!value) return "Not set";
 	return value.replaceAll("_", " ");
 }
+
+/** What a program or person has paid; payments in more than one currency don't add up. */
+export function formatPaidTotal(paid: {
+	totalPaidMinor: number | null;
+	currency: string | null;
+	paymentCount: number;
+}) {
+	if (paid.totalPaidMinor === null) return "Mixed currencies";
+	return formatMoneyMinor(paid.totalPaidMinor, paid.currency ?? undefined);
+}
+
+export function formatPaymentCount(count: number) {
+	return `${count} payment${count === 1 ? "" : "s"}`;
+}

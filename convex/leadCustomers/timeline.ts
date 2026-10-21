@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
+import { ENROLLMENT_STATUS_LABELS, type EnrollmentStatus } from "../enrollments/validators";
 import { LIFECYCLE_STAGE_LABELS, type LifecycleStage } from "../leads/lifecycle";
 import { EVENT_LABELS } from "../reporting/lib/eventLabels";
 import { getUserDisplayName } from "../reporting/lib/helpers";
@@ -50,6 +51,17 @@ function stageLabel(value: string | undefined): string | null {
   return LIFECYCLE_STAGE_LABELS[value as LifecycleStage] ?? value;
 }
 
+function enrollmentStatusLabel(value: string | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  return ENROLLMENT_STATUS_LABELS[value as EnrollmentStatus] ?? value;
+}
+
+function isEnrollmentEvent(event: Doc<"domainEvents">): boolean {
+  return event.entityType === "enrollment";
+}
+
 const TOUCH_LABELS: Record<string, string> = {
   "lead.captured": "Captured by lead gen",
   "lead.capture_voided": "Lead gen capture voided",
@@ -61,8 +73,14 @@ const TOUCH_LABELS: Record<string, string> = {
   "lead.disposition_changed": "Disposition changed",
 };
 
-/** What the timeline shows for one event. Unknown types show their name. */
-function describe(event: Doc<"domainEvents">): Pick<TimelineEntry, "label" | "detail" | "fromStatus" | "toStatus"> {
+/**
+ * What the timeline shows for one event. Unknown types show their name. An
+ * enrollment event names its program and the admin's reason.
+ */
+function describe(
+  event: Doc<"domainEvents">,
+  programName: string | null,
+): Pick<TimelineEntry, "label" | "detail" | "fromStatus" | "toStatus"> {
   const metadata = parseMetadata(event.metadata);
   const isStage = event.eventType === "lead.lifecycle_stage_changed";
   const label =
@@ -75,12 +93,19 @@ function describe(event: Doc<"domainEvents">): Pick<TimelineEntry, "label" | "de
     detail = [metadata.source, metadata.originKind].filter((part) => typeof part === "string").join(" · ") || null;
   } else if (event.eventType === "lead.portal_link_copied" && typeof metadata.utmCampaign === "string") {
     detail = `Campaign ${metadata.utmCampaign}`;
+  } else if (isEnrollmentEvent(event)) {
+    detail = [programName, event.reason].filter((part) => part).join(" · ") || null;
   }
+  const statusLabel = isStage
+    ? stageLabel
+    : isEnrollmentEvent(event)
+      ? enrollmentStatusLabel
+      : (value: string | undefined) => value ?? null;
   return {
     label,
     detail,
-    fromStatus: isStage ? stageLabel(event.fromStatus) : (event.fromStatus ?? null),
-    toStatus: isStage ? stageLabel(event.toStatus) : (event.toStatus ?? null),
+    fromStatus: statusLabel(event.fromStatus),
+    toStatus: statusLabel(event.toStatus),
   };
 }
 
@@ -108,6 +133,27 @@ async function actorName(
     cache.set(key, name);
   }
   return cache.get(key) ?? null;
+}
+
+/** The current name of the program an enrollment event names in its metadata. */
+async function eventProgramName(
+  ctx: QueryCtx,
+  event: Doc<"domainEvents">,
+  cache: Map<string, string | null>,
+): Promise<string | null> {
+  if (!isEnrollmentEvent(event)) {
+    return null;
+  }
+  const value = parseMetadata(event.metadata).programId;
+  const programId = typeof value === "string" ? ctx.db.normalizeId("tenantPrograms", value) : null;
+  if (!programId) {
+    return null;
+  }
+  if (!cache.has(programId)) {
+    const program = await ctx.db.get("tenantPrograms", programId);
+    cache.set(programId, program && program.tenantId === event.tenantId ? program.name : null);
+  }
+  return cache.get(programId) ?? null;
 }
 
 /** A closer sees the payments they could open on the person page, and no others. */
@@ -207,6 +253,7 @@ export const getLeadTimeline = query({
     const atLargestPage = pageLimit >= TIMELINE_MAX_LIMIT;
 
     const names = new Map<string, string | null>();
+    const programNames = new Map<string, string | null>();
     const entries: TimelineEntry[] = [];
     for (const event of merged.slice(0, pageLimit)) {
       if (!(await canSeeEvent(ctx, event, { userId, role }))) {
@@ -217,7 +264,7 @@ export const getLeadTimeline = query({
         eventType: event.eventType,
         occurredAt: event.occurredAt,
         actorName: await actorName(ctx, event, names),
-        ...describe(event),
+        ...describe(event, await eventProgramName(ctx, event, programNames)),
       });
     }
     return {
