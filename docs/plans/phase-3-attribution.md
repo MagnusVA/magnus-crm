@@ -1,6 +1,6 @@
 # Phase 3: attribution
 
-Status: last step in review, 2026-10-21. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11 on 2026-10-20 and delegated every production run in §9 to the agent. PRs #141 to #149 are merged and deployed; every backfill finished and every assert passed in production, the parity checks found no difference, and the clear passed its asserts. The narrow (#150) is the last step: the phase is done when it deploys and its checks (§13.4) pass, which the follow-up record states.
+Status: done, 2026-10-21. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11 on 2026-10-20 and delegated every production run in §9 to the agent. PRs #141 to #150 are merged and deployed; every backfill finished and every assert passed in production, the parity checks found no difference, the clear passed its asserts, and the narrow (#150) deployed on 2026-10-21 at 00:45 with both attribution asserts passing after it (§13.4). #151 added this post-deploy record.
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (findings F5 and F6, target rules 3 to 5 in §6) and the Phase 3 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 2 is in [phase-2-person-first.md](phase-2-person-first.md).
 
@@ -533,7 +533,8 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | #146 | lead gen conversion's Deals column | 10-20 22:58 |
 | #147 | meeting, deal and billing credit from the rows; credit and touches on the cards | 10-20 23:01 |
 | #149 | the pipeline and projections stop writing the copies; the clears | 10-21 00:02 |
-| #150 | the narrow, this record, the ADR row and the review card | see §13.4 |
+| #150 | the narrow, this record, the ADR row and the review card | 10-21 00:45; the schema push accepted every row |
+| #151 | docs only: the narrow's deploy and the asserts after it | docs |
 
 ### 13.3 Runs
 
@@ -563,7 +564,12 @@ The four backfills of §10.1 to §10.3 write different tables (`leads`, `opportu
 
 ### 13.4 The narrow
 
-#150 removes the fields and indexes of §3.3 from `opportunities`, `meetings`, `operationsQualificationRows`, `operationsMeetingDailyStats` and `meetingContribution`, the one-time migrations named in §10.7, `attribution/parity.ts`, and the booking backfill's `closerUserId` override. Meetings keep their UTMs and resolution, and the four actor `dmCloserId` columns stay (§3.3). The schema push on deploy checks that no row still holds a removed field; the clear left none. `assertBookingAttributions` and `assertDealAttributions` run once more after it deploys, and the follow-up record gives their results.
+#150 removes the fields and indexes of §3.3 from `opportunities`, `meetings`, `operationsQualificationRows`, `operationsMeetingDailyStats` and `meetingContribution`, the one-time migrations named in §10.7, `attribution/parity.ts`, and the booking backfill's `closerUserId` override. Meetings keep their UTMs and resolution, and the four actor `dmCloserId` columns stay (§3.3). The schema push on deploy checks that no row still holds a removed field; the clear left none. It deployed on 2026-10-21 at 00:45, and the schema push accepted every row. After it:
+
+| When | Run | Result |
+| --- | --- | --- |
+| 10-21 00:45 | `assertBookingAttributions` (reset) | passed, 6,814 meetings |
+| 10-21 00:45 | `assertDealAttributions` (reset) | passed, 11,423 deals |
 
 ### 13.5 Parity
 
