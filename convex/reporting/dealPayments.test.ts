@@ -1,8 +1,6 @@
 /**
- * Every payment is a deal payment (docs/plans/phase-4-customers.md D12).
- * Team outcomes and booked vs sold count the same payments whether
- * `contextType` is set, as production holds it before the clear, or unset,
- * as the clear and every payment from PR 4 leave it.
+ * Every payment is a deal payment (docs/plans/phase-4-customers.md D12), and
+ * team outcomes and booked vs sold count each one on its deal.
  */
 import { afterEach, expect, it, vi } from "vitest";
 import { api } from "../_generated/api";
@@ -55,38 +53,22 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
       tenantId, opportunityId, meetingId, attributedCloserId: closerId, recordedByUserId: closerId,
       commissionable: true, amountMinor, currency: "USD", programId, programName: "Program",
       paymentType: "pif", status: "recorded", recordedAt: CALL + 60_000, origin: "closer_meeting",
-      // As every production payment holds it before the clear.
-      contextType: "opportunity",
     });
-  return [
-    await pay(wonA.opportunityId, wonA.meetingId, programA, 100_000),
-    await pay(wonB.opportunityId, wonB.meetingId, programB, 250_000),
-  ];
+  await pay(wonA.opportunityId, wonA.meetingId, programA, 100_000);
+  await pay(wonB.opportunityId, wonB.meetingId, programB, 250_000);
 }
 
-it("counts the same payments in team outcomes and booked vs sold with contextType unset", async () => {
+it("counts each payment on its deal in team outcomes and booked vs sold", async () => {
   vi.useFakeTimers();
   const harness = await bookingHarness();
-  const paymentIds = await harness.t.run((ctx) => seed(ctx, harness.tenantId));
-  const reports = async () => ({
-    outcomes: await harness.admin.query(api.reporting.teamOutcomes.getTeamOutcomeMix, { startDate: START, endDate: END }),
-    matrix: await harness.admin.query(api.reporting.bookedVsSold.getBookedVsSoldMatrix, { startDate: START, endDate: END }),
-  });
+  await harness.t.run((ctx) => seed(ctx, harness.tenantId));
 
-  const before = await reports();
-  expect(before.outcomes.teamOutcome).toMatchObject({ sold: 2, lost: 1 });
-  expect(before.matrix.rows.map(({ paymentCount, totalAmountMinor }) => ({ paymentCount, totalAmountMinor }))).toEqual([
+  const outcomes = await harness.admin.query(api.reporting.teamOutcomes.getTeamOutcomeMix, { startDate: START, endDate: END });
+  const matrix = await harness.admin.query(api.reporting.bookedVsSold.getBookedVsSoldMatrix, { startDate: START, endDate: END });
+  expect(outcomes.teamOutcome).toMatchObject({ sold: 2, lost: 1 });
+  expect(matrix.rows.map(({ paymentCount, totalAmountMinor }) => ({ paymentCount, totalAmountMinor }))).toEqual([
     { paymentCount: 1, totalAmountMinor: 250_000 },
     { paymentCount: 1, totalAmountMinor: 100_000 },
   ]);
-  expect(before.matrix.rows.every((row) => row.bookingProgramName === "A")).toBe(true);
-
-  // What clearPaymentCustomerFields leaves.
-  await harness.t.run(async (ctx) => {
-    for (const paymentId of paymentIds) {
-      await ctx.db.patch("paymentRecords", paymentId, { contextType: undefined, customerId: undefined });
-    }
-  });
-
-  expect(await reports()).toEqual(before);
+  expect(matrix.rows.every((row) => row.bookingProgramName === "A")).toBe(true);
 });

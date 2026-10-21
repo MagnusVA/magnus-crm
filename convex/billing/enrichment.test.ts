@@ -17,7 +17,6 @@ import {
   insertProgram,
   seedCustomer,
 } from "../../tests/enrollmentReadFixtures";
-import { customerBillingLabels, resolveBillingFromCustomer } from "../enrollments/customerCopy";
 import {
   enrichBillingPaymentListRows,
   enrichBillingPaymentRows,
@@ -56,7 +55,6 @@ async function insertPayment(
     paymentType: "pif",
     status: "recorded",
     recordedAt: T0 + 1_000,
-    contextType: "opportunity",
     origin: "closer_meeting",
   });
 }
@@ -219,7 +217,7 @@ describe("billing context from the person", () => {
     expect(context.meeting).toBeNull();
   });
 
-  it("labels a payment with its person's current details, not the customer copy", async () => {
+  it("labels a payment with its person's current details", async () => {
     const { h, seeded } = await seedDeal();
     const labels = await h.t.run(async (ctx) => {
       await ctx.db.patch("leads", seeded.leadId, {
@@ -229,21 +227,12 @@ describe("billing context from the person", () => {
       });
       const payment = (await ctx.db.get("paymentRecords", seeded.paymentId))!;
       const fromPerson = await resolveBillingFromPerson(ctx, h.tenantId, payment);
-      const fromCustomer = await resolveBillingFromCustomer(ctx, h.tenantId, payment);
-      return {
-        person: personBillingLabels(fromPerson.person),
-        customer: customerBillingLabels(fromCustomer.customer),
-      };
+      return personBillingLabels(fromPerson.person);
     });
-    expect(labels.person).toEqual({
+    expect(labels).toEqual({
       fullName: "Current Name",
       email: "current@example.com",
       phone: "+15550000001",
-    });
-    expect(labels.customer).toEqual({
-      fullName: "Copied Name",
-      email: "copied@example.com",
-      phone: null,
     });
   });
 
@@ -258,7 +247,7 @@ describe("billing context from the person", () => {
 });
 
 describe("billing rows", () => {
-  it("name the person and resolve the meeting from the deal's payments, not the customer row", async () => {
+  it("name the person and resolve the meeting from the deal's payments", async () => {
     const h = await bookingHarness();
     const result = await h.t.run(async (ctx) => {
       const { admin, closer } = await fixtureUsers(ctx, h.tenantId);
@@ -270,17 +259,14 @@ describe("billing rows", () => {
         fullName: "Copied Name",
       });
       await ctx.db.patch("leads", seeded.leadId, { fullName: "Current Name" });
-      // A customer row that points elsewhere changes nothing billing shows.
+      // Another of the person's deals, with an earlier meeting, changes
+      // nothing billing shows.
       const otherDeal = await insertDeal(ctx, { tenantId: h.tenantId, leadId: seeded.leadId });
-      const otherMeeting = await insertMeeting(ctx, {
+      await insertMeeting(ctx, {
         tenantId: h.tenantId,
         opportunityId: otherDeal,
         closerId: closer._id,
         scheduledAt: T0 - 9 * DAY,
-      });
-      await ctx.db.patch("customers", seeded.customerId, {
-        winningOpportunityId: otherDeal,
-        winningMeetingId: otherMeeting,
       });
       const additionalId = await insertDealPayment(ctx, {
         tenantId: h.tenantId,

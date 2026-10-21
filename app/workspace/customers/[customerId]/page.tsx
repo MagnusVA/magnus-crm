@@ -1,33 +1,11 @@
-import { fetchQuery } from "convex/nextjs";
-import { notFound, redirect } from "next/navigation";
-import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
+import { redirect } from "next/navigation";
 import { requirePermission } from "@/lib/auth";
-import { isExpectedConvexRejection } from "@/lib/errors";
 
 export const unstable_instant = false;
 
-export default async function LegacyCustomerDetailPage({
-	params,
-}: {
-	params: Promise<{ customerId: string }>;
-}) {
-	const { session } = await requirePermission("customer:view-own");
-	const { customerId } = await params;
-	let target = null;
-
-	try {
-		target = await fetchQuery(
-			api.leadCustomers.redirects.resolveCustomerRedirect,
-			{ customerId: customerId as Id<"customers"> },
-			{ token: session.accessToken },
-		);
-	} catch (error) {
-		// A bad id or no access is a 404; an outage or bug reaches the error boundary.
-		if (!isExpectedConvexRejection(error)) throw error;
-		target = null;
-	}
-
-	if (!target) notFound();
-	redirect(`/workspace/leads-customers/${target.leadId}`);
+// A customer ID no longer names anything: the customers table is gone
+// (docs/plans/phase-4-customers.md D1). Old links land on the customers list.
+export default async function LegacyCustomerDetailPage() {
+	await requirePermission("customer:view-own");
+	redirect("/workspace/leads-customers?lifecycle=customer");
 }

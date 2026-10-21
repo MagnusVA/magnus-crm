@@ -12,8 +12,8 @@ import {
 } from "../../tests/enrollmentFixtures";
 
 // Every payment write path keeps the person's enrollments current, and the
-// first one makes the person a customer; no path writes a customer row
-// (docs/plans/phase-4-customers.md §4.2, §4.3, §5).
+// first one makes the person a customer (docs/plans/phase-4-customers.md
+// §4.2, §4.3, §5).
 
 afterEach(() => vi.useRealTimers());
 
@@ -34,10 +34,6 @@ async function events(harness: EnrollmentHarness) {
         programId: event.metadata ? (JSON.parse(event.metadata) as { programId?: string }).programId : undefined,
       })),
   );
-}
-
-async function customerRows(harness: EnrollmentHarness) {
-  return await harness.t.run((ctx) => ctx.db.query("customers").take(10));
 }
 
 async function leadOf(harness: EnrollmentHarness, leadId: Id<"leads">) {
@@ -69,10 +65,6 @@ describe("enrollments beside each payment", () => {
     });
     const payment = await harness.t.run((ctx) => ctx.db.get("paymentRecords", paymentId));
     expect(payment?.recordedAt).toBe(CALL_LOGGED);
-    // A deal payment, with no customer link.
-    expect(payment?.customerId).toBeUndefined();
-    expect(payment?.contextType).toBeUndefined();
-    expect(await customerRows(harness)).toEqual([]);
     expect((await leadOf(harness, leadId)).status).toBe("converted");
     expect(await events(harness)).toEqual([
       {
@@ -112,7 +104,6 @@ describe("enrollments beside each payment", () => {
       { programId: programA, opportunityId, enrolledAt: CALL_LOGGED, status: "active" },
     ]);
     expect((await leadOf(harness, leadId)).status).toBe("converted");
-    expect(await customerRows(harness)).toEqual([]);
   });
 
   it("an additional payment joins the enrollment, and a side deal for a second program adds one", async () => {
@@ -150,7 +141,6 @@ describe("enrollments beside each payment", () => {
       ["lead.status_changed", undefined],
       ["enrollment.created", programB],
     ]);
-    expect(await customerRows(harness)).toEqual([]);
   });
 
   it("a side deal payment makes a person with no email a customer", async () => {
@@ -185,7 +175,6 @@ describe("enrollments beside each payment", () => {
       { programId: programA, opportunityId: created.opportunityId, enrolledAt: paidAt, status: "active" },
     ]);
     expect(await counters(harness)).toMatchObject({ totalCustomers: 2 });
-    expect(await customerRows(harness)).toEqual([]);
   });
 });
 

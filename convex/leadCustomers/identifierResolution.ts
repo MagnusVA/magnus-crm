@@ -73,16 +73,6 @@ export async function resolveDirectEntityIdentifier(
     return row ? { row } : null;
   }
 
-  const customerId = ctx.db.normalizeId("customers", term);
-  if (customerId) {
-    const customer = await ctx.db.get("customers", customerId);
-    if (!customer || customer.tenantId !== tenantId) {
-      return null;
-    }
-    const row = await getProjectedRowForLead(ctx, tenantId, customer.leadId);
-    return row ? { row } : null;
-  }
-
   const opportunityId = ctx.db.normalizeId("opportunities", term);
   if (opportunityId) {
     const opportunity = await ctx.db.get("opportunities", opportunityId);

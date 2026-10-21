@@ -204,15 +204,14 @@ describe("a second program", () => {
 
     const state = await harness.t.run(async (ctx) => ({
       payment: await ctx.db.get("paymentRecords", renewal.paymentId),
-      customers: await ctx.db.query("customers").take(5),
       lead: await ctx.db.get("leads", leadId),
       row: await ctx.db
         .query("leadCustomerSearchRows")
         .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", harness.tenantId).eq("leadId", leadId))
         .unique(),
     }));
-    expect(state.payment?.customerId).toBeUndefined();
-    expect(state.customers).toEqual([]);
+    // The renewal is a payment on its own deal.
+    expect(state.payment?.opportunityId).toBe(renewal.opportunityId);
     expect(state.lead?.status).toBe("converted");
     expect(await enrollments()).toEqual(
       expect.arrayContaining([

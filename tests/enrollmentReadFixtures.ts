@@ -1,10 +1,10 @@
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
 
-// People, deals, payments, customer rows and enrollments for the Phase 4
-// read tests (docs/plans/phase-4-customers.md §6, §10.3). The enrollment rows
-// are inserted directly, consistent with the payments, as syncPersonEnrollments
-// would derive them.
+// People, deals, payments and enrollments for the Phase 4 read tests
+// (docs/plans/phase-4-customers.md §6). The enrollment rows are inserted
+// directly, consistent with the payments, as syncPersonEnrollments would
+// derive them.
 
 export const T0 = Date.parse("2026-05-01T12:00:00Z");
 export const DAY = 24 * 60 * 60 * 1000;
@@ -129,7 +129,6 @@ export async function insertPayment(
     amountMinor?: number;
     currency?: string;
     status?: Doc<"paymentRecords">["status"];
-    customerId?: Id<"customers">;
     origin?: Doc<"paymentRecords">["origin"];
   },
 ) {
@@ -148,49 +147,7 @@ export async function insertPayment(
     paymentType: "pif",
     status: args.status ?? "recorded",
     recordedAt: args.recordedAt,
-    customerId: args.customerId,
-    contextType: "opportunity",
     origin: args.origin ?? (args.meetingId ? "closer_meeting" : "closer_side_deal"),
-  });
-}
-
-export async function insertCustomer(
-  ctx: MutationCtx,
-  args: {
-    tenantId: Id<"tenants">;
-    leadId: Id<"leads">;
-    programId: Id<"tenantPrograms">;
-    winningOpportunityId: Id<"opportunities">;
-    winningMeetingId?: Id<"meetings">;
-    convertedAt: number;
-    convertedByUserId: Id<"users">;
-    totalPaidMinor: number;
-    totalPaymentCount: number;
-    paymentCurrency?: string;
-    status?: Doc<"customers">["status"];
-  },
-) {
-  const lead = await ctx.db.get("leads", args.leadId);
-  const program = await ctx.db.get("tenantPrograms", args.programId);
-  if (!lead || !program) throw new Error("Fixture person or program missing");
-  return await ctx.db.insert("customers", {
-    tenantId: args.tenantId,
-    leadId: args.leadId,
-    fullName: lead.fullName ?? lead.email ?? "",
-    email: lead.email ?? "",
-    phone: lead.phone,
-    socialHandles: lead.socialHandles,
-    convertedAt: args.convertedAt,
-    convertedByUserId: args.convertedByUserId,
-    winningOpportunityId: args.winningOpportunityId,
-    winningMeetingId: args.winningMeetingId,
-    programId: args.programId,
-    programName: program.name,
-    status: args.status ?? "active",
-    totalPaidMinor: args.totalPaidMinor,
-    totalPaymentCount: args.totalPaymentCount,
-    paymentCurrency: args.paymentCurrency,
-    createdAt: args.convertedAt,
   });
 }
 
@@ -217,9 +174,8 @@ export async function insertEnrollment(
 }
 
 /**
- * A person who bought one program, as production holds them today: a won
- * deal with a meeting and its payment, the customer row copied from both, and
- * the enrollment the backfill writes for it.
+ * A person who bought one program: a won deal with a meeting and its
+ * payment, and the enrollment syncPersonEnrollments derives from them.
  */
 export async function seedCustomer(
   ctx: MutationCtx,
@@ -271,19 +227,6 @@ export async function seedCustomer(
     recordedAt: args.paidAt,
     amountMinor,
   });
-  const customerId = await insertCustomer(ctx, {
-    tenantId,
-    leadId,
-    programId: args.programId,
-    winningOpportunityId: opportunityId,
-    winningMeetingId: meetingId,
-    convertedAt: args.paidAt,
-    convertedByUserId: recorderId,
-    totalPaidMinor: amountMinor,
-    totalPaymentCount: 1,
-    paymentCurrency: "USD",
-  });
-  await ctx.db.patch("paymentRecords", paymentId, { customerId });
   const enrollmentId = await insertEnrollment(ctx, {
     tenantId,
     leadId,
@@ -291,5 +234,5 @@ export async function seedCustomer(
     opportunityId,
     enrolledAt: args.paidAt,
   });
-  return { leadId, opportunityId, meetingId, paymentId, customerId, enrollmentId };
+  return { leadId, opportunityId, meetingId, paymentId, enrollmentId };
 }

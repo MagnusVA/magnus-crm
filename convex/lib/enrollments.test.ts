@@ -90,9 +90,9 @@ describe("derivePersonEnrollments", () => {
       const other = await insertPerson(ctx, tenantId);
       const otherDeal = await insertDeal(ctx, tenantId, other);
       await insertPayment(ctx, { tenantId, opportunityId: otherDeal, programId: s.programX, recordedAt: T1 });
-      // What recordCustomerPayment writes: no deal, only a customer.
+      // A payment with no deal, as the retired recordCustomerPayment wrote.
       const paymentId = await insertPayment(ctx, { tenantId, opportunityId: s.dealA, programId: s.programY, recordedAt: T1 });
-      await ctx.db.patch("paymentRecords", paymentId, { opportunityId: undefined, contextType: "customer" });
+      await ctx.db.patch("paymentRecords", paymentId, { opportunityId: undefined });
     });
 
     expect(await harness.t.run((ctx) => derivePersonEnrollments(ctx, tenantId, s.leadId))).toEqual([]);

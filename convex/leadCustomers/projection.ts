@@ -279,9 +279,6 @@ export async function rebuildLeadCustomerSearchRow(
   const row: ProjectionPatch = {
     tenantId,
     leadId,
-    // Unset on patch: the row no longer names a customer
-    // (docs/plans/phase-4-customers.md §6.1). The narrow drops the field.
-    customerId: undefined,
     lifecycle,
     isSearchVisible: isVisibleLifecycle(lifecycle),
     leadStatus: lead.status,

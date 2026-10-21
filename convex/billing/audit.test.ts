@@ -108,7 +108,6 @@ async function seed(harness: Harness) {
         paymentType: "pif",
         status: "recorded",
         recordedAt: AT + index * 60_000,
-        contextType: "opportunity",
         origin: "closer_meeting",
       });
     }

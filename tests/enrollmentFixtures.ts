@@ -123,43 +123,7 @@ export async function insertPayment(
     paymentType: "pif",
     status: args.status ?? "recorded",
     recordedAt: args.recordedAt,
-    contextType: "opportunity",
     origin: "admin_side_deal",
-  });
-}
-
-/** A customer row as conversion writes it, from the deal's first payment. */
-export async function insertCustomer(
-  ctx: MutationCtx,
-  args: {
-    tenantId: Id<"tenants">;
-    leadId: Id<"leads">;
-    opportunityId: Id<"opportunities">;
-    programId: Id<"tenantPrograms">;
-    convertedAt: number;
-    status?: Doc<"customers">["status"];
-    pausedAt?: number;
-    churnedAt?: number;
-  },
-) {
-  const admin = (await ctx.db
-    .query("users")
-    .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_admin"))
-    .unique())!;
-  return await ctx.db.insert("customers", {
-    tenantId: args.tenantId,
-    leadId: args.leadId,
-    fullName: "Customer",
-    email: "person@example.com",
-    convertedAt: args.convertedAt,
-    convertedByUserId: admin._id,
-    winningOpportunityId: args.opportunityId,
-    programId: args.programId,
-    programName: "Program",
-    status: args.status ?? "active",
-    pausedAt: args.pausedAt,
-    churnedAt: args.churnedAt,
-    createdAt: args.convertedAt,
   });
 }
 

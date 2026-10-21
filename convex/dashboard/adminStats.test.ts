@@ -38,8 +38,7 @@ async function seed() {
     // Two new customers in June.
     await seedCustomer(ctx, tenantId, { closerId: closer._id, programId: first, paidAt: Date.parse("2026-06-10T12:00:00Z") });
     await seedCustomer(ctx, tenantId, { closerId: closer._id, programId: second, paidAt: Date.parse("2026-06-11T12:00:00Z") });
-    // A third with an enrollment and no customer row, as a person with no
-    // email becomes a customer from PR 4 on.
+    // A third with no email, who can become a customer from PR 4 on.
     const noEmail = await insertPerson(ctx, tenantId, { fullName: "No email", status: "converted" });
     const noEmailDeal = await insertDeal(ctx, { tenantId, leadId: noEmail, assignedCloserId: closer._id });
     const noEmailPaidAt = Date.parse("2026-06-15T12:00:00Z");

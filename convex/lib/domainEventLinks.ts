@@ -64,8 +64,8 @@ export async function entityLeadId(
       return await opportunityLeadId(ctx, tenantId, payment.opportunityId);
     }
     case "customer":
-      // Only the old customer.* events have this type, and each names its
-      // person in its metadata, which outlives the customer row
+      // Only the old customer.* events have this type. The customer rows are
+      // gone, and each event names its person in its metadata
       // (docs/plans/phase-4-customers.md §3.3).
       return undefined;
     case "enrollment": {

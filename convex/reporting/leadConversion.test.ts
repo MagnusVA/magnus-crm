@@ -17,7 +17,6 @@ import {
   seedCustomer,
 } from "../../tests/enrollmentReadFixtures";
 import { api } from "../_generated/api";
-import { conversionsFromCustomers } from "../enrollments/customerCopy";
 import { conversionsFromEnrollments } from "./leadConversion";
 
 const MAY = { start: Date.parse("2026-05-01T00:00:00Z"), end: Date.parse("2026-06-01T00:00:00Z") };
@@ -128,34 +127,10 @@ describe("conversions from enrollments", () => {
       },
     ]);
   });
-
-  it("matches the customer rows on data where both agree", async () => {
-    const { t, tenantId } = await bookingHarness();
-    await t.run(async (ctx) => {
-      const { admin, closer } = await fixtureUsers(ctx, tenantId);
-      const program = await insertProgram(ctx, tenantId, admin._id, "Program");
-      await seedCustomer(ctx, tenantId, { closerId: closer._id, programId: program, paidAt: T0 });
-      await seedCustomer(ctx, tenantId, {
-        closerId: closer._id,
-        recorderId: admin._id,
-        programId: program,
-        paidAt: T0 + DAY,
-        withMeeting: false,
-        assignedCloserId: null,
-      });
-    });
-
-    const fromCustomers = await t.run((ctx) => conversionsFromCustomers(ctx, tenantId, MAY.start, MAY.end));
-    const fromEnrollments = await t.run((ctx) =>
-      conversionsFromEnrollments(ctx, tenantId, MAY.start, MAY.end),
-    );
-    expect(fromCustomers.conversions).toHaveLength(2);
-    expect(fromEnrollments).toEqual(fromCustomers);
-  });
 });
 
 describe("Leads & Conversions report", () => {
-  it("counts first enrollments, including a person with no customer row", async () => {
+  it("counts first enrollments, including a person with no email", async () => {
     const harness = await bookingHarness();
     const { t, tenantId } = harness;
     await t.run(async (ctx) => {
@@ -171,7 +146,7 @@ describe("Leads & Conversions report", () => {
       await insertEnrollment(ctx, {
         tenantId, leadId: seeded.leadId, programId: second, opportunityId: secondDeal, enrolledAt: T0 + DAY,
       });
-      // A person with an enrollment and no customer row counts once.
+      // A person with no email counts once.
       const leadId = await insertPerson(ctx, tenantId, { fullName: "No email", status: "converted" });
       const dealId = await insertDeal(ctx, { tenantId, leadId, assignedCloserId: closer._id });
       await insertPayment(ctx, {

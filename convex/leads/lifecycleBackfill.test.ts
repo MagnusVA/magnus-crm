@@ -147,23 +147,14 @@ describe("lifecycle assert", () => {
     expect((await rerun(harness, "assertLeadLifecycle"))?.error).toContain("differ from its records");
   });
 
-  it("takes the Customer stage from payments only, not from a customer row (D9)", async () => {
+  it("takes the Customer stage from payments only (D9)", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));
     const harness = await harnessWithMigrations();
-    const { leadId, opportunityId, closerId, programId } = await legacyCustomer(harness);
-    // A customer row converted earlier than the first payment no longer
-    // gives the stage an earlier time.
-    await harness.t.run((ctx) =>
-      ctx.db.insert("customers", {
-        tenantId: harness.tenantId, leadId, fullName: "Buyer", email: "buyer@example.com", convertedAt: CALL,
-        convertedByUserId: closerId, winningOpportunityId: opportunityId, programId, programName: "Program",
-        status: "active", createdAt: CALL,
-      }),
-    );
+    await legacyCustomer(harness);
     expect((await run(harness, "assertLeadLifecycle"))?.error).toBeUndefined();
 
-    // With the payment disputed, nothing supports the stage, row or no row.
+    // With the payment disputed, nothing supports the stage.
     await harness.t.run(async (ctx) => {
       const payment = (await ctx.db.query("paymentRecords").first())!;
       await ctx.db.patch("paymentRecords", payment._id, { status: "disputed" });

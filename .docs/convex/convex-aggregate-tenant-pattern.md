@@ -21,7 +21,7 @@ app.use(aggregate, { name: "billingPaymentsByStatusProgramType" });
 
 Billing uses four variants so counts can hit the narrowest B-tree for the filter shape (status only vs status+program vs status+type vs all three).
 
-Reporting uses the same pattern for `meetingsByStatus`, `paymentSums`, `opportunityByStatus`, `leadTimeline`, `customerConversions`, and Slack qualification aggregates.
+Reporting uses the same pattern for `meetingsByStatus`, `paymentSums`, `opportunityByStatus`, `leadStageEntries`, `prospectConversions`, and Slack qualification aggregates.
 
 ---
 

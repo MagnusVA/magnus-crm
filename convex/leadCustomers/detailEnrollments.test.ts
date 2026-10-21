@@ -139,17 +139,17 @@ describe("person page enrollments", () => {
     });
   });
 
-  it("lists payments on the person's deals only, with no customer-only branch", async () => {
+  it("lists payments on the person's deals only", async () => {
     const h = await bookingHarness();
     const seeded = await h.t.run(async (ctx) => {
       const seeded = await seedEnrolledCustomer(ctx, h.tenantId);
-      // A customer payment with no deal; production has none (§2.2).
+      // A payment with no deal; production has none, and nothing writes one
+      // since PR 4 (§2.2).
       await ctx.db.insert("paymentRecords", {
         tenantId: h.tenantId, amountMinor: 10_000, currency: "USD",
         recordedByUserId: seeded.adminId, commissionable: false, programId: seeded.programA,
         programName: "Program A", paymentType: "monthly", status: "recorded",
-        recordedAt: ENROLLED_AT + DAY, customerId: seeded.customerId,
-        contextType: "customer", origin: "customer_direct",
+        recordedAt: ENROLLED_AT + DAY, origin: "customer_direct",
       });
       return seeded;
     });
@@ -158,7 +158,6 @@ describe("person page enrollments", () => {
 
     expect(detail.payments.map((payment) => payment._id)).toEqual([seeded.paymentA]);
     expect(detail.payments[0]).toMatchObject({ opportunityId: seeded.dealA });
-    expect(detail.payments[0]).not.toHaveProperty("customerId");
     expect(detail.customerSummary?.totalPaidMinor).toBe(300_000);
   });
 

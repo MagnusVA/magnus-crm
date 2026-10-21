@@ -187,8 +187,6 @@ describe("lifecycle write paths", () => {
     });
     expect(await stageCount(harness, "showed")).toBe(1);
     expect(await stageCount(harness, "customer")).toBe(1);
-    // The stage comes from the payment; no customer row is written (D9).
-    expect(await harness.t.run((ctx) => ctx.db.query("customers").take(1))).toEqual([]);
   });
 
   it("a side deal starts the person at Showed, and voiding its only payment takes them back there", async () => {

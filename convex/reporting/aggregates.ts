@@ -109,16 +109,3 @@ export const prospectConversions = new DirectAggregate<{
   Key: [Id<"leadGenWorkers">, LifecycleStage, number];
   Id: string;
 }>(components.prospectConversions);
-
-// Nothing writes or reads this from Phase 4 PR 4; `clearCustomerConversions`
-// in convex/migrations.ts empties it, and the narrow unmounts it
-// (docs/plans/phase-4-customers.md §10.5, §3.3).
-export const customerConversions = new TableAggregate<{
-  Namespace: Id<"tenants">;
-  Key: [Id<"users">, number];
-  DataModel: DataModel;
-  TableName: "customers";
-}>(components.customerConversions, {
-  namespace: (doc) => doc.tenantId,
-  sortKey: (doc) => [doc.convertedByUserId, doc.convertedAt],
-});

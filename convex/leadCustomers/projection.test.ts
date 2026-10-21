@@ -17,11 +17,8 @@ import {
   insertProgram,
   seedCustomer,
 } from "../../tests/enrollmentReadFixtures";
-import { api } from "../_generated/api";
-import { customerFieldsFromCustomerRow } from "../enrollments/customerCopy";
 import {
   customerFieldsFromEnrollments,
-  latestActivityFor,
   loadPersonDeals,
   personContact,
   rebuildLeadCustomerSearchRow,
@@ -152,37 +149,10 @@ describe("customer fields from enrollments", () => {
       latestPaymentAt: undefined,
     });
   });
-
-  it("agrees with the customer row where the two are consistent", async () => {
-    const harness = await bookingHarness();
-    const { t, tenantId } = harness;
-    const result = await t.run(async (ctx) => {
-      const { admin, closer } = await fixtureUsers(ctx, tenantId);
-      const program = await insertProgram(ctx, tenantId, admin._id, "Program");
-      const seeded = await seedCustomer(ctx, tenantId, { closerId: closer._id, programId: program, paidAt: T0 });
-      const lead = (await ctx.db.get("leads", seeded.leadId))!;
-      const deals = await loadPersonDeals(ctx, tenantId, seeded.leadId);
-      const fromCustomer = await customerFieldsFromCustomerRow(ctx, tenantId, seeded.leadId);
-      const fromEnrollments = await customerFieldsFromEnrollments(ctx, tenantId, seeded.leadId, deals);
-      return {
-        customerId: seeded.customerId,
-        fromCustomer,
-        fromEnrollments,
-        activity: [
-          latestActivityFor(lead, fromCustomer.fields, deals),
-          latestActivityFor(lead, fromEnrollments, deals),
-        ],
-      };
-    });
-
-    expect(result.fromCustomer.customer?._id).toBe(result.customerId);
-    expect(result.fromEnrollments).toEqual(result.fromCustomer.fields);
-    expect(result.activity[1]).toBe(result.activity[0]);
-  });
 });
 
 describe("contact fields", () => {
-  it("come from the person, whatever the customer copy says", async () => {
+  it("come from the person", async () => {
     const harness = await bookingHarness();
     const contact = await harness.t.run(async (ctx) => {
       const leadId = await insertPerson(ctx, harness.tenantId, { email: "only@example.com", phone: "+15550000000" });
@@ -205,9 +175,9 @@ describe("search row rebuild", () => {
       const seeded = await seedCustomer(ctx, tenantId, {
         closerId: closer._id, programId: program, paidAt: T0, fullName: "Old Name",
       });
-      // The row as the customer projection wrote it, then the person renamed.
+      // A row from before the rename, then the person renamed.
       await ctx.db.insert("leadCustomerSearchRows", {
-        tenantId, leadId: seeded.leadId, customerId: seeded.customerId, lifecycle: "customer",
+        tenantId, leadId: seeded.leadId, lifecycle: "customer",
         isSearchVisible: true, leadStatus: "converted", customerStatus: "active", displayName: "Old Name",
         searchText: "old name", opportunityCount: 1, wonOpportunityCount: 1, meetingCount: 1,
         latestActivityAt: T0, firstSeenAt: T0 - 3 * DAY, convertedAt: T0, updatedAt: T0,
@@ -228,7 +198,7 @@ describe("search row rebuild", () => {
     );
   }
 
-  it("projects enrollments and the person, and no longer names the customer", async () => {
+  it("projects enrollments and the person", async () => {
     const harness = await bookingHarness();
     const seeded = await seedRenamedCustomer(harness);
     const row = await searchRow(harness, seeded.leadId);
@@ -240,17 +210,6 @@ describe("search row rebuild", () => {
       totalPaidMinor: 100_000,
       paymentCurrency: "USD",
     });
-    expect(row?.customerId).toBeUndefined();
     expect(row?.searchText).not.toContain("old name");
-    expect(row?.searchText).not.toContain(seeded.customerId);
-  });
-
-  it("still finds the person by a pasted customer ID", async () => {
-    const harness = await bookingHarness();
-    const seeded = await seedRenamedCustomer(harness);
-    const results = await harness.admin.query(api.leadCustomers.queries.searchEntities, {
-      searchTerm: seeded.customerId,
-    });
-    expect(results).toEqual([expect.objectContaining({ leadId: seeded.leadId, displayName: "New Name" })]);
   });
 });
