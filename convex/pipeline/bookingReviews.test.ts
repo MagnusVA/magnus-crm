@@ -384,7 +384,15 @@ it("keeping the people separate closes the review and changes no one", async () 
   expect(after.review).toMatchObject({ status: "resolved", resolution: "kept_separate" });
   expect(after.earlier?.status).toBe("active");
   expect(after.slack?.status).toBe("active");
-  expect(await harness.admin.query(api.pipeline.bookingReviews.list, {})).toEqual([]);
+  expect(
+    (await harness.admin.query(api.pipeline.bookingReviews.list, {
+      paginationOpts: { cursor: null, numItems: 10 },
+    })).page,
+  ).toEqual([]);
+  expect(await harness.admin.query(api.pipeline.bookingReviews.openCount, {})).toEqual({
+    count: 0,
+    capped: false,
+  });
 });
 
 it("only admins can see or act on booking reviews", async () => {
@@ -393,7 +401,12 @@ it("only admins can see or act on booking reviews", async () => {
   await deliver(harness, incidentCBooking);
   const [review] = await reviews(harness);
 
-  await expect(harness.closer.query(api.pipeline.bookingReviews.list, {})).rejects.toThrow();
+  await expect(
+    harness.closer.query(api.pipeline.bookingReviews.list, {
+      paginationOpts: { cursor: null, numItems: 10 },
+    }),
+  ).rejects.toThrow();
+  await expect(harness.closer.query(api.pipeline.bookingReviews.openCount, {})).rejects.toThrow();
   await expect(
     harness.closer.mutation(api.pipeline.bookingReviews.keepSeparate, { reviewId: review._id }),
   ).rejects.toThrow();
@@ -536,14 +549,14 @@ async function seedInstallation(harness: Harness, bookingReviewChannelId?: strin
 }
 
 /** Stubs Slack and records the channel of each post; `failing` channels are gone. */
-function stubSlack(failing: string[] = []) {
+function stubSlack(failing: string[] = [], error = "channel_not_found") {
   vi.stubEnv("APP_URL", "https://crm.example");
   const channels: string[] = [];
   vi.stubGlobal("fetch", async (_url: string, init: { body: string }) => {
     const { channel } = JSON.parse(init.body) as { channel: string };
     channels.push(channel);
     return new Response(
-      JSON.stringify(failing.includes(channel) ? { ok: false, error: "channel_not_found" } : { ok: true }),
+      JSON.stringify(failing.includes(channel) ? { ok: false, error } : { ok: true }),
     );
   });
   return channels;
@@ -593,6 +606,51 @@ it("with no booking review channel, alerts go nowhere, and the open ones post on
   await saveChannels(harness, { channelId: "C_OTHER", channelName: "other" });
   await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
   expect(channels).toEqual(["C_REVIEWS"]);
+});
+
+it("an alert the bot couldn't post (not in channel) goes out once the channel is saved again", async () => {
+  const harness = await setup();
+  await seedIncidentC(harness);
+  await seedInstallation(harness, "C_PRIVATE");
+  const failing = ["C_PRIVATE"];
+  const channels = stubSlack(failing, "not_in_channel");
+
+  await deliver(harness, incidentCBooking);
+  expect(channels).toEqual(["C_PRIVATE"]);
+
+  // The admin runs /invite @Magnus, then saves the same channel.
+  failing.pop();
+  await saveChannels(harness, { channelId: "C_PRIVATE", channelName: "reviews" });
+  await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
+  expect(channels).toEqual(["C_PRIVATE", "C_PRIVATE"]);
+  const [review] = await reviews(harness);
+  expect(review.alertPostedAt).toBeDefined();
+});
+
+it("setting the channel posts every waiting review, past the first page", async () => {
+  const harness = await setup();
+  await seedInstallation(harness);
+  const channels = stubSlack();
+  await harness.t.run(async (ctx) => {
+    const rawEventId = await ctx.db.insert("rawWebhookEvents", {
+      tenantId: harness.tenantId, calendlyEventUri: "uri", eventType: "invitee.created",
+      payload: "{}", processed: true, receivedAt: 0,
+    });
+    const deliveryId = await ctx.db.insert("webhookDeliveries", {
+      tenantId: harness.tenantId, key: "k", eventType: "invitee.created", inviteeUri: "i",
+      rawEventId, occurredAt: 0, receivedAt: 0, status: "blocked", generation: 0,
+    });
+    for (let i = 0; i < 105; i++)
+      await ctx.db.insert("bookingReviews", {
+        tenantId: harness.tenantId, deliveryId, kind: "held", status: "open",
+        conflicts: [], booking: {}, createdAt: i, updatedAt: i,
+      });
+  });
+
+  await saveChannels(harness, { channelId: "C_REVIEWS", channelName: "reviews" });
+  await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(channels).toHaveLength(105);
 });
 
 it("an alert whose booking review channel is gone turns alerts off and waits for a new channel", async () => {

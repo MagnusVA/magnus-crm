@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery } from "convex/react";
 import { format } from "date-fns";
 import { CheckCircle2Icon, ChevronRightIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
@@ -23,15 +23,22 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Spinner } from "@/components/ui/spinner";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { BookingReviewsPageSkeleton } from "./booking-reviews-page-skeleton";
 import { MATCH_LABELS } from "./booking-review-labels";
 
+const PAGE_SIZE = 25;
+
 export function BookingReviewsPageClient() {
   usePageTitle("Booking Reviews");
-  const reviews = useQuery(api.pipeline.bookingReviews.list, {});
+  const { results: reviews, status, loadMore } = usePaginatedQuery(
+    api.pipeline.bookingReviews.list,
+    {},
+    { initialNumItems: PAGE_SIZE },
+  );
 
-  if (reviews === undefined) return <BookingReviewsPageSkeleton />;
+  if (status === "LoadingFirstPage") return <BookingReviewsPageSkeleton />;
 
   return (
     <div className="flex flex-col gap-6">
@@ -113,6 +120,18 @@ export function BookingReviewsPageClient() {
             </Table>
           </CardContent>
         </Card>
+      )}
+
+      {(status === "CanLoadMore" || status === "LoadingMore") && (
+        <Button
+          variant="outline"
+          className="self-center"
+          disabled={status === "LoadingMore"}
+          onClick={() => loadMore(PAGE_SIZE)}
+        >
+          {status === "LoadingMore" && <Spinner data-icon="inline-start" />}
+          Load more
+        </Button>
       )}
     </div>
   );

@@ -10,8 +10,8 @@ import { Button } from "@/components/ui/button";
 export function OperationsHealthBanner() {
   const unmapped = useQuery(api.operations.unmappedUtms.listRecentUnmappedUtms, {});
   const work = useQuery(api.operations.workStatus.health, {});
-  const bookingReviews = useQuery(api.pipeline.bookingReviews.list, {});
-  const reviewCount = bookingReviews?.length ?? 0;
+  const bookingReviews = useQuery(api.pipeline.bookingReviews.openCount, {});
+  const reviewCount = bookingReviews?.count ?? 0;
   const unmappedCount = unmapped?.length ?? 0;
   const problems = work?.queues.filter(q => q.kind.endsWith(":failed") || q.kind.endsWith(":blocked")) ?? [];
   const issueCount = problems.reduce((sum, q) => sum + q.count, 0);
@@ -27,7 +27,10 @@ export function OperationsHealthBanner() {
           <AlertTitle>Bookings need a person decision</AlertTitle>
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span>
-              {reviewCount} booking{reviewCount === 1 ? "" : "s"} matched more than one person.
+              {reviewCount}
+              {bookingReviews?.capped ? "+" : ""} booking
+              {reviewCount === 1 && !bookingReviews?.capped ? "" : "s"} matched more than one
+              person.
             </span>
             <Button asChild variant="outline" size="sm">
               <Link href="/workspace/operations/booking-reviews">Review bookings</Link>

@@ -68,7 +68,11 @@ export const pipelineTables = {
     resolvedByUserId: v.optional(v.id("users")),
   })
     .index("by_deliveryId", ["deliveryId"])
-    .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
+    .index("by_tenantId_and_leadId_and_resolution", [
+      "tenantId",
+      "leadId",
+      "resolution",
+    ])
     .index("by_tenantId_and_status_and_createdAt", [
       "tenantId",
       "status",

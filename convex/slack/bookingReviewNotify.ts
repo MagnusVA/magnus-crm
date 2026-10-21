@@ -146,38 +146,58 @@ export const markPosted = internalMutation({
   },
 });
 
-/** Open reviews posted when a booking review channel is first set. */
-const PENDING_ALERT_LIMIT = 100;
+/** Open reviews read per page when posting the ones still waiting. */
+const PENDING_ALERT_PAGE = 100;
 /** Spaces the posts out under Slack's one-message-per-second channel limit. */
 const PENDING_ALERT_SPACING_MS = 1_100;
 
 /**
- * Posts every open review whose alert never went out: those opened while no
- * booking review channel was set, or whose channel was cleared. Called when
- * an admin sets the channel.
+ * Posts every open review whose alert never went out, oldest first: those
+ * opened while no booking review channel was set, or while the channel was
+ * failing. Called when an admin sets or fixes the channel. `post` skips a
+ * review already posted, so running it again is safe.
  */
 export async function schedulePendingBookingReviewAlerts(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
 ) {
-  const open = await ctx.db
-    .query("bookingReviews")
-    .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
-      q.eq("tenantId", tenantId).eq("status", "open"),
-    )
-    .order("asc")
-    .take(PENDING_ALERT_LIMIT + 1);
-  const pending = open.slice(0, PENDING_ALERT_LIMIT).filter((r) => r.alertPostedAt === undefined);
-  for (const [index, review] of pending.entries())
-    await ctx.scheduler.runAfter(index * PENDING_ALERT_SPACING_MS, internal.slack.bookingReviewNotify.post, {
-      reviewId: review._id,
-    });
-  log.info("slack.booking_review.pending_scheduled", {
+  await ctx.scheduler.runAfter(0, internal.slack.bookingReviewNotify.schedulePendingPage, {
     tenantId,
-    count: pending.length,
-    capped: open.length > PENDING_ALERT_LIMIT,
+    cursor: null,
   });
 }
+
+export const schedulePendingPage = internalMutation({
+  args: { tenantId: v.id("tenants"), cursor: v.union(v.string(), v.null()) },
+  returns: v.null(),
+  handler: async (ctx, { tenantId, cursor }) => {
+    const page = await ctx.db
+      .query("bookingReviews")
+      .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
+        q.eq("tenantId", tenantId).eq("status", "open"),
+      )
+      .order("asc")
+      .paginate({ cursor, numItems: PENDING_ALERT_PAGE });
+    const pending = page.page.filter((review) => review.alertPostedAt === undefined);
+    for (const [index, review] of pending.entries())
+      await ctx.scheduler.runAfter(index * PENDING_ALERT_SPACING_MS, internal.slack.bookingReviewNotify.post, {
+        reviewId: review._id,
+      });
+    // The next page starts after this page's posts, keeping the spacing.
+    if (!page.isDone)
+      await ctx.scheduler.runAfter(
+        pending.length * PENDING_ALERT_SPACING_MS,
+        internal.slack.bookingReviewNotify.schedulePendingPage,
+        { tenantId, cursor: page.continueCursor },
+      );
+    log.info("slack.booking_review.pending_scheduled", {
+      tenantId,
+      count: pending.length,
+      done: page.isDone,
+    });
+    return null;
+  },
+});
 
 export const recordChannelFailure = internalMutation({
   args: {

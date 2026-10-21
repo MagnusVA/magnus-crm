@@ -1,3 +1,4 @@
+import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
@@ -17,7 +18,8 @@ import type { IdentityMatchVia } from "./blocked";
 import { retryDelivery } from "./recovery";
 
 const ADMIN_ROLES = ["tenant_master", "tenant_admin"] as const;
-const LIST_LIMIT = 50;
+const LIST_PAGE_LIMIT = 50;
+const OPEN_COUNT_LIMIT = 99;
 const DEALS_PER_PERSON = 10;
 const IDENTIFIERS_PER_PERSON = 20;
 
@@ -281,36 +283,55 @@ async function requireReview(
   return review;
 }
 
-/** Open reviews, newest first. */
+/** Open reviews, newest first, a page at a time. */
 export const list = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { paginationOpts: paginationOptsValidator },
+  handler: async (ctx, { paginationOpts }) => {
     const { tenantId } = await requireTenantUser(ctx, [...ADMIN_ROLES]);
-    const reviews = await ctx.db
+    const page = await ctx.db
       .query("bookingReviews")
       .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
         q.eq("tenantId", tenantId).eq("status", "open"),
       )
       .order("desc")
-      .take(LIST_LIMIT);
-    return await Promise.all(
-      reviews.map(async (review) => {
-        const lead = review.leadId ? await ctx.db.get("leads", review.leadId) : null;
-        const others = await Promise.all(
-          [...new Set(review.conflicts.map((c) => c.leadId))].map((id) => ctx.db.get("leads", id)),
-        );
-        return {
-          reviewId: review._id,
-          kind: review.kind,
-          reason: review.reason,
-          createdAt: review.createdAt,
-          bookingName: review.booking.name,
-          bookedLeadName: lead?.fullName,
-          otherNames: others.map((other) => other?.fullName ?? other?.email ?? "Unnamed person"),
-          matchedBy: [...new Set(review.conflicts.map((c) => c.via))],
-        };
-      }),
-    );
+      .paginate({ ...paginationOpts, numItems: Math.min(paginationOpts.numItems, LIST_PAGE_LIMIT) });
+    return {
+      ...page,
+      page: await Promise.all(
+        page.page.map(async (review) => {
+          const lead = review.leadId ? await ctx.db.get("leads", review.leadId) : null;
+          const others = await Promise.all(
+            [...new Set(review.conflicts.map((c) => c.leadId))].map((id) => ctx.db.get("leads", id)),
+          );
+          return {
+            reviewId: review._id,
+            kind: review.kind,
+            reason: review.reason,
+            createdAt: review.createdAt,
+            bookingName: review.booking.name,
+            bookedLeadName: lead?.fullName,
+            otherNames: others.map((other) => other?.fullName ?? other?.email ?? "Unnamed person"),
+            matchedBy: [...new Set(review.conflicts.map((c) => c.via))],
+          };
+        }),
+      ),
+    };
+  },
+});
+
+/** How many reviews are open, for the Operations banner; `capped` past the bound. */
+export const openCount = query({
+  args: {},
+  returns: v.object({ count: v.number(), capped: v.boolean() }),
+  handler: async (ctx) => {
+    const { tenantId } = await requireTenantUser(ctx, [...ADMIN_ROLES]);
+    const open = await ctx.db
+      .query("bookingReviews")
+      .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
+        q.eq("tenantId", tenantId).eq("status", "open"),
+      )
+      .take(OPEN_COUNT_LIMIT + 1);
+    return { count: Math.min(open.length, OPEN_COUNT_LIMIT), capped: open.length > OPEN_COUNT_LIMIT };
   },
 });
 

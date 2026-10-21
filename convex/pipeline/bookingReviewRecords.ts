@@ -11,8 +11,8 @@ import type {
 /** Held reasons that mean "this booking names more than one person". */
 const REVIEWED_HOLD_REASONS = new Set(["identity_conflict"]);
 
-/** Earlier reviews of a person read when deciding whether a booking repeats one. */
-const PRIOR_REVIEW_LIMIT = 20;
+/** A person's kept-separate decisions read when a booking may repeat one. */
+const KEPT_SEPARATE_LIMIT = 200;
 
 async function reviewForDelivery(
   ctx: MutationCtx,
@@ -53,17 +53,20 @@ export async function recordAttachedReview(
     .unique();
   if (!delivery) return;
 
-  const prior = await ctx.db
+  // Only this person's kept-separate decisions, so the bound is never
+  // reached by their other reviews.
+  const keptSeparateBefore = await ctx.db
     .query("bookingReviews")
-    .withIndex("by_tenantId_and_leadId", (q) =>
-      q.eq("tenantId", args.tenantId).eq("leadId", args.leadId),
+    .withIndex("by_tenantId_and_leadId_and_resolution", (q) =>
+      q
+        .eq("tenantId", args.tenantId)
+        .eq("leadId", args.leadId)
+        .eq("resolution", "kept_separate"),
     )
-    .order("desc")
-    .take(PRIOR_REVIEW_LIMIT);
-  const keptSeparate = prior.some(
+    .take(KEPT_SEPARATE_LIMIT);
+  const keptSeparate = keptSeparateBefore.some(
     (review) =>
       review.deliveryId !== delivery._id &&
-      review.resolution === "kept_separate" &&
       sameConflicts(review.conflicts, args.conflicts),
   );
   if (keptSeparate) {

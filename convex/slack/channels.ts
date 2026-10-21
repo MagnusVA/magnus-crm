@@ -172,9 +172,13 @@ export const setSlackNotifyChannels = mutation({
         installation.leadGenNotifyChannelId !== leadGenNotifyChannelId,
     });
 
-    // Turning booking review alerts on posts the reviews still waiting for
-    // one.
-    if (bookingReviewChannel && !installation.bookingReviewChannelId)
+    // Turning booking review alerts on, moving them, or saving over a channel
+    // error (the bot invited at last) posts the reviews still waiting.
+    if (
+      bookingReviewChannel &&
+      (installation.bookingReviewChannelId !== bookingReviewChannel.channelId ||
+        installation.bookingReviewChannelError !== undefined)
+    )
       await schedulePendingBookingReviewAlerts(ctx, tenantId);
   },
 });

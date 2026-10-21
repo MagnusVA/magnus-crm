@@ -420,7 +420,7 @@ export function SlackChannelPickerDialog({
                       <FormDescription>
                         {bookingReviewUnchangedAndUnavailable
                           ? "Magnus can't find this channel in Slack's channel list. Saving keeps it; pick another channel or clear it to turn these posts off."
-                          : "Posts a booking whose details match two people, with a link to decide. When you first pick a channel, reviews still waiting are posted too. Clear it to turn these posts off."}
+                          : "Posts a booking whose details match two people, with a link to decide. When you pick a channel, reviews still waiting are posted there. Clear it to turn these posts off."}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
