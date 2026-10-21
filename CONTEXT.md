@@ -12,6 +12,10 @@ _Avoid_: contact, customer record, lead (except as the table and screen name)
 An email, phone number, or social handle that a person really uses, and that decides who a booking or capture belongs to. Placeholder values, such as a sample phone or `email@gmail.com`, are never identifiers.
 _Avoid_: contact detail, key
 
+**Booking review**:
+A booking whose identifiers name more than one person, waiting for an admin to say whether they are one person. The Instagram handle decides who gets the call; when the handle names no one, the booking is held until the review is decided.
+_Avoid_: duplicate, conflict
+
 **Lifecycle stage**:
 How far a person has ever got: Prospect, In conversation, Qualified, Booked, Showed, Customer. It moves forward on its own and only moves back when an admin moves it, with a reason.
 _Avoid_: lead status
