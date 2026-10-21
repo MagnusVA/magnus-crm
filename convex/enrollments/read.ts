@@ -47,3 +47,21 @@ export function personCustomerStatus(
   }
   return "churned";
 }
+
+/**
+ * The person's enrollment in one program, or null. Should two exist, this is
+ * the oldest, the one `syncPersonEnrollments` keeps.
+ */
+export async function getPersonProgramEnrollment(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  leadId: Id<"leads">,
+  programId: Id<"tenantPrograms">,
+): Promise<Doc<"enrollments"> | null> {
+  return await ctx.db
+    .query("enrollments")
+    .withIndex("by_tenantId_and_leadId_and_programId", (q) =>
+      q.eq("tenantId", tenantId).eq("leadId", leadId).eq("programId", programId),
+    )
+    .first();
+}
