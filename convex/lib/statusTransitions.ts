@@ -77,9 +77,12 @@ export const LEAD_STATUSES = ["active", "converted", "merged"] as const;
 
 export type LeadStatus = (typeof LEAD_STATUSES)[number];
 
+// A person is `converted` while they have an enrollment, and goes back to
+// `active` when the last one is removed (docs/plans/phase-4-customers.md
+// §4.2, §4.3). A customer can be merged (§4.7).
 export const VALID_LEAD_TRANSITIONS: Record<LeadStatus, LeadStatus[]> = {
   active: ["converted", "merged"],
-  converted: [],
+  converted: ["active", "merged"],
   merged: [],
 };
 

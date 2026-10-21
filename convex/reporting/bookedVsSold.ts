@@ -58,7 +58,7 @@ export const getBookedVsSoldMatrix = query({
     const opportunityIds = [
       ...new Set(
         matrixPayments
-          .map((payment) => payment.originatingOpportunityId ?? payment.opportunityId)
+          .map((payment) => payment.opportunityId)
           .filter((id): id is Id<"opportunities"> => id !== undefined),
       ),
     ];
@@ -82,8 +82,8 @@ export const getBookedVsSoldMatrix = query({
     >();
 
     for (const payment of matrixPayments) {
-      const opportunityId =
-        payment.originatingOpportunityId ?? payment.opportunityId;
+      // Every payment is a deal payment (docs/plans/phase-4-customers.md D12).
+      const opportunityId = payment.opportunityId;
       const opportunity = opportunityId ? opportunityById.get(opportunityId) : null;
       const bookingProgramId =
         opportunity?.firstBookingProgramId ?? "unknown";

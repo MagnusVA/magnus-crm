@@ -130,10 +130,7 @@ export async function buildPaymentAuditSnapshot(
         payment.meetingId ? ctx.db.get("meetings", payment.meetingId) : Promise.resolve(null),
       ]);
       const meeting = tenantOwned(meetingById, tenantId);
-      const opportunityId =
-        payment.opportunityId ??
-        payment.originatingOpportunityId ??
-        meeting?.opportunityId;
+      const opportunityId = payment.opportunityId ?? meeting?.opportunityId;
       const opportunity = opportunityId
         ? tenantOwned(await ctx.db.get("opportunities", opportunityId), tenantId)
         : null;
@@ -242,10 +239,7 @@ export async function buildPaymentAuditSnapshot(
         }
       }
 
-      const opportunityId =
-        payment.opportunityId ??
-        payment.originatingOpportunityId ??
-        meeting?.opportunityId;
+      const opportunityId = payment.opportunityId ?? meeting?.opportunityId;
       const opportunity = opportunityId
         ? tenantOwned(await ctx.db.get("opportunities", opportunityId), tenantId)
         : null;

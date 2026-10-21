@@ -192,7 +192,7 @@ export function CreateOpportunityPageClient({
 					values.leadMode === "new"
 						? {
 								fullName: values.newFullName!.trim(),
-								email: values.newEmail!.trim().toLowerCase(),
+								email: normalizeOptional(values.newEmail)?.toLowerCase(),
 								phone: normalizeOptional(values.newPhone),
 								socialHandle:
 									values.newSocialPlatform && values.newSocialHandle?.trim()
@@ -356,9 +356,7 @@ export function CreateOpportunityPageClient({
 												name="newEmail"
 												render={({ field }) => (
 													<FormItem>
-														<FormLabel>
-															Email <span className="text-destructive">*</span>
-														</FormLabel>
+														<FormLabel>Email</FormLabel>
 														<FormControl>
 															<Input
 																type="email"
@@ -369,6 +367,10 @@ export function CreateOpportunityPageClient({
 																{...field}
 															/>
 														</FormControl>
+														<FormDescription>
+															Enter an email, a phone or a social handle, at least
+															one.
+														</FormDescription>
 														<FormMessage />
 													</FormItem>
 												)}

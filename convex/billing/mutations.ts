@@ -6,10 +6,7 @@ import { emitDomainEvent } from "../lib/domainEvents";
 import { syncPersonEnrollments } from "../lib/enrollments";
 import { log } from "../lib/observability/log";
 import { toAmountMinor } from "../lib/formatMoney";
-import {
-  requireActiveProgram,
-  syncCustomerPaymentSummary,
-} from "../lib/paymentHelpers";
+import { requireActiveProgram } from "../lib/paymentHelpers";
 import { refreshSoldProgramCachesForPaymentContext } from "../lib/soldProgramCache";
 import { replaceTenantPaymentStatsForCorrection } from "../lib/tenantStatsHelper";
 import { replacePaymentAggregate } from "../reporting/writeHooks";
@@ -95,10 +92,6 @@ async function refreshPaymentCorrectionSideEffects(
       before: args.before,
       after,
     });
-  }
-
-  if (hasChangedKey(args.changedKeys, FINANCIAL_CORRECTION_KEYS) && after.customerId) {
-    await syncCustomerPaymentSummary(ctx, after.customerId);
   }
 
   if (args.changedKeys.includes("programId")) {
@@ -275,12 +268,18 @@ export const correctPayment = mutation({
     // A program correction moves the payment to its new program's enrollment,
     // and an enrollment it empties moves with it when the new program had
     // none (docs/plans/phase-4-customers.md §4.6). Other fields change no
-    // enrollment, and the sync then writes nothing. A payment with no deal
-    // counts toward no enrollment.
+    // enrollment; the sync still rebuilds the search row, whose total an
+    // amount correction changes.
     if (nextPayment.opportunityId) {
       const opportunity = await ctx.db.get("opportunities", nextPayment.opportunityId);
       if (opportunity && opportunity.tenantId === tenantId) {
-        await syncPersonEnrollments(ctx, { tenantId, leadId: opportunity.leadId, now });
+        await syncPersonEnrollments(ctx, {
+          tenantId,
+          leadId: opportunity.leadId,
+          now,
+          source: "admin",
+          actorUserId: userId,
+        });
       }
     }
 

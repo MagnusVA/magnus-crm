@@ -11,28 +11,44 @@ import {
   type EnrollmentHarness,
 } from "../../tests/enrollmentFixtures";
 
-// Every payment write path keeps the person's enrollments current beside the
-// customer row (docs/plans/phase-4-customers.md §5, PR 1 column). None of
-// them emits an enrollment event yet.
+// Every payment write path keeps the person's enrollments current, and the
+// first one makes the person a customer; no path writes a customer row
+// (docs/plans/phase-4-customers.md §4.2, §4.3, §5).
 
 afterEach(() => vi.useRealTimers());
 
 const CALL_LOGGED = Date.parse("2026-10-01T12:40:00Z");
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-async function enrollmentEvents(harness: EnrollmentHarness) {
+async function events(harness: EnrollmentHarness) {
   return await harness.t.run(async (ctx) =>
-    (await ctx.db.query("domainEvents").take(500)).filter((event) => event.entityType === "enrollment"),
+    (await ctx.db.query("domainEvents").take(500))
+      .filter((event) => event.entityType === "enrollment" || event.eventType === "lead.status_changed")
+      .map((event) => ({
+        eventType: event.eventType,
+        source: event.source,
+        actorUserId: event.actorUserId,
+        toStatus: event.toStatus,
+        reason: event.reason,
+        leadId: event.leadId,
+        programId: event.metadata ? (JSON.parse(event.metadata) as { programId?: string }).programId : undefined,
+      })),
   );
 }
 
-async function customerOf(harness: EnrollmentHarness, leadId: Id<"leads">) {
-  return await harness.t.run((ctx) =>
-    ctx.db
-      .query("customers")
-      .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", harness.tenantId).eq("leadId", leadId))
-      .first(),
-  );
+async function customerRows(harness: EnrollmentHarness) {
+  return await harness.t.run((ctx) => ctx.db.query("customers").take(10));
+}
+
+async function leadOf(harness: EnrollmentHarness, leadId: Id<"leads">) {
+  return (await harness.t.run((ctx) => ctx.db.get("leads", leadId)))!;
+}
+
+async function counters(harness: EnrollmentHarness) {
+  return await harness.t.run(async (ctx) => {
+    const stats = await ctx.db.query("tenantStats").first();
+    return { totalLeads: stats?.totalLeads, totalCustomers: stats?.totalCustomers };
+  });
 }
 
 describe("enrollments beside each payment", () => {
@@ -53,9 +69,21 @@ describe("enrollments beside each payment", () => {
     });
     const payment = await harness.t.run((ctx) => ctx.db.get("paymentRecords", paymentId));
     expect(payment?.recordedAt).toBe(CALL_LOGGED);
-    // The customer row is still written, and agrees.
-    expect(await customerOf(harness, leadId)).toMatchObject({ programId: programA, convertedAt: CALL_LOGGED });
-    expect(await enrollmentEvents(harness)).toEqual([]);
+    // A deal payment, with no customer link.
+    expect(payment?.customerId).toBeUndefined();
+    expect(payment?.contextType).toBeUndefined();
+    expect(await customerRows(harness)).toEqual([]);
+    expect((await leadOf(harness, leadId)).status).toBe("converted");
+    expect(await events(harness)).toEqual([
+      {
+        eventType: "enrollment.created", source: "closer", actorUserId: harness.closerId, toStatus: undefined,
+        reason: undefined, leadId, programId: programA,
+      },
+      {
+        eventType: "lead.status_changed", source: "closer", actorUserId: harness.closerId, toStatus: "converted",
+        reason: "enrolled", leadId, programId: undefined,
+      },
+    ]);
   });
 
   it("a reminder payment enrolls the person", async () => {
@@ -83,6 +111,8 @@ describe("enrollments beside each payment", () => {
     expect(await enrollmentsOf(harness, leadId)).toMatchObject([
       { programId: programA, opportunityId, enrolledAt: CALL_LOGGED, status: "active" },
     ]);
+    expect((await leadOf(harness, leadId)).status).toBe("converted");
+    expect(await customerRows(harness)).toEqual([]);
   });
 
   it("an additional payment joins the enrollment, and a side deal for a second program adds one", async () => {
@@ -114,21 +144,48 @@ describe("enrollments beside each payment", () => {
         programId: programB, opportunityId: second.opportunityId, enrolledAt: CALL_LOGGED + 2 * DAY_MS, status: "active",
       }),
     ]);
-    expect(await enrollmentEvents(harness)).toEqual([]);
+    // One conversion, and one enrollment.created per program.
+    expect((await events(harness)).map(({ eventType, programId }) => [eventType, programId])).toEqual([
+      ["enrollment.created", programA],
+      ["lead.status_changed", undefined],
+      ["enrollment.created", programB],
+    ]);
+    expect(await customerRows(harness)).toEqual([]);
   });
 
-  it("a customer payment, which has no deal, adds no enrollment", async () => {
+  it("a side deal payment makes a person with no email a customer", async () => {
     const harness = await enrollmentHarness();
-    const { programA, programB } = await programs(harness);
-    const created = await sideDeal(harness, "customer-payment", { email: "buyer@example.com" });
-    await paySideDeal(harness, created.opportunityId, programA, Date.now());
-    const customer = (await customerOf(harness, created.leadId))!;
-
-    await harness.admin.mutation(api.customers.mutations.recordCustomerPayment, {
-      customerId: customer._id, amount: 50, currency: "USD", programId: programB, paymentType: "pif",
+    const { programA } = await programs(harness);
+    const leadId = await harness.t.run(async (ctx) => {
+      const leadId = await ctx.db.insert("leads", {
+        tenantId: harness.tenantId,
+        fullName: "No Email",
+        phone: "+15555550123",
+        status: "active",
+        firstSeenAt: 0,
+        updatedAt: 0,
+        lifecycleStage: "qualified",
+        lifecycleStageEnteredAt: { qualified: 0 },
+        disposition: "open",
+      });
+      await ctx.db.insert("tenantStats", {
+        tenantId: harness.tenantId,
+        totalTeamMembers: 0, totalClosers: 0, totalOpportunities: 0, activeOpportunities: 0, wonDeals: 0, lostDeals: 0,
+        totalRevenueMinor: 0, totalPaymentRecords: 0, totalLeads: 3, totalCustomers: 1, lastUpdatedAt: 0,
+      });
+      return leadId;
     });
+    const created = await sideDeal(harness, "no-email", leadId);
+    const paidAt = Date.parse("2026-10-05T10:00:00Z");
 
-    expect((await enrollmentsOf(harness, created.leadId)).map((row) => row.programId)).toEqual([programA]);
+    await paySideDeal(harness, created.opportunityId, programA, paidAt);
+
+    expect(await leadOf(harness, leadId)).toMatchObject({ status: "converted", lifecycleStage: "customer" });
+    expect(await enrollmentsOf(harness, leadId)).toMatchObject([
+      { programId: programA, opportunityId: created.opportunityId, enrolledAt: paidAt, status: "active" },
+    ]);
+    expect(await counters(harness)).toMatchObject({ totalCustomers: 2 });
+    expect(await customerRows(harness)).toEqual([]);
   });
 });
 
@@ -154,7 +211,15 @@ describe("voided side deal payments", () => {
 
     await harness.admin.mutation(api.sideDeals.voidPayment.voidPayment, { paymentId: thirdPayment, reason: "Refunded" });
     expect((await enrollmentsOf(harness, first.leadId)).map((row) => row.programId)).toEqual([programA]);
-    expect(await enrollmentEvents(harness)).toEqual([]);
+    // A program still paid for keeps the person a customer; the emptied one
+    // is removed by the admin who voided.
+    expect((await leadOf(harness, first.leadId)).status).toBe("converted");
+    expect((await events(harness)).slice(-1)).toEqual([
+      {
+        eventType: "enrollment.removed", source: "admin", actorUserId: harness.adminId, toStatus: undefined,
+        reason: "no_payment", leadId: first.leadId, programId: programB,
+      },
+    ]);
   });
 
   it("remove a person's only enrollment with their only payment", async () => {
@@ -164,11 +229,23 @@ describe("voided side deal payments", () => {
     const paymentId = await paySideDeal(harness, created.opportunityId, programA, Date.now());
     expect(await enrollmentsOf(harness, created.leadId)).toHaveLength(1);
 
+    const before = await counters(harness);
+
     await harness.admin.mutation(api.sideDeals.voidPayment.voidPayment, { paymentId, reason: "Wrong person" });
 
     expect(await enrollmentsOf(harness, created.leadId)).toEqual([]);
-    const lead = await harness.t.run((ctx) => ctx.db.get("leads", created.leadId));
-    expect(lead?.status).toBe("active");
+    const lead = await leadOf(harness, created.leadId);
+    expect(lead.status).toBe("active");
+    // The stage follows what is left: the side deal's Showed (§4.3).
+    expect(lead.lifecycleStage).toBe("showed");
+    expect(await counters(harness)).toEqual({
+      totalLeads: before.totalLeads! + 1,
+      totalCustomers: before.totalCustomers! - 1,
+    });
+    expect((await events(harness)).slice(-2).map(({ eventType, reason, toStatus }) => [eventType, reason, toStatus])).toEqual([
+      ["enrollment.removed", "no_payment", undefined],
+      ["lead.status_changed", "no_enrollment", "active"],
+    ]);
   });
 });
 
@@ -183,9 +260,12 @@ describe("billing corrections", () => {
     const { programA, programB } = await programs(harness);
     const created = await sideDeal(harness, "corrected", { email: "buyer@example.com" });
     const paymentId = await paySideDeal(harness, created.opportunityId, programA, Date.now());
-    const customer = (await customerOf(harness, created.leadId))!;
-    await harness.admin.mutation(api.customers.mutations.updateCustomerStatus, { customerId: customer._id, status: "paused" });
+    const [enrolled] = await enrollmentsOf(harness, created.leadId);
+    await harness.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
+      enrollmentId: enrolled._id, status: "paused", expectedStatus: "active",
+    });
     const [before] = await enrollmentsOf(harness, created.leadId);
+    const eventsBefore = await events(harness);
 
     await harness.admin.mutation(api.billing.mutations.correctPayment, {
       paymentRecordId: paymentId, programId: programB, reason: "Logged under the wrong program",
@@ -193,6 +273,9 @@ describe("billing corrections", () => {
 
     expect(await enrollmentsOf(harness, created.leadId)).toEqual([{ ...before, programId: programB }]);
     expect(before.status).toBe("paused");
+    // A repoint is neither a removal nor a new enrollment, and the person stays a customer.
+    expect(await events(harness)).toEqual(eventsBefore);
+    expect((await leadOf(harness, created.leadId)).status).toBe("converted");
   });
 
   it("add an enrollment when a later payment moves to a new program, and leave it alone on an amount fix", async () => {
@@ -220,34 +303,5 @@ describe("billing corrections", () => {
       paymentRecordId: firstPayment, amount: 450, reason: "Amount typo",
     });
     expect(await enrollmentsOf(harness, created.leadId)).toEqual(enrollments);
-  });
-});
-
-describe("customer status", () => {
-  it("sets the status of the enrollment for the customer's program", async () => {
-    const harness = await enrollmentHarness();
-    const { programA, programB } = await programs(harness);
-    const created = await sideDeal(harness, "status", { email: "buyer@example.com" });
-    await paySideDeal(harness, created.opportunityId, programA, Date.parse("2026-10-05T10:00:00Z"));
-    const second = await sideDeal(harness, "status-second", created.leadId);
-    await paySideDeal(harness, second.opportunityId, programB, Date.parse("2026-10-06T10:00:00Z"));
-    const customer = (await customerOf(harness, created.leadId))!;
-    const changedAt = Date.parse("2026-10-07T10:00:00Z");
-    vi.setSystemTime(new Date(changedAt));
-
-    await harness.admin.mutation(api.customers.mutations.updateCustomerStatus, { customerId: customer._id, status: "churned" });
-
-    const enrollments = await enrollmentsOf(harness, created.leadId);
-    expect(enrollments).toMatchObject([
-      { programId: programA, status: "churned", statusChangedAt: changedAt, statusChangedByUserId: harness.adminId },
-      { programId: programB, status: "active" },
-    ]);
-    expect(enrollments[1].statusChangedAt).toBeUndefined();
-
-    vi.setSystemTime(new Date(changedAt + DAY_MS));
-    await harness.admin.mutation(api.customers.mutations.updateCustomerStatus, { customerId: customer._id, status: "active" });
-    expect((await enrollmentsOf(harness, created.leadId))[0]).toMatchObject({
-      status: "active", statusChangedAt: changedAt + DAY_MS, statusChangedByUserId: harness.adminId,
-    });
   });
 });

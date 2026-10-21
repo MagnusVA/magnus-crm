@@ -109,8 +109,7 @@ export async function refreshSoldProgramCachesForPaymentContext(
     payment: Doc<"paymentRecords">;
   },
 ) {
-  const opportunityId =
-    args.payment.opportunityId ?? args.payment.originatingOpportunityId;
+  const opportunityId = args.payment.opportunityId;
   if (!opportunityId) {
     return;
   }
@@ -122,30 +121,17 @@ export async function refreshSoldProgramCachesForPaymentContext(
     opportunityId,
     payments,
   });
-
-  if (!args.payment.customerId || args.payment.contextType !== "opportunity") {
-    return;
-  }
-
-  const customer = await ctx.db.get("customers", args.payment.customerId);
-  if (
-    customer &&
-    customer.tenantId === args.tenantId &&
-    customer.winningOpportunityId === opportunityId
-  ) {
-    await ctx.db.patch("customers", customer._id, {
-      programId: args.payment.programId,
-      programName: args.payment.programName,
-    });
-  }
+  // The person's enrollment follows the corrected program through
+  // syncPersonEnrollments (docs/plans/phase-4-customers.md §4.6).
 }
 
 async function latestValidPayments(
   ctx: MutationCtx,
   opportunityId: Id<"opportunities">,
 ) {
+  // Every payment is a deal payment (docs/plans/phase-4-customers.md D12).
   const rows = await Promise.all(
-    (["recorded", "verified"] as const).flatMap((status) => [
+    (["recorded", "verified"] as const).map((status) =>
       ctx.db
         .query("paymentRecords")
         .withIndex("by_opportunityId_and_status_and_recordedAt", (q) =>
@@ -153,18 +139,7 @@ async function latestValidPayments(
         )
         .order("desc")
         .first(),
-      ctx.db
-        .query("paymentRecords")
-        .withIndex(
-          "by_originatingOpportunityId_and_status_and_recordedAt",
-          (q) =>
-            q
-              .eq("originatingOpportunityId", opportunityId)
-              .eq("status", status),
-        )
-        .order("desc")
-        .first(),
-    ]),
+    ),
   );
   return rows.filter((row): row is Doc<"paymentRecords"> => row !== null);
 }

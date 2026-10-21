@@ -6,7 +6,6 @@ import {
 	type PaymentOrigin,
 } from "../lib/paymentTypes";
 import {
-  customerConversions,
   isSlackQualificationAggregateEligible,
   meetingsByStatus,
   opportunityByStatus,
@@ -222,37 +221,6 @@ export const backfillSlackQualificationAggregates = internalMutation({
 	},
 });
 
-export const backfillCustomersAggregate = internalMutation({
-	args: { cursor: v.optional(v.string()) },
-	handler: async (ctx, { cursor }) => {
-		const result = await ctx.db.query("customers").paginate({
-			numItems: AGGREGATE_PAGE_SIZE,
-			cursor: cursor ?? null,
-		});
-
-		for (const customer of result.page) {
-			await customerConversions.insertIfDoesNotExist(ctx, customer);
-		}
-
-		logBackfillBatch("customers_aggregate", result.isDone, {
-			processed: result.page.length,
-		});
-
-		if (!result.isDone) {
-			await ctx.scheduler.runAfter(
-				0,
-				internal.reporting.backfill.backfillCustomersAggregate,
-				{ cursor: result.continueCursor },
-			);
-		}
-
-		return {
-			hasMore: !result.isDone,
-			inserted: result.page.length,
-		};
-	},
-});
-
 export const backfillPaymentOrigin = internalMutation({
 	args: { cursor: v.optional(v.string()) },
 	handler: async (ctx, { cursor }) => {
@@ -271,10 +239,8 @@ export const backfillPaymentOrigin = internalMutation({
 				continue;
 			}
 
-			let origin: PaymentOrigin =
-				payment.contextType === "customer"
-					? "customer_direct"
-					: "closer_meeting";
+			// Every payment is a deal payment (docs/plans/phase-4-customers.md D12).
+			let origin: PaymentOrigin = "closer_meeting";
 			let usedDefault = false;
 
 			const events = await ctx.db
@@ -293,16 +259,13 @@ export const backfillPaymentOrigin = internalMutation({
 					(event) => event.eventType === "payment.recorded",
 				) ?? null;
 
-			if (recordedEvent && payment.contextType !== "customer") {
+			if (recordedEvent) {
 				if (recordedEvent.source === "admin") {
 					origin = "admin_meeting";
-				} else if (recordedEvent.source === "closer") {
-					origin = "closer_meeting";
-				} else {
-					origin = "closer_meeting";
+				} else if (recordedEvent.source !== "closer") {
 					usedDefault = true;
 				}
-			} else if (payment.contextType !== "customer") {
+			} else {
 				usedDefault = true;
 			}
 
@@ -370,10 +333,7 @@ export const auditPaymentOriginBackfill = internalQuery({
 				if (payment.origin) {
 					withOrigin += 1;
 					byOrigin[
-						normalizePaymentOrigin(
-							payment.origin,
-							payment.contextType,
-						)
+						normalizePaymentOrigin(payment.origin)
 					] += 1;
 				}
 				if (payment.origin?.startsWith("admin_")) {

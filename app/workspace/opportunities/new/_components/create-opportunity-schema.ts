@@ -56,10 +56,16 @@ export function createOpportunitySchema({
 					});
 				}
 
-				if (!data.newEmail?.trim()) {
+				// The person needs no email, but needs something that identifies
+				// them: an email, a phone or a social handle.
+				const hasContact =
+					Boolean(data.newEmail?.trim()) ||
+					Boolean(data.newPhone?.trim()) ||
+					Boolean(data.newSocialPlatform && data.newSocialHandle?.trim());
+				if (!hasContact) {
 					ctx.addIssue({
 						code: "custom",
-						message: "Email is required for new leads in MVP",
+						message: "Enter an email, a phone number or a social handle",
 						path: ["newEmail"],
 					});
 				}

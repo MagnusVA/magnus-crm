@@ -1748,18 +1748,18 @@ export default defineSchema({
     verifiedByUserId: v.optional(v.id("users")),
     statusChangedAt: v.optional(v.number()),
     // `recordedAt` is the effective "paid at" timestamp used by all reporting
-    // queries. For admin-logged post-conversion payments this may be
-    // back-dated via the `paidAt` argument on `recordCustomerPayment`.
+    // queries.
     recordedAt: v.number(),
-    // === Feature D: Customer Linkage ===
+    // Phase 4 stops writing and reading these three; its clear unsets
+    // `customerId` and `contextType`, and the narrow drops all three with
+    // their indexes (docs/plans/phase-4-customers.md §3.2, §3.3, D12). Every
+    // payment is a deal payment.
     customerId: v.optional(v.id("customers")),
     originatingOpportunityId: v.optional(v.id("opportunities")),
-    contextType: v.union(
-      v.literal("opportunity"),
-      v.literal("customer"),
+    contextType: v.optional(
+      v.union(v.literal("opportunity"), v.literal("customer")),
     ),
     origin: paymentOriginValidator,
-    // === End Feature D ===
   })
     .index("by_opportunityId_and_recordedAt", [
       "opportunityId",

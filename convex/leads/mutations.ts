@@ -5,7 +5,6 @@ import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { normalizeEmail } from "../lib/normalization";
 import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
 import { requireTenantUser } from "../requireTenantUser";
-import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
 import { syncLeadMeetingNames } from "../lib/syncLeadMeetingNames";
 import { leadDisplayString } from "../lib/leadDisplay";
 import { buildLeadSearchText } from "./searchTextBuilder";
@@ -75,7 +74,6 @@ export const updateLead = mutation({
       await refreshOpportunitySearchForLead(ctx, tenantId, leadId);
     }
 
-    await syncCustomerSnapshot(ctx, tenantId, leadId);
     await syncLeadMeetingNames(
       ctx,
       tenantId,

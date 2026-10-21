@@ -15,9 +15,12 @@ import { MAX_CONVERSION_SCAN_ROWS, type LeadConversionList } from "../reporting/
 // How the readers computed each number from the customer rows before Phase 4
 // PR 2 switched them to the person and their enrollments. Only the parity
 // queries read this (docs/plans/phase-4-customers.md §10.3); the narrow
-// removes it with them.
+// removes it with them. From PR 4 no payment field names a customer (D12):
+// a customer row's payments are the payments on its person's deals, which
+// production's linked payments all were (§2.2).
 
-const CUSTOMER_PAYMENT_LIMIT = 100;
+const PERSON_DEAL_LIMIT = 100;
+const DEAL_PAYMENT_LIMIT = 100;
 
 function tenantOwned<T extends { tenantId: Id<"tenants"> }>(
   doc: T | null,
@@ -65,13 +68,26 @@ export async function customerFieldsFromCustomerRow(
   if (!customer) {
     return { customer: null, fields: NO_CUSTOMER_FIELDS };
   }
-  const paymentRows = await ctx.db
-    .query("paymentRecords")
-    .withIndex("by_customerId_and_recordedAt", (q) =>
-      q.eq("customerId", customer._id),
+  const deals = await ctx.db
+    .query("opportunities")
+    .withIndex("by_tenantId_and_leadId", (q) =>
+      q.eq("tenantId", tenantId).eq("leadId", leadId),
     )
-    .order("desc")
-    .take(CUSTOMER_PAYMENT_LIMIT);
+    .take(PERSON_DEAL_LIMIT);
+  const paymentRows = (
+    await Promise.all(
+      deals.map((deal) =>
+        ctx.db
+          .query("paymentRecords")
+          .withIndex("by_opportunityId_and_recordedAt", (q) =>
+            q.eq("opportunityId", deal._id),
+          )
+          .take(DEAL_PAYMENT_LIMIT),
+      ),
+    )
+  )
+    .flat()
+    .filter((payment) => payment.tenantId === tenantId);
   const summary = summarizePayments(paymentRows);
   return {
     customer,
@@ -142,32 +158,27 @@ async function firstTenantMeeting(
 }
 
 /**
- * Billing: a payment's customer row, deal and meeting. The payment's customer,
- * else its deal's person's; the customer's winning deal and meeting are the
- * fallbacks before the deal's first and latest meeting.
+ * Billing: a payment's customer row, deal and meeting. The customer is its
+ * deal's person's; the customer's winning meeting is the fallback before the
+ * deal's first and latest meeting.
  */
 export async function resolveBillingFromCustomer(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   payment: Doc<"paymentRecords">,
 ) {
-  const directCustomer = payment.customerId
-    ? tenantOwned(await ctx.db.get("customers", payment.customerId), tenantId)
+  const opportunity = await firstTenantOpportunity(ctx, tenantId, [payment.opportunityId]);
+  const customer = opportunity
+    ? tenantOwned(
+        await ctx.db
+          .query("customers")
+          .withIndex("by_tenantId_and_leadId", (q) =>
+            q.eq("tenantId", tenantId).eq("leadId", opportunity.leadId),
+          )
+          .first(),
+        tenantId,
+      )
     : null;
-  const opportunity = await firstTenantOpportunity(ctx, tenantId, [
-    payment.opportunityId,
-    payment.originatingOpportunityId,
-    directCustomer?.winningOpportunityId,
-  ]);
-  const fallbackCustomer = opportunity
-    ? await ctx.db
-        .query("customers")
-        .withIndex("by_tenantId_and_leadId", (q) =>
-          q.eq("tenantId", tenantId).eq("leadId", opportunity.leadId),
-        )
-        .first()
-    : null;
-  const customer = directCustomer ?? tenantOwned(fallbackCustomer, tenantId);
   const meeting = await firstTenantMeeting(ctx, tenantId, [
     payment.meetingId,
     customer?.winningMeetingId,

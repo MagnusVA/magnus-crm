@@ -135,7 +135,7 @@ enrollments: defineTable({
 ### 3.2 PR 4
 
 - `paymentRecords.contextType` becomes optional, so PR 4 can stop writing it and the clear can unset it (D12).
-- `customers` and `paymentRecords.customerId` stay as they are; PR 4 stops writing them and its migrations empty them.
+- `customers` and `paymentRecords.customerId` stay as they are; PR 4 stops writing them and its migrations empty them. Every payment PR 4 writes leaves `customerId`, `contextType` and `originatingOpportunityId` unset.
 
 ### 3.3 The narrow (PR 5)
 
@@ -145,6 +145,8 @@ enrollments: defineTable({
 | `paymentRecords` | `customerId`, `contextType`, `originatingOpportunityId` (D12) | `by_customerId_and_recordedAt`, `by_originatingOpportunityId_and_recordedAt`, `by_originatingOpportunityId_and_status_and_recordedAt` |
 | `leadCustomerSearchRows` | `customerId` | `by_tenantId_and_customerId` |
 | `convex.config.ts` | the `customerConversions` aggregate, cleared first | |
+
+The code that still reads the table, the fields or the aggregate after PR 4 goes with them: `rebuildCustomerSearchRows` (§10.4); the PR 4 clears, the deletion and their asserts (§10.5); the parity module, `enrollments/parity.ts` and `enrollments/customerCopy.ts` (§10.3); the `customerConversions` definition in `reporting/aggregates.ts`; the ignored `customerCursor` argument of `syncRenamedProgram` (§5); and the rest of §6.5's PR 5 list.
 
 These stay:
 
@@ -163,7 +165,7 @@ These stay:
 1. It groups the payments that aren't disputed by `programId`, and takes the earliest of each group by `recordedAt`, then `_creationTime`. A payment with no deal doesn't count: only `recordCustomerPayment` writes one, and it has never run in production (§2.2).
 2. A program with such a payment has one enrollment: its `opportunityId` and `enrolledAt` come from that payment. A missing one is inserted as `active`; an existing one whose times differ is patched.
 3. An enrollment whose program has no such payment left is deleted (§4.3), except in the program correction case (§4.6). If two enrollments exist for one person and program, the oldest by creation stays and the others are deleted.
-4. From PR 2, it rebuilds the person's search row when anything changed. In PR 1 nothing reads enrollments, so it writes only enrollments: no event, counter, lead status or search row.
+4. From PR 2, it rebuilds the person's search row when anything changed. In PR 1 nothing reads enrollments, so it writes only enrollments: no event, counter, lead status or search row. From PR 4 it also emits the enrollment events and moves `leads.status` (§4.2, §4.3); `writePersonEnrollments` is the same write with no event, counter or lead status, for migrations (§10).
 
 It returns what it created, moved, repointed and deleted, and whether the person had an enrollment before and has one after, which is what PR 4's conversion side effects need (§4.2, §4.3).
 
@@ -180,9 +182,13 @@ It needs no email. The lifecycle stage comes from `recordPayment`, which every p
 
 Until PR 4, `executeConversion` keeps doing all of this and keeps writing the customer row; `syncPersonEnrollments` only writes enrollments beside it.
 
+In PR 4 the person's own `leads.status` decides, not whether the sync found enrollments before it ran: a person with an enrollment who is `active` converts, and a merged person is left alone. The `lead.status_changed` event has the reason `enrolled`. Every event the sync emits takes its source and actor from the write that called it: the closer or admin who recorded, voided or corrected the payment, or the admin who merged. `totalLeads` −1 follows `countsAsLead`, so a person still at Prospect leaves it alone. The lead state machine allows `converted` to `active` (§4.3) and to `merged` (§4.7). Moving an enrollment to another payment or program (§4.6) emits nothing.
+
 ### 4.3 When the last payment goes
 
 Voiding a side deal payment is the only way a payment becomes disputed today. When it leaves a program with no payment, that enrollment is deleted with an `enrollment.removed` event. When it leaves the person with no enrollment, the person goes back to `active`, `totalCustomers` −1 and `totalLeads` +1, with a `lead.status_changed` event, as `rollbackCustomerConversionIfEmpty` does today; `voidPayment` then calls `correctLeadLifecycle` as now. One difference: today the rollback only deletes the customer if the voided deal was its winning deal. An enrollment stays while any deal still has a payment for its program, and takes its times from the earliest one left.
+
+In PR 4 the event's reason is `no_enrollment`, and `totalLeads` +1 only when the person then counts as a lead (`countsAsLead`). Any sync moves back a person who is `converted` with no enrollment, so the person PR 1 found converted with no counting payment goes back at their next payment write.
 
 ### 4.4 Status
 
@@ -195,6 +201,8 @@ Status belongs to the enrollment (D3). An admin changes it per enrollment (`upda
 - A select to the current status, or a stale one (the enrollment changed since the page loaded), changes nothing. The page always sends the status it showed, as the required `expectedStatus`. The mutation returns `unchanged` when the enrollment already has the status picked, even from a stale page, else `stale` when `expectedStatus` differs from the current status, else `changed`; the page shows each as a toast. The person-level status the list shows (`leadCustomerSearchRows.customerStatus`) is `active` if any enrollment is active, else `paused` if any is paused, else `churned`.
 
 Until PR 4, the two statuses are kept equal in both directions. `updateCustomerStatus` sets the status of the enrollment for the customer's program as well, with `statusChangedAt` and `statusChangedByUserId`; a person the backfill hasn't reached has no enrollment yet, and the backfill carries the status. Nothing calls it from the app (§2.7). `updateEnrollmentStatus` sets the customer row's status (with `pausedAt` or `churnedAt`) when the enrollment is for the customer's program, then rebuilds the search row. That mirror only keeps `assertEnrollments` true: nothing reads the customer row's status once PR 2 is live, and PR 2 merges before PR 3, so the status control never exists while the list reads the customer row. The list's status is always the person-level status of every enrollment.
+
+PR 4 removes both directions: `updateCustomerStatus` is retired, and `updateEnrollmentStatus` no longer writes the customer row, so `assertEnrollments` stops comparing the two (§10.2).
 
 ### 4.5 A second program
 
@@ -246,14 +254,14 @@ Every writer of an enrollment runs inside one mutation: `syncPersonEnrollments` 
 | Manual conversion | `customers/mutations.ts:convertLeadToCustomer` | | retired |
 | Person merged | `leads/merge.ts` | | moves enrollments (§4.7) |
 | Person edited, booking updates the person | `leads/mutations.ts:updateLead`, `pipeline/inviteeCreated.ts` | | stop calling `syncCustomerSnapshot` |
-| Program renamed | `tenantPrograms/sync.ts` | | stops patching customers; enrollments hold no name |
+| Program renamed | `tenantPrograms/sync.ts` | | stops patching customers; enrollments hold no name. It still accepts the old `customerCursor` argument, ignored, so a chain scheduled before the deploy finishes |
 | Program corrected | `lib/soldProgramCache.ts` | | stops patching the customer's program |
 | Side deal for a new person | `opportunities/createManual.ts` | | email optional; at least one of email, phone or handle (D8) |
 | Tenant data purge | `admin/tenantsMutations.ts`, `testing/operationalData.ts` | delete enrollments too | stop deleting customers |
 
 Other writes to payments and deals need no sync in PR 1. `billing/mutations.ts:markReviewed` moves a payment from recorded to verified, and both count. `tenantPrograms/sync.ts` renames, `reporting/backfill.ts` sets `origin`, and conversion and its rollback set `customerId`; an enrollment reads none of them. A merge is the only write that moves a deal to another person (`moveOpportunityToLead`), and until PR 4 it accepts only active people, who have no payment that counts, since a payment converts its person. The one-off `purgePhase6BlockerRecords` in `admin/migrations.ts` ran before this phase and isn't run again.
 
-Every path that inserts a payment already calls `recordPayment` (lifecycle), `insertPaymentAggregate`, `applyPaymentStatsDelta` and `emitDomainEvent`; none of that changes. `assertPaymentRow` stops requiring a customer for a non-commissionable row in PR 4: every payment is on a deal.
+Every path that inserts a payment already calls `recordPayment` (lifecycle), `insertPaymentAggregate`, `applyPaymentStatsDelta` and `emitDomainEvent`; none of that changes. `assertPaymentRow` stops requiring a customer for a non-commissionable row in PR 4: every payment is on a deal, so it requires a deal on every row. `logPayment` on side deals and `recordAdditionalPayment` stop returning `customerId`, which no page read.
 
 ## 6. Readers
 
@@ -295,7 +303,7 @@ The payload's `enrollments` give, for each: `enrollmentId`, `programId`, the pro
 ### 6.5 Removed
 
 - PR 3: `convex/customers/queries.ts`; the orphaned customer list and detail components under `app/workspace/customers/` (7 files, the record payment dialog among them), the convert dialog, and the orphaned `lead-detail-page-client.tsx` that renders it with its 6 tabs, which nothing else imports: 16 files. The two redirect pages and their loading states stay.
-- PR 4: `customers/conversion.ts`, `customers/mutations.ts`, `lib/syncCustomerSnapshot.ts`, `syncCustomerPaymentSummary` and `rollbackCustomerConversionIfEmpty`, the `customerConversions` write hooks and backfill, `reporting/lib/programDimensions.ts` (no importers), and the customer parts of the old one-off migrations in `admin/migrations.ts`.
+- PR 4: `customers/conversion.ts`, `customers/mutations.ts`, `lib/syncCustomerSnapshot.ts`, `syncCustomerPaymentSummary` and `rollbackCustomerConversionIfEmpty`, the `customerConversions` write hooks and backfill, `reporting/lib/programDimensions.ts` (no importers), and the customer parts of the old one-off migrations in `admin/migrations.ts`: `backfillPaymentContextType` and `backfillCustomerTotals` go whole, and the payment program backfill and audit, the Phase 6 blocker purge and the orphaned user audit lose their customer steps. Also the dead `expirePendingFollowUpsForOpportunity`, `backfillEnrollments` (§10.1), the revenue report's top deals Source column (every value was Opportunity, D12) and the person page payload types in `leadCustomers/types.ts`, which nothing imported. Four files are deleted.
 - PR 5: `leadCustomers/redirects.ts`, the customer ID branch of `identifierResolution.ts`, the parity module (`enrollments/parity.ts` and `enrollments/customerCopy.ts`, which holds the customer-row computations the readers used before PR 2), and the `customerId: undefined` line in `rebuildLeadCustomerSearchRow`. `/workspace/customers/[customerId]` redirects to the customers list, since a customer ID no longer names anything; only the deleted components linked to it.
 
 ## 7. Report numbers
@@ -315,6 +323,8 @@ The payload's `enrollments` give, for each: `enrollmentId`, `programId`, the pro
 
 - Tests that insert customer rows or expect the customer behaviour: `opportunities/secondPrograms.test.ts`, `opportunities/createManual.test.ts` (expects `customer.lead_email_missing`), `leads/lifecycleBackfill.test.ts`, `leads/lifecycleWrites.test.ts`, `lib/opportunityActivity.test.ts`, `lib/teamMembers.test.ts`, `attribution/writePaths.test.ts` and `operations/meetingStats.test.ts`. Each gets the enrollment equivalent; `leads/merge.test.ts`'s check that nothing still names the source person covers enrollments.
 - `admin/migrations.ts:seedTenantStatsInternal` counts converted people for `totalCustomers`.
+- `assertEnrollments` stops comparing an enrollment with the person's customer row (§4.4, §10.2).
+- `domainEventLinks` finds a `customer.*` event's person from its metadata `leadId`, which every one holds, instead of the customer row, so `assertDomainEventLinks` derives the same person before and after the deletion.
 - `migrations.ts:assertLeadCustomerSearchRowsBackfilled` checks the row against the projection instead of `row.customerId`: `lifecycle`, visibility, `customerStatus`, `totalPaidMinor`, `paymentCurrency` and `convertedAt` as derived from enrollments, and no `customerId`. It doesn't check `latestActivityAt` or the contact fields, which writes outside this phase move; `compareSearchRows` counts the contact changes.
 - `reporting/verification.ts` drops the `customerConversions` count.
 
@@ -346,11 +356,11 @@ The expected counts are the §2 snapshot. Payments and customers keep arriving b
 
 ### 10.1 `backfillEnrollments` (PR 1)
 
-Over `customers`, batch 50. For each customer, `syncPersonEnrollments` for its person, then the enrollment for the customer's program takes the customer's status (with `statusChangedAt` from `churnedAt` or `pausedAt` when the status isn't active). `statusChangedByUserId` stays unset, since the row doesn't say who changed it. It writes only what differs, so a rerun changes nothing. A customer whose program has no enrollment after the sync stops the run with the customer's and program's IDs, since its status would have nowhere to go; production has none (§2.2). Expected: 274 enrollments, one per customer, all active, each with the customer's program, `enrolledAt` equal to its `convertedAt` and `opportunityId` its `winningOpportunityId`. 6 batches.
+Over `customers`, batch 50. For each customer, `syncPersonEnrollments` for its person, then the enrollment for the customer's program takes the customer's status (with `statusChangedAt` from `churnedAt` or `pausedAt` when the status isn't active). `statusChangedByUserId` stays unset, since the row doesn't say who changed it. It writes only what differs, so a rerun changes nothing. A customer whose program has no enrollment after the sync stops the run with the customer's and program's IDs, since its status would have nowhere to go; production has none (§2.2). Expected: 274 enrollments, one per customer, all active, each with the customer's program, `enrolledAt` equal to its `convertedAt` and `opportunityId` its `winningOpportunityId`. 6 batches. PR 4 removes it: once the enrollment's status is no longer copied to the customer row, a rerun would overwrite a newer status with the row's.
 
 ### 10.2 `assertEnrollments` and `assertPaymentEnrollments` (PR 1)
 
-`assertEnrollments`, over `enrollments`, batch 100: each one re-derives to the same `opportunityId` and `enrolledAt` (§4.1); has at least one payment behind it; is the only one for its person and program; belongs to a converted person who isn't merged; and, while customer rows exist, agrees with the person's customer row. Only two comparisons are made against the row: the enrollment for the row's program has the row's status, and the person's first enrollment (earliest `enrolledAt`) has `enrolledAt` equal to `convertedAt`, with the row's program among the person's enrollments. A later enrollment for another program is checked only against its payments, as every enrollment is. It throws on the first problem, with IDs and times only.
+`assertEnrollments`, over `enrollments`, batch 100: each one re-derives to the same `opportunityId` and `enrolledAt` (§4.1); has at least one payment behind it; is the only one for its person and program; belongs to a converted person who isn't merged; and, while customer rows exist and until PR 4, agrees with the person's customer row. Only two comparisons are made against the row: the enrollment for the row's program has the row's status, and the person's first enrollment (earliest `enrolledAt`) has `enrolledAt` equal to `convertedAt`, with the row's program among the person's enrollments. A later enrollment for another program is checked only against its payments, as every enrollment is. It throws on the first problem, with IDs and times only.
 
 `assertPaymentEnrollments`, over `paymentRecords`, batch 100: each payment that isn't disputed and has a deal has an enrollment for its deal's person and its program, with `enrolledAt` no later than the payment.
 
@@ -368,6 +378,10 @@ Each takes the `tenantId` and returns IDs and values, no contact details. `compa
 
 Every "none" in §7 must come back with no difference before PRs 2 and 3 deploy. The results go into §13.
 
+From PR 4 no payment field names a customer (D12), so `customerCopy.ts` reaches a customer row's payments through its person's deals, and a payment's customer row through its deal's person. For production's payments, each on a deal of its customer's person (§2.2), those are the same rows.
+
+The parity queries only mean something before PRs 2 and 3, and nothing runs them after. From PR 4 they report expected differences rather than fail: a customer row keeps the status it had when PR 4 deployed, and a person who converts later has no row.
+
 ### 10.4 `rebuildCustomerSearchRows` (PR 2)
 
 Over `enrollments`, batch 50: rebuilds each enrolled person's search row with the PR 2 projection, which leaves `customerId` unset. Going over enrollments rather than customer rows reaches a person with an enrollment and no customer row too. Expected: 274 enrollments, 274 rows. Then the existing `assertLeadCustomerSearchRowsBackfilled`, amended (§8); before the rebuild it fails on the first customer's row, which still names the customer.
@@ -376,7 +390,7 @@ Over `enrollments`, batch 50: rebuilds each enrolled person's search row with th
 
 - `clearPaymentCustomerFields`, over `paymentRecords`, batch 100: unsets `customerId` and `contextType`. Expected: 279 rows. `assertPaymentCustomerFieldsCleared` checks none is left. Before its dry run, a search of the deployed commit shows no reader of `contextType`, `customerId` or `originatingOpportunityId` outside the schema and these migrations (D12); if one is left, the clear waits for a reviewed fix.
 - `deleteCustomers`, over `customers`, batch 100: deletes each row. Expected: 274. `assertCustomersDeleted` (read-only) counts none left. The export taken before it is the rollback (§12).
-- `clearCustomerConversions`, an internal mutation: clears the aggregate's namespace for each tenant. Expected: 274 entries gone.
+- `clearCustomerConversions`, an internal mutation: clears the aggregate's namespace for each tenant. Expected: 274 entries gone. It reads the aggregate's own namespaces, so a deleted tenant's go too, and returns the namespaces and entries it found; `"dryRun":true` only counts, and a second run finds 0 entries.
 
 ### 10.6 Commands
 
@@ -388,7 +402,7 @@ npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migratio
 npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:backfillEnrollments"]}'
 ```
 
-The other migrations run the same way, in §9's order. The dry run must finish without an error and process rows of the table it names; an error, or a dry run that would write rows the plan doesn't expect, stops the phase for a fix in a reviewed PR. Then the run, then poll `lib:getStatus` until it reports `"isDone": true` (a background loop that waits 30 seconds between calls), read any error, and only then run its assert, polled the same way. A batch that fails on a known Convex limit commits nothing and resumes from its cursor at a smaller batch. Any other failure, and any failed assert, stops the phase until a reviewed fix ships and the failed step and its assert pass again (§12). The parity queries run with `npx convex run --env-file .env.vercel.production enrollments/parity:<name> '<args>'`, for example `enrollments/parity:compareSearchRows '{"tenantId":"k57dqjfyf8qqy31bq375ng8gb984b24q","cursor":null}'`, then again with each `continueCursor` until `isDone`.
+The other migrations run the same way, in §9's order. `clearCustomerConversions` is a plain internal mutation: `npx convex run --env-file .env.vercel.production migrations:clearCustomerConversions '{"dryRun":true}'`, then without `dryRun`. The dry run must finish without an error and process rows of the table it names; an error, or a dry run that would write rows the plan doesn't expect, stops the phase for a fix in a reviewed PR. Then the run, then poll `lib:getStatus` until it reports `"isDone": true` (a background loop that waits 30 seconds between calls), read any error, and only then run its assert, polled the same way. A batch that fails on a known Convex limit commits nothing and resumes from its cursor at a smaller batch. Any other failure, and any failed assert, stops the phase until a reviewed fix ships and the failed step and its assert pass again (§12). The parity queries run with `npx convex run --env-file .env.vercel.production enrollments/parity:<name> '<args>'`, for example `enrollments/parity:compareSearchRows '{"tenantId":"k57dqjfyf8qqy31bq375ng8gb984b24q","cursor":null}'`, then again with each `continueCursor` until `isDone`.
 
 ### 10.7 The export
 
@@ -443,7 +457,7 @@ Fix forward, reviewed. Every repair is an internal migration with its own assert
 
 - **PR 1.** Revert. The enrollments are new and nothing reads them yet; a wrong one is fixed by re-running `syncPersonEnrollments` for its person in a reviewed repair.
 - **PRs 2 and 3.** Revert: the readers go back to the customer rows, which PR 4 hasn't stopped writing.
-- **PR 4.** Before the clear and the deletion run, revert. After them, revert PR 4 (and PRs 2 and 3 if the readers must go back too), except that `recordCustomerPayment` and `convertLeadToCustomer` stay deleted: no screen has reached them since PR 3, and with them gone nothing can write a payment off a deal. Before any repair write, a read-only preflight over every payment must find none with no deal or with origin `customer_direct` or `bookkeeper_direct`; if it finds one, the repair doesn't start. Then one reviewed, idempotent repair migration rebuilds every cleared artifact from the current records, each with its assert:
+- **PR 4.** Before the clear and the deletion run, revert. After them, revert PR 4 (and PRs 2 and 3 if the readers must go back too), except that `recordCustomerPayment` and `convertLeadToCustomer` stay deleted: no screen has reached them since PR 3, and with them gone nothing can write a payment off a deal. `paymentRecords.contextType` also stays optional, and the reverted readers take a missing one as `opportunity`: after the clear no payment holds it, so a schema that requires it would fail the push, until step 2 sets it again. Before any repair write, a read-only preflight over every payment must find none with no deal or with origin `customer_direct` or `bookkeeper_direct`; if it finds one, the repair doesn't start. Then one reviewed, idempotent repair migration rebuilds every cleared artifact from the current records, each with its assert:
   1. writes a customer row for every converted person, inserting a missing one and replacing every field of an existing one (a `deleteCustomers` that stopped part way leaves some), derived as §2.4 shows every field can be: contact fields from the person, `convertedAt`, `convertedByUserId`, `winningOpportunityId` and `winningMeetingId` from the first enrollment's first payment, program from the first enrollment, totals from the person's payments, `status` from the enrollment for that program, with `pausedAt` or `churnedAt` from its `statusChangedAt`, so `assertEnrollments` holds (§10.2). That covers people who became customers after the export and statuses changed after it. `notes` comes from the export, which holds every customer row there was when PR 4 stopped creating and editing them; a person who became a customer after the export has no row in it and gets no notes. The assert checks the notes of each row the export holds against it and skips the rest. None of the 274 rows has notes (§2.1);
   2. sets `contextType: "opportunity"` on every payment, and `customerId` from its deal's current person's customer row where one exists (a person whose last enrollment went has none, and their payments keep `customerId` unset; after a merge the deal's person is the target, whose row step 1 wrote). Every payment is on a deal: no payment has origin `customer_direct` or `bookkeeper_direct` (§2.2), none can be written after PR 4, and the preflight checked it, so `opportunity` was every payment's value;
   3. rebuilds the customers' search rows with the reverted projection, which writes the new `customerId`;
@@ -470,6 +484,7 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | #153 | the plan | docs, merged 10-21 09:10 |
 | #154 | widen: `enrollments`, `syncPersonEnrollments` beside every payment path, D14, the backfill and asserts | 10-21 09:26 |
 | #155 | the enrollment reads and the parity queries | 10-21 10:33 |
+| #156 | the list, search, reports and billing read the person and enrollments | 10-21 11:02 |
 
 ### 13.3 Runs
 
@@ -484,3 +499,6 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | 10-21 10:35 | `compareLeadConversion`, 8 ranges: each month from 2026-04 and the last 7 days | no difference: 274 conversions both ways (3, 11, 55, 65, 24, 69 and 47 by month; 18 in the last 7 days), and every metric, `newCustomers` and every closer's count equal |
 | 10-21 10:36 | `compareSearchRows`, 274 customers in 3 pages | no difference in lifecycle, status, total, currency, conversion time or latest activity. Contact labels change on 6 rows: 4 names and 2 handle lists, the drift in §2.4 |
 | 10-21 10:36 | `compareBillingRows`, 279 payments in 3 pages | no difference in deal or meeting, and no label changes |
+| 10-21 11:02 | `rebuildCustomerSearchRows` dry run, then run, batch 50 | 50, nothing committed; then done 11:02, 274 enrollments: 274 rows rebuilt |
+| 10-21 11:02 | `assertLeadCustomerSearchRowsBackfilled` (reset) | passed 11:21, 90,107 leads |
+| 10-21 11:22 | read-only recheck | all 274 enrolled people's rows are `customer`, `active`, with a total and no `customerId`; no row in the table names a customer |

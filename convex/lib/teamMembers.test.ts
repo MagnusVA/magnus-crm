@@ -183,7 +183,17 @@ describe("domain event links", () => {
       leadId: state.lead?._id,
       teamMemberId: closerTeamMemberId,
     });
-    expect(byType("customer.converted")?.leadId).toBe(state.lead?._id);
+    // The conversion: the person's status change and their first enrollment.
+    expect(byType("lead.status_changed")).toMatchObject({
+      leadId: state.lead?._id,
+      teamMemberId: closerTeamMemberId,
+      toStatus: "converted",
+    });
+    expect(byType("enrollment.created")).toMatchObject({
+      leadId: state.lead?._id,
+      teamMemberId: closerTeamMemberId,
+    });
+    expect(byType("customer.converted")).toBeUndefined();
     expect(byType("lead.created")?.leadId).toBe(state.lead?._id);
   });
 });

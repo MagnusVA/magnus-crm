@@ -108,22 +108,15 @@ async function firstResolvedMeeting(
   return null;
 }
 
-/** The deal billing shows for a payment: its own, else the one it came from. */
+/** The deal billing shows for a payment: every payment is a deal payment (D12). */
 async function resolvePaymentDeal(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   payment: Doc<"paymentRecords">,
 ) {
-  for (const opportunityId of [payment.opportunityId, payment.originatingOpportunityId]) {
-    if (opportunityId === undefined) {
-      continue;
-    }
-    const opportunity = tenantOwned(await ctx.db.get("opportunities", opportunityId), tenantId);
-    if (opportunity) {
-      return opportunity;
-    }
-  }
-  return null;
+  return payment.opportunityId
+    ? tenantOwned(await ctx.db.get("opportunities", payment.opportunityId), tenantId)
+    : null;
 }
 
 async function resolveDealPerson(
@@ -425,7 +418,6 @@ async function enrichOneBillingPaymentRow(
       programId: payment.programId,
       programName: payment.programName,
       origin: payment.origin,
-      contextType: payment.contextType,
       referenceCode: payment.referenceCode ?? null,
       note: payment.note ?? null,
       hasProofFile: payment.proofFileId !== undefined,

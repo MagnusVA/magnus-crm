@@ -1,6 +1,5 @@
 import { v } from "convex/values";
 import { mutation } from "../_generated/server";
-import { executeConversion } from "../customers/conversion";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { syncPersonEnrollments } from "../lib/enrollments";
 import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
@@ -9,7 +8,6 @@ import { transitionOpportunity } from "../lib/opportunityActivity";
 import {
   assertPaymentRow,
   resolveProgramForWrite,
-  syncCustomerPaymentSummary,
   type CommissionableOrigin,
 } from "../lib/paymentHelpers";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
@@ -19,10 +17,7 @@ import { expirePendingStaleOpportunityNudges } from "../lib/staleOpportunityNudg
 import { validateTransition } from "../lib/statusTransitions";
 import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import { requireTenantUser } from "../requireTenantUser";
-import {
-  insertPaymentAggregate,
-  replacePaymentAggregate,
-} from "../reporting/writeHooks";
+import { insertPaymentAggregate } from "../reporting/writeHooks";
 
 export const logPayment = mutation({
   args: {
@@ -35,7 +30,6 @@ export const logPayment = mutation({
   },
   returns: v.object({
     paymentId: v.id("paymentRecords"),
-    customerId: v.optional(v.id("customers")),
   }),
   handler: async (ctx, args) => {
     const { userId, tenantId, role } = await requireTenantUser(ctx, [
@@ -82,9 +76,7 @@ export const logPayment = mutation({
       attributedCloserId: opportunity.assignedCloserId,
       recordedByUserId: userId,
       origin,
-      contextType: "opportunity",
       opportunityId: args.opportunityId,
-      customerId: undefined,
       programId: program._id,
       paymentType,
     });
@@ -105,12 +97,11 @@ export const logPayment = mutation({
       status: "recorded",
       statusChangedAt: now,
       recordedAt: now,
-      contextType: "opportunity",
       origin,
     });
     await recordPayment(ctx, paymentId);
 
-    const paymentBeforeCustomerLink = await insertPaymentAggregate(ctx, paymentId);
+    await insertPaymentAggregate(ctx, paymentId);
     await setSoldProgramCaches(ctx, {
       tenantId,
       opportunityId: args.opportunityId,
@@ -132,33 +123,16 @@ export const logPayment = mutation({
       amountMinorDelta: amountMinor,
     });
 
-    // The person's enrollments follow their payments
-    // (docs/plans/phase-4-customers.md §4.1).
-    await syncPersonEnrollments(ctx, { tenantId, leadId: opportunity.leadId, now });
-
-    let customerId = await executeConversion(ctx, {
+    // The person's enrollments follow their payments, and their first one
+    // makes them a customer, with or without an email
+    // (docs/plans/phase-4-customers.md §4.1, §4.2).
+    await syncPersonEnrollments(ctx, {
       tenantId,
       leadId: opportunity.leadId,
-      convertedByUserId: userId,
-      winningOpportunityId: args.opportunityId,
-      winningMeetingId: undefined,
+      now,
+      source: isAdmin ? "admin" : "closer",
+      actorUserId: userId,
     });
-
-    if (!customerId) {
-      const existingCustomer = await ctx.db
-        .query("customers")
-        .withIndex("by_tenantId_and_leadId", (q) =>
-          q.eq("tenantId", tenantId).eq("leadId", opportunity.leadId),
-        )
-        .first();
-      customerId = existingCustomer?._id ?? null;
-    }
-
-    if (customerId) {
-      await ctx.db.patch("paymentRecords", paymentId, { customerId });
-      await replacePaymentAggregate(ctx, paymentBeforeCustomerLink, paymentId);
-      await syncCustomerPaymentSummary(ctx, customerId);
-    }
 
     await emitDomainEvent(ctx, {
       tenantId,
@@ -181,6 +155,6 @@ export const logPayment = mutation({
       },
     });
 
-    return { paymentId, customerId: customerId ?? undefined };
+    return { paymentId };
   },
 });

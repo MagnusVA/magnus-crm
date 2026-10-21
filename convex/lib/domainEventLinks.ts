@@ -34,18 +34,6 @@ async function opportunityLeadId(
   return opportunity?.tenantId === tenantId ? opportunity.leadId : undefined;
 }
 
-async function customerLeadId(
-  ctx: Ctx,
-  tenantId: Id<"tenants">,
-  customerId: Id<"customers"> | undefined,
-): Promise<Id<"leads"> | undefined> {
-  if (!customerId) {
-    return undefined;
-  }
-  const customer = await ctx.db.get("customers", customerId);
-  return customer?.tenantId === tenantId ? customer.leadId : undefined;
-}
-
 /** The lead an event's entity belongs to now. */
 export async function entityLeadId(
   ctx: Ctx,
@@ -73,13 +61,13 @@ export async function entityLeadId(
       if (!payment || payment.tenantId !== tenantId) {
         return undefined;
       }
-      return (
-        (await opportunityLeadId(ctx, tenantId, payment.opportunityId)) ??
-        (await customerLeadId(ctx, tenantId, payment.customerId))
-      );
+      return await opportunityLeadId(ctx, tenantId, payment.opportunityId);
     }
     case "customer":
-      return await customerLeadId(ctx, tenantId, ctx.db.normalizeId("customers", entityId) ?? undefined);
+      // Only the old customer.* events have this type, and each names its
+      // person in its metadata, which outlives the customer row
+      // (docs/plans/phase-4-customers.md §3.3).
+      return undefined;
     case "enrollment": {
       // A removed enrollment is gone; its event's metadata names the person.
       const enrollmentId = ctx.db.normalizeId("enrollments", entityId);

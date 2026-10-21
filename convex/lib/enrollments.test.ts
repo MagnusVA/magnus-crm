@@ -10,10 +10,11 @@ import {
   insertProgram,
   type EnrollmentHarness,
 } from "../../tests/enrollmentFixtures";
-import { derivePersonEnrollments, syncPersonEnrollments } from "./enrollments";
+import { derivePersonEnrollments, syncPersonEnrollments, writePersonEnrollments } from "./enrollments";
 
-// The one rule that derives a person's enrollments from their payments
-// (docs/plans/phase-4-customers.md §4.1, D13).
+// The one rule that derives a person's enrollments from their payments, and
+// the customer state that follows them (docs/plans/phase-4-customers.md §4.1
+// to §4.3, D10, D13).
 
 afterEach(() => vi.useRealTimers());
 
@@ -38,7 +39,9 @@ async function seed(harness: EnrollmentHarness) {
 }
 
 function sync(harness: EnrollmentHarness, leadId: Id<"leads">, now = NOW) {
-  return harness.t.run((ctx) => syncPersonEnrollments(ctx, { tenantId: harness.tenantId, leadId, now }));
+  return harness.t.run((ctx) =>
+    syncPersonEnrollments(ctx, { tenantId: harness.tenantId, leadId, now, source: "admin", actorUserId: harness.adminId }),
+  );
 }
 
 describe("derivePersonEnrollments", () => {
@@ -138,7 +141,9 @@ describe("syncPersonEnrollments", () => {
     expect(enrollments[0].statusChangedAt).toBeUndefined();
 
     const second = await sync(harness, s.leadId, NOW + 1);
-    expect(second).toEqual({ created: [], updated: [], repointed: [], removed: [], hadEnrollments: true, hasEnrollments: true });
+    expect(second).toEqual({
+      created: [], updated: [], repointed: [], removed: [], hadEnrollments: true, hasEnrollments: true, leadStatusChange: null,
+    });
     expect(await enrollmentsOf(harness, s.leadId)).toEqual(enrollments);
   });
 
@@ -282,7 +287,10 @@ describe("syncPersonEnrollments", () => {
     expect(enrollments[0]).toMatchObject({ _id: oldest, opportunityId: s.dealA, enrolledAt: T1, status: "paused" });
   });
 
-  it("writes no event, counter or lead status, and rebuilds the search row", async () => {
+});
+
+describe("writePersonEnrollments", () => {
+  it("writes the enrollments with no event, counter or lead status, and rebuilds the search row", async () => {
     const harness = await enrollmentHarness();
     const s = await seed(harness);
     const { tenantId } = harness;
@@ -298,9 +306,189 @@ describe("syncPersonEnrollments", () => {
       }));
     const before = await snapshot();
 
-    expect((await sync(harness, s.leadId)).created).toHaveLength(1);
+    const result = await harness.t.run((ctx) => writePersonEnrollments(ctx, { tenantId, leadId: s.leadId, now: NOW }));
+    expect(result.created).toHaveLength(1);
     expect(await snapshot()).toEqual(before);
     const rows = await harness.t.run((ctx) => ctx.db.query("leadCustomerSearchRows").take(10));
     expect(rows).toMatchObject([{ leadId: s.leadId, lifecycle: "customer", customerStatus: "active" }]);
+  });
+});
+
+describe("syncPersonEnrollments: the person becomes a customer and back (§4.2, §4.3)", () => {
+  async function seedStats(harness: EnrollmentHarness) {
+    await harness.t.run((ctx) =>
+      ctx.db.insert("tenantStats", {
+        tenantId: harness.tenantId,
+        totalTeamMembers: 0,
+        totalClosers: 0,
+        totalOpportunities: 0,
+        activeOpportunities: 0,
+        wonDeals: 0,
+        lostDeals: 0,
+        totalRevenueMinor: 0,
+        totalPaymentRecords: 0,
+        totalLeads: 10,
+        totalCustomers: 5,
+        lastUpdatedAt: 0,
+      }),
+    );
+  }
+
+  const counters = (harness: EnrollmentHarness) =>
+    harness.t.run(async (ctx) => {
+      const stats = (await ctx.db.query("tenantStats").first())!;
+      return { totalLeads: stats.totalLeads, totalCustomers: stats.totalCustomers };
+    });
+
+  const events = (harness: EnrollmentHarness) =>
+    harness.t.run(async (ctx) =>
+      (await ctx.db.query("domainEvents").take(50)).map((event) => ({
+        entityType: event.entityType,
+        entityId: event.entityId,
+        eventType: event.eventType,
+        source: event.source,
+        actorUserId: event.actorUserId,
+        fromStatus: event.fromStatus,
+        toStatus: event.toStatus,
+        reason: event.reason,
+        leadId: event.leadId,
+        occurredAt: event.occurredAt,
+        metadata: event.metadata ? JSON.parse(event.metadata) : undefined,
+      })),
+    );
+
+  it("converts an active person at their first enrollment, with the counters and events", async () => {
+    const harness = await enrollmentHarness();
+    await seedStats(harness);
+    const s = await seed(harness);
+    const { tenantId, adminId } = harness;
+    await harness.t.run(async (ctx) => {
+      await ctx.db.patch("leads", s.leadId, { status: "active" });
+      await insertPayment(ctx, { tenantId, opportunityId: s.dealA, programId: s.programX, recordedAt: T1 });
+    });
+
+    const result = await sync(harness, s.leadId);
+
+    expect(result.leadStatusChange).toBe("converted");
+    const lead = await harness.t.run((ctx) => ctx.db.get("leads", s.leadId));
+    expect(lead).toMatchObject({ status: "converted", updatedAt: NOW });
+    // No email needed (D8), and the lead was counted, so it leaves the leads count.
+    expect(await counters(harness)).toEqual({ totalLeads: 9, totalCustomers: 6 });
+    const [enrollment] = result.created;
+    expect(await events(harness)).toEqual([
+      {
+        entityType: "enrollment", entityId: enrollment._id, eventType: "enrollment.created", source: "admin", actorUserId: adminId,
+        fromStatus: undefined, toStatus: undefined, reason: undefined, leadId: s.leadId, occurredAt: NOW,
+        metadata: { leadId: s.leadId, programId: s.programX, opportunityId: s.dealA },
+      },
+      {
+        entityType: "lead", entityId: s.leadId, eventType: "lead.status_changed", source: "admin", actorUserId: adminId,
+        fromStatus: "active", toStatus: "converted", reason: "enrolled", leadId: s.leadId, occurredAt: NOW, metadata: undefined,
+      },
+    ]);
+    // Neither event is a touch.
+    expect(lead?.firstTouch).toBeUndefined();
+    expect(lead?.latestTouch).toBeUndefined();
+    const rows = await harness.t.run((ctx) => ctx.db.query("leadCustomerSearchRows").take(10));
+    expect(rows).toMatchObject([{ leadId: s.leadId, leadStatus: "converted", lifecycle: "customer" }]);
+  });
+
+  it("converts a person with no email, and leaves the leads count alone for a person at Prospect", async () => {
+    const harness = await enrollmentHarness();
+    await seedStats(harness);
+    const s = await seed(harness);
+    const { tenantId } = harness;
+    await harness.t.run(async (ctx) => {
+      await ctx.db.patch("leads", s.leadId, {
+        status: "active", email: undefined, lifecycleStage: "prospect", lifecycleStageEnteredAt: { prospect: 0 },
+      });
+      await insertPayment(ctx, { tenantId, opportunityId: s.dealA, programId: s.programX, recordedAt: T1 });
+    });
+
+    expect((await sync(harness, s.leadId)).leadStatusChange).toBe("converted");
+    expect(await counters(harness)).toEqual({ totalLeads: 10, totalCustomers: 6 });
+  });
+
+  it("adds a second program to a customer with an enrollment.created and no status change", async () => {
+    const harness = await enrollmentHarness();
+    await seedStats(harness);
+    const s = await seed(harness);
+    const { tenantId } = harness;
+    await harness.t.run(async (ctx) => {
+      await insertPayment(ctx, { tenantId, opportunityId: s.dealA, programId: s.programX, recordedAt: T1 });
+      await insertEnrollment(ctx, { tenantId, leadId: s.leadId, programId: s.programX, opportunityId: s.dealA, enrolledAt: T1 });
+      await insertPayment(ctx, { tenantId, opportunityId: s.dealB, programId: s.programY, recordedAt: T2 });
+    });
+
+    const result = await sync(harness, s.leadId);
+    expect(result).toMatchObject({ leadStatusChange: null, hadEnrollments: true, hasEnrollments: true });
+    expect((await events(harness)).map((event) => [event.eventType, event.metadata?.programId])).toEqual([
+      ["enrollment.created", s.programY],
+    ]);
+    expect(await counters(harness)).toEqual({ totalLeads: 10, totalCustomers: 5 });
+  });
+
+  it("moves a customer back to active when the last enrollment goes, with the reverse counters", async () => {
+    const harness = await enrollmentHarness();
+    await seedStats(harness);
+    const s = await seed(harness);
+    const { tenantId, adminId } = harness;
+    const enrollmentId = await harness.t.run(async (ctx) => {
+      await insertPayment(ctx, { tenantId, opportunityId: s.dealA, programId: s.programX, recordedAt: T1, status: "disputed" });
+      return await insertEnrollment(ctx, { tenantId, leadId: s.leadId, programId: s.programX, opportunityId: s.dealA, enrolledAt: T1 });
+    });
+
+    const result = await sync(harness, s.leadId);
+
+    expect(result).toMatchObject({ leadStatusChange: "reverted", hadEnrollments: true, hasEnrollments: false });
+    expect(await harness.t.run((ctx) => ctx.db.get("leads", s.leadId))).toMatchObject({ status: "active" });
+    expect(await counters(harness)).toEqual({ totalLeads: 11, totalCustomers: 4 });
+    expect((await events(harness)).map(({ eventType, entityId, reason, fromStatus, toStatus, actorUserId, metadata }) => ({
+      eventType, entityId, reason, fromStatus, toStatus, actorUserId, metadata,
+    }))).toEqual([
+      {
+        eventType: "enrollment.removed", entityId: enrollmentId, reason: "no_payment", fromStatus: undefined, toStatus: undefined,
+        actorUserId: adminId, metadata: { leadId: s.leadId, programId: s.programX, opportunityId: s.dealA },
+      },
+      {
+        eventType: "lead.status_changed", entityId: s.leadId, reason: "no_enrollment", fromStatus: "converted", toStatus: "active",
+        actorUserId: adminId, metadata: undefined,
+      },
+    ]);
+  });
+
+  it("moves back a person left converted with no counting payment, naming an actor whose user row is gone", async () => {
+    const harness = await enrollmentHarness();
+    await seedStats(harness);
+    const s = await seed(harness);
+    const goneUserId = await harness.t.run(async (ctx) => {
+      await insertPayment(ctx, { tenantId: harness.tenantId, opportunityId: s.dealA, programId: s.programX, recordedAt: T1, status: "disputed" });
+      const userId = await ctx.db.insert("users", {
+        tenantId: harness.tenantId, workosUserId: "user_gone", email: "gone@example.com", role: "closer", isActive: false,
+      });
+      await ctx.db.delete("users", userId);
+      return userId;
+    });
+
+    const result = await harness.t.run((ctx) =>
+      syncPersonEnrollments(ctx, { tenantId: harness.tenantId, leadId: s.leadId, now: NOW, source: "closer", actorUserId: goneUserId }),
+    );
+    expect(result).toMatchObject({ leadStatusChange: "reverted", hadEnrollments: false, hasEnrollments: false });
+    expect(await counters(harness)).toEqual({ totalLeads: 11, totalCustomers: 4 });
+    expect(await events(harness)).toMatchObject([
+      { eventType: "lead.status_changed", source: "closer", actorUserId: goneUserId, toStatus: "active" },
+    ]);
+  });
+
+  it("leaves a merged person alone", async () => {
+    const harness = await enrollmentHarness();
+    await seedStats(harness);
+    const s = await seed(harness);
+    await harness.t.run((ctx) => ctx.db.patch("leads", s.leadId, { status: "merged" }));
+
+    expect((await sync(harness, s.leadId)).leadStatusChange).toBeNull();
+    expect(await harness.t.run((ctx) => ctx.db.get("leads", s.leadId))).toMatchObject({ status: "merged" });
+    expect(await counters(harness)).toEqual({ totalLeads: 10, totalCustomers: 5 });
+    expect(await events(harness)).toEqual([]);
   });
 });

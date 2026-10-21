@@ -170,8 +170,7 @@ async function canSeeEvent(
   if (!payment) {
     return false;
   }
-  const opportunityId = payment.opportunityId ?? payment.originatingOpportunityId;
-  const opportunity = opportunityId ? await ctx.db.get("opportunities", opportunityId) : null;
+  const opportunity = payment.opportunityId ? await ctx.db.get("opportunities", payment.opportunityId) : null;
   return canViewPaymentDetail({
     viewerUserId: viewer.userId,
     viewerRole: viewer.role,

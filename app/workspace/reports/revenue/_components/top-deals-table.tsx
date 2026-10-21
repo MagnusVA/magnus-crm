@@ -34,7 +34,6 @@ interface TopDealsTableProps {
     attributedCloserName: string;
     attributedCloser: MemberAvatarIdentity;
     recordedAt: number;
-    contextType: string;
     programId?: string | null;
     programName?: string | null;
     paymentType?: string | null;
@@ -46,11 +45,6 @@ function formatCurrency(minor: number): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   })}`;
-}
-
-function formatSource(contextType: string): string {
-  if (!contextType) return "\u2014";
-  return contextType.charAt(0).toUpperCase() + contextType.slice(1);
 }
 
 function formatPaymentType(paymentType: string | null | undefined): string {
@@ -82,7 +76,6 @@ export function TopDealsTable({ deals }: TopDealsTableProps) {
                 <TableHead>Payment Type</TableHead>
                 <TableHead>Closer</TableHead>
                 <TableHead>Date</TableHead>
-                <TableHead>Source</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -100,7 +93,6 @@ export function TopDealsTable({ deals }: TopDealsTableProps) {
                   <TableCell>
                     {format(deal.recordedAt, "MMM d, yyyy")}
                   </TableCell>
-                  <TableCell>{formatSource(deal.contextType)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

@@ -5,7 +5,12 @@ import { mutation } from "../_generated/server";
 import { recordDealCreation } from "../lib/attribution/dealAttributions";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { recordOpportunity } from "../lib/leadLifecycle";
-import { isPlaceholderEmail, normalizeEmail } from "../lib/normalization";
+import {
+  isPlaceholderEmail,
+  normalizeEmail,
+  normalizePhone,
+  normalizeSocialHandle,
+} from "../lib/normalization";
 import { rejectRequest } from "../lib/observability/errors";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { resolveLeadIdentity } from "../leads/identityResolution";
@@ -15,7 +20,7 @@ import { newLeadInputValidator } from "./validators";
 
 type NewLeadInput = {
   fullName: string;
-  email: string;
+  email?: string;
   phone?: string;
   socialHandle?: {
     platform:
@@ -78,9 +83,10 @@ async function resolveLeadForManualCreate(
     throw new Error("New lead input is required.");
   }
 
-  // A placeholder never becomes the lead's email, and recording the side
-  // deal's payment converts the lead, which needs one. Ask for the real one.
-  const normalizedEmail = normalizeEmail(args.newLeadInput.email);
+  // A placeholder never becomes the lead's email, so one typed in is refused
+  // rather than dropped.
+  const { email, phone, socialHandle } = args.newLeadInput;
+  const normalizedEmail = email ? normalizeEmail(email) : undefined;
   if (normalizedEmail && isPlaceholderEmail(normalizedEmail)) {
     throw rejectRequest(
       "opportunity.placeholder_email",
@@ -88,13 +94,28 @@ async function resolveLeadForManualCreate(
       { tenantId: args.tenantId },
     );
   }
+  // The person needs no email to become a customer, but needs something that
+  // identifies them (docs/plans/phase-4-customers.md D8). A placeholder phone
+  // or handle identifies no one, so it doesn't count.
+  const hasIdentifier =
+    normalizedEmail !== undefined ||
+    (phone !== undefined && normalizePhone(phone) !== undefined) ||
+    (socialHandle !== undefined &&
+      normalizeSocialHandle(socialHandle.handle, socialHandle.platform) !== undefined);
+  if (!hasIdentifier) {
+    throw rejectRequest(
+      "opportunity.identifier_required",
+      "Enter the lead's email, phone number or social handle. At least one is needed to identify them.",
+      { tenantId: args.tenantId },
+    );
+  }
 
   const result = await resolveLeadIdentity(ctx, {
     tenantId: args.tenantId,
     fullName: args.newLeadInput.fullName,
-    email: args.newLeadInput.email,
-    phone: args.newLeadInput.phone,
-    socialHandle: args.newLeadInput.socialHandle,
+    email,
+    phone,
+    socialHandle,
     identifierSource: "side_deal",
     createdAt: args.now,
     createIdentifiers: true,

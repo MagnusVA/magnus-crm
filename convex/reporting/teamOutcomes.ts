@@ -83,11 +83,8 @@ export const getTeamOutcomeMix = query({
 
     const opportunityHasPayment = new Set<Id<"opportunities">>();
     for (const payment of payments) {
-      if (
-        payment.status !== "disputed" &&
-        payment.contextType === "opportunity" &&
-        payment.opportunityId
-      ) {
+      // Every payment is a deal payment (docs/plans/phase-4-customers.md D12).
+      if (payment.status !== "disputed" && payment.opportunityId) {
         opportunityHasPayment.add(payment.opportunityId);
       }
     }
