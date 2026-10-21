@@ -6,16 +6,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
-import {
-  ENROLLED_AT,
-  insertDealPayment,
-  seedEnrolledCustomer,
-} from "../../tests/enrollmentPageFixtures";
+import { bookingHarness } from "../../tests/bookingHarness";
+import { ENROLLED_AT, seedEnrolledCustomer } from "../../tests/enrollmentPageFixtures";
+import { DAY, insertPayment, insertPerson } from "../../tests/enrollmentReadFixtures";
 
 afterEach(() => vi.useRealTimers());
-
-const DAY = 24 * 60 * 60 * 1000;
 
 async function detailFor(h: Awaited<ReturnType<typeof bookingHarness>>, leadId: Id<"leads">) {
   const detail = await h.admin.query(api.leadCustomers.detail.getEntityDetail, { leadId });
@@ -29,15 +24,14 @@ describe("person page enrollments", () => {
     const seeded = await h.t.run(async (ctx) => {
       const seeded = await seedEnrolledCustomer(ctx, h.tenantId, { secondProgram: true });
       // A second payment for Program A, and a disputed one that doesn't count.
-      await insertDealPayment(ctx, {
-        tenantId: h.tenantId, opportunityId: seeded.dealA, closerId: seeded.closerId,
-        programId: seeded.programA, programName: "Program A", amountMinor: 50_000,
-        recordedAt: ENROLLED_AT + 2 * DAY,
+      await insertPayment(ctx, {
+        tenantId: h.tenantId, opportunityId: seeded.dealA, recordedByUserId: seeded.closerId,
+        programId: seeded.programA, amountMinor: 50_000, recordedAt: ENROLLED_AT + 2 * DAY,
       });
-      await insertDealPayment(ctx, {
-        tenantId: h.tenantId, opportunityId: seeded.dealA, closerId: seeded.closerId,
-        programId: seeded.programA, programName: "Program A", amountMinor: 999_999,
-        recordedAt: ENROLLED_AT + 3 * DAY, status: "disputed",
+      await insertPayment(ctx, {
+        tenantId: h.tenantId, opportunityId: seeded.dealA, recordedByUserId: seeded.closerId,
+        programId: seeded.programA, amountMinor: 999_999, recordedAt: ENROLLED_AT + 3 * DAY,
+        status: "disputed",
       });
       // Renamed since: the page shows the program's current name.
       await ctx.db.patch("tenantPrograms", seeded.programA, { name: "Program A+" });
@@ -145,16 +139,7 @@ describe("person page enrollments", () => {
 
   it("has no enrollments or customer summary for a person who hasn't bought", async () => {
     const h = await bookingHarness();
-    const leadId = await h.t.run(async (ctx) =>
-      await ctx.db.insert("leads", {
-        ...qualifiedLifecycle(ENROLLED_AT),
-        tenantId: h.tenantId,
-        fullName: "Lee Lead",
-        status: "active",
-        firstSeenAt: ENROLLED_AT,
-        updatedAt: ENROLLED_AT,
-      }),
-    );
+    const leadId = await h.t.run((ctx) => insertPerson(ctx, h.tenantId, { fullName: "Lee Lead" }));
 
     const detail = await detailFor(h, leadId);
 
