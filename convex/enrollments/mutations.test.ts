@@ -1,8 +1,8 @@
 /**
  * An admin changes an enrollment's status (docs/plans/phase-4-customers.md
  * §4.4): a no-op when unchanged or stale, an optional reason for Paused and
- * Churned, an `enrollment.status_changed` event, and, until PR 4, the same
- * status on the customer row for that program.
+ * Churned, an `enrollment.status_changed` event, and the person-level status
+ * on the search row. The customer row is no longer written (PR 4).
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../_generated/api";
@@ -198,15 +198,11 @@ describe("updateEnrollmentStatus", () => {
     expect(touchesAfter).toEqual(touchesBefore);
   });
 
-  it("mirrors the status onto the customer row for the same program and rebuilds the search row", async () => {
-    const { h, seeded } = await setup();
+  it("rebuilds the search row with the person-level status and leaves the customer row alone", async () => {
+    const { h, seeded } = await setup({ secondProgram: true });
     type Status = "active" | "paused" | "churned";
-    const update = (status: Status, expectedStatus: Status) =>
-      h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
-        enrollmentId: seeded.enrollmentA,
-        status,
-        expectedStatus,
-      });
+    const update = (enrollmentId: Id<"enrollments">, status: Status, expectedStatus: Status) =>
+      h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, { enrollmentId, status, expectedStatus });
     const read = () =>
       h.t.run(async (ctx) => ({
         customer: await ctx.db.get("customers", seeded.customerId),
@@ -217,69 +213,22 @@ describe("updateEnrollmentStatus", () => {
           )
           .unique(),
       }));
+    const customerBefore = (await read()).customer;
 
-    await update("paused", "active");
+    await update(seeded.enrollmentA, "paused", "active");
     let state = await read();
-    expect(state.customer).toMatchObject({ status: "paused", pausedAt: NOW });
-    expect(state.customer?.churnedAt).toBeUndefined();
+    // Program B is still active, so the person is (§4.4).
+    expect(state.row?.customerStatus).toBe("active");
+
+    await update(seeded.second!.enrollmentId, "churned", "active");
+    state = await read();
     expect(state.row?.customerStatus).toBe("paused");
 
     vi.setSystemTime(new Date(NOW + 1_000));
-    await update("churned", "paused");
+    await update(seeded.enrollmentA, "churned", "paused");
     state = await read();
-    expect(state.customer).toMatchObject({ status: "churned", churnedAt: NOW + 1_000 });
-    expect(state.customer?.pausedAt).toBeUndefined();
     expect(state.row?.customerStatus).toBe("churned");
-
-    await update("active", "churned");
-    state = await read();
-    expect(state.customer?.status).toBe("active");
-    expect(state.customer?.pausedAt).toBeUndefined();
-    expect(state.customer?.churnedAt).toBeUndefined();
-    expect(state.row?.customerStatus).toBe("active");
-  });
-
-  it("leaves the customer row alone when the enrollment is for another program", async () => {
-    const { h, seeded } = await setup({ secondProgram: true });
-
-    await h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
-      enrollmentId: seeded.second!.enrollmentId,
-      status: "churned",
-      expectedStatus: "active",
-    });
-
-    const state = await h.t.run(async (ctx) => ({
-      customer: await ctx.db.get("customers", seeded.customerId),
-      first: await ctx.db.get("enrollments", seeded.enrollmentA),
-      second: await ctx.db.get("enrollments", seeded.second!.enrollmentId),
-    }));
-    expect(state.customer?.status).toBe("active");
-    expect(state.customer?.churnedAt).toBeUndefined();
-    expect(state.first?.status).toBe("active");
-    expect(state.second?.status).toBe("churned");
-  });
-
-  it("keeps the person active in the list while another program is active", async () => {
-    const { h, seeded } = await setup({ secondProgram: true });
-
-    await h.admin.mutation(api.enrollments.mutations.updateEnrollmentStatus, {
-      enrollmentId: seeded.enrollmentA,
-      status: "paused",
-      expectedStatus: "active",
-    });
-
-    const row = await h.t.run((ctx) =>
-      ctx.db
-        .query("leadCustomerSearchRows")
-        .withIndex("by_tenantId_and_leadId", (q) =>
-          q.eq("tenantId", h.tenantId).eq("leadId", seeded.leadId),
-        )
-        .unique(),
-    );
-    // Program A is paused and Program B active, so the person is active (§4.4),
-    // even though the customer row, for Program A, is paused.
-    expect(row?.customerStatus).toBe("active");
-    const customer = await h.t.run((ctx) => ctx.db.get("customers", seeded.customerId));
-    expect(customer?.status).toBe("paused");
+    // From PR 4 the customer row, for Program A, keeps the status it had.
+    expect(state.customer).toEqual(customerBefore);
   });
 });

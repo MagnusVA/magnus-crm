@@ -33,12 +33,10 @@ import {
   getLegacyTenantCalendlyConnectionPatch,
   toStoredPatch,
 } from "../lib/tenantCalendlyConnection";
-import { syncCustomerPaymentSummary } from "../lib/paymentHelpers";
 import {
   normalizePaymentOrigin,
   paymentTypeValidator,
   resolveLegacyCompatibleAttributedCloserId,
-  resolveLegacyCompatibleCustomerProgramName,
   resolveLegacyCompatiblePaymentCommissionable,
   resolveLegacyCompatiblePaymentProgramName,
   resolveLegacyCompatibleRecordedByUserId,
@@ -113,8 +111,6 @@ type TenantCurrencyAudit = {
 };
 
 type PaymentProgramsCutoverAudit = {
-  customersMissingProgramId: number;
-  customersWithLegacyProgramType: number;
   paymentsMissingCommissionable: number;
   paymentsMissingPaymentType: number;
   paymentsMissingProgramId: number;
@@ -122,16 +118,8 @@ type PaymentProgramsCutoverAudit = {
   paymentsMissingRecordedByUserId: number;
   paymentsUsingLegacyFields: number;
   paymentsUsingLegacyOrigin: number;
-  sampleLegacyCustomers: Array<{
-    customerId: string;
-    email: string;
-    programType: string | null;
-    winningOpportunityId: string;
-  }>;
   sampleLegacyPayments: Array<{
     amountMinor: number;
-    contextType?: "opportunity" | "customer";
-    customerId: string | null;
     opportunityId: string | null;
     origin: string | null;
     paymentId: string;
@@ -140,12 +128,7 @@ type PaymentProgramsCutoverAudit = {
     recordedAt: number;
   }>;
   tenantProgramCount: number;
-  totalCustomers: number;
   totalPayments: number;
-};
-
-type LegacyCustomerMigrationRow = Doc<"customers"> & {
-  programType?: string;
 };
 
 type LegacyPaymentMigrationRow = Doc<"paymentRecords"> & {
@@ -598,9 +581,12 @@ export const seedTenantStatsInternal = internalMutation({
       0,
     );
 
+    // A customer is a converted person (docs/plans/phase-4-customers.md §8).
     const customers = await ctx.db
-      .query("customers")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .query("leads")
+      .withIndex("by_tenantId_and_status", (q) =>
+        q.eq("tenantId", tenantId).eq("status", "converted"),
+      )
       .collect();
 
     const payload = {
@@ -1181,35 +1167,6 @@ export const backfillPaymentAmountMinor = mutation({
   },
 });
 
-export const backfillPaymentContextType = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await requireSystemAdmin(ctx);
-    log.info("admin.migration.started", { migration: "backfill_payment_context_type" });
-
-    const payments = await ctx.db.query("paymentRecords").collect();
-    let updated = 0;
-    for (const payment of payments) {
-      if (payment.contextType !== undefined) {
-        continue;
-      }
-
-      await ctx.db.patch("paymentRecords", payment._id, {
-        contextType: payment.opportunityId ? "opportunity" : "customer",
-      });
-      updated += 1;
-    }
-
-    log.info("admin.migration.completed", {
-      migration: "backfill_payment_context_type",
-      updated,
-      total: payments.length,
-    });
-
-    return { updated, total: payments.length };
-  },
-});
-
 export const backfillFollowUpType = mutation({
   args: {},
   handler: async (ctx) => {
@@ -1327,63 +1284,17 @@ export const backfillMeetingCloserId = mutation({
   },
 });
 
-export const backfillCustomerTotals = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await requireSystemAdmin(ctx);
-    log.info("admin.migration.started", { migration: "backfill_customer_totals" });
-
-    const customers = await ctx.db.query("customers").collect();
-    let updated = 0;
-
-    for (const customer of customers) {
-      const payments = await ctx.db
-        .query("paymentRecords")
-        .withIndex("by_customerId_and_recordedAt", (q) => q.eq("customerId", customer._id))
-        .collect();
-      const nonDisputedPayments = payments.filter(
-        (payment) => payment.status !== "disputed",
-      );
-      const totalPaidMinor = nonDisputedPayments.reduce(
-        (sum, payment) => sum + payment.amountMinor,
-        0,
-      );
-
-      await ctx.db.patch("customers", customer._id, {
-        totalPaidMinor,
-        totalPaymentCount: nonDisputedPayments.length,
-        paymentCurrency:
-          nonDisputedPayments[0]?.currency ??
-          customer.paymentCurrency ??
-          "USD",
-      });
-      updated += 1;
-    }
-
-    log.info("admin.migration.completed", {
-      migration: "backfill_customer_totals",
-      updated,
-      total: customers.length,
-    });
-
-    return { updated, total: customers.length };
-  },
-});
-
 export const auditPaymentProgramsAndTypesCutover = query({
   args: {},
   handler: async (ctx): Promise<PaymentProgramsCutoverAudit> => {
     await requireSystemAdmin(ctx);
 
-    const [customers, payments, tenantPrograms] = await Promise.all([
-      ctx.db.query("customers").collect(),
+    const [payments, tenantPrograms] = await Promise.all([
       ctx.db.query("paymentRecords").collect(),
       ctx.db.query("tenantPrograms").collect(),
     ]);
 
     const audit: PaymentProgramsCutoverAudit = {
-      customersMissingProgramId: 0,
-      customersWithLegacyProgramType: 0,
       paymentsMissingCommissionable: 0,
       paymentsMissingPaymentType: 0,
       paymentsMissingProgramId: 0,
@@ -1391,36 +1302,10 @@ export const auditPaymentProgramsAndTypesCutover = query({
       paymentsMissingRecordedByUserId: 0,
       paymentsUsingLegacyFields: 0,
       paymentsUsingLegacyOrigin: 0,
-      sampleLegacyCustomers: [],
       sampleLegacyPayments: [],
       tenantProgramCount: tenantPrograms.length,
-      totalCustomers: customers.length,
       totalPayments: payments.length,
     };
-
-    for (const customer of customers) {
-      const legacyCustomer = customer as LegacyCustomerMigrationRow;
-      if (customer.programId === undefined) {
-        audit.customersMissingProgramId += 1;
-      }
-      if (legacyCustomer.programType !== undefined) {
-        audit.customersWithLegacyProgramType += 1;
-      }
-      if (
-        (
-          customer.programId === undefined ||
-          legacyCustomer.programType !== undefined
-        ) &&
-        audit.sampleLegacyCustomers.length < 10
-      ) {
-        audit.sampleLegacyCustomers.push({
-          customerId: customer._id,
-          email: customer.email,
-          programType: legacyCustomer.programType ?? null,
-          winningOpportunityId: customer.winningOpportunityId,
-        });
-      }
-    }
 
     for (const payment of payments) {
       const legacyPayment = payment as LegacyPaymentMigrationRow;
@@ -1467,8 +1352,6 @@ export const auditPaymentProgramsAndTypesCutover = query({
       ) {
         audit.sampleLegacyPayments.push({
           amountMinor: payment.amountMinor,
-          contextType: payment.contextType,
-          customerId: payment.customerId ?? null,
           opportunityId: payment.opportunityId ?? null,
           origin: payment.origin ?? null,
           paymentId: payment._id,
@@ -1492,23 +1375,15 @@ export const backfillPaymentProgramsAndTypes = mutation({
     await requireSystemAdmin(ctx);
     log.info("admin.migration.started", { migration: "backfill_payment_programs_and_types" });
 
-    const customers = await ctx.db.query("customers").collect();
     const payments = await ctx.db.query("paymentRecords").collect();
-    const customersById = new Map(customers.map((customer) => [customer._id, customer]));
-    const customerByWinningOpportunityId = new Map(
-      customers.map((customer) => [customer.winningOpportunityId, customer]),
-    );
     const opportunityCache = new Map<Id<"opportunities">, Doc<"opportunities"> | null>();
     const eventTypeConfigCache = new Map<
       Id<"eventTypeConfigs">,
       Doc<"eventTypeConfigs"> | null
     >();
     const touchedProgramIds = new Set<Id<"tenantPrograms">>();
-    const touchedCustomerIds = new Set<Id<"customers">>();
-    const unresolvedCustomers: string[] = [];
     const unresolvedPayments: string[] = [];
     const paymentTypeOverrides = args.paymentTypeOverrides ?? {};
-    let customersPatched = 0;
     let paymentsPatched = 0;
 
     const getOpportunity = async (opportunityId: Id<"opportunities">) => {
@@ -1560,55 +1435,9 @@ export const backfillPaymentProgramsAndTypes = mutation({
       return program;
     };
 
-    const resolvedCustomerPrograms = new Map<
-      Id<"customers">,
-      { programId: Id<"tenantPrograms">; programName: string }
-    >();
-
-    for (const customer of customers) {
-      const legacyCustomer = customer as LegacyCustomerMigrationRow;
-      let resolvedProgramName =
-        resolveLegacyCompatibleCustomerProgramName(legacyCustomer);
-      if (!resolvedProgramName) {
-        resolvedProgramName = await resolveProgramNameFromOpportunity(
-          customer.winningOpportunityId,
-        );
-      }
-
-      if (!resolvedProgramName) {
-        unresolvedCustomers.push(customer._id);
-        continue;
-      }
-
-      const program = await ensureCanonicalProgram({
-        tenantId: customer.tenantId,
-        createdByUserId: customer.convertedByUserId,
-        name: resolvedProgramName,
-        defaultCurrency: customer.paymentCurrency,
-      });
-      resolvedCustomerPrograms.set(customer._id, {
-        programId: program._id,
-        programName: program.name,
-      });
-
-      if (
-        customer.programId !== program._id ||
-        customer.programName !== program.name
-      ) {
-        await ctx.db.patch("customers", customer._id, {
-          programId: program._id,
-          programName: program.name,
-        });
-        customersPatched += 1;
-      }
-    }
-
     for (const payment of payments) {
       const legacyPayment = payment as LegacyPaymentMigrationRow;
-      const resolvedOrigin = normalizePaymentOrigin(
-        legacyPayment.origin,
-        payment.contextType,
-      );
+      const resolvedOrigin = normalizePaymentOrigin(legacyPayment.origin);
       const resolvedCommissionable =
         resolveLegacyCompatiblePaymentCommissionable(legacyPayment);
       const resolvedAttributedCloserId =
@@ -1624,27 +1453,13 @@ export const backfillPaymentProgramsAndTypes = mutation({
       let programId = payment.programId;
       let programName = resolveLegacyCompatiblePaymentProgramName(legacyPayment);
 
-      const linkedCustomer =
-        (payment.customerId ? customersById.get(payment.customerId) : undefined) ??
-        (payment.opportunityId
-          ? customerByWinningOpportunityId.get(payment.opportunityId)
-          : undefined);
-      const linkedCustomerProgram = linkedCustomer
-        ? resolvedCustomerPrograms.get(linkedCustomer._id)
-        : undefined;
-
-      if (linkedCustomerProgram) {
-        programId = linkedCustomerProgram.programId;
-        programName = linkedCustomerProgram.programName;
-      } else if (!programName && payment.opportunityId) {
+      if (!programName && payment.opportunityId) {
         programName = await resolveProgramNameFromOpportunity(payment.opportunityId);
       }
 
       if ((programId === undefined || programName === undefined) && programName) {
         const programCreatorUserId =
-          resolvedRecordedByUserId ??
-          linkedCustomer?.convertedByUserId ??
-          legacyPayment.closerId;
+          resolvedRecordedByUserId ?? legacyPayment.closerId;
         if (!programCreatorUserId) {
           unresolvedPayments.push(`${payment._id}:missing_program_creator`);
           continue;
@@ -1698,13 +1513,6 @@ export const backfillPaymentProgramsAndTypes = mutation({
       if (payment.origin !== resolvedOrigin) {
         patch.origin = resolvedOrigin;
       }
-      if (
-        payment.contextType === "customer" &&
-        payment.originatingOpportunityId === undefined &&
-        linkedCustomer
-      ) {
-        patch.originatingOpportunityId = linkedCustomer.winningOpportunityId;
-      }
 
       if (Object.keys(patch).length === 0) {
         continue;
@@ -1712,37 +1520,25 @@ export const backfillPaymentProgramsAndTypes = mutation({
 
       await ctx.db.patch("paymentRecords", payment._id, patch);
       paymentsPatched += 1;
-      if (payment.customerId) {
-        touchedCustomerIds.add(payment.customerId);
-      }
     }
 
-    if (unresolvedCustomers.length > 0 || unresolvedPayments.length > 0) {
+    if (unresolvedPayments.length > 0) {
       throw new Error(
         JSON.stringify({
-          unresolvedCustomers: unresolvedCustomers.slice(0, 10),
           unresolvedPayments: unresolvedPayments.slice(0, 10),
         }),
       );
     }
 
-    for (const customerId of touchedCustomerIds) {
-      await syncCustomerPaymentSummary(ctx, customerId);
-    }
-
     log.info("admin.migration.completed", {
       migration: "backfill_payment_programs_and_types",
-      customersPatched,
       paymentsPatched,
       tenantProgramsResolved: touchedProgramIds.size,
-      touchedCustomers: touchedCustomerIds.size,
     });
 
     return {
-      customersPatched,
       paymentsPatched,
       tenantProgramsResolved: touchedProgramIds.size,
-      touchedCustomers: touchedCustomerIds.size,
     };
   },
 });
@@ -1993,15 +1789,6 @@ export const auditOrphanedUserRefs = query({
         field: "reassignedByUserId",
         recordId: reassignment._id,
         userId: reassignment.reassignedByUserId,
-      });
-    }
-
-    for await (const customer of ctx.db.query("customers")) {
-      addMissingUserIssue(issues, userIds, {
-        table: "customers",
-        field: "convertedByUserId",
-        recordId: customer._id,
-        userId: customer.convertedByUserId,
       });
     }
 
@@ -2259,9 +2046,8 @@ export const auditPaymentCurrencies = query({
 // Blocker A: opportunities whose meetings have no assignedCloserId
 //   (the Calendly host could not be mapped to a closer user).
 //   → cascade-deletes: opportunity, meetings, followUps, paymentRecords,
-//     meetingFormResponses, meetingReassignments, dealAttributions,
-//     domainEvents, and any customers whose winningOpportunityId points to
-//     the deleted opportunity.
+//     meetingFormResponses, meetingReassignments, dealAttributions and
+//     domainEvents. It ran before Phase 4, which removed its customer step.
 //
 // Blocker B: paymentRecords that still carry the legacy `amount` field
 //   (cannot be stripped while the deployed schema still requires it).
@@ -2286,7 +2072,6 @@ export const purgePhase6BlockerRecords = mutation({
       meetingFormResponses: 0,
       meetingReassignments: 0,
       domainEvents: 0,
-      customers: 0,
       legacyPaymentsStripped: 0,
     };
 
@@ -2401,56 +2186,7 @@ export const purgePhase6BlockerRecords = mutation({
         }
       }
 
-      // 8. customers whose winningOpportunityId points to this opportunity
-      //    (winningOpportunityId is required in the schema, so we must delete
-      //    the customer, not just clear the field).
       const opportunity = await ctx.db.get("opportunities", oppId);
-      if (opportunity) {
-        const customers = await ctx.db
-          .query("customers")
-          .withIndex("by_tenantId", (q) =>
-            q.eq("tenantId", opportunity.tenantId),
-          )
-          .collect();
-        const affectedCustomers = customers.filter(
-          (c) => c.winningOpportunityId === oppId,
-        );
-        for (const customer of affectedCustomers) {
-          // Delete customer-scoped payment records first
-          const custPayments = await ctx.db
-            .query("paymentRecords")
-            .withIndex("by_customerId_and_recordedAt", (q) =>
-              q.eq("customerId", customer._id),
-            )
-            .collect();
-          for (const p of custPayments) {
-            if (p.proofFileId) {
-              await ctx.storage.delete(p.proofFileId);
-              counts.paymentProofFiles++;
-            }
-            await ctx.db.delete("paymentRecords", p._id);
-            counts.paymentRecords++;
-          }
-          // Delete domainEvents for the customer
-          const custEvents = await ctx.db
-            .query("domainEvents")
-            .withIndex(
-              "by_tenantId_and_entityType_and_entityId_and_occurredAt",
-              (q) =>
-                q
-                  .eq("tenantId", opportunity.tenantId)
-                  .eq("entityType", "customer")
-                  .eq("entityId", customer._id),
-            )
-            .collect();
-          for (const evt of custEvents) {
-            await ctx.db.delete("domainEvents", evt._id);
-            counts.domainEvents++;
-          }
-          await ctx.db.delete("customers", customer._id);
-          counts.customers++;
-        }
-      }
 
       // 9. Clear rescheduledFromMeetingId on OTHER meetings that chain from
       //    any meeting we are about to delete (so we don't leave dangling refs).
@@ -2518,7 +2254,6 @@ export const purgePhase6BlockerRecords = mutation({
         formResponsesPurged: counts.meetingFormResponses,
         reassignmentsPurged: counts.meetingReassignments,
         domainEventsPurged: counts.domainEvents,
-        customersPurged: counts.customers,
       },
       blockerB: {
         legacyPaymentsPurged: counts.legacyPaymentsStripped,

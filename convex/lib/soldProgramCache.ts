@@ -122,22 +122,8 @@ export async function refreshSoldProgramCachesForPaymentContext(
     opportunityId,
     payments,
   });
-
-  if (!args.payment.customerId || args.payment.contextType !== "opportunity") {
-    return;
-  }
-
-  const customer = await ctx.db.get("customers", args.payment.customerId);
-  if (
-    customer &&
-    customer.tenantId === args.tenantId &&
-    customer.winningOpportunityId === opportunityId
-  ) {
-    await ctx.db.patch("customers", customer._id, {
-      programId: args.payment.programId,
-      programName: args.payment.programName,
-    });
-  }
+  // The person's enrollment follows the corrected program through
+  // syncPersonEnrollments (docs/plans/phase-4-customers.md §4.6).
 }
 
 async function latestValidPayments(

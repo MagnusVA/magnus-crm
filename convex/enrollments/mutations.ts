@@ -1,6 +1,6 @@
 import { v } from "convex/values";
-import type { Doc, Id } from "../_generated/dataModel";
-import { mutation, type MutationCtx } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { mutation } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { rejectRequest } from "../lib/observability/errors";
@@ -39,36 +39,6 @@ function normalizeReason(
     );
   }
   return trimmed.length > 0 ? trimmed : undefined;
-}
-
-/**
- * Until PR 4 stops writing customer rows, the person's customer row for the
- * same program takes the status as `updateCustomerStatus` writes it, so the
- * two can't disagree.
- */
-async function mirrorCustomerStatus(
-  ctx: MutationCtx,
-  enrollment: Doc<"enrollments">,
-  status: EnrollmentStatus,
-  now: number,
-) {
-  // One customer row per person in production (§2.1); a few more is still bounded.
-  const customers = await ctx.db
-    .query("customers")
-    .withIndex("by_tenantId_and_leadId", (q) =>
-      q.eq("tenantId", enrollment.tenantId).eq("leadId", enrollment.leadId),
-    )
-    .take(10);
-  for (const customer of customers) {
-    if (customer.programId !== enrollment.programId || customer.status === status) {
-      continue;
-    }
-    await ctx.db.patch("customers", customer._id, {
-      status,
-      churnedAt: status === "churned" ? now : undefined,
-      pausedAt: status === "paused" ? now : undefined,
-    });
-  }
 }
 
 export const updateEnrollmentStatus = mutation({
@@ -117,7 +87,6 @@ export const updateEnrollmentStatus = mutation({
       statusChangedAt: now,
       statusChangedByUserId: userId,
     });
-    await mirrorCustomerStatus(ctx, enrollment, args.status, now);
     // The list shows the person-level status (§4.4).
     await rebuildLeadCustomerSearchRow(ctx, tenantId, enrollment.leadId);
     await emitDomainEvent(ctx, {

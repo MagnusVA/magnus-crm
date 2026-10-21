@@ -180,7 +180,6 @@ import type * as lib_socialPlatform from "../lib/socialPlatform.js";
 import type * as lib_soldProgramCache from "../lib/soldProgramCache.js";
 import type * as lib_staleOpportunityNudges from "../lib/staleOpportunityNudges.js";
 import type * as lib_statusTransitions from "../lib/statusTransitions.js";
-import type * as lib_syncCustomerSnapshot from "../lib/syncCustomerSnapshot.js";
 import type * as lib_syncLeadMeetingNames from "../lib/syncLeadMeetingNames.js";
 import type * as lib_syncOpportunityMeetingsAssignedCloser from "../lib/syncOpportunityMeetingsAssignedCloser.js";
 import type * as lib_teamMembers from "../lib/teamMembers.js";
@@ -551,7 +550,6 @@ declare const fullApi: ApiFromModules<{
   "lib/soldProgramCache": typeof lib_soldProgramCache;
   "lib/staleOpportunityNudges": typeof lib_staleOpportunityNudges;
   "lib/statusTransitions": typeof lib_statusTransitions;
-  "lib/syncCustomerSnapshot": typeof lib_syncCustomerSnapshot;
   "lib/syncLeadMeetingNames": typeof lib_syncLeadMeetingNames;
   "lib/syncOpportunityMeetingsAssignedCloser": typeof lib_syncOpportunityMeetingsAssignedCloser;
   "lib/teamMembers": typeof lib_teamMembers;

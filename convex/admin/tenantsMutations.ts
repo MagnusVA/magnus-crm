@@ -10,7 +10,6 @@ const TENANT_INDEX_BY_TABLE = {
   billingExportEvents: "by_tenantId_and_createdAt",
   billingOpsReadinessChecks: "by_tenantId_and_checkedAt",
   closerUnavailability: "by_tenantId_and_date",
-  customers: "by_tenantId",
   dealAttributions: "by_tenantId_and_meetingId",
   enrollments: "by_tenantId_and_enrolledAt",
   eventTypeConfigs: "by_tenantId",

@@ -40,10 +40,6 @@ export type LegacyCompatiblePaymentOrigin =
   | PaymentOrigin
   | LegacyNonCommissionableOrigin;
 export type PaymentType = (typeof PAYMENT_TYPES)[number];
-export type LegacyCompatibleCustomerFields = {
-  programName?: string;
-  programType?: string;
-};
 export type LegacyCompatiblePaymentFields = {
   attributedCloserId?: Id<"users">;
   closerId?: Id<"users">;
@@ -194,17 +190,6 @@ export function resolveLegacyCompatibleRecordedByUserId(
   return resolveLegacyCompatiblePaymentCommissionable(payment)
     ? payment.closerId
     : payment.closerId;
-}
-
-export function resolveLegacyCompatibleCustomerProgramName(
-  customer: LegacyCompatibleCustomerFields,
-): string | undefined {
-  const programName = customer.programName?.trim();
-  if (programName) {
-    return programName;
-  }
-  const legacyProgramType = customer.programType?.trim();
-  return legacyProgramType || undefined;
 }
 
 export function resolveLegacyCompatiblePaymentProgramName(

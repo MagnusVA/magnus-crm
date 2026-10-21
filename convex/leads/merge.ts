@@ -19,7 +19,6 @@ import { rejectRequest } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
-import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
 import { mergedTouches } from "../lib/touches";
 import { leadDisplayString } from "../lib/leadDisplay";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
@@ -600,9 +599,6 @@ async function executeMerge(
     earlierMergesRepointed += 1;
   }
 
-  // The customer snapshot copies the target's profile, and the target's
-  // search row reads the customer.
-  await syncCustomerSnapshot(ctx, tenantId, targetLeadId);
   await rebuildLeadCustomerSearchRow(ctx, tenantId, targetLeadId);
   await rebuildLeadCustomerSearchRow(ctx, tenantId, sourceLeadId);
 

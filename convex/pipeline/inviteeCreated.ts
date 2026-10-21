@@ -43,7 +43,6 @@ import {
 	normalizePhone,
 } from "../lib/normalization";
 import type { IdentifierType, SocialPlatformType } from "../lib/normalization";
-import { syncCustomerSnapshot } from "../lib/syncCustomerSnapshot";
 import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMeetingsAssignedCloser";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { buildLeadSearchText } from "../leads/searchTextBuilder";
@@ -387,7 +386,6 @@ async function syncLeadFromBooking(
 		customFields: updatedLead.customFields,
 		updatedAt: now,
 	});
-	await syncCustomerSnapshot(ctx, lead.tenantId, lead._id);
 
 	return updatedLead;
 }
@@ -1176,7 +1174,6 @@ export const process = internalMutation({
 			await ctx.db.patch("leads", lead._id, {
 				customFields: latestCustomFields,
 			});
-			await syncCustomerSnapshot(ctx, tenantId, lead._id);
 		}
 		if (resolution.isNewLead) {
 			await emitDomainEvent(ctx, {

@@ -5,12 +5,17 @@ import { log } from "../lib/observability/log";
 
 const SYNC_BATCH_SIZE = 100;
 
+// Copies a renamed program's name onto its payments. Enrollments hold no
+// name, so nothing else needs it (docs/plans/phase-4-customers.md §5).
 export const syncRenamedProgram = internalMutation({
   args: {
     programId: v.id("tenantPrograms"),
     paymentCursor: v.optional(v.string()),
+    // Ignored. Accepted so a chain scheduled before customer rows stopped
+    // being patched still runs; the narrow can drop it.
     customerCursor: v.optional(v.string()),
   },
+  returns: v.object({ syncedPayments: v.number(), hasMore: v.boolean() }),
   handler: async (ctx, args) => {
     const program = await ctx.db.get("tenantPrograms", args.programId);
     if (!program) {
@@ -18,29 +23,18 @@ export const syncRenamedProgram = internalMutation({
         programId: args.programId,
         reason: "program_not_found",
       });
-      return { syncedPayments: 0, syncedCustomers: 0, hasMore: false };
+      return { syncedPayments: 0, hasMore: false };
     }
 
-    const [paymentPage, customerPage] = await Promise.all([
-      ctx.db
-        .query("paymentRecords")
-        .withIndex("by_tenantId_and_programId_and_recordedAt", (q) =>
-          q.eq("tenantId", program.tenantId).eq("programId", program._id),
-        )
-        .paginate({
-          cursor: args.paymentCursor ?? null,
-          numItems: SYNC_BATCH_SIZE,
-        }),
-      ctx.db
-        .query("customers")
-        .withIndex("by_tenantId_and_programId", (q) =>
-          q.eq("tenantId", program.tenantId).eq("programId", program._id),
-        )
-        .paginate({
-          cursor: args.customerCursor ?? null,
-          numItems: SYNC_BATCH_SIZE,
-        }),
-    ]);
+    const paymentPage = await ctx.db
+      .query("paymentRecords")
+      .withIndex("by_tenantId_and_programId_and_recordedAt", (q) =>
+        q.eq("tenantId", program.tenantId).eq("programId", program._id),
+      )
+      .paginate({
+        cursor: args.paymentCursor ?? null,
+        numItems: SYNC_BATCH_SIZE,
+      });
 
     let syncedPayments = 0;
     for (const payment of paymentPage.page) {
@@ -53,30 +47,14 @@ export const syncRenamedProgram = internalMutation({
       syncedPayments += 1;
     }
 
-    let syncedCustomers = 0;
-    for (const customer of customerPage.page) {
-      if (customer.programName === program.name) {
-        continue;
-      }
-      await ctx.db.patch("customers", customer._id, {
-        programName: program.name,
-      });
-      syncedCustomers += 1;
-    }
-
-    const hasMore = !paymentPage.isDone || !customerPage.isDone;
+    const hasMore = !paymentPage.isDone;
     if (hasMore) {
       await ctx.scheduler.runAfter(
         0,
         internal.tenantPrograms.sync.syncRenamedProgram,
         {
           programId: args.programId,
-          paymentCursor: paymentPage.isDone
-            ? undefined
-            : paymentPage.continueCursor,
-          customerCursor: customerPage.isDone
-            ? undefined
-            : customerPage.continueCursor,
+          paymentCursor: paymentPage.continueCursor,
         },
       );
     }
@@ -89,14 +67,12 @@ export const syncRenamedProgram = internalMutation({
         tenantId: program.tenantId,
         programId: program._id,
         syncedPayments,
-        syncedCustomers,
         hasMore,
       },
     );
 
     return {
       syncedPayments,
-      syncedCustomers,
       hasMore,
     };
   },
