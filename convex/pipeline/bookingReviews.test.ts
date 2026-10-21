@@ -11,7 +11,11 @@ import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/
 import { buildBookingReviewNotification } from "../lib/slackBlockKit";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
 
 const EVENT_TYPE = "https://api.calendly.com/event_types/test";
 const PHONE_QUESTION = "Phone ";
@@ -484,6 +488,68 @@ it("a hold that names one person, not two, opens no review", async () => {
 it("a malformed review link reads as not found", async () => {
   const harness = await setup();
   expect(await harness.admin.query(api.pipeline.bookingReviews.get, { reviewId: "not-an-id" })).toBeNull();
+});
+
+it("retrying a held booking an admin kept separate leaves the decision and alerts no one", async () => {
+  const harness = await setup();
+  await seedPerson(harness, { fullName: "Lead A", email: "lead.a@example.com" }, [
+    ["email", "lead.a@example.com"],
+  ]);
+  await seedPerson(harness, { fullName: "Lead B", phone: "+1 416-555-0142" }, [
+    ["phone", "+14165550142"],
+  ]);
+  await deliver(
+    harness,
+    booking("kept-held", { email: "lead.a@example.com", name: "Lead A", phone: "+1 416-555-0142" }),
+  );
+  const [review] = await reviews(harness);
+  await harness.admin.mutation(api.pipeline.bookingReviews.keepSeparate, { reviewId: review._id });
+
+  const manifest = await harness.admin.query(api.pipeline.recovery.preview, {
+    deliveryIds: [review.deliveryId],
+  });
+  await harness.admin.mutation(api.pipeline.recovery.retry, { manifest });
+  await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(await receipt(harness)).toMatchObject({ status: "blocked", reason: "identity_conflict" });
+  expect(await reviews(harness)).toMatchObject([
+    { _id: review._id, status: "resolved", resolution: "kept_separate" },
+  ]);
+  expect(await alertJobs(harness)).toHaveLength(1);
+});
+
+it("an alert whose booking review channel is gone posts to the notify channel instead", async () => {
+  const harness = await setup();
+  await seedIncidentC(harness);
+  const installationId = await harness.t.run((ctx) =>
+    ctx.db.insert("slackInstallations", {
+      tenantId: harness.tenantId, teamId: "T1", teamName: "Team", isEnterpriseInstall: false,
+      appId: "A1", botUserId: "B1", botAccessToken: "xoxb", scopes: [],
+      notifyChannelId: "C_NOTIFY", notifyChannelName: "qualified",
+      bookingReviewChannelId: "C_GONE", bookingReviewChannelName: "reviews",
+      installedByWorkosUserId: "user_admin", installedAt: 0,
+      tokenExpiresAt: Date.parse("2027-01-01T00:00:00Z"), refreshToken: "r", status: "active",
+    }),
+  );
+  vi.stubEnv("APP_URL", "https://crm.example");
+  const channels: string[] = [];
+  vi.stubGlobal("fetch", async (_url: string, init: { body: string }) => {
+    const { channel } = JSON.parse(init.body) as { channel: string };
+    channels.push(channel);
+    return new Response(
+      JSON.stringify(channel === "C_GONE" ? { ok: false, error: "channel_not_found" } : { ok: true }),
+    );
+  });
+
+  await deliver(harness, incidentCBooking);
+
+  expect(channels).toEqual(["C_GONE", "C_NOTIFY"]);
+  const installation = await harness.t.run((ctx) => ctx.db.get("slackInstallations", installationId));
+  expect(installation?.bookingReviewChannelId).toBeUndefined();
+  expect(installation?.bookingReviewChannelError).toMatchObject({
+    code: "channel_not_found",
+    channelId: "C_GONE",
+  });
 });
 
 it("a booking whose identifiers all name one person opens no review", async () => {

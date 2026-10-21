@@ -108,6 +108,10 @@ export const post = internalAction({
         slackErr,
         clearChannel: CLEAR_CHANNEL_ERRORS.has(slackErr),
       });
+      // A cleared booking review channel falls back to the notify channel,
+      // so this alert goes there rather than being lost.
+      if (CLEAR_CHANNEL_ERRORS.has(slackErr))
+        await ctx.scheduler.runAfter(0, internal.slack.bookingReviewNotify.post, { reviewId });
     } else if (ACTION_REQUIRED_ERRORS.has(slackErr)) {
       await ctx.runMutation(internal.slack.notifyData.recordNotifyFailure, {
         installationId: installation._id,

@@ -129,8 +129,15 @@ export async function settleBookingReview(
     outcome.status === "blocked"
       ? (outcome.identity?.conflicts ?? review?.conflicts ?? [])
       : [];
+  // An admin already called these people different: a retry that finds the
+  // same people keeps that decision.
+  const keptSeparateUnchanged =
+    review?.kind === "held" &&
+    review.resolution === "kept_separate" &&
+    sameConflicts(review.conflicts, conflicts);
   if (
     outcome.status === "blocked" &&
+    !keptSeparateUnchanged &&
     REVIEWED_HOLD_REASONS.has(outcome.reason) &&
     new Set(conflicts.map((c) => c.leadId)).size > 1
   ) {
