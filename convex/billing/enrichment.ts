@@ -64,6 +64,141 @@ async function resolveSlackUserLabel(
   return slackUserLabel(slackUser) ?? slackUserId;
 }
 
+export type BillingLabels = {
+  fullName: string | null;
+  email: string | null;
+  phone: string | null;
+};
+
+const NO_LABELS: BillingLabels = { fullName: null, email: null, phone: null };
+
+// Payments on one deal: the largest deal has a handful.
+const DEAL_PAYMENT_LIMIT = 50;
+
+/**
+ * The customer name, email and phone billing shows, from the person. A person
+ * with no name is named by their email, as the customer copy was.
+ */
+export function personBillingLabels(person: Doc<"leads"> | null): BillingLabels {
+  if (!person) {
+    return NO_LABELS;
+  }
+  return {
+    fullName: person.fullName?.trim() || person.email || null,
+    email: person.email || null,
+    phone: person.phone ?? null,
+  };
+}
+
+/** The customer name, email and phone from the customer copy. */
+export function customerBillingLabels(customer: Doc<"customers"> | null): BillingLabels {
+  if (!customer) {
+    return NO_LABELS;
+  }
+  return {
+    fullName: customer.fullName || null,
+    email: customer.email || null,
+    phone: customer.phone ?? null,
+  };
+}
+
+async function firstResolvedMeeting(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  candidates: Array<() => Promise<Id<"meetings"> | undefined>>,
+) {
+  for (const candidate of candidates) {
+    const meetingId = await candidate();
+    if (meetingId === undefined) {
+      continue;
+    }
+    const meeting = tenantOwned(await ctx.db.get("meetings", meetingId), tenantId);
+    if (meeting) {
+      return meeting;
+    }
+  }
+  return null;
+}
+
+/** The deal billing shows for a payment: its own, else the one it came from. */
+async function resolvePaymentDeal(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  payment: Doc<"paymentRecords">,
+) {
+  for (const opportunityId of [payment.opportunityId, payment.originatingOpportunityId]) {
+    if (opportunityId === undefined) {
+      continue;
+    }
+    const opportunity = tenantOwned(await ctx.db.get("opportunities", opportunityId), tenantId);
+    if (opportunity) {
+      return opportunity;
+    }
+  }
+  return null;
+}
+
+async function resolveDealPerson(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  opportunity: Doc<"opportunities"> | null,
+) {
+  return opportunity
+    ? tenantOwned(await ctx.db.get("leads", opportunity.leadId), tenantId)
+    : null;
+}
+
+/** The meeting of the earliest payment on the deal that has one. */
+async function earliestPaymentMeetingId(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  opportunity: Doc<"opportunities">,
+) {
+  const payments = await ctx.db
+    .query("paymentRecords")
+    .withIndex("by_opportunityId_and_recordedAt", (q) =>
+      q.eq("opportunityId", opportunity._id),
+    )
+    .take(DEAL_PAYMENT_LIMIT);
+  return payments.find(
+    (payment) => payment.tenantId === tenantId && payment.meetingId !== undefined,
+  )?.meetingId;
+}
+
+/**
+ * The meeting billing shows for a payment: its own, else the meeting of the
+ * earliest payment on its deal that has one, else the deal's first and then
+ * latest meeting (docs/plans/phase-4-customers.md §6.4).
+ */
+async function resolvePaymentMeeting(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  payment: Doc<"paymentRecords">,
+  opportunity: Doc<"opportunities"> | null,
+) {
+  return await firstResolvedMeeting(ctx, tenantId, [
+    async () => payment.meetingId,
+    async () =>
+      opportunity ? await earliestPaymentMeetingId(ctx, tenantId, opportunity) : undefined,
+    async () => opportunity?.firstMeetingId,
+    async () => opportunity?.latestMeetingId,
+  ]);
+}
+
+/** A payment's deal, meeting and person, as billing reads them from Phase 4 on. */
+export async function resolveBillingFromPerson(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  payment: Doc<"paymentRecords">,
+) {
+  const opportunity = await resolvePaymentDeal(ctx, tenantId, payment);
+  const [person, meeting] = await Promise.all([
+    resolveDealPerson(ctx, tenantId, opportunity),
+    resolvePaymentMeeting(ctx, tenantId, payment, opportunity),
+  ]);
+  return { person, opportunity, meeting };
+}
+
 async function resolveCustomerFromOpportunity(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
@@ -112,23 +247,47 @@ async function resolveBillingMeeting(
   customer: Doc<"customers"> | null,
   opportunity: Doc<"opportunities"> | null,
 ) {
-  const meetingIds = [
-    payment.meetingId,
-    customer?.winningMeetingId,
-    opportunity?.firstMeetingId,
-    opportunity?.latestMeetingId,
-  ].filter(
-    (meetingId): meetingId is Id<"meetings"> => meetingId !== undefined,
+  return await firstResolvedMeeting(ctx, tenantId, [
+    async () => payment.meetingId,
+    async () => customer?.winningMeetingId,
+    async () => opportunity?.firstMeetingId,
+    async () => opportunity?.latestMeetingId,
+  ]);
+}
+
+/**
+ * A payment's customer row, deal and meeting, as billing read them before
+ * Phase 4: the payment's customer, else its deal's person's, with the
+ * customer's winning deal and meeting as fallbacks.
+ */
+export async function resolveBillingFromCustomer(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  payment: Doc<"paymentRecords">,
+) {
+  const directCustomer = payment.customerId
+    ? tenantOwned(await ctx.db.get("customers", payment.customerId), tenantId)
+    : null;
+  const opportunity = await resolveBillingOpportunity(
+    ctx,
+    tenantId,
+    payment,
+    directCustomer,
   );
-
-  for (const meetingId of meetingIds) {
-    const meeting = tenantOwned(await ctx.db.get("meetings", meetingId), tenantId);
-    if (meeting) {
-      return meeting;
-    }
-  }
-
-  return null;
+  const fallbackCustomer = await resolveCustomerFromOpportunity(
+    ctx,
+    tenantId,
+    opportunity,
+  );
+  const customer = directCustomer ?? tenantOwned(fallbackCustomer, tenantId);
+  const meeting = await resolveBillingMeeting(
+    ctx,
+    tenantId,
+    payment,
+    customer,
+    opportunity,
+  );
+  return { customer, opportunity, meeting };
 }
 
 /**
@@ -341,13 +500,7 @@ async function enrichOneBillingPaymentListRow(
       programName: payment.programName,
       hasProofFile: payment.proofFileId !== undefined,
     },
-    customer: customer
-      ? {
-          fullName: customer.fullName || null,
-          email: customer.email || null,
-          phone: customer.phone ?? null,
-        }
-      : { fullName: null, email: null, phone: null },
+    customer: customerBillingLabels(customer),
   };
 }
 
@@ -360,27 +513,10 @@ async function enrichOneBillingPaymentRow(
     throw new Error("Cross-tenant payment read blocked.");
   }
 
-  const directCustomer = payment.customerId
-    ? tenantOwned(await ctx.db.get("customers", payment.customerId), tenantId)
-    : null;
-  const opportunity = await resolveBillingOpportunity(
+  const { customer, opportunity, meeting } = await resolveBillingFromCustomer(
     ctx,
     tenantId,
     payment,
-    directCustomer,
-  );
-  const fallbackCustomer = await resolveCustomerFromOpportunity(
-    ctx,
-    tenantId,
-    opportunity,
-  );
-  const customer = directCustomer ?? tenantOwned(fallbackCustomer, tenantId);
-  const meeting = await resolveBillingMeeting(
-    ctx,
-    tenantId,
-    payment,
-    customer,
-    opportunity,
   );
 
   const recordedByUserId = resolveLegacyCompatibleRecordedByUserId(payment);
@@ -413,14 +549,7 @@ async function enrichOneBillingPaymentRow(
       fathomLink: payment.fathomLink ?? null,
       commissionable: payment.commissionable,
     },
-    customer: customer
-      ? {
-          id: customer._id,
-          fullName: customer.fullName || null,
-          email: customer.email || null,
-          phone: customer.phone ?? null,
-        }
-      : { id: null, fullName: null, email: null, phone: null },
+    customer: { id: customer?._id ?? null, ...customerBillingLabels(customer) },
     opportunity: opportunity
       ? {
           id: opportunity._id,

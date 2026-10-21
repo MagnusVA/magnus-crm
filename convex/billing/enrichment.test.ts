@@ -7,7 +7,22 @@ import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { bookingHarness } from "../../tests/bookingHarness";
 import { seedScenario, T0, type ScenarioName } from "../../tests/detailAttributionFixtures";
-import { enrichBillingPaymentRows } from "./enrichment";
+import {
+  DAY,
+  fixtureUsers,
+  insertMeeting,
+  insertPayment as insertDealPayment,
+  insertPerson,
+  insertProgram,
+  seedCustomer,
+} from "../../tests/enrollmentReadFixtures";
+import {
+  customerBillingLabels,
+  enrichBillingPaymentRows,
+  personBillingLabels,
+  resolveBillingFromCustomer,
+  resolveBillingFromPerson,
+} from "./enrichment";
 
 async function insertPayment(
   ctx: MutationCtx,
@@ -107,5 +122,136 @@ describe("billing DM attribution", () => {
       rawSource: "alpha",
       rawMedium: "dana",
     });
+  });
+});
+
+/**
+ * A payment's deal, meeting and labels from its deal and its person
+ * (docs/plans/phase-4-customers.md §6.4).
+ */
+describe("billing context from the person", () => {
+  async function seedDeal() {
+    const h = await bookingHarness();
+    const seeded = await h.t.run(async (ctx) => {
+      const { admin, closer } = await fixtureUsers(ctx, h.tenantId);
+      const program = await insertProgram(ctx, h.tenantId, admin._id, "Program");
+      const customer = await seedCustomer(ctx, h.tenantId, {
+        closerId: closer._id,
+        programId: program,
+        paidAt: T0,
+        fullName: "Copied Name",
+        email: "copied@example.com",
+      });
+      return { ...customer, program, closerId: closer._id };
+    });
+    return { h, seeded };
+  }
+
+  it("shows the meeting of the deal's earliest payment that has one, then the deal's first meeting", async () => {
+    const { h, seeded } = await seedDeal();
+    const result = await h.t.run(async (ctx) => {
+      // A later meeting on the deal becomes its latest, and the first payment's
+      // meeting stays the deal's first; a payment on the later meeting comes next.
+      const laterMeeting = await insertMeeting(ctx, {
+        tenantId: h.tenantId,
+        opportunityId: seeded.opportunityId,
+        closerId: seeded.closerId,
+        scheduledAt: T0 + 2 * DAY,
+      });
+      const earlyMeeting = await insertMeeting(ctx, {
+        tenantId: h.tenantId,
+        opportunityId: seeded.opportunityId,
+        closerId: seeded.closerId,
+        scheduledAt: T0 - 3 * DAY,
+      });
+      await ctx.db.patch("opportunities", seeded.opportunityId, { firstMeetingId: earlyMeeting });
+      await insertDealPayment(ctx, {
+        tenantId: h.tenantId,
+        opportunityId: seeded.opportunityId,
+        meetingId: laterMeeting,
+        programId: seeded.program,
+        recordedByUserId: seeded.closerId,
+        recordedAt: T0 + 2 * DAY,
+      });
+      const additionalId = await insertDealPayment(ctx, {
+        tenantId: h.tenantId,
+        opportunityId: seeded.opportunityId,
+        programId: seeded.program,
+        recordedByUserId: seeded.closerId,
+        recordedAt: T0 + 5 * DAY,
+        origin: "closer_additional",
+      });
+      const additional = (await ctx.db.get("paymentRecords", additionalId))!;
+      const context = await resolveBillingFromPerson(ctx, h.tenantId, additional);
+
+      // With no payment meeting left on the deal, the deal's first meeting.
+      for (const payment of await ctx.db
+        .query("paymentRecords")
+        .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", seeded.opportunityId))
+        .take(10)) {
+        await ctx.db.patch("paymentRecords", payment._id, { meetingId: undefined });
+      }
+      const withoutMeetings = await resolveBillingFromPerson(ctx, h.tenantId, additional);
+      return { context, withoutMeetings, earlyMeeting };
+    });
+
+    expect(result.context.opportunity?._id).toBe(seeded.opportunityId);
+    expect(result.context.meeting?._id).toBe(seeded.meetingId);
+    expect(result.withoutMeetings.meeting?._id).toBe(result.earlyMeeting);
+  });
+
+  it("has no meeting for a side deal payment", async () => {
+    const h = await bookingHarness();
+    const context = await h.t.run(async (ctx) => {
+      const { admin, closer } = await fixtureUsers(ctx, h.tenantId);
+      const program = await insertProgram(ctx, h.tenantId, admin._id, "Program");
+      const seeded = await seedCustomer(ctx, h.tenantId, {
+        closerId: closer._id,
+        programId: program,
+        paidAt: T0,
+        withMeeting: false,
+      });
+      const payment = (await ctx.db.get("paymentRecords", seeded.paymentId))!;
+      return await resolveBillingFromPerson(ctx, h.tenantId, payment);
+    });
+    expect(context.opportunity).not.toBeNull();
+    expect(context.meeting).toBeNull();
+  });
+
+  it("labels a payment with its person's current details, not the customer copy", async () => {
+    const { h, seeded } = await seedDeal();
+    const labels = await h.t.run(async (ctx) => {
+      await ctx.db.patch("leads", seeded.leadId, {
+        fullName: "Current Name",
+        email: "current@example.com",
+        phone: "+15550000001",
+      });
+      const payment = (await ctx.db.get("paymentRecords", seeded.paymentId))!;
+      const fromPerson = await resolveBillingFromPerson(ctx, h.tenantId, payment);
+      const fromCustomer = await resolveBillingFromCustomer(ctx, h.tenantId, payment);
+      return {
+        person: personBillingLabels(fromPerson.person),
+        customer: customerBillingLabels(fromCustomer.customer),
+      };
+    });
+    expect(labels.person).toEqual({
+      fullName: "Current Name",
+      email: "current@example.com",
+      phone: "+15550000001",
+    });
+    expect(labels.customer).toEqual({
+      fullName: "Copied Name",
+      email: "copied@example.com",
+      phone: null,
+    });
+  });
+
+  it("names a person with no name by their email, as the customer copy did", async () => {
+    const h = await bookingHarness();
+    const labels = await h.t.run(async (ctx) => {
+      const leadId = await insertPerson(ctx, h.tenantId, { email: "only@example.com" });
+      return personBillingLabels((await ctx.db.get("leads", leadId))!);
+    });
+    expect(labels).toEqual({ fullName: "only@example.com", email: "only@example.com", phone: null });
   });
 });
