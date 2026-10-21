@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import type { Id } from "../_generated/dataModel";
 import { bookingHarness } from "../../tests/bookingHarness";
+import { ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT } from "../lib/enrollments";
 import {
   DAY,
   T0,
@@ -35,6 +36,32 @@ async function fieldsFromEnrollments(harness: Harness, leadId: Id<"leads">) {
 }
 
 describe("customer fields from enrollments", () => {
+  it("throws rather than total part of a deal's payments past the derivation's limit", async () => {
+    const harness = await bookingHarness();
+    const { t, tenantId } = harness;
+    const leadId = await t.run(async (ctx) => {
+      const { admin, closer } = await fixtureUsers(ctx, tenantId);
+      const programId = await insertProgram(ctx, tenantId, admin._id, "First");
+      const seeded = await seedCustomer(ctx, tenantId, {
+        closerId: closer._id,
+        programId,
+        paidAt: T0,
+        amountMinor: 1_000,
+      });
+      const dealId = await insertDeal(ctx, { tenantId, leadId: seeded.leadId, assignedCloserId: closer._id });
+      for (let index = 0; index <= ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT; index += 1) {
+        await insertPayment(ctx, {
+          tenantId, opportunityId: dealId, programId, recordedByUserId: closer._id,
+          recordedAt: T0 + (index + 1) * DAY, amountMinor: 1_000,
+        });
+      }
+      return seeded.leadId;
+    });
+    await expect(fieldsFromEnrollments(harness, leadId)).rejects.toThrow(
+      `more than ${ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT} payments`,
+    );
+  });
+
   it("sums the person's payments that aren't disputed, across deals and programs", async () => {
     const harness = await bookingHarness();
     const { t, tenantId } = harness;

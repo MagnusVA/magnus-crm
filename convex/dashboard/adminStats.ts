@@ -20,18 +20,16 @@ export async function countNewCustomersFromCustomers(
   periodStart: number,
   periodEnd: number,
 ): Promise<number> {
-  let newCustomers = 0;
-  for await (const customer of ctx.db
+  const customers = await ctx.db
     .query("customers")
     .withIndex("by_tenantId_and_convertedAt", (q) =>
       q
         .eq("tenantId", tenantId)
         .gte("convertedAt", periodStart)
         .lt("convertedAt", periodEnd),
-    )) {
-    newCustomers += customer._id ? 1 : 0;
-  }
-  return newCustomers;
+    )
+    .take(MAX_NEW_CUSTOMER_SCAN_ROWS);
+  return customers.length;
 }
 
 /**

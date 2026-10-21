@@ -14,6 +14,10 @@ import {
   reportingUserIdentity,
 } from "./lib/helpers";
 
+// Meetings counted on one winning deal for meetings per sale. A deal books a
+// handful; the cap only bounds the read.
+const MAX_MEETINGS_PER_WINNER = 200;
+
 const MAX_CONVERSION_SCAN_ROWS = 2500;
 
 /** One person becoming a customer, as the Leads & Conversions report counts it. */
@@ -131,13 +135,11 @@ export async function computeLeadConversionMetrics(
   const meetingsPerOpportunity = new Map<Id<"opportunities">, number>();
 
   for (const opportunityId of winningOpportunityIds) {
-    let meetingCount = 0;
-    for await (const _meeting of ctx.db
+    const meetings = await ctx.db
       .query("meetings")
-      .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunityId))) {
-      meetingCount += 1;
-    }
-    meetingsPerOpportunity.set(opportunityId, meetingCount);
+      .withIndex("by_opportunityId", (q) => q.eq("opportunityId", opportunityId))
+      .take(MAX_MEETINGS_PER_WINNER);
+    meetingsPerOpportunity.set(opportunityId, meetings.length);
   }
 
   const conversionsByCloser = new Map<Id<"users">, number>();

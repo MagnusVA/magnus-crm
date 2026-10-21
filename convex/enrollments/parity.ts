@@ -2,6 +2,10 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { internalQuery, type QueryCtx } from "../_generated/server";
 import {
+  countNewCustomersFromCustomers,
+  countNewCustomersFromEnrollments,
+} from "../dashboard/adminStats";
+import {
   customerBillingLabels,
   personBillingLabels,
   resolveBillingFromCustomer,
@@ -149,12 +153,16 @@ async function compareLeadConversionRange(
   ]);
 
   const metrics: Array<{ metric: string; fromCustomers: ParityValue; fromEnrollments: ParityValue }> = [];
-  // The admin dashboard's new customers: every conversion in the range.
-  if (customerList.conversions.length !== enrollmentList.conversions.length) {
+  // The admin dashboard's new customers, through the dashboard's own counts.
+  const [newCustomersFromCustomers, newCustomersFromEnrollments] = await Promise.all([
+    countNewCustomersFromCustomers(ctx, tenantId, startDate, endDate),
+    countNewCustomersFromEnrollments(ctx, tenantId, startDate, endDate),
+  ]);
+  if (newCustomersFromCustomers !== newCustomersFromEnrollments) {
     metrics.push({
       metric: "newCustomers",
-      fromCustomers: customerList.conversions.length,
-      fromEnrollments: enrollmentList.conversions.length,
+      fromCustomers: newCustomersFromCustomers,
+      fromEnrollments: newCustomersFromEnrollments,
     });
   }
   for (const metric of METRIC_KEYS) {

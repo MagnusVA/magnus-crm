@@ -3,6 +3,7 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { listPersonEnrollments, personCustomerStatus } from "../enrollments/read";
 import type { EnrollmentStatus } from "../enrollments/validators";
 import { isProspectStage } from "../leads/lifecycle";
+import { ENROLLMENT_DEAL_LIMIT, readDealPayments } from "../lib/enrollments";
 import { buildLeadCustomerSearchText } from "./searchText";
 import type { LeadCustomerLifecycle } from "./types";
 
@@ -11,9 +12,9 @@ type ProjectionPatch = Omit<
   "_id" | "_creationTime"
 >;
 
-// The row reads a person's newest deals and each deal's payments up to these.
+// The row reads a person's newest deals up to this, plus one so a customer
+// past the enrollment derivation's limit is caught (customerFieldsFromEnrollments).
 const PERSON_DEAL_LIMIT = 100;
-const DEAL_PAYMENT_LIMIT = 100;
 const CUSTOMER_PAYMENT_LIMIT = 100;
 
 /**
@@ -112,7 +113,7 @@ export async function loadPersonDeals(
       q.eq("tenantId", tenantId).eq("leadId", leadId),
     )
     .order("desc")
-    .take(PERSON_DEAL_LIMIT);
+    .take(PERSON_DEAL_LIMIT + 1);
 }
 
 /**
@@ -131,18 +132,15 @@ export async function customerFieldsFromEnrollments(
   if (enrollments.length === 0) {
     return NO_CUSTOMER_FIELDS;
   }
-  const payments = (
-    await Promise.all(
-      deals.map((deal) =>
-        ctx.db
-          .query("paymentRecords")
-          .withIndex("by_opportunityId_and_recordedAt", (q) =>
-            q.eq("opportunityId", deal._id),
-          )
-          .take(DEAL_PAYMENT_LIMIT),
-      ),
-    )
-  )
+  // A customer's total reads every payment their enrollments derive from, so
+  // it stops at the derivation's limits and throws past them rather than
+  // show a partial total.
+  if (deals.length > ENROLLMENT_DEAL_LIMIT) {
+    throw new Error(
+      `Person ${leadId} has more than ${ENROLLMENT_DEAL_LIMIT} deals; their total can't be read from part of them`,
+    );
+  }
+  const payments = (await Promise.all(deals.map((deal) => readDealPayments(ctx, deal._id))))
     .flat()
     .filter((payment) => payment.tenantId === tenantId);
   const summary = paymentSummary(payments);
