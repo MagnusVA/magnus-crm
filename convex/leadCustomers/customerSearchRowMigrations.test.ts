@@ -10,7 +10,16 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { migrations } from "../migrations";
 import { bookingHarness } from "../../tests/bookingHarness";
-import { T0, fixtureUsers, insertPerson, insertProgram, seedCustomer } from "../../tests/enrollmentReadFixtures";
+import {
+  T0,
+  fixtureUsers,
+  insertDeal,
+  insertEnrollment,
+  insertPayment,
+  insertPerson,
+  insertProgram,
+  seedCustomer,
+} from "../../tests/enrollmentReadFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -93,6 +102,48 @@ describe("customer search row migrations", () => {
     );
     expect(row?.customerId).toBeUndefined();
     expect(row).toMatchObject({ lifecycle: "customer", customerStatus: "active", totalPaidMinor: 100_000 });
+  });
+
+  it("rebuild the row of a person with an enrollment and no customer row", async () => {
+    const harness = await harnessWithMigrations();
+    await seedLegacyRows(harness);
+    const leadId = await harness.t.run(async (ctx) => {
+      const { tenantId } = harness;
+      const { admin, closer } = await fixtureUsers(ctx, tenantId);
+      const program = await insertProgram(ctx, tenantId, admin._id, "Second program");
+      const person = await insertPerson(ctx, tenantId, { fullName: "No customer row", status: "converted" });
+      const dealId = await insertDeal(ctx, { tenantId, leadId: person, assignedCloserId: closer._id });
+      await insertPayment(ctx, {
+        tenantId, opportunityId: dealId, programId: program, recordedByUserId: closer._id, recordedAt: T0,
+      });
+      await insertEnrollment(ctx, { tenantId, leadId: person, programId: program, opportunityId: dealId, enrolledAt: T0 });
+      await ctx.db.insert("leadCustomerSearchRows", {
+        tenantId,
+        leadId: person,
+        lifecycle: "lead",
+        leadStatus: "converted",
+        isSearchVisible: true,
+        displayName: "Row",
+        searchText: "row",
+        opportunityCount: 1,
+        wonOpportunityCount: 1,
+        meetingCount: 0,
+        latestActivityAt: T0,
+        firstSeenAt: T0,
+        updatedAt: T0,
+      });
+      return person;
+    });
+
+    expect((await run(harness, "rebuildCustomerSearchRows"))?.isDone).toBe(true);
+    expect((await run(harness, "assertLeadCustomerSearchRowsBackfilled"))?.error).toBeUndefined();
+    const row = await harness.t.run((ctx) =>
+      ctx.db
+        .query("leadCustomerSearchRows")
+        .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", harness.tenantId).eq("leadId", leadId))
+        .unique(),
+    );
+    expect(row).toMatchObject({ lifecycle: "customer", customerStatus: "active" });
   });
 
   it("fail the assert on a row whose status differs from the enrollments", async () => {

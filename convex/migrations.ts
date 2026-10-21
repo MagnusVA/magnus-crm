@@ -194,11 +194,14 @@ export const assertLeadCustomerSearchRowsBackfilled = migrations.define({
 
 // Phase 4 PR 2: each customer's person's row, projected from enrollments and
 // without the customer copy (docs/plans/phase-4-customers.md §10.4).
+// Every person with an enrollment, whether or not a customer row exists, so
+// no customer's row keeps the customer projection (§10.4). A person with two
+// enrollments is rebuilt twice, to the same row.
 export const rebuildCustomerSearchRows = migrations.define({
-  table: "customers",
+  table: "enrollments",
   batchSize: 50,
-  migrateOne: async (ctx, customer) => {
-    await rebuildLeadCustomerSearchRow(ctx, customer.tenantId, customer.leadId);
+  migrateOne: async (ctx, enrollment) => {
+    await rebuildLeadCustomerSearchRow(ctx, enrollment.tenantId, enrollment.leadId);
   },
 });
 

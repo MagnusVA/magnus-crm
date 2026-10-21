@@ -267,6 +267,7 @@ Every path that inserts a payment already calls `recordPayment` (lifecycle), `in
 - `totalPaidMinor` and `paymentCurrency` come from the payments on the person's deals that aren't disputed, the same payments the customer's total counted. They are read only for a person with an enrollment, from the person's newest 100 deals and up to 100 payments on each, so a person with none keeps the reads they have today;
 - `convertedAt` is the earliest `enrolledAt`; `latestActivityAt` takes it instead of `convertedAt`, and the latest of those payments instead of the customer's;
 - `customerId` is no longer written, and a rebuild unsets it (the patch passes it as undefined until the narrow drops the field). The list and search results stop returning it; no page read it.
+- A customer whose deals or payments pass the enrollment derivation's limits (100 deals, 50 payments a deal; the largest person has 19 deals) shows no total, and the projection reports a warning instead of failing the write that rebuilt the row.
 
 The search text drops the customer copy; the person's own name, email, phone and identifiers are already in it. Pasting a customer ID into search keeps working until the narrow, which removes it with the table: `identifierResolution.ts` resolves the ID to the customer's person before the text search runs. `rebuildCustomerSearchRows` re-projects the 274 customers' rows after the deploy (§10.4).
 
@@ -367,7 +368,7 @@ Every "none" in §7 must come back with no difference before PRs 2 and 3 deploy.
 
 ### 10.4 `rebuildCustomerSearchRows` (PR 2)
 
-Over `customers`, batch 50: rebuilds each customer's person's search row with the PR 2 projection, which leaves `customerId` unset. Expected: 274 rows. Then the existing `assertLeadCustomerSearchRowsBackfilled`, amended (§8); before the rebuild it fails on the first customer's row, which still names the customer.
+Over `enrollments`, batch 50: rebuilds each enrolled person's search row with the PR 2 projection, which leaves `customerId` unset. Going over enrollments rather than customer rows reaches a person with an enrollment and no customer row too. Expected: 274 enrollments, 274 rows. Then the existing `assertLeadCustomerSearchRowsBackfilled`, amended (§8); before the rebuild it fails on the first customer's row, which still names the customer.
 
 ### 10.5 The clears and the deletion (PR 4)
 

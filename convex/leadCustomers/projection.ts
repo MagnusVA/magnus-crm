@@ -3,7 +3,8 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { listPersonEnrollments, personCustomerStatus } from "../enrollments/read";
 import type { EnrollmentStatus } from "../enrollments/validators";
 import { isProspectStage } from "../leads/lifecycle";
-import { ENROLLMENT_DEAL_LIMIT, readDealPayments } from "../lib/enrollments";
+import { ENROLLMENT_DEAL_LIMIT, ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT } from "../lib/enrollments";
+import { reportError } from "../lib/observability/log";
 import { buildLeadCustomerSearchText } from "./searchText";
 import type { LeadCustomerLifecycle } from "./types";
 
@@ -119,24 +120,50 @@ export async function customerFieldsFromEnrollments(
   if (enrollments.length === 0) {
     return NO_CUSTOMER_FIELDS;
   }
-  // A customer's total reads every payment their enrollments derive from, so
-  // it stops at the derivation's limits and throws past them rather than
-  // show a partial total.
-  if (deals.length > ENROLLMENT_DEAL_LIMIT) {
-    throw new Error(
-      `Person ${leadId} has more than ${ENROLLMENT_DEAL_LIMIT} deals; their total can't be read from part of them`,
+  const customerStatus = personCustomerStatus(enrollments);
+  const convertedAt = enrollments[0].enrolledAt;
+  // A customer's total reads every payment their enrollments derive from, up
+  // to the derivation's limits. Past them the total would be partial, so the
+  // row shows none and the error is reported. Rebuilding the row runs inside
+  // other writes (bookings, deal changes), and one oversized person mustn't
+  // make those fail.
+  const paymentsByDeal =
+    deals.length > ENROLLMENT_DEAL_LIMIT
+      ? null
+      : await Promise.all(
+          deals.map((deal) =>
+            ctx.db
+              .query("paymentRecords")
+              .withIndex("by_opportunityId_and_recordedAt", (q) => q.eq("opportunityId", deal._id))
+              .take(ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT + 1),
+          ),
+        );
+  if (
+    paymentsByDeal === null ||
+    paymentsByDeal.some((payments) => payments.length > ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT)
+  ) {
+    reportError(
+      "leadCustomers.projection.total_over_limit",
+      new Error("A customer's deals or payments exceed the enrollment derivation's limits"),
+      { tenantId, leadId, severity: "warning", fingerprint: "leadCustomers.projection.total_over_limit" },
     );
+    return {
+      isCustomer: true,
+      customerStatus,
+      totalPaidMinor: undefined,
+      paymentCurrency: undefined,
+      convertedAt,
+      latestPaymentAt: undefined,
+    };
   }
-  const payments = (await Promise.all(deals.map((deal) => readDealPayments(ctx, deal._id))))
-    .flat()
-    .filter((payment) => payment.tenantId === tenantId);
+  const payments = paymentsByDeal.flat().filter((payment) => payment.tenantId === tenantId);
   const summary = summarizePayments(payments);
   return {
     isCustomer: true,
-    customerStatus: personCustomerStatus(enrollments),
+    customerStatus,
     totalPaidMinor: summary.totalPaidMinor,
     paymentCurrency: summary.paymentCurrency,
-    convertedAt: enrollments[0].enrolledAt,
+    convertedAt,
     latestPaymentAt: summary.latestPaymentAt,
   };
 }

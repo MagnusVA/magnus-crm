@@ -37,7 +37,7 @@ async function fieldsFromEnrollments(harness: Harness, leadId: Id<"leads">) {
 }
 
 describe("customer fields from enrollments", () => {
-  it("throws rather than total part of a deal's payments past the derivation's limit", async () => {
+  it("shows no total rather than part of one past the derivation's limit, without failing", async () => {
     const harness = await bookingHarness();
     const { t, tenantId } = harness;
     const leadId = await t.run(async (ctx) => {
@@ -58,9 +58,10 @@ describe("customer fields from enrollments", () => {
       }
       return seeded.leadId;
     });
-    await expect(fieldsFromEnrollments(harness, leadId)).rejects.toThrow(
-      `more than ${ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT} payments`,
-    );
+    const fields = await fieldsFromEnrollments(harness, leadId);
+    expect(fields).toMatchObject({ isCustomer: true, customerStatus: "active", convertedAt: T0 });
+    expect(fields.totalPaidMinor).toBeUndefined();
+    expect(fields.paymentCurrency).toBeUndefined();
   });
 
   it("sums the person's payments that aren't disputed, across deals and programs", async () => {
