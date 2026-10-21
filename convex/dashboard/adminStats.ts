@@ -1,11 +1,58 @@
 import { v } from "convex/values";
-import { query } from "../_generated/server";
+import type { Id } from "../_generated/dataModel";
+import { query, type QueryCtx } from "../_generated/server";
+import { listFirstEnrollmentsInRange } from "../enrollments/firstEnrollments";
 import { requireTenantUser } from "../requireTenantUser";
 import { isSideDealOrigin } from "../lib/sideDeals";
 import {
   getNonDisputedPaymentsInRange,
   splitPaymentsForRevenueReporting,
 } from "../reporting/lib/helpers";
+
+// New customers the dashboard reads in one period at most; past it the count
+// is a lower bound. Production has 274 customers in all.
+const MAX_NEW_CUSTOMER_SCAN_ROWS = 2500;
+
+/** Customers converted in [periodStart, periodEnd), from the customer rows. */
+export async function countNewCustomersFromCustomers(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  periodStart: number,
+  periodEnd: number,
+): Promise<number> {
+  let newCustomers = 0;
+  for await (const customer of ctx.db
+    .query("customers")
+    .withIndex("by_tenantId_and_convertedAt", (q) =>
+      q
+        .eq("tenantId", tenantId)
+        .gte("convertedAt", periodStart)
+        .lt("convertedAt", periodEnd),
+    )) {
+    newCustomers += customer._id ? 1 : 0;
+  }
+  return newCustomers;
+}
+
+/**
+ * People whose first enrollment falls in [periodStart, periodEnd): a second
+ * program doesn't count a person again (docs/plans/phase-4-customers.md §6.3).
+ */
+export async function countNewCustomersFromEnrollments(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  periodStart: number,
+  periodEnd: number,
+): Promise<number> {
+  const { enrollments } = await listFirstEnrollmentsInRange(
+    ctx,
+    tenantId,
+    periodStart,
+    periodEnd,
+    MAX_NEW_CUSTOMER_SCAN_ROWS,
+  );
+  return enrollments.length;
+}
 
 /**
  * Aggregate stats for tenant owner/admin dashboard cards.
@@ -190,17 +237,12 @@ export const getTimePeriodStats = query({
       postConversionDepositsInPeriod;
 
     // 4. New customers converted in period
-    let newCustomers = 0;
-    for await (const customer of ctx.db
-      .query("customers")
-      .withIndex("by_tenantId_and_convertedAt", (q) =>
-        q
-          .eq("tenantId", tenantId)
-          .gte("convertedAt", periodStart)
-          .lt("convertedAt", periodEnd),
-      )) {
-      newCustomers += customer._id ? 1 : 0;
-    }
+    const newCustomers = await countNewCustomersFromCustomers(
+      ctx,
+      tenantId,
+      periodStart,
+      periodEnd,
+    );
 
     return {
       newOpportunities,
