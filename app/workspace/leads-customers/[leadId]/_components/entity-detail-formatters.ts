@@ -43,11 +43,11 @@ export function formatToken(value: string | undefined) {
 
 /** What a program or person has paid; payments in more than one currency don't add up. */
 export function formatPaidTotal(paid: {
-	totalPaidMinor: number;
+	totalPaidMinor: number | null;
 	currency: string | null;
 	paymentCount: number;
 }) {
-	if (paid.currency === null && paid.paymentCount > 0) return "Mixed currencies";
+	if (paid.totalPaidMinor === null) return "Mixed currencies";
 	return formatMoneyMinor(paid.totalPaidMinor, paid.currency ?? undefined);
 }
 

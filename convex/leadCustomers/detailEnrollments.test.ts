@@ -187,6 +187,23 @@ describe("person page enrollments", () => {
     expect(detail.caps.payments).toBe(false);
   });
 
+  it("gives no total for payments in more than one currency", async () => {
+    const h = await bookingHarness();
+    const seeded = await h.t.run(async (ctx) => {
+      const seeded = await seedEnrolledCustomer(ctx, h.tenantId);
+      await insertPayment(ctx, {
+        tenantId: h.tenantId, opportunityId: seeded.dealA, programId: seeded.programA,
+        recordedByUserId: seeded.adminId, recordedAt: ENROLLED_AT + DAY, amountMinor: 50_000, currency: "EUR",
+      });
+      return seeded;
+    });
+
+    const detail = await detailFor(h, seeded.leadId);
+
+    expect(detail.enrollments[0]).toMatchObject({ totalPaidMinor: null, currency: null, paymentCount: 2 });
+    expect(detail.customerSummary).toMatchObject({ totalPaidMinor: null, currency: null, paymentCount: 2 });
+  });
+
   it("has no enrollments or customer summary for a person who hasn't bought", async () => {
     const h = await bookingHarness();
     const leadId = await h.t.run((ctx) => insertPerson(ctx, h.tenantId, { fullName: "Lee Lead" }));

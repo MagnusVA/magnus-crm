@@ -103,8 +103,10 @@ function compactPayment(
 function paidTotals(payments: ReadonlyArray<Doc<"paymentRecords">>) {
   const counted = payments.filter((payment) => payment.status !== "disputed");
   const currencies = new Set(counted.map((payment) => payment.currency));
+  // Amounts in different currencies don't add up, so a mixed set has no total.
+  const mixed = currencies.size > 1;
   return {
-    totalPaidMinor: counted.reduce((sum, payment) => sum + payment.amountMinor, 0),
+    totalPaidMinor: mixed ? null : counted.reduce((sum, payment) => sum + payment.amountMinor, 0),
     currency: currencies.size === 1 ? [...currencies][0] : null,
     paymentCount: counted.length,
   };
