@@ -1,6 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { listPersonEnrollments } from "../enrollments/read";
+import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 
 // A person's enrollments come from their payments, and this module is the one
 // place that derives and writes them (docs/plans/phase-4-customers.md §4.1).
@@ -164,8 +165,11 @@ function pairRepoints(orphans: Doc<"enrollments">[], unmatched: DerivedEnrollmen
  *   moves to that program (`pairRepoints`).
  * - Two enrollments for one program: the oldest stays, the others go.
  *
- * Until PR 4 it writes enrollments only: no event, counter, lead status or
- * search row. The result lists every change so PR 4 can add those.
+ * It then rebuilds the person's search row, whose lifecycle, status and
+ * totals come from the enrollments and payments (§6.1). It rebuilds on every
+ * call: an additional payment or an amount correction changes the total
+ * without changing an enrollment. Until PR 4 it writes no event, counter or
+ * lead status; the result lists every change so PR 4 can add those.
  */
 export async function syncPersonEnrollments(
   ctx: MutationCtx,
@@ -240,5 +244,6 @@ export async function syncPersonEnrollments(
     result.removed.push({ enrollment, reason: "no_payment" });
   }
 
+  await rebuildLeadCustomerSearchRow(ctx, tenantId, leadId);
   return result;
 }
