@@ -174,6 +174,14 @@ async function compareLeadConversionRange(
       fromEnrollments: newCustomersFromEnrollments.count,
     });
   }
+  // A truncated conversion list leaves the range's metrics unproven.
+  if (customerList.isTruncated || enrollmentList.isTruncated) {
+    metrics.push({
+      metric: "conversionsCapped",
+      fromCustomers: customerList.conversions.length,
+      fromEnrollments: enrollmentList.conversions.length,
+    });
+  }
   for (const metric of METRIC_KEYS) {
     if (fromCustomers[metric] !== fromEnrollments[metric]) {
       metrics.push({
