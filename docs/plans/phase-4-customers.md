@@ -264,11 +264,13 @@ Every path that inserts a payment already calls `recordPayment` (lifecycle), `in
 - `lifecycle` is `customer` when the person has an enrollment;
 - `customerStatus` is the person-level status (§4.4);
 - `displayName`, `email` and `phone` come from the person only;
-- `totalPaidMinor` and `paymentCurrency` come from the payments on the person's deals that aren't disputed, the same payments the customer's total counted;
-- `convertedAt` is the earliest `enrolledAt`; `latestActivityAt` takes it instead of `convertedAt`;
-- `customerId` is no longer written.
+- `totalPaidMinor` and `paymentCurrency` come from the payments on the person's deals that aren't disputed, the same payments the customer's total counted. They are read only for a person with an enrollment, from the person's newest 100 deals and up to 100 payments on each, so a person with none keeps the reads they have today;
+- `convertedAt` is the earliest `enrolledAt`; `latestActivityAt` takes it instead of `convertedAt`, and the latest of those payments instead of the customer's;
+- `customerId` is no longer written, and a rebuild unsets it (the patch passes it as undefined until the narrow drops the field). The list and search results stop returning it; no page read it.
 
-The search text drops the customer copy; the person's own name, email, phone and identifiers are already in it. Pasting a customer ID into search keeps working until the narrow, which removes it with the table. `rebuildCustomerSearchRows` re-projects the 274 customers' rows after the deploy (§10.4).
+The search text drops the customer copy; the person's own name, email, phone and identifiers are already in it. Pasting a customer ID into search keeps working until the narrow, which removes it with the table: `identifierResolution.ts` resolves the ID to the customer's person before the text search runs. `rebuildCustomerSearchRows` re-projects the 274 customers' rows after the deploy (§10.4).
+
+Since the row reads enrollments, a payment path must rebuild it after `syncPersonEnrollments`, not only before. And a payment that leaves the enrollments as they were still changes the total: an additional payment for a program the person has, or an amount correction. Today `syncCustomerPaymentSummary` rebuilds the row for those; once PR 4 removes it, `recordAdditionalPayment` and `correctPayment` need their own rebuild, or `syncPersonEnrollments` rebuilds whether or not an enrollment changed.
 
 ### 6.2 Person page (PR 3)
 
@@ -276,22 +278,22 @@ The search text drops the customer copy; the person's own name, email, phone and
 
 ### 6.3 Reports (PR 2)
 
-- **Leads & Conversions** (`reporting/leadConversion.ts`): conversions in the range are the enrollments in the range that are their person's first, with the enrollment's deal as the winning deal and the recorder of its first payment as the fallback closer, as `convertedByUserId` was (all 274 won deals have a closer, so the fallback isn't used today). Counting every enrollment would count a person twice once they buy a second program.
-- **Admin dashboard `newCustomers`** (`dashboard/adminStats.ts`, not shown in the app): the same first enrollments.
+- **Leads & Conversions** (`reporting/leadConversion.ts`): conversions in the range are the enrollments in the range that are their person's first, with the enrollment's deal as the winning deal and the recorder of its first payment as the fallback closer, as `convertedByUserId` was (all 274 won deals have a closer, so the fallback isn't used today). The first payment is the one on the enrollment's deal, for its program, not disputed, whose `recordedAt` equals `enrolledAt`, earliest created. Counting every enrollment would count a person twice once they buy a second program. The report reads at most 2,500 enrollments in a range, as it read customers, and stops returning `isCustomersTruncated`, which no page read; `isConversionDataTruncated` stays.
+- **Admin dashboard `newCustomers`** (`dashboard/adminStats.ts`, not shown in the app): the same first enrollments, read through the same bounded helper (2,500 a period) instead of the open loop over customers.
 - **Revenue top deals** (`reporting/revenue.ts`): stop returning `customerId`, which the table ignores.
 
 ### 6.4 Billing (PR 2)
 
-- The customer name, email and phone on the queue, the review page and the export come from the person (`billing/enrichment.ts`, `billing/types.ts`, `billing/export.ts`).
-- A payment with no meeting (the 13 in §2.2) falls back to the meeting of the earliest payment on its deal that has one, instead of the customer's `winningMeetingId`. For the 5 additional payments that is the same meeting; the 8 side deal payments have none either way. Then the deal's first and latest meeting, as now.
+- The customer name, email and phone on the queue, the review page and the export come from the person (`billing/enrichment.ts`, `billing/types.ts`, `billing/export.ts`): the person of the payment's deal. The name is the person's full name, else their email, as the customer copy was built. The row's `customer.id` becomes `customer.leadId`; no page read it.
+- A payment with no meeting (the 13 in §2.2) falls back to the meeting of the earliest payment on its deal that has one, whatever that payment's status, instead of the customer's `winningMeetingId`. For the 5 additional payments that is the same meeting; the 8 side deal payments have none either way. Then the deal's first and latest meeting, as now.
 - The deal fallback through `customer.winningOpportunityId` goes; every payment has its deal.
-- The audit's `missingCustomerId` and `unresolvedCustomer` checks become `missingEnrollment`: a payment that isn't disputed with no enrollment for its person and program.
+- The audit's `missingCustomerId` and `unresolvedCustomer` checks become `missingEnrollment`: a payment that isn't disputed with no enrollment for its person and program. Its sample diagnostics report `enrollment.resolved` instead of the customer ID.
 
 ### 6.5 Removed
 
 - PR 3: `convex/customers/queries.ts`; the orphaned customer list and detail components under `app/workspace/customers/`, the record payment dialog, the convert dialog and the orphaned `lead-detail-page-client.tsx` that renders it. The two redirect pages stay.
 - PR 4: `customers/conversion.ts`, `customers/mutations.ts`, `lib/syncCustomerSnapshot.ts`, `syncCustomerPaymentSummary` and `rollbackCustomerConversionIfEmpty`, the `customerConversions` write hooks and backfill, `reporting/lib/programDimensions.ts` (no importers), and the customer parts of the old one-off migrations in `admin/migrations.ts`.
-- PR 5: `leadCustomers/redirects.ts`, the customer ID branch of `identifierResolution.ts`, and the parity module. `/workspace/customers/[customerId]` redirects to the customers list, since a customer ID no longer names anything; only the deleted components linked to it.
+- PR 5: `leadCustomers/redirects.ts`, the customer ID branch of `identifierResolution.ts`, the parity module (`enrollments/parity.ts` and `enrollments/customerCopy.ts`, which holds the customer-row computations the readers used before PR 2), and the `customerId: undefined` line in `rebuildLeadCustomerSearchRow`. `/workspace/customers/[customerId]` redirects to the customers list, since a customer ID no longer names anything; only the deleted components linked to it.
 
 ## 7. Report numbers
 
@@ -310,7 +312,7 @@ The search text drops the customer copy; the person's own name, email, phone and
 
 - Tests that insert customer rows or expect the customer behaviour: `opportunities/secondPrograms.test.ts`, `opportunities/createManual.test.ts` (expects `customer.lead_email_missing`), `leads/lifecycleBackfill.test.ts`, `leads/lifecycleWrites.test.ts`, `lib/opportunityActivity.test.ts`, `lib/teamMembers.test.ts`, `attribution/writePaths.test.ts` and `operations/meetingStats.test.ts`. Each gets the enrollment equivalent; `leads/merge.test.ts`'s check that nothing still names the source person covers enrollments.
 - `admin/migrations.ts:seedTenantStatsInternal` counts converted people for `totalCustomers`.
-- `migrations.ts:assertLeadCustomerSearchRowsBackfilled` checks the row against the projection instead of `row.customerId`.
+- `migrations.ts:assertLeadCustomerSearchRowsBackfilled` checks the row against the projection instead of `row.customerId`: `lifecycle`, visibility, `customerStatus`, `totalPaidMinor`, `paymentCurrency` and `convertedAt` as derived from enrollments, and no `customerId`. It doesn't check `latestActivityAt` or the contact fields, which writes outside this phase move; `compareSearchRows` counts the contact changes.
 - `reporting/verification.ts` drops the `customerConversions` count.
 
 ## 9. Deploy order
@@ -365,7 +367,7 @@ Every "none" in §7 must come back with no difference before PRs 2 and 3 deploy.
 
 ### 10.4 `rebuildCustomerSearchRows` (PR 2)
 
-Over `customers`, batch 50: rebuilds each customer's person's search row with the PR 2 projection, which leaves `customerId` unset. Expected: 274 rows. Then the existing `assertLeadCustomerSearchRowsBackfilled`.
+Over `customers`, batch 50: rebuilds each customer's person's search row with the PR 2 projection, which leaves `customerId` unset. Expected: 274 rows. Then the existing `assertLeadCustomerSearchRowsBackfilled`, amended (§8); before the rebuild it fails on the first customer's row, which still names the customer.
 
 ### 10.5 The clears and the deletion (PR 4)
 
