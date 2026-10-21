@@ -312,6 +312,7 @@ export function MergePageClient() {
 								</Button>
 								<Button
 									variant="destructive"
+									disabled={mergePreview.preview.exceedsMergeLimit}
 									onClick={() => {
 										setStep("confirming");
 										setIsConfirmOpen(true);

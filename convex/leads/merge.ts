@@ -1,7 +1,7 @@
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import type { MutationCtx } from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { internalMutation, mutation } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { requireTenantUser } from "../requireTenantUser";
@@ -35,6 +35,39 @@ import { rebuildQualificationRow } from "../operations/projections";
 // opportunities, the count the merge preview shows, a merge stays well
 // inside Convex's per-transaction read limits (see merge.test.ts).
 const MERGE_OPPORTUNITY_LIMIT = 50;
+
+/**
+ * Whether `mergeLead` would refuse these two people for size, from the same
+ * reads it makes: a source with more deals than one merge moves, or, when
+ * the target's enrollments re-derive (a source with an enrollment or a
+ * customer), more combined deals than the derivation reads. The merge
+ * preview shows it before the confirmation.
+ */
+export async function mergeExceedsLimit(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  sourceLead: Doc<"leads">,
+  targetLeadId: Id<"leads">,
+): Promise<boolean> {
+  const sourceDeals = await ctx.db
+    .query("opportunities")
+    .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", sourceLead._id))
+    .take(MERGE_OPPORTUNITY_LIMIT + 1);
+  if (sourceDeals.length > MERGE_OPPORTUNITY_LIMIT) {
+    return true;
+  }
+  const syncsTargetEnrollments =
+    sourceLead.status === "converted" ||
+    (await listPersonEnrollments(ctx, tenantId, sourceLead._id)).length > 0;
+  if (!syncsTargetEnrollments) {
+    return false;
+  }
+  const targetDeals = await ctx.db
+    .query("opportunities")
+    .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", targetLeadId))
+    .take(ENROLLMENT_DEAL_LIMIT + 1);
+  return targetDeals.length + sourceDeals.length > ENROLLMENT_DEAL_LIMIT;
+}
 const MERGE_IDENTIFIER_LIMIT = 100;
 // Bounds reads that don't decide whether the merge can run: the target's own
 // opportunities, meetings, and Slack events, and leads merged into the

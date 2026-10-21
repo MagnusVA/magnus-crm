@@ -4,6 +4,7 @@ import type { FunctionReturnType } from "convex/server";
 import type { api } from "@/convex/_generated/api";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import {
 	ArrowRightIcon,
@@ -211,6 +212,15 @@ export function MergePreview({ data }: { data: MergePreviewData }) {
 
 	return (
 		<div className="flex flex-col gap-6">
+			{preview.exceedsMergeLimit && (
+				<Alert variant="destructive">
+					<AlertDescription>
+						These two leads have too many opportunities between them to merge in one step.
+						Nothing will be merged.
+					</AlertDescription>
+				</Alert>
+			)}
+
 			{/* Side-by-side lead cards */}
 			<div className="grid grid-cols-1 items-start gap-4 md:grid-cols-[1fr_auto_1fr]">
 				<LeadCard

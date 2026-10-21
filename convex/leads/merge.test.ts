@@ -1311,7 +1311,29 @@ it("refuses a customer merge whose deals pass what the enrollments can be worked
   });
   const before = await t.run(dumpTables);
 
+  // The preview says so before the confirmation, from the same counts.
+  const preview = await admin.query(api.leads.queries.getMergePreview, ids);
+  expect(preview.preview.exceedsMergeLimit).toBe(true);
+
   await expect(admin.mutation(api.leads.merge.mergeLead, ids)).rejects.toThrow("lead.merge_too_many_opportunities");
   expect(await t.run(dumpTables)).toEqual(before);
+});
+
+it("previews a merge under the limit as allowed", async () => {
+  const h = await setup();
+  const { t, tenantId, admin } = h;
+  const ids = await t.run(async (ctx) => {
+    const programA = await insertProgram(ctx, tenantId, "A");
+    const sourceLeadId = await customer(ctx, tenantId, "Sam Source", PAID_EARLY);
+    await paidDeal(ctx, tenantId, sourceLeadId, programA, PAID_EARLY);
+    const targetLeadId = await insertLead(ctx, tenantId, { fullName: "Sam Target" });
+    for (let index = 0; index < 98; index += 1) {
+      await insertOpportunity(ctx, tenantId, targetLeadId, { status: "lost" });
+    }
+    return { sourceLeadId, targetLeadId };
+  });
+
+  const preview = await admin.query(api.leads.queries.getMergePreview, ids);
+  expect(preview.preview.exceedsMergeLimit).toBe(false);
 });
 

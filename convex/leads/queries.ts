@@ -4,6 +4,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
 import { listPersonEnrollments } from "../enrollments/read";
 import { planEnrollmentMerge } from "../lib/enrollments";
+import { mergeExceedsLimit } from "./merge";
 import { validateLeadTransition } from "../lib/statusTransitions";
 import {
   type MemberAvatarIdentity,
@@ -698,6 +699,9 @@ export const getMergePreview = query({
         opportunitiesToMove: sourceOpportunities.length,
         totalOpportunitiesAfterMerge:
           sourceOpportunities.length + targetOpportunities.length,
+        // The merge would be refused for size; the page says so before the
+        // confirmation instead of letting it fail.
+        exceedsMergeLimit: await mergeExceedsLimit(ctx, tenantId, source, targetLeadId),
         enrollmentsToMove: enrollmentPlan.moves.map((enrollment) => ({
           programId: enrollment.programId,
           programName: programName(enrollment.programId),
