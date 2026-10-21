@@ -8,6 +8,7 @@ import {
 } from "../lib/attribution/detailPayload";
 import { userMemberIdentity } from "../lib/memberIdentity";
 import type { CrmRole } from "../lib/roleMapping";
+import { ENROLLMENT_DEAL_LIMIT, ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT } from "../lib/enrollments";
 import { normalizeOpportunitySource } from "../lib/sideDeals";
 import { getUserDisplayName } from "../reporting/lib/helpers";
 import {
@@ -24,9 +25,10 @@ const MAX_MEETINGS_PER_OPPORTUNITY = 10;
 const MAX_COMMENTS_PER_MEETING = 5;
 const MAX_TOTAL_COMMENTS = 250;
 const MAX_PAYMENTS = 50;
-// syncPersonEnrollments derives from at most 50 payments a deal, so a
-// program's total counts every payment behind its enrollment.
-const MAX_PAYMENTS_PER_OPPORTUNITY = 50;
+// Payments are read on every deal and up to the payments a deal that
+// syncPersonEnrollments derives from, so a program's total counts every
+// payment behind its enrollment.
+const MAX_PAYMENTS_PER_OPPORTUNITY = ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT;
 
 function compactOpportunity(opportunity: Doc<"opportunities">) {
   return {
@@ -193,12 +195,14 @@ export async function buildEntityDetailPayload(
     // Oldest first, as listPersonEnrollments returns them.
     enrollments: Doc<"enrollments">[];
     identifiers: Doc<"leadIdentifiers">[];
+    // Newest first, up to the ENROLLMENT_DEAL_LIMIT deals enrollments derive from.
     opportunities: Doc<"opportunities">[];
   },
 ) {
+  // The page lists the newest 50 deals; payments come from every deal read.
   const opportunities = input.opportunities.slice(0, MAX_OPPORTUNITIES);
   const opportunityById = new Map(
-    opportunities.map((opportunity) => [opportunity._id, opportunity]),
+    input.opportunities.map((opportunity) => [opportunity._id, opportunity]),
   );
   const closerIds = [
     ...new Set(
@@ -228,7 +232,7 @@ export async function buildEntityDetailPayload(
         ),
       ),
       Promise.all(
-        opportunities.map((opportunity) =>
+        input.opportunities.map((opportunity) =>
           ctx.db
             .query("paymentRecords")
             .withIndex("by_opportunityId_and_recordedAt", (q) =>
@@ -318,9 +322,11 @@ export async function buildEntityDetailPayload(
     .flat()
     .filter((payment) => payment.tenantId === input.tenantId)
     .sort((left, right) => right.recordedAt - left.recordedAt);
-  const paymentsCappedPerDeal = opportunityPaymentBatches.some(
-    (batch) => batch.length >= MAX_PAYMENTS_PER_OPPORTUNITY,
-  );
+  // Past either limit the person's enrollments can't be derived, and the
+  // totals may miss payments.
+  const paymentsCapped =
+    input.opportunities.length >= ENROLLMENT_DEAL_LIMIT ||
+    opportunityPaymentBatches.some((batch) => batch.length >= MAX_PAYMENTS_PER_OPPORTUNITY);
   const visiblePayments = rawPayments
     .filter((payment) =>
       canViewPaymentDetail({
@@ -429,10 +435,10 @@ export async function buildEntityDetailPayload(
     comments,
     payments: compactPayments,
     caps: {
-      opportunities: input.opportunities.length >= MAX_OPPORTUNITIES,
+      opportunities: input.opportunities.length > MAX_OPPORTUNITIES,
       meetings: rawMeetings.length > MAX_MEETINGS,
       comments: comments.length >= MAX_TOTAL_COMMENTS,
-      payments: rawPayments.length > MAX_PAYMENTS || paymentsCappedPerDeal,
+      payments: rawPayments.length > MAX_PAYMENTS || paymentsCapped,
     },
   };
 }

@@ -8,7 +8,7 @@ import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { bookingHarness } from "../../tests/bookingHarness";
 import { ENROLLED_AT, seedEnrolledCustomer } from "../../tests/enrollmentPageFixtures";
-import { DAY, insertPayment, insertPerson } from "../../tests/enrollmentReadFixtures";
+import { DAY, insertDeal, insertPayment, insertPerson } from "../../tests/enrollmentReadFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -160,6 +160,31 @@ describe("person page enrollments", () => {
     expect(detail.payments[0]).toMatchObject({ opportunityId: seeded.dealA });
     expect(detail.payments[0]).not.toHaveProperty("customerId");
     expect(detail.customerSummary?.totalPaidMinor).toBe(300_000);
+  });
+
+  it("counts the payments on every deal the enrollments derive from, past the 50 deals it lists", async () => {
+    const h = await bookingHarness();
+    const seeded = await h.t.run(async (ctx) => {
+      const seeded = await seedEnrolledCustomer(ctx, h.tenantId);
+      // 55 later deals with no payment push the paid deal out of the newest 50.
+      for (let index = 0; index < 55; index++) {
+        await insertDeal(ctx, {
+          tenantId: h.tenantId, leadId: seeded.leadId, status: "lost",
+          createdAt: ENROLLED_AT + (index + 1) * DAY,
+        });
+      }
+      return seeded;
+    });
+
+    const detail = await detailFor(h, seeded.leadId);
+
+    expect(detail.opportunities).toHaveLength(50);
+    expect(detail.opportunities.some(({ opportunity }) => opportunity._id === seeded.dealA)).toBe(false);
+    expect(detail.caps.opportunities).toBe(true);
+    expect(detail.enrollments[0]).toMatchObject({ totalPaidMinor: 300_000, paymentCount: 1 });
+    expect(detail.customerSummary?.totalPaidMinor).toBe(300_000);
+    expect(detail.payments.map((payment) => payment._id)).toEqual([seeded.paymentA]);
+    expect(detail.caps.payments).toBe(false);
   });
 
   it("has no enrollments or customer summary for a person who hasn't bought", async () => {
