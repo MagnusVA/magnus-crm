@@ -464,6 +464,28 @@ it("a held booking retried without a fix stays held under the same review and al
   expect(await alertJobs(harness)).toHaveLength(1);
 });
 
+it("a hold that names one person, not two, opens no review", async () => {
+  // A phone match alone never vouches for a new email: the booking is held,
+  // but only one person is involved, so there is nothing to merge.
+  const harness = await setup();
+  await seedPerson(harness, { fullName: "Lead A", email: "lead.a@example.com", phone: "+1 416-555-0142" }, [
+    ["email", "lead.a@example.com"],
+    ["phone", "+14165550142"],
+  ]);
+  await deliver(
+    harness,
+    booking("one-person-hold", { email: "someone.else@example.com", name: "Someone Else", phone: "+1 416-555-0142" }),
+  );
+  expect(await receipt(harness)).toMatchObject({ status: "blocked", reason: "identity_conflict" });
+  expect(await reviews(harness)).toEqual([]);
+  expect(await alertJobs(harness)).toEqual([]);
+});
+
+it("a malformed review link reads as not found", async () => {
+  const harness = await setup();
+  expect(await harness.admin.query(api.pipeline.bookingReviews.get, { reviewId: "not-an-id" })).toBeNull();
+});
+
 it("a booking whose identifiers all name one person opens no review", async () => {
   const harness = await setup();
   const { slack } = await seedIncidentC(harness);

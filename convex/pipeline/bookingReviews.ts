@@ -314,11 +314,13 @@ export const list = query({
   },
 });
 
+/** Takes the raw URL segment, so a truncated Slack link reads as not found. */
 export const get = query({
-  args: { reviewId: v.id("bookingReviews") },
+  args: { reviewId: v.string() },
   handler: async (ctx, { reviewId }) => {
     const { tenantId } = await requireTenantUser(ctx, [...ADMIN_ROLES]);
-    const review = await ctx.db.get("bookingReviews", reviewId);
+    const id = ctx.db.normalizeId("bookingReviews", reviewId);
+    const review = id ? await ctx.db.get("bookingReviews", id) : null;
     if (!review || review.tenantId !== tenantId) return null;
     return await loadBookingReviewDetail(ctx, review);
   },

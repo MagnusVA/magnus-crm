@@ -122,13 +122,24 @@ export async function settleBookingReview(
   const now = Date.now();
   let review = await reviewForDelivery(ctx, receipt._id);
 
-  if (outcome.status === "blocked" && REVIEWED_HOLD_REASONS.has(outcome.reason)) {
+  // A held review needs people to decide between: a block that names one
+  // person or none (a phone that doesn't vouch for a new email) is left to
+  // the recovery panel.
+  const conflicts =
+    outcome.status === "blocked"
+      ? (outcome.identity?.conflicts ?? review?.conflicts ?? [])
+      : [];
+  if (
+    outcome.status === "blocked" &&
+    REVIEWED_HOLD_REASONS.has(outcome.reason) &&
+    new Set(conflicts.map((c) => c.leadId)).size > 1
+  ) {
     const fields = {
       kind: "held" as const,
       status: "open" as const,
       reason: outcome.reason,
       leadId: undefined,
-      conflicts: outcome.identity?.conflicts ?? review?.conflicts ?? [],
+      conflicts,
       booking: outcome.identity?.booking ?? review?.booking ?? {},
       updatedAt: now,
       resolution: undefined,

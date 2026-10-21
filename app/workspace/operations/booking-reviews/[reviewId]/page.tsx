@@ -1,6 +1,5 @@
 import { preloadQuery } from "convex/nextjs";
 import { api } from "@/convex/_generated/api";
-import type { Id } from "@/convex/_generated/dataModel";
 import { requireRole } from "@/lib/auth";
 import { BookingReviewPageClient } from "./_components/booking-review-page-client";
 
@@ -16,7 +15,7 @@ export default async function BookingReviewPage({
 
   const preloadedReview = await preloadQuery(
     api.pipeline.bookingReviews.get,
-    { reviewId: reviewId as Id<"bookingReviews"> },
+    { reviewId },
     { token: session.accessToken },
   );
 
