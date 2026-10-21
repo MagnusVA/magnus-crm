@@ -98,8 +98,15 @@ function EnrollmentRow({
 				{enrollment.statusChangedAt ? (
 					<p className="text-[11px] text-muted-foreground">
 						{CHANGED_VERB[enrollment.status]} on{" "}
-						<span className="tabular-nums">{formatDate(enrollment.statusChangedAt)}</span> by{" "}
-						<span translate="no">{enrollment.statusChangedByName ?? "Removed user"}</span>
+						<span className="tabular-nums">{formatDate(enrollment.statusChangedAt)}</span>
+						{/* No changer is recorded for a status carried from the customer row. */}
+						{enrollment.statusChangedBy ? (
+							<>
+								{" "}
+								by{" "}
+								<span translate="no">{enrollment.statusChangedBy.name ?? "Removed user"}</span>
+							</>
+						) : null}
 					</p>
 				) : null}
 			</div>

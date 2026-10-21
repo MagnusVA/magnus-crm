@@ -55,7 +55,7 @@ describe("person page enrollments", () => {
         enrolledAt: ENROLLED_AT,
         opportunityId: seeded.dealA,
         statusChangedAt: null,
-        statusChangedByName: null,
+        statusChangedBy: null,
         totalPaidMinor: 350_000,
         currency: "USD",
         paymentCount: 2,
@@ -68,7 +68,7 @@ describe("person page enrollments", () => {
         enrolledAt: ENROLLED_AT + DAY,
         opportunityId: seeded.second!.dealId,
         statusChangedAt: ENROLLED_AT + 4 * DAY,
-        statusChangedByName: "admin@example.com",
+        statusChangedBy: { userId: seeded.adminId, name: "admin@example.com" },
         totalPaidMinor: 120_000,
         currency: "USD",
         paymentCount: 1,
@@ -85,9 +85,9 @@ describe("person page enrollments", () => {
     });
   });
 
-  it("gives the person-level status and shows a deleted changer as no name", async () => {
+  it("gives the person-level status and keeps a deleted changer's ID with no name", async () => {
     const h = await bookingHarness();
-    const seeded = await h.t.run(async (ctx) => {
+    const { seeded, goneUserId } = await h.t.run(async (ctx) => {
       const seeded = await seedEnrolledCustomer(ctx, h.tenantId, { secondProgram: true });
       const goneUserId = await ctx.db.insert("users", {
         tenantId: h.tenantId, workosUserId: "user_gone", email: "gone@example.com",
@@ -101,17 +101,42 @@ describe("person page enrollments", () => {
           statusChangedByUserId: goneUserId,
         });
       }
-      return seeded;
+      return { seeded, goneUserId };
     });
 
     const detail = await detailFor(h, seeded.leadId);
 
     expect(detail.customerSummary?.status).toBe("paused");
-    expect(detail.enrollments.map((enrollment) => enrollment.statusChangedByName)).toEqual([null, null]);
+    // The page shows "by Removed user" for these.
+    expect(detail.enrollments.map((enrollment) => enrollment.statusChangedBy)).toEqual([
+      { userId: goneUserId, name: null },
+      { userId: goneUserId, name: null },
+    ]);
     expect(detail.enrollments.map((enrollment) => enrollment.statusChangedAt)).toEqual([
       ENROLLED_AT + 5 * DAY,
       ENROLLED_AT + 5 * DAY,
     ]);
+  });
+
+  it("has a change time but no changer for a status the backfill carried from the customer row", async () => {
+    const h = await bookingHarness();
+    const seeded = await h.t.run(async (ctx) => {
+      const seeded = await seedEnrolledCustomer(ctx, h.tenantId);
+      // backfillEnrollments sets statusChangedAt from pausedAt and records no user.
+      await ctx.db.patch("enrollments", seeded.enrollmentA, {
+        status: "paused",
+        statusChangedAt: ENROLLED_AT + 6 * DAY,
+      });
+      return seeded;
+    });
+
+    const detail = await detailFor(h, seeded.leadId);
+
+    expect(detail.enrollments[0]).toMatchObject({
+      status: "paused",
+      statusChangedAt: ENROLLED_AT + 6 * DAY,
+      statusChangedBy: null,
+    });
   });
 
   it("lists payments on the person's deals only, with no customer-only branch", async () => {

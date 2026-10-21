@@ -138,7 +138,6 @@ async function buildEnrollmentsPayload(
       programNameById.set(program._id, program.name);
     }
   }
-  // A changer whose users row is gone has no name; the page says "Removed user".
   const changerNameById = new Map<Id<"users">, string>();
   for (const user of changers) {
     if (user && user.tenantId === tenantId) {
@@ -154,8 +153,14 @@ async function buildEnrollmentsPayload(
     enrolledAt: enrollment.enrolledAt,
     opportunityId: enrollment.opportunityId,
     statusChangedAt: enrollment.statusChangedAt ?? null,
-    statusChangedByName: enrollment.statusChangedByUserId
-      ? (changerNameById.get(enrollment.statusChangedByUserId) ?? null)
+    // Null when no user was recorded, as for a status the backfill carried
+    // from the customer row. A name of null means the user's row is gone,
+    // and the page says "Removed user".
+    statusChangedBy: enrollment.statusChangedByUserId
+      ? {
+          userId: enrollment.statusChangedByUserId,
+          name: changerNameById.get(enrollment.statusChangedByUserId) ?? null,
+        }
       : null,
     ...paidTotals(payments.filter((payment) => payment.programId === enrollment.programId)),
   }));
