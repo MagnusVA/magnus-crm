@@ -4,6 +4,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../_generated/api";
+import { MAX_ACTIVITY_SCAN_EVENTS } from "./activityFeed";
 import { bookingHarness } from "../../tests/bookingHarness";
 import { seedEnrolledCustomer } from "../../tests/enrollmentPageFixtures";
 
@@ -53,4 +54,34 @@ describe("activity feed enrollment events", () => {
     expect(customerFeed.map((event) => event.eventType)).toEqual(["customer.converted"]);
     expect(summary.byEntity).toMatchObject({ enrollment: 1, customer: 1 });
   });
+
+  it("stops scanning at the summary's ceiling, where the page already says results are truncated", async () => {
+    const h = await bookingHarness();
+    await h.t.run(async (ctx) => {
+      const seeded = await seedEnrolledCustomer(ctx, h.tenantId);
+      // The one enrollment event is the oldest in the range, behind more
+      // events than the ceiling.
+      await ctx.db.insert("domainEvents", {
+        tenantId: h.tenantId, entityType: "enrollment", entityId: seeded.enrollmentA,
+        eventType: "enrollment.status_changed", occurredAt: RANGE.startDate, source: "admin",
+        leadId: seeded.leadId,
+      });
+      for (let index = 0; index < MAX_ACTIVITY_SCAN_EVENTS; index++) {
+        await ctx.db.insert("domainEvents", {
+          tenantId: h.tenantId, entityType: "lead", entityId: seeded.leadId,
+          eventType: "lead.portal_note_added", occurredAt: RANGE.startDate + 1 + (index % 1000),
+          source: "pipeline", leadId: seeded.leadId,
+        });
+      }
+    });
+
+    const feed = await h.admin.query(api.reporting.activityFeed.getActivityFeed, {
+      ...RANGE,
+      entityType: "enrollment",
+    });
+    const summary = await h.admin.query(api.reporting.activityFeed.getActivitySummary, RANGE);
+
+    expect(feed).toEqual([]);
+    expect(summary.isTruncated).toBe(true);
+  }, 20_000);
 });

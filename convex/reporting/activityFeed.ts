@@ -10,7 +10,12 @@ import {
 } from "./lib/helpers";
 
 const MAX_ACTIVITY_FEED_LIMIT = 100;
-const MAX_ACTIVITY_SUMMARY_EVENTS = 10000;
+// The most events either query reads in one range. The feed filters entity
+// type, program and payment type in memory, so a rare match would otherwise
+// scan the whole range. Neither scans more than the range holds, so the feed
+// stops early only when the summary is truncated too, and the page then says
+// to narrow the range.
+export const MAX_ACTIVITY_SCAN_EVENTS = 10000;
 
 const DOMAIN_EVENT_ENTITY_TYPES = [
   "customer",
@@ -179,7 +184,12 @@ export const getActivityFeed = query({
             )
             .order("desc");
 
+    let scanned = 0;
     for await (const event of querySource) {
+      if (scanned >= MAX_ACTIVITY_SCAN_EVENTS) {
+        break;
+      }
+      scanned += 1;
       if (!matchesFeedFilters(event, args)) {
         continue;
       }
@@ -269,7 +279,7 @@ export const getActivitySummary = query({
         q.eq("tenantId", tenantId).gte("occurredAt", startDate).lt("occurredAt", endDate),
       )
       .order("desc")) {
-      if (totalEvents >= MAX_ACTIVITY_SUMMARY_EVENTS) {
+      if (totalEvents >= MAX_ACTIVITY_SCAN_EVENTS) {
         isTruncated = true;
         break;
       }
