@@ -457,3 +457,21 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 ### 13.1 Baseline, 2026-10-21
 
 §2.
+
+### 13.2 Deploys
+
+| PR | What | Deployed |
+| --- | --- | --- |
+| #153 | the plan | docs, merged 10-21 09:10 |
+| #154 | widen: `enrollments`, `syncPersonEnrollments` beside every payment path, D14, the backfill and asserts | 10-21 09:26 |
+
+### 13.3 Runs
+
+| When | Run | Result |
+| --- | --- | --- |
+| 10-21 09:26 | read-only count before the backfill | 274 customers, 274 converted people, 279 payments, 0 enrollments: the §2 snapshot still held |
+| 10-21 09:26 | `backfillEnrollments` dry run, batch 50 | 50, nothing committed |
+| 10-21 09:26 | `backfillEnrollments`, batch 50 | done 09:26, 274 customers: 274 enrollments, all `active` |
+| 10-21 09:26 | `assertEnrollments` | passed, 274 enrollments |
+| 10-21 09:27 | `assertPaymentEnrollments` | passed, 279 payments |
+| 10-21 09:27 | read-only recheck | 274 enrollments for 274 people; every converted person has one and every enrolled person is converted; each matches its customer row's program, status, `convertedAt` and winning deal |
