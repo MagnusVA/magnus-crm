@@ -1,6 +1,6 @@
 # Phase 3: attribution
 
-Status: done, 2026-10-21. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11 on 2026-10-20 and delegated every production run in §9 to the agent. PRs #141 to #149 are merged and deployed; every backfill finished and every assert passed in production, the parity checks found no difference, and the clear passed its asserts. The narrow (#150) drops the copied columns, their indexes and the one-time migrations (§13).
+Status: last step in review, 2026-10-21. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted every recommendation in §11 on 2026-10-20 and delegated every production run in §9 to the agent. PRs #141 to #149 are merged and deployed; every backfill finished and every assert passed in production, the parity checks found no difference, and the clear passed its asserts. The narrow (#150) is the last step: the phase is done when it deploys and its checks (§13.4) pass, which the follow-up record states.
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (findings F5 and F6, target rules 3 to 5 in §6) and the Phase 3 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 2 is in [phase-2-person-first.md](phase-2-person-first.md).
 
@@ -470,15 +470,16 @@ Every command runs against production with `--env-file .env.vercel.production`; 
 
 Each migration runs the same way. The dry run must finish without an error and process rows of the table it names; an error, or a dry run that would write rows the plan doesn't expect, stops the phase for a fix in a reviewed PR. Then the run, then poll `lib:getStatus` until it reports `"isDone": true` (a background loop that waits 30 seconds between calls), read any error it reports, and only then run its assert, which is polled the same way. A batch that fails on a known Convex limit ("too many system operations", a read limit) commits nothing and resumes from its cursor at a smaller batch, as in Phase 2. Any other failed migration, and any failed assert, stops the phase until a reviewed fix ships and the failed step and its assert pass again (§12). The next migration starts only after the previous assert is done and passed; the projection rebuild and the clear start only after every migration before them in §9 is done.
 
+The health checks, after the narrow:
+
 ```
-npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:backfillPersonTouches","dryRun":true}'
-npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:backfillPersonTouches"}'
-npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:backfillPersonTouches"]}'
-npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertPersonTouches"}'
-npx convex run --env-file .env.vercel.production attribution/parity:compareBookedCalls '{"tenantId":"k57dqjfyf8qqy31bq375ng8gb984b24q","start":<ms>,"end":<ms>}'
+npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertBookingAttributions","reset":true}'
+npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:assertBookingAttributions"]}'
+npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertDealAttributions","reset":true}'
+npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertPersonTouches","reset":true}'
 ```
 
-and the same for each migration in §9's order.
+The removed migrations ran the same way, in §9's order, as §13.3 records.
 
 ## 11. Decisions
 
