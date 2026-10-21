@@ -17,7 +17,6 @@ export function registerComponents(t: ReturnType<typeof convexTest>) {
     "slackQualificationsByUser",
     "slackQualificationsByTime",
     "paymentSums",
-    "customerConversions",
     "prospectConversions",
     "billingPaymentsByStatus",
     "billingPaymentsByStatusProgram",

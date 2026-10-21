@@ -1,8 +1,6 @@
 /**
- * `rebuildCustomerSearchRows` re-projects each customer's row from enrollments
- * without the customer, and `assertLeadCustomerSearchRowsBackfilled` checks
- * every row against that projection (docs/plans/phase-4-customers.md §8,
- * §10.4).
+ * `assertLeadCustomerSearchRowsBackfilled` checks every row against the
+ * projection from enrollments (docs/plans/phase-4-customers.md §8).
  */
 import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -13,9 +11,6 @@ import { bookingHarness } from "../../tests/bookingHarness";
 import {
   T0,
   fixtureUsers,
-  insertDeal,
-  insertEnrollment,
-  insertPayment,
   insertPerson,
   insertProgram,
   seedCustomer,
@@ -41,121 +36,66 @@ async function run(harness: Harness, name: string, reset = false) {
   return status;
 }
 
-/** A customer and a lead whose rows the customer projection wrote. */
-async function seedLegacyRows(harness: Harness) {
-  return await harness.t.run(async (ctx) => {
+/** A customer and a lead, with the rows the backfill projects for them. */
+async function seedProjectedRows(harness: Harness) {
+  const seeded = await harness.t.run(async (ctx) => {
     const { tenantId } = harness;
     const { admin, closer } = await fixtureUsers(ctx, tenantId);
     const program = await insertProgram(ctx, tenantId, admin._id, "Program");
     const customer = await seedCustomer(ctx, tenantId, { closerId: closer._id, programId: program, paidAt: T0 });
     const leadId = await insertPerson(ctx, tenantId, { fullName: "Still a lead" });
-    const legacyRow = (
-      leadIdForRow: Id<"leads">,
-      fields: { customerId?: Id<"customers">; lifecycle: "customer" | "lead"; leadStatus: "active" | "converted" },
-    ) =>
-      ctx.db.insert("leadCustomerSearchRows", {
-        tenantId,
-        leadId: leadIdForRow,
-        ...fields,
-        isSearchVisible: true,
-        customerStatus: fields.customerId ? "active" : undefined,
-        displayName: "Row",
-        searchText: "row",
-        opportunityCount: 1,
-        wonOpportunityCount: fields.customerId ? 1 : 0,
-        meetingCount: 1,
-        latestActivityAt: T0,
-        firstSeenAt: T0,
-        convertedAt: fields.customerId ? T0 : undefined,
-        totalPaidMinor: fields.customerId ? 100_000 : undefined,
-        paymentCurrency: fields.customerId ? "USD" : undefined,
-        updatedAt: T0,
-      });
-    await legacyRow(customer.leadId, {
-      customerId: customer.customerId,
-      lifecycle: "customer",
-      leadStatus: "converted",
-    });
-    await legacyRow(leadId, { lifecycle: "lead", leadStatus: "active" });
     return { customer, leadId };
   });
+  expect((await run(harness, "backfillLeadCustomerSearchRows"))?.isDone).toBe(true);
+  return seeded;
 }
 
-describe("customer search row migrations", () => {
-  it("fail the assert while a row names a customer, and pass once rebuilt", async () => {
+async function searchRow(harness: Harness, leadId: Id<"leads">) {
+  return await harness.t.run((ctx) =>
+    ctx.db
+      .query("leadCustomerSearchRows")
+      .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", harness.tenantId).eq("leadId", leadId))
+      .unique(),
+  );
+}
+
+describe("assertLeadCustomerSearchRowsBackfilled", () => {
+  it("passes on rows projected from enrollments", async () => {
     const harness = await harnessWithMigrations();
-    const { customer } = await seedLegacyRows(harness);
+    const { customer, leadId } = await seedProjectedRows(harness);
 
-    expect((await run(harness, "assertLeadCustomerSearchRowsBackfilled"))?.error).toContain(
-      "still names a customer",
-    );
-    expect((await run(harness, "rebuildCustomerSearchRows"))?.isDone).toBe(true);
-    expect((await run(harness, "assertLeadCustomerSearchRowsBackfilled", true))?.error).toBeUndefined();
-
-    const row = await harness.t.run((ctx) =>
-      ctx.db
-        .query("leadCustomerSearchRows")
-        .withIndex("by_tenantId_and_leadId", (q) =>
-          q.eq("tenantId", harness.tenantId).eq("leadId", customer.leadId),
-        )
-        .unique(),
-    );
-    expect(row?.customerId).toBeUndefined();
-    expect(row).toMatchObject({ lifecycle: "customer", customerStatus: "active", totalPaidMinor: 100_000 });
-  });
-
-  it("rebuild the row of a person with an enrollment and no customer row", async () => {
-    const harness = await harnessWithMigrations();
-    await seedLegacyRows(harness);
-    const leadId = await harness.t.run(async (ctx) => {
-      const { tenantId } = harness;
-      const { admin, closer } = await fixtureUsers(ctx, tenantId);
-      const program = await insertProgram(ctx, tenantId, admin._id, "Second program");
-      const person = await insertPerson(ctx, tenantId, { fullName: "No customer row", status: "converted" });
-      const dealId = await insertDeal(ctx, { tenantId, leadId: person, assignedCloserId: closer._id });
-      await insertPayment(ctx, {
-        tenantId, opportunityId: dealId, programId: program, recordedByUserId: closer._id, recordedAt: T0,
-      });
-      await insertEnrollment(ctx, { tenantId, leadId: person, programId: program, opportunityId: dealId, enrolledAt: T0 });
-      await ctx.db.insert("leadCustomerSearchRows", {
-        tenantId,
-        leadId: person,
-        lifecycle: "lead",
-        leadStatus: "converted",
-        isSearchVisible: true,
-        displayName: "Row",
-        searchText: "row",
-        opportunityCount: 1,
-        wonOpportunityCount: 1,
-        meetingCount: 0,
-        latestActivityAt: T0,
-        firstSeenAt: T0,
-        updatedAt: T0,
-      });
-      return person;
-    });
-
-    expect((await run(harness, "rebuildCustomerSearchRows"))?.isDone).toBe(true);
     expect((await run(harness, "assertLeadCustomerSearchRowsBackfilled"))?.error).toBeUndefined();
-    const row = await harness.t.run((ctx) =>
-      ctx.db
-        .query("leadCustomerSearchRows")
-        .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", harness.tenantId).eq("leadId", leadId))
-        .unique(),
-    );
-    expect(row).toMatchObject({ lifecycle: "customer", customerStatus: "active" });
+    expect(await searchRow(harness, customer.leadId)).toMatchObject({
+      lifecycle: "customer",
+      customerStatus: "active",
+      totalPaidMinor: 100_000,
+      convertedAt: T0,
+    });
+    const leadRow = await searchRow(harness, leadId);
+    expect(leadRow?.lifecycle).toBe("lead");
+    expect(leadRow?.customerStatus).toBeUndefined();
   });
 
-  it("fail the assert on a row whose status differs from the enrollments", async () => {
+  it("names a row whose status differs from the enrollments", async () => {
     const harness = await harnessWithMigrations();
-    const { customer } = await seedLegacyRows(harness);
-    expect((await run(harness, "rebuildCustomerSearchRows"))?.isDone).toBe(true);
+    const { customer } = await seedProjectedRows(harness);
     await harness.t.run(async (ctx) => {
       await ctx.db.patch("enrollments", customer.enrollmentId, { status: "churned" });
     });
 
-    expect((await run(harness, "assertLeadCustomerSearchRowsBackfilled"))?.error).toContain(
-      "stale customerStatus projection",
-    );
+    const error = (await run(harness, "assertLeadCustomerSearchRowsBackfilled"))?.error;
+    expect(error).toContain(customer.leadId);
+    expect(error).toContain("stale customerStatus projection");
+  });
+
+  it("names a lead with no row", async () => {
+    const harness = await harnessWithMigrations();
+    const { leadId } = await seedProjectedRows(harness);
+    const row = await searchRow(harness, leadId);
+    await harness.t.run((ctx) => ctx.db.delete("leadCustomerSearchRows", row!._id));
+
+    const error = (await run(harness, "assertLeadCustomerSearchRowsBackfilled"))?.error;
+    expect(error).toContain(leadId);
+    expect(error).toContain("missing leadCustomerSearchRows row");
   });
 });

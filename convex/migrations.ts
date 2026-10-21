@@ -43,7 +43,6 @@ import {
   replaceOperationsMeetingStats,
 } from "./operations/meetingStats";
 import { rebuildQualificationRow } from "./operations/projections";
-import { customerConversions } from "./reporting/aggregates";
 import {
   expireStaleSlackOpportunity,
   isStaleSlackBacklog,
@@ -186,19 +185,6 @@ export const assertLeadCustomerSearchRowsBackfilled = migrations.define({
         throw new Error(`Lead ${lead._id} has stale ${field} projection`);
       }
     }
-  },
-});
-
-// Phase 4 PR 2: each customer's person's row, projected from enrollments and
-// without the customer copy (docs/plans/phase-4-customers.md §10.4).
-// Every person with an enrollment, whether or not a customer row exists, so
-// no customer's row keeps the customer projection (§10.4). A person with two
-// enrollments is rebuilt twice, to the same row.
-export const rebuildCustomerSearchRows = migrations.define({
-  table: "enrollments",
-  batchSize: 50,
-  migrateOne: async (ctx, enrollment) => {
-    await rebuildLeadCustomerSearchRow(ctx, enrollment.tenantId, enrollment.leadId);
   },
 });
 
@@ -873,70 +859,5 @@ export const assertPaymentEnrollments = migrations.define({
     if (enrollment.enrolledAt > payment.recordedAt) {
       throw new Error(`Payment ${payment._id} recorded at ${payment.recordedAt}, before enrollment ${enrollment._id} at ${enrollment.enrolledAt}`);
     }
-  },
-});
-
-// Phase 4 PR 4 (docs/plans/phase-4-customers.md §10.5). They run after the
-// export of `customers` (§10.7), in this order. None emits an event or moves
-// a counter: the rows they empty are copies nothing reads.
-
-// Only this clear and its assert read the two fields (D12).
-export const clearPaymentCustomerFields = migrations.define({
-  table: "paymentRecords", batchSize: 100,
-  migrateOne: async (ctx, payment) => {
-    if (payment.customerId === undefined && payment.contextType === undefined) return;
-    await ctx.db.patch("paymentRecords", payment._id, { customerId: undefined, contextType: undefined });
-  },
-});
-
-export const assertPaymentCustomerFieldsCleared = migrations.define({
-  table: "paymentRecords", batchSize: 100,
-  migrateOne: async (_ctx, payment) => {
-    if (payment.customerId !== undefined || payment.contextType !== undefined) {
-      throw new Error(`Payment ${payment._id} still has its customerId or contextType`);
-    }
-  },
-});
-
-export const deleteCustomers = migrations.define({
-  table: "customers", batchSize: 100,
-  migrateOne: async (ctx, customer) => {
-    await ctx.db.delete("customers", customer._id);
-  },
-});
-
-// Read-only: any row left fails it.
-export const assertCustomersDeleted = migrations.define({
-  table: "customers", batchSize: 100,
-  migrateOne: async (_ctx, customer) => {
-    throw new Error(`Customer ${customer._id} is still there`);
-  },
-});
-
-/**
- * Empties the `customerConversions` aggregate, one namespace per tenant, so
- * the narrow can unmount it. It reads the aggregate's own namespaces, so a
- * deleted tenant's entries go too. `dryRun` counts without clearing; a second
- * run finds nothing.
- */
-export const clearCustomerConversions = internalMutation({
-  args: { dryRun: v.optional(v.boolean()) },
-  returns: v.object({
-    namespaces: v.number(),
-    entries: v.number(),
-    cleared: v.boolean(),
-  }),
-  handler: async (ctx, { dryRun }) => {
-    const namespaces: Id<"tenants">[] = [];
-    for await (const namespace of customerConversions.iterNamespaces(ctx)) {
-      if (namespace !== undefined) namespaces.push(namespace);
-    }
-    let entries = 0;
-    for (const namespace of namespaces) {
-      const count = await customerConversions.count(ctx, { namespace });
-      entries += count;
-      if (!dryRun && count > 0) await customerConversions.clear(ctx, { namespace });
-    }
-    return { namespaces: namespaces.length, entries, cleared: !dryRun };
   },
 });
