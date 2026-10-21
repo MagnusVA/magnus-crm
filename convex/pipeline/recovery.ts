@@ -89,6 +89,26 @@ async function retryOne(
   await enqueueDelivery(ctx, row._id);
 }
 
+/** Retries one blocked or failed delivery as it stands now. */
+export async function retryDelivery(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  actorUserId: Id<"users">,
+  deliveryId: Id<"webhookDeliveries">,
+) {
+  const row = await ctx.db.get("webhookDeliveries", deliveryId);
+  if (!row || row.tenantId !== tenantId) throw new Error("Delivery not found");
+  await retryOne(ctx, tenantId, actorUserId, {
+    deliveryId,
+    generation: row.generation,
+    status: row.status,
+    reason: row.reason,
+    rawAvailable: true,
+    eventType: row.eventType,
+    occurredAt: row.occurredAt,
+  });
+}
+
 function checkSelection(ids: Id<"webhookDeliveries">[]) {
   if (!ids.length || ids.length > 50 || new Set(ids).size !== ids.length)
     throw new Error("Select 1–50 distinct deliveries");
@@ -132,18 +152,7 @@ export const retryAsOperator = internalMutation({
       throw new Error("The actor must be an active admin of the tenant");
     checkSelection(deliveryIds);
     for (const deliveryId of deliveryIds) {
-      const row = await ctx.db.get("webhookDeliveries", deliveryId);
-      if (!row || row.tenantId !== tenantId)
-        throw new Error("Delivery not found");
-      await retryOne(ctx, tenantId, actorUserId, {
-        deliveryId,
-        generation: row.generation,
-        status: row.status,
-        reason: row.reason,
-        rawAvailable: true,
-        eventType: row.eventType,
-        occurredAt: row.occurredAt,
-      });
+      await retryDelivery(ctx, tenantId, actorUserId, deliveryId);
     }
     return null;
   },

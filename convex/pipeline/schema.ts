@@ -1,5 +1,6 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
+import { socialPlatformValidator } from "../lib/socialPlatform";
 
 export const deliveryStatus = v.union(
   v.literal("queued"),
@@ -9,7 +10,74 @@ export const deliveryStatus = v.union(
   v.literal("failed"),
 );
 
+/** Which of a booking's identifiers matched a person. */
+export const identityMatchVia = v.union(
+  v.literal("email"),
+  v.literal("phone"),
+  v.literal("social_handle"),
+);
+
+export const bookingReviewKind = v.union(
+  // The booking applied to the person its social handle names, and its email
+  // or phone also names someone else.
+  v.literal("attached"),
+  // The booking is blocked until an admin decides who it belongs to.
+  v.literal("held"),
+);
+
+export const bookingReviewResolution = v.union(
+  v.literal("merged"),
+  v.literal("kept_separate"),
+  v.literal("booking_applied"),
+);
+
 export const pipelineTables = {
+  // One per delivery whose identifiers named more than one person: the review
+  // queue of docs/adr/0001-lead-lifecycle-model.md, alerted to Slack once.
+  bookingReviews: defineTable({
+    tenantId: v.id("tenants"),
+    deliveryId: v.id("webhookDeliveries"),
+    kind: bookingReviewKind,
+    status: v.union(v.literal("open"), v.literal("resolved")),
+    // The delivery's blocked reason, for a held booking.
+    reason: v.optional(v.string()),
+    // The person the booking applied to, for an attached booking.
+    leadId: v.optional(v.id("leads")),
+    // The other people the booking's identifiers named.
+    conflicts: v.array(
+      v.object({ leadId: v.id("leads"), via: identityMatchVia }),
+    ),
+    // What the booking submitted, normalized: the evidence the review is
+    // about. The raw payload that also holds it is deleted after retention.
+    booking: v.object({
+      name: v.optional(v.string()),
+      email: v.optional(v.string()),
+      phone: v.optional(v.string()),
+      socialHandle: v.optional(
+        v.object({ platform: socialPlatformValidator, handle: v.string() }),
+      ),
+    }),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+    alertScheduledAt: v.optional(v.number()),
+    // Set once Slack accepts the alert. An open review without it is posted
+    // when an admin first picks a booking review channel.
+    alertPostedAt: v.optional(v.number()),
+    resolution: v.optional(bookingReviewResolution),
+    resolvedAt: v.optional(v.number()),
+    resolvedByUserId: v.optional(v.id("users")),
+  })
+    .index("by_deliveryId", ["deliveryId"])
+    .index("by_tenantId_and_leadId_and_resolution", [
+      "tenantId",
+      "leadId",
+      "resolution",
+    ])
+    .index("by_tenantId_and_status_and_createdAt", [
+      "tenantId",
+      "status",
+      "createdAt",
+    ]),
   webhookRecoveryAttempts: defineTable({
     tenantId: v.id("tenants"),
     deliveryId: v.id("webhookDeliveries"),

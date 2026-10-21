@@ -38,6 +38,7 @@ import {
   ClipboardCheckIcon,
   ClockIcon,
   ContactIcon,
+  GitMergeIcon,
   DollarSignIcon,
   KanbanIcon,
   LayoutDashboardIcon,
@@ -115,6 +116,11 @@ const operationsNavItem: NavItem = {
       href: "/workspace/operations/sales-calls",
       label: "Sales Calls",
       icon: PhoneCallIcon,
+    },
+    {
+      href: "/workspace/operations/booking-reviews",
+      label: "Booking Reviews",
+      icon: GitMergeIcon,
     },
   ],
 };

@@ -260,6 +260,8 @@ import type * as pipeline_bookingFacts from "../pipeline/bookingFacts.js";
 import type * as pipeline_bookingHistory from "../pipeline/bookingHistory.js";
 import type * as pipeline_bookingHost from "../pipeline/bookingHost.js";
 import type * as pipeline_bookingRelevance from "../pipeline/bookingRelevance.js";
+import type * as pipeline_bookingReviewRecords from "../pipeline/bookingReviewRecords.js";
+import type * as pipeline_bookingReviews from "../pipeline/bookingReviews.js";
 import type * as pipeline_delivery from "../pipeline/delivery.js";
 import type * as pipeline_dismissal from "../pipeline/dismissal.js";
 import type * as pipeline_inviteeCanceled from "../pipeline/inviteeCanceled.js";
@@ -306,6 +308,7 @@ import type * as sideDeals_deleteEmptyOpportunity from "../sideDeals/deleteEmpty
 import type * as sideDeals_logPayment from "../sideDeals/logPayment.js";
 import type * as sideDeals_markLost from "../sideDeals/markLost.js";
 import type * as sideDeals_voidPayment from "../sideDeals/voidPayment.js";
+import type * as slack_bookingReviewNotify from "../slack/bookingReviewNotify.js";
 import type * as slack_channels from "../slack/channels.js";
 import type * as slack_channelsActions from "../slack/channelsActions.js";
 import type * as slack_cleanup from "../slack/cleanup.js";
@@ -627,6 +630,8 @@ declare const fullApi: ApiFromModules<{
   "pipeline/bookingHistory": typeof pipeline_bookingHistory;
   "pipeline/bookingHost": typeof pipeline_bookingHost;
   "pipeline/bookingRelevance": typeof pipeline_bookingRelevance;
+  "pipeline/bookingReviewRecords": typeof pipeline_bookingReviewRecords;
+  "pipeline/bookingReviews": typeof pipeline_bookingReviews;
   "pipeline/delivery": typeof pipeline_delivery;
   "pipeline/dismissal": typeof pipeline_dismissal;
   "pipeline/inviteeCanceled": typeof pipeline_inviteeCanceled;
@@ -673,6 +678,7 @@ declare const fullApi: ApiFromModules<{
   "sideDeals/logPayment": typeof sideDeals_logPayment;
   "sideDeals/markLost": typeof sideDeals_markLost;
   "sideDeals/voidPayment": typeof sideDeals_voidPayment;
+  "slack/bookingReviewNotify": typeof slack_bookingReviewNotify;
   "slack/channels": typeof slack_channels;
   "slack/channelsActions": typeof slack_channelsActions;
   "slack/cleanup": typeof slack_cleanup;

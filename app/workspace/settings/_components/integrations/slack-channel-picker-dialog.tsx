@@ -49,6 +49,8 @@ const channelPickerSchema = z.object({
   staleReminderChannelId: z.string().min(1, "Pick a reminder channel"),
   // Optional: empty turns lead gen notifications off.
   leadGenNotifyChannelId: z.string(),
+  // Optional: empty turns booking review alerts off.
+  bookingReviewChannelId: z.string(),
 });
 
 type ChannelPickerValues = z.infer<typeof channelPickerSchema>;
@@ -75,6 +77,8 @@ type Props = {
   initialStaleChannelId?: string;
   initialLeadGenChannelId?: string;
   initialLeadGenChannelName?: string;
+  initialBookingReviewChannelId?: string;
+  initialBookingReviewChannelName?: string;
 };
 
 export function SlackChannelPickerDialog({
@@ -84,12 +88,16 @@ export function SlackChannelPickerDialog({
   initialStaleChannelId,
   initialLeadGenChannelId,
   initialLeadGenChannelName,
+  initialBookingReviewChannelId,
+  initialBookingReviewChannelName,
 }: Props) {
   const listChannels = useAction(api.slack.channelsActions.listInstalledChannels);
   const saveChannels = useMutation(api.slack.channels.setSlackNotifyChannels);
   const [channels, setChannels] = useState<SlackChannel[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [unavailableLeadGenChannel, setUnavailableLeadGenChannel] =
+    useState<SlackChannel | null>(null);
+  const [unavailableBookingReviewChannel, setUnavailableBookingReviewChannel] =
     useState<SlackChannel | null>(null);
 
   const form = useForm({
@@ -98,6 +106,7 @@ export function SlackChannelPickerDialog({
       notifyChannelId: initialNotifyChannelId ?? "",
       staleReminderChannelId: initialStaleChannelId ?? "",
       leadGenNotifyChannelId: initialLeadGenChannelId ?? "",
+      bookingReviewChannelId: initialBookingReviewChannelId ?? "",
     },
   });
   const notifyChannelId = useWatch({
@@ -112,6 +121,10 @@ export function SlackChannelPickerDialog({
     control: form.control,
     name: "leadGenNotifyChannelId",
   });
+  const bookingReviewChannelId = useWatch({
+    control: form.control,
+    name: "bookingReviewChannelId",
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -119,12 +132,14 @@ export function SlackChannelPickerDialog({
       notifyChannelId: initialNotifyChannelId ?? "",
       staleReminderChannelId: initialStaleChannelId ?? "",
       leadGenNotifyChannelId: initialLeadGenChannelId ?? "",
+      bookingReviewChannelId: initialBookingReviewChannelId ?? "",
     });
   }, [
     form,
     initialNotifyChannelId,
     initialStaleChannelId,
     initialLeadGenChannelId,
+    initialBookingReviewChannelId,
     open,
   ]);
 
@@ -139,6 +154,7 @@ export function SlackChannelPickerDialog({
         setChannels(null);
         setListError(null);
         setUnavailableLeadGenChannel(null);
+        setUnavailableBookingReviewChannel(null);
         return listChannels({});
       })
       .then((rows) => {
@@ -154,18 +170,19 @@ export function SlackChannelPickerDialog({
             form.setValue(name, "");
           }
         }
-        // The optional lead gen channel stays selected and is saved unchanged,
-        // so a short listing can't silently turn its posts off.
+        // The optional channels stay selected and are saved unchanged, so a
+        // short listing can't silently turn their posts off or move them.
         const savedLeadGenId = form.getValues("leadGenNotifyChannelId");
         if (savedLeadGenId && !visibleIds.has(savedLeadGenId)) {
-          setUnavailableLeadGenChannel({
-            id: savedLeadGenId,
-            name: initialLeadGenChannelName ?? savedLeadGenId,
-            isPrivate: false,
-            isMember: false,
-            isArchived: false,
-            isUnavailable: true,
-          });
+          setUnavailableLeadGenChannel(
+            unavailableChannel(savedLeadGenId, initialLeadGenChannelName),
+          );
+        }
+        const savedBookingReviewId = form.getValues("bookingReviewChannelId");
+        if (savedBookingReviewId && !visibleIds.has(savedBookingReviewId)) {
+          setUnavailableBookingReviewChannel(
+            unavailableChannel(savedBookingReviewId, initialBookingReviewChannelName),
+          );
         }
         setChannels(rows);
       })
@@ -180,7 +197,13 @@ export function SlackChannelPickerDialog({
     return () => {
       cancelled = true;
     };
-  }, [form, initialLeadGenChannelName, listChannels, open]);
+  }, [
+    form,
+    initialLeadGenChannelName,
+    initialBookingReviewChannelName,
+    listChannels,
+    open,
+  ]);
 
   const selectedNotify = useMemo(
     () => channels?.find((channel) => channel.id === notifyChannelId),
@@ -204,9 +227,26 @@ export function SlackChannelPickerDialog({
   const leadGenUnchangedAndUnavailable =
     unavailableLeadGenChannel !== null &&
     leadGenNotifyChannelId === unavailableLeadGenChannel.id;
-  const privateChannels = [selectedNotify, selectedStale, selectedLeadGen].filter(
-    (channel): channel is SlackChannel => Boolean(channel?.isPrivate),
+  const selectedBookingReview = useMemo(
+    () => channels?.find((channel) => channel.id === bookingReviewChannelId),
+    [channels, bookingReviewChannelId],
   );
+  const bookingReviewChannels = useMemo(
+    () =>
+      channels && unavailableBookingReviewChannel
+        ? [unavailableBookingReviewChannel, ...channels]
+        : channels,
+    [channels, unavailableBookingReviewChannel],
+  );
+  const bookingReviewUnchangedAndUnavailable =
+    unavailableBookingReviewChannel !== null &&
+    bookingReviewChannelId === unavailableBookingReviewChannel.id;
+  const privateChannels = [
+    selectedNotify,
+    selectedStale,
+    selectedLeadGen,
+    selectedBookingReview,
+  ].filter((channel): channel is SlackChannel => Boolean(channel?.isPrivate));
 
   async function onSubmit(values: ChannelPickerValues) {
     const notify = channels?.find(
@@ -222,11 +262,23 @@ export function SlackChannelPickerDialog({
       values.leadGenNotifyChannelId && !keepUnavailableLeadGen
         ? channels?.find((channel) => channel.id === values.leadGenNotifyChannelId)
         : null;
-    if (!notify || !stale || leadGen === undefined) {
+    const keepUnavailableBookingReview =
+      unavailableBookingReviewChannel !== null &&
+      values.bookingReviewChannelId === unavailableBookingReviewChannel.id;
+    const bookingReview =
+      values.bookingReviewChannelId && !keepUnavailableBookingReview
+        ? channels?.find((channel) => channel.id === values.bookingReviewChannelId)
+        : null;
+    if (!notify || !stale || leadGen === undefined || bookingReview === undefined) {
       toast.error("Pick valid Slack channels.");
       return;
     }
-    if (notify.isArchived || stale.isArchived || leadGen?.isArchived) {
+    if (
+      notify.isArchived ||
+      stale.isArchived ||
+      leadGen?.isArchived ||
+      bookingReview?.isArchived
+    ) {
       toast.error("Archived channels cannot receive Slack messages.");
       return;
     }
@@ -242,6 +294,13 @@ export function SlackChannelPickerDialog({
           ? undefined
           : leadGen
             ? { channelId: leadGen.id, channelName: leadGen.name }
+            : null,
+        // Omitted leaves the saved booking review channel as is; null turns
+        // booking review alerts off.
+        bookingReviewChannel: keepUnavailableBookingReview
+          ? undefined
+          : bookingReview
+            ? { channelId: bookingReview.id, channelName: bookingReview.name }
             : null,
       });
       toast.success("Slack channels saved.");
@@ -261,7 +320,7 @@ export function SlackChannelPickerDialog({
           <DialogDescription>
             New-lead confirmations and stale-lead digests post to these
             channels. Lead gen submissions post only if you pick a channel
-            for them.
+            for them, and so do booking reviews.
           </DialogDescription>
         </DialogHeader>
 
@@ -340,6 +399,28 @@ export function SlackChannelPickerDialog({
                         {leadGenUnchangedAndUnavailable
                           ? "Magnus can't find this channel in Slack's channel list. Saving keeps it; pick another channel or clear it to turn these posts off."
                           : "Posts each lead gen submission. Clear it to turn these posts off."}
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="bookingReviewChannelId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Booking Review Channel (Optional)</FormLabel>
+                      <ChannelCombobox
+                        channels={bookingReviewChannels ?? channels}
+                        value={field.value}
+                        onValueChange={field.onChange}
+                        placeholder="Off - search channels…"
+                      />
+                      <FormDescription>
+                        {bookingReviewUnchangedAndUnavailable
+                          ? "Magnus can't find this channel in Slack's channel list. Saving keeps it; pick another channel or clear it to turn these posts off."
+                          : "Posts a booking whose details match two people, with a link to decide. When you pick a channel, reviews still waiting are posted there. Clear it to turn these posts off."}
                       </FormDescription>
                       <FormMessage />
                     </FormItem>
@@ -436,6 +517,17 @@ function ChannelCombobox({
       </ComboboxContent>
     </Combobox>
   );
+}
+
+function unavailableChannel(id: string, name: string | undefined): SlackChannel {
+  return {
+    id,
+    name: name ?? id,
+    isPrivate: false,
+    isMember: false,
+    isArchived: false,
+    isUnavailable: true,
+  };
 }
 
 function formatPrivateChannelCopy(channels: SlackChannel[]) {

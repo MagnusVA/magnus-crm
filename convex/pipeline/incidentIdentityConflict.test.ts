@@ -382,13 +382,16 @@ it("a phone-only match with a new email stays blocked until an admin changes the
   expect(retried).toMatchObject({ _id: blocked._id, status: "applied", leadId });
 });
 
-it("an email owned by one lead and a handle owned by another stays blocked", async () => {
+it("an email owned by one lead and a handle owned by another books onto the handle's lead, for review", async () => {
+  // The handle decides (docs/adr/0001-lead-lifecycle-model.md); the email
+  // stays with its lead, and convex/pipeline/bookingReviews.test.ts covers
+  // the review.
   const harness = await setup();
-  await seedLead(harness, { fullName: "Lead A", email: "lead.a@example.com" }, [
+  const leadA = await seedLead(harness, { fullName: "Lead A", email: "lead.a@example.com" }, [
     ["email", "lead.a@example.com"],
     ["instagram", "lead.a.handle"],
   ]);
-  await seedLead(harness, { fullName: "Lead B", email: "lead.b@example.com" }, [
+  const leadB = await seedLead(harness, { fullName: "Lead B", email: "lead.b@example.com" }, [
     ["email", "lead.b@example.com"],
   ]);
 
@@ -405,7 +408,19 @@ it("an email owned by one lead and a handle owned by another stays blocked", asy
   );
 
   const [receipt] = await receipts(harness);
-  expect(receipt).toMatchObject({ status: "blocked", reason: "identity_conflict" });
+  expect(receipt).toMatchObject({ status: "applied", leadId: leadA });
+  const state = await harness.t.run(async (ctx) => ({
+    leadA: await ctx.db.get("leads", leadA),
+    emailOwners: (await ctx.db.query("leadIdentifiers").take(20))
+      .filter((i) => i.value === "lead.b@example.com")
+      .map((i) => i.leadId),
+    reviews: await ctx.db.query("bookingReviews").take(5),
+  }));
+  expect(state.leadA?.email).toBe("lead.a@example.com");
+  expect(state.emailOwners).toEqual([leadB]);
+  expect(state.reviews).toMatchObject([
+    { kind: "attached", leadId: leadA, conflicts: [{ leadId: leadB, via: "email" }] },
+  ]);
 });
 
 // A lead holding a placeholder phone identifier collected other people's

@@ -437,7 +437,7 @@ export const restoreMergedActivityTime = internalMutation({
   },
 });
 
-async function executeMerge(
+export async function executeMerge(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
   userId: Id<"users">,
