@@ -361,7 +361,7 @@ A new page under Operations for admins, `/workspace/operations/missed-meetings`,
 
 - the deals a missed meeting closed (Closed lost with the system's `no_show` or `canceled`), by when they closed, newest first, over a date range (the last 30 days by default), read through `by_tenantId_and_stage_and_outcome_and_latestActivityAt` from the range's start and filtered by `lostAt`;
 - per row: the person's name, Instagram handle, email and phone; no-show or canceled; the missed meeting's time; the deal's source; the closer, the setter and the DM closer or team from `dealAttributions`; and whether the person has a deal created since. A filter hides people who booked again, on by default, and one picks no-shows or cancellations;
-- **Export CSV** downloads the rows the filters show, up to 2,000, and says so when a range holds more.
+- **Export CSV** downloads the rows the filters show, up to 2,000, and says so when a range holds more. Past 2,000 the list keeps the first rows read, by activity, so it is roughly, not exactly, the newest; about 200 deals a month close this way, far under the cap.
 
 What the team does with the list is undecided (Q2), so the page only lists and exports; it writes nothing and assigns no one. Old deals are on it from the backfill: the 2,502 canceled and no-show deals, each with the time of its no-show or cancellation.
 
