@@ -21,7 +21,7 @@ app.use(aggregate, { name: "billingPaymentsByStatusProgramType" });
 
 Billing uses four variants so counts can hit the narrowest B-tree for the filter shape (status only vs status+program vs status+type vs all three).
 
-Reporting uses the same pattern for `meetingsByStatus`, `paymentSums`, `opportunityByStatus`, `leadStageEntries`, `prospectConversions`, and Slack qualification aggregates.
+Reporting uses the same pattern for `meetingsByStatus`, `paymentSums`, `opportunityByStage`, `leadStageEntries`, `prospectConversions`, and Slack qualification aggregates.
 
 ---
 
@@ -43,7 +43,7 @@ export const billingPaymentsByStatus = new TableAggregate<{
 
 Every payment row lands in **that tenant’s** subtree. `sortKey` orders within the namespace so you can count by status and slice by `recordedAt` with bounds (not full table scans).
 
-The same `namespace: (doc) => doc.tenantId` pattern appears on reporting aggregates in `convex/reporting/aggregates.ts` (`meetingsByStatus`, `opportunityByStatus`, etc.).
+The same `namespace: (doc) => doc.tenantId` pattern appears on reporting aggregates in `convex/reporting/aggregates.ts` (`meetingsByStatus`, `opportunityByStage`, etc.).
 
 ---
 
@@ -148,30 +148,25 @@ Verification across tenants uses the same namespace API in `convex/reporting/ver
 
 ## Simpler read-only cousin: pipeline distribution
 
-Minimal “count by status for my tenant” read in `convex/reporting/pipelineHealth.ts`:
+Minimal “count by deal position for my tenant” read in `convex/reporting/pipelineHealth.ts`:
 
 ```ts
-export const getPipelineDistribution = query({
-  args: {},
-  handler: async (ctx) => {
-    const { tenantId } = await requireTenantUser(ctx, ["tenant_master", "tenant_admin"]);
-
-    const counts = await opportunityByStatus.countBatch(
-      ctx,
-      OPPORTUNITY_STATUSES.map((status) => ({
-        namespace: tenantId,
-        bounds: { prefix: [status] },
-      })),
-    );
-
-    return {
-      distribution: OPPORTUNITY_STATUSES.map((status, index) => ({
-        status,
-        count: counts[index] ?? 0,
-      })),
-    };
-  },
-});
+export async function readPipelineDistributionByStage(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+): Promise<Array<{ position: DealPosition; count: number }>> {
+  const counts = await opportunityByStage.countBatch(
+    ctx,
+    DEAL_POSITIONS.map((position) => {
+      const { stage, outcome } = stageOfPosition(position);
+      return { namespace: tenantId, bounds: { prefix: [stage, outcome] } };
+    }),
+  );
+  return DEAL_POSITIONS.map((position, index) => ({
+    position,
+    count: counts[index] ?? 0,
+  }));
+}
 ```
 
 Same tenant model; billing adds richer keys, multiple aggregate trees, and date-range bounds.
