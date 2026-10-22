@@ -4,6 +4,7 @@ import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
 import { transitionOpportunity } from "../lib/opportunityActivity";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { getString, isRecord } from "../lib/payloadExtraction";
+import { bookingFactMovesDeal } from "./bookingTargets";
 
 export async function recordBookingFact(
   ctx: MutationCtx,
@@ -153,10 +154,10 @@ export async function reconcileBookingFact(
     opportunity.calendlyEventUri === eventUri ||
     (!opportunity.calendlyEventUri &&
       opportunity.latestMeetingId === meeting._id);
-  const mutable = ["scheduled", "no_show", "canceled"].includes(
-    opportunity.status,
-  );
-  if (currentBooking && mutable && opportunity.status !== status) {
+  // The facts move a Booked deal (or a side deal's Call held) and one a
+  // missed meeting closed, when the deal doesn't already say what the
+  // meeting now says.
+  if (currentBooking && bookingFactMovesDeal(opportunity, status)) {
     await transitionOpportunity(ctx, opportunity._id, {
       to: status,
       fields: {

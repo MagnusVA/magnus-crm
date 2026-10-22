@@ -1,4 +1,5 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { transitionOpportunity } from "../lib/opportunityActivity";
 import { OPPORTUNITY_STATUSES } from "../lib/statusTransitions";
 import {
   allowsMoveToBooked,
@@ -17,6 +18,7 @@ import {
 } from "./slackJoinLookup";
 import { bookingHarness } from "../../tests/bookingHarness";
 import { harnessCloserId } from "../../tests/dealStageFixtures";
+import { missedMeetingHarness } from "../../tests/missedMeetingFixtures";
 import {
   DEAL_SOURCES,
   TODAYS_CHECKS,
@@ -231,5 +233,42 @@ describe("findOpenSlackQualifiedOpportunity", () => {
       expect(await todaysSlackJoinCandidates(ctx, { ...args, lookbackMs: SLACK_JOIN_LOOKBACK_MS })).toHaveLength(2);
       await expect(findOpenSlackQualifiedOpportunity(ctx, args)).rejects.toThrow();
     });
+  });
+});
+
+describe("a booking without a link, through the pipeline", () => {
+  afterEach(() => vi.useRealTimers());
+
+  const ORIGINAL = { key: "original", start: "2026-10-06T15:00:00Z" };
+  const REBOOK = { key: "rebook", start: "2026-10-12T15:00:00Z" };
+
+  it("doesn't join a Follow-up deal waiting on a reschedule link, and leaves the link pending", async () => {
+    const h = await missedMeetingHarness();
+    const { opportunityId, meetingId } = await h.book(ORIGINAL, "2026-10-02T10:00:00Z");
+    await h.deliver("invitee_no_show.created", ORIGINAL, "2026-10-06T16:00:00Z");
+    h.clockAt("2026-10-06T17:00:00Z");
+    const linkId = await h.closerActions.rescheduleLink(opportunityId, meetingId);
+    expect(await h.deal(opportunityId)).toMatchObject({ status: "reschedule_link_sent", stage: "follow_up" });
+
+    const next = await h.book(REBOOK, "2026-10-08T10:00:00Z");
+
+    expect(next.opportunityId).not.toBe(opportunityId);
+    expect(await h.deal(opportunityId)).toMatchObject({ status: "reschedule_link_sent", stage: "follow_up" });
+    expect((await h.followUps(opportunityId)).find((f) => f._id === linkId)).toMatchObject({ status: "pending" });
+  });
+
+  it("joins a Follow-up deal with no reschedule link", async () => {
+    const h = await missedMeetingHarness();
+    const { opportunityId } = await h.book(ORIGINAL, "2026-10-02T10:00:00Z");
+    h.clockAt("2026-10-06T17:00:00Z");
+    await h.t.run((ctx) => transitionOpportunity(ctx, opportunityId, {
+      to: "follow_up_scheduled", source: "closer", occurredAt: Date.now(), fields: { updatedAt: Date.now() },
+    }));
+
+    const next = await h.book(REBOOK, "2026-10-08T10:00:00Z");
+
+    expect(next.opportunityId).toBe(opportunityId);
+    expect(await h.deal(opportunityId)).toMatchObject({ status: "scheduled", stage: "booked" });
+    expect(await h.dealCount()).toBe(1);
   });
 });
