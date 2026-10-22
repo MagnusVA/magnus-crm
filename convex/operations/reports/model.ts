@@ -171,7 +171,9 @@ export type ReportSourceRow =
       bookedAt: number;
       scheduledAt: number;
       meetingStatus: string;
-      opportunityStatus: string | null;
+      // The deal's stage and outcome (docs/plans/phase-5-deal-status.md §6.6).
+      dealStage: string | null;
+      dealOutcome: string | null;
       bookingProgramId: string | null;
       bookingProgramName: string | null;
       leadLabel: string;

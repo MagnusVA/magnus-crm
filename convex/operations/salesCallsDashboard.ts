@@ -15,7 +15,10 @@ import {
   readLiveDocuments,
   readLiveQueryRows,
 } from "../lib/liveQueryBounds";
-import { opportunityStatusValidator } from "../opportunities/validators";
+import {
+  dealPositionValidator,
+  systemLossReasonValidator,
+} from "../opportunities/dealLabelValidators";
 import {
   getNonDisputedPaymentsInRange,
   getUserDisplayName,
@@ -25,8 +28,8 @@ import {
 import { requireTenantUser } from "../requireTenantUser";
 import { enrichPhoneSalesRows } from "./phoneSales";
 
-// Matches getPhoneSalesStats / overviewOperations: the daily-stats rollup read
-// is bounded and the result is flagged as capped past this many rows.
+// Matches overviewOperations: the daily-stats rollup read is bounded and the
+// result is flagged as capped past this many rows.
 const MAX_OPERATIONS_STATS_ROWS = 8192;
 const LIVE_DIMENSION_LIMIT = 300;
 // Search fan-out bounds — same values as bookedCallsDashboard.
@@ -73,7 +76,8 @@ const salesCallsMeetingRowValidator = v.object({
   leadName: v.string(),
   scheduledAt: v.number(),
   meetingStatus: meetingStatusValidator,
-  opportunityStatus: v.union(opportunityStatusValidator, v.null()),
+  dealPosition: v.union(dealPositionValidator, v.null()),
+  dealSystemLoss: v.union(systemLossReasonValidator, v.null()),
   bookingProgramName: v.union(v.string(), v.null()),
   bookingProgramMappingStatus: v.union(
     bookingProgramMappingStatusValidator,
@@ -215,10 +219,8 @@ function validateWindow(start: number, end: number) {
  * Sales Ops"): stat cards, per-program breakdown, and the phone-closer table
  * with a team-total row, all in one round trip.
  *
- * Population semantics match getPhoneSalesStats exactly: the
- * operationsMeetingStatsV2 rollup keyed by the UTC day of `scheduledAt`
- * (dayKey), all four meeting statuses counted. `totalCalls` here is what
- * getPhoneSalesStats calls `scheduled`. Payments follow the
+ * Population: the operationsMeetingStatsV2 rollup keyed by the UTC day of
+ * `scheduledAt` (dayKey), all four meeting statuses counted. Payments follow the
  * teamPerformance/revenue definition of cash collected: non-disputed,
  * commissionable, non-deposit (final) payments by `recordedAt`.
  *

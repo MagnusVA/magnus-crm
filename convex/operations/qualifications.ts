@@ -10,7 +10,13 @@ import {
   unknownMemberIdentity,
   userMemberIdentity,
 } from "../lib/memberIdentity";
-import { opportunityStatusValidator } from "../opportunities/validators";
+import { dealPositionValidator } from "../opportunities/dealLabelValidators";
+import {
+  dealPosition,
+  isAllowedStageOutcome,
+  stageOfPosition,
+  type DealPosition,
+} from "../opportunities/stages";
 import { requireTenantUser } from "../requireTenantUser";
 import { loadQualificationRowCredits } from "./qualificationCredit";
 
@@ -18,7 +24,9 @@ type QualificationRowDoc = Doc<"operationsQualificationRows">;
 
 type QualificationFilterArgs = {
   tenantId: Id<"tenants">;
-  statusFilter?: Doc<"opportunities">["status"];
+  // The deal's position, through the row's copied stage and outcome
+  // (docs/plans/phase-5-deal-status.md §6.6).
+  positionFilter?: DealPosition;
   bookingProgramId?: Id<"tenantPrograms">;
   soldProgramId?: Id<"tenantPrograms">;
   slackUserId?: string;
@@ -28,7 +36,7 @@ type QualificationFilterArgs = {
 
 function assertSinglePrimaryFilter(args: QualificationFilterArgs) {
   const primaryFilterCount = [
-    args.statusFilter,
+    args.positionFilter,
     args.bookingProgramId,
     args.soldProgramId,
     args.slackUserId,
@@ -42,13 +50,15 @@ function assertSinglePrimaryFilter(args: QualificationFilterArgs) {
 function qualificationRowsQuery(ctx: QueryCtx, args: QualificationFilterArgs) {
   assertSinglePrimaryFilter(args);
 
-  if (args.statusFilter) {
+  if (args.positionFilter) {
+    const { stage, outcome } = stageOfPosition(args.positionFilter);
     return ctx.db
       .query("operationsQualificationRows")
-      .withIndex("by_tenantId_and_opportunityStatus_and_qualifiedAt", (q) => {
+      .withIndex("by_tenantId_and_dealStage_and_dealOutcome_and_qualifiedAt", (q) => {
         const base = q
           .eq("tenantId", args.tenantId)
-          .eq("opportunityStatus", args.statusFilter);
+          .eq("dealStage", stage)
+          .eq("dealOutcome", outcome);
         const ranged = base.gte("qualifiedAt", args.qualifiedAfter ?? 0);
         return args.qualifiedBefore === undefined
           ? ranged
@@ -108,6 +118,16 @@ function qualificationRowsQuery(ctx: QueryCtx, args: QualificationFilterArgs) {
         ? ranged
         : ranged.lt("qualifiedAt", args.qualifiedBefore);
     });
+}
+
+/** The position of the deal the row copied, or null when it copied none. */
+function rowPosition(row: QualificationRowDoc): DealPosition | null {
+  const { dealStage, dealOutcome } = row;
+  return dealStage !== undefined &&
+    dealOutcome !== undefined &&
+    isAllowedStageOutcome(dealStage, dealOutcome)
+    ? dealPosition(dealStage, dealOutcome)
+    : null;
 }
 
 function slackUserLabel(user: Doc<"slackUsers"> | null | undefined) {
@@ -177,6 +197,7 @@ async function enrichQualificationRows(
 
     return {
       ...row,
+      dealPosition: rowPosition(row),
       // The deal's first booking credit: its team, DM closer and resolution.
       ...creditFor(row),
       fullNameSnapshot: event?.fullNameSnapshot ?? "Unknown lead",
@@ -203,7 +224,7 @@ async function enrichQualificationRows(
 export const listQualificationQueue = query({
   args: {
     paginationOpts: paginationOptsValidator,
-    statusFilter: v.optional(opportunityStatusValidator),
+    positionFilter: v.optional(dealPositionValidator),
     bookingProgramId: v.optional(v.id("tenantPrograms")),
     soldProgramId: v.optional(v.id("tenantPrograms")),
     slackUserId: v.optional(v.string()),
@@ -218,7 +239,7 @@ export const listQualificationQueue = query({
 
     const result = await qualificationRowsQuery(ctx, {
       tenantId,
-      statusFilter: args.statusFilter,
+      positionFilter: args.positionFilter,
       bookingProgramId: args.bookingProgramId,
       soldProgramId: args.soldProgramId,
       slackUserId: args.slackUserId,
@@ -243,7 +264,7 @@ export const listQualificationQueue = query({
 export const searchQualificationQueue = query({
   args: {
     searchTerm: v.string(),
-    statusFilter: v.optional(opportunityStatusValidator),
+    positionFilter: v.optional(dealPositionValidator),
     bookingProgramId: v.optional(v.id("tenantPrograms")),
     soldProgramId: v.optional(v.id("tenantPrograms")),
     slackUserId: v.optional(v.string()),
@@ -266,8 +287,9 @@ export const searchQualificationQueue = query({
       .query("operationsQualificationRows")
       .withSearchIndex("search_qualification_rows", (q) => {
         let search = q.search("searchText", term).eq("tenantId", tenantId);
-        if (args.statusFilter) {
-          search = search.eq("opportunityStatus", args.statusFilter);
+        if (args.positionFilter) {
+          const { stage, outcome } = stageOfPosition(args.positionFilter);
+          search = search.eq("dealStage", stage).eq("dealOutcome", outcome);
         }
         if (args.bookingProgramId) {
           search = search.eq("bookingProgramId", args.bookingProgramId);

@@ -7,6 +7,7 @@ import type { FunctionReturnType } from "convex/server";
 import { ArrowUpRightIcon, LoaderCircleIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { DealStageBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -60,14 +61,6 @@ const summaryDateFormatter = new Intl.DateTimeFormat(undefined, {
 
 function formatDate(value?: number | null) {
   return value ? dateTimeFormatter.format(new Date(value)) : "—";
-}
-
-function titleCase(value: string) {
-  return value
-    .split("_")
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 const MEETING_STATUS_META: Record<
@@ -133,8 +126,12 @@ function MeetingDetail({ row }: { row: SalesCallRow }) {
         <DetailField label="Phone closer">
           <MemberIdentity identity={row.assignedCloser} />
         </DetailField>
-        <DetailField label="Opportunity status">
-          {row.opportunityStatus ? titleCase(row.opportunityStatus) : "Unlinked"}
+        <DetailField label="Deal stage">
+          {row.dealPosition ? (
+            <DealStageBadge position={row.dealPosition} systemLoss={row.dealSystemLoss} />
+          ) : (
+            "Unlinked"
+          )}
         </DetailField>
         <DetailField label="Booking program">
           {row.bookingProgramName ?? (

@@ -26,7 +26,11 @@ import {
   memberAvatarIdentityValidator,
   unknownMemberIdentity,
 } from "../lib/memberIdentity";
-import { opportunityStatusValidator } from "../opportunities/validators";
+import {
+  dealPositionValidator,
+  systemLossReasonValidator,
+} from "../opportunities/dealLabelValidators";
+import { dealLabelOf } from "../opportunities/stageLabels";
 import { requireTenantUser } from "../requireTenantUser";
 
 // Registry bounds match attribution/teams.ts and attribution/dmClosers.ts.
@@ -73,7 +77,10 @@ const bookedCallRowValidator = v.object({
   ),
   programName: v.union(v.string(), v.null()),
   opportunityId: v.id("opportunities"),
-  opportunityStatus: v.union(opportunityStatusValidator, v.null()),
+  // The deal's position and the loss the system wrote on it, from the deal
+  // (docs/plans/phase-5-deal-status.md §6.6); null when it didn't load.
+  dealPosition: v.union(dealPositionValidator, v.null()),
+  dealSystemLoss: v.union(systemLossReasonValidator, v.null()),
   leadId: v.union(v.id("leads"), v.null()),
   leadLabel: v.string(),
   leadHandle: v.union(v.string(), v.null()),
@@ -208,6 +215,7 @@ async function enrichBookedCallRows(
     const team = credit.teamId ? (teamById.get(credit.teamId) ?? null) : null;
     const dmCloser = dmCloserById.get(credit.dmCloserId) ?? null;
     const fallbackLeadName = meeting.leadName?.trim();
+    const deal = opportunity ? dealLabelOf(opportunity) : null;
 
     return {
       meetingId: meeting._id,
@@ -219,8 +227,8 @@ async function enrichBookedCallRows(
         opportunity?.firstBookingProgramName ??
         null,
       opportunityId: meeting.opportunityId,
-      opportunityStatus:
-        opportunity?.status ?? meeting.opportunityStatus ?? null,
+      dealPosition: deal?.position ?? null,
+      dealSystemLoss: deal?.systemLoss ?? null,
       leadId: lead?._id ?? opportunity?.leadId ?? null,
       leadLabel: lead
         ? leadDisplayFromShape({

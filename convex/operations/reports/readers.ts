@@ -11,6 +11,7 @@ import {
   userMemberIdentity,
   type MemberAvatarIdentity,
 } from "../../lib/memberIdentity";
+import { dealStageOf } from "../../opportunities/stages";
 import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatiblePaymentCommissionable,
@@ -348,10 +349,11 @@ async function readBookedMeetings(ctx: QueryCtx, args: ReportSourcePageRequest) 
     const tenantDmCloser = dmCloser?.tenantId === args.tenantId ? dmCloser : null;
     const leadCandidate = tenantOpportunity ? await ctx.db.get("leads", tenantOpportunity.leadId) : null;
     const lead = leadCandidate?.tenantId === args.tenantId ? leadCandidate : null;
+    const deal = tenantOpportunity ? dealStageOf(tenantOpportunity) : null;
     return {
       kind: "booked_meeting", meetingId: meeting._id, opportunityId: meeting.opportunityId,
       leadId: lead?._id ?? tenantOpportunity?.leadId ?? null, bookedAt: meeting.createdAt, scheduledAt: meeting.scheduledAt,
-      meetingStatus: meeting.status, opportunityStatus: tenantOpportunity?.status ?? meeting.opportunityStatus ?? null,
+      meetingStatus: meeting.status, dealStage: deal?.stage ?? null, dealOutcome: deal?.outcome ?? null,
       bookingProgramId: meeting.bookingProgramId ?? null, bookingProgramName: meeting.bookingProgramName ?? tenantOpportunity?.firstBookingProgramName ?? null,
       leadLabel: lead ? leadDisplayFromShape({ fullName: lead.fullName, email: lead.email, leadId: lead._id }) : meeting.leadName?.trim() || "Unknown lead",
       leadHandle: lead?.socialHandles?.[0]?.handle ?? lead?.email ?? lead?.phone ?? null,

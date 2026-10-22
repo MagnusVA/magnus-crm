@@ -6,6 +6,9 @@ import { usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { ArrowUpRightIcon, LoaderCircleIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
+import { DEAL_POSITIONS, type DealPosition } from "@/convex/opportunities/stages";
+import { DealStageBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,19 +42,8 @@ export type QualificationWindow = {
   qualifiedBefore: number;
 };
 
-const STATUS_OPTIONS = [
-  { id: "qualified_pending", name: "Qualified pending" },
-  { id: "scheduled", name: "Scheduled" },
-  { id: "payment_received", name: "Payment received" },
-  { id: "follow_up_scheduled", name: "Follow-up scheduled" },
-  { id: "reschedule_link_sent", name: "Reschedule link sent" },
-  { id: "lost", name: "Lost" },
-  { id: "canceled", name: "Canceled" },
-  { id: "no_show", name: "No show" },
-] as const;
-
-type OpportunityStatus = (typeof STATUS_OPTIONS)[number]["id"];
-type StatusFilterValue = OpportunityStatus | "all";
+// The six positions a deal can be in (docs/plans/phase-5-deal-status.md §4.1).
+type PositionFilterValue = DealPosition | "all";
 
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
@@ -77,10 +69,6 @@ function titleCase(value: string) {
     .join(" ");
 }
 
-function formatStatus(value?: string) {
-  return value ? titleCase(value) : "Unlinked";
-}
-
 function resultKindLabel(value: SubmissionRow["resultKind"]) {
   if (value === "created_opportunity") return "Created opportunity";
   if (value === "duplicate_pending") return "Duplicate pending";
@@ -88,8 +76,8 @@ function resultKindLabel(value: SubmissionRow["resultKind"]) {
   return "Unlinked";
 }
 
-function isValidStatus(value: string): value is OpportunityStatus {
-  return STATUS_OPTIONS.some((option) => option.id === value);
+function isPosition(value: string): value is DealPosition {
+  return (DEAL_POSITIONS as readonly string[]).includes(value);
 }
 
 function DetailField({
@@ -134,12 +122,13 @@ function SubmissionSummary({ row }: { row: SubmissionRow }) {
           Qualified {formatDate(row.qualifiedAt)}
         </TooltipContent>
       </Tooltip>
-      <Badge
-        className="shrink-0"
-        variant={row.opportunityStatus ? "secondary" : "outline"}
-      >
-        {formatStatus(row.opportunityStatus)}
-      </Badge>
+      {row.dealPosition ? (
+        <DealStageBadge className="shrink-0" position={row.dealPosition} />
+      ) : (
+        <Badge className="shrink-0" variant="outline">
+          Unlinked
+        </Badge>
+      )}
     </div>
   );
 }
@@ -225,7 +214,7 @@ export function QualificationSubmissionsList({
   eventWindow: QualificationWindow | undefined;
 }) {
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilterValue>("all");
+  const [positionFilter, setPositionFilter] = useState<PositionFilterValue>("all");
 
   const trimmedSearch = search.trim();
   const isSearching = trimmedSearch.length >= 2;
@@ -235,11 +224,11 @@ export function QualificationSubmissionsList({
       eventWindow === undefined
         ? undefined
         : {
-            ...(statusFilter === "all" ? {} : { statusFilter }),
+            ...(positionFilter === "all" ? {} : { positionFilter }),
             qualifiedAfter: eventWindow.qualifiedAfter,
             qualifiedBefore: eventWindow.qualifiedBefore,
           },
-    [eventWindow, statusFilter],
+    [eventWindow, positionFilter],
   );
 
   const paginated = usePaginatedQuery(
@@ -265,14 +254,14 @@ export function QualificationSubmissionsList({
       : paginated.status === "LoadingFirstPage");
   const isLoadingMore = !isSearching && paginated.status === "LoadingMore";
 
-  const handleStatusChange = useCallback((value: string) => {
-    setStatusFilter(value === "all" || !isValidStatus(value) ? "all" : value);
+  const handlePositionChange = useCallback((value: string) => {
+    setPositionFilter(isPosition(value) ? value : "all");
   }, []);
 
   return (
     <OpsSearchableList
       title="Submissions"
-      searchPlaceholder="Search lead, handle, status, or program"
+      searchPlaceholder="Search lead, handle, stage, or program"
       searchValue={search}
       onSearchChange={setSearch}
       isLoading={isLoading}
@@ -280,29 +269,29 @@ export function QualificationSubmissionsList({
         rows.length === 0
           ? isSearching
             ? "No submissions match your search in this range."
-            : statusFilter === "all"
+            : positionFilter === "all"
               ? "No submissions in this range."
-              : "No submissions with this status in this range."
+              : "No submissions at this stage in this range."
           : undefined
       }
       headerRight={
         <Tooltip>
           <TooltipTrigger asChild>
             <div>
-              <Select value={statusFilter} onValueChange={handleStatusChange}>
+              <Select value={positionFilter} onValueChange={handlePositionChange}>
                 <SelectTrigger
-                  aria-label="Filter by opportunity status"
+                  aria-label="Filter by deal stage"
                   className="w-44"
                   size="sm"
                 >
-                  <SelectValue placeholder="All statuses" />
+                  <SelectValue placeholder="All stages" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectGroup>
-                    <SelectItem value="all">All statuses</SelectItem>
-                    {STATUS_OPTIONS.map((option) => (
-                      <SelectItem key={option.id} value={option.id}>
-                        {option.name}
+                    <SelectItem value="all">All stages</SelectItem>
+                    {DEAL_POSITIONS.map((position) => (
+                      <SelectItem key={position} value={position}>
+                        {dealPositionLabel(position)}
                       </SelectItem>
                     ))}
                   </SelectGroup>
@@ -311,8 +300,9 @@ export function QualificationSubmissionsList({
             </div>
           </TooltipTrigger>
           <TooltipContent className="max-w-xs text-pretty" side="bottom">
-            Filter submissions to one opportunity status. Rows are served from
-            indexed projections, so one primary filter applies at a time.
+            Filter submissions to one deal stage. Lost includes no-shows and
+            cancellations. Rows are served from indexed projections, so one
+            primary filter applies at a time.
           </TooltipContent>
         </Tooltip>
       }

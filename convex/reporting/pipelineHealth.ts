@@ -5,6 +5,8 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
 import {
   DEAL_POSITIONS,
+  dealPosition,
+  dealStageOf,
   stageOfPosition,
   type DealPosition,
   type DealStage,
@@ -20,11 +22,10 @@ import {
 import { isPersonLoss } from "./lib/outcomeDerivation";
 import { meterDocument, meterRange, type ReadMeter } from "./lib/readMeter";
 
-// Each number below is read two ways until PR 6 moves this report to the
-// stage (docs/plans/phase-5-deal-status.md §6.6): from the status, which the
-// screen shows, and from the stage and outcome. The parity queries in
-// convex/opportunities/stageParity.ts compare them; PR 9 removes the status
-// ways.
+// Each number below is read two ways (docs/plans/phase-5-deal-status.md
+// §6.6): from the stage and outcome, which the screen shows, and from the
+// status, which only the parity queries in convex/opportunities/stageParity.ts
+// still read. PR 9 removes the status ways.
 
 const OPPORTUNITY_STATUSES = [
   "qualified_pending",
@@ -152,7 +153,7 @@ function meterRows(meter: ReadMeter | undefined, rows: Array<Doc<"opportunities"
 
 // ── Distribution ────────────────────────────────────────────────────────
 
-/** Deals per status, from opportunityByStatus: what the chart shows today. */
+/** Deals per status, from opportunityByStatus: the chart before PR 6, for parity. */
 export async function readPipelineDistributionByStatus(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
@@ -274,7 +275,7 @@ async function scanPipelineAging<Key extends string>(
   return { groups, staleCount, staleCandidates, capped };
 }
 
-/** The active deals' ages by status: what the aging table shows today. */
+/** The active deals' ages by status: the aging table before PR 6, for parity. */
 export async function scanPipelineAgingByStatus(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
@@ -539,7 +540,7 @@ export const getPipelineDistribution = query({
     ]);
 
     return {
-      distribution: await readPipelineDistributionByStatus(ctx, tenantId),
+      distribution: await readPipelineDistributionByStage(ctx, tenantId),
     };
   },
 });
@@ -553,21 +554,21 @@ export const getPipelineAging = query({
     ]);
 
     const now = Date.now();
-    const aging = await scanPipelineAgingByStatus(ctx, tenantId, now);
-    const agingByStatus: Record<
-      string,
+    const aging = await scanPipelineAgingByStage(ctx, tenantId, now);
+    const agingByStage = {} as Record<
+      OpenPipelineStage,
       { averageAgeDays: number | null; count: number; oldestAgeDays: number | null }
-    > = {};
-    for (const status of ACTIVE_PIPELINE_STATUSES) {
-      const { count, totalAgeDays, oldestAgeDays } = aging.groups[status];
-      agingByStatus[status] = {
+    >;
+    for (const stage of OPEN_PIPELINE_STAGES) {
+      const { count, totalAgeDays, oldestAgeDays } = aging.groups[stage];
+      agingByStage[stage] = {
         count,
         averageAgeDays: count > 0 ? totalAgeDays / count : null,
         oldestAgeDays: count > 0 ? oldestAgeDays : null,
       };
     }
 
-    const velocity = await readPipelineVelocityByStatus(ctx, tenantId, now);
+    const velocity = await readPipelineVelocityByStage(ctx, tenantId, now);
 
     const staleOpportunities = aging.staleCandidates
       .sort((left, right) => right.ageDays - left.ageDays)
@@ -593,7 +594,7 @@ export const getPipelineAging = query({
     const closerById = new Map(closerDocs);
 
     return {
-      agingByStatus,
+      agingByStage,
       velocityDays: velocity.velocityDays,
       staleCount: aging.staleCount,
       staleOpps: await Promise.all(staleOpportunities.map(
@@ -601,9 +602,10 @@ export const getPipelineAging = query({
           const assignedCloser = opportunity.assignedCloserId
             ? closerById.get(opportunity.assignedCloserId)
             : null;
+          const { stage, outcome } = dealStageOf(opportunity);
           return {
             opportunityId: opportunity._id,
-            status: opportunity.status,
+            position: dealPosition(stage, outcome),
             ageDays: Math.round(ageDays * 10) / 10,
             nextMeetingAt,
             assignedCloserId: opportunity.assignedCloserId ?? null,
@@ -621,7 +623,7 @@ export const getPipelineAging = query({
           };
         },
       )),
-      isAgingTruncated: false,
+      isAgingTruncated: aging.capped,
       isVelocityTruncated: velocity.truncated,
     };
   },
@@ -658,7 +660,9 @@ export const getPipelineBacklogAndLoss = query({
       )
       .take(MAX_NO_SHOW_SCAN_ROWS);
 
-    const losses = await readLossesByStatus(ctx, tenantId, startDate, endDate);
+    // Closed lost by lostAt, leaving out the system's losses. The read
+    // passes over those too, so it can stop at its bound: truncated.
+    const losses = await readLossesByStage(ctx, tenantId, startDate, endDate);
 
     const unresolvedManualReminders = pendingFollowUpRows
       .slice(0, REPORT_ROW_CAP)

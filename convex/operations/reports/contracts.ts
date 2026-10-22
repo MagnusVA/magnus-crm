@@ -7,7 +7,7 @@ import {
   timestampToBusinessDateKey,
 } from "../../reporting/lib/hondurasBusinessTime";
 
-export const REPORT_DEFINITION_VERSION = "operations-reports-v2";
+export const REPORT_DEFINITION_VERSION = "operations-reports-v3";
 
 export const REPORT_LEASE_MS = 11 * 60_000;
 // Assumes the ten-minute Node action limit, plus one minute for upload settlement.

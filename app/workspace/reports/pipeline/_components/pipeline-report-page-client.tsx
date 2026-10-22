@@ -25,7 +25,7 @@ import {
 import { useReportAnalytics } from "../../_components/use-report-analytics";
 import { LossAttributionChart } from "./loss-attribution-chart";
 import { NoShowSourceSplitChart } from "./no-show-source-split-chart";
-import { StatusDistributionChart } from "./status-distribution-chart";
+import { StageDistributionChart } from "./stage-distribution-chart";
 import { VelocityMetricCard } from "./velocity-metric-card";
 import { PipelineAgingTable } from "./pipeline-aging-table";
 import { StalePipelineList } from "./stale-pipeline-list";
@@ -114,7 +114,7 @@ export function PipelineReportPageClient() {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {distribution !== undefined ? (
-          <StatusDistributionChart
+          <StageDistributionChart
             distribution={distribution.distribution}
           />
         ) : (
@@ -141,7 +141,7 @@ export function PipelineReportPageClient() {
       </div>
 
       {aging !== undefined ? (
-        <PipelineAgingTable agingByStatus={aging.agingByStatus} />
+        <PipelineAgingTable agingByStage={aging.agingByStage} />
       ) : (
         <Skeleton className="h-48 rounded-lg" />
       )}
@@ -200,6 +200,7 @@ export function PipelineReportPageClient() {
 
           {backlogAndLoss !== undefined ? (
             <LossAttributionChart
+              isTruncated={backlogAndLoss.isLossAttributionTruncated}
               lossAttribution={backlogAndLoss.lossAttribution}
             />
           ) : (

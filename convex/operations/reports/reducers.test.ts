@@ -300,7 +300,8 @@ describe("operations report reducers", () => {
         bookedAt: range.startTimestamp,
         scheduledAt: range.startTimestamp,
         meetingStatus: "scheduled",
-        opportunityStatus: "scheduled",
+        dealStage: "booked",
+        dealOutcome: "open",
         bookingProgramId: null,
         bookingProgramName: null,
         leadLabel: "Lead",
@@ -327,7 +328,12 @@ describe("operations report reducers", () => {
     expect(records.get("booked_closer/closer")).toMatchObject({ booked: 1 });
     expect(records.get("booking_team/north")).toMatchObject({ progress: 1 });
     expect(records.get("booking_team/south")).toMatchObject({ progress: 1 });
-    expect(records.has("raw_booking/withCloser")).toBe(true);
+    expect(records.get("raw_booking/withCloser")).toMatchObject({
+      meetingStatus: "scheduled",
+      dealStage: "booked",
+      dealOutcome: "open",
+    });
+    expect(records.get("raw_booking/withCloser")).not.toHaveProperty("opportunityStatus");
     expect(records.has("raw_booking/teamOnly")).toBe(false);
     expect([...records.keys()].filter((key) => key.startsWith("booked_closer/"))).toEqual([
       "booked_closer/closer",

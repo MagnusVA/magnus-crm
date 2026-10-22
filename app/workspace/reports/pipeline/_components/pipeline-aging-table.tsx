@@ -14,23 +14,20 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
+import type { OpenPipelineStage } from "@/convex/reporting/pipelineHealth";
 
-const ACTIVE_STATUSES = [
-  "scheduled",
-  "follow_up_scheduled",
-  "reschedule_link_sent",
-] as const;
-
-function formatStatus(status: string): string {
-  return status
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
+// The open stages a closer works. Qualified is computed and left out, as it
+// was when the table showed statuses.
+const SHOWN_STAGES = [
+  "booked",
+  "call_held",
+  "follow_up",
+] as const satisfies ReadonlyArray<OpenPipelineStage>;
 
 interface PipelineAgingTableProps {
-  agingByStatus: Record<
-    string,
+  agingByStage: Record<
+    OpenPipelineStage,
     {
       averageAgeDays: number | null;
       count: number;
@@ -39,42 +36,36 @@ interface PipelineAgingTableProps {
   >;
 }
 
-export function PipelineAgingTable({ agingByStatus }: PipelineAgingTableProps) {
-  const activeEntries = ACTIVE_STATUSES.filter(
-    (status) => agingByStatus[status] !== undefined,
-  );
-
-  const hasData = activeEntries.some(
-    (status) => agingByStatus[status].count > 0,
-  );
+export function PipelineAgingTable({ agingByStage }: PipelineAgingTableProps) {
+  const hasData = SHOWN_STAGES.some((stage) => agingByStage[stage].count > 0);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Pipeline Aging by Status</CardTitle>
+        <CardTitle>Pipeline Aging by Stage</CardTitle>
       </CardHeader>
       <CardContent>
         {!hasData ? (
           <p className="py-4 text-center text-sm text-muted-foreground">
-            No active opportunities to display aging data
+            No open deals to display aging data
           </p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Status</TableHead>
+                <TableHead>Stage</TableHead>
                 <TableHead className="text-right">Count</TableHead>
                 <TableHead className="text-right">Avg Age (days)</TableHead>
                 <TableHead className="text-right">Oldest (days)</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {activeEntries.map((status) => {
-                const entry = agingByStatus[status];
+              {SHOWN_STAGES.map((stage) => {
+                const entry = agingByStage[stage];
                 return (
-                  <TableRow key={status}>
+                  <TableRow key={stage}>
                     <TableCell className="font-medium">
-                      {formatStatus(status)}
+                      {dealPositionLabel(stage)}
                     </TableCell>
                     <TableCell className="text-right">{entry.count}</TableCell>
                     <TableCell className="text-right tabular-nums">

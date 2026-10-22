@@ -16,42 +16,38 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
+import type { DealPosition } from "@/convex/opportunities/stages";
 
-const STATUS_COLORS: Record<string, string> = {
-  scheduled: "var(--chart-1)",
-  follow_up_scheduled: "var(--chart-3)",
-  reschedule_link_sent: "var(--chart-3)",
-  payment_received: "var(--chart-4)",
-  lost: "var(--chart-5)",
-  canceled: "var(--muted)",
-  no_show: "var(--destructive)",
+// One colour per position, typed by the position so a new one needs a colour:
+// the open stages in order on the chart ramp, Won green, Lost grey.
+const POSITION_COLORS: Record<DealPosition, string> = {
+  qualified: "var(--chart-1)",
+  booked: "var(--chart-2)",
+  call_held: "var(--chart-3)",
+  follow_up: "var(--chart-4)",
+  won: "var(--primary)",
+  lost: "var(--muted-foreground)",
 };
 
-function formatStatus(status: string): string {
-  return status
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
-
-interface StatusDistributionChartProps {
+interface StageDistributionChartProps {
   distribution: Array<{
-    status: string;
+    position: DealPosition;
     count: number;
   }>;
 }
 
-export function StatusDistributionChart({
+export function StageDistributionChart({
   distribution,
-}: StatusDistributionChartProps) {
+}: StageDistributionChartProps) {
   const chartData = useMemo(
     () =>
       distribution
         .filter((entry) => entry.count > 0)
         .map((entry) => ({
-          status: formatStatus(entry.status),
+          position: entry.position,
           count: entry.count,
-          fill: STATUS_COLORS[entry.status] || "var(--muted)",
+          fill: POSITION_COLORS[entry.position],
         })),
     [distribution],
   );
@@ -59,8 +55,8 @@ export function StatusDistributionChart({
   const chartConfig = useMemo(() => {
     const config: ChartConfig = {};
     for (const entry of chartData) {
-      config[entry.status] = {
-        label: entry.status,
+      config[entry.position] = {
+        label: dealPositionLabel(entry.position),
         color: entry.fill,
       };
     }
@@ -72,29 +68,29 @@ export function StatusDistributionChart({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Status Distribution</CardTitle>
+        <CardTitle>Deal Stage Distribution</CardTitle>
       </CardHeader>
       <CardContent>
         {isEmpty ? (
           <div className="flex h-[200px] items-center justify-center text-sm text-muted-foreground">
-            No opportunities in pipeline
+            No deals in pipeline
           </div>
         ) : (
           <ChartContainer config={chartConfig} className="mx-auto aspect-square max-h-[300px]">
             <PieChart accessibilityLayer>
-              <ChartTooltip content={<ChartTooltipContent nameKey="status" />} />
+              <ChartTooltip content={<ChartTooltipContent nameKey="position" />} />
               <Pie
                 data={chartData}
                 dataKey="count"
-                nameKey="status"
+                nameKey="position"
                 innerRadius={60}
                 outerRadius={100}
               >
-                {chartData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={entry.fill} />
+                {chartData.map((entry) => (
+                  <Cell key={entry.position} fill={entry.fill} />
                 ))}
               </Pie>
-              <ChartLegend content={<ChartLegendContent nameKey="status" />} />
+              <ChartLegend content={<ChartLegendContent nameKey="position" />} />
             </PieChart>
           </ChartContainer>
         )}

@@ -2,7 +2,6 @@
 
 import { format } from "date-fns";
 import { CheckCircle2Icon } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -27,19 +26,14 @@ import {
 } from "@/components/ui/table";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
-
-function formatStatus(status: string): string {
-  return status
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
+import { DealStageBadge } from "@/components/status-badge";
+import type { DealPosition } from "@/convex/opportunities/stages";
 
 interface StalePipelineListProps {
   staleCount: number;
   staleOpps: Array<{
     opportunityId: string;
-    status: string;
+    position: DealPosition;
     ageDays: number;
     nextMeetingAt: number | null;
     assignedCloserId: string | null;
@@ -87,7 +81,7 @@ export function StalePipelineList({
             <TableHeader>
               <TableRow>
                 <TableHead>Lead</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Stage</TableHead>
                 <TableHead>Closer</TableHead>
                 <TableHead className="text-right">Age</TableHead>
                 <TableHead className="text-right">Next Meeting</TableHead>
@@ -100,9 +94,7 @@ export function StalePipelineList({
                     {opp.leadName || "Unknown"}
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">
-                      {formatStatus(opp.status)}
-                    </Badge>
+                    <DealStageBadge position={opp.position} />
                   </TableCell>
                   <TableCell>
                     {opp.assignedCloser ? (

@@ -1,4 +1,3 @@
-import { requireReportingReady } from "./reportingReadiness";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -13,8 +12,8 @@ import {
   unknownMemberIdentity,
   userMemberIdentity,
 } from "../lib/memberIdentity";
+import { dealLabelOf } from "../opportunities/stageLabels";
 import { requireTenantUser } from "../requireTenantUser";
-import { meetingDayKey } from "./meetingStats";
 
 const meetingStatusValidator = v.union(
   v.literal("scheduled"),
@@ -23,37 +22,7 @@ const meetingStatusValidator = v.union(
   v.literal("no_show"),
 );
 
-const phoneSalesOpportunityStatusValidator = v.union(
-  v.literal("qualified_pending"),
-  v.literal("scheduled"),
-  v.literal("payment_received"),
-  v.literal("follow_up_scheduled"),
-  v.literal("reschedule_link_sent"),
-  v.literal("lost"),
-  v.literal("canceled"),
-  v.literal("no_show"),
-);
-
-const PHONE_SALES_COUNTED_STATUSES = [
-  "scheduled",
-  "completed",
-  "canceled",
-  "no_show",
-] as const;
-const PHONE_SALES_COUNTED_STATUS_SET = new Set<string>(
-  PHONE_SALES_COUNTED_STATUSES,
-);
-
-type MeetingStatus = (typeof PHONE_SALES_COUNTED_STATUSES)[number];
-type OpportunityStatus =
-  | "qualified_pending"
-  | "scheduled"
-  | "payment_received"
-  | "follow_up_scheduled"
-  | "reschedule_link_sent"
-  | "lost"
-  | "canceled"
-  | "no_show";
+type MeetingStatus = Doc<"meetings">["status"];
 
 type PhoneSalesFilterArgs = {
   tenantId: Id<"tenants">;
@@ -61,7 +30,6 @@ type PhoneSalesFilterArgs = {
   bookingProgramId?: Id<"tenantPrograms">;
   soldProgramId?: Id<"tenantPrograms">;
   meetingStatus?: MeetingStatus;
-  opportunityStatus?: OpportunityStatus;
   scheduledFrom?: number;
   scheduledTo?: number;
 };
@@ -72,7 +40,6 @@ function assertSinglePhoneSalesPrimaryFilter(args: PhoneSalesFilterArgs) {
     args.bookingProgramId,
     args.soldProgramId,
     args.meetingStatus,
-    args.opportunityStatus,
   ].filter(Boolean).length;
 
   if (primaryFilterCount > 1) {
@@ -145,22 +112,6 @@ function phoneSalesMeetingsQuery(ctx: QueryCtx, args: PhoneSalesFilterArgs) {
           ? ranged
           : ranged.lt("scheduledAt", args.scheduledTo);
       });
-  }
-
-  if (args.opportunityStatus) {
-    const opportunityStatus = args.opportunityStatus;
-    return ctx.db.query("meetings").withIndex(
-      "by_tenantId_and_opportunityStatus_and_scheduledAt",
-      (q) => {
-        const ranged = q
-          .eq("tenantId", args.tenantId)
-          .eq("opportunityStatus", opportunityStatus)
-          .gte("scheduledAt", from);
-        return args.scheduledTo === undefined
-          ? ranged
-          : ranged.lt("scheduledAt", args.scheduledTo);
-      },
-    );
   }
 
   return ctx.db
@@ -268,6 +219,7 @@ export async function enrichPhoneSalesRows(
       linkedDmCloserUserCandidate?.tenantId === tenantId
         ? linkedDmCloserUserCandidate
         : undefined;
+    const deal = opportunity ? dealLabelOf(opportunity) : null;
     const leadName = lead
       ? leadDisplayFromShape({
           fullName: lead.fullName,
@@ -283,7 +235,10 @@ export async function enrichPhoneSalesRows(
       leadName,
       scheduledAt: meeting.scheduledAt,
       meetingStatus: meeting.status,
-      opportunityStatus: meeting.opportunityStatus ?? opportunity?.status ?? null,
+      // The deal's position and the loss the system wrote on it, from the
+      // deal (docs/plans/phase-5-deal-status.md §6.6).
+      dealPosition: deal?.position ?? null,
+      dealSystemLoss: deal?.systemLoss ?? null,
       bookingProgramName: meeting.bookingProgramName ?? opportunity?.firstBookingProgramName ?? null,
       bookingProgramMappingStatus:
         meeting.bookingProgramMappingStatus ??
@@ -311,25 +266,6 @@ export async function enrichPhoneSalesRows(
   }));
 }
 
-function rowMatchesStatsFilter(
-  row: Doc<"operationsMeetingStatsV2">,
-  args: PhoneSalesFilterArgs,
-) {
-  if (args.bookingProgramId && row.bookingProgramId !== args.bookingProgramId) {
-    return false;
-  }
-  if (args.soldProgramId && row.soldProgramId !== args.soldProgramId) {
-    return false;
-  }
-  if (args.meetingStatus && row.meetingStatus !== args.meetingStatus) {
-    return false;
-  }
-  if (args.opportunityStatus && row.opportunityStatus !== args.opportunityStatus) {
-    return false;
-  }
-  return true;
-}
-
 export const listPhoneSalesMeetings = query({
   args: {
     paginationOpts: paginationOptsValidator,
@@ -339,7 +275,6 @@ export const listPhoneSalesMeetings = query({
     scheduledFrom: v.optional(v.number()),
     scheduledTo: v.optional(v.number()),
     meetingStatus: v.optional(meetingStatusValidator),
-    opportunityStatus: v.optional(phoneSalesOpportunityStatusValidator),
   },
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [
@@ -353,7 +288,6 @@ export const listPhoneSalesMeetings = query({
       bookingProgramId: args.bookingProgramId,
       soldProgramId: args.soldProgramId,
       meetingStatus: args.meetingStatus,
-      opportunityStatus: args.opportunityStatus,
       scheduledFrom: args.scheduledFrom,
       scheduledTo: args.scheduledTo,
     })
@@ -368,100 +302,6 @@ export const listPhoneSalesMeetings = query({
     return {
       ...result,
       page: await enrichPhoneSalesRows(ctx, result.page),
-    };
-  },
-});
-
-export const getPhoneSalesStats = query({
-  args: {
-    closerId: v.optional(v.id("users")),
-    scheduledFrom: v.number(),
-    scheduledTo: v.number(),
-    bookingProgramId: v.optional(v.id("tenantPrograms")),
-    soldProgramId: v.optional(v.id("tenantPrograms")),
-    meetingStatus: v.optional(meetingStatusValidator),
-    opportunityStatus: v.optional(phoneSalesOpportunityStatusValidator),
-  },
-  handler: async (ctx, args) => {
-    const { tenantId } = await requireTenantUser(ctx, [
-      "tenant_master",
-      "tenant_admin",
-    ]);
-    await requireReportingReady(ctx, tenantId);
-    assertSinglePhoneSalesPrimaryFilter({
-      tenantId,
-      assignedCloserId: args.closerId,
-      bookingProgramId: args.bookingProgramId,
-      soldProgramId: args.soldProgramId,
-      meetingStatus: args.meetingStatus,
-      opportunityStatus: args.opportunityStatus,
-    });
-
-    const startKey = meetingDayKey(args.scheduledFrom);
-    const endExclusiveKey = meetingDayKey(args.scheduledTo);
-    const rows = args.closerId
-      ? await ctx.db
-          .query("operationsMeetingStatsV2")
-          .withIndex("by_tenantId_and_assignedCloserId_and_dayKey", (q) =>
-            q
-              .eq("tenantId", tenantId)
-              .eq("assignedCloserId", args.closerId!)
-              .gte("dayKey", startKey)
-              .lt("dayKey", endExclusiveKey),
-          )
-          .take(8193)
-      : await ctx.db
-          .query("operationsMeetingStatsV2")
-          .withIndex("by_tenantId_and_dayKey", (q) =>
-            q
-              .eq("tenantId", tenantId)
-              .gte("dayKey", startKey)
-              .lt("dayKey", endExclusiveKey),
-          )
-          .take(8193);
-
-    if (rows.length > 8192) throw new Error("Reporting range exceeds the live limit. Use a materialized report or narrow the dates.");
-    const byStatus = new Map<MeetingStatus, number>();
-    let won = 0;
-    for (const row of rows) {
-      if (!rowMatchesStatsFilter(row, {
-        tenantId,
-        assignedCloserId: args.closerId,
-        bookingProgramId: args.bookingProgramId,
-        soldProgramId: args.soldProgramId,
-        meetingStatus: args.meetingStatus,
-        opportunityStatus: args.opportunityStatus,
-      })) {
-        continue;
-      }
-      if (!PHONE_SALES_COUNTED_STATUS_SET.has(row.meetingStatus)) {
-        continue;
-      }
-      const status = row.meetingStatus as MeetingStatus;
-      byStatus.set(status, (byStatus.get(status) ?? 0) + row.count);
-      if (row.opportunityStatus === "payment_received") {
-        won += row.count;
-      }
-    }
-
-    const completed = byStatus.get("completed") ?? 0;
-    const canceled = byStatus.get("canceled") ?? 0;
-    const noShows = byStatus.get("no_show") ?? 0;
-    const scheduled = PHONE_SALES_COUNTED_STATUSES.reduce(
-      (sum, status) => sum + (byStatus.get(status) ?? 0),
-      0,
-    );
-    const showRateDenominator = scheduled - canceled;
-
-    return {
-      scheduled,
-      completed,
-      canceled,
-      noShows,
-      won,
-      showRate:
-        showRateDenominator > 0 ? completed / showRateDenominator : null,
-      isPartial: false,
     };
   },
 });

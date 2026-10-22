@@ -165,7 +165,7 @@ export type MeetingOutcome = {
   outcome: CallOutcome;
 };
 
-/** Each meeting's outcome from its deal's status: what the report shows today. */
+/** Each meeting's outcome from its deal's status: the report before PR 6, for parity. */
 export function meetingOutcomesByStatus(inputs: TeamOutcomeInputs): MeetingOutcome[] {
   const outcomes: MeetingOutcome[] = [];
   for (const meeting of inputs.meetings) {
@@ -282,7 +282,9 @@ export const getTeamOutcomeMix = query({
       getActiveClosers(ctx, tenantId),
       readTeamOutcomeInputs(ctx, tenantId, startDate, endDate),
     ]);
-    const perCloser = tallyOutcomesByCloser(meetingOutcomesByStatus(inputs));
+    // Each meeting's outcome from its deal's stage, outcome and loss
+    // (docs/plans/phase-5-deal-status.md §6.6).
+    const perCloser = tallyOutcomesByCloser(await meetingOutcomesByStage(ctx, inputs));
 
     const teamOutcome = Array.from(perCloser.values()).reduce<OutcomeCounts>(
       (accumulator, counts) => {

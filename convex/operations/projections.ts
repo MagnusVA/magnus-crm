@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { dealSearchWords } from "../opportunities/stageLabels";
 import { dealStageOf, type DealStageAndOutcome } from "../opportunities/stages";
 
 function buildQualificationSearchText(args: {
@@ -16,6 +17,9 @@ function buildQualificationSearchText(args: {
     args.lead?.email,
     args.lead?.phone,
     args.opportunity?.status,
+    // The label the badge and the filter show (docs/plans/phase-5-deal-status.md
+    // §6.6), beside the status until the status goes.
+    ...(args.opportunity ? dealSearchWords(args.opportunity) : []),
     args.opportunity?.firstBookingProgramName,
     args.opportunity?.soldProgramName,
   ]
