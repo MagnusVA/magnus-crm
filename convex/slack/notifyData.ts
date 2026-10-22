@@ -121,7 +121,6 @@ export const getExistingOpportunityBumpForNotify = internalQuery({
       handle: event.handleSnapshot,
       country: event.countrySnapshot ?? lead.country,
       leadType: event.leadTypeSnapshot ?? lead.leadType,
-      opportunityStatus: opportunity.status,
       bumpedBySlackUserId: event.slackUserId,
       submittedAt: event.submittedAt,
     };

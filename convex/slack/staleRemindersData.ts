@@ -23,13 +23,14 @@ export const listStaleOpportunities = internalQuery({
     limit: v.number(),
   },
   handler: async (ctx, args) => {
+    // The Slack deals still at Qualified (docs/plans/phase-5-deal-status.md §6.8).
     const opportunities = await ctx.db
       .query("opportunities")
-      .withIndex("by_tenantId_and_source_and_status_and_createdAt", (q) =>
+      .withIndex("by_tenantId_and_source_and_stage_and_createdAt", (q) =>
         q
           .eq("tenantId", args.tenantId)
           .eq("source", "slack_qualified")
-          .eq("status", "qualified_pending")
+          .eq("stage", "qualified")
           .lt("createdAt", args.cutoff),
       )
       .order("asc")

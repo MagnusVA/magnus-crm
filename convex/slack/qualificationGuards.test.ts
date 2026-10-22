@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { buildStaleDigest } from "../lib/slackBlockKit";
 import { SLACK_JOIN_LOOKBACK_MS, SLACK_OPPORTUNITY_EXPIRY_MS } from "../pipeline/slackJoinLookup";
 import {
   guardHarness,
@@ -98,6 +99,16 @@ describe("a new Slack qualification for a person with a deal", () => {
     if (expected !== "created") {
       expect(result).toMatchObject({ existingOpportunityId: opportunityId });
     }
+  });
+});
+
+describe("the stale digest", () => {
+  it("links to the Qualified Slack deals by stage", () => {
+    const digest = buildStaleDigest({ entries: [], hasMore: true, appUrl: "https://crm.example.com" });
+    expect(JSON.stringify(digest.blocks)).toContain(
+      "https://crm.example.com/workspace/pipeline?source=slack_qualified&stage=qualified",
+    );
+    expect(JSON.stringify(digest.blocks)).not.toContain("status=");
   });
 });
 

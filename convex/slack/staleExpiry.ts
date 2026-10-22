@@ -12,6 +12,7 @@ import {
   computeLatestActivityAt,
   transitionOpportunity,
 } from "../lib/opportunityActivity";
+import { isQualifiedSlackDeal } from "../opportunities/dealGuards";
 import {
   SLACK_OPPORTUNITY_EXPIRY_MS,
   SLACK_STALE_LOST_REASON,
@@ -19,7 +20,9 @@ import {
 
 // A booking can join a Slack-qualified opportunity for 30 days. After that it
 // opens a new opportunity, so one that never booked would stay open for good.
-// These close as lost, reason "stale", a day after the join window.
+// These close as lost, reason "stale", a day after the join window. They are
+// the Slack deals still at Qualified, read on the stage index
+// (docs/plans/phase-5-deal-status.md §6.8); Qualified allows only open.
 
 /**
  * Opportunities that passed the expiry before this moment are the backlog at
@@ -38,8 +41,7 @@ function isStillStale(
 ): opportunity is Doc<"opportunities"> {
   return (
     opportunity !== null &&
-    opportunity.source === "slack_qualified" &&
-    opportunity.status === "qualified_pending" &&
+    isQualifiedSlackDeal(opportunity) &&
     opportunity.createdAt < now - SLACK_OPPORTUNITY_EXPIRY_MS
   );
 }
@@ -47,8 +49,7 @@ function isStillStale(
 /** True for a Slack opportunity that passed the expiry before the cutover. */
 export function isStaleSlackBacklog(opportunity: Doc<"opportunities">): boolean {
   return (
-    opportunity.source === "slack_qualified" &&
-    opportunity.status === "qualified_pending" &&
+    isQualifiedSlackDeal(opportunity) &&
     opportunity.createdAt < STALE_EXPIRY_CUTOVER_AT - SLACK_OPPORTUNITY_EXPIRY_MS
   );
 }
@@ -98,10 +99,10 @@ export const expireStaleSlackOpportunities = internalMutation({
     const now = Date.now();
     const page = await ctx.db
       .query("opportunities")
-      .withIndex("by_source_and_status_and_createdAt", (q) =>
+      .withIndex("by_source_and_stage_and_createdAt", (q) =>
         q
           .eq("source", "slack_qualified")
-          .eq("status", "qualified_pending")
+          .eq("stage", "qualified")
           .gte("createdAt", STALE_EXPIRY_CUTOVER_AT - SLACK_OPPORTUNITY_EXPIRY_MS)
           .lt("createdAt", now - SLACK_OPPORTUNITY_EXPIRY_MS),
       )
@@ -152,10 +153,10 @@ export const previewStaleSlackOpportunities = internalQuery({
     const expiredBefore = Date.now() - SLACK_OPPORTUNITY_EXPIRY_MS;
     const stale = await ctx.db
       .query("opportunities")
-      .withIndex("by_source_and_status_and_createdAt", (q) =>
+      .withIndex("by_source_and_stage_and_createdAt", (q) =>
         q
           .eq("source", "slack_qualified")
-          .eq("status", "qualified_pending")
+          .eq("stage", "qualified")
           .lt("createdAt", expiredBefore),
       )
       .take(PREVIEW_LIMIT + 1);
