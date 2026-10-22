@@ -47,13 +47,13 @@ function emptyPositionCounts(): Record<DealPosition, number> {
   return { qualified: 0, booked: 0, call_held: 0, follow_up: 0, won: 0, lost: 0 };
 }
 
-// The closer's pipeline tabs and dashboard strip, counted two ways until PR 5
-// moves them to the stage (docs/plans/phase-5-deal-status.md §6.2): by status,
-// which the screens show, and by the six positions. The parity queries in
-// convex/opportunities/stageParity.ts compare them; PR 9 removes the status
-// ways.
+// The closer's pipeline tabs and dashboard strip, counted two ways
+// (docs/plans/phase-5-deal-status.md §6.2): by the six positions, which the
+// screens show, and by status, which only the parity queries in
+// convex/opportunities/stageParity.ts read to compare them. PR 9 removes the
+// status ways.
 
-/** The closer's deals per status, all time: the pipeline tabs today. */
+/** The closer's deals per status, all time: the pipeline tabs before PR 5. */
 export async function countCloserPipelineByStatus(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
@@ -150,7 +150,7 @@ export async function readCloserMeetingDeals(
   return deals;
 }
 
-/** The strip's counts by status; its close rate is won ÷ (won + lost). */
+/** The strip's counts by status before PR 5; its close rate was won ÷ (won + lost). */
 export function countStripByStatus(deals: Array<Doc<"opportunities">>): {
   counts: Record<PipelineStatus, number>;
   total: number;
@@ -289,16 +289,16 @@ export const getNextMeeting = query({
 });
 
 /**
- * Get pipeline stage counts for this closer.
+ * The closer's deals by position (docs/plans/phase-5-deal-status.md §6.2).
  *
- * Returns a breakdown of opportunity counts by status. Powers the pipeline
- * summary strip on the dashboard.
+ * **All-time mode** (no dates): the pipeline page's tabs, each position's
+ * count from `opportunityByStage`, and `total` their sum.
  *
- * **Date filtering** — when `startDate` and `endDate` are both provided,
- * counts are restricted to opportunities that have at least one meeting whose
- * `scheduledAt` falls inside [startDate, endDate). The closer dashboard uses
- * this for its period filter. When neither is provided (or the closer-pipeline
- * page calls without args), the original all-time behaviour applies.
+ * **Filtered mode** (`startDate` and `endDate`): the dashboard strip. The
+ * deals behind the closer's meetings scheduled in [startDate, endDate), by
+ * position, with `decided` for the close rate: the won deals and the deals a
+ * person lost, so the missed meetings' losses leave the rate where the
+ * status left it. Plus the cash collected in the range.
  */
 export const getPipelineSummary = query({
   args: {
@@ -310,14 +310,14 @@ export const getPipelineSummary = query({
 
     // ── Filtered mode ──────────────────────────────────────────────────────
     // Resolve the closer's meetings inside the requested range, then count
-    // their parent opportunities by status. Uses the same index the calendar
-    // does, so this is bounded by what's on screen there.
+    // their deals by position. Uses the same index the calendar does, so
+    // this is bounded by what's on screen there.
     if (startDate !== undefined && endDate !== undefined) {
       if (startDate >= endDate) {
         throw new Error("startDate must be earlier than endDate");
       }
 
-      const { counts, total } = countStripByStatus(
+      const { counts, total, won, lost } = countStripByStage(
         await readCloserMeetingDeals(ctx, tenantId, userId, startDate, endDate),
       );
 
@@ -328,15 +328,16 @@ export const getPipelineSummary = query({
         endDate,
       });
 
-      return { counts, total, ...cash };
+      return { counts, total, decided: { won, lost }, ...cash };
     }
 
-    // ── All-time mode (legacy / pipeline page) ─────────────────────────────
-    const { counts, total } = await countCloserPipelineByStatus(ctx, tenantId, userId);
+    // ── All-time mode (pipeline page tabs) ─────────────────────────────────
+    const { counts, total } = await countCloserPipelineByStage(ctx, tenantId, userId);
 
     return {
       counts,
       total,
+      decided: null,
       cashCollectedMinor: null,
       cashPaymentCount: null,
       isPaymentDataTruncated: false,

@@ -15,13 +15,25 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import {
-  opportunityStatusConfig,
-  type OpportunityStatus,
-} from "@/lib/status-config";
+  CLOSER_PIPELINE_TABS,
+  type CloserPipelineTab,
+} from "@/convex/closer/pipelineTabs";
+import {
+  DEAL_POSITION_LABELS,
+  type DealPosition,
+} from "@/convex/opportunities/stages";
+import { DEAL_POSITION_STYLES } from "@/app/workspace/_components/pipeline/deal-position-badge";
 
 type PipelineStripProps = {
-  counts: Record<string, number>;
+  /** The deals behind the period's meetings, by position. */
+  counts: Record<DealPosition, number>;
   total: number;
+  /**
+   * The close rate's inputs: the won deals, and the deals a person lost.
+   * The losses a no-show or a cancellation wrote are left out. Null when the
+   * summary has no period, which the dashboard always gives it.
+   */
+  decided: { won: number; lost: number } | null;
   rangeLabel?: string;
   periodNoun?: string;
   cashCollectedMinor?: number | null;
@@ -41,30 +53,16 @@ const PERCENT_FORMATTER = new Intl.NumberFormat(undefined, {
 });
 
 /**
- * Statuses surfaced to a phone closer, in a glance-friendly narrative order:
- * still-active work first, then the won outcome, then the negative outcomes.
- * `qualified_pending` is intentionally omitted — it's an SDR/lead-gen concern,
- * not something the closer acts on here.
+ * What each segment holds. The segments follow the pipeline page's tabs: the
+ * open stages, then Won, then Lost. Qualified has none: closers own no
+ * Qualified deals.
  */
-const CLOSER_PIPELINE_ORDER: OpportunityStatus[] = [
-  "scheduled",
-  "follow_up_scheduled",
-  "reschedule_link_sent",
-  "payment_received",
-  "no_show",
-  "canceled",
-  "lost",
-];
-
-const STATUS_HELP: Record<OpportunityStatus, string> = {
-  qualified_pending: "Qualified leads waiting for a meeting to be booked.",
-  scheduled: "Booked meetings that have not reached a final outcome yet.",
-  follow_up_scheduled: "Leads with a committed follow-up after a meeting.",
-  payment_received: "Won opportunities with a logged commissionable payment.",
-  reschedule_link_sent: "Leads that received a reschedule link.",
-  lost: "Opportunities marked as lost in this period.",
-  canceled: "Meetings canceled through Calendly or the pipeline.",
-  no_show: "Meetings where the invitee did not show.",
+const STAGE_HELP: Record<CloserPipelineTab, string> = {
+  booked: "Deals with a booked call that hasn't happened or has no result yet.",
+  call_held: "Side deals you opened after a call, waiting on a result.",
+  follow_up: "Deals waiting on a next step: a reschedule link or a reminder.",
+  won: "Deals won with a payment.",
+  lost: "Deals closed as lost, including the ones a no-show or a cancellation ended.",
 };
 
 /**
@@ -77,18 +75,18 @@ const STATUS_HELP: Record<OpportunityStatus, string> = {
 export function PipelineStrip({
   counts,
   total,
+  decided,
   rangeLabel,
   periodNoun,
   cashCollectedMinor,
   cashPaymentCount,
   isPaymentDataTruncated,
 }: PipelineStripProps) {
-  const wonCount = counts.payment_received ?? 0;
-  const lostCount = counts.lost ?? 0;
-  // Close rate = won ÷ decided (won + lost). Open and in-progress stages
-  // (scheduled, follow-up, reschedule, no-show, canceled) are excluded so the
-  // rate reflects actual decisions rather than a diluted share of everything.
-  const decidedCount = wonCount + lostCount;
+  const wonCount = counts.won;
+  // Close rate = won ÷ decided (won + the deals a person lost). Open deals
+  // and the deals a no-show or a cancellation closed are left out, so the
+  // rate stays the closer's decisions rather than the missed meetings.
+  const decidedCount = decided ? decided.won + decided.lost : 0;
   const closeRate = decidedCount > 0 ? wonCount / decidedCount : null;
 
   const cashValue =
@@ -156,7 +154,7 @@ export function PipelineStrip({
             label="Won"
             value={String(wonCount)}
             detail={`${total} ${total === 1 ? "opp" : "opps"} ${scopedText}`}
-            help="Opportunities you won (payment received) in the selected period."
+            help="Deals you won with a payment, among the deals with a meeting in the selected period."
           />
           <KpiTile
             icon={TargetIcon}
@@ -167,7 +165,7 @@ export function PipelineStrip({
                 ? "No decided opps"
                 : `${wonCount} of ${decidedCount} decided`
             }
-            help="Won ÷ decided opportunities (won + lost). Still-open stages like scheduled, follow-up and no-show are excluded."
+            help="Won ÷ decided (won + lost by you or an admin). Open deals, and the deals a no-show or a cancellation ended, are left out."
           />
         </div>
 
@@ -185,20 +183,19 @@ const PERCENT_OF_TOTAL = new Intl.NumberFormat(undefined, {
 });
 
 type PipelineBarProps = {
-  counts: Record<string, number>;
+  counts: Record<DealPosition, number>;
   total: number;
   periodNoun: string;
 };
 
 function PipelineBar({ counts, total, periodNoun }: PipelineBarProps) {
-  const segments = CLOSER_PIPELINE_ORDER.map((status) => {
-    const config = opportunityStatusConfig[status];
-    const count = counts[status] ?? 0;
+  const segments = CLOSER_PIPELINE_TABS.map((stage) => {
+    const count = counts[stage];
     return {
-      status,
-      label: config.label,
-      dotClass: config.dotClass,
-      help: STATUS_HELP[status],
+      stage,
+      label: DEAL_POSITION_LABELS[stage],
+      dotClass: DEAL_POSITION_STYLES[stage].dotClass,
+      help: STAGE_HELP[stage],
       count,
       share: total > 0 ? count / total : 0,
     };
@@ -210,8 +207,8 @@ function PipelineBar({ counts, total, periodNoun }: PipelineBarProps) {
         <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           Pipeline activity
           <HelpDot label="pipeline activity">
-            Every opportunity with a meeting in the selected period, split by its
-            current status. The bar is the full 100%.
+            Every deal with a meeting in the selected period, split by its
+            current stage, with Won and Lost apart. The bar is the full 100%.
           </HelpDot>
         </span>
         <span className="font-mono text-xs tabular-nums text-muted-foreground">
@@ -237,10 +234,10 @@ function PipelineBar({ counts, total, periodNoun }: PipelineBarProps) {
           {segments
             .filter((s) => s.count > 0)
             .map((s) => (
-              <Tooltip key={s.status}>
+              <Tooltip key={s.stage}>
                 <TooltipTrigger asChild>
                   <Link
-                    href={`/workspace/closer/pipeline?status=${s.status}`}
+                    href={`/workspace/closer/pipeline?stage=${s.stage}`}
                     className={cn(
                       "h-full min-w-[3px] transition-opacity hover:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       s.dotClass,
@@ -251,8 +248,9 @@ function PipelineBar({ counts, total, periodNoun }: PipelineBarProps) {
                     )})`}
                   />
                 </TooltipTrigger>
-                <TooltipContent>
+                <TooltipContent className="max-w-64">
                   {s.label}: {s.count} · {PERCENT_OF_TOTAL.format(s.share)}
+                  <span className="block opacity-80">{s.help}</span>
                 </TooltipContent>
               </Tooltip>
             ))}
@@ -261,9 +259,10 @@ function PipelineBar({ counts, total, periodNoun }: PipelineBarProps) {
 
       <ul className="flex flex-wrap gap-x-3 gap-y-1">
         {segments.map((s) => (
-          <li key={s.status} className="min-w-0">
+          <li key={s.stage} className="min-w-0">
             <Link
-              href={`/workspace/closer/pipeline?status=${s.status}`}
+              href={`/workspace/closer/pipeline?stage=${s.stage}`}
+              title={s.help}
               className={cn(
                 "group flex items-center gap-1.5 rounded px-0.5 py-0.5 text-xs transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 s.count === 0 && "opacity-50 hover:opacity-100",

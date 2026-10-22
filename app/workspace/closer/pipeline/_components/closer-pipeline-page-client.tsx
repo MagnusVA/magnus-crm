@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import posthog from "posthog-js";
@@ -11,9 +11,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePageTitle } from "@/hooks/use-page-title";
 import {
-  isValidOpportunityStatus,
-  type OpportunityStatus,
-} from "@/lib/status-config";
+  closerPipelineTabFromSearch,
+  type CloserPipelineTab,
+} from "@/convex/closer/pipelineTabs";
+import { DEAL_POSITION_LABELS } from "@/convex/opportunities/stages";
 import {
   getDateRange,
   type TimePeriod,
@@ -49,20 +50,17 @@ function CloserPipelineContent() {
   const searchParams = useSearchParams();
   const pathname = usePathname();
 
-  const statusParam = searchParams.get("status");
-  const initialStatus =
-    statusParam && isValidOpportunityStatus(statusParam)
-      ? statusParam
-      : undefined;
+  // `stage=`, or an old `status=` link mapped to the tab its deals are on.
+  const initialStage = closerPipelineTabFromSearch(searchParams);
 
   const periodParam = searchParams.get("period");
   const initialPeriod: PipelinePeriod = isValidPeriod(periodParam)
     ? periodParam
     : "today";
 
-  const [statusFilter, setStatusFilter] = useState<
-    OpportunityStatus | undefined
-  >(initialStatus);
+  const [stageFilter, setStageFilter] = useState<CloserPipelineTab | null>(
+    initialStage,
+  );
   const [periodFilter, setPeriodFilter] =
     useState<PipelinePeriod>(initialPeriod);
 
@@ -70,15 +68,17 @@ function CloserPipelineContent() {
   // navigation — that would re-run the async server component and flash the
   // full-page loading skeleton.
   const writeUrl = useCallback(
-    (next: { status?: OpportunityStatus | undefined; period?: PipelinePeriod }) => {
+    (next: { stage?: CloserPipelineTab | null; period?: PipelinePeriod }) => {
       const params = new URLSearchParams(window.location.search);
-      const nextStatus = "status" in next ? next.status : statusFilter;
+      const nextStage = "stage" in next ? next.stage : stageFilter;
       const nextPeriod = "period" in next ? next.period : periodFilter;
 
-      if (nextStatus) {
-        params.set("status", nextStatus);
+      // The URL names the stage, never the old status.
+      params.delete("status");
+      if (nextStage) {
+        params.set("stage", nextStage);
       } else {
-        params.delete("status");
+        params.delete("stage");
       }
 
       if (nextPeriod && nextPeriod !== "today") {
@@ -94,18 +94,27 @@ function CloserPipelineContent() {
         `${pathname}${qs ? `?${qs}` : ""}`,
       );
     },
-    [pathname, statusFilter, periodFilter],
+    [pathname, stageFilter, periodFilter],
   );
 
-  const handleStatusChange = useCallback(
-    (value: string) => {
-      const next =
-        value === "all" ? undefined : (value as OpportunityStatus);
-      setStatusFilter(next);
-      posthog.capture("pipeline_status_filter_changed", {
-        status: next ?? "all",
+  // An old `status=` link, or a `stage=` no tab has, opens a tab: write that
+  // tab back as `stage=`.
+  const hasStaleStageParam =
+    searchParams.has("status") ||
+    (searchParams.has("stage") && searchParams.get("stage") !== initialStage);
+  useEffect(() => {
+    if (hasStaleStageParam) {
+      writeUrl({});
+    }
+  }, [hasStaleStageParam, writeUrl]);
+
+  const handleStageChange = useCallback(
+    (next: CloserPipelineTab | null) => {
+      setStageFilter(next);
+      posthog.capture("pipeline_stage_filter_changed", {
+        stage: next ?? "all",
       });
-      writeUrl({ status: next });
+      writeUrl({ stage: next });
     },
     [writeUrl],
   );
@@ -136,9 +145,9 @@ function CloserPipelineContent() {
       </div>
 
       <PipelineFilters
-        statusFilter={statusFilter ?? "all"}
+        stageFilter={stageFilter}
         periodFilter={periodFilter}
-        onStatusChange={handleStatusChange}
+        onStageChange={handleStageChange}
         onPeriodChange={handlePeriodChange}
         counts={pipelineSummary.counts}
         total={pipelineSummary.total}
@@ -146,9 +155,9 @@ function CloserPipelineContent() {
 
       <Suspense fallback={<TableSkeleton />}>
         <CloserOpportunitiesTable
-          statusFilter={statusFilter}
+          stageFilter={stageFilter}
           periodFilter={periodFilter}
-          onClearFilter={() => handleStatusChange("all")}
+          onClearFilter={() => handleStageChange(null)}
         />
       </Suspense>
     </div>
@@ -156,23 +165,23 @@ function CloserPipelineContent() {
 }
 
 function CloserOpportunitiesTable({
-  statusFilter,
+  stageFilter,
   periodFilter,
   onClearFilter,
 }: {
-  statusFilter: OpportunityStatus | undefined;
+  stageFilter: CloserPipelineTab | null;
   periodFilter: PipelinePeriod;
   onClearFilter: () => void;
 }) {
   const queryArgs = useMemo(() => {
     const args: {
-      statusFilter?: OpportunityStatus;
+      positionFilter?: CloserPipelineTab;
       periodStart?: number;
       periodEnd?: number;
     } = {};
 
-    if (statusFilter) {
-      args.statusFilter = statusFilter;
+    if (stageFilter) {
+      args.positionFilter = stageFilter;
     }
 
     if (periodFilter !== "all") {
@@ -184,7 +193,7 @@ function CloserOpportunitiesTable({
     }
 
     return args;
-  }, [statusFilter, periodFilter]);
+  }, [stageFilter, periodFilter]);
 
   const {
     results: opportunities,
@@ -203,18 +212,18 @@ function CloserOpportunitiesTable({
   const emptyState = (
     <CloserEmptyState
       title={
-        statusFilter
-          ? `No ${statusFilter.replace(/_/g, " ")} opportunities`
+        stageFilter
+          ? `No ${DEAL_POSITION_LABELS[stageFilter].toLowerCase()} opportunities`
           : "No opportunities yet"
       }
       description={
-        statusFilter
-          ? "Try selecting a different status filter above."
+        stageFilter
+          ? "Try selecting a different stage above."
           : "Opportunities will appear here when leads book meetings through Calendly."
       }
       icon={KanbanIcon}
     >
-      {statusFilter && (
+      {stageFilter && (
         <Button variant="outline" size="sm" onClick={onClearFilter}>
           Show all opportunities
         </Button>
@@ -228,7 +237,6 @@ function CloserOpportunitiesTable({
       canLoadMore={paginationStatus === "CanLoadMore"}
       isLoadingMore={paginationStatus === "LoadingMore"}
       onLoadMore={() => loadMore(25)}
-      meetingBasePath="/workspace/closer/meetings"
       emptyState={emptyState}
     />
   );
