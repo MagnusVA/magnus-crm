@@ -21,6 +21,14 @@ import { log } from "../lib/observability/log";
 import { getString, isRecord } from "../lib/payloadExtraction";
 import { requireTenantUser } from "../requireTenantUser";
 import type { IdentityMatchVia } from "./blocked";
+import {
+  closeKeptSeparateSiblings,
+  closeMergedReviews,
+  resolveBookingReview,
+  retryMergedHold,
+  reviewIsOnePerson,
+  reviewPeople,
+} from "./bookingReviewRecords";
 import { retryDelivery } from "./recovery";
 
 const ADMIN_ROLES = ["tenant_master", "tenant_admin"] as const;
@@ -86,6 +94,8 @@ export type BookingReviewDetail = {
     payloadAvailable: boolean;
   };
   people: BookingReviewPerson[];
+  /** Everyone named was merged into one person, on another review or the Leads page. */
+  alreadyOnePerson: boolean;
 };
 
 function parseTime(value: unknown) {
@@ -276,6 +286,7 @@ export async function loadBookingReviewDetail(
     people: people.flatMap((person) =>
       person ? [{ ...person, checks: compareBookingWithPerson(bookingDetail, person) }] : [],
     ),
+    alreadyOnePerson: await reviewIsOnePerson(ctx, review),
   };
 }
 
@@ -388,40 +399,20 @@ export const getForAlert = internalQuery({
   },
 });
 
-async function resolveReview(
-  ctx: MutationCtx,
-  review: Doc<"bookingReviews">,
-  userId: Id<"users">,
-  resolution: "merged" | "kept_separate",
-) {
-  const now = Date.now();
-  await ctx.db.patch("bookingReviews", review._id, {
-    status: "resolved",
-    resolution,
-    resolvedAt: now,
-    resolvedByUserId: userId,
-    updatedAt: now,
-  });
-  log.info("pipeline.booking_review.resolved", {
-    tenantId: review.tenantId,
-    reviewId: review._id,
-    deliveryId: review.deliveryId,
-    kind: review.kind,
-    resolution,
-  });
-}
-
 function requireOpen(review: Doc<"bookingReviews">) {
   if (review.status !== "open") throw new Error("This booking review is already resolved");
 }
 
+const decisionResult = v.object({ alsoClosed: v.number() });
+
 /**
  * The people are one person: everyone the booking named is merged into
  * `keepLeadId`. A held booking is then retried, and applies to that person.
+ * Other open reviews the merge leaves with one person close with it.
  */
 export const mergePeople = mutation({
   args: { reviewId: v.id("bookingReviews"), keepLeadId: v.id("leads") },
-  returns: v.null(),
+  returns: decisionResult,
   handler: async (ctx, { reviewId, keepLeadId }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [...ADMIN_ROLES]);
     const review = await requireReview(ctx, tenantId, reviewId);
@@ -431,39 +422,54 @@ export const mergePeople = mutation({
     );
     if (!named.includes(keepLeadId)) throw new Error("Keep one of the people this booking named");
     // Someone may have merged one of them since; merge what they became.
-    const people = new Set<Id<"leads">>();
-    for (const leadId of named) {
-      const lead = await ctx.db.get("leads", leadId);
-      const current = lead && (await followMergeChain(ctx, lead));
-      if (current) people.add(current._id);
-    }
+    const { people, complete } = await reviewPeople(ctx, review);
+    if (!complete)
+      throw new Error("A person this booking named no longer exists. Fix them on the Leads page first.");
     const keep = await ctx.db.get("leads", keepLeadId);
     const target = keep && (await followMergeChain(ctx, keep));
     if (!target) throw new Error("The person to keep no longer exists");
     for (const leadId of people) {
       if (leadId !== target._id) await executeMerge(ctx, tenantId, userId, leadId, target._id);
     }
-    await resolveReview(ctx, review, userId, "merged");
-    const delivery = await ctx.db.get("webhookDeliveries", review.deliveryId);
-    if (review.kind === "held" && delivery?.status === "blocked")
-      await retryDelivery(ctx, tenantId, userId, review.deliveryId);
-    return null;
+    await resolveBookingReview(ctx, review, userId, "merged");
+    await retryMergedHold(ctx, review, userId);
+    return { alsoClosed: await closeMergedReviews(ctx, tenantId, userId) };
+  },
+});
+
+/**
+ * Everyone the booking named was merged into one person elsewhere: closes the
+ * review as merged, and retries a held booking. Merges no one.
+ */
+export const closeAsMerged = mutation({
+  args: { reviewId: v.id("bookingReviews") },
+  returns: decisionResult,
+  handler: async (ctx, { reviewId }) => {
+    const { tenantId, userId } = await requireTenantUser(ctx, [...ADMIN_ROLES]);
+    const review = await requireReview(ctx, tenantId, reviewId);
+    requireOpen(review);
+    if (!(await reviewIsOnePerson(ctx, review)))
+      throw new Error("These people aren't one person yet. Merge them first.");
+    await resolveBookingReview(ctx, review, userId, "merged");
+    await retryMergedHold(ctx, review, userId);
+    return { alsoClosed: await closeMergedReviews(ctx, tenantId, userId) };
   },
 });
 
 /**
  * The people are different people. They stay as they are; a held booking
- * stays held, for the recovery panel.
+ * stays held, for the recovery panel. Other open reviews about the same
+ * people close with it.
  */
 export const keepSeparate = mutation({
   args: { reviewId: v.id("bookingReviews") },
-  returns: v.null(),
+  returns: decisionResult,
   handler: async (ctx, { reviewId }) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [...ADMIN_ROLES]);
     const review = await requireReview(ctx, tenantId, reviewId);
     requireOpen(review);
-    await resolveReview(ctx, review, userId, "kept_separate");
-    return null;
+    await resolveBookingReview(ctx, review, userId, "kept_separate");
+    return { alsoClosed: await closeKeptSeparateSiblings(ctx, review, userId) };
   },
 });
 

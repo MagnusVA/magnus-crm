@@ -1,18 +1,27 @@
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import type { MutationCtx } from "../_generated/server";
+import { v } from "convex/values";
+import {
+  internalMutation,
+  type MutationCtx,
+  type QueryCtx,
+} from "../_generated/server";
+import { followMergeChain } from "../leads/identityResolution";
 import { log } from "../lib/observability/log";
 import type {
   BlockedIdentity,
   BookingIdentifiers,
   IdentityConflict,
 } from "./blocked";
+import { retryDelivery } from "./recovery";
 
 /** Held reasons that mean "this booking names more than one person". */
 const REVIEWED_HOLD_REASONS = new Set(["identity_conflict"]);
 
 /** A person's kept-separate decisions read when a booking may repeat one. */
 const KEPT_SEPARATE_LIMIT = 200;
+/** Open reviews read per page when one decision may settle others. */
+const OPEN_REVIEW_SWEEP_LIMIT = 200;
 
 async function reviewForDelivery(
   ctx: MutationCtx,
@@ -209,3 +218,183 @@ export async function settleBookingReview(
     });
   }
 }
+
+export async function resolveBookingReview(
+  ctx: MutationCtx,
+  review: Doc<"bookingReviews">,
+  userId: Id<"users">,
+  resolution: "merged" | "kept_separate",
+) {
+  const now = Date.now();
+  await ctx.db.patch("bookingReviews", review._id, {
+    status: "resolved",
+    resolution,
+    resolvedAt: now,
+    resolvedByUserId: userId,
+    updatedAt: now,
+  });
+  log.info("pipeline.booking_review.resolved", {
+    tenantId: review.tenantId,
+    reviewId: review._id,
+    deliveryId: review.deliveryId,
+    kind: review.kind,
+    resolution,
+  });
+}
+
+/**
+ * The people a review names as they are now, following merges. `complete`
+ * is false when a named person is missing or their merge chain is broken:
+ * no decision can be read from such a review.
+ */
+export async function reviewPeople(
+  ctx: QueryCtx,
+  review: Doc<"bookingReviews">,
+): Promise<{ people: Set<Id<"leads">>; complete: boolean }> {
+  const named = new Set([
+    ...(review.leadId ? [review.leadId] : []),
+    ...review.conflicts.map((c) => c.leadId),
+  ]);
+  const people = new Set<Id<"leads">>();
+  let complete = true;
+  for (const leadId of named) {
+    const lead = await ctx.db.get("leads", leadId);
+    const current = lead && (await followMergeChain(ctx, lead));
+    if (current) people.add(current._id);
+    else complete = false;
+  }
+  return { people, complete };
+}
+
+/** Every person the review named has been merged into the same one. */
+export async function reviewIsOnePerson(
+  ctx: QueryCtx,
+  review: Doc<"bookingReviews">,
+) {
+  const { people, complete } = await reviewPeople(ctx, review);
+  return complete && people.size === 1;
+}
+
+/**
+ * Retries a merged review's held booking, which now names one person. A
+ * booking whose payload is gone stays held, for the recovery panel.
+ */
+export async function retryMergedHold(
+  ctx: MutationCtx,
+  review: Doc<"bookingReviews">,
+  userId: Id<"users">,
+) {
+  if (review.kind !== "held") return;
+  const delivery = await ctx.db.get("webhookDeliveries", review.deliveryId);
+  if (delivery?.status !== "blocked") return;
+  if (!(await ctx.db.get("rawWebhookEvents", delivery.rawEventId))) return;
+  await retryDelivery(ctx, review.tenantId, userId, delivery._id);
+}
+
+/**
+ * A page of the tenant's open reviews. A sweep past the page continues in a
+ * scheduled mutation of its own, so a long queue never outgrows one
+ * transaction.
+ */
+async function openReviewsPage(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  cursor: string | null,
+) {
+  return await ctx.db
+    .query("bookingReviews")
+    .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
+      q.eq("tenantId", tenantId).eq("status", "open"),
+    )
+    .paginate({ cursor, numItems: OPEN_REVIEW_SWEEP_LIMIT });
+}
+
+/**
+ * Closes, as merged, every open review a merge left with one person: the
+ * same people often book twice, and a merge from either review, or from the
+ * Leads page, settles both. Their held bookings are retried. Returns how many
+ * closed on this page; later pages close in the background.
+ */
+export async function closeMergedReviews(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  userId: Id<"users">,
+  cursor: string | null = null,
+) {
+  const page = await openReviewsPage(ctx, tenantId, cursor);
+  let closed = 0;
+  for (const review of page.page) {
+    if (!(await reviewIsOnePerson(ctx, review))) continue;
+    await resolveBookingReview(ctx, review, userId, "merged");
+    await retryMergedHold(ctx, review, userId);
+    closed++;
+  }
+  if (!page.isDone) {
+    await ctx.scheduler.runAfter(0, internal.pipeline.bookingReviewRecords.continueMergedSweep, {
+      tenantId,
+      userId,
+      cursor: page.continueCursor,
+    });
+    log.info("pipeline.booking_review.sweep_continued", { tenantId, sweep: "merged" });
+  }
+  return closed;
+}
+
+export const continueMergedSweep = internalMutation({
+  args: { tenantId: v.id("tenants"), userId: v.id("users"), cursor: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { tenantId, userId, cursor }) => {
+    await closeMergedReviews(ctx, tenantId, userId, cursor);
+    return null;
+  },
+});
+
+/**
+ * Closes, as kept separate, the other open reviews about exactly the people
+ * an admin just called different. Only a decision about two or more people
+ * who all still exist carries over. Returns how many closed on this page;
+ * later pages close in the background.
+ */
+export async function closeKeptSeparateSiblings(
+  ctx: MutationCtx,
+  decided: Doc<"bookingReviews">,
+  userId: Id<"users">,
+  cursor: string | null = null,
+) {
+  const keyOf = async (review: Doc<"bookingReviews">) => {
+    const { people, complete } = await reviewPeople(ctx, review);
+    return complete && people.size > 1 ? [...people].sort().join(",") : null;
+  };
+  const decidedKey = await keyOf(decided);
+  if (decidedKey === null) return 0;
+  const page = await openReviewsPage(ctx, decided.tenantId, cursor);
+  let closed = 0;
+  for (const review of page.page) {
+    if (review._id === decided._id) continue;
+    if ((await keyOf(review)) !== decidedKey) continue;
+    await resolveBookingReview(ctx, review, userId, "kept_separate");
+    closed++;
+  }
+  if (!page.isDone) {
+    await ctx.scheduler.runAfter(0, internal.pipeline.bookingReviewRecords.continueKeptSeparateSweep, {
+      reviewId: decided._id,
+      userId,
+      cursor: page.continueCursor,
+    });
+    log.info("pipeline.booking_review.sweep_continued", {
+      tenantId: decided.tenantId,
+      sweep: "kept_separate",
+    });
+  }
+  return closed;
+}
+
+export const continueKeptSeparateSweep = internalMutation({
+  args: { reviewId: v.id("bookingReviews"), userId: v.id("users"), cursor: v.string() },
+  returns: v.null(),
+  handler: async (ctx, { reviewId, userId, cursor }) => {
+    const decided = await ctx.db.get("bookingReviews", reviewId);
+    if (decided) await closeKeptSeparateSiblings(ctx, decided, userId, cursor);
+    return null;
+  },
+});

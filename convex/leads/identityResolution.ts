@@ -4,7 +4,7 @@ import {
   type IdentityConflict,
 } from "../pipeline/blocked";
 import type { Doc, Id } from "../_generated/dataModel";
-import type { MutationCtx } from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import {
   areNamesSimilar,
   extractEmailDomain,
@@ -105,7 +105,7 @@ const PUBLIC_EMAIL_DOMAINS = new Set([
 ]);
 
 export async function followMergeChain(
-  ctx: MutationCtx,
+  ctx: QueryCtx,
   lead: Doc<"leads">,
 ): Promise<Doc<"leads"> | undefined> {
   let current = lead;
