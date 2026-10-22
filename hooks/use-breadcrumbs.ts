@@ -24,6 +24,7 @@ const SEGMENT_LABELS: Record<string, string> = {
   "booked-calls": "Booked Calls",
   attribution: "Attribution",
   "sales-calls": "Sales Calls",
+  "missed-meetings": "No-shows & Cancellations",
   "leads-customers": "Leads & Customers",
   "new-opportunity": "New Side Deal",
   capture: "Capture",

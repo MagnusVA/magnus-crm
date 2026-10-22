@@ -219,6 +219,7 @@ import type * as operations_bookedCallsDashboard from "../operations/bookedCalls
 import type * as operations_bookingHealth from "../operations/bookingHealth.js";
 import type * as operations_meetingProjectionSchema from "../operations/meetingProjectionSchema.js";
 import type * as operations_meetingStats from "../operations/meetingStats.js";
+import type * as operations_missedMeetings from "../operations/missedMeetings.js";
 import type * as operations_phoneSales from "../operations/phoneSales.js";
 import type * as operations_projections from "../operations/projections.js";
 import type * as operations_qualificationCredit from "../operations/qualificationCredit.js";
@@ -250,6 +251,7 @@ import type * as operations_unmappedUtms from "../operations/unmappedUtms.js";
 import type * as operations_validators from "../operations/validators.js";
 import type * as operations_workStatus from "../operations/workStatus.js";
 import type * as opportunities_createManual from "../opportunities/createManual.js";
+import type * as opportunities_dealPositions from "../opportunities/dealPositions.js";
 import type * as opportunities_dealState from "../opportunities/dealState.js";
 import type * as opportunities_detailQuery from "../opportunities/detailQuery.js";
 import type * as opportunities_listQueries from "../opportunities/listQueries.js";
@@ -596,6 +598,7 @@ declare const fullApi: ApiFromModules<{
   "operations/bookingHealth": typeof operations_bookingHealth;
   "operations/meetingProjectionSchema": typeof operations_meetingProjectionSchema;
   "operations/meetingStats": typeof operations_meetingStats;
+  "operations/missedMeetings": typeof operations_missedMeetings;
   "operations/phoneSales": typeof operations_phoneSales;
   "operations/projections": typeof operations_projections;
   "operations/qualificationCredit": typeof operations_qualificationCredit;
@@ -627,6 +630,7 @@ declare const fullApi: ApiFromModules<{
   "operations/validators": typeof operations_validators;
   "operations/workStatus": typeof operations_workStatus;
   "opportunities/createManual": typeof opportunities_createManual;
+  "opportunities/dealPositions": typeof opportunities_dealPositions;
   "opportunities/dealState": typeof opportunities_dealState;
   "opportunities/detailQuery": typeof opportunities_detailQuery;
   "opportunities/listQueries": typeof opportunities_listQueries;

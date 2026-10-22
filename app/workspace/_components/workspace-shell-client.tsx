@@ -34,6 +34,7 @@ import {
   ActivityIcon,
   BarChart3Icon,
   CalendarCheckIcon,
+  CalendarXIcon,
   ChevronRightIcon,
   ClipboardCheckIcon,
   ClockIcon,
@@ -116,6 +117,11 @@ const operationsNavItem: NavItem = {
       href: "/workspace/operations/sales-calls",
       label: "Sales Calls",
       icon: PhoneCallIcon,
+    },
+    {
+      href: "/workspace/operations/missed-meetings",
+      label: "No-shows & Cancellations",
+      icon: CalendarXIcon,
     },
     {
       href: "/workspace/operations/booking-reviews",
