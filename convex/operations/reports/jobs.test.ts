@@ -417,6 +417,25 @@ it("projects an outdated ready dashboard as failed and suppresses its summary", 
   )).toBeNull();
 });
 
+it("treats a report from before the bookings export took the deal's stage as outdated", async () => {
+  // v3 replaced the raw bookings' OpportunityStatus column with DealStage and
+  // DealOutcome; a v2 report has neither. Every report kind shares the version.
+  const t = createHarness();
+  const { jobId } = await insertJobFixture(t, {
+    status: "ready",
+    phase: "ready",
+    completedAt: Date.now(),
+    expiresAt: Date.now() + 60_000,
+    definitionVersion: "operations-reports-v2",
+  });
+  const authed = t.withIdentity({ subject: "user_fixture", org_id: "org_fixture" });
+
+  expect(await authed.query(api.operations.reports.jobs.getReportJob, { jobId })).toMatchObject({
+    status: "failed",
+    failure: { category: "definition_version", retryable: false },
+  });
+});
+
 
 it("drains multiple expiration, cleanup, and purge batches through bounded sweeps", async () => {
   vi.useFakeTimers();
