@@ -55,7 +55,6 @@ export type BookingReviewPerson = {
   identifiers: { type: string; value: string; source: string; createdAt: number }[];
   deals: ({
     opportunityId: Id<"opportunities">;
-    status: Doc<"opportunities">["status"];
     source?: Doc<"opportunities">["source"];
     createdAt: number;
     hostName?: string;
@@ -188,7 +187,6 @@ async function loadPerson(
         : null;
       return {
         opportunityId: opportunity._id,
-        status: opportunity.status,
         // The page and the Slack alert label the deal by these (§6.1).
         ...dealLabelOf(opportunity),
         source: opportunity.source,

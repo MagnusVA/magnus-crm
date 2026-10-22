@@ -74,33 +74,6 @@ export const getUserByCalendlyUri = internalQuery({
 });
 
 /**
- * Find an existing follow-up opportunity for a lead.
- * Used by invitee.created to detect if this is a follow-up booking.
- */
-export const getFollowUpOpportunity = internalQuery({
-  args: {
-    tenantId: v.id("tenants"),
-    leadId: v.id("leads"),
-  },
-  handler: async (ctx, { tenantId, leadId }) => {
-    const opportunities = ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_and_leadId", (q) =>
-        q.eq("tenantId", tenantId).eq("leadId", leadId),
-      )
-      .order("desc");
-
-    for await (const opportunity of opportunities) {
-      if (opportunity.status === "follow_up_scheduled") {
-        return opportunity;
-      }
-    }
-
-    return null;
-  },
-});
-
-/**
  * Find event type config by Calendly event type URI.
  * Used by invitee.created to link opportunities to event type configurations.
  */

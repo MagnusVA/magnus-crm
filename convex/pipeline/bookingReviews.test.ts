@@ -237,8 +237,10 @@ it("the Slack alert names the booking, both people, what differs, and links to t
   // The setter's deal took the booking: its label is the deal stage's.
   const booked = alert!.detail.people.find((person) => person.role === "booked");
   expect(booked?.deals).toEqual([
-    expect.objectContaining({ status: "scheduled", stage: "booked", outcome: "open", position: "booked", systemLoss: null }),
+    expect.objectContaining({ stage: "booked", outcome: "open", position: "booked", systemLoss: null }),
   ]);
+  // The payload carries the stage, not the status it replaced (§4.8).
+  expect(booked?.deals[0]).not.toHaveProperty("status");
   const message = buildBookingReviewNotification(alert!.detail, "https://crm.example/");
   const blocks = JSON.stringify(message.blocks);
   expect(blocks).not.toContain("Scheduled");
