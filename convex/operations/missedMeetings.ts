@@ -265,8 +265,10 @@ export const listMissedMeetings = query({
           .gte("latestActivityAt", args.startDate),
       )
       .order("desc")
+      // The whole of paginationOpts, endCursor included: the list is ordered
+      // by activity, which moves, and a reactive page must keep its range.
       .paginate({
-        cursor: args.paginationOpts.cursor,
+        ...args.paginationOpts,
         numItems,
         maximumRowsRead: numItems,
         maximumBytesRead: LIVE_QUERY_BYTE_BUDGET,
