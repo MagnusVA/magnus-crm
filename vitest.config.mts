@@ -7,8 +7,7 @@ export default defineConfig({
     environment: "edge-runtime",
     include: [
       "convex/**/*.test.ts",
-      "lib/operations-reports/**/*.test.ts",
-      "lib/observability/**/*.test.ts",
+      "lib/**/*.test.ts",
     ],
     server: { deps: { inline: ["convex-test"] } },
   },

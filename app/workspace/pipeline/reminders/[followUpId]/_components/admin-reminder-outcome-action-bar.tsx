@@ -13,10 +13,11 @@ import {
 } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { InfoIcon } from "lucide-react";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
 import {
-  opportunityStatusConfig,
-  type OpportunityStatus,
-} from "@/lib/status-config";
+  isReminderDealFinished,
+  type DealControlFields,
+} from "@/lib/deal-controls";
 
 // Reuse the closer-owned dialog; the backend is role-aware and stamps
 // `origin: "admin_reminder"` + `attributedCloserId: followUp.closerId`
@@ -29,20 +30,9 @@ const ReminderPaymentDialog = dynamic(() =>
   })),
 );
 
-/**
- * Terminal opportunity statuses where the reminder cannot meaningfully
- * resolve. Mirrors the closer action bar's gate so admins see the same
- * "nothing to do here" treatment.
- */
-const TERMINAL_OPPORTUNITY_STATUSES = new Set<OpportunityStatus>([
-  "payment_received",
-  "lost",
-  "no_show",
-]);
-
 type Props = {
   followUp: Doc<"followUps">;
-  opportunity: Doc<"opportunities">;
+  opportunity: DealControlFields;
   assignedCloser: MemberAvatarIdentity;
   disabled: boolean;
   onCompleted: () => void;
@@ -90,12 +80,12 @@ export function AdminReminderOutcomeActionBar({
     );
   }
 
-  // --- Branch 2: opportunity locked in terminal state --------------------
-  const statusKey = opportunity.status as OpportunityStatus;
-  if (TERMINAL_OPPORTUNITY_STATUSES.has(statusKey)) {
-    const statusLabel =
-      opportunityStatusConfig[statusKey]?.label ??
-      opportunity.status.replace(/_/g, " ");
+  // --- Branch 2: the deal is finished, the closer bar's gate -------------
+  if (isReminderDealFinished(opportunity)) {
+    const statusLabel = dealPositionLabel(
+      opportunity.position,
+      opportunity.systemLoss,
+    );
     return (
       <Card>
         <CardHeader>

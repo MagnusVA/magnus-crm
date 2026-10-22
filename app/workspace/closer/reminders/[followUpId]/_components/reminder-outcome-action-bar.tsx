@@ -13,10 +13,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { ArrowRightIcon, InfoIcon } from "lucide-react";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
 import {
-	opportunityStatusConfig,
-	type OpportunityStatus,
-} from "@/lib/status-config";
+	isReminderDealFinished,
+	type DealControlFields,
+} from "@/lib/deal-controls";
 
 /**
  * Lazy-load the three outcome dialogs. The dialog code is only needed
@@ -46,22 +47,10 @@ const ReminderNoResponseDialog = dynamic(() =>
 
 type Props = {
 	followUp: Doc<"followUps">;
-	opportunity: Doc<"opportunities">;
+	opportunity: DealControlFields;
 	disabled: boolean;
 	onCompleted: () => void;
 };
-
-/**
- * Terminal opportunity statuses where the reminder cannot meaningfully
- * resolve. Matches design doc §14.3. Keeping the list local here (rather
- * than in `lib/status-config`) makes the intent obvious at the call site:
- * "once we've landed here, the outcome is locked in".
- */
-const TERMINAL_OPPORTUNITY_STATUSES = new Set<OpportunityStatus>([
-	"payment_received",
-	"lost",
-	"no_show",
-]);
 
 /**
  * Reminder Outcome Action Bar (Phase 5A)
@@ -73,17 +62,17 @@ const TERMINAL_OPPORTUNITY_STATUSES = new Set<OpportunityStatus>([
  *      happens when another tab (or another closer, if ever shared)
  *      completed the reminder; Convex reactivity re-renders us into
  *      this branch automatically.
- *   2. **Opportunity terminal** — the underlying opportunity has been
- *      won / lost / no-showed elsewhere. The reminder can no longer
- *      drive a status transition; surfaces a gentle alert instead of
- *      letting the closer trigger a mutation that would throw.
+ *   2. **Deal finished** — the underlying deal has been won or lost
+ *      elsewhere, a no-show included (a cancellation isn't: that deal
+ *      keeps the buttons). Surfaces a gentle alert instead of letting the
+ *      closer trigger a mutation that would throw.
  *   3. **Actionable** — renders the three outcome dialogs. Each dialog
  *      owns its own trigger button + mutation. The bar is otherwise
  *      dumb; putting the mutations inside the dialogs keeps this
  *      component route-agnostic and trivially testable.
  *
  * The bar intentionally does not pass `opportunity` into dialogs — each
- * dialog only needs `followUpId`. Centralising the terminal-status check
+ * dialog only needs `followUpId`. Centralising the finished-deal check
  * here prevents three dialogs from diverging on the same guard rail, and
  * the Convex mutations re-validate server-side as defence in depth.
  */
@@ -139,12 +128,13 @@ export function ReminderOutcomeActionBar({
 		);
 	}
 
-	// --- Branch 2: opportunity locked in terminal state (design doc §14.3) ----
-	const statusKey = opportunity.status as OpportunityStatus;
-	if (TERMINAL_OPPORTUNITY_STATUSES.has(statusKey)) {
-		const statusLabel =
-			opportunityStatusConfig[statusKey]?.label ??
-			opportunity.status.replace(/_/g, " ");
+	// --- Branch 2: the deal is finished (design doc §14.3) -------------------
+	// Closed, except a deal a cancellation closed (lib/deal-controls.ts).
+	if (isReminderDealFinished(opportunity)) {
+		const statusLabel = dealPositionLabel(
+			opportunity.position,
+			opportunity.systemLoss,
+		);
 		return (
 			<Card>
 				<CardHeader>

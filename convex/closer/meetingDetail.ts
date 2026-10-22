@@ -15,6 +15,7 @@ import {
 } from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
 import { loadActiveFollowUpSummary } from "../lib/activeFollowUp";
+import { loadPendingRescheduleLink } from "../opportunities/dealState";
 import { dealLabelOf, meetingDealLabelOf } from "../opportunities/stageLabels";
 
 type MeetingHistoryEntry = Doc<"meetings"> &
@@ -99,6 +100,7 @@ export const getMeetingDetail = query({
       activeFollowUp,
       dmAttribution,
       dealAttribution,
+      rescheduleLink,
     ] = await Promise.all([
       ctx.db
         .query("opportunities")
@@ -139,6 +141,7 @@ export const getMeetingDetail = query({
       // resolved (docs/plans/phase-3-attribution.md §6.5).
       resolveBookingDmAttribution(ctx, { tenantId, opportunity, meeting }),
       buildDealAttributionDetail(ctx, opportunity),
+      loadPendingRescheduleLink(ctx, opportunity._id),
     ]);
 
     const opportunityById = new Map<Id<"opportunities">, Doc<"opportunities">>(
@@ -335,8 +338,15 @@ export const getMeetingDetail = query({
 
     return {
       meeting,
-      // The header badge reads the stage and outcome (docs/plans/phase-5-deal-status.md §6.1).
-      opportunity: { ...opportunity, ...dealLabelOf(opportunity) },
+      // The header badge reads the stage and outcome, and the page's controls
+      // read them with the pending reschedule link, which with a Follow-up
+      // deal is today's `reschedule_link_sent` (docs/plans/phase-5-deal-status.md
+      // §6.1, §6.4; lib/deal-controls.ts).
+      opportunity: {
+        ...opportunity,
+        ...dealLabelOf(opportunity),
+        rescheduleLinkPending: rescheduleLink.count > 0,
+      },
       lead,
       assignedCloser: assignedCloserSummary,
       meetingHistory,

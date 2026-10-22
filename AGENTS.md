@@ -15,7 +15,7 @@ The package manager is pnpm. Install with `pnpm install`, and run scripts with `
 | `pnpm build` / `pnpm start` | Builds and serves production Next.js |
 | `pnpm typecheck` | Generates Next.js route types, then runs TypeScript 7 (`tsgo`) with `--noEmit` on the app and on `convex/tsconfig.json` |
 | `pnpm lint` | Runs ESLint with the Next.js core web vitals and TypeScript configs |
-| `pnpm test` | Runs Vitest over `convex/**/*.test.ts` and `lib/operations-reports/**/*.test.ts` |
+| `pnpm test` | Runs Vitest over `convex/**/*.test.ts` and `lib/**/*.test.ts` |
 | `pnpm expose` | Opens an ngrok tunnel from a fixed public URL to `localhost:3000` |
 
 CI (`.github/workflows/ci.yml`) runs `pnpm lint`, `pnpm typecheck`, and `pnpm test` as parallel jobs on every pull request and every push to `main`. Lint warnings don't fail the build; errors do.

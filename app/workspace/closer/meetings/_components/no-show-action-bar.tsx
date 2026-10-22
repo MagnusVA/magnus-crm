@@ -69,8 +69,9 @@ export function NoShowActionBar({
       });
 
       // Lift the URL to page level. NoShowActionBar will unmount due to
-      // reactivity (opportunity status is now reschedule_link_sent), but
-      // RescheduleLinkDisplay will render the link at the page level.
+      // reactivity (the deal is now Follow-up with a pending reschedule
+      // link), but RescheduleLinkDisplay will render the link at the page
+      // level.
       onRescheduleLinkCreated?.(result.schedulingLinkUrl);
 
       toast.success("Reschedule link generated. Copy and send it to the lead.");

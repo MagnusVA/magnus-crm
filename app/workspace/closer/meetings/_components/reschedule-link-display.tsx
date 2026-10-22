@@ -74,8 +74,9 @@ export function RescheduleLinkDisplay({
 }
 
 /**
- * Shown when opportunity.status === "reschedule_link_sent" but the closer
- * doesn't have the link URL in local state (navigated away and came back).
+ * Shown on a Follow-up deal with a pending reschedule link
+ * (`isWaitingOnRescheduleLink`) when the closer doesn't have the link URL in
+ * local state (navigated away and came back).
  */
 export function RescheduleLinkSentBanner() {
   return (

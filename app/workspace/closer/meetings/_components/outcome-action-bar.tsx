@@ -13,6 +13,11 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { ExternalLinkIcon, UserXIcon } from "lucide-react";
 import { useOutcomeEligibility } from "@/hooks/use-outcome-eligibility";
+import {
+  isAwaitingOutcome,
+  isClosedByNoShow,
+  type DealControlFields,
+} from "@/lib/deal-controls";
 
 const MarkLostDialog = dynamic(() =>
   import("./mark-lost-dialog").then((m) => ({ default: m.MarkLostDialog })),
@@ -39,7 +44,7 @@ type ActiveFollowUpSummary = {
 
 type OutcomeActionBarProps = {
   meeting: Doc<"meetings">;
-  opportunity: Doc<"opportunities">;
+  opportunity: Pick<Doc<"opportunities">, "_id"> & DealControlFields;
   viewerRole: Doc<"users">["role"];
   payments: Doc<"paymentRecords">[];
   activeFollowUp?: ActiveFollowUpSummary | null;
@@ -63,11 +68,12 @@ export function OutcomeActionBar({
     viewerRole === "tenant_master" || viewerRole === "tenant_admin";
   const eligible = useOutcomeEligibility(meeting);
   const joinUrl = meeting.meetingJoinUrl ?? meeting.zoomJoinUrl;
-  const isNoShow = opportunity.status === "no_show";
+  // A deal a no-show closed has its own bar (NoShowActionBar).
+  const isNoShow = isClosedByNoShow(opportunity);
   const hasActiveFollowUp = activeFollowUp !== null;
   const canRecordScheduledOutcome =
     meeting.status === "scheduled" &&
-    opportunity.status === "scheduled" &&
+    isAwaitingOutcome(opportunity) &&
     (viewerIsCloser || isAdmin) &&
     (isAdmin || eligible) &&
     !hasActiveFollowUp;
