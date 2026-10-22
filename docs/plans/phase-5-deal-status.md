@@ -1,6 +1,6 @@
 # Phase 5: deal status
 
-Status: accepted, 2026-10-21. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted the recommendations in §11, answered Q1 to Q6 (§11.1), approved the ADR changes in §11.2 and every production run in §9 and §10. The answer to Q2 replaced the first plan's rebook task and its open Follow-up deals with D16: a missed meeting ends the deal. No PR has merged yet.
+Status: done, 2026-10-22. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted the recommendations in §11, answered Q1 to Q6 (§11.1), approved the ADR changes in §11.2 and every production run in §9 and §10; the answer to Q2 replaced the first plan's rebook task with D16, a missed meeting ends the deal. PRs #165 to #178 are merged (#165 is this plan; #169 is the loss index fix the parity run found), and every run in §13 passed, through the clears after PR 9. #178, the narrow, drops `opportunities.status`, its copies, its nine indexes, the `opportunityByStatus` aggregate and the `tenantStats` deal counters; its deploy and the checks after it are in §13.
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (finding F2, the target model's "Stage and status on the deal" and "How today's statuses map" in §6, the anti-pattern "Appointment outcomes as deal stages" in §8) and the Phase 5 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md): this file says deal stage, outcome, attendance or task, and says "status" only for today's `opportunities.status` field. Phase 4 is in [phase-4-customers.md](phase-4-customers.md).
 
@@ -593,8 +593,55 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 
 | PR | What | Deployed |
 | --- | --- | --- |
+| #165 | the plan | docs, merged 10-22 05:17 |
+| #166 | PR 1: stage and outcome beside the status, `opportunityByStage`, the backfill and assert | 10-22 06:03 |
+| #167 | PR 2: a missed meeting ends the deal; the rescheduled flag and its backfill | 10-22 05:41 (before #166; it works in statuses) |
+| #168 | PR 3: `dealState.ts`, the qualification row stages, the stage-way report numbers and the parity queries | 10-22 06:41 |
+| #169 | the stage-way loss read and the No-shows list read from activity, not `lostAt` (found by the parity run) | 10-22 07:01 |
+| #170 | PR 4: labels, the person page, meeting and reminder labels, the booking review and Slack, event labels, person search | 10-22 07:27 |
+| #171 | PR 5: the closer pipeline, strip and calendar | 10-22 07:44 |
+| #174 | PR 7b: the booking rules on the stage | 10-22 08:17 |
+| #173 | PR 7c: the meeting and reminder page controls | 10-22 08:20 |
+| #172 | PR 6: reports and operations, the No-shows and cancellations page | 10-22 08:39 |
+| #175 | PR 7a: the action guards on the stage | 10-22 09:07 |
+| #176 | PR 8: the transition and the state machine on stages, `opportunity.stage_changed` | 10-22 09:35 |
+| #177 | PR 9: stop writing the status and its copies; the clears | 10-22 10:07 |
+| #178 | PR 10: the narrow; ADR 0001, `CONTEXT.md`, the review's cards, this record | see §13.3 |
 
 ### 13.3 Runs
 
 | When | Run | Result |
 | --- | --- | --- |
+| 10-22 05:42 | `backfillCancelRescheduledFlags` dry run, run | 200, nothing committed; then done, 1,696 stored webhooks: 114 of 535 cancel facts flagged |
+| 10-22 05:42 | `assertCancelRescheduledFlags` | passed, 1,696 |
+| 10-22 05:43 to 05:53 | `assertBookingAttributions`, `assertDealAttributions`, `assertPersonTouches` (reset), after PR 2 | passed: 6,868 meetings, 11,524 deals, 90,631 people |
+| 10-22 06:03 | read-only count before the backfill | 11,525 deals (2,020 canceled, 167 follow-up, 4,545 lost, 487 no-show, 283 won, 1,231 qualified, 2,792 scheduled), none with a stage, no canceled or no-show deal with a loss |
+| 10-22 06:03 | `backfillDealStages` dry run, run | 200, nothing committed; then done 06:04, 11,525 |
+| 10-22 06:05 | `assertDealStages` | passed, 11,525 |
+| 10-22 06:10 | `backfillOpportunityByStage` dry run, run; `verifyStageCounts` | 200, nothing committed; then done, 11,525; `ok`: Qualified 1,231, Booked 2,791, Call held 1, Follow-up 167, Won 283, Lost 7,052, both ways |
+| 10-22 06:41 | `assertDealStages` (reset), with `legacyStatus` | passed, 11,525 |
+| 10-22 06:43 | `rebuildQualificationRows` (reset) dry run, run; `assertQualificationRowsCurrent` (reset) | 100, nothing committed; then done, 8,606 events; passed 06:44 |
+| 10-22 06:45 to 07:10 | `compareDealState` | 11,525 deals, no mismatch |
+| 10-22 06:45 to 07:10 | `compareStageCounts` | no difference, tenant-wide and for 21 closers |
+| 10-22 06:45 to 07:10 | `comparePipelineHealth`, the last 30 days | aging, stale list (3,941) and velocity (157 won, 4.35 days) equal; the aging scan read 4,190 deals, 5.4 MB. Loss attribution differed (35 against 54): the stage way's `lostAt` read filled its cap with about 4,000 Slack expiries. Fixed by #169 |
+| 10-22 06:45 to 07:10 | `compareQualificationQueue`, 52 four-day ranges from 2026-04 | no difference, none truncated: Qualified 1,244, Booked and Call held 1,310, Follow-up 98, Won 143, Lost 5,811 |
+| 10-22 06:58 | `assertOpportunitySourceAndActivityBackfilled` (reset), before #169 | passed, 11,525: every deal has `latestActivityAt` |
+| 10-22 06:45 to 07:10 | `compareTeamOutcomes`, `compareCloseRates`, each month 2026-04 to 2026-10 | no difference: 6,865 meetings; every closer's won and lost |
+| 10-22 07:02 | `comparePipelineHealth` after #169, the last 30 days and each month 2026-04 to 2026-10 | no difference; loss attribution 54 both ways, 450 rows read. April to July both ways stop at their read caps, as before |
+| 10-22 07:27 | `backfillLeadCustomerSearchRows` (reset) dry run, run; `assertLeadCustomerSearchRowsBackfilled` (reset) | 100, nothing committed; then done 07:48, 90,840 people; passed, 90,841 |
+| 10-22 07:36 | read-only check | no deal without a stage or outcome; `verifyStageCounts` `ok` |
+| 10-22 08:41 | `rebuildQualificationRows` (reset), after PR 6; `assertQualificationRowsCurrent` (reset) | done, 8,606; passed 08:42 |
+| 10-22 09:07 to 09:58 | after PR 7: `assertDealStages`, `assertBookingAttributions`, `assertDealAttributions`, `assertEnrollments`, `assertPaymentEnrollments`, `assertPersonTouches`, `assertLeadLifecycle` (reset) | passed: 11,525 deals, 6,869 meetings, 11,525 deals, 283 enrollments, 288 payments, 90,847 people, 90,848 people |
+| 10-22 09:36 | `assertDealStages` (reset), after PR 8 | passed, 11,525 |
+| 10-22 10:07 | search of the deployed commit (`13f922e`) for readers of the status and its copies | none outside the schema and the clears |
+| 10-22 10:08 | `assertDealStages` (reset), after PR 9 | passed, 11,525 |
+| 10-22 10:09 | `clearDealStatus` dry run, run; `assertDealStatusCleared` | 200, nothing committed; then done, 11,525; passed |
+| 10-22 10:21 | `clearOpportunitySearchStatus` run; `assertOpportunitySearchStatusCleared` | done, 11,525; passed. Its dry run didn't run (a quoting error in the operator's script); the assert passed, and every clear after it ran its dry run first |
+| 10-22 10:22 | `clearMeetingOpportunityStatus` dry run, run; assert | 200, nothing committed; then done, 6,869; passed |
+| 10-22 10:23 | `clearQualificationRowStatus` dry run, run; assert | 200, nothing committed; then done, 8,606; passed |
+| 10-22 10:24 | `clearLegacyDailyStatsStatus` dry run, run; assert | 200, nothing committed; then done, 5,761; passed |
+| 10-22 10:27 | `rebuildMeetingProjections` (reset) dry run, run | 32, nothing committed; then 6,869 queued, applied by 10:44 with none failed |
+| 10-22 10:40 | `clearOpportunityByStatus` dry run, run, dry run | 11,525 entries in 1 namespace; cleared; then 0 |
+| 10-22 10:40 | `clearTenantStatusCounters` dry run, run, dry run | 1 row; cleared; then 0 |
+| 10-22 10:45 | `assertMeetingProjections`, `assertMeetingProjectionBuckets` (reset) | passed: 6,869 projections, 3,646 buckets (3,896 before), none holding the deal status |
+| 10-22 10:49 | read-only check before the narrow | no deal with `status` and none without a stage or outcome; no search row, meeting, qualification row, legacy stats row or `tenantStats` row holds a removed field |
