@@ -267,9 +267,14 @@ it("control: the same reschedule of a tracked closer booking moves the opportuni
   const { original, canceled, replacement } = incidentAPayloads(CLOSER);
   await h.deliver("invitee.created", original, "2026-10-08T04:27:44Z");
   await h.deliver("invitee.canceled", canceled, "2026-10-12T16:27:13Z");
+  const created = await h.receipt("invitee.created", original);
+  // The cancel is flagged `rescheduled`, so it cancels the meeting and leaves
+  // the deal scheduled (it used to pass the deal through canceled).
+  expect(await h.t.run((ctx) => ctx.db.get("opportunities", created.opportunityId!))).toMatchObject({
+    status: "scheduled",
+  });
   await h.deliver("invitee.created", replacement, "2026-10-12T16:27:16Z");
 
-  const created = await h.receipt("invitee.created", original);
   expect(created).toMatchObject({ status: "applied" });
   expect(await h.receipt("invitee.canceled", canceled)).toMatchObject({ status: "applied" });
   expect(await h.receipt("invitee.created", replacement)).toMatchObject({
@@ -497,9 +502,12 @@ it("incident B recovery: retrying the legacy creates applies them and settles th
   // Admin reviews and retries in provider order (as of 2026-10-13).
   vi.setSystemTime(Date.parse("2026-10-13T12:00:00Z"));
   await h.retry((await h.receipt("invitee.created", p.rebooked))._id);
-  expect(await h.receipt("invitee.created", p.rebooked)).toMatchObject({
-    status: "applied", opportunityId: trackedOpportunityId,
-  });
+  // The rebooking used to rejoin the canceled deal (the 14-day reschedule
+  // join). A cancellation ends the deal now, so the rebooking is a new deal.
+  const rebooked = await h.receipt("invitee.created", p.rebooked);
+  expect(rebooked).toMatchObject({ status: "applied" });
+  expect(rebooked.opportunityId).not.toBe(trackedOpportunityId);
+  expect(await h.t.run((ctx) => ctx.db.get("opportunities", trackedOpportunityId))).toMatchObject({ status: "canceled" });
   await h.retry((await h.receipt("invitee.created", p.lost))._id);
   const lost = await h.receipt("invitee.created", p.lost);
   expect(lost).toMatchObject({ status: "applied" });
@@ -597,18 +605,23 @@ it("incident C: a late booking doesn't take a deal that became a follow-up after
 it("incident C guard: a booking stays held when a deal it could have taken changed after it", async () => {
   const h = await setup();
   const { old, rebooked } = incidentCPayloads();
-  const canceledEarly = inviteePayload({
-    ...C_OLD, ...LEAD_C, host: CLOSER, start: "2026-10-14T18:30:00Z", end: "2026-10-14T19:00:00Z",
-    canceled: { at: "2026-10-14T05:00:00Z" },
-  });
   const later = inviteePayload({
     ...C_LATER, ...LEAD_C, host: CLOSER, start: "2026-10-15T18:30:00Z", end: "2026-10-15T19:00:00Z",
   });
-  // The old deal is canceled before the rebooking happens, so the rebooking
-  // would have rescheduled it. A later booking took the deal first.
+  // The old deal waits on a follow-up before the rebooking happens, so the
+  // rebooking would have joined it. A later booking took the deal first.
+  // (This guard used a canceled deal, which the 14-day reschedule join took.
+  // No booking without a link joins a canceled deal now, so a follow-up deal
+  // is the one it could have taken.)
   await h.deliver("invitee.created", old, "2026-10-14T01:00:23Z");
-  await h.deliver("invitee.canceled", canceledEarly, "2026-10-14T05:00:00Z");
+  const { opportunityId } = await h.receipt("invitee.created", old);
+  const at = Date.parse("2026-10-14T05:00:00Z");
+  vi.setSystemTime(Math.max(Date.now(), at));
+  await h.t.run((ctx) => transitionOpportunity(ctx, opportunityId!, {
+    to: "follow_up_scheduled", source: "closer", occurredAt: at, fields: { updatedAt: at },
+  }));
   await h.deliver("invitee.created", later, "2026-10-14T12:00:00Z");
+  expect(await h.receipt("invitee.created", later)).toMatchObject({ status: "applied", opportunityId });
   await h.deliver("invitee.created", rebooked, "2026-10-14T09:13:23Z");
   expect(await h.receipt("invitee.created", rebooked)).toMatchObject({
     status: "blocked", reason: "historical_booking_requires_review",

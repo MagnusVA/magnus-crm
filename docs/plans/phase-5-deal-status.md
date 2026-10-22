@@ -440,7 +440,7 @@ PRs 4, 5 and 6 can merge in any order after PR 3. Each moves one set of screens.
 Production runs, in this order (§10.7 has the commands):
 
 1. After PR 1: `backfillDealStages` dry run, run, then `assertDealStages`; `backfillOpportunityByStage` (the aggregate), then `verifyStageCounts`.
-2. After PR 2: `assertDealStages` (reset), which now also rebuilds the status from the new fields; `assertBookingAttributions`, `assertDealAttributions` and `assertPersonTouches`, since bookings now create deals the join used to take.
+2. After PR 2: `backfillCancelRescheduledFlags` dry run, run, then `assertCancelRescheduledFlags`, straight after the deploy; `assertBookingAttributions`, `assertDealAttributions` and `assertPersonTouches`, since bookings now create deals the join used to take.
 3. After PR 3: `rebuildQualificationRows` (reset), then `assertQualificationRowsCurrent` (reset); the parity queries.
 4. After PR 4: `backfillLeadCustomerSearchRows` (reset), then `assertLeadCustomerSearchRowsBackfilled` (reset), in the background (about 20 minutes over 90,000 people). After PRs 4 to 6: a read-only recheck of the numbers each one shows.
 5. After PR 7: `assertDealStages` (reset); `assertLeadLifecycle` in the background (about an hour), since the lifecycle code changed; `assertBookingAttributions`, `assertDealAttributions` and `assertPersonTouches`, since the booking pipeline changed; `assertEnrollments` and `assertPaymentEnrollments`, since the payment paths changed.
@@ -490,7 +490,9 @@ Both ways of each number are functions beside the reader that shows it, and PR 9
 
 ### 10.5 Missed meetings (PR 2)
 
-No backfill: PR 1 already closed the 2,502 deals, and the rules apply to bookings from PR 2's deploy. There are no `scheduling_link` rows, so no stale reschedule link to expire. `assertDealStages` (reset) checks the rebuilt status on every deal after the deploy.
+PR 1 already closed the 2,502 deals, and the rules apply to bookings from PR 2's deploy. There are no `scheduling_link` rows, so no stale reschedule link to expire.
+
+One gap needs a backfill. A cancel's booking fact recorded before PR 2 has no `rescheduled` flag, so if the original booking of a reschedule is applied late (a held delivery retried), it reads the cancel as a plain one and cancels the deal. `backfillCancelRescheduledFlags`, over `rawWebhookEvents`, batch 200, sets the flag on the fact of every stored `invitee.canceled` that Calendly flagged, found under the URIs the processor records it with; it writes nothing else. `assertCancelRescheduledFlags` checks none is left. Production holds 113 flagged cancels among the latest 375 stored; resolved deliveries lose their payload after 30 days, and those cancels were already applied, so the facts that can still matter are the ones the backfill reaches.
 
 ### 10.6 The clears (PR 9)
 

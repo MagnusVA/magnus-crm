@@ -858,3 +858,47 @@ export const assertPaymentEnrollments = migrations.define({
     }
   },
 });
+
+// Phase 5, PR 2 (docs/plans/phase-5-deal-status.md §10.5). A cancel fact
+// recorded before `calendlyBookingFacts.rescheduled` existed lacks Calendly's
+// flag, so the late booking of a reschedule's cancel would cancel its deal.
+// These read the flag from the stored cancel and find its fact under the URIs
+// the processor records it with (`deliveryMetadata`'s scheduled event, the
+// row's invitee). A cancel with no fact is skipped: the fact is written when
+// the delivery is processed, flag included. A payload that doesn't parse has
+// no event URI, so it is skipped too.
+
+/** The fact of a stored cancel that Calendly flagged `rescheduled`. */
+async function rescheduledCancelFact(ctx: MutationCtx, raw: Doc<"rawWebhookEvents">) {
+  if (raw.eventType !== "invitee.canceled") return null;
+  const { eventUri, payload } = await deliveryMetadata(raw);
+  if (!eventUri || payload?.rescheduled !== true) return null;
+  return await ctx.db
+    .query("calendlyBookingFacts")
+    .withIndex("by_tenantId_and_eventUri_and_inviteeUri", (q) =>
+      q.eq("tenantId", raw.tenantId).eq("eventUri", eventUri).eq("inviteeUri", raw.calendlyEventUri),
+    )
+    .unique();
+}
+
+export const backfillCancelRescheduledFlags = migrations.define({
+  table: "rawWebhookEvents",
+  batchSize: 200,
+  migrateOne: async (ctx, raw) => {
+    const fact = await rescheduledCancelFact(ctx, raw);
+    if (fact && fact.rescheduled !== true) {
+      await ctx.db.patch("calendlyBookingFacts", fact._id, { rescheduled: true });
+    }
+  },
+});
+
+export const assertCancelRescheduledFlags = migrations.define({
+  table: "rawWebhookEvents",
+  batchSize: 200,
+  migrateOne: async (ctx, raw) => {
+    const fact = await rescheduledCancelFact(ctx, raw);
+    if (fact && fact.rescheduled !== true) {
+      throw new Error(`Raw event ${raw._id}: cancel fact ${fact._id} has no rescheduled flag`);
+    }
+  },
+});

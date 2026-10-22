@@ -103,6 +103,9 @@ export const pipelineTables = {
     inviteeUri: v.string(),
     canceledAt: v.optional(v.number()),
     cancellationReason: v.optional(v.string()),
+    // The cancel's own `rescheduled` flag: Calendly moved the booking to a new
+    // invitee, whose invitee.created names this one in `old_invitee`.
+    rescheduled: v.optional(v.boolean()),
     noShowAt: v.optional(v.number()),
     noShow: v.optional(v.boolean()),
   }).index("by_tenantId_and_eventUri_and_inviteeUri", [
