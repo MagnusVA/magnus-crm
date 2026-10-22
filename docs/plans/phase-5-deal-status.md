@@ -240,7 +240,7 @@ From PR 8 the transition takes a stage and an outcome, and the state machine mov
 | Closed lost | Follow-up, only with `missed_meeting_next_step` | `no_show` → `reschedule_link_sent`, `follow_up_scheduled`; `canceled` → `follow_up_scheduled` |
 | Closed lost | Booked, only with `no_show_withdrawn` | `no_show` → `scheduled` from Calendly |
 
-Each exception checks the loss it reopens: `missed_meeting_next_step` and `no_show_withdrawn` take only a deal the system closed with `no_show` or `canceled`, and `slack_stale_rejoin` only one closed with `stale`. A Calendly move between no-show and canceled on a closed deal patches the reason through `patchOpportunityLifecycle`, with the same `updatedAt`, `canceledAt`, `cancellationReason` and `noShowAt` it writes today: `updatedAt` decides which late bookings are held for review. The `calendly_webhook` exception goes.
+Each exception checks the loss it reopens: `missed_meeting_next_step` and `no_show_withdrawn` take only a deal the system closed with `no_show` or `canceled`, and `slack_stale_rejoin` only one the system closed with `stale` (until PR 8 a person's free-text "stale" also passed; production has none, §2.4). A Calendly move between no-show and canceled on a closed deal patches the reason through `patchOpportunityLifecycle`, with the same `updatedAt`, `canceledAt`, `cancellationReason` and `noShowAt` it writes today: `updatedAt` decides which late bookings are held for review. The `calendly_webhook` exception goes.
 
 ### 4.5 Where each part of the status goes
 
@@ -268,7 +268,7 @@ Each status a guard or booking rule tests becomes a test of the stage, the outco
 
 ### 4.7 Events
 
-From PR 8, `transitionOpportunity` emits `opportunity.stage_changed` for every move, with `fromStatus` and `toStatus` holding the stages and the outcomes in its metadata (`fromOutcome`, `toOutcome`). A loss keeps the type `opportunity.marked_lost`, with the same fields and the reason. A Calendly move between no-show and canceled on a closed deal emits only its meeting event. Until PR 8 the events stay as they are.
+From PR 8, `transitionOpportunity` emits `opportunity.stage_changed` for every move, with `fromStatus` and `toStatus` holding the stages and the outcomes in its metadata (`fromOutcome`, `toOutcome`). A loss keeps the type `opportunity.marked_lost`, with the same fields and the reason. A Calendly move between no-show and canceled on a closed deal emits `opportunity.stage_changed` from Closed to Closed, lost to lost, with the new reason, beside its meeting event: `pipeline/bookingHistory.ts` reads the deal's events, and without one a late booking for that person would be held for review. Until PR 8 the events stay as they are.
 
 The 5,488 `opportunity.status_changed` and 4,540 `opportunity.marked_lost` events keep the statuses they recorded. Every reader learns both forms (D7):
 
