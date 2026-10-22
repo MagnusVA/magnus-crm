@@ -1,5 +1,10 @@
 import { DirectAggregate, TableAggregate } from "@convex-dev/aggregate";
 import type { LifecycleStage } from "../leads/lifecycle";
+import {
+  dealStageOf,
+  type DealOutcome,
+  type DealStage,
+} from "../opportunities/stages";
 import { components } from "../_generated/api";
 import type { DataModel, Doc, Id } from "../_generated/dataModel";
 
@@ -54,6 +59,24 @@ export const opportunityByStatus = new TableAggregate<{
     doc.assignedCloserId ?? "",
     doc.createdAt,
   ],
+});
+
+// Deals by stage and outcome (docs/plans/phase-5-deal-status.md §3.1). A deal
+// the backfill hasn't reached takes its stage and outcome from its status, so
+// its entry doesn't move when the backfill writes them. Until the backfill and
+// verifyStageCounts pass, the write hooks use the IfExists methods: a strict
+// replace throws for a deal not yet in the aggregate.
+export const opportunityByStage = new TableAggregate<{
+  Namespace: Id<"tenants">;
+  Key: [DealStage, DealOutcome, OpportunityAssignedCloserKey, number];
+  DataModel: DataModel;
+  TableName: "opportunities";
+}>(components.opportunityByStage, {
+  namespace: (doc) => doc.tenantId,
+  sortKey: (doc) => {
+    const { stage, outcome } = dealStageOf(doc);
+    return [stage, outcome, doc.assignedCloserId ?? "", doc.createdAt];
+  },
 });
 
 function slackQualificationSubmittedAt(doc: Doc<"opportunities">): number {
