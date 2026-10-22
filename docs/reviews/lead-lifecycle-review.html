@@ -711,35 +711,37 @@
   </div>
 </div>
 <div class="phase">
-  <div class="tag">Phase 5<span>deal status, next</span></div>
+  <div class="tag">Phase 5<span>deal status, done</span></div>
   <div>
     <h3>Split the opportunity status</h3>
-    <div class="meta"><span class="pill high">Highest risk</span><span class="pill low">Widen, dual-write, narrow</span></div>
+    <div class="meta"><span class="pill good">Done, #165 to #178</span><span class="pill low">Widen, dual-write, narrow</span></div>
     <ul>
-      <li>Add <code>stage</code> and <code>outcome</code> (open, won, lost) beside the old status, written from <code>transitionOpportunity</code>.</li>
-      <li>The funnel is locked (decision 5), so stages stay literals in code. Define them once, in one module, with an open, won or lost category on each. That keeps configurable pipelines a contained change if they are ever needed.</li>
-      <li>Move readers one dashboard at a time: aggregates keyed by status, projections, reports, the closer pipeline. Narrow last, in the same phase.</li>
-      <li><strong>Ends with:</strong> <code>opportunities.status</code> and its seven copies gone, every reader on stage and outcome, and the stage list defined once in one module.</li>
+      <li>Every deal has a <code>stage</code> (Qualified, Booked, Call held, Follow-up, Closed) and an <code>outcome</code> (open, won, lost). Each stage allowed outcome open, except Closed, which allowed won or lost; screens showed six positions, with Closed split into Won and Lost.</li>
+      <li>One module, <code>convex/opportunities/stages.ts</code>, held the stages, the outcomes, the labels, the loss codes the system writes and the stage machine. <code>transitionOpportunity</code> moved every deal through it, and each move the machine refuses but the business needs became a named exception there.</li>
+      <li>A missed meeting ended the deal (decided with the tenant admin on 21 October): a no-show or cancellation closed it as lost with that reason, and a later booking became a new deal unless Calendly moved the same booking, the closer sent a reschedule link or set a follow-up, or Calendly withdrew the no-show. The 14-day reschedule join went. Operations got a No-shows and cancellations list of those deals, with contact details and a CSV export, for the team's outreach.</li>
+      <li>Readers moved one set of screens at a time, each compared both ways in production first: the labels and the person page, the closer pipeline, dashboard and calendar, the reports and operations pages, then the guards and booking rules. Attendance stayed on the meeting, and the pending reschedule link stayed a task.</li>
+      <li><strong>Ended with:</strong> a stage and an outcome on every deal, required by the schema, and <code>opportunities.status</code> and its seven copies gone: the search row, meeting, qualification row, meeting bucket and legacy daily stats copies, the <code>opportunityByStatus</code> aggregate and the <code>tenantStats</code> deal counters, with the nine status indexes (<a href="../plans/phase-5-deal-status.md">plan</a>). Report numbers are unchanged, apart from the screens that listed statuses showing the merged positions, where Lost holds the canceled and no-show deals.</li>
     </ul>
   </div>
 </div>
 <div class="phase">
-  <div class="tag">Phase 6<span>runtime cleanup</span></div>
+  <div class="tag">Phase 6<span>runtime cleanup, next</span></div>
   <div>
     <h3>The runtime fixes from F11</h3>
     <div class="meta"><span class="pill good">Low risk</span><span class="pill low">Narrow</span></div>
     <ul>
-      <li>Move the counters in <code>tenantStats</code> into the aggregate components that already exist, or shard the document, so bookings stop conflicting with each other and with dashboards.</li>
+      <li>Move the counters left in <code>tenantStats</code> into the aggregate components that already exist, or shard the document, so bookings stop conflicting with each other and with dashboards. Phase 5 dropped the deal counters by status.</li>
       <li>Bound the open loops in <code>adminStats</code> and the closer dashboard with aggregates.</li>
-      <li>Drop the roughly 24 unused indexes and the dead fields (<code>meetingOutcome</code>, <code>meetings.notes</code>, the legacy daily stats table), including the closer × source × status index combinations that Phase 5 frees.</li>
+      <li>Drop the roughly 24 unused indexes and the dead fields (<code>meetingOutcome</code>, <code>meetings.notes</code>, the legacy daily stats table, and the deal's copies of the meeting's times, <code>opportunities.canceledAt</code> and <code>noShowAt</code>). Phase 5 already dropped the status indexes.</li>
+      <li>Make the meeting record attendance only: <code>completed</code> becomes held, the time a closer recorded the result gets its own field, and the marked no-shows lose their <code>completedAt</code>. That touches the <code>meetingsByStatus</code> aggregate, the meeting buckets, the show-rate reports, the calendar and the lifecycle's Showed.</li>
       <li>Pick one definition of "day" per screen and say which one in the UI.</li>
       <li>Count the activity report's summary from an aggregate instead of reading up to 10,000 events. Phase 2's touch events, about 1,000 a day, cut it off for ranges longer than about nine days.</li>
-      <li><strong>Ends with:</strong> no item from F11 open, and the activity summary counts every event in its range.</li>
+      <li><strong>Ends with:</strong> no item from F11 open, the activity summary counts every event in its range, and a meeting is scheduled, held, no-show or canceled, with its recorded-at time.</li>
     </ul>
   </div>
 </div>
 </div>
-<p>Phases 0 to 2 deliver the reporting you asked for. Every capture is a person, and prospect-to-customer conversion by lead gen worker becomes one query. Phase 1 had to ship before phase 2, or the leads report would count every Instagram capture as a new lead. Phases 4 and 5 don't depend on each other and can swap. Phase 6 runs last, because Phase 5 frees the indexes it drops. Configurable pipelines are off the roadmap until a tenant needs a different funnel.</p>
+<p>Phases 0 to 2 deliver the reporting you asked for. Every capture is a person, and prospect-to-customer conversion by lead gen worker becomes one query. Phase 1 had to ship before phase 2, or the leads report would count every Instagram capture as a new lead. Phases 4 and 5 don't depend on each other and can swap. Phase 6 runs last, because it drops what the earlier phases leave dead. Configurable pipelines are off the roadmap until a tenant needs a different funnel.</p>
 
 <!-- ============================================================ -->
 <h2 id="avoid"><span class="num">8</span>What not to copy</h2>
