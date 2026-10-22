@@ -21,15 +21,19 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { SortableHeader } from "@/components/sortable-header";
-import { StatusBadge } from "@/components/status-badge";
+import { DealStageBadge } from "@/components/status-badge";
 import { useTableSort } from "@/hooks/use-table-sort";
-import type { Id } from "@/convex/_generated/dataModel";
+import type { Doc, Id } from "@/convex/_generated/dataModel";
+import { dealLabelOf } from "@/convex/opportunities/stageLabels";
 import type { OpportunityStatus } from "@/lib/status-config";
 import { ExternalLinkIcon, InboxIcon } from "lucide-react";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
-export interface PipelineOpportunity {
+export interface PipelineOpportunity
+  extends Partial<
+    Pick<Doc<"opportunities">, "source" | "stage" | "outcome" | "lostReason" | "lostByUserId">
+  > {
   _id: Id<"opportunities">;
   leadId: Id<"leads">;
   status: OpportunityStatus;
@@ -243,7 +247,7 @@ export function OpportunitiesTable({
                     </TableCell>
                   ) : null}
                   <TableCell>
-                    <StatusBadge status={opp.status} />
+                    <PipelineDealBadge opportunity={opp} />
                   </TableCell>
                   <TableCell className="font-mono text-sm tabular-nums text-muted-foreground">
                     {displayMeetingAt ? formatDate(displayMeetingAt) : "—"}
@@ -297,4 +301,10 @@ export function OpportunitiesTable({
       )}
     </div>
   );
+}
+
+/** The row's deal stage badge, read from the deal's stage and outcome. */
+function PipelineDealBadge({ opportunity }: { opportunity: PipelineOpportunity }) {
+  const { position, systemLoss } = dealLabelOf(opportunity);
+  return <DealStageBadge position={position} systemLoss={systemLoss} />;
 }

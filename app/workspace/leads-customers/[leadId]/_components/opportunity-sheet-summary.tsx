@@ -8,14 +8,11 @@ import { DeleteOpportunityDialog } from "@/app/workspace/opportunities/[opportun
 import { MarkSideDealLostDialog } from "@/app/workspace/opportunities/[opportunityId]/_components/mark-side-deal-lost-dialog";
 import { SideDealPaymentDialog } from "@/app/workspace/opportunities/[opportunityId]/_components/side-deal-payment-dialog";
 import { VoidPaymentDialog } from "@/app/workspace/opportunities/[opportunityId]/_components/void-payment-dialog";
-import { StatusBadge } from "@/components/status-badge";
+import { DealStageBadge } from "@/components/status-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/convex/_generated/api";
-import {
-	isSystemLossReason,
-	SYSTEM_LOSS_REASON_LABELS,
-} from "@/convex/opportunities/stages";
+import { SYSTEM_LOSS_REASON_LABELS } from "@/convex/opportunities/stages";
 import { TruncatingTooltip } from "../../_components/entity-ui-tooltips";
 import {
 	formatDate,
@@ -50,7 +47,10 @@ export function OpportunitySheetSummary({
 				<div className="flex flex-wrap items-center justify-between gap-3">
 					<div className="flex flex-wrap items-center gap-1.5">
 						<OpportunitySourceBadge source={opportunity.source} />
-						<StatusBadge status={opportunity.status} />
+						<DealStageBadge
+							position={opportunity.position}
+							systemLoss={opportunity.systemLoss}
+						/>
 						{detail.lead?.status ? (
 							<Badge variant="muted">Lead {formatToken(detail.lead.status)}</Badge>
 						) : null}
@@ -100,7 +100,7 @@ export function OpportunitySheetSummary({
 						value={
 							value.minor > 0
 								? formatMoneyMinor(value.minor, value.currency)
-								: opportunity.status === "payment_received"
+								: opportunity.position === "won"
 									? "Won"
 									: "—"
 						}
@@ -141,8 +141,10 @@ export function OpportunitySheetSummary({
 					<div className="flex flex-col gap-1 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
 						<MicroLabel className="text-destructive">Lost reason</MicroLabel>
 						<p className="wrap-break-word whitespace-pre-wrap" translate="no">
-							{isSystemLossReason(opportunity.lostReason)
-								? SYSTEM_LOSS_REASON_LABELS[opportunity.lostReason]
+							{/* A reason the system wrote shows by name; a person's
+							    text shows as written, even when it matches a code. */}
+							{opportunity.systemLoss
+								? SYSTEM_LOSS_REASON_LABELS[opportunity.systemLoss]
 								: opportunity.lostReason}
 						</p>
 					</div>

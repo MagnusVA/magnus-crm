@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { ChevronRightIcon, PanelRightOpenIcon } from "lucide-react";
 import { OpportunitySourceBadge } from "@/app/workspace/opportunities/_components/opportunity-source-badge";
-import { StatusBadge } from "@/components/status-badge";
+import { DealStageBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
-import { opportunityStatusConfig } from "@/lib/status-config";
+import { dealPositionConfig } from "@/lib/status-config";
 import { cn } from "@/lib/utils";
 import {
 	leadsCustomersTooltips,
@@ -37,8 +37,8 @@ export function EntityOpportunityRow({
 		opportunity.firstBookingProgramName ??
 		"Program not set";
 	const closerLabel = closer?.fullName ?? closer?.email ?? "Unassigned";
-	const accent = opportunityStatusConfig[opportunity.status]?.dotClass ?? "bg-border";
-	const isWon = opportunity.status === "payment_received";
+	const accent = dealPositionConfig[opportunity.position].dotClass;
+	const isWon = opportunity.position === "won";
 	const attributionId = `opp-attribution-${opportunity._id}`;
 
 	return (
@@ -51,7 +51,10 @@ export function EntityOpportunityRow({
 				<div className="flex items-start justify-between gap-3">
 					<div className="flex min-w-0 flex-col gap-1.5">
 						<div className="flex flex-wrap items-center gap-1.5">
-							<StatusBadge status={opportunity.status} />
+							<DealStageBadge
+								position={opportunity.position}
+								systemLoss={opportunity.systemLoss}
+							/>
 							<OpportunitySourceBadge source={opportunity.source ?? "calendly"} />
 							{value ? (
 								<SimpleTooltip content="Payments recorded against this opportunity">

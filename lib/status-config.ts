@@ -6,6 +6,8 @@
  * visual consistency.
  */
 
+import type { DealPosition } from "@/convex/opportunities/stages";
+
 // ─── Opportunity statuses ────────────────────────────────────────────
 
 export const OPPORTUNITY_STATUSES = [
@@ -52,7 +54,59 @@ export const TENANT_STATUSES = [
 
 export type TenantStatus = (typeof TENANT_STATUSES)[number];
 
-// ─── Opportunity display config ──────────────────────────────────────
+// ─── Deal position display config ────────────────────────────────────
+
+type DealPositionVisualConfig = {
+  /** Badge background + text classes. */
+  badgeClass: string;
+  /** Small dot or accent fill. */
+  dotClass: string;
+};
+
+/**
+ * The colours of each place a screen shows a deal (docs/plans/phase-5-deal-status.md
+ * §4.1). Keyed by the position, so a new one fails the typecheck until it
+ * has colours. Labels come from `dealPositionLabel` in
+ * `convex/opportunities/stageLabels.ts`.
+ */
+export const dealPositionConfig: Record<DealPosition, DealPositionVisualConfig> = {
+  qualified: {
+    badgeClass:
+      "bg-cyan-500/10 text-cyan-700 border-cyan-200 dark:text-cyan-400 dark:border-cyan-900",
+    dotClass: "bg-cyan-500",
+  },
+  booked: {
+    badgeClass:
+      "bg-blue-500/10 text-blue-700 border-blue-200 dark:text-blue-400 dark:border-blue-900",
+    dotClass: "bg-blue-500",
+  },
+  call_held: {
+    badgeClass:
+      "bg-indigo-500/10 text-indigo-700 border-indigo-200 dark:text-indigo-400 dark:border-indigo-900",
+    dotClass: "bg-indigo-500",
+  },
+  follow_up: {
+    badgeClass:
+      "bg-violet-500/10 text-violet-700 border-violet-200 dark:text-violet-400 dark:border-violet-900",
+    dotClass: "bg-violet-500",
+  },
+  won: {
+    badgeClass:
+      "bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-900",
+    dotClass: "bg-emerald-500",
+  },
+  lost: {
+    badgeClass:
+      "bg-red-500/10 text-red-700 border-red-200 dark:text-red-400 dark:border-red-900",
+    dotClass: "bg-red-500",
+  },
+};
+
+// ─── Opportunity status display config ───────────────────────────────
+
+// Read by the closer pipeline strip and the reminder outcome bars until
+// their phase 5 PRs move them to the deal position (PRs 5 and 7). Every
+// other deal label reads `dealPositionConfig`.
 
 type StatusVisualConfig = {
   label: string;
