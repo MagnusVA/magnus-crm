@@ -2,6 +2,7 @@ import { convexTest } from "convex-test";
 import workpool from "@convex-dev/workpool/test";
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
+import { meetingStatsTotals } from "../../tests/reportStageFixtures";
 import schema from "../schema";
 import { convexTestModules } from "../test.setup";
 
@@ -122,10 +123,11 @@ it("retains an early cancellation and applies it when the booking arrives", asyn
     await t.finishAllScheduledFunctions(vi.runAllTimers);
   }
   expect(
-    await admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+    await t.run((ctx) => meetingStatsTotals(ctx, {
+      tenantId,
       scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
       scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
-    }),
+    })),
   ).toMatchObject({ scheduled: 1, canceled: 1 });
   const receipts = (
     await admin.query(api.pipeline.delivery.list, {
@@ -314,7 +316,7 @@ it("keeps no-show reversal ordered by provider time rather than delivery time", 
   vi.useFakeTimers();
   const { bookingHarness, bookingPayload } =
     await import("../../tests/bookingHarness");
-  const { t, tenantId, admin } = await bookingHarness();
+  const { t, tenantId } = await bookingHarness();
   const payload = bookingPayload("ordered");
   for (const [eventType, created_at] of [
     ["invitee_no_show.deleted", "2026-10-01T14:00:00Z"],
@@ -330,10 +332,11 @@ it("keeps no-show reversal ordered by provider time rather than delivery time", 
     await t.finishAllScheduledFunctions(vi.runAllTimers);
   }
   expect(
-    await admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+    await t.run((ctx) => meetingStatsTotals(ctx, {
+      tenantId,
       scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
       scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
-    }),
+    })),
   ).toMatchObject({ scheduled: 1, noShows: 0 });
 });
 

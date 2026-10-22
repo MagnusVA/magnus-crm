@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
+import { meetingStatsTotals } from "../../tests/reportStageFixtures";
 import { bucketKey, requestMeetingProjection } from "./meetingStats";
 
 afterEach(() => vi.useRealTimers());
@@ -127,10 +128,11 @@ it("re-keys a meeting projected under the old bucket key, and deletes the old bu
         .unique(),
     );
   const stats = () =>
-    admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+    t.run((ctx) => meetingStatsTotals(ctx, {
+      tenantId,
       scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
       scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
-    });
+    }));
 
   // The rebuild: nothing about the meeting changed but the key format.
   await t.run(async (ctx) => await requestMeetingProjection(ctx, tenantId, firstId));
@@ -244,10 +246,11 @@ it("counts a booked meeting once after recording a no-show", async () => {
   });
   await t.finishAllScheduledFunctions(vi.runAllTimers, 1000);
   expect(
-    await admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+    await t.run((ctx) => meetingStatsTotals(ctx, {
+      tenantId,
       scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
       scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
-    }),
+    })),
   ).toMatchObject({ scheduled: 1, noShows: 1, canceled: 0 });
 });
 
@@ -273,9 +276,9 @@ it("does not report an empty replacement table as zero during migration", async 
     });
   });
   await expect(
-    admin.query(api.operations.phoneSales.getPhoneSalesStats, {
-      scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
-      scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
+    admin.query(api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions, {
+      startDayKey: "2026-10-01",
+      endDayKeyExclusive: "2026-10-02",
     }),
   ).rejects.toThrow("Reporting rebuild has not been verified");
 });
@@ -317,11 +320,12 @@ it("projects every historical meeting when an opportunity with over 200 meetings
   });
   await t.finishAllScheduledFunctions(vi.runAllTimers, 1000);
   expect(
-    await admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+    await t.run((ctx) => meetingStatsTotals(ctx, {
+      tenantId,
       scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
       scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
       opportunityStatus: "lost",
-    }),
+    })),
   ).toMatchObject({ scheduled: 205 });
 });
 
@@ -345,11 +349,11 @@ it("includes a production-sized month with more than 1000 stats rows", async () 
       });
   });
   expect(
-    await admin.query(api.operations.phoneSales.getPhoneSalesStats, {
-      scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
-      scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
+    await admin.query(api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions, {
+      startDayKey: "2026-10-01",
+      endDayKeyExclusive: "2026-10-02",
     }),
-  ).toMatchObject({ scheduled: 1300 });
+  ).toMatchObject({ scheduled: 1300, truncated: false });
 });
 
 it("keeps a paid meeting completed and counted once when a late cancellation arrives", async () => {
@@ -408,11 +412,12 @@ it("keeps a paid meeting completed and counted once when a late cancellation arr
   expect(detail.opportunity.status).toBe("payment_received");
   expect(detail.payments).toHaveLength(1);
   expect(
-    await admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+    await t.run((ctx) => meetingStatsTotals(ctx, {
+      tenantId,
       scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
       scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
       soldProgramId: programId,
-    }),
+    })),
   ).toMatchObject({ scheduled: 1, completed: 1, won: 1, canceled: 0 });
 });
 
@@ -479,9 +484,10 @@ it("keeps a closer outcome when reporting fails and repairs the report through a
   ).rejects.toThrow("Projection retry is stale");
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   expect(
-    await admin.query(api.operations.phoneSales.getPhoneSalesStats, {
+    await t.run((ctx) => meetingStatsTotals(ctx, {
+      tenantId,
       scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
       scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
-    }),
+    })),
   ).toMatchObject({ scheduled: 1, noShows: 1 });
 });
