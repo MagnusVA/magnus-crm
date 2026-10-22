@@ -340,7 +340,7 @@ A side deal that a booking joins, which only the API can do today, stays Call he
 
 - `/workspace/closer/pipeline`: tabs All, Booked, Call held, Follow-up, Won, Lost, each with its count from `opportunityByStage` (a `countBatch` over the closer's prefix instead of eight unbounded scans). The Canceled and No Show tabs go, since closers don't use them (Q1); those deals are under Lost with "no-show" or "canceled" on the badge. Each Follow-up row says its next step: "Reschedule link sent", the reminder's date, or nothing. The list reads `by_tenantId_and_assignedCloserId_and_stage_and_outcome_and_createdAt`. The period toggle stays as it is.
 - The URL takes `stage=` (the six positions). An old `status=` link still works: `scheduled` opens Booked; `follow_up_scheduled` and `reschedule_link_sent` open Follow-up; `payment_received` opens Won; `lost`, `canceled` and `no_show` open Lost; `qualified_pending` opens All.
-- `/workspace/closer`'s pipeline strip: segments by position; Won and the close rate (won ÷ won and lost) as today. The close rate leaves out losses the system wrote for a missed meeting, so it doesn't change when the canceled and no-show deals become losses.
+- `/workspace/closer`'s pipeline strip: segments by position; Won as today. The close rate is won ÷ (won + lost), where lost counts only the losses a person recorded: the ones the system wrote for a missed meeting (`no_show`, `canceled`) are left out, so the rate doesn't change when the canceled and no-show deals become losses.
 
 ### 6.3 Closer calendar (PR 5, from Q1)
 
