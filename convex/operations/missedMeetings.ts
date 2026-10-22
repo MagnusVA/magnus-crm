@@ -210,8 +210,13 @@ async function missedMeetingRows(
         setterName: setters.length > 0 ? setters.map((setter) => setter.displayName).join(", ") : null,
         dmCloserName: dmCloser?.displayName ?? null,
         dmTeamName: team?.displayName ?? null,
+        // A later deal with a booking: a new Slack qualification alone
+        // isn't a booking.
         bookedAgain: personDeals.some(
-          (other) => other._id !== deal._id && other.createdAt > deal.createdAt,
+          (other) =>
+            other._id !== deal._id &&
+            other.createdAt > deal.createdAt &&
+            other.firstMeetingId !== undefined,
         ),
       };
     }),

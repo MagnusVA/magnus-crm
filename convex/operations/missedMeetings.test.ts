@@ -127,6 +127,27 @@ describe("the No-shows and cancellations list", () => {
     expect(rows[2]).toMatchObject({ personName: "Rita Rebooked", meetingAt: seed.meetingAt.rita });
   });
 
+  it("doesn't count a later deal with no booking, such as a new Slack qualification, as booking again", async () => {
+    const { harness, seed } = await seeded();
+    await harness.t.run(async (ctx) => {
+      const nora = (await ctx.db.get("opportunities", seed.deals.noraDeal))!;
+      await ctx.db.insert("opportunities", {
+        tenantId: harness.tenantId,
+        leadId: nora.leadId,
+        status: "qualified_pending",
+        stage: "qualified",
+        outcome: "open",
+        source: "slack_qualified",
+        createdAt: MISSED_NOW - 1000,
+        updatedAt: MISSED_NOW - 1000,
+        latestActivityAt: MISSED_NOW - 1000,
+      });
+    });
+
+    const rows = await listAll(harness, { hideBookedAgain: false });
+    expect(rows.find((row) => row.opportunityId === seed.deals.noraDeal)?.bookedAgain).toBe(false);
+  });
+
   it("picks no-shows or cancellations", async () => {
     const { harness, seed } = await seeded();
 
