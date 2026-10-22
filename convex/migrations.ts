@@ -929,6 +929,11 @@ export const assertCancelRescheduledFlags = migrations.define({
 //   1. backfillDealStages, then assertDealStages (§10.1, §10.2)
 //   2. backfillOpportunityByStage, then the verifyStageCounts query for the
 //      tenant (§10.1)
+// After PR 3 deploys:
+//   3. assertDealStages (reset), which now also rebuilds each status (§10.2)
+//   4. rebuildQualificationRows (reset), then assertQualificationRowsCurrent
+//      (reset), which now also checks the rows' stage and outcome (§10.3)
+//   5. the parity queries in opportunities/stageParity.ts (§10.4)
 // assertDealStages stays as a health check; rerun it with "reset" at any
 // time. Nothing here emits an event or moves a person's stage.
 
