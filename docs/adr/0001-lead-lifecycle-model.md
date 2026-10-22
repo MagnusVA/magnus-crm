@@ -41,7 +41,7 @@ These are settled. Reopen one only with the product owner, and record the change
 
 ### Where each term lives today
 
-| Term | Today | Target |
+| Term | On 14 October 2026 | Target |
 | --- | --- | --- |
 | Person | `leads`, plus a copy in `customers` | `leads` with lifecycle stage and disposition |
 | Identifier | `leadIdentifiers` | Unchanged, with placeholder rules |
@@ -73,8 +73,8 @@ These are settled. Reopen one only with the product owner, and record the change
 
 The migration runs one phase at a time, and the old model stays live until each phase narrows it. Until then, new code must not extend the old model.
 
-1. **No new opportunity status.** Every literal costs 30 to 40 files and a backfill, and Phase 5 has to map it. If a feature seems to need one, it is probably a task, a meeting fact, or a deal stage. Raise it before adding it.
-2. **Deal stage changes go through one function.** `transitionOpportunity` in `convex/lib/opportunityActivity.ts` is that function: it changes the deal's stage through the stage machine in `convex/opportunities/stages.ts`. No code calls `ctx.db.patch` on an opportunity's `stage`, `outcome` or `status`, and no code moves a deal without the stage machine. Exceptions are named transitions in the stage machine, not bypasses at the call site.
+1. **No new deal stage.** The stages in `convex/opportunities/stages.ts` are the locked funnel (decision 5), and deals have no status field since Phase 5. If a feature seems to need a new stage, it is probably a task or a meeting fact. Raise it before adding one.
+2. **Deal stage changes go through one function.** `transitionOpportunity` in `convex/lib/opportunityActivity.ts` is that function: it changes the deal's stage through the stage machine in `convex/opportunities/stages.ts`. No code calls `ctx.db.patch` on an opportunity's `stage` or `outcome`, and no code moves a deal without the stage machine. Exceptions are named transitions in the stage machine, not bypasses at the call site.
 3. **No new person, staff, or schedule table.** A new channel finds or creates the person through `resolveLeadIdentity`. A new role becomes a team member role (Phase 1), not another table like `leadGenWorkers` or `dmClosers`.
 4. **No new attribution column.** Don't add another `*CloserId`, `*TeamId`, or `qualifiedBy` shape. Credit is a `dealAttributions` row (Phase 3), and every row has both a role and a source, written through `convex/lib/attribution/dealAttributions.ts`. A new kind of credit adds a role or a source kind to that table, not a column.
 5. **No new copies of person fields.** Read contact details from the lead. Customer is a stage (Phase 4): a person's programs are `enrollments` rows, derived from payments by `syncPersonEnrollments` in `convex/lib/enrollments.ts`, and they hold no copy of the person, the program or the payments.
