@@ -27,19 +27,16 @@ import {
 } from "@/components/ui/table";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
-
-function formatStatus(status: string): string {
-  return status
-    .split("_")
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
-}
+import {
+  DEAL_POSITION_LABELS,
+  type DealPosition,
+} from "@/convex/opportunities/stages";
 
 interface StalePipelineListProps {
   staleCount: number;
   staleOpps: Array<{
     opportunityId: string;
-    status: string;
+    position: DealPosition;
     ageDays: number;
     nextMeetingAt: number | null;
     assignedCloserId: string | null;
@@ -87,7 +84,7 @@ export function StalePipelineList({
             <TableHeader>
               <TableRow>
                 <TableHead>Lead</TableHead>
-                <TableHead>Status</TableHead>
+                <TableHead>Stage</TableHead>
                 <TableHead>Closer</TableHead>
                 <TableHead className="text-right">Age</TableHead>
                 <TableHead className="text-right">Next Meeting</TableHead>
@@ -101,7 +98,7 @@ export function StalePipelineList({
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary">
-                      {formatStatus(opp.status)}
+                      {DEAL_POSITION_LABELS[opp.position]}
                     </Badge>
                   </TableCell>
                   <TableCell>

@@ -38,7 +38,7 @@ import {
 
 // Each report number from the stage beside today's from the status
 // (docs/plans/phase-5-deal-status.md §6.2, §6.6, §7), on a small tenant with
-// a deal at every status. The screens still read the status ways.
+// a deal at every status.
 
 afterEach(() => vi.useRealTimers());
 
@@ -232,36 +232,6 @@ describe("the stage way of each report number", () => {
       lost: 2,
     });
     expect([strips.b.byStatus.counts.payment_received, strips.b.byStatus.counts.lost]).toEqual([0, 2]);
-  });
-
-  it("leaves every screen on the status way", async () => {
-    const { harness, seed } = await seeded();
-
-    const aging = await harness.admin.query(api.reporting.pipelineHealth.getPipelineAging, {});
-    expect(Object.keys(aging.agingByStatus).sort()).toEqual(
-      ["qualified_pending", "scheduled", "follow_up_scheduled", "reschedule_link_sent"].sort(),
-    );
-    expect(aging.agingByStatus.scheduled).toEqual({ count: 3, averageAgeDays: 53 / 3, oldestAgeDays: 40 });
-    expect(aging.staleCount).toBe(4);
-    expect(aging.staleOpps.map((row) => row.opportunityId)).toEqual([
-      seed.deals.bookedStale,
-      seed.deals.linkSent,
-      seed.deals.sideDeal,
-      seed.deals.qualified,
-    ]);
-    expect(aging.velocityDays).toBe(5);
-
-    const distribution = await harness.admin.query(api.reporting.pipelineHealth.getPipelineDistribution, {});
-    expect(distribution.distribution.map(({ status }) => status)).toContain("canceled");
-
-    const loss = await harness.admin.query(api.reporting.pipelineHealth.getPipelineBacklogAndLoss, LOSS_RANGE);
-    expect(loss.lossAttribution).toMatchObject({ admin: 1, closer: 1, unknown: 1 });
-
-    const team = await harness.admin.query(api.reporting.teamOutcomes.getTeamOutcomeMix, MEETING_RANGE);
-    expect(Object.fromEntries(team.closerOutcomes.map(({ closerId, outcomes }) => [closerId, outcomes]))).toEqual({
-      [harness.closerAId]: closerAOutcomes,
-      [harness.closerBId]: closerBOutcomes,
-    });
   });
 
   it("shows the closer's tabs and strip the stage way", async () => {

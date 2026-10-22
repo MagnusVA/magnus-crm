@@ -8,6 +8,7 @@ import { slackQualificationsByUser } from "../reporting/aggregates";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
+import { stageFields } from "../../tests/dealStageFixtures";
 import { STALE_EXPIRY_CUTOVER_AT } from "./staleExpiry";
 
 afterEach(() => vi.useRealTimers());
@@ -260,7 +261,7 @@ it("keeps stale expiries out of the pipeline health loss attribution", async () 
   vi.setSystemTime(NOW);
   const harness = await bookingHarness();
   await slackOpportunity(harness, 32);
-  // An old deal a closer lost today: found by its activity, not its age.
+  // An old deal a closer lost today: found by when it was lost, not its age.
   await harness.t.run(async (ctx) => {
     const users = await ctx.db
       .query("users")
@@ -278,8 +279,7 @@ it("keeps stale expiries out of the pipeline health loss attribution", async () 
       tenantId: harness.tenantId,
       leadId,
       assignedCloserId: closerId,
-      status: "lost",
-      source: "calendly",
+      ...stageFields("lost", "calendly"),
       lostAt,
       lostByUserId: closerId,
       createdAt: NOW - 60 * DAY_MS,

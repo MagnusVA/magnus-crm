@@ -29,6 +29,8 @@ import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
 interface LossAttributionChartProps {
+  /** The read stopped at its bound, so the counts cover part of the range. */
+  isTruncated: boolean;
   lossAttribution: {
     admin: number;
     closer: number;
@@ -70,6 +72,7 @@ function formatRole(role: "admin" | "closer" | "unknown") {
 }
 
 export function LossAttributionChart({
+  isTruncated,
   lossAttribution,
 }: LossAttributionChartProps) {
   const totalLosses =
@@ -92,11 +95,16 @@ export function LossAttributionChart({
       <CardHeader>
         <CardTitle>Admin-vs-Closer Loss Attribution</CardTitle>
         <CardDescription>
-          Range-filtered lost opportunities grouped by who marked them lost.
+          Deals marked lost in the range, grouped by who marked them. No-shows,
+          cancellations and expired Slack qualifications are left out.
+          {isTruncated
+            ? " This range holds more losses than the report reads at once, so the counts are partial. Narrow the range."
+            : null}
         </CardDescription>
         <CardAction className="flex items-center gap-2">
           <Badge variant="outline">Range</Badge>
           <Badge variant="secondary">{totalLosses.toLocaleString()} losses</Badge>
+          {isTruncated ? <Badge variant="destructive">Capped</Badge> : null}
         </CardAction>
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
