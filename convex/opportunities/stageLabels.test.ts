@@ -33,7 +33,7 @@ function deal(status: OpportunityStatus, source: DealSource = "calendly", fields
 
 describe("a deal's label", () => {
   it.each([
-    ["qualified_pending", "slack", "qualified", "open", "qualified", "Qualified"],
+    ["qualified_pending", "slack_qualified", "qualified", "open", "qualified", "Qualified"],
     ["scheduled", "calendly", "booked", "open", "booked", "Booked"],
     ["scheduled", "side_deal", "call_held", "open", "call_held", "Call held"],
     ["follow_up_scheduled", "calendly", "follow_up", "open", "follow_up", "Follow-up"],
@@ -58,7 +58,7 @@ describe("a deal's label", () => {
   });
 
   it("shows the Slack expiry as a system loss", () => {
-    const expired = deal("lost", "slack", { lostReason: "stale" });
+    const expired = deal("lost", "slack_qualified", { lostReason: "stale" });
     expect(systemLossOf(expired)).toBe("stale");
     expect(dealPositionLabel("lost", systemLossOf(expired))).toBe("Lost: expired");
   });
@@ -90,16 +90,26 @@ describe("a deal's label", () => {
 
 describe("a deal's search words", () => {
   it.each([
-    ["qualified_pending", "slack", ["Qualified"]],
+    ["qualified_pending", "slack_qualified", ["Qualified"]],
     ["scheduled", "calendly", ["Booked"]],
     ["scheduled", "side_deal", ["Call held"]],
     ["reschedule_link_sent", "calendly", ["Follow-up"]],
     ["payment_received", "calendly", ["Won"]],
-    ["lost", "slack", ["Lost"]],
+    ["lost", "slack_qualified", ["Lost"]],
     ["no_show", "calendly", ["Lost", "no show"]],
     ["canceled", "calendly", ["Lost", "canceled"]],
   ] as const)("searches %s (%s) by %j", (status, source, words) => {
     expect(dealSearchWords(deal(status, source))).toEqual(words);
+  });
+
+  it("still gives words for a pair the stage doesn't allow, so the deal's write doesn't fail", () => {
+    expect(dealSearchWords({ status: "lost", source: "calendly", stage: "closed", outcome: "open" })).toEqual([
+      "Closed",
+      "open",
+    ]);
+    expect(() => dealLabelOf({ status: "lost", source: "calendly", stage: "closed", outcome: "open" })).toThrow(
+      'Deal stage "closed" doesn\'t allow outcome "open"',
+    );
   });
 
   it("doesn't search a person's loss by a missed meeting's words", () => {

@@ -8,6 +8,7 @@ import {
   SYSTEM_LOSS_REASONS,
   dealPosition,
   dealStageOf,
+  isAllowedStageOutcome,
   type DealOutcome,
   type DealPosition,
   type DealStage,
@@ -91,13 +92,20 @@ const MISSED_MEETING_SEARCH_WORDS: Record<MissedMeeting, string> = {
   canceled: "canceled",
 };
 
-/** The words a person's search row holds for one of their deals (§4.8). */
+/**
+ * The words a person's search row holds for one of their deals (§4.8). The
+ * row is rebuilt inside every write to the deal, so a pair the stage doesn't
+ * allow, which assertDealStages reports, still gives words instead of
+ * failing the write.
+ */
 export function dealSearchWords(deal: DealStateFields): string[] {
-  const { position } = dealLabelOf(deal);
+  const { stage, outcome } = dealStageOf(deal);
+  if (!isAllowedStageOutcome(stage, outcome)) {
+    return [DEAL_STAGE_CONFIG[stage].label, outcome];
+  }
+  const position = DEAL_POSITION_LABELS[dealPosition(stage, outcome)];
   const missedMeeting = isMissedMeetingLoss(deal);
-  return missedMeeting
-    ? [DEAL_POSITION_LABELS[position], MISSED_MEETING_SEARCH_WORDS[missedMeeting]]
-    : [DEAL_POSITION_LABELS[position]];
+  return missedMeeting ? [position, MISSED_MEETING_SEARCH_WORDS[missedMeeting]] : [position];
 }
 
 // ─── Deal events (§4.7) ───────────────────────────────────────────────
