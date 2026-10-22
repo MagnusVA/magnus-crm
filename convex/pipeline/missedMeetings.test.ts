@@ -5,7 +5,11 @@
  * booking (its cancel says `rescheduled`) or through a link the closer sent.
  */
 import { afterEach, expect, it, vi } from "vitest";
-import { inviteeUri, missedMeetingHarness } from "../../tests/missedMeetingFixtures";
+import {
+  inviteeUri,
+  missedMeetingHarness,
+  type MissedMeetingHarness,
+} from "../../tests/missedMeetingFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -20,6 +24,14 @@ const MOVED = {
   start: "2026-10-07T15:00:00Z",
   oldInvitee: inviteeUri("original"),
 };
+
+/** Ends the original booking's deal the way a missed meeting does. */
+async function missMeeting(h: MissedMeetingHarness, how: "no_show" | "canceled") {
+  if (how === "no_show")
+    await h.deliver("invitee_no_show.created", ORIGINAL, "2026-10-06T16:00:00Z");
+  else
+    await h.deliver("invitee.canceled", { ...ORIGINAL, canceled: {} }, "2026-10-04T09:00:00Z");
+}
 
 it.each(["cancel first", "new booking first"] as const)(
   "a Calendly reschedule keeps the deal scheduled and moves it to the new booking (%s)",
@@ -86,3 +98,63 @@ it("a cancel without the reschedule flag still cancels the deal", async () => {
     cancellationReason: "Schedule conflict",
   });
 });
+
+it.each(["no_show", "canceled"] as const)(
+  "a booking without a link days after a %s makes a new deal and leaves the old one alone",
+  async (missed) => {
+    const h = await missedMeetingHarness();
+    const old = await h.book(ORIGINAL, BOOKED_AT);
+    await missMeeting(h, missed);
+    const before = { deal: await h.deal(old.opportunityId), meeting: await h.meeting("original") };
+    expect(before.deal?.status).toBe(missed);
+
+    // Six days after booking, well inside the 14 days the old join used.
+    const next = await h.book({ key: "rebook", start: "2026-10-12T15:00:00Z" }, "2026-10-08T10:00:00Z");
+
+    expect(next.opportunityId).not.toBe(old.opportunityId);
+    expect(await h.deal(next.opportunityId)).toMatchObject({
+      status: "scheduled",
+      source: "calendly",
+      leadId: before.deal?.leadId,
+    });
+    const meeting = await h.meeting("rebook");
+    expect(meeting).toMatchObject({ opportunityId: next.opportunityId, callClassification: "new" });
+    expect(meeting?.rescheduledFromMeetingId).toBeUndefined();
+    expect(await h.creationSideEffects(next.opportunityId)).toEqual({
+      created: true,
+      closerCredit: 1,
+      firstTouch: true,
+      totalOpportunities: 2,
+    });
+    expect(await h.deal(old.opportunityId)).toEqual(before.deal);
+    expect(await h.meeting("original")).toEqual(before.meeting);
+  },
+);
+
+it.each(["no_show", "canceled"] as const)(
+  "a Calendly reschedule of a booking whose deal ended as %s makes a new deal",
+  async (missed) => {
+    const h = await missedMeetingHarness();
+    const old = await h.book(ORIGINAL, BOOKED_AT);
+    await missMeeting(h, missed);
+    const before = { deal: await h.deal(old.opportunityId), meeting: await h.meeting("original") };
+
+    const next = await h.book(MOVED, "2026-10-08T10:00:00Z");
+
+    expect(next.opportunityId).not.toBe(old.opportunityId);
+    expect(await h.deal(next.opportunityId)).toMatchObject({
+      status: "scheduled",
+      calendlyEventUri: "https://api.calendly.com/scheduled_events/moved",
+    });
+    // Rescheduled-from links meetings of one deal; this one starts its own.
+    const meeting = await h.meeting("moved");
+    expect(meeting).toMatchObject({ opportunityId: next.opportunityId, status: "scheduled" });
+    expect(meeting?.rescheduledFromMeetingId).toBeUndefined();
+    expect(await h.creationSideEffects(next.opportunityId)).toMatchObject({
+      created: true,
+      totalOpportunities: 2,
+    });
+    expect(await h.deal(old.opportunityId)).toEqual(before.deal);
+    expect(await h.meeting("original")).toEqual(before.meeting);
+  },
+);

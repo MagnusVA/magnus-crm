@@ -6,7 +6,10 @@ import { insertOpportunityAggregate } from "../reporting/writeHooks";
 
 afterEach(() => vi.useRealTimers());
 
-it.each(["utm_follow_up", "heuristic_reschedule", "follow_up", "slack_qualified"])(
+// The 14-day reschedule join of a canceled deal was a path here too. It's
+// gone: a booking beside a canceled deal starts a new deal, and a non-closer
+// host's booking with no deal to join is ignored (the outcome table below).
+it.each(["utm_follow_up", "follow_up", "slack_qualified"])(
   "blocks an opportunity without a closer instead of ignoring it (%s)",
   async (path) => {
     vi.useFakeTimers();
@@ -27,8 +30,7 @@ it.each(["utm_follow_up", "heuristic_reschedule", "follow_up", "slack_qualified"
       });
       return await ctx.db.insert("opportunities", {
         tenantId, leadId,
-        status: path === "heuristic_reschedule" ? "canceled"
-          : path === "slack_qualified" ? "qualified_pending" : "follow_up_scheduled",
+        status: path === "slack_qualified" ? "qualified_pending" : "follow_up_scheduled",
         source: path === "slack_qualified" ? "slack_qualified" : "calendly",
         createdAt: Date.parse("2026-10-01T08:00:00Z"),
         updatedAt: Date.parse("2026-10-01T09:00:00Z"),
@@ -56,10 +58,53 @@ it.each(["utm_follow_up", "heuristic_reschedule", "follow_up", "slack_qualified"
   },
 );
 
+// What the removed heuristic_reschedule cases above and below now get.
+it("ignores a non-closer host's booking beside a recent canceled deal instead of joining it", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-02T00:00:00Z"));
+  const { t, tenantId, admin } = await bookingHarness();
+  const opportunityId = await t.run(async (ctx) => {
+    const adminUser = await ctx.db.query("users")
+      .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_admin")).unique();
+    await ctx.db.patch("users", adminUser!._id, { calendlyUserUri: "https://api.calendly.com/users/admin" });
+    const closer = await ctx.db.query("users")
+      .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_closer")).unique();
+    const leadId = await ctx.db.insert("leads", { ...qualifiedLifecycle(Date.parse("2026-10-01T08:00:00Z")),
+      tenantId,
+      email: "lead@example.com",
+      status: "active",
+      firstSeenAt: Date.parse("2026-10-01T08:00:00Z"),
+      updatedAt: Date.parse("2026-10-01T09:00:00Z"),
+    });
+    const id = await ctx.db.insert("opportunities", {
+      tenantId, leadId, assignedCloserId: closer!._id, status: "canceled", source: "calendly",
+      createdAt: Date.parse("2026-10-01T08:00:00Z"), updatedAt: Date.parse("2026-10-01T09:00:00Z"),
+    });
+    await insertOpportunityAggregate(ctx, id);
+    return id;
+  });
+  const payload = bookingPayload("admin-host");
+  payload.scheduled_event.event_memberships[0].user = "https://api.calendly.com/users/admin";
+  await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: "invitee.created",
+    payload: JSON.stringify({ created_at: "2026-10-01T10:00:00Z", payload }),
+  });
+  await t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [receipt] = (await admin.query(api.pipeline.delivery.list, {
+    paginationOpts: { cursor: null, numItems: 10 },
+  })).page;
+  expect(receipt).toMatchObject({ status: "ignored", reason: "non_closer_host" });
+  expect(await t.run((ctx) => ctx.db.query("meetings").take(1))).toHaveLength(0);
+  expect(await t.run((ctx) => ctx.db.get("opportunities", opportunityId))).toMatchObject({ status: "canceled" });
+});
+
+// No "heuristic_reschedule": the 14-day join of a canceled deal is gone, so
+// that booking starts a new deal and has no deal closer to fall back on.
 const paths = [
   "utm_follow_up",
   "utm_reschedule",
-  "heuristic_reschedule",
   "provider_reschedule",
   "follow_up",
   "slack_qualified",
@@ -99,7 +144,6 @@ it.each(paths.flatMap((path) => [
     });
     await forceOpportunityState(ctx, opportunityId, {
       status: path === "utm_reschedule" ? "reschedule_link_sent"
-        : path === "heuristic_reschedule" ? "canceled"
         : path === "provider_reschedule" ? "scheduled"
         : path === "slack_qualified" ? "qualified_pending" : "follow_up_scheduled",
       source: path === "slack_qualified" ? "slack_qualified" : "calendly",

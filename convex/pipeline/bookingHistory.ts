@@ -13,9 +13,13 @@ const MAX_CHANGES = 32;
 const MAX_EVENTS = 128;
 
 /**
- * Statuses at which no booking without a link attaches to a deal: the
- * heuristic reschedule takes canceled and no-show deals, the Slack join takes
- * pending ones, and a follow-up booking takes `follow_up_scheduled`.
+ * Statuses at which no booking without a link attaches to a deal: the Slack
+ * join takes pending ones, and a follow-up booking takes
+ * `follow_up_scheduled`. No booking without a link joins a canceled or
+ * no-show deal either, now that a missed meeting ends the deal, but those
+ * stay outside the set: a deal that left one after the booking happened
+ * holds the booking for review, the cautious answer the old reschedule join
+ * needed.
  */
 const UNATTACHABLE_STATUSES: ReadonlySet<OpportunityStatus> = new Set([
 	"scheduled",

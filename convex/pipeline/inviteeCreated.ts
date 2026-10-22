@@ -263,16 +263,6 @@ type LeadIdentifierUpsertResult =
 	| "existing_other_lead";
 
 // ---------------------------------------------------------------------------
-// Feature B4: Constants
-// ---------------------------------------------------------------------------
-
-/**
- * Maximum age of a no-show/canceled opportunity for heuristic relinking.
- * Older opportunities are treated as unrelated bookings.
- */
-const RESCHEDULE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000;
-
-// ---------------------------------------------------------------------------
 // Feature E: Helper Functions (3A)
 // ---------------------------------------------------------------------------
 
@@ -1240,9 +1230,7 @@ export const process = internalMutation({
 			preloadedConfig: earlyEventTypeConfig,
 		});
 
-		// === Feature B4: Heuristic reschedule detection ===
-		let autoRescheduleTarget: Doc<"opportunities"> | null = null;
-		const rescheduleCutoff = now - RESCHEDULE_WINDOW_MS;
+		// === Calendly reschedule target ===
     const candidates = await ctx.db.query("opportunities").withIndex("by_tenantId_and_leadId", q => q.eq("tenantId", tenantId).eq("leadId", lead._id)).order("desc").take(129);
     if (candidates.length > 128) blockBooking("booking_history_requires_review");
     // A deal changed after this booking happened makes it historical: what the
@@ -1262,72 +1250,46 @@ export const process = internalMutation({
       outOfReach.add(o._id);
     }
     const reachable = candidates.filter(o => !outOfReach.has(o._id));
-    let explicitSourceMeeting: Doc<"meetings"> | undefined;
+    // A Calendly reschedule names the booking it replaces. A deal still
+    // scheduled on that booking moves to this one. A no-show or a cancellation
+    // ended the deal, so this booking has no target: it goes through the joins
+    // below like a booking without one, or starts a new deal, and the old
+    // meeting is left as it is.
+    let reschedule: { target: Doc<"opportunities">; from: Doc<"meetings"> } | null = null;
     if (oldInvitee) {
       if (!previousMeeting) blockBooking("previous_booking_missing");
-      explicitSourceMeeting = previousMeeting;
-      autoRescheduleTarget = candidates.find(o => o._id === previousMeeting.opportunityId) ?? null;
-      if (!autoRescheduleTarget) blockBooking("identity_conflict");
-      if (!["scheduled", "canceled", "no_show"].includes(autoRescheduleTarget.status)) blockBooking("booking_target_requires_review");
-    } else {
-      // A Slack qualification inside the join window outranks the time-window
-      // guess: the setter just handed this person off, so the booking belongs
-      // to that deal. The Slack join below picks it up.
-      const freshSlackQualification = await findOpenSlackQualifiedOpportunity(ctx, {
-        tenantId,
-        leadId: lead._id,
-        referenceTime: now,
-      });
-      if (!freshSlackQualification) {
-        const eligible = reachable.filter(o => (o.status === "no_show" || o.status === "canceled") && o.updatedAt > rescheduleCutoff);
-        if (eligible.length > 1) blockBooking("ambiguous_booking_target");
-        autoRescheduleTarget = eligible[0] ?? null;
-      }
+      const previousDeal = candidates.find(o => o._id === previousMeeting.opportunityId);
+      // Calendly says the old booking was this person's, the identifiers say
+      // it was another's: held whether or not the booking joins that deal.
+      if (!previousDeal) blockBooking("identity_conflict");
+      if (previousDeal.status === "scheduled") reschedule = { target: previousDeal, from: previousMeeting };
+      else if (previousDeal.status !== "no_show" && previousDeal.status !== "canceled") blockBooking("booking_target_requires_review");
     }
+		// === End Calendly reschedule target ===
 
-		if (
-			autoRescheduleTarget && autoRescheduleTarget.status !== "scheduled" &&
-			!validateTransition(autoRescheduleTarget.status, "scheduled")
-		) {
-			log.warn("pipeline.invitee_created.reschedule_transition_invalid", {
-				tenantId,
-				rawEventId,
-				opportunityId: autoRescheduleTarget._id,
-				opportunityStatus: autoRescheduleTarget.status,
-			});
-			autoRescheduleTarget = null;
-		}
-		// === End Feature B4: Heuristic reschedule detection ===
-
-		// === Feature B4: Opportunity linking + closer reassignment ===
-		if (autoRescheduleTarget) {
-			const reschedOpportunityId = autoRescheduleTarget._id;
-			const previousOpportunityStatus = autoRescheduleTarget.status;
-			const previousMeetings = await ctx.db
-				.query("meetings")
-				.withIndex("by_opportunityId", (q) =>
-					q.eq("opportunityId", reschedOpportunityId),
-				)
-				.order("desc")
-				.take(1);
-			const rescheduledFromMeetingId = explicitSourceMeeting?._id ?? previousMeetings[0]?._id;
-      if (explicitSourceMeeting?.status === "scheduled") {
+		// === Calendly reschedule: move the deal to the new booking ===
+		if (reschedule) {
+			const { target: rescheduleTarget, from: explicitSourceMeeting } = reschedule;
+			const reschedOpportunityId = rescheduleTarget._id;
+			const previousOpportunityStatus = rescheduleTarget.status;
+			const rescheduledFromMeetingId = explicitSourceMeeting._id;
+      if (explicitSourceMeeting.status === "scheduled") {
         await patchMeetingLifecycle(ctx, explicitSourceMeeting._id, { status: "canceled", canceledAt: now });
         await emitDomainEvent(ctx, { tenantId, entityType: "meeting", entityId: explicitSourceMeeting._id,
           eventType: "meeting.canceled", source: "pipeline", fromStatus: "scheduled", toStatus: "canceled", occurredAt: now });
       }
 			const nextAssignedCloserId =
-				assignedCloserId ?? autoRescheduleTarget.assignedCloserId;
+				assignedCloserId ?? rescheduleTarget.assignedCloserId;
 			const effectiveEventTypeConfigId =
 				eventTypeConfigId ??
-				autoRescheduleTarget.eventTypeConfigId ??
+				rescheduleTarget.eventTypeConfigId ??
 				undefined;
 			const closerChanged =
-				nextAssignedCloserId !== autoRescheduleTarget.assignedCloserId;
+				nextAssignedCloserId !== rescheduleTarget.assignedCloserId;
 			if (!nextAssignedCloserId) {
 				log.warn("pipeline.invitee_created.rejected", {
 					reason: "no_assigned_closer",
-					path: "heuristic_reschedule",
+					path: "provider_reschedule",
 					tenantId,
 					rawEventId,
 					opportunityId: reschedOpportunityId,
@@ -1345,18 +1307,9 @@ export const process = internalMutation({
 				eventTypeConfigId: effectiveEventTypeConfigId,
 				updatedAt: now,
 			};
-			// A Calendly reschedule of a booking that is still scheduled moves
-			// the booking, not the status.
-			if (previousOpportunityStatus === "scheduled") {
-				await patchOpportunityLifecycle(ctx, reschedOpportunityId, rebookFields);
-			} else {
-				await transitionOpportunity(ctx, reschedOpportunityId, {
-					to: "scheduled",
-					fields: rebookFields,
-					source: "pipeline",
-					occurredAt: now,
-				});
-			}
+			// The target is still scheduled: the reschedule moves the booking,
+			// not the status.
+			await patchOpportunityLifecycle(ctx, reschedOpportunityId, rebookFields);
 			if (closerChanged) {
 				await syncOpportunityMeetingsAssignedCloser(
 					ctx,
@@ -1407,7 +1360,7 @@ export const process = internalMutation({
 			});
 			await recordMeetingBookingAttribution(ctx, meetingId, resolvedAttribution);
 			await patchFirstExternalBookingCaches(ctx, {
-				opportunity: autoRescheduleTarget,
+				opportunity: rescheduleTarget,
 				meetingId,
 				scheduledAt,
 				eventTypeConfig: effectiveEventTypeConfig,
@@ -1459,7 +1412,7 @@ export const process = internalMutation({
 
 			await ctx.db.patch("rawWebhookEvents", rawEventId, { processed: true });
 			log.info("pipeline.invitee_created.processed", {
-				path: "heuristic_reschedule",
+				path: "provider_reschedule",
 				tenantId,
 				rawEventId,
 				meetingId,
@@ -1475,8 +1428,11 @@ export const process = internalMutation({
 			});
 			return;
 		}
-		// === End Feature B4: Opportunity linking + closer reassignment ===
+		// === End Calendly reschedule ===
 
+		// A booking without a link joins a follow-up deal or a Slack deal. It
+		// never joins a no-show or canceled deal: a missed meeting ended that
+		// deal, and the next booking is a new one.
 		let existingFollowUp: Doc<"opportunities"> | null = null;
     const followUps = reachable.filter(o => o.status === "follow_up_scheduled");
     if (followUps.length > 1) blockBooking("ambiguous_booking_target");

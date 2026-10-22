@@ -302,7 +302,10 @@ it("a known non-canonical email books onto its lead without changing the canonic
   expect(lead?.email).toBe("owner@acme-coaching.example");
 });
 
-it("a handle match with a new email that reschedules a canceled opportunity makes the new email searchable", async () => {
+// The booking used to rejoin the canceled opportunity (the 14-day reschedule
+// join). A cancellation ends the deal now, so it makes a new one; the new
+// email is still searchable on the person and on the deal it booked.
+it("a handle match with a new email that books after a canceled opportunity makes the new email searchable", async () => {
   const harness = await setup();
   const leadId = await seedLead(
     harness,
@@ -329,14 +332,15 @@ it("a handle match with a new email that reschedules a canceled opportunity make
   await deliver(harness, incidentASecondBooking, "2026-10-13T00:25:29Z");
 
   const [receipt] = await receipts(harness);
-  expect(receipt).toMatchObject({ status: "applied", leadId, opportunityId });
+  expect(receipt).toMatchObject({ status: "applied", leadId });
+  expect(receipt.opportunityId).not.toBe(opportunityId);
   const state = await harness.t.run(async (ctx) => ({
     lead: await ctx.db.get("leads", leadId),
     opportunitySearch: await ctx.db.query("opportunitySearch").take(5),
   }));
   expect(state.lead?.email).toBe("owner@acme-coaching.example");
   expect(state.lead?.searchText).toContain("jane.personal@hotmail.example");
-  expect(state.opportunitySearch.find((row) => row.opportunityId === opportunityId)?.searchText).toContain(
+  expect(state.opportunitySearch.find((row) => row.opportunityId === receipt.opportunityId)?.searchText).toContain(
     "jane.personal@hotmail.example",
   );
 });

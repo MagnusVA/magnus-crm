@@ -7,6 +7,8 @@ afterEach(() => vi.useRealTimers());
 
 // The 14-day reschedule heuristic used to run before the Slack join, so a
 // fresh qualification lost the booking to an old canceled or no-show deal.
+// The heuristic is gone (a missed meeting ends the deal); the Slack join
+// still takes the booking, and the old deal is left alone.
 it.each(["canceled", "no_show"] as const)(
   "joins a booking to a fresh Slack qualification ahead of a recent %s deal",
   async (oldStatus) => {
@@ -69,7 +71,9 @@ it.each(["canceled", "no_show"] as const)(
   },
 );
 
-it("still reuses a recent canceled deal when there is no Slack qualification", async () => {
+// This used to reuse the recent canceled deal (the 14-day reschedule join).
+// A cancellation ends the deal now, so the booking starts a new one.
+it("makes a new deal beside a recent canceled deal when there is no Slack qualification", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-02T00:00:00Z"));
   const { t, tenantId } = await bookingHarness();
@@ -103,5 +107,14 @@ it("still reuses a recent canceled deal when there is no Slack qualification", a
   await t.finishAllScheduledFunctions(vi.runAllTimers);
 
   const meetings = await t.run((ctx) => ctx.db.query("meetings").take(5));
-  expect(meetings.map((meeting) => meeting.opportunityId)).toEqual([oldOpportunityId]);
+  expect(meetings).toHaveLength(1);
+  expect(meetings[0].opportunityId).not.toBe(oldOpportunityId);
+  expect(await t.run((ctx) => ctx.db.get("opportunities", meetings[0].opportunityId))).toMatchObject({
+    status: "scheduled",
+    source: "calendly",
+  });
+  expect(await t.run((ctx) => ctx.db.get("opportunities", oldOpportunityId))).toMatchObject({
+    status: "canceled",
+    updatedAt: Date.parse("2026-09-25T09:00:00Z"),
+  });
 });
