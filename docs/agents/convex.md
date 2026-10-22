@@ -18,7 +18,7 @@ Most folders under `convex/` are named for their table or feature. The ones whos
 
 - Every tenant table has `tenantId: v.id("tenants")`, and status fields are `v.union(v.literal(...))`.
 - Money is an integer in minor units (`amountMinor`) next to a `currency` code. Convert input with `toAmountMinor` and `validateCurrency` from `convex/lib/formatMoney.ts`.
-- `convex/lib/statusTransitions.ts` defines the opportunity, meeting, and lead state machines. Its validators return a boolean and log, so the caller rejects the write on `false`.
+- `convex/lib/statusTransitions.ts` defines the meeting and lead state machines; the deal's stage machine is in `convex/opportunities/stages.ts`. Its validators return a boolean and log, so the caller rejects the write on `false`.
 
 ## Lead lifecycle model
 
