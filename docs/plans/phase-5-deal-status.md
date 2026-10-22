@@ -462,7 +462,7 @@ Over `opportunities`, batch 200: sets `stage` and `outcome` from `stageForStatus
 
 ### 10.2 `assertDealStages` (PR 1, changed in PRs 3, 8 and 9)
 
-Over `opportunities`, batch 200. Each deal has a stage and an outcome that `assertStageOutcome` allows; a Closed lost deal with the reason `stale`, `no_show` or `canceled` has no `lostByUserId`; a deal at Follow-up has at most one pending reschedule link. Then, by PR:
+Over `opportunities`, batch 200. Each deal has a stage and an outcome that `assertStageOutcome` allows; a `canceled` or `no_show` deal has no `lostByUserId` (a person's free text may match a code, and reads as `lost`); a deal at Follow-up has at most one pending reschedule link. Then, by PR:
 
 - PR 1: the pair is `stageForStatus(status, source)`, and a `canceled` or `no_show` deal has the matching reason.
 - PRs 3 to 7: also `legacyStatus` (§4.6, in `dealState.ts` from PR 3), rebuilt from the deal and its pending tasks, equals its status.

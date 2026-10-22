@@ -1020,8 +1020,10 @@ export const assertDealStages = migrations.define({
     if (missedReason && deal.lostAt === undefined) {
       throw fail(`is ${deal.status} and has no lostAt`);
     }
-    if (isSystemLossReason(deal.lostReason) && deal.lostByUserId !== undefined) {
-      throw fail(`has the system's reason ${deal.lostReason} and lostByUserId ${deal.lostByUserId}`);
+    // A missed meeting's loss names no person. A person's own free text may
+    // match a code; legacyStatus reads that deal as lost, as its status says.
+    if (missedReason && deal.lostByUserId !== undefined) {
+      throw fail(`is ${deal.status} and has lostByUserId ${deal.lostByUserId}`);
     }
     // Only a Follow-up deal's status reads its reschedule link.
     const links = stage === "follow_up" ? (await loadPendingRescheduleLink(ctx, deal._id)).count : 0;

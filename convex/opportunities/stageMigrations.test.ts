@@ -275,13 +275,20 @@ describe("assertDealStages", () => {
     expect(error).toContain("has no lostAt");
   });
 
-  it.each(["noShowOnDeal", "stale"])("names a %s deal whose system loss has a person", async (name) => {
+  it("names a no-show deal whose loss has a person", async () => {
     const { harness, ids } = await backfilled();
-    await harness.t.run((ctx) => forceOpportunityState(ctx, ids[name], { lostByUserId: harness.closerId }));
+    await harness.t.run((ctx) => forceOpportunityState(ctx, ids.noShowOnDeal, { lostByUserId: harness.closerId }));
 
     const error = (await harness.run("assertDealStages"))?.error;
-    expect(error).toContain(ids[name]);
-    expect(error).toContain(`and lostByUserId ${harness.closerId}`);
+    expect(error).toContain(ids.noShowOnDeal);
+    expect(error).toContain(`has lostByUserId ${harness.closerId}`);
+  });
+
+  it("accepts a person's loss whose free text matches a system code", async () => {
+    const { harness, ids } = await backfilled();
+    await harness.t.run((ctx) => forceOpportunityState(ctx, ids.stale, { lostByUserId: harness.closerId }));
+
+    expect((await harness.run("assertDealStages"))?.error).toBeUndefined();
   });
 
   it("names a Follow-up deal with two pending reschedule links", async () => {
