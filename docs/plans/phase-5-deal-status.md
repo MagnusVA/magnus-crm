@@ -1,6 +1,6 @@
 # Phase 5: deal status
 
-Status: done, 2026-10-22. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted the recommendations in §11, answered Q1 to Q6 (§11.1), approved the ADR changes in §11.2 and every production run in §9 and §10; the answer to Q2 replaced the first plan's rebook task with D16, a missed meeting ends the deal. PRs #165 to #178 are merged (#165 is this plan; #169 is the loss index fix the parity run found), and every run in §13 passed, through the clears after PR 9. #178, the narrow, drops `opportunities.status`, its copies, its nine indexes, the `opportunityByStatus` aggregate and the `tenantStats` deal counters. #178 deployed on 2026-10-22 at 11:14 and the schema push accepted every row; #179 records that deploy, the checks after it and the snapshot directory's deletion (§13).
+Status: done, 2026-10-22. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted the recommendations in §11, answered Q1 to Q6 (§11.1), approved the ADR changes in §11.2 and every production run in §9 and §10; the answer to Q2 replaced the first plan's rebook task with D16, a missed meeting ends the deal. PRs #165 to #178 are merged (#165 is this plan; #169 is the loss index fix the parity run found), and every run in §13 passed, through the clears after PR 9; one clear, `clearOpportunitySearchStatus`, ran without its dry run (§13.3, 10:21), and its assert passed. #178, the narrow, drops `opportunities.status`, its copies, its nine indexes, the `opportunityByStatus` aggregate and the `tenantStats` deal counters. #178 deployed on 2026-10-22 at 11:14 and the schema push accepted every row; #179 records the health checks after PR 9, that deploy, the assert after it and the snapshot directory's deletion (§13).
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (finding F2, the target model's "Stage and status on the deal" and "How today's statuses map" in §6, the anti-pattern "Appointment outcomes as deal stages" in §8) and the Phase 5 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md): this file says deal stage, outcome, attendance or task, and says "status" only for today's `opportunities.status` field. Phase 4 is in [phase-4-customers.md](phase-4-customers.md).
 
@@ -607,7 +607,7 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | #176 | PR 8: the transition and the state machine on stages, `opportunity.stage_changed` | 10-22 09:35 |
 | #177 | PR 9: stop writing the status and its copies; the clears | 10-22 10:07 |
 | #178 | PR 10: the narrow; ADR 0001, `CONTEXT.md`, the review's cards, this record | 10-22 11:14; the schema push accepted every row |
-| #179 | docs only: the narrow's deploy, the checks after it and the snapshot directory's deletion | docs |
+| #179 | docs only: the health checks after PR 9, the narrow's deploy and the assert after it, and the snapshot directory's deletion | docs |
 
 ### 13.3 Runs
 
