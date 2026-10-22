@@ -15,12 +15,13 @@ import {
 } from "../lib/paymentHelpers";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
+import { describeDealState, isWonDeal } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { insertPaymentAggregate } from "../reporting/writeHooks";
 
 /**
  * Records an ADDITIONAL commissionable payment against an already-won
- * opportunity (`status === "payment_received"`), for the case where a customer
+ * opportunity (Closed won), for the case where a customer
  * makes a further payment after the initial win. Unlike every other payment
  * path, this does NOT transition the opportunity status (the deal is already
  * won / terminal). The person is already a customer, so the enrollment sync
@@ -59,9 +60,9 @@ export const recordAdditionalPayment = mutation({
     }
 
     // Gate: additional payments are only for opportunities that are already won.
-    if (opportunity.status !== "payment_received") {
+    if (!isWonDeal(opportunity)) {
       throw new Error(
-        `Additional payments can only be added to a won opportunity. This opportunity is "${opportunity.status}".`,
+        `Additional payments can only be added to a won deal. This deal is "${describeDealState(opportunity)}".`,
       );
     }
 

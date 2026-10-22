@@ -14,7 +14,6 @@ import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { transitionOpportunity } from "../lib/opportunityActivity";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
-import { validateTransition } from "../lib/statusTransitions";
 import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import { requireTenantUser } from "../requireTenantUser";
 import {
@@ -63,6 +62,7 @@ export const logPayment = mutation({
       throw new Error("Meeting does not belong to this opportunity");
     }
     const now = Date.now();
+    // A deal awaiting its call's result, which can always take a payment.
     assertCanRecordMeetingOutcome({
       meeting,
       opportunity,
@@ -70,11 +70,6 @@ export const logPayment = mutation({
       role,
       now,
     });
-    if (!validateTransition(opportunity.status, "payment_received")) {
-      throw new Error(
-        `Cannot log payment for opportunity with status "${opportunity.status}"`,
-      );
-    }
     if (args.amount <= 0) {
       throw new Error("Payment amount must be positive");
     }
