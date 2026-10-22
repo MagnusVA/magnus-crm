@@ -1,6 +1,6 @@
-import type { MeetingStatus } from "@/convex/lib/statusTransitions";
-import type { MissedMeeting } from "@/convex/opportunities/dealState";
-import type { DealLabel } from "@/convex/opportunities/stageLabels";
+import type { MeetingStatus } from "../convex/lib/statusTransitions";
+import type { MissedMeeting } from "../convex/opportunities/dealState";
+import type { DealLabel } from "../convex/opportunities/stageLabels";
 
 /**
  * Which controls the meeting and reminder pages show, read from the deal's
