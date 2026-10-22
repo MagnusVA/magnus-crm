@@ -14,6 +14,8 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty";
 import type { Id } from "@/convex/_generated/dataModel";
+import { dealEventStateLabel } from "@/convex/opportunities/stageLabels";
+import type { DealOutcome } from "@/convex/opportunities/stages";
 
 type ActivityEvent = {
   _id: Id<"domainEvents">;
@@ -23,6 +25,9 @@ type ActivityEvent = {
   actorUserId?: Id<"users">;
   fromStatus?: string;
   toStatus?: string;
+  /** A new deal event's outcomes, beside the stages it holds. */
+  fromOutcome?: DealOutcome | null;
+  toOutcome?: DealOutcome | null;
   reason?: string;
 };
 
@@ -35,6 +40,7 @@ const EVENT_LABELS: Record<string, string> = {
   "lead.created": "Lead created",
   "opportunity.created": "Opportunity created",
   "opportunity.status_changed": "Status changed",
+  "opportunity.stage_changed": "Stage changed",
   "opportunity.marked_lost": "Marked lost",
   "payment.recorded": "Payment recorded",
 };
@@ -49,17 +55,37 @@ function formatEventType(eventType: string) {
   );
 }
 
-function formatStatusChange(event: ActivityEvent) {
-  if (!event.fromStatus && !event.toStatus) {
+/**
+ * A deal event's side: an old event holds a status, a new one a stage with
+ * its outcome (docs/plans/phase-5-deal-status.md §4.7). A payment's shows
+ * as recorded.
+ */
+function statusLabel(
+  event: ActivityEvent,
+  value: string | undefined,
+  outcome: DealOutcome | null | undefined,
+) {
+  if (!value) {
     return null;
   }
-  if (!event.fromStatus) {
-    return `Set to ${event.toStatus?.replaceAll("_", " ")}`;
+  return event.eventType.startsWith("opportunity.")
+    ? dealEventStateLabel(value, outcome)
+    : value.replaceAll("_", " ");
+}
+
+function formatStatusChange(event: ActivityEvent) {
+  const from = statusLabel(event, event.fromStatus, event.fromOutcome);
+  const to = statusLabel(event, event.toStatus, event.toOutcome);
+  if (!from && !to) {
+    return null;
   }
-  if (!event.toStatus) {
-    return `From ${event.fromStatus.replaceAll("_", " ")}`;
+  if (!from) {
+    return `Set to ${to}`;
   }
-  return `${event.fromStatus.replaceAll("_", " ")} to ${event.toStatus.replaceAll("_", " ")}`;
+  if (!to) {
+    return `From ${from}`;
+  }
+  return `${from} to ${to}`;
 }
 
 export function OpportunityActivityTimeline({
