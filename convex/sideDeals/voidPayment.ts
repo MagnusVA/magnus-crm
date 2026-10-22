@@ -7,6 +7,7 @@ import { transitionOpportunity } from "../lib/opportunityActivity";
 import { isSideDeal, isSideDealOrigin } from "../lib/sideDeals";
 import { refreshSoldProgramCachesForOpportunity } from "../lib/soldProgramCache";
 import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
+import { describeDealState, isWonDeal } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { replacePaymentAggregate } from "../reporting/writeHooks";
 
@@ -52,9 +53,9 @@ export const voidPayment = mutation({
     ) {
       throw new Error("Only side-deal payments can be voided via this mutation.");
     }
-    if (opportunity.status !== "payment_received") {
+    if (!isWonDeal(opportunity)) {
       throw new Error(
-        `Cannot void a side-deal payment while opportunity is "${opportunity.status}".`,
+        `Cannot void a side-deal payment while the deal is "${describeDealState(opportunity)}".`,
       );
     }
 

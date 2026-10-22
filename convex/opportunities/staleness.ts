@@ -3,7 +3,7 @@ import { internal } from "../_generated/api";
 import { internalMutation } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { log } from "../lib/observability/log";
-import { isSideDeal } from "../lib/sideDeals";
+import { isSideDealAtCallHeld } from "./dealGuards";
 
 const STALE_THRESHOLD_MS = 72 * 60 * 60 * 1000;
 const BATCH_SIZE = 50;
@@ -18,12 +18,13 @@ export const nudgeStaleSideDeals = internalMutation({
     const now = Date.now();
     const cutoff = args.cutoff ?? now - STALE_THRESHOLD_MS;
 
+    // Side deals at Call held: today's scheduled side deals (§6.9).
     const page = await ctx.db
       .query("opportunities")
-      .withIndex("by_source_and_status_and_createdAt", (q) =>
+      .withIndex("by_source_and_stage_and_createdAt", (q) =>
         q
           .eq("source", "side_deal")
-          .eq("status", "scheduled")
+          .eq("stage", "call_held")
           .lt("createdAt", cutoff),
       )
       .order("asc")
@@ -32,7 +33,7 @@ export const nudgeStaleSideDeals = internalMutation({
     let nudged = 0;
 
     for (const opportunity of page.page) {
-      if (!isSideDeal(opportunity) || opportunity.status !== "scheduled") {
+      if (!isSideDealAtCallHeld(opportunity)) {
         continue;
       }
       if (!opportunity.assignedCloserId) {

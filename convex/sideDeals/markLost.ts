@@ -3,7 +3,7 @@ import { mutation } from "../_generated/server";
 import { transitionOpportunity } from "../lib/opportunityActivity";
 import { isSideDeal } from "../lib/sideDeals";
 import { expirePendingStaleOpportunityNudges } from "../lib/staleOpportunityNudges";
-import { validateTransition } from "../lib/statusTransitions";
+import { canMarkLost, describeDealState, loadDealTasks } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 
 export const markLost = mutation({
@@ -31,10 +31,8 @@ export const markLost = mutation({
     if (!isAdmin && opportunity.assignedCloserId !== userId) {
       throw new Error("You are not the assigned closer for this opportunity.");
     }
-    if (!validateTransition(opportunity.status, "lost")) {
-      throw new Error(
-        `Opportunity status "${opportunity.status}" cannot transition to "lost".`,
-      );
+    if (!canMarkLost(opportunity, await loadDealTasks(ctx, opportunityId))) {
+      throw new Error(`A deal at "${describeDealState(opportunity)}" can't be marked lost.`);
     }
 
     const trimmedReason = reason?.trim() || undefined;
