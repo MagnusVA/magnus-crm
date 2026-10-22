@@ -19,6 +19,7 @@ import {
   updateTenantStats,
 } from "../lib/tenantStatsHelper";
 import { rebuildQualificationRow } from "../operations/projections";
+import { stageForStatus } from "../opportunities/stages";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 import { SLACK_JOIN_LOOKBACK_MS } from "../pipeline/slackJoinLookup";
 import { upsertSlackUserOnSubmission } from "./users";
@@ -362,6 +363,7 @@ export const create = internalMutation({
       leadId: resolution.leadId,
       status: "qualified_pending",
       source: "slack_qualified",
+      ...stageForStatus("qualified_pending", "slack_qualified"),
       qualifiedBy: args.qualifiedBy,
       qualifiedAt: args.qualifiedBy.submittedAt,
       createdAt: now,

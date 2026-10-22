@@ -1,6 +1,10 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
+import {
+  missedMeetingLossReason,
+  stageForStatus,
+} from "../opportunities/stages";
 import { rebuildQualificationRowsForOpportunity } from "../operations/projections";
 import { replaceOpportunityAggregate } from "../reporting/writeHooks";
 import { upsertOpportunitySearchProjection } from "./opportunitySearch";
@@ -26,16 +30,28 @@ export function computeLatestActivityAt(opportunity: ActivityShape): number {
   );
 }
 
-/** Every opportunity field except identity and status. */
+/**
+ * Every opportunity field except identity, status, and the stage and outcome
+ * the status maps to.
+ */
 export type OpportunityFieldsPatch = Partial<
-  Omit<Doc<"opportunities">, "_id" | "_creationTime" | "tenantId" | "status">
+  Omit<
+    Doc<"opportunities">,
+    "_id" | "_creationTime" | "tenantId" | "status" | "stage" | "outcome"
+  >
 >;
 
-// Inputs to the sort keys and eligibility of the status aggregate and the
-// Slack qualification aggregates (reporting/aggregates.ts). The aggregate
-// rewrites its entry on every replace, so replace only when one changes.
+// Only transitionOpportunity writes these, together.
+const TRANSITION_ONLY_FIELDS = ["status", "stage", "outcome"] as const;
+
+// Inputs to the sort keys and eligibility of the status and stage aggregates
+// and the Slack qualification aggregates (reporting/aggregates.ts). The
+// aggregate rewrites its entry on every replace, so replace only when one
+// changes.
 const AGGREGATE_KEY_FIELDS = [
   "status",
+  "stage",
+  "outcome",
   "assignedCloserId",
   "createdAt",
   "source",
@@ -45,6 +61,8 @@ const AGGREGATE_KEY_FIELDS = [
 // Fields copied into operationsQualificationRows (operations/projections.ts).
 const QUALIFICATION_ROW_FIELDS = [
   "status",
+  "stage",
+  "outcome",
   "leadId",
   "assignedCloserId",
   "firstBookingProgramId",
@@ -118,8 +136,9 @@ async function writeOpportunity(
 }
 
 /**
- * Patch an opportunity's fields, other than status, and keep its aggregates
- * and projections in sync. Status changes go through `transitionOpportunity`.
+ * Patch an opportunity's fields, other than status, stage and outcome, and
+ * keep its aggregates and projections in sync. Status changes go through
+ * `transitionOpportunity`, which writes the stage and outcome with them.
  */
 export async function patchOpportunityLifecycle(
   ctx: MutationCtx,
@@ -127,8 +146,9 @@ export async function patchOpportunityLifecycle(
   patch: OpportunityFieldsPatch,
 ): Promise<Doc<"opportunities">> {
   // Runtime guard for callers that build the patch outside the type system.
-  if ("status" in patch) {
-    throw new Error("Use transitionOpportunity to change an opportunity's status");
+  const field = TRANSITION_ONLY_FIELDS.find((name) => name in patch);
+  if (field) {
+    throw new Error(`Use transitionOpportunity to change an opportunity's ${field}`);
   }
   const before = await getOpportunityOrThrow(ctx, opportunityId);
   return await writeOpportunity(ctx, before, patch);
@@ -215,8 +235,43 @@ function statusStatsDelta(from: OpportunityStatus, to: OpportunityStatus) {
 }
 
 /**
+ * The loss a missed meeting writes on its deal (docs/plans/phase-5-deal-status.md
+ * §4.2). A move to canceled or no-show closes the deal as lost with that
+ * reason, at the time of the cancellation or no-show, with no person, since
+ * the system wrote it. A move from one of them back to an open status clears
+ * the loss, as the Slack stale rejoin clears its own. Every other move keeps
+ * the loss fields the caller gives.
+ */
+function missedMeetingLossFields(
+  from: OpportunityStatus,
+  to: OpportunityStatus,
+  transition: OpportunityTransition,
+): Pick<OpportunityFieldsPatch, "lostReason" | "lostAt" | "lostByUserId"> {
+  const reason = missedMeetingLossReason(to);
+  if (reason) {
+    const missedAt =
+      to === "canceled"
+        ? transition.fields?.canceledAt
+        : transition.fields?.noShowAt;
+    return {
+      lostReason: reason,
+      lostAt: missedAt ?? transition.occurredAt ?? Date.now(),
+      lostByUserId: undefined,
+    };
+  }
+  if (
+    missedMeetingLossReason(from) &&
+    stageForStatus(to, undefined).outcome === "open"
+  ) {
+    return { lostReason: undefined, lostAt: undefined, lostByUserId: undefined };
+  }
+  return {};
+}
+
+/**
  * The one way to change an opportunity's status. It checks the move against
- * the state machine, writes the status with `fields`, and owns everything a
+ * the state machine, writes the status with `fields` and the stage and
+ * outcome it maps to (with a missed meeting's loss), and owns everything a
  * status change implies: the reporting aggregates, the search and
  * qualification projections, the meeting status mirror, the tenant counters
  * for active, won and lost deals, and the domain event.
@@ -239,7 +294,10 @@ export async function transitionOpportunity(
 
   const after = await writeOpportunity(ctx, before, {
     ...transition.fields,
+    ...missedMeetingLossFields(from, to, transition),
     status: to,
+    // In the same patch as the status (§4.4).
+    ...stageForStatus(to, before.source),
   });
   const statsDelta = statusStatsDelta(from, to);
   // tenantStats is one contended document per tenant; skip no-op writes.

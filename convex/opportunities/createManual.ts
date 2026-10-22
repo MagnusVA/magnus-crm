@@ -16,6 +16,7 @@ import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { resolveLeadIdentity } from "../leads/identityResolution";
 import { requireTenantUser } from "../requireTenantUser";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
+import { stageForStatus } from "./stages";
 import { newLeadInputValidator } from "./validators";
 
 type NewLeadInput = {
@@ -235,6 +236,7 @@ export const createManual = mutation({
       assignedCloserId,
       status: "scheduled",
       source: "side_deal",
+      ...stageForStatus("scheduled", "side_deal"),
       manualCreationKey,
       notes,
       createdAt: now,

@@ -64,7 +64,9 @@ const eslintConfig = defineConfig([
   },
   {
     // Opportunity status changes go through transitionOpportunity, which
-    // validates the move and owns its counters, events and projections.
+    // validates the move and owns its counters, events and projections. It
+    // writes the deal's stage and outcome with the status, so they follow the
+    // same rule; only the stage backfill disables it, with a comment.
     files: ["convex/**/*.ts"],
     rules: {
       "no-restricted-syntax": [
@@ -74,6 +76,12 @@ const eslintConfig = defineConfig([
             "CallExpression[callee.property.name=/^(patch|replace)$/][arguments.0.value='opportunities'] > ObjectExpression > Property:matches([key.name='status'], [key.value='status'])",
           message:
             "Change an opportunity's status with transitionOpportunity (convex/lib/opportunityActivity.ts).",
+        },
+        {
+          selector:
+            "CallExpression[callee.property.name=/^(patch|replace)$/][arguments.0.value='opportunities'] > ObjectExpression > Property:matches([key.name=/^(stage|outcome)$/], [key.value=/^(stage|outcome)$/])",
+          message:
+            "Change an opportunity's stage and outcome with transitionOpportunity (convex/lib/opportunityActivity.ts).",
         },
       ],
     },
