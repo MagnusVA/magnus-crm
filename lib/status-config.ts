@@ -8,27 +8,6 @@
 
 import type { DealPosition } from "@/convex/opportunities/stages";
 
-// ─── Opportunity statuses ────────────────────────────────────────────
-
-export const OPPORTUNITY_STATUSES = [
-  "qualified_pending",
-  "scheduled",
-  "payment_received",
-  "follow_up_scheduled",
-  "reschedule_link_sent",
-  "lost",
-  "canceled",
-  "no_show",
-] as const;
-
-export type OpportunityStatus = (typeof OPPORTUNITY_STATUSES)[number];
-
-export function isValidOpportunityStatus(
-  value: string,
-): value is OpportunityStatus {
-  return (OPPORTUNITY_STATUSES as readonly string[]).includes(value);
-}
-
 // ─── Meeting statuses ────────────────────────────────────────────────
 
 export const MEETING_STATUSES = [
@@ -99,90 +78,6 @@ export const dealPositionConfig: Record<DealPosition, DealPositionVisualConfig> 
     badgeClass:
       "bg-red-500/10 text-red-700 border-red-200 dark:text-red-400 dark:border-red-900",
     dotClass: "bg-red-500",
-  },
-};
-
-// ─── Opportunity status display config ───────────────────────────────
-
-// Read by the reminder outcome bars until PR 7 moves them to the deal
-// position, and by the unmounted dashboard's pipeline-summary.tsx. Every
-// other deal label reads `dealPositionConfig`.
-
-type StatusVisualConfig = {
-  label: string;
-  /** Badge background + text classes. */
-  badgeClass: string;
-  /** Small status dot fill. */
-  dotClass: string;
-  /** Pipeline strip card background. */
-  stripBg: string;
-};
-
-export const opportunityStatusConfig: Record<
-  OpportunityStatus,
-  StatusVisualConfig
-> = {
-  qualified_pending: {
-    label: "Qualified - pending meeting",
-    badgeClass:
-      "bg-cyan-500/10 text-cyan-700 border-cyan-200 dark:text-cyan-400 dark:border-cyan-900",
-    dotClass: "bg-cyan-500",
-    stripBg:
-      "bg-cyan-500/5 hover:bg-cyan-500/10 border-cyan-200/60 dark:border-cyan-900/60",
-  },
-  scheduled: {
-    label: "Scheduled",
-    badgeClass:
-      "bg-blue-500/10 text-blue-700 border-blue-200 dark:text-blue-400 dark:border-blue-900",
-    dotClass: "bg-blue-500",
-    stripBg:
-      "bg-blue-500/5 hover:bg-blue-500/10 border-blue-200/60 dark:border-blue-900/60",
-  },
-  follow_up_scheduled: {
-    label: "Follow-up",
-    badgeClass:
-      "bg-violet-500/10 text-violet-700 border-violet-200 dark:text-violet-400 dark:border-violet-900",
-    dotClass: "bg-violet-500",
-    stripBg:
-      "bg-violet-500/5 hover:bg-violet-500/10 border-violet-200/60 dark:border-violet-900/60",
-  },
-  reschedule_link_sent: {
-    label: "Reschedule Sent",
-    badgeClass:
-      "bg-sky-500/10 text-sky-700 border-sky-200 dark:text-sky-400 dark:border-sky-900",
-    dotClass: "bg-sky-500",
-    stripBg:
-      "bg-sky-500/5 hover:bg-sky-500/10 border-sky-200/60 dark:border-sky-900/60",
-  },
-  payment_received: {
-    label: "Won",
-    badgeClass:
-      "bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-900",
-    dotClass: "bg-emerald-500",
-    stripBg:
-      "bg-emerald-500/5 hover:bg-emerald-500/10 border-emerald-200/60 dark:border-emerald-900/60",
-  },
-  lost: {
-    label: "Lost",
-    badgeClass:
-      "bg-red-500/10 text-red-700 border-red-200 dark:text-red-400 dark:border-red-900",
-    dotClass: "bg-red-500",
-    stripBg:
-      "bg-red-500/5 hover:bg-red-500/10 border-red-200/60 dark:border-red-900/60",
-  },
-  canceled: {
-    label: "Canceled",
-    badgeClass: "bg-muted text-muted-foreground border-border",
-    dotClass: "bg-muted-foreground",
-    stripBg: "bg-muted/50 hover:bg-muted border-border/60",
-  },
-  no_show: {
-    label: "No Show",
-    badgeClass:
-      "bg-orange-500/10 text-orange-700 border-orange-200 dark:text-orange-400 dark:border-orange-900",
-    dotClass: "bg-orange-500",
-    stripBg:
-      "bg-orange-500/5 hover:bg-orange-500/10 border-orange-200/60 dark:border-orange-900/60",
   },
 };
 
@@ -272,16 +167,3 @@ export const connectionStatusConfig = {
     badgeClass: "",
   },
 } satisfies Record<string, ConnectionStatusConfig>;
-
-// ─── Pipeline display order ──────────────────────────────────────────
-
-export const PIPELINE_DISPLAY_ORDER: OpportunityStatus[] = [
-  "qualified_pending",
-  "scheduled",
-  "follow_up_scheduled",
-  "payment_received",
-  "reschedule_link_sent",
-  "lost",
-  "canceled",
-  "no_show",
-];

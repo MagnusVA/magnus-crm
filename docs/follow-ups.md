@@ -1,20 +1,18 @@
 # Follow-ups from the October 2026 audits
 
-Sections 1 to 5 came up while rewriting `AGENTS.md` on 2026-10-08; line numbers there are from `main` at that date. Sections 6 to 10 came out of the observability audit the same day and need a product or design decision before anyone changes them. Nothing here has been changed yet.
+Sections 1 to 5 came up while rewriting `AGENTS.md` on 2026-10-08; line numbers there are from `main` at that date. Sections 6 to 10 came out of the observability audit the same day and need a product or design decision before anyone changes them. Apart from the two leftover dashboard sections, which Phase 5 deleted with the components only they rendered, nothing here has been changed yet.
 
 ## 1. Unused code
 
-None of these files are imported anywhere in `app/`, `components/`, `lib/`, `hooks/`, or `convex/`.
+This file isn't imported anywhere in `app/`, `components/`, `lib/`, `hooks/`, or `convex/`.
 
 | File | Lines | Notes |
 | --- | --- | --- |
-| `app/workspace/_components/stats-section.tsx` | 21 | Leftover dashboard section |
-| `app/workspace/_components/pipeline-section.tsx` | 20 | Leftover dashboard section |
 | `components/ui/stream-boundary.tsx` | 36 | Unused streaming wrapper |
 
 ### Fix
 
-Delete the three files, then run `pnpm typecheck` and `pnpm lint`.
+Delete the file, then run `pnpm typecheck` and `pnpm lint`.
 
 ## 2. Orphaned View Transition CSS
 
