@@ -73,7 +73,8 @@ export function ReminderDetailPageClient({
 			posthog.capture("reminder_page_opened", {
 				follow_up_id: detail.followUp._id,
 				opportunity_id: detail.opportunity._id,
-				opportunity_status: detail.opportunity.status,
+				deal_stage: detail.opportunity.stage,
+				deal_outcome: detail.opportunity.outcome,
 				contact_method: detail.followUp.contactMethod ?? null,
 				has_phone: Boolean(detail.lead.phone),
 			});

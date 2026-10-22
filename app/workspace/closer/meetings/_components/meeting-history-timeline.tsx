@@ -2,16 +2,16 @@
 
 import Link from "next/link";
 import { format } from "date-fns";
-import { Badge } from "@/components/ui/badge";
+import { DealStageBadge } from "@/components/status-badge";
 import { cn } from "@/lib/utils";
-import {
-  opportunityStatusConfig,
-  type OpportunityStatus,
-} from "@/lib/status-config";
+import { dealPositionConfig } from "@/lib/status-config";
 import type { Doc } from "@/convex/_generated/dataModel";
+import type { DealPosition, SystemLossReason } from "@/convex/opportunities/stages";
 
+// Each meeting shows its deal's position (docs/plans/phase-5-deal-status.md §6.1).
 type MeetingHistoryEntry = Doc<"meetings"> & {
-  opportunityStatus: Doc<"opportunities">["status"];
+  dealPosition: DealPosition;
+  dealSystemLoss: SystemLossReason | null;
   isCurrentMeeting: boolean;
 };
 
@@ -23,7 +23,7 @@ type MeetingHistoryTimelineProps = {
 /**
  * Vertical timeline of all meetings for a lead across all opportunities.
  *
- * - Status‑colored dots from centralised `status-config.ts` (all 7 statuses)
+ * - Dots coloured by the deal's position, from centralised `status-config.ts`
  * - Current meeting highlighted with primary ring
  * - Other meetings link to their detail pages for easy navigation
  * - Semantic `<ol>` with `aria-label` and `aria-current` for accessibility
@@ -37,8 +37,7 @@ export function MeetingHistoryTimeline({
   return (
     <ol className="flex flex-col" aria-label="Lead meeting history">
       {meetingHistory.map((meeting, idx) => {
-        const statusKey = meeting.opportunityStatus as OpportunityStatus;
-        const config = opportunityStatusConfig[statusKey];
+        const config = dealPositionConfig[meeting.dealPosition];
         const isLast = idx === meetingHistory.length - 1;
 
         const row = (
@@ -50,7 +49,7 @@ export function MeetingHistoryTimeline({
                   "size-2.5 shrink-0 rounded-full",
                   meeting.isCurrentMeeting
                     ? "bg-primary ring-[3px] ring-primary/25"
-                    : config?.dotClass ?? "bg-muted-foreground",
+                    : config.dotClass,
                 )}
               />
               {!isLast && <div className="my-1 min-h-5 w-px bg-border" />}
@@ -67,12 +66,11 @@ export function MeetingHistoryTimeline({
                 >
                   {format(meeting.scheduledAt, "MMM d, yyyy")}
                 </p>
-                <Badge
-                  variant="secondary"
-                  className={cn("text-[10px]", config?.badgeClass)}
-                >
-                  {config?.label ?? "Unknown"}
-                </Badge>
+                <DealStageBadge
+                  position={meeting.dealPosition}
+                  systemLoss={meeting.dealSystemLoss}
+                  className="text-[10px]"
+                />
               </div>
               <p className="text-xs text-muted-foreground">
                 {format(meeting.scheduledAt, "h:mm a")}

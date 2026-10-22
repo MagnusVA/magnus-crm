@@ -9,7 +9,6 @@ import type { Doc } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,7 +23,6 @@ import {
   EmptyDescription,
 } from "@/components/ui/empty";
 import { Separator } from "@/components/ui/separator";
-import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import {
   ArrowLeftIcon,
@@ -33,10 +31,7 @@ import {
   TrophyIcon,
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  opportunityStatusConfig,
-  type OpportunityStatus,
-} from "@/lib/status-config";
+import { DealStageBadge } from "@/components/status-badge";
 import { MeetingOverviewCard } from "../../_components/meeting-overview-card";
 import { MeetingHistoryCard } from "../../_components/meeting-history-card";
 import { MeetingComments } from "../../_components/meeting-comments";
@@ -104,8 +99,6 @@ export function MeetingDetailPageClient({
     dealAttribution,
   } = detail;
 
-  const statusKey = opportunity.status as OpportunityStatus;
-  const statusCfg = opportunityStatusConfig[statusKey];
   const outcomeActionBarPayments = payments.map((payment) => ({
     ...payment,
     attributedCloserId: payment.attributedCloserId ?? undefined,
@@ -132,12 +125,11 @@ export function MeetingDetailPageClient({
           <h1 className="min-w-0 truncate text-base font-semibold" title={lead.fullName ?? undefined}>
             {lead.fullName ?? "Meeting"}
           </h1>
-          <Badge
-            variant="secondary"
-            className={cn("shrink-0", statusCfg?.badgeClass)}
-          >
-            {statusCfg?.label ?? opportunity.status}
-          </Badge>
+          <DealStageBadge
+            position={opportunity.position}
+            systemLoss={opportunity.systemLoss}
+            className="shrink-0"
+          />
         </div>
 
         {/* Actions — top-right, horizontal, packed */}

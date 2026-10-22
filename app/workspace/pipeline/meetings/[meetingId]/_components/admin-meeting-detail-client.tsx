@@ -9,7 +9,6 @@ import { usePreloadedQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -19,7 +18,6 @@ import {
   EmptyDescription,
 } from "@/components/ui/empty";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import {
   ArrowLeftIcon,
@@ -27,10 +25,7 @@ import {
   ShuffleIcon,
   UserIcon,
 } from "lucide-react";
-import {
-  opportunityStatusConfig,
-  type OpportunityStatus,
-} from "@/lib/status-config";
+import { DealStageBadge } from "@/components/status-badge";
 
 // Cross-import reusable display components from closer meeting detail
 import { LeadInfoPanel } from "@/app/workspace/closer/meetings/_components/lead-info-panel";
@@ -96,9 +91,6 @@ export function AdminMeetingDetailClient({
     dealAttribution,
   } = detail;
 
-  const statusKey = opportunity.status as OpportunityStatus;
-  const statusCfg = opportunityStatusConfig[statusKey];
-
   return (
     <div className="flex flex-col gap-6">
       {/* Header: Back to pipeline + status badge */}
@@ -109,9 +101,10 @@ export function AdminMeetingDetailClient({
             Pipeline
           </Link>
         </Button>
-        <Badge variant="secondary" className={cn(statusCfg?.badgeClass)}>
-          {statusCfg?.label ?? opportunity.status}
-        </Badge>
+        <DealStageBadge
+          position={opportunity.position}
+          systemLoss={opportunity.systemLoss}
+        />
       </div>
 
       {/* Assigned closer info — prominent for admins */}
