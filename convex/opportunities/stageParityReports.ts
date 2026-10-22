@@ -43,7 +43,7 @@ import {
   readTeamOutcomeInputs,
   type OutcomeCounts,
 } from "../reporting/teamOutcomes";
-import { LEGACY_STATUS_GROUPS, dealPosition, dealStageOf, type DealPosition } from "./stages";
+import { LEGACY_STATUS_GROUPS, dealPosition, dealStageOf } from "./stages";
 import { opportunityStatusValidator } from "./validators";
 
 // The report numbers both ways, for the parity queries in stageParity.ts
