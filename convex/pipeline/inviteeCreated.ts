@@ -14,8 +14,16 @@ import {
 	transitionOpportunity,
 } from "../lib/opportunityActivity";
 import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
-import { validateTransition } from "../lib/statusTransitions";
 import { stageForStatus } from "../opportunities/stages";
+import {
+	allowsMoveToBooked,
+	calendlyRescheduleTarget,
+	followUpJoinTargets,
+	isBookingLinkTarget,
+	isWaitingOnRescheduleLink,
+	loadDealTasks,
+	positionOf,
+} from "./bookingTargets";
 import { extractUtmParams } from "../lib/utmParams";
 import { clampUtmValue } from "../lib/attribution/normalize";
 import {
@@ -910,11 +918,15 @@ export const process = internalMutation({
 			if (
 				targetOpportunity &&
 				targetOpportunity.tenantId === tenantId &&
-				(targetOpportunity.status === "follow_up_scheduled" ||
-					targetOpportunity.status === "reschedule_link_sent") &&
-				validateTransition(targetOpportunity.status, "scheduled")
+				isBookingLinkTarget(targetOpportunity) &&
+				allowsMoveToBooked(targetOpportunity)
 			) {
-				const previousTargetStatus = targetOpportunity.status;
+				// Read before the move and the link's booking change the deal and its tasks.
+				const previousTargetPosition = positionOf(targetOpportunity);
+				const targetWasWaitingOnRescheduleLink = isWaitingOnRescheduleLink(
+					targetOpportunity,
+					await loadDealTasks(ctx, targetOpportunity._id),
+				);
 				const targetLead = await ctx.db.get("leads", targetOpportunity.leadId);
         const resolvedTarget = await resolveExistingLeadIdentity(ctx, { tenantId, email: inviteeEmail, phone: effectivePhone,
           socialHandle: extractedIdentifiers.socialHandle, identifierSource: "calendly_booking", createdAt: now });
@@ -1056,7 +1068,7 @@ export const process = internalMutation({
 							},
 						);
 					}
-					if (previousTargetStatus === "reschedule_link_sent") {
+					if (targetWasWaitingOnRescheduleLink) {
 						await expireRescheduleLinks(ctx, targetOpportunity, now);
 					}
 
@@ -1171,7 +1183,8 @@ export const process = internalMutation({
 						leadId: lead._id,
 						leadCreated: false,
 						opportunityCreated: false,
-						previousOpportunityStatus: previousTargetStatus,
+						previousDealPosition: previousTargetPosition,
+						rescheduleLinkWaiting: targetWasWaitingOnRescheduleLink,
 						closerResolution: assignedCloserResolution.resolution,
 						closerChanged,
 						rescheduledFromMeetingId,
@@ -1187,7 +1200,7 @@ export const process = internalMutation({
 				opportunityId: targetOpportunityId,
 				opportunityExists: !!targetOpportunity,
 				tenantMatch: targetOpportunity?.tenantId === tenantId,
-				opportunityStatus: targetOpportunity?.status,
+				dealPosition: targetOpportunity ? positionOf(targetOpportunity) : undefined,
 			});
 		  blockBooking("invalid_booking_link");
 		}
@@ -1300,10 +1313,10 @@ export const process = internalMutation({
     }
     const reachable = candidates.filter(o => !outOfReach.has(o._id));
     // A Calendly reschedule names the booking it replaces. A deal still
-    // scheduled on that booking moves to this one. A no-show or a cancellation
-    // ended the deal, so this booking has no target: it goes through the joins
-    // below like a booking without one, or starts a new deal, and the old
-    // meeting is left as it is.
+    // Booked on that booking (or a side deal's Call held) moves to this one.
+    // A no-show or a cancellation ended the deal, so this booking has no
+    // target: it goes through the joins below like a booking without one, or
+    // starts a new deal, and the old meeting is left as it is.
     let reschedule: { target: Doc<"opportunities">; from: Doc<"meetings"> } | null = null;
     if (oldInvitee) {
       if (!previousMeeting) blockBooking("previous_booking_missing");
@@ -1311,8 +1324,9 @@ export const process = internalMutation({
       // Calendly says the old booking was this person's, the identifiers say
       // it was another's: held whether or not the booking joins that deal.
       if (!previousDeal) blockBooking("identity_conflict");
-      if (previousDeal.status === "scheduled") reschedule = { target: previousDeal, from: previousMeeting };
-      else if (previousDeal.status !== "no_show" && previousDeal.status !== "canceled") blockBooking("booking_target_requires_review");
+      const target = calendlyRescheduleTarget(previousDeal);
+      if (target === "move") reschedule = { target: previousDeal, from: previousMeeting };
+      else if (target === "review") blockBooking("booking_target_requires_review");
     }
 		// === End Calendly reschedule target ===
 
@@ -1320,7 +1334,7 @@ export const process = internalMutation({
 		if (reschedule) {
 			const { target: rescheduleTarget, from: explicitSourceMeeting } = reschedule;
 			const reschedOpportunityId = rescheduleTarget._id;
-			const previousOpportunityStatus = rescheduleTarget.status;
+			const previousDealPosition = positionOf(rescheduleTarget);
 			const rescheduledFromMeetingId = explicitSourceMeeting._id;
       if (explicitSourceMeeting.status === "scheduled") {
         await patchMeetingLifecycle(ctx, explicitSourceMeeting._id, { status: "canceled", canceledAt: now });
@@ -1356,8 +1370,8 @@ export const process = internalMutation({
 				eventTypeConfigId: effectiveEventTypeConfigId,
 				updatedAt: now,
 			};
-			// The target is still scheduled: the reschedule moves the booking,
-			// not the status.
+			// The target stays Booked: the reschedule moves the booking, not the
+			// deal.
 			await patchOpportunityLifecycle(ctx, reschedOpportunityId, rebookFields);
 			if (closerChanged) {
 				await syncOpportunityMeetingsAssignedCloser(
@@ -1469,7 +1483,7 @@ export const process = internalMutation({
 				leadId: lead._id,
 				leadCreated: resolution.isNewLead,
 				opportunityCreated: false,
-				previousOpportunityStatus,
+				previousDealPosition,
 				closerResolution: assignedCloserResolution.resolution,
 				closerChanged,
 				rescheduledFromMeetingId,
@@ -1479,11 +1493,11 @@ export const process = internalMutation({
 		}
 		// === End Calendly reschedule ===
 
-		// A booking without a link joins a follow-up deal or a Slack deal. It
-		// never joins a no-show or canceled deal: a missed meeting ended that
-		// deal, and the next booking is a new one.
+		// A booking without a link joins a Follow-up deal with no reschedule
+		// link waiting, or a Slack deal. It never joins a deal a missed meeting
+		// closed: the next booking is a new one.
 		let existingFollowUp: Doc<"opportunities"> | null = null;
-    const followUps = reachable.filter(o => o.status === "follow_up_scheduled");
+    const followUps = await followUpJoinTargets(ctx, reachable);
     if (followUps.length > 1) blockBooking("ambiguous_booking_target");
     existingFollowUp = followUps[0] ?? null;
 
@@ -1548,10 +1562,7 @@ export const process = internalMutation({
 		let createdOpportunityId: Id<"opportunities"> | undefined;
 		if (slackQualifiedOpportunity) {
 			const reopensStaleDeal = wasStaleExpiredAfter(slackQualifiedOpportunity, now);
-			if (
-				!reopensStaleDeal &&
-				!validateTransition(slackQualifiedOpportunity.status, "scheduled")
-			) {
+			if (!reopensStaleDeal && !allowsMoveToBooked(slackQualifiedOpportunity)) {
 				throw new Error(
 					"[Pipeline] Invalid slack-qualified opportunity transition to scheduled",
 				);
@@ -1605,7 +1616,7 @@ export const process = internalMutation({
 			});
 			slackJoinEventOpportunityId = opportunityId;
 		} else if (existingFollowUp) {
-			if (!validateTransition(existingFollowUp.status, "scheduled")) {
+			if (!allowsMoveToBooked(existingFollowUp)) {
 				throw new Error(
 					"[Pipeline] Invalid follow-up opportunity transition",
 				);

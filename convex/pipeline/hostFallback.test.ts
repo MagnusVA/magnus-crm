@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { bookingHarness, bookingPayload, mapEventTypeToProgram, qualifiedLifecycle } from "../../tests/bookingHarness";
+import { writtenBesideStatus } from "../../tests/bookingRuleFixtures";
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 
@@ -28,10 +29,11 @@ it.each(["utm_follow_up", "follow_up", "slack_qualified"])(
         firstSeenAt: Date.parse("2026-10-01T08:00:00Z"),
         updatedAt: Date.parse("2026-10-01T09:00:00Z"),
       });
+      const status = path === "slack_qualified" ? "qualified_pending" : "follow_up_scheduled";
+      const source = path === "slack_qualified" ? "slack_qualified" : "calendly";
       return await ctx.db.insert("opportunities", {
-        tenantId, leadId,
-        status: path === "slack_qualified" ? "qualified_pending" : "follow_up_scheduled",
-        source: path === "slack_qualified" ? "slack_qualified" : "calendly",
+        tenantId, leadId, status, source,
+        ...writtenBesideStatus(status, source),
         createdAt: Date.parse("2026-10-01T08:00:00Z"),
         updatedAt: Date.parse("2026-10-01T09:00:00Z"),
       });
@@ -78,6 +80,7 @@ it("ignores a non-closer host's booking beside a recent canceled deal instead of
     });
     const id = await ctx.db.insert("opportunities", {
       tenantId, leadId, assignedCloserId: closer!._id, status: "canceled", source: "calendly",
+      ...writtenBesideStatus("canceled", "calendly", Date.parse("2026-10-01T09:00:00Z")),
       createdAt: Date.parse("2026-10-01T08:00:00Z"), updatedAt: Date.parse("2026-10-01T09:00:00Z"),
     });
     await insertOpportunityAggregate(ctx, id);
@@ -142,11 +145,13 @@ it.each(paths.flatMap((path) => [
     await ctx.db.patch("users", adminUser!._id, {
       calendlyUserUri: "https://api.calendly.com/users/admin",
     });
+    const status = path === "utm_reschedule" ? "reschedule_link_sent"
+      : path === "provider_reschedule" ? "scheduled"
+      : path === "slack_qualified" ? "qualified_pending" : "follow_up_scheduled";
+    const source = path === "slack_qualified" ? "slack_qualified" : "calendly";
     await forceOpportunityState(ctx, opportunityId, {
-      status: path === "utm_reschedule" ? "reschedule_link_sent"
-        : path === "provider_reschedule" ? "scheduled"
-        : path === "slack_qualified" ? "qualified_pending" : "follow_up_scheduled",
-      source: path === "slack_qualified" ? "slack_qualified" : "calendly",
+      status, source,
+      ...writtenBesideStatus(status, source),
       updatedAt: Date.parse("2026-10-01T09:30:00Z"),
     });
   });
@@ -323,6 +328,7 @@ it("attaches an admin-hosted booking to the lead's Slack-qualified opportunity w
       tenantId, leadId,
       status: "qualified_pending",
       source: "slack_qualified",
+      ...writtenBesideStatus("qualified_pending", "slack_qualified"),
       assignedCloserId: closer!._id,
       createdAt: Date.parse("2026-09-30T08:00:00Z"),
       updatedAt: Date.parse("2026-09-30T08:00:00Z"),

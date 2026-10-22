@@ -8,6 +8,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
+import { writtenBesideStatus } from "../../tests/bookingRuleFixtures";
 import { buildBookingReviewNotification } from "../lib/slackBlockKit";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 
@@ -130,6 +131,7 @@ async function seedPerson(
         leadId,
         status: "qualified_pending",
         source: "slack_qualified",
+        ...writtenBesideStatus("qualified_pending", "slack_qualified"),
         qualifiedBy: { slackUserId: "U_SETTER", slackTeamId: "T1", submittedAt: at },
         createdAt: at,
         updatedAt: at,
@@ -235,8 +237,10 @@ it("the Slack alert names the booking, both people, what differs, and links to t
   // The setter's deal took the booking: its label is the deal stage's.
   const booked = alert!.detail.people.find((person) => person.role === "booked");
   expect(booked?.deals).toEqual([
-    expect.objectContaining({ status: "scheduled", stage: "booked", outcome: "open", position: "booked", systemLoss: null }),
+    expect.objectContaining({ stage: "booked", outcome: "open", position: "booked", systemLoss: null }),
   ]);
+  // The payload carries the stage, not the status it replaced (§4.8).
+  expect(booked?.deals[0]).not.toHaveProperty("status");
   const message = buildBookingReviewNotification(alert!.detail, "https://crm.example/");
   const blocks = JSON.stringify(message.blocks);
   expect(blocks).not.toContain("Scheduled");

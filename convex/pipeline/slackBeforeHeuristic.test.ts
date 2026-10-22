@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { internal } from "../_generated/api";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
+import { writtenBesideStatus } from "../../tests/bookingRuleFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -28,6 +29,7 @@ it.each(["canceled", "no_show"] as const)(
         leadId,
         status: oldStatus,
         source: "calendly",
+        ...writtenBesideStatus(oldStatus, "calendly", Date.parse("2026-09-25T09:00:00Z")),
         createdAt: Date.parse("2026-09-20T08:00:00Z"),
         updatedAt: Date.parse("2026-09-25T09:00:00Z"),
       });
@@ -36,6 +38,7 @@ it.each(["canceled", "no_show"] as const)(
         leadId,
         status: "qualified_pending",
         source: "slack_qualified",
+        ...writtenBesideStatus("qualified_pending", "slack_qualified"),
         qualifiedBy: {
           slackUserId: "U1",
           slackTeamId: "T1",
@@ -90,6 +93,7 @@ it("makes a new deal beside a recent canceled deal when there is no Slack qualif
       leadId,
       status: "canceled",
       source: "calendly",
+      ...writtenBesideStatus("canceled", "calendly", Date.parse("2026-09-25T09:00:00Z")),
       createdAt: Date.parse("2026-09-20T08:00:00Z"),
       updatedAt: Date.parse("2026-09-25T09:00:00Z"),
     });
