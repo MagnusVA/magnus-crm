@@ -7,6 +7,7 @@ import { log } from "../lib/observability/log";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMeetingsAssignedCloser";
 import {
+  missedMeetingLoss,
   patchOpportunityLifecycle,
   transitionOpportunity,
 } from "../lib/opportunityActivity";
@@ -454,9 +455,11 @@ export const manuallyResolveMeeting = mutation({
       updatedAt: now,
     };
     if (cancelsDeal) {
+      // Booked or Call held -> Closed lost, with the reason `canceled`: the
+      // system's loss, whichever admin resolved the unavailability.
       await transitionOpportunity(ctx, opportunity._id, {
-        to: "canceled",
-        fields: cancellationFields,
+        to: { stage: "closed", outcome: "lost" },
+        fields: { ...cancellationFields, ...missedMeetingLoss("canceled", now) },
         source: "admin",
         actorUserId: userId,
         reason: cancellationReason,

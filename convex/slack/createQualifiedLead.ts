@@ -17,7 +17,8 @@ import type { SocialPlatform } from "../lib/socialPlatform";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { rebuildQualificationRow } from "../operations/projections";
 import { blocksNewQualification, isQualifiedDeal } from "../opportunities/dealGuards";
-import { dealStageOf, stageForStatus } from "../opportunities/stages";
+import { newDealStageFields } from "../opportunities/dealState";
+import { dealStageOf } from "../opportunities/stages";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 import { SLACK_JOIN_LOOKBACK_MS } from "../pipeline/slackJoinLookup";
 import { upsertSlackUserOnSubmission } from "./users";
@@ -354,9 +355,8 @@ export const create = internalMutation({
     const opportunityId = await ctx.db.insert("opportunities", {
       tenantId: args.tenantId,
       leadId: resolution.leadId,
-      status: "qualified_pending",
       source: "slack_qualified",
-      ...stageForStatus("qualified_pending", "slack_qualified"),
+      ...newDealStageFields("qualified"),
       qualifiedBy: args.qualifiedBy,
       qualifiedAt: args.qualifiedBy.submittedAt,
       createdAt: now,
@@ -391,11 +391,12 @@ export const create = internalMutation({
       entityId: opportunityId,
       eventType: "opportunity.created",
       source: "pipeline",
-      toStatus: "qualified_pending",
+      // The stage it starts at (docs/plans/phase-5-deal-status.md §4.7).
+      toStatus: "qualified",
       occurredAt: now,
       // The setter who qualified the person acted, not a CRM user.
       teamMemberId: setterTeamMemberId,
-      metadata: { source: "slack_qualified" },
+      metadata: { source: "slack_qualified", toOutcome: "open" },
     });
     await recordDealCreation(ctx, opportunityId);
 

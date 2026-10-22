@@ -107,7 +107,7 @@ export const logPayment = mutation({
       programName: program.name,
     });
     await transitionOpportunity(ctx, args.opportunityId, {
-      to: "payment_received",
+      to: { stage: "closed", outcome: "won" },
       fields: { paymentReceivedAt: now, updatedAt: now },
       source: isAdmin ? "admin" : "closer",
       actorUserId: userId,

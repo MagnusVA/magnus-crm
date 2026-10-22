@@ -198,7 +198,7 @@ export const logReminderPayment = mutation({
     const reassignsCloser =
       role !== "closer" && opportunity.assignedCloserId !== followUp.closerId;
     await transitionOpportunity(ctx, opportunity._id, {
-      to: "payment_received",
+      to: { stage: "closed", outcome: "won" },
       fields: {
         ...(reassignsCloser ? { assignedCloserId: followUp.closerId } : {}),
         paymentReceivedAt: now,
@@ -305,7 +305,7 @@ export const markReminderLost = mutation({
     const trimmedReason = normalizeOptionalString(reason);
 
     await transitionOpportunity(ctx, opportunity._id, {
-      to: "lost",
+      to: { stage: "closed", outcome: "lost" },
       fields: {
         updatedAt: now,
         lostAt: now,
@@ -314,7 +314,6 @@ export const markReminderLost = mutation({
       },
       source: "closer",
       actorUserId: userId,
-      eventType: "opportunity.marked_lost",
       reason: trimmedReason,
       metadata: {
         followUpId,
@@ -400,7 +399,7 @@ export const markReminderNoResponse = mutation({
       const lostReason = trimmedNote ?? "No response to outreach";
 
       await transitionOpportunity(ctx, opportunity._id, {
-        to: "lost",
+        to: { stage: "closed", outcome: "lost" },
         fields: {
           updatedAt: now,
           lostAt: now,
@@ -409,7 +408,6 @@ export const markReminderNoResponse = mutation({
         },
         source: "closer",
         actorUserId: userId,
-        eventType: "opportunity.marked_lost",
         reason: lostReason,
         metadata: {
           followUpId,

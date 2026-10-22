@@ -73,7 +73,14 @@ describe("admin follow-ups", () => {
       allowed,
     );
     if (allowed) {
-      expect((await readGuardDeal(harness, opportunityId)).status).toBe("follow_up_scheduled");
+      // From PR 8 the status is legacyStatus of the deal it leaves: a stale
+      // reschedule link left on a no-show deal (production has none) makes
+      // the Follow-up deal `reschedule_link_sent`, as the guards already read
+      // it; PR 7 stored `follow_up_scheduled` there, which assertDealStages
+      // would have reported.
+      expect((await readGuardDeal(harness, opportunityId)).status).toBe(
+        state.task === "reschedule_link" ? "reschedule_link_sent" : "follow_up_scheduled",
+      );
     }
   });
 

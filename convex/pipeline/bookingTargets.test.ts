@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { transitionOpportunity } from "../lib/opportunityActivity";
-import { OPPORTUNITY_STATUSES } from "../lib/statusTransitions";
+import { OPPORTUNITY_STATUSES, stageMoveAllowed } from "../opportunities/stages";
 import {
-  allowsMoveToBooked,
+  bookingFactMove,
   bookingFactMovesDeal,
   calendlyRescheduleTarget,
   followUpJoinTargets,
@@ -21,6 +21,7 @@ import { harnessCloserId } from "../../tests/dealStageFixtures";
 import { missedMeetingHarness } from "../../tests/missedMeetingFixtures";
 import {
   DEAL_SOURCES,
+  PR8_STALE_REJOIN,
   TODAYS_CHECKS,
   bookingRuleWorlds,
   insertRescheduleLink,
@@ -90,12 +91,38 @@ describe("against today's status checks", () => {
     )).toEqual([]);
   });
 
-  it("a booking may move Qualified, Follow-up or a missed meeting's deal (today validateTransition to scheduled)", () => {
+  it("the stage machine lets a booking move Qualified or Follow-up to Booked (today validateTransition to scheduled, less the missed meetings)", () => {
+    // No booking takes a missed meeting's deal since PR 2 (§4.3); from PR 8
+    // only Calendly withdrawing the no-show reopens it at Booked.
     expect(disagreements(
-      (w) => allowsMoveToBooked(w.deal),
-      (w) => TODAYS_CHECKS.allowsMoveToBooked(w.status),
+      (w) => stageMoveAllowed(w.deal, { stage: "booked" }),
+      (w) => TODAYS_CHECKS.allowsMoveToBooked(w.status) && w.status !== "no_show" && w.status !== "canceled",
+    )).toEqual([]);
+    expect(disagreements(
+      (w) => stageMoveAllowed(w.deal, { stage: "booked" }, "no_show_withdrawn"),
+      (w) => TODAYS_CHECKS.allowsMoveToBooked(w.status) && w.status !== "canceled",
     )).toEqual([]);
   });
+
+  it.each(["scheduled", "no_show", "canceled"] as const)(
+    "a Calendly fact leaving the meeting %s closes, reopens or changes the reason of the deal as PR 7 moved its status",
+    (meetingStatus) => {
+      // PR 7's move, from the status to the meeting's, as the stage machine
+      // expresses it; canceled -> scheduled, which no fact makes, has none.
+      const pr7Move = (status: BookingRuleWorld["status"]) =>
+        !TODAYS_CHECKS.bookingFactMovesDeal(status, meetingStatus)
+          ? null
+          : status === "scheduled"
+            ? "close"
+            : meetingStatus === "scheduled"
+              ? status === "no_show" ? "reopen" : null
+              : "change_reason";
+      expect(disagreements(
+        (w) => bookingFactMove(w.deal, meetingStatus),
+        (w) => pr7Move(w.status),
+      )).toEqual([]);
+    },
+  );
 
   it.each(["scheduled", "no_show", "canceled"] as const)(
     "a Calendly fact leaving the meeting %s moves Booked, Call held or a missed meeting's deal it doesn't already say",
@@ -113,8 +140,17 @@ describe("against today's status checks", () => {
   ])("the Slack join reopens a deal the stale expiry closed %s the booking", (_label, referenceTime) => {
     expect(disagreements(
       (w) => wasStaleExpiredAfter(w.deal, referenceTime),
-      (w) => TODAYS_CHECKS.wasStaleExpiredAfter(w.deal, referenceTime),
+      (w) => PR8_STALE_REJOIN(w.deal, referenceTime),
     )).toEqual([]);
+  });
+
+  it("no longer reopens a person's loss with the text 'stale', the one rule PR 8 changes", () => {
+    const changed = WORLDS.filter(
+      (w) => TODAYS_CHECKS.wasStaleExpiredAfter(w.deal, 1_000) !== wasStaleExpiredAfter(w.deal, 1_000),
+    );
+    expect(changed.length).toBeGreaterThan(0);
+    expect(changed.every((w) => w.deal.lostByUserId !== undefined && w.deal.lostReason === "stale")).toBe(true);
+    expect(changed.some((w) => wasStaleExpiredAfter(w.deal, 1_000))).toBe(false);
   });
 });
 
@@ -262,7 +298,7 @@ describe("a booking without a link, through the pipeline", () => {
     const { opportunityId } = await h.book(ORIGINAL, "2026-10-02T10:00:00Z");
     h.clockAt("2026-10-06T17:00:00Z");
     await h.t.run((ctx) => transitionOpportunity(ctx, opportunityId, {
-      to: "follow_up_scheduled", source: "closer", occurredAt: Date.now(), fields: { updatedAt: Date.now() },
+      to: { stage: "follow_up" }, source: "closer", occurredAt: Date.now(), fields: { updatedAt: Date.now() },
     }));
 
     const next = await h.book(REBOOK, "2026-10-08T10:00:00Z");

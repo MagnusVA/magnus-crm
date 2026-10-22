@@ -1,10 +1,14 @@
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
-import { transitionOpportunity } from "../lib/opportunityActivity";
+import {
+  changeMissedMeetingLoss,
+  missedMeetingLoss,
+  transitionOpportunity,
+} from "../lib/opportunityActivity";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { getString, isRecord } from "../lib/payloadExtraction";
-import { bookingFactMovesDeal } from "./bookingTargets";
+import { bookingFactMove } from "./bookingTargets";
 
 export async function recordBookingFact(
   ctx: MutationCtx,
@@ -156,25 +160,48 @@ export async function reconcileBookingFact(
       opportunity.latestMeetingId === meeting._id);
   // The facts move a Booked deal (or a side deal's Call held) and one a
   // missed meeting closed, when the deal doesn't already say what the
-  // meeting now says.
-  if (currentBooking && bookingFactMovesDeal(opportunity, status)) {
+  // meeting now says, in whatever order the facts arrive (§4.3, §4.4).
+  const move = currentBooking ? bookingFactMove(opportunity, status) : null;
+  if (!move) return;
+  const fields = {
+    canceledAt: status === "canceled" ? occurredAt : opportunity.canceledAt,
+    cancellationReason:
+      status === "canceled"
+        ? fact.cancellationReason
+        : opportunity.cancellationReason,
+    noShowAt: status === "no_show" ? occurredAt : undefined,
+    // Decides which late bookings are held for review.
+    updatedAt: Math.max(opportunity.updatedAt, occurredAt),
+  };
+  if (move === "reopen") {
+    // Calendly withdrew the no-show: Closed lost -> Booked.
     await transitionOpportunity(ctx, opportunity._id, {
-      to: status,
-      fields: {
-        canceledAt: status === "canceled" ? occurredAt : opportunity.canceledAt,
-        cancellationReason:
-          status === "canceled"
-            ? fact.cancellationReason
-            : opportunity.cancellationReason,
-        noShowAt: status === "no_show" ? occurredAt : undefined,
-        updatedAt: Math.max(opportunity.updatedAt, occurredAt),
-      },
-      // The opportunity mirrors the current booking, so it follows Calendly
-      // between scheduled, no-show and canceled in whatever order the facts
-      // arrive.
-      exception: "calendly_webhook",
+      to: { stage: "booked" },
+      fields,
+      exception: "no_show_withdrawn",
       source: "pipeline",
       occurredAt,
     });
+    return;
   }
+  // `status` is the no-show or the cancellation here.
+  const reason = status === "canceled" ? "canceled" : "no_show";
+  if (move === "close") {
+    // Booked (or Call held) -> Closed lost, by the system.
+    await transitionOpportunity(ctx, opportunity._id, {
+      to: { stage: "closed", outcome: "lost" },
+      fields: { ...fields, ...missedMeetingLoss(reason, occurredAt) },
+      source: "pipeline",
+      occurredAt,
+    });
+    return;
+  }
+  // The reason changes in place on the closed deal.
+  await changeMissedMeetingLoss(ctx, opportunity._id, {
+    reason,
+    at: occurredAt,
+    fields,
+    source: "pipeline",
+    occurredAt,
+  });
 }

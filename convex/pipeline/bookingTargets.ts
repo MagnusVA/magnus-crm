@@ -18,8 +18,8 @@ import {
 // loss and tasks (docs/plans/phase-5-deal-status.md §4.3, §4.6, §6.7). Each
 // predicate gives the answer of the status check it replaced, named in its
 // comment, for every deal the dual write leaves; bookingTargets.test.ts
-// proves it. The moves themselves still go through transitionOpportunity
-// with a status until PR 8.
+// proves it. The moves themselves go through transitionOpportunity and the
+// stage machine (stages.ts) from PR 8.
 
 /** The tasks a booking rule reads: whether a reschedule link waits on the person. */
 export type DealTasks = { hasPendingRescheduleLink: boolean };
@@ -93,17 +93,6 @@ export function calendlyRescheduleTarget(deal: DealStateFields): "move" | "ended
   return "review";
 }
 
-/**
- * Whether today's state machine lets a booking move the deal to `scheduled`
- * (`validateTransition(status, "scheduled")`): Qualified, Follow-up with or
- * without a reschedule link, or a deal a missed meeting closed. PR 8 replaces
- * it with the stage machine (§4.4).
- */
-export function allowsMoveToBooked(deal: DealStateFields): boolean {
-  const position = positionOf(deal);
-  return position === "qualified" || position === "follow_up" || isMissedMeetingLoss(deal) !== null;
-}
-
 /** The meeting statuses a Calendly fact can leave the deal's current booking at. */
 export type BookingFactMeetingStatus = Exclude<MeetingStatus, "completed">;
 
@@ -132,6 +121,29 @@ export function bookingFactMovesDeal(
 ): boolean {
   const state = bookingStateOf(deal);
   return state !== null && state !== meetingStatus;
+}
+
+/**
+ * How a Calendly fact moves the deal, from PR 8 (§4.3, §4.4):
+ * - "close": a no-show or a cancellation of a Booked deal (or a side deal's
+ *   Call held) closes it lost with that reason;
+ * - "reopen": Calendly withdrew the no-show that closed it, so it reopens at
+ *   Booked with `no_show_withdrawn`;
+ * - "change_reason": Calendly turned the no-show that closed it into a
+ *   cancellation, or the reverse, so the reason changes on the closed deal;
+ * - null: nothing moves. Among these is a cancellation's deal whose meeting
+ *   Calendly puts back to scheduled, which no fact does (a withdrawn no-show
+ *   needs a no-show) and no exception allows.
+ */
+export function bookingFactMove(
+  deal: DealStateFields,
+  meetingStatus: BookingFactMeetingStatus,
+): "close" | "reopen" | "change_reason" | null {
+  if (!bookingFactMovesDeal(deal, meetingStatus)) return null;
+  const state = bookingStateOf(deal);
+  if (state === "scheduled") return "close";
+  if (meetingStatus === "scheduled") return state === "no_show" ? "reopen" : null;
+  return "change_reason";
 }
 
 /**

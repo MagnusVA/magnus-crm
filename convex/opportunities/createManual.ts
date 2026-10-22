@@ -16,7 +16,7 @@ import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { resolveLeadIdentity } from "../leads/identityResolution";
 import { requireTenantUser } from "../requireTenantUser";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
-import { stageForStatus } from "./stages";
+import { newDealStageFields } from "./dealState";
 import { newLeadInputValidator } from "./validators";
 
 type NewLeadInput = {
@@ -234,9 +234,8 @@ export const createManual = mutation({
       tenantId,
       leadId,
       assignedCloserId,
-      status: "scheduled",
       source: "side_deal",
-      ...stageForStatus("scheduled", "side_deal"),
+      ...newDealStageFields("call_held"),
       manualCreationKey,
       notes,
       createdAt: now,
@@ -272,9 +271,10 @@ export const createManual = mutation({
       eventType: "opportunity.created",
       source: isAdmin ? "admin" : "closer",
       actorUserId: userId,
-      toStatus: "scheduled",
+      // The stage it starts at (docs/plans/phase-5-deal-status.md §4.7).
+      toStatus: "call_held",
       occurredAt: now,
-      metadata: { source: "side_deal", assignedCloserId },
+      metadata: { source: "side_deal", assignedCloserId, toOutcome: "open" },
     });
     await recordDealCreation(ctx, opportunityId);
 

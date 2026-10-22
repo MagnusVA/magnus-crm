@@ -11,12 +11,13 @@ import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { rebuildQualificationRowsForOpportunity } from "../operations/projections";
 import {
 	patchOpportunityLifecycle,
+	syncLegacyStatus,
 	transitionOpportunity,
 } from "../lib/opportunityActivity";
 import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
-import { stageForStatus } from "../opportunities/stages";
+import { newDealStageFields } from "../opportunities/dealState";
+import { stageMoveAllowed } from "../opportunities/stages";
 import {
-	allowsMoveToBooked,
 	calendlyRescheduleTarget,
 	followUpJoinTargets,
 	isBookingLinkTarget,
@@ -289,6 +290,9 @@ async function expireRescheduleLinks(
 			occurredAt: at,
 		});
 	}
+	// The deal is Booked by now, so its status doesn't read the links; the
+	// sync keeps it right whatever the order.
+	if (links.length > 0) await syncLegacyStatus(ctx, opportunity._id);
 }
 
 // ---------------------------------------------------------------------------
@@ -919,7 +923,7 @@ export const process = internalMutation({
 				targetOpportunity &&
 				targetOpportunity.tenantId === tenantId &&
 				isBookingLinkTarget(targetOpportunity) &&
-				allowsMoveToBooked(targetOpportunity)
+				stageMoveAllowed(targetOpportunity, { stage: "booked" })
 			) {
 				// Read before the move and the link's booking change the deal and its tasks.
 				const previousTargetPosition = positionOf(targetOpportunity);
@@ -993,8 +997,9 @@ export const process = internalMutation({
 						blockBooking("host_not_linked");
 					}
 
+					// Follow-up -> Booked.
 					await transitionOpportunity(ctx, targetOpportunityId, {
-						to: "scheduled",
+						to: { stage: "booked" },
 						fields: {
 							calendlyEventUri,
 							assignedCloserId: nextAssignedCloserId,
@@ -1562,7 +1567,13 @@ export const process = internalMutation({
 		let createdOpportunityId: Id<"opportunities"> | undefined;
 		if (slackQualifiedOpportunity) {
 			const reopensStaleDeal = wasStaleExpiredAfter(slackQualifiedOpportunity, now);
-			if (!reopensStaleDeal && !allowsMoveToBooked(slackQualifiedOpportunity)) {
+			if (
+				!stageMoveAllowed(
+					slackQualifiedOpportunity,
+					{ stage: "booked" },
+					reopensStaleDeal ? "slack_stale_rejoin" : undefined,
+				)
+			) {
 				throw new Error(
 					"[Pipeline] Invalid slack-qualified opportunity transition to scheduled",
 				);
@@ -1580,8 +1591,10 @@ export const process = internalMutation({
 			const closerChanged =
 				nextAssignedCloserId !==
 				slackQualifiedOpportunity.assignedCloserId;
+			// Qualified -> Booked, or a stale-expired deal reopened at Booked;
+			// the move clears the expiry's loss.
 			await transitionOpportunity(ctx, opportunityId, {
-				to: "scheduled",
+				to: { stage: "booked" },
 				fields: {
 					calendlyEventUri,
 					assignedCloserId: nextAssignedCloserId,
@@ -1590,9 +1603,6 @@ export const process = internalMutation({
 					hostCalendlyName,
 					eventTypeConfigId: meetingEventTypeConfigId,
 					updatedAt: now,
-					...(reopensStaleDeal
-						? { lostAt: undefined, lostReason: undefined, lostByUserId: undefined }
-						: {}),
 					// NOTE: utmParams intentionally NOT included here.
 					// The opportunity preserves attribution from its Slack qualification.
 					// The new meeting stores its own UTMs independently.
@@ -1616,7 +1626,7 @@ export const process = internalMutation({
 			});
 			slackJoinEventOpportunityId = opportunityId;
 		} else if (existingFollowUp) {
-			if (!allowsMoveToBooked(existingFollowUp)) {
+			if (!stageMoveAllowed(existingFollowUp, { stage: "booked" })) {
 				throw new Error(
 					"[Pipeline] Invalid follow-up opportunity transition",
 				);
@@ -1631,8 +1641,10 @@ export const process = internalMutation({
 				assignedCloserId ?? existingFollowUp.assignedCloserId;
 			const closerChanged =
 				nextAssignedCloserId !== existingFollowUp.assignedCloserId;
+			// Follow-up -> Booked, a side deal among them (the mapping kept it
+			// at Call held before PR 8).
 			await transitionOpportunity(ctx, opportunityId, {
-				to: "scheduled",
+				to: { stage: "booked" },
 				fields: {
 					calendlyEventUri,
 					assignedCloserId: nextAssignedCloserId,
@@ -1675,9 +1687,8 @@ export const process = internalMutation({
 				hostCalendlyEmail,
 				hostCalendlyName,
 				eventTypeConfigId,
-				status: "scheduled",
 				source: "calendly",
-				...stageForStatus("scheduled", "calendly"),
+				...newDealStageFields("booked"),
 				calendlyEventUri,
 				createdAt: now,
 				updatedAt: now,
@@ -1697,9 +1708,11 @@ export const process = internalMutation({
 				entityId: opportunityId,
 				eventType: "opportunity.created",
 				source: "pipeline",
-				toStatus: "scheduled",
+				// The stage it starts at (docs/plans/phase-5-deal-status.md §4.7).
+				toStatus: "booked",
 				metadata: {
 					leadId: lead._id,
+					toOutcome: "open",
 				},
 				occurredAt: now,
 			});
