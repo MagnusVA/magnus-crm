@@ -45,7 +45,7 @@ Where a deal is in the sale: Qualified, Booked, Call held, Follow-up, Closed. De
 _Avoid_: status, pipeline step
 
 **Outcome**:
-Whether a deal is still alive: open, won, or lost. A lost deal carries a reason. Outcome belongs to the deal; a meeting has attendance, not an outcome.
+Whether a deal is still alive: open, won, or lost. A lost deal carries a reason. A no-show or a cancellation closes the deal as lost with that reason, while the attendance stays on the meeting. Outcome belongs to the deal; a meeting has attendance, not an outcome.
 _Avoid_: deal status, closed won, meeting outcome
 
 **Meeting**:
@@ -53,7 +53,7 @@ One scheduled sales call. It records attendance only: scheduled, held, no-show, 
 _Avoid_: appointment
 
 **Task**:
-A dated next step on a deal, such as rebooking after a no-show, sending a scheduling link, or a reminder to call back.
+A dated next step on a deal, such as sending a reschedule link after a no-show, sending a scheduling link, or a reminder to call back.
 _Avoid_: follow-up (as a deal status)
 
 **Program**:
@@ -94,4 +94,4 @@ Where a touch came from: lead gen, the DM portal, Slack, Calendly, or a side dea
 
 - "Lead" means three things in today's code: the person (the `leads` table), the active lifecycle (`leads.status = active`), and, in reports, a new lead. Say person, lifecycle stage, or new person. In the leads report, a new lead is a person who first reached Qualified in the period, not a newly created row.
 - "Prospect" also names the `leadGenProspects` table, which records captures and is not yet linked to a person.
-- "Status" on an opportunity mixes deal stage, outcome, meeting attendance, and task state. Name the one you mean.
+- "Status" on an opportunity, in old deal events and old links, mixed deal stage, outcome, meeting attendance, and task state. The field is gone; name the one you mean.
