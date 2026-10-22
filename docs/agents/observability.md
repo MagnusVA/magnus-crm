@@ -15,7 +15,7 @@ Errors, logs, and server events all go to PostHog (US cloud). This guide covers 
 | Backend logs | `console.*` and `log.*` in Convex code | Logs, service `magnus-convex` |
 | Slow functions, write conflicts, scheduler lag | log stream `function_execution` and `scheduler_stats` | Logs at `WARN` |
 | Bookings stuck unprocessed for 15 minutes | `pipeline-stuck-events` cron | Error Tracking, `pipeline.events_stuck_unprocessed` |
-| Bookings that name more than one person | `settleBookingReview` in `convex/pipeline/bookingReviewRecords.ts` | Logs `pipeline.booking_review.opened` and `.resolved` (one `.resolved` per review a decision or lead merge closes, and `.sweep_capped` past 200 open reviews), and a Slack post (`slack.notify.posted`, `kind: booking_review`) to the booking review channel, when one is set, linking to `/workspace/operations/booking-reviews/<id>` |
+| Bookings that name more than one person | `settleBookingReview` in `convex/pipeline/bookingReviewRecords.ts` | Logs `pipeline.booking_review.opened` and `.resolved` (one `.resolved` per review a decision or lead merge closes, and `.sweep_continued` when a sweep pages past 200 open reviews in a scheduled mutation), and a Slack post (`slack.notify.posted`, `kind: booking_review`) to the booking review channel, when one is set, linking to `/workspace/operations/booking-reviews/<id>` |
 | Business events | `emitDomainEvent` → `@posthog/convex` | Events named after the domain event (`payment.recorded`, `opportunity.status_changed`); free-text reasons and notes stay in Convex |
 | Browser logs | `posthog.logger.*` | Logs, service `magnus-web` |
 

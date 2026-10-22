@@ -460,6 +460,14 @@ function DecisionCard({
   // Merged on another review or the Leads page: one person is left, and
   // closing records the merge.
   const alreadyOne = review.alreadyOnePerson;
+  // A held booking is retried only while its original Calendly payload is kept.
+  const retriesBooking = review.kind === "held" && review.booking.payloadAvailable;
+  const heldBookingOutcome =
+    review.kind !== "held"
+      ? ""
+      : retriesBooking
+        ? ", and the booking is retried"
+        : ". The booking's original data is gone, so it stays held";
 
   return (
     <Card>
@@ -495,9 +503,9 @@ function DecisionCard({
           ) : null}
           <p className="text-sm text-muted-foreground">
             {alreadyOne
-              ? `Already one person: they were merged elsewhere. Close this review${review.kind === "held" ? " and add the booking" : ""}.`
+              ? `Already one person: they were merged elsewhere. Close this review${heldBookingOutcome}.`
               : canMerge
-                ? `Merge ${otherNames} into ${personName(keep)}. Deals, calls and identifiers move to one record${review.kind === "held" ? ", and the booking is added to it" : ""}.`
+                ? `Merge ${otherNames} into ${personName(keep)}. Deals, calls and identifiers move to one record${heldBookingOutcome}.`
                 : mergeable.length > 1
                   ? "Choose the record to keep."
                   : "One of these people was merged into someone else or no longer exists. Check them on the Leads page."}
@@ -520,7 +528,7 @@ function DecisionCard({
               onClick={() => setConfirmMerge(true)}
             >
               {pending === "merge" ? <Spinner data-icon="inline-start" /> : <GitMergeIcon data-icon="inline-start" />}
-              {review.kind === "held" ? "Merge and add the booking" : `Merge into ${personName(keep)}`}
+              {retriesBooking ? "Merge and retry the booking" : `Merge into ${personName(keep)}`}
             </Button>
           )}
         </div>
@@ -581,7 +589,7 @@ function DecisionCard({
                 void run(
                   "merge",
                   () => mergePeople({ reviewId: review.reviewId, keepLeadId }),
-                  review.kind === "held" ? "Merged. The booking is being added." : "Merged into one person.",
+                  retriesBooking ? "Merged. The booking is being retried." : "Merged into one person.",
                 );
               }}
             >

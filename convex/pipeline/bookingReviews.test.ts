@@ -869,3 +869,38 @@ it("a held booking whose people a Leads page merge joins is retried and applies"
   expect(await receipt(harness)).toMatchObject({ _id: held._id, status: "applied", leadId: first.leadId });
   expect(await reviews(harness)).toMatchObject([{ status: "resolved", resolution: "merged" }]);
 });
+
+it("a decision reaches a sibling review past the first page of open reviews", async () => {
+  const harness = await setup();
+  const { calendly, slack, open } = await seedIncidentATwice(harness);
+  const a = await seedPerson(harness, { fullName: "Filler A" }, [["email", "filler.a@example.com"]]);
+  const b = await seedPerson(harness, { fullName: "Filler B" }, [["email", "filler.b@example.com"]]);
+  // 200 older open reviews about another pair push the sibling to page two.
+  await harness.t.run(async (ctx) => {
+    for (let i = 0; i < 200; i++)
+      await ctx.db.insert("bookingReviews", {
+        tenantId: harness.tenantId,
+        deliveryId: open[0].deliveryId,
+        kind: "attached",
+        status: "open",
+        leadId: a.leadId,
+        conflicts: [{ leadId: b.leadId, via: "email" }],
+        booking: {},
+        createdAt: i,
+        updatedAt: i,
+      });
+  });
+
+  await harness.admin.mutation(api.leads.merge.mergeLead, {
+    sourceLeadId: calendly.leadId,
+    targetLeadId: slack.leadId,
+  });
+  await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  const after = await harness.t.run(async (ctx) => ({
+    first: await ctx.db.get("bookingReviews", open[0]._id),
+    second: await ctx.db.get("bookingReviews", open[1]._id),
+  }));
+  expect(after.first).toMatchObject({ status: "resolved", resolution: "merged" });
+  expect(after.second).toMatchObject({ status: "resolved", resolution: "merged" });
+});
