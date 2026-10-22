@@ -15,7 +15,7 @@ import {
   isMeetingInRange,
   validateCloser,
 } from "../lib/unavailabilityValidation";
-import { validateTransition } from "../lib/statusTransitions";
+import { canCancelForUnavailability, describeDealState } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   buildCloserSchedulesForDate,
@@ -444,28 +444,26 @@ export const manuallyResolveMeeting = mutation({
       await updateOpportunityMeetingRefs(ctx, opportunity._id);
     }
 
-    const nextOpportunityStatus =
-      opportunity.status === "canceled" ||
-      validateTransition(opportunity.status, "canceled")
-        ? "canceled"
-        : opportunity.status;
+    // The deal closes only from Booked or Call held; any other deal, one a
+    // cancellation already closed among them, stays where it is.
+    const cancelsDeal = canCancelForUnavailability(opportunity);
     const cancellationReason = `Canceled due to closer unavailability (${reasonLabel})`;
     const cancellationFields = {
       cancellationReason,
       canceledBy: "admin_unavailability_resolution",
       updatedAt: now,
     };
-    if (nextOpportunityStatus === opportunity.status) {
-      await patchOpportunityLifecycle(ctx, opportunity._id, cancellationFields);
-    } else {
+    if (cancelsDeal) {
       await transitionOpportunity(ctx, opportunity._id, {
-        to: nextOpportunityStatus,
+        to: "canceled",
         fields: cancellationFields,
         source: "admin",
         actorUserId: userId,
         reason: cancellationReason,
         occurredAt: now,
       });
+    } else {
+      await patchOpportunityLifecycle(ctx, opportunity._id, cancellationFields);
     }
 
     log.info("unavailability.redistribution.manual_canceled", {
@@ -474,8 +472,8 @@ export const manuallyResolveMeeting = mutation({
       meetingId: args.meetingId,
       opportunityId: opportunity._id,
       meetingAlreadyCanceled: meeting.status === "canceled",
-      previousOpportunityStatus: opportunity.status,
-      opportunityStatus: nextOpportunityStatus,
+      previousDealState: describeDealState(opportunity),
+      dealCanceled: cancelsDeal,
     });
 
     return { action: "canceled" as const };
