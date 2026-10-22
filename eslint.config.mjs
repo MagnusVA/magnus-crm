@@ -63,10 +63,10 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    // Opportunity status changes go through transitionOpportunity, which
-    // validates the move and owns its counters, events and projections. It
-    // writes the deal's stage and outcome with the status, so they follow the
-    // same rule; only the stage backfill disables it, with a comment.
+    // A deal's stage and outcome change only through transitionOpportunity,
+    // which validates the move and owns its events and projections. Nothing
+    // writes the old status; only its clear (migrations.ts, clearDealStatus)
+    // disables the rule, with a comment.
     files: ["convex/**/*.ts"],
     rules: {
       "no-restricted-syntax": [

@@ -8,6 +8,7 @@ import {
 import { computePersonTouches } from "../convex/lib/touches";
 import type { UtmParams } from "../convex/lib/utmParams";
 import { qualifiedLifecycle } from "./bookingHarness";
+import { stageFields } from "./dealStageFixtures";
 
 // Deals, bookings and their attribution rows as production holds them after
 // Phase 3 (docs/plans/phase-3-attribution.md §4): every booking has its rows,
@@ -120,8 +121,7 @@ export async function insertDeal(
     tenantId: args.tenantId,
     leadId: args.leadId,
     assignedCloserId: args.closerId,
-    status: args.source === "slack_qualified" ? "qualified_pending" : "scheduled",
-    source: args.source,
+    ...stageFields(args.source === "slack_qualified" ? "qualified_pending" : "scheduled", args.source),
     createdAt,
     updatedAt: createdAt,
     ...(args.source === "slack_qualified"

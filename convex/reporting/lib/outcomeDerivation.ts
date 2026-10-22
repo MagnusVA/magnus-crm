@@ -11,69 +11,12 @@ export type CallOutcome =
   | "follow_up"
   | "scheduled";
 
-/**
- * Priority order:
- * sold > lost > no_show > canceled > rescheduled > dq > follow_up > scheduled
- */
-export function deriveCallOutcome(
-  meeting: Doc<"meetings">,
-  opportunity: Doc<"opportunities">,
-  hasPayment: boolean,
-  isRescheduled: boolean,
-): CallOutcome {
-  if (hasPayment) {
-    return "sold";
-  }
-
-  if (opportunity.status === "lost" && opportunity.latestMeetingId === meeting._id) {
-    return "lost";
-  }
-
-  if (meeting.status === "no_show") {
-    return "no_show";
-  }
-
-  if (meeting.status === "canceled") {
-    return "canceled";
-  }
-
-  if (isRescheduled) {
-    return "rescheduled";
-  }
-
-  // TODO: Re-implement the "dq" (disqualified) CallOutcome.
-  //
-  // The previous trigger was `meeting.meetingOutcome === "not_qualified"`,
-  // but `meetingOutcome` has been removed from all read/write paths as of
-  // the meeting-comments feature.
-  //
-  // When the v0.6b Team Performance reporting feature ships, choose one of:
-  //   (a) explicit `disqualifyMeeting` mutation that sets a dedicated field
-  //   (b) derive DQ from `opportunity.status === "lost"` + a structured
-  //       lostReason enum
-  //   (c) structured comment tag (e.g., a comment with metadata.tag = "dq")
-  //
-  // Until then, `CallOutcome` still exposes "dq" as a variant but no code
-  // path produces it — this is intentional and documented.
-
-  if (
-    meeting.status === "completed" &&
-    opportunity.status === "follow_up_scheduled"
-  ) {
-    return "follow_up";
-  }
-
-  return "scheduled";
-}
-
-// The stage way (docs/plans/phase-5-deal-status.md §6.6), beside the status
-// way above until PR 6 moves the team report to it. The parity query
-// compareTeamOutcomes (convex/opportunities/stageParity.ts) checks that both
-// give every meeting the same outcome.
+// A meeting's outcome from its deal's stage and outcome
+// (docs/plans/phase-5-deal-status.md §6.6).
 
 type DealLossFields = Pick<
   Doc<"opportunities">,
-  "status" | "source" | "stage" | "outcome" | "lostReason" | "lostByUserId"
+  "source" | "stage" | "outcome" | "lostReason" | "lostByUserId"
 >;
 
 /**
@@ -91,8 +34,8 @@ export function isPersonLoss(deal: DealLossFields): boolean {
 }
 
 /**
- * Whether the stage-way derivation needs to know if the deal has a pending
- * reschedule link: only a held meeting on a deal at Follow-up does.
+ * Whether the derivation needs to know if the deal has a pending reschedule
+ * link: only a held meeting on a deal at Follow-up does.
  */
 export function needsRescheduleLinkCheck(
   meeting: Doc<"meetings">,
@@ -102,10 +45,17 @@ export function needsRescheduleLinkCheck(
 }
 
 /**
- * `deriveCallOutcome` from the stage, in the same priority order. Lost is a
- * deal a person closed, so a missed meeting's deal keeps its meeting a no-show
- * or a cancellation; a follow-up is a held meeting on a deal at Follow-up with
- * no pending reschedule link, today's `follow_up_scheduled` (§4.6).
+ * Priority order:
+ * sold > lost > no_show > canceled > rescheduled > dq > follow_up > scheduled
+ *
+ * Lost is a deal a person closed, so a missed meeting's deal keeps its meeting
+ * a no-show or a cancellation; a follow-up is a held meeting on a deal at
+ * Follow-up with no pending reschedule link (§4.6).
+ *
+ * No code path produces "dq" yet: its old trigger, `meetingOutcome ===
+ * "not_qualified"`, went with the meeting comments feature. When Team
+ * Performance needs it, add an explicit disqualify action, a structured loss
+ * reason, or a tagged comment.
  */
 export function deriveCallOutcomeByStage(
   meeting: Doc<"meetings">,

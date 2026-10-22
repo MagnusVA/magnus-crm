@@ -12,6 +12,7 @@ import {
   type GuardHarness,
   type GuardState,
 } from "../../tests/dealGuardFixtures";
+import { namedStatus } from "../../tests/stopStatusFixtures";
 
 // Slack's rules read the same deals as before PR 7: a pending duplicate is a
 // Qualified Slack deal from the last 30 days, an existing booking is an open
@@ -149,8 +150,8 @@ describe("the Slack expiry", () => {
       for (const { state, stale, other } of deals) {
         rows.push({
           label: `${state.label} (${state.source})`,
-          staleClosed: (await ctx.db.get("opportunities", stale.opportunityId))!.status,
-          other: (await ctx.db.get("opportunities", other))!.status,
+          staleClosed: await namedStatus(ctx, stale.opportunityId),
+          other: await namedStatus(ctx, other),
           disposition: (await ctx.db.get("leads", stale.leadId))!.disposition,
         });
       }

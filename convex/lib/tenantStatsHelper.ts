@@ -7,9 +7,6 @@ export type TenantStatsDelta = {
   totalTeamMembers?: number;
   totalClosers?: number;
   totalOpportunities?: number;
-  activeOpportunities?: number;
-  wonDeals?: number;
-  lostDeals?: number;
   totalRevenueMinor?: number;
   totalCommissionableFinalRevenueMinor?: number;
   totalCommissionableDepositRevenueMinor?: number;
@@ -20,8 +17,9 @@ export type TenantStatsDelta = {
   totalCustomers?: number;
 };
 
-// Revenue only. The won-deal and active-opportunity counters follow the
-// opportunity's status, which transitionOpportunity counts.
+// Revenue only. tenantStats keeps no deal counters by stage or status:
+// opportunityByStage counts them on demand (docs/plans/phase-5-deal-status.md
+// D13).
 export type PaymentStatsDelta = {
   commissionable: boolean;
   paymentType: PaymentType;
@@ -40,9 +38,6 @@ const TENANT_STATS_FIELDS: TenantStatsField[] = [
   "totalTeamMembers",
   "totalClosers",
   "totalOpportunities",
-  "activeOpportunities",
-  "wonDeals",
-  "lostDeals",
   "totalRevenueMinor",
   "totalCommissionableFinalRevenueMinor",
   "totalCommissionableDepositRevenueMinor",
@@ -52,19 +47,6 @@ const TENANT_STATS_FIELDS: TenantStatsField[] = [
   "totalLeads",
   "totalCustomers",
 ];
-
-export const ACTIVE_OPPORTUNITY_STATUSES = new Set([
-  "qualified_pending",
-  "scheduled",
-  "follow_up_scheduled",
-  "reschedule_link_sent",
-] as const);
-
-export function isActiveOpportunityStatus(status: string): boolean {
-  return ACTIVE_OPPORTUNITY_STATUSES.has(
-    status as (typeof ACTIVE_OPPORTUNITY_STATUSES extends Set<infer T> ? T : never),
-  );
-}
 
 function paymentRevenueBucket(payment: Doc<"paymentRecords">): PaymentRevenueBucket {
   if (payment.commissionable) {
@@ -112,9 +94,6 @@ export async function updateTenantStats(
       totalTeamMembers: 0,
       totalClosers: 0,
       totalOpportunities: 0,
-      activeOpportunities: 0,
-      wonDeals: 0,
-      lostDeals: 0,
       totalRevenueMinor: 0,
       totalPaymentRecords: 0,
       totalLeads: 0,

@@ -211,7 +211,7 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
     createdAt: AT.CAPTURED, updatedAt: AT.CAPTURED,
   });
   const o1 = await ctx.db.insert("opportunities", {
-    tenantId, leadId: p1, status: "scheduled", source: "slack_qualified", assignedCloserId: closer._id,
+    tenantId, leadId: p1, stage: "booked", outcome: "open", source: "slack_qualified", assignedCloserId: closer._id,
     qualifiedBy: { slackUserId: "U1", slackTeamId: "T1", submittedAt: AT.QUALIFIED }, qualifiedAt: AT.QUALIFIED,
     createdAt: AT.QUALIFIED, updatedAt: AT.QUALIFIED,
   });
@@ -278,7 +278,7 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
   // reassignment in writeAttribution moves it to the closer.
   const p2 = await lead();
   const o2 = await ctx.db.insert("opportunities", {
-    tenantId, leadId: p2, status: "scheduled", source: "calendly", assignedCloserId: closer._id,
+    tenantId, leadId: p2, stage: "booked", outcome: "open", source: "calendly", assignedCloserId: closer._id,
     createdAt: AT.CALENDLY_BOOKED, updatedAt: AT.CALENDLY_BOOKED,
   });
   const m3 = await meeting({
@@ -293,7 +293,7 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
   // P3: a Slack deal older than the qualification events.
   const p3 = await lead();
   const o3 = await ctx.db.insert("opportunities", {
-    tenantId, leadId: p3, status: "lost", source: "slack_qualified",
+    tenantId, leadId: p3, stage: "closed", outcome: "lost", source: "slack_qualified",
     qualifiedBy: { slackUserId: "U2", slackTeamId: "T1", submittedAt: AT.EARLY_SLACK },
     createdAt: AT.EARLY_SLACK, updatedAt: AT.EARLY_SLACK,
   });
@@ -305,7 +305,7 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
   // P4: a side deal.
   const p4 = await lead();
   const o4 = await ctx.db.insert("opportunities", {
-    tenantId, leadId: p4, status: "payment_received", source: "side_deal", assignedCloserId: closer._id,
+    tenantId, leadId: p4, stage: "closed", outcome: "won", source: "side_deal", assignedCloserId: closer._id,
     createdAt: AT.SIDE_DEAL, updatedAt: AT.SIDE_DEAL,
   });
   await event({
@@ -316,7 +316,7 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
   // P5: a first booking whose UTMs named team A and no DM closer.
   const p5 = await lead();
   const o5 = await ctx.db.insert("opportunities", {
-    tenantId, leadId: p5, status: "scheduled", source: "calendly", assignedCloserId: closer._id,
+    tenantId, leadId: p5, stage: "booked", outcome: "open", source: "calendly", assignedCloserId: closer._id,
     createdAt: AT.TEAM_ONLY_BOOKED, updatedAt: AT.TEAM_ONLY_BOOKED,
   });
   const m4 = await meeting({

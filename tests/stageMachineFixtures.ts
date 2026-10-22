@@ -1,15 +1,10 @@
-import { expect } from "vitest";
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { QueryCtx } from "../convex/_generated/server";
-import { legacyStatus, loadPendingRescheduleLink } from "../convex/opportunities/dealState";
 import type { OpportunityStatus } from "../convex/opportunities/stages";
-import { isActiveOpportunityStatus } from "../convex/lib/tenantStatsHelper";
-import { opportunityByStatus } from "../convex/reporting/aggregates";
 
 // PR 8 moves the deal's transitions to the stage machine
-// (docs/plans/phase-5-deal-status.md §4.4) and still writes the status, as
-// `legacyStatus` of the new fields, so a revert to PR 7 finds every deal as
-// PR 7 would have written it (§12).
+// (docs/plans/phase-5-deal-status.md §4.4). PR 7's status machine stays here,
+// frozen, as the reference the stage machine's moves are checked against.
 
 /**
  * PR 7's status machine, frozen: `statusTransitions.ts` before PR 8. The
@@ -76,48 +71,4 @@ export async function dealEvents(
     )
     .take(50);
   return events.map(eventShape);
-}
-
-/**
- * The revert property, for one deal: its stored status is the one
- * `legacyStatus` rebuilds from its stage, outcome, loss and pending
- * reschedule link, which is the status PR 7 would have written.
- */
-export async function storedAndRebuiltStatus(ctx: QueryCtx, dealId: Id<"opportunities">) {
-  const deal = (await ctx.db.get("opportunities", dealId))!;
-  const { count } = await loadPendingRescheduleLink(ctx, dealId);
-  return { stored: deal.status, rebuilt: legacyStatus(deal, { hasPendingRescheduleLink: count > 0 }) };
-}
-
-/**
- * The tenant's status copies agree with its deals: the active, won and lost
- * counters, and `opportunityByStatus` per status, recounted from the table.
- */
-export async function expectStatusCopiesMatch(ctx: QueryCtx, tenantId: Id<"tenants">) {
-  const deals = await ctx.db
-    .query("opportunities")
-    .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-    .take(200);
-  const stats = await ctx.db
-    .query("tenantStats")
-    .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-    .unique();
-  expect({
-    activeOpportunities: stats?.activeOpportunities ?? 0,
-    wonDeals: stats?.wonDeals ?? 0,
-    lostDeals: stats?.lostDeals ?? 0,
-  }).toEqual({
-    activeOpportunities: deals.filter((deal) => deal.status && isActiveOpportunityStatus(deal.status)).length,
-    wonDeals: deals.filter((deal) => deal.status === "payment_received").length,
-    lostDeals: deals.filter((deal) => deal.status === "lost").length,
-  });
-  const statuses = [...new Set(deals.map((deal) => deal.status))].filter(
-    (status): status is OpportunityStatus => status !== undefined,
-  );
-  for (const status of statuses) {
-    expect({
-      status,
-      count: await opportunityByStatus.count(ctx, { namespace: tenantId, bounds: { prefix: [status] } }),
-    }).toEqual({ status, count: deals.filter((deal) => deal.status === status).length });
-  }
 }

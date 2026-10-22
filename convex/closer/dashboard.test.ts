@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { api } from "../_generated/api";
-import { countStripByStatus, readCloserMeetingDeals } from "./dashboard";
 import {
   MEETING_RANGE,
   seededCloserPipeline,
@@ -41,29 +40,14 @@ describe("getPipelineSummary", () => {
     expect([strip.cashCollectedMinor, strip.cashPaymentCount]).toEqual([0, 0]);
   });
 
-  it("leaves the system's losses out of the close rate, which matches the status way", async () => {
+  it("leaves the system's losses out of the close rate", async () => {
     const { harness } = await seededCloserPipeline();
 
     const strip = await harness.closer.query(api.closer.dashboard.getPipelineSummary, MEETING_RANGE);
-    const byStatus = await harness.t.run(async (ctx) =>
-      countStripByStatus(
-        await readCloserMeetingDeals(
-          ctx,
-          harness.tenantId,
-          harness.closerId,
-          MEETING_RANGE.startDate,
-          MEETING_RANGE.endDate,
-        ),
-      ),
-    );
 
     // Won 1 of 2 decided: the no-show's and the cancellation's losses are
     // Lost on the strip but not decided.
     expect(strip.decided).toEqual({ won: 1, lost: 1 });
-    expect(strip.decided).toEqual({
-      won: byStatus.counts.payment_received,
-      lost: byStatus.counts.lost,
-    });
   });
 
   it("refuses a range that ends before it starts", async () => {

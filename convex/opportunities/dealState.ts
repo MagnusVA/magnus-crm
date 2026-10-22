@@ -9,15 +9,15 @@ import {
   type OpportunityStatus,
 } from "./stages";
 
-// What today's status says about a deal, read from the stage, the outcome,
-// the loss and the tasks (docs/plans/phase-5-deal-status.md §4.5, §4.6). The
-// guards and booking rules move to these from PR 7; from PR 8, until PR 9,
-// the status written beside the stage is `legacyStatus` of the new fields.
+// A deal's state, read from the stage, the outcome, the loss and the tasks
+// (docs/plans/phase-5-deal-status.md §4.5, §4.6): what the guards and the
+// booking rules test. `legacyStatus` names it in the old statuses, for the
+// booking history's old events (pipeline/bookingHistory.ts).
 
 /** The deal fields the state reads. */
 export type DealStateFields = Pick<
   Doc<"opportunities">,
-  "status" | "source" | "stage" | "outcome" | "lostReason" | "lostByUserId"
+  "source" | "stage" | "outcome" | "lostReason" | "lostByUserId"
 >;
 
 export type MissedMeeting =
@@ -79,13 +79,13 @@ export async function loadPendingRescheduleLink(
 }
 
 /**
- * Today's status, rebuilt in the order of §4.6: Qualified is
+ * The deal's state as an old status, in the order of §4.6, for comparing it
+ * with the old events (pipeline/bookingHistory.ts): Qualified is
  * `qualified_pending`; Booked and Call held are `scheduled`; Follow-up is
  * `reschedule_link_sent` with a pending reschedule link and
  * `follow_up_scheduled` without; Closed won is `payment_received`; Closed
  * lost is `no_show` or `canceled` when a missed meeting closed it, and `lost`
- * otherwise. A deal without a stored stage takes it from its status
- * (`dealStageOf`). Throws on a pair the stage doesn't allow.
+ * otherwise. Throws on a pair the stage doesn't allow.
  */
 export function legacyStatus(
   deal: DealStateFields,
@@ -112,7 +112,6 @@ export type DealState = {
   missedMeeting: MissedMeeting | null;
   /** Whether the deal has a pending reschedule link, at any stage. */
   rescheduleLinkPending: boolean;
-  legacyStatus: OpportunityStatus;
 };
 
 /** Everything a guard reads about a deal's state, with one indexed read. */
@@ -122,26 +121,21 @@ export async function loadDealState(
 ): Promise<DealState> {
   const { stage, outcome } = dealStageOf(deal);
   const { count } = await loadPendingRescheduleLink(ctx, deal._id);
-  const rescheduleLinkPending = count > 0;
   return {
     position: dealPosition(stage, outcome),
     missedMeeting: isMissedMeetingLoss(deal),
-    rescheduleLinkPending,
-    legacyStatus: legacyStatus(deal, { hasPendingRescheduleLink: rescheduleLinkPending }),
+    rescheduleLinkPending: count > 0,
   };
 }
 
 /**
- * What a new deal is written with: its starting stage, open, and the status
- * PR 7 would have written for it (`legacyStatus`), until PR 9 stops writing
- * the status. A Calendly booking starts Booked, a Slack qualification
- * Qualified, a side deal Call held.
+ * What a new deal is written with: its starting stage, open. A Calendly
+ * booking starts Booked, a Slack qualification Qualified, a side deal Call
+ * held.
  */
 export function newDealStageFields(stage: Exclude<DealStage, "closed">): {
   stage: Exclude<DealStage, "closed">;
   outcome: "open";
-  status: OpportunityStatus;
 } {
-  const fields = { stage, outcome: "open" as const };
-  return { ...fields, status: legacyStatus(fields, { hasPendingRescheduleLink: false }) };
+  return { stage, outcome: "open" };
 }

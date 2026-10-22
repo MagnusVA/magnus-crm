@@ -3,8 +3,8 @@ import type { Doc } from "../_generated/dataModel";
 
 // Where a deal is (CONTEXT.md, "Deal stage") and how it ended, defined once
 // (docs/plans/phase-5-deal-status.md §4.1), with the stage machine every
-// move goes through (§4.4). Until PR 9, `opportunities.status` is still
-// written beside the stage, as `legacyStatus` of the new fields (§9).
+// move goes through (§4.4). From PR 9 nothing writes `opportunities.status`;
+// the old statuses below only read old events (§4.7).
 
 export const DEAL_STAGES = [
   "qualified",
@@ -137,9 +137,9 @@ export type DealSource = NonNullable<Doc<"opportunities">["source"]>;
 export type DealStageAndOutcome = { stage: DealStage; outcome: DealOutcome };
 
 /**
- * Today's statuses, frozen. The old events recorded them, and until PR 9
- * `opportunities.status` holds the one `legacyStatus` rebuilds from the
- * stage (§4.7, §9). No new code reads or adds one (ADR 0001, rule 1).
+ * The old statuses, frozen. The old deal events recorded them (§4.7);
+ * nothing writes one any more, and no new code reads or adds one (ADR 0001,
+ * rule 1).
  */
 export const OPPORTUNITY_STATUSES = [
   "qualified_pending",
@@ -155,9 +155,9 @@ export const OPPORTUNITY_STATUSES = [
 export type OpportunityStatus = (typeof OPPORTUNITY_STATUSES)[number];
 
 /**
- * Today's status as a stage and an outcome (§4.2). A deal with no source is a
- * Calendly deal, as everywhere else. The scheduled side deal has no meeting,
- * so it is Call held.
+ * An old status as a stage and an outcome (§4.2), for reading old events. A
+ * deal with no source is a Calendly deal, as everywhere else. The scheduled
+ * side deal has no meeting, so it is Call held.
  */
 export function stageForStatus(
   status: OpportunityStatus,
@@ -183,25 +183,17 @@ export function stageForStatus(
 }
 
 /**
- * The deal's stage and outcome. Until the backfill has written them on every
- * deal, a deal without them takes them from its status, so a reader (or an
- * aggregate key) gets the same answer before and after the backfill. A deal
- * with neither, which no write leaves, throws.
+ * The deal's stored stage and outcome. Every deal has them from the PR 1
+ * backfill on, and PR 10 makes them required; a deal without them throws,
+ * since nothing reads the status any more.
  */
 export function dealStageOf(
-  deal: Pick<Doc<"opportunities">, "status" | "source" | "stage" | "outcome">,
+  deal: Pick<Doc<"opportunities">, "stage" | "outcome">,
 ): DealStageAndOutcome {
-  if (deal.stage !== undefined && deal.outcome !== undefined) {
-    return { stage: deal.stage, outcome: deal.outcome };
+  if (deal.stage === undefined || deal.outcome === undefined) {
+    throw new Error("Deal has no stage or outcome");
   }
-  if (deal.status === undefined) {
-    throw new Error("Deal has no stage, outcome or status");
-  }
-  const mapped = stageForStatus(deal.status, deal.source);
-  return {
-    stage: deal.stage ?? mapped.stage,
-    outcome: deal.outcome ?? mapped.outcome,
-  };
+  return { stage: deal.stage, outcome: deal.outcome };
 }
 
 // ─── The stage machine (§4.4) ─────────────────────────────────────────
@@ -262,7 +254,7 @@ export type StageTransitionException = keyof typeof STAGE_TRANSITION_EXCEPTIONS;
 /** The deal fields the stage machine reads. */
 export type StageMachineDeal = Pick<
   Doc<"opportunities">,
-  "status" | "source" | "stage" | "outcome" | "lostReason" | "lostByUserId"
+  "source" | "stage" | "outcome" | "lostReason" | "lostByUserId"
 >;
 
 /** The code the system closed the deal lost with, or null: a person's loss has a `lostByUserId`. */
@@ -329,33 +321,3 @@ export function assertStageMove(
     );
   }
 }
-
-/** The reason a missed meeting writes on its deal: its status's code. */
-export function missedMeetingLossReason(
-  status: OpportunityStatus,
-): typeof SYSTEM_LOSS_REASONS.canceled | typeof SYSTEM_LOSS_REASONS.no_show | undefined {
-  switch (status) {
-    case "canceled":
-      return SYSTEM_LOSS_REASONS.canceled;
-    case "no_show":
-      return SYSTEM_LOSS_REASONS.no_show;
-    default:
-      return undefined;
-  }
-}
-
-/**
- * Which of today's statuses each position holds, for the checks that compare
- * a count both ways until the narrow. A status can't tell the side deal's
- * Call held from Booked (both `scheduled`), so the two go together.
- */
-export const LEGACY_STATUS_GROUPS: ReadonlyArray<{
-  positions: DealPosition[];
-  statuses: OpportunityStatus[];
-}> = [
-  { positions: ["qualified"], statuses: ["qualified_pending"] },
-  { positions: ["booked", "call_held"], statuses: ["scheduled"] },
-  { positions: ["follow_up"], statuses: ["follow_up_scheduled", "reschedule_link_sent"] },
-  { positions: ["won"], statuses: ["payment_received"] },
-  { positions: ["lost"], statuses: ["lost", "canceled", "no_show"] },
-];

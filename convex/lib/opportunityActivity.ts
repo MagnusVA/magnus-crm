@@ -1,28 +1,18 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
-import {
-  isMissedMeetingLoss,
-  legacyStatus,
-  loadPendingRescheduleLink,
-  type MissedMeeting,
-} from "../opportunities/dealState";
+import { isMissedMeetingLoss, type MissedMeeting } from "../opportunities/dealState";
 import {
   assertStageMove,
   dealStageOf,
   targetStageAndOutcome,
   type DealTarget,
-  type OpportunityStatus,
   type StageTransitionException,
 } from "../opportunities/stages";
 import { rebuildQualificationRowsForOpportunity } from "../operations/projections";
 import { replaceOpportunityAggregate } from "../reporting/writeHooks";
 import { upsertOpportunitySearchProjection } from "./opportunitySearch";
 import { emitDomainEvent, type DomainEventSource } from "./domainEvents";
-import {
-  isActiveOpportunityStatus,
-  updateTenantStats,
-} from "./tenantStatsHelper";
 
 type ActivityShape = Pick<
   Doc<"opportunities">,
@@ -41,7 +31,8 @@ export function computeLatestActivityAt(opportunity: ActivityShape): number {
 
 /**
  * Every opportunity field except identity, the stage and outcome, which only
- * the stage machine moves, and the status, which follows them.
+ * the stage machine moves, and the status, which nothing writes from PR 9
+ * (docs/plans/phase-5-deal-status.md §9).
  */
 export type OpportunityFieldsPatch = Partial<
   Omit<
@@ -50,20 +41,14 @@ export type OpportunityFieldsPatch = Partial<
   >
 >;
 
-// Only transitionOpportunity writes the stage and outcome; the status follows
-// them and the deal's tasks (writeDealAndStatus).
+// Only transitionOpportunity writes the stage and outcome, and nothing writes
+// the status; the clear unsets it (migrations.ts, clearDealStatus).
 const TRANSITION_ONLY_FIELDS = ["status", "stage", "outcome"] as const;
 
-// The fields besides the stage and outcome that `legacyStatus` reads: a loss
-// the system wrote is a missed meeting's status, a person's is `lost`.
-const LEGACY_STATUS_FIELDS = ["lostReason", "lostByUserId"] as const;
-
-// Inputs to the sort keys and eligibility of the status and stage aggregates
-// and the Slack qualification aggregates (reporting/aggregates.ts). The
-// aggregate rewrites its entry on every replace, so replace only when one
-// changes.
+// Inputs to the sort keys and eligibility of the stage aggregate and the
+// Slack qualification aggregates (reporting/aggregates.ts). The aggregate
+// rewrites its entry on every replace, so replace only when one changes.
 const AGGREGATE_KEY_FIELDS = [
-  "status",
   "stage",
   "outcome",
   "assignedCloserId",
@@ -74,7 +59,6 @@ const AGGREGATE_KEY_FIELDS = [
 
 // Fields copied into operationsQualificationRows (operations/projections.ts).
 const QUALIFICATION_ROW_FIELDS = [
-  "status",
   "stage",
   "outcome",
   "leadId",
@@ -131,8 +115,7 @@ async function writeOpportunity(
 
   let after: Doc<"opportunities">;
   if (changesAny(before, patch, AGGREGATE_KEY_FIELDS)) {
-    // Also rebuilds both search rows, and mirrors a new status onto the
-    // opportunity's meetings.
+    // Also rebuilds both search rows.
     after = await replaceOpportunityAggregate(ctx, before, before._id);
   } else {
     after = await getOpportunityOrThrow(ctx, before._id);
@@ -149,51 +132,10 @@ async function writeOpportunity(
   return after;
 }
 
-// Mirrors how seedTenantStatsInternal counts: active, won and lost are pure
-// functions of status. A deal without one (after PR 9's clear) counts in
-// none of them.
-function statusStatsDelta(from: OpportunityStatus | undefined, to: OpportunityStatus) {
-  return {
-    activeOpportunities:
-      Number(isActiveOpportunityStatus(to)) -
-      Number(from !== undefined && isActiveOpportunityStatus(from)),
-    wonDeals: Number(to === "payment_received") - Number(from === "payment_received"),
-    lostDeals: Number(to === "lost") - Number(from === "lost"),
-  };
-}
-
-/**
- * Writes `patch` with the status PR 7 would have written for the deal it
- * leaves: `legacyStatus` of its stage, outcome, loss and pending reschedule
- * link (docs/plans/phase-5-deal-status.md §9, §12), and moves the tenant
- * counters from the old status to it. `opportunityByStatus` follows through
- * the aggregate rewrite, on its IfExists methods.
- */
-async function writeDealAndStatus(
-  ctx: MutationCtx,
-  before: Doc<"opportunities">,
-  patch: Partial<Doc<"opportunities">>,
-): Promise<Doc<"opportunities">> {
-  const { count } = await loadPendingRescheduleLink(ctx, before._id);
-  const status = legacyStatus({ ...before, ...patch }, { hasPendingRescheduleLink: count > 0 });
-  const after = await writeOpportunity(
-    ctx,
-    before,
-    status === before.status ? patch : { ...patch, status },
-  );
-  const statsDelta = statusStatsDelta(before.status, status);
-  // tenantStats is one contended document per tenant; skip no-op writes.
-  if (Object.values(statsDelta).some((value) => value !== 0)) {
-    await updateTenantStats(ctx, before.tenantId, statsDelta);
-  }
-  return after;
-}
-
 /**
  * Patch an opportunity's fields, other than the stage and outcome, and keep
- * its aggregates and projections in sync. A patch to the loss, such as
- * Calendly turning a no-show into a cancellation, rewrites the status with
- * it. Stage changes go through `transitionOpportunity`.
+ * its aggregates and projections in sync. Stage changes go through
+ * `transitionOpportunity`.
  */
 export async function patchOpportunityLifecycle(
   ctx: MutationCtx,
@@ -206,32 +148,7 @@ export async function patchOpportunityLifecycle(
     throw new Error(`Use transitionOpportunity to change an opportunity's ${field}`);
   }
   const before = await getOpportunityOrThrow(ctx, opportunityId);
-  if (changesAny(before, patch, LEGACY_STATUS_FIELDS)) {
-    return await writeDealAndStatus(ctx, before, patch);
-  }
   return await writeOpportunity(ctx, before, patch);
-}
-
-/**
- * Rewrites the deal's status after a change that moves `legacyStatus`
- * without a stage move: a reschedule link created, booked or expired on a
- * Follow-up deal. Keeps `updatedAt` and `latestActivityAt`, since the write
- * that changed the task is the one somebody did. A no-op when the status
- * already agrees.
- */
-export async function syncLegacyStatus(
-  ctx: MutationCtx,
-  opportunityId: Id<"opportunities">,
-): Promise<Doc<"opportunities">> {
-  const before = await getOpportunityOrThrow(ctx, opportunityId);
-  const { count } = await loadPendingRescheduleLink(ctx, opportunityId);
-  if (legacyStatus(before, { hasPendingRescheduleLink: count > 0 }) === before.status) {
-    return before;
-  }
-  return await writeDealAndStatus(ctx, before, {
-    updatedAt: before.updatedAt,
-    latestActivityAt: before.latestActivityAt ?? computeLatestActivityAt(before),
-  });
 }
 
 export type OpportunityTransition = {
@@ -256,10 +173,10 @@ export type OpportunityTransition = {
 /**
  * The one way to change a deal's stage. It checks the move against the stage
  * machine in `convex/opportunities/stages.ts`, writes the stage, the outcome
- * and `fields`, and owns everything a stage change implies: the status, as
- * `legacyStatus` of the deal it leaves, the reporting aggregates, the search
- * and qualification projections, the meeting status mirror, the tenant
- * counters for active, won and lost deals, and the domain event.
+ * and `fields`, and owns everything a stage change implies: the reporting
+ * aggregates, the search and qualification projections, and the domain
+ * event. It writes no status and no tenant counter (§9, D13), and asks for
+ * no meeting projection, which carries no deal field.
  *
  * A move to Closed lost writes `lostAt` (the caller's, else the move's
  * time); a move out of it to an open stage clears the loss. Throws on a move
@@ -280,7 +197,7 @@ export async function transitionOpportunity(
     : from.outcome === "lost"
       ? { lostReason: undefined, lostAt: undefined, lostByUserId: undefined }
       : {};
-  const after = await writeDealAndStatus(ctx, before, {
+  const after = await writeOpportunity(ctx, before, {
     ...transition.fields,
     ...loss,
     stage: to.stage,
@@ -320,8 +237,8 @@ export function missedMeetingLoss(
  * Calendly turns the no-show that closed a deal into a cancellation, or the
  * reverse (§4.4): the deal stays Closed lost and its reason changes, with
  * `fields` (the times Calendly sent, and `updatedAt`, which decides which
- * late bookings are held for review). The status follows the reason, and a
- * deal event records the change, closed to closed, so the booking history
+ * late bookings are held for review). A deal event records the change,
+ * closed to closed, so the booking history
  * (pipeline/bookingHistory.ts) reads a chain that ends where the deal is.
  */
 export async function changeMissedMeetingLoss(

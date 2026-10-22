@@ -33,7 +33,6 @@ type LeadDetailOpportunity = Doc<"opportunities"> & {
 };
 
 type LeadDetailMeeting = Doc<"meetings"> & {
-  opportunityStatus: Doc<"opportunities">["status"];
   closerName: string | null;
   closer: MemberAvatarIdentity | null;
 };
@@ -472,7 +471,6 @@ export const getLeadDetail = query({
         return opportunityMeetings.map(
           (meeting): LeadDetailMeeting => ({
             ...meeting,
-            opportunityStatus: opportunity.status,
             closerName: opportunity.closerName,
             closer: opportunity.closer,
           }),

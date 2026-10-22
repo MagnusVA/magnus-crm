@@ -3,36 +3,33 @@ import type { MutationCtx } from "../convex/_generated/server";
 import type { OpportunityStatus } from "../convex/opportunities/stages";
 import { rebuildQualificationRow } from "../convex/operations/projections";
 import {
-  missedMeetingLossReason,
   stageForStatus,
   type DealSource,
 } from "../convex/opportunities/stages";
-import { harnessCloserId, insertDeal, type DealFields } from "./dealStageFixtures";
+import { harnessCloserId, insertDeal, missedMeetingLossReason, type DealFields } from "./dealStageFixtures";
 
-// Phase 5 deal state (docs/plans/phase-5-deal-status.md §4.6, §10.2 to
-// §10.4): deals as the dual write leaves them, their reschedule links, and
-// their qualification rows.
+// Phase 5 deal state (docs/plans/phase-5-deal-status.md §4.6, §10.2): deals
+// named by an old status and written as their stage, their reschedule
+// links, and their qualification rows.
 
 export type DealStateShape = Pick<
   Doc<"opportunities">,
-  "status" | "source" | "stage" | "outcome" | "lostReason" | "lostByUserId"
+  "source" | "stage" | "outcome" | "lostReason" | "lostByUserId"
 >;
 
 /**
- * A deal's fields at `status` as the dual write leaves them: the mapped stage
- * and outcome, and a missed meeting's loss with no person. `written: false`
- * leaves the stage and outcome unset, as on a deal from before the widen.
+ * The fields of a deal at the stage `status` names: the mapped stage and
+ * outcome, and a missed meeting's loss with no person.
  */
 export function dealAt(
   status: OpportunityStatus,
   source: DealSource | undefined,
-  options: { written?: boolean; fields?: Partial<DealStateShape> } = {},
+  options: { fields?: Partial<DealStateShape> } = {},
 ): DealStateShape {
   const reason = missedMeetingLossReason(status);
   return {
-    status,
     source,
-    ...(options.written === false ? {} : stageForStatus(status, source)),
+    ...stageForStatus(status, source),
     ...(reason ? { lostReason: reason } : {}),
     ...options.fields,
   };
@@ -44,7 +41,7 @@ export function missedMeetingLoss(status: OpportunityStatus): DealFields {
   return reason ? { lostReason: reason, lostAt: 1_500 } : {};
 }
 
-/** A deal at `status` with the loss fields the dual write gives it. */
+/** A deal at the stage `status` names, with a missed meeting's loss fields. */
 export async function insertWrittenDeal(
   ctx: MutationCtx,
   args: {

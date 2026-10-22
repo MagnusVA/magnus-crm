@@ -1,10 +1,6 @@
 import { Migrations } from "@convex-dev/migrations";
 import { v } from "convex/values";
-import {
-  internalMutation,
-  internalQuery,
-  type MutationCtx,
-} from "./_generated/server";
+import { internalMutation, type MutationCtx } from "./_generated/server";
 import { adoptRawDelivery, deliveryMetadata } from "./pipeline/receipts";
 import {
   DISMISSED_REASON,
@@ -42,10 +38,6 @@ import {
   rebuildLeadCustomerSearchRow,
 } from "./leadCustomers/projection";
 import { upsertOpportunitySearchProjection } from "./lib/opportunitySearch";
-import {
-  insertOperationsMeetingStats,
-  replaceOperationsMeetingStats,
-} from "./operations/meetingStats";
 import { qualificationRowStage, rebuildQualificationRow } from "./operations/projections";
 import {
   expireStaleSlackOpportunity,
@@ -56,19 +48,9 @@ import {
   sameTouch,
   type TouchSnapshot,
 } from "./lib/touches";
-import {
-  DEAL_POSITIONS,
-  isAllowedStageOutcome,
-  isSystemLossReason,
-  missedMeetingLossReason,
-  stageForStatus,
-  stageOfPosition,
-  type DealPosition,
-  LEGACY_STATUS_GROUPS,
-} from "./opportunities/stages";
+import { isAllowedStageOutcome } from "./opportunities/stages";
 import {
   isMissedMeetingLoss,
-  legacyStatus,
   loadPendingRescheduleLink,
 } from "./opportunities/dealState";
 import { opportunityByStage, opportunityByStatus } from "./reporting/aggregates";
@@ -139,10 +121,10 @@ export const assertOpportunitySearchProjectionBackfilled = migrations.define({
         `Opportunity ${opportunity._id} is missing an opportunitySearch projection`,
       );
     }
+    // No status: the row stops copying it in Phase 5 PR 9.
     if (
       projection.tenantId !== opportunity.tenantId ||
-      projection.leadId !== opportunity.leadId ||
-      projection.status !== opportunity.status
+      projection.leadId !== opportunity.leadId
     ) {
       throw new Error(
         `Opportunity ${opportunity._id} has a stale opportunitySearch projection`,
@@ -278,8 +260,9 @@ export const rebuildQualificationRows = migrations.define({
   },
 });
 
-// Each row copies its deal's status, stage and outcome (from Phase 5 PR 3)
-// and closer, or none of them with no deal. Throws naming the event.
+// Each row copies its deal's stage and outcome (from Phase 5 PR 3) and
+// closer, or none of them with no deal; from PR 9 it copies no status.
+// Throws naming the event.
 export const assertQualificationRowsCurrent = migrations.define({
   table: "slackQualificationEvents",
   batchSize: 200,
@@ -298,7 +281,6 @@ export const assertQualificationRowsCurrent = migrations.define({
       : null;
     const dealStage = qualificationRowStage(opportunity);
     if (
-      row.opportunityStatus !== opportunity?.status ||
       row.dealStage !== dealStage?.stage ||
       row.dealOutcome !== dealStage?.outcome ||
       row.assignedCloserId !== opportunity?.assignedCloserId
@@ -331,30 +313,6 @@ export const assertStaleSlackBacklogExpired = migrations.define({
     }
   },
 });
-
-export const backfillMeetingOpportunityStatusAndOperationsStats =
-  migrations.define({
-    table: "meetings",
-    batchSize: 100,
-    migrateOne: async (ctx, meeting) => {
-      const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
-      const opportunityStatus = opportunity?.status;
-      const nextMeeting = { ...meeting, opportunityStatus };
-
-      if (meeting.opportunityStatus !== opportunityStatus) {
-        await ctx.db.patch("meetings", meeting._id, { opportunityStatus });
-      }
-
-      if (meeting.operationsStatsSyncedAt !== undefined) {
-        if (meeting.opportunityStatus !== opportunityStatus) {
-          await replaceOperationsMeetingStats(ctx, meeting, nextMeeting);
-        }
-        return;
-      }
-
-      await insertOperationsMeetingStats(ctx, nextMeeting);
-    },
-  });
 
 export const backfillLeadGenDailyStatScheduledHours = migrations.define({
   table: "leadGenDailyStats",
@@ -424,9 +382,10 @@ export const assertMeetingProjections = migrations.define({
     const projection = await ctx.db.query("meetingProjections").withIndex("by_meetingId", q => q.eq("meetingId", meeting._id)).unique();
     const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
     if (!opportunity || opportunity.tenantId !== meeting.tenantId) throw new Error("Invalid meeting relationship");
+    // No deal status in the key from Phase 5 PR 9: rebuildMeetingProjections re-keys.
     const key = bucketKey({ dayKey: meetingDayKey(meeting.scheduledAt), assignedCloserId: meeting.assignedCloserId,
       bookingProgramId: meeting.bookingProgramId, soldProgramId: opportunity.soldProgramId,
-      opportunityStatus: opportunity.status, meetingStatus: meeting.status });
+      meetingStatus: meeting.status });
     const bucket = await ctx.db.query("operationsMeetingStatsV2").withIndex("by_tenantId_and_bucketKey", q => q.eq("tenantId", meeting.tenantId).eq("bucketKey", key)).unique();
     if (!bucket || projection?.tenantId !== meeting.tenantId || projection.status !== "applied" || projection.bucketKey !== key) throw new Error("Meeting projection is missing or stale; drain and rerun assertion");
   },
@@ -928,82 +887,31 @@ export const assertCancelRescheduledFlags = migrations.define({
   },
 });
 
-// Phase 5 (docs/plans/phase-5-deal-status.md §10). After PR 1 deploys, in
-// this order, each dry run first:
-//   1. backfillDealStages, then assertDealStages (§10.1, §10.2)
-//   2. backfillOpportunityByStage, then the verifyStageCounts query for the
-//      tenant (§10.1)
-// After PR 3 deploys:
-//   3. assertDealStages (reset), which now also rebuilds each status (§10.2)
-//   4. rebuildQualificationRows (reset), then assertQualificationRowsCurrent
-//      (reset), which now also checks the rows' stage and outcome (§10.3)
-//   5. the parity queries in opportunities/stageParity.ts (§10.4)
+// Phase 5 (docs/plans/phase-5-deal-status.md §10). PR 1's backfill and the
+// parity queries of PR 3 have run and are gone; from PR 9 nothing writes the
+// status or a copy of it. After PR 9 deploys, in this order, each clear's dry
+// run first (§9 step 7, §10.6):
+//   1. assertDealStages (reset), with no status comparison
+//   2. clearDealStatus, then assertDealStatusCleared
+//   3. clearOpportunitySearchStatus, then assertOpportunitySearchStatusCleared
+//   4. clearMeetingOpportunityStatus, then assertMeetingOpportunityStatusCleared
+//   5. clearQualificationRowStatus, then assertQualificationRowStatusCleared
+//   6. clearLegacyDailyStatsStatus, then assertLegacyDailyStatsStatusCleared
+//   7. rebuildMeetingProjections (reset), which re-keys every projection
+//      without the deal status, then assertMeetingProjections (reset),
+//      assertMeetingProjectionBuckets and assertMeetingProjectionSources (reset)
+//   8. the internal mutations clearOpportunityByStatus and
+//      clearTenantStatusCounters, each with "dryRun": true first
 // assertDealStages stays as a health check; rerun it with "reset" at any
 // time. Nothing here emits an event or moves a person's stage.
 
-/**
- * When a missed meeting happened, for a deal from before the dual write: the
- * deal's own time, else its latest meeting's, else its last update.
- */
-async function missedMeetingTime(
-  ctx: MutationCtx,
-  deal: Doc<"opportunities">,
-  reason: "canceled" | "no_show",
-): Promise<number> {
-  const dealTime = reason === "canceled" ? deal.canceledAt : deal.noShowAt;
-  if (dealTime !== undefined) return dealTime;
-  const meeting = deal.latestMeetingId
-    ? await ctx.db.get("meetings", deal.latestMeetingId)
-    : null;
-  const meetingTime =
-    reason === "canceled" ? meeting?.canceledAt : meeting?.noShowMarkedAt;
-  return meetingTime ?? deal.updatedAt;
-}
-
-// Writes each deal's stage and outcome from its status, and closes a
-// canceled or no-show deal as lost with its reason and time (§4.2). It
-// patches directly, keeping updatedAt and latestActivityAt, so no booking
-// rule moves; the stage aggregate's key already reads the mapped stage, and
-// nothing else reads the fields yet. A rerun changes nothing.
-export const backfillDealStages = migrations.define({
-  table: "opportunities",
-  batchSize: 200,
-  migrateOne: async (ctx, deal) => {
-    // From PR 8 every write sets the stage, so a deal with no status has one.
-    if (deal.status === undefined) return;
-    const { stage, outcome } = stageForStatus(deal.status, deal.source);
-    const reason = missedMeetingLossReason(deal.status);
-    // A reason already there is kept, even a different one, for the assert
-    // to report; a missing time is filled either way.
-    const loss =
-      reason && deal.lostReason === undefined
-        ? { lostReason: reason, lostAt: await missedMeetingTime(ctx, deal, reason) }
-        : reason && deal.lostReason === reason && deal.lostAt === undefined
-          ? { lostAt: await missedMeetingTime(ctx, deal, reason) }
-          : {};
-    if (deal.stage === stage && deal.outcome === outcome && Object.keys(loss).length === 0) {
-      return;
-    }
-    // eslint-disable-next-line no-restricted-syntax -- the backfill writes what transitionOpportunity writes, without its side effects
-    await ctx.db.patch("opportunities", deal._id, { stage, outcome, ...loss });
-  },
-});
-
-/** A lost reason in an assert's message: a system code, never a person's text. */
-function describeLostReason(reason: string | undefined): string {
-  if (reason === undefined) return "no reason";
-  return isSystemLossReason(reason) ? `the reason ${reason}` : "a free-text reason";
-}
-
 // Each deal's stage and outcome are set and allowed; a deal a missed meeting
-// closed has its loss time; a canceled or no-show status has the matching
-// reason and no person; a Follow-up deal has at most one pending reschedule
-// link; and the status PR 8 still writes is the one rebuilt from the stage,
-// the outcome, the loss and the tasks (legacyStatus, §4.6), so a revert to
-// PR 7 finds each deal as PR 7 would have written it (§10.2, §12). The stage
-// machine sets the pair, so it is no longer compared with the status's
-// mapping: a side deal a booking joined is Booked now, not Call held.
-// Throws on the first problem, with IDs and codes only.
+// closed (the system's loss, with no person: isMissedMeetingLoss) has its
+// loss time; a Follow-up deal has at most one pending reschedule link, and a
+// deal at any other stage has none, since a booking through a link expires
+// the rest (pipeline/inviteeCreated.ts) and only Follow-up waits on one. No
+// status is compared: nothing writes it from PR 9 (§10.2). Throws on the
+// first problem, with IDs and codes only.
 export const assertDealStages = migrations.define({
   table: "opportunities",
   batchSize: 200,
@@ -1020,32 +928,15 @@ export const assertDealStages = migrations.define({
     if (missed && deal.lostAt === undefined) {
       throw fail(`is closed by a missed meeting (${missed}) and has no lostAt`);
     }
-    if (deal.status === undefined) {
-      throw fail("has no status");
-    }
-    const missedReason = missedMeetingLossReason(deal.status);
-    if (missedReason && deal.lostReason !== missedReason) {
-      throw fail(`is ${deal.status} and has ${describeLostReason(deal.lostReason)}, expected ${missedReason}`);
-    }
-    // A missed meeting's loss names no person. A person's own free text may
-    // match a code; legacyStatus reads that deal as lost, as its status says.
-    if (missedReason && deal.lostByUserId !== undefined) {
-      throw fail(`is ${deal.status} and has lostByUserId ${deal.lostByUserId}`);
-    }
-    // Only a Follow-up deal's status reads its reschedule link.
-    const links = stage === "follow_up" ? (await loadPendingRescheduleLink(ctx, deal._id)).count : 0;
-    if (links > 1) {
-      throw fail(`has ${links} pending reschedule links`);
-    }
-    const rebuilt = legacyStatus(deal, { hasPendingRescheduleLink: links > 0 });
-    if (rebuilt !== deal.status) {
-      throw fail(`rebuilds as ${rebuilt}, but its status is ${deal.status}`);
+    const { count } = await loadPendingRescheduleLink(ctx, deal._id);
+    if (stage === "follow_up" ? count > 1 : count > 0) {
+      throw fail(`is at ${stage} and has ${count} pending reschedule links`);
     }
   },
 });
 
-// Enters every deal in opportunityByStage, as reporting/backfill.ts does for
-// opportunityByStatus. Idempotent.
+// Enters every deal in opportunityByStage. Idempotent; the write hooks keep
+// it from there, on the strict methods.
 export const backfillOpportunityByStage = migrations.define({
   table: "opportunities",
   batchSize: 200,
@@ -1054,81 +945,165 @@ export const backfillOpportunityByStage = migrations.define({
   },
 });
 
-const dealPositionValidator = v.union(
-  v.literal("qualified"),
-  v.literal("booked"),
-  v.literal("call_held"),
-  v.literal("follow_up"),
-  v.literal("won"),
-  v.literal("lost"),
-);
+// The clears (§10.6). Each unsets one copy of the old status, which nothing
+// reads or writes from PR 9, and its assert throws on any row that still has
+// it. They patch directly: no event, no counter, no projection follows, and
+// updatedAt stays. A rerun finds nothing to write.
 
-const countMatchValidator = {
-  byStage: v.number(),
-  byStatus: v.number(),
-  match: v.boolean(),
-};
+export const clearDealStatus = migrations.define({
+  table: "opportunities",
+  batchSize: 200,
+  migrateOne: async (ctx, deal) => {
+    if (deal.status === undefined) return;
+    // eslint-disable-next-line no-restricted-syntax -- the clear unsets the status nothing writes from PR 9; it changes no stage
+    await ctx.db.patch("opportunities", deal._id, { status: undefined });
+  },
+});
+
+export const assertDealStatusCleared = migrations.define({
+  table: "opportunities",
+  batchSize: 200,
+  migrateOne: async (_ctx, deal) => {
+    if (deal.status !== undefined) {
+      throw new Error(`Opportunity ${deal._id} still has its status`);
+    }
+  },
+});
+
+export const clearOpportunitySearchStatus = migrations.define({
+  table: "opportunitySearch",
+  batchSize: 200,
+  migrateOne: async (ctx, row) => {
+    if (row.status === undefined) return;
+    await ctx.db.patch("opportunitySearch", row._id, { status: undefined });
+  },
+});
+
+export const assertOpportunitySearchStatusCleared = migrations.define({
+  table: "opportunitySearch",
+  batchSize: 200,
+  migrateOne: async (_ctx, row) => {
+    if (row.status !== undefined) {
+      throw new Error(`Opportunity search row ${row._id} still has its deal's status`);
+    }
+  },
+});
+
+export const clearMeetingOpportunityStatus = migrations.define({
+  table: "meetings",
+  batchSize: 200,
+  migrateOne: async (ctx, meeting) => {
+    if (meeting.opportunityStatus === undefined) return;
+    await ctx.db.patch("meetings", meeting._id, { opportunityStatus: undefined });
+  },
+});
+
+export const assertMeetingOpportunityStatusCleared = migrations.define({
+  table: "meetings",
+  batchSize: 200,
+  migrateOne: async (_ctx, meeting) => {
+    if (meeting.opportunityStatus !== undefined) {
+      throw new Error(`Meeting ${meeting._id} still has its deal's status`);
+    }
+  },
+});
+
+export const clearQualificationRowStatus = migrations.define({
+  table: "operationsQualificationRows",
+  batchSize: 200,
+  migrateOne: async (ctx, row) => {
+    if (row.opportunityStatus === undefined) return;
+    await ctx.db.patch("operationsQualificationRows", row._id, { opportunityStatus: undefined });
+  },
+});
+
+export const assertQualificationRowStatusCleared = migrations.define({
+  table: "operationsQualificationRows",
+  batchSize: 200,
+  migrateOne: async (_ctx, row) => {
+    if (row.opportunityStatus !== undefined) {
+      throw new Error(`Qualification row ${row._id} still has its deal's status`);
+    }
+  },
+});
+
+// The legacy table has no writer; Phase 6 drops it.
+export const clearLegacyDailyStatsStatus = migrations.define({
+  table: "operationsMeetingDailyStats",
+  batchSize: 200,
+  migrateOne: async (ctx, row) => {
+    if (row.opportunityStatus === undefined) return;
+    await ctx.db.patch("operationsMeetingDailyStats", row._id, { opportunityStatus: undefined });
+  },
+});
+
+export const assertLegacyDailyStatsStatusCleared = migrations.define({
+  table: "operationsMeetingDailyStats",
+  batchSize: 200,
+  migrateOne: async (_ctx, row) => {
+    if (row.opportunityStatus !== undefined) {
+      throw new Error(`Legacy daily stats row ${row._id} still has a deal status`);
+    }
+  },
+});
 
 /**
- * Read-only: each position's count in opportunityByStage against its
- * statuses' counts in opportunityByStatus, and the two totals (§10.1). Run it
- * after backfillOpportunityByStage; `ok` is true when every count agrees.
+ * Empties the `opportunityByStatus` aggregate, one namespace per tenant, so
+ * the narrow can unmount it. It reads the aggregate's own namespaces, so a
+ * deleted tenant's entries go too. `dryRun` counts without clearing; a second
+ * run finds no entries.
  */
-export const verifyStageCounts = internalQuery({
-  args: { tenantId: v.id("tenants") },
+export const clearOpportunityByStatus = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
   returns: v.object({
-    stageCounts: v.object({
-      qualified: v.number(),
-      booked: v.number(),
-      call_held: v.number(),
-      follow_up: v.number(),
-      won: v.number(),
-      lost: v.number(),
-    }),
-    checks: v.array(
-      v.object({
-        positions: v.array(dealPositionValidator),
-        statuses: v.array(v.string()),
-        ...countMatchValidator,
-      }),
-    ),
-    total: v.object(countMatchValidator),
-    ok: v.boolean(),
+    namespaces: v.number(),
+    entries: v.number(),
+    cleared: v.boolean(),
   }),
-  handler: async (ctx, { tenantId }) => {
-    const positionCounts = await opportunityByStage.countBatch(
-      ctx,
-      DEAL_POSITIONS.map((position) => {
-        const { stage, outcome } = stageOfPosition(position);
-        return { namespace: tenantId, bounds: { prefix: [stage, outcome] } };
-      }),
-    );
-    const stageCounts = Object.fromEntries(
-      DEAL_POSITIONS.map((position, index) => [position, positionCounts[index] ?? 0]),
-    ) as Record<DealPosition, number>;
+  handler: async (ctx, { dryRun }) => {
+    const namespaces: Id<"tenants">[] = [];
+    for await (const namespace of opportunityByStatus.iterNamespaces(ctx)) {
+      if (namespace !== undefined) namespaces.push(namespace);
+    }
+    let entries = 0;
+    for (const namespace of namespaces) {
+      const count = await opportunityByStatus.count(ctx, { namespace });
+      entries += count;
+      if (!dryRun && count > 0) await opportunityByStatus.clear(ctx, { namespace });
+    }
+    return { namespaces: namespaces.length, entries, cleared: !dryRun };
+  },
+});
 
-    const allStatuses = LEGACY_STATUS_GROUPS.flatMap((check) => check.statuses);
-    const statusCountList = await opportunityByStatus.countBatch(
-      ctx,
-      allStatuses.map((status) => ({ namespace: tenantId, bounds: { prefix: [status] } })),
-    );
-    const statusCounts = new Map(
-      allStatuses.map((status, index) => [status, statusCountList[index] ?? 0]),
-    );
+// One tenantStats row per tenant: far below this.
+const TENANT_STATS_CLEAR_LIMIT = 1000;
+const TENANT_STATUS_COUNTERS = ["activeOpportunities", "wonDeals", "lostDeals"] as const;
 
-    const checks = LEGACY_STATUS_GROUPS.map(({ positions, statuses }) => {
-      const byStage = positions.reduce((sum, position) => sum + stageCounts[position], 0);
-      const byStatus = statuses.reduce((sum, status) => sum + (statusCounts.get(status) ?? 0), 0);
-      return { positions, statuses, byStage, byStatus, match: byStage === byStatus };
-    });
-    const totalByStage = await opportunityByStage.count(ctx, { namespace: tenantId });
-    const totalByStatus = await opportunityByStatus.count(ctx, { namespace: tenantId });
-    const total = { byStage: totalByStage, byStatus: totalByStatus, match: totalByStage === totalByStatus };
-    return {
-      stageCounts,
-      checks,
-      total,
-      ok: total.match && checks.every((check) => check.match),
-    };
+/**
+ * Unsets the deal counters by status (`activeOpportunities`, `wonDeals`,
+ * `lostDeals`) on every tenantStats row (D13). `rows` counts the rows that
+ * still had one; `dryRun` counts without writing, and a second run counts 0.
+ */
+export const clearTenantStatusCounters = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  returns: v.object({ rows: v.number(), cleared: v.boolean() }),
+  handler: async (ctx, { dryRun }) => {
+    const stats = await ctx.db.query("tenantStats").take(TENANT_STATS_CLEAR_LIMIT + 1);
+    if (stats.length > TENANT_STATS_CLEAR_LIMIT) {
+      throw new Error(`More than ${TENANT_STATS_CLEAR_LIMIT} tenantStats rows; clear them in pages`);
+    }
+    const withCounters = stats.filter((row) =>
+      TENANT_STATUS_COUNTERS.some((field) => row[field] !== undefined),
+    );
+    if (!dryRun) {
+      for (const row of withCounters) {
+        await ctx.db.patch("tenantStats", row._id, {
+          activeOpportunities: undefined,
+          wonDeals: undefined,
+          lostDeals: undefined,
+        });
+      }
+    }
+    return { rows: withCounters.length, cleared: !dryRun };
   },
 });

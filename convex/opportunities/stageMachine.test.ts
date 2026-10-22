@@ -76,10 +76,9 @@ describe("the stage machine", () => {
     for (const to of DEAL_POSITIONS) expect(stageMoveAllowed(broken, targetOf(to))).toBe(false);
   });
 
-  it("reads the stage of a deal without one from its status", () => {
-    const deal: StageMachineDeal = { status: "follow_up_scheduled", source: "calendly" };
-    expect(stageMoveAllowed(deal, { stage: "booked" })).toBe(true);
-    expect(stageMoveAllowed(deal, { stage: "follow_up" })).toBe(false);
+  it("refuses a deal with no stored stage: it never reads the status", () => {
+    const deal: StageMachineDeal = { source: "calendly" };
+    expect(() => stageMoveAllowed(deal, { stage: "booked" })).toThrow("Deal has no stage or outcome");
   });
 });
 
@@ -184,13 +183,13 @@ describe("every move PR 7 made is a stage move", () => {
       // canceled -> scheduled was the 14-day join PR 2 removed; no caller makes it.
       if (from === "canceled" && to === "scheduled") return;
       const source = from === "lost" ? "slack_qualified" : "calendly";
-      const deal: StageMachineDeal = { status: from, source, ...stageForStatus(from, source), ...LOSS_OF[from] };
+      const deal: StageMachineDeal = { source, ...stageForStatus(from, source), ...LOSS_OF[from] };
       const { stage, outcome } = stageForStatus(to, source);
       const target: DealTarget =
         stage === "closed" ? { stage, outcome: outcome as "won" | "lost" } : { stage };
       const exception = EXCEPTION_FOR[`${from}->${to}`];
       expect(stageMoveAllowed(deal, target, exception)).toBe(true);
-      // The status PR 8 writes after the move is the one PR 7 wrote.
+      // The deal it leaves is named by the status PR 7 wrote.
       const next = {
         ...deal,
         stage,

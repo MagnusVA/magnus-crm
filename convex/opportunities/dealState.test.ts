@@ -68,12 +68,7 @@ describe("legacyStatus", () => {
     expect(legacyStatus(dealAt(status, source), linkFor(status))).toBe(status);
   });
 
-  it.each(matrix)("rebuilds %s from the status on a %s deal with no stored stage", (status, sourceLabel) => {
-    const source = sourceLabel === "no source" ? undefined : sourceLabel;
-    expect(legacyStatus(dealAt(status, source, { written: false }), linkFor(status))).toBe(status);
-  });
-
-  it("reads the stored stage and outcome over the status", () => {
+  it("reads the stored stage and outcome only", () => {
     const deal = dealAt("scheduled", "calendly", { fields: { stage: "closed", outcome: "won" } });
     expect(legacyStatus(deal, { hasPendingRescheduleLink: false })).toBe("payment_received");
   });
@@ -141,7 +136,6 @@ describe("loadPendingRescheduleLink and loadDealState", () => {
       position: "follow_up",
       missedMeeting: null,
       rescheduleLinkPending: true,
-      legacyStatus: "reschedule_link_sent",
     });
   });
 
@@ -165,7 +159,6 @@ describe("loadPendingRescheduleLink and loadDealState", () => {
       position: "follow_up",
       missedMeeting: null,
       rescheduleLinkPending: false,
-      legacyStatus: "follow_up_scheduled",
     });
   });
 
@@ -180,7 +173,7 @@ describe("loadPendingRescheduleLink and loadDealState", () => {
 
     const { link, state } = await stateOf(harness, opportunityId);
     expect(link).toEqual({ link: null, count: 0 });
-    expect(state.legacyStatus).toBe("follow_up_scheduled");
+    expect(state.rescheduleLinkPending).toBe(false);
   });
 
   it("reads another deal's reschedule link as none of this deal's", async () => {
@@ -203,7 +196,6 @@ describe("loadPendingRescheduleLink and loadDealState", () => {
       position: "lost",
       missedMeeting: missed,
       rescheduleLinkPending: false,
-      legacyStatus: status,
     });
   });
 
@@ -229,7 +221,6 @@ describe("loadPendingRescheduleLink and loadDealState", () => {
       position,
       missedMeeting: null,
       rescheduleLinkPending: false,
-      legacyStatus: status,
     });
   });
 });

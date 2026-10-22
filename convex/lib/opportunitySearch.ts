@@ -113,7 +113,8 @@ export async function upsertOpportunitySearchProjection(
     leadId: opportunity.leadId,
     assignedCloserId: opportunity.assignedCloserId,
     source: normalizeOpportunitySource(opportunity),
-    status: opportunity.status,
+    // No status: clearOpportunitySearchStatus unsets the old copy
+    // (docs/plans/phase-5-deal-status.md §4.8).
     latestActivityAt,
     ...opportunityActivityKeys(latestActivityAt),
     searchText,

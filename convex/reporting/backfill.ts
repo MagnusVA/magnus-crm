@@ -8,7 +8,6 @@ import {
 import {
   isSlackQualificationAggregateEligible,
   meetingsByStatus,
-  opportunityByStatus,
   paymentSums,
   slackQualificationsByTime,
   slackQualificationsByUser,
@@ -139,37 +138,6 @@ export const backfillPaymentsAggregate = internalMutation({
 			await ctx.scheduler.runAfter(
 				0,
 				internal.reporting.backfill.backfillPaymentsAggregate,
-				{ cursor: result.continueCursor },
-			);
-		}
-
-		return {
-			hasMore: !result.isDone,
-			inserted: result.page.length,
-		};
-	},
-});
-
-export const backfillOpportunitiesAggregate = internalMutation({
-	args: { cursor: v.optional(v.string()) },
-	handler: async (ctx, { cursor }) => {
-		const result = await ctx.db.query("opportunities").paginate({
-			numItems: AGGREGATE_PAGE_SIZE,
-			cursor: cursor ?? null,
-		});
-
-		for (const opportunity of result.page) {
-			await opportunityByStatus.insertIfDoesNotExist(ctx, opportunity);
-		}
-
-		logBackfillBatch("opportunities_aggregate", result.isDone, {
-			processed: result.page.length,
-		});
-
-		if (!result.isDone) {
-			await ctx.scheduler.runAfter(
-				0,
-				internal.reporting.backfill.backfillOpportunitiesAggregate,
 				{ cursor: result.continueCursor },
 			);
 		}

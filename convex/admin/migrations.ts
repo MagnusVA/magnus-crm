@@ -1,7 +1,6 @@
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { requestMeetingProjection } from "../operations/meetingStats";
-import { countTenantStatusCounters } from "../reporting/verification";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
@@ -50,12 +49,6 @@ import {
 import { requireSystemAdminSession } from "../requireSystemAdmin";
 
 const RAW_EVENT_BACKFILL_PAGE_SIZE = 25;
-const ACTIVE_OPPORTUNITY_STATUSES = new Set<Doc<"opportunities">["status"]>([
-  "qualified_pending",
-  "scheduled",
-  "follow_up_scheduled",
-  "reschedule_link_sent",
-]);
 
 type AdminFunctionCtx = ActionCtx | MutationCtx | QueryCtx;
 
@@ -460,46 +453,6 @@ export const backfillMeetingFormResponsesForRawEvent = internalMutation({
   },
 });
 
-/**
- * Resets only the counters that follow opportunity status (active, won, lost)
- * from the status aggregate. Before transitionOpportunity, some status
- * changes skipped the counters; this fixes the drift without the full-table
- * reads of seedTenantStatsInternal. Check with
- * reporting/verification:verifyTenantStatusCounters first.
- */
-export const repairTenantStatusCounters = internalMutation({
-  args: { tenantId: v.id("tenants") },
-  handler: async (ctx, { tenantId }) => {
-    const counted = await countTenantStatusCounters(ctx, tenantId);
-    const stats = await ctx.db
-      .query("tenantStats")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .unique();
-    if (!stats) {
-      throw new Error(`Tenant ${tenantId} has no tenantStats document`);
-    }
-    const before = {
-      activeOpportunities: stats.activeOpportunities,
-      wonDeals: stats.wonDeals,
-      lostDeals: stats.lostDeals,
-    };
-    await ctx.db.patch("tenantStats", stats._id, {
-      ...counted,
-      lastUpdatedAt: Date.now(),
-    });
-    log.info("tenant_stats.status_counters_repaired", {
-      tenantId,
-      ...Object.fromEntries(
-        Object.entries(counted).map(([field, value]) => [
-          `${field}Delta`,
-          value - before[field as keyof typeof before],
-        ]),
-      ),
-    });
-    return { before, after: counted };
-  },
-});
-
 const LEAD_COUNT_PAGE_SIZE = 2000;
 
 /** One page of `tenantStats.totalLeads`: the leads `countsAsLead` counts. */
@@ -559,15 +512,6 @@ export const seedTenantStatsInternal = internalMutation({
       .query("opportunities")
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
       .collect();
-    const activeOpportunities = opportunities.filter((opportunity) =>
-      ACTIVE_OPPORTUNITY_STATUSES.has(opportunity.status),
-    );
-    const wonDeals = opportunities.filter(
-      (opportunity) => opportunity.status === "payment_received",
-    );
-    const lostDeals = opportunities.filter(
-      (opportunity) => opportunity.status === "lost",
-    );
 
     const payments = await ctx.db
       .query("paymentRecords")
@@ -592,10 +536,9 @@ export const seedTenantStatsInternal = internalMutation({
     const payload = {
       totalTeamMembers: activeUsers.length,
       totalClosers: closers.length,
+      // No deal counters by status (docs/plans/phase-5-deal-status.md D13):
+      // opportunityByStage counts them.
       totalOpportunities: opportunities.length,
-      activeOpportunities: activeOpportunities.length,
-      wonDeals: wonDeals.length,
-      lostDeals: lostDeals.length,
       totalRevenueMinor,
       totalPaymentRecords: nonDisputedPayments.length,
       totalLeads,

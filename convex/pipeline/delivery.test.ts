@@ -43,7 +43,7 @@ it.each([
     meetingId: receipts[1].meetingId!,
   });
   expect(detail.meeting.status).toBe("scheduled");
-  expect(detail.opportunity.status).toBe("scheduled");
+  expect(detail.opportunity).toMatchObject({ stage: "booked", outcome: "open" });
 });
 
 it("keeps a durable ignored outcome and deduplicates repeated delivery", async () => {
@@ -377,7 +377,7 @@ it("uses an explicit reschedule link and does not let the old cancellation cance
     meetingId: newestBooking!.meetingId!,
   });
   expect(detail.meeting.status).toBe("scheduled");
-  expect(detail.opportunity.status).toBe("scheduled");
+  expect(detail.opportunity).toMatchObject({ stage: "booked", outcome: "open" });
 });
 
 it("holds historical bookings instead of reopening a lead's newer lost opportunity", async () => {
@@ -428,7 +428,7 @@ it("holds historical bookings instead of reopening a lead's newer lost opportuni
   const detail = await admin.query(api.closer.meetingDetail.getMeetingDetail, {
     meetingId: delivery.meetingId,
   });
-  expect(detail.opportunity.status).toBe("lost");
+  expect(detail.opportunity).toMatchObject({ stage: "closed", outcome: "lost" });
   expect(detail.meeting.status).toBe("completed");
 });
 
@@ -520,7 +520,7 @@ it("rejects a reschedule link whose source meeting belongs to another opportunit
   const detail = await admin.query(api.closer.meetingDetail.getMeetingDetail, {
     meetingId: target.meetingId,
   });
-  expect(detail.opportunity.status).toBe("reschedule_link_sent");
+  expect(detail.opportunity).toMatchObject({ stage: "follow_up", outcome: "open" });
 });
 
 it("protects recovery from unauthorized roles and other tenants", async () => {

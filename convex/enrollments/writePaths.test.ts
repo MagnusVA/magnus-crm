@@ -160,7 +160,7 @@ describe("enrollments beside each payment", () => {
       });
       await ctx.db.insert("tenantStats", {
         tenantId: harness.tenantId,
-        totalTeamMembers: 0, totalClosers: 0, totalOpportunities: 0, activeOpportunities: 0, wonDeals: 0, lostDeals: 0,
+        totalTeamMembers: 0, totalClosers: 0, totalOpportunities: 0,
         totalRevenueMinor: 0, totalPaymentRecords: 0, totalLeads: 3, totalCustomers: 1, lastUpdatedAt: 0,
       });
       return leadId;

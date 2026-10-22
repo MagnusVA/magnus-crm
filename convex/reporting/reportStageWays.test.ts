@@ -3,25 +3,18 @@ import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import {
   countCloserPipelineByStage,
-  countCloserPipelineByStatus,
   countStripByStage,
-  countStripByStatus,
   readCloserMeetingDeals,
 } from "../closer/dashboard";
 import {
   countLossesByActor,
   readLossesByStage,
-  readLossesByStatus,
   readPipelineDistributionByStage,
-  readPipelineDistributionByStatus,
   readPipelineVelocityByStage,
-  readPipelineVelocityByStatus,
   scanPipelineAgingByStage,
-  scanPipelineAgingByStatus,
 } from "./pipelineHealth";
 import {
   meetingOutcomesByStage,
-  meetingOutcomesByStatus,
   readTeamOutcomeInputs,
   tallyOutcomesByCloser,
 } from "./teamOutcomes";
@@ -32,37 +25,22 @@ import {
   closerAOutcomes,
   closerBOutcomes,
   noPositions,
-  noStatuses,
-  seededParityHarness,
-} from "../../tests/stageParityFixtures";
+  seededMixedPipeline,
+} from "../../tests/reportStageFixtures";
 
-// Each report number from the stage beside today's from the status
-// (docs/plans/phase-5-deal-status.md §6.2, §6.6, §7), on a small tenant with
-// a deal at every status.
+// Each report number from the stage (docs/plans/phase-5-deal-status.md §6.2,
+// §6.6, §7), on a small tenant with a deal at every old status, written as
+// its stage.
 
 afterEach(() => vi.useRealTimers());
 
-const seeded = seededParityHarness;
+const seeded = seededMixedPipeline;
 
-describe("the stage way of each report number", () => {
-  it("counts the distribution in six positions, the statuses merged", async () => {
+describe("each report number by stage", () => {
+  it("counts the distribution in six positions", async () => {
     const { harness } = await seeded();
-    const { byStatus, byStage } = await harness.t.run(async (ctx) => ({
-      byStatus: await readPipelineDistributionByStatus(ctx, harness.tenantId),
-      byStage: await readPipelineDistributionByStage(ctx, harness.tenantId),
-    }));
+    const byStage = await harness.t.run((ctx) => readPipelineDistributionByStage(ctx, harness.tenantId));
 
-    expect(Object.fromEntries(byStatus.map(({ status, count }) => [status, count]))).toEqual({
-      ...noStatuses,
-      qualified_pending: 1,
-      scheduled: 3,
-      follow_up_scheduled: 1,
-      reschedule_link_sent: 1,
-      payment_received: 2,
-      lost: 5,
-      canceled: 1,
-      no_show: 1,
-    });
     // Scheduled splits into Booked and the side deal's Call held; Lost takes
     // the canceled and no-show deals (§7).
     expect(Object.fromEntries(byStage.map(({ position, count }) => [position, count]))).toEqual({
@@ -77,61 +55,43 @@ describe("the stage way of each report number", () => {
 
   it("ages the same open deals, with Scheduled split into Booked and Call held", async () => {
     const { harness, seed } = await seeded();
-    const { byStatus, byStage } = await harness.t.run(async (ctx) => ({
-      byStatus: await scanPipelineAgingByStatus(ctx, harness.tenantId, NOW),
-      byStage: await scanPipelineAgingByStage(ctx, harness.tenantId, NOW),
-    }));
+    const byStage = await harness.t.run((ctx) => scanPipelineAgingByStage(ctx, harness.tenantId, NOW));
 
-    expect(byStatus.groups).toEqual({
-      qualified_pending: { count: 1, totalAgeDays: 5, oldestAgeDays: 5 },
-      scheduled: { count: 3, totalAgeDays: 53, oldestAgeDays: 40 },
-      follow_up_scheduled: { count: 1, totalAgeDays: 30, oldestAgeDays: 30 },
-      reschedule_link_sent: { count: 1, totalAgeDays: 25, oldestAgeDays: 25 },
-    });
     expect(byStage.groups).toEqual({
       qualified: { count: 1, totalAgeDays: 5, oldestAgeDays: 5 },
       booked: { count: 2, totalAgeDays: 43, oldestAgeDays: 40 },
       call_held: { count: 1, totalAgeDays: 10, oldestAgeDays: 10 },
       follow_up: { count: 2, totalAgeDays: 55, oldestAgeDays: 30 },
     });
-    expect([byStatus.staleCount, byStage.staleCount]).toEqual([4, 4]);
-    const staleIds = (scan: typeof byStatus | typeof byStage) =>
-      scan.staleCandidates.map(({ opportunity }) => opportunity._id).sort();
-    expect(staleIds(byStage)).toEqual(staleIds(byStatus));
-    expect(staleIds(byStage)).toEqual(
+    expect(byStage.staleCount).toBe(4);
+    const staleIds = byStage.staleCandidates.map(({ opportunity }) => opportunity._id).sort();
+    expect(staleIds).toEqual(
       [seed.deals.qualified, seed.deals.bookedStale, seed.deals.sideDeal, seed.deals.linkSent].sort(),
     );
-    expect([byStatus.capped, byStage.capped]).toEqual([false, false]);
+    expect(byStage.capped).toBe(false);
   });
 
   it("measures velocity over the same won deals", async () => {
     const { harness, seed } = await seeded();
-    const { byStatus, byStage } = await harness.t.run(async (ctx) => ({
-      byStatus: await readPipelineVelocityByStatus(ctx, harness.tenantId, NOW),
-      byStage: await readPipelineVelocityByStage(ctx, harness.tenantId, NOW),
-    }));
+    const byStage = await harness.t.run((ctx) => readPipelineVelocityByStage(ctx, harness.tenantId, NOW));
 
-    expect(byStage).toEqual(byStatus);
     expect(byStage).toEqual({ velocityDays: 5, opportunityIds: [seed.deals.won], truncated: false });
   });
 
   it("attributes the same losses, leaving out every loss the system wrote", async () => {
     const { harness, seed } = await seeded();
-    const { byStatus, byStage } = await harness.t.run(async (ctx) => ({
-      byStatus: await readLossesByStatus(ctx, harness.tenantId, LOSS_RANGE.startDate, LOSS_RANGE.endDate),
-      byStage: await readLossesByStage(ctx, harness.tenantId, LOSS_RANGE.startDate, LOSS_RANGE.endDate),
-    }));
+    const byStage = await harness.t.run((ctx) =>
+      readLossesByStage(ctx, harness.tenantId, LOSS_RANGE.startDate, LOSS_RANGE.endDate),
+    );
 
-    const ids = (losses: typeof byStatus) => losses.losses.map((deal) => deal._id).sort();
-    expect(ids(byStage)).toEqual(ids(byStatus));
-    expect(ids(byStage)).toEqual(
+    expect(byStage.losses.map((deal) => deal._id).sort()).toEqual(
       [seed.deals.lostByCloser, seed.deals.lostByAdmin, seed.deals.lostUnknown].sort(),
     );
-    // The stage way reads from the range's start by activity, as the status
-    // way does: it never reads the stale expiry, which keeps its earlier
-    // activity, and passes over the canceled and no-show losses and a loss
-    // from before the range that had activity since.
-    expect([byStatus.truncated, byStage.truncated]).toEqual([false, false]);
+    // It reads from the range's start by activity: it never reads the stale
+    // expiry, which keeps its earlier activity, and passes over the canceled
+    // and no-show losses and a loss from before the range that had activity
+    // since.
+    expect(byStage.truncated).toBe(false);
     expect(byStage.scanned).toBe(6);
     const scannedStale = await harness.t.run(async (ctx) => {
       const deal = await ctx.db.get("opportunities", seed.deals.stale);
@@ -140,7 +100,6 @@ describe("the stage way of each report number", () => {
     // The stale loss is in the range by lostAt, yet not among the six read.
     expect(scannedStale).toBe(true);
     const counts = countLossesByActor(byStage.losses);
-    expect(counts).toEqual(countLossesByActor(byStatus.losses));
     expect(counts.unknownLossCount).toBe(1);
     expect(Object.fromEntries(counts.lossCountsByActor)).toEqual({
       [harness.closerAId]: 1,
@@ -150,43 +109,28 @@ describe("the stage way of each report number", () => {
 
   it("derives the same outcome for every meeting in the team report", async () => {
     const { harness } = await seeded();
-    const { byStatus, byStage } = await harness.t.run(async (ctx) => {
+    const byStage = await harness.t.run(async (ctx) => {
       const inputs = await readTeamOutcomeInputs(ctx, harness.tenantId, MEETING_RANGE.startDate, MEETING_RANGE.endDate);
-      return {
-        byStatus: meetingOutcomesByStatus(inputs),
-        byStage: await meetingOutcomesByStage(ctx, inputs),
-      };
+      return await meetingOutcomesByStage(ctx, inputs);
     });
 
-    const outcomes = (list: typeof byStatus) => list.map(({ meeting, outcome }) => [meeting._id, outcome]);
     expect(byStage).toHaveLength(14);
-    expect(outcomes(byStage)).toEqual(outcomes(byStatus));
     expect(Object.fromEntries(tallyOutcomesByCloser(byStage))).toEqual({
       [harness.closerAId]: closerAOutcomes,
       [harness.closerBId]: closerBOutcomes,
     });
   });
 
-  it("counts each closer's pipeline tabs in six positions, the statuses merged", async () => {
+  it("counts each closer's pipeline tabs in six positions", async () => {
     const { harness } = await seeded();
     const counts = await harness.t.run(async (ctx) => ({
-      aByStatus: await countCloserPipelineByStatus(ctx, harness.tenantId, harness.closerAId),
       aByStage: await countCloserPipelineByStage(ctx, harness.tenantId, harness.closerAId),
-      bByStatus: await countCloserPipelineByStatus(ctx, harness.tenantId, harness.closerBId),
       bByStage: await countCloserPipelineByStage(ctx, harness.tenantId, harness.closerBId),
     }));
 
-    expect(counts.aByStatus).toEqual({
-      counts: { ...noStatuses, scheduled: 2, follow_up_scheduled: 1, payment_received: 1, lost: 2, canceled: 1 },
-      total: 7,
-    });
     expect(counts.aByStage).toEqual({
       counts: { ...noPositions, booked: 1, call_held: 1, follow_up: 1, won: 1, lost: 3 },
       total: 7,
-    });
-    expect(counts.bByStatus).toEqual({
-      counts: { ...noStatuses, scheduled: 1, reschedule_link_sent: 1, payment_received: 1, lost: 2, no_show: 1 },
-      total: 6,
     });
     expect(counts.bByStage).toEqual({
       counts: { ...noPositions, booked: 1, follow_up: 1, won: 1, lost: 3 },
@@ -205,33 +149,23 @@ describe("the stage way of each report number", () => {
           MEETING_RANGE.startDate,
           MEETING_RANGE.endDate,
         );
-        return { byStatus: countStripByStatus(deals), byStage: countStripByStage(deals) };
+        return { byStage: countStripByStage(deals) };
       };
       return { a: await strip(harness.closerAId), b: await strip(harness.closerBId) };
     });
 
-    expect(strips.a.byStatus.counts).toEqual({
-      ...noStatuses,
-      scheduled: 1,
-      follow_up_scheduled: 1,
-      payment_received: 1,
-      lost: 2,
-      canceled: 1,
-    });
     expect(strips.a.byStage).toEqual({
       counts: { ...noPositions, booked: 1, follow_up: 1, won: 1, lost: 3 },
       total: 6,
       won: 1,
       lost: 2,
     });
-    expect([strips.a.byStatus.counts.payment_received, strips.a.byStatus.counts.lost]).toEqual([1, 2]);
     expect(strips.b.byStage).toEqual({
       counts: { ...noPositions, booked: 1, follow_up: 1, lost: 3 },
       total: 5,
       won: 0,
       lost: 2,
     });
-    expect([strips.b.byStatus.counts.payment_received, strips.b.byStatus.counts.lost]).toEqual([0, 2]);
   });
 
   it("shows the closer's tabs and strip the stage way", async () => {
@@ -243,7 +177,7 @@ describe("the stage way of each report number", () => {
       total: 7,
     });
     const filtered = await harness.closer.query(api.closer.dashboard.getPipelineSummary, MEETING_RANGE);
-    // Won and lost as the status way counted them: 1 and 2.
+    // Won 1, and the 2 deals a person lost.
     expect([filtered.decided, filtered.total]).toEqual([{ won: 1, lost: 2 }, 6]);
   });
 });

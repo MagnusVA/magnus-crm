@@ -1,7 +1,7 @@
 import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import type { Doc, Id } from "../_generated/dataModel";
+import type { Id } from "../_generated/dataModel";
 import { migrations } from "../migrations";
 import { rebuildQualificationRow } from "../operations/projections";
 import { slackQualificationsByUser } from "../reporting/aggregates";
@@ -9,6 +9,7 @@ import { insertOpportunityAggregate } from "../reporting/writeHooks";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
 import { stageFields } from "../../tests/dealStageFixtures";
+import type { OpportunityStatus } from "../opportunities/stages";
 import { STALE_EXPIRY_CUTOVER_AT } from "./staleExpiry";
 
 afterEach(() => vi.useRealTimers());
@@ -24,7 +25,7 @@ type Harness = Awaited<ReturnType<typeof bookingHarness>>;
 async function slackOpportunity(
   harness: Harness,
   ageDays: number,
-  options: { status?: Doc<"opportunities">["status"]; email?: string; inAggregate?: boolean } = {},
+  options: { status?: OpportunityStatus; email?: string; inAggregate?: boolean } = {},
 ) {
   const { t, tenantId } = harness;
   return await t.run(async (ctx) => {
@@ -51,10 +52,7 @@ async function slackOpportunity(
     if (options.inAggregate !== false) {
       await insertOpportunityAggregate(ctx, opportunityId);
     }
-    await updateTenantStats(ctx, tenantId, {
-      totalOpportunities: 1,
-      activeOpportunities: 1,
-    });
+    await updateTenantStats(ctx, tenantId, { totalOpportunities: 1 });
     const installation = await ctx.db.query("slackInstallations").first();
     const installationId =
       installation?._id ??
@@ -107,18 +105,18 @@ it("closes Slack deals a day past the join window and leaves the rest", async ()
 
   const closed = await state(harness, stale.opportunityId, stale.eventId);
   expect(closed.opportunity).toMatchObject({
-    status: "lost",
+    stage: "closed",
+    outcome: "lost",
     lostReason: "stale",
     lostAt: NOW,
     // Nobody worked it, so it doesn't jump to the top of activity sorts.
     latestActivityAt: stale.createdAt,
   });
-  expect(closed.row?.opportunityStatus).toBe("lost");
+  expect(closed.row).toMatchObject({ dealStage: "closed", dealOutcome: "lost" });
   for (const open of [inDigestWindow, fresh, backlog]) {
-    expect((await state(harness, open.opportunityId)).opportunity?.status)
-      .toBe("qualified_pending");
+    expect((await state(harness, open.opportunityId)).opportunity?.stage).toBe("qualified");
   }
-  expect((await state(harness, booked.opportunityId)).opportunity?.status).toBe("scheduled");
+  expect((await state(harness, booked.opportunityId)).opportunity?.stage).toBe("booked");
 
   const counts = await harness.t.run(async (ctx) => ({
     stats: await ctx.db
@@ -138,7 +136,8 @@ it("closes Slack deals a day past the join window and leaves the rest", async ()
       )
       .take(5),
   }));
-  expect(counts.stats).toMatchObject({ activeOpportunities: 4, lostDeals: 1 });
+  // No deal counters by status from PR 9 (docs/plans/phase-5-deal-status.md D13).
+  expect([counts.stats?.activeOpportunities, counts.stats?.lostDeals]).toEqual([undefined, undefined]);
   expect(counts.qualifications).toBe(5);
   expect(counts.events).toEqual([
     expect.objectContaining({
@@ -162,9 +161,8 @@ it("pages through many expired deals, and one that fails doesn't hold up the res
   vi.setSystemTime(NOW);
   const harness = await bookingHarness();
   // Oldest first in the scan. It has two search rows, so its search row can't
-  // be rebuilt and its transition throws. (A deal missing from the aggregates
-  // no longer does: from PR 8 both deal aggregates take their IfExists
-  // methods.)
+  // be rebuilt and its transition throws. (So would a deal missing from
+  // opportunityByStage, on its strict methods from PR 9.)
   const broken = await slackOpportunity(harness, 40);
   await harness.t.run(async (ctx) => {
     const row = await ctx.db
@@ -183,16 +181,16 @@ it("pages through many expired deals, and one that fails doesn't hold up the res
 
   await runCron(harness);
 
-  const statuses = await harness.t.run(async (ctx) =>
+  const positions = await harness.t.run(async (ctx) =>
     Promise.all(
-      expired.map(async ({ opportunityId }) =>
-        (await ctx.db.get("opportunities", opportunityId))?.status,
-      ),
+      expired.map(async ({ opportunityId }) => {
+        const deal = (await ctx.db.get("opportunities", opportunityId))!;
+        return `${deal.stage}/${deal.outcome}`;
+      }),
     ),
   );
-  expect(new Set(statuses)).toEqual(new Set(["lost"]));
-  expect((await state(harness, broken.opportunityId)).opportunity?.status)
-    .toBe("qualified_pending");
+  expect(new Set(positions)).toEqual(new Set(["closed/lost"]));
+  expect((await state(harness, broken.opportunityId)).opportunity?.stage).toBe("qualified");
 });
 
 it("leaves the pre-cutover backlog to its migration, which the preview counts", async () => {
@@ -227,7 +225,8 @@ it("leaves the pre-cutover backlog to its migration, which the preview counts", 
   expect(assertion?.isDone).toBe(true);
   expect(assertion?.error).toBeUndefined();
   expect((await state(harness, backlog.opportunityId)).opportunity).toMatchObject({
-    status: "lost",
+    stage: "closed",
+    outcome: "lost",
     lostReason: "stale",
   });
 });
@@ -251,7 +250,7 @@ it("reopens an expired Slack deal for a booking made inside the window but proce
     });
   });
   await runCron(harness);
-  expect((await state(harness, slack.opportunityId)).opportunity?.status).toBe("lost");
+  expect((await state(harness, slack.opportunityId)).opportunity).toMatchObject({ stage: "closed", outcome: "lost" });
 
   // Booked on day 25, blocked, and retried now: the pipeline judges it by
   // the booking's own time.
@@ -268,9 +267,9 @@ it("reopens an expired Slack deal for a booking made inside the window but proce
   await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
 
   const after = await state(harness, slack.opportunityId, slack.eventId);
-  expect(after.opportunity?.status).toBe("scheduled");
+  expect(after.opportunity).toMatchObject({ stage: "booked", outcome: "open" });
   expect(after.opportunity?.lostReason).toBeUndefined();
-  expect(after.row?.opportunityStatus).toBe("scheduled");
+  expect(after.row).toMatchObject({ dealStage: "booked", dealOutcome: "open" });
   const meetings = await harness.t.run((ctx) => ctx.db.query("meetings").take(5));
   expect(meetings.map((meeting) => meeting.opportunityId)).toEqual([slack.opportunityId]);
 });

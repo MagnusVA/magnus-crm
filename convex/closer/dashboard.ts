@@ -13,76 +13,15 @@ import {
 } from "../opportunities/stages";
 import { opportunityByStage } from "../reporting/aggregates";
 import { isPersonLoss } from "../reporting/lib/outcomeDerivation";
-import { meterDocument, meterRange, type ReadMeter } from "../reporting/lib/readMeter";
 
-const PIPELINE_STATUSES = [
-  "qualified_pending",
-  "scheduled",
-  "follow_up_scheduled",
-  "reschedule_link_sent",
-  "payment_received",
-  "lost",
-  "canceled",
-  "no_show",
-] as const;
-
-type PipelineStatus = (typeof PIPELINE_STATUSES)[number];
 const MAX_CLOSER_PAYMENT_SCAN_ROWS = 2500;
-const PIPELINE_STATUS_SET = new Set<string>(PIPELINE_STATUSES);
-
-function emptyCounts(): Record<PipelineStatus, number> {
-  return {
-    qualified_pending: 0,
-    scheduled: 0,
-    follow_up_scheduled: 0,
-    reschedule_link_sent: 0,
-    payment_received: 0,
-    lost: 0,
-    canceled: 0,
-    no_show: 0,
-  };
-}
 
 function emptyPositionCounts(): Record<DealPosition, number> {
   return { qualified: 0, booked: 0, call_held: 0, follow_up: 0, won: 0, lost: 0 };
 }
 
-// The closer's pipeline tabs and dashboard strip, counted two ways
-// (docs/plans/phase-5-deal-status.md §6.2): by the six positions, which the
-// screens show, and by status, which only the parity queries in
-// convex/opportunities/stageParity.ts read to compare them. PR 9 removes the
-// status ways.
-
-/** The closer's deals per status, all time: the pipeline tabs before PR 5. */
-export async function countCloserPipelineByStatus(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-  closerId: Id<"users">,
-  meter?: ReadMeter,
-): Promise<{ counts: Record<PipelineStatus, number>; total: number }> {
-  const counts = emptyCounts();
-  let total = 0;
-
-  for (const status of PIPELINE_STATUSES) {
-    let count = 0;
-    meterRange(meter);
-    for await (const opportunity of ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_and_assignedCloserId_and_status_and_createdAt", (q) =>
-        q
-          .eq("tenantId", tenantId)
-          .eq("assignedCloserId", closerId)
-          .eq("status", status),
-      )) {
-      meterDocument(meter, opportunity);
-      count += opportunity.status === status ? 1 : 0;
-    }
-    counts[status] = count;
-    total += count;
-  }
-
-  return { counts, total };
-}
+// The closer's pipeline tabs and dashboard strip, by the six positions
+// (docs/plans/phase-5-deal-status.md §6.2).
 
 /** The closer's deals per position, all time, from opportunityByStage (§6.2). */
 export async function countCloserPipelineByStage(
@@ -116,10 +55,8 @@ export async function readCloserMeetingDeals(
   closerId: Id<"users">,
   startDate: number,
   endDate: number,
-  meter?: ReadMeter,
 ): Promise<Array<Doc<"opportunities">>> {
   const opportunityIds = new Set<Id<"opportunities">>();
-  meterRange(meter);
   for await (const meeting of ctx.db
     .query("meetings")
     .withIndex("by_tenantId_and_assignedCloserId_and_scheduledAt", (q) =>
@@ -129,15 +66,12 @@ export async function readCloserMeetingDeals(
         .gte("scheduledAt", startDate)
         .lt("scheduledAt", endDate),
     )) {
-    meterDocument(meter, meeting);
     opportunityIds.add(meeting.opportunityId);
   }
 
   const deals: Array<Doc<"opportunities">> = [];
   for (const opportunityId of opportunityIds) {
     const opportunity = await ctx.db.get("opportunities", opportunityId);
-    meterRange(meter);
-    meterDocument(meter, opportunity);
     if (!opportunity || opportunity.tenantId !== tenantId) {
       continue;
     }
@@ -150,27 +84,10 @@ export async function readCloserMeetingDeals(
   return deals;
 }
 
-/** The strip's counts by status before PR 5; its close rate was won ÷ (won + lost). */
-export function countStripByStatus(deals: Array<Doc<"opportunities">>): {
-  counts: Record<PipelineStatus, number>;
-  total: number;
-} {
-  const counts = emptyCounts();
-  let total = 0;
-  for (const opportunity of deals) {
-    if (!opportunity.status || !PIPELINE_STATUS_SET.has(opportunity.status)) {
-      continue;
-    }
-    counts[opportunity.status as PipelineStatus] += 1;
-    total += 1;
-  }
-  return { counts, total };
-}
-
 /**
  * The strip's counts by position (§6.2). `won` and `lost` feed the close
  * rate: lost counts only the deals a person lost, so the canceled and no-show
- * deals, Lost since the backfill, leave the rate where it is today.
+ * deals, Lost since the backfill, leave the rate where it was.
  */
 export function countStripByStage(deals: Array<Doc<"opportunities">>): {
   counts: Record<DealPosition, number>;

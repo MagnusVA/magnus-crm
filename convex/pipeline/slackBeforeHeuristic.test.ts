@@ -3,6 +3,7 @@ import { internal } from "../_generated/api";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
 import { writtenBesideStatus } from "../../tests/bookingRuleFixtures";
+import { namedStatus } from "../../tests/stopStatusFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -27,7 +28,6 @@ it.each(["canceled", "no_show"] as const)(
       const oldOpportunityId = await ctx.db.insert("opportunities", {
         tenantId,
         leadId,
-        status: oldStatus,
         source: "calendly",
         ...writtenBesideStatus(oldStatus, "calendly", Date.parse("2026-09-25T09:00:00Z")),
         createdAt: Date.parse("2026-09-20T08:00:00Z"),
@@ -36,7 +36,6 @@ it.each(["canceled", "no_show"] as const)(
       const slackOpportunityId = await ctx.db.insert("opportunities", {
         tenantId,
         leadId,
-        status: "qualified_pending",
         source: "slack_qualified",
         ...writtenBesideStatus("qualified_pending", "slack_qualified"),
         qualifiedBy: {
@@ -62,12 +61,12 @@ it.each(["canceled", "no_show"] as const)(
     await t.finishAllScheduledFunctions(vi.runAllTimers);
 
     const result = await t.run(async (ctx) => ({
-      old: await ctx.db.get("opportunities", oldOpportunityId),
-      slack: await ctx.db.get("opportunities", slackOpportunityId),
+      old: await namedStatus(ctx, oldOpportunityId),
+      slack: await namedStatus(ctx, slackOpportunityId),
       meetings: await ctx.db.query("meetings").take(5),
     }));
-    expect(result.slack?.status).toBe("scheduled");
-    expect(result.old?.status).toBe(oldStatus);
+    expect(result.slack).toBe("scheduled");
+    expect(result.old).toBe(oldStatus);
     expect(result.meetings.map((meeting) => meeting.opportunityId)).toEqual([
       slackOpportunityId,
     ]);
@@ -91,7 +90,6 @@ it("makes a new deal beside a recent canceled deal when there is no Slack qualif
     const opportunityId = await ctx.db.insert("opportunities", {
       tenantId,
       leadId,
-      status: "canceled",
       source: "calendly",
       ...writtenBesideStatus("canceled", "calendly", Date.parse("2026-09-25T09:00:00Z")),
       createdAt: Date.parse("2026-09-20T08:00:00Z"),
@@ -114,11 +112,14 @@ it("makes a new deal beside a recent canceled deal when there is no Slack qualif
   expect(meetings).toHaveLength(1);
   expect(meetings[0].opportunityId).not.toBe(oldOpportunityId);
   expect(await t.run((ctx) => ctx.db.get("opportunities", meetings[0].opportunityId))).toMatchObject({
-    status: "scheduled",
+    stage: "booked",
+    outcome: "open",
     source: "calendly",
   });
   expect(await t.run((ctx) => ctx.db.get("opportunities", oldOpportunityId))).toMatchObject({
-    status: "canceled",
+    stage: "closed",
+    outcome: "lost",
+    lostReason: "canceled",
     updatedAt: Date.parse("2026-09-25T09:00:00Z"),
   });
 });

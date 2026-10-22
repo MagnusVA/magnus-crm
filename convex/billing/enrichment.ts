@@ -428,10 +428,11 @@ async function enrichOneBillingPaymentRow(
     opportunity: opportunity
       ? {
           id: opportunity._id,
-          status: opportunity.status,
+          stage: opportunity.stage ?? null,
+          outcome: opportunity.outcome ?? null,
           source: opportunity.source ?? null,
         }
-      : { id: null, status: null, source: null },
+      : { id: null, stage: null, outcome: null, source: null },
     meeting: meeting
       ? {
           id: meeting._id,

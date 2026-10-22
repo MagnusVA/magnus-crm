@@ -5,11 +5,11 @@ import {
   guardDealIn,
   guardHarness,
   guardStates,
-  readGuardDeal,
   reminderOn,
   todaysGuards as today,
   type GuardState,
 } from "../../tests/dealGuardFixtures";
+import { namedStatus } from "../../tests/stopStatusFixtures";
 
 // The closer's actions are allowed on the same deals as before PR 7
 // (docs/plans/phase-5-deal-status.md §4.6, §6.4): each runs against every
@@ -135,14 +135,14 @@ describe("follow-ups", () => {
       () => harness.closer.mutation(api.closer.followUpMutations.confirmFollowUpScheduled, { opportunityId }),
       today.followUpScheduled(state.status) || today.startFollowUp(state.status),
     );
-    const after = await readGuardDeal(harness, opportunityId);
+    const after = await harness.t.run((ctx) => namedStatus(ctx, opportunityId));
     if (today.followUpScheduled(state.status) || today.startFollowUp(state.status)) {
-      // From PR 8 the status is legacyStatus of the deal it leaves: a stale
-      // reschedule link left on a no-show deal (production has none) makes
-      // the Follow-up deal `reschedule_link_sent`, as the guards already read
+      // The deal it leaves names an old status by its stage and tasks: a
+      // stale reschedule link left on a no-show deal (production has none)
+      // makes the Follow-up deal `reschedule_link_sent`, as the guards read
       // it; PR 7 stored `follow_up_scheduled` there, which assertDealStages
       // would have reported.
-      expect(after.status).toBe(
+      expect(after).toBe(
         state.task === "reschedule_link" ? "reschedule_link_sent" : "follow_up_scheduled",
       );
     }

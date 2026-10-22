@@ -87,34 +87,30 @@ function linkStates(status: OpportunityStatus): boolean[] {
 
 /**
  * Every deal shape production can hold for each of today's eight statuses:
- * each source, with and without a stored stage, each kind of loss, and a
- * pending reschedule link wherever the status allows one. Each case is a
- * deal the asserts accept: its fields rebuild its status (§10.2).
+ * each source, each kind of loss, and a pending reschedule link wherever the
+ * status allows one. Each case's fields rebuild its status (§4.6).
  */
 export function pageControlCases(): PageControlCase[] {
   return OPPORTUNITY_STATUSES.flatMap((status) =>
     SOURCES.flatMap((source) =>
       (status === "lost" ? LOST_VARIANTS : [{ name: "", fields: {} }]).flatMap((variant) =>
-        [true, false].flatMap((written) =>
-          linkStates(status).map((rescheduleLinkPending) => {
-            const shape = dealAt(status, source, { written, fields: variant.fields });
-            const rebuilt = legacyStatus(shape, { hasPendingRescheduleLink: rescheduleLinkPending });
-            const name = [
-              status,
-              source ?? "no source",
-              variant.name,
-              written ? "" : "no stored stage",
-              rescheduleLinkPending ? "pending reschedule link" : "",
-            ]
-              .filter(Boolean)
-              .join(", ");
-            if (rebuilt !== status) {
-              throw new Error(`Case "${name}" rebuilds ${rebuilt}, not ${status}`);
-            }
-            const { position, systemLoss } = dealLabelOf(shape);
-            return { name, status, deal: { position, systemLoss, rescheduleLinkPending } };
-          }),
-        ),
+        linkStates(status).map((rescheduleLinkPending) => {
+          const shape = dealAt(status, source, { fields: variant.fields });
+          const rebuilt = legacyStatus(shape, { hasPendingRescheduleLink: rescheduleLinkPending });
+          const name = [
+            status,
+            source ?? "no source",
+            variant.name,
+            rescheduleLinkPending ? "pending reschedule link" : "",
+          ]
+            .filter(Boolean)
+            .join(", ");
+          if (rebuilt !== status) {
+            throw new Error(`Case "${name}" rebuilds ${rebuilt}, not ${status}`);
+          }
+          const { position, systemLoss } = dealLabelOf(shape);
+          return { name, status, deal: { position, systemLoss, rescheduleLinkPending } };
+        }),
       ),
     ),
   );

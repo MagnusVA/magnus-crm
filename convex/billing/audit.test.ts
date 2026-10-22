@@ -69,7 +69,7 @@ async function seed(harness: Harness) {
       const opportunityId = await ctx.db.insert("opportunities", {
         tenantId,
         leadId,
-        status: "payment_received",
+        stage: "closed", outcome: "won",
         source: options.slack ? "slack_qualified" : "calendly",
         qualifiedBy: options.slack
           ? { slackUserId: "U1", slackTeamId: "T1", submittedAt: AT }

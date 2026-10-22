@@ -244,10 +244,7 @@ export const createManual = mutation({
     });
 
     await insertOpportunityAggregate(ctx, opportunityId);
-    await updateTenantStats(ctx, tenantId, {
-      totalOpportunities: 1,
-      activeOpportunities: 1,
-    });
+    await updateTenantStats(ctx, tenantId, { totalOpportunities: 1 });
     await recordOpportunity(ctx, opportunityId);
 
     if (leadWasCreated) {

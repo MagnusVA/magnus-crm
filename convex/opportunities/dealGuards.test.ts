@@ -102,7 +102,7 @@ it("runs over the states assertDealStages accepts, the person's losses among the
       "follow_up_scheduled, calendly",
       "reschedule_link_sent, calendly, a pending reschedule link",
       "no_show, calendly, a pending reschedule link",
-      "scheduled, side_deal, no stored stage",
+      "scheduled, side_deal",
       'lost by a person with the text "no_show"',
       'lost by a person with the text "canceled"',
     ]),

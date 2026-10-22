@@ -77,7 +77,7 @@ async function legacyCustomer(harness: Harness) {
     await syncLeadStageEntries(ctx, tenantId, leadId, null, CUSTOMER_LIFECYCLE_STATE);
     const qualifiedBy = { slackUserId: "U1", slackTeamId: "T1", submittedAt: QUALIFIED };
     const opportunityId = await ctx.db.insert("opportunities", {
-      tenantId, leadId, assignedCloserId: closerId, status: "payment_received", source: "slack_qualified",
+      tenantId, leadId, assignedCloserId: closerId, stage: "closed", outcome: "won", source: "slack_qualified",
       qualifiedBy, qualifiedAt: QUALIFIED, paymentReceivedAt: PAID, createdAt: QUALIFIED, updatedAt: PAID,
     });
     const installationId = await ctx.db.insert("slackInstallations", {
@@ -241,8 +241,8 @@ describe("team member and event link backfills", () => {
       const closerId = await userId(ctx, "user_closer");
       const keeper = await ctx.db.insert("leads", { ...qualifiedLifecycle(0), tenantId, status: "active", firstSeenAt: 0, updatedAt: 0 });
       const extracted = await ctx.db.insert("leads", { ...qualifiedLifecycle(0), tenantId, status: "active", firstSeenAt: 0, updatedAt: 0 });
-      const kept = await ctx.db.insert("opportunities", { tenantId, leadId: keeper, status: "scheduled", source: "calendly", createdAt: 0, updatedAt: 0 });
-      const splitOut = await ctx.db.insert("opportunities", { tenantId, leadId: extracted, status: "canceled", source: "calendly", createdAt: 0, updatedAt: 0 });
+      const kept = await ctx.db.insert("opportunities", { tenantId, leadId: keeper, stage: "booked", outcome: "open", source: "calendly", createdAt: 0, updatedAt: 0 });
+      const splitOut = await ctx.db.insert("opportunities", { tenantId, leadId: extracted, stage: "closed", outcome: "lost", source: "calendly", createdAt: 0, updatedAt: 0 });
       const keeperMeeting = await ctx.db.insert("meetings", {
         tenantId, opportunityId: kept, assignedCloserId: closerId, calendlyEventUri: "k", calendlyInviteeUri: "k",
         scheduledAt: CALL, durationMinutes: 30, status: "scheduled", createdAt: BOOKED,

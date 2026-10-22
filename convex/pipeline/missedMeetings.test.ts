@@ -12,6 +12,7 @@ import {
   missedMeetingHarness,
   type MissedMeetingHarness,
 } from "../../tests/missedMeetingFixtures";
+import { namedStatus } from "../../tests/stopStatusFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -50,7 +51,7 @@ it.each(["cancel first", "new booking first"] as const)(
       });
       const deal = await h.deal(opportunityId);
       expect(deal).toMatchObject({
-        status: "scheduled",
+        stage: "booked",
         calendlyEventUri: "https://api.calendly.com/scheduled_events/original",
       });
       expect(deal?.canceledAt).toBeUndefined();
@@ -76,7 +77,7 @@ it.each(["cancel first", "new booking first"] as const)(
     });
     const deal = await h.deal(opportunityId);
     expect(deal).toMatchObject({
-      status: "scheduled",
+      stage: "booked",
       calendlyEventUri: "https://api.calendly.com/scheduled_events/moved",
     });
     expect(deal?.canceledAt).toBeUndefined();
@@ -95,7 +96,9 @@ it("a cancel without the reschedule flag still cancels the deal", async () => {
 
   expect(await h.meeting("original")).toMatchObject({ status: "canceled" });
   expect(await h.deal(opportunityId)).toMatchObject({
-    status: "canceled",
+    stage: "closed",
+    outcome: "lost",
+    lostReason: "canceled",
     canceledAt: Date.parse("2026-10-04T09:00:00Z"),
     cancellationReason: "Schedule conflict",
   });
@@ -108,14 +111,14 @@ it.each(["no_show", "canceled"] as const)(
     const old = await h.book(ORIGINAL, BOOKED_AT);
     await missMeeting(h, missed);
     const before = { deal: await h.deal(old.opportunityId), meeting: await h.meeting("original") };
-    expect(before.deal?.status).toBe(missed);
+    expect(before.deal).toMatchObject({ stage: "closed", outcome: "lost", lostReason: missed });
 
     // Six days after booking, well inside the 14 days the old join used.
     const next = await h.book({ key: "rebook", start: "2026-10-12T15:00:00Z" }, "2026-10-08T10:00:00Z");
 
     expect(next.opportunityId).not.toBe(old.opportunityId);
     expect(await h.deal(next.opportunityId)).toMatchObject({
-      status: "scheduled",
+      stage: "booked",
       source: "calendly",
       leadId: before.deal?.leadId,
     });
@@ -145,7 +148,7 @@ it.each(["no_show", "canceled"] as const)(
 
     expect(next.opportunityId).not.toBe(old.opportunityId);
     expect(await h.deal(next.opportunityId)).toMatchObject({
-      status: "scheduled",
+      stage: "booked",
       calendlyEventUri: "https://api.calendly.com/scheduled_events/moved",
     });
     // Rescheduled-from links meetings of one deal; this one starts its own.
@@ -170,7 +173,7 @@ it("a booking through a CRM link on a deal waiting on a reschedule link expires 
   await missMeeting(h, "no_show");
   h.clockAt("2026-10-06T17:00:00Z");
   const rescheduleLinkId = await h.closerActions.rescheduleLink(opportunityId, meetingId);
-  expect(await h.deal(opportunityId)).toMatchObject({ status: "reschedule_link_sent" });
+  expect(await h.t.run((ctx) => namedStatus(ctx, opportunityId))).toBe("reschedule_link_sent");
 
   // The person books through the older scheduling link.
   await h.book(
@@ -182,7 +185,7 @@ it("a booking through a CRM link on a deal waiting on a reschedule link expires 
     minutesFromNow(60),
   );
 
-  expect(await h.deal(opportunityId)).toMatchObject({ status: "scheduled" });
+  expect(await h.t.run((ctx) => namedStatus(ctx, opportunityId))).toBe("scheduled");
   const links = await h.followUps(opportunityId);
   expect(links.find((f) => f._id === schedulingLinkId)).toMatchObject({ status: "booked" });
   expect(links.find((f) => f._id === rescheduleLinkId)).toMatchObject({ status: "expired" });
@@ -218,7 +221,7 @@ it("the closer's reschedule link still joins the no-show deal", async () => {
   );
 
   expect(next.opportunityId).toBe(opportunityId);
-  expect(await h.deal(opportunityId)).toMatchObject({ status: "scheduled" });
+  expect(await h.t.run((ctx) => namedStatus(ctx, opportunityId))).toBe("scheduled");
   expect(await h.meeting("rebook")).toMatchObject({ rescheduledFromMeetingId: meetingId });
   expect((await h.followUps(opportunityId)).find((f) => f._id === rescheduleLinkId)).toMatchObject({
     status: "booked",

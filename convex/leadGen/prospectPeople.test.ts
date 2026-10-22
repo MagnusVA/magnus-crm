@@ -282,7 +282,7 @@ async function existingLead(ctx: MutationCtx, tenantId: Id<"tenants">, handle: s
   });
   // The qualification the stage comes from.
   await ctx.db.insert("opportunities", {
-    tenantId, leadId, status: "qualified_pending", source: "slack_qualified", qualifiedAt,
+    tenantId, leadId, stage: "qualified", outcome: "open", source: "slack_qualified", qualifiedAt,
     qualifiedBy: { slackUserId: "U1", slackTeamId: "T1", submittedAt: qualifiedAt },
     createdAt: qualifiedAt, updatedAt: qualifiedAt,
   });

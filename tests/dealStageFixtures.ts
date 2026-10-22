@@ -1,42 +1,51 @@
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../convex/_generated/server";
 import {
+  SYSTEM_LOSS_REASONS,
   stageForStatus,
   type DealOutcome,
   type DealSource,
   type DealStage,
 } from "../convex/opportunities/stages";
 import type { OpportunityStatus } from "../convex/opportunities/stages";
-import {
-  isActiveOpportunityStatus,
-  updateTenantStats,
-} from "../convex/lib/tenantStatsHelper";
-import { opportunityByStage, opportunityByStatus } from "../convex/reporting/aggregates";
+import { updateTenantStats } from "../convex/lib/tenantStatsHelper";
+import { opportunityByStage } from "../convex/reporting/aggregates";
 import { insertOpportunityAggregate } from "../convex/reporting/writeHooks";
 import { qualifiedLifecycle } from "./bookingHarness";
 
-// Phase 5 deal stages (docs/plans/phase-5-deal-status.md §3.1, §4.2): deals
-// inserted the way production holds them, before and after the backfill.
+// Phase 5 deal stages (docs/plans/phase-5-deal-status.md §3.1, §4.2). The
+// fixtures name a deal by an old status, a short name for where it is, and
+// write only what the status maps to: the stage and the outcome. From PR 9
+// no deal stores a status (§9).
 
-/** The status of a deal with the stage and outcome the dual write gives it. */
+/** The stage and outcome an old status names, with the deal's source. */
 export function stageFields(status: OpportunityStatus, source: DealSource) {
-  return { status, source, ...stageForStatus(status, source) };
+  return { source, ...stageForStatus(status, source) };
+}
+
+/** The loss reason a missed meeting's old status names: its system code. */
+export function missedMeetingLossReason(
+  status: OpportunityStatus,
+): typeof SYSTEM_LOSS_REASONS.canceled | typeof SYSTEM_LOSS_REASONS.no_show | undefined {
+  switch (status) {
+    case "canceled":
+      return SYSTEM_LOSS_REASONS.canceled;
+    case "no_show":
+      return SYSTEM_LOSS_REASONS.no_show;
+    default:
+      return undefined;
+  }
 }
 
 export type DealFields = Partial<Omit<Doc<"opportunities">, "_id" | "_creationTime" | "tenantId" | "leadId">>;
 
-/**
- * A person and a deal at `status`. `written: false` is a deal from before the
- * widen: no stage or outcome, and counted only in the status aggregate, as
- * the old insert left it.
- */
+/** A person and a deal at the stage `status` names, counted in opportunityByStage. */
 export async function insertDeal(
   ctx: MutationCtx,
   args: {
     tenantId: Id<"tenants">;
     status: OpportunityStatus;
     source?: DealSource;
-    written?: boolean;
     fields?: DealFields;
   },
 ): Promise<Id<"opportunities">> {
@@ -51,17 +60,7 @@ export async function insertDeal(
     updatedAt: 0,
   });
   const base = { tenantId, leadId, createdAt: 1_000, updatedAt: 1_000, ...args.fields };
-  await updateTenantStats(ctx, tenantId, {
-    totalOpportunities: 1,
-    activeOpportunities: isActiveOpportunityStatus(status) ? 1 : 0,
-    wonDeals: status === "payment_received" ? 1 : 0,
-    lostDeals: status === "lost" ? 1 : 0,
-  });
-  if (args.written === false) {
-    const opportunityId = await ctx.db.insert("opportunities", { ...base, status, source });
-    await opportunityByStatus.insert(ctx, (await ctx.db.get("opportunities", opportunityId))!);
-    return opportunityId;
-  }
+  await updateTenantStats(ctx, tenantId, { totalOpportunities: 1 });
   const opportunityId = await ctx.db.insert("opportunities", { ...base, ...stageFields(status, source) });
   await insertOpportunityAggregate(ctx, opportunityId);
   return opportunityId;

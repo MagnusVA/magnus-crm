@@ -129,7 +129,7 @@ async function seed() {
         opportunityId = await ctx.db.insert("opportunities", {
           tenantId,
           leadId,
-          status: "scheduled",
+          stage: "booked", outcome: "open",
           source: "calendly",
           assignedCloserId: closer,
           createdAt: 0,

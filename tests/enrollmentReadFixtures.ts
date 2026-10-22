@@ -1,5 +1,7 @@
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
+import type { OpportunityStatus } from "../convex/opportunities/stages";
+import { stageFields } from "./dealStageFixtures";
 
 // People, deals, payments and enrollments for the Phase 4 read tests
 // (docs/plans/phase-4-customers.md §6). The enrollment rows are inserted
@@ -68,7 +70,7 @@ export async function insertDeal(
     tenantId: Id<"tenants">;
     leadId: Id<"leads">;
     assignedCloserId?: Id<"users">;
-    status?: Doc<"opportunities">["status"];
+    status?: OpportunityStatus;
     createdAt?: number;
   },
 ) {
@@ -77,8 +79,7 @@ export async function insertDeal(
     tenantId: args.tenantId,
     leadId: args.leadId,
     assignedCloserId: args.assignedCloserId,
-    status: args.status ?? "payment_received",
-    source: "calendly",
+    ...stageFields(args.status ?? "payment_received", "calendly"),
     createdAt,
     updatedAt: createdAt,
     latestActivityAt: createdAt,

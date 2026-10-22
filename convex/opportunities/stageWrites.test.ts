@@ -5,15 +5,13 @@ import {
   changeMissedMeetingLoss,
   missedMeetingLoss,
   patchOpportunityLifecycle,
-  syncLegacyStatus,
   transitionOpportunity,
 } from "../lib/opportunityActivity";
-import { opportunityByStatus } from "../reporting/aggregates";
-import { deleteOpportunityAggregate } from "../reporting/writeHooks";
 import {
   countAtStage,
   harnessCloserId,
   insertDeal,
+  missedMeetingLossReason,
   type DealFields,
 } from "../../tests/dealStageFixtures";
 import {
@@ -22,19 +20,14 @@ import {
   sideDeal,
   type EnrollmentHarness,
 } from "../../tests/enrollmentFixtures";
-import {
-  dealEvents,
-  expectStatusCopiesMatch,
-  pr7Moves,
-  storedAndRebuiltStatus,
-} from "../../tests/stageMachineFixtures";
-import { missedMeetingLossReason, stageForStatus, type DealSource, type DealTarget, type OpportunityStatus, type StageTransitionException } from "./stages";
+import { dealEvents, pr7Moves } from "../../tests/stageMachineFixtures";
+import { expectNoStatusCopies } from "../../tests/stopStatusFixtures";
+import { stageForStatus, type DealSource, type DealTarget, type OpportunityStatus, type StageTransitionException } from "./stages";
 
 // From PR 8 the transition takes a stage and the stage machine checks it
-// (docs/plans/phase-5-deal-status.md §4.4); the status is still written, as
-// `legacyStatus` of the deal it leaves, with `opportunityByStatus` and the
-// tenant counters, so a revert to PR 7 finds what PR 7 would have written
-// (§9, §12). Every move emits a deal event in the new form (§4.7).
+// (docs/plans/phase-5-deal-status.md §4.4); from PR 9 it writes no status
+// and no copy of one (§9). Every move emits a deal event in the new form
+// (§4.7).
 
 afterEach(() => vi.useRealTimers());
 
@@ -63,7 +56,7 @@ async function move(
 async function dealAt(
   harness: EnrollmentHarness,
   status: OpportunityStatus,
-  options: { source?: DealSource; written?: boolean; fields?: DealFields } = {},
+  options: { source?: DealSource; fields?: DealFields } = {},
 ) {
   const reason = missedMeetingLossReason(status);
   return await harness.t.run(async (ctx) =>
@@ -71,7 +64,6 @@ async function dealAt(
       tenantId: harness.tenantId,
       status,
       source: options.source ?? sourceFor(status),
-      written: options.written,
       fields: {
         assignedCloserId: await harnessCloserId(ctx),
         ...(reason ? { lostReason: reason, lostAt: 900 } : {}),
@@ -113,7 +105,7 @@ function targetFor(status: OpportunityStatus, source: DealSource): DealTarget {
   return stage === "closed" ? { stage, outcome: outcome as "won" | "lost" } : { stage };
 }
 
-describe("the revert property: every move stores the status PR 7 wrote", () => {
+describe("every move PR 7 made lands at the stage its status names, with no status", () => {
   // The Calendly flip between no-show and canceled is no move from PR 8,
   // and canceled -> scheduled went with the 14-day join in PR 2.
   const MOVES = pr7Moves().filter(
@@ -135,54 +127,10 @@ describe("the revert property: every move stores the status PR 7 wrote", () => {
     });
 
     expect({ status: deal.status, stage: deal.stage, outcome: deal.outcome }).toEqual({
-      status: to,
+      status: undefined,
       ...stageForStatus(to, source),
     });
-    expect(await harness.t.run((ctx) => storedAndRebuiltStatus(ctx, opportunityId))).toEqual({
-      stored: to,
-      rebuilt: to,
-    });
-    await harness.t.run((ctx) => expectStatusCopiesMatch(ctx, harness.tenantId));
-  });
-
-  it("moves the opportunityByStatus entry, and enters a deal it never held", async () => {
-    const harness = await enrollmentHarness();
-    const opportunityId = await dealAt(harness, "scheduled");
-    // As a revert after PR 9's clear finds a deal: not in the status aggregate.
-    await harness.t.run(async (ctx) => {
-      const deal = (await ctx.db.get("opportunities", opportunityId))!;
-      await opportunityByStatus.delete(ctx, deal);
-    });
-    const count = (status: OpportunityStatus) =>
-      harness.t.run((ctx) =>
-        opportunityByStatus.count(ctx, { namespace: harness.tenantId, bounds: { prefix: [status] } }),
-      );
-    expect(await count("scheduled")).toBe(0);
-
-    await move(harness, opportunityId, { stage: "follow_up" });
-
-    expect([await count("scheduled"), await count("follow_up_scheduled")]).toEqual([0, 1]);
-    await move(harness, opportunityId, { stage: "closed", outcome: "won" });
-    expect([await count("follow_up_scheduled"), await count("payment_received")]).toEqual([0, 1]);
-  });
-
-  it("writes a status on a deal that has none, as a revert after PR 9's clear finds it", async () => {
-    const harness = await enrollmentHarness();
-    const opportunityId = await dealAt(harness, "scheduled");
-    await harness.t.run(async (ctx) => {
-      const deal = (await ctx.db.get("opportunities", opportunityId))!;
-      await opportunityByStatus.delete(ctx, deal);
-      // eslint-disable-next-line no-restricted-syntax -- the fixture is PR 9's clear
-      await ctx.db.patch("opportunities", opportunityId, { status: undefined });
-      await ctx.db.patch("tenantStats", (await ctx.db.query("tenantStats").first())!._id, {
-        activeOpportunities: 0,
-      });
-    });
-
-    const deal = await move(harness, opportunityId, { stage: "closed", outcome: "won" });
-
-    expect(deal.status).toBe("payment_received");
-    await harness.t.run((ctx) => expectStatusCopiesMatch(ctx, harness.tenantId));
+    await expectNoStatusCopies(harness);
   });
 });
 
@@ -267,38 +215,6 @@ describe("transitionOpportunity", () => {
     expect(await counts()).toEqual({ booked: 0, lost: 0, won: 1 });
   });
 
-  it("enters a deal from before the widen into opportunityByStage on its first move", async () => {
-    const harness = await enrollmentHarness();
-    const opportunityId = await dealAt(harness, "scheduled", { written: false });
-    const count = (stage: "booked" | "closed", outcome: "open" | "lost") =>
-      harness.t.run((ctx) => countAtStage(ctx, harness.tenantId, stage, outcome));
-    expect(await count("booked", "open")).toBe(0);
-
-    const deal = await move(harness, opportunityId, { stage: "closed", outcome: "lost" }, {
-      fields: missedMeetingLoss("canceled", NOW),
-    });
-
-    expect(deal).toMatchObject({ stage: "closed", outcome: "lost", status: "canceled" });
-    expect([await count("booked", "open"), await count("closed", "lost")]).toEqual([0, 1]);
-  });
-
-  it("enters a deal from before the widen when another key field changes, and deletes one never entered", async () => {
-    const harness = await enrollmentHarness();
-    const reassigned = await dealAt(harness, "follow_up_scheduled", { written: false });
-    const deleted = await dealAt(harness, "lost", { written: false });
-
-    await harness.t.run(async (ctx) => {
-      await patchOpportunityLifecycle(ctx, reassigned, { assignedCloserId: undefined });
-      const doc = (await ctx.db.get("opportunities", deleted))!;
-      await deleteOpportunityAggregate(ctx, doc);
-    });
-
-    expect(
-      await harness.t.run((ctx) => countAtStage(ctx, harness.tenantId, "follow_up", "open", "" as Id<"users">)),
-    ).toBe(1);
-    expect(await harness.t.run((ctx) => countAtStage(ctx, harness.tenantId, "closed", "lost"))).toBe(0);
-  });
-
   it("keeps a side deal at Call held, and a booking that joins it after a follow-up moves it to Booked", async () => {
     const harness = await enrollmentHarness();
     const opportunityId = await dealAt(harness, "scheduled", { source: "side_deal" });
@@ -306,13 +222,11 @@ describe("transitionOpportunity", () => {
 
     expect(await move(harness, opportunityId, { stage: "follow_up" })).toMatchObject({
       stage: "follow_up",
-      status: "follow_up_scheduled",
     });
-    // The mapping kept it at Call held before PR 8; the status is the same.
+    // The mapping kept it at Call held before PR 8.
     expect(await move(harness, opportunityId, { stage: "booked" })).toMatchObject({
       stage: "booked",
       outcome: "open",
-      status: "scheduled",
     });
   });
 });
@@ -328,15 +242,15 @@ describe("the loss", () => {
         fields: { lostReason: "canceled" },
         occurredAt: NOW - 3_000,
       }),
-    ).toMatchObject({ lostReason: "canceled", lostAt: NOW - 3_000, status: "canceled" });
+    ).toMatchObject({ lostReason: "canceled", lostAt: NOW - 3_000 });
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
     expect(
       await move(harness, withoutTime, { stage: "closed", outcome: "lost" }, { fields: { lostReason: "no_show" } }),
-    ).toMatchObject({ lostReason: "no_show", lostAt: NOW, status: "no_show" });
+    ).toMatchObject({ lostReason: "no_show", lostAt: NOW });
   });
 
-  it("keeps the reason, time and person of a loss a person records, whose status is lost whatever its text", async () => {
+  it("keeps the reason, time and person of a loss a person records, whatever its text", async () => {
     const harness = await enrollmentHarness();
     const opportunityId = await dealAt(harness, "scheduled");
 
@@ -347,7 +261,6 @@ describe("the loss", () => {
     expect(deal).toMatchObject({
       stage: "closed",
       outcome: "lost",
-      status: "lost",
       lostAt: NOW - 2_000,
       lostReason: "no_show",
       lostByUserId: harness.closerId,
@@ -386,7 +299,7 @@ describe("the loss", () => {
 });
 
 describe("changeMissedMeetingLoss: Calendly's flip between no-show and canceled", () => {
-  it("changes the reason, time and status in place, and records a closed -> closed deal event", async () => {
+  it("changes the reason and time in place, and records a closed -> closed deal event", async () => {
     const harness = await enrollmentHarness();
     const opportunityId = await dealAt(harness, "no_show");
 
@@ -403,7 +316,6 @@ describe("changeMissedMeetingLoss: Calendly's flip between no-show and canceled"
     expect(await readDeal(harness, opportunityId)).toMatchObject({
       stage: "closed",
       outcome: "lost",
-      status: "canceled",
       lostReason: "canceled",
       lostAt: NOW - 4_000,
       canceledAt: NOW - 4_000,
@@ -418,7 +330,7 @@ describe("changeMissedMeetingLoss: Calendly's flip between no-show and canceled"
         metadata: { fromOutcome: "lost", toOutcome: "lost" },
       },
     ]);
-    await harness.t.run((ctx) => expectStatusCopiesMatch(ctx, harness.tenantId));
+    await expectNoStatusCopies(harness);
   });
 
   it.each([
@@ -444,38 +356,8 @@ describe("changeMissedMeetingLoss: Calendly's flip between no-show and canceled"
   });
 });
 
-describe("the status follows a change that isn't a stage move", () => {
-  it("syncLegacyStatus rewrites a Follow-up deal's status when a reschedule link comes and goes, keeping updatedAt", async () => {
-    const harness = await enrollmentHarness();
-    const opportunityId = await dealAt(harness, "follow_up_scheduled", { fields: { updatedAt: 1_234 } });
-
-    const linkId = await insertRescheduleLink(harness, opportunityId);
-    await harness.t.run((ctx) => syncLegacyStatus(ctx, opportunityId));
-    expect(await readDeal(harness, opportunityId)).toMatchObject({
-      status: "reschedule_link_sent",
-      updatedAt: 1_234,
-    });
-    await harness.t.run((ctx) => expectStatusCopiesMatch(ctx, harness.tenantId));
-
-    await harness.t.run((ctx) => ctx.db.patch("followUps", linkId, { status: "expired" }));
-    await harness.t.run((ctx) => syncLegacyStatus(ctx, opportunityId));
-    expect(await readDeal(harness, opportunityId)).toMatchObject({
-      status: "follow_up_scheduled",
-      updatedAt: 1_234,
-    });
-  });
-
-  it("syncLegacyStatus writes nothing when the status already agrees", async () => {
-    const harness = await enrollmentHarness();
-    const opportunityId = await dealAt(harness, "scheduled");
-    const before = await readDeal(harness, opportunityId);
-
-    await harness.t.run((ctx) => syncLegacyStatus(ctx, opportunityId));
-
-    expect(await readDeal(harness, opportunityId)).toEqual(before);
-  });
-
-  it("patchOpportunityLifecycle rewrites the status with a change to the loss", async () => {
+describe("a change that isn't a stage move", () => {
+  it("patchOpportunityLifecycle writes a change to the loss, and no status", async () => {
     const harness = await enrollmentHarness();
     const opportunityId = await dealAt(harness, "no_show");
 
@@ -483,8 +365,8 @@ describe("the status follows a change that isn't a stage move", () => {
       patchOpportunityLifecycle(ctx, opportunityId, { lostByUserId: harness.closerId }),
     );
 
-    expect((await readDeal(harness, opportunityId)).status).toBe("lost");
-    await harness.t.run((ctx) => expectStatusCopiesMatch(ctx, harness.tenantId));
+    expect(await readDeal(harness, opportunityId)).toMatchObject({ lostByUserId: harness.closerId });
+    await expectNoStatusCopies(harness);
   });
 
   it("patchOpportunityLifecycle refuses a stage, an outcome or a status", async () => {
@@ -503,7 +385,7 @@ describe("the status follows a change that isn't a stage move", () => {
   });
 });
 
-describe("the inserts write the stage, the status, and the stage in opportunity.created", () => {
+describe("the inserts write the stage, no status, and the stage in opportunity.created", () => {
   async function createdEvent(harness: EnrollmentHarness, opportunityId: Id<"opportunities">) {
     const events = await harness.t.run((ctx) => dealEvents(ctx, harness.tenantId, opportunityId));
     return events.find((event) => event.eventType === "opportunity.created");
@@ -514,7 +396,6 @@ describe("the inserts write the stage, the status, and the stage in opportunity.
     const { opportunityId } = await book(harness, "cold");
 
     expect(await readDeal(harness, opportunityId)).toMatchObject({
-      status: "scheduled",
       stage: "booked",
       outcome: "open",
     });
@@ -556,7 +437,7 @@ describe("the inserts write the stage, the status, and the stage in opportunity.
         .take(10),
     );
     expect(deals.map((deal) => [deal.status, deal.stage, deal.outcome])).toEqual([
-      ["qualified_pending", "qualified", "open"],
+      [undefined, "qualified", "open"],
     ]);
     expect(await createdEvent(harness, deals[0]._id)).toMatchObject({ toStatus: "qualified" });
     expect(await harness.t.run((ctx) => countAtStage(ctx, harness.tenantId, "qualified", "open"))).toBe(1);
@@ -567,7 +448,6 @@ describe("the inserts write the stage, the status, and the stage in opportunity.
     const { opportunityId } = await sideDeal(harness, "side", { email: "side@example.com" });
 
     expect(await readDeal(harness, opportunityId)).toMatchObject({
-      status: "scheduled",
       stage: "call_held",
       outcome: "open",
     });
@@ -589,7 +469,7 @@ describe("the public write paths", () => {
       reason: "no_response",
     });
     const missed = await readDeal(harness, opportunityId);
-    expect(missed).toMatchObject({ status: "no_show", stage: "closed", outcome: "lost", lostReason: "no_show" });
+    expect(missed).toMatchObject({ stage: "closed", outcome: "lost", lostReason: "no_show" });
     expect(missed.lostAt).toBe(missed.noShowAt);
     expect(missed.lostByUserId).toBeUndefined();
 
@@ -598,7 +478,7 @@ describe("the public write paths", () => {
       meetingId,
     });
     const reopened = await readDeal(harness, opportunityId);
-    expect(reopened).toMatchObject({ status: "reschedule_link_sent", stage: "follow_up", outcome: "open" });
+    expect(reopened).toMatchObject({ stage: "follow_up", outcome: "open" });
     expect([reopened.lostReason, reopened.lostAt]).toEqual([undefined, undefined]);
 
     const moves = (await harness.t.run((ctx) => dealEvents(ctx, harness.tenantId, opportunityId))).filter(
@@ -609,6 +489,6 @@ describe("the public write paths", () => {
       ["opportunity.marked_lost", "booked", "closed", "no_response"],
       ["opportunity.stage_changed", "closed", "follow_up", undefined],
     ]);
-    await harness.t.run((ctx) => expectStatusCopiesMatch(ctx, harness.tenantId));
+    await expectNoStatusCopies(harness);
   });
 });

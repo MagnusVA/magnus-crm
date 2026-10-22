@@ -4,7 +4,8 @@
  * cancellation closes it lost by the system, a withdrawn no-show reopens it
  * at Booked, and a flip between the two changes the reason in place with a
  * deal event, so the booking history still reads where the deal is. The
- * stored status is PR 7's every time.
+ * deal stores no status (PR 9); its stage, loss and tasks name the one PR 7
+ * would have written.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Id } from "../_generated/dataModel";
@@ -12,11 +13,9 @@ import {
   missedMeetingHarness,
   type MissedMeetingHarness,
 } from "../../tests/missedMeetingFixtures";
-import {
-  dealEvents,
-  expectStatusCopiesMatch,
-  storedAndRebuiltStatus,
-} from "../../tests/stageMachineFixtures";
+import { legacyStatus, loadPendingRescheduleLink } from "../opportunities/dealState";
+import type { OpportunityStatus } from "../opportunities/stages";
+import { dealEvents } from "../../tests/stageMachineFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -25,16 +24,18 @@ const BOOKED_AT = "2026-10-02T10:00:00Z";
 const NO_SHOW_AT = "2026-10-06T16:00:00Z";
 const CANCELED_AT = "2026-10-06T17:00:00Z";
 
+/** The deal stores no status, and its stage, loss and tasks name PR 7's `status`. */
 async function expectPr7Status(
   h: MissedMeetingHarness,
   opportunityId: Id<"opportunities">,
-  status: string,
+  status: OpportunityStatus,
 ) {
-  expect(await h.t.run((ctx) => storedAndRebuiltStatus(ctx, opportunityId))).toEqual({
-    stored: status,
-    rebuilt: status,
-  });
-  await h.t.run((ctx) => expectStatusCopiesMatch(ctx, h.tenantId));
+  const { deal, links } = await h.t.run(async (ctx) => ({
+    deal: (await ctx.db.get("opportunities", opportunityId))!,
+    links: (await loadPendingRescheduleLink(ctx, opportunityId)).count,
+  }));
+  expect(deal.status).toBeUndefined();
+  expect(legacyStatus(deal, { hasPendingRescheduleLink: links > 0 })).toBe(status);
 }
 
 async function moves(h: MissedMeetingHarness, opportunityId: Id<"opportunities">) {

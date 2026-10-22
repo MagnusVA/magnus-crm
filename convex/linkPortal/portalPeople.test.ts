@@ -90,7 +90,7 @@ async function existingPerson(
     });
     await syncLeadStageEntries(ctx, h.tenantId, leadId, null, state);
     await insertOpportunityAggregate(ctx, await ctx.db.insert("opportunities", {
-      tenantId: h.tenantId, leadId, status: "qualified_pending", source: "slack_qualified", qualifiedAt: at,
+      tenantId: h.tenantId, leadId, stage: "qualified", outcome: "open", source: "slack_qualified", qualifiedAt: at,
       qualifiedBy: { slackUserId: "U1", slackTeamId: "T1", submittedAt: at }, createdAt: at, updatedAt: at,
     }));
     for (const [type, value] of [["email", fields.email], ["instagram", fields.handle]] as const) {

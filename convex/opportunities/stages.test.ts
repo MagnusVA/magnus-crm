@@ -1,3 +1,4 @@
+import type { Doc } from "../_generated/dataModel";
 import { describe, expect, it } from "vitest";
 import {
   DEAL_OUTCOMES,
@@ -12,7 +13,6 @@ import {
   dealStageOf,
   isAllowedStageOutcome,
   isSystemLossReason,
-  missedMeetingLossReason,
   stageForStatus,
   stageOfPosition,
 } from "./stages";
@@ -136,20 +136,16 @@ describe("stageForStatus", () => {
 
 describe("dealStageOf", () => {
   it("reads the stored stage and outcome", () => {
-    expect(
-      dealStageOf({ status: "scheduled", source: "calendly", stage: "follow_up", outcome: "open" }),
-    ).toEqual({ stage: "follow_up", outcome: "open" });
-  });
-
-  it("maps the status of a deal the backfill hasn't reached", () => {
-    expect(dealStageOf({ status: "scheduled", source: "side_deal" })).toEqual({
-      stage: "call_held",
+    expect(dealStageOf({ stage: "follow_up", outcome: "open" })).toEqual({
+      stage: "follow_up",
       outcome: "open",
     });
-    expect(dealStageOf({ status: "no_show", source: undefined })).toEqual({
-      stage: "closed",
-      outcome: "lost",
-    });
+  });
+
+  it("throws on a deal without them, whatever its status: it never reads the status", () => {
+    const statusOnly: Pick<Doc<"opportunities">, "status" | "stage" | "outcome"> = { status: "scheduled" };
+    expect(() => dealStageOf(statusOnly)).toThrow(/no stage or outcome/);
+    expect(() => dealStageOf({ stage: "closed" })).toThrow(/no stage or outcome/);
   });
 });
 
@@ -172,15 +168,5 @@ describe("loss reasons the system writes", () => {
 
   it("is where the Slack expiry's reason comes from", () => {
     expect(SLACK_STALE_LOST_REASON).toBe(SYSTEM_LOSS_REASONS.stale);
-  });
-
-  it("names a missed meeting's reason from the status", () => {
-    expect(missedMeetingLossReason("canceled")).toBe("canceled");
-    expect(missedMeetingLossReason("no_show")).toBe("no_show");
-    for (const status of OPPORTUNITY_STATUSES.filter(
-      (status) => status !== "canceled" && status !== "no_show",
-    )) {
-      expect(missedMeetingLossReason(status)).toBeUndefined();
-    }
   });
 });

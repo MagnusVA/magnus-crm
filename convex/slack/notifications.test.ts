@@ -68,7 +68,7 @@ describe("qualified lead notification", () => {
       });
       const qualifiedBy = { slackUserId: "U1", slackTeamId: "T1", submittedAt: 5 };
       const opportunityId = await ctx.db.insert("opportunities", {
-        tenantId, leadId, status: "qualified_pending", source: "slack_qualified", qualifiedBy,
+        tenantId, leadId, stage: "qualified", outcome: "open", source: "slack_qualified", qualifiedBy,
         createdAt: 5, updatedAt: 5,
       });
       const qualificationEventId = await ctx.db.insert("slackQualificationEvents", {

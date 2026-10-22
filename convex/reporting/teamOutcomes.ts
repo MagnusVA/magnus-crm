@@ -9,12 +9,10 @@ import {
   reportingUserIdentity,
 } from "./lib/helpers";
 import {
-  deriveCallOutcome,
   deriveCallOutcomeByStage,
   needsRescheduleLinkCheck,
   type CallOutcome,
 } from "./lib/outcomeDerivation";
-import { meterDocument, meterRange, type ReadMeter } from "./lib/readMeter";
 
 const MAX_MEETING_SCAN_ROWS = 2000;
 const MAX_PAYMENT_SCAN_ROWS = 2000;
@@ -45,49 +43,23 @@ export type TeamOutcomeInputs = {
   isTruncated: boolean;
 };
 
-export type TeamOutcomePage = TeamOutcomeInputs & {
-  isDone: boolean;
-  continueCursor: string;
-};
-
 /**
  * The meetings scheduled in the range with their deals, the deals paid in the
- * range, and the meetings another meeting in the range reschedules. With
- * `page`, one page of the meetings instead of the first 2,000; the payments
- * and reschedules are then those of the page's reads (the parity query's
- * paging, where both derivations take the same inputs).
+ * range, and the meetings another meeting in the range reschedules.
  */
 export async function readTeamOutcomeInputs(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   startDate: number,
   endDate: number,
-): Promise<TeamOutcomeInputs>;
-export async function readTeamOutcomeInputs(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-  startDate: number,
-  endDate: number,
-  page: { cursor: string | null; numItems: number },
-  meter?: ReadMeter,
-): Promise<TeamOutcomePage>;
-export async function readTeamOutcomeInputs(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-  startDate: number,
-  endDate: number,
-  page?: { cursor: string | null; numItems: number },
-  meter?: ReadMeter,
-): Promise<TeamOutcomeInputs | TeamOutcomePage> {
-  const meetingsInRange = ctx.db
-    .query("meetings")
-    .withIndex("by_tenantId_and_scheduledAt", (q) =>
-      q.eq("tenantId", tenantId).gte("scheduledAt", startDate).lt("scheduledAt", endDate),
-    );
-  const [meetingRead, paymentRows] = await Promise.all([
-    page
-      ? meetingsInRange.paginate(page)
-      : meetingsInRange.take(MAX_MEETING_SCAN_ROWS + 1),
+): Promise<TeamOutcomeInputs> {
+  const [meetingRows, paymentRows] = await Promise.all([
+    ctx.db
+      .query("meetings")
+      .withIndex("by_tenantId_and_scheduledAt", (q) =>
+        q.eq("tenantId", tenantId).gte("scheduledAt", startDate).lt("scheduledAt", endDate),
+      )
+      .take(MAX_MEETING_SCAN_ROWS + 1),
     ctx.db
       .query("paymentRecords")
       .withIndex("by_tenantId_and_recordedAt", (q) =>
@@ -95,19 +67,12 @@ export async function readTeamOutcomeInputs(
       )
       .take(MAX_PAYMENT_SCAN_ROWS + 1),
   ]);
-  meterRange(meter);
-  meterRange(meter);
 
-  const meetings = Array.isArray(meetingRead)
-    ? meetingRead.slice(0, MAX_MEETING_SCAN_ROWS)
-    : meetingRead.page;
+  const meetings = meetingRows.slice(0, MAX_MEETING_SCAN_ROWS);
   const payments = paymentRows.slice(0, MAX_PAYMENT_SCAN_ROWS);
   const isTruncated =
-    (Array.isArray(meetingRead) && meetingRead.length > MAX_MEETING_SCAN_ROWS) ||
+    meetingRows.length > MAX_MEETING_SCAN_ROWS ||
     paymentRows.length > MAX_PAYMENT_SCAN_ROWS;
-  for (const row of [...meetings, ...paymentRows]) {
-    meterDocument(meter, row);
-  }
 
   const opportunityIds = [
     ...new Set(meetings.map((meeting) => meeting.opportunityId)),
@@ -118,10 +83,6 @@ export async function readTeamOutcomeInputs(
       await ctx.db.get("opportunities", opportunityId),
     ] as const),
   );
-  for (const [, opportunity] of opportunities) {
-    meterRange(meter);
-    meterDocument(meter, opportunity);
-  }
   const opportunityById = new Map<
     Id<"opportunities">,
     Doc<"opportunities"> | null
@@ -142,20 +103,12 @@ export async function readTeamOutcomeInputs(
     }
   }
 
-  const inputs = {
+  return {
     meetings,
     opportunityById,
     opportunityHasPayment,
     rescheduledMeetingIds,
     isTruncated,
-  };
-  if (Array.isArray(meetingRead)) {
-    return inputs;
-  }
-  return {
-    ...inputs,
-    isDone: meetingRead.isDone,
-    continueCursor: meetingRead.continueCursor,
   };
 }
 
@@ -165,36 +118,13 @@ export type MeetingOutcome = {
   outcome: CallOutcome;
 };
 
-/** Each meeting's outcome from its deal's status: the report before PR 6, for parity. */
-export function meetingOutcomesByStatus(inputs: TeamOutcomeInputs): MeetingOutcome[] {
-  const outcomes: MeetingOutcome[] = [];
-  for (const meeting of inputs.meetings) {
-    const opportunity = inputs.opportunityById.get(meeting.opportunityId);
-    if (!opportunity) {
-      continue;
-    }
-    outcomes.push({
-      meeting,
-      opportunity,
-      outcome: deriveCallOutcome(
-        meeting,
-        opportunity,
-        inputs.opportunityHasPayment.has(meeting.opportunityId),
-        inputs.rescheduledMeetingIds.has(meeting._id),
-      ),
-    });
-  }
-  return outcomes;
-}
-
 /**
  * Whether the deal has a pending reschedule link: the scheduling link task a
- * closer sends after a no-show, today's `reschedule_link_sent` (§4.5).
+ * closer sends after a no-show (§4.5).
  */
 export async function hasPendingRescheduleLink(
   ctx: QueryCtx,
   opportunityId: Id<"opportunities">,
-  meter?: ReadMeter,
 ): Promise<boolean> {
   const links = await ctx.db
     .query("followUps")
@@ -205,22 +135,17 @@ export async function hasPendingRescheduleLink(
         .eq("reason", "no_show_follow_up"),
     )
     .take(RESCHEDULE_LINK_SCAN);
-  meterRange(meter);
-  for (const link of links) {
-    meterDocument(meter, link);
-  }
   return links.some((link) => link.type === "scheduling_link");
 }
 
 /**
- * Each meeting's outcome from its deal's stage and outcome (§6.6), from the
- * same inputs. It reads the reschedule links of the deals at Follow-up whose
- * meeting was held, the only ones the derivation needs them for.
+ * Each meeting's outcome from its deal's stage and outcome (§6.6). It reads
+ * the reschedule links of the deals at Follow-up whose meeting was held, the
+ * only ones the derivation needs them for.
  */
 export async function meetingOutcomesByStage(
   ctx: QueryCtx,
   inputs: TeamOutcomeInputs,
-  meter?: ReadMeter,
 ): Promise<MeetingOutcome[]> {
   const linkChecks = new Map<Id<"opportunities">, Promise<boolean>>();
   const outcomes: MeetingOutcome[] = [];
@@ -233,7 +158,7 @@ export async function meetingOutcomesByStage(
     if (needsRescheduleLinkCheck(meeting, opportunity)) {
       let check = linkChecks.get(opportunity._id);
       if (!check) {
-        check = hasPendingRescheduleLink(ctx, opportunity._id, meter);
+        check = hasPendingRescheduleLink(ctx, opportunity._id);
         linkChecks.set(opportunity._id, check);
       }
       hasLink = await check;

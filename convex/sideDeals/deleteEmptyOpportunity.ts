@@ -129,10 +129,7 @@ export const deleteEmptyOpportunity = mutation({
       throw new Error("Too many attribution rows are attached to delete safely.");
     }
     await deleteOpportunityAggregate(ctx, opportunity);
-    await updateTenantStats(ctx, tenantId, {
-      totalOpportunities: -1,
-      activeOpportunities: -1,
-    });
+    await updateTenantStats(ctx, tenantId, { totalOpportunities: -1 });
     await ctx.db.delete("opportunities", opportunityId);
     await rebuildLeadCustomerSearchRow(ctx, tenantId, opportunity.leadId);
 
