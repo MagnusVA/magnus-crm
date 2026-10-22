@@ -62,6 +62,7 @@ import type * as closer_meetingDetail from "../closer/meetingDetail.js";
 import type * as closer_noShowActions from "../closer/noShowActions.js";
 import type * as closer_payments from "../closer/payments.js";
 import type * as closer_pipeline from "../closer/pipeline.js";
+import type * as closer_pipelineTabs from "../closer/pipelineTabs.js";
 import type * as closer_reminderDetail from "../closer/reminderDetail.js";
 import type * as closer_reminderOutcomes from "../closer/reminderOutcomes.js";
 import type * as crons from "../crons.js";
@@ -438,6 +439,7 @@ declare const fullApi: ApiFromModules<{
   "closer/noShowActions": typeof closer_noShowActions;
   "closer/payments": typeof closer_payments;
   "closer/pipeline": typeof closer_pipeline;
+  "closer/pipelineTabs": typeof closer_pipelineTabs;
   "closer/reminderDetail": typeof closer_reminderDetail;
   "closer/reminderOutcomes": typeof closer_reminderOutcomes;
   crons: typeof crons;
