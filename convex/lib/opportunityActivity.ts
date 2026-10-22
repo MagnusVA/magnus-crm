@@ -4,6 +4,7 @@ import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import {
   missedMeetingLossReason,
   stageForStatus,
+  type DealOutcome,
 } from "../opportunities/stages";
 import { rebuildQualificationRowsForOpportunity } from "../operations/projections";
 import { replaceOpportunityAggregate } from "../reporting/writeHooks";
@@ -245,6 +246,7 @@ function statusStatsDelta(from: OpportunityStatus, to: OpportunityStatus) {
 function missedMeetingLossFields(
   from: OpportunityStatus,
   to: OpportunityStatus,
+  toOutcome: DealOutcome,
   transition: OpportunityTransition,
 ): Pick<OpportunityFieldsPatch, "lostReason" | "lostAt" | "lostByUserId"> {
   const reason = missedMeetingLossReason(to);
@@ -259,10 +261,7 @@ function missedMeetingLossFields(
       lostByUserId: undefined,
     };
   }
-  if (
-    missedMeetingLossReason(from) &&
-    stageForStatus(to, undefined).outcome === "open"
-  ) {
+  if (missedMeetingLossReason(from) && toOutcome === "open") {
     return { lostReason: undefined, lostAt: undefined, lostByUserId: undefined };
   }
   return {};
@@ -292,12 +291,14 @@ export async function transitionOpportunity(
     throw new Error(`Cannot transition opportunity from "${from}" to "${to}"`);
   }
 
+  const next = stageForStatus(to, before.source);
   const after = await writeOpportunity(ctx, before, {
     ...transition.fields,
-    ...missedMeetingLossFields(from, to, transition),
+    ...missedMeetingLossFields(from, to, next.outcome, transition),
     status: to,
     // In the same patch as the status (§4.4).
-    ...stageForStatus(to, before.source),
+    stage: next.stage,
+    outcome: next.outcome,
   });
   const statsDelta = statusStatsDelta(from, to);
   // tenantStats is one contended document per tenant; skip no-op writes.
