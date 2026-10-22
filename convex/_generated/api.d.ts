@@ -254,6 +254,7 @@ import type * as opportunities_detailQuery from "../opportunities/detailQuery.js
 import type * as opportunities_listQueries from "../opportunities/listQueries.js";
 import type * as opportunities_maintenance from "../opportunities/maintenance.js";
 import type * as opportunities_queries from "../opportunities/queries.js";
+import type * as opportunities_stageLabels from "../opportunities/stageLabels.js";
 import type * as opportunities_stageParity from "../opportunities/stageParity.js";
 import type * as opportunities_stageParityReports from "../opportunities/stageParityReports.js";
 import type * as opportunities_stages from "../opportunities/stages.js";
@@ -629,6 +630,7 @@ declare const fullApi: ApiFromModules<{
   "opportunities/listQueries": typeof opportunities_listQueries;
   "opportunities/maintenance": typeof opportunities_maintenance;
   "opportunities/queries": typeof opportunities_queries;
+  "opportunities/stageLabels": typeof opportunities_stageLabels;
   "opportunities/stageParity": typeof opportunities_stageParity;
   "opportunities/stageParityReports": typeof opportunities_stageParityReports;
   "opportunities/stages": typeof opportunities_stages;
