@@ -187,6 +187,8 @@ export function WeekView({ meetings, startDate }: WeekViewProps) {
                     status={m.meeting.status}
                     leadName={m.leadName}
                     eventTypeName={m.eventTypeName}
+                    dealPosition={m.dealPosition}
+                    missedMeeting={m.missedMeeting}
                     meetingJoinUrl={m.meeting.meetingJoinUrl}
                     zoomJoinUrl={m.meeting.zoomJoinUrl}
                     style={{

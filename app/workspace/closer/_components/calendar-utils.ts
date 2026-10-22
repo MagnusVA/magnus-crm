@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { MissedMeeting } from "@/convex/opportunities/dealState";
+import type { DealPosition } from "@/convex/opportunities/stages";
 
 /**
  * Shared types, constants, and helpers for calendar view components.
@@ -13,7 +15,10 @@ import { useEffect, useState } from "react";
 /** Calendar view mode used by the header toggle and view renderer. */
 export type ViewMode = "day" | "week" | "month";
 
-/** Meeting data enriched with lead and event-type info (returned by getMeetingsForRange). */
+/**
+ * Meeting data enriched with lead and event-type info and its deal's
+ * position (returned by getMeetingsForRange).
+ */
 export type EnrichedMeeting = {
   meeting: {
     _id: string;
@@ -25,6 +30,10 @@ export type EnrichedMeeting = {
   };
   leadName: string;
   eventTypeName?: string | null;
+  /** Where the meeting's deal is now; null when the deal is gone. */
+  dealPosition: DealPosition | null;
+  /** The missed meeting that closed the deal, if one did. */
+  missedMeeting: MissedMeeting | null;
 };
 
 // ─── Dynamic hour range ─────────────────────────────────────────────────────
