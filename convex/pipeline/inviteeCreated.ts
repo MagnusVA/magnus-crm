@@ -237,6 +237,51 @@ async function recordMeetingBookingAttribution(
 	});
 }
 
+/**
+ * A booking link took the deal out of `reschedule_link_sent`, so no reschedule
+ * link waits on the person any more. The deal's pending ones expire; the link
+ * the booking used is booked already, so it isn't among them. Without this, a
+ * booking through an older scheduling link leaves the reschedule link pending
+ * for good.
+ */
+async function expireRescheduleLinks(
+	ctx: MutationCtx,
+	opportunity: Doc<"opportunities">,
+	at: number,
+) {
+	const links = await ctx.db
+		.query("followUps")
+		.withIndex("by_opportunityId_and_status_and_reason", (q) =>
+			q
+				.eq("opportunityId", opportunity._id)
+				.eq("status", "pending")
+				.eq("reason", "no_show_follow_up"),
+		)
+		.take(65);
+	if (links.length > 64) blockBooking("follow_up_history_requires_review");
+	for (const link of links) {
+		if (link.tenantId !== opportunity.tenantId)
+			throw new Error("Follow-up tenant mismatch");
+		if (link.type !== "scheduling_link") continue;
+		await ctx.db.patch("followUps", link._id, { status: "expired" });
+		await emitDomainEvent(ctx, {
+			tenantId: opportunity.tenantId,
+			entityType: "followUp",
+			entityId: link._id,
+			eventType: "followUp.expired",
+			source: "pipeline",
+			fromStatus: "pending",
+			toStatus: "expired",
+			metadata: {
+				type: link.type,
+				reason: link.reason,
+				opportunityId: opportunity._id,
+			},
+			occurredAt: at,
+		});
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Feature E: Types
 // ---------------------------------------------------------------------------
@@ -1009,6 +1054,9 @@ export const process = internalMutation({
                 occurredAt: now,
 							},
 						);
+					}
+					if (previousTargetStatus === "reschedule_link_sent") {
+						await expireRescheduleLinks(ctx, targetOpportunity, now);
 					}
 
 					const meetingLocation = extractMeetingLocation(

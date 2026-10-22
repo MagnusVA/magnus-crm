@@ -6,7 +6,9 @@
  */
 import { afterEach, expect, it, vi } from "vitest";
 import {
+  crmLinkTracking,
   inviteeUri,
+  minutesFromNow,
   missedMeetingHarness,
   type MissedMeetingHarness,
 } from "../../tests/missedMeetingFixtures";
@@ -158,3 +160,68 @@ it.each(["no_show", "canceled"] as const)(
     expect(await h.meeting("original")).toEqual(before.meeting);
   },
 );
+
+it("a booking through a CRM link on a deal waiting on a reschedule link expires that reschedule link", async () => {
+  const h = await missedMeetingHarness();
+  const { opportunityId, meetingId } = await h.book(ORIGINAL, BOOKED_AT);
+  // Before the call, the closer copies a scheduling link and never confirms it.
+  h.clockAt("2026-10-03T10:00:00Z");
+  const schedulingLinkId = await h.closerActions.unconfirmedSchedulingLink(opportunityId);
+  await missMeeting(h, "no_show");
+  h.clockAt("2026-10-06T17:00:00Z");
+  const rescheduleLinkId = await h.closerActions.rescheduleLink(opportunityId, meetingId);
+  expect(await h.deal(opportunityId)).toMatchObject({ status: "reschedule_link_sent" });
+
+  // The person books through the older scheduling link.
+  await h.book(
+    {
+      key: "rebook",
+      start: "2026-10-09T15:00:00Z",
+      tracking: crmLinkTracking("follow_up", opportunityId, schedulingLinkId),
+    },
+    minutesFromNow(60),
+  );
+
+  expect(await h.deal(opportunityId)).toMatchObject({ status: "scheduled" });
+  const links = await h.followUps(opportunityId);
+  expect(links.find((f) => f._id === schedulingLinkId)).toMatchObject({ status: "booked" });
+  expect(links.find((f) => f._id === rescheduleLinkId)).toMatchObject({ status: "expired" });
+  const events = await h.t.run((ctx) =>
+    ctx.db
+      .query("domainEvents")
+      .withIndex("by_tenantId_and_entityType_and_entityId_and_occurredAt", (q) =>
+        q.eq("tenantId", h.tenantId).eq("entityType", "followUp").eq("entityId", rescheduleLinkId),
+      )
+      .take(10),
+  );
+  expect(events.map((e) => [e.eventType, e.fromStatus, e.toStatus])).toContainEqual([
+    "followUp.expired",
+    "pending",
+    "expired",
+  ]);
+});
+
+it("the closer's reschedule link still joins the no-show deal", async () => {
+  const h = await missedMeetingHarness();
+  const { opportunityId, meetingId } = await h.book(ORIGINAL, BOOKED_AT);
+  await missMeeting(h, "no_show");
+  h.clockAt("2026-10-06T17:00:00Z");
+  const rescheduleLinkId = await h.closerActions.rescheduleLink(opportunityId, meetingId);
+
+  const next = await h.book(
+    {
+      key: "rebook",
+      start: "2026-10-09T15:00:00Z",
+      tracking: crmLinkTracking("noshow_resched", opportunityId, meetingId),
+    },
+    minutesFromNow(60),
+  );
+
+  expect(next.opportunityId).toBe(opportunityId);
+  expect(await h.deal(opportunityId)).toMatchObject({ status: "scheduled" });
+  expect(await h.meeting("rebook")).toMatchObject({ rescheduledFromMeetingId: meetingId });
+  expect((await h.followUps(opportunityId)).find((f) => f._id === rescheduleLinkId)).toMatchObject({
+    status: "booked",
+  });
+  expect(await h.dealCount()).toBe(1);
+});
