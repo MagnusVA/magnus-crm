@@ -150,6 +150,32 @@ describe("classifyFailure", () => {
     }
   });
 
+  // PR 7 of Phase 5 names the deal's stage in its guards' refusals instead of
+  // the status; each keeps the kind it had (docs/plans/phase-5-deal-status.md §6.4).
+  test("a deal guard's refusal keeps its kind in the stage's words", () => {
+    for (const [before, after] of [
+      ['Cannot mark as lost from status "payment_received"', 'Cannot mark as lost: the deal is "Won"'],
+      ['Cannot schedule follow-up from status "lost"', 'Cannot schedule follow-up: the deal is "Lost"'],
+      ['Cannot log payment from status "no_show"', 'Cannot log payment: the deal is "Lost: no-show"'],
+      ['Cannot schedule a new reminder from status "scheduled"', 'Cannot schedule a new reminder: the deal is "Booked"'],
+    ]) {
+      expect(fromClient(before), before).toMatchObject({ kind: "expected", code: "request.invalid_state" });
+      expect(fromClient(after), after).toMatchObject({ kind: "expected", code: "request.invalid_state" });
+    }
+    for (const [before, after] of [
+      ['Cannot delete an opportunity in "lost" status.', 'Cannot delete a deal at "Lost".'],
+      [
+        'Cannot void a side-deal payment while opportunity is "scheduled".',
+        'Cannot void a side-deal payment while the deal is "Call held".',
+      ],
+      ['Cannot transition to follow_up_scheduled from "lost"', 'Cannot move the deal to Follow-up from "Lost"'],
+      ['Opportunity is not scheduled (current: lost)', "The deal isn't Booked (current: Lost)"],
+    ]) {
+      expect(fromClient(before).kind, before).toBe("bug");
+      expect(fromClient(after).kind, after).toBe("bug");
+    }
+  });
+
   test("limits and timeouts are platform errors", () => {
     expect(fromClient("Too many reads in a single function execution").kind).toBe("platform");
     expect(fromBackground("Function execution timed out (maximum duration: 600s)").kind).toBe("platform");

@@ -87,7 +87,10 @@ const NAVIGABLE_NOT_FOUND =
 const VALIDATION =
   /must be|is required|cannot be empty|exceeds|or fewer|is invalid|^Invalid |too large\. Narrow the filters|is not pending|is no longer|already (exists|been|recorded|linked)/i;
 
-const STATE_TRANSITION = /^Cannot .* from status|Invalid (status )?transition|only accepts|^Only /i;
+// "from status" is the opportunity status's wording; ": the deal is" names
+// the deal's stage instead (docs/plans/phase-5-deal-status.md §6.4).
+const STATE_TRANSITION =
+  /^Cannot .* from status|^Cannot [^:]+: the deal is "|Invalid (status )?transition|only accepts|^Only /i;
 
 /**
  * Validation-shaped messages that are really invariants or configuration
