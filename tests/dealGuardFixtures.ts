@@ -373,5 +373,13 @@ export async function expectGuard(
     return;
   }
   await expect(write()).rejects.toThrow();
-  expect((await readGuardDeal(harness, opportunityId)).status).toBe(before.status);
+  // A refused write leaves every field the guards read as it was.
+  const guarded = (deal: typeof before) => ({
+    status: deal.status,
+    stage: deal.stage,
+    outcome: deal.outcome,
+    lostReason: deal.lostReason,
+    lostByUserId: deal.lostByUserId,
+  });
+  expect(guarded(await readGuardDeal(harness, opportunityId))).toEqual(guarded(before));
 }
