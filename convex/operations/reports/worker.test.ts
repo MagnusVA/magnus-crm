@@ -13,7 +13,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it("scans 32001 monthly events and preserves job idempotency", async () => {
+it("scans a month of events across worker steps and preserves job idempotency", async () => {
   const t = convexTest({ schema, modules: convexTestModules });
   const fixture = await t.run(async ctx => {
     const tenantId = await ctx.db.insert("tenants", {
@@ -50,7 +50,12 @@ it("scans 32001 monthly events and preserves job idempotency", async () => {
     return { tenantId, installationId };
   });
 
-  const eventCount = 32_001;
+  // A worker step reads at most 20 pages of 50 events, so 2,501 events take
+  // three steps, the last one partial. convex-test re-sorts and rescans the
+  // table for every page and doesn't enforce Convex's read limits, so a
+  // bigger fixture proves nothing more and its cost grows with the square of
+  // the row count: 32,001 events took about 50 s locally and timed out on CI.
+  const eventCount = 2_501;
   for (let offset = 0; offset < eventCount; offset += 500) {
     await t.run(async ctx => {
       for (
