@@ -79,6 +79,16 @@ describe("report formats", () => {
     });
     expect(new TextDecoder().decode(pdf.slice(0, 5))).toBe("%PDF-");
   });
+  it("exports each booking's deal stage and outcome in place of its status", () => {
+    const labels = exportSectionDefinition("raw_booking", "raw_csv").columns.map((column) => column.label);
+    expect(labels.slice(labels.indexOf("MeetingStatus"), labels.indexOf("MeetingStatus") + 3)).toEqual([
+      "MeetingStatus",
+      "DealStage",
+      "DealOutcome",
+    ]);
+    expect(labels).not.toContain("OpportunityStatus");
+  });
+
   it("preserves existing Lead Gen team workbook sections", () => {
     const worker = { displayName: "Ana", email: "ana@example.test", teamName: "Team A", isActive: true, submissions: 12, uniqueProspects: 10, duplicates: 2, scheduledHours: 4, leadsPerHour: 3 };
     const workbook = buildLeadGenWorkbook({ generatedAt: report.generatedAt, reportTitle: "Lead Gen Performance", filters: { startDayKey: "2026-01-01", endDayKey: "2026-01-31", source: null, teamName: null, workerName: null }, sheets: [{ sheetKey: "a", sheetName: "Team A", scopeKind: "team", scopeLabel: "Team A", summary: worker, topLeadGenerators: [worker], topPosts: [], workerPerformance: [worker], sourcePerformance: [], postDetail: [] }] });
