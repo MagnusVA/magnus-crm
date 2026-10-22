@@ -1,6 +1,8 @@
+import migrationsTest from "@convex-dev/migrations/test";
 import { vi } from "vitest";
 import { api, internal } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
+import { migrations } from "../convex/migrations";
 import { bookingHarness } from "./bookingHarness";
 
 // Fixtures for the missed-meeting booking rules (phase 5, §4.3 of the deal
@@ -94,6 +96,7 @@ export async function missedMeetingHarness() {
   vi.setSystemTime(new Date("2026-10-01T00:00:00Z"));
   const harness = await bookingHarness();
   const { t, tenantId } = harness;
+  migrationsTest.register(t);
   await t.run(async (ctx) => {
     const closer = await ctx.db
       .query("users")
@@ -211,6 +214,37 @@ export async function missedMeetingHarness() {
     });
   }
 
+  /** Runs a migration from `convex/migrations.ts` to the end; `reset` reruns a finished one. */
+  async function runMigration(name: string, options: { reset?: boolean } = {}) {
+    await t.mutation(internal.migrations.run, {
+      fn: `migrations:${name}`,
+      ...(options.reset ? { reset: true } : {}),
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const [status] = await t.run((ctx) =>
+      migrations.getStatus(ctx, { migrations: [`migrations:${name}`] as never }),
+    );
+    return status;
+  }
+
+  /** The booking facts, keyed by booking. */
+  async function facts() {
+    const rows = await t.run((ctx) => ctx.db.query("calendlyBookingFacts").take(20));
+    return Object.fromEntries(
+      rows.map((row) => [row.inviteeUri.split("/").at(-3)!, row]),
+    );
+  }
+
+  /** Removes the cancel flag from a booking's fact, as a fact recorded before
+   * the field existed holds it. */
+  async function factWithoutRescheduledFlag(key: string) {
+    const fact = (await facts())[key];
+    if (!fact) throw new Error(`No fact for ${key}`);
+    await t.run((ctx) =>
+      ctx.db.patch("calendlyBookingFacts", fact._id, { rescheduled: undefined }),
+    );
+  }
+
   /** The closer's actions on the deal, each at the test clock. */
   const closerActions = {
     /** A follow-up scheduling link the closer copied but never confirmed. */
@@ -244,6 +278,9 @@ export async function missedMeetingHarness() {
     dealCount,
     followUps,
     creationSideEffects,
+    runMigration,
+    facts,
+    factWithoutRescheduledFlag,
     closerActions,
   };
 }
