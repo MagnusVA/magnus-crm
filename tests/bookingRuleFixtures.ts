@@ -9,10 +9,13 @@ import { legacyStatus, type DealStateFields } from "../convex/opportunities/deal
 import {
   missedMeetingLossReason,
   stageForStatus,
+  type DealOutcome,
   type DealSource,
+  type DealStage,
 } from "../convex/opportunities/stages";
+import { dealPositionAt, wasUnattachableAt } from "../convex/pipeline/bookingHistory";
 import { SLACK_STALE_LOST_REASON } from "../convex/pipeline/slackJoinLookup";
-import { qualifiedLifecycle } from "./bookingHarness";
+import { bookingHarness, qualifiedLifecycle } from "./bookingHarness";
 import { harnessCloserId } from "./dealStageFixtures";
 
 // The booking rules read the deal's stage, outcome, loss and tasks from PR 7
@@ -217,5 +220,114 @@ export async function insertRescheduleLink(
     reason: "no_show_follow_up",
     status: "pending",
     createdAt: 1_000,
+  });
+}
+
+// ─── Deal histories (bookingHistory.ts) ─────────────────────────────────
+
+/** Where a new deal event (PR 8) says the deal was: the stage, with the outcome in its metadata. */
+export type StageAt = { stage: DealStage; outcome: DealOutcome };
+
+/**
+ * A recorded change. An old event holds statuses; an event from PR 8
+ * (`opportunity.stage_changed`, or `opportunity.marked_lost` for a loss)
+ * holds stages, with the outcomes in its metadata. `undefined` as the old
+ * form's `from` is the deal's `opportunity.created`.
+ */
+export type HistoryChange =
+  | [at: number, from: OpportunityStatus | undefined, to: OpportunityStatus]
+  | [at: number, from: StageAt, to: StageAt];
+
+/** Shorthand for a new event's side. */
+export const at = (stage: DealStage, outcome: DealOutcome = "open"): StageAt => ({ stage, outcome });
+
+/**
+ * A deal at `current`, written as the dual write leaves it (the stage, and a
+ * missed meeting's loss), with the changes it recorded, read back at
+ * `time`: its position then, and whether a booking at `time` couldn't have
+ * joined it.
+ */
+export async function readDealHistory(
+  current: OpportunityStatus,
+  changes: HistoryChange[],
+  options: {
+    time: number;
+    createdAt: number;
+    source?: DealSource;
+    /** Events that aren't status changes, recorded after `time`. */
+    otherEvents?: number;
+    /** A pending reschedule link on the deal, which makes Follow-up `reschedule_link_sent`. */
+    rescheduleLink?: boolean;
+    /** Outcomes left out of the new events' metadata. */
+    dropOutcomes?: boolean;
+  },
+) {
+  const { t, tenantId } = await bookingHarness();
+  return await t.run(async (ctx) => {
+    const source = options.source ?? "calendly";
+    const leadId = await ctx.db.insert("leads", {
+      ...qualifiedLifecycle(options.createdAt),
+      tenantId,
+      email: "lead@example.com",
+      status: "active",
+      firstSeenAt: options.createdAt,
+      updatedAt: options.createdAt,
+    });
+    const opportunityId = await ctx.db.insert("opportunities", {
+      tenantId,
+      leadId,
+      status: current,
+      source,
+      ...writtenBesideStatus(current, source, options.time + 21_000),
+      createdAt: options.createdAt,
+      updatedAt: options.time + 21_000,
+    });
+    if (options.rescheduleLink) await insertRescheduleLink(ctx, opportunityId);
+    for (const [occurredAt, from, to] of changes) {
+      const base = {
+        tenantId,
+        entityType: "opportunity" as const,
+        entityId: opportunityId,
+        occurredAt,
+        source: "pipeline" as const,
+      };
+      if (typeof to === "string") {
+        const fromStatus = from as OpportunityStatus | undefined;
+        await ctx.db.insert("domainEvents", {
+          ...base,
+          eventType: fromStatus ? "opportunity.status_changed" : "opportunity.created",
+          fromStatus,
+          toStatus: to,
+        });
+      } else {
+        const fromStage = from as StageAt;
+        await ctx.db.insert("domainEvents", {
+          ...base,
+          eventType:
+            to.stage === "closed" && to.outcome === "lost"
+              ? "opportunity.marked_lost"
+              : "opportunity.stage_changed",
+          fromStatus: fromStage.stage,
+          toStatus: to.stage,
+          metadata: options.dropOutcomes
+            ? undefined
+            : JSON.stringify({ fromOutcome: fromStage.outcome, toOutcome: to.outcome }),
+        });
+      }
+    }
+    for (let i = 0; i < (options.otherEvents ?? 0); i++)
+      await ctx.db.insert("domainEvents", {
+        tenantId,
+        entityType: "opportunity",
+        entityId: opportunityId,
+        eventType: "opportunity.stale_flagged",
+        occurredAt: options.time + 1_000 + i,
+        source: "system",
+      });
+    const opportunity = (await ctx.db.get("opportunities", opportunityId))!;
+    return {
+      position: await dealPositionAt(ctx, opportunity, options.time),
+      unattachable: await wasUnattachableAt(ctx, opportunity, options.time),
+    };
   });
 }
