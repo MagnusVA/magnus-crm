@@ -956,11 +956,15 @@ export const backfillDealStages = migrations.define({
   migrateOne: async (ctx, deal) => {
     const { stage, outcome } = stageForStatus(deal.status, deal.source);
     const reason = missedMeetingLossReason(deal.status);
+    // A reason already there is kept, even a different one, for the assert
+    // to report; a missing time is filled either way.
     const loss =
       reason && deal.lostReason === undefined
         ? { lostReason: reason, lostAt: await missedMeetingTime(ctx, deal, reason) }
-        : {};
-    if (deal.stage === stage && deal.outcome === outcome && !("lostReason" in loss)) {
+        : reason && deal.lostReason === reason && deal.lostAt === undefined
+          ? { lostAt: await missedMeetingTime(ctx, deal, reason) }
+          : {};
+    if (deal.stage === stage && deal.outcome === outcome && Object.keys(loss).length === 0) {
       return;
     }
     // eslint-disable-next-line no-restricted-syntax -- the backfill writes what transitionOpportunity writes, without its side effects
@@ -1002,6 +1006,9 @@ export const assertDealStages = migrations.define({
     const missedReason = missedMeetingLossReason(deal.status);
     if (missedReason && deal.lostReason !== missedReason) {
       throw fail(`is ${deal.status} and has ${describeLostReason(deal.lostReason)}, expected ${missedReason}`);
+    }
+    if (missedReason && deal.lostAt === undefined) {
+      throw fail(`is ${deal.status} and has no lostAt`);
     }
     if (isSystemLossReason(deal.lostReason) && deal.lostByUserId !== undefined) {
       throw fail(`has the system's reason ${deal.lostReason} and lostByUserId ${deal.lostByUserId}`);

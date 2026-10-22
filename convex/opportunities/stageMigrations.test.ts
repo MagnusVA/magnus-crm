@@ -183,6 +183,32 @@ describe("backfillDealStages", () => {
     const [deal] = Object.values(await deals(harness, { opportunityId }));
     expect([deal.stage, deal.outcome, deal.lostReason, deal.lostAt]).toEqual(["closed", "lost", "canceled", 45_000]);
   });
+
+  it("fills the time of a missed meeting's loss that has its reason but no time", async () => {
+    const harness = await enrollmentHarness();
+    const opportunityId = await oldDeal(harness, "canceled", "calendly", {
+      canceledAt: DEAL_CANCELED,
+      lostReason: "canceled",
+    });
+
+    await harness.run("backfillDealStages");
+
+    const [deal] = Object.values(await deals(harness, { opportunityId }));
+    expect([deal.lostReason, deal.lostAt]).toEqual(["canceled", DEAL_CANCELED]);
+  });
+
+  it("keeps a missed meeting's deal's other reason for the assert to report", async () => {
+    const harness = await enrollmentHarness();
+    const opportunityId = await oldDeal(harness, "canceled", "calendly", {
+      canceledAt: DEAL_CANCELED,
+      lostReason: "no_show",
+    });
+
+    await harness.run("backfillDealStages");
+
+    const [deal] = Object.values(await deals(harness, { opportunityId }));
+    expect([deal.lostReason, deal.lostAt]).toEqual(["no_show", undefined]);
+  });
 });
 
 describe("assertDealStages", () => {
@@ -230,6 +256,15 @@ describe("assertDealStages", () => {
     expect(error).toContain(ids.canceledOnDeal);
     expect(error).toContain(message);
     expect(error).not.toContain("they moved");
+  });
+
+  it("names a canceled deal with its reason but no time", async () => {
+    const { harness, ids } = await backfilled();
+    await harness.t.run((ctx) => forceOpportunityState(ctx, ids.canceledOnDeal, { lostAt: undefined }));
+
+    const error = (await harness.run("assertDealStages"))?.error;
+    expect(error).toContain(ids.canceledOnDeal);
+    expect(error).toContain("has no lostAt");
   });
 
   it.each(["noShowOnDeal", "stale"])("names a %s deal whose system loss has a person", async (name) => {
