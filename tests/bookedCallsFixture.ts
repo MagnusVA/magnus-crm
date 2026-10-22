@@ -196,7 +196,6 @@ export async function seedBookedCallsFixture(ctx: MutationCtx): Promise<BookedCa
         leadId,
         assignedCloserId: hostId,
         source: "calendly",
-        status: "scheduled",
         latestActivityAt: booking.createdAt,
         activityDayKey: day,
         activityWeekKey: "2026-W33",

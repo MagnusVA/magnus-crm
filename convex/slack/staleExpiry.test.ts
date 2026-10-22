@@ -119,10 +119,6 @@ it("closes Slack deals a day past the join window and leaves the rest", async ()
   expect((await state(harness, booked.opportunityId)).opportunity?.stage).toBe("booked");
 
   const counts = await harness.t.run(async (ctx) => ({
-    stats: await ctx.db
-      .query("tenantStats")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", harness.tenantId))
-      .unique(),
     // An expiry is an outcome, not a lost qualification: the setter's count stays.
     qualifications: await slackQualificationsByUser.count(ctx, {
       namespace: harness.tenantId,
@@ -136,8 +132,6 @@ it("closes Slack deals a day past the join window and leaves the rest", async ()
       )
       .take(5),
   }));
-  // No deal counters by status from PR 9 (docs/plans/phase-5-deal-status.md D13).
-  expect([counts.stats?.activeOpportunities, counts.stats?.lostDeals]).toEqual([undefined, undefined]);
   expect(counts.qualifications).toBe(5);
   expect(counts.events).toEqual([
     expect.objectContaining({

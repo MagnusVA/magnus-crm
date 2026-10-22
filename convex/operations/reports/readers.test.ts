@@ -66,13 +66,12 @@ describe("booked meetings report source", () => {
     });
   });
 
-  it("reads each booking's deal stage and outcome from the deal, not the meeting's copy", async () => {
+  it("reads each booking's deal stage and outcome from the deal", async () => {
     const t = convexTest({ schema, modules: convexTestModules });
     const fixture = await t.run(async (ctx) => await seedBookedCallsFixture(ctx));
     await t.run(async (ctx) => {
       const meeting = (await ctx.db.get("meetings", fixture.meetings.legacyNorthB))!;
       await moveDealTo(ctx, meeting.opportunityId, "no_show");
-      await ctx.db.patch("meetings", meeting._id, { opportunityStatus: "scheduled" });
     });
 
     const booked = await readBookedRows(t, fixture.tenantId);
@@ -83,6 +82,5 @@ describe("booked meetings report source", () => {
       [fixture.meetings.legacyNorthB]: ["closed", "lost"],
       [fixture.meetings.teamOnlySouth]: ["booked", "open"],
     });
-    expect(booked.every((row) => !("opportunityStatus" in row))).toBe(true);
   });
 });

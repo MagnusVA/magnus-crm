@@ -34,7 +34,6 @@ async function expectPr7Status(
     deal: (await ctx.db.get("opportunities", opportunityId))!,
     links: (await loadPendingRescheduleLink(ctx, opportunityId)).count,
   }));
-  expect(deal.status).toBeUndefined();
   expect(legacyStatus(deal, { hasPendingRescheduleLink: links > 0 })).toBe(status);
 }
 

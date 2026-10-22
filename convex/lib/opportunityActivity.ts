@@ -30,20 +30,18 @@ export function computeLatestActivityAt(opportunity: ActivityShape): number {
 }
 
 /**
- * Every opportunity field except identity, the stage and outcome, which only
- * the stage machine moves, and the status, which nothing writes from PR 9
- * (docs/plans/phase-5-deal-status.md §9).
+ * Every opportunity field except identity and the stage and outcome, which
+ * only the stage machine moves (docs/plans/phase-5-deal-status.md §4.4).
  */
 export type OpportunityFieldsPatch = Partial<
   Omit<
     Doc<"opportunities">,
-    "_id" | "_creationTime" | "tenantId" | "status" | "stage" | "outcome"
+    "_id" | "_creationTime" | "tenantId" | "stage" | "outcome"
   >
 >;
 
-// Only transitionOpportunity writes the stage and outcome, and nothing writes
-// the status; the clear unsets it (migrations.ts, clearDealStatus).
-const TRANSITION_ONLY_FIELDS = ["status", "stage", "outcome"] as const;
+// Only transitionOpportunity writes the stage and outcome.
+const TRANSITION_ONLY_FIELDS = ["stage", "outcome"] as const;
 
 // Inputs to the sort keys and eligibility of the stage aggregate and the
 // Slack qualification aggregates (reporting/aggregates.ts). The aggregate
@@ -175,7 +173,7 @@ export type OpportunityTransition = {
  * machine in `convex/opportunities/stages.ts`, writes the stage, the outcome
  * and `fields`, and owns everything a stage change implies: the reporting
  * aggregates, the search and qualification projections, and the domain
- * event. It writes no status and no tenant counter (§9, D13), and asks for
+ * event. It writes no tenant deal counter (D13), and asks for
  * no meeting projection, which carries no deal field.
  *
  * A move to Closed lost writes `lostAt` (the caller's, else the move's

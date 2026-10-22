@@ -25,8 +25,7 @@ const CALLS_WINDOW = {
 async function setup() {
   const t = convexTest({ schema, modules: convexTestModules });
   const fixture = await t.run(async (ctx) => await seedBookedCallsFixture(ctx));
-  // Deal G closes on its no-show; deal B is won. Their meetings keep the
-  // status they copied when booked.
+  // Deal G closes on its no-show; deal B is won.
   const deals = await t.run(async (ctx) => {
     const dealOf = async (meetingId: Id<"meetings">) =>
       (await ctx.db.get("meetings", meetingId))!.opportunityId;
@@ -34,9 +33,6 @@ async function setup() {
     const won = await dealOf(fixture.meetings.firstNorthA2);
     await moveDealTo(ctx, noShow, "no_show");
     await moveDealTo(ctx, won, "payment_received");
-    for (const meetingId of [fixture.meetings.legacyNorthB, fixture.meetings.firstNorthA2]) {
-      await ctx.db.patch("meetings", meetingId, { opportunityStatus: "scheduled" });
-    }
     return { noShow, won };
   });
   return { t, fixture, deals, admin: t.withIdentity(BOOKED_CALLS_ADMIN) };

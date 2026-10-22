@@ -55,7 +55,6 @@ app.use(posthog, {
 });
 app.use(aggregate, { name: "meetingsByStatus" });
 app.use(aggregate, { name: "paymentSums" });
-app.use(aggregate, { name: "opportunityByStatus" });
 app.use(aggregate, { name: "opportunityByStage" });
 app.use(aggregate, { name: "leadStageEntries" });
 app.use(aggregate, { name: "prospectConversions" });

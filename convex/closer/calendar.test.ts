@@ -69,11 +69,8 @@ describe("getMeetingsForRange", () => {
     });
   });
 
-  it("returns what the calendar draws, not the deal's or the meeting's copy of the status", async () => {
+  it("returns what the calendar draws, with the deal's stage", async () => {
     const { harness, seed } = await seededCloserPipeline();
-    await harness.t.run(async (ctx) => {
-      await ctx.db.patch("meetings", seed.meetings.booked, { opportunityStatus: "scheduled" });
-    });
 
     const calendar = await harness.closer.query(api.closer.calendar.getMeetingsForRange, MEETING_RANGE);
     const booked = calendar.find(({ meeting }) => meeting._id === seed.meetings.booked)!;
@@ -81,7 +78,6 @@ describe("getMeetingsForRange", () => {
     expect(Object.keys(booked).sort()).toEqual(
       ["dealOutcome", "dealPosition", "dealStage", "dealSystemLoss", "eventTypeName", "leadName", "meeting"].sort(),
     );
-    expect(booked.meeting).not.toHaveProperty("opportunityStatus");
     expect(booked).toMatchObject({
       leadName: "Deal Person",
       eventTypeName: null,

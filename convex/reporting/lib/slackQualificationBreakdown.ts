@@ -109,7 +109,7 @@ function getUniqueSlackOpportunities(
   rows: Array<{ opportunityId?: Id<"opportunities"> }>,
   opportunityById: ReadonlyMap<
     Id<"opportunities">,
-    Pick<Doc<"opportunities">, "_id" | "source" | "latestMeetingId" | "status">
+    Pick<Doc<"opportunities">, "_id" | "source" | "latestMeetingId">
   >,
 ) {
   const opportunityIds = [

@@ -3,8 +3,8 @@ import type { Doc } from "../_generated/dataModel";
 
 // Where a deal is (CONTEXT.md, "Deal stage") and how it ended, defined once
 // (docs/plans/phase-5-deal-status.md §4.1), with the stage machine every
-// move goes through (§4.4). From PR 9 nothing writes `opportunities.status`;
-// the old statuses below only read old events (§4.7).
+// move goes through (§4.4). `opportunities.status` is gone; the old statuses
+// below only read old events (§4.7).
 
 export const DEAL_STAGES = [
   "qualified",
@@ -182,17 +182,10 @@ export function stageForStatus(
   }
 }
 
-/**
- * The deal's stored stage and outcome. Every deal has them from the PR 1
- * backfill on, and PR 10 makes them required; a deal without them throws,
- * since nothing reads the status any more.
- */
+/** The deal's stage and outcome, which the schema requires. */
 export function dealStageOf(
   deal: Pick<Doc<"opportunities">, "stage" | "outcome">,
 ): DealStageAndOutcome {
-  if (deal.stage === undefined || deal.outcome === undefined) {
-    throw new Error("Deal has no stage or outcome");
-  }
   return { stage: deal.stage, outcome: deal.outcome };
 }
 

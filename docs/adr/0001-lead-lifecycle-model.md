@@ -1,6 +1,6 @@
 # 0001. One person record, deals with a stage and an outcome
 
-Status: accepted, 14 October 2026. Amended 19 October 2026 with "How a phase runs" and the phase statuses; 20 October 2026: the DM portal creates no one, and booking links name no person; 21 October 2026: rule 4 says credit is a `dealAttributions` row; 21 October 2026: a booking's Instagram handle decides its person, and booking reviews are the review queue.
+Status: accepted, 14 October 2026. Amended 19 October 2026 with "How a phase runs" and the phase statuses; 20 October 2026: the DM portal creates no one, and booking links name no person; 21 October 2026: rule 4 says credit is a `dealAttributions` row; 21 October 2026: a booking's Instagram handle decides its person, and booking reviews are the review queue; 22 October 2026: a missed meeting closes the deal as lost, each stage names the outcomes it allows, and Phase 6 takes the meeting's held status from Phase 5.
 
 Source: the [lead lifecycle review](../reviews/lead-lifecycle-review.html). Findings are in [§3](../reviews/lead-lifecycle-review.html#findings), the target model in [§6](../reviews/lead-lifecycle-review.html#target), the migration path in [§7](../reviews/lead-lifecycle-review.html#roadmap), and the locked decisions in [§9](../reviews/lead-lifecycle-review.html#decisions). Terms are defined in [`CONTEXT.md`](../../CONTEXT.md).
 
@@ -16,7 +16,7 @@ Each new role arrived with its own person, staff, schedule, and attribution tabl
 
 - **Person.** The `leads` row is the person. Every channel that brings a person in finds or creates it through one identity function before any deal exists: lead gen capture, Slack, Calendly, and side deals. The DM portal works people who already exist and creates no one. It has a lifecycle stage with an entry time per stage, and a disposition. `merged` stays a separate flag because it is identity housekeeping, not lifecycle.
 - **Identity.** Only strong identifiers decide who someone is. Placeholder values never count, and no time-window heuristic joins a booking to another person's deal. An ambiguous match goes to a review queue: a `bookingReviews` row, posted to Slack, as `potentialDuplicateLeadId` does for a new person whose name and work email look like another's. On a Calendly booking, the social handle from the form (the Instagram username) beats the email and phone: setters and DM closers book calls for the people they talk to and may type another person's email. The booking goes to the handle's person, the email or phone stays with whoever holds it, and the booking opens a review. A booking whose email and phone name different people and has no handle match is held until the review is decided (decided by the tenant admin on 2026-10-21, after three bookings were held from 19 to 21 October).
-- **Deal.** The `opportunities` row is the deal, one per buying attempt. It gets a deal stage (Qualified, Booked, Call held, Follow-up, Closed) and an outcome (open, won, lost with a reason). A no-show or cancellation happens to a meeting. It creates a rebook task and moves the deal to Follow-up, so no deal is ever "no_show".
+- **Deal.** The `opportunities` row is the deal, one per buying attempt. It gets a deal stage (Qualified, Booked, Call held, Follow-up, Closed) and an outcome (open, won, lost with a reason). A no-show or cancellation happens to a meeting and closes the deal as lost with that reason, so no deal is ever "no_show". The person goes to the outreach list (the No-shows and cancellations page), and a later booking is a new deal unless Calendly moved the same booking, the closer set a next step, or Calendly withdrew the no-show.
 - **Meeting.** A meeting records attendance only: scheduled, held, no-show, canceled. Today `completed` means "a closer recorded something", and no-show meetings get a `completedAt` too. In the target, held means the call happened, and the time a closer recorded the result is its own field.
 - **Task.** Follow-ups, scheduling links, and reminders are tasks with due dates.
 - **Team member.** One row per human who can get credit, linked to their user, lead gen worker, Slack user, and DM closer records. The existing tables keep their role-specific settings.
@@ -25,7 +25,7 @@ Each new role arrived with its own person, staff, schedule, and attribution tabl
 - **Enrollment.** One row per person and program they bought, with its own active, paused, or churned status. Customer becomes a lifecycle stage, and contact fields stay on the person.
 - **Timeline.** `domainEvents` gains a person ID and a team member ID and becomes the touch timeline. There is no second event log.
 - **One write path per entity.** One function per entity, starting with `transitionOpportunity`, owns the state machine and the domain event. No other code patches opportunity status. Projections that only copy data may hang off `convex-helpers` triggers later.
-- **Stage list.** Deal stages are literals defined once, in one module, each with an open, won, or lost category.
+- **Stage list.** Deal stages are literals defined once, in one module. Each stage allows outcome open, except Closed, which allows won or lost.
 
 ### The five decisions, locked 14 October
 
@@ -41,7 +41,7 @@ These are settled. Reopen one only with the product owner, and record the change
 
 ### Where each term lives today
 
-| Term | Today | Target |
+| Term | On 14 October 2026 | Target |
 | --- | --- | --- |
 | Person | `leads`, plus a copy in `customers` | `leads` with lifecycle stage and disposition |
 | Identifier | `leadIdentifiers` | Unchanged, with placeholder rules |
@@ -55,16 +55,16 @@ These are settled. Reopen one only with the product owner, and record the change
 | Enrollment | One program on the `customers` row | `enrollments` |
 | Touch | `domainEvents`, `leadNotes`, `meetingComments`, `leadGenSubmissions`, `slackQualificationEvents`, and others | `domainEvents` with a person ID |
 
-### How today's opportunity statuses map
+### How the old opportunity statuses map
 
 | `opportunities.status` | Deal stage | Outcome | Meeting | Task |
 | --- | --- | --- | --- | --- |
 | `qualified_pending` | Qualified | open | none | none |
 | `scheduled` from Calendly | Booked | open | scheduled | none |
 | `scheduled` from a side deal | Call held | open | none | none |
-| `no_show` | Follow-up | open | no-show | rebook |
-| `canceled` | Follow-up | open | canceled | rebook |
-| `reschedule_link_sent` | Follow-up | open | no-show | rebook, link sent |
+| `no_show` | Closed | lost, reason `no_show` | no-show | none |
+| `canceled` | Closed | lost, reason `canceled` | canceled | none |
+| `reschedule_link_sent` | Follow-up | open | no-show | the reschedule link |
 | `follow_up_scheduled` | Follow-up | open | usually held | scheduling link or reminder |
 | `payment_received` | Closed | won | held | none |
 | `lost` | Closed | lost, with reason | any | none |
@@ -73,8 +73,8 @@ These are settled. Reopen one only with the product owner, and record the change
 
 The migration runs one phase at a time, and the old model stays live until each phase narrows it. Until then, new code must not extend the old model.
 
-1. **No new opportunity status.** Every literal costs 30 to 40 files and a backfill, and Phase 5 has to map it. If a feature seems to need one, it is probably a task, a meeting fact, or a deal stage. Raise it before adding it.
-2. **Deal stage changes go through one function.** `transitionOpportunity` in `convex/lib/opportunityActivity.ts` is that function: it changes the deal's stage through the stage machine in `convex/opportunities/stages.ts`. No code calls `ctx.db.patch` on an opportunity's `stage`, `outcome` or `status`, and no code moves a deal without the stage machine. Exceptions are named transitions in the stage machine, not bypasses at the call site.
+1. **No new deal stage.** The stages in `convex/opportunities/stages.ts` are the locked funnel (decision 5), and deals have no status field since Phase 5. If a feature seems to need a new stage, it is probably a task or a meeting fact. Raise it before adding one.
+2. **Deal stage changes go through one function.** `transitionOpportunity` in `convex/lib/opportunityActivity.ts` is that function: it changes the deal's stage through the stage machine in `convex/opportunities/stages.ts`. No code calls `ctx.db.patch` on an opportunity's `stage` or `outcome`, and no code moves a deal without the stage machine. Exceptions are named transitions in the stage machine, not bypasses at the call site.
 3. **No new person, staff, or schedule table.** A new channel finds or creates the person through `resolveLeadIdentity`. A new role becomes a team member role (Phase 1), not another table like `leadGenWorkers` or `dmClosers`.
 4. **No new attribution column.** Don't add another `*CloserId`, `*TeamId`, or `qualifiedBy` shape. Credit is a `dealAttributions` row (Phase 3), and every row has both a role and a source, written through `convex/lib/attribution/dealAttributions.ts`. A new kind of credit adds a role or a source kind to that table, not a column.
 5. **No new copies of person fields.** Read contact details from the lead. Customer is a stage (Phase 4): a person's programs are `enrollments` rows, derived from payments by `syncPersonEnrollments` in `convex/lib/enrollments.ts`, and they hold no copy of the person, the program or the payments.
@@ -94,11 +94,11 @@ Every phase ships as widen, migrate, narrow, with a paired `assert*` migration, 
 | 1. Foundations | Lifecycle stage, stage entry times, and disposition on leads. Stage-aware lead counts. `teamMembers`. Person and team member IDs on `domainEvents`. | Additive | The three lifecycle fields required; `leadTimeline` gone. | Done, #112 to #129 ([plan](../plans/phase-1-foundations.md)) |
 | 2. Person first | Lead gen capture creates or finds the person through `resolveLeadIdentity`, at the Prospect stage. Backfill every prospect. Portal notes and edits move the person to In conversation. One timeline on the person page, and the Prospects view in the leads list. Prospect-to-customer conversion by lead gen worker as a report. | Widen, then narrow | `leadGenProspects.leadId` required, and no code path that creates a prospect without a person. | Done, #131 to #138 ([plan](../plans/phase-2-person-first.md)) |
 | 3. Attribution | `dealAttributions`, one row per deal, role and team member, each from its own source: lead gen worker from the prospect's first capture, setter from the Slack qualification, DM team and DM closer from the booking's UTMs, closer from the Calendly host. A booking's UTMs can name a DM team and no DM closer, so the rows hold team credit on its own; they are a DM team role whose row names the team. The booking link names no person. First and latest touch on the person, snapshotted on the deal. Booked Calls, qualifications and lead gen operations read the rows. | New table, then narrow | The copied `attributionTeamId` and `dmCloserId` columns and their projection copies gone. | Done, #141 to #150; #151 added the post-deploy log ([plan](../plans/phase-3-attribution.md)) |
-| 4. Customers | `enrollments`, one per person and program bought. Customer pages read person plus enrollments. The conversion email requirement goes away, and an admin payment for a new program goes through a new deal. | New table, then narrow `customers` | The copied contact fields gone from `customers`, and `recordCustomerPayment` retired. | Done, #153 to #160 ([plan](../plans/phase-4-customers.md)) |
-| 5. Deal status | `stage` and `outcome` beside `status`, written by `transitionOpportunity`. Every reader moves: aggregates, projections, reports, the closer pipeline. | Widen, dual-write, narrow | `opportunities.status` gone, and the stage list defined once in one module. | Next |
-| 6. Runtime cleanup | The runtime fixes from the review's F11: `tenantStats` counters into aggregates, the open loops in `adminStats` and the closer dashboard bounded, the unused indexes and dead fields dropped, one definition of "day" per screen. The activity report's summary counts from an aggregate instead of reading up to 10,000 events: Phase 2's touch events (about 1,000 a day) cut it off for ranges longer than about nine days. The lead gen conversion report's Deals column (Phase 3) counts from an aggregate keyed by worker and capture time, with its write hooks and backfill, instead of a bounded read of `dealAttributions`. The legacy `operationsMeetingDailyStats` table, which nothing writes since the meeting projections moved to `operationsMeetingStatsV2`, is dropped; Phase 3 cleared its attribution columns but kept its rows. Phase 4 leaves `paymentRecords.commissionable` always true and the non-commissionable origins `customer_direct` and `bookkeeper_direct` with no writer, so they are dropped as dead fields. | Narrow | No item from F11 open, and the activity summary and the Deals column count every row in their range. | |
+| 4. Customers | `enrollments`, one per person and program bought. Customer pages read person plus enrollments. The conversion email requirement goes away, and an admin payment for a new program goes through a new deal. | New table, then narrow `customers` | The copied contact fields gone from `customers`, and `recordCustomerPayment` retired. | Done, #153 to #160; #161 added the post-deploy log ([plan](../plans/phase-4-customers.md)) |
+| 5. Deal status | `stage` and `outcome` beside `status`, written by `transitionOpportunity`. Every reader moves: aggregates, projections, reports, the closer pipeline. | Widen, dual-write, narrow | `opportunities.status` and its seven copies gone, a stage and an outcome on every deal, and the stage list and the stage machine defined once in one module. | Done, #165 to #178 ([plan](../plans/phase-5-deal-status.md)) |
+| 6. Runtime cleanup | The runtime fixes from the review's F11: the `tenantStats` counters into aggregates (Phase 5 dropped the deal counters by status), the open loops in `adminStats` and the closer dashboard bounded, the unused indexes and dead fields dropped, one definition of "day" per screen. The activity report's summary counts from an aggregate instead of reading up to 10,000 events: Phase 2's touch events (about 1,000 a day) cut it off for ranges longer than about nine days. The lead gen conversion report's Deals column (Phase 3) counts from an aggregate keyed by worker and capture time, with its write hooks and backfill, instead of a bounded read of `dealAttributions`. The legacy `operationsMeetingDailyStats` table, which nothing writes since the meeting projections moved to `operationsMeetingStatsV2`, is dropped; Phase 3 cleared its attribution columns but kept its rows. Phase 4 leaves `paymentRecords.commissionable` always true and the non-commissionable origins `customer_direct` and `bookkeeper_direct` with no writer, so they are dropped as dead fields. Phase 5 leaves `opportunities.canceledAt` and `noShowAt`, copies of the meeting's times, dead too. The meeting records attendance as the target says: `completed` becomes held, the time a closer recorded the result gets its own field, and the marked no-shows lose their `completedAt`; that touches the `meetingsByStatus` aggregate, the meeting buckets, the show-rate reports, the calendar and the lifecycle's Showed. | Narrow | No item from F11 open, the activity summary and the Deals column count every row in their range, and a meeting is scheduled, held, no-show or canceled, with its recorded-at time. | Next |
 
-The split has to land before Phase 2, whose backfill matches prospects to leads by Instagram handle. Phase 1 has to land before Phase 2, or the leads report counts every capture as a new lead. Phases 4 and 5 can swap. Phase 6 runs last, because Phase 5 frees the status indexes it drops.
+The split has to land before Phase 2, whose backfill matches prospects to leads by Instagram handle. Phase 1 has to land before Phase 2, or the leads report counts every capture as a new lead. Phases 4 and 5 can swap. Phase 6 runs last, because it drops what the earlier phases leave dead, such as the legacy daily stats table and the deal's copies of the meeting's times.
 
 ### How a phase runs
 

@@ -16,9 +16,9 @@ import {
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
 import { insertDealTask } from "../../tests/dealStateFixtures";
 
-// assertDealStages from PR 9 (docs/plans/phase-5-deal-status.md §10.2), with
-// no status comparison, and backfillOpportunityByStage, on a deal at every
-// stage, written as the stage machine leaves it.
+// assertDealStages (docs/plans/phase-5-deal-status.md §10.2) and
+// backfillOpportunityByStage, on a deal at every stage, written as the stage
+// machine leaves it.
 
 afterEach(() => vi.useRealTimers());
 
@@ -75,35 +75,9 @@ async function seeded() {
 }
 
 describe("assertDealStages", () => {
-  it("passes on a deal at every stage, whatever status PR 8 left on it", async () => {
-    const { harness, ids } = await seeded();
+  it("passes on a deal at every stage", async () => {
+    const { harness } = await seeded();
     expect((await harness.run("assertDealStages"))?.error).toBeUndefined();
-
-    // A status that disagrees with the stage, as PR 8 left one before a PR 9
-    // move, is no problem: nothing reads it.
-    await harness.t.run(async (ctx) => {
-      // eslint-disable-next-line no-restricted-syntax -- the status PR 8 wrote, which PR 9 no longer reads
-      await ctx.db.patch("opportunities", ids.booked, { status: "follow_up_scheduled" });
-    });
-    expect((await harness.rerun("assertDealStages"))?.error).toBeUndefined();
-  });
-
-  it("names a deal with no stage", async () => {
-    const { harness, ids } = await seeded();
-    const leadId = await harness.t.run(async (ctx) => (await ctx.db.get("opportunities", ids.booked))!.leadId);
-    const bare = await harness.t.run((ctx) =>
-      ctx.db.insert("opportunities", {
-        tenantId: harness.tenantId,
-        leadId,
-        source: "calendly",
-        createdAt: 1_000,
-        updatedAt: 1_000,
-      }),
-    );
-
-    const error = (await harness.run("assertDealStages"))?.error;
-    expect(error).toContain(bare);
-    expect(error).toContain("has no stage or outcome");
   });
 
   it("accepts a side deal at Booked: the stage machine sets the pair", async () => {

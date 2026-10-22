@@ -1096,7 +1096,7 @@ async function paidDeal(
   enrollment: Fields<"enrollments"> | null = {},
 ) {
   const adminId = await userId(ctx, "user_admin");
-  const opportunityId = await insertOpportunity(ctx, tenantId, leadId, { status: "payment_received", source: "side_deal" });
+  const opportunityId = await insertOpportunity(ctx, tenantId, leadId, { stage: "closed", outcome: "won", source: "side_deal" });
   await ctx.db.insert("paymentRecords", {
     tenantId, opportunityId, attributedCloserId: adminId, recordedByUserId: adminId, commissionable: true,
     amountMinor: 50_000, currency: "USD", programId, programName: "Program", paymentType: "pif",
@@ -1305,7 +1305,7 @@ it("refuses a customer merge whose deals pass what the enrollments can be worked
     await paidDeal(ctx, tenantId, sourceLeadId, programA, PAID_EARLY);
     const targetLeadId = await insertLead(ctx, tenantId, { fullName: "Sam Target" });
     for (let index = 0; index < 100; index += 1) {
-      await insertOpportunity(ctx, tenantId, targetLeadId, { status: "lost" });
+      await insertOpportunity(ctx, tenantId, targetLeadId, { stage: "closed", outcome: "lost" });
     }
     return { sourceLeadId, targetLeadId };
   });
@@ -1329,7 +1329,7 @@ it("refuses a merge that would leave a customer target past the limit, even from
     const targetLeadId = await customer(ctx, tenantId, "Sam Target", PAID_EARLY);
     await paidDeal(ctx, tenantId, targetLeadId, programA, PAID_EARLY);
     for (let index = 0; index < 99; index += 1) {
-      await insertOpportunity(ctx, tenantId, targetLeadId, { status: "lost" });
+      await insertOpportunity(ctx, tenantId, targetLeadId, { stage: "closed", outcome: "lost" });
     }
     return { sourceLeadId, targetLeadId };
   });
@@ -1350,7 +1350,7 @@ it("previews a merge under the limit as allowed", async () => {
     await paidDeal(ctx, tenantId, sourceLeadId, programA, PAID_EARLY);
     const targetLeadId = await insertLead(ctx, tenantId, { fullName: "Sam Target" });
     for (let index = 0; index < 98; index += 1) {
-      await insertOpportunity(ctx, tenantId, targetLeadId, { status: "lost" });
+      await insertOpportunity(ctx, tenantId, targetLeadId, { stage: "closed", outcome: "lost" });
     }
     return { sourceLeadId, targetLeadId };
   });

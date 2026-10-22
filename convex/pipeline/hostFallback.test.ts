@@ -150,7 +150,7 @@ it.each(paths.flatMap((path) => [
       : path === "slack_qualified" ? "qualified_pending" : "follow_up_scheduled";
     const source = path === "slack_qualified" ? "slack_qualified" : "calendly";
     await forceOpportunityState(ctx, opportunityId, {
-      status, source,
+      source,
       ...writtenBesideStatus(status, source),
       updatedAt: Date.parse("2026-10-01T09:30:00Z"),
     });

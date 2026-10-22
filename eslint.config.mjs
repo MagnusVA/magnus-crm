@@ -64,19 +64,11 @@ const eslintConfig = defineConfig([
   },
   {
     // A deal's stage and outcome change only through transitionOpportunity,
-    // which validates the move and owns its events and projections. Nothing
-    // writes the old status; only its clear (migrations.ts, clearDealStatus)
-    // disables the rule, with a comment.
+    // which validates the move and owns its events and projections.
     files: ["convex/**/*.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
-        {
-          selector:
-            "CallExpression[callee.property.name=/^(patch|replace)$/][arguments.0.value='opportunities'] > ObjectExpression > Property:matches([key.name='status'], [key.value='status'])",
-          message:
-            "Change an opportunity's status with transitionOpportunity (convex/lib/opportunityActivity.ts).",
-        },
         {
           selector:
             "CallExpression[callee.property.name=/^(patch|replace)$/][arguments.0.value='opportunities'] > ObjectExpression > Property:matches([key.name=/^(stage|outcome)$/], [key.value=/^(stage|outcome)$/])",

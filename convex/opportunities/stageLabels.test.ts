@@ -49,10 +49,6 @@ describe("a deal's label", () => {
     expect(dealPositionLabel(fields.position, fields.systemLoss)).toBe(label);
   });
 
-  it("refuses a deal with no stored stage: it never reads the status", () => {
-    expect(() => dealLabelOf({ source: "side_deal" })).toThrow("Deal has no stage or outcome");
-  });
-
   it("shows the Slack expiry as a system loss", () => {
     const expired = deal("lost", "slack_qualified", { lostReason: "stale" });
     expect(systemLossOf(expired)).toBe("stale");

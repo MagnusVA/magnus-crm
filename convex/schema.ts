@@ -22,7 +22,6 @@ import {
 import {
   slackQualificationResultKindValidator,
 } from "./operations/validators";
-import { opportunityStatusValidator } from "./opportunities/validators";
 import { dealOutcomeValidator, dealStageValidator } from "./opportunities/stages";
 import { portalPasswordHashParamsValidator } from "./lib/linkPortal/validators";
 import { leadTypeValidator } from "./lib/leadType";
@@ -885,27 +884,11 @@ export default defineSchema({
     hostCalendlyEmail: v.optional(v.string()),
     hostCalendlyName: v.optional(v.string()),
     eventTypeConfigId: v.optional(v.id("eventTypeConfigs")),
-    // The old status. Nothing reads or writes it from PR 9; clearDealStatus
-    // unsets it and the narrow drops it (docs/plans/phase-5-deal-status.md
-    // §3.3, §10.6).
-    status: v.optional(
-      v.union(
-        v.literal("qualified_pending"),
-        v.literal("scheduled"),
-        v.literal("payment_received"),
-        v.literal("follow_up_scheduled"),
-        v.literal("reschedule_link_sent"),
-        v.literal("lost"),
-        v.literal("canceled"),
-        v.literal("no_show"),
-      ),
-    ),
-    // The deal stage and outcome (convex/opportunities/stages.ts); optional
-    // until the narrow (docs/plans/phase-5-deal-status.md §3.1, §3.3). Only
+    // The deal stage and outcome (convex/opportunities/stages.ts). Only
     // transitionOpportunity, through the stage machine, and the inserts
-    // write them.
-    stage: v.optional(dealStageValidator),
-    outcome: v.optional(dealOutcomeValidator),
+    // write them (docs/plans/phase-5-deal-status.md §4).
+    stage: dealStageValidator,
+    outcome: dealOutcomeValidator,
     // Widened for side-deals rollout. Undefined legacy rows normalize to
     // "calendly" until the production backfill is verified and schema narrows.
     source: v.optional(
@@ -979,13 +962,6 @@ export default defineSchema({
     .index("by_tenantId", ["tenantId"])
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: lead views take the newest opportunities first
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
-    .index("by_tenantId_and_leadId_and_source_and_status_and_createdAt", [
-      "tenantId",
-      "leadId",
-      "source",
-      "status",
-      "createdAt",
-    ])
     .index("by_tenantId_and_potentialDuplicateLeadId", [
       "tenantId",
       "potentialDuplicateLeadId",
@@ -995,20 +971,9 @@ export default defineSchema({
       "eventTypeConfigId",
     ])
     .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
-    .index("by_tenantId_and_status_and_createdAt", [
-      "tenantId",
-      "status",
-      "createdAt",
-    ])
     .index("by_tenantId_and_assignedCloserId_and_createdAt", [
       "tenantId",
       "assignedCloserId",
-      "createdAt",
-    ])
-    .index("by_tenantId_and_assignedCloserId_and_status_and_createdAt", [
-      "tenantId",
-      "assignedCloserId",
-      "status",
       "createdAt",
     ])
     .index("by_tenantId_and_manualCreationKey", [
@@ -1020,24 +985,8 @@ export default defineSchema({
       "source",
       "createdAt",
     ])
-    .index("by_tenantId_and_source_and_status_and_createdAt", [
-      "tenantId",
-      "source",
-      "status",
-      "createdAt",
-    ])
-    .index("by_source_and_status_and_createdAt", [
-      "source",
-      "status",
-      "createdAt",
-    ])
     .index("by_tenantId_and_latestActivityAt", [
       "tenantId",
-      "latestActivityAt",
-    ])
-    .index("by_tenantId_and_status_and_latestActivityAt", [
-      "tenantId",
-      "status",
       "latestActivityAt",
     ])
     .index("by_tenantId_and_source_and_latestActivityAt", [
@@ -1045,21 +994,9 @@ export default defineSchema({
       "source",
       "latestActivityAt",
     ])
-    .index("by_tenantId_and_source_and_status_and_latestActivityAt", [
-      "tenantId",
-      "source",
-      "status",
-      "latestActivityAt",
-    ])
     .index("by_tenantId_and_assignedCloserId_and_latestActivityAt", [
       "tenantId",
       "assignedCloserId",
-      "latestActivityAt",
-    ])
-    .index("by_tenantId_and_assignedCloserId_and_status_and_latestActivityAt", [
-      "tenantId",
-      "assignedCloserId",
-      "status",
       "latestActivityAt",
     ])
     .index("by_tenantId_and_assignedCloserId_and_source_and_latestActivityAt", [
@@ -1068,16 +1005,6 @@ export default defineSchema({
       "source",
       "latestActivityAt",
     ])
-    .index(
-      "by_tenantId_assignedCloserId_source_status_latestActivityAt",
-      [
-        "tenantId",
-        "assignedCloserId",
-        "source",
-        "status",
-        "latestActivityAt",
-      ],
-    )
     .index("by_tenantId_and_source_and_qualifiedAt", [
       "tenantId",
       "source",
@@ -1094,10 +1021,9 @@ export default defineSchema({
       "qualifiedAt",
     ])
     .index("by_tenantId_and_firstMeetingAt", ["tenantId", "firstMeetingAt"])
-    // The stage indexes the moved readers use; each replaces a status index
-    // the narrow drops (docs/plans/phase-5-deal-status.md §3.1). Two drop
-    // the "_and_"s, as by_tenantId_assignedCloserId_source_status_... does,
-    // since Convex caps an index name at 64 characters.
+    // The stage indexes, each in place of a status index
+    // (docs/plans/phase-5-deal-status.md §3.1). Two drop the "_and_"s, since
+    // Convex caps an index name at 64 characters.
     .index("by_tenantId_leadId_source_stage_outcome_createdAt", [
       "tenantId",
       "leadId",
@@ -1126,8 +1052,7 @@ export default defineSchema({
       "outcome",
       "createdAt",
     ])
-    // Losses read from their activity, as the status index does: the Slack
-    // expiry keeps a deal's earlier activity time, so its losses drop out of
+    // Losses read from their activity: the Slack expiry keeps a deal's earlier activity time, so its losses drop out of
     // a recent range (docs/plans/phase-5-deal-status.md §3.1).
     .index("by_tenantId_and_stage_and_outcome_and_latestActivityAt", [
       "tenantId",
@@ -1145,21 +1070,6 @@ export default defineSchema({
       v.literal("calendly"),
       v.literal("side_deal"),
       v.literal("slack_qualified"),
-    ),
-    // The deal's old status. Nothing writes it from PR 9;
-    // clearOpportunitySearchStatus unsets it (docs/plans/phase-5-deal-status.md
-    // §3.3, §4.8).
-    status: v.optional(
-      v.union(
-        v.literal("qualified_pending"),
-        v.literal("scheduled"),
-        v.literal("payment_received"),
-        v.literal("follow_up_scheduled"),
-        v.literal("reschedule_link_sent"),
-        v.literal("lost"),
-        v.literal("canceled"),
-        v.literal("no_show"),
-      ),
     ),
     latestActivityAt: v.number(),
     activityDayKey: v.string(),
@@ -1179,7 +1089,6 @@ export default defineSchema({
       filterFields: [
         "tenantId",
         "source",
-        "status",
         "assignedCloserId",
         "activityDayKey",
         "activityWeekKey",
@@ -1284,10 +1193,6 @@ export default defineSchema({
     slackUserId: v.string(),
     slackTeamId: v.string(),
     resultKind: slackQualificationResultKindValidator,
-    // The deal's old status: nothing writes it from Phase 5 PR 9, and
-    // clearQualificationRowStatus unsets it (docs/plans/phase-5-deal-status.md
-    // §10.6).
-    opportunityStatus: v.optional(opportunityStatusValidator),
     // The deal's stage and outcome (docs/plans/phase-5-deal-status.md §3.2);
     // unset with no deal.
     dealStage: v.optional(dealStageValidator),
@@ -1307,11 +1212,6 @@ export default defineSchema({
   })
     .index("by_qualificationEventId", ["qualificationEventId"])
     .index("by_tenantId_and_qualifiedAt", ["tenantId", "qualifiedAt"])
-    .index("by_tenantId_and_opportunityStatus_and_qualifiedAt", [
-      "tenantId",
-      "opportunityStatus",
-      "qualifiedAt",
-    ])
     .index("by_tenantId_and_dealStage_and_dealOutcome_and_qualifiedAt", [
       "tenantId",
       "dealStage",
@@ -1358,7 +1258,6 @@ export default defineSchema({
       searchField: "searchText",
       filterFields: [
         "tenantId",
-        "opportunityStatus",
         "dealStage",
         "dealOutcome",
         "bookingProgramId",
@@ -1414,10 +1313,6 @@ export default defineSchema({
     bookingProgramMappingStatus: v.optional(bookingProgramMappingStatusValidator),
     soldProgramId: v.optional(v.id("tenantPrograms")),
     soldProgramName: v.optional(v.string()),
-    // The deal's old status: nothing writes it from Phase 5 PR 9, and
-    // clearMeetingOpportunityStatus unsets it (docs/plans/phase-5-deal-status.md
-    // §10.6).
-    opportunityStatus: v.optional(opportunityStatusValidator),
     // The booking's own record of whether its UTMs matched the registry. Its
     // team and DM closer credit is the booking's dealAttributions rows
     // (docs/plans/phase-3-attribution.md §3.3).
@@ -1519,11 +1414,6 @@ export default defineSchema({
       "tenantId",
       "soldProgramId",
       "scheduledAt",
-    ])
-    .index("by_tenantId_and_opportunityStatus_and_scheduledAt", [
-      "tenantId",
-      "opportunityStatus",
-      "scheduledAt",
     ]),
 
   operationsMeetingDailyStats: defineTable({
@@ -1532,9 +1422,6 @@ export default defineSchema({
     assignedCloserId: v.id("users"),
     bookingProgramId: v.optional(v.id("tenantPrograms")),
     soldProgramId: v.optional(v.id("tenantPrograms")),
-    // Nothing writes this legacy table; clearLegacyDailyStatsStatus unsets
-    // the copy (docs/plans/phase-5-deal-status.md §10.6).
-    opportunityStatus: v.optional(opportunityStatusValidator),
     meetingStatus: v.union(
       v.literal("scheduled"),
       v.literal("completed"),
@@ -2035,12 +1922,6 @@ export default defineSchema({
     totalTeamMembers: v.number(),
     totalClosers: v.number(),
     totalOpportunities: v.number(),
-    // The deal counters by status (D13). Nothing writes them from Phase 5 PR
-    // 9; clearTenantStatusCounters unsets them and the narrow drops them
-    // (docs/plans/phase-5-deal-status.md §3.3, §10.6).
-    activeOpportunities: v.optional(v.number()),
-    wonDeals: v.optional(v.number()),
-    lostDeals: v.optional(v.number()),
     totalRevenueMinor: v.number(),
     totalCommissionableFinalRevenueMinor: v.optional(v.number()),
     totalCommissionableDepositRevenueMinor: v.optional(v.number()),
