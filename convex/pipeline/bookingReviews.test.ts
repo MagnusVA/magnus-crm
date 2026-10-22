@@ -8,6 +8,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
+import { writtenBesideStatus } from "../../tests/bookingRuleFixtures";
 import { buildBookingReviewNotification } from "../lib/slackBlockKit";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 
@@ -130,6 +131,7 @@ async function seedPerson(
         leadId,
         status: "qualified_pending",
         source: "slack_qualified",
+        ...writtenBesideStatus("qualified_pending", "slack_qualified"),
         qualifiedBy: { slackUserId: "U_SETTER", slackTeamId: "T1", submittedAt: at },
         createdAt: at,
         updatedAt: at,

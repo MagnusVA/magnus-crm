@@ -21,6 +21,7 @@ import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { bookingHarness, mapEventTypeToProgram } from "../../tests/bookingHarness";
 import { adoptRawDelivery } from "./receipts";
+import { writtenBesideStatus } from "../../tests/bookingRuleFixtures";
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
 import { transitionOpportunity } from "../lib/opportunityActivity";
 
@@ -400,7 +401,8 @@ it("a non-closer booking's early cancellation settles once the booking attaches 
   await h.deliver("invitee.created", first, "2026-10-08T04:27:44Z");
   const { opportunityId } = await h.receipt("invitee.created", first);
   await h.t.run((ctx) => forceOpportunityState(ctx, opportunityId!, {
-    status: "follow_up_scheduled", updatedAt: Date.parse("2026-10-09T21:00:00Z"),
+    status: "follow_up_scheduled", ...writtenBesideStatus("follow_up_scheduled", "calendly"),
+    updatedAt: Date.parse("2026-10-09T21:00:00Z"),
   }));
 
   // The follow-up is booked on an admin's calendar and canceled; the cancel is processed first.
