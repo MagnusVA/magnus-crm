@@ -1,6 +1,10 @@
 import { Migrations } from "@convex-dev/migrations";
 import { v } from "convex/values";
-import { internalMutation, type MutationCtx } from "./_generated/server";
+import {
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+} from "./_generated/server";
 import { adoptRawDelivery, deliveryMetadata } from "./pipeline/receipts";
 import {
   DISMISSED_REASON,
@@ -52,6 +56,17 @@ import {
   sameTouch,
   type TouchSnapshot,
 } from "./lib/touches";
+import {
+  DEAL_POSITIONS,
+  isAllowedStageOutcome,
+  isSystemLossReason,
+  missedMeetingLossReason,
+  stageForStatus,
+  stageOfPosition,
+  type DealPosition,
+} from "./opportunities/stages";
+import type { OpportunityStatus } from "./lib/statusTransitions";
+import { opportunityByStage, opportunityByStatus } from "./reporting/aggregates";
 
 export const migrations = new Migrations<DataModel>(components.migrations);
 
@@ -900,5 +915,218 @@ export const assertCancelRescheduledFlags = migrations.define({
     if (fact && fact.rescheduled !== true) {
       throw new Error(`Raw event ${raw._id}: cancel fact ${fact._id} has no rescheduled flag`);
     }
+  },
+});
+
+// Phase 5 (docs/plans/phase-5-deal-status.md §10). After PR 1 deploys, in
+// this order, each dry run first:
+//   1. backfillDealStages, then assertDealStages (§10.1, §10.2)
+//   2. backfillOpportunityByStage, then the verifyStageCounts query for the
+//      tenant (§10.1)
+// assertDealStages stays as a health check; rerun it with "reset" at any
+// time. Nothing here emits an event or moves a person's stage.
+
+/**
+ * When a missed meeting happened, for a deal from before the dual write: the
+ * deal's own time, else its latest meeting's, else its last update.
+ */
+async function missedMeetingTime(
+  ctx: MutationCtx,
+  deal: Doc<"opportunities">,
+  reason: "canceled" | "no_show",
+): Promise<number> {
+  const dealTime = reason === "canceled" ? deal.canceledAt : deal.noShowAt;
+  if (dealTime !== undefined) return dealTime;
+  const meeting = deal.latestMeetingId
+    ? await ctx.db.get("meetings", deal.latestMeetingId)
+    : null;
+  const meetingTime =
+    reason === "canceled" ? meeting?.canceledAt : meeting?.noShowMarkedAt;
+  return meetingTime ?? deal.updatedAt;
+}
+
+// Writes each deal's stage and outcome from its status, and closes a
+// canceled or no-show deal as lost with its reason and time (§4.2). It
+// patches directly, keeping updatedAt and latestActivityAt, so no booking
+// rule moves; the stage aggregate's key already reads the mapped stage, and
+// nothing else reads the fields yet. A rerun changes nothing.
+export const backfillDealStages = migrations.define({
+  table: "opportunities",
+  batchSize: 200,
+  migrateOne: async (ctx, deal) => {
+    const { stage, outcome } = stageForStatus(deal.status, deal.source);
+    const reason = missedMeetingLossReason(deal.status);
+    // A reason already there is kept, even a different one, for the assert
+    // to report; a missing time is filled either way.
+    const loss =
+      reason && deal.lostReason === undefined
+        ? { lostReason: reason, lostAt: await missedMeetingTime(ctx, deal, reason) }
+        : reason && deal.lostReason === reason && deal.lostAt === undefined
+          ? { lostAt: await missedMeetingTime(ctx, deal, reason) }
+          : {};
+    if (deal.stage === stage && deal.outcome === outcome && Object.keys(loss).length === 0) {
+      return;
+    }
+    // eslint-disable-next-line no-restricted-syntax -- the backfill writes what transitionOpportunity writes, without its side effects
+    await ctx.db.patch("opportunities", deal._id, { stage, outcome, ...loss });
+  },
+});
+
+// Far above the reschedule links one deal gets; past it the assert stops.
+const RESCHEDULE_LINK_SCAN = 10;
+
+/** A lost reason in an assert's message: a system code, never a person's text. */
+function describeLostReason(reason: string | undefined): string {
+  if (reason === undefined) return "no reason";
+  return isSystemLossReason(reason) ? `the reason ${reason}` : "a free-text reason";
+}
+
+// Each deal's stage and outcome are set, allowed, and what its status maps
+// to; a canceled or no-show deal has the matching reason; a loss the system
+// wrote has no person; and a Follow-up deal has at most one pending
+// reschedule link (§10.2). Throws on the first problem, with IDs only.
+export const assertDealStages = migrations.define({
+  table: "opportunities",
+  batchSize: 200,
+  migrateOne: async (ctx, deal) => {
+    const fail = (problem: string) => new Error(`Opportunity ${deal._id} ${problem}`);
+    const { stage, outcome } = deal;
+    if (stage === undefined || outcome === undefined) {
+      throw fail("has no stage or outcome");
+    }
+    if (!isAllowedStageOutcome(stage, outcome)) {
+      throw fail(`has stage "${stage}", which doesn't allow outcome "${outcome}"`);
+    }
+    const expected = stageForStatus(deal.status, deal.source);
+    if (stage !== expected.stage || outcome !== expected.outcome) {
+      throw fail(
+        `is ${stage}/${outcome}, expected ${expected.stage}/${expected.outcome} for ${deal.status}`,
+      );
+    }
+    const missedReason = missedMeetingLossReason(deal.status);
+    if (missedReason && deal.lostReason !== missedReason) {
+      throw fail(`is ${deal.status} and has ${describeLostReason(deal.lostReason)}, expected ${missedReason}`);
+    }
+    if (missedReason && deal.lostAt === undefined) {
+      throw fail(`is ${deal.status} and has no lostAt`);
+    }
+    if (isSystemLossReason(deal.lostReason) && deal.lostByUserId !== undefined) {
+      throw fail(`has the system's reason ${deal.lostReason} and lostByUserId ${deal.lostByUserId}`);
+    }
+    if (stage === "follow_up") {
+      const pending = await ctx.db
+        .query("followUps")
+        .withIndex("by_opportunityId_and_status_and_reason", (q) =>
+          q.eq("opportunityId", deal._id).eq("status", "pending").eq("reason", "no_show_follow_up"),
+        )
+        .take(RESCHEDULE_LINK_SCAN);
+      const links = pending.filter((followUp) => followUp.type === "scheduling_link");
+      if (links.length > 1) {
+        throw fail(`has ${links.length} pending reschedule links`);
+      }
+    }
+  },
+});
+
+// Enters every deal in opportunityByStage, as reporting/backfill.ts does for
+// opportunityByStatus. Idempotent.
+export const backfillOpportunityByStage = migrations.define({
+  table: "opportunities",
+  batchSize: 200,
+  migrateOne: async (ctx, deal) => {
+    await opportunityByStage.insertIfDoesNotExist(ctx, deal);
+  },
+});
+
+// Which statuses each position holds, to check opportunityByStage against
+// opportunityByStatus. opportunityByStatus can't split scheduled by source,
+// so Booked and Call held (the scheduled side deals) are checked together.
+const STAGE_COUNT_CHECKS: {
+  positions: DealPosition[];
+  statuses: OpportunityStatus[];
+}[] = [
+  { positions: ["qualified"], statuses: ["qualified_pending"] },
+  { positions: ["booked", "call_held"], statuses: ["scheduled"] },
+  { positions: ["follow_up"], statuses: ["follow_up_scheduled", "reschedule_link_sent"] },
+  { positions: ["won"], statuses: ["payment_received"] },
+  { positions: ["lost"], statuses: ["lost", "canceled", "no_show"] },
+];
+
+const dealPositionValidator = v.union(
+  v.literal("qualified"),
+  v.literal("booked"),
+  v.literal("call_held"),
+  v.literal("follow_up"),
+  v.literal("won"),
+  v.literal("lost"),
+);
+
+const countMatchValidator = {
+  byStage: v.number(),
+  byStatus: v.number(),
+  match: v.boolean(),
+};
+
+/**
+ * Read-only: each position's count in opportunityByStage against its
+ * statuses' counts in opportunityByStatus, and the two totals (§10.1). Run it
+ * after backfillOpportunityByStage; `ok` is true when every count agrees.
+ */
+export const verifyStageCounts = internalQuery({
+  args: { tenantId: v.id("tenants") },
+  returns: v.object({
+    stageCounts: v.object({
+      qualified: v.number(),
+      booked: v.number(),
+      call_held: v.number(),
+      follow_up: v.number(),
+      won: v.number(),
+      lost: v.number(),
+    }),
+    checks: v.array(
+      v.object({
+        positions: v.array(dealPositionValidator),
+        statuses: v.array(v.string()),
+        ...countMatchValidator,
+      }),
+    ),
+    total: v.object(countMatchValidator),
+    ok: v.boolean(),
+  }),
+  handler: async (ctx, { tenantId }) => {
+    const positionCounts = await opportunityByStage.countBatch(
+      ctx,
+      DEAL_POSITIONS.map((position) => {
+        const { stage, outcome } = stageOfPosition(position);
+        return { namespace: tenantId, bounds: { prefix: [stage, outcome] } };
+      }),
+    );
+    const stageCounts = Object.fromEntries(
+      DEAL_POSITIONS.map((position, index) => [position, positionCounts[index] ?? 0]),
+    ) as Record<DealPosition, number>;
+
+    const allStatuses = STAGE_COUNT_CHECKS.flatMap((check) => check.statuses);
+    const statusCountList = await opportunityByStatus.countBatch(
+      ctx,
+      allStatuses.map((status) => ({ namespace: tenantId, bounds: { prefix: [status] } })),
+    );
+    const statusCounts = new Map(
+      allStatuses.map((status, index) => [status, statusCountList[index] ?? 0]),
+    );
+
+    const checks = STAGE_COUNT_CHECKS.map(({ positions, statuses }) => {
+      const byStage = positions.reduce((sum, position) => sum + stageCounts[position], 0);
+      const byStatus = statuses.reduce((sum, status) => sum + (statusCounts.get(status) ?? 0), 0);
+      return { positions, statuses, byStage, byStatus, match: byStage === byStatus };
+    });
+    const totalByStage = await opportunityByStage.count(ctx, { namespace: tenantId });
+    const totalByStatus = await opportunityByStatus.count(ctx, { namespace: tenantId });
+    const total = { byStage: totalByStage, byStatus: totalByStatus, match: totalByStage === totalByStatus };
+    return {
+      stageCounts,
+      checks,
+      total,
+      ok: total.match && checks.every((check) => check.match),
+    };
   },
 });

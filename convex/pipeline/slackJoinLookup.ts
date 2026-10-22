@@ -1,4 +1,5 @@
 import { blockBooking } from "./blocked";
+import { SYSTEM_LOSS_REASONS } from "../opportunities/stages";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 
@@ -14,7 +15,7 @@ export const SLACK_JOIN_LOOKBACK_MS = 30 * 24 * 60 * 60 * 1000;
  * day keeps it in the 8am stale digest before it closes.
  */
 export const SLACK_OPPORTUNITY_EXPIRY_MS = SLACK_JOIN_LOOKBACK_MS + 24 * 60 * 60 * 1000;
-export const SLACK_STALE_LOST_REASON = "stale";
+export const SLACK_STALE_LOST_REASON = SYSTEM_LOSS_REASONS.stale;
 
 /**
  * True when the stale expiry closed this opportunity after `referenceTime`.

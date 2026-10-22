@@ -253,6 +253,7 @@ import type * as opportunities_detailQuery from "../opportunities/detailQuery.js
 import type * as opportunities_listQueries from "../opportunities/listQueries.js";
 import type * as opportunities_maintenance from "../opportunities/maintenance.js";
 import type * as opportunities_queries from "../opportunities/queries.js";
+import type * as opportunities_stages from "../opportunities/stages.js";
 import type * as opportunities_staleness from "../opportunities/staleness.js";
 import type * as opportunities_validators from "../opportunities/validators.js";
 import type * as pipeline_blocked from "../pipeline/blocked.js";
@@ -623,6 +624,7 @@ declare const fullApi: ApiFromModules<{
   "opportunities/listQueries": typeof opportunities_listQueries;
   "opportunities/maintenance": typeof opportunities_maintenance;
   "opportunities/queries": typeof opportunities_queries;
+  "opportunities/stages": typeof opportunities_stages;
   "opportunities/staleness": typeof opportunities_staleness;
   "opportunities/validators": typeof opportunities_validators;
   "pipeline/blocked": typeof pipeline_blocked;
@@ -777,6 +779,7 @@ export declare const components: {
   meetingsByStatus: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"meetingsByStatus">;
   paymentSums: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"paymentSums">;
   opportunityByStatus: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"opportunityByStatus">;
+  opportunityByStage: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"opportunityByStage">;
   leadStageEntries: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"leadStageEntries">;
   prospectConversions: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"prospectConversions">;
   slackQualificationsByUser: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"slackQualificationsByUser">;

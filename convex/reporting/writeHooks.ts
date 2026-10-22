@@ -21,6 +21,7 @@ import {
 import {
   isSlackQualificationAggregateEligible,
   meetingsByStatus,
+  opportunityByStage,
   opportunityByStatus,
   paymentSums,
   slackQualificationsByTime,
@@ -121,6 +122,8 @@ export async function insertOpportunityAggregate(
 ): Promise<Doc<"opportunities">> {
   const opportunity = await getOpportunityOrThrow(ctx, opportunityId);
   await opportunityByStatus.insert(ctx, opportunity);
+  // The IfExists methods until the stage backfill is verified (aggregates.ts).
+  await opportunityByStage.insertIfDoesNotExist(ctx, opportunity);
   if (isSlackQualificationAggregateEligible(opportunity)) {
     await slackQualificationsByUser.insert(ctx, opportunity);
     await slackQualificationsByTime.insert(ctx, opportunity);
@@ -141,6 +144,7 @@ export async function replaceOpportunityAggregate(
 ): Promise<Doc<"opportunities">> {
   const opportunity = await getOpportunityOrThrow(ctx, opportunityId);
   await opportunityByStatus.replace(ctx, oldOpportunity, opportunity);
+  await opportunityByStage.replaceOrInsert(ctx, oldOpportunity, opportunity);
 
   const oldEligible = isSlackQualificationAggregateEligible(oldOpportunity);
   const nextEligible = isSlackQualificationAggregateEligible(opportunity);
@@ -180,6 +184,7 @@ export async function deleteOpportunityAggregate(
   oldOpportunity: Doc<"opportunities">,
 ): Promise<void> {
   await opportunityByStatus.deleteIfExists(ctx, oldOpportunity);
+  await opportunityByStage.deleteIfExists(ctx, oldOpportunity);
   if (isSlackQualificationAggregateEligible(oldOpportunity)) {
     await slackQualificationsByUser.deleteIfExists(ctx, oldOpportunity);
     await slackQualificationsByTime.deleteIfExists(ctx, oldOpportunity);

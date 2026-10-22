@@ -15,6 +15,7 @@ import {
 } from "../lib/opportunityActivity";
 import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
 import { validateTransition } from "../lib/statusTransitions";
+import { stageForStatus } from "../opportunities/stages";
 import { extractUtmParams } from "../lib/utmParams";
 import { clampUtmValue } from "../lib/attribution/normalize";
 import {
@@ -1665,6 +1666,7 @@ export const process = internalMutation({
 				eventTypeConfigId,
 				status: "scheduled",
 				source: "calendly",
+				...stageForStatus("scheduled", "calendly"),
 				calendlyEventUri,
 				createdAt: now,
 				updatedAt: now,

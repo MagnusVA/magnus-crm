@@ -12,6 +12,10 @@ import { StatusBadge } from "@/components/status-badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { api } from "@/convex/_generated/api";
+import {
+	isSystemLossReason,
+	SYSTEM_LOSS_REASON_LABELS,
+} from "@/convex/opportunities/stages";
 import { TruncatingTooltip } from "../../_components/entity-ui-tooltips";
 import {
 	formatDate,
@@ -137,7 +141,9 @@ export function OpportunitySheetSummary({
 					<div className="flex flex-col gap-1 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm">
 						<MicroLabel className="text-destructive">Lost reason</MicroLabel>
 						<p className="wrap-break-word whitespace-pre-wrap" translate="no">
-							{opportunity.lostReason}
+							{isSystemLossReason(opportunity.lostReason)
+								? SYSTEM_LOSS_REASON_LABELS[opportunity.lostReason]
+								: opportunity.lostReason}
 						</p>
 					</div>
 				) : null}
