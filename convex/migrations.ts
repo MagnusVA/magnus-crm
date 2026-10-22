@@ -64,9 +64,9 @@ import {
   stageForStatus,
   stageOfPosition,
   type DealPosition,
+  LEGACY_STATUS_GROUPS,
 } from "./opportunities/stages";
 import { legacyStatus, loadPendingRescheduleLink } from "./opportunities/dealState";
-import type { OpportunityStatus } from "./lib/statusTransitions";
 import { opportunityByStage, opportunityByStatus } from "./reporting/aggregates";
 
 export const migrations = new Migrations<DataModel>(components.migrations);
@@ -1047,20 +1047,6 @@ export const backfillOpportunityByStage = migrations.define({
   },
 });
 
-// Which statuses each position holds, to check opportunityByStage against
-// opportunityByStatus. opportunityByStatus can't split scheduled by source,
-// so Booked and Call held (the scheduled side deals) are checked together.
-const STAGE_COUNT_CHECKS: {
-  positions: DealPosition[];
-  statuses: OpportunityStatus[];
-}[] = [
-  { positions: ["qualified"], statuses: ["qualified_pending"] },
-  { positions: ["booked", "call_held"], statuses: ["scheduled"] },
-  { positions: ["follow_up"], statuses: ["follow_up_scheduled", "reschedule_link_sent"] },
-  { positions: ["won"], statuses: ["payment_received"] },
-  { positions: ["lost"], statuses: ["lost", "canceled", "no_show"] },
-];
-
 const dealPositionValidator = v.union(
   v.literal("qualified"),
   v.literal("booked"),
@@ -1114,7 +1100,7 @@ export const verifyStageCounts = internalQuery({
       DEAL_POSITIONS.map((position, index) => [position, positionCounts[index] ?? 0]),
     ) as Record<DealPosition, number>;
 
-    const allStatuses = STAGE_COUNT_CHECKS.flatMap((check) => check.statuses);
+    const allStatuses = LEGACY_STATUS_GROUPS.flatMap((check) => check.statuses);
     const statusCountList = await opportunityByStatus.countBatch(
       ctx,
       allStatuses.map((status) => ({ namespace: tenantId, bounds: { prefix: [status] } })),
@@ -1123,7 +1109,7 @@ export const verifyStageCounts = internalQuery({
       allStatuses.map((status, index) => [status, statusCountList[index] ?? 0]),
     );
 
-    const checks = STAGE_COUNT_CHECKS.map(({ positions, statuses }) => {
+    const checks = LEGACY_STATUS_GROUPS.map(({ positions, statuses }) => {
       const byStage = positions.reduce((sum, position) => sum + stageCounts[position], 0);
       const byStatus = statuses.reduce((sum, status) => sum + (statusCounts.get(status) ?? 0), 0);
       return { positions, statuses, byStage, byStatus, match: byStage === byStatus };

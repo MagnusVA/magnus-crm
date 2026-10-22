@@ -1,6 +1,5 @@
 import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
-import type { OpportunityStatus } from "../lib/statusTransitions";
 import { legacyStatus, loadPendingRescheduleLink } from "./dealState";
 import {
   DEAL_POSITIONS,
@@ -8,6 +7,7 @@ import {
   isAllowedStageOutcome,
   stageOfPosition,
   type DealPosition,
+  LEGACY_STATUS_GROUPS,
 } from "./stages";
 import { opportunityStatusValidator } from "./validators";
 import {
@@ -99,20 +99,6 @@ export const compareDealState = internalQuery({
 // through the row's dealStage and dealOutcome, against the statuses each
 // position holds, through opportunityStatus.
 // ---------------------------------------------------------------------------
-
-// The statuses each position holds. A scheduled side deal is Call held, and
-// a row doesn't carry the source, so Booked and Call held are checked
-// together against scheduled.
-const QUALIFICATION_QUEUE_CHECKS: {
-  positions: DealPosition[];
-  statuses: OpportunityStatus[];
-}[] = [
-  { positions: ["qualified"], statuses: ["qualified_pending"] },
-  { positions: ["booked", "call_held"], statuses: ["scheduled"] },
-  { positions: ["follow_up"], statuses: ["follow_up_scheduled", "reschedule_link_sent"] },
-  { positions: ["won"], statuses: ["payment_received"] },
-  { positions: ["lost"], statuses: ["lost", "canceled", "no_show"] },
-];
 
 // Fourteen index reads (six positions, eight statuses) of at most this many
 // rows each stay well under a query's document and byte limits.
@@ -230,7 +216,7 @@ export const compareQualificationQueue = internalQuery({
       DEAL_POSITIONS.map((position, index) => [position, positionCountList[index]]),
     );
 
-    const statuses = QUALIFICATION_QUEUE_CHECKS.flatMap((check) => check.statuses);
+    const statuses = LEGACY_STATUS_GROUPS.flatMap((check) => check.statuses);
     const statusCountList = await Promise.all(
       statuses.map((status) =>
         countQueueRows(
@@ -251,7 +237,7 @@ export const compareQualificationQueue = internalQuery({
       statuses.map((status, index) => [status, statusCountList[index]]),
     );
 
-    const checks = QUALIFICATION_QUEUE_CHECKS.map(({ positions, statuses: covered }) => {
+    const checks = LEGACY_STATUS_GROUPS.map(({ positions, statuses: covered }) => {
       const byStage = sumQueueCounts(positions.map((position) => positionCounts.get(position)));
       const byStatus = sumQueueCounts(covered.map((status) => statusCounts.get(status)));
       const truncated = byStage.truncated || byStatus.truncated;

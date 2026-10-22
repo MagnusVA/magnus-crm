@@ -8,7 +8,6 @@ import {
   countStripByStatus,
   readCloserMeetingDeals,
 } from "../closer/dashboard";
-import type { OpportunityStatus } from "../lib/statusTransitions";
 import { assertValidDateRange } from "../reporting/lib/helpers";
 import { isPersonLoss } from "../reporting/lib/outcomeDerivation";
 import {
@@ -44,7 +43,7 @@ import {
   readTeamOutcomeInputs,
   type OutcomeCounts,
 } from "../reporting/teamOutcomes";
-import { dealPosition, dealStageOf, type DealPosition } from "./stages";
+import { LEGACY_STATUS_GROUPS, dealPosition, dealStageOf, type DealPosition } from "./stages";
 import { opportunityStatusValidator } from "./validators";
 
 // The report numbers both ways, for the parity queries in stageParity.ts
@@ -111,21 +110,8 @@ const statusCountsValidator = v.object({
 type PositionCounts = Infer<typeof positionCountsValidator>;
 type StatusCounts = Infer<typeof statusCountsValidator>;
 
-// Which statuses each position holds. The status can't tell the side deal's
-// Call held from Booked (both `scheduled`), so the two are compared together.
-const POSITION_GROUPS: ReadonlyArray<{
-  positions: DealPosition[];
-  statuses: OpportunityStatus[];
-}> = [
-  { positions: ["qualified"], statuses: ["qualified_pending"] },
-  { positions: ["booked", "call_held"], statuses: ["scheduled"] },
-  { positions: ["follow_up"], statuses: ["follow_up_scheduled", "reschedule_link_sent"] },
-  { positions: ["won"], statuses: ["payment_received"] },
-  { positions: ["lost"], statuses: ["lost", "canceled", "no_show"] },
-];
-
 function positionGroupDifferences(positions: PositionCounts, statuses: StatusCounts) {
-  return POSITION_GROUPS.flatMap((group) => {
+  return LEGACY_STATUS_GROUPS.flatMap((group) => {
     const byStage = group.positions.reduce((sum, position) => sum + positions[position], 0);
     const byStatus = group.statuses.reduce((sum, status) => sum + statuses[status], 0);
     return byStage === byStatus
