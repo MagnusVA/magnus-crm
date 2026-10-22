@@ -14,6 +14,7 @@ import {
   isSystemLossReason,
   missedMeetingLossReason,
   stageForStatus,
+  stageOfPosition,
 } from "./stages";
 import { OPPORTUNITY_STATUSES } from "../lib/statusTransitions";
 import { SLACK_STALE_LOST_REASON } from "../pipeline/slackJoinLookup";
@@ -91,6 +92,14 @@ describe("positions", () => {
 
   it("refuses a pair the stage doesn't allow", () => {
     expect(() => dealPosition("closed", "open")).toThrow();
+  });
+
+  it("names each position's stage and outcome, the way back", () => {
+    for (const position of DEAL_POSITIONS) {
+      const { stage, outcome } = stageOfPosition(position);
+      expect(dealPosition(stage, outcome)).toBe(position);
+    }
+    expect(stageOfPosition("lost")).toEqual({ stage: "closed", outcome: "lost" });
   });
 });
 

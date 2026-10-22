@@ -92,6 +92,17 @@ export function dealPosition(stage: DealStage, outcome: DealOutcome): DealPositi
   return outcome === "won" ? "won" : "lost";
 }
 
+/** The stage and outcome a position shows, such as for an aggregate prefix. */
+export function stageOfPosition(position: DealPosition): DealStageAndOutcome {
+  switch (position) {
+    case "won":
+    case "lost":
+      return { stage: "closed", outcome: position };
+    default:
+      return { stage: position, outcome: "open" };
+  }
+}
+
 // The loss reasons the system writes. A loss the system writes has no
 // `lostByUserId`; a loss a person records has one, with free text or no
 // reason (§4.1).
