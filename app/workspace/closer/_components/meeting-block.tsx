@@ -26,12 +26,8 @@ import {
   meetingStatusConfig,
   type MeetingStatus,
 } from "@/lib/status-config";
-import type { MissedMeeting } from "@/convex/opportunities/dealState";
-import {
-  DEAL_POSITION_LABELS,
-  SYSTEM_LOSS_REASON_LABELS,
-  type DealPosition,
-} from "@/convex/opportunities/stages";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
+import type { DealPosition, SystemLossReason } from "@/convex/opportunities/stages";
 
 type MeetingDisplayProps = {
   meetingId: string;
@@ -42,8 +38,8 @@ type MeetingDisplayProps = {
   eventTypeName?: string | null;
   /** Where the meeting's deal is now; null when the deal is gone. */
   dealPosition: DealPosition | null;
-  /** The missed meeting that closed the deal, if one did. */
-  missedMeeting: MissedMeeting | null;
+  /** The loss the system wrote on the deal, such as a no-show, if it did. */
+  dealSystemLoss: SystemLossReason | null;
   meetingJoinUrl?: string;
   zoomJoinUrl?: string;
 };
@@ -138,7 +134,7 @@ function MeetingDetailsDialog({
   leadName,
   eventTypeName,
   dealPosition,
-  missedMeeting,
+  dealSystemLoss,
   meetingJoinUrl,
   zoomJoinUrl,
 }: MeetingDisplayProps & { children: ReactNode }) {
@@ -190,7 +186,7 @@ function MeetingDetailsDialog({
             <DetailRow
               icon={BriefcaseIcon}
               label="Deal"
-              value={dealDetail(dealPosition, missedMeeting)}
+              value={dealPositionLabel(dealPosition, dealSystemLoss)}
             />
           ) : null}
         </div>
@@ -237,17 +233,6 @@ function DetailRow({
       </div>
     </div>
   );
-}
-
-/** "Booked", or "Lost · No-show" for a deal a missed meeting closed. */
-function dealDetail(
-  position: DealPosition,
-  missedMeeting: MissedMeeting | null,
-): string {
-  const label = DEAL_POSITION_LABELS[position];
-  return missedMeeting
-    ? `${label} · ${SYSTEM_LOSS_REASON_LABELS[missedMeeting]}`
-    : label;
 }
 
 function getMeetingConfig(status: string) {

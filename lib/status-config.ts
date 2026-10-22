@@ -104,8 +104,8 @@ export const dealPositionConfig: Record<DealPosition, DealPositionVisualConfig> 
 
 // ─── Opportunity status display config ───────────────────────────────
 
-// Read by the closer pipeline strip and the reminder outcome bars until
-// their phase 5 PRs move them to the deal position (PRs 5 and 7). Every
+// Read by the reminder outcome bars until PR 7 moves them to the deal
+// position, and by the unmounted dashboard's pipeline-summary.tsx. Every
 // other deal label reads `dealPositionConfig`.
 
 type StatusVisualConfig = {

@@ -5,17 +5,9 @@ import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
-import {
-  isMissedMeetingLoss,
-  loadPendingRescheduleLink,
-  type MissedMeeting,
-} from "../opportunities/dealState";
-import {
-  dealPosition,
-  dealStageOf,
-  stageOfPosition,
-  type DealPosition,
-} from "../opportunities/stages";
+import { loadPendingRescheduleLink } from "../opportunities/dealState";
+import { dealLabelOf } from "../opportunities/stageLabels";
+import { stageOfPosition, type DealPosition } from "../opportunities/stages";
 
 // The closer's pipeline list (docs/plans/phase-5-deal-status.md §6.2): the
 // closer's deals at one position, or all of them, optionally created in a
@@ -117,17 +109,18 @@ export async function loadCloserNextStep(
   return earliest === null ? null : { kind: "reminder", reminderScheduledAt: earliest };
 }
 
-/** One row of the closer's pipeline: the deal's position, never its status. */
+/**
+ * One row of the closer's pipeline: the deal's stage, outcome, position and
+ * the loss the system wrote on it (`dealLabelOf`), never its status.
+ */
 async function toPipelineRow(
   ctx: QueryCtx,
   deal: Doc<"opportunities">,
   lead: Pick<Doc<"leads">, "_id" | "fullName" | "email" | "phone"> | undefined,
 ) {
-  const { stage, outcome } = dealStageOf(deal);
-  const position = dealPosition(stage, outcome);
-  const missedMeeting: MissedMeeting | null = isMissedMeetingLoss(deal);
+  const label = dealLabelOf(deal);
   const nextStep =
-    position === "follow_up" ? await loadCloserNextStep(ctx, deal._id) : null;
+    label.position === "follow_up" ? await loadCloserNextStep(ctx, deal._id) : null;
 
   return {
     _id: deal._id,
@@ -136,8 +129,7 @@ async function toPipelineRow(
       lead?.fullName ?? lead?.email ?? (lead ? `Lead ${lead._id.slice(-6)}` : "Unknown"),
     leadEmail: lead?.email,
     leadPhone: lead?.phone,
-    position,
-    missedMeeting,
+    ...label,
     nextStep,
     nextMeetingId: deal.nextMeetingId,
     nextMeetingAt: deal.nextMeetingAt,

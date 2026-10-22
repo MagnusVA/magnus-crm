@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { MissedMeeting } from "@/convex/opportunities/dealState";
-import type { DealPosition } from "@/convex/opportunities/stages";
+import type { DealPosition, SystemLossReason } from "@/convex/opportunities/stages";
 
 /**
  * Shared types, constants, and helpers for calendar view components.
@@ -32,8 +31,8 @@ export type EnrichedMeeting = {
   eventTypeName?: string | null;
   /** Where the meeting's deal is now; null when the deal is gone. */
   dealPosition: DealPosition | null;
-  /** The missed meeting that closed the deal, if one did. */
-  missedMeeting: MissedMeeting | null;
+  /** The loss the system wrote on the deal, such as a no-show, if it did. */
+  dealSystemLoss: SystemLossReason | null;
 };
 
 // ─── Dynamic hour range ─────────────────────────────────────────────────────

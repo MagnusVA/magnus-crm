@@ -21,23 +21,24 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { SortableHeader } from "@/components/sortable-header";
+import { DealStageBadge } from "@/components/status-badge";
 import { useTableSort } from "@/hooks/use-table-sort";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { CloserNextStep } from "@/convex/closer/pipeline";
-import type { MissedMeeting } from "@/convex/opportunities/dealState";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
 import {
   DEAL_POSITIONS,
   type DealPosition,
+  type SystemLossReason,
 } from "@/convex/opportunities/stages";
 import { ExternalLinkIcon, InboxIcon } from "lucide-react";
-import { DealPositionBadge } from "./deal-position-badge";
 
 export interface PipelineOpportunity {
   _id: Id<"opportunities">;
   leadId: Id<"leads">;
   position: DealPosition;
-  /** The missed meeting that closed a Lost deal, if one did. */
-  missedMeeting: MissedMeeting | null;
+  /** The loss the system wrote on a Lost deal, such as a no-show, if it did. */
+  systemLoss: SystemLossReason | null;
   /** What a Follow-up deal waits on, if anything. */
   nextStep: CloserNextStep | null;
   leadName: string;
@@ -112,8 +113,12 @@ export function OpportunitiesTable({
     () => ({
       lead: (a: PipelineOpportunity, b: PipelineOpportunity) =>
         a.leadName.localeCompare(b.leadName),
+      // By the badge: the pipeline's order, then a loss's kind.
       stage: (a: PipelineOpportunity, b: PipelineOpportunity) =>
-        DEAL_POSITIONS.indexOf(a.position) - DEAL_POSITIONS.indexOf(b.position),
+        DEAL_POSITIONS.indexOf(a.position) - DEAL_POSITIONS.indexOf(b.position) ||
+        dealPositionLabel(a.position, a.systemLoss).localeCompare(
+          dealPositionLabel(b.position, b.systemLoss),
+        ),
       meeting: (a: PipelineOpportunity, b: PipelineOpportunity) =>
         (a.nextMeetingAt ?? a.latestMeetingAt ?? 0) -
         (b.nextMeetingAt ?? b.latestMeetingAt ?? 0),
@@ -210,9 +215,9 @@ export function OpportunitiesTable({
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col items-start gap-1">
-                      <DealPositionBadge
+                      <DealStageBadge
                         position={opp.position}
-                        missedMeeting={opp.missedMeeting}
+                        systemLoss={opp.systemLoss}
                       />
                       {opp.nextStep ? (
                         <span className="text-xs text-muted-foreground">

@@ -14,7 +14,7 @@ import {
   closerPipelineTabFromSearch,
   type CloserPipelineTab,
 } from "@/convex/closer/pipelineTabs";
-import { DEAL_POSITION_LABELS } from "@/convex/opportunities/stages";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
 import {
   getDateRange,
   type TimePeriod,
@@ -213,7 +213,7 @@ function CloserOpportunitiesTable({
     <CloserEmptyState
       title={
         stageFilter
-          ? `No ${DEAL_POSITION_LABELS[stageFilter].toLowerCase()} opportunities`
+          ? `No ${dealPositionLabel(stageFilter).toLowerCase()} opportunities`
           : "No opportunities yet"
       }
       description={

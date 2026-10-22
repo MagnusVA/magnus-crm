@@ -10,10 +10,8 @@ import {
   CLOSER_PIPELINE_TABS,
   type CloserPipelineTab,
 } from "@/convex/closer/pipelineTabs";
-import {
-  DEAL_POSITION_LABELS,
-  type DealPosition,
-} from "@/convex/opportunities/stages";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
+import type { DealPosition } from "@/convex/opportunities/stages";
 
 export type PipelinePeriod = TimePeriod | "all";
 
@@ -67,7 +65,7 @@ export function PipelineFilters({
     { value: ALL_TAB, label: "All", count: total },
     ...CLOSER_PIPELINE_TABS.map((tab) => ({
       value: tab,
-      label: DEAL_POSITION_LABELS[tab],
+      label: dealPositionLabel(tab),
       count: counts[tab],
     })),
   ];

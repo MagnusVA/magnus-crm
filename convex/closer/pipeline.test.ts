@@ -78,17 +78,22 @@ describe("listMyOpportunities", () => {
     ).toEqual([]);
   });
 
-  it("shows each row's position, the missed meeting that closed it, and no status", async () => {
+  it("shows each row's position, the loss the system wrote on it, and no status", async () => {
     const { harness, seed } = await seededCloserPipeline();
     const { deals } = seed;
     const rows = new Map((await list(harness)).page.map((row) => [row._id, row]));
 
-    expect(rows.get(deals.booked)).toMatchObject({ position: "booked", missedMeeting: null });
-    expect(rows.get(deals.sideDeal)).toMatchObject({ position: "call_held", missedMeeting: null });
-    expect(rows.get(deals.won)).toMatchObject({ position: "won", missedMeeting: null });
-    expect(rows.get(deals.lostByCloser)).toMatchObject({ position: "lost", missedMeeting: null });
-    expect(rows.get(deals.noShow)).toMatchObject({ position: "lost", missedMeeting: "no_show" });
-    expect(rows.get(deals.canceled)).toMatchObject({ position: "lost", missedMeeting: "canceled" });
+    expect(rows.get(deals.booked)).toMatchObject({ position: "booked", systemLoss: null });
+    expect(rows.get(deals.sideDeal)).toMatchObject({ position: "call_held", systemLoss: null });
+    expect(rows.get(deals.won)).toMatchObject({ position: "won", systemLoss: null });
+    expect(rows.get(deals.lostByCloser)).toMatchObject({ position: "lost", systemLoss: null });
+    expect(rows.get(deals.noShow)).toMatchObject({
+      stage: "closed",
+      outcome: "lost",
+      position: "lost",
+      systemLoss: "no_show",
+    });
+    expect(rows.get(deals.canceled)).toMatchObject({ position: "lost", systemLoss: "canceled" });
     for (const row of rows.values()) {
       expect(row).not.toHaveProperty("status");
       expect(row).toMatchObject({ leadName: "deal-person@example.com" });

@@ -13,16 +13,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { dealPositionConfig } from "@/lib/status-config";
 import { cn } from "@/lib/utils";
 import {
   CLOSER_PIPELINE_TABS,
   type CloserPipelineTab,
 } from "@/convex/closer/pipelineTabs";
-import {
-  DEAL_POSITION_LABELS,
-  type DealPosition,
-} from "@/convex/opportunities/stages";
-import { DEAL_POSITION_STYLES } from "@/app/workspace/_components/pipeline/deal-position-badge";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
+import type { DealPosition } from "@/convex/opportunities/stages";
 
 type PipelineStripProps = {
   /** The deals behind the period's meetings, by position. */
@@ -193,8 +191,8 @@ function PipelineBar({ counts, total, periodNoun }: PipelineBarProps) {
     const count = counts[stage];
     return {
       stage,
-      label: DEAL_POSITION_LABELS[stage],
-      dotClass: DEAL_POSITION_STYLES[stage].dotClass,
+      label: dealPositionLabel(stage),
+      dotClass: dealPositionConfig[stage].dotClass,
       help: STAGE_HELP[stage],
       count,
       share: total > 0 ? count / total : 0,

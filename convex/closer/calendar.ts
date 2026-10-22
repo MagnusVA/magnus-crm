@@ -2,16 +2,24 @@ import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
-import { isMissedMeetingLoss } from "../opportunities/dealState";
-import { dealPosition, dealStageOf } from "../opportunities/stages";
+import { meetingDealLabelOf } from "../opportunities/stageLabels";
+
+// A meeting whose deal is gone shows no deal.
+const NO_DEAL = {
+	dealStage: null,
+	dealOutcome: null,
+	dealPosition: null,
+	dealSystemLoss: null,
+} as const;
 
 /**
  * Get all of a closer's meetings within a date range, canceled ones
  * included (docs/plans/phase-5-deal-status.md §6.3).
  *
- * Each meeting comes with the person's name, its event type, its deal's
- * position and, for a deal a no-show or cancellation closed, which one.
- * Used by the calendar view to render meeting blocks.
+ * Each meeting comes with the person's name, its event type and its deal's
+ * label (`meetingDealLabelOf`): the stage, outcome and position, and the
+ * loss the system wrote, such as a no-show or a cancellation. Used by the
+ * calendar view to render meeting blocks.
  *
  * Args:
  * - startDate: Unix ms timestamp for the start of the range
@@ -94,7 +102,6 @@ export const getMeetingsForRange = query({
 			const eventTypeName = opportunity?.eventTypeConfigId
 				? (eventTypeNameById.get(opportunity.eventTypeConfigId) ?? null)
 				: null;
-			const deal = opportunity ? dealStageOf(opportunity) : null;
 
 			return {
 				// What a block draws; the meeting's copy of the deal status stays out.
@@ -108,8 +115,7 @@ export const getMeetingsForRange = query({
 				},
 				leadName: meeting.leadName ?? "Unknown",
 				eventTypeName,
-				dealPosition: deal ? dealPosition(deal.stage, deal.outcome) : null,
-				missedMeeting: opportunity ? isMissedMeetingLoss(opportunity) : null,
+				...(opportunity ? meetingDealLabelOf(opportunity) : NO_DEAL),
 			};
 		});
 	},

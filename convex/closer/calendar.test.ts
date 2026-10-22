@@ -30,7 +30,7 @@ describe("getMeetingsForRange", () => {
     );
   });
 
-  it("gives each meeting its deal's position and the missed meeting that closed the deal", async () => {
+  it("gives each meeting its deal's position and the loss the system wrote on the deal", async () => {
     const { harness, seed } = await seededCloserPipeline();
     const { meetings } = seed;
 
@@ -42,30 +42,30 @@ describe("getMeetingsForRange", () => {
     expect(byId.get(meetings.bookedOld)).toMatchObject({
       meeting: { status: "canceled" },
       dealPosition: "booked",
-      missedMeeting: null,
+      dealSystemLoss: null,
     });
     expect(byId.get(meetings.booked)).toMatchObject({
       meeting: { status: "scheduled" },
       dealPosition: "booked",
-      missedMeeting: null,
+      dealSystemLoss: null,
     });
     // A no-show the closer sent a reschedule link from: the deal goes on.
     expect(byId.get(meetings.linkSent)).toMatchObject({
       meeting: { status: "no_show" },
       dealPosition: "follow_up",
-      missedMeeting: null,
+      dealSystemLoss: null,
     });
-    expect(byId.get(meetings.won)).toMatchObject({ dealPosition: "won", missedMeeting: null });
-    expect(byId.get(meetings.lostByCloser)).toMatchObject({ dealPosition: "lost", missedMeeting: null });
+    expect(byId.get(meetings.won)).toMatchObject({ dealPosition: "won", dealSystemLoss: null });
+    expect(byId.get(meetings.lostByCloser)).toMatchObject({ dealPosition: "lost", dealSystemLoss: null });
     expect(byId.get(meetings.noShow)).toMatchObject({
       meeting: { status: "no_show" },
       dealPosition: "lost",
-      missedMeeting: "no_show",
+      dealSystemLoss: "no_show",
     });
     expect(byId.get(meetings.canceled)).toMatchObject({
       meeting: { status: "canceled" },
       dealPosition: "lost",
-      missedMeeting: "canceled",
+      dealSystemLoss: "canceled",
     });
   });
 
@@ -79,13 +79,15 @@ describe("getMeetingsForRange", () => {
     const booked = calendar.find(({ meeting }) => meeting._id === seed.meetings.booked)!;
 
     expect(Object.keys(booked).sort()).toEqual(
-      ["dealPosition", "eventTypeName", "leadName", "meeting", "missedMeeting"].sort(),
+      ["dealOutcome", "dealPosition", "dealStage", "dealSystemLoss", "eventTypeName", "leadName", "meeting"].sort(),
     );
     expect(booked.meeting).not.toHaveProperty("opportunityStatus");
     expect(booked).toMatchObject({
       leadName: "Deal Person",
       eventTypeName: null,
       meeting: { durationMinutes: 30 },
+      dealStage: "booked",
+      dealOutcome: "open",
     });
   });
 
