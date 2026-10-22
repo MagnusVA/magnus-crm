@@ -16,7 +16,6 @@ export function buildLeadCustomerSearchText(input: {
       Doc<"opportunities">,
       | "_id"
       | "manualCreationKey"
-      | "status"
       | "source"
       | "stage"
       | "outcome"

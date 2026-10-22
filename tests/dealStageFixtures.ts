@@ -15,8 +15,8 @@ import { qualifiedLifecycle } from "./bookingHarness";
 
 // Phase 5 deal stages (docs/plans/phase-5-deal-status.md §3.1, §4.2). The
 // fixtures name a deal by an old status, a short name for where it is, and
-// write only what the status maps to: the stage and the outcome. From PR 9
-// no deal stores a status (§9).
+// write only what the status maps to: the stage and the outcome. No deal
+// stores a status.
 
 /** The stage and outcome an old status names, with the deal's source. */
 export function stageFields(status: OpportunityStatus, source: DealSource) {

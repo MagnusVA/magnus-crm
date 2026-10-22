@@ -162,8 +162,8 @@ export const getBookingResultByInviteeEmail = internalQuery({
 			lead: leadShape,
 			opportunity: {
 				id: opportunity._id,
-				stage: opportunity.stage ?? null,
-				outcome: opportunity.outcome ?? null,
+				stage: opportunity.stage,
+				outcome: opportunity.outcome,
 				source: opportunity.source ?? null,
 				assignedCloserId: opportunity.assignedCloserId ?? null,
 				latestMeetingId: opportunity.latestMeetingId ?? null,
@@ -238,8 +238,8 @@ export const getOpportunitySnapshot = internalQuery({
 		return {
 			opportunity: {
 				id: opportunity._id,
-				stage: opportunity.stage ?? null,
-				outcome: opportunity.outcome ?? null,
+				stage: opportunity.stage,
+				outcome: opportunity.outcome,
 				source: opportunity.source ?? null,
 				assignedCloserId: opportunity.assignedCloserId ?? null,
 				lostReason: opportunity.lostReason ?? null,
@@ -331,8 +331,8 @@ export const getMeetingSnapshot = internalQuery({
 			opportunity: opportunity
 				? {
 						id: opportunity._id,
-						stage: opportunity.stage ?? null,
-						outcome: opportunity.outcome ?? null,
+						stage: opportunity.stage,
+						outcome: opportunity.outcome,
 						assignedCloserId:
 							opportunity.assignedCloserId ?? null,
 					}

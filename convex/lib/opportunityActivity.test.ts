@@ -135,21 +135,6 @@ async function readState(
   });
 }
 
-// From Phase 5 PR 9 tenantStats keeps no deal counters by status (D13).
-async function expectNoStatusCounters(harness: Harness) {
-  const stats = await harness.t.run((ctx) =>
-    ctx.db
-      .query("tenantStats")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", harness.tenantId))
-      .unique(),
-  );
-  expect([stats?.activeOpportunities, stats?.wonDeals, stats?.lostDeals]).toEqual([
-    undefined,
-    undefined,
-    undefined,
-  ]);
-}
-
 // totalCustomers and totalLeads must equal a recount from the people, as
 // seedTenantStatsInternal and countTenantLeadsPage compute them: a customer
 // is a converted person (docs/plans/phase-4-customers.md §4.2, §4.3, §8).
@@ -196,8 +181,6 @@ describe("transitionOpportunity", () => {
       lostReason: "budget",
       lostAt: 1_000,
     });
-    expect(state.opportunity?.status).toBeUndefined();
-    expect(state.qualificationRow?.opportunityStatus).toBeUndefined();
     expect(state.qualificationRow).toMatchObject({
       dealStage: "closed",
       dealOutcome: "lost",
@@ -215,7 +198,6 @@ describe("transitionOpportunity", () => {
       }),
     ]);
     expect([state.bookedCount, state.lostCount]).toEqual([0, 1]);
-    await expectNoStatusCounters(harness);
   });
 
   it("emits opportunity.stage_changed for a move that isn't a loss", async () => {
@@ -241,7 +223,6 @@ describe("transitionOpportunity", () => {
       }),
     ]);
     expect(state.wonCount).toBe(1);
-    await expectNoStatusCounters(harness);
   });
 
   it.each([
@@ -296,7 +277,6 @@ describe("transitionOpportunity", () => {
           undefined,
         ]);
       }
-      await expectNoStatusCounters(harness);
     },
   );
 
@@ -349,14 +329,14 @@ describe("patchOpportunityLifecycle", () => {
     expect(state.qualificationRow?.assignedCloserId).toBe(otherCloserId);
   });
 
-  it("refuses a status change", async () => {
+  it("refuses a stage change", async () => {
     const harness = await bookingHarness();
     const { opportunityId } = await slackOpportunity(harness);
 
     await expect(
       harness.t.run(async (ctx) => {
-        // @ts-expect-error status is not a patchable field
-        await patchOpportunityLifecycle(ctx, opportunityId, { status: "lost" });
+        // @ts-expect-error the stage is not a patchable field
+        await patchOpportunityLifecycle(ctx, opportunityId, { stage: "closed" });
       }),
     ).rejects.toThrow("Use transitionOpportunity");
   });
@@ -377,7 +357,6 @@ describe("stage changes through the public mutations", () => {
     expect(state.events.map((event) => event.eventType)).toEqual([
       "opportunity.marked_lost",
     ]);
-    await expectNoStatusCounters(harness);
   });
 
   it("counts a side deal's payment and void once each", async () => {
@@ -406,7 +385,6 @@ describe("stage changes through the public mutations", () => {
         updatedAt: 0,
       });
     });
-    await expectNoStatusCounters(harness);
 
     const { paymentId } = await closer.mutation(api.sideDeals.logPayment.logPayment, {
       opportunityId,
@@ -416,7 +394,6 @@ describe("stage changes through the public mutations", () => {
       paymentType: "pif",
     });
     expect((await readState(harness, opportunityId)).wonCount).toBe(1);
-    await expectNoStatusCounters(harness);
     await expectPersonCountersMatchRecount(harness);
 
     await admin.mutation(api.sideDeals.voidPayment.voidPayment, {
@@ -438,7 +415,6 @@ describe("stage changes through the public mutations", () => {
       ["opportunity.marked_lost", "closed/won", "closed/lost"],
     ]);
     expect(state.opportunity).toMatchObject({ stage: "closed", outcome: "lost" });
-    await expectNoStatusCounters(harness);
     await expectPersonCountersMatchRecount(harness);
   });
 });
@@ -496,8 +472,6 @@ describe("seedTenantStatsInternal", () => {
       ctx.db.query("tenantStats").withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)).unique(),
     );
     expect(stats).toMatchObject({ totalCustomers: 2, totalLeads: 1 });
-    // No deal counters by status (D13).
-    expect([stats?.activeOpportunities, stats?.wonDeals, stats?.lostDeals]).toEqual([undefined, undefined, undefined]);
     await expectPersonCountersMatchRecount(harness);
   });
 });

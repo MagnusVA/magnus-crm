@@ -1,16 +1,11 @@
 import { defineTable } from "convex/server";
 import { v } from "convex/values";
-import { opportunityStatusValidator } from "../opportunities/validators";
 
 export const meetingContribution = v.object({
   dayKey: v.string(),
   assignedCloserId: v.id("users"),
   bookingProgramId: v.optional(v.id("tenantPrograms")),
   soldProgramId: v.optional(v.id("tenantPrograms")),
-  // The deal's old status. Nothing writes it from PR 9; rebuildMeetingProjections
-  // re-keys the projections and buckets that still hold it, and the narrow
-  // drops it (docs/plans/phase-5-deal-status.md §3.3, §10.6).
-  opportunityStatus: v.optional(opportunityStatusValidator),
   meetingStatus: v.union(
     v.literal("scheduled"),
     v.literal("completed"),

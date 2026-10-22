@@ -6,17 +6,6 @@ export const opportunitySourceValidator = v.union(
   v.literal("slack_qualified"),
 );
 
-export const opportunityStatusValidator = v.union(
-  v.literal("qualified_pending"),
-  v.literal("scheduled"),
-  v.literal("payment_received"),
-  v.literal("follow_up_scheduled"),
-  v.literal("reschedule_link_sent"),
-  v.literal("lost"),
-  v.literal("canceled"),
-  v.literal("no_show"),
-);
-
 export const periodFilterValidator = v.optional(
   v.union(
     v.literal("today"),

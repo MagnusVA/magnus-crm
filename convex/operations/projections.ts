@@ -63,8 +63,8 @@ export async function rebuildQualificationRow(
     slackUserId: event.slackUserId,
     slackTeamId: event.slackTeamId,
     resultKind: event.resultKind,
-    // The deal's stage, not its old status, which clearQualificationRowStatus
-    // unsets. Unset with no deal: a patch with undefined removes the field.
+    // The deal's stage and outcome. Unset with no deal: a patch with
+    // undefined removes the field.
     dealStage: dealStage?.stage,
     dealOutcome: dealStage?.outcome,
     bookingProgramId: opportunity?.firstBookingProgramId,

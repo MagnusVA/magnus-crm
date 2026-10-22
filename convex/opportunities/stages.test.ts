@@ -1,4 +1,3 @@
-import type { Doc } from "../_generated/dataModel";
 import { describe, expect, it } from "vitest";
 import {
   DEAL_OUTCOMES,
@@ -140,12 +139,6 @@ describe("dealStageOf", () => {
       stage: "follow_up",
       outcome: "open",
     });
-  });
-
-  it("throws on a deal without them, whatever its status: it never reads the status", () => {
-    const statusOnly: Pick<Doc<"opportunities">, "status" | "stage" | "outcome"> = { status: "scheduled" };
-    expect(() => dealStageOf(statusOnly)).toThrow(/no stage or outcome/);
-    expect(() => dealStageOf({ stage: "closed" })).toThrow(/no stage or outcome/);
   });
 });
 

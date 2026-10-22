@@ -23,7 +23,8 @@ function legacyBucketKey(
     c.soldProgramId ?? null,
     attribution.teamId ?? null,
     attribution.dmCloserId ?? null,
-    c.opportunityStatus ?? null,
+    // The old key's deal status slot.
+    null,
     c.meetingStatus,
   ]);
 }

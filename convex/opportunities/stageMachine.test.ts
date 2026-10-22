@@ -75,11 +75,6 @@ describe("the stage machine", () => {
     const broken: StageMachineDeal = { stage: "closed", outcome: "open", source: "calendly" };
     for (const to of DEAL_POSITIONS) expect(stageMoveAllowed(broken, targetOf(to))).toBe(false);
   });
-
-  it("refuses a deal with no stored stage: it never reads the status", () => {
-    const deal: StageMachineDeal = { source: "calendly" };
-    expect(() => stageMoveAllowed(deal, { stage: "booked" })).toThrow("Deal has no stage or outcome");
-  });
 });
 
 describe("the named exceptions", () => {

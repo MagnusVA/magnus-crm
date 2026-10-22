@@ -12,8 +12,8 @@ import {
 import { enrollmentHarness, type EnrollmentHarness } from "../../tests/enrollmentFixtures";
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
 
-// A qualification row carries its deal's stage and outcome, and from PR 9 no
-// status (docs/plans/phase-5-deal-status.md §3.2, §9).
+// A qualification row carries its deal's stage and outcome
+// (docs/plans/phase-5-deal-status.md §3.2).
 
 afterEach(() => vi.useRealTimers());
 
@@ -37,7 +37,7 @@ async function qualifiedDeal(
 
 async function rowOf(harness: EnrollmentHarness, eventId: Id<"slackQualificationEvents">) {
   const row = await harness.t.run((ctx) => qualificationRowOf(ctx, eventId));
-  return { status: row.opportunityStatus, stage: row.dealStage, outcome: row.dealOutcome };
+  return { stage: row.dealStage, outcome: row.dealOutcome };
 }
 
 describe("the qualification row's stage and outcome", () => {
@@ -49,11 +49,11 @@ describe("the qualification row's stage and outcome", () => {
     ["payment_received", "slack_qualified", "closed", "won"],
     ["canceled", "slack_qualified", "closed", "lost"],
     ["lost", "slack_qualified", "closed", "lost"],
-  ] as const)("copies a %s %s deal's as %s/%s, with no status", async (status, source, stage, outcome) => {
+  ] as const)("copies a %s %s deal's as %s/%s", async (status, source, stage, outcome) => {
     const harness = await enrollmentHarness();
     const { eventId } = await qualifiedDeal(harness, status, source);
 
-    expect(await rowOf(harness, eventId)).toEqual({ status: undefined, stage, outcome });
+    expect(await rowOf(harness, eventId)).toEqual({ stage, outcome });
   });
 
   it("has none on a qualification with no deal, and drops them when the deal goes", async () => {
@@ -61,7 +61,7 @@ describe("the qualification row's stage and outcome", () => {
     const unlinked = await harness.t.run((ctx) =>
       insertQualification(ctx, { tenantId: harness.tenantId, qualifiedAt: QUALIFIED_AT }),
     );
-    expect(await rowOf(harness, unlinked)).toEqual({ status: undefined, stage: undefined, outcome: undefined });
+    expect(await rowOf(harness, unlinked)).toEqual({ stage: undefined, outcome: undefined });
 
     const { eventId } = await qualifiedDeal(harness, "scheduled");
     await harness.t.run(async (ctx) => {
@@ -84,7 +84,7 @@ describe("the qualification row's stage and outcome", () => {
       }),
     );
 
-    expect(await rowOf(harness, eventId)).toEqual({ status: undefined, stage: "closed", outcome: "lost" });
+    expect(await rowOf(harness, eventId)).toEqual({ stage: "closed", outcome: "lost" });
   });
 
   it("is a filter of the qualification search", async () => {
@@ -129,7 +129,7 @@ describe("rebuildQualificationRows and assertQualificationRowsCurrent", () => {
     expect(error).toContain(`Qualification event ${eventId} has a stale qualification row`);
 
     expect((await harness.run("rebuildQualificationRows"))?.error).toBeUndefined();
-    expect(await rowOf(harness, eventId)).toEqual({ status: undefined, stage: "closed", outcome: "lost" });
+    expect(await rowOf(harness, eventId)).toEqual({ stage: "closed", outcome: "lost" });
     expect((await harness.rerun("assertQualificationRowsCurrent"))?.error).toBeUndefined();
   });
 

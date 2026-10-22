@@ -403,7 +403,7 @@ it("a non-closer booking's early cancellation settles once the booking attaches 
   await h.deliver("invitee.created", first, "2026-10-08T04:27:44Z");
   const { opportunityId } = await h.receipt("invitee.created", first);
   await h.t.run((ctx) => forceOpportunityState(ctx, opportunityId!, {
-    status: "follow_up_scheduled", ...writtenBesideStatus("follow_up_scheduled", "calendly"),
+    ...writtenBesideStatus("follow_up_scheduled", "calendly"),
     updatedAt: Date.parse("2026-10-09T21:00:00Z"),
   }));
 
@@ -643,7 +643,7 @@ it("incident C guard: a provider reschedule stays held when its own deal changed
   const { opportunityId } = await h.receipt("invitee.created", old);
   // A closer acts on the deal after the reschedule happened, before it's processed.
   await h.t.run((ctx) => forceOpportunityState(ctx, opportunityId!, {
-    status: "scheduled", updatedAt: Date.parse("2026-10-14T10:00:00Z"),
+    updatedAt: Date.parse("2026-10-14T10:00:00Z"),
   }));
   await h.deliver("invitee.created", replacement, "2026-10-14T09:13:23Z");
   expect(await h.receipt("invitee.created", replacement)).toMatchObject({
