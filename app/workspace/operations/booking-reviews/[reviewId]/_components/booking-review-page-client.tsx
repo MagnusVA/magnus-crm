@@ -434,11 +434,19 @@ function DecisionCard({
   const others = review.people.filter((person) => person.leadId !== keepLeadId);
   const otherNames = others.map(personName).join(" and ");
 
-  async function run(kind: "merge" | "separate" | "retry", action: () => Promise<null>, done: string) {
+  async function run(
+    kind: "merge" | "separate" | "retry",
+    action: () => Promise<{ alsoClosed: number } | null>,
+    done: string,
+  ) {
     setPending(kind);
     try {
-      await action();
-      toast.success(done);
+      const alsoClosed = (await action())?.alsoClosed ?? 0;
+      toast.success(
+        alsoClosed > 0
+          ? `${done} ${alsoClosed} other review${alsoClosed === 1 ? "" : "s"} about the same people closed too.`
+          : done,
+      );
     } catch (error) {
       toast.error(getErrorMessage(error, "That didn't work. Nothing was changed."));
     } finally {
@@ -448,6 +456,10 @@ function DecisionCard({
   }
 
   const canMerge = mergeable.length > 1 && keepLeadId !== undefined;
+  // Merged on another review or the Leads page: one person is left, and
+  // closing records the merge.
+  const alreadyOne = mergeable.length <= 1;
+  const remainingLeadId = mergeable[0]?.leadId ?? booked?.leadId ?? review.people[0]?.leadId;
 
   return (
     <Card>
@@ -482,18 +494,38 @@ function DecisionCard({
             </RadioGroup>
           ) : null}
           <p className="text-sm text-muted-foreground">
-            {canMerge
-              ? `Merge ${otherNames} into ${personName(keep)}. Deals, calls and identifiers move to one record${review.kind === "held" ? ", and the booking is added to it" : ""}.`
-              : "There is no second record left to merge."}
+            {alreadyOne
+              ? `Already one person: they were merged elsewhere. Close this review${review.kind === "held" ? " and add the booking" : ""}.`
+              : canMerge
+                ? `Merge ${otherNames} into ${personName(keep)}. Deals, calls and identifiers move to one record${review.kind === "held" ? ", and the booking is added to it" : ""}.`
+                : "Choose the record to keep."}
           </p>
-          <Button
-            className="mt-auto w-fit"
-            disabled={!canMerge || pending !== null}
-            onClick={() => setConfirmMerge(true)}
-          >
-            {pending === "merge" ? <Spinner data-icon="inline-start" /> : <GitMergeIcon data-icon="inline-start" />}
-            {review.kind === "held" ? "Merge and add the booking" : `Merge into ${personName(keep)}`}
-          </Button>
+          {alreadyOne ? (
+            <Button
+              className="mt-auto w-fit"
+              disabled={pending !== null || !remainingLeadId}
+              onClick={() => {
+                if (!remainingLeadId) return;
+                void run(
+                  "merge",
+                  () => mergePeople({ reviewId: review.reviewId, keepLeadId: remainingLeadId }),
+                  "Closed as one person.",
+                );
+              }}
+            >
+              {pending === "merge" ? <Spinner data-icon="inline-start" /> : <CheckIcon data-icon="inline-start" />}
+              Close as merged
+            </Button>
+          ) : (
+            <Button
+              className="mt-auto w-fit"
+              disabled={!canMerge || pending !== null}
+              onClick={() => setConfirmMerge(true)}
+            >
+              {pending === "merge" ? <Spinner data-icon="inline-start" /> : <GitMergeIcon data-icon="inline-start" />}
+              {review.kind === "held" ? "Merge and add the booking" : `Merge into ${personName(keep)}`}
+            </Button>
+          )}
         </div>
 
         <div className="flex flex-col gap-3 rounded-lg border p-4">

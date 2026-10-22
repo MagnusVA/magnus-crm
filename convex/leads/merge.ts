@@ -30,6 +30,7 @@ import { leadDisplayString } from "../lib/leadDisplay";
 import { validateLeadTransition } from "../lib/statusTransitions";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { rebuildQualificationRow } from "../operations/projections";
+import { closeMergedReviews } from "../pipeline/bookingReviewRecords";
 
 // A merge moves all of the source in one transaction, or nothing. At 50
 // opportunities, the count the merge preview shows, a merge stays well
@@ -361,6 +362,8 @@ export const mergeLead = mutation({
     ]);
 
     await executeMerge(ctx, tenantId, userId, sourceLeadId, targetLeadId);
+    // A booking review about these two people is settled by the merge.
+    await closeMergedReviews(ctx, tenantId, userId);
 
     return { targetLeadId };
   },
@@ -390,6 +393,7 @@ export const mergeLeadAsOperator = internalMutation({
       throw new Error("The actor must be an active user who can merge leads");
     }
     await executeMerge(ctx, tenantId, actorUserId, sourceLeadId, targetLeadId);
+    await closeMergedReviews(ctx, tenantId, actorUserId);
     return { targetLeadId };
   },
 });

@@ -13,7 +13,7 @@ An email, phone number, or social handle that a person really uses, and that dec
 _Avoid_: contact detail, key
 
 **Booking review**:
-A booking whose identifiers name more than one person, waiting for an admin to say whether they are one person. The Instagram handle decides who gets the call; when the handle names no one, the booking is held until the review is decided.
+A booking whose identifiers name more than one person, waiting for an admin to say whether they are one person. The Instagram handle decides who gets the call; when the handle names no one, the booking is held until the review is decided. A decision covers the people, not the one booking: a merge, from a review or the Leads page, closes every review it leaves with one person, and keeping people separate closes every review about the same people.
 _Avoid_: duplicate, conflict
 
 **Lifecycle stage**:

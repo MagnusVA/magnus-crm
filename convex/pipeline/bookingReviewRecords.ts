@@ -1,18 +1,22 @@
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { followMergeChain } from "../leads/identityResolution";
 import { log } from "../lib/observability/log";
 import type {
   BlockedIdentity,
   BookingIdentifiers,
   IdentityConflict,
 } from "./blocked";
+import { retryDelivery } from "./recovery";
 
 /** Held reasons that mean "this booking names more than one person". */
 const REVIEWED_HOLD_REASONS = new Set(["identity_conflict"]);
 
 /** A person's kept-separate decisions read when a booking may repeat one. */
 const KEPT_SEPARATE_LIMIT = 200;
+/** Open reviews read when one decision may settle others. */
+const OPEN_REVIEW_SWEEP_LIMIT = 200;
 
 async function reviewForDelivery(
   ctx: MutationCtx,
@@ -208,4 +212,118 @@ export async function settleBookingReview(
       conflictCount: review.conflicts.length,
     });
   }
+}
+
+export async function resolveBookingReview(
+  ctx: MutationCtx,
+  review: Doc<"bookingReviews">,
+  userId: Id<"users">,
+  resolution: "merged" | "kept_separate",
+) {
+  const now = Date.now();
+  await ctx.db.patch("bookingReviews", review._id, {
+    status: "resolved",
+    resolution,
+    resolvedAt: now,
+    resolvedByUserId: userId,
+    updatedAt: now,
+  });
+  log.info("pipeline.booking_review.resolved", {
+    tenantId: review.tenantId,
+    reviewId: review._id,
+    deliveryId: review.deliveryId,
+    kind: review.kind,
+    resolution,
+  });
+}
+
+/** The people a review names as they are now, following merges. */
+export async function reviewPeople(
+  ctx: MutationCtx,
+  review: Doc<"bookingReviews">,
+): Promise<Set<Id<"leads">>> {
+  const named = new Set([
+    ...(review.leadId ? [review.leadId] : []),
+    ...review.conflicts.map((c) => c.leadId),
+  ]);
+  const people = new Set<Id<"leads">>();
+  for (const leadId of named) {
+    const lead = await ctx.db.get("leads", leadId);
+    const current = lead && (await followMergeChain(ctx, lead));
+    if (current) people.add(current._id);
+  }
+  return people;
+}
+
+/**
+ * Retries a merged review's held booking, which now names one person. A
+ * booking whose payload is gone stays held, for the recovery panel.
+ */
+export async function retryMergedHold(
+  ctx: MutationCtx,
+  review: Doc<"bookingReviews">,
+  userId: Id<"users">,
+) {
+  if (review.kind !== "held") return;
+  const delivery = await ctx.db.get("webhookDeliveries", review.deliveryId);
+  if (delivery?.status !== "blocked") return;
+  if (!(await ctx.db.get("rawWebhookEvents", delivery.rawEventId))) return;
+  await retryDelivery(ctx, review.tenantId, userId, delivery._id);
+}
+
+async function openReviews(ctx: MutationCtx, tenantId: Id<"tenants">) {
+  const open = await ctx.db
+    .query("bookingReviews")
+    .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
+      q.eq("tenantId", tenantId).eq("status", "open"),
+    )
+    .take(OPEN_REVIEW_SWEEP_LIMIT);
+  if (open.length === OPEN_REVIEW_SWEEP_LIMIT)
+    log.warn("pipeline.booking_review.sweep_capped", {
+      tenantId,
+      limit: OPEN_REVIEW_SWEEP_LIMIT,
+    });
+  return open;
+}
+
+/**
+ * Closes, as merged, every open review a merge left with one person: the
+ * same people often book twice, and a merge from either review, or from the
+ * Leads page, settles both. Their held bookings are retried. Returns how many
+ * closed.
+ */
+export async function closeMergedReviews(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  userId: Id<"users">,
+) {
+  let closed = 0;
+  for (const review of await openReviews(ctx, tenantId)) {
+    if ((await reviewPeople(ctx, review)).size > 1) continue;
+    await resolveBookingReview(ctx, review, userId, "merged");
+    await retryMergedHold(ctx, review, userId);
+    closed++;
+  }
+  return closed;
+}
+
+/**
+ * Closes, as kept separate, the other open reviews about exactly the people
+ * an admin just called different. Returns how many closed.
+ */
+export async function closeKeptSeparateSiblings(
+  ctx: MutationCtx,
+  decided: Doc<"bookingReviews">,
+  userId: Id<"users">,
+) {
+  const key = (people: Set<Id<"leads">>) => [...people].sort().join(",");
+  const decidedKey = key(await reviewPeople(ctx, decided));
+  let closed = 0;
+  for (const review of await openReviews(ctx, decided.tenantId)) {
+    if (review._id === decided._id) continue;
+    if (key(await reviewPeople(ctx, review)) !== decidedKey) continue;
+    await resolveBookingReview(ctx, review, userId, "kept_separate");
+    closed++;
+  }
+  return closed;
 }

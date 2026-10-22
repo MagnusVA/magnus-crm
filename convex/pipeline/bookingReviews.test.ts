@@ -700,3 +700,139 @@ it("a booking whose identifiers all name one person opens no review", async () =
   expect(await reviews(harness)).toEqual([]);
   expect(await alertJobs(harness)).toEqual([]);
 });
+
+// Incident A (2026-10-19) booked twice, the second a reschedule: two reviews
+// about the same two people. Deciding one decides both.
+async function seedIncidentATwice(harness: Harness) {
+  const calendly = await seedPerson(
+    harness,
+    { fullName: "Coach Example", email: "coach.example@gmail.example" },
+    [["email", "coach.example@gmail.example"]],
+  );
+  const slack = await seedPerson(
+    harness,
+    { fullName: "COACH E" },
+    [["instagram", "elpmaxehcaoc", "slack_qualified"]],
+    { slackDeal: true },
+  );
+  for (const key of ["incident-a", "incident-a-rebook"])
+    await deliver(
+      harness,
+      booking(key, {
+        email: "coach.example@gmail.example",
+        name: "Coach Example",
+        phone: "+1 876-555-0139",
+        instagram: "elpmaxehcaoc",
+      }),
+    );
+  const open = await reviews(harness);
+  expect(open.map((r) => [r.kind, r.status])).toEqual([
+    ["attached", "open"],
+    ["attached", "open"],
+  ]);
+  return { calendly, slack, open };
+}
+
+it("merging from one review closes the other review about the same people", async () => {
+  const harness = await setup();
+  const { slack, open } = await seedIncidentATwice(harness);
+
+  const result = await harness.admin.mutation(api.pipeline.bookingReviews.mergePeople, {
+    reviewId: open[0]._id,
+    keepLeadId: slack.leadId,
+  });
+
+  expect(result).toEqual({ alsoClosed: 1 });
+  expect((await reviews(harness)).map((r) => [r.status, r.resolution])).toEqual([
+    ["resolved", "merged"],
+    ["resolved", "merged"],
+  ]);
+});
+
+it("a merge from the Leads page closes the reviews it settles", async () => {
+  const harness = await setup();
+  const { calendly, slack } = await seedIncidentATwice(harness);
+
+  await harness.admin.mutation(api.leads.merge.mergeLead, {
+    sourceLeadId: calendly.leadId,
+    targetLeadId: slack.leadId,
+  });
+
+  expect((await reviews(harness)).map((r) => [r.status, r.resolution])).toEqual([
+    ["resolved", "merged"],
+    ["resolved", "merged"],
+  ]);
+});
+
+it("keeping the people separate on one review closes the other about the same people", async () => {
+  const harness = await setup();
+  const { calendly, open } = await seedIncidentATwice(harness);
+  // A review about a different pair stays open.
+  const other = await seedPerson(
+    harness,
+    { fullName: "Other Person", email: "other.person@example.com" },
+    [["email", "other.person@example.com"]],
+  );
+  await seedPerson(harness, { fullName: "Other Handle" }, [["instagram", "other.handle", "slack_qualified"]]);
+  await deliver(
+    harness,
+    booking("other-pair", { email: "other.person@example.com", name: "Other Person", instagram: "other.handle" }),
+  );
+
+  const result = await harness.admin.mutation(api.pipeline.bookingReviews.keepSeparate, {
+    reviewId: open[1]._id,
+  });
+
+  expect(result).toEqual({ alsoClosed: 1 });
+  const after = await reviews(harness);
+  expect(after.map((r) => [r.status, r.resolution])).toEqual([
+    ["resolved", "kept_separate"],
+    ["resolved", "kept_separate"],
+    ["open", undefined],
+  ]);
+  expect(after[2].conflicts).toEqual([{ leadId: other.leadId, via: "email" }]);
+  expect((await harness.t.run((ctx) => ctx.db.get("leads", calendly.leadId)))?.status).toBe("active");
+});
+
+it("a review whose people were merged before this fix closes as merged", async () => {
+  const harness = await setup();
+  const { calendly, slack, open } = await seedIncidentATwice(harness);
+  // Merged with no sweep, as production did before reviews closed together.
+  await harness.t.run(async (ctx) => {
+    await ctx.db.patch("leads", calendly.leadId, { status: "merged", mergedIntoLeadId: slack.leadId });
+    await ctx.db.patch("bookingReviews", open[0]._id, { status: "resolved", resolution: "merged" });
+  });
+
+  const result = await harness.admin.mutation(api.pipeline.bookingReviews.mergePeople, {
+    reviewId: open[1]._id,
+    keepLeadId: slack.leadId,
+  });
+
+  expect(result).toEqual({ alsoClosed: 0 });
+  expect((await reviews(harness))[1]).toMatchObject({ status: "resolved", resolution: "merged" });
+});
+
+it("a held booking whose people a Leads page merge joins is retried and applies", async () => {
+  const harness = await setup();
+  const first = await seedPerson(harness, { fullName: "Lead A", email: "lead.a@example.com" }, [
+    ["email", "lead.a@example.com"],
+  ]);
+  const second = await seedPerson(harness, { fullName: "Lead B", phone: "+1 416-555-0142" }, [
+    ["phone", "+14165550142"],
+  ]);
+  await deliver(
+    harness,
+    booking("held", { email: "lead.a@example.com", name: "Lead A", phone: "+1 416-555-0142" }),
+  );
+  const held = await receipt(harness);
+  expect(held).toMatchObject({ status: "blocked", reason: "identity_conflict" });
+
+  await harness.admin.mutation(api.leads.merge.mergeLead, {
+    sourceLeadId: second.leadId,
+    targetLeadId: first.leadId,
+  });
+  await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
+
+  expect(await receipt(harness)).toMatchObject({ _id: held._id, status: "applied", leadId: first.leadId });
+  expect(await reviews(harness)).toMatchObject([{ status: "resolved", resolution: "merged" }]);
+});
