@@ -115,7 +115,11 @@ describe("the stale digest", () => {
 describe("the Slack expiry", () => {
   it("closes the Qualified Slack deals, and marks a person unresponsive only with no other open deal", async () => {
     const harness = await guardHarness();
-    const deals = [];
+    const deals: {
+      state: GuardState;
+      stale: Awaited<ReturnType<typeof personDeal>>;
+      other: Id<"opportunities">;
+    }[] = [];
     for (const [index, state] of states.entries()) {
       // Each person also has an old Qualified Slack deal the expiry closes.
       const handle = `guard.person.${index}`;
@@ -167,9 +171,10 @@ describe("the Slack expiry", () => {
 
   it("previews and lists the Qualified Slack deals past the expiry", async () => {
     const harness = await guardHarness();
-    const old = [];
+    const old: { state: GuardState; opportunityId: Id<"opportunities"> }[] = [];
     for (const [index, state] of states.entries()) {
-      old.push({ state, ...(await personDeal(harness, state, 33, `guard.person.${index}`)) });
+      const { opportunityId } = await personDeal(harness, state, 33, `guard.person.${index}`);
+      old.push({ state, opportunityId });
     }
 
     const preview = await harness.t.query(internal.slack.staleExpiry.previewStaleSlackOpportunities, {});

@@ -8,6 +8,7 @@ import {
   guardStates,
   todaysGuards as today,
   type GuardHarness,
+  type GuardState,
 } from "../../tests/dealGuardFixtures";
 
 // Side deals are worked at the same states as before PR 7: a `scheduled`
@@ -121,9 +122,10 @@ describe("nudgeStaleSideDeals", () => {
   it("nudges the side deals it nudged before, and no other deal", async () => {
     const harness = await guardHarness();
     const states = [...sideDealStates, ...guardStates("calendly")];
-    const deals = [];
+    const deals: { state: GuardState; opportunityId: Id<"opportunities"> }[] = [];
     for (const state of states) {
-      deals.push({ state, ...(await guardDealIn(harness, state)) });
+      const { opportunityId } = await guardDealIn(harness, state);
+      deals.push({ state, opportunityId });
     }
 
     await harness.t.mutation(internal.opportunities.staleness.nudgeStaleSideDeals, {
