@@ -10,6 +10,20 @@ import {
   type DealPosition,
 } from "./stages";
 import { opportunityStatusValidator } from "./validators";
+import {
+  compareCloseRatesArgs,
+  compareCloseRatesPage,
+  compareCloseRatesReturns,
+  comparePipelineHealthArgs,
+  comparePipelineHealthPage,
+  comparePipelineHealthReturns,
+  compareStageCountsArgs,
+  compareStageCountsPage,
+  compareStageCountsReturns,
+  compareTeamOutcomesArgs,
+  compareTeamOutcomesPage,
+  compareTeamOutcomesReturns,
+} from "./stageParityReports";
 
 // Parity (docs/plans/phase-5-deal-status.md §10.4): each number a moved
 // reader shows, computed from the status and from the stage, with the
@@ -261,3 +275,42 @@ export const compareQualificationQueue = internalQuery({
     };
   },
 });
+
+// ============================================================================
+// Report numbers (PR 3b): compareStageCounts, comparePipelineHealth,
+// compareTeamOutcomes, compareCloseRates. The logic is in
+// stageParityReports.ts; each comment there says how many calls production
+// needs.
+// ============================================================================
+
+/** The distribution chart and each closer's pipeline tabs: positions against statuses. */
+export const compareStageCounts = internalQuery({
+  args: compareStageCountsArgs,
+  returns: compareStageCountsReturns,
+  handler: async (ctx, args) => await compareStageCountsPage(ctx, args),
+});
+
+/** Pipeline Health: aging, the stale list, velocity and loss attribution. */
+export const comparePipelineHealth = internalQuery({
+  args: comparePipelineHealthArgs,
+  returns: comparePipelineHealthReturns,
+  handler: async (ctx, args) => await comparePipelineHealthPage(ctx, args),
+});
+
+/** The team report's outcome mix per closer, meeting by meeting. */
+export const compareTeamOutcomes = internalQuery({
+  args: compareTeamOutcomesArgs,
+  returns: compareTeamOutcomesReturns,
+  handler: async (ctx, args) => await compareTeamOutcomesPage(ctx, args),
+});
+
+/** The closer dashboard strip's won, lost and close rate per closer. */
+export const compareCloseRates = internalQuery({
+  args: compareCloseRatesArgs,
+  returns: compareCloseRatesReturns,
+  handler: async (ctx, args) => await compareCloseRatesPage(ctx, args),
+});
+
+// ============================================================================
+// End of report numbers (PR 3b)
+// ============================================================================
