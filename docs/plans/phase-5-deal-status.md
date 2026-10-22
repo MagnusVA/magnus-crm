@@ -1,6 +1,6 @@
 # Phase 5: deal status
 
-Status: done, 2026-10-22. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted the recommendations in §11, answered Q1 to Q6 (§11.1), approved the ADR changes in §11.2 and every production run in §9 and §10; the answer to Q2 replaced the first plan's rebook task with D16, a missed meeting ends the deal. PRs #165 to #178 are merged (#165 is this plan; #169 is the loss index fix the parity run found), and every run in §13 passed, through the clears after PR 9. #178, the narrow, drops `opportunities.status`, its copies, its nine indexes, the `opportunityByStatus` aggregate and the `tenantStats` deal counters. As in Phase 4 (#161), a docs PR after it records the narrow's deploy and the checks after it in §13.
+Status: done, 2026-10-22. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted the recommendations in §11, answered Q1 to Q6 (§11.1), approved the ADR changes in §11.2 and every production run in §9 and §10; the answer to Q2 replaced the first plan's rebook task with D16, a missed meeting ends the deal. PRs #165 to #178 are merged (#165 is this plan; #169 is the loss index fix the parity run found), and every run in §13 passed, through the clears after PR 9. #178, the narrow, drops `opportunities.status`, its copies, its nine indexes, the `opportunityByStatus` aggregate and the `tenantStats` deal counters. #178 deployed on 2026-10-22 at 11:14 and the schema push accepted every row; #179 records that deploy, the checks after it and the snapshot directory's deletion (§13).
 
 Scope comes from §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (finding F2, the target model's "Stage and status on the deal" and "How today's statuses map" in §6, the anti-pattern "Appointment outcomes as deal stages" in §8) and the Phase 5 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md). Terms follow [`CONTEXT.md`](../../CONTEXT.md): this file says deal stage, outcome, attendance or task, and says "status" only for today's `opportunities.status` field. Phase 4 is in [phase-4-customers.md](phase-4-customers.md).
 
@@ -606,7 +606,8 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | #175 | PR 7a: the action guards on the stage | 10-22 09:07 |
 | #176 | PR 8: the transition and the state machine on stages, `opportunity.stage_changed` | 10-22 09:35 |
 | #177 | PR 9: stop writing the status and its copies; the clears | 10-22 10:07 |
-| #178 | PR 10: the narrow; ADR 0001, `CONTEXT.md`, the review's cards, this record | recorded by the docs PR after it |
+| #178 | PR 10: the narrow; ADR 0001, `CONTEXT.md`, the review's cards, this record | 10-22 11:14; the schema push accepted every row |
+| #179 | docs only: the narrow's deploy, the checks after it and the snapshot directory's deletion | docs |
 
 ### 13.3 Runs
 
@@ -645,3 +646,8 @@ All runs on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env
 | 10-22 10:40 | `clearTenantStatusCounters` dry run, run, dry run | 1 row; cleared; then 0 |
 | 10-22 10:45 | `assertMeetingProjections`, `assertMeetingProjectionBuckets` (reset) | passed: 6,869 projections, 3,646 buckets (3,896 before), none holding the deal status |
 | 10-22 10:49 | read-only check before the narrow | no deal with `status` and none without a stage or outcome; no search row, meeting, qualification row, legacy stats row or `tenantStats` row holds a removed field |
+| 10-22 10:49 to 11:40 | after PR 9: `assertDealStages`, `assertBookingAttributions`, `assertDealAttributions`, `assertEnrollments`, `assertPaymentEnrollments`, `assertPersonTouches`, `assertLeadLifecycle` (reset) | passed: 11,525 deals, 6,869 meetings, 11,525 deals, 283 enrollments, 288 payments, 90,848 people, 90,851 people |
+| 10-22 11:12 | read-only recheck just before merging #178 | 11,527 deals, none with `status`, none without a stage or outcome |
+| 10-22 11:14 | #178 deployed | the schema push accepted every row: no deal, search row, meeting, qualification row, meeting projection, legacy stats row or `tenantStats` row held a removed field |
+| 10-22 11:15 | `assertDealStages` (reset), after the narrow | passed, 11,527 deals |
+| 10-22 11:40 | the read-only snapshot directory of §2 (deal and meeting IDs with their statuses, mode 700) deleted | gone; no production export was taken in this phase (D12) |
