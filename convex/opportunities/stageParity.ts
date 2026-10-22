@@ -56,7 +56,7 @@ export const compareDealState = internalQuery({
     mismatches: v.array(
       v.object({
         opportunityId: v.id("opportunities"),
-        status: opportunityStatusValidator,
+        status: v.union(opportunityStatusValidator, v.null()),
         legacy: v.union(opportunityStatusValidator, v.null()),
       }),
     ),
@@ -82,7 +82,7 @@ export const compareDealState = internalQuery({
         legacy = legacyStatus(deal, { hasPendingRescheduleLink: links > 0 });
       }
       if (legacy !== deal.status) {
-        mismatches.push({ opportunityId: deal._id, status: deal.status, legacy });
+        mismatches.push({ opportunityId: deal._id, status: deal.status ?? null, legacy });
       }
     }
     return {

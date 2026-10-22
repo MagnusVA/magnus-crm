@@ -121,8 +121,10 @@ export async function insertOpportunityAggregate(
   opportunityId: Id<"opportunities">,
 ): Promise<Doc<"opportunities">> {
   const opportunity = await getOpportunityOrThrow(ctx, opportunityId);
-  await opportunityByStatus.insert(ctx, opportunity);
-  // The IfExists methods until the stage backfill is verified (aggregates.ts).
+  // The IfExists methods: opportunityByStage until its backfill is verified,
+  // opportunityByStatus from PR 8, so a revert after PR 9 cleared it still
+  // writes (aggregates.ts).
+  await opportunityByStatus.insertIfDoesNotExist(ctx, opportunity);
   await opportunityByStage.insertIfDoesNotExist(ctx, opportunity);
   if (isSlackQualificationAggregateEligible(opportunity)) {
     await slackQualificationsByUser.insert(ctx, opportunity);
@@ -143,7 +145,7 @@ export async function replaceOpportunityAggregate(
   opportunityId: Id<"opportunities">,
 ): Promise<Doc<"opportunities">> {
   const opportunity = await getOpportunityOrThrow(ctx, opportunityId);
-  await opportunityByStatus.replace(ctx, oldOpportunity, opportunity);
+  await opportunityByStatus.replaceOrInsert(ctx, oldOpportunity, opportunity);
   await opportunityByStage.replaceOrInsert(ctx, oldOpportunity, opportunity);
 
   const oldEligible = isSlackQualificationAggregateEligible(oldOpportunity);

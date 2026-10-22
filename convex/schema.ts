@@ -885,20 +885,27 @@ export default defineSchema({
     hostCalendlyEmail: v.optional(v.string()),
     hostCalendlyName: v.optional(v.string()),
     eventTypeConfigId: v.optional(v.id("eventTypeConfigs")),
-    status: v.union(
-      v.literal("qualified_pending"),
-      v.literal("scheduled"),
-      v.literal("payment_received"),
-      v.literal("follow_up_scheduled"),
-      v.literal("reschedule_link_sent"),
-      v.literal("lost"),
-      v.literal("canceled"),
-      v.literal("no_show"),
+    // Today's status, still written on every insert and move as
+    // `legacyStatus` of the stage, the outcome, the loss and the tasks, so a
+    // revert to PR 7 finds it; optional so a revert after PR 9's clear finds a
+    // schema that accepts a deal without one (docs/plans/phase-5-deal-status.md
+    // §3.3, §12). Nothing reads it.
+    status: v.optional(
+      v.union(
+        v.literal("qualified_pending"),
+        v.literal("scheduled"),
+        v.literal("payment_received"),
+        v.literal("follow_up_scheduled"),
+        v.literal("reschedule_link_sent"),
+        v.literal("lost"),
+        v.literal("canceled"),
+        v.literal("no_show"),
+      ),
     ),
-    // The deal stage and outcome, written beside `status` from its mapping
-    // (convex/opportunities/stages.ts) until the narrow; optional until
-    // `backfillDealStages` reaches every deal (docs/plans/phase-5-deal-status.md
-    // §3.1). Only transitionOpportunity and the inserts write them.
+    // The deal stage and outcome (convex/opportunities/stages.ts); optional
+    // until the narrow (docs/plans/phase-5-deal-status.md §3.1, §3.3). Only
+    // transitionOpportunity, through the stage machine, and the inserts
+    // write them.
     stage: v.optional(dealStageValidator),
     outcome: v.optional(dealOutcomeValidator),
     // Widened for side-deals rollout. Undefined legacy rows normalize to
@@ -1141,15 +1148,19 @@ export default defineSchema({
       v.literal("side_deal"),
       v.literal("slack_qualified"),
     ),
-    status: v.union(
-      v.literal("qualified_pending"),
-      v.literal("scheduled"),
-      v.literal("payment_received"),
-      v.literal("follow_up_scheduled"),
-      v.literal("reschedule_link_sent"),
-      v.literal("lost"),
-      v.literal("canceled"),
-      v.literal("no_show"),
+    // The deal's status, copied while the deal still has one; PR 9 stops
+    // writing it (docs/plans/phase-5-deal-status.md §3.3, §4.8).
+    status: v.optional(
+      v.union(
+        v.literal("qualified_pending"),
+        v.literal("scheduled"),
+        v.literal("payment_received"),
+        v.literal("follow_up_scheduled"),
+        v.literal("reschedule_link_sent"),
+        v.literal("lost"),
+        v.literal("canceled"),
+        v.literal("no_show"),
+      ),
     ),
     latestActivityAt: v.number(),
     activityDayKey: v.string(),
