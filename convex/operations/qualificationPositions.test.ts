@@ -128,6 +128,22 @@ describe("the Qualifications filter by position", () => {
     ]);
   });
 
+  it("finds a row by its deal's stage label", async () => {
+    const harness = await bookingHarness();
+    const events = await seed(harness);
+    const search = async (searchTerm: string) =>
+      ids(
+        await harness.admin.query(api.operations.qualifications.searchQualificationQueue, {
+          searchTerm,
+          ...WINDOW,
+        }),
+      );
+
+    expect(await search("booked")).toEqual([events["scheduled/slack_qualified"]]);
+    expect(await search("won")).toEqual([events["payment_received/slack_qualified"]]);
+    expect(await search("call held")).toEqual([events["scheduled/side_deal"]]);
+  });
+
   it("takes one primary filter at a time", async () => {
     const harness = await bookingHarness();
     await expect(

@@ -1,11 +1,17 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
-import { dealStageOf, type DealStageAndOutcome } from "../opportunities/stages";
+import {
+  DEAL_POSITION_LABELS,
+  dealPosition,
+  dealStageOf,
+  type DealStageAndOutcome,
+} from "../opportunities/stages";
 
 function buildQualificationSearchText(args: {
   event: Doc<"slackQualificationEvents">;
   lead: Doc<"leads"> | null;
   opportunity: Doc<"opportunities"> | null;
+  dealStage: DealStageAndOutcome | undefined;
 }) {
   return [
     args.event.fullNameSnapshot,
@@ -16,6 +22,11 @@ function buildQualificationSearchText(args: {
     args.lead?.email,
     args.lead?.phone,
     args.opportunity?.status,
+    // The label the badge and the filter show (docs/plans/phase-5-deal-status.md
+    // §6.6), beside the status until the status goes.
+    args.dealStage
+      ? DEAL_POSITION_LABELS[dealPosition(args.dealStage.stage, args.dealStage.outcome)]
+      : undefined,
     args.opportunity?.firstBookingProgramName,
     args.opportunity?.soldProgramName,
   ]
@@ -77,7 +88,7 @@ export async function rebuildQualificationRow(
     assignedCloserId: opportunity?.assignedCloserId,
     // No attribution: the queue reads the deal's first booking's rows and
     // resolution (docs/plans/phase-3-attribution.md §6.2).
-    searchText: buildQualificationSearchText({ event, lead, opportunity }),
+    searchText: buildQualificationSearchText({ event, lead, opportunity, dealStage }),
     updatedAt: Date.now(),
   };
 
