@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Id } from "../_generated/dataModel";
-import { OPPORTUNITY_STATUSES, type OpportunityStatus } from "../lib/statusTransitions";
+import { OPPORTUNITY_STATUSES, type OpportunityStatus } from "./stages";
 import {
   LEGACY_STATUS_LABELS,
   dealEventOutcomes,

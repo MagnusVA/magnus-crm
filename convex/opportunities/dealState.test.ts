@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Id } from "../_generated/dataModel";
-import { OPPORTUNITY_STATUSES, type OpportunityStatus } from "../lib/statusTransitions";
+import { OPPORTUNITY_STATUSES, type OpportunityStatus } from "./stages";
 import {
   isMissedMeetingLoss,
   legacyStatus,

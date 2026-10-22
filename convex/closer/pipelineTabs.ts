@@ -1,4 +1,4 @@
-import type { OpportunityStatus } from "../lib/statusTransitions";
+import type { OpportunityStatus } from "../opportunities/stages";
 import type { DealPosition } from "../opportunities/stages";
 
 // The closer pipeline's tabs (docs/plans/phase-5-deal-status.md §6.2): All,

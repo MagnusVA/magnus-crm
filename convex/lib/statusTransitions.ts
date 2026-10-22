@@ -1,16 +1,7 @@
 
-export const OPPORTUNITY_STATUSES = [
-  "qualified_pending",
-  "scheduled",
-  "payment_received",
-  "follow_up_scheduled",
-  "reschedule_link_sent",
-  "lost",
-  "canceled",
-  "no_show",
-] as const;
-
-export type OpportunityStatus = (typeof OPPORTUNITY_STATUSES)[number];
+// The deal's state machine is the stage machine in
+// convex/opportunities/stages.ts (docs/plans/phase-5-deal-status.md §4.4),
+// beside the frozen list of the old statuses.
 
 export const MEETING_STATUSES = [
   "scheduled",
@@ -20,38 +11,6 @@ export const MEETING_STATUSES = [
 ] as const;
 
 export type MeetingStatus = (typeof MEETING_STATUSES)[number];
-
-export const VALID_TRANSITIONS: Record<
-  OpportunityStatus,
-  OpportunityStatus[]
-> = {
-  qualified_pending: ["scheduled", "lost"],
-  scheduled: [
-    "payment_received",
-    "follow_up_scheduled",
-    "lost",
-    "no_show",
-    "canceled",
-  ],
-  canceled: ["follow_up_scheduled", "scheduled"],
-  no_show: ["follow_up_scheduled", "reschedule_link_sent", "scheduled"],
-  // Reminder-driven outcomes can now terminate the opportunity directly.
-  // Keep "scheduled" for the existing re-booking path.
-  follow_up_scheduled: ["scheduled", "payment_received", "lost"],
-  reschedule_link_sent: ["scheduled"],
-  payment_received: [],
-  lost: [],
-};
-
-// The validators are plain predicates: callers also use them to pick a branch,
-// so they don't log. A caller that rejects a write throws, and the failure
-// is reported with the request.
-export function validateTransition(
-  from: OpportunityStatus,
-  to: OpportunityStatus,
-): boolean {
-  return VALID_TRANSITIONS[from].includes(to);
-}
 
 // === Meeting Status Transitions ===
 

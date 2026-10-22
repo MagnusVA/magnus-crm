@@ -6,7 +6,7 @@ import {
   type DealSource,
   type DealStage,
 } from "../convex/opportunities/stages";
-import type { OpportunityStatus } from "../convex/lib/statusTransitions";
+import type { OpportunityStatus } from "../convex/opportunities/stages";
 import {
   isActiveOpportunityStatus,
   updateTenantStats,

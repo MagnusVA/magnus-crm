@@ -1,20 +1,18 @@
 import { expect } from "vitest";
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
-import {
-  OPPORTUNITY_STATUSES,
-  validateTransition,
-  type OpportunityStatus,
-} from "../convex/lib/statusTransitions";
+import { pr7ValidateTransition } from "./stageMachineFixtures";
 import { isSideDeal } from "../convex/lib/sideDeals";
 import { isActiveOpportunityStatus } from "../convex/lib/tenantStatsHelper";
 import { insertMeetingAggregate } from "../convex/reporting/writeHooks";
 import type { DealTasks } from "../convex/opportunities/dealGuards";
 import { legacyStatus, type DealStateFields } from "../convex/opportunities/dealState";
 import {
+  OPPORTUNITY_STATUSES,
   missedMeetingLossReason,
   stageForStatus,
   type DealSource,
+  type OpportunityStatus,
 } from "../convex/opportunities/stages";
 import { bookingHarness } from "./bookingHarness";
 import {
@@ -39,21 +37,21 @@ const PERSON = "user_person" as Id<"users">;
  */
 export const todaysGuards = {
   // lib/outcomeEligibility.ts: assertCanRecordMeetingOutcome; also the
-  // unavailability cancel's `validateTransition(status, "canceled")`.
+  // unavailability cancel's `pr7ValidateTransition(status, "canceled")`.
   scheduled: (status: OpportunityStatus) => status === "scheduled",
-  canceledFrom: (status: OpportunityStatus) => validateTransition(status, "canceled"),
+  canceledFrom: (status: OpportunityStatus) => pr7ValidateTransition(status, "canceled"),
   // closer/reminderOutcomes.ts logReminderPayment, sideDeals/logPayment.ts.
-  takePayment: (status: OpportunityStatus) => validateTransition(status, "payment_received"),
+  takePayment: (status: OpportunityStatus) => pr7ValidateTransition(status, "payment_received"),
   // closer/meetingActions.ts and admin/meetingActions.ts markAsLost,
   // closer/reminderOutcomes.ts markReminderLost and give_up, sideDeals/markLost.ts.
-  markLost: (status: OpportunityStatus) => validateTransition(status, "lost"),
+  markLost: (status: OpportunityStatus) => pr7ValidateTransition(status, "lost"),
   // closer/followUp.ts, closer/followUpMutations.ts, admin/meetingActions.ts.
-  startFollowUp: (status: OpportunityStatus) => validateTransition(status, "follow_up_scheduled"),
+  startFollowUp: (status: OpportunityStatus) => pr7ValidateTransition(status, "follow_up_scheduled"),
   // The confirm steps' no-op, and the reminder's "schedule a new one".
   followUpScheduled: (status: OpportunityStatus) => status === "follow_up_scheduled",
   // closer/noShowActions.ts and admin/meetingActions.ts reschedule links.
   sendRescheduleLink: (status: OpportunityStatus) =>
-    status === "no_show" && validateTransition(status, "reschedule_link_sent"),
+    status === "no_show" && pr7ValidateTransition(status, "reschedule_link_sent"),
   // closer/additionalPayment.ts, sideDeals/voidPayment.ts.
   won: (status: OpportunityStatus) => status === "payment_received",
   // lib/leadLifecycle.ts shouldMarkUnresponsive, slack/createQualifiedLead.ts.
