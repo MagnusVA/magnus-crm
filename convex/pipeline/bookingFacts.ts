@@ -42,6 +42,12 @@ export async function recordBookingFact(
             isRecord(args.payload) && isRecord(args.payload.cancellation)
               ? getString(args.payload.cancellation, "reason")
               : undefined,
+          // Kept once seen: the processor records the fact again from the
+          // same delivery, and a fact recorded before the field existed
+          // gains it then.
+          rescheduled:
+            row?.rescheduled === true ||
+            (isRecord(args.payload) && args.payload.rescheduled === true),
         }
       : args.occurredAt > (row?.noShowAt ?? -Infinity) ||
           (args.occurredAt === row?.noShowAt &&
@@ -62,7 +68,8 @@ export async function recordBookingFact(
 }
 
 /** Cancellation is permanent for an invitee. A newer booking has a different URI.
- * Reversal only undoes a provider no-show, never a closer's recorded outcome. */
+ * Reversal only undoes a provider no-show, never a closer's recorded outcome.
+ * A cancel Calendly flags `rescheduled` cancels the meeting and leaves the deal. */
 export async function reconcileBookingFact(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
@@ -137,6 +144,10 @@ export async function reconcileBookingFact(
     toStatus: status,
     occurredAt,
   });
+  // A Calendly reschedule moves the booking, it doesn't cancel the deal: the
+  // new invitee's invitee.created names this one in `old_invitee` and moves
+  // the deal to it, whichever of the two is processed first.
+  if (status === "canceled" && fact.rescheduled) return;
   // An old booking's cancellation must not cancel a newer reschedule or a sale.
   const currentBooking =
     opportunity.calendlyEventUri === eventUri ||
