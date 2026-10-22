@@ -62,9 +62,9 @@ type Props = {
  *      happens when another tab (or another closer, if ever shared)
  *      completed the reminder; Convex reactivity re-renders us into
  *      this branch automatically.
- *   2. **Deal closed** — the underlying deal has been won or lost
- *      elsewhere, a no-show or cancellation included. The reminder can no
- *      longer move it; surfaces a gentle alert instead of letting the
+ *   2. **Deal finished** — the underlying deal has been won or lost
+ *      elsewhere, a no-show included (a cancellation isn't: that deal
+ *      keeps the buttons). Surfaces a gentle alert instead of letting the
  *      closer trigger a mutation that would throw.
  *   3. **Actionable** — renders the three outcome dialogs. Each dialog
  *      owns its own trigger button + mutation. The bar is otherwise
@@ -72,7 +72,7 @@ type Props = {
  *      component route-agnostic and trivially testable.
  *
  * The bar intentionally does not pass `opportunity` into dialogs — each
- * dialog only needs `followUpId`. Centralising the closed-deal check
+ * dialog only needs `followUpId`. Centralising the finished-deal check
  * here prevents three dialogs from diverging on the same guard rail, and
  * the Convex mutations re-validate server-side as defence in depth.
  */
@@ -128,11 +128,8 @@ export function ReminderOutcomeActionBar({
 		);
 	}
 
-	// --- Branch 2: the deal is Closed (design doc §14.3) ---------------------
-	// A canceled deal counts as finished too, as a no-show's does
-	// (docs/plans/phase-5-deal-status.md §4.6). It used to show the outcome
-	// buttons: the server refuses the payment, the loss and a new reminder on
-	// it, and only "no response, close only" went through.
+	// --- Branch 2: the deal is finished (design doc §14.3) -------------------
+	// Closed, except a deal a cancellation closed (lib/deal-controls.ts).
 	if (isReminderDealFinished(opportunity)) {
 		const statusLabel = dealPositionLabel(
 			opportunity.position,

@@ -91,14 +91,13 @@ export function adminMeetingActions(
 }
 
 /**
- * The reminder can no longer move the deal: it is Closed, won or lost.
- *
- * This is the one control that changes (§4.6). Today's set was
- * `payment_received`, `lost` and `no_show`, so a canceled deal showed the
- * outcome buttons, and the server refuses the payment, the loss and a new
- * reminder on it; only the closer's "no response, close only" went through.
- * A canceled deal now counts as finished too, as a no-show's does.
+ * The reminder pages count the deal as finished: Closed, except one a
+ * cancellation closed, which keeps the outcome buttons. Today's
+ * `payment_received`, `lost` and `no_show`; a `canceled` deal isn't one.
  */
 export function isReminderDealFinished(deal: DealControlFields): boolean {
-  return deal.position === "won" || deal.position === "lost";
+  return (
+    deal.position === "won" ||
+    (deal.position === "lost" && missedMeetingOf(deal) !== "canceled")
+  );
 }

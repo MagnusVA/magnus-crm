@@ -264,7 +264,7 @@ Each status a guard or booking rule tests becomes a test of the stage, the outco
 | `payment_received` | Closed won |
 | `lost` | Closed lost otherwise |
 
-`legacyStatus(deal, tasks)` reads them in that order and rebuilds today's status from the new fields; the asserts prove it on every deal (§10.2). The sets that leave out canceled and no-show deals today (the Slack duplicate check, `shouldMarkUnresponsive`, the user removal guard, Pipeline Health's aging) become "open", which leaves them out too. Every closer and admin control shows on the same deals as today; on the reminder pages a canceled deal now counts as finished, as `no_show` already does, where today it shows buttons the server refuses.
+`legacyStatus(deal, tasks)` reads them in that order and rebuilds today's status from the new fields; the asserts prove it on every deal (§10.2). The sets that leave out canceled and no-show deals today (the Slack duplicate check, `shouldMarkUnresponsive`, the user removal guard, Pipeline Health's aging) become "open", which leaves them out too. Every closer and admin control shows on the same deals as today; the reminder pages count a deal as finished when it is Closed, except one a cancellation closed, as today: `no_show` counts as finished and `canceled` doesn't.
 
 ### 4.7 Events
 
@@ -352,7 +352,7 @@ The controls show on the same deals as today, from the stage, the loss and the t
 
 - Closer meeting page: the outcome bar (log payment, follow-up, no-show, lost) on a Booked deal whose meeting is scheduled, inside the time window, with no active follow-up; the no-show bar (request reschedule, follow-up) on a deal a no-show closed; the "reschedule link sent" banner on a Follow-up deal with a pending reschedule link; "Deal won" on Closed won.
 - Admin meeting page: no bar on a closed deal, except a missed meeting's; the four actions on a Booked deal with a scheduled meeting; "Schedule follow-up" on a deal a missed meeting closed; "Reschedule link" on one a no-show closed.
-- Reminder pages: the deal counts as finished when it is Closed.
+- Reminder pages: the deal counts as finished when it is Closed, except one a cancellation closed, as today (`no_show` counts as finished, `canceled` doesn't).
 - `lib/outcomeEligibility.ts` (`assertCanRecordMeetingOutcome`) requires a Booked deal; the reschedule link mutations require a deal a no-show closed; `closer/additionalPayment.ts` requires Closed won; the reminder's "no response, schedule a new one" requires Follow-up with no reschedule link.
 
 ### 6.5 No-shows and cancellations (PR 6, from Q2)

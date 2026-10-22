@@ -2,7 +2,7 @@
  * The meeting and reminder pages show their controls from the deal's
  * position, the system's loss and its reschedule link, on the same deals
  * today's status shows them on (docs/plans/phase-5-deal-status.md §4.6,
- * §6.4). The one change: a reminder on a canceled deal counts as finished.
+ * §6.4). No status changes its result.
  */
 import { describe, expect, it } from "vitest";
 import { MEETING_STATUSES } from "@/convex/lib/statusTransitions";
@@ -60,17 +60,16 @@ describe("the meeting pages", () => {
 });
 
 describe("the reminder pages", () => {
-  it("count a Closed deal as finished: today's won, lost and no-show deals, and now a canceled one", () => {
+  it("count a deal as finished when it is Closed, except one a cancellation closed, as today", () => {
     expect(namesWhere(cases, (item) => isReminderDealFinished(item.deal))).toEqual(
-      namesWhere(cases, (item) => TODAY.reminderDealFinished(item.status) || item.status === "canceled"),
+      namesWhere(cases, (item) => TODAY.reminderDealFinished(item.status)),
     );
   });
 
-  it("change nothing else: only canceled deals differ from today", () => {
-    const changed = cases.filter(
-      (item) => isReminderDealFinished(item.deal) !== TODAY.reminderDealFinished(item.status),
-    );
-    expect(changed.length).toBeGreaterThan(0);
-    expect(new Set(changed.map((item) => item.status))).toEqual(new Set(["canceled"]));
+  it("keep the outcome buttons on a deal a cancellation closed, and not on one a no-show closed", () => {
+    expect(isReminderDealFinished({ position: "lost", systemLoss: "canceled" })).toBe(false);
+    expect(isReminderDealFinished({ position: "lost", systemLoss: "no_show" })).toBe(true);
+    expect(isReminderDealFinished({ position: "lost", systemLoss: "stale" })).toBe(true);
+    expect(isReminderDealFinished({ position: "lost", systemLoss: null })).toBe(true);
   });
 });

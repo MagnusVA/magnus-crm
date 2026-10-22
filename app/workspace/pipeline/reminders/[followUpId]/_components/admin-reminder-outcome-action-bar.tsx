@@ -80,9 +80,7 @@ export function AdminReminderOutcomeActionBar({
     );
   }
 
-  // --- Branch 2: the deal is Closed, the closer bar's gate ---------------
-  // A canceled deal counts as finished too: it used to show the payment
-  // button, and the server refused it (docs/plans/phase-5-deal-status.md §4.6).
+  // --- Branch 2: the deal is finished, the closer bar's gate -------------
   if (isReminderDealFinished(opportunity)) {
     const statusLabel = dealPositionLabel(
       opportunity.position,
