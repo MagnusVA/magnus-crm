@@ -407,7 +407,7 @@ Counts from §2.
 | New deals and bookings, from PR 2 | a booking within 14 days of a no-show or cancellation creates a new deal instead of rejoining, so it counts as a new deal and its call as a first call rather than a follow-up; a Calendly reschedule no longer cancels its deal on the way |
 | Bookings export | `OpportunityStatus` becomes `DealStage` and `DealOutcome` |
 | Activity feed | from PR 8, deal moves count as `opportunity.stage_changed`; a no-show or cancellation shows as the deal marked lost |
-| Leads search | typing a status word ("no show") stops matching by deal; the stage labels match |
+| Leads search | a person's deals match by their stage labels (booked, call held, follow-up, won, lost); "no show" and "canceled" still match a deal a missed meeting closed; the other status words ("scheduled", "payment received") stop matching |
 | `tenantStats` active, won, lost | gone; no screen read them |
 
 ## 8. What else moves
