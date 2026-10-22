@@ -127,14 +127,14 @@ stage: v.optional(dealStageValidator),
 outcome: v.optional(dealOutcomeValidator),
 ```
 
-PR 1 adds the two fields and these indexes, which the moved readers use (§6). With them `opportunities` has 31 indexes, under Convex's 32.
+PR 1 adds the two fields and these indexes, which the moved readers use (§6). With them `opportunities` has 31 indexes, under Convex's 32. Two names drop the `_and_`s to stay under Convex's 64 characters, as `by_tenantId_assignedCloserId_source_status_latestActivityAt` does.
 
 | Index | Replaces | For |
 | --- | --- | --- |
-| `by_tenantId_and_leadId_and_source_and_stage_and_outcome_and_createdAt` | `by_tenantId_and_leadId_and_source_and_status_and_createdAt` | the Slack join (Qualified, and Closed lost for a stale-expired deal) and the Slack duplicate check |
+| `by_tenantId_leadId_source_stage_outcome_createdAt` | `by_tenantId_and_leadId_and_source_and_status_and_createdAt` | the Slack join (Qualified, and Closed lost for a stale-expired deal) and the Slack duplicate check |
 | `by_source_and_stage_and_createdAt` | `by_source_and_status_and_createdAt` | the Slack expiry and the side deal nudge, across tenants |
 | `by_tenantId_and_source_and_stage_and_createdAt` | `by_tenantId_and_source_and_status_and_createdAt` | the Slack stale digest |
-| `by_tenantId_and_assignedCloserId_and_stage_and_outcome_and_createdAt` | `by_tenantId_and_assignedCloserId_and_status_and_createdAt` | the closer pipeline list and the user removal guard |
+| `by_tenantId_assignedCloserId_stage_outcome_createdAt` | `by_tenantId_and_assignedCloserId_and_status_and_createdAt` | the closer pipeline list and the user removal guard |
 | `by_tenantId_and_stage_and_outcome_and_createdAt` | `by_tenantId_and_status_and_createdAt` | pipeline aging and velocity |
 | `by_tenantId_and_stage_and_outcome_and_lostAt` | `by_tenantId_and_status_and_latestActivityAt` | loss attribution and the No-shows and cancellations list |
 
@@ -338,7 +338,7 @@ A side deal that a booking joins, which only the API can do today, stays Call he
 
 ### 6.2 Closer pipeline and dashboard (PR 5)
 
-- `/workspace/closer/pipeline`: tabs All, Booked, Call held, Follow-up, Won, Lost, each with its count from `opportunityByStage` (a `countBatch` over the closer's prefix instead of eight unbounded scans). The Canceled and No Show tabs go, since closers don't use them (Q1); those deals are under Lost with "no-show" or "canceled" on the badge. Each Follow-up row says its next step: "Reschedule link sent", the reminder's date, or nothing. The list reads `by_tenantId_and_assignedCloserId_and_stage_and_outcome_and_createdAt`. The period toggle stays as it is.
+- `/workspace/closer/pipeline`: tabs All, Booked, Call held, Follow-up, Won, Lost, each with its count from `opportunityByStage` (a `countBatch` over the closer's prefix instead of eight unbounded scans). The Canceled and No Show tabs go, since closers don't use them (Q1); those deals are under Lost with "no-show" or "canceled" on the badge. Each Follow-up row says its next step: "Reschedule link sent", the reminder's date, or nothing. The list reads `by_tenantId_assignedCloserId_stage_outcome_createdAt`. The period toggle stays as it is.
 - The URL takes `stage=` (the six positions). An old `status=` link still works: `scheduled` opens Booked; `follow_up_scheduled` and `reschedule_link_sent` open Follow-up; `payment_received` opens Won; `lost`, `canceled` and `no_show` open Lost; `qualified_pending` opens All.
 - `/workspace/closer`'s pipeline strip: segments by position; Won as today. The close rate is won ÷ (won + lost), where lost counts only the losses a person recorded: the ones the system wrote for a missed meeting (`no_show`, `canceled`) are left out, so the rate doesn't change when the canceled and no-show deals become losses.
 
@@ -441,7 +441,7 @@ Production runs, in this order (§10.7 has the commands):
 
 1. After PR 1: `backfillDealStages` dry run, run, then `assertDealStages`; `backfillOpportunityByStage` (the aggregate), then `verifyStageCounts`.
 2. After PR 2: `backfillCancelRescheduledFlags` dry run, run, then `assertCancelRescheduledFlags`, straight after the deploy; `assertBookingAttributions`, `assertDealAttributions` and `assertPersonTouches`, since bookings now create deals the join used to take.
-3. After PR 3: `rebuildQualificationRows` (reset), then `assertQualificationRowsCurrent` (reset); the parity queries.
+3. After PR 3: `assertDealStages` (reset), which now also rebuilds the status from the new fields; `rebuildQualificationRows` (reset), then `assertQualificationRowsCurrent` (reset); the parity queries.
 4. After PR 4: `backfillLeadCustomerSearchRows` (reset), then `assertLeadCustomerSearchRowsBackfilled` (reset), in the background (about 20 minutes over 90,000 people). After PRs 4 to 6: a read-only recheck of the numbers each one shows.
 5. After PR 7: `assertDealStages` (reset); `assertLeadLifecycle` in the background (about an hour), since the lifecycle code changed; `assertBookingAttributions`, `assertDealAttributions` and `assertPersonTouches`, since the booking pipeline changed; `assertEnrollments` and `assertPaymentEnrollments`, since the payment paths changed.
 6. After PR 8: `assertDealStages` (reset), which now checks the stored status against `legacyStatus`; then every health check in step 5 once more, since every write path changed.
@@ -460,12 +460,12 @@ Over `opportunities`, batch 200: sets `stage` and `outcome` from `stageForStatus
 
 `backfillOpportunityByStage` pages over `opportunities` with `insertIfDoesNotExist`, as `reporting/backfill.ts` does for `opportunityByStatus`. `verifyStageCounts` (internal query) compares each position's count in `opportunityByStage` with the sum of its statuses in `opportunityByStatus`, and the total with the table.
 
-### 10.2 `assertDealStages` (PR 1, changed in PRs 2, 8 and 9)
+### 10.2 `assertDealStages` (PR 1, changed in PRs 3, 8 and 9)
 
 Over `opportunities`, batch 200. Each deal has a stage and an outcome that `assertStageOutcome` allows; a Closed lost deal with the reason `stale`, `no_show` or `canceled` has no `lostByUserId`; a deal at Follow-up has at most one pending reschedule link. Then, by PR:
 
 - PR 1: the pair is `stageForStatus(status, source)`, and a `canceled` or `no_show` deal has the matching reason.
-- PRs 2 to 7: also `legacyStatus` (§4.6), rebuilt from the deal and its pending tasks, equals its status.
+- PRs 3 to 7: also `legacyStatus` (§4.6, in `dealState.ts` from PR 3), rebuilt from the deal and its pending tasks, equals its status.
 - PR 8: the stage machine sets the pair and writes the status from it, so only `legacyStatus` against the status is checked.
 - From PR 9: no status comparison, since the status is no longer written. `assertQualificationRowsCurrent` and `assertOpportunitySearchProjectionBackfilled` stop comparing it in the same PR.
 
