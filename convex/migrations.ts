@@ -66,7 +66,11 @@ import {
   type DealPosition,
   LEGACY_STATUS_GROUPS,
 } from "./opportunities/stages";
-import { legacyStatus, loadPendingRescheduleLink } from "./opportunities/dealState";
+import {
+  isMissedMeetingLoss,
+  legacyStatus,
+  loadPendingRescheduleLink,
+} from "./opportunities/dealState";
 import { opportunityByStage, opportunityByStatus } from "./reporting/aggregates";
 
 export const migrations = new Migrations<DataModel>(components.migrations);
@@ -965,6 +969,8 @@ export const backfillDealStages = migrations.define({
   table: "opportunities",
   batchSize: 200,
   migrateOne: async (ctx, deal) => {
+    // From PR 8 every write sets the stage, so a deal with no status has one.
+    if (deal.status === undefined) return;
     const { stage, outcome } = stageForStatus(deal.status, deal.source);
     const reason = missedMeetingLossReason(deal.status);
     // A reason already there is kept, even a different one, for the assert
@@ -989,11 +995,14 @@ function describeLostReason(reason: string | undefined): string {
   return isSystemLossReason(reason) ? `the reason ${reason}` : "a free-text reason";
 }
 
-// Each deal's stage and outcome are set, allowed, and what its status maps
-// to; a canceled or no-show deal has the matching reason; a loss the system
-// wrote has no person; a Follow-up deal has at most one pending reschedule
-// link; and from PR 3 the status rebuilt from the stage, the outcome, the
-// loss and the tasks (legacyStatus, §4.6) is the deal's status (§10.2).
+// Each deal's stage and outcome are set and allowed; a deal a missed meeting
+// closed has its loss time; a canceled or no-show status has the matching
+// reason and no person; a Follow-up deal has at most one pending reschedule
+// link; and the status PR 8 still writes is the one rebuilt from the stage,
+// the outcome, the loss and the tasks (legacyStatus, §4.6), so a revert to
+// PR 7 finds each deal as PR 7 would have written it (§10.2, §12). The stage
+// machine sets the pair, so it is no longer compared with the status's
+// mapping: a side deal a booking joined is Booked now, not Call held.
 // Throws on the first problem, with IDs and codes only.
 export const assertDealStages = migrations.define({
   table: "opportunities",
@@ -1007,18 +1016,16 @@ export const assertDealStages = migrations.define({
     if (!isAllowedStageOutcome(stage, outcome)) {
       throw fail(`has stage "${stage}", which doesn't allow outcome "${outcome}"`);
     }
-    const expected = stageForStatus(deal.status, deal.source);
-    if (stage !== expected.stage || outcome !== expected.outcome) {
-      throw fail(
-        `is ${stage}/${outcome}, expected ${expected.stage}/${expected.outcome} for ${deal.status}`,
-      );
+    const missed = isMissedMeetingLoss(deal);
+    if (missed && deal.lostAt === undefined) {
+      throw fail(`is closed by a missed meeting (${missed}) and has no lostAt`);
+    }
+    if (deal.status === undefined) {
+      throw fail("has no status");
     }
     const missedReason = missedMeetingLossReason(deal.status);
     if (missedReason && deal.lostReason !== missedReason) {
       throw fail(`is ${deal.status} and has ${describeLostReason(deal.lostReason)}, expected ${missedReason}`);
-    }
-    if (missedReason && deal.lostAt === undefined) {
-      throw fail(`is ${deal.status} and has no lostAt`);
     }
     // A missed meeting's loss names no person. A person's own free text may
     // match a code; legacyStatus reads that deal as lost, as its status says.

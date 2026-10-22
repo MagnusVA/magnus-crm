@@ -14,7 +14,7 @@ import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { log } from "../lib/observability/log";
-import { transitionOpportunity } from "../lib/opportunityActivity";
+import { missedMeetingLoss, transitionOpportunity } from "../lib/opportunityActivity";
 
 const noShowReasonValidator = v.union(
   v.literal("no_response"),
@@ -78,8 +78,9 @@ export const adminMarkAsLost = mutation({
 
     const reason = args.reason?.trim() || undefined;
 
+    // Qualified, Booked, Call held or Follow-up -> Closed lost, by a person.
     await transitionOpportunity(ctx, args.opportunityId, {
-      to: "lost",
+      to: { stage: "closed", outcome: "lost" },
       fields: {
         updatedAt: now,
         lostAt: now,
@@ -88,7 +89,6 @@ export const adminMarkAsLost = mutation({
       },
       source: "admin",
       actorUserId: userId,
-      eventType: "opportunity.marked_lost",
       reason,
     });
     if (meeting) {
@@ -239,9 +239,12 @@ export const adminConfirmFollowUp = mutation({
       );
     }
 
+    // Booked or Call held -> Follow-up, or a missed meeting's Closed lost ->
+    // Follow-up, which only the exception allows.
     await transitionOpportunity(ctx, args.opportunityId, {
-      to: "follow_up_scheduled",
+      to: { stage: "follow_up" },
       fields: { updatedAt: now },
+      exception: "missed_meeting_next_step",
       source: "admin",
       actorUserId: userId,
     });
@@ -329,9 +332,12 @@ export const adminCreateManualReminder = mutation({
       createdSource: "admin",
     });
 
+    // Booked or Call held -> Follow-up, or a missed meeting's Closed lost ->
+    // Follow-up, which only the exception allows.
     await transitionOpportunity(ctx, args.opportunityId, {
-      to: "follow_up_scheduled",
+      to: { stage: "follow_up" },
       fields: { updatedAt: now },
+      exception: "missed_meeting_next_step",
       source: "admin",
       actorUserId: userId,
     });
@@ -400,9 +406,10 @@ export const adminMarkNoShow = mutation({
 
     const normalizedNote = normalizeOptionalString(args.note);
 
+    // Booked (or Call held) -> Closed lost: a missed meeting's loss names no person.
     await transitionOpportunity(ctx, opportunity._id, {
-      to: "no_show",
-      fields: { noShowAt: now, updatedAt: now },
+      to: { stage: "closed", outcome: "lost" },
+      fields: { noShowAt: now, updatedAt: now, ...missedMeetingLoss("no_show", now) },
       source: "admin",
       actorUserId: userId,
       reason: args.reason,
@@ -509,9 +516,12 @@ export const adminCreateRescheduleLink = mutation({
       createdSource: "admin",
     });
 
+    // Closed lost (no-show) -> Follow-up, after the link: the status reads it
+    // as `reschedule_link_sent`.
     await transitionOpportunity(ctx, args.opportunityId, {
-      to: "reschedule_link_sent",
+      to: { stage: "follow_up" },
       fields: { updatedAt: now },
+      exception: "missed_meeting_next_step",
       source: "admin",
       actorUserId: userId,
     });

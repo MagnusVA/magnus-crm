@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { OPPORTUNITY_STATUSES, type OpportunityStatus } from "../lib/statusTransitions";
+import { OPPORTUNITY_STATUSES, type OpportunityStatus } from "./stages";
 import type { DealSource } from "./stages";
 import { bookingHarness } from "../../tests/bookingHarness";
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
@@ -49,7 +49,7 @@ async function firstPendingRescheduleLink(
 describe("compareDealState", () => {
   type Result = {
     checked: number;
-    mismatches: { opportunityId: Id<"opportunities">; status: string; legacy: string | null }[];
+    mismatches: { opportunityId: Id<"opportunities">; status: string | null; legacy: string | null }[];
     continueCursor: string;
     isDone: boolean;
   };

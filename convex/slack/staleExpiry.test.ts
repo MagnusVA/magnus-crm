@@ -144,9 +144,15 @@ it("closes Slack deals a day past the join window and leaves the rest", async ()
     expect.objectContaining({
       eventType: "opportunity.marked_lost",
       source: "system",
-      fromStatus: "qualified_pending",
-      toStatus: "lost",
+      // From PR 8 a deal event holds stages, with the outcomes in its metadata.
+      fromStatus: "qualified",
+      toStatus: "closed",
       reason: "stale",
+      metadata: JSON.stringify({
+        trigger: "slack_join_window_expired",
+        fromOutcome: "open",
+        toOutcome: "lost",
+      }),
     }),
   ]);
 });
@@ -155,8 +161,21 @@ it("pages through many expired deals, and one that fails doesn't hold up the res
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
   const harness = await bookingHarness();
-  // Oldest first in the scan; missing from the aggregate, so its transition throws.
-  const broken = await slackOpportunity(harness, 40, { inAggregate: false });
+  // Oldest first in the scan. It has two search rows, so its search row can't
+  // be rebuilt and its transition throws. (A deal missing from the aggregates
+  // no longer does: from PR 8 both deal aggregates take their IfExists
+  // methods.)
+  const broken = await slackOpportunity(harness, 40);
+  await harness.t.run(async (ctx) => {
+    const row = await ctx.db
+      .query("opportunitySearch")
+      .withIndex("by_opportunityId", (q) => q.eq("opportunityId", broken.opportunityId))
+      .unique();
+    const { _id, _creationTime, ...copy } = row!;
+    void _id;
+    void _creationTime;
+    await ctx.db.insert("opportunitySearch", copy);
+  });
   const expired: Awaited<ReturnType<typeof slackOpportunity>>[] = [];
   for (let index = 0; index < 55; index += 1) {
     expired.push(await slackOpportunity(harness, 32 + index / 10));

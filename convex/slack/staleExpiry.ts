@@ -68,7 +68,7 @@ export async function expireStaleSlackOpportunity(
     return false;
   }
   await transitionOpportunity(ctx, opportunityId, {
-    to: "lost",
+    to: { stage: "closed", outcome: "lost" },
     fields: {
       lostAt: now,
       lostReason: SLACK_STALE_LOST_REASON,
@@ -78,7 +78,6 @@ export async function expireStaleSlackOpportunity(
         opportunity.latestActivityAt ?? computeLatestActivityAt(opportunity),
     },
     source: "system",
-    eventType: "opportunity.marked_lost",
     reason: SLACK_STALE_LOST_REASON,
     metadata: { trigger: "slack_join_window_expired" },
     occurredAt: now,

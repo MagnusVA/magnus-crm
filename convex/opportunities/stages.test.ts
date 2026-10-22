@@ -16,7 +16,7 @@ import {
   stageForStatus,
   stageOfPosition,
 } from "./stages";
-import { OPPORTUNITY_STATUSES } from "../lib/statusTransitions";
+import { OPPORTUNITY_STATUSES } from "./stages";
 import { SLACK_STALE_LOST_REASON } from "../pipeline/slackJoinLookup";
 
 // The deal stage module (docs/plans/phase-5-deal-status.md §4.1, §4.2).

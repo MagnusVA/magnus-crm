@@ -17,7 +17,8 @@ const PERSONAL_EVENT_TYPE = "https://calendly.com/closer/strategy";
 export type InviteeEventType =
   | "invitee.created"
   | "invitee.canceled"
-  | "invitee_no_show.created";
+  | "invitee_no_show.created"
+  | "invitee_no_show.deleted";
 
 const scheduledEventUri = (key: string) =>
   `https://api.calendly.com/scheduled_events/${key}`;

@@ -1,11 +1,10 @@
 import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
-import type { OpportunityStatus } from "../lib/statusTransitions";
 
 // Where a deal is (CONTEXT.md, "Deal stage") and how it ended, defined once
-// (docs/plans/phase-5-deal-status.md §4.1). Until the narrow, `stage` and
-// `outcome` are written beside `opportunities.status` from the mapping below
-// (§4.2), and nothing reads them yet.
+// (docs/plans/phase-5-deal-status.md §4.1), with the stage machine every
+// move goes through (§4.4). Until PR 9, `opportunities.status` is still
+// written beside the stage, as `legacyStatus` of the new fields (§9).
 
 export const DEAL_STAGES = [
   "qualified",
@@ -138,6 +137,24 @@ export type DealSource = NonNullable<Doc<"opportunities">["source"]>;
 export type DealStageAndOutcome = { stage: DealStage; outcome: DealOutcome };
 
 /**
+ * Today's statuses, frozen. The old events recorded them, and until PR 9
+ * `opportunities.status` holds the one `legacyStatus` rebuilds from the
+ * stage (§4.7, §9). No new code reads or adds one (ADR 0001, rule 1).
+ */
+export const OPPORTUNITY_STATUSES = [
+  "qualified_pending",
+  "scheduled",
+  "payment_received",
+  "follow_up_scheduled",
+  "reschedule_link_sent",
+  "lost",
+  "canceled",
+  "no_show",
+] as const;
+
+export type OpportunityStatus = (typeof OPPORTUNITY_STATUSES)[number];
+
+/**
  * Today's status as a stage and an outcome (§4.2). A deal with no source is a
  * Calendly deal, as everywhere else. The scheduled side deal has no meeting,
  * so it is Call held.
@@ -168,16 +185,149 @@ export function stageForStatus(
 /**
  * The deal's stage and outcome. Until the backfill has written them on every
  * deal, a deal without them takes them from its status, so a reader (or an
- * aggregate key) gets the same answer before and after the backfill.
+ * aggregate key) gets the same answer before and after the backfill. A deal
+ * with neither, which no write leaves, throws.
  */
 export function dealStageOf(
   deal: Pick<Doc<"opportunities">, "status" | "source" | "stage" | "outcome">,
 ): DealStageAndOutcome {
+  if (deal.stage !== undefined && deal.outcome !== undefined) {
+    return { stage: deal.stage, outcome: deal.outcome };
+  }
+  if (deal.status === undefined) {
+    throw new Error("Deal has no stage, outcome or status");
+  }
   const mapped = stageForStatus(deal.status, deal.source);
   return {
     stage: deal.stage ?? mapped.stage,
     outcome: deal.outcome ?? mapped.outcome,
   };
+}
+
+// ─── The stage machine (§4.4) ─────────────────────────────────────────
+
+/** Where a move takes a deal: an open stage, or Closed with how it ended. */
+export type DealTarget =
+  | { stage: Exclude<DealStage, "closed"> }
+  | { stage: "closed"; outcome: Exclude<DealOutcome, "open"> };
+
+export function targetStageAndOutcome(target: DealTarget): DealStageAndOutcome {
+  return target.stage === "closed"
+    ? { stage: "closed", outcome: target.outcome }
+    : { stage: target.stage, outcome: "open" };
+}
+
+/**
+ * The moves a deal makes between positions. A Closed deal stays closed,
+ * except through a named exception below.
+ */
+export const VALID_STAGE_TRANSITIONS: Record<DealPosition, readonly DealPosition[]> = {
+  qualified: ["booked", "lost"],
+  booked: ["follow_up", "won", "lost"],
+  call_held: ["follow_up", "won", "lost"],
+  follow_up: ["booked", "won", "lost"],
+  won: [],
+  lost: [],
+};
+
+/**
+ * Moves the stage machine doesn't allow, permitted only for the caller that
+ * names them. Each reopens, or recloses, only the deal it was written for:
+ * `loss` lists the codes the system must have closed the deal with (no
+ * `lostByUserId`), so a person's loss never reopens, whatever its text.
+ */
+export const STAGE_TRANSITION_EXCEPTIONS = {
+  // Voiding a side deal's payment closes the deal as lost.
+  payment_voided: { from: "won", to: "lost", loss: null },
+  // A booking that happened inside the Slack join window but was processed
+  // after the stale expiry closed the deal (a retried blocked delivery)
+  // reopens it. See wasStaleExpiredAfter in pipeline/slackJoinLookup.ts.
+  slack_stale_rejoin: { from: "lost", to: "booked", loss: [SYSTEM_LOSS_REASONS.stale] },
+  // The closer or an admin sends a reschedule link or sets a follow-up after
+  // a no-show or a cancellation (§4.3).
+  missed_meeting_next_step: {
+    from: "lost",
+    to: "follow_up",
+    loss: [SYSTEM_LOSS_REASONS.no_show, SYSTEM_LOSS_REASONS.canceled],
+  },
+  // Calendly withdraws the no-show it reported.
+  no_show_withdrawn: { from: "lost", to: "booked", loss: [SYSTEM_LOSS_REASONS.no_show] },
+} as const satisfies Record<
+  string,
+  { from: DealPosition; to: DealPosition; loss: readonly SystemLossReason[] | null }
+>;
+
+export type StageTransitionException = keyof typeof STAGE_TRANSITION_EXCEPTIONS;
+
+/** The deal fields the stage machine reads. */
+export type StageMachineDeal = Pick<
+  Doc<"opportunities">,
+  "status" | "source" | "stage" | "outcome" | "lostReason" | "lostByUserId"
+>;
+
+/** The code the system closed the deal lost with, or null: a person's loss has a `lostByUserId`. */
+export function systemLossReasonOf(deal: StageMachineDeal): SystemLossReason | null {
+  const { stage, outcome } = dealStageOf(deal);
+  return stage === "closed" &&
+    outcome === "lost" &&
+    deal.lostByUserId === undefined &&
+    isSystemLossReason(deal.lostReason)
+    ? deal.lostReason
+    : null;
+}
+
+/** Whether the named exception, on its own, allows the move. */
+export function exceptionAllows(
+  exception: StageTransitionException,
+  deal: StageMachineDeal,
+  to: DealPosition,
+): boolean {
+  const rule: { from: DealPosition; to: DealPosition; loss: readonly SystemLossReason[] | null } =
+    STAGE_TRANSITION_EXCEPTIONS[exception];
+  const { stage, outcome } = dealStageOf(deal);
+  if (!isAllowedStageOutcome(stage, outcome)) return false;
+  if (dealPosition(stage, outcome) !== rule.from || to !== rule.to) return false;
+  if (rule.loss === null) return true;
+  const loss = systemLossReasonOf(deal);
+  return loss !== null && rule.loss.includes(loss);
+}
+
+/**
+ * Whether the deal may move to `target`: the stage machine allows it, or the
+ * named exception does. A move to where the deal already is never is, and
+ * neither is any move from a pair the stage doesn't allow.
+ */
+export function stageMoveAllowed(
+  deal: StageMachineDeal,
+  target: DealTarget,
+  exception?: StageTransitionException,
+): boolean {
+  const from = dealStageOf(deal);
+  const to = targetStageAndOutcome(target);
+  if (!isAllowedStageOutcome(from.stage, from.outcome)) return false;
+  const fromPosition = dealPosition(from.stage, from.outcome);
+  const toPosition = dealPosition(to.stage, to.outcome);
+  if (VALID_STAGE_TRANSITIONS[fromPosition].includes(toPosition)) return true;
+  return exception !== undefined && exceptionAllows(exception, deal, toPosition);
+}
+
+function describePair({ stage, outcome }: DealStageAndOutcome): string {
+  return stage === "closed" ? `closed ${outcome}` : stage;
+}
+
+/** Throws on a move `stageMoveAllowed` refuses, naming both ends. */
+export function assertStageMove(
+  deal: StageMachineDeal,
+  target: DealTarget,
+  exception?: StageTransitionException,
+): void {
+  if (!stageMoveAllowed(deal, target, exception)) {
+    throw new Error(
+      `Cannot move deal from "${describePair(dealStageOf(deal))}" to "${describePair(
+        targetStageAndOutcome(target),
+      )}"${exception ? ` with "${exception}"` : ""}`,
+    );
+  }
 }
 
 /** The reason a missed meeting writes on its deal: its status's code. */

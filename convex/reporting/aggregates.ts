@@ -4,6 +4,7 @@ import {
   dealStageOf,
   type DealOutcome,
   type DealStage,
+  type OpportunityStatus,
 } from "../opportunities/stages";
 import { components } from "../_generated/api";
 import type { DataModel, Doc, Id } from "../_generated/dataModel";
@@ -47,15 +48,18 @@ export const paymentSums = new TableAggregate<{
   sumValue: (doc) => (doc.status === "disputed" ? 0 : doc.amountMinor),
 });
 
+// Deals by today's status, until PR 9 clears it. From PR 8 the write hooks use
+// the IfExists methods, so a revert after the clear still writes; a deal
+// with no status, which only the clear leaves, keys under "".
 export const opportunityByStatus = new TableAggregate<{
   Namespace: Id<"tenants">;
-  Key: [Doc<"opportunities">["status"], OpportunityAssignedCloserKey, number];
+  Key: [OpportunityStatus | "", OpportunityAssignedCloserKey, number];
   DataModel: DataModel;
   TableName: "opportunities";
 }>(components.opportunityByStatus, {
   namespace: (doc) => doc.tenantId,
   sortKey: (doc) => [
-    doc.status,
+    doc.status ?? "",
     doc.assignedCloserId ?? "",
     doc.createdAt,
   ],

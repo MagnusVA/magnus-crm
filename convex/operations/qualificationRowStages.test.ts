@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Id } from "../_generated/dataModel";
 import { transitionOpportunity } from "../lib/opportunityActivity";
-import type { OpportunityStatus } from "../lib/statusTransitions";
+import type { OpportunityStatus } from "../opportunities/stages";
 import type { DealSource } from "../opportunities/stages";
 import { rebuildQualificationRow } from "./projections";
 import { insertDeal } from "../../tests/dealStageFixtures";
@@ -93,7 +93,11 @@ describe("the qualification row's stage and outcome", () => {
     const { opportunityId, eventId } = await qualifiedDeal(harness, "scheduled");
 
     await harness.t.run((ctx) =>
-      transitionOpportunity(ctx, opportunityId, { to: "no_show", fields: { noShowAt: 1 }, source: "system" }),
+      transitionOpportunity(ctx, opportunityId, {
+        to: { stage: "closed", outcome: "lost" },
+        fields: { noShowAt: 1, lostReason: "no_show", lostAt: 1 },
+        source: "system",
+      }),
     );
 
     expect(await rowOf(harness, eventId)).toEqual({ status: "no_show", stage: "closed", outcome: "lost" });

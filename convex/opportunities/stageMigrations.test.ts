@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import type { OpportunityStatus } from "../lib/statusTransitions";
+import type { OpportunityStatus } from "./stages";
 import {
   countAtStage,
   harnessCloserId,
@@ -234,13 +234,29 @@ describe("assertDealStages", () => {
     expect((await harness.run("assertDealStages"))?.error).toBeUndefined();
   });
 
-  it("names a deal whose stage isn't its status's", async () => {
+  it("accepts a side deal at Booked: from PR 8 the stage machine sets the pair, not the status's mapping", async () => {
     const { harness, ids } = await backfilled();
     await harness.t.run((ctx) => forceOpportunityState(ctx, ids.sideDeal, { stage: "booked" }));
 
+    expect((await harness.run("assertDealStages"))?.error).toBeUndefined();
+  });
+
+  it("names a deal whose stored status isn't the one its stage rebuilds", async () => {
+    const { harness, ids } = await backfilled();
+    await harness.t.run((ctx) => forceOpportunityState(ctx, ids.booked, { status: "follow_up_scheduled" }));
+
     const error = (await harness.run("assertDealStages"))?.error;
-    expect(error).toContain(ids.sideDeal);
-    expect(error).toContain("booked/open, expected call_held/open for scheduled");
+    expect(error).toContain(ids.booked);
+    expect(error).toContain("rebuilds as scheduled, but its status is follow_up_scheduled");
+  });
+
+  it("names a deal with no status, which PR 8 writes on every deal", async () => {
+    const { harness, ids } = await backfilled();
+    await harness.t.run((ctx) => forceOpportunityState(ctx, ids.booked, { status: undefined }));
+
+    const error = (await harness.run("assertDealStages"))?.error;
+    expect(error).toContain(ids.booked);
+    expect(error).toContain("has no status");
   });
 
   it("names a deal whose pair the stage doesn't allow", async () => {
@@ -391,7 +407,11 @@ describe("backfillOpportunityByStage and verifyStageCounts", () => {
 
     const { transitionOpportunity } = await import("../lib/opportunityActivity");
     await harness.t.run((ctx) =>
-      transitionOpportunity(ctx, ids.booked, { to: "no_show", fields: { noShowAt: 1 }, source: "system" }),
+      transitionOpportunity(ctx, ids.booked, {
+        to: { stage: "closed", outcome: "lost" },
+        fields: { noShowAt: 1, lostReason: "no_show", lostAt: 1 },
+        source: "system",
+      }),
     );
 
     const after = await harness.t.query(internal.migrations.verifyStageCounts, { tenantId: harness.tenantId });

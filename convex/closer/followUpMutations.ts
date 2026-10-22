@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { internalMutation, mutation } from "../_generated/server";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
-import { transitionOpportunity } from "../lib/opportunityActivity";
+import { syncLegacyStatus, transitionOpportunity } from "../lib/opportunityActivity";
 import {
   canStartFollowUp,
   describeDealState,
@@ -68,12 +68,15 @@ export const createFollowUpRecord = internalMutation({
       },
       occurredAt: now,
     });
+    // A reschedule link (`no_show_follow_up`) on a Follow-up deal is
+    // `reschedule_link_sent`.
+    await syncLegacyStatus(ctx, args.opportunityId);
     return id;
   },
 });
 
 /**
- * Transition an opportunity to follow_up_scheduled.
+ * Move the deal to Follow-up.
  * Validates the deal can start a follow-up from where it is.
  */
 export const transitionToFollowUp = internalMutation({
@@ -90,9 +93,12 @@ export const transitionToFollowUp = internalMutation({
     }
 
     const now = Date.now();
+    // Booked or Call held -> Follow-up, or a missed meeting's Closed lost ->
+    // Follow-up, which only the exception allows.
     await transitionOpportunity(ctx, opportunityId, {
-      to: "follow_up_scheduled",
+      to: { stage: "follow_up" },
       fields: { updatedAt: now },
+      exception: "missed_meeting_next_step",
       source: "system",
       occurredAt: now,
     });
@@ -121,6 +127,8 @@ export const markFollowUpBooked = internalMutation({
     await ctx.db.patch("followUps", followUp._id, { status: "booked", calendlyEventUri, bookedAt });
     await emitDomainEvent(ctx, { tenantId: opportunity.tenantId, entityType: "followUp", entityId: followUp._id,
       eventType: "followUp.booked", source: "pipeline", fromStatus: "pending", toStatus: "booked", occurredAt: bookedAt });
+    // A booked reschedule link no longer makes the status `reschedule_link_sent`.
+    await syncLegacyStatus(ctx, opportunityId);
     return null;
   },
 });
@@ -199,7 +207,7 @@ export const createSchedulingLinkFollowUp = mutation({
       },
       occurredAt: now,
     });
-    // NOTE: Status transition is deferred to confirmFollowUpScheduled.
+    // NOTE: The move to Follow-up is deferred to confirmFollowUpScheduled.
     // If we transition here, Convex reactivity pushes the new status to the
     // client immediately, which re-renders OutcomeActionBar → returns null →
     // unmounts the FollowUpDialog before the user can see/copy the link.
@@ -209,7 +217,7 @@ export const createSchedulingLinkFollowUp = mutation({
 });
 
 /**
- * Confirm a scheduling-link follow-up by transitioning the opportunity status.
+ * Confirm a scheduling-link follow-up by moving the deal to Follow-up.
  * Called from the dialog's "Done" button after the user has seen/copied the link.
  */
 export const confirmFollowUpScheduled = mutation({
@@ -263,9 +271,12 @@ export const confirmFollowUpScheduled = mutation({
       );
     }
 
+    // Booked or Call held -> Follow-up, or a missed meeting's Closed lost ->
+    // Follow-up, which only the exception allows.
     await transitionOpportunity(ctx, opportunityId, {
-      to: "follow_up_scheduled",
+      to: { stage: "follow_up" },
       fields: { updatedAt: now },
+      exception: "missed_meeting_next_step",
       source: "closer",
       actorUserId: userId,
       occurredAt: now,
@@ -359,9 +370,12 @@ export const createManualReminderFollowUpPublic = mutation({
       occurredAt: now,
     });
 
+    // Booked or Call held -> Follow-up, or a missed meeting's Closed lost ->
+    // Follow-up, which only the exception allows.
     await transitionOpportunity(ctx, args.opportunityId, {
-      to: "follow_up_scheduled",
+      to: { stage: "follow_up" },
       fields: { updatedAt: now },
+      exception: "missed_meeting_next_step",
       source: "closer",
       actorUserId: userId,
       occurredAt: now,

@@ -1276,7 +1276,7 @@ function closeRateDifferences(
       byStatus: group.byStatus,
       byStage: group.byStage,
       opportunityIds: differingDeals(
-        (deal) => (group.statuses as string[]).includes(deal.status),
+        (deal) => (group.statuses as (string | undefined)[]).includes(deal.status),
         (deal) => group.positions.includes(positionOf(deal)),
       ),
     });

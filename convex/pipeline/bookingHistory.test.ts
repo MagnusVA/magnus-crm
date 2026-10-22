@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { OpportunityStatus } from "../lib/statusTransitions";
+import type { OpportunityStatus } from "../opportunities/stages";
 import { at, readDealHistory, type HistoryChange } from "../../tests/bookingRuleFixtures";
 
 // A late booking's guard rebuilds where a deal was when the booking happened

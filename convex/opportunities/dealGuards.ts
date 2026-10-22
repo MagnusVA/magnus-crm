@@ -21,8 +21,8 @@ import {
 // on every deal: `scheduled` is Booked, or Call held for a side deal;
 // `follow_up_scheduled` and `reschedule_link_sent` are Follow-up without and
 // with a pending reschedule link; `canceled` and `no_show` are Closed lost
-// by a missed meeting; `payment_received` is Closed won. The transitions
-// still take a status until PR 8.
+// by a missed meeting; `payment_received` is Closed won. From PR 8 the
+// transitions take a stage, through the stage machine (stages.ts).
 
 /** The tasks a guard reads: whether the deal has a pending reschedule link (§4.5). */
 export type DealTasks = { hasPendingRescheduleLink: boolean };

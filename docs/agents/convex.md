@@ -18,14 +18,14 @@ Most folders under `convex/` are named for their table or feature. The ones whos
 
 - Every tenant table has `tenantId: v.id("tenants")`, and status fields are `v.union(v.literal(...))`.
 - Money is an integer in minor units (`amountMinor`) next to a `currency` code. Convert input with `toAmountMinor` and `validateCurrency` from `convex/lib/formatMoney.ts`.
-- `convex/lib/statusTransitions.ts` defines the opportunity, meeting, and lead state machines. Its validators return a boolean and log, so the caller rejects the write on `false`.
+- `convex/lib/statusTransitions.ts` defines the meeting and lead state machines; the deal's stage machine is in `convex/opportunities/stages.ts`. Its validators return a boolean and log, so the caller rejects the write on `false`.
 
 ## Lead lifecycle model
 
 The lead and opportunity tables are migrating to the model in `docs/adr/0001-lead-lifecycle-model.md`: one person record for life, deals with a stage and an outcome, meetings that hold attendance only, and attribution as its own record. `CONTEXT.md` defines the terms. Until each phase lands, the old fields stay live, so follow the ADR's "Rules for code written now":
 
 - Don't add an opportunity status literal, a person, staff, or schedule table, an attribution column, or a copy of a person field.
-- Change an opportunity's status only through `transitionOpportunity` (`convex/lib/opportunityActivity.ts`), never with a raw `ctx.db.patch`. "Write side effects" below covers it.
+- Change a deal's stage only through `transitionOpportunity` (`convex/lib/opportunityActivity.ts`), never with a raw `ctx.db.patch`. "Write side effects" below covers it.
 - Create or find the person through `resolveLeadIdentity`, and never let a placeholder value or a time window decide identity.
 - A won deal doesn't block a new deal for the same person.
 
@@ -44,8 +44,8 @@ The repo has no triggers. A mutation that inserts, updates, or deletes a meeting
 
 Opportunity writes have two entry points in `convex/lib/opportunityActivity.ts`, and they make the calls above for you:
 
-- `transitionOpportunity` is the only way to change an opportunity's status. It checks the move against `statusTransitions.ts`, writes the status and its fields, and updates the aggregates, search and qualification rows, the active, won and lost counters, and the domain event. Don't add those calls next to it. A move the state machine forbids needs a named entry in its `TRANSITION_EXCEPTIONS`, not a bypass at the call site. ESLint rejects a raw `ctx.db.patch("opportunities", id, { status })`.
-- `patchOpportunityLifecycle` writes every other field, such as `assignedCloserId` or `leadId`, and re-keys the aggregates and projections that read them. Its type doesn't accept `status`.
+- `transitionOpportunity` is the only way to change a deal's stage. It takes the target stage, with the outcome when the deal closes (`{ stage: "closed", outcome: "lost" }`), checks the move against the stage machine in `convex/opportunities/stages.ts`, writes the stage, the outcome and the fields, and updates the aggregates, search and qualification rows, the domain event (`opportunity.stage_changed`, or `opportunity.marked_lost` for a loss, with the stages in `fromStatus` and `toStatus` and the outcomes in the metadata), and, until the status is dropped, `opportunities.status` as `legacyStatus` of the new fields with `opportunityByStatus` and the active, won and lost counters. Don't add those calls next to it. A move the stage machine forbids needs a named entry in its `STAGE_TRANSITION_EXCEPTIONS`, which also names the loss it reopens, not a bypass at the call site. A missed meeting closes the deal with `missedMeetingLoss` (the reason `no_show` or `canceled`, no `lostByUserId`). ESLint rejects a raw `ctx.db.patch("opportunities", id, { status })`, and the same for `stage` and `outcome`.
+- `patchOpportunityLifecycle` writes every other field, such as `assignedCloserId` or `leadId`, and re-keys the aggregates and projections that read them. Its type doesn't accept `status`, `stage` or `outcome`; a patch to `lostReason` or `lostByUserId` rewrites the status with it. Calendly turning a no-show into a cancellation, or the reverse, goes through `changeMissedMeetingLoss`, which also records the deal event. After a write to a reschedule link (a `no_show_follow_up` scheduling link) outside a transition, call `syncLegacyStatus`.
 
 Payments add revenue with `applyPaymentStatsDelta`, which no longer touches the deal counters.
 

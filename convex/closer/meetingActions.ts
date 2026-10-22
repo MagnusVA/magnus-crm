@@ -88,7 +88,7 @@ export const markAsLost = mutation({
 
     const normalizedReason = reason?.trim() || undefined;
     await transitionOpportunity(ctx, opportunityId, {
-      to: "lost",
+      to: { stage: "closed", outcome: "lost" },
       fields: {
         updatedAt: now,
         lostAt: now,
@@ -97,7 +97,6 @@ export const markAsLost = mutation({
       },
       source: "closer",
       actorUserId: userId,
-      eventType: "opportunity.marked_lost",
       reason: normalizedReason,
       occurredAt: now,
     });

@@ -8,6 +8,7 @@ import {
   resolveLegacyCompatiblePaymentCommissionable,
 } from "../lib/paymentTypes";
 import { ACTIVE_OPPORTUNITY_STATUSES } from "../lib/tenantStatsHelper";
+import type { OpportunityStatus } from "../opportunities/stages";
 import {
   isSlackQualificationAggregateEligible,
   meetingsByStatus,
@@ -217,7 +218,7 @@ export async function countTenantStatusCounters(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
 ): Promise<TenantStatusCounters> {
-  const count = async (statuses: readonly Doc<"opportunities">["status"][]) => {
+  const count = async (statuses: readonly OpportunityStatus[]) => {
     let total = 0;
     for (const status of statuses) {
       total += await opportunityByStatus.count(ctx, {

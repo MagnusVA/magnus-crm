@@ -1,13 +1,10 @@
 import type { Doc } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
-import {
-	OPPORTUNITY_STATUSES,
-	type OpportunityStatus,
-} from "../lib/statusTransitions";
 import { legacyStatus } from "../opportunities/dealState";
 import { parseDealEventOutcomes } from "../opportunities/stageLabels";
 import {
 	DEAL_STAGES,
+	OPPORTUNITY_STATUSES,
 	dealPosition,
 	dealStageOf,
 	isAllowedStageOutcome,
@@ -16,6 +13,7 @@ import {
 	type DealPosition,
 	type DealStage,
 	type DealStageAndOutcome,
+	type OpportunityStatus,
 } from "../opportunities/stages";
 import { loadDealTasks } from "./bookingTargets";
 

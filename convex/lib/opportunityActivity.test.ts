@@ -1,7 +1,7 @@
 import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import type { Id } from "../_generated/dataModel";
+import type { Doc, Id } from "../_generated/dataModel";
 import { rebuildQualificationRow } from "../operations/projections";
 import { opportunityByStatus } from "../reporting/aggregates";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
@@ -13,7 +13,7 @@ import {
   transitionOpportunity,
 } from "./opportunityActivity";
 import { countsAsLead } from "./leadLifecycle";
-import type { OpportunityStatus } from "./statusTransitions";
+import type { OpportunityStatus } from "../opportunities/stages";
 import {
   isActiveOpportunityStatus,
   updateTenantStats,
@@ -28,6 +28,7 @@ type Harness = Awaited<ReturnType<typeof bookingHarness>>;
 async function slackOpportunity(
   harness: Harness,
   status: OpportunityStatus = "scheduled",
+  fields: Partial<Doc<"opportunities">> = {},
 ) {
   const { t, tenantId } = harness;
   return await t.run(async (ctx) => {
@@ -54,6 +55,7 @@ async function slackOpportunity(
       qualifiedBy,
       createdAt: now,
       updatedAt: now,
+      ...fields,
     });
     await insertOpportunityAggregate(ctx, opportunityId);
     await updateTenantStats(ctx, tenantId, {
@@ -154,7 +156,7 @@ async function expectStatsMatchRecount(harness: Harness) {
     lostDeals: stats?.lostDeals ?? 0,
   }).toEqual({
     activeOpportunities: opportunities.filter((o) =>
-      isActiveOpportunityStatus(o.status),
+      o.status !== undefined && isActiveOpportunityStatus(o.status),
     ).length,
     wonDeals: opportunities.filter((o) => o.status === "payment_received").length,
     lostDeals: opportunities.filter((o) => o.status === "lost").length,
@@ -186,31 +188,43 @@ async function expectPersonCountersMatchRecount(harness: Harness) {
 }
 
 describe("transitionOpportunity", () => {
-  it("moves the status with its aggregates, counters, event and qualification row", async () => {
+  it("moves the stage with its status, aggregates, counters, event and qualification row", async () => {
     const harness = await bookingHarness();
     const { opportunityId, closerId, eventId } = await slackOpportunity(harness);
 
     await harness.t.run(async (ctx) => {
       await transitionOpportunity(ctx, opportunityId, {
-        to: "lost",
+        to: { stage: "closed", outcome: "lost" },
         fields: { lostAt: 1_000, lostReason: "budget", lostByUserId: closerId },
         source: "closer",
         actorUserId: closerId,
-        eventType: "opportunity.marked_lost",
         reason: "budget",
       });
     });
 
     const state = await readState(harness, opportunityId, eventId);
-    expect(state.opportunity).toMatchObject({ status: "lost", lostReason: "budget" });
-    expect(state.qualificationRow?.opportunityStatus).toBe("lost");
+    expect(state.opportunity).toMatchObject({
+      stage: "closed",
+      outcome: "lost",
+      status: "lost",
+      lostReason: "budget",
+      lostAt: 1_000,
+    });
+    expect(state.qualificationRow).toMatchObject({
+      opportunityStatus: "lost",
+      dealStage: "closed",
+      dealOutcome: "lost",
+    });
+    // A loss keeps its event type; from PR 8 the event holds the stages, with
+    // the outcomes in its metadata.
     expect(state.events).toEqual([
       expect.objectContaining({
         eventType: "opportunity.marked_lost",
-        fromStatus: "scheduled",
-        toStatus: "lost",
+        fromStatus: "booked",
+        toStatus: "closed",
         actorUserId: closerId,
         reason: "budget",
+        metadata: JSON.stringify({ fromOutcome: "open", toOutcome: "lost" }),
       }),
     ]);
     expect([state.scheduledCount, state.lostCount]).toEqual([0, 1]);
@@ -218,50 +232,84 @@ describe("transitionOpportunity", () => {
     await expectStatsMatchRecount(harness);
   });
 
+  it("emits opportunity.stage_changed for a move that isn't a loss", async () => {
+    const harness = await bookingHarness();
+    const { opportunityId } = await slackOpportunity(harness);
+
+    await harness.t.run(async (ctx) => {
+      await transitionOpportunity(ctx, opportunityId, {
+        to: { stage: "closed", outcome: "won" },
+        source: "closer",
+        metadata: { paymentId: "p1" },
+      });
+    });
+
+    const state = await readState(harness, opportunityId);
+    expect(state.opportunity).toMatchObject({ stage: "closed", outcome: "won", status: "payment_received" });
+    expect(state.events).toEqual([
+      expect.objectContaining({
+        eventType: "opportunity.stage_changed",
+        fromStatus: "booked",
+        toStatus: "closed",
+        metadata: JSON.stringify({ paymentId: "p1", fromOutcome: "open", toOutcome: "won" }),
+      }),
+    ]);
+    expect(state.wonCount).toBe(1);
+    await expectStatsMatchRecount(harness);
+  });
+
   it.each([
-    ["lost", "scheduled"],
-    ["payment_received", "lost"],
-    ["no_show", "canceled"],
-    ["scheduled", "scheduled"],
+    ["a person's loss to Booked", "lost", { lostReason: "budget" }, { stage: "booked" }],
+    ["Closed won to lost", "payment_received", {}, { stage: "closed", outcome: "lost" }],
+    ["a no-show to Follow-up", "no_show", { lostReason: "no_show" }, { stage: "follow_up" }],
+    ["a no-show to Booked", "no_show", { lostReason: "no_show" }, { stage: "booked" }],
+    ["Booked to Booked", "scheduled", {}, { stage: "booked" }],
   ] as const)(
-    "rejects %s -> %s without a named exception and writes nothing",
-    async (from, to) => {
+    "rejects %s without a named exception and writes nothing",
+    async (_label, from, fields, to) => {
       const harness = await bookingHarness();
-      const { opportunityId } = await slackOpportunity(harness, from);
+      const { opportunityId } = await slackOpportunity(harness, from, fields);
       const before = await readState(harness, opportunityId);
 
       await expect(
         harness.t.run(async (ctx) => {
           await transitionOpportunity(ctx, opportunityId, { to, source: "system" });
         }),
-      ).rejects.toThrow(`Cannot transition opportunity from "${from}" to "${to}"`);
+      ).rejects.toThrow("Cannot move deal from");
 
       const after = await readState(harness, opportunityId);
-      expect(after.opportunity?.status).toBe(from);
+      expect(after.opportunity).toEqual(before.opportunity);
       expect(after.events).toHaveLength(0);
       expect(after.stats).toEqual(before.stats);
     },
   );
 
   it.each([
-    ["payment_received", "lost", "payment_voided"],
-    ["no_show", "canceled", "calendly_webhook"],
-    ["canceled", "no_show", "calendly_webhook"],
+    ["payment_received", {}, { stage: "closed", outcome: "lost" }, "payment_voided", "lost"],
+    ["lost", { lostReason: "stale" }, { stage: "booked" }, "slack_stale_rejoin", "scheduled"],
+    ["no_show", { lostReason: "no_show" }, { stage: "follow_up" }, "missed_meeting_next_step", "follow_up_scheduled"],
+    ["canceled", { lostReason: "canceled" }, { stage: "follow_up" }, "missed_meeting_next_step", "follow_up_scheduled"],
+    ["no_show", { lostReason: "no_show" }, { stage: "booked" }, "no_show_withdrawn", "scheduled"],
   ] as const)(
-    "allows %s -> %s only for the %s exception",
-    async (from, to, exception) => {
+    "allows %s -> %j only for the %s exception, with PR 7's status",
+    async (from, fields, to, exception, status) => {
       const harness = await bookingHarness();
-      const { opportunityId } = await slackOpportunity(harness, from);
+      const { opportunityId } = await slackOpportunity(harness, from, { ...fields, lostAt: 500 });
 
       await harness.t.run(async (ctx) => {
-        await transitionOpportunity(ctx, opportunityId, {
-          to,
-          source: "system",
-          exception,
-        });
+        await transitionOpportunity(ctx, opportunityId, { to, source: "system", exception });
       });
 
-      expect((await readState(harness, opportunityId)).opportunity?.status).toBe(to);
+      const { opportunity } = await readState(harness, opportunityId);
+      expect(opportunity?.status).toBe(status);
+      // Reopening clears the loss it reopened.
+      if (to.stage !== "closed") {
+        expect([opportunity?.lostReason, opportunity?.lostAt, opportunity?.lostByUserId]).toEqual([
+          undefined,
+          undefined,
+          undefined,
+        ]);
+      }
       await expectStatsMatchRecount(harness);
     },
   );
@@ -273,12 +321,12 @@ describe("transitionOpportunity", () => {
     await expect(
       harness.t.run(async (ctx) => {
         await transitionOpportunity(ctx, opportunityId, {
-          to: "lost",
+          to: { stage: "closed", outcome: "lost" },
           source: "pipeline",
-          exception: "calendly_webhook",
+          exception: "no_show_withdrawn",
         });
       }),
-    ).rejects.toThrow('Cannot transition opportunity from "payment_received" to "lost"');
+    ).rejects.toThrow('Cannot move deal from "closed won" to "closed lost" with "no_show_withdrawn"');
   });
 });
 
@@ -391,13 +439,19 @@ describe("status changes through the public mutations", () => {
     });
     const state = await readState(harness, opportunityId);
     expect([state.wonCount, state.lostCount]).toEqual([0, 1]);
-    const statusChanges = state.events.filter(
-      (event) => event.eventType === "opportunity.status_changed",
-    );
-    expect(statusChanges.map((event) => [event.fromStatus, event.toStatus])).toEqual([
-      ["scheduled", "payment_received"],
-      ["payment_received", "lost"],
+    // From PR 8: the stages, with the outcomes in the metadata; the void is
+    // a loss, so it is `opportunity.marked_lost`.
+    const moves = state.events.filter((event) => event.eventType !== "opportunity.created");
+    expect(
+      moves.map((event) => {
+        const { fromOutcome, toOutcome } = JSON.parse(event.metadata!) as Record<string, string>;
+        return [event.eventType, `${event.fromStatus}/${fromOutcome}`, `${event.toStatus}/${toOutcome}`];
+      }),
+    ).toEqual([
+      ["opportunity.stage_changed", "call_held/open", "closed/won"],
+      ["opportunity.marked_lost", "closed/won", "closed/lost"],
     ]);
+    expect(state.opportunity?.status).toBe("lost");
     await expectStatsMatchRecount(harness);
     await expectPersonCountersMatchRecount(harness);
   });

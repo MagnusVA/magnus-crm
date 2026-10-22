@@ -1,17 +1,15 @@
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
-import {
-  OPPORTUNITY_STATUSES,
-  validateTransition,
-  type OpportunityStatus,
-} from "../convex/lib/statusTransitions";
+import { pr7ValidateTransition } from "./stageMachineFixtures";
 import { legacyStatus, type DealStateFields } from "../convex/opportunities/dealState";
 import {
+  OPPORTUNITY_STATUSES,
   missedMeetingLossReason,
   stageForStatus,
   type DealOutcome,
   type DealSource,
   type DealStage,
+  type OpportunityStatus,
 } from "../convex/opportunities/stages";
 import { dealPositionAt, wasUnattachableAt } from "../convex/pipeline/bookingHistory";
 import { SLACK_STALE_LOST_REASON } from "../convex/pipeline/slackJoinLookup";
@@ -108,7 +106,7 @@ export const TODAYS_CHECKS = {
   /** The booking link (utm_source=ptdom) takes the deal. */
   bookingLinkTarget: (status: OpportunityStatus) =>
     (status === "follow_up_scheduled" || status === "reschedule_link_sent") &&
-    validateTransition(status, "scheduled"),
+    pr7ValidateTransition(status, "scheduled"),
   /** The booking link expires the deal's other pending reschedule links. */
   expiresRescheduleLinks: (status: OpportunityStatus) => status === "reschedule_link_sent",
   /** What a Calendly reschedule (`old_invitee`) does with the old booking's deal. */
@@ -121,7 +119,7 @@ export const TODAYS_CHECKS = {
   /** A booking without a link joins the deal. */
   followUpJoinTarget: (status: OpportunityStatus) => status === "follow_up_scheduled",
   /** The state machine lets a booking move the deal to `scheduled`. */
-  allowsMoveToBooked: (status: OpportunityStatus) => validateTransition(status, "scheduled"),
+  allowsMoveToBooked: (status: OpportunityStatus) => pr7ValidateTransition(status, "scheduled"),
   /** A Calendly fact that leaves the current booking's meeting at `meetingStatus` moves the deal. */
   bookingFactMovesDeal: (
     status: OpportunityStatus,
@@ -134,6 +132,15 @@ export const TODAYS_CHECKS = {
     deal.lostReason === SLACK_STALE_LOST_REASON &&
     (deal.lostAt ?? 0) > referenceTime,
 };
+
+/**
+ * The one booking rule PR 8 changes on purpose: the Slack stale rejoin takes
+ * only a deal the system expired, not a person's loss with the text "stale",
+ * as the stage machine's `slack_stale_rejoin` requires. Production holds no
+ * such loss (docs/plans/phase-5-deal-status.md §2.4).
+ */
+export const PR8_STALE_REJOIN = (deal: RuleDeal, referenceTime: number) =>
+  TODAYS_CHECKS.wasStaleExpiredAfter(deal, referenceTime) && deal.lostByUserId === undefined;
 
 /**
  * Today's Slack join lookup on the status index: the person's pending Slack
@@ -160,8 +167,9 @@ export async function todaysSlackJoinCandidates(
       .order("desc")
       .take(8);
   const pending = await inWindow("qualified_pending");
+  // From PR 8 only the system's `stale` reopens (PR8_STALE_REJOIN).
   const expired = (await inWindow("lost")).filter((deal) =>
-    TODAYS_CHECKS.wasStaleExpiredAfter(deal, args.referenceTime),
+    PR8_STALE_REJOIN(deal, args.referenceTime),
   );
   return [...pending, ...expired].map((deal) => deal._id);
 }

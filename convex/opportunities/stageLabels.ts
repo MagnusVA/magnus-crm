@@ -1,4 +1,4 @@
-import type { OpportunityStatus } from "../lib/statusTransitions";
+import type { OpportunityStatus } from "./stages";
 import { isMissedMeetingLoss, type DealStateFields, type MissedMeeting } from "./dealState";
 import {
   DEAL_OUTCOMES,

@@ -1,6 +1,6 @@
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../convex/_generated/server";
-import type { OpportunityStatus } from "../convex/lib/statusTransitions";
+import type { OpportunityStatus } from "../convex/opportunities/stages";
 import { meetingDayKey } from "../convex/operations/meetingStats";
 import { missedMeetingLossReason, type DealSource } from "../convex/opportunities/stages";
 import { qualifiedLifecycle } from "./bookingHarness";

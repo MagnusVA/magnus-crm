@@ -592,7 +592,7 @@ it("incident C: a late booking doesn't take a deal that became a follow-up after
   const at = Date.parse("2026-10-14T10:00:00Z");
   vi.setSystemTime(Math.max(Date.now(), at));
   await h.t.run((ctx) => transitionOpportunity(ctx, opportunityId!, {
-    to: "follow_up_scheduled", source: "closer", occurredAt: at, fields: { updatedAt: at },
+    to: { stage: "follow_up" }, source: "closer", occurredAt: at, fields: { updatedAt: at },
   }));
   await h.deliver("invitee.created", rebooked, "2026-10-14T09:13:23Z");
   const receipt = await h.receipt("invitee.created", rebooked);
@@ -620,7 +620,7 @@ it("incident C guard: a booking stays held when a deal it could have taken chang
   const at = Date.parse("2026-10-14T05:00:00Z");
   vi.setSystemTime(Math.max(Date.now(), at));
   await h.t.run((ctx) => transitionOpportunity(ctx, opportunityId!, {
-    to: "follow_up_scheduled", source: "closer", occurredAt: at, fields: { updatedAt: at },
+    to: { stage: "follow_up" }, source: "closer", occurredAt: at, fields: { updatedAt: at },
   }));
   await h.deliver("invitee.created", later, "2026-10-14T12:00:00Z");
   expect(await h.receipt("invitee.created", later)).toMatchObject({ status: "applied", opportunityId });

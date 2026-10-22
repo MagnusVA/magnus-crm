@@ -69,7 +69,7 @@ export const voidPayment = mutation({
     });
 
     await transitionOpportunity(ctx, payment.opportunityId, {
-      to: "lost",
+      to: { stage: "closed", outcome: "lost" },
       fields: {
         lostAt: now,
         lostByUserId: userId,

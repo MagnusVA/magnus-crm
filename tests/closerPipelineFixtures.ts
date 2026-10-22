@@ -1,6 +1,6 @@
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
-import type { OpportunityStatus } from "../convex/lib/statusTransitions";
+import type { OpportunityStatus } from "../convex/opportunities/stages";
 import type { DealSource } from "../convex/opportunities/stages";
 import { bookingHarness } from "./bookingHarness";
 import { insertDeal, type DealFields } from "./dealStageFixtures";

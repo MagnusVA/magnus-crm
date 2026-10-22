@@ -158,7 +158,7 @@ export function countStripByStatus(deals: Array<Doc<"opportunities">>): {
   const counts = emptyCounts();
   let total = 0;
   for (const opportunity of deals) {
-    if (!PIPELINE_STATUS_SET.has(opportunity.status)) {
+    if (!opportunity.status || !PIPELINE_STATUS_SET.has(opportunity.status)) {
       continue;
     }
     counts[opportunity.status as PipelineStatus] += 1;

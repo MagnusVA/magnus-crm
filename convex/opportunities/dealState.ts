@@ -1,17 +1,18 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
-import type { OpportunityStatus } from "../lib/statusTransitions";
 import {
   SYSTEM_LOSS_REASONS,
   dealPosition,
   dealStageOf,
   type DealPosition,
+  type DealStage,
+  type OpportunityStatus,
 } from "./stages";
 
 // What today's status says about a deal, read from the stage, the outcome,
 // the loss and the tasks (docs/plans/phase-5-deal-status.md §4.5, §4.6). The
-// guards and booking rules move to these from PR 7; until the narrow,
-// `legacyStatus` proves the new fields hold everything the status held.
+// guards and booking rules move to these from PR 7; from PR 8, until PR 9,
+// the status written beside the stage is `legacyStatus` of the new fields.
 
 /** The deal fields the state reads. */
 export type DealStateFields = Pick<
@@ -128,4 +129,19 @@ export async function loadDealState(
     rescheduleLinkPending,
     legacyStatus: legacyStatus(deal, { hasPendingRescheduleLink: rescheduleLinkPending }),
   };
+}
+
+/**
+ * What a new deal is written with: its starting stage, open, and the status
+ * PR 7 would have written for it (`legacyStatus`), until PR 9 stops writing
+ * the status. A Calendly booking starts Booked, a Slack qualification
+ * Qualified, a side deal Call held.
+ */
+export function newDealStageFields(stage: Exclude<DealStage, "closed">): {
+  stage: Exclude<DealStage, "closed">;
+  outcome: "open";
+  status: OpportunityStatus;
+} {
+  const fields = { stage, outcome: "open" as const };
+  return { ...fields, status: legacyStatus(fields, { hasPendingRescheduleLink: false }) };
 }

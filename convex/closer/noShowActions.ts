@@ -2,7 +2,7 @@ import { v } from "convex/values";
 import { mutation } from "../_generated/server";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
-import { transitionOpportunity } from "../lib/opportunityActivity";
+import { missedMeetingLoss, transitionOpportunity } from "../lib/opportunityActivity";
 import { canSendRescheduleLink, describeDealState } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
@@ -22,8 +22,9 @@ function normalizeOptionalString(value: string | undefined) {
 /**
  * Mark a scheduled meeting as no-show.
  *
- * Records structured no-show metadata and transitions both the meeting and
- * opportunity to "no_show" without writing actual meeting timing fields.
+ * Records structured no-show metadata, marks the meeting no-show and closes
+ * the deal lost with the reason `no_show`, without writing actual meeting
+ * timing fields.
  */
 export const markNoShow = mutation({
   args: {
@@ -55,9 +56,10 @@ export const markNoShow = mutation({
 
     const normalizedNote = normalizeOptionalString(note);
 
+    // Booked (or Call held) -> Closed lost: a missed meeting's loss names no person.
     await transitionOpportunity(ctx, opportunity._id, {
-      to: "no_show",
-      fields: { noShowAt: now, updatedAt: now },
+      to: { stage: "closed", outcome: "lost" },
+      fields: { noShowAt: now, updatedAt: now, ...missedMeetingLoss("no_show", now) },
       source: "closer",
       actorUserId: userId,
       reason,
@@ -98,9 +100,9 @@ export const markNoShow = mutation({
 /**
  * Generate a reschedule link for a no-show opportunity.
  *
- * Creates a pending scheduling-link follow-up with no-show-specific UTMs and
- * transitions the opportunity to "reschedule_link_sent" so the pipeline can
- * deterministically relink the lead's next booking.
+ * Creates a pending reschedule link (a scheduling-link follow-up with
+ * no-show-specific UTMs) and reopens the deal at Follow-up, so the pipeline
+ * can deterministically relink the lead's next booking.
  */
 export const createNoShowRescheduleLink = mutation({
   args: {
@@ -175,9 +177,12 @@ export const createNoShowRescheduleLink = mutation({
       createdSource: "closer",
     });
 
+    // Closed lost (no-show) -> Follow-up, after the link: the status reads it
+    // as `reschedule_link_sent`.
     await transitionOpportunity(ctx, opportunityId, {
-      to: "reschedule_link_sent",
+      to: { stage: "follow_up" },
       fields: { updatedAt: now },
+      exception: "missed_meeting_next_step",
       source: "closer",
       actorUserId: userId,
       occurredAt: now,
