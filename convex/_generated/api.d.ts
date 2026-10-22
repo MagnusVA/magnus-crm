@@ -291,6 +291,7 @@ import type * as reporting_lib_helpers from "../reporting/lib/helpers.js";
 import type * as reporting_lib_hondurasBusinessTime from "../reporting/lib/hondurasBusinessTime.js";
 import type * as reporting_lib_outcomeDerivation from "../reporting/lib/outcomeDerivation.js";
 import type * as reporting_lib_periodBucketing from "../reporting/lib/periodBucketing.js";
+import type * as reporting_lib_readMeter from "../reporting/lib/readMeter.js";
 import type * as reporting_lib_slackQualificationBreakdown from "../reporting/lib/slackQualificationBreakdown.js";
 import type * as reporting_lib_slackQualificationLedger from "../reporting/lib/slackQualificationLedger.js";
 import type * as reporting_pipelineHealth from "../reporting/pipelineHealth.js";
@@ -664,6 +665,7 @@ declare const fullApi: ApiFromModules<{
   "reporting/lib/hondurasBusinessTime": typeof reporting_lib_hondurasBusinessTime;
   "reporting/lib/outcomeDerivation": typeof reporting_lib_outcomeDerivation;
   "reporting/lib/periodBucketing": typeof reporting_lib_periodBucketing;
+  "reporting/lib/readMeter": typeof reporting_lib_readMeter;
   "reporting/lib/slackQualificationBreakdown": typeof reporting_lib_slackQualificationBreakdown;
   "reporting/lib/slackQualificationLedger": typeof reporting_lib_slackQualificationLedger;
   "reporting/pipelineHealth": typeof reporting_pipelineHealth;
