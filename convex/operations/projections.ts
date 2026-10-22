@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
+import { dealStageOf, type DealStageAndOutcome } from "../opportunities/stages";
 
 function buildQualificationSearchText(args: {
   event: Doc<"slackQualificationEvents">;
@@ -26,6 +27,17 @@ function buildQualificationSearchText(args: {
     .toLowerCase();
 }
 
+/**
+ * The stage and outcome a qualification row copies from its deal, or none
+ * with no deal (docs/plans/phase-5-deal-status.md §3.2). A deal the backfill
+ * hasn't reached takes them from its status.
+ */
+export function qualificationRowStage(
+  opportunity: Doc<"opportunities"> | null,
+): DealStageAndOutcome | undefined {
+  return opportunity ? dealStageOf(opportunity) : undefined;
+}
+
 export async function rebuildQualificationRow(
   ctx: MutationCtx,
   qualificationEventId: Id<"slackQualificationEvents">,
@@ -40,6 +52,7 @@ export async function rebuildQualificationRow(
     event.opportunityId ? ctx.db.get("opportunities", event.opportunityId) : Promise.resolve(null),
   ]);
 
+  const dealStage = qualificationRowStage(opportunity);
   const row = {
     tenantId: event.tenantId,
     qualificationEventId: event._id,
@@ -49,6 +62,9 @@ export async function rebuildQualificationRow(
     slackTeamId: event.slackTeamId,
     resultKind: event.resultKind,
     opportunityStatus: opportunity?.status,
+    // Unset with no deal: a patch with undefined removes the field.
+    dealStage: dealStage?.stage,
+    dealOutcome: dealStage?.outcome,
     bookingProgramId: opportunity?.firstBookingProgramId,
     bookingProgramName: opportunity?.firstBookingProgramName,
     bookingProgramMappingStatus: opportunity?.firstBookingProgramMappingStatus,

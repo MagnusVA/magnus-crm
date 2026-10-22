@@ -46,7 +46,7 @@ import {
   insertOperationsMeetingStats,
   replaceOperationsMeetingStats,
 } from "./operations/meetingStats";
-import { rebuildQualificationRow } from "./operations/projections";
+import { qualificationRowStage, rebuildQualificationRow } from "./operations/projections";
 import {
   expireStaleSlackOpportunity,
   isStaleSlackBacklog,
@@ -274,6 +274,8 @@ export const rebuildQualificationRows = migrations.define({
   },
 });
 
+// Each row copies its deal's status, stage and outcome (from Phase 5 PR 3)
+// and closer, or none of them with no deal. Throws naming the event.
 export const assertQualificationRowsCurrent = migrations.define({
   table: "slackQualificationEvents",
   batchSize: 200,
@@ -290,8 +292,11 @@ export const assertQualificationRowsCurrent = migrations.define({
     const opportunity = event.opportunityId
       ? await ctx.db.get("opportunities", event.opportunityId)
       : null;
+    const dealStage = qualificationRowStage(opportunity);
     if (
       row.opportunityStatus !== opportunity?.status ||
+      row.dealStage !== dealStage?.stage ||
+      row.dealOutcome !== dealStage?.outcome ||
       row.assignedCloserId !== opportunity?.assignedCloserId
     ) {
       throw new Error(`Qualification event ${event._id} has a stale qualification row`);
