@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -51,7 +52,6 @@ import {
   missedMeetingsCsv,
   needsMoreMissedMeetingRows,
 } from "@/lib/operations-reports/missed-meetings-export";
-import { MissedMeetingsPageSkeleton } from "./missed-meetings-page-skeleton";
 
 // Deals read per page; the server reads at most 100 a call.
 const PAGE_SIZE = 100;
@@ -110,10 +110,6 @@ export function MissedMeetingsPageClient() {
 
   const { rows, truncated } = useMemo(() => capMissedMeetingRows(results), [results]);
   const isComplete = status === "Exhausted" || truncated;
-
-  if (status === "LoadingFirstPage") {
-    return <MissedMeetingsPageSkeleton />;
-  }
 
   const handleExport = () => {
     const first = format(dateRange.startDate, "yyyy-MM-dd");
@@ -201,7 +197,13 @@ export function MissedMeetingsPageClient() {
         ) : null}
       </div>
 
-      {rows.length === 0 && isComplete ? (
+      {status === "LoadingFirstPage" ? (
+        <Skeleton
+          className="h-[480px] w-full"
+          role="status"
+          aria-label="Loading no-shows and cancellations"
+        />
+      ) : rows.length === 0 && isComplete ? (
         <Empty className="border">
           <EmptyHeader>
             <EmptyMedia variant="icon">
