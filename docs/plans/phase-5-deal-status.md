@@ -136,7 +136,7 @@ PR 1 adds the two fields and these indexes, which the moved readers use (§6). W
 | `by_tenantId_and_source_and_stage_and_createdAt` | `by_tenantId_and_source_and_status_and_createdAt` | the Slack stale digest |
 | `by_tenantId_assignedCloserId_stage_outcome_createdAt` | `by_tenantId_and_assignedCloserId_and_status_and_createdAt` | the closer pipeline list and the user removal guard |
 | `by_tenantId_and_stage_and_outcome_and_createdAt` | `by_tenantId_and_status_and_createdAt` | pipeline aging and velocity |
-| `by_tenantId_and_stage_and_outcome_and_lostAt` | `by_tenantId_and_status_and_latestActivityAt` | loss attribution and the No-shows and cancellations list |
+| `by_tenantId_and_stage_and_outcome_and_latestActivityAt` | `by_tenantId_and_status_and_latestActivityAt` | loss attribution and the No-shows and cancellations list, read from the range's start by activity and filtered by `lostAt`. PR 1 added `…_and_lostAt` here; the parity run after PR 3 found the Slack expiry's 4,000 recent losses filled a `lostAt` range before any person's loss, while the expiry keeps a deal's earlier activity, so it was replaced |
 
 The other three status indexes (`by_tenantId_and_source_and_status_and_latestActivityAt`, `by_tenantId_and_assignedCloserId_and_status_and_latestActivityAt` and `by_tenantId_assignedCloserId_source_status_latestActivityAt`) are read only by the dead opportunities list in §2.7 and get no replacement.
 
@@ -359,7 +359,7 @@ The controls show on the same deals as today, from the stage, the loss and the t
 
 A new page under Operations for admins, `/workspace/operations/missed-meetings`, gated like the other Operations pages:
 
-- the deals a missed meeting closed (Closed lost with the system's `no_show` or `canceled`), by when they closed, newest first, over a date range (the last 30 days by default), read through `by_tenantId_and_stage_and_outcome_and_lostAt`;
+- the deals a missed meeting closed (Closed lost with the system's `no_show` or `canceled`), by when they closed, newest first, over a date range (the last 30 days by default), read through `by_tenantId_and_stage_and_outcome_and_latestActivityAt` from the range's start and filtered by `lostAt`;
 - per row: the person's name, Instagram handle, email and phone; no-show or canceled; the missed meeting's time; the deal's source; the closer, the setter and the DM closer or team from `dealAttributions`; and whether the person has a deal created since. A filter hides people who booked again, on by default, and one picks no-shows or cancellations;
 - **Export CSV** downloads the rows the filters show, up to 2,000, and says so when a range holds more.
 
@@ -367,7 +367,7 @@ What the team does with the list is undecided (Q2), so the page only lists and e
 
 ### 6.6 Reports and operations (PR 6)
 
-- **Pipeline Health** (`reporting/pipelineHealth.ts`): the distribution chart shows the six positions from `opportunityByStage`. The aging table shows Booked, Call held and Follow-up (Qualified stays computed and hidden, as today); the stale list covers open deals whose `nextMeetingAt` is unset or more than 14 days past, the rule it has today; both read `by_tenantId_and_stage_and_outcome_and_createdAt`, the same open deals as today. Velocity reads Closed won. Loss attribution reads Closed lost by `lostAt`, leaving out the system's losses (`stale`, `no_show`, `canceled`), as it leaves out `stale` today.
+- **Pipeline Health** (`reporting/pipelineHealth.ts`): the distribution chart shows the six positions from `opportunityByStage`. The aging table shows Booked, Call held and Follow-up (Qualified stays computed and hidden, as today); the stale list covers open deals whose `nextMeetingAt` is unset or more than 14 days past, the rule it has today; both read `by_tenantId_and_stage_and_outcome_and_createdAt`, the same open deals as today. Velocity reads Closed won. Loss attribution reads Closed lost with `lostAt` in the range, from the range's start by activity, leaving out the system's losses (`stale`, `no_show`, `canceled`), as it leaves out `stale` today.
 - **Team report** (`reporting/lib/outcomeDerivation.ts`): a meeting's deal counts as lost when a person closed it, so a no-show or canceled meeting stays a no-show or a cancellation; a follow-up is a held meeting on a Follow-up deal with no reschedule link.
 - **Qualifications** (`operations/qualifications.ts`): the filter takes the six positions, through the qualification row's `dealStage` and `dealOutcome` and their index; the badge and the search text use the labels.
 - **Booked Calls** and **Sales Calls** lists: the detail's "Opportunity status" becomes "Deal stage", read from the deal (`meetings.opportunityStatus` goes). The bookings export's `OpportunityStatus` column becomes `DealStage` and `DealOutcome`; nothing imports it today (Q5).

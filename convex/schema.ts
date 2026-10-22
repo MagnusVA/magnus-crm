@@ -1121,11 +1121,14 @@ export default defineSchema({
       "outcome",
       "createdAt",
     ])
-    .index("by_tenantId_and_stage_and_outcome_and_lostAt", [
+    // Losses read from their activity, as the status index does: the Slack
+    // expiry keeps a deal's earlier activity time, so its losses drop out of
+    // a recent range (docs/plans/phase-5-deal-status.md §3.1).
+    .index("by_tenantId_and_stage_and_outcome_and_latestActivityAt", [
       "tenantId",
       "stage",
       "outcome",
-      "lostAt",
+      "latestActivityAt",
     ]),
 
   opportunitySearch: defineTable({

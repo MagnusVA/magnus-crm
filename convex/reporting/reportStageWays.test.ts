@@ -127,10 +127,18 @@ describe("the stage way of each report number", () => {
     expect(ids(byStage)).toEqual(
       [seed.deals.lostByCloser, seed.deals.lostByAdmin, seed.deals.lostUnknown].sort(),
     );
-    // The stage way passes over the stale, canceled and no-show losses in
-    // the range, which the status way never reads.
+    // The stage way reads from the range's start by activity, as the status
+    // way does: it never reads the stale expiry, which keeps its earlier
+    // activity, and passes over the canceled and no-show losses and a loss
+    // from before the range that had activity since.
     expect([byStatus.truncated, byStage.truncated]).toEqual([false, false]);
     expect(byStage.scanned).toBe(6);
+    const scannedStale = await harness.t.run(async (ctx) => {
+      const deal = await ctx.db.get("opportunities", seed.deals.stale);
+      return deal?.lostAt !== undefined && deal.lostAt >= LOSS_RANGE.startDate;
+    });
+    // The stale loss is in the range by lostAt, yet not among the six read.
+    expect(scannedStale).toBe(true);
     const counts = countLossesByActor(byStage.losses);
     expect(counts).toEqual(countLossesByActor(byStatus.losses));
     expect(counts.unknownLossCount).toBe(1);

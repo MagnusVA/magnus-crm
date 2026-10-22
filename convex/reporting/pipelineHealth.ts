@@ -457,10 +457,14 @@ export async function readLossesByStatus(
 }
 
 /**
- * Deals Closed lost in the range by `lostAt`, through
- * by_tenantId_and_stage_and_outcome_and_lostAt, leaving out every loss the
+ * Deals Closed lost in the range by `lostAt`, leaving out every loss the
  * system wrote (the Slack expiry, a no-show, a cancellation), as the status
  * way leaves out the expiry and never reads the canceled and no-show deals.
+ * Like the status way it reads from the start of the range by activity
+ * (by_tenantId_and_stage_and_outcome_and_latestActivityAt): a loss is
+ * activity, so a deal lost in the range has activity at or after its start,
+ * and the Slack expiry keeps a deal's earlier activity, so the expiries, about
+ * 4,000 in a recent month of production, aren't read at all.
  */
 export async function readLossesByStage(
   ctx: QueryCtx,
@@ -475,13 +479,12 @@ export async function readLossesByStage(
   meterRange(meter);
   for await (const opportunity of ctx.db
     .query("opportunities")
-    .withIndex("by_tenantId_and_stage_and_outcome_and_lostAt", (q) =>
+    .withIndex("by_tenantId_and_stage_and_outcome_and_latestActivityAt", (q) =>
       q
         .eq("tenantId", tenantId)
         .eq("stage", "closed")
         .eq("outcome", "lost")
-        .gte("lostAt", startDate)
-        .lt("lostAt", endDate),
+        .gte("latestActivityAt", startDate),
     )) {
     meterDocument(meter, opportunity);
     if (scanned >= MAX_LOSS_STAGE_SCAN_ROWS) {
@@ -489,7 +492,12 @@ export async function readLossesByStage(
       break;
     }
     scanned += 1;
-    if (!isPersonLoss(opportunity)) {
+    if (
+      opportunity.lostAt === undefined ||
+      opportunity.lostAt < startDate ||
+      opportunity.lostAt >= endDate ||
+      !isPersonLoss(opportunity)
+    ) {
       continue;
     }
     if (losses.length >= REPORT_ROW_CAP) {
