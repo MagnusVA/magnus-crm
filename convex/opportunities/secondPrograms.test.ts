@@ -44,7 +44,7 @@ async function customerWithWonDeal(harness: Harness) {
     const opportunityId = await ctx.db.insert("opportunities", {
       tenantId,
       leadId,
-      status: "payment_received",
+      stage: "closed", outcome: "won",
       source: "slack_qualified",
       qualifiedBy: { slackUserId: "U1", slackTeamId: "T1", submittedAt: now },
       paymentReceivedAt: now,
@@ -132,9 +132,9 @@ describe("a second program", () => {
     expect(await qualify(harness, installationId)).toMatchObject({ kind: "created" });
 
     const opportunities = await leadOpportunities(harness, leadId);
-    expect(opportunities.map((o) => [o._id === opportunityId, o.status]).sort()).toEqual([
-      [false, "qualified_pending"],
-      [true, "payment_received"],
+    expect(opportunities.map((o) => [o._id === opportunityId, o.stage, o.outcome]).sort()).toEqual([
+      [false, "qualified", "open"],
+      [true, "closed", "won"],
     ]);
   });
 
@@ -160,7 +160,7 @@ describe("a second program", () => {
 
     expect(await qualify(harness, installationId, "U3")).toMatchObject({ kind: "created" });
     const pending = (await leadOpportunities(harness, leadId)).filter(
-      (o) => o.status === "qualified_pending",
+      (o) => o.stage === "qualified",
     );
     expect(pending).toHaveLength(2);
   });
@@ -222,10 +222,10 @@ describe("a second program", () => {
     expect(first).toMatchObject({ opportunityId, programId });
     // The list's total counts every deal's payments.
     expect(state.row).toMatchObject({ lifecycle: "customer", totalPaidMinor: 50000 + 25000 + 25000 });
-    expect((await leadOpportunities(harness, leadId)).map((o) => o.status).sort()).toEqual([
-      "payment_received",
-      "payment_received",
-      "payment_received",
+    expect((await leadOpportunities(harness, leadId)).map((o) => `${o.stage}/${o.outcome}`).sort()).toEqual([
+      "closed/won",
+      "closed/won",
+      "closed/won",
     ]);
   });
 

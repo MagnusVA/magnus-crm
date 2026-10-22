@@ -75,7 +75,7 @@ it("labels each sales call from its own booking's rows", async () => {
     const opportunityId = await ctx.db.insert("opportunities", {
       tenantId,
       leadId,
-      status: "scheduled",
+      stage: "booked", outcome: "open",
       source: "calendly",
       assignedCloserId: closerId,
       createdAt: 0,

@@ -885,11 +885,9 @@ export default defineSchema({
     hostCalendlyEmail: v.optional(v.string()),
     hostCalendlyName: v.optional(v.string()),
     eventTypeConfigId: v.optional(v.id("eventTypeConfigs")),
-    // Today's status, still written on every insert and move as
-    // `legacyStatus` of the stage, the outcome, the loss and the tasks, so a
-    // revert to PR 7 finds it; optional so a revert after PR 9's clear finds a
-    // schema that accepts a deal without one (docs/plans/phase-5-deal-status.md
-    // §3.3, §12). Nothing reads it.
+    // The old status. Nothing reads or writes it from PR 9; clearDealStatus
+    // unsets it and the narrow drops it (docs/plans/phase-5-deal-status.md
+    // §3.3, §10.6).
     status: v.optional(
       v.union(
         v.literal("qualified_pending"),
@@ -1148,8 +1146,9 @@ export default defineSchema({
       v.literal("side_deal"),
       v.literal("slack_qualified"),
     ),
-    // The deal's status, copied while the deal still has one; PR 9 stops
-    // writing it (docs/plans/phase-5-deal-status.md §3.3, §4.8).
+    // The deal's old status. Nothing writes it from PR 9;
+    // clearOpportunitySearchStatus unsets it (docs/plans/phase-5-deal-status.md
+    // §3.3, §4.8).
     status: v.optional(
       v.union(
         v.literal("qualified_pending"),
@@ -1285,9 +1284,12 @@ export default defineSchema({
     slackUserId: v.string(),
     slackTeamId: v.string(),
     resultKind: slackQualificationResultKindValidator,
+    // The deal's old status: nothing writes it from Phase 5 PR 9, and
+    // clearQualificationRowStatus unsets it (docs/plans/phase-5-deal-status.md
+    // §10.6).
     opportunityStatus: v.optional(opportunityStatusValidator),
-    // The deal's stage and outcome (docs/plans/phase-5-deal-status.md §3.2),
-    // beside its status until the narrow; unset with no deal.
+    // The deal's stage and outcome (docs/plans/phase-5-deal-status.md §3.2);
+    // unset with no deal.
     dealStage: v.optional(dealStageValidator),
     dealOutcome: v.optional(dealOutcomeValidator),
     bookingProgramId: v.optional(v.id("tenantPrograms")),
@@ -1412,6 +1414,9 @@ export default defineSchema({
     bookingProgramMappingStatus: v.optional(bookingProgramMappingStatusValidator),
     soldProgramId: v.optional(v.id("tenantPrograms")),
     soldProgramName: v.optional(v.string()),
+    // The deal's old status: nothing writes it from Phase 5 PR 9, and
+    // clearMeetingOpportunityStatus unsets it (docs/plans/phase-5-deal-status.md
+    // §10.6).
     opportunityStatus: v.optional(opportunityStatusValidator),
     // The booking's own record of whether its UTMs matched the registry. Its
     // team and DM closer credit is the booking's dealAttributions rows
@@ -1527,6 +1532,8 @@ export default defineSchema({
     assignedCloserId: v.id("users"),
     bookingProgramId: v.optional(v.id("tenantPrograms")),
     soldProgramId: v.optional(v.id("tenantPrograms")),
+    // Nothing writes this legacy table; clearLegacyDailyStatsStatus unsets
+    // the copy (docs/plans/phase-5-deal-status.md §10.6).
     opportunityStatus: v.optional(opportunityStatusValidator),
     meetingStatus: v.union(
       v.literal("scheduled"),
@@ -2028,9 +2035,12 @@ export default defineSchema({
     totalTeamMembers: v.number(),
     totalClosers: v.number(),
     totalOpportunities: v.number(),
-    activeOpportunities: v.number(),
-    wonDeals: v.number(),
-    lostDeals: v.number(),
+    // The deal counters by status (D13). Nothing writes them from Phase 5 PR
+    // 9; clearTenantStatusCounters unsets them and the narrow drops them
+    // (docs/plans/phase-5-deal-status.md §3.3, §10.6).
+    activeOpportunities: v.optional(v.number()),
+    wonDeals: v.optional(v.number()),
+    lostDeals: v.optional(v.number()),
     totalRevenueMinor: v.number(),
     totalCommissionableFinalRevenueMinor: v.optional(v.number()),
     totalCommissionableDepositRevenueMinor: v.optional(v.number()),

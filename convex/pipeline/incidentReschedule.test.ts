@@ -22,6 +22,7 @@ import type { Id } from "../_generated/dataModel";
 import { bookingHarness, mapEventTypeToProgram } from "../../tests/bookingHarness";
 import { adoptRawDelivery } from "./receipts";
 import { writtenBesideStatus } from "../../tests/bookingRuleFixtures";
+import { namedStatus } from "../../tests/stopStatusFixtures";
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
 import { transitionOpportunity } from "../lib/opportunityActivity";
 
@@ -272,7 +273,8 @@ it("control: the same reschedule of a tracked closer booking moves the opportuni
   // The cancel is flagged `rescheduled`, so it cancels the meeting and leaves
   // the deal scheduled (it used to pass the deal through canceled).
   expect(await h.t.run((ctx) => ctx.db.get("opportunities", created.opportunityId!))).toMatchObject({
-    status: "scheduled",
+    stage: "booked",
+    outcome: "open",
   });
   await h.deliver("invitee.created", replacement, "2026-10-12T16:27:16Z");
 
@@ -288,7 +290,7 @@ it("control: the same reschedule of a tracked closer booking moves the opportuni
     status: "scheduled", opportunityId: created.opportunityId, rescheduledFromMeetingId: oldMeeting!._id,
   });
   expect(await h.t.run((ctx) => ctx.db.get("opportunities", created.opportunityId!))).toMatchObject({
-    status: "scheduled", calendlyEventUri: replacement.scheduled_event.uri,
+    stage: "booked", outcome: "open", calendlyEventUri: replacement.scheduled_event.uri,
   });
   expect(await h.counts()).toEqual({ meetings: 2, opportunities: 1, leads: 1 });
 });
@@ -469,7 +471,7 @@ it("incident B: reproduces the blocked cancellation of a legacy closer booking t
   await h.deliver("invitee.created", p.tracked, "2026-10-05T11:04:42Z");
   await h.deliver("invitee.canceled", p.trackedCanceled, "2026-10-05T22:48:55Z");
   const trackedOpportunityId = (await h.receipt("invitee.created", p.tracked)).opportunityId!;
-  expect(await h.t.run((ctx) => ctx.db.get("opportunities", trackedOpportunityId))).toMatchObject({ status: "canceled" });
+  expect(await h.t.run((ctx) => ctx.db.get("opportunities", trackedOpportunityId))).toMatchObject({ stage: "closed", outcome: "lost", lostReason: "canceled" });
 
   // Legacy era: two later bookings stored but never turned into meetings (unprocessed).
   const rebookedRaw = await h.seedLegacyRaw("invitee.created", p.rebooked, "2026-10-05T22:50:14Z", false);
@@ -509,7 +511,7 @@ it("incident B recovery: retrying the legacy creates applies them and settles th
   const rebooked = await h.receipt("invitee.created", p.rebooked);
   expect(rebooked).toMatchObject({ status: "applied" });
   expect(rebooked.opportunityId).not.toBe(trackedOpportunityId);
-  expect(await h.t.run((ctx) => ctx.db.get("opportunities", trackedOpportunityId))).toMatchObject({ status: "canceled" });
+  expect(await h.t.run((ctx) => ctx.db.get("opportunities", trackedOpportunityId))).toMatchObject({ stage: "closed", outcome: "lost", lostReason: "canceled" });
   await h.retry((await h.receipt("invitee.created", p.lost))._id);
   const lost = await h.receipt("invitee.created", p.lost);
   expect(lost).toMatchObject({ status: "applied" });
@@ -553,7 +555,7 @@ async function dealShapes(h: Awaited<ReturnType<typeof setup>>) {
   return await h.t.run(async (ctx) => {
     const opportunities = await ctx.db.query("opportunities").take(10);
     const shapes = await Promise.all(opportunities.map(async (o) => ({
-      status: o.status,
+      status: await namedStatus(ctx, o._id),
       meetings: (await ctx.db.query("meetings").withIndex("by_opportunityId", (q) => q.eq("opportunityId", o._id)).take(10))
         .map((m) => `${m.calendlyEventUri}:${m.status}`).sort(),
     })));

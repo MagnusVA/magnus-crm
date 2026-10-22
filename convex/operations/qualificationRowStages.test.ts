@@ -4,7 +4,6 @@ import { transitionOpportunity } from "../lib/opportunityActivity";
 import type { OpportunityStatus } from "../opportunities/stages";
 import type { DealSource } from "../opportunities/stages";
 import { rebuildQualificationRow } from "./projections";
-import { insertDeal } from "../../tests/dealStageFixtures";
 import {
   insertQualification,
   insertWrittenDeal,
@@ -13,8 +12,8 @@ import {
 import { enrollmentHarness, type EnrollmentHarness } from "../../tests/enrollmentFixtures";
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
 
-// A qualification row carries its deal's stage and outcome beside the status
-// (docs/plans/phase-5-deal-status.md §3.2, §10.3).
+// A qualification row carries its deal's stage and outcome, and from PR 9 no
+// status (docs/plans/phase-5-deal-status.md §3.2, §9).
 
 afterEach(() => vi.useRealTimers());
 
@@ -50,26 +49,11 @@ describe("the qualification row's stage and outcome", () => {
     ["payment_received", "slack_qualified", "closed", "won"],
     ["canceled", "slack_qualified", "closed", "lost"],
     ["lost", "slack_qualified", "closed", "lost"],
-  ] as const)("copies a %s %s deal's as %s/%s, beside the status", async (status, source, stage, outcome) => {
+  ] as const)("copies a %s %s deal's as %s/%s, with no status", async (status, source, stage, outcome) => {
     const harness = await enrollmentHarness();
     const { eventId } = await qualifiedDeal(harness, status, source);
 
-    expect(await rowOf(harness, eventId)).toEqual({ status, stage, outcome });
-  });
-
-  it("takes a deal's stage from its status before the backfill wrote it", async () => {
-    const harness = await enrollmentHarness();
-    const eventId = await harness.t.run(async (ctx) => {
-      const opportunityId = await insertDeal(ctx, {
-        tenantId: harness.tenantId,
-        status: "no_show",
-        source: "slack_qualified",
-        written: false,
-      });
-      return await insertQualification(ctx, { tenantId: harness.tenantId, qualifiedAt: QUALIFIED_AT, opportunityId });
-    });
-
-    expect(await rowOf(harness, eventId)).toEqual({ status: "no_show", stage: "closed", outcome: "lost" });
+    expect(await rowOf(harness, eventId)).toEqual({ status: undefined, stage, outcome });
   });
 
   it("has none on a qualification with no deal, and drops them when the deal goes", async () => {
@@ -100,7 +84,7 @@ describe("the qualification row's stage and outcome", () => {
       }),
     );
 
-    expect(await rowOf(harness, eventId)).toEqual({ status: "no_show", stage: "closed", outcome: "lost" });
+    expect(await rowOf(harness, eventId)).toEqual({ status: undefined, stage: "closed", outcome: "lost" });
   });
 
   it("is a filter of the qualification search", async () => {
@@ -145,7 +129,7 @@ describe("rebuildQualificationRows and assertQualificationRowsCurrent", () => {
     expect(error).toContain(`Qualification event ${eventId} has a stale qualification row`);
 
     expect((await harness.run("rebuildQualificationRows"))?.error).toBeUndefined();
-    expect(await rowOf(harness, eventId)).toEqual({ status: "canceled", stage: "closed", outcome: "lost" });
+    expect(await rowOf(harness, eventId)).toEqual({ status: undefined, stage: "closed", outcome: "lost" });
     expect((await harness.rerun("assertQualificationRowsCurrent"))?.error).toBeUndefined();
   });
 

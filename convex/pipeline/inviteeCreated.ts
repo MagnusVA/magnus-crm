@@ -11,7 +11,6 @@ import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { rebuildQualificationRowsForOpportunity } from "../operations/projections";
 import {
 	patchOpportunityLifecycle,
-	syncLegacyStatus,
 	transitionOpportunity,
 } from "../lib/opportunityActivity";
 import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
@@ -248,8 +247,8 @@ async function recordMeetingBookingAttribution(
 }
 
 /**
- * A booking link took the deal out of `reschedule_link_sent`, so no reschedule
- * link waits on the person any more. The deal's pending ones expire; the link
+ * A booking link took the deal out of Follow-up, so no reschedule link waits
+ * on the person any more. The deal's pending ones expire; the link
  * the booking used is booked already, so it isn't among them. Without this, a
  * booking through an older scheduling link leaves the reschedule link pending
  * for good.
@@ -290,9 +289,6 @@ async function expireRescheduleLinks(
 			occurredAt: at,
 		});
 	}
-	// The deal is Booked by now, so its status doesn't read the links; the
-	// sync keeps it right whatever the order.
-	if (links.length > 0) await syncLegacyStatus(ctx, opportunity._id);
 }
 
 // ---------------------------------------------------------------------------
@@ -1698,10 +1694,7 @@ export const process = internalMutation({
 			});
 			createdOpportunityId = opportunityId;
 			await insertOpportunityAggregate(ctx, opportunityId);
-			await updateTenantStats(ctx, tenantId, {
-				totalOpportunities: 1,
-				activeOpportunities: 1,
-			});
+			await updateTenantStats(ctx, tenantId, { totalOpportunities: 1 });
 			await emitDomainEvent(ctx, {
 				tenantId,
 				entityType: "opportunity",

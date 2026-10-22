@@ -5,7 +5,9 @@ import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
 import { listPersonEnrollments } from "../convex/enrollments/read";
 import { migrations } from "../convex/migrations";
+import type { OpportunityStatus } from "../convex/opportunities/stages";
 import { bookingHarness, bookingPayload, qualifiedLifecycle } from "./bookingHarness";
+import { stageFields } from "./dealStageFixtures";
 
 // Phase 4 enrollments (docs/plans/phase-4-customers.md §4.1): a harness that
 // can run the migrations, and rows inserted the way production holds them.
@@ -84,13 +86,12 @@ export async function insertDeal(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
   leadId: Id<"leads">,
-  status: Doc<"opportunities">["status"] = "payment_received",
+  status: OpportunityStatus = "payment_received",
 ) {
   return await ctx.db.insert("opportunities", {
     tenantId,
     leadId,
-    status,
-    source: "side_deal",
+    ...stageFields(status, "side_deal"),
     createdAt: 0,
     updatedAt: 0,
   });

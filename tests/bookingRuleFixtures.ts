@@ -4,7 +4,6 @@ import { pr7ValidateTransition } from "./stageMachineFixtures";
 import { legacyStatus, type DealStateFields } from "../convex/opportunities/dealState";
 import {
   OPPORTUNITY_STATUSES,
-  missedMeetingLossReason,
   stageForStatus,
   type DealOutcome,
   type DealSource,
@@ -14,7 +13,7 @@ import {
 import { dealPositionAt, wasUnattachableAt } from "../convex/pipeline/bookingHistory";
 import { SLACK_STALE_LOST_REASON } from "../convex/pipeline/slackJoinLookup";
 import { bookingHarness, qualifiedLifecycle } from "./bookingHarness";
-import { harnessCloserId } from "./dealStageFixtures";
+import { harnessCloserId, missedMeetingLossReason } from "./dealStageFixtures";
 
 // The booking rules read the deal's stage, outcome, loss and tasks from PR 7
 // (docs/plans/phase-5-deal-status.md §4.6, §6.7) and must give the answers
@@ -59,41 +58,37 @@ const LOSSES: Array<{ label: string; fields: Partial<RuleDeal> }> = [
 ];
 
 /**
- * Every deal the dual write can leave, with every task state it can have: each
- * of the eight statuses × four sources × the losses above × with and without
- * a stored stage × with and without a pending reschedule link, kept only
- * where `legacyStatus` rebuilds the status from the rest, the invariant
- * `assertDealStages` checks on every deal in production.
+ * Every deal a write can leave, with every task state it can have: each of
+ * the eight old statuses × four sources × the losses above × with and
+ * without a pending reschedule link, kept only where `legacyStatus` names the
+ * deal by that status. The deal itself stores only its stage (§9).
  */
 export function bookingRuleWorlds(): BookingRuleWorld[] {
   const worlds: BookingRuleWorld[] = [];
   for (const status of OPPORTUNITY_STATUSES)
     for (const source of DEAL_SOURCES)
       for (const loss of LOSSES)
-        for (const written of [true, false])
-          for (const hasPendingRescheduleLink of [false, true]) {
-            const deal: RuleDeal = {
+        for (const hasPendingRescheduleLink of [false, true]) {
+          const deal: RuleDeal = {
+            source,
+            ...stageForStatus(status, source),
+            ...loss.fields,
+            ...(loss.fields.lostReason || loss.fields.lostByUserId ? { lostAt: 1_500 } : {}),
+          };
+          const tasks = { hasPendingRescheduleLink };
+          if (legacyStatus(deal, tasks) !== status) continue;
+          worlds.push({
+            label: [
               status,
-              source,
-              ...(written ? stageForStatus(status, source) : {}),
-              ...loss.fields,
-              ...(loss.fields.lostReason || loss.fields.lostByUserId ? { lostAt: 1_500 } : {}),
-            };
-            const tasks = { hasPendingRescheduleLink };
-            if (legacyStatus(deal, tasks) !== status) continue;
-            worlds.push({
-              label: [
-                status,
-                source ?? "no source",
-                loss.label,
-                written ? "stage stored" : "no stored stage",
-                hasPendingRescheduleLink ? "a pending reschedule link" : "no reschedule link",
-              ].join(", "),
-              status,
-              deal,
-              tasks,
-            });
-          }
+              source ?? "no source",
+              loss.label,
+              hasPendingRescheduleLink ? "a pending reschedule link" : "no reschedule link",
+            ].join(", "),
+            status,
+            deal,
+            tasks,
+          });
+        }
   return worlds;
 }
 
@@ -126,9 +121,9 @@ export const TODAYS_CHECKS = {
     meetingStatus: "scheduled" | "no_show" | "canceled",
   ) => ["scheduled", "no_show", "canceled"].includes(status) && status !== meetingStatus,
   /** The stale expiry closed this Slack deal after the booking at `referenceTime`. */
-  wasStaleExpiredAfter: (deal: RuleDeal, referenceTime: number) =>
+  wasStaleExpiredAfter: (status: OpportunityStatus, deal: RuleDeal, referenceTime: number) =>
     deal.source === "slack_qualified" &&
-    deal.status === "lost" &&
+    status === "lost" &&
     deal.lostReason === SLACK_STALE_LOST_REASON &&
     (deal.lostAt ?? 0) > referenceTime,
 };
@@ -139,52 +134,36 @@ export const TODAYS_CHECKS = {
  * as the stage machine's `slack_stale_rejoin` requires. Production holds no
  * such loss (docs/plans/phase-5-deal-status.md §2.4).
  */
-export const PR8_STALE_REJOIN = (deal: RuleDeal, referenceTime: number) =>
-  TODAYS_CHECKS.wasStaleExpiredAfter(deal, referenceTime) && deal.lostByUserId === undefined;
+export const PR8_STALE_REJOIN = (status: OpportunityStatus, deal: RuleDeal, referenceTime: number) =>
+  TODAYS_CHECKS.wasStaleExpiredAfter(status, deal, referenceTime) && deal.lostByUserId === undefined;
 
 /**
- * Today's Slack join lookup on the status index: the person's pending Slack
- * deals and stale-expired ones, eight of each kind at most, inside the
- * window. Returns the candidates, so the caller can tell ambiguity apart.
+ * Today's Slack join lookup, as the status index answered it: whether the
+ * person's Slack deal at `status`, created at `createdAt`, is a candidate for
+ * a booking at `referenceTime`: pending, or stale-expired after it, and
+ * created inside the window.
  */
-export async function todaysSlackJoinCandidates(
-  ctx: MutationCtx,
-  args: { tenantId: Id<"tenants">; leadId: Id<"leads">; referenceTime: number; lookbackMs: number },
-): Promise<Id<"opportunities">[]> {
-  const cutoff = args.referenceTime - args.lookbackMs;
-  const inWindow = (status: "qualified_pending" | "lost") =>
-    ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_and_leadId_and_source_and_status_and_createdAt", (q) =>
-        q
-          .eq("tenantId", args.tenantId)
-          .eq("leadId", args.leadId)
-          .eq("source", "slack_qualified")
-          .eq("status", status)
-          .gt("createdAt", cutoff)
-          .lte("createdAt", args.referenceTime),
-      )
-      .order("desc")
-      .take(8);
-  const pending = await inWindow("qualified_pending");
-  // From PR 8 only the system's `stale` reopens (PR8_STALE_REJOIN).
-  const expired = (await inWindow("lost")).filter((deal) =>
-    PR8_STALE_REJOIN(deal, args.referenceTime),
-  );
-  return [...pending, ...expired].map((deal) => deal._id);
+export function todaysSlackJoinCandidate(
+  status: OpportunityStatus,
+  deal: RuleDeal & { createdAt: number },
+  args: { referenceTime: number; lookbackMs: number },
+): boolean {
+  const inWindow =
+    deal.createdAt > args.referenceTime - args.lookbackMs && deal.createdAt <= args.referenceTime;
+  if (!inWindow || deal.source !== "slack_qualified") return false;
+  return status === "qualified_pending" || PR8_STALE_REJOIN(status, deal, args.referenceTime);
 }
 
 /**
- * What the dual write and PR 1's backfill write beside a deal's status: the
- * stage and outcome, and on a missed meeting its loss, at `lostAt`. The
- * booking rules read these, so a fixture deal needs them.
+ * What a deal at an old status is written as: the stage and outcome, and on
+ * a missed meeting its loss, at `lostAt`. The booking rules read these.
  */
 export function writtenBesideStatus(status: OpportunityStatus, source: DealSource, lostAt = 0) {
   const reason = missedMeetingLossReason(status);
   return { ...stageForStatus(status, source), ...(reason ? { lostReason: reason, lostAt } : {}) };
 }
 
-/** A person with one deal, inserted the way the dual write leaves it, for the DB-backed checks. */
+/** A person with one deal, inserted with its stage, for the DB-backed checks. */
 export async function insertRuleDeal(
   ctx: MutationCtx,
   tenantId: Id<"tenants">,
@@ -284,7 +263,6 @@ export async function readDealHistory(
     const opportunityId = await ctx.db.insert("opportunities", {
       tenantId,
       leadId,
-      status: current,
       source,
       ...writtenBesideStatus(current, source, options.time + 21_000),
       createdAt: options.createdAt,

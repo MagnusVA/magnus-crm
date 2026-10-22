@@ -3,6 +3,7 @@ import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { rebuildQualificationRow } from "./projections";
 import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
+import { stageFields } from "../../tests/dealStageFixtures";
 import {
   type BookingFixture,
   insertAttributionTeam,
@@ -77,8 +78,7 @@ async function seed(harness: Harness) {
       const opportunityId = await ctx.db.insert("opportunities", {
         tenantId,
         leadId,
-        status: bookings.length > 0 ? "scheduled" : "qualified_pending",
-        source: "slack_qualified",
+        ...stageFields(bookings.length > 0 ? "scheduled" : "qualified_pending", "slack_qualified"),
         qualifiedBy,
         qualifiedAt,
         assignedCloserId: bookings.length > 0 ? closer!._id : undefined,

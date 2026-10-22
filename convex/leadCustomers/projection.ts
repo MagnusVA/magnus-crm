@@ -297,8 +297,9 @@ export async function rebuildLeadCustomerSearchRow(
       meetingIds,
     }),
     opportunityCount: opportunities.length,
+    // Closed won (docs/plans/phase-5-deal-status.md §4.8).
     wonOpportunityCount: opportunities.filter(
-      (opportunity) => opportunity.status === "payment_received",
+      (opportunity) => opportunity.stage === "closed" && opportunity.outcome === "won",
     ).length,
     meetingCount: meetingIds.length,
     latestMeetingAt: latestMeetingAtFor(opportunities),

@@ -134,7 +134,6 @@ describe("the No-shows and cancellations list", () => {
       await ctx.db.insert("opportunities", {
         tenantId: harness.tenantId,
         leadId: nora.leadId,
-        status: "qualified_pending",
         stage: "qualified",
         outcome: "open",
         source: "slack_qualified",

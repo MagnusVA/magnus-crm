@@ -18,6 +18,7 @@ import {
 import { bookingHarness } from "../../tests/bookingHarness";
 import { insertMeetingPageDeal, TODAY, type MeetingPageTask } from "../../tests/pageControlFixtures";
 import { insertPerson } from "../../tests/stageLabelFixtures";
+import { namedStatus } from "../../tests/stopStatusFixtures";
 
 async function meetingDealOf(status: OpportunityStatus, tasks?: MeetingPageTask[]) {
   const h = await bookingHarness();
@@ -82,7 +83,7 @@ describe("the meeting page's controls, read from the payload", () => {
       const { opportunity, meeting } = await h.admin.query(api.closer.meetingDetail.getMeetingDetail, {
         meetingId,
       });
-      expect(opportunity.status).toBe(status);
+      expect(await h.t.run((ctx) => namedStatus(ctx, opportunity._id))).toBe(status);
       expect({
         status,
         dealWon: isDealWon(opportunity),

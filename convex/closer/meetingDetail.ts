@@ -20,7 +20,6 @@ import { dealLabelOf, meetingDealLabelOf } from "../opportunities/stageLabels";
 
 type MeetingHistoryEntry = Doc<"meetings"> &
   ReturnType<typeof meetingDealLabelOf> & {
-    opportunityStatus: Doc<"opportunities">["status"];
     isCurrentMeeting: boolean;
   };
 
@@ -167,7 +166,6 @@ export const getMeetingDetail = query({
           ? [
               {
                 ...historicalMeeting,
-                opportunityStatus: historicalDeal.status,
                 ...meetingDealLabelOf(historicalDeal),
                 isCurrentMeeting: historicalMeeting._id === meetingId,
               },

@@ -36,7 +36,6 @@ function compactOpportunity(opportunity: Doc<"opportunities">) {
     _id: opportunity._id,
     leadId: opportunity.leadId,
     assignedCloserId: opportunity.assignedCloserId,
-    status: opportunity.status,
     // The labels read these (docs/plans/phase-5-deal-status.md §6.1).
     ...dealLabelOf(opportunity),
     source: opportunity.source,
@@ -74,7 +73,6 @@ function compactMeeting(
     canceledAt: meeting.canceledAt,
     bookingProgramName: meeting.bookingProgramName,
     soldProgramName: meeting.soldProgramName,
-    opportunityStatus: opportunity.status,
     ...meetingDealLabelOf(opportunity),
     opportunitySource: normalizeOpportunitySource(opportunity),
     permissions,

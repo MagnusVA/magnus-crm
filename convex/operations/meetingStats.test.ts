@@ -3,11 +3,15 @@ import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
 import { meetingStatsTotals } from "../../tests/reportStageFixtures";
+import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { bucketKey, requestMeetingProjection } from "./meetingStats";
 
 afterEach(() => vi.useRealTimers());
 
-/** The bucket key before Phase 3 took the team and DM closer out of it. */
+/**
+ * The bucket key before Phase 3 took the team and DM closer out of it, with
+ * the deal status Phase 5 PR 9 took out too.
+ */
 function legacyBucketKey(
   c: NonNullable<Doc<"meetingProjections">["contribution"]>,
   attribution: { teamId?: Id<"attributionTeams">; dmCloserId?: Id<"dmClosers"> } = {},
@@ -285,7 +289,7 @@ it("does not report an empty replacement table as zero during migration", async 
 
 it("projects every historical meeting when an opportunity with over 200 meetings changes", async () => {
   vi.useFakeTimers();
-  const { t, tenantId, admin, closer } = await bookingHarness();
+  const { t, tenantId, admin } = await bookingHarness();
   const payload = bookingPayload("long-history");
   await t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
     tenantId,
@@ -314,9 +318,28 @@ it("projects every historical meeting when an opportunity with over 200 meetings
         calendlyInviteeUri: `https://api.calendly.com/scheduled_events/history-${i}/invitees/test`,
       });
   });
-  await closer.mutation(api.closer.meetingActions.markAsLost, {
-    opportunityId: delivery.opportunityId,
-    reason: "Not proceeding",
+  // A sold program is the deal field the meeting buckets carry; the deal's
+  // stage isn't one from PR 9 (docs/plans/phase-5-deal-status.md §4.8).
+  const programId = await t.run(async (ctx) => {
+    const user = (await ctx.db
+      .query("users")
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .first())!;
+    const id = await ctx.db.insert("tenantPrograms", {
+      tenantId,
+      name: "Program",
+      normalizedName: "program",
+      createdAt: 0,
+      updatedAt: 0,
+      createdByUserId: user._id,
+    });
+    await setSoldProgramCaches(ctx, {
+      tenantId,
+      opportunityId: delivery.opportunityId!,
+      programId: id,
+      programName: "Program",
+    });
+    return id;
   });
   await t.finishAllScheduledFunctions(vi.runAllTimers, 1000);
   expect(
@@ -324,7 +347,7 @@ it("projects every historical meeting when an opportunity with over 200 meetings
       tenantId,
       scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
       scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
-      opportunityStatus: "lost",
+      soldProgramId: programId,
     })),
   ).toMatchObject({ scheduled: 205 });
 });
@@ -409,7 +432,7 @@ it("keeps a paid meeting completed and counted once when a late cancellation arr
     meetingId: delivery.meetingId,
   });
   expect(detail.meeting.status).toBe("completed");
-  expect(detail.opportunity.status).toBe("payment_received");
+  expect(detail.opportunity).toMatchObject({ stage: "closed", outcome: "won" });
   expect(detail.payments).toHaveLength(1);
   expect(
     await t.run((ctx) => meetingStatsTotals(ctx, {
@@ -418,7 +441,7 @@ it("keeps a paid meeting completed and counted once when a late cancellation arr
       scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
       soldProgramId: programId,
     })),
-  ).toMatchObject({ scheduled: 1, completed: 1, won: 1, canceled: 0 });
+  ).toMatchObject({ scheduled: 1, completed: 1, canceled: 0 });
 });
 
 it("keeps a closer outcome when reporting fails and repairs the report through a guarded retry", async () => {

@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { internalMutation, mutation } from "../_generated/server";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
-import { syncLegacyStatus, transitionOpportunity } from "../lib/opportunityActivity";
+import { transitionOpportunity } from "../lib/opportunityActivity";
 import {
   canStartFollowUp,
   describeDealState,
@@ -68,9 +68,6 @@ export const createFollowUpRecord = internalMutation({
       },
       occurredAt: now,
     });
-    // A reschedule link (`no_show_follow_up`) on a Follow-up deal is
-    // `reschedule_link_sent`.
-    await syncLegacyStatus(ctx, args.opportunityId);
     return id;
   },
 });
@@ -127,8 +124,6 @@ export const markFollowUpBooked = internalMutation({
     await ctx.db.patch("followUps", followUp._id, { status: "booked", calendlyEventUri, bookedAt });
     await emitDomainEvent(ctx, { tenantId: opportunity.tenantId, entityType: "followUp", entityId: followUp._id,
       eventType: "followUp.booked", source: "pipeline", fromStatus: "pending", toStatus: "booked", occurredAt: bookedAt });
-    // A booked reschedule link no longer makes the status `reschedule_link_sent`.
-    await syncLegacyStatus(ctx, opportunityId);
     return null;
   },
 });

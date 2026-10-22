@@ -3,9 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { rebuildQualificationRow } from "../operations/projections";
-import { opportunityByStatus } from "../reporting/aggregates";
+import { opportunityByStage } from "../reporting/aggregates";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
+import { stageFields } from "../../tests/dealStageFixtures";
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
 import { migrations } from "../migrations";
 import {
@@ -13,18 +14,22 @@ import {
   transitionOpportunity,
 } from "./opportunityActivity";
 import { countsAsLead } from "./leadLifecycle";
-import type { OpportunityStatus } from "../opportunities/stages";
 import {
-  isActiveOpportunityStatus,
-  updateTenantStats,
-} from "./tenantStatsHelper";
+  dealStageOf,
+  stageForStatus,
+  type DealOutcome,
+  type DealStage,
+  type OpportunityStatus,
+} from "../opportunities/stages";
+import { updateTenantStats } from "./tenantStatsHelper";
 
 afterEach(() => vi.useRealTimers());
 
 type Harness = Awaited<ReturnType<typeof bookingHarness>>;
 
-// A Slack-qualified opportunity with its qualification row, counted in the
-// aggregates and tenant stats the way the real create paths count it.
+// A Slack-qualified opportunity at the stage `status` names, with its
+// qualification row, counted in the aggregates and tenant stats the way the
+// real create paths count it.
 async function slackOpportunity(
   harness: Harness,
   status: OpportunityStatus = "scheduled",
@@ -50,20 +55,14 @@ async function slackOpportunity(
       tenantId,
       leadId,
       assignedCloserId: closerId,
-      status,
-      source: "slack_qualified",
+      ...stageFields(status, "slack_qualified"),
       qualifiedBy,
       createdAt: now,
       updatedAt: now,
       ...fields,
     });
     await insertOpportunityAggregate(ctx, opportunityId);
-    await updateTenantStats(ctx, tenantId, {
-      totalOpportunities: 1,
-      activeOpportunities: isActiveOpportunityStatus(status) ? 1 : 0,
-      wonDeals: status === "payment_received" ? 1 : 0,
-      lostDeals: status === "lost" ? 1 : 0,
-    });
+    await updateTenantStats(ctx, tenantId, { totalOpportunities: 1 });
     const installationId = await ctx.db.insert("slackInstallations", {
       tenantId, teamId: "T1", teamName: "Team", isEnterpriseInstall: false, appId: "A1",
       botUserId: "B1", botAccessToken: "xoxb", scopes: [], notifyChannelId: "C1",
@@ -119,48 +118,36 @@ async function readState(
       .query("tenantStats")
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
       .unique();
-    const countByStatus = async (status: OpportunityStatus) =>
-      await opportunityByStatus.count(ctx, {
+    const countAt = async (stage: DealStage, outcome: DealOutcome) =>
+      await opportunityByStage.count(ctx, {
         namespace: tenantId,
-        bounds: { prefix: [status] },
+        bounds: { prefix: [stage, outcome] },
       });
     return {
       opportunity,
       qualificationRow,
       events,
       stats,
-      scheduledCount: await countByStatus("scheduled"),
-      lostCount: await countByStatus("lost"),
-      wonCount: await countByStatus("payment_received"),
+      bookedCount: await countAt("booked", "open"),
+      lostCount: await countAt("closed", "lost"),
+      wonCount: await countAt("closed", "won"),
     };
   });
 }
 
-// tenantStats must equal a recount from the opportunities, as
-// seedTenantStatsInternal computes it.
-async function expectStatsMatchRecount(harness: Harness) {
-  const { t, tenantId } = harness;
-  const { stats, opportunities } = await t.run(async (ctx) => ({
-    stats: await ctx.db
+// From Phase 5 PR 9 tenantStats keeps no deal counters by status (D13).
+async function expectNoStatusCounters(harness: Harness) {
+  const stats = await harness.t.run((ctx) =>
+    ctx.db
       .query("tenantStats")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", harness.tenantId))
       .unique(),
-    opportunities: await ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .take(100),
-  }));
-  expect({
-    activeOpportunities: stats?.activeOpportunities ?? 0,
-    wonDeals: stats?.wonDeals ?? 0,
-    lostDeals: stats?.lostDeals ?? 0,
-  }).toEqual({
-    activeOpportunities: opportunities.filter((o) =>
-      o.status !== undefined && isActiveOpportunityStatus(o.status),
-    ).length,
-    wonDeals: opportunities.filter((o) => o.status === "payment_received").length,
-    lostDeals: opportunities.filter((o) => o.status === "lost").length,
-  });
+  );
+  expect([stats?.activeOpportunities, stats?.wonDeals, stats?.lostDeals]).toEqual([
+    undefined,
+    undefined,
+    undefined,
+  ]);
 }
 
 // totalCustomers and totalLeads must equal a recount from the people, as
@@ -188,7 +175,7 @@ async function expectPersonCountersMatchRecount(harness: Harness) {
 }
 
 describe("transitionOpportunity", () => {
-  it("moves the stage with its status, aggregates, counters, event and qualification row", async () => {
+  it("moves the stage with its aggregates, event and qualification row, and writes no status", async () => {
     const harness = await bookingHarness();
     const { opportunityId, closerId, eventId } = await slackOpportunity(harness);
 
@@ -206,12 +193,12 @@ describe("transitionOpportunity", () => {
     expect(state.opportunity).toMatchObject({
       stage: "closed",
       outcome: "lost",
-      status: "lost",
       lostReason: "budget",
       lostAt: 1_000,
     });
+    expect(state.opportunity?.status).toBeUndefined();
+    expect(state.qualificationRow?.opportunityStatus).toBeUndefined();
     expect(state.qualificationRow).toMatchObject({
-      opportunityStatus: "lost",
       dealStage: "closed",
       dealOutcome: "lost",
     });
@@ -227,9 +214,8 @@ describe("transitionOpportunity", () => {
         metadata: JSON.stringify({ fromOutcome: "open", toOutcome: "lost" }),
       }),
     ]);
-    expect([state.scheduledCount, state.lostCount]).toEqual([0, 1]);
-    expect(state.stats).toMatchObject({ activeOpportunities: 0, lostDeals: 1 });
-    await expectStatsMatchRecount(harness);
+    expect([state.bookedCount, state.lostCount]).toEqual([0, 1]);
+    await expectNoStatusCounters(harness);
   });
 
   it("emits opportunity.stage_changed for a move that isn't a loss", async () => {
@@ -245,7 +231,7 @@ describe("transitionOpportunity", () => {
     });
 
     const state = await readState(harness, opportunityId);
-    expect(state.opportunity).toMatchObject({ stage: "closed", outcome: "won", status: "payment_received" });
+    expect(state.opportunity).toMatchObject({ stage: "closed", outcome: "won" });
     expect(state.events).toEqual([
       expect.objectContaining({
         eventType: "opportunity.stage_changed",
@@ -255,7 +241,7 @@ describe("transitionOpportunity", () => {
       }),
     ]);
     expect(state.wonCount).toBe(1);
-    await expectStatsMatchRecount(harness);
+    await expectNoStatusCounters(harness);
   });
 
   it.each([
@@ -291,7 +277,7 @@ describe("transitionOpportunity", () => {
     ["canceled", { lostReason: "canceled" }, { stage: "follow_up" }, "missed_meeting_next_step", "follow_up_scheduled"],
     ["no_show", { lostReason: "no_show" }, { stage: "booked" }, "no_show_withdrawn", "scheduled"],
   ] as const)(
-    "allows %s -> %j only for the %s exception, with PR 7's status",
+    "allows %s -> %j only for the %s exception, to the stage PR 7's %s names",
     async (from, fields, to, exception, status) => {
       const harness = await bookingHarness();
       const { opportunityId } = await slackOpportunity(harness, from, { ...fields, lostAt: 500 });
@@ -301,7 +287,7 @@ describe("transitionOpportunity", () => {
       });
 
       const { opportunity } = await readState(harness, opportunityId);
-      expect(opportunity?.status).toBe(status);
+      expect(dealStageOf(opportunity!)).toEqual(stageForStatus(status, "slack_qualified"));
       // Reopening clears the loss it reopened.
       if (to.stage !== "closed") {
         expect([opportunity?.lostReason, opportunity?.lostAt, opportunity?.lostByUserId]).toEqual([
@@ -310,7 +296,7 @@ describe("transitionOpportunity", () => {
           undefined,
         ]);
       }
-      await expectStatsMatchRecount(harness);
+      await expectNoStatusCounters(harness);
     },
   );
 
@@ -331,7 +317,7 @@ describe("transitionOpportunity", () => {
 });
 
 describe("patchOpportunityLifecycle", () => {
-  it("re-keys the status aggregate and qualification row when the closer changes", async () => {
+  it("re-keys the stage aggregate and qualification row when the closer changes", async () => {
     const harness = await bookingHarness();
     const { opportunityId, closerId, eventId } = await slackOpportunity(harness);
     const otherCloserId = await harness.t.run(async (ctx) =>
@@ -352,9 +338,9 @@ describe("patchOpportunityLifecycle", () => {
 
     const counts = await harness.t.run(async (ctx) => {
       const count = async (userId: Id<"users">) =>
-        await opportunityByStatus.count(ctx, {
+        await opportunityByStage.count(ctx, {
           namespace: harness.tenantId,
-          bounds: { prefix: ["scheduled", userId] },
+          bounds: { prefix: ["booked", "open", userId] },
         });
       return [await count(closerId), await count(otherCloserId)];
     });
@@ -376,7 +362,7 @@ describe("patchOpportunityLifecycle", () => {
   });
 });
 
-describe("status changes through the public mutations", () => {
+describe("stage changes through the public mutations", () => {
   it("keeps the qualification row current when a closer marks a deal lost", async () => {
     const harness = await bookingHarness();
     const { opportunityId, eventId } = await slackOpportunity(harness);
@@ -387,11 +373,11 @@ describe("status changes through the public mutations", () => {
     });
 
     const state = await readState(harness, opportunityId, eventId);
-    expect(state.qualificationRow?.opportunityStatus).toBe("lost");
+    expect(state.qualificationRow).toMatchObject({ dealStage: "closed", dealOutcome: "lost" });
     expect(state.events.map((event) => event.eventType)).toEqual([
       "opportunity.marked_lost",
     ]);
-    await expectStatsMatchRecount(harness);
+    await expectNoStatusCounters(harness);
   });
 
   it("counts a side deal's payment and void once each", async () => {
@@ -420,7 +406,7 @@ describe("status changes through the public mutations", () => {
         updatedAt: 0,
       });
     });
-    await expectStatsMatchRecount(harness);
+    await expectNoStatusCounters(harness);
 
     const { paymentId } = await closer.mutation(api.sideDeals.logPayment.logPayment, {
       opportunityId,
@@ -430,7 +416,7 @@ describe("status changes through the public mutations", () => {
       paymentType: "pif",
     });
     expect((await readState(harness, opportunityId)).wonCount).toBe(1);
-    await expectStatsMatchRecount(harness);
+    await expectNoStatusCounters(harness);
     await expectPersonCountersMatchRecount(harness);
 
     await admin.mutation(api.sideDeals.voidPayment.voidPayment, {
@@ -451,21 +437,21 @@ describe("status changes through the public mutations", () => {
       ["opportunity.stage_changed", "call_held/open", "closed/won"],
       ["opportunity.marked_lost", "closed/won", "closed/lost"],
     ]);
-    expect(state.opportunity?.status).toBe("lost");
-    await expectStatsMatchRecount(harness);
+    expect(state.opportunity).toMatchObject({ stage: "closed", outcome: "lost" });
+    await expectNoStatusCounters(harness);
     await expectPersonCountersMatchRecount(harness);
   });
 });
 
 describe("rebuildQualificationRows migration", () => {
-  it("repairs rows left with an earlier status, and its assert checks them", async () => {
+  it("repairs rows left with an earlier stage, and its assert checks them", async () => {
     vi.useFakeTimers();
     const harness = await bookingHarness();
     migrationsTest.register(harness.t);
     const { opportunityId, eventId } = await slackOpportunity(harness);
     // A row written before an outcome, as the old write paths left it.
     await harness.t.run(async (ctx) => {
-      await forceOpportunityState(ctx, opportunityId, { status: "lost" });
+      await forceOpportunityState(ctx, opportunityId, { stage: "closed", outcome: "lost" });
     });
 
     const run = async (name: string) => {
@@ -485,40 +471,7 @@ describe("rebuildQualificationRows migration", () => {
     expect(assertion?.isDone).toBe(true);
     expect(assertion?.error).toBeUndefined();
     const state = await readState(harness, opportunityId, eventId);
-    expect(state.qualificationRow?.opportunityStatus).toBe("lost");
-  });
-});
-
-describe("status counter repair", () => {
-  it("finds drift in tenantStats and resets the status counters from the aggregate", async () => {
-    const harness = await bookingHarness();
-    await slackOpportunity(harness, "scheduled");
-    await slackOpportunity(harness, "lost");
-    // A cancel on main that skipped the counters left active one too high.
-    await harness.t.run(async (ctx) => {
-      await updateTenantStats(ctx, harness.tenantId, { activeOpportunities: 1 });
-    });
-
-    const drift = await harness.t.query(
-      internal.reporting.verification.verifyTenantStatusCounters,
-      { tenantId: harness.tenantId },
-    );
-    expect(drift).toMatchObject({
-      match: false,
-      stored: { activeOpportunities: 2, wonDeals: 0, lostDeals: 1 },
-      counted: { activeOpportunities: 1, wonDeals: 0, lostDeals: 1 },
-    });
-
-    await harness.t.mutation(internal.admin.migrations.repairTenantStatusCounters, {
-      tenantId: harness.tenantId,
-    });
-
-    expect(
-      await harness.t.query(internal.reporting.verification.verifyTenantStatusCounters, {
-        tenantId: harness.tenantId,
-      }),
-    ).toMatchObject({ match: true });
-    await expectStatsMatchRecount(harness);
+    expect(state.qualificationRow).toMatchObject({ dealStage: "closed", dealOutcome: "lost" });
   });
 });
 
@@ -543,6 +496,8 @@ describe("seedTenantStatsInternal", () => {
       ctx.db.query("tenantStats").withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)).unique(),
     );
     expect(stats).toMatchObject({ totalCustomers: 2, totalLeads: 1 });
+    // No deal counters by status (D13).
+    expect([stats?.activeOpportunities, stats?.wonDeals, stats?.lostDeals]).toEqual([undefined, undefined, undefined]);
     await expectPersonCountersMatchRecount(harness);
   });
 });

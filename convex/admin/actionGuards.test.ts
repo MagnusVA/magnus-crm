@@ -9,6 +9,7 @@ import {
   todaysGuards as today,
   type GuardState,
 } from "../../tests/dealGuardFixtures";
+import { namedStatus } from "../../tests/stopStatusFixtures";
 
 // The admin twins of the closer's actions, and the unavailability cancel,
 // are allowed on the same deals as before PR 7
@@ -73,12 +74,12 @@ describe("admin follow-ups", () => {
       allowed,
     );
     if (allowed) {
-      // From PR 8 the status is legacyStatus of the deal it leaves: a stale
-      // reschedule link left on a no-show deal (production has none) makes
-      // the Follow-up deal `reschedule_link_sent`, as the guards already read
+      // The deal it leaves names an old status by its stage and tasks: a
+      // stale reschedule link left on a no-show deal (production has none)
+      // makes the Follow-up deal `reschedule_link_sent`, as the guards read
       // it; PR 7 stored `follow_up_scheduled` there, which assertDealStages
       // would have reported.
-      expect((await readGuardDeal(harness, opportunityId)).status).toBe(
+      expect(await harness.t.run((ctx) => namedStatus(ctx, opportunityId))).toBe(
         state.task === "reschedule_link" ? "reschedule_link_sent" : "follow_up_scheduled",
       );
     }
@@ -171,7 +172,9 @@ describe("manuallyResolveMeeting, cancel", () => {
     });
 
     const after = await readGuardDeal(harness, opportunityId);
-    expect(after.status).toBe(today.canceledFrom(state.status) ? "canceled" : state.status);
+    expect(await harness.t.run((ctx) => namedStatus(ctx, opportunityId))).toBe(
+      today.canceledFrom(state.status) ? "canceled" : state.status,
+    );
     expect(after.cancellationReason).toBe("Canceled due to closer unavailability (Sick)");
   });
 });

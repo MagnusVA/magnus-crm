@@ -381,10 +381,7 @@ export const create = internalMutation({
     });
 
     await insertOpportunityAggregate(ctx, opportunityId);
-    await updateTenantStats(ctx, args.tenantId, {
-      totalOpportunities: 1,
-      activeOpportunities: 1,
-    });
+    await updateTenantStats(ctx, args.tenantId, { totalOpportunities: 1 });
     await emitDomainEvent(ctx, {
       tenantId: args.tenantId,
       entityType: "opportunity",

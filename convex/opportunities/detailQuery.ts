@@ -113,8 +113,7 @@ export const getOpportunityDetail = query({
 
     const source = normalizeOpportunitySource(opportunity);
     const isSideDeal = source === "side_deal";
-    // The controls show on the same deals as the status did: a side deal at
-    // Call held was `scheduled`, and Won was `payment_received` (§6.1).
+    // The controls show on a side deal at Call held, and on Won (§6.1).
     const label = dealLabelOf(opportunity);
     const isOpenSideDeal = isSideDeal && label.position === "call_held";
     const isWon = label.position === "won";
@@ -134,7 +133,6 @@ export const getOpportunityDetail = query({
     return {
       opportunity: {
         _id: opportunity._id,
-        status: opportunity.status,
         ...label,
         source,
         notes: opportunity.notes,

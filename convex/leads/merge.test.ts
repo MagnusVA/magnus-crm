@@ -65,7 +65,7 @@ async function insertOpportunity(
   return await ctx.db.insert("opportunities", {
     tenantId,
     leadId,
-    status: "scheduled",
+    stage: "booked", outcome: "open",
     source: "calendly",
     createdAt: AT,
     updatedAt: AT,
@@ -1081,8 +1081,8 @@ async function insertProgram(ctx: MutationCtx, tenantId: Id<"tenants">, name: st
 
 async function seedStats(ctx: MutationCtx, tenantId: Id<"tenants">) {
   await ctx.db.insert("tenantStats", {
-    tenantId, totalTeamMembers: 0, totalClosers: 0, totalOpportunities: 0, activeOpportunities: 0, wonDeals: 0,
-    lostDeals: 0, totalRevenueMinor: 0, totalPaymentRecords: 0, totalLeads: 10, totalCustomers: 5, lastUpdatedAt: 0,
+    tenantId, totalTeamMembers: 0, totalClosers: 0, totalOpportunities: 0,
+    totalRevenueMinor: 0, totalPaymentRecords: 0, totalLeads: 10, totalCustomers: 5, lastUpdatedAt: 0,
   });
 }
 

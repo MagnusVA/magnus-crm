@@ -12,14 +12,15 @@ import {
   parseDealEventOutcomes,
   systemLossOf,
 } from "./stageLabels";
-import { missedMeetingLossReason, stageForStatus, type DealSource } from "./stages";
+import { stageForStatus, type DealSource } from "./stages";
+import { missedMeetingLossReason } from "../../tests/dealStageFixtures";
 
 // The deal's labels read from its stage and outcome, and the labels of old
 // and new deal events (docs/plans/phase-5-deal-status.md §4.1, §4.7, §6.1).
 
 const PERSON = "user_person" as Id<"users">;
 
-/** A deal at `status` as the dual write leaves it: the mapped stage and a missed meeting's loss. */
+/** A deal at the stage `status` names, with a missed meeting's loss. */
 function deal(status: OpportunityStatus, source: DealSource = "calendly", fields = {}) {
   const reason = missedMeetingLossReason(status);
   return {
@@ -48,13 +49,8 @@ describe("a deal's label", () => {
     expect(dealPositionLabel(fields.position, fields.systemLoss)).toBe(label);
   });
 
-  it("reads a deal from before the backfill by its status", () => {
-    expect(dealLabelOf({ status: "scheduled", source: "side_deal" })).toEqual({
-      stage: "call_held",
-      outcome: "open",
-      position: "call_held",
-      systemLoss: null,
-    });
+  it("refuses a deal with no stored stage: it never reads the status", () => {
+    expect(() => dealLabelOf({ source: "side_deal" })).toThrow("Deal has no stage or outcome");
   });
 
   it("shows the Slack expiry as a system loss", () => {
@@ -103,11 +99,11 @@ describe("a deal's search words", () => {
   });
 
   it("still gives words for a pair the stage doesn't allow, so the deal's write doesn't fail", () => {
-    expect(dealSearchWords({ status: "lost", source: "calendly", stage: "closed", outcome: "open" })).toEqual([
+    expect(dealSearchWords({ source: "calendly", stage: "closed", outcome: "open" })).toEqual([
       "Closed",
       "open",
     ]);
-    expect(() => dealLabelOf({ status: "lost", source: "calendly", stage: "closed", outcome: "open" })).toThrow(
+    expect(() => dealLabelOf({ source: "calendly", stage: "closed", outcome: "open" })).toThrow(
       'Deal stage "closed" doesn\'t allow outcome "open"',
     );
   });

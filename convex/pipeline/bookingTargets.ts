@@ -17,7 +17,7 @@ import {
 // Which deal a Calendly booking may move, read from the deal's stage, outcome,
 // loss and tasks (docs/plans/phase-5-deal-status.md §4.3, §4.6, §6.7). Each
 // predicate gives the answer of the status check it replaced, named in its
-// comment, for every deal the dual write leaves; bookingTargets.test.ts
+// comment, for every deal a write leaves; bookingTargets.test.ts
 // proves it. The moves themselves go through transitionOpportunity and the
 // stage machine (stages.ts) from PR 8.
 

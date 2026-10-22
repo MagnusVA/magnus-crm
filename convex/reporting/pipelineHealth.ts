@@ -11,44 +11,20 @@ import {
   type DealPosition,
   type DealStage,
 } from "../opportunities/stages";
-import { SLACK_STALE_LOST_REASON } from "../pipeline/slackJoinLookup";
 import { requireTenantUser } from "../requireTenantUser";
-import { opportunityByStage, opportunityByStatus } from "./aggregates";
+import { opportunityByStage } from "./aggregates";
 import {
   assertValidDateRange,
   getUserDisplayName,
   reportingUserIdentity,
 } from "./lib/helpers";
 import { isPersonLoss } from "./lib/outcomeDerivation";
-import { meterDocument, meterRange, type ReadMeter } from "./lib/readMeter";
 
-// Each number below is read two ways (docs/plans/phase-5-deal-status.md
-// §6.6): from the stage and outcome, which the screen shows, and from the
-// status, which only the parity queries in convex/opportunities/stageParity.ts
-// still read. PR 9 removes the status ways.
+// Each number below reads the deal's stage and outcome
+// (docs/plans/phase-5-deal-status.md §6.6).
 
-const OPPORTUNITY_STATUSES = [
-  "qualified_pending",
-  "scheduled",
-  "follow_up_scheduled",
-  "reschedule_link_sent",
-  "payment_received",
-  "lost",
-  "canceled",
-  "no_show",
-] as const satisfies ReadonlyArray<Doc<"opportunities">["status"]>;
-
-export const ACTIVE_PIPELINE_STATUSES = [
-  "qualified_pending",
-  "scheduled",
-  "follow_up_scheduled",
-  "reschedule_link_sent",
-] as const satisfies ReadonlyArray<Doc<"opportunities">["status"]>;
-
-export type ActivePipelineStatus = (typeof ACTIVE_PIPELINE_STATUSES)[number];
-
-// The open stages: the same deals as the active statuses, with Scheduled
-// split into Booked and the side deal's Call held (§4.6, §7).
+// The open stages: the deals the aging table and the stale list count, with
+// the side deal at Call held (§4.6, §7).
 export const OPEN_PIPELINE_STAGES = [
   "qualified",
   "booked",
@@ -63,8 +39,7 @@ const MAX_VELOCITY_ROWS = 500;
 const REPORT_ROW_CAP = 2000;
 const MAX_UNRESOLVED_REMINDER_SCAN_ROWS = REPORT_ROW_CAP + 1;
 const MAX_NO_SHOW_SCAN_ROWS = REPORT_ROW_CAP + 1;
-const MAX_LOSS_SCAN_ROWS = REPORT_ROW_CAP + 1;
-// The stage way reads the losses by when they happened, the system's with
+// The loss read takes the losses by when they happened, the system's with
 // them (production: roughly 1,500 stale, no-show and canceled losses a month
 // against a few dozen a person records), so it scans past those to this bound.
 const MAX_LOSS_STAGE_SCAN_ROWS = 4000;
@@ -144,32 +119,7 @@ function toLossAttributionRole(
   }
 }
 
-function meterRows(meter: ReadMeter | undefined, rows: Array<Doc<"opportunities">>) {
-  meterRange(meter);
-  for (const row of rows) {
-    meterDocument(meter, row);
-  }
-}
-
 // ── Distribution ────────────────────────────────────────────────────────
-
-/** Deals per status, from opportunityByStatus: the chart before PR 6, for parity. */
-export async function readPipelineDistributionByStatus(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-) {
-  const counts = await opportunityByStatus.countBatch(
-    ctx,
-    OPPORTUNITY_STATUSES.map((status) => ({
-      namespace: tenantId,
-      bounds: { prefix: [status] },
-    })),
-  );
-  return OPPORTUNITY_STATUSES.map((status, index) => ({
-    status,
-    count: counts[index] ?? 0,
-  }));
-}
 
 /** Deals in each of the six positions, from opportunityByStage (§6.6). */
 export async function readPipelineDistributionByStage(
@@ -212,13 +162,11 @@ export type PipelineAgingScan<Key extends string> = {
   capped: boolean;
 };
 
-export type PipelineAgingScanOptions<Key extends string> = {
+export type PipelineAgingScanOptions = {
   /** Only the deals created in [from, to); with no `to`, from `from` on. */
   createdAt?: { from: number; to?: number };
   /** Stop past this many deals and set `capped`. */
   maxDocs?: number;
-  meter?: ReadMeter;
-  onDeal?: (key: Key, deal: Doc<"opportunities">) => void;
 };
 
 function isStale(opportunity: Doc<"opportunities">, now: number): boolean {
@@ -231,7 +179,7 @@ function isStale(opportunity: Doc<"opportunities">, now: number): boolean {
 async function scanPipelineAging<Key extends string>(
   ranges: Array<{ key: Key; deals: () => AsyncIterable<Doc<"opportunities">> }>,
   now: number,
-  options: PipelineAgingScanOptions<Key>,
+  options: PipelineAgingScanOptions,
 ): Promise<PipelineAgingScan<Key>> {
   const groups = {} as Record<Key, PipelineAgingGroup>;
   const staleCandidates: StaleCandidate[] = [];
@@ -245,17 +193,14 @@ async function scanPipelineAging<Key extends string>(
     if (capped) {
       continue;
     }
-    meterRange(options.meter);
     // `nextMeetingAt` is not indexed, so exact stale counts require scanning
     // the active pipeline rows instead of relying on the capped sample list.
     for await (const opportunity of deals()) {
-      meterDocument(options.meter, opportunity);
       if (options.maxDocs !== undefined && scanned >= options.maxDocs) {
         capped = true;
         break;
       }
       scanned += 1;
-      options.onDeal?.(key, opportunity);
       group.count += 1;
       const ageDays = (now - opportunity.createdAt) / DAY_MS;
       group.totalAgeDays += ageDays;
@@ -275,43 +220,16 @@ async function scanPipelineAging<Key extends string>(
   return { groups, staleCount, staleCandidates, capped };
 }
 
-/** The active deals' ages by status: the aging table before PR 6, for parity. */
-export async function scanPipelineAgingByStatus(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-  now: number,
-  options: PipelineAgingScanOptions<ActivePipelineStatus> = {},
-): Promise<PipelineAgingScan<ActivePipelineStatus>> {
-  const window = options.createdAt;
-  return await scanPipelineAging(
-    ACTIVE_PIPELINE_STATUSES.map((status) => ({
-      key: status,
-      deals: () =>
-        ctx.db
-          .query("opportunities")
-          .withIndex("by_tenantId_and_status_and_createdAt", (q) => {
-            const range = q.eq("tenantId", tenantId).eq("status", status);
-            if (!window) return range;
-            return window.to === undefined
-              ? range.gte("createdAt", window.from)
-              : range.gte("createdAt", window.from).lt("createdAt", window.to);
-          }),
-    })),
-    now,
-    options,
-  );
-}
-
 /**
- * The open deals' ages by stage (§6.6): the same deals, read through
+ * The open deals' ages by stage (§6.6), read through
  * by_tenantId_and_stage_and_outcome_and_createdAt, with the side deal at
- * Call held instead of Scheduled. The stale rule is the same.
+ * Call held. A deal is stale with no next meeting, or one long past.
  */
 export async function scanPipelineAgingByStage(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   now: number,
-  options: PipelineAgingScanOptions<OpenPipelineStage> = {},
+  options: PipelineAgingScanOptions = {},
 ): Promise<PipelineAgingScan<OpenPipelineStage>> {
   const window = options.createdAt;
   return await scanPipelineAging(
@@ -366,32 +284,11 @@ function measureVelocity(rows: Array<Doc<"opportunities">>): PipelineVelocity {
   };
 }
 
-/** Days from creation to payment over deals won and created in the last 90 days. */
-export async function readPipelineVelocityByStatus(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-  now: number,
-  meter?: ReadMeter,
-): Promise<PipelineVelocity> {
-  const rows = await ctx.db
-    .query("opportunities")
-    .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
-      q
-        .eq("tenantId", tenantId)
-        .eq("status", "payment_received")
-        .gte("createdAt", now - VELOCITY_WINDOW_MS),
-    )
-    .take(MAX_VELOCITY_ROWS + 1);
-  meterRows(meter, rows);
-  return measureVelocity(rows);
-}
-
-/** The same over Closed won (§6.6). */
+/** Days from creation to payment over deals Closed won and created in the last 90 days (§6.6). */
 export async function readPipelineVelocityByStage(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   now: number,
-  meter?: ReadMeter,
 ): Promise<PipelineVelocity> {
   const rows = await ctx.db
     .query("opportunities")
@@ -403,7 +300,6 @@ export async function readPipelineVelocityByStage(
         .gte("createdAt", now - VELOCITY_WINDOW_MS),
     )
     .take(MAX_VELOCITY_ROWS + 1);
-  meterRows(meter, rows);
   return measureVelocity(rows);
 }
 
@@ -417,51 +313,10 @@ export type PipelineLosses = {
   scanned: number;
 };
 
-/** Deals lost in the range, by status, leaving out the Slack expiry. */
-export async function readLossesByStatus(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-  startDate: number,
-  endDate: number,
-  meter?: ReadMeter,
-): Promise<PipelineLosses> {
-  // A loss is activity, so every deal lost in the range has activity at or
-  // after the start. Scanning from there skips old losses, and Slack deals
-  // closed as stale, which keep their earlier activity time.
-  const lostOpportunityRows = await ctx.db
-    .query("opportunities")
-    .withIndex("by_tenantId_and_status_and_latestActivityAt", (q) =>
-      q
-        .eq("tenantId", tenantId)
-        .eq("status", "lost")
-        .gte("latestActivityAt", startDate),
-    )
-    .take(MAX_LOSS_SCAN_ROWS);
-  meterRows(meter, lostOpportunityRows);
-
-  const losses = lostOpportunityRows
-    .slice(0, REPORT_ROW_CAP)
-    .filter(
-      (opportunity) =>
-        opportunity.lostAt !== undefined &&
-        opportunity.lostAt >= startDate &&
-        opportunity.lostAt < endDate &&
-        // A system expiry, not anyone's loss.
-        opportunity.lostReason !== SLACK_STALE_LOST_REASON,
-    );
-
-  return {
-    losses,
-    truncated: lostOpportunityRows.length > REPORT_ROW_CAP,
-    scanned: lostOpportunityRows.length,
-  };
-}
-
 /**
  * Deals Closed lost in the range by `lostAt`, leaving out every loss the
- * system wrote (the Slack expiry, a no-show, a cancellation), as the status
- * way leaves out the expiry and never reads the canceled and no-show deals.
- * Like the status way it reads from the start of the range by activity
+ * system wrote (the Slack expiry, a no-show, a cancellation). It reads from
+ * the start of the range by activity
  * (by_tenantId_and_stage_and_outcome_and_latestActivityAt): a loss is
  * activity, so a deal lost in the range has activity at or after its start,
  * and the Slack expiry keeps a deal's earlier activity, so the expiries, about
@@ -472,12 +327,10 @@ export async function readLossesByStage(
   tenantId: Id<"tenants">,
   startDate: number,
   endDate: number,
-  meter?: ReadMeter,
 ): Promise<PipelineLosses> {
   const losses: Array<Doc<"opportunities">> = [];
   let scanned = 0;
   let truncated = false;
-  meterRange(meter);
   for await (const opportunity of ctx.db
     .query("opportunities")
     .withIndex("by_tenantId_and_stage_and_outcome_and_latestActivityAt", (q) =>
@@ -487,7 +340,6 @@ export async function readLossesByStage(
         .eq("outcome", "lost")
         .gte("latestActivityAt", startDate),
     )) {
-    meterDocument(meter, opportunity);
     if (scanned >= MAX_LOSS_STAGE_SCAN_ROWS) {
       truncated = true;
       break;

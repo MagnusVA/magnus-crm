@@ -7,6 +7,7 @@ import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
+import { stageFields } from "../../tests/dealStageFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -34,7 +35,7 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
       ...qualifiedLifecycle(0), tenantId, email: `${key}@example.com`, status: "active", firstSeenAt: 0, updatedAt: 0,
     });
     const opportunityId = await ctx.db.insert("opportunities", {
-      tenantId, leadId, assignedCloserId: closerId, status, source: "calendly",
+      tenantId, leadId, assignedCloserId: closerId, ...stageFields(status, "calendly"),
       firstBookingProgramId: programA, createdAt: 0, updatedAt: 0,
     });
     const meetingId = await ctx.db.insert("meetings", {

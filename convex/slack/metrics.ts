@@ -42,11 +42,12 @@ export const conversionMetrics = query({
     const booked = uniqueSlackOpportunities.filter(
       (opportunity) => opportunity.latestMeetingId !== undefined,
     ).length;
+    // Closed lost, and still at Qualified (docs/plans/phase-5-deal-status.md §6.8).
     const lost = uniqueSlackOpportunities.filter(
-      (opportunity) => opportunity.status === "lost",
+      (opportunity) => opportunity.stage === "closed" && opportunity.outcome === "lost",
     ).length;
     const stillPending = uniqueSlackOpportunities.filter(
-      (opportunity) => opportunity.status === "qualified_pending",
+      (opportunity) => opportunity.stage === "qualified",
     ).length;
 
     return {
@@ -175,7 +176,7 @@ function getUniqueSlackOpportunities(
     Id<"opportunities">,
     Pick<
       Doc<"opportunities">,
-      "_id" | "source" | "latestMeetingId" | "status"
+      "_id" | "source" | "latestMeetingId" | "stage" | "outcome"
     >
   >,
 ) {

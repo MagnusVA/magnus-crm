@@ -3,13 +3,11 @@ import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
 import { pr7ValidateTransition } from "./stageMachineFixtures";
 import { isSideDeal } from "../convex/lib/sideDeals";
-import { isActiveOpportunityStatus } from "../convex/lib/tenantStatsHelper";
 import { insertMeetingAggregate } from "../convex/reporting/writeHooks";
 import type { DealTasks } from "../convex/opportunities/dealGuards";
 import { legacyStatus, type DealStateFields } from "../convex/opportunities/dealState";
 import {
   OPPORTUNITY_STATUSES,
-  missedMeetingLossReason,
   stageForStatus,
   type DealSource,
   type OpportunityStatus,
@@ -19,6 +17,7 @@ import {
   harnessCloserId,
   insertDeal,
   insertLatestMeeting,
+  missedMeetingLossReason,
   type DealFields,
 } from "./dealStageFixtures";
 
@@ -30,6 +29,15 @@ import {
 // ─── Today's checks ───────────────────────────────────────────────────
 
 const PERSON = "user_person" as Id<"users">;
+
+/** The old active statuses, frozen: the open deals before PR 7. */
+const PR7_ACTIVE_STATUSES: readonly OpportunityStatus[] = [
+  "qualified_pending",
+  "scheduled",
+  "follow_up_scheduled",
+  "reschedule_link_sent",
+];
+const isActiveOpportunityStatus = (status: OpportunityStatus) => PR7_ACTIVE_STATUSES.includes(status);
 
 /**
  * Each guard as the code read the status before PR 7, from the line it
@@ -87,36 +95,33 @@ export type GuardDeal = DealStateFields & Pick<Doc<"opportunities">, "createdAt"
 
 export type GuardCase = {
   label: string;
-  /** The status the deal stores, which assertDealStages proves is `legacyStatus` of the rest. */
+  /** The old status that names the deal: `legacyStatus` of its stage, loss and tasks. */
   status: OpportunityStatus;
   deal: GuardDeal;
   tasks: DealTasks;
 };
 
 /**
- * A deal's fields at `status` as the dual write leaves them: the mapped
- * stage and outcome, and a missed meeting's loss with no person.
- * `written: false` is a deal from before the widen, with neither.
+ * A deal's fields at the stage `status` names: the mapped stage and outcome,
+ * and a missed meeting's loss with no person.
  */
 export function guardDeal(
   status: OpportunityStatus,
   source: DealSource | undefined,
-  options: { written?: boolean; fields?: Partial<GuardDeal> } = {},
+  options: { fields?: Partial<GuardDeal> } = {},
 ): GuardDeal {
   const reason = missedMeetingLossReason(status);
   return {
-    status,
     source,
     createdAt: 1_000,
-    ...(options.written === false ? {} : stageForStatus(status, source)),
+    ...stageForStatus(status, source),
     ...(reason ? { lostReason: reason } : {}),
     ...options.fields,
   };
 }
 
 /**
- * Every status, on every source, with and without a stored stage, with and
- * without a pending reschedule link, where the pair is one assertDealStages
+ * Every status, on every source, with and without a pending reschedule link, where the pair is one assertDealStages
  * accepts (a Follow-up deal's link decides between `follow_up_scheduled`
  * and `reschedule_link_sent`; any other deal's link changes nothing). Then
  * the losses only the reason and the person tell apart.
@@ -125,21 +130,18 @@ export function guardCases(): GuardCase[] {
   const cases: GuardCase[] = [];
   for (const status of OPPORTUNITY_STATUSES) {
     for (const source of GUARD_SOURCES) {
-      for (const written of [true, false]) {
-        for (const hasPendingRescheduleLink of [false, true]) {
-          const deal = guardDeal(status, source, { written });
-          const tasks = { hasPendingRescheduleLink };
-          if (legacyStatus(deal, tasks) !== status) {
-            continue;
-          }
-          const parts = [
-            status,
-            source ?? "no source",
-            ...(written ? [] : ["no stored stage"]),
-            ...(hasPendingRescheduleLink ? ["a pending reschedule link"] : []),
-          ];
-          cases.push({ label: parts.join(", "), status, deal, tasks });
+      for (const hasPendingRescheduleLink of [false, true]) {
+        const deal = guardDeal(status, source);
+        const tasks = { hasPendingRescheduleLink };
+        if (legacyStatus(deal, tasks) !== status) {
+          continue;
         }
+        const parts = [
+          status,
+          source ?? "no source",
+          ...(hasPendingRescheduleLink ? ["a pending reschedule link"] : []),
+        ];
+        cases.push({ label: parts.join(", "), status, deal, tasks });
       }
     }
   }
@@ -357,7 +359,7 @@ export async function readGuardDeal(
 
 /**
  * The write goes through when the guard allows it, and is refused, leaving
- * the deal's status as it was, when it doesn't.
+ * the deal where it was, when it doesn't.
  */
 export async function expectGuard(
   harness: GuardHarness,
@@ -373,7 +375,6 @@ export async function expectGuard(
   await expect(write()).rejects.toThrow();
   // A refused write leaves every field the guards read as it was.
   const guarded = (deal: typeof before) => ({
-    status: deal.status,
     stage: deal.stage,
     outcome: deal.outcome,
     lostReason: deal.lostReason,

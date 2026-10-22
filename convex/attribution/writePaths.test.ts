@@ -450,7 +450,7 @@ describe("Calendly bookings", () => {
         tenantId: harness.tenantId,
         leadId,
         assignedCloserId: closer._id,
-        status: "follow_up_scheduled",
+        stage: "follow_up", outcome: "open",
         source: "calendly",
         createdAt: NOW - 5 * 24 * 60 * MINUTE,
         updatedAt: NOW - 4 * 24 * 60 * MINUTE,
@@ -830,7 +830,7 @@ describe("person touches", () => {
     const leadId = await person(harness);
     const opportunityId = await harness.t.run((ctx) =>
       ctx.db.insert("opportunities", {
-        tenantId: harness.tenantId, leadId, status: "scheduled", source: "calendly",
+        tenantId: harness.tenantId, leadId, stage: "booked", outcome: "open", source: "calendly",
         createdAt: NOW, updatedAt: NOW,
       }),
     );

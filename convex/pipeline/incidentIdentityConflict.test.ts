@@ -125,7 +125,7 @@ async function seedIncidentA(harness: Harness) {
     const opportunityId = await ctx.db.insert("opportunities", {
       tenantId,
       leadId,
-      status: "qualified_pending",
+      stage: "qualified", outcome: "open",
       source: "slack_qualified",
       createdAt: slackAt,
       updatedAt: slackAt,
@@ -320,7 +320,7 @@ it("a handle match with a new email that books after a canceled opportunity make
     const opportunityId = await ctx.db.insert("opportunities", {
       tenantId: harness.tenantId,
       leadId,
-      status: "canceled",
+      stage: "closed", outcome: "lost",
       source: "calendly",
       createdAt: at,
       updatedAt: at,
@@ -539,7 +539,7 @@ it("incident B: blocks a returning booker whose email alias sits on a placeholde
     const opportunityId = await ctx.db.insert("opportunities", {
       tenantId,
       leadId,
-      status: "canceled",
+      stage: "closed", outcome: "lost",
       source: "calendly",
       createdAt: Date.parse("2026-06-27T00:12:00Z"),
       updatedAt: Date.parse("2026-06-27T00:12:00Z"),
@@ -587,7 +587,7 @@ async function seedFollowUpOpportunity({ t, tenantId }: Harness, leadId: Id<"lea
     const opportunityId = await ctx.db.insert("opportunities", {
       tenantId,
       leadId,
-      status: "follow_up_scheduled",
+      stage: "follow_up", outcome: "open",
       source: "calendly",
       assignedCloserId: closer!._id,
       createdAt: at,
@@ -626,7 +626,7 @@ it("a known non-canonical email booked through a follow-up link applies to the t
     opportunity: await ctx.db.get("opportunities", opportunityId),
   }));
   expect(state.lead?.email).toBe("owner@acme-coaching.example");
-  expect(state.opportunity?.status).toBe("scheduled");
+  expect(state.opportunity).toMatchObject({ stage: "booked", outcome: "open" });
 });
 
 it("an unknown email booked through a follow-up link stays blocked", async () => {
@@ -643,6 +643,7 @@ it("an unknown email booked through a follow-up link stays blocked", async () =>
   const [receipt] = await receipts(harness);
   expect(receipt).toMatchObject({ status: "blocked", reason: "identity_conflict" });
   expect(await harness.t.run((ctx) => ctx.db.get("opportunities", opportunityId))).toMatchObject({
-    status: "follow_up_scheduled",
+    stage: "follow_up",
+    outcome: "open",
   });
 });

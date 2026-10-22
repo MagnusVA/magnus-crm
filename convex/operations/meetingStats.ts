@@ -18,8 +18,11 @@ export function meetingDayKey(timestamp: number) {
 /**
  * The bucket a contribution counts in. Attribution is not part of it: the
  * show-rate filters read `dealAttributions` (docs/plans/phase-3-attribution.md
- * §6.4). A decrement uses the key the projection stored, never this function
- * on its old contribution, so a change to the key format re-keys cleanly.
+ * §6.4), and neither is the deal's stage: nothing reads it by bucket, so a
+ * stage change doesn't re-bucket the deal's meetings
+ * (docs/plans/phase-5-deal-status.md §4.8). A decrement uses the key the
+ * projection stored, never this function on its old contribution, so a
+ * change to the key format re-keys cleanly.
  */
 export function bucketKey(c: Contribution) {
   return JSON.stringify([
@@ -27,7 +30,6 @@ export function bucketKey(c: Contribution) {
     c.assignedCloserId,
     c.bookingProgramId ?? null,
     c.soldProgramId ?? null,
-    c.opportunityStatus ?? null,
     c.meetingStatus,
   ]);
 }
@@ -150,16 +152,13 @@ export const project = internalMutation({
         assignedCloserId: meeting.assignedCloserId,
         bookingProgramId: meeting.bookingProgramId,
         soldProgramId: opportunity.soldProgramId,
-        opportunityStatus: opportunity.status,
         meetingStatus: meeting.status,
       };
       if (
-        meeting.opportunityStatus !== opportunity.status ||
         meeting.soldProgramId !== opportunity.soldProgramId ||
         meeting.soldProgramName !== opportunity.soldProgramName
       ) {
         await ctx.db.patch("meetings", meeting._id, {
-          opportunityStatus: opportunity.status,
           soldProgramId: opportunity.soldProgramId,
           soldProgramName: opportunity.soldProgramName,
         });

@@ -17,7 +17,6 @@ import {
 } from "../../tests/stageLabelFixtures";
 
 const NO_SHOW_LABEL = {
-  status: "no_show",
   stage: "closed",
   outcome: "lost",
   position: "lost",
@@ -141,11 +140,11 @@ describe("the person page", () => {
 
     const deals = new Map(detail.opportunities.map((item) => [item.opportunity._id, item]));
     expect(deals.get(seeded.expired)?.opportunity).toMatchObject({
-      status: "lost", stage: "closed", outcome: "lost", position: "lost", systemLoss: "stale",
+      stage: "closed", outcome: "lost", position: "lost", systemLoss: "stale",
     });
     expect(deals.get(seeded.noShow)?.opportunity).toMatchObject(NO_SHOW_LABEL);
     expect(deals.get(seeded.sideDeal)?.opportunity).toMatchObject({
-      status: "scheduled", stage: "call_held", outcome: "open", position: "call_held", systemLoss: null,
+      stage: "call_held", outcome: "open", position: "call_held", systemLoss: null,
     });
     // Recording a payment from the person page is the side deal's, at Call held.
     expect(
@@ -155,7 +154,6 @@ describe("the person page", () => {
     expect(detail.meetings).toEqual([
       expect.objectContaining({
         _id: seeded.meetingId,
-        opportunityStatus: "no_show",
         dealStage: "closed",
         dealOutcome: "lost",
         dealPosition: "lost",
@@ -179,12 +177,12 @@ describe("the meeting and reminder pages", () => {
     const detail = await h.closer.query(api.closer.meetingDetail.getMeetingDetail, { meetingId: seeded.current });
     expect(detail.opportunity).toMatchObject(NO_SHOW_LABEL);
     expect(
-      detail.meetingHistory.map(({ _id, opportunityStatus, dealPosition, dealSystemLoss }) => ({
-        _id, opportunityStatus, dealPosition, dealSystemLoss,
+      detail.meetingHistory.map(({ _id, dealPosition, dealSystemLoss }) => ({
+        _id, dealPosition, dealSystemLoss,
       })),
     ).toEqual([
-      { _id: seeded.current, opportunityStatus: "no_show", dealPosition: "lost", dealSystemLoss: "no_show" },
-      { _id: seeded.earlier, opportunityStatus: "payment_received", dealPosition: "won", dealSystemLoss: null },
+      { _id: seeded.current, dealPosition: "lost", dealSystemLoss: "no_show" },
+      { _id: seeded.earlier, dealPosition: "won", dealSystemLoss: null },
     ]);
   });
 
@@ -199,7 +197,7 @@ describe("the meeting and reminder pages", () => {
       return await insertReminder(ctx, opportunityId);
     });
     const followUp = {
-      status: "follow_up_scheduled", stage: "follow_up", outcome: "open", position: "follow_up", systemLoss: null,
+      stage: "follow_up", outcome: "open", position: "follow_up", systemLoss: null,
     };
     const closer = await h.closer.query(api.closer.reminderDetail.getReminderDetail, { followUpId });
     expect(closer?.opportunity).toMatchObject(followUp);

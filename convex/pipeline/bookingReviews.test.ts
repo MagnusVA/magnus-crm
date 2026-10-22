@@ -129,7 +129,6 @@ async function seedPerson(
       opportunityId = await ctx.db.insert("opportunities", {
         tenantId,
         leadId,
-        status: "qualified_pending",
         source: "slack_qualified",
         ...writtenBesideStatus("qualified_pending", "slack_qualified"),
         qualifiedBy: { slackUserId: "U_SETTER", slackTeamId: "T1", submittedAt: at },
@@ -185,7 +184,7 @@ it("incident C: the handle's person gets the booking when the email belongs to s
     identifiers: await ctx.db.query("leadIdentifiers").take(20),
   }));
   // The booking joins the setter's deal.
-  expect(state.deal?.status).toBe("scheduled");
+  expect(state.deal).toMatchObject({ stage: "booked", outcome: "open" });
   // The other person's email stays theirs: not copied, not an identifier.
   expect(state.slackLead?.email).toBeUndefined();
   expect(state.slackLead?.fullName).toBe("Doorsdollars");

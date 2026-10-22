@@ -16,9 +16,8 @@ function buildQualificationSearchText(args: {
     args.lead?.fullName,
     args.lead?.email,
     args.lead?.phone,
-    args.opportunity?.status,
     // The label the badge and the filter show (docs/plans/phase-5-deal-status.md
-    // §6.6), beside the status until the status goes.
+    // §6.6).
     ...(args.opportunity ? dealSearchWords(args.opportunity) : []),
     args.opportunity?.firstBookingProgramName,
     args.opportunity?.soldProgramName,
@@ -33,8 +32,7 @@ function buildQualificationSearchText(args: {
 
 /**
  * The stage and outcome a qualification row copies from its deal, or none
- * with no deal (docs/plans/phase-5-deal-status.md §3.2). A deal the backfill
- * hasn't reached takes them from its status.
+ * with no deal (docs/plans/phase-5-deal-status.md §3.2).
  */
 export function qualificationRowStage(
   opportunity: Doc<"opportunities"> | null,
@@ -65,8 +63,8 @@ export async function rebuildQualificationRow(
     slackUserId: event.slackUserId,
     slackTeamId: event.slackTeamId,
     resultKind: event.resultKind,
-    opportunityStatus: opportunity?.status,
-    // Unset with no deal: a patch with undefined removes the field.
+    // The deal's stage, not its old status, which clearQualificationRowStatus
+    // unsets. Unset with no deal: a patch with undefined removes the field.
     dealStage: dealStage?.stage,
     dealOutcome: dealStage?.outcome,
     bookingProgramId: opportunity?.firstBookingProgramId,

@@ -1,10 +1,10 @@
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
 import type { OpportunityStatus } from "../convex/opportunities/stages";
-import { missedMeetingLossReason, type DealSource } from "../convex/opportunities/stages";
+import type { DealSource } from "../convex/opportunities/stages";
 import { insertOpportunityAggregate } from "../convex/reporting/writeHooks";
 import { qualifiedLifecycle } from "./bookingHarness";
-import { harnessCloserId, stageFields, type DealFields } from "./dealStageFixtures";
+import { harnessCloserId, missedMeetingLossReason, stageFields, type DealFields } from "./dealStageFixtures";
 
 // Phase 5 deal labels (docs/plans/phase-5-deal-status.md §6.1): a person's
 // deals as the dual write leaves them, their events in both forms, and the

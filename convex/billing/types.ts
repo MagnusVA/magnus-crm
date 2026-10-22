@@ -98,7 +98,8 @@ export type BillingPaymentRow = {
   };
   opportunity: {
     id: Id<"opportunities"> | null;
-    status: Doc<"opportunities">["status"] | null;
+    stage: Doc<"opportunities">["stage"] | null;
+    outcome: Doc<"opportunities">["outcome"] | null;
     source: Doc<"opportunities">["source"] | null;
   };
   meeting: {

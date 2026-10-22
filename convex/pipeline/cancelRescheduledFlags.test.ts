@@ -6,6 +6,7 @@
  */
 import { afterEach, expect, it, vi } from "vitest";
 import { inviteeUri, missedMeetingHarness } from "../../tests/missedMeetingFixtures";
+import { namedStatus } from "../../tests/stopStatusFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -81,6 +82,6 @@ it.each([
     const { opportunityId } = await h.book({ key: "original", start: START }, "2026-10-02T10:00:00Z");
 
     expect(await h.meeting("original")).toMatchObject({ status: "canceled" });
-    expect(await h.deal(opportunityId)).toMatchObject({ status });
+    expect(await h.t.run((ctx) => namedStatus(ctx, opportunityId))).toBe(status);
   },
 );

@@ -185,7 +185,7 @@ export async function seedBookedCallsFixture(ctx: MutationCtx): Promise<BookedCa
       opportunityId = await ctx.db.insert("opportunities", {
         tenantId,
         leadId,
-        status: "scheduled",
+        stage: "booked", outcome: "open",
         assignedCloserId: hostId,
         createdAt: booking.createdAt,
         updatedAt: booking.createdAt,

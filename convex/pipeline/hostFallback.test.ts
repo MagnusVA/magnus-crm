@@ -32,7 +32,7 @@ it.each(["utm_follow_up", "follow_up", "slack_qualified"])(
       const status = path === "slack_qualified" ? "qualified_pending" : "follow_up_scheduled";
       const source = path === "slack_qualified" ? "slack_qualified" : "calendly";
       return await ctx.db.insert("opportunities", {
-        tenantId, leadId, status, source,
+        tenantId, leadId, source,
         ...writtenBesideStatus(status, source),
         createdAt: Date.parse("2026-10-01T08:00:00Z"),
         updatedAt: Date.parse("2026-10-01T09:00:00Z"),
@@ -79,7 +79,7 @@ it("ignores a non-closer host's booking beside a recent canceled deal instead of
       updatedAt: Date.parse("2026-10-01T09:00:00Z"),
     });
     const id = await ctx.db.insert("opportunities", {
-      tenantId, leadId, assignedCloserId: closer!._id, status: "canceled", source: "calendly",
+      tenantId, leadId, assignedCloserId: closer!._id, source: "calendly",
       ...writtenBesideStatus("canceled", "calendly", Date.parse("2026-10-01T09:00:00Z")),
       createdAt: Date.parse("2026-10-01T08:00:00Z"), updatedAt: Date.parse("2026-10-01T09:00:00Z"),
     });
@@ -100,7 +100,7 @@ it("ignores a non-closer host's booking beside a recent canceled deal instead of
   })).page;
   expect(receipt).toMatchObject({ status: "ignored", reason: "non_closer_host" });
   expect(await t.run((ctx) => ctx.db.query("meetings").take(1))).toHaveLength(0);
-  expect(await t.run((ctx) => ctx.db.get("opportunities", opportunityId))).toMatchObject({ status: "canceled" });
+  expect(await t.run((ctx) => ctx.db.get("opportunities", opportunityId))).toMatchObject({ stage: "closed", outcome: "lost" });
 });
 
 // No "heuristic_reschedule": the 14-day join of a canceled deal is gone, so
@@ -175,7 +175,7 @@ it.each(paths.flatMap((path) => [
   });
   expect(after.meeting.assignedCloserId).toBe(before.meeting.assignedCloserId);
   expect(after.opportunity.assignedCloserId).toBe(before.opportunity.assignedCloserId);
-  expect(after.opportunity.status).toBe("scheduled");
+  expect(after.opportunity).toMatchObject({ stage: "booked", outcome: "open" });
 });
 
 it.each([
@@ -326,7 +326,6 @@ it("attaches an admin-hosted booking to the lead's Slack-qualified opportunity w
     });
     const opportunityId = await ctx.db.insert("opportunities", {
       tenantId, leadId,
-      status: "qualified_pending",
       source: "slack_qualified",
       ...writtenBesideStatus("qualified_pending", "slack_qualified"),
       assignedCloserId: closer!._id,
@@ -355,6 +354,6 @@ it("attaches an admin-hosted booking to the lead's Slack-qualified opportunity w
     meeting: await ctx.db.get("meetings", receipt.meetingId!),
   }));
   expect(state.leads.map((l) => l._id)).toEqual([leadId]);
-  expect(state.opportunity).toMatchObject({ status: "scheduled", assignedCloserId: closerId });
+  expect(state.opportunity).toMatchObject({ stage: "booked", outcome: "open", assignedCloserId: closerId });
   expect(state.meeting).toMatchObject({ assignedCloserId: closerId, status: "scheduled" });
 });

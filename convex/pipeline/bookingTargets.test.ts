@@ -26,13 +26,13 @@ import {
   bookingRuleWorlds,
   insertRescheduleLink,
   insertRuleDeal,
-  todaysSlackJoinCandidates,
+  todaysSlackJoinCandidate,
   type BookingRuleWorld,
 } from "../../tests/bookingRuleFixtures";
 
 // Each booking rule reads the stage, outcome, loss and tasks from PR 7 and
 // gives the answer today's status check gives, for every status, source,
-// loss and task state the dual write leaves (docs/plans/phase-5-deal-status.md
+// loss and task state a deal can have (docs/plans/phase-5-deal-status.md
 // §4.6, §6.7). Each check lists the deals it disagrees on, so a failure
 // names them.
 
@@ -47,7 +47,7 @@ function disagreements<T>(
   );
 }
 
-it("covers every status, source, loss and task state the dual write leaves", () => {
+it("covers every status, source, loss and task state a deal can have", () => {
   for (const status of OPPORTUNITY_STATUSES)
     for (const source of DEAL_SOURCES)
       expect(WORLDS.some((w) => w.status === status && w.deal.source === source), `${status} ${source}`).toBe(true);
@@ -58,8 +58,8 @@ it("covers every status, source, loss and task state the dual write leaves", () 
   // A person's loss is `lost` whatever its text; the system's code alone is a missed meeting.
   expect(WORLDS.some((w) => w.status === "no_show" && w.deal.lostByUserId)).toBe(false);
   expect(WORLDS.some((w) => w.status === "lost" && w.deal.lostReason === "no_show")).toBe(true);
-  // Deals from before the backfill, which take the stage from the status.
-  expect(WORLDS.some((w) => w.deal.stage === undefined)).toBe(true);
+  // Every deal stores its stage; none stores a status.
+  expect(WORLDS.every((w) => w.deal.stage !== undefined && !("status" in w.deal))).toBe(true);
 });
 
 describe("against today's status checks", () => {
@@ -140,13 +140,13 @@ describe("against today's status checks", () => {
   ])("the Slack join reopens a deal the stale expiry closed %s the booking", (_label, referenceTime) => {
     expect(disagreements(
       (w) => wasStaleExpiredAfter(w.deal, referenceTime),
-      (w) => PR8_STALE_REJOIN(w.deal, referenceTime),
+      (w) => PR8_STALE_REJOIN(w.status, w.deal, referenceTime),
     )).toEqual([]);
   });
 
   it("no longer reopens a person's loss with the text 'stale', the one rule PR 8 changes", () => {
     const changed = WORLDS.filter(
-      (w) => TODAYS_CHECKS.wasStaleExpiredAfter(w.deal, 1_000) !== wasStaleExpiredAfter(w.deal, 1_000),
+      (w) => TODAYS_CHECKS.wasStaleExpiredAfter(w.status, w.deal, 1_000) !== wasStaleExpiredAfter(w.deal, 1_000),
     );
     expect(changed.length).toBeGreaterThan(0);
     expect(changed.every((w) => w.deal.lostByUserId !== undefined && w.deal.lostReason === "stale")).toBe(true);
@@ -159,7 +159,7 @@ describe("loadDealTasks", () => {
     const { t, tenantId } = await bookingHarness();
     await t.run(async (ctx) => {
       const { leadId, opportunityId } = await insertRuleDeal(ctx, tenantId, {
-        status: "follow_up_scheduled", source: "calendly", stage: "follow_up", outcome: "open",
+        source: "calendly", stage: "follow_up", outcome: "open",
       });
       expect(await loadDealTasks(ctx, opportunityId)).toEqual({ hasPendingRescheduleLink: false });
       // A closer's ordinary scheduling link and a reminder aren't reschedule links.
@@ -186,16 +186,15 @@ describe("followUpJoinTargets", () => {
     const { t, tenantId } = await bookingHarness();
     await t.run(async (ctx) => {
       const followUp = {
-        status: "follow_up_scheduled" as const,
         source: "calendly" as const,
         stage: "follow_up" as const,
         outcome: "open" as const,
       };
       const older = await insertRuleDeal(ctx, tenantId, followUp, { createdAt: 1_000 });
-      const waiting = await insertRuleDeal(ctx, tenantId, { ...followUp, status: "reschedule_link_sent" }, { createdAt: 2_000 });
+      const waiting = await insertRuleDeal(ctx, tenantId, followUp, { createdAt: 2_000 });
       await insertRescheduleLink(ctx, waiting.opportunityId);
       const booked = await insertRuleDeal(ctx, tenantId, {
-        status: "scheduled", source: "calendly", stage: "booked", outcome: "open",
+        source: "calendly", stage: "booked", outcome: "open",
       });
       const newer = await insertRuleDeal(ctx, tenantId, followUp, { createdAt: 3_000 });
       const deals = await Promise.all(
@@ -232,19 +231,18 @@ describe("findOpenSlackQualifiedOpportunity", () => {
     const { t, tenantId } = await bookingHarness();
     const mismatches: string[] = [];
     let found = 0;
-    // The lookup reads the stage index, so it finds the deals with a stored
-    // stage: every deal in production since PR 1's backfill (assertDealStages).
-    const written = WORLDS.filter((w) => w.deal.stage !== undefined);
     for (const [placement, times] of placements)
       await t.run(async (ctx) => {
         // One person per deal, so each lookup sees one deal.
-        for (const world of written) {
-          const { leadId } = await insertRuleDeal(ctx, tenantId, world.deal, {
+        for (const world of WORLDS) {
+          const at = {
             createdAt: times.createdAt,
             ...(world.deal.lostAt !== undefined ? { lostAt: times.lostAt } : {}),
-          });
+          };
+          const placed = { ...world.deal, ...at };
+          const { leadId, opportunityId } = await insertRuleDeal(ctx, tenantId, world.deal, at);
           const args = { tenantId, leadId, referenceTime: REFERENCE, lookbackMs: SLACK_JOIN_LOOKBACK_MS };
-          const today = (await todaysSlackJoinCandidates(ctx, args))[0] ?? null;
+          const today = todaysSlackJoinCandidate(world.status, placed, args) ? opportunityId : null;
           const now = (await findOpenSlackQualifiedOpportunity(ctx, args))?._id ?? null;
           if (now !== today) mismatches.push(`${world.label}, ${placement}: ${now ? "found" : "none"}`);
           if (now) found++;
@@ -259,14 +257,13 @@ describe("findOpenSlackQualifiedOpportunity", () => {
     const { t, tenantId } = await bookingHarness();
     await t.run(async (ctx) => {
       const pending = await insertRuleDeal(ctx, tenantId, {
-        status: "qualified_pending", source: "slack_qualified", stage: "qualified", outcome: "open",
+        source: "slack_qualified", stage: "qualified", outcome: "open",
       }, { createdAt: IN_WINDOW });
       await ctx.db.insert("opportunities", {
-        tenantId, leadId: pending.leadId, status: "lost", source: "slack_qualified", stage: "closed",
+        tenantId, leadId: pending.leadId, source: "slack_qualified", stage: "closed",
         outcome: "lost", lostReason: "stale", lostAt: REFERENCE + 1, createdAt: IN_WINDOW - 1, updatedAt: 0,
       });
       const args = { tenantId, leadId: pending.leadId, referenceTime: REFERENCE };
-      expect(await todaysSlackJoinCandidates(ctx, { ...args, lookbackMs: SLACK_JOIN_LOOKBACK_MS })).toHaveLength(2);
       await expect(findOpenSlackQualifiedOpportunity(ctx, args)).rejects.toThrow();
     });
   });
@@ -284,12 +281,12 @@ describe("a booking without a link, through the pipeline", () => {
     await h.deliver("invitee_no_show.created", ORIGINAL, "2026-10-06T16:00:00Z");
     h.clockAt("2026-10-06T17:00:00Z");
     const linkId = await h.closerActions.rescheduleLink(opportunityId, meetingId);
-    expect(await h.deal(opportunityId)).toMatchObject({ status: "reschedule_link_sent", stage: "follow_up" });
+    expect(await h.deal(opportunityId)).toMatchObject({ stage: "follow_up" });
 
     const next = await h.book(REBOOK, "2026-10-08T10:00:00Z");
 
     expect(next.opportunityId).not.toBe(opportunityId);
-    expect(await h.deal(opportunityId)).toMatchObject({ status: "reschedule_link_sent", stage: "follow_up" });
+    expect(await h.deal(opportunityId)).toMatchObject({ stage: "follow_up" });
     expect((await h.followUps(opportunityId)).find((f) => f._id === linkId)).toMatchObject({ status: "pending" });
   });
 
@@ -304,7 +301,7 @@ describe("a booking without a link, through the pipeline", () => {
     const next = await h.book(REBOOK, "2026-10-08T10:00:00Z");
 
     expect(next.opportunityId).toBe(opportunityId);
-    expect(await h.deal(opportunityId)).toMatchObject({ status: "scheduled", stage: "booked" });
+    expect(await h.deal(opportunityId)).toMatchObject({ stage: "booked" });
     expect(await h.dealCount()).toBe(1);
   });
 });

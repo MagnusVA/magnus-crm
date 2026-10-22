@@ -48,9 +48,10 @@ export const paymentSums = new TableAggregate<{
   sumValue: (doc) => (doc.status === "disputed" ? 0 : doc.amountMinor),
 });
 
-// Deals by today's status, until PR 9 clears it. From PR 8 the write hooks use
-// the IfExists methods, so a revert after the clear still writes; a deal
-// with no status, which only the clear leaves, keys under "".
+// Deals by the old status. Nothing writes it from PR 9; only
+// migrations.ts:clearOpportunityByStatus reads it, to empty it before the
+// narrow unmounts it (docs/plans/phase-5-deal-status.md §10.6). A revert to
+// PR 8 writes it again through the IfExists methods.
 export const opportunityByStatus = new TableAggregate<{
   Namespace: Id<"tenants">;
   Key: [OpportunityStatus | "", OpportunityAssignedCloserKey, number];
@@ -65,11 +66,10 @@ export const opportunityByStatus = new TableAggregate<{
   ],
 });
 
-// Deals by stage and outcome (docs/plans/phase-5-deal-status.md §3.1). A deal
-// the backfill hasn't reached takes its stage and outcome from its status, so
-// its entry doesn't move when the backfill writes them. Until the backfill and
-// verifyStageCounts pass, the write hooks use the IfExists methods: a strict
-// replace throws for a deal not yet in the aggregate.
+// Deals by stage and outcome (docs/plans/phase-5-deal-status.md §3.1), keyed
+// by the stored fields only. Every deal is in it (backfillOpportunityByStage),
+// so from PR 9 the write hooks use the strict methods: a deal missing from
+// it, or entered twice, throws instead of drifting.
 export const opportunityByStage = new TableAggregate<{
   Namespace: Id<"tenants">;
   Key: [DealStage, DealOutcome, OpportunityAssignedCloserKey, number];
