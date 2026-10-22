@@ -23,6 +23,7 @@ import {
   slackQualificationResultKindValidator,
 } from "./operations/validators";
 import { opportunityStatusValidator } from "./opportunities/validators";
+import { dealOutcomeValidator, dealStageValidator } from "./opportunities/stages";
 import { portalPasswordHashParamsValidator } from "./lib/linkPortal/validators";
 import { leadTypeValidator } from "./lib/leadType";
 import {
@@ -894,6 +895,12 @@ export default defineSchema({
       v.literal("canceled"),
       v.literal("no_show"),
     ),
+    // The deal stage and outcome, written beside `status` from its mapping
+    // (convex/opportunities/stages.ts) until the narrow; optional until
+    // `backfillDealStages` reaches every deal (docs/plans/phase-5-deal-status.md
+    // §3.1). Only transitionOpportunity and the inserts write them.
+    stage: v.optional(dealStageValidator),
+    outcome: v.optional(dealOutcomeValidator),
     // Widened for side-deals rollout. Undefined legacy rows normalize to
     // "calendly" until the production backfill is verified and schema narrows.
     source: v.optional(
@@ -1081,7 +1088,45 @@ export default defineSchema({
       "soldProgramId",
       "qualifiedAt",
     ])
-    .index("by_tenantId_and_firstMeetingAt", ["tenantId", "firstMeetingAt"]),
+    .index("by_tenantId_and_firstMeetingAt", ["tenantId", "firstMeetingAt"])
+    // The stage indexes the moved readers use; each replaces a status index
+    // the narrow drops (docs/plans/phase-5-deal-status.md §3.1). Two drop
+    // the "_and_"s, as by_tenantId_assignedCloserId_source_status_... does,
+    // since Convex caps an index name at 64 characters.
+    .index("by_tenantId_leadId_source_stage_outcome_createdAt", [
+      "tenantId",
+      "leadId",
+      "source",
+      "stage",
+      "outcome",
+      "createdAt",
+    ])
+    .index("by_source_and_stage_and_createdAt", ["source", "stage", "createdAt"])
+    .index("by_tenantId_and_source_and_stage_and_createdAt", [
+      "tenantId",
+      "source",
+      "stage",
+      "createdAt",
+    ])
+    .index("by_tenantId_assignedCloserId_stage_outcome_createdAt", [
+      "tenantId",
+      "assignedCloserId",
+      "stage",
+      "outcome",
+      "createdAt",
+    ])
+    .index("by_tenantId_and_stage_and_outcome_and_createdAt", [
+      "tenantId",
+      "stage",
+      "outcome",
+      "createdAt",
+    ])
+    .index("by_tenantId_and_stage_and_outcome_and_lostAt", [
+      "tenantId",
+      "stage",
+      "outcome",
+      "lostAt",
+    ]),
 
   opportunitySearch: defineTable({
     tenantId: v.id("tenants"),
