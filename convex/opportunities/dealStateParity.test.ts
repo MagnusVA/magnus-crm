@@ -8,7 +8,9 @@ import { forceOpportunityState } from "../../tests/opportunityFixtures";
 import {
   insertDealTask,
   insertOtherTenant,
+  insertQualification,
   insertWrittenDeal,
+  qualificationRowOf,
 } from "../../tests/dealStateFixtures";
 
 // The parity queries of docs/plans/phase-5-deal-status.md §10.4 that PR 3
@@ -142,5 +144,132 @@ describe("compareDealState", () => {
     await expect(compare(harness, null, numItems)).rejects.toThrow(
       "numItems must be a whole number from 1 to 500",
     );
+  });
+});
+
+describe("compareQualificationQueue", () => {
+  const AFTER = Date.parse("2026-09-01T00:00:00Z");
+  const BEFORE = Date.parse("2026-10-01T00:00:00Z");
+  const IN_RANGE = Date.parse("2026-09-15T12:00:00Z");
+
+  const compare = (harness: Harness, overrides: { qualifiedAfter?: number; qualifiedBefore?: number; maxRowsPerRead?: number } = {}) =>
+    harness.t.query(internal.opportunities.stageParity.compareQualificationQueue, {
+      tenantId: harness.tenantId,
+      qualifiedAfter: AFTER,
+      qualifiedBefore: BEFORE,
+      ...overrides,
+    });
+
+  /** A qualification row on a new deal at `status`. */
+  async function qualifiedRow(
+    harness: Harness,
+    status: OpportunityStatus,
+    options: { source?: DealSource; qualifiedAt?: number; tenantId?: Id<"tenants"> } = {},
+  ) {
+    return await harness.t.run(async (ctx) => {
+      const tenantId = options.tenantId ?? harness.tenantId;
+      const opportunityId = await insertWrittenDeal(ctx, {
+        tenantId,
+        status,
+        source: options.source ?? "slack_qualified",
+      });
+      const eventId = await insertQualification(ctx, {
+        tenantId,
+        qualifiedAt: options.qualifiedAt ?? IN_RANGE,
+        opportunityId,
+      });
+      return { opportunityId, eventId };
+    });
+  }
+
+  async function seedQueue(harness: Harness) {
+    const rows = {} as Record<OpportunityStatus, Awaited<ReturnType<typeof qualifiedRow>>>;
+    for (const status of OPPORTUNITY_STATUSES) {
+      rows[status] = await qualifiedRow(harness, status);
+    }
+    const sideDeal = await qualifiedRow(harness, "scheduled", { source: "side_deal" });
+    return { rows, sideDeal };
+  }
+
+  const matching = [
+    { positions: ["qualified"], statuses: ["qualified_pending"], byStage: 1, byStatus: 1, match: true, truncated: false },
+    { positions: ["booked", "call_held"], statuses: ["scheduled"], byStage: 2, byStatus: 2, match: true, truncated: false },
+    {
+      positions: ["follow_up"],
+      statuses: ["follow_up_scheduled", "reschedule_link_sent"],
+      byStage: 2,
+      byStatus: 2,
+      match: true,
+      truncated: false,
+    },
+    { positions: ["won"], statuses: ["payment_received"], byStage: 1, byStatus: 1, match: true, truncated: false },
+    { positions: ["lost"], statuses: ["lost", "canceled", "no_show"], byStage: 3, byStatus: 3, match: true, truncated: false },
+  ];
+
+  it("counts each position's rows both ways, in the range and the tenant only", async () => {
+    const harness = await bookingHarness();
+    await seedQueue(harness);
+    // Outside the range ([after, before)), with no deal, or another tenant's.
+    await qualifiedRow(harness, "lost", { qualifiedAt: AFTER - 1 });
+    await qualifiedRow(harness, "lost", { qualifiedAt: BEFORE });
+    await harness.t.run((ctx) => insertQualification(ctx, { tenantId: harness.tenantId, qualifiedAt: IN_RANGE }));
+    const other = await harness.t.run((ctx) => insertOtherTenant(ctx));
+    await qualifiedRow(harness, "lost", { tenantId: other });
+
+    expect(await compare(harness)).toEqual({
+      stageCounts: { qualified: 1, booked: 1, call_held: 1, follow_up: 2, won: 1, lost: 3 },
+      checks: matching,
+      truncated: false,
+      ok: true,
+    });
+  });
+
+  it("finds the rows the stage filter misses: a row from before PR 3, and one left behind", async () => {
+    const harness = await bookingHarness();
+    const { rows } = await seedQueue(harness);
+    await harness.t.run(async (ctx) => {
+      const unwritten = await qualificationRowOf(ctx, rows.canceled.eventId);
+      await ctx.db.patch("operationsQualificationRows", unwritten._id, { dealStage: undefined, dealOutcome: undefined });
+      const stale = await qualificationRowOf(ctx, rows.payment_received.eventId);
+      await ctx.db.patch("operationsQualificationRows", stale._id, { dealStage: "booked", dealOutcome: "open" });
+    });
+
+    const result = await compare(harness);
+    expect(result.ok).toBe(false);
+    expect(result.checks.filter((check) => !check.match)).toEqual([
+      { positions: ["booked", "call_held"], statuses: ["scheduled"], byStage: 3, byStatus: 2, match: false, truncated: false },
+      { positions: ["won"], statuses: ["payment_received"], byStage: 0, byStatus: 1, match: false, truncated: false },
+      { positions: ["lost"], statuses: ["lost", "canceled", "no_show"], byStage: 2, byStatus: 3, match: false, truncated: false },
+    ]);
+  });
+
+  it("stops at the read cap and says so, never matching a check it cut short", async () => {
+    const harness = await bookingHarness();
+    await seedQueue(harness);
+
+    const result = await compare(harness, { maxRowsPerRead: 1 });
+    expect(result.truncated).toBe(true);
+    expect(result.ok).toBe(false);
+    const lost = result.checks.find((check) => check.positions.includes("lost"));
+    // Each of the three statuses has one row, so only the stage read is cut.
+    expect(lost).toEqual({
+      positions: ["lost"],
+      statuses: ["lost", "canceled", "no_show"],
+      byStage: 1,
+      byStatus: 3,
+      match: false,
+      truncated: true,
+    });
+    const qualified = result.checks.find((check) => check.positions.includes("qualified"));
+    expect(qualified).toMatchObject({ byStage: 1, byStatus: 1, match: true, truncated: false });
+  });
+
+  it.each([
+    ["an empty range", { qualifiedAfter: BEFORE, qualifiedBefore: BEFORE }, "qualifiedAfter must be before qualifiedBefore"],
+    ["no read", { maxRowsPerRead: 0 }, "maxRowsPerRead must be a whole number from 1 to 500"],
+    ["too many reads", { maxRowsPerRead: 501 }, "maxRowsPerRead must be a whole number from 1 to 500"],
+  ])("refuses %s", async (_label, overrides, message) => {
+    const harness = await bookingHarness();
+    await expect(compare(harness, overrides)).rejects.toThrow(message);
   });
 });
