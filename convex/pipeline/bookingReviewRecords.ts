@@ -1,6 +1,6 @@
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import type { MutationCtx } from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { followMergeChain } from "../leads/identityResolution";
 import { log } from "../lib/observability/log";
 import type {
@@ -237,22 +237,37 @@ export async function resolveBookingReview(
   });
 }
 
-/** The people a review names as they are now, following merges. */
+/**
+ * The people a review names as they are now, following merges. `complete`
+ * is false when a named person is missing or their merge chain is broken:
+ * no decision can be read from such a review.
+ */
 export async function reviewPeople(
-  ctx: MutationCtx,
+  ctx: QueryCtx,
   review: Doc<"bookingReviews">,
-): Promise<Set<Id<"leads">>> {
+): Promise<{ people: Set<Id<"leads">>; complete: boolean }> {
   const named = new Set([
     ...(review.leadId ? [review.leadId] : []),
     ...review.conflicts.map((c) => c.leadId),
   ]);
   const people = new Set<Id<"leads">>();
+  let complete = true;
   for (const leadId of named) {
     const lead = await ctx.db.get("leads", leadId);
     const current = lead && (await followMergeChain(ctx, lead));
     if (current) people.add(current._id);
+    else complete = false;
   }
-  return people;
+  return { people, complete };
+}
+
+/** Every person the review named has been merged into the same one. */
+export async function reviewIsOnePerson(
+  ctx: QueryCtx,
+  review: Doc<"bookingReviews">,
+) {
+  const { people, complete } = await reviewPeople(ctx, review);
+  return complete && people.size === 1;
 }
 
 /**
@@ -299,7 +314,7 @@ export async function closeMergedReviews(
 ) {
   let closed = 0;
   for (const review of await openReviews(ctx, tenantId)) {
-    if ((await reviewPeople(ctx, review)).size > 1) continue;
+    if (!(await reviewIsOnePerson(ctx, review))) continue;
     await resolveBookingReview(ctx, review, userId, "merged");
     await retryMergedHold(ctx, review, userId);
     closed++;
@@ -309,19 +324,24 @@ export async function closeMergedReviews(
 
 /**
  * Closes, as kept separate, the other open reviews about exactly the people
- * an admin just called different. Returns how many closed.
+ * an admin just called different. Only a decision about two or more people
+ * who all still exist carries over. Returns how many closed.
  */
 export async function closeKeptSeparateSiblings(
   ctx: MutationCtx,
   decided: Doc<"bookingReviews">,
   userId: Id<"users">,
 ) {
-  const key = (people: Set<Id<"leads">>) => [...people].sort().join(",");
-  const decidedKey = key(await reviewPeople(ctx, decided));
+  const keyOf = async (review: Doc<"bookingReviews">) => {
+    const { people, complete } = await reviewPeople(ctx, review);
+    return complete && people.size > 1 ? [...people].sort().join(",") : null;
+  };
+  const decidedKey = await keyOf(decided);
+  if (decidedKey === null) return 0;
   let closed = 0;
   for (const review of await openReviews(ctx, decided.tenantId)) {
     if (review._id === decided._id) continue;
-    if (key(await reviewPeople(ctx, review)) !== decidedKey) continue;
+    if ((await keyOf(review)) !== decidedKey) continue;
     await resolveBookingReview(ctx, review, userId, "kept_separate");
     closed++;
   }

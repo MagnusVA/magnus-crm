@@ -423,6 +423,7 @@ function DecisionCard({
 }) {
   const mergePeople = useMutation(api.pipeline.bookingReviews.mergePeople);
   const keepSeparate = useMutation(api.pipeline.bookingReviews.keepSeparate);
+  const closeAsMerged = useMutation(api.pipeline.bookingReviews.closeAsMerged);
   const retryBooking = useMutation(api.pipeline.bookingReviews.retryBooking);
   const [pending, setPending] = useState<"merge" | "separate" | "retry" | null>(null);
   const [confirmMerge, setConfirmMerge] = useState(false);
@@ -458,8 +459,7 @@ function DecisionCard({
   const canMerge = mergeable.length > 1 && keepLeadId !== undefined;
   // Merged on another review or the Leads page: one person is left, and
   // closing records the merge.
-  const alreadyOne = mergeable.length <= 1;
-  const remainingLeadId = mergeable[0]?.leadId ?? booked?.leadId ?? review.people[0]?.leadId;
+  const alreadyOne = review.alreadyOnePerson;
 
   return (
     <Card>
@@ -498,20 +498,17 @@ function DecisionCard({
               ? `Already one person: they were merged elsewhere. Close this review${review.kind === "held" ? " and add the booking" : ""}.`
               : canMerge
                 ? `Merge ${otherNames} into ${personName(keep)}. Deals, calls and identifiers move to one record${review.kind === "held" ? ", and the booking is added to it" : ""}.`
-                : "Choose the record to keep."}
+                : mergeable.length > 1
+                  ? "Choose the record to keep."
+                  : "One of these people was merged into someone else or no longer exists. Check them on the Leads page."}
           </p>
           {alreadyOne ? (
             <Button
               className="mt-auto w-fit"
-              disabled={pending !== null || !remainingLeadId}
-              onClick={() => {
-                if (!remainingLeadId) return;
-                void run(
-                  "merge",
-                  () => mergePeople({ reviewId: review.reviewId, keepLeadId: remainingLeadId }),
-                  "Closed as one person.",
-                );
-              }}
+              disabled={pending !== null}
+              onClick={() =>
+                void run("merge", () => closeAsMerged({ reviewId: review.reviewId }), "Closed as one person.")
+              }
             >
               {pending === "merge" ? <Spinner data-icon="inline-start" /> : <CheckIcon data-icon="inline-start" />}
               Close as merged

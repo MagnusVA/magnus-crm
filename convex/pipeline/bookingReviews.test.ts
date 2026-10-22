@@ -797,19 +797,52 @@ it("keeping the people separate on one review closes the other about the same pe
 it("a review whose people were merged before this fix closes as merged", async () => {
   const harness = await setup();
   const { calendly, slack, open } = await seedIncidentATwice(harness);
+  expect(
+    await harness.admin.mutation(api.pipeline.bookingReviews.closeAsMerged, { reviewId: open[1]._id }).catch((e: Error) => e.message),
+  ).toMatch("aren't one person yet");
   // Merged with no sweep, as production did before reviews closed together.
   await harness.t.run(async (ctx) => {
     await ctx.db.patch("leads", calendly.leadId, { status: "merged", mergedIntoLeadId: slack.leadId });
     await ctx.db.patch("bookingReviews", open[0]._id, { status: "resolved", resolution: "merged" });
   });
+  const detail = await harness.admin.query(api.pipeline.bookingReviews.get, { reviewId: open[1]._id });
+  expect(detail?.alreadyOnePerson).toBe(true);
 
-  const result = await harness.admin.mutation(api.pipeline.bookingReviews.mergePeople, {
+  const result = await harness.admin.mutation(api.pipeline.bookingReviews.closeAsMerged, {
     reviewId: open[1]._id,
-    keepLeadId: slack.leadId,
   });
 
   expect(result).toEqual({ alsoClosed: 0 });
   expect((await reviews(harness))[1]).toMatchObject({ status: "resolved", resolution: "merged" });
+  expect((await harness.t.run((ctx) => ctx.db.get("leads", slack.leadId)))?.status).toBe("active");
+});
+
+it("a review naming a person who no longer exists is never closed by another decision", async () => {
+  const harness = await setup();
+  const { calendly, slack, open } = await seedIncidentATwice(harness);
+  // The second review also named a person since deleted.
+  const gone = await seedPerson(harness, { fullName: "Gone" }, [["phone", "+15555550100"]]);
+  await harness.t.run(async (ctx) => {
+    await ctx.db.patch("bookingReviews", open[1]._id, {
+      conflicts: [...open[1].conflicts, { leadId: gone.leadId, via: "phone" }],
+    });
+    await ctx.db.delete("leads", gone.leadId);
+  });
+
+  expect(
+    await harness.admin.mutation(api.pipeline.bookingReviews.keepSeparate, { reviewId: open[0]._id }),
+  ).toEqual({ alsoClosed: 0 });
+  await harness.admin.mutation(api.leads.merge.mergeLead, {
+    sourceLeadId: calendly.leadId,
+    targetLeadId: slack.leadId,
+  });
+
+  expect((await reviews(harness))[1]).toMatchObject({ status: "open" });
+  expect(
+    await harness.admin
+      .mutation(api.pipeline.bookingReviews.mergePeople, { reviewId: open[1]._id, keepLeadId: slack.leadId })
+      .catch((e: Error) => e.message),
+  ).toMatch("no longer exists");
 });
 
 it("a held booking whose people a Leads page merge joins is retried and applies", async () => {
