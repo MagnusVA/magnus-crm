@@ -65,6 +65,7 @@ import {
   stageOfPosition,
   type DealPosition,
 } from "./opportunities/stages";
+import { legacyStatus, loadPendingRescheduleLink } from "./opportunities/dealState";
 import type { OpportunityStatus } from "./lib/statusTransitions";
 import { opportunityByStage, opportunityByStatus } from "./reporting/aggregates";
 
@@ -972,9 +973,6 @@ export const backfillDealStages = migrations.define({
   },
 });
 
-// Far above the reschedule links one deal gets; past it the assert stops.
-const RESCHEDULE_LINK_SCAN = 10;
-
 /** A lost reason in an assert's message: a system code, never a person's text. */
 function describeLostReason(reason: string | undefined): string {
   if (reason === undefined) return "no reason";
@@ -983,8 +981,10 @@ function describeLostReason(reason: string | undefined): string {
 
 // Each deal's stage and outcome are set, allowed, and what its status maps
 // to; a canceled or no-show deal has the matching reason; a loss the system
-// wrote has no person; and a Follow-up deal has at most one pending
-// reschedule link (§10.2). Throws on the first problem, with IDs only.
+// wrote has no person; a Follow-up deal has at most one pending reschedule
+// link; and from PR 3 the status rebuilt from the stage, the outcome, the
+// loss and the tasks (legacyStatus, §4.6) is the deal's status (§10.2).
+// Throws on the first problem, with IDs and codes only.
 export const assertDealStages = migrations.define({
   table: "opportunities",
   batchSize: 200,
@@ -1013,17 +1013,14 @@ export const assertDealStages = migrations.define({
     if (isSystemLossReason(deal.lostReason) && deal.lostByUserId !== undefined) {
       throw fail(`has the system's reason ${deal.lostReason} and lostByUserId ${deal.lostByUserId}`);
     }
-    if (stage === "follow_up") {
-      const pending = await ctx.db
-        .query("followUps")
-        .withIndex("by_opportunityId_and_status_and_reason", (q) =>
-          q.eq("opportunityId", deal._id).eq("status", "pending").eq("reason", "no_show_follow_up"),
-        )
-        .take(RESCHEDULE_LINK_SCAN);
-      const links = pending.filter((followUp) => followUp.type === "scheduling_link");
-      if (links.length > 1) {
-        throw fail(`has ${links.length} pending reschedule links`);
-      }
+    // Only a Follow-up deal's status reads its reschedule link.
+    const links = stage === "follow_up" ? (await loadPendingRescheduleLink(ctx, deal._id)).count : 0;
+    if (links > 1) {
+      throw fail(`has ${links} pending reschedule links`);
+    }
+    const rebuilt = legacyStatus(deal, { hasPendingRescheduleLink: links > 0 });
+    if (rebuilt !== deal.status) {
+      throw fail(`rebuilds as ${rebuilt}, but its status is ${deal.status}`);
     }
   },
 });
