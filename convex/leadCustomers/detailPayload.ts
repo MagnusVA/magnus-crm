@@ -10,6 +10,7 @@ import { userMemberIdentity } from "../lib/memberIdentity";
 import type { CrmRole } from "../lib/roleMapping";
 import { ENROLLMENT_DEAL_LIMIT, ENROLLMENT_PAYMENTS_PER_DEAL_LIMIT } from "../lib/enrollments";
 import { normalizeOpportunitySource } from "../lib/sideDeals";
+import { dealLabelOf, meetingDealLabelOf } from "../opportunities/stageLabels";
 import { getUserDisplayName } from "../reporting/lib/helpers";
 import {
   canOpenMeetingDetail,
@@ -36,6 +37,8 @@ function compactOpportunity(opportunity: Doc<"opportunities">) {
     leadId: opportunity.leadId,
     assignedCloserId: opportunity.assignedCloserId,
     status: opportunity.status,
+    // The labels read these (docs/plans/phase-5-deal-status.md §6.1).
+    ...dealLabelOf(opportunity),
     source: opportunity.source,
     firstBookingProgramId: opportunity.firstBookingProgramId,
     firstBookingProgramName: opportunity.firstBookingProgramName,
@@ -72,6 +75,7 @@ function compactMeeting(
     bookingProgramName: meeting.bookingProgramName,
     soldProgramName: meeting.soldProgramName,
     opportunityStatus: opportunity.status,
+    ...meetingDealLabelOf(opportunity),
     opportunitySource: normalizeOpportunitySource(opportunity),
     permissions,
   };
@@ -352,10 +356,11 @@ export async function buildEntityDetailPayload(
       const permissions = relatedRecordPermissions({
         canOpenOpportunity,
         canViewPayments: isAdminRole(input.viewerRole) || canOpenOpportunity,
+        // A side deal at Call held, which was `scheduled`.
         canRecordPayment:
           canOpenOpportunity &&
           normalizeOpportunitySource(opportunity) === "side_deal" &&
-          opportunity.status === "scheduled",
+          dealLabelOf(opportunity).position === "call_held",
       });
 
       return {

@@ -11,6 +11,7 @@ import {
   resolveLegacyCompatibleAttributedCloserId,
   resolveLegacyCompatibleRecordedByUserId,
 } from "../lib/paymentTypes";
+import { dealLabelOf } from "../opportunities/stageLabels";
 import { requireTenantUser } from "../requireTenantUser";
 
 type EnrichedPayment = Omit<
@@ -198,7 +199,9 @@ export const getAdminReminderDetail = query({
 
     return {
       followUp,
-      opportunity,
+      // The deal badge and the page's analytics read the stage and outcome
+      // (docs/plans/phase-5-deal-status.md §6.1).
+      opportunity: { ...opportunity, ...dealLabelOf(opportunity) },
       lead,
       assignedCloser,
       latestMeeting:
