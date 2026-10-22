@@ -232,9 +232,16 @@ it("the Slack alert names the booking, both people, what differs, and links to t
   const alert = await harness.t.query(internal.pipeline.bookingReviews.getForAlert, {
     reviewId: review._id,
   });
+  // The setter's deal took the booking: its label is the deal stage's.
+  const booked = alert!.detail.people.find((person) => person.role === "booked");
+  expect(booked?.deals).toEqual([
+    expect.objectContaining({ status: "scheduled", stage: "booked", outcome: "open", position: "booked", systemLoss: null }),
+  ]);
   const message = buildBookingReviewNotification(alert!.detail, "https://crm.example/");
   const blocks = JSON.stringify(message.blocks);
+  expect(blocks).not.toContain("Scheduled");
   for (const value of [
+    "Deals: Booked, ",
     "Booking matched two people",
     "Tyson Example",
     "earlier.booker@gmail.example",
