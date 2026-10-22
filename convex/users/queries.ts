@@ -7,6 +7,7 @@ import {
   getWorkosUserIdCandidates,
 } from "../lib/workosUserId";
 import { userMemberIdentity } from "../lib/memberIdentity";
+import { hasDealBlockingUserRemoval } from "../opportunities/dealGuards";
 
 // eslint-disable-next-line @convex-dev/require-access-control -- returns null when signed out; reads only the caller's user
 export const getCurrentUser = query({
@@ -77,30 +78,8 @@ export const getActiveAssignedOpportunityCount = internalQuery({
     userId: v.id("users"),
   },
   handler: async (ctx, { tenantId, userId }) => {
-    const activeStatuses = [
-      "scheduled",
-      "follow_up_scheduled",
-      "reschedule_link_sent",
-    ] as const;
-
-    let count = 0;
-    for (const status of activeStatuses) {
-      const opportunities = await ctx.db
-        .query("opportunities")
-        .withIndex("by_tenantId_and_assignedCloserId_and_status_and_createdAt", (q) =>
-          q
-            .eq("tenantId", tenantId)
-            .eq("assignedCloserId", userId)
-            .eq("status", status),
-        )
-        .take(1);
-      count += opportunities.length;
-      if (count > 0) {
-        break;
-      }
-    }
-
-    return count;
+    // 1 when the closer has a Booked, Call held or Follow-up deal, else 0.
+    return (await hasDealBlockingUserRemoval(ctx, tenantId, userId)) ? 1 : 0;
   },
 });
 
