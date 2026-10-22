@@ -84,7 +84,8 @@ export function AdminReminderDetailPageClient({
       posthog.capture("admin_reminder_page_opened", {
         follow_up_id: followUpId,
         opportunity_id: detail.opportunity._id,
-        opportunity_status: detail.opportunity.status,
+        deal_stage: detail.opportunity.stage,
+        deal_outcome: detail.opportunity.outcome,
         assigned_closer_id: detail.followUp.closerId,
       });
     }

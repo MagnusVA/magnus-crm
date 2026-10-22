@@ -35,6 +35,10 @@ import {
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { getEventLabel } from "@/convex/reporting/lib/eventLabels";
+import {
+  dealEventOutcomes,
+  dealEventStateLabel,
+} from "@/convex/opportunities/stageLabels";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
@@ -116,8 +120,18 @@ export function ActivityEventRow({ event }: ActivityEventRowProps) {
     typeof event.metadata?.toStatus === "string"
       ? event.metadata.toStatus
       : undefined;
-  const fromStatus = event.fromStatus ?? legacyFromStatus;
-  const toStatus = event.toStatus ?? legacyToStatus;
+  const rawFromStatus = event.fromStatus ?? legacyFromStatus;
+  const rawToStatus = event.toStatus ?? legacyToStatus;
+  // An old deal event holds statuses; a new one, stages with the outcomes in
+  // its metadata (docs/plans/phase-5-deal-status.md §4.7).
+  const dealOutcomes =
+    event.entityType === "opportunity" ? dealEventOutcomes(event.metadata) : null;
+  const fromStatus = dealOutcomes
+    ? dealEventStateLabel(rawFromStatus, dealOutcomes.fromOutcome)
+    : rawFromStatus;
+  const toStatus = dealOutcomes
+    ? dealEventStateLabel(rawToStatus, dealOutcomes.toOutcome)
+    : rawToStatus;
 
   const paymentMetadata =
     event.entityType === "payment" ? event.paymentMetadata ?? null : null;

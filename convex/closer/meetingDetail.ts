@@ -15,11 +15,13 @@ import {
 } from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
 import { loadActiveFollowUpSummary } from "../lib/activeFollowUp";
+import { dealLabelOf, meetingDealLabelOf } from "../opportunities/stageLabels";
 
-type MeetingHistoryEntry = Doc<"meetings"> & {
-  opportunityStatus: Doc<"opportunities">["status"];
-  isCurrentMeeting: boolean;
-};
+type MeetingHistoryEntry = Doc<"meetings"> &
+  ReturnType<typeof meetingDealLabelOf> & {
+    opportunityStatus: Doc<"opportunities">["status"];
+    isCurrentMeeting: boolean;
+  };
 
 type EnrichedPayment = Omit<
   Doc<"paymentRecords">,
@@ -139,10 +141,9 @@ export const getMeetingDetail = query({
       buildDealAttributionDetail(ctx, opportunity),
     ]);
 
-    const opportunityStatusById = new Map<
-      Id<"opportunities">,
-      Doc<"opportunities">["status"]
-    >(leadOpportunities.map((item) => [item._id, item.status]));
+    const opportunityById = new Map<Id<"opportunities">, Doc<"opportunities">>(
+      leadOpportunities.map((item) => [item._id, item]),
+    );
     const meetingHistoryBatches = await Promise.all(
       leadOpportunities.map((leadOpportunity) =>
         ctx.db
@@ -156,13 +157,20 @@ export const getMeetingDetail = query({
     );
     const meetingHistory: MeetingHistoryEntry[] = meetingHistoryBatches
       .flat()
-      .map((historicalMeeting) => ({
-        ...historicalMeeting,
-        opportunityStatus:
-          opportunityStatusById.get(historicalMeeting.opportunityId) ??
-          "scheduled",
-        isCurrentMeeting: historicalMeeting._id === meetingId,
-      }))
+      .flatMap((historicalMeeting) => {
+        // Every meeting read here is on one of the person's deals above.
+        const historicalDeal = opportunityById.get(historicalMeeting.opportunityId);
+        return historicalDeal
+          ? [
+              {
+                ...historicalMeeting,
+                opportunityStatus: historicalDeal.status,
+                ...meetingDealLabelOf(historicalDeal),
+                isCurrentMeeting: historicalMeeting._id === meetingId,
+              },
+            ]
+          : [];
+      })
       .sort((a, b) => b.scheduledAt - a.scheduledAt);
 
     const eventTypeName = eventTypeConfig?.displayName ?? null;
@@ -327,7 +335,8 @@ export const getMeetingDetail = query({
 
     return {
       meeting,
-      opportunity,
+      // The header badge reads the stage and outcome (docs/plans/phase-5-deal-status.md §6.1).
+      opportunity: { ...opportunity, ...dealLabelOf(opportunity) },
       lead,
       assignedCloser: assignedCloserSummary,
       meetingHistory,

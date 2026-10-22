@@ -3,6 +3,7 @@ import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
 import { ENROLLMENT_STATUS_LABELS, type EnrollmentStatus } from "../enrollments/validators";
 import { LIFECYCLE_STAGE_LABELS, type LifecycleStage } from "../leads/lifecycle";
+import { dealEventOutcomes, dealEventStateLabel } from "../opportunities/stageLabels";
 import { EVENT_LABELS } from "../reporting/lib/eventLabels";
 import { getUserDisplayName } from "../reporting/lib/helpers";
 import { requireTenantUser } from "../requireTenantUser";
@@ -95,6 +96,17 @@ function describe(
     detail = `Campaign ${metadata.utmCampaign}`;
   } else if (isEnrollmentEvent(event)) {
     detail = [programName, event.reason].filter((part) => part).join(" · ") || null;
+  }
+  if (event.entityType === "opportunity") {
+    // An old deal event holds statuses; a new one, stages with the outcomes
+    // in its metadata (docs/plans/phase-5-deal-status.md §4.7).
+    const { fromOutcome, toOutcome } = dealEventOutcomes(metadata);
+    return {
+      label,
+      detail,
+      fromStatus: dealEventStateLabel(event.fromStatus, fromOutcome),
+      toStatus: dealEventStateLabel(event.toStatus, toOutcome),
+    };
   }
   const statusLabel = isStage
     ? stageLabel

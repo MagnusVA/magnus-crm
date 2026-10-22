@@ -19,6 +19,7 @@ import {
 import { areNamesSimilar } from "../lib/normalization";
 import { log } from "../lib/observability/log";
 import { getString, isRecord } from "../lib/payloadExtraction";
+import { dealLabelOf, type DealLabel } from "../opportunities/stageLabels";
 import { requireTenantUser } from "../requireTenantUser";
 import type { IdentityMatchVia } from "./blocked";
 import {
@@ -52,7 +53,7 @@ export type BookingReviewPerson = {
   firstSeenAt: number;
   handles: { type: string; handle: string }[];
   identifiers: { type: string; value: string; source: string; createdAt: number }[];
-  deals: {
+  deals: ({
     opportunityId: Id<"opportunities">;
     status: Doc<"opportunities">["status"];
     source?: Doc<"opportunities">["source"];
@@ -61,7 +62,7 @@ export type BookingReviewPerson = {
     closerName?: string;
     qualifiedByName?: string;
     latestMeetingAt?: number;
-  }[];
+  } & DealLabel)[];
 };
 
 export type BookingReviewDetail = {
@@ -188,6 +189,8 @@ async function loadPerson(
       return {
         opportunityId: opportunity._id,
         status: opportunity.status,
+        // The page and the Slack alert label the deal by these (§6.1).
+        ...dealLabelOf(opportunity),
         source: opportunity.source,
         createdAt: opportunity.createdAt,
         hostName: opportunity.hostCalendlyName,

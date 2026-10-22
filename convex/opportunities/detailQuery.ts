@@ -4,6 +4,7 @@ import { buildOpportunityAttributionPayload } from "../lib/attribution/detailPay
 import { earliestCountingPayment } from "../lib/enrollments";
 import { isSideDealOrigin, normalizeOpportunitySource } from "../lib/sideDeals";
 import { requireTenantUser } from "../requireTenantUser";
+import { dealLabelOf, parseDealEventOutcomes } from "./stageLabels";
 
 export const getOpportunityDetail = query({
   args: { opportunityId: v.id("opportunities") },
@@ -112,6 +113,11 @@ export const getOpportunityDetail = query({
 
     const source = normalizeOpportunitySource(opportunity);
     const isSideDeal = source === "side_deal";
+    // The controls show on the same deals as the status did: a side deal at
+    // Call held was `scheduled`, and Won was `payment_received` (§6.1).
+    const label = dealLabelOf(opportunity);
+    const isOpenSideDeal = isSideDeal && label.position === "call_held";
+    const isWon = label.position === "won";
     const activeSideDealPayment = payments.find(
       (payment) =>
         payment.status !== "disputed" && isSideDealOrigin(payment.origin),
@@ -129,6 +135,7 @@ export const getOpportunityDetail = query({
       opportunity: {
         _id: opportunity._id,
         status: opportunity.status,
+        ...label,
         source,
         notes: opportunity.notes,
         assignedCloserId: opportunity.assignedCloserId,
@@ -188,6 +195,9 @@ export const getOpportunityDetail = query({
         actorUserId: event.actorUserId,
         fromStatus: event.fromStatus,
         toStatus: event.toStatus,
+        // A new deal event holds stages in fromStatus and toStatus, with the
+        // outcomes in its metadata (§4.7).
+        ...parseDealEventOutcomes(event.metadata),
         reason: event.reason,
       })),
       pendingStaleNudge: pendingStaleNudge
@@ -200,27 +210,26 @@ export const getOpportunityDetail = query({
       permissions: {
         viewerUserId: userId,
         viewerRole: role,
-        canRecordPayment: isSideDeal && opportunity.status === "scheduled",
+        canRecordPayment: isOpenSideDeal,
         // Additional payments on an already-won opportunity. The query above
         // already restricts viewers to the assigned closer or an admin, so a
         // closer seeing this flag is always the self-crediting assigned closer.
         canRecordAdditionalPayment:
-          opportunity.status === "payment_received" &&
+          isWon &&
           (opportunity.soldProgramId !== undefined ||
             inheritedFromPayment !== undefined) &&
           (role === "closer" ||
             (isAdmin && opportunity.assignedCloserId !== undefined)),
         additionalPaymentProgramName,
-        canMarkLost: isSideDeal && opportunity.status === "scheduled",
+        canMarkLost: isOpenSideDeal,
         canVoidPayment:
           isAdmin &&
           isSideDeal &&
-          opportunity.status === "payment_received" &&
+          isWon &&
           activeSideDealPayment !== undefined,
         voidablePaymentId: activeSideDealPayment?._id,
         canDeleteOpportunity:
-          isSideDeal &&
-          opportunity.status === "scheduled" &&
+          isOpenSideDeal &&
           payments.length === 0 &&
           meetings.length === 0 &&
           hasOnlyStaleNudgeFollowUps,

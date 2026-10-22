@@ -9,6 +9,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { InitialSourceBadge } from "@/app/workspace/_components/initial-source-badge";
 import { ENROLLMENT_STATUS_LABELS } from "@/convex/enrollments/validators";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
 import {
 	LabelWithInfoTooltip,
 	leadsCustomersTooltips,
@@ -56,7 +57,10 @@ export function EntitySnapshotAside() {
 					{winning ? (
 						<ChainStep
 							badge={<Badge variant="outline">Winning Deal</Badge>}
-							value={formatToken(winning.opportunity.status)}
+							value={dealPositionLabel(
+								winning.opportunity.position,
+								winning.opportunity.systemLoss,
+							)}
 							connected
 						/>
 					) : null}

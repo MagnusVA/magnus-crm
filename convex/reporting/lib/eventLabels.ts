@@ -92,6 +92,13 @@ export const EVENT_LABELS: Record<string, EventLabel> = {
     verb: "marked an opportunity as lost",
     iconHint: "x-circle",
   },
+  // From PR 8 a deal's moves are this event, with stages in fromStatus and
+  // toStatus (docs/plans/phase-5-deal-status.md §4.7); the older ones above
+  // keep their statuses.
+  "opportunity.stage_changed": {
+    verb: "changed a deal stage",
+    iconHint: "arrow-right-left",
+  },
   "opportunity.status_changed": {
     verb: "changed an opportunity status",
     iconHint: "arrow-right-left",

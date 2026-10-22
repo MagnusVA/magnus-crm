@@ -50,10 +50,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Spinner } from "@/components/ui/spinner";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { getErrorMessage } from "@/lib/errors";
-import {
-  opportunityStatusConfig,
-  type OpportunityStatus,
-} from "@/lib/status-config";
+import { DealStageBadge } from "@/components/status-badge";
 import { cn } from "@/lib/utils";
 import {
   IDENTIFIER_SOURCE_LABELS,
@@ -346,13 +343,10 @@ function PersonCard({ person }: { person: Person }) {
           ) : (
             <ul className="flex flex-col gap-2">
               {person.deals.map((deal) => {
-                const config = opportunityStatusConfig[deal.status as OpportunityStatus];
                 return (
                   <li key={deal.opportunityId} className="flex flex-col gap-1 rounded-lg border p-3">
                     <span className="flex flex-wrap items-center gap-2">
-                      <Badge variant="secondary" className={cn(config?.badgeClass)}>
-                        {config?.label ?? deal.status}
-                      </Badge>
+                      <DealStageBadge position={deal.position} systemLoss={deal.systemLoss} />
                       <span className="text-muted-foreground">
                         Created {format(deal.createdAt, "MMM d")}
                       </span>

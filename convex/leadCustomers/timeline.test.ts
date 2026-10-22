@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { bookingHarness } from "../../tests/bookingHarness";
 import { seedEnrolledCustomer } from "../../tests/enrollmentPageFixtures";
+import { insertDealEvent, insertPerson, insertPersonDeal } from "../../tests/stageLabelFixtures";
 
 afterEach(() => vi.useRealTimers());
 
@@ -163,5 +164,37 @@ describe("Slack touches", () => {
       (await ctx.db.query("domainEvents").take(100)).filter((event) => event.eventType === "lead.slack_qualified"),
     );
     expect(touches).toHaveLength(2);
+  });
+});
+
+// Old deal events hold statuses; from PR 8 they hold stages, with the
+// outcomes in the metadata (docs/plans/phase-5-deal-status.md §4.7).
+describe("deal events", () => {
+  it("labels old deal events by status and new ones by stage", async () => {
+    const h = await bookingHarness();
+    const leadId = await h.t.run(async (ctx) => {
+      const leadId = await insertPerson(ctx, h.tenantId);
+      const opportunityId = await insertPersonDeal(ctx, { tenantId: h.tenantId, leadId, status: "lost" });
+      await insertDealEvent(ctx, opportunityId, {
+        eventType: "opportunity.status_changed", occurredAt: 1_000,
+        fromStatus: "qualified_pending", toStatus: "scheduled",
+      });
+      await insertDealEvent(ctx, opportunityId, {
+        eventType: "opportunity.stage_changed", occurredAt: 2_000,
+        fromStatus: "booked", toStatus: "follow_up", metadata: { fromOutcome: "open", toOutcome: "open" },
+      });
+      await insertDealEvent(ctx, opportunityId, {
+        eventType: "opportunity.marked_lost", occurredAt: 3_000,
+        fromStatus: "follow_up", toStatus: "closed", reason: "Price",
+        metadata: { fromOutcome: "open", toOutcome: "lost" },
+      });
+      return leadId;
+    });
+    const timeline = await h.admin.query(api.leadCustomers.timeline.getLeadTimeline, { leadId });
+    expect(timeline?.entries.map(({ label, fromStatus, toStatus }) => ({ label, fromStatus, toStatus }))).toEqual([
+      { label: "Marked an opportunity as lost", fromStatus: "Follow-up", toStatus: "Closed (lost)" },
+      { label: "Changed a deal stage", fromStatus: "Booked", toStatus: "Follow-up" },
+      { label: "Changed an opportunity status", fromStatus: "Qualified, not booked", toStatus: "Scheduled" },
+    ]);
   });
 });

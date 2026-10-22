@@ -7,6 +7,7 @@ import {
   type LeadType,
 } from "./leadType";
 import type { BookingReviewDetail, BookingReviewPerson } from "../pipeline/bookingReviews";
+import { dealPositionLabel } from "../opportunities/stageLabels";
 import { normalizeSocialHandle } from "./normalization";
 import {
   SOCIAL_PLATFORM_LABELS,
@@ -388,17 +389,6 @@ export function buildStaleDigest(args: {
   };
 }
 
-const DEAL_STATUS_LABELS: Record<Doc<"opportunities">["status"], string> = {
-  qualified_pending: "Qualified, not booked",
-  scheduled: "Scheduled",
-  payment_received: "Won",
-  follow_up_scheduled: "Follow-up",
-  reschedule_link_sent: "Reschedule link sent",
-  lost: "Lost",
-  canceled: "Canceled",
-  no_show: "No-show",
-};
-
 const MATCH_LABELS = {
   email: "email",
   phone: "phone",
@@ -414,7 +404,7 @@ function bookingReviewPersonText(person: BookingReviewPerson) {
     ...person.handles.map((h) => escapeSlackMrkdwn(`@${h.handle}`)),
   ].filter(Boolean);
   const deals = person.deals.slice(0, MAX_REVIEW_DEALS).map((deal) => {
-    const parts = [DEAL_STATUS_LABELS[deal.status]];
+    const parts = [dealPositionLabel(deal.position, deal.systemLoss)];
     const closer = deal.closerName ?? deal.hostName;
     if (closer) parts.push(`with ${escapeSlackMrkdwn(closer)}`);
     if (deal.latestMeetingAt !== undefined) parts.push(`call ${slackDate(deal.latestMeetingAt)}`);

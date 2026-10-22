@@ -2,6 +2,7 @@ import { PostHog } from "@posthog/convex";
 import { components } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import { env, type MutationCtx } from "../../_generated/server";
+import { dealEventOutcomes } from "../../opportunities/stageLabels";
 import type { EmitDomainEventParams } from "../domainEvents";
 import { getRawWorkosUserId } from "../workosUserId";
 
@@ -61,6 +62,21 @@ function flattenMetadata(
 }
 
 /**
+ * A new deal event's outcomes, which it records in its metadata beside the
+ * stages in `fromStatus` and `toStatus` (docs/plans/phase-5-deal-status.md
+ * §4.7). Nothing on an old event or any other.
+ */
+export function dealOutcomeProperties(
+  metadata: Record<string, unknown> | undefined,
+): { from_outcome?: string; to_outcome?: string } {
+  const { fromOutcome, toOutcome } = dealEventOutcomes(metadata);
+  return {
+    ...(fromOutcome ? { from_outcome: fromOutcome } : {}),
+    ...(toOutcome ? { to_outcome: toOutcome } : {}),
+  };
+}
+
+/**
  * Mirror a domain event into PostHog. Called from `emitDomainEvent`, so every
  * business state change (`payment.recorded`, `opportunity.status_changed`, …)
  * becomes a PostHog event attributed to the acting user and grouped by tenant.
@@ -102,6 +118,7 @@ export async function captureDomainEvent(
       team_member_id: params.teamMemberId,
       from_status: params.fromStatus,
       to_status: params.toStatus,
+      ...dealOutcomeProperties(params.metadata),
       // Coded reasons (`no_show`, `price`) are useful dimensions; free text
       // (a closer's note, an invitee's cancellation message) stays in Convex.
       ...(params.reason && CODED_REASON.test(params.reason)

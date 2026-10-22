@@ -1,4 +1,5 @@
 import type { Doc, Id } from "../_generated/dataModel";
+import { dealSearchWords } from "../opportunities/stageLabels";
 
 function pushValue(parts: string[], value: string | undefined) {
   const trimmed = value?.trim();
@@ -17,6 +18,10 @@ export function buildLeadCustomerSearchText(input: {
       | "manualCreationKey"
       | "status"
       | "source"
+      | "stage"
+      | "outcome"
+      | "lostReason"
+      | "lostByUserId"
       | "firstBookingProgramName"
       | "soldProgramName"
     >
@@ -40,7 +45,11 @@ export function buildLeadCustomerSearchText(input: {
   for (const opportunity of input.opportunities) {
     pushValue(parts, opportunity._id);
     pushValue(parts, opportunity.manualCreationKey);
-    pushValue(parts, opportunity.status);
+    // The deal's position, and a missed meeting's words on a deal one
+    // closed (docs/plans/phase-5-deal-status.md §4.8).
+    for (const word of dealSearchWords(opportunity)) {
+      pushValue(parts, word);
+    }
     pushValue(parts, opportunity.source);
     pushValue(parts, opportunity.firstBookingProgramName);
     pushValue(parts, opportunity.soldProgramName);

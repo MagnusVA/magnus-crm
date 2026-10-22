@@ -14,18 +14,19 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { DealStageBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChevronDownIcon, HistoryIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import {
-  opportunityStatusConfig,
-  type OpportunityStatus,
-} from "@/lib/status-config";
+import { dealPositionConfig } from "@/lib/status-config";
 import type { Doc } from "@/convex/_generated/dataModel";
+import type { DealPosition, SystemLossReason } from "@/convex/opportunities/stages";
 
+// Each meeting shows its deal's position (docs/plans/phase-5-deal-status.md §6.1).
 type MeetingHistoryEntry = Doc<"meetings"> & {
-  opportunityStatus: Doc<"opportunities">["status"];
+  dealPosition: DealPosition;
+  dealSystemLoss: SystemLossReason | null;
   isCurrentMeeting: boolean;
 };
 
@@ -82,9 +83,7 @@ export function MeetingHistoryCard({
                 aria-label="Lead meeting history"
               >
                 {meetingHistory.map((meeting) => {
-                  const statusKey =
-                    meeting.opportunityStatus as OpportunityStatus;
-                  const config = opportunityStatusConfig[statusKey];
+                  const config = dealPositionConfig[meeting.dealPosition];
 
                   const row = (
                     <div
@@ -101,7 +100,7 @@ export function MeetingHistoryCard({
                           "size-2 shrink-0 rounded-full",
                           meeting.isCurrentMeeting
                             ? "bg-primary ring-[3px] ring-primary/20"
-                            : (config?.dotClass ?? "bg-muted-foreground"),
+                            : config.dotClass,
                         )}
                       />
                       <div className="min-w-0 flex-1">
@@ -114,14 +113,20 @@ export function MeetingHistoryCard({
                           {format(meeting.scheduledAt, "MMM d, yyyy · h:mm a")}
                         </p>
                       </div>
-                      <Badge
-                        variant="secondary"
-                        className={cn("shrink-0 text-[10px]", config?.badgeClass)}
-                      >
-                        {meeting.isCurrentMeeting
-                          ? "Current"
-                          : (config?.label ?? "—")}
-                      </Badge>
+                      {meeting.isCurrentMeeting ? (
+                        <Badge
+                          variant="secondary"
+                          className={cn("shrink-0 text-[10px]", config.badgeClass)}
+                        >
+                          Current
+                        </Badge>
+                      ) : (
+                        <DealStageBadge
+                          position={meeting.dealPosition}
+                          systemLoss={meeting.dealSystemLoss}
+                          className="shrink-0 text-[10px]"
+                        />
+                      )}
                     </div>
                   );
 

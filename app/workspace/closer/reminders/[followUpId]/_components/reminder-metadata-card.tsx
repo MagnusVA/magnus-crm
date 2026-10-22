@@ -10,6 +10,8 @@ import {
 	TagIcon,
 } from "lucide-react";
 import type { Doc } from "@/convex/_generated/dataModel";
+import type { DealLabel } from "@/convex/opportunities/stageLabels";
+import { DealStageBadge } from "@/components/status-badge";
 import {
 	Card,
 	CardContent,
@@ -23,14 +25,10 @@ import {
 	getReminderUrgency,
 	type ReminderUrgency,
 } from "../../../_components/reminder-urgency";
-import {
-	opportunityStatusConfig,
-	type OpportunityStatus,
-} from "@/lib/status-config";
 
 type Props = {
 	followUp: Doc<"followUps">;
-	opportunity: Doc<"opportunities">;
+	opportunity: Doc<"opportunities"> & DealLabel;
 	latestMeeting: Doc<"meetings"> | null;
 };
 
@@ -94,8 +92,7 @@ function humaniseReason(reason: Doc<"followUps">["reason"]): string {
  *     (same 30s tick the dashboard uses — see reminders-section.tsx)
  *   - Reason (humanised)
  *   - Related meeting link (when `latestMeeting` is present)
- *   - Opportunity status (uses the shared status-config for consistent
- *     labels across every status surface in the app)
+ *   - The deal's stage badge (components/status-badge.tsx)
  *
  * Visual weight lives on the contact card above; this card is intentionally
  * dense and quiet to avoid competing for attention.
@@ -125,9 +122,6 @@ export function ReminderMetadataCard({
 	const scheduledRelative = scheduledAt
 		? formatDistanceToNow(new Date(scheduledAt), { addSuffix: true })
 		: null;
-
-	const statusKey = opportunity.status as OpportunityStatus;
-	const statusConfig = opportunityStatusConfig[statusKey];
 
 	return (
 		<Card>
@@ -182,18 +176,14 @@ export function ReminderMetadataCard({
 
 				<Separator />
 
-				{/* Opportunity status line — uses the shared config so the
-				    label matches every other surface (pipeline, dashboard,
-				    calendar). Falls back to the raw key if a migration adds
-				    a new status before the config is updated. */}
+				{/* The deal's stage badge, read from its stage and outcome. */}
 				<div className="text-muted-foreground flex items-center justify-between text-xs">
-					<span className="uppercase tracking-wide">Opportunity</span>
-					<Badge
-						variant="outline"
-						className={cn("text-xs", statusConfig?.badgeClass)}
-					>
-						{statusConfig?.label ?? opportunity.status.replace(/_/g, " ")}
-					</Badge>
+					<span className="uppercase tracking-wide">Deal</span>
+					<DealStageBadge
+						position={opportunity.position}
+						systemLoss={opportunity.systemLoss}
+						className="text-xs"
+					/>
 				</div>
 			</CardContent>
 		</Card>

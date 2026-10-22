@@ -10,12 +10,14 @@ import { cn } from "@/lib/utils";
 import { UserIcon, MailIcon, PhoneIcon } from "lucide-react";
 import { MeetingHistoryTimeline } from "./meeting-history-timeline";
 import type { Doc } from "@/convex/_generated/dataModel";
+import type { DealPosition, SystemLossReason } from "@/convex/opportunities/stages";
 
 type LeadInfoPanelProps = {
   lead: Doc<"leads">;
   meetingHistory: Array<
     Doc<"meetings"> & {
-      opportunityStatus: Doc<"opportunities">["status"];
+      dealPosition: DealPosition;
+      dealSystemLoss: SystemLossReason | null;
       isCurrentMeeting: boolean;
     }
   >;
