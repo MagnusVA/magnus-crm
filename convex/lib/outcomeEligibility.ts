@@ -1,4 +1,5 @@
 import type { Doc, Id } from "../_generated/dataModel";
+import { canRecordMeetingOutcome, describeDealState } from "../opportunities/dealGuards";
 
 const OUTCOME_LEAD_MS = 5 * 60_000;
 
@@ -31,9 +32,10 @@ export function assertCanRecordMeetingOutcome(args: {
   if (args.meeting.status !== "scheduled") {
     throw new Error(`Meeting is not scheduled (current: ${args.meeting.status})`);
   }
-  if (args.opportunity.status !== "scheduled") {
+  // Booked, or Call held for a side deal a booking joined: today's `scheduled`.
+  if (!canRecordMeetingOutcome(args.opportunity)) {
     throw new Error(
-      `Opportunity is not scheduled (current: ${args.opportunity.status})`,
+      `The deal isn't Booked (current: ${describeDealState(args.opportunity)})`,
     );
   }
   if (!isAdmin && args.opportunity.assignedCloserId !== args.userId) {

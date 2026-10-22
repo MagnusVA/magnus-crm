@@ -16,6 +16,7 @@ import { emitDomainEvent } from "../lib/domainEvents";
 import { log } from "../lib/observability/log";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { ensureUserTeamMember } from "../lib/teamMembers";
+import { hasDealBlockingUserRemoval } from "../opportunities/dealGuards";
 
 const crmRoleValidator = v.union(
   v.literal("tenant_master"),
@@ -677,26 +678,11 @@ export const removeUser = internalMutation({
       return;
     }
 
-    const activeStatuses = [
-      "scheduled",
-      "follow_up_scheduled",
-      "reschedule_link_sent",
-    ] as const;
-    for (const status of activeStatuses) {
-      const opportunities = await ctx.db
-        .query("opportunities")
-        .withIndex("by_tenantId_and_assignedCloserId_and_status_and_createdAt", (q) =>
-          q
-            .eq("tenantId", user.tenantId)
-            .eq("assignedCloserId", userId)
-            .eq("status", status),
-        )
-        .take(1);
-      if (opportunities.length > 0) {
-        throw new ConvexError(
-          "Cannot remove a user who still has active assigned opportunities",
-        );
-      }
+    // A Booked, Call held or Follow-up deal keeps its closer.
+    if (await hasDealBlockingUserRemoval(ctx, user.tenantId, userId)) {
+      throw new ConvexError(
+        "Cannot remove a user who still has active assigned opportunities",
+      );
     }
 
     const now = Date.now();

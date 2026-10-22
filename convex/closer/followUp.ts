@@ -5,7 +5,7 @@ import type { Doc } from "../_generated/dataModel";
 import { action } from "../_generated/server";
 import { internal } from "../_generated/api";
 import { getValidAccessToken } from "../calendly/tokens";
-import { validateTransition } from "../lib/statusTransitions";
+import { canStartFollowUp, describeDealState } from "../opportunities/dealGuards";
 import { requireTenantUserFromAction } from "../requireTenantUserFromAction";
 import { log } from "../lib/observability/log";
 import { rejectRequest } from "../lib/observability/errors";
@@ -66,9 +66,9 @@ export const createFollowUp = action({
     if (opportunity.assignedCloserId !== caller.userId) {
       throw new Error("Not your opportunity");
     }
-    if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
+    if (!canStartFollowUp(opportunity)) {
       throw new Error(
-        `Cannot schedule follow-up from status "${opportunity.status}"`,
+        `Cannot schedule follow-up: the deal is "${describeDealState(opportunity)}"`,
       );
     }
 

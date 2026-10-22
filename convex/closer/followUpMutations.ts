@@ -3,8 +3,13 @@ import { v } from "convex/values";
 import { internalMutation, mutation } from "../_generated/server";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
-import { validateTransition } from "../lib/statusTransitions";
 import { transitionOpportunity } from "../lib/opportunityActivity";
+import {
+  canStartFollowUp,
+  describeDealState,
+  isFollowUpWithoutRescheduleLink,
+  loadDealTasks,
+} from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { log } from "../lib/observability/log";
@@ -69,7 +74,7 @@ export const createFollowUpRecord = internalMutation({
 
 /**
  * Transition an opportunity to follow_up_scheduled.
- * Validates the transition is allowed from the current status.
+ * Validates the deal can start a follow-up from where it is.
  */
 export const transitionToFollowUp = internalMutation({
   args: { opportunityId: v.id("opportunities") },
@@ -77,11 +82,10 @@ export const transitionToFollowUp = internalMutation({
     const opportunity = await ctx.db.get("opportunities", opportunityId);
     if (!opportunity) throw new Error("Opportunity not found");
 
-    const isValid = validateTransition(opportunity.status, "follow_up_scheduled");
-    if (!isValid) {
+    if (!canStartFollowUp(opportunity)) {
       throw new Error(
-        `Cannot schedule follow-up from status "${opportunity.status}". ` +
-          `Only scheduled, canceled, no-show, and legacy active opportunities support follow-ups.`
+        `Cannot schedule follow-up: the deal is "${describeDealState(opportunity)}". ` +
+          `Only a deal awaiting its call's result, or one a missed meeting closed, supports follow-ups.`
       );
     }
 
@@ -146,9 +150,9 @@ export const createSchedulingLinkFollowUp = mutation({
     if (opportunity.assignedCloserId !== userId) {
       throw new Error("Not your opportunity");
     }
-    if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
+    if (!canStartFollowUp(opportunity)) {
       throw new Error(
-        `Cannot schedule follow-up from status "${opportunity.status}"`,
+        `Cannot schedule follow-up: the deal is "${describeDealState(opportunity)}"`,
       );
     }
 
@@ -233,7 +237,8 @@ export const confirmFollowUpScheduled = mutation({
       throw new Error("Meeting does not belong to this opportunity");
     }
     // Already transitioned (e.g. user double-clicked Done) — silently succeed.
-    if (opportunity.status === "follow_up_scheduled") {
+    // A deal waiting on its reschedule link isn't, and the follow-up is refused.
+    if (isFollowUpWithoutRescheduleLink(opportunity, await loadDealTasks(ctx, opportunityId))) {
       log.info("follow_up.confirm_skipped", {
         tenantId,
         actor: "closer",
@@ -252,9 +257,9 @@ export const confirmFollowUpScheduled = mutation({
         now,
       });
     }
-    if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
+    if (!canStartFollowUp(opportunity)) {
       throw new Error(
-        `Cannot schedule follow-up from status "${opportunity.status}"`,
+        `Cannot schedule follow-up: the deal is "${describeDealState(opportunity)}"`,
       );
     }
 
@@ -303,9 +308,9 @@ export const createManualReminderFollowUpPublic = mutation({
     ) {
       throw new Error("Meeting does not belong to this opportunity");
     }
-    if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
+    if (!canStartFollowUp(opportunity)) {
       throw new Error(
-        `Cannot schedule follow-up from status "${opportunity.status}"`,
+        `Cannot schedule follow-up: the deal is "${describeDealState(opportunity)}"`,
       );
     }
 

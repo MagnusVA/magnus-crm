@@ -14,12 +14,10 @@ import { recordSlackQualification } from "../lib/leadLifecycle";
 import { type LeadType, leadTypeValidator } from "../lib/leadType";
 import { describeError, log, reportError } from "../lib/observability/log";
 import type { SocialPlatform } from "../lib/socialPlatform";
-import {
-  isActiveOpportunityStatus,
-  updateTenantStats,
-} from "../lib/tenantStatsHelper";
+import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { rebuildQualificationRow } from "../operations/projections";
-import { stageForStatus } from "../opportunities/stages";
+import { blocksNewQualification, isQualifiedDeal } from "../opportunities/dealGuards";
+import { dealStageOf, stageForStatus } from "../opportunities/stages";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
 import { SLACK_JOIN_LOOKBACK_MS } from "../pipeline/slackJoinLookup";
 import { upsertSlackUserOnSubmission } from "./users";
@@ -220,18 +218,18 @@ export const create = internalMutation({
     });
     const setterTeamMemberId = (await ctx.db.get("slackUsers", slackUserRowId))?.teamMemberId;
 
+    // A Qualified Slack deal from the join window is a pending duplicate.
     const lookbackCutoff = now - SLACK_JOIN_LOOKBACK_MS;
     const recent = await ctx.db
       .query("opportunities")
-      .withIndex(
-        "by_tenantId_and_leadId_and_source_and_status_and_createdAt",
-        (q) =>
-          q
-            .eq("tenantId", args.tenantId)
-            .eq("leadId", resolution.leadId)
-            .eq("source", "slack_qualified")
-            .eq("status", "qualified_pending")
-            .gt("createdAt", lookbackCutoff),
+      .withIndex("by_tenantId_leadId_source_stage_outcome_createdAt", (q) =>
+        q
+          .eq("tenantId", args.tenantId)
+          .eq("leadId", resolution.leadId)
+          .eq("source", "slack_qualified")
+          .eq("stage", "qualified")
+          .eq("outcome", "open")
+          .gt("createdAt", lookbackCutoff),
       )
       .order("desc")
       .first();
@@ -279,22 +277,17 @@ export const create = internalMutation({
       .order("desc")
       .take(20);
     // Only a deal still in progress blocks a new qualification. A won deal
-    // doesn't: a second program is a new deal (ADR 0001, decision 3). Nor
-    // does a Slack deal past the join window: no booking can join it, and the
+    // doesn't: a second program is a new deal (ADR 0001, decision 3), and
+    // neither does a deal a missed meeting closed (D16). Nor does a
+    // Qualified deal past the join window: no booking can join it, and the
     // stale expiry closes it.
-    const alreadyBooked = existingOppsForLead.find(
-      (opportunity) =>
-        isActiveOpportunityStatus(opportunity.status) &&
-        !(
-          opportunity.status === "qualified_pending" &&
-          opportunity.createdAt <= lookbackCutoff
-        ),
+    const alreadyBooked = existingOppsForLead.find((opportunity) =>
+      blocksNewQualification(opportunity, lookbackCutoff),
     );
     if (alreadyBooked) {
-      const resultKind =
-        alreadyBooked.status === "qualified_pending"
-          ? "duplicate_pending"
-          : "already_booked";
+      const resultKind = isQualifiedDeal(alreadyBooked)
+        ? "duplicate_pending"
+        : "already_booked";
       const qualificationEventId = await insertQualificationEvent(ctx, {
         tenantId: args.tenantId,
         installationId: args.installationId,
@@ -332,7 +325,7 @@ export const create = internalMutation({
           outcome: "existing_opportunity_bump",
           leadId: resolution.leadId,
           opportunityId: alreadyBooked._id,
-          opportunityStatus: alreadyBooked.status,
+          dealStage: dealStageOf(alreadyBooked).stage,
           qualificationEventId,
         });
         return {

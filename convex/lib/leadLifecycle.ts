@@ -14,10 +14,12 @@ import {
   type LifecycleStage,
   type LifecycleState,
 } from "../leads/lifecycle";
+import { isOpenDeal } from "../opportunities/dealGuards";
+import type { DealStateFields } from "../opportunities/dealState";
 import { leadStageEntries } from "../reporting/aggregates";
 import { emitDomainEvent, type DomainEventSource } from "./domainEvents";
 import { personProspects, syncPersonProspectConversions } from "./prospectConversions";
-import { isActiveOpportunityStatus, updateTenantStats } from "./tenantStatsHelper";
+import { updateTenantStats } from "./tenantStatsHelper";
 
 // Writes a person's lifecycle stage and disposition, with the aggregate
 // entries, counters, search row and domain events that follow them
@@ -594,13 +596,13 @@ export const SLACK_STALE_DISPOSITION_REASON = "slack_deal_expired";
  * still `open`, and no other deal of theirs is open.
  */
 export function shouldMarkUnresponsive(
-  lead: Doc<"leads">,
-  opportunities: readonly Doc<"opportunities">[],
+  lead: Pick<Doc<"leads">, "status" | "disposition">,
+  opportunities: readonly DealStateFields[],
 ): boolean {
   return (
     lead.status !== "merged" &&
     lead.disposition === "open" &&
-    !opportunities.some((opportunity) => isActiveOpportunityStatus(opportunity.status))
+    !opportunities.some(isOpenDeal)
   );
 }
 

@@ -5,6 +5,7 @@ import { deleteDealAttributions } from "../lib/attribution/dealAttributions";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { isSideDeal } from "../lib/sideDeals";
 import { updateTenantStats } from "../lib/tenantStatsHelper";
+import { describeDealState, isSideDealAtCallHeld } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { deleteOpportunityAggregate } from "../reporting/writeHooks";
 
@@ -34,10 +35,8 @@ export const deleteEmptyOpportunity = mutation({
     if (!isSideDeal(opportunity)) {
       throw new Error("Only side-deal opportunities can be deleted.");
     }
-    if (opportunity.status !== "scheduled") {
-      throw new Error(
-        `Cannot delete an opportunity in "${opportunity.status}" status.`,
-      );
+    if (!isSideDealAtCallHeld(opportunity)) {
+      throw new Error(`Cannot delete a deal at "${describeDealState(opportunity)}".`);
     }
     if (!isAdmin && opportunity.assignedCloserId !== userId) {
       throw new Error("You are not the assigned closer for this opportunity.");

@@ -3,7 +3,7 @@ import { mutation } from "../_generated/server";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { transitionOpportunity } from "../lib/opportunityActivity";
-import { validateTransition } from "../lib/statusTransitions";
+import { canSendRescheduleLink, describeDealState } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { emitDomainEvent } from "../lib/domainEvents";
 
@@ -44,6 +44,7 @@ export const markNoShow = mutation({
       throw new Error("Opportunity not found");
     }
     const now = Date.now();
+    // A deal awaiting its call's result, which a no-show always closes.
     assertCanRecordMeetingOutcome({
       meeting,
       opportunity,
@@ -51,11 +52,6 @@ export const markNoShow = mutation({
       role,
       now,
     });
-    if (!validateTransition(opportunity.status, "no_show")) {
-      throw new Error(
-        `Cannot transition opportunity from "${opportunity.status}" to "no_show"`,
-      );
-    }
 
     const normalizedNote = normalizeOptionalString(note);
 
@@ -131,14 +127,9 @@ export const createNoShowRescheduleLink = mutation({
     if (opportunity.assignedCloserId !== userId) {
       throw new Error("Not your opportunity");
     }
-    if (opportunity.status !== "no_show") {
+    if (!canSendRescheduleLink(opportunity)) {
       throw new Error(
-        `Reschedule is only available for no-show opportunities (current: "${opportunity.status}")`,
-      );
-    }
-    if (!validateTransition(opportunity.status, "reschedule_link_sent")) {
-      throw new Error(
-        `Cannot transition opportunity from "${opportunity.status}" to "reschedule_link_sent"`,
+        `Reschedule is only available on a deal a no-show closed (current: "${describeDealState(opportunity)}")`,
       );
     }
 

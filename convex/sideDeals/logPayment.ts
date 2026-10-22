@@ -14,8 +14,8 @@ import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { isSideDeal } from "../lib/sideDeals";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { expirePendingStaleOpportunityNudges } from "../lib/staleOpportunityNudges";
-import { validateTransition } from "../lib/statusTransitions";
 import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
+import { canTakePayment, describeDealState, loadDealTasks } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { insertPaymentAggregate } from "../reporting/writeHooks";
 
@@ -50,10 +50,8 @@ export const logPayment = mutation({
     if (!isAdmin && opportunity.assignedCloserId !== userId) {
       throw new Error("You are not the assigned closer for this opportunity.");
     }
-    if (!validateTransition(opportunity.status, "payment_received")) {
-      throw new Error(
-        `Opportunity status "${opportunity.status}" cannot transition to "payment_received".`,
-      );
+    if (!canTakePayment(opportunity, await loadDealTasks(ctx, opportunity._id))) {
+      throw new Error(`A deal at "${describeDealState(opportunity)}" can't take a payment.`);
     }
     if (args.amount <= 0) {
       throw new Error("Payment amount must be greater than zero.");

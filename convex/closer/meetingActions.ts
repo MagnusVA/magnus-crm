@@ -6,7 +6,7 @@ import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { transitionOpportunity } from "../lib/opportunityActivity";
 import { requireTenantUser } from "../requireTenantUser";
-import { validateTransition } from "../lib/statusTransitions";
+import { canMarkLost, describeDealState, loadDealTasks } from "../opportunities/dealGuards";
 import { log } from "../lib/observability/log";
 
 export async function loadMeetingContext(
@@ -82,8 +82,8 @@ export const markAsLost = mutation({
         now,
       });
     }
-    if (!validateTransition(opportunity.status, "lost")) {
-      throw new Error(`Cannot mark as lost from status "${opportunity.status}"`);
+    if (!canMarkLost(opportunity, await loadDealTasks(ctx, opportunityId))) {
+      throw new Error(`Cannot mark as lost: the deal is "${describeDealState(opportunity)}"`);
     }
 
     const normalizedReason = reason?.trim() || undefined;

@@ -2,7 +2,14 @@ import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
 import { mutation } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
-import { validateTransition } from "../lib/statusTransitions";
+import {
+  canMarkLost,
+  canSendRescheduleLink,
+  canStartFollowUp,
+  describeDealState,
+  isFollowUpWithoutRescheduleLink,
+  loadDealTasks,
+} from "../opportunities/dealGuards";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { emitDomainEvent } from "../lib/domainEvents";
@@ -63,9 +70,9 @@ export const adminMarkAsLost = mutation({
       });
     }
 
-    if (!validateTransition(opportunity.status, "lost")) {
+    if (!canMarkLost(opportunity, await loadDealTasks(ctx, opportunity._id))) {
       throw new Error(
-        `Cannot mark as lost from status "${opportunity.status}"`,
+        `Cannot mark as lost: the deal is "${describeDealState(opportunity)}"`,
       );
     }
 
@@ -114,9 +121,9 @@ export const adminCreateFollowUp = mutation({
       throw new Error("Opportunity not found");
     }
 
-    if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
+    if (!canStartFollowUp(opportunity)) {
       throw new Error(
-        `Cannot create follow-up from status "${opportunity.status}"`,
+        `Cannot create follow-up: the deal is "${describeDealState(opportunity)}"`,
       );
     }
 
@@ -203,8 +210,9 @@ export const adminConfirmFollowUp = mutation({
       throw new Error("Meeting does not belong to this opportunity");
     }
 
-    // Idempotent: already transitioned
-    if (opportunity.status === "follow_up_scheduled") {
+    // Idempotent: already transitioned. A deal waiting on its reschedule link
+    // isn't, and the follow-up is refused.
+    if (isFollowUpWithoutRescheduleLink(opportunity, await loadDealTasks(ctx, opportunity._id))) {
       log.info("follow_up.confirm_skipped", {
         tenantId,
         actor: "admin",
@@ -225,9 +233,9 @@ export const adminConfirmFollowUp = mutation({
       });
     }
 
-    if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
+    if (!canStartFollowUp(opportunity)) {
       throw new Error(
-        `Cannot transition to follow_up_scheduled from "${opportunity.status}"`,
+        `Cannot move the deal to Follow-up from "${describeDealState(opportunity)}"`,
       );
     }
 
@@ -280,9 +288,9 @@ export const adminCreateManualReminder = mutation({
       throw new Error("Meeting does not belong to this opportunity");
     }
 
-    if (!validateTransition(opportunity.status, "follow_up_scheduled")) {
+    if (!canStartFollowUp(opportunity)) {
       throw new Error(
-        `Cannot create reminder from status "${opportunity.status}"`,
+        `Cannot create reminder: the deal is "${describeDealState(opportunity)}"`,
       );
     }
 
@@ -381,6 +389,7 @@ export const adminMarkNoShow = mutation({
     }
 
     const now = Date.now();
+    // A deal awaiting its call's result, which a no-show always closes.
     assertCanRecordMeetingOutcome({
       meeting,
       opportunity,
@@ -388,11 +397,6 @@ export const adminMarkNoShow = mutation({
       role,
       now,
     });
-    if (!validateTransition(opportunity.status, "no_show")) {
-      throw new Error(
-        `Cannot transition opportunity from "${opportunity.status}" to "no_show"`,
-      );
-    }
 
     const normalizedNote = normalizeOptionalString(args.note);
 
@@ -454,14 +458,8 @@ export const adminCreateRescheduleLink = mutation({
       throw new Error("Opportunity not found");
     }
 
-    if (opportunity.status !== "no_show") {
+    if (!canSendRescheduleLink(opportunity)) {
       throw new Error("Can only create reschedule links for no-show opportunities");
-    }
-
-    if (!validateTransition(opportunity.status, "reschedule_link_sent")) {
-      throw new Error(
-        `Cannot transition to reschedule_link_sent from "${opportunity.status}"`,
-      );
     }
 
     const meeting = await ctx.db.get("meetings", args.meetingId);

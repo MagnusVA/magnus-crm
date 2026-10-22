@@ -378,7 +378,10 @@ export function buildStaleDigest(args: {
       accessory: {
         type: "button",
         text: { type: "plain_text", text: "View all" },
-        url: `${args.appUrl}/workspace/pipeline?source=slack_qualified&status=qualified_pending`,
+        // /workspace/pipeline redirects whatever it is given, so links
+        // already posted with `status=` land where this one does
+        // (docs/plans/phase-5-deal-status.md §6.8).
+        url: `${args.appUrl}/workspace/pipeline?source=slack_qualified&stage=qualified`,
       },
     });
   }

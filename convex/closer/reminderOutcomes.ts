@@ -15,8 +15,14 @@ import {
 } from "../lib/paymentHelpers";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
-import { validateTransition } from "../lib/statusTransitions";
 import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
+import {
+  canMarkLost,
+  canTakePayment,
+  describeDealState,
+  isFollowUpWithoutRescheduleLink,
+  loadDealTasks,
+} from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   insertPaymentAggregate,
@@ -130,9 +136,9 @@ export const logReminderPayment = mutation({
       args.followUpId,
     );
 
-    if (!validateTransition(opportunity.status, "payment_received")) {
+    if (!canTakePayment(opportunity, await loadDealTasks(ctx, opportunity._id))) {
       throw new Error(
-        `Cannot log payment from status "${opportunity.status}"`,
+        `Cannot log payment: the deal is "${describeDealState(opportunity)}"`,
       );
     }
     if (args.amount <= 0) {
@@ -291,8 +297,8 @@ export const markReminderLost = mutation({
       followUpId,
     );
 
-    if (!validateTransition(opportunity.status, "lost")) {
-      throw new Error(`Cannot mark lost from status "${opportunity.status}"`);
+    if (!canMarkLost(opportunity, await loadDealTasks(ctx, opportunity._id))) {
+      throw new Error(`Cannot mark lost: the deal is "${describeDealState(opportunity)}"`);
     }
 
     const now = Date.now();
@@ -374,9 +380,9 @@ export const markReminderNoResponse = mutation({
           : "no_response_close_only";
 
     if (nextStep === "schedule_new") {
-      if (opportunity.status !== "follow_up_scheduled") {
+      if (!isFollowUpWithoutRescheduleLink(opportunity, await loadDealTasks(ctx, opportunity._id))) {
         throw new Error(
-          `Cannot schedule a new reminder from status "${opportunity.status}"`,
+          `Cannot schedule a new reminder: the deal is "${describeDealState(opportunity)}"`,
         );
       }
       if (!newReminder) {
@@ -388,8 +394,8 @@ export const markReminderNoResponse = mutation({
     }
 
     if (nextStep === "give_up") {
-      if (!validateTransition(opportunity.status, "lost")) {
-        throw new Error(`Cannot mark lost from status "${opportunity.status}"`);
+      if (!canMarkLost(opportunity, await loadDealTasks(ctx, opportunity._id))) {
+        throw new Error(`Cannot mark lost: the deal is "${describeDealState(opportunity)}"`);
       }
       const lostReason = trimmedNote ?? "No response to outreach";
 

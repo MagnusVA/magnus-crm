@@ -41,8 +41,8 @@ async function slackOpportunity(
     const opportunityId = await ctx.db.insert("opportunities", {
       tenantId,
       leadId,
-      status: options.status ?? "qualified_pending",
-      source: "slack_qualified",
+      // With the stage and outcome, as every deal has since the backfill.
+      ...stageFields(options.status ?? "qualified_pending", "slack_qualified"),
       qualifiedBy,
       createdAt,
       updatedAt: createdAt,
