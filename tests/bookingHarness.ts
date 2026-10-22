@@ -12,7 +12,6 @@ export function registerComponents(t: ReturnType<typeof convexTest>) {
     workpool.register(t, name);
   for (const name of [
     "meetingsByStatus",
-    "opportunityByStatus",
     "opportunityByStage",
     "leadStageEntries",
     "slackQualificationsByUser",

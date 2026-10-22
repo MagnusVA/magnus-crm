@@ -4,7 +4,6 @@ import {
   dealStageOf,
   type DealOutcome,
   type DealStage,
-  type OpportunityStatus,
 } from "../opportunities/stages";
 import { components } from "../_generated/api";
 import type { DataModel, Doc, Id } from "../_generated/dataModel";
@@ -48,28 +47,10 @@ export const paymentSums = new TableAggregate<{
   sumValue: (doc) => (doc.status === "disputed" ? 0 : doc.amountMinor),
 });
 
-// Deals by the old status. Nothing writes it from PR 9; only
-// migrations.ts:clearOpportunityByStatus reads it, to empty it before the
-// narrow unmounts it (docs/plans/phase-5-deal-status.md §10.6). A revert to
-// PR 8 writes it again through the IfExists methods.
-export const opportunityByStatus = new TableAggregate<{
-  Namespace: Id<"tenants">;
-  Key: [OpportunityStatus | "", OpportunityAssignedCloserKey, number];
-  DataModel: DataModel;
-  TableName: "opportunities";
-}>(components.opportunityByStatus, {
-  namespace: (doc) => doc.tenantId,
-  sortKey: (doc) => [
-    doc.status ?? "",
-    doc.assignedCloserId ?? "",
-    doc.createdAt,
-  ],
-});
-
-// Deals by stage and outcome (docs/plans/phase-5-deal-status.md §3.1), keyed
-// by the stored fields only. Every deal is in it (backfillOpportunityByStage),
-// so from PR 9 the write hooks use the strict methods: a deal missing from
-// it, or entered twice, throws instead of drifting.
+// Deals by stage and outcome (docs/plans/phase-5-deal-status.md §3.1). Every
+// deal is in it (backfillOpportunityByStage), so the write hooks use the
+// strict methods: a deal missing from it, or entered twice, throws instead of
+// drifting.
 export const opportunityByStage = new TableAggregate<{
   Namespace: Id<"tenants">;
   Key: [DealStage, DealOutcome, OpportunityAssignedCloserKey, number];

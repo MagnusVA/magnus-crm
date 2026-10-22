@@ -790,7 +790,6 @@ export declare const components: {
   posthog: import("@posthog/convex/_generated/component.js").ComponentApi<"posthog">;
   meetingsByStatus: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"meetingsByStatus">;
   paymentSums: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"paymentSums">;
-  opportunityByStatus: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"opportunityByStatus">;
   opportunityByStage: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"opportunityByStage">;
   leadStageEntries: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"leadStageEntries">;
   prospectConversions: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"prospectConversions">;
