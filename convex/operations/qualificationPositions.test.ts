@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import type { OpportunityStatus } from "../lib/statusTransitions";
+import type { OpportunityStatus } from "../opportunities/stages";
 import type { DealPosition, DealSource } from "../opportunities/stages";
 import { bookingHarness } from "../../tests/bookingHarness";
 import { insertQualification, insertWrittenDeal } from "../../tests/dealStateFixtures";

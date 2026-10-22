@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { OPPORTUNITY_STATUSES, type OpportunityStatus } from "../lib/statusTransitions";
+import { OPPORTUNITY_STATUSES, type OpportunityStatus } from "../opportunities/stages";
 import {
   adminMeetingActions,
   isAwaitingOutcome,

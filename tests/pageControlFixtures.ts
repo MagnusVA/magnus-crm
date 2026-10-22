@@ -1,13 +1,13 @@
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx } from "../convex/_generated/server";
-import {
-  OPPORTUNITY_STATUSES,
-  type MeetingStatus,
-  type OpportunityStatus,
-} from "../convex/lib/statusTransitions";
+import type { MeetingStatus } from "../convex/lib/statusTransitions";
 import { legacyStatus } from "../convex/opportunities/dealState";
 import { dealLabelOf } from "../convex/opportunities/stageLabels";
-import type { DealSource } from "../convex/opportunities/stages";
+import {
+  OPPORTUNITY_STATUSES,
+  type DealSource,
+  type OpportunityStatus,
+} from "../convex/opportunities/stages";
 import { insertLatestMeeting } from "./dealStageFixtures";
 import { dealAt, insertDealTask, type DealStateShape } from "./dealStateFixtures";
 import { insertPersonDeal } from "./stageLabelFixtures";
