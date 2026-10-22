@@ -32,6 +32,11 @@ import {
 } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { DealStageBadge } from "@/components/status-badge";
+import {
+  isClosedByNoShow,
+  isDealWon,
+  isWaitingOnRescheduleLink,
+} from "@/lib/deal-controls";
 import { MeetingOverviewCard } from "../../_components/meeting-overview-card";
 import { MeetingHistoryCard } from "../../_components/meeting-history-card";
 import { MeetingComments } from "../../_components/meeting-comments";
@@ -104,8 +109,9 @@ export function MeetingDetailPageClient({
     attributedCloserId: payment.attributedCloserId ?? undefined,
   })) as Doc<"paymentRecords">[];
 
-  const isDealWon =
-    opportunity.status === "payment_received" && payments.length > 0;
+  // The page's controls read the deal's stage, loss and reschedule link
+  // (lib/deal-controls.ts); the mutations check the deal again.
+  const dealWon = isDealWon(opportunity) && payments.length > 0;
 
   return (
     <div className="flex flex-col gap-4">
@@ -134,7 +140,7 @@ export function MeetingDetailPageClient({
 
         {/* Actions — top-right, horizontal, packed */}
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {isDealWon && (
+          {dealWon && (
             <Button
               variant="outline"
               size="sm"
@@ -185,7 +191,7 @@ export function MeetingDetailPageClient({
         <RescheduleChainBanner rescheduledFromMeeting={rescheduledFromMeeting} />
       )}
 
-      {viewerRole === "closer" && opportunity.status === "no_show" && (
+      {viewerRole === "closer" && isClosedByNoShow(opportunity) && (
         <NoShowActionBar
           meeting={meeting}
           opportunity={opportunity}
@@ -202,7 +208,7 @@ export function MeetingDetailPageClient({
         />
       )}
 
-      {opportunity.status === "reschedule_link_sent" && !rescheduleLinkUrl && (
+      {isWaitingOnRescheduleLink(opportunity) && !rescheduleLinkUrl && (
         <RescheduleLinkSentBanner />
       )}
 
@@ -246,7 +252,7 @@ export function MeetingDetailPageClient({
       </div>
 
       {/* ── Deal Won modal ──────────────────────────────────────────────── */}
-      {isDealWon && (
+      {dealWon && (
         <Dialog open={showDealWon} onOpenChange={setShowDealWon}>
           <DialogContent className="max-h-[80vh] max-w-lg overflow-y-auto p-0">
             {/* DialogTitle required for a11y; DealWonCard provides the visual header */}

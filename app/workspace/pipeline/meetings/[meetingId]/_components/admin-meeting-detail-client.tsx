@@ -26,6 +26,7 @@ import {
   UserIcon,
 } from "lucide-react";
 import { DealStageBadge } from "@/components/status-badge";
+import { isDealWon, isWaitingOnRescheduleLink } from "@/lib/deal-controls";
 
 // Cross-import reusable display components from closer meeting detail
 import { LeadInfoPanel } from "@/app/workspace/closer/meetings/_components/lead-info-panel";
@@ -173,8 +174,9 @@ export function AdminMeetingDetailClient({
         />
       )}
 
-      {/* Feature B: Reschedule Link Sent Banner */}
-      {opportunity.status === "reschedule_link_sent" && !rescheduleLinkUrl && (
+      {/* Feature B: Reschedule Link Sent Banner, on a Follow-up deal with a
+          pending reschedule link */}
+      {isWaitingOnRescheduleLink(opportunity) && !rescheduleLinkUrl && (
         <RescheduleLinkSentBanner />
       )}
 
@@ -199,9 +201,10 @@ export function AdminMeetingDetailClient({
             customFieldLabels={lead.customFieldLabels}
           />
 
-          {/* Deal Won Card — only when opportunity is won with payments */}
-          {opportunity.status === "payment_received" &&
-            payments.length > 0 && <DealWonCard payments={payments} />}
+          {/* Deal Won Card — only on a Closed won deal with payments */}
+          {isDealWon(opportunity) && payments.length > 0 && (
+            <DealWonCard payments={payments} />
+          )}
 
           {/* Attribution Card */}
           <AttributionCard
@@ -231,7 +234,7 @@ export function AdminMeetingDetailClient({
         </div>
       </div>
 
-      {/* Admin Action Bar — contextual actions based on opportunity status */}
+      {/* Admin Action Bar — contextual actions from the deal's stage and loss */}
       <AdminActionBar
         meeting={meeting}
         opportunity={opportunity}

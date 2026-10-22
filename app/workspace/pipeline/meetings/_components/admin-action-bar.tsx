@@ -15,25 +15,25 @@ import { MarkNoShowDialog } from "@/app/workspace/closer/meetings/_components/ma
 import { AdminFollowUpDialog } from "./admin-follow-up-dialog";
 import { AdminMarkLostDialog } from "./admin-mark-lost-dialog";
 import { getErrorMessage } from "@/lib/errors";
+import { adminMeetingActions, type DealControlFields } from "@/lib/deal-controls";
 
 type AdminActionBarProps = {
   meeting: Doc<"meetings">;
-  opportunity: Doc<"opportunities">;
+  opportunity: Pick<Doc<"opportunities">, "_id"> & DealControlFields;
   onRescheduleLinkCreated: (url: string) => void;
 };
 
 /**
- * Admin Action Bar — contextual actions based on opportunity status.
+ * Admin Action Bar — contextual actions from the deal's stage and loss
+ * (`adminMeetingActions` in lib/deal-controls.ts).
  *
- * | Status                 | Actions                                                |
- * |------------------------|--------------------------------------------------------|
- * | scheduled              | Log Payment, Follow-up, Mark No-Show, Mark Lost        |
- * | no_show                | Reschedule Link, Follow-up                             |
- * | canceled               | Follow-up                                              |
- * | follow_up_scheduled    | (view only)                                            |
- * | reschedule_link_sent   | (view only)                                            |
- * | payment_received       | (view only — terminal)                                 |
- * | lost                   | (view only — terminal)                                 |
+ * | Deal                          | Actions                                                |
+ * |-------------------------------|--------------------------------------------------------|
+ * | Booked or Call held           | Log Payment, Follow-up, Mark No-Show, Mark Lost, while the meeting is scheduled |
+ * | Closed lost by a no-show      | Reschedule Link, Follow-up                             |
+ * | Closed lost by a cancellation | Follow-up                                              |
+ * | Qualified, Follow-up          | (view only)                                            |
+ * | Closed otherwise              | (no bar)                                               |
  */
 export function AdminActionBar({
   meeting,
@@ -41,18 +41,15 @@ export function AdminActionBar({
   onRescheduleLinkCreated,
 }: AdminActionBarProps) {
   const [showNoShowDialog, setShowNoShowDialog] = useState(false);
-  const status = opportunity.status;
-  const isScheduledOutcome =
-    meeting.status === "scheduled" && status === "scheduled";
-  const isTerminal = status === "payment_received" || status === "lost";
+  const actions = adminMeetingActions(opportunity, meeting.status);
 
-  if (isTerminal) {
+  if (actions === null) {
     return null;
   }
 
   return (
     <div className="flex flex-wrap items-center gap-3 border-t pt-4">
-      {isScheduledOutcome ? (
+      {actions.outcome ? (
         <>
           <PaymentFormDialog
             opportunityId={opportunity._id}
@@ -86,11 +83,11 @@ export function AdminActionBar({
         </>
       ) : null}
 
-      {(status === "no_show" || status === "canceled") && (
+      {actions.scheduleFollowUp && (
         <AdminFollowUpDialog opportunityId={opportunity._id} />
       )}
 
-      {status === "no_show" && (
+      {actions.rescheduleLink && (
         <AdminRescheduleButton
           opportunityId={opportunity._id}
           meetingId={meeting._id}
