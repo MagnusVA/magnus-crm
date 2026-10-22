@@ -95,8 +95,9 @@ export function adminMeetingActions(
  *
  * This is the one control that changes (§4.6). Today's set was
  * `payment_received`, `lost` and `no_show`, so a canceled deal showed the
- * outcome buttons and the server refused each of them. A canceled deal now
- * counts as finished too.
+ * outcome buttons, and the server refuses the payment, the loss and a new
+ * reminder on it; only the closer's "no response, close only" went through.
+ * A canceled deal now counts as finished too, as a no-show's does.
  */
 export function isReminderDealFinished(deal: DealControlFields): boolean {
   return deal.position === "won" || deal.position === "lost";

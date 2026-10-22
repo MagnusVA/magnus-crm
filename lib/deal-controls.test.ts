@@ -50,7 +50,7 @@ describe("the meeting pages", () => {
 
   it("give the admin no bar on a closed deal, except one a missed meeting closed", () => {
     const shown = (position: "won" | "lost", systemLoss: "no_show" | "canceled" | "stale" | null) =>
-      adminMeetingActions({ position, systemLoss, rescheduleLinkPending: false }, "scheduled");
+      adminMeetingActions({ position, systemLoss }, "scheduled");
     expect(shown("won", null)).toBeNull();
     expect(shown("lost", null)).toBeNull();
     expect(shown("lost", "stale")).toBeNull();
