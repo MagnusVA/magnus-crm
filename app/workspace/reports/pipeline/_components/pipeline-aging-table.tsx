@@ -14,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { DEAL_STAGE_CONFIG } from "@/convex/opportunities/stages";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
 import type { OpenPipelineStage } from "@/convex/reporting/pipelineHealth";
 
 // The open stages a closer works. Qualified is computed and left out, as it
@@ -65,7 +65,7 @@ export function PipelineAgingTable({ agingByStage }: PipelineAgingTableProps) {
                 return (
                   <TableRow key={stage}>
                     <TableCell className="font-medium">
-                      {DEAL_STAGE_CONFIG[stage].label}
+                      {dealPositionLabel(stage)}
                     </TableCell>
                     <TableCell className="text-right">{entry.count}</TableCell>
                     <TableCell className="text-right tabular-nums">

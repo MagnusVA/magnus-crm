@@ -9,7 +9,6 @@ import {
   type DealAttribution,
 } from "../lib/attribution/dealAttributions";
 import { LIVE_QUERY_BYTE_BUDGET } from "../lib/liveQueryBounds";
-import { missedMeetingValidator } from "../opportunities/dealPositions";
 import { isMissedMeetingLoss, type MissedMeeting } from "../opportunities/dealState";
 import { assertValidDateRange, getUserDisplayName } from "../reporting/lib/helpers";
 import { requireTenantUser } from "../requireTenantUser";
@@ -30,6 +29,8 @@ export const MISSED_MEETINGS_PAGE_SIZE = 100;
 // Far above the deals and identifiers one person has.
 const DEALS_PER_PERSON = 10;
 const IDENTIFIERS_PER_PERSON = 50;
+
+const missedMeetingValidator = v.union(v.literal("no_show"), v.literal("canceled"));
 
 const dealSourceValidator = v.union(
   v.literal("calendly"),

@@ -17,8 +17,8 @@ import {
 } from "../lib/liveQueryBounds";
 import {
   dealPositionValidator,
-  missedMeetingValidator,
-} from "../opportunities/dealPositions";
+  systemLossReasonValidator,
+} from "../opportunities/dealLabelValidators";
 import {
   getNonDisputedPaymentsInRange,
   getUserDisplayName,
@@ -77,7 +77,7 @@ const salesCallsMeetingRowValidator = v.object({
   scheduledAt: v.number(),
   meetingStatus: meetingStatusValidator,
   dealPosition: v.union(dealPositionValidator, v.null()),
-  missedMeeting: v.union(missedMeetingValidator, v.null()),
+  dealSystemLoss: v.union(systemLossReasonValidator, v.null()),
   bookingProgramName: v.union(v.string(), v.null()),
   bookingProgramMappingStatus: v.union(
     bookingProgramMappingStatusValidator,

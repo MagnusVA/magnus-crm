@@ -6,8 +6,8 @@ import { usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { ArrowUpRightIcon, LoaderCircleIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
-import { dealPositionLabel } from "@/convex/opportunities/dealPositions";
 import type { Id } from "@/convex/_generated/dataModel";
+import { DealStageBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -142,9 +142,11 @@ function BookingDetail({ row }: { row: BookedCallRow }) {
         </DetailField>
         <DetailField label="DM closer">{row.dmCloserLabel ?? "—"}</DetailField>
         <DetailField label="Deal stage">
-          {row.dealPosition
-            ? dealPositionLabel(row.dealPosition, row.missedMeeting)
-            : "Unlinked"}
+          {row.dealPosition ? (
+            <DealStageBadge position={row.dealPosition} systemLoss={row.dealSystemLoss} />
+          ) : (
+            "Unlinked"
+          )}
         </DetailField>
         <DetailField label="Initial source">
           <InitialSourceBadge source={row.initialSource} />

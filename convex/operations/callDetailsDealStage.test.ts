@@ -43,10 +43,10 @@ async function setup() {
 }
 
 type Admin = Awaited<ReturnType<typeof setup>>["admin"];
-type DealStageFields = { meetingId: Id<"meetings">; dealPosition: string | null; missedMeeting: string | null };
+type DealStageFields = { meetingId: Id<"meetings">; dealPosition: string | null; dealSystemLoss: string | null };
 
 const stages = (rows: DealStageFields[]) =>
-  Object.fromEntries(rows.map((row) => [row.meetingId, [row.dealPosition, row.missedMeeting]]));
+  Object.fromEntries(rows.map((row) => [row.meetingId, [row.dealPosition, row.dealSystemLoss]]));
 
 async function bookedCalls(admin: Admin) {
   const rows: FunctionReturnType<typeof api.operations.bookedCallsDashboard.listBookedCallsDetails>["page"] = [];
@@ -82,7 +82,7 @@ async function salesCalls(admin: Admin) {
 }
 
 describe("the call details' deal stage", () => {
-  it("shows each booked call's deal position, and the missed meeting that closed it", async () => {
+  it("shows each booked call's deal position, and the loss the system wrote on it", async () => {
     const { fixture, admin } = await setup();
 
     expect(stages(await bookedCalls(admin))).toEqual({

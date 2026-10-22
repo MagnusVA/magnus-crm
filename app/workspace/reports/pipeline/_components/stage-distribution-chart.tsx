@@ -16,10 +16,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  DEAL_POSITION_LABELS,
-  type DealPosition,
-} from "@/convex/opportunities/stages";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
+import type { DealPosition } from "@/convex/opportunities/stages";
 
 // One colour per position, typed by the position so a new one needs a colour:
 // the open stages in order on the chart ramp, Won green, Lost grey.
@@ -58,7 +56,7 @@ export function StageDistributionChart({
     const config: ChartConfig = {};
     for (const entry of chartData) {
       config[entry.position] = {
-        label: DEAL_POSITION_LABELS[entry.position],
+        label: dealPositionLabel(entry.position),
         color: entry.fill,
       };
     }

@@ -251,7 +251,7 @@ import type * as operations_unmappedUtms from "../operations/unmappedUtms.js";
 import type * as operations_validators from "../operations/validators.js";
 import type * as operations_workStatus from "../operations/workStatus.js";
 import type * as opportunities_createManual from "../opportunities/createManual.js";
-import type * as opportunities_dealPositions from "../opportunities/dealPositions.js";
+import type * as opportunities_dealLabelValidators from "../opportunities/dealLabelValidators.js";
 import type * as opportunities_dealState from "../opportunities/dealState.js";
 import type * as opportunities_detailQuery from "../opportunities/detailQuery.js";
 import type * as opportunities_listQueries from "../opportunities/listQueries.js";
@@ -630,7 +630,7 @@ declare const fullApi: ApiFromModules<{
   "operations/validators": typeof operations_validators;
   "operations/workStatus": typeof operations_workStatus;
   "opportunities/createManual": typeof opportunities_createManual;
-  "opportunities/dealPositions": typeof opportunities_dealPositions;
+  "opportunities/dealLabelValidators": typeof opportunities_dealLabelValidators;
   "opportunities/dealState": typeof opportunities_dealState;
   "opportunities/detailQuery": typeof opportunities_detailQuery;
   "opportunities/listQueries": typeof opportunities_listQueries;

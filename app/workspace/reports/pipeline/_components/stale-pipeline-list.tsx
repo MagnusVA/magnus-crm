@@ -2,7 +2,6 @@
 
 import { format } from "date-fns";
 import { CheckCircle2Icon } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -27,10 +26,8 @@ import {
 } from "@/components/ui/table";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
-import {
-  DEAL_POSITION_LABELS,
-  type DealPosition,
-} from "@/convex/opportunities/stages";
+import { DealStageBadge } from "@/components/status-badge";
+import type { DealPosition } from "@/convex/opportunities/stages";
 
 interface StalePipelineListProps {
   staleCount: number;
@@ -97,9 +94,7 @@ export function StalePipelineList({
                     {opp.leadName || "Unknown"}
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">
-                      {DEAL_POSITION_LABELS[opp.position]}
-                    </Badge>
+                    <DealStageBadge position={opp.position} />
                   </TableCell>
                   <TableCell>
                     {opp.assignedCloser ? (

@@ -6,11 +6,9 @@ import { usePaginatedQuery, useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { ArrowUpRightIcon, LoaderCircleIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
-import {
-  DEAL_POSITIONS,
-  DEAL_POSITION_LABELS,
-  type DealPosition,
-} from "@/convex/opportunities/stages";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
+import { DEAL_POSITIONS, type DealPosition } from "@/convex/opportunities/stages";
+import { DealStageBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -71,10 +69,6 @@ function titleCase(value: string) {
     .join(" ");
 }
 
-function formatPosition(position: DealPosition | null) {
-  return position ? DEAL_POSITION_LABELS[position] : "Unlinked";
-}
-
 function resultKindLabel(value: SubmissionRow["resultKind"]) {
   if (value === "created_opportunity") return "Created opportunity";
   if (value === "duplicate_pending") return "Duplicate pending";
@@ -128,12 +122,13 @@ function SubmissionSummary({ row }: { row: SubmissionRow }) {
           Qualified {formatDate(row.qualifiedAt)}
         </TooltipContent>
       </Tooltip>
-      <Badge
-        className="shrink-0"
-        variant={row.dealPosition ? "secondary" : "outline"}
-      >
-        {formatPosition(row.dealPosition)}
-      </Badge>
+      {row.dealPosition ? (
+        <DealStageBadge className="shrink-0" position={row.dealPosition} />
+      ) : (
+        <Badge className="shrink-0" variant="outline">
+          Unlinked
+        </Badge>
+      )}
     </div>
   );
 }
@@ -296,7 +291,7 @@ export function QualificationSubmissionsList({
                     <SelectItem value="all">All stages</SelectItem>
                     {DEAL_POSITIONS.map((position) => (
                       <SelectItem key={position} value={position}>
-                        {DEAL_POSITION_LABELS[position]}
+                        {dealPositionLabel(position)}
                       </SelectItem>
                     ))}
                   </SelectGroup>

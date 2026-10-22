@@ -12,7 +12,7 @@ import {
   unknownMemberIdentity,
   userMemberIdentity,
 } from "../lib/memberIdentity";
-import { dealPositionOf } from "../opportunities/dealPositions";
+import { dealLabelOf } from "../opportunities/stageLabels";
 import { requireTenantUser } from "../requireTenantUser";
 
 const meetingStatusValidator = v.union(
@@ -219,7 +219,7 @@ export async function enrichPhoneSalesRows(
       linkedDmCloserUserCandidate?.tenantId === tenantId
         ? linkedDmCloserUserCandidate
         : undefined;
-    const deal = opportunity ? dealPositionOf(opportunity) : null;
+    const deal = opportunity ? dealLabelOf(opportunity) : null;
     const leadName = lead
       ? leadDisplayFromShape({
           fullName: lead.fullName,
@@ -235,10 +235,10 @@ export async function enrichPhoneSalesRows(
       leadName,
       scheduledAt: meeting.scheduledAt,
       meetingStatus: meeting.status,
-      // The deal's position and the missed meeting that closed it, from the
+      // The deal's position and the loss the system wrote on it, from the
       // deal (docs/plans/phase-5-deal-status.md §6.6).
       dealPosition: deal?.position ?? null,
-      missedMeeting: deal?.missedMeeting ?? null,
+      dealSystemLoss: deal?.systemLoss ?? null,
       bookingProgramName: meeting.bookingProgramName ?? opportunity?.firstBookingProgramName ?? null,
       bookingProgramMappingStatus:
         meeting.bookingProgramMappingStatus ??

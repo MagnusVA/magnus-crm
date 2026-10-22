@@ -10,8 +10,13 @@ import {
   unknownMemberIdentity,
   userMemberIdentity,
 } from "../lib/memberIdentity";
-import { dealPositionValidator, positionOfCopy } from "../opportunities/dealPositions";
-import { stageOfPosition, type DealPosition } from "../opportunities/stages";
+import { dealPositionValidator } from "../opportunities/dealLabelValidators";
+import {
+  dealPosition,
+  isAllowedStageOutcome,
+  stageOfPosition,
+  type DealPosition,
+} from "../opportunities/stages";
 import { requireTenantUser } from "../requireTenantUser";
 import { loadQualificationRowCredits } from "./qualificationCredit";
 
@@ -115,6 +120,16 @@ function qualificationRowsQuery(ctx: QueryCtx, args: QualificationFilterArgs) {
     });
 }
 
+/** The position of the deal the row copied, or null when it copied none. */
+function rowPosition(row: QualificationRowDoc): DealPosition | null {
+  const { dealStage, dealOutcome } = row;
+  return dealStage !== undefined &&
+    dealOutcome !== undefined &&
+    isAllowedStageOutcome(dealStage, dealOutcome)
+    ? dealPosition(dealStage, dealOutcome)
+    : null;
+}
+
 function slackUserLabel(user: Doc<"slackUsers"> | null | undefined) {
   return (
     user?.displayName?.trim() ||
@@ -182,7 +197,7 @@ async function enrichQualificationRows(
 
     return {
       ...row,
-      dealPosition: positionOfCopy(row.dealStage, row.dealOutcome),
+      dealPosition: rowPosition(row),
       // The deal's first booking credit: its team, DM closer and resolution.
       ...creditFor(row),
       fullNameSnapshot: event?.fullNameSnapshot ?? "Unknown lead",
