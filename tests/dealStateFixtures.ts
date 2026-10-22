@@ -158,3 +158,15 @@ export async function qualificationRowOf(
     .unique();
   return row!;
 }
+
+/** A second tenant, whose deals a tenant's checks must not read. */
+export async function insertOtherTenant(ctx: MutationCtx): Promise<Id<"tenants">> {
+  return await ctx.db.insert("tenants", {
+    companyName: "Other",
+    contactEmail: "other@example.com",
+    workosOrgId: "org_other",
+    status: "active",
+    inviteExpiresAt: 0,
+    createdBy: "test",
+  });
+}
