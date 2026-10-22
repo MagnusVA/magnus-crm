@@ -257,16 +257,23 @@ describe("the stage way of each report number", () => {
     const loss = await harness.admin.query(api.reporting.pipelineHealth.getPipelineBacklogAndLoss, LOSS_RANGE);
     expect(loss.lossAttribution).toMatchObject({ admin: 1, closer: 1, unknown: 1 });
 
-    const allTime = await harness.closer.query(api.closer.dashboard.getPipelineSummary, {});
-    expect(allTime.total).toBe(7);
-    expect(allTime.counts.canceled).toBe(1);
-    const filtered = await harness.closer.query(api.closer.dashboard.getPipelineSummary, MEETING_RANGE);
-    expect([filtered.counts.payment_received, filtered.counts.lost, filtered.total]).toEqual([1, 2, 6]);
-
     const team = await harness.admin.query(api.reporting.teamOutcomes.getTeamOutcomeMix, MEETING_RANGE);
     expect(Object.fromEntries(team.closerOutcomes.map(({ closerId, outcomes }) => [closerId, outcomes]))).toEqual({
       [harness.closerAId]: closerAOutcomes,
       [harness.closerBId]: closerBOutcomes,
     });
+  });
+
+  it("shows the closer's tabs and strip the stage way", async () => {
+    const { harness } = await seeded();
+
+    const allTime = await harness.closer.query(api.closer.dashboard.getPipelineSummary, {});
+    expect(allTime).toMatchObject({
+      counts: { ...noPositions, booked: 1, call_held: 1, follow_up: 1, won: 1, lost: 3 },
+      total: 7,
+    });
+    const filtered = await harness.closer.query(api.closer.dashboard.getPipelineSummary, MEETING_RANGE);
+    // Won and lost as the status way counted them: 1 and 2.
+    expect([filtered.decided, filtered.total]).toEqual([{ won: 1, lost: 2 }, 6]);
   });
 });

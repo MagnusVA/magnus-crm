@@ -3,6 +3,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { format } from "date-fns";
 import {
   ArrowRightIcon,
+  BriefcaseIcon,
   CalendarDaysIcon,
   ClockIcon,
   type LucideIcon,
@@ -25,6 +26,8 @@ import {
   meetingStatusConfig,
   type MeetingStatus,
 } from "@/lib/status-config";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
+import type { DealPosition, SystemLossReason } from "@/convex/opportunities/stages";
 
 type MeetingDisplayProps = {
   meetingId: string;
@@ -33,6 +36,10 @@ type MeetingDisplayProps = {
   status: string;
   leadName: string;
   eventTypeName?: string | null;
+  /** Where the meeting's deal is now; null when the deal is gone. */
+  dealPosition: DealPosition | null;
+  /** The loss the system wrote on the deal, such as a no-show, if it did. */
+  dealSystemLoss: SystemLossReason | null;
   meetingJoinUrl?: string;
   zoomJoinUrl?: string;
 };
@@ -126,6 +133,8 @@ function MeetingDetailsDialog({
   status,
   leadName,
   eventTypeName,
+  dealPosition,
+  dealSystemLoss,
   meetingJoinUrl,
   zoomJoinUrl,
 }: MeetingDisplayProps & { children: ReactNode }) {
@@ -133,7 +142,9 @@ function MeetingDetailsDialog({
   const dotClass = getMeetingDotClass(status);
   const startTime = format(scheduledAt, "EEEE, MMM d · h:mm a");
   const endTime = getEndTime(scheduledAt, durationMinutes);
-  const joinUrl = meetingJoinUrl ?? zoomJoinUrl;
+  // A canceled meeting shows on the calendar, but there's nothing to join.
+  const joinUrl =
+    status === "canceled" ? undefined : (meetingJoinUrl ?? zoomJoinUrl);
 
   return (
     <Dialog>
@@ -169,6 +180,13 @@ function MeetingDetailsDialog({
               icon={CalendarDaysIcon}
               label="Meeting Type"
               value={eventTypeName}
+            />
+          ) : null}
+          {dealPosition ? (
+            <DetailRow
+              icon={BriefcaseIcon}
+              label="Deal"
+              value={dealPositionLabel(dealPosition, dealSystemLoss)}
             />
           ) : null}
         </div>

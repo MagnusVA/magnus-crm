@@ -255,6 +255,7 @@ export function CloserDashboardPageClient() {
       <PipelineStrip
         counts={pipelineSummary.counts}
         total={pipelineSummary.total}
+        decided={pipelineSummary.decided}
         rangeLabel={statsWindow.label}
         periodNoun={statsWindow.periodNoun}
         cashCollectedMinor={pipelineSummary.cashCollectedMinor}

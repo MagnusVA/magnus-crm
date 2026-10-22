@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
+import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -23,28 +23,26 @@ import {
 import { SortableHeader } from "@/components/sortable-header";
 import { DealStageBadge } from "@/components/status-badge";
 import { useTableSort } from "@/hooks/use-table-sort";
-import type { Doc, Id } from "@/convex/_generated/dataModel";
-import { dealLabelOf, dealPositionLabel } from "@/convex/opportunities/stageLabels";
-import { DEAL_POSITIONS } from "@/convex/opportunities/stages";
-import type { OpportunityStatus } from "@/lib/status-config";
+import type { Id } from "@/convex/_generated/dataModel";
+import type { CloserNextStep } from "@/convex/closer/pipeline";
+import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
+import {
+  DEAL_POSITIONS,
+  type DealPosition,
+  type SystemLossReason,
+} from "@/convex/opportunities/stages";
 import { ExternalLinkIcon, InboxIcon } from "lucide-react";
-import { MemberIdentity } from "@/app/workspace/_components/member-identity";
-import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
 
-export interface PipelineOpportunity
-  extends Partial<
-    Pick<Doc<"opportunities">, "source" | "stage" | "outcome" | "lostReason" | "lostByUserId">
-  > {
+export interface PipelineOpportunity {
   _id: Id<"opportunities">;
   leadId: Id<"leads">;
-  status: OpportunityStatus;
+  position: DealPosition;
+  /** The loss the system wrote on a Lost deal, such as a no-show, if it did. */
+  systemLoss: SystemLossReason | null;
+  /** What a Follow-up deal waits on, if anything. */
+  nextStep: CloserNextStep | null;
   leadName: string;
   leadEmail?: string;
-  /** Admin-only — present when `showCloserColumn` is true. */
-  closerName?: string;
-  closerEmail?: string;
-  closer?: MemberAvatarIdentity | null;
-  hostCalendlyEmail?: string | null;
   nextMeetingId?: Id<"meetings"> | null;
   nextMeetingAt?: number | null;
   latestMeetingId?: Id<"meetings"> | null;
@@ -57,17 +55,14 @@ export interface OpportunitiesTableProps {
   canLoadMore: boolean;
   isLoadingMore?: boolean;
   onLoadMore: () => void;
-  /** When true, render the "Closer" column. */
-  showCloserColumn?: boolean;
-  /**
-   * Deprecated transition prop kept for compatibility with existing pipeline
-   * callers while opportunity detail becomes the primary destination.
-   */
-  meetingBasePath: string;
-  /** @deprecated Opportunity rows now link to the lead-centric sheet route. */
-  opportunityBasePath?: string;
   /** Optional custom empty state. Falls back to a generic "No opportunities" card. */
   emptyState?: React.ReactNode;
+}
+
+function nextStepLabel(nextStep: CloserNextStep): string {
+  return nextStep.kind === "reschedule_link_sent"
+    ? "Reschedule link sent"
+    : `Reminder ${format(nextStep.reminderScheduledAt, "MMM d, h:mm a")}`;
 }
 
 function formatDate(timestamp: number) {
@@ -110,7 +105,6 @@ export function OpportunitiesTable({
   canLoadMore,
   isLoadingMore = false,
   onLoadMore,
-  showCloserColumn = false,
   emptyState,
 }: OpportunitiesTableProps) {
   const [now, setNow] = useState(() => Date.now());
@@ -119,19 +113,12 @@ export function OpportunitiesTable({
     () => ({
       lead: (a: PipelineOpportunity, b: PipelineOpportunity) =>
         a.leadName.localeCompare(b.leadName),
-      closer: (a: PipelineOpportunity, b: PipelineOpportunity) =>
-        (a.closerName ?? "").localeCompare(b.closerName ?? ""),
       // By the badge: the pipeline's order, then a loss's kind.
-      status: (a: PipelineOpportunity, b: PipelineOpportunity) => {
-        const left = dealLabelOf(a);
-        const right = dealLabelOf(b);
-        return (
-          DEAL_POSITIONS.indexOf(left.position) - DEAL_POSITIONS.indexOf(right.position) ||
-          dealPositionLabel(left.position, left.systemLoss).localeCompare(
-            dealPositionLabel(right.position, right.systemLoss),
-          )
-        );
-      },
+      stage: (a: PipelineOpportunity, b: PipelineOpportunity) =>
+        DEAL_POSITIONS.indexOf(a.position) - DEAL_POSITIONS.indexOf(b.position) ||
+        dealPositionLabel(a.position, a.systemLoss).localeCompare(
+          dealPositionLabel(b.position, b.systemLoss),
+        ),
       meeting: (a: PipelineOpportunity, b: PipelineOpportunity) =>
         (a.nextMeetingAt ?? a.latestMeetingAt ?? 0) -
         (b.nextMeetingAt ?? b.latestMeetingAt ?? 0),
@@ -185,17 +172,9 @@ export function OpportunitiesTable({
                 sort={sort}
                 onToggle={toggle}
               />
-              {showCloserColumn ? (
-                <SortableHeader
-                  label="Closer"
-                  sortKey="closer"
-                  sort={sort}
-                  onToggle={toggle}
-                />
-              ) : null}
               <SortableHeader
-                label="Status"
-                sortKey="status"
+                label="Stage"
+                sortKey="stage"
                 sort={sort}
                 onToggle={toggle}
               />
@@ -234,30 +213,18 @@ export function OpportunitiesTable({
                       )}
                     </div>
                   </TableCell>
-                  {showCloserColumn ? (
-                    <TableCell className="text-muted-foreground">
-                      {opp.closerName === "Unassigned" ? (
-                        <div className="flex flex-col gap-1">
-                          <div>
-                            <Badge variant="secondary">Unassigned</Badge>
-                          </div>
-                          {opp.hostCalendlyEmail ? (
-                            <span className="text-xs text-muted-foreground">
-                              {opp.hostCalendlyEmail}
-                            </span>
-                          ) : null}
-                        </div>
-                      ) : (
-                        opp.closer ? (
-                          <MemberIdentity identity={opp.closer} />
-                        ) : (
-                          <span>{opp.closerName}</span>
-                        )
-                      )}
-                    </TableCell>
-                  ) : null}
                   <TableCell>
-                    <PipelineDealBadge opportunity={opp} />
+                    <div className="flex flex-col items-start gap-1">
+                      <DealStageBadge
+                        position={opp.position}
+                        systemLoss={opp.systemLoss}
+                      />
+                      {opp.nextStep ? (
+                        <span className="text-xs text-muted-foreground">
+                          {nextStepLabel(opp.nextStep)}
+                        </span>
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell className="font-mono text-sm tabular-nums text-muted-foreground">
                     {displayMeetingAt ? formatDate(displayMeetingAt) : "—"}
@@ -311,10 +278,4 @@ export function OpportunitiesTable({
       )}
     </div>
   );
-}
-
-/** The row's deal stage badge, read from the deal's stage and outcome. */
-function PipelineDealBadge({ opportunity }: { opportunity: PipelineOpportunity }) {
-  const { position, systemLoss } = dealLabelOf(opportunity);
-  return <DealStageBadge position={position} systemLoss={systemLoss} />;
 }
