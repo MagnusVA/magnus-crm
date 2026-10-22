@@ -193,3 +193,19 @@ export function missedMeetingLossReason(
       return undefined;
   }
 }
+
+/**
+ * Which of today's statuses each position holds, for the checks that compare
+ * a count both ways until the narrow. A status can't tell the side deal's
+ * Call held from Booked (both `scheduled`), so the two go together.
+ */
+export const LEGACY_STATUS_GROUPS: ReadonlyArray<{
+  positions: DealPosition[];
+  statuses: OpportunityStatus[];
+}> = [
+  { positions: ["qualified"], statuses: ["qualified_pending"] },
+  { positions: ["booked", "call_held"], statuses: ["scheduled"] },
+  { positions: ["follow_up"], statuses: ["follow_up_scheduled", "reschedule_link_sent"] },
+  { positions: ["won"], statuses: ["payment_received"] },
+  { positions: ["lost"], statuses: ["lost", "canceled", "no_show"] },
+];

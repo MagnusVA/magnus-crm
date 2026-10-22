@@ -1272,6 +1272,10 @@ export default defineSchema({
     slackTeamId: v.string(),
     resultKind: slackQualificationResultKindValidator,
     opportunityStatus: v.optional(opportunityStatusValidator),
+    // The deal's stage and outcome (docs/plans/phase-5-deal-status.md §3.2),
+    // beside its status until the narrow; unset with no deal.
+    dealStage: v.optional(dealStageValidator),
+    dealOutcome: v.optional(dealOutcomeValidator),
     bookingProgramId: v.optional(v.id("tenantPrograms")),
     bookingProgramName: v.optional(v.string()),
     bookingProgramMappingStatus: v.optional(bookingProgramMappingStatusValidator),
@@ -1290,6 +1294,12 @@ export default defineSchema({
     .index("by_tenantId_and_opportunityStatus_and_qualifiedAt", [
       "tenantId",
       "opportunityStatus",
+      "qualifiedAt",
+    ])
+    .index("by_tenantId_and_dealStage_and_dealOutcome_and_qualifiedAt", [
+      "tenantId",
+      "dealStage",
+      "dealOutcome",
       "qualifiedAt",
     ])
     .index("by_tenantId_and_bookingProgramId_and_qualifiedAt", [
@@ -1333,6 +1343,8 @@ export default defineSchema({
       filterFields: [
         "tenantId",
         "opportunityStatus",
+        "dealStage",
+        "dealOutcome",
         "bookingProgramId",
         "soldProgramId",
         "slackUserId",

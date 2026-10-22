@@ -14,6 +14,7 @@ import {
   type EnrollmentHarness,
 } from "../../tests/enrollmentFixtures";
 import { forceOpportunityState } from "../../tests/opportunityFixtures";
+import { insertDealTask } from "../../tests/dealStateFixtures";
 import type { DealSource } from "./stages";
 
 // The deal stage backfill and its checks (docs/plans/phase-5-deal-status.md
@@ -62,7 +63,7 @@ async function oldDeal(
 
 async function seed(harness: EnrollmentHarness): Promise<Seeded> {
   const closerId = harness.closerId;
-  return {
+  const ids: Seeded = {
     qualified: await oldDeal(harness, "qualified_pending", "slack_qualified"),
     booked: await oldDeal(harness, "scheduled", "calendly"),
     sideDeal: await oldDeal(harness, "scheduled", "side_deal"),
@@ -91,6 +92,13 @@ async function seed(harness: EnrollmentHarness): Promise<Seeded> {
     }),
     noShowBare: await oldDeal(harness, "no_show", "slack_qualified"),
   };
+  // The reschedule link that reopened the deal (§4.5), and the follow-up
+  // deal's own link, which isn't one.
+  await harness.t.run(async (ctx) => {
+    await insertDealTask(ctx, ids.linkSent);
+    await insertDealTask(ctx, ids.followUp, { reason: "closer_initiated" });
+  });
+  return ids;
 }
 
 async function deals(harness: EnrollmentHarness, ids: Seeded) {
@@ -267,37 +275,73 @@ describe("assertDealStages", () => {
     expect(error).toContain("has no lostAt");
   });
 
-  it.each(["noShowOnDeal", "stale"])("names a %s deal whose system loss has a person", async (name) => {
+  it("names a no-show deal whose loss has a person", async () => {
     const { harness, ids } = await backfilled();
-    await harness.t.run((ctx) => forceOpportunityState(ctx, ids[name], { lostByUserId: harness.closerId }));
+    await harness.t.run((ctx) => forceOpportunityState(ctx, ids.noShowOnDeal, { lostByUserId: harness.closerId }));
 
     const error = (await harness.run("assertDealStages"))?.error;
-    expect(error).toContain(ids[name]);
-    expect(error).toContain(`and lostByUserId ${harness.closerId}`);
+    expect(error).toContain(ids.noShowOnDeal);
+    expect(error).toContain(`has lostByUserId ${harness.closerId}`);
+  });
+
+  it("accepts a person's loss whose free text matches a system code", async () => {
+    const { harness, ids } = await backfilled();
+    await harness.t.run((ctx) => forceOpportunityState(ctx, ids.stale, { lostByUserId: harness.closerId }));
+
+    expect((await harness.run("assertDealStages"))?.error).toBeUndefined();
   });
 
   it("names a Follow-up deal with two pending reschedule links", async () => {
     const { harness, ids } = await backfilled();
-    await harness.t.run(async (ctx) => {
-      const deal = (await ctx.db.get("opportunities", ids.linkSent))!;
-      for (const createdAt of [1, 2]) {
-        await ctx.db.insert("followUps", {
-          tenantId: harness.tenantId,
-          opportunityId: deal._id,
-          leadId: deal.leadId,
-          closerId: harness.closerId,
-          type: "scheduling_link",
-          schedulingLinkUrl: "https://calendly.com/closer/test",
-          reason: "no_show_follow_up",
-          status: "pending",
-          createdAt,
-        });
-      }
-    });
+    await harness.t.run((ctx) => insertDealTask(ctx, ids.linkSent, { createdAt: 2 }));
 
     const error = (await harness.run("assertDealStages"))?.error;
     expect(error).toContain(ids.linkSent);
     expect(error).toContain("2 pending reschedule links");
+  });
+});
+
+describe("assertDealStages, rebuilding the status (PR 3)", () => {
+  it("passes on every status, including a Follow-up deal whose only link is an ordinary one", async () => {
+    const { harness } = await backfilled();
+    expect((await harness.run("assertDealStages"))?.error).toBeUndefined();
+  });
+
+  it("names a reschedule_link_sent deal with no pending reschedule link", async () => {
+    const { harness, ids } = await backfilled();
+    await harness.t.run(async (ctx) => {
+      const [link] = await ctx.db
+        .query("followUps")
+        .withIndex("by_opportunityId_and_status_and_reason", (q) =>
+          q.eq("opportunityId", ids.linkSent).eq("status", "pending").eq("reason", "no_show_follow_up"),
+        )
+        .take(1);
+      await ctx.db.patch("followUps", link._id, { status: "booked" });
+    });
+
+    const error = (await harness.run("assertDealStages"))?.error;
+    expect(error).toContain(ids.linkSent);
+    expect(error).toContain("rebuilds as follow_up_scheduled, but its status is reschedule_link_sent");
+  });
+
+  it("names a follow_up_scheduled deal with a pending reschedule link", async () => {
+    const { harness, ids } = await backfilled();
+    await harness.t.run((ctx) => insertDealTask(ctx, ids.followUp));
+
+    const error = (await harness.run("assertDealStages"))?.error;
+    expect(error).toContain(ids.followUp);
+    expect(error).toContain("rebuilds as reschedule_link_sent, but its status is follow_up_scheduled");
+  });
+
+  it("names a lost deal the system closed with a missed meeting's reason", async () => {
+    const { harness, ids } = await backfilled();
+    await harness.t.run((ctx) =>
+      forceOpportunityState(ctx, ids.closerLost, { lostReason: "no_show", lostByUserId: undefined }),
+    );
+
+    const error = (await harness.run("assertDealStages"))?.error;
+    expect(error).toContain(ids.closerLost);
+    expect(error).toContain("rebuilds as no_show, but its status is lost");
   });
 });
 

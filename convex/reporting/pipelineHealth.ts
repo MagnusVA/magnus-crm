@@ -2,15 +2,29 @@ import { readMeetingStatsCounts } from "../operations/meetingStats";
 import { requireReportingReady } from "../operations/reportingReadiness";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { query } from "../_generated/server";
+import { query, type QueryCtx } from "../_generated/server";
+import {
+  DEAL_POSITIONS,
+  stageOfPosition,
+  type DealPosition,
+  type DealStage,
+} from "../opportunities/stages";
 import { SLACK_STALE_LOST_REASON } from "../pipeline/slackJoinLookup";
 import { requireTenantUser } from "../requireTenantUser";
-import { opportunityByStatus } from "./aggregates";
+import { opportunityByStage, opportunityByStatus } from "./aggregates";
 import {
   assertValidDateRange,
   getUserDisplayName,
   reportingUserIdentity,
 } from "./lib/helpers";
+import { isPersonLoss } from "./lib/outcomeDerivation";
+import { meterDocument, meterRange, type ReadMeter } from "./lib/readMeter";
+
+// Each number below is read two ways until PR 6 moves this report to the
+// stage (docs/plans/phase-5-deal-status.md §6.6): from the status, which the
+// screen shows, and from the stage and outcome. The parity queries in
+// convex/opportunities/stageParity.ts compare them; PR 9 removes the status
+// ways.
 
 const OPPORTUNITY_STATUSES = [
   "qualified_pending",
@@ -23,12 +37,25 @@ const OPPORTUNITY_STATUSES = [
   "no_show",
 ] as const satisfies ReadonlyArray<Doc<"opportunities">["status"]>;
 
-const ACTIVE_PIPELINE_STATUSES = [
+export const ACTIVE_PIPELINE_STATUSES = [
   "qualified_pending",
   "scheduled",
   "follow_up_scheduled",
   "reschedule_link_sent",
 ] as const satisfies ReadonlyArray<Doc<"opportunities">["status"]>;
+
+export type ActivePipelineStatus = (typeof ACTIVE_PIPELINE_STATUSES)[number];
+
+// The open stages: the same deals as the active statuses, with Scheduled
+// split into Booked and the side deal's Call held (§4.6, §7).
+export const OPEN_PIPELINE_STAGES = [
+  "qualified",
+  "booked",
+  "call_held",
+  "follow_up",
+] as const satisfies ReadonlyArray<DealStage>;
+
+export type OpenPipelineStage = (typeof OPEN_PIPELINE_STAGES)[number];
 
 const MAX_STALE_OPPORTUNITIES = 20;
 const MAX_VELOCITY_ROWS = 500;
@@ -36,7 +63,13 @@ const REPORT_ROW_CAP = 2000;
 const MAX_UNRESOLVED_REMINDER_SCAN_ROWS = REPORT_ROW_CAP + 1;
 const MAX_NO_SHOW_SCAN_ROWS = REPORT_ROW_CAP + 1;
 const MAX_LOSS_SCAN_ROWS = REPORT_ROW_CAP + 1;
+// The stage way reads the losses by when they happened, the system's with
+// them (production: roughly 1,500 stale, no-show and canceled losses a month
+// against a few dozen a person records), so it scans past those to this bound.
+const MAX_LOSS_STAGE_SCAN_ROWS = 4000;
 const STALE_THRESHOLD_MS = 14 * 24 * 60 * 60 * 1000;
+const VELOCITY_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
+const DAY_MS = 86400000;
 
 type NoShowSource = "closer" | "calendly_webhook" | "none";
 type LossAttributionRole = "admin" | "closer" | "unknown";
@@ -110,6 +143,385 @@ function toLossAttributionRole(
   }
 }
 
+function meterRows(meter: ReadMeter | undefined, rows: Array<Doc<"opportunities">>) {
+  meterRange(meter);
+  for (const row of rows) {
+    meterDocument(meter, row);
+  }
+}
+
+// ── Distribution ────────────────────────────────────────────────────────
+
+/** Deals per status, from opportunityByStatus: what the chart shows today. */
+export async function readPipelineDistributionByStatus(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+) {
+  const counts = await opportunityByStatus.countBatch(
+    ctx,
+    OPPORTUNITY_STATUSES.map((status) => ({
+      namespace: tenantId,
+      bounds: { prefix: [status] },
+    })),
+  );
+  return OPPORTUNITY_STATUSES.map((status, index) => ({
+    status,
+    count: counts[index] ?? 0,
+  }));
+}
+
+/** Deals in each of the six positions, from opportunityByStage (§6.6). */
+export async function readPipelineDistributionByStage(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+): Promise<Array<{ position: DealPosition; count: number }>> {
+  const counts = await opportunityByStage.countBatch(
+    ctx,
+    DEAL_POSITIONS.map((position) => {
+      const { stage, outcome } = stageOfPosition(position);
+      return { namespace: tenantId, bounds: { prefix: [stage, outcome] } };
+    }),
+  );
+  return DEAL_POSITIONS.map((position, index) => ({
+    position,
+    count: counts[index] ?? 0,
+  }));
+}
+
+// ── Aging and the stale list ────────────────────────────────────────────
+
+export type PipelineAgingGroup = {
+  count: number;
+  totalAgeDays: number;
+  oldestAgeDays: number;
+};
+
+export type StaleCandidate = {
+  opportunity: Doc<"opportunities">;
+  ageDays: number;
+  nextMeetingAt: number | null;
+};
+
+export type PipelineAgingScan<Key extends string> = {
+  groups: Record<Key, PipelineAgingGroup>;
+  staleCount: number;
+  /** Every stale deal, in the order read. */
+  staleCandidates: StaleCandidate[];
+  /** Stopped at `maxDocs`: the numbers cover only the deals read. */
+  capped: boolean;
+};
+
+export type PipelineAgingScanOptions<Key extends string> = {
+  /** Only the deals created in [from, to); with no `to`, from `from` on. */
+  createdAt?: { from: number; to?: number };
+  /** Stop past this many deals and set `capped`. */
+  maxDocs?: number;
+  meter?: ReadMeter;
+  onDeal?: (key: Key, deal: Doc<"opportunities">) => void;
+};
+
+function isStale(opportunity: Doc<"opportunities">, now: number): boolean {
+  return (
+    opportunity.nextMeetingAt === undefined ||
+    opportunity.nextMeetingAt < now - STALE_THRESHOLD_MS
+  );
+}
+
+async function scanPipelineAging<Key extends string>(
+  ranges: Array<{ key: Key; deals: () => AsyncIterable<Doc<"opportunities">> }>,
+  now: number,
+  options: PipelineAgingScanOptions<Key>,
+): Promise<PipelineAgingScan<Key>> {
+  const groups = {} as Record<Key, PipelineAgingGroup>;
+  const staleCandidates: StaleCandidate[] = [];
+  let staleCount = 0;
+  let scanned = 0;
+  let capped = false;
+
+  for (const { key, deals } of ranges) {
+    const group = { count: 0, totalAgeDays: 0, oldestAgeDays: 0 };
+    groups[key] = group;
+    if (capped) {
+      continue;
+    }
+    meterRange(options.meter);
+    // `nextMeetingAt` is not indexed, so exact stale counts require scanning
+    // the active pipeline rows instead of relying on the capped sample list.
+    for await (const opportunity of deals()) {
+      meterDocument(options.meter, opportunity);
+      if (options.maxDocs !== undefined && scanned >= options.maxDocs) {
+        capped = true;
+        break;
+      }
+      scanned += 1;
+      options.onDeal?.(key, opportunity);
+      group.count += 1;
+      const ageDays = (now - opportunity.createdAt) / DAY_MS;
+      group.totalAgeDays += ageDays;
+      group.oldestAgeDays = Math.max(group.oldestAgeDays, ageDays);
+
+      if (isStale(opportunity, now)) {
+        staleCount += 1;
+        staleCandidates.push({
+          opportunity,
+          ageDays,
+          nextMeetingAt: opportunity.nextMeetingAt ?? null,
+        });
+      }
+    }
+  }
+
+  return { groups, staleCount, staleCandidates, capped };
+}
+
+/** The active deals' ages by status: what the aging table shows today. */
+export async function scanPipelineAgingByStatus(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  now: number,
+  options: PipelineAgingScanOptions<ActivePipelineStatus> = {},
+): Promise<PipelineAgingScan<ActivePipelineStatus>> {
+  const window = options.createdAt;
+  return await scanPipelineAging(
+    ACTIVE_PIPELINE_STATUSES.map((status) => ({
+      key: status,
+      deals: () =>
+        ctx.db
+          .query("opportunities")
+          .withIndex("by_tenantId_and_status_and_createdAt", (q) => {
+            const range = q.eq("tenantId", tenantId).eq("status", status);
+            if (!window) return range;
+            return window.to === undefined
+              ? range.gte("createdAt", window.from)
+              : range.gte("createdAt", window.from).lt("createdAt", window.to);
+          }),
+    })),
+    now,
+    options,
+  );
+}
+
+/**
+ * The open deals' ages by stage (§6.6): the same deals, read through
+ * by_tenantId_and_stage_and_outcome_and_createdAt, with the side deal at
+ * Call held instead of Scheduled. The stale rule is the same.
+ */
+export async function scanPipelineAgingByStage(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  now: number,
+  options: PipelineAgingScanOptions<OpenPipelineStage> = {},
+): Promise<PipelineAgingScan<OpenPipelineStage>> {
+  const window = options.createdAt;
+  return await scanPipelineAging(
+    OPEN_PIPELINE_STAGES.map((stage) => ({
+      key: stage,
+      deals: () =>
+        ctx.db
+          .query("opportunities")
+          .withIndex("by_tenantId_and_stage_and_outcome_and_createdAt", (q) => {
+            const range = q
+              .eq("tenantId", tenantId)
+              .eq("stage", stage)
+              .eq("outcome", "open");
+            if (!window) return range;
+            return window.to === undefined
+              ? range.gte("createdAt", window.from)
+              : range.gte("createdAt", window.from).lt("createdAt", window.to);
+          }),
+    })),
+    now,
+    options,
+  );
+}
+
+// ── Velocity ────────────────────────────────────────────────────────────
+
+export type PipelineVelocity = {
+  velocityDays: number | null;
+  /** The won deals measured. */
+  opportunityIds: Array<Id<"opportunities">>;
+  truncated: boolean;
+};
+
+function measureVelocity(rows: Array<Doc<"opportunities">>): PipelineVelocity {
+  const wonRows = rows.slice(0, MAX_VELOCITY_ROWS);
+
+  let velocityTotalDays = 0;
+  let velocityCount = 0;
+  for (const opportunity of wonRows) {
+    if (opportunity.paymentReceivedAt === undefined) {
+      continue;
+    }
+    velocityTotalDays +=
+      (opportunity.paymentReceivedAt - opportunity.createdAt) / DAY_MS;
+    velocityCount += 1;
+  }
+
+  return {
+    velocityDays: velocityCount > 0 ? velocityTotalDays / velocityCount : null,
+    opportunityIds: wonRows.map((opportunity) => opportunity._id),
+    truncated: rows.length > MAX_VELOCITY_ROWS,
+  };
+}
+
+/** Days from creation to payment over deals won and created in the last 90 days. */
+export async function readPipelineVelocityByStatus(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  now: number,
+  meter?: ReadMeter,
+): Promise<PipelineVelocity> {
+  const rows = await ctx.db
+    .query("opportunities")
+    .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
+      q
+        .eq("tenantId", tenantId)
+        .eq("status", "payment_received")
+        .gte("createdAt", now - VELOCITY_WINDOW_MS),
+    )
+    .take(MAX_VELOCITY_ROWS + 1);
+  meterRows(meter, rows);
+  return measureVelocity(rows);
+}
+
+/** The same over Closed won (§6.6). */
+export async function readPipelineVelocityByStage(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  now: number,
+  meter?: ReadMeter,
+): Promise<PipelineVelocity> {
+  const rows = await ctx.db
+    .query("opportunities")
+    .withIndex("by_tenantId_and_stage_and_outcome_and_createdAt", (q) =>
+      q
+        .eq("tenantId", tenantId)
+        .eq("stage", "closed")
+        .eq("outcome", "won")
+        .gte("createdAt", now - VELOCITY_WINDOW_MS),
+    )
+    .take(MAX_VELOCITY_ROWS + 1);
+  meterRows(meter, rows);
+  return measureVelocity(rows);
+}
+
+// ── Loss attribution ────────────────────────────────────────────────────
+
+export type PipelineLosses = {
+  /** The deals a person lost in the range, up to the report's cap. */
+  losses: Array<Doc<"opportunities">>;
+  truncated: boolean;
+  /** Deals read to find them. */
+  scanned: number;
+};
+
+/** Deals lost in the range, by status, leaving out the Slack expiry. */
+export async function readLossesByStatus(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  startDate: number,
+  endDate: number,
+  meter?: ReadMeter,
+): Promise<PipelineLosses> {
+  // A loss is activity, so every deal lost in the range has activity at or
+  // after the start. Scanning from there skips old losses, and Slack deals
+  // closed as stale, which keep their earlier activity time.
+  const lostOpportunityRows = await ctx.db
+    .query("opportunities")
+    .withIndex("by_tenantId_and_status_and_latestActivityAt", (q) =>
+      q
+        .eq("tenantId", tenantId)
+        .eq("status", "lost")
+        .gte("latestActivityAt", startDate),
+    )
+    .take(MAX_LOSS_SCAN_ROWS);
+  meterRows(meter, lostOpportunityRows);
+
+  const losses = lostOpportunityRows
+    .slice(0, REPORT_ROW_CAP)
+    .filter(
+      (opportunity) =>
+        opportunity.lostAt !== undefined &&
+        opportunity.lostAt >= startDate &&
+        opportunity.lostAt < endDate &&
+        // A system expiry, not anyone's loss.
+        opportunity.lostReason !== SLACK_STALE_LOST_REASON,
+    );
+
+  return {
+    losses,
+    truncated: lostOpportunityRows.length > REPORT_ROW_CAP,
+    scanned: lostOpportunityRows.length,
+  };
+}
+
+/**
+ * Deals Closed lost in the range by `lostAt`, through
+ * by_tenantId_and_stage_and_outcome_and_lostAt, leaving out every loss the
+ * system wrote (the Slack expiry, a no-show, a cancellation), as the status
+ * way leaves out the expiry and never reads the canceled and no-show deals.
+ */
+export async function readLossesByStage(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  startDate: number,
+  endDate: number,
+  meter?: ReadMeter,
+): Promise<PipelineLosses> {
+  const losses: Array<Doc<"opportunities">> = [];
+  let scanned = 0;
+  let truncated = false;
+  meterRange(meter);
+  for await (const opportunity of ctx.db
+    .query("opportunities")
+    .withIndex("by_tenantId_and_stage_and_outcome_and_lostAt", (q) =>
+      q
+        .eq("tenantId", tenantId)
+        .eq("stage", "closed")
+        .eq("outcome", "lost")
+        .gte("lostAt", startDate)
+        .lt("lostAt", endDate),
+    )) {
+    meterDocument(meter, opportunity);
+    if (scanned >= MAX_LOSS_STAGE_SCAN_ROWS) {
+      truncated = true;
+      break;
+    }
+    scanned += 1;
+    if (!isPersonLoss(opportunity)) {
+      continue;
+    }
+    if (losses.length >= REPORT_ROW_CAP) {
+      truncated = true;
+      break;
+    }
+    losses.push(opportunity);
+  }
+  return { losses, truncated, scanned };
+}
+
+export function countLossesByActor(losses: Array<Doc<"opportunities">>) {
+  const lossCountsByActor = new Map<Id<"users">, number>();
+  let unknownLossCount = 0;
+
+  for (const opportunity of losses) {
+    if (!opportunity.lostByUserId) {
+      unknownLossCount += 1;
+      continue;
+    }
+
+    lossCountsByActor.set(
+      opportunity.lostByUserId,
+      (lossCountsByActor.get(opportunity.lostByUserId) ?? 0) + 1,
+    );
+  }
+
+  return { lossCountsByActor, unknownLossCount };
+}
+
+// ── Screens ─────────────────────────────────────────────────────────────
+
 export const getPipelineDistribution = query({
   args: {},
   handler: async (ctx) => {
@@ -118,19 +530,8 @@ export const getPipelineDistribution = query({
       "tenant_admin",
     ]);
 
-    const counts = await opportunityByStatus.countBatch(
-      ctx,
-      OPPORTUNITY_STATUSES.map((status) => ({
-        namespace: tenantId,
-        bounds: { prefix: [status] },
-      })),
-    );
-
     return {
-      distribution: OPPORTUNITY_STATUSES.map((status, index) => ({
-        status,
-        count: counts[index] ?? 0,
-      })),
+      distribution: await readPipelineDistributionByStatus(ctx, tenantId),
     };
   },
 });
@@ -144,78 +545,23 @@ export const getPipelineAging = query({
     ]);
 
     const now = Date.now();
+    const aging = await scanPipelineAgingByStatus(ctx, tenantId, now);
     const agingByStatus: Record<
       string,
       { averageAgeDays: number | null; count: number; oldestAgeDays: number | null }
     > = {};
-    const staleCandidates: Array<{
-      ageDays: number;
-      nextMeetingAt: number | null;
-      opportunity: Doc<"opportunities">;
-    }> = [];
-    let staleCount = 0;
-
     for (const status of ACTIVE_PIPELINE_STATUSES) {
-      let opportunityCount = 0;
-      let totalAgeDays = 0;
-      let oldestAgeDays = 0;
-
-      // `nextMeetingAt` is not indexed, so exact stale counts require scanning
-      // the active pipeline rows instead of relying on the capped sample list.
-      for await (const opportunity of ctx.db
-        .query("opportunities")
-        .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
-          q.eq("tenantId", tenantId).eq("status", status),
-        )) {
-        opportunityCount += 1;
-        const ageDays = (now - opportunity.createdAt) / 86400000;
-        totalAgeDays += ageDays;
-        oldestAgeDays = Math.max(oldestAgeDays, ageDays);
-
-        if (
-          opportunity.nextMeetingAt === undefined ||
-          opportunity.nextMeetingAt < now - STALE_THRESHOLD_MS
-        ) {
-          staleCount += 1;
-          staleCandidates.push({
-            opportunity,
-            ageDays,
-            nextMeetingAt: opportunity.nextMeetingAt ?? null,
-          });
-        }
-      }
-
+      const { count, totalAgeDays, oldestAgeDays } = aging.groups[status];
       agingByStatus[status] = {
-        count: opportunityCount,
-        averageAgeDays:
-          opportunityCount > 0 ? totalAgeDays / opportunityCount : null,
-        oldestAgeDays: opportunityCount > 0 ? oldestAgeDays : null,
+        count,
+        averageAgeDays: count > 0 ? totalAgeDays / count : null,
+        oldestAgeDays: count > 0 ? oldestAgeDays : null,
       };
     }
 
-    const velocityRows = await ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_and_status_and_createdAt", (q) =>
-        q
-          .eq("tenantId", tenantId)
-          .eq("status", "payment_received")
-          .gte("createdAt", now - 90 * 24 * 60 * 60 * 1000),
-      )
-      .take(MAX_VELOCITY_ROWS + 1);
-    const wonRows = velocityRows.slice(0, MAX_VELOCITY_ROWS);
+    const velocity = await readPipelineVelocityByStatus(ctx, tenantId, now);
 
-    let velocityTotalDays = 0;
-    let velocityCount = 0;
-    for (const opportunity of wonRows) {
-      if (opportunity.paymentReceivedAt === undefined) {
-        continue;
-      }
-      velocityTotalDays +=
-        (opportunity.paymentReceivedAt - opportunity.createdAt) / 86400000;
-      velocityCount += 1;
-    }
-
-    const staleOpportunities = staleCandidates
+    const staleOpportunities = aging.staleCandidates
       .sort((left, right) => right.ageDays - left.ageDays)
       .slice(0, MAX_STALE_OPPORTUNITIES);
 
@@ -240,8 +586,8 @@ export const getPipelineAging = query({
 
     return {
       agingByStatus,
-      velocityDays: velocityCount > 0 ? velocityTotalDays / velocityCount : null,
-      staleCount,
+      velocityDays: velocity.velocityDays,
+      staleCount: aging.staleCount,
       staleOpps: await Promise.all(staleOpportunities.map(
         async ({ opportunity, ageDays, nextMeetingAt }) => {
           const assignedCloser = opportunity.assignedCloserId
@@ -268,7 +614,7 @@ export const getPipelineAging = query({
         },
       )),
       isAgingTruncated: false,
-      isVelocityTruncated: velocityRows.length > MAX_VELOCITY_ROWS,
+      isVelocityTruncated: velocity.truncated,
     };
   },
 });
@@ -304,18 +650,7 @@ export const getPipelineBacklogAndLoss = query({
       )
       .take(MAX_NO_SHOW_SCAN_ROWS);
 
-    // A loss is activity, so every deal lost in the range has activity at or
-    // after the start. Scanning from there skips old losses, and Slack deals
-    // closed as stale, which keep their earlier activity time.
-    const lostOpportunityRows = await ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId_and_status_and_latestActivityAt", (q) =>
-        q
-          .eq("tenantId", tenantId)
-          .eq("status", "lost")
-          .gte("latestActivityAt", startDate),
-      )
-      .take(MAX_LOSS_SCAN_ROWS);
+    const losses = await readLossesByStatus(ctx, tenantId, startDate, endDate);
 
     const unresolvedManualReminders = pendingFollowUpRows
       .slice(0, REPORT_ROW_CAP)
@@ -331,31 +666,7 @@ export const getPipelineBacklogAndLoss = query({
       noShowSourceSplit[toNoShowSource(meeting.noShowSource)] += 1;
     }
 
-    const lostOpportunities = lostOpportunityRows
-      .slice(0, REPORT_ROW_CAP)
-      .filter(
-        (opportunity) =>
-          opportunity.lostAt !== undefined &&
-          opportunity.lostAt >= startDate &&
-          opportunity.lostAt < endDate &&
-          // A system expiry, not anyone's loss.
-          opportunity.lostReason !== SLACK_STALE_LOST_REASON,
-      );
-
-    const lossCountsByActor = new Map<Id<"users">, number>();
-    let unknownLossCount = 0;
-
-    for (const opportunity of lostOpportunities) {
-      if (!opportunity.lostByUserId) {
-        unknownLossCount += 1;
-        continue;
-      }
-
-      lossCountsByActor.set(
-        opportunity.lostByUserId,
-        (lossCountsByActor.get(opportunity.lostByUserId) ?? 0) + 1,
-      );
-    }
+    const { lossCountsByActor, unknownLossCount } = countLossesByActor(losses.losses);
 
     const actorIds = [...lossCountsByActor.keys()];
     const actorDocs = await Promise.all(
@@ -398,7 +709,7 @@ export const getPipelineBacklogAndLoss = query({
       noShowSourceSplit,
       isNoShowSourceTruncated: noShowRows.length > REPORT_ROW_CAP,
       lossAttribution,
-      isLossAttributionTruncated: lostOpportunityRows.length > REPORT_ROW_CAP,
+      isLossAttributionTruncated: losses.truncated,
     };
   },
 });
