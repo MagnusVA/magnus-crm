@@ -60,7 +60,6 @@ import {
 } from "./opportunities/dealState";
 import { opportunityByStage } from "./reporting/aggregates";
 import {
-  insertLeadGenDealAggregate,
   isLeadGenDealAggregateEligible,
   leadGenDealsByWorker,
 } from "./leadGen/leadGenDealsAggregate";
@@ -1102,7 +1101,9 @@ export const backfillLeadGenDealsByWorker = migrations.define({
   table: "dealAttributions",
   batchSize: 200,
   migrateOne: async (ctx, row) => {
-    await insertLeadGenDealAggregate(ctx, row);
+    if (isLeadGenDealAggregateEligible(row)) {
+      await leadGenDealsByWorker.insertIfDoesNotExist(ctx, row);
+    }
   },
 });
 
@@ -1200,8 +1201,22 @@ export const assertMeetingAttendance = migrations.define({
     if (
       meeting.status === "completed" ||
       (meeting.status === "held" && meeting.heldMarkedAt === undefined) ||
-      (meeting.status !== "held" && meeting.completedAt !== undefined) ||
+      meeting.completedAt !== undefined ||
       (meeting.status !== "held" && meeting.heldMarkedAt !== undefined)
     ) throw new Error(meeting._id);
+  },
+});
+
+// Phase 6 PR 13a: stop the dual write before narrowing the meeting schema.
+export const clearHeldCompletedAt = migrations.define({
+  table: "meetings",
+  batchSize: 200,
+  migrateOne: async (ctx, meeting) => {
+    if (meeting.completedAt !== undefined) {
+      // No aggregate key, projection contribution or meeting ref reads it.
+      // heldMarkedAt already carries the attendance time, so no lifecycle
+      // refresh is needed for this field-only clear.
+      await ctx.db.patch("meetings", meeting._id, { completedAt: undefined });
+    }
   },
 });

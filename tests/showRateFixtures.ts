@@ -1,3 +1,4 @@
+import { insertPipelineHealthAggregates } from "../convex/reporting/pipelineHealthAggregates";
 import { vi } from "vitest";
 import { bookingHarness, qualifiedLifecycle } from "./bookingHarness";
 import { insertMeetingAggregate } from "../convex/reporting/writeHooks";
@@ -49,6 +50,7 @@ export async function showRateFixture(
       createdAt: 0,
       updatedAt: 0,
     });
+    await insertPipelineHealthAggregates(ctx, (await ctx.db.get("opportunities", opportunityId))!);
     const specs = [
       ["held-one", "completed", "2026-10-21T12:00:00Z"],
       ["held-two", "completed", "2026-10-22T12:00:00Z"],

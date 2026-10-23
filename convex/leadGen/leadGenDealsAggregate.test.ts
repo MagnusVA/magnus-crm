@@ -9,6 +9,7 @@ import {
   repointDealAttributionTeamMember,
 } from "../lib/attribution/dealAttributions";
 import {
+  deleteLeadGenDealAggregate,
   insertLeadGenDealAggregate,
   isLeadGenDealAggregateEligible,
   leadGenDealsByWorker,
@@ -44,6 +45,16 @@ it("inserts once through deal creation and ignores both kinds of ineligible row"
   });
   expect(await count(h)).toBe(1);
   expect(await h.t.query(functions.verifyLeadGenDealsByWorker, { tenantId: h.tenantId, ...range })).toEqual([]);
+});
+
+it("fails duplicate inserts and missing eligible deletes", async () => {
+  const h = await attributionHarness();
+  const row = (await attributionRows(h)).find(isLeadGenDealAggregateEligible)!;
+  await expect(h.t.run((ctx) => insertLeadGenDealAggregate(ctx, row)))
+    .rejects.toThrow("already exists");
+  await h.t.run((ctx) => deleteLeadGenDealAggregate(ctx, row));
+  await expect(h.t.run((ctx) => deleteLeadGenDealAggregate(ctx, row)))
+    .rejects.toThrow("not found");
 });
 
 it.each(["deal", "meeting"] as const)("deletes eligible credit through the %s helper", async (kind) => {

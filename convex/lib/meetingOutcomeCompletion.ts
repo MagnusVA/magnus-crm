@@ -73,7 +73,6 @@ export async function completeMeetingForOutcome(
   const updated = await patchMeetingLifecycle(ctx, meeting._id, {
     status: toMeetingStatus,
     heldMarkedAt: toMeetingStatus === "held" ? recordedAt : undefined,
-    completedAt: toMeetingStatus === "held" ? recordedAt : undefined,
     ...args.extraMeetingPatch,
   });
   if (toMeetingStatus === "held") {

@@ -92,6 +92,8 @@ it("backfills attendance through aggregate replacement and projection enqueue, t
   const missed = queued.meetings.find((m) => m.status === "no_show")!;
   expect(missed).not.toHaveProperty("completedAt");
   expect(missed.noShowMarkedAt).toBe(123);
+  await expect(t.mutation(internal.migrations.assertMeetingAttendance, batch)).rejects.toThrow();
+  await t.mutation(internal.migrations.clearHeldCompletedAt, batch);
   await t.mutation(internal.migrations.assertMeetingAttendance, batch);
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   const after = await snapshot();
@@ -105,9 +107,52 @@ it("backfills attendance through aggregate replacement and projection enqueue, t
   expect(await snapshot()).toEqual(after);
 });
 
+it("clears completedAt without changing attendance, refs, aggregates or projections, and reruns without writes", async () => {
+  const { t, tenantId, closerId } = await heldAttendanceFixture("held");
+  migrationsTest.register(t);
+  const snapshot = () => t.run(async (ctx) => ({
+    meetings: await ctx.db.query("meetings").take(20),
+    deals: await ctx.db.query("opportunities").take(20),
+    projections: await ctx.db.query("meetingProjections").take(20),
+    buckets: await ctx.db.query("operationsMeetingStatsV2").take(20),
+    events: await ctx.db.query("domainEvents").take(20),
+    heldCount: await meetingsByStatus.count(ctx, {
+      namespace: tenantId, bounds: { prefix: [closerId, "new", "held"] },
+    }),
+  }));
+  const before = await snapshot();
+  expect(before.meetings.filter((meeting) => meeting.completedAt !== undefined)).toHaveLength(2);
+  await expect(t.mutation(internal.migrations.clearHeldCompletedAt, { cursor: null, dryRun: true }))
+    .resolves.toMatchObject({ DryRun: "No changes were committed." });
+  expect(await snapshot()).toEqual(before);
+  await expect(t.mutation(internal.migrations.assertMeetingAttendance, batch)).rejects.toThrow();
+  await t.mutation(internal.migrations.clearHeldCompletedAt, batch);
+  const after = await snapshot();
+  const meetings = before.meetings.map(({ completedAt: _completedAt, ...meeting }) => meeting);
+  expect(after).toEqual({ ...before, meetings });
+  for (let index = 0; index < meetings.length; index++) {
+    expect(meetingEvidence(meetings[index])).toEqual(meetingEvidence(before.meetings[index]));
+  }
+  await t.mutation(internal.migrations.assertMeetingAttendance, batch);
+  await t.mutation(internal.migrations.clearHeldCompletedAt, batch);
+  expect(await snapshot()).toEqual(after);
+});
+
+it.each(["scheduled", "no_show", "canceled"] as const)("also clears stray completedAt on %s meetings", async (status) => {
+  const { t, meeting } = await attendanceActionFixture();
+  migrationsTest.register(t);
+  await t.run((ctx) => ctx.db.patch("meetings", meeting._id, { status, completedAt: 0 }));
+  const before = (await t.run((ctx) => ctx.db.get("meetings", meeting._id)))!;
+  await t.mutation(internal.migrations.clearHeldCompletedAt, batch);
+  const { completedAt: _completedAt, ...expected } = before;
+  expect(await t.run((ctx) => ctx.db.get("meetings", meeting._id))).toEqual(expected);
+  await t.mutation(internal.migrations.assertMeetingAttendance, batch);
+});
+
 it.each([
   { status: "completed" as const, completedAt: 1 },
   { status: "held" as const },
+  { status: "held" as const, heldMarkedAt: 1, completedAt: 1 },
   { status: "no_show" as const, completedAt: 1 },
   { status: "scheduled" as const, completedAt: 1 },
   { status: "canceled" as const, completedAt: 1 },
@@ -148,14 +193,15 @@ it.each(["closer", "admin"] as const)("%s no-show writes metadata without held/c
   expect(state.event).toMatchObject({ fromStatus: "scheduled", toStatus: "no_show" });
 });
 
-it("outcome completion dual-writes held timing and records Showed at the scheduled time", async () => {
+it("outcome completion writes only held timing and records Showed at the scheduled time", async () => {
   const { t, meeting, closer } = await attendanceActionFixture();
   await closer.mutation(api.closer.meetingActions.markAsLost, { opportunityId: meeting.opportunityId, meetingId: meeting._id });
   const state = await t.run(async (ctx) => {
     const deal = (await ctx.db.get("opportunities", meeting.opportunityId))!;
     return { meeting: await ctx.db.get("meetings", meeting._id), lead: await ctx.db.get("leads", deal.leadId) };
   });
-  expect(state.meeting).toMatchObject({ status: "held", heldMarkedAt: ATTENDANCE_NOW, completedAt: ATTENDANCE_NOW });
+  expect(state.meeting).toMatchObject({ status: "held", heldMarkedAt: ATTENDANCE_NOW });
+  expect(state.meeting).not.toHaveProperty("completedAt");
   expect(state.lead?.lifecycleStageEnteredAt.showed).toBe(meeting.scheduledAt);
 });
 
