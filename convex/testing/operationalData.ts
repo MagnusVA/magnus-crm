@@ -12,6 +12,9 @@ import {
 
 const DESTRUCTIVE_CONFIRMATION = "DELETE_OPERATIONAL_DATA";
 const BATCH_SIZE = 64;
+// Each event drops five or six activity count entries: 40 keeps a batch
+// within the read budget the activity migrations use.
+const DOMAIN_EVENT_BATCH_SIZE = 40;
 
 const OPERATIONAL_TABLES = [
   "webhookRecoveryAttempts",
@@ -346,7 +349,7 @@ export const deleteOperationalDataBatch = internalMutation({
 
     switch (args.tableName) {
       case "domainEvents": {
-        const events = await ctx.db.query("domainEvents").take(BATCH_SIZE);
+        const events = await ctx.db.query("domainEvents").take(DOMAIN_EVENT_BATCH_SIZE);
         for (const event of events) {
           await deleteActivityEventCounts(ctx, event);
           await ctx.db.delete("domainEvents", event._id);
@@ -368,7 +371,9 @@ export const deleteOperationalDataBatch = internalMutation({
     return {
       tableName: args.tableName,
       deleted,
-      hasMore: deleted === BATCH_SIZE,
+      hasMore:
+        deleted ===
+        (args.tableName === "domainEvents" ? DOMAIN_EVENT_BATCH_SIZE : BATCH_SIZE),
     };
   },
 });
