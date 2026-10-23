@@ -1,3 +1,4 @@
+import { deleteActivityEventCounts } from "../reporting/activityEventCounts";
 import { v } from "convex/values";
 import type { DataModel, Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
@@ -141,6 +142,7 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
       .withIndex("by_tenantId_and_occurredAt", (q) => q.eq("tenantId", tenantId))
       .take(CLEANUP_BATCH_SIZE);
     for (const row of domainEvents) {
+      await deleteActivityEventCounts(ctx, row);
       await ctx.db.delete("domainEvents", row._id);
     }
     deletedCounts.domainEvents = domainEvents.length;

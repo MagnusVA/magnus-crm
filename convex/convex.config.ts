@@ -57,6 +57,7 @@ app.use(aggregate, { name: "meetingsByStatus" });
 app.use(aggregate, { name: "paymentSums" });
 app.use(aggregate, { name: "opportunityByStage" });
 app.use(aggregate, { name: "leadStageEntries" });
+app.use(aggregate, { name: "activityEventCounts" });
 app.use(aggregate, { name: "prospectConversions" });
 app.use(aggregate, { name: "slackQualificationsByUser" });
 app.use(aggregate, { name: "slackQualificationsByTime" });

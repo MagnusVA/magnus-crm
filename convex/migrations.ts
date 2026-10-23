@@ -1,3 +1,7 @@
+import {
+  assertActivityEventCountEntries,
+  insertActivityEventCounts,
+} from "./reporting/activityEventCounts";
 import { Migrations } from "@convex-dev/migrations";
 import { v } from "convex/values";
 import { internalMutation, type MutationCtx } from "./_generated/server";
@@ -926,5 +930,21 @@ export const backfillOpportunityByStage = migrations.define({
   batchSize: 200,
   migrateOne: async (ctx, deal) => {
     await opportunityByStage.insertIfDoesNotExist(ctx, deal);
+  },
+});
+
+export const backfillActivityEventCounts = migrations.define({
+  table: "domainEvents",
+  batchSize: 200,
+  migrateOne: async (ctx, event) => {
+    await insertActivityEventCounts(ctx, event);
+  },
+});
+
+export const assertActivityEventCounts = migrations.define({
+  table: "domainEvents",
+  batchSize: 200,
+  migrateOne: async (ctx, event) => {
+    await assertActivityEventCountEntries(ctx, event);
   },
 });

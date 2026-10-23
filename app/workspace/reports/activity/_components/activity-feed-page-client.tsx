@@ -1,5 +1,6 @@
 "use client";
 
+import type { FunctionArgs, FunctionReturnType } from "convex/server";
 import { useState } from "react";
 import { useQuery } from "convex/react";
 import { startOfMonth, endOfMonth } from "date-fns";
@@ -45,11 +46,6 @@ export function ActivityFeedPageClient() {
     endDate: endOfMonth(now).getTime(),
   });
   const [filters, setFilters] = useState<Filters>({});
-  const [limit, setLimit] = useState(50);
-  // Reset limit when filters or date range change by deriving state during
-  // render. Storing the previous key in `useState` is the canonical pattern
-  // per https://react.dev/reference/react/useState#storing-information-from-previous-renders
-  // — it avoids both cascading effects and direct ref mutation during render.
   const resetKey = [
     dateRange.startDate,
     dateRange.endDate,
@@ -59,20 +55,14 @@ export function ActivityFeedPageClient() {
     filters.programId ?? "",
     filters.paymentType ?? "",
   ].join("|");
-  const [previousResetKey, setPreviousResetKey] = useState(resetKey);
-  if (previousResetKey !== resetKey) {
-    setPreviousResetKey(resetKey);
-    if (limit !== 50) {
-      setLimit(50);
-    }
-  }
-
-  const summary = useQuery(api.reporting.activityFeed.getActivitySummary, dateRange);
+  const summary = useQuery(
+    api.reporting.activityFeed.getActivitySummary,
+    dateRange,
+  );
 
   // Only include defined filter values in query args
   const feedArgs = {
     ...dateRange,
-    limit,
     ...(filters.entityType ? { entityType: filters.entityType } : {}),
     ...(filters.eventType ? { eventType: filters.eventType } : {}),
     ...(filters.actorUserId
@@ -81,7 +71,6 @@ export function ActivityFeedPageClient() {
     ...(filters.programId ? { programId: filters.programId } : {}),
     ...(filters.paymentType ? { paymentType: filters.paymentType } : {}),
   };
-  const feed = useQuery(api.reporting.activityFeed.getActivityFeed, feedArgs);
 
   if (summary === undefined) {
     return (
@@ -103,9 +92,7 @@ export function ActivityFeedPageClient() {
     <div className="flex flex-col gap-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Activity Feed
-        </h1>
+        <h1 className="text-2xl font-semibold tracking-tight">Activity Feed</h1>
         <p className="text-sm text-muted-foreground">
           Audit trail of all CRM actions — who did what and when
         </p>
@@ -135,12 +122,44 @@ export function ActivityFeedPageClient() {
       />
 
       {/* Event list */}
-      <ActivityFeedList
-        events={feed ?? []}
-        onLoadMore={() => setLimit((prev) => Math.min(prev + 50, 100))}
-        hasMore={feed !== undefined && feed.length === limit && limit < 100}
-        isLoading={feed === undefined}
-      />
+      <ActivityFeedResults key={resetKey} args={feedArgs} />
     </div>
+  );
+}
+
+function ActivityFeedResults({
+  args,
+}: {
+  args: FunctionArgs<typeof api.reporting.activityFeed.getActivityFeed>;
+}) {
+  const [cursor, setCursor] = useState<string>();
+  const [previousEvents, setPreviousEvents] = useState<
+    FunctionReturnType<
+      typeof api.reporting.activityFeed.getActivityFeed
+    >["events"]
+  >([]);
+  const feed = useQuery(api.reporting.activityFeed.getActivityFeed, {
+    ...args,
+    ...(cursor ? { cursor } : {}),
+  });
+  const seen = new Set<string>();
+  const events = [...previousEvents, ...(feed?.events ?? [])].filter(
+    (event) => {
+      if (seen.has(event._id)) return false;
+      seen.add(event._id);
+      return true;
+    },
+  );
+  return (
+    <ActivityFeedList
+      events={events}
+      onLoadMore={() => {
+        if (!feed || feed.isDone) return;
+        setPreviousEvents(events);
+        setCursor(feed.cursor);
+      }}
+      hasMore={feed !== undefined && !feed.isDone}
+      isLoading={feed === undefined}
+    />
   );
 }

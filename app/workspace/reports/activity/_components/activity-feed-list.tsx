@@ -44,7 +44,7 @@ export function ActivityFeedList({
   hasMore,
   isLoading,
 }: ActivityFeedListProps) {
-  if (isLoading) {
+  if (isLoading && events.length === 0) {
     return (
       <div className="flex flex-col gap-3" role="status" aria-label="Loading activity events">
         {Array.from({ length: 8 }).map((_, i) => (
@@ -54,7 +54,7 @@ export function ActivityFeedList({
     );
   }
 
-  if (events.length === 0) {
+  if (events.length === 0 && !hasMore) {
     return (
       <Empty className="rounded-lg border p-12">
         <EmptyHeader>
@@ -74,7 +74,7 @@ export function ActivityFeedList({
       ))}
       {hasMore && (
         <div className="flex justify-center pt-4">
-          <Button variant="outline" onClick={onLoadMore}>
+          <Button variant="outline" onClick={onLoadMore} disabled={isLoading}>
             Load More
           </Button>
         </div>

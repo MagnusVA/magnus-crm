@@ -1,3 +1,4 @@
+import { deleteActivityEventCounts } from "../reporting/activityEventCounts";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import {
@@ -349,6 +350,15 @@ export const deleteOperationalDataBatch = internalMutation({
     let deleted = 0;
 
     switch (args.tableName) {
+      case "domainEvents": {
+        const events = await ctx.db.query("domainEvents").take(BATCH_SIZE);
+        for (const event of events) {
+          await deleteActivityEventCounts(ctx, event);
+          await ctx.db.delete("domainEvents", event._id);
+        }
+        deleted = events.length;
+        break;
+      }
       case "meetings":
         deleted = await deleteMeetingsBatch(ctx);
         break;

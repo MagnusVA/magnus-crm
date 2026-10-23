@@ -46,6 +46,22 @@ export default defineSchema({
   ...meetingProjectionTables,
   ...operationsReportTables,
   tenants: defineTable({
+    activityEventCountsVerifiedAt: v.optional(v.number()),
+    // Historical event types and reminder metadata are free strings. Keep
+    // their extra buckets bounded; overflow leaves the reader on its scan.
+    activityEventCountsExtraValues: v.optional(
+      v.object({
+        values: v.array(v.object({ dimension: v.string(), value: v.string() })),
+        overflow: v.boolean(),
+      }),
+    ),
+    // Bounded to the 30 completed business days checked by the mark mutation.
+    activityEventCountsVerification: v.optional(
+      v.object({
+        endDate: v.number(),
+        days: v.array(v.number()),
+      }),
+    ),
     meetingProjectionVersion: v.optional(v.literal(2)),
     // Identity
     companyName: v.string(),

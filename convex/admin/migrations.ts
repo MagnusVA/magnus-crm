@@ -1,3 +1,4 @@
+import { deleteActivityEventCounts } from "../reporting/activityEventCounts";
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { requestMeetingProjection } from "../operations/meetingStats";
@@ -2105,6 +2106,7 @@ export const purgePhase6BlockerRecords = mutation({
           )
           .collect();
         for (const evt of oppEvents) {
+          await deleteActivityEventCounts(ctx, evt);
           await ctx.db.delete("domainEvents", evt._id);
           counts.domainEvents++;
         }
@@ -2124,6 +2126,7 @@ export const purgePhase6BlockerRecords = mutation({
           )
           .collect();
         for (const evt of meetingEvents) {
+          await deleteActivityEventCounts(ctx, evt);
           await ctx.db.delete("domainEvents", evt._id);
           counts.domainEvents++;
         }
