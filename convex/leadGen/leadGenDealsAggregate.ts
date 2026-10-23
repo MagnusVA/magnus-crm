@@ -110,9 +110,14 @@ export const markLeadGenDealsByWorkerVerified = internalMutation({
       "migrations:assertLeadGenDealsByWorker",
     ];
     const statuses = await ctx.runQuery(components.migrations.lib.getStatus, { names });
-    if (statuses.length !== names.length || statuses.some((status) =>
-      !status.isDone || status.error !== undefined || status.state !== "success",
-    )) {
+    const backfill = statuses.find((status) => status.name === names[0]);
+    const assertion = statuses.find((status) => status.name === names[1]);
+    // Rerunning the sequence requires reset: true on the assert migration.
+    if (
+      !backfill?.isDone || backfill.error !== undefined || backfill.state !== "success" ||
+      !assertion?.isDone || assertion.error !== undefined || assertion.state !== "success" ||
+      backfill.latestEnd === undefined || assertion.latestStart < backfill.latestEnd
+    ) {
       throw new Error("Complete backfillLeadGenDealsByWorker and assertLeadGenDealsByWorker before activating reports");
     }
     // A few thousand small tenant rows fit in one read. Rethink this check

@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { attributionHarness, attributionRows, AT } from "../../tests/attributionFixtures";
-import { internal } from "../_generated/api";
+import { components, internal } from "../_generated/api";
 import {
   deleteDealAttributions,
   deleteMeetingAttributions,
@@ -94,6 +94,54 @@ it("backfills idempotently, requires the assertion, and sets the flag only on su
 it("refuses activation before the backfill, even after a successful assertion", async () => {
   const h = await attributionHarness();
   expect((await h.run("assertLeadGenDealsByWorker"))?.state).toBe("success");
+  await expect(h.t.mutation(functions.markLeadGenDealsByWorkerVerified, { tenantId: h.tenantId }))
+    .rejects.toThrow("Complete backfillLeadGenDealsByWorker and assertLeadGenDealsByWorker");
+  expect(await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId)))
+    .not.toHaveProperty("leadGenDealsAggregateVerifiedAt");
+});
+
+it.each([false, true])("refuses an assertion before a later backfill, reset backfill: %s", async (reset) => {
+  const h = await attributionHarness();
+  if (reset) expect((await h.run("backfillLeadGenDealsByWorker"))?.state).toBe("success");
+  expect((await h.run("assertLeadGenDealsByWorker"))?.state).toBe("success");
+  vi.setSystemTime(Date.now() + 1000);
+  const backfill = await (reset ? h.rerun : h.run)("backfillLeadGenDealsByWorker");
+  expect(backfill?.state).toBe("success");
+  // A completed assertion does no new work without reset: true.
+  expect((await h.run("assertLeadGenDealsByWorker"))?.state).toBe("success");
+  await expect(h.t.mutation(functions.markLeadGenDealsByWorkerVerified, { tenantId: h.tenantId }))
+    .rejects.toThrow("Complete backfillLeadGenDealsByWorker and assertLeadGenDealsByWorker");
+  expect(await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId)))
+    .not.toHaveProperty("leadGenDealsAggregateVerifiedAt");
+  expect((await h.rerun("assertLeadGenDealsByWorker"))?.state).toBe("success");
+  await h.t.mutation(functions.markLeadGenDealsByWorkerVerified, { tenantId: h.tenantId });
+  expect(await h.t.run(async (ctx) => (await ctx.db.get("tenants", h.tenantId))!.leadGenDealsAggregateVerifiedAt))
+    .toBe(Date.now());
+});
+
+it("refuses an assertion started before the backfill finished, even when both finish successfully", async () => {
+  const h = await attributionHarness();
+  const row = (await attributionRows(h)).find(isLeadGenDealAggregateEligible)!;
+  await h.t.run(async (ctx) => {
+    const { _id, _creationTime, ...fields } = row;
+    // Force both migrations to span batches without adding eligible credit.
+    for (let index = 0; index < 201; index++) {
+      await ctx.db.insert("dealAttributions", { ...fields, role: "setter" });
+    }
+  });
+  await h.t.mutation(internal.migrations.run, { fn: "migrations:backfillLeadGenDealsByWorker" });
+  vi.setSystemTime(Date.now() + 1000);
+  await h.t.mutation(internal.migrations.run, { fn: "migrations:assertLeadGenDealsByWorker" });
+  vi.setSystemTime(Date.now() + 1000);
+  await h.t.finishAllScheduledFunctions(vi.runAllTimers);
+  const statuses = await h.t.query(components.migrations.lib.getStatus, {
+    names: ["migrations:backfillLeadGenDealsByWorker", "migrations:assertLeadGenDealsByWorker"],
+  });
+  const backfill = statuses.find((status) => status.name === "migrations:backfillLeadGenDealsByWorker")!;
+  const assertion = statuses.find((status) => status.name === "migrations:assertLeadGenDealsByWorker")!;
+  expect(backfill.state).toBe("success");
+  expect(assertion.state).toBe("success");
+  expect(assertion.latestStart).toBeLessThan(backfill.latestEnd!);
   await expect(h.t.mutation(functions.markLeadGenDealsByWorkerVerified, { tenantId: h.tenantId }))
     .rejects.toThrow("Complete backfillLeadGenDealsByWorker and assertLeadGenDealsByWorker");
   expect(await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId)))
