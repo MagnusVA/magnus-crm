@@ -1,4 +1,8 @@
 "use client";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
+import { businessDateForInstant } from "@/lib/businessDay";
+import { DayDefinition } from "../../_components/day-definition";
 
 import {
   useReducer,
@@ -49,8 +53,6 @@ import {
 } from "./instagram-origin-detection";
 import { getErrorMessage } from "@/lib/errors";
 
-const HONDURAS_TIME_ZONE = "America/Tegucigalpa";
-const BUSINESS_DAY_START_OFFSET_MS = 60 * 60 * 1000;
 
 type CaptureSource = "instagram" | "meta_business";
 type NonRankableInstagramOrigin =
@@ -172,22 +174,6 @@ function makeClientSubmissionKey() {
   return `${Date.now()}:${Math.random().toString(36).slice(2)}`;
 }
 
-function businessDayKey(timestamp: number) {
-  const shifted = new Date(timestamp - BUSINESS_DAY_START_OFFSET_MS);
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: HONDURAS_TIME_ZONE,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(shifted);
-
-  const year = parts.find((part) => part.type === "year")?.value;
-  const month = parts.find((part) => part.type === "month")?.value;
-  const day = parts.find((part) => part.type === "day")?.value;
-
-  return `${year}-${month}-${day}`;
-}
-
 function formatSubmittedAt(timestamp: number) {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "short",
@@ -212,8 +198,10 @@ function rankableOriginFromDetection(
 
 export function LeadGenCapturePageClient() {
   const submit = useMutation(api.leadGen.capture.submit);
-  const [todayKey] = useState(() => businessDayKey(Date.now()));
-  const daySummary = useQuery(api.leadGen.activity.getMyDaySummary, {
+  const { setting, rebuilding, loaded } = useBusinessDay("lead-gen");
+  const now = useNow();
+  const todayKey = businessDateForInstant(now, setting);
+  const daySummary = useQuery(api.leadGen.activity.getMyDaySummary, rebuilding || !loaded ? "skip" : {
     dayKey: todayKey,
   });
   const [state, dispatch] = useReducer(
@@ -343,6 +331,7 @@ export function LeadGenCapturePageClient() {
 
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-5">
+ <DayDefinition bucketKind="lead-gen" />
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-normal text-pretty">
           Capture Prospect

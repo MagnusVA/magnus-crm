@@ -1,4 +1,7 @@
 "use client";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { reportRangeDayKeys } from "@/lib/reportDateRange";
+import { BusinessDayRebuildingState } from "@/app/workspace/_components/day-definition";
 
 import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
 
@@ -42,12 +45,9 @@ function getDefaultDateRange(): DateRange {
   };
 }
 
-function toDayKey(timestamp: number): string {
-  return new Date(timestamp).toISOString().slice(0, 10);
-}
-
 export function PipelineReportPageClient() {
   usePageTitle("Pipeline Health");
+  const { loaded, rebuilding } = useBusinessDay();
   const { captureViewed, captureFiltersChanged } =
     useReportAnalytics("pipeline_health");
 
@@ -85,15 +85,15 @@ export function PipelineReportPageClient() {
   );
   const operationsShowRate = useQuery(
     api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions,
-    {
-      startDayKey: toDayKey(dateRange.startDate),
-      endDayKeyExclusive: toDayKey(dateRange.endDate),
+    !loaded || rebuilding ? "skip" : {
+      ...reportRangeDayKeys(dateRange),
       ...attributionFilters,
     },
   );
 
   // Both queries still loading — show full skeleton
   if (
+    !rebuilding &&
     distribution === undefined &&
     aging === undefined &&
     backlogAndLoss === undefined &&
@@ -171,6 +171,7 @@ export function PipelineReportPageClient() {
 
           <div className="flex flex-col gap-3">
             <ReportDateControls
+              dayDefinition="tenant"
               value={dateRange}
               onChange={(next) => {
                 setDateRange(next);
@@ -187,7 +188,7 @@ export function PipelineReportPageClient() {
           </div>
         </div>
 
-        {operationsShowRate !== undefined ? (
+        {rebuilding ? <BusinessDayRebuildingState /> : operationsShowRate !== undefined ? (
           <SchedulingShowRateCard stats={operationsShowRate} />
         ) : (
           <Skeleton className="h-36 rounded-lg" />

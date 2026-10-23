@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "convex/react";
 import posthog from "posthog-js";
 import { api } from "@/convex/_generated/api";
+import { useBusinessDay } from "@/hooks/use-business-day";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { useRole } from "@/components/auth/role-context";
 import {
@@ -42,6 +43,7 @@ function useReportOverviewSectionError(
 export function DashboardPageClient() {
 	usePageTitle("Overview");
 	const { isAdmin } = useRole();
+	const { loaded } = useBusinessDay();
 	const [range, setRange] = useState<DashboardRangeInput>({
 		kind: "preset",
 		preset: "today",
@@ -59,7 +61,7 @@ export function DashboardPageClient() {
 			: null;
 	const overview = useQuery(
 		api.dashboard.overview.getOverviewDashboard,
-		isAdmin ? { range: queryRange } : "skip",
+		isAdmin && loaded ? { range: queryRange } : "skip",
 	);
 	useReportOverviewSectionError("leadGen", overview?.leadGen);
 	useReportOverviewSectionError("topQualifiers", overview?.topQualifiers);

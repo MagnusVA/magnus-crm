@@ -86,3 +86,7 @@ rate to show how many past, non-canceled calls have a result.
 ## Analytics
 
 PostHog runs only in production with a token set (`lib/posthog-config.ts`). The client initializes in `instrumentation-client.ts` and sends through the `/ingest` proxy rewrites in `next.config.ts`. Only `usePostHogIdentify` and sign-out call `identify`. Server events use `getPostHogClient()` from `lib/posthog-server.ts`. `instrumentation.ts` reports server errors, and route error boundaries and `SectionErrorBoundary` report what they catch; `docs/agents/observability.md` covers error tracking and logs. For Convex and server-rendering patterns with Next.js, see `.docs/convex/nextjs.md`.
+
+## Days on dated screens
+
+Every screen with a date control says which day it counts by. Use `DayDefinition` (`app/workspace/_components/day-definition.tsx`): with no props it describes the tenant's business day from the setting (`useBusinessDay` in `hooks/use-business-day.ts`); with `browser` it says the dates follow the viewer's browser time zone. Weeks start on Monday. A page that maps browser calendar dates to business days uses `reportRangeDayKeys` (`lib/reportDateRange.ts`), and skips its meeting-bucket queries while the tenant's day totals are being rebuilt.

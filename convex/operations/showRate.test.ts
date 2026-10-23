@@ -31,8 +31,8 @@ const dayRange = {
   endDayKeyExclusive: "2026-10-23",
 };
 const timestampRange = {
-  startDate: Date.parse("2026-10-21T00:00:00Z"),
-  endDate: Date.parse("2026-10-23T00:00:00Z"),
+  startDate: Date.parse("2026-10-21T07:00:00Z"),
+  endDate: Date.parse("2026-10-23T07:00:00Z"),
 };
 const results = { resultsRecorded: 3, pastCalls: 5 };
 
@@ -52,7 +52,7 @@ it("uses held attendance in every live report without counting calls twice", asy
   }
   expect(sales.attendanceCountsPartial).toBe(false);
   expect(sales.stats).toMatchObject({
-    totalCalls: 8,
+    totalCalls: 9,
     showed: 2,
     noShows: 1,
     canceled: 1,
@@ -65,13 +65,13 @@ it("uses held attendance in every live report without counting calls twice", asy
     expect(pipeline.attendanceCountsPartial).toBe(false);
     expect(pipeline).toMatchObject({
       ...results,
-      scheduled: 8,
+      scheduled: 9,
       showRate: 2 / 3,
       noShowRate: 1 / 3,
     });
     const team = await admin.query(
       api.reporting.teamPerformance.getTeamOperationsDimensions,
-      { ...timestampRange, ...filters },
+      { ...dayRange, ...filters },
     );
     expect(team.attendanceCountsPartial).toBe(false);
     for (const row of [team.rows[0], team.totals]) {
@@ -102,10 +102,10 @@ it("uses held attendance in every live report without counting calls twice", asy
   );
   expect(outcomes.displayOutcome).toMatchObject({
     not_recorded: 2,
-    upcoming: 2,
+    upcoming: 3,
     scheduled: 2,
   });
-  expect(outcomes.teamOutcome.scheduled).toBe(6);
+  expect(outcomes.teamOutcome.scheduled).toBe(7);
   const overview = await t.run((ctx) =>
     getPhoneCloserOperationsOverviewSection(
       ctx,
@@ -119,7 +119,7 @@ it("uses held attendance in every live report without counting calls twice", asy
     expect(row).toMatchObject({
       held: 2,
       ...results,
-      scheduled: 8,
+      scheduled: 9,
       showRate: 2 / 3,
       noShowRate: 1 / 3,
     });
@@ -139,10 +139,10 @@ it("counts held attendance once in each aggregate call classification", async ()
     timestampRange,
   );
   const closer = performance.closers[0];
-  expect(closer.newCalls).toMatchObject({ bookedCalls: 7, callsShowed: 1, showUpRate: 1 / 2 });
+  expect(closer.newCalls).toMatchObject({ bookedCalls: 8, callsShowed: 1, showUpRate: 1 / 2 });
   expect(closer.followUpCalls).toMatchObject({ bookedCalls: 1, callsShowed: 1, showUpRate: 1 });
   expect(performance.teamTotals).toMatchObject({
-    newBookedCalls: 7,
+    newBookedCalls: 8,
     newShowed: 1,
     followUpBookedCalls: 1,
     followUpShowed: 1,
@@ -166,7 +166,7 @@ it("returns null rates when scheduled calls have no attendance result", async ()
     showUpRate: null,
     resultsRecorded: 0,
     pastCalls: 0,
-    totalCalls: 2,
+    totalCalls: 1,
   });
   expect(isHeldStatus("completed")).toBe(false);
   expect(isHeldStatus("held")).toBe(true);
@@ -174,7 +174,7 @@ it("returns null rates when scheduled calls have no attendance result", async ()
   expect(isHeldStatus("no_show")).toBe(false);
 });
 
-it("splits both UTC buckets intersecting today's business day without reading tomorrow's calls", async () => {
+it("splits the business-day buckets intersecting today's attendance window without reading tomorrow's calls", async () => {
   const { admin, teamId } = await showRateFixture(
     Date.parse("2026-10-23T02:00:00Z"),
   );
@@ -182,8 +182,8 @@ it("splits both UTC buckets intersecting today's business day without reading to
     const team = await admin.query(
       api.reporting.teamPerformance.getTeamOperationsDimensions,
       {
-        startDate: Date.parse("2026-10-22T00:00:00Z"),
-        endDate: Date.parse("2026-10-24T00:00:00Z"),
+        startDayKey: "2026-10-22",
+        endDayKeyExclusive: "2026-10-24",
         ...filters,
       },
     );
@@ -238,7 +238,7 @@ it("exports the stored status and Not recorded attendance separately", async () 
   }
 });
 
-it("keeps pre-business-day calls in progress and splits every UTC bucket in the 24-hour window", async () => {
+it("keeps pre-business-day calls in progress and splits business-day buckets in the 24-hour window", async () => {
   const now = Date.parse("2026-10-22T07:05:00Z");
   const { t, admin, tenantId, closerId, teamId } = await showRateFixture(now);
   expect(attendanceDayBounds(now)).toEqual({
@@ -292,41 +292,41 @@ it("keeps pre-business-day calls in progress and splits every UTC bucket in the 
   }
   for (const filters of [{}, { attributionTeamId: teamId }]) {
     const result = await t.run(async (ctx) => {
-      const { counts } = await readMeetingStatsCounts(ctx, { tenantId, ...dayRange, ...filters });
+      const { counts } = await readMeetingStatsCounts(ctx, { tenantId, ...dayRange, startDayKey: "2026-10-20", ...filters });
       // Attendance reads raw meetings, so all four additions must also be in
       // the applied buckets before comparing the two sources.
-      expect(counts.reduce((sum, row) => sum + row.count, 0)).toBe(12);
+      expect(counts.reduce((sum, row) => sum + row.count, 0)).toBe(13);
       expect(counts.filter((row) => row.dayKey === "2026-10-22" && row.meetingStatus === "scheduled")
-        .reduce((sum, row) => sum + row.count, 0)).toBe(6);
+        .reduce((sum, row) => sum + row.count, 0)).toBe(4);
       return await withAttendanceCounts(ctx, tenantId, counts, now);
     });
     expect(result.attendanceCountsPartial).toBe(false);
     // Three additions have ended, plus the fixture's yesterday-unrecorded call.
     expect(result.counts.reduce((sum, row) => sum + row.notRecorded, 0)).toBe(4);
     expect(result.counts.filter((row) => row.dayKey === "2026-10-22")
-      .reduce((sum, row) => sum + row.notRecorded, 0)).toBe(2);
+      .reduce((sum, row) => sum + row.notRecorded, 0)).toBe(0);
     if ("attributionTeamId" in filters) {
       for (const expected of added) {
         expect(result.counts).toContainEqual(expect.objectContaining(expected));
       }
     }
     const team = await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
-      ...timestampRange, ...filters,
+      ...dayRange, startDayKey: "2026-10-20", ...filters,
     });
     expect(team.totals.notRecorded).toBe(4);
     const pipeline = await admin.query(api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions, {
-      ...dayRange, ...filters,
+      ...dayRange, startDayKey: "2026-10-20", ...filters,
     });
     expect(pipeline.pastCalls).toBe(7);
   }
-  const performance = await admin.query(api.reporting.teamPerformance.getTeamPerformanceMetrics, timestampRange);
+  const performance = await admin.query(api.reporting.teamPerformance.getTeamPerformanceMetrics, { ...timestampRange, startDate: Date.parse("2026-10-20T07:00:00Z") });
   expect(performance.teamTotals.newPastCalls).toBe(7);
 
   const upcoming = await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
-    startDate: Date.parse("2026-10-23T00:00:00Z"),
-    endDate: Date.parse("2026-10-24T00:00:00Z"),
+    startDayKey: "2026-10-23",
+    endDayKeyExclusive: "2026-10-24",
   });
-  expect(upcoming.totals).toMatchObject({ scheduled: 2, notRecorded: 0, pastCalls: 0 });
+  expect(upcoming.totals).toMatchObject({ scheduled: 1, notRecorded: 0, pastCalls: 0 });
 });
 
 it("returns partial attendance at a small cap, keeping unread earlier calls finished and later calls upcoming", async () => {

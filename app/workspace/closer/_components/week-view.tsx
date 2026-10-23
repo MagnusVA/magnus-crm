@@ -20,7 +20,7 @@ import {
 
 type WeekViewProps = {
   meetings: EnrichedMeeting[];
-  /** The start‑of‑week date (usually Sunday). */
+  /** The start‑of‑week date (Monday). */
   startDate: Date;
 };
 
@@ -29,7 +29,7 @@ type WeekViewProps = {
 /**
  * 7‑column week view.
  *
- * Columns represent days (Sun → Sat). Each column has hourly rows (7 AM – 9 PM)
+ * Columns represent days (Mon → Sun). Each column has hourly rows (7 AM – 9 PM)
  * with meeting blocks positioned absolutely based on `scheduledAt` and
  * `durationMinutes`.
  *

@@ -1,3 +1,4 @@
+import { assertMeetingProjection, assertMeetingProjectionBucket, assertMeetingProjectionSource } from "./operations/meetingProjectionChecks";
 import {
   assertActivityEventCountEntries,
   backfillActivityEventCountEntries,
@@ -11,7 +12,7 @@ import {
   dismissBlockedDelivery,
   isDismissible,
 } from "./pipeline/dismissal";
-import { requestMeetingProjection, bucketKey, meetingDayKey } from "./operations/meetingStats";
+import { requestMeetingProjection } from "./operations/meetingStats";
 import { components, internal } from "./_generated/api";
 import type { DataModel, Doc, Id } from "./_generated/dataModel";
 import {
@@ -448,37 +449,15 @@ export const rebuildMeetingProjections = migrations.define({
 });
 export const assertMeetingProjections = migrations.define({
   table: "meetings", batchSize: 64,
-  migrateOne: async (ctx, meeting) => {
-    const projection = await ctx.db.query("meetingProjections").withIndex("by_meetingId", q => q.eq("meetingId", meeting._id)).unique();
-    const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
-    if (!opportunity || opportunity.tenantId !== meeting.tenantId) throw new Error("Invalid meeting relationship");
-    // The key carries no deal field (docs/plans/phase-5-deal-status.md §4.8).
-    const key = bucketKey({ dayKey: meetingDayKey(meeting.scheduledAt), assignedCloserId: meeting.assignedCloserId,
-      bookingProgramId: meeting.bookingProgramId, soldProgramId: opportunity.soldProgramId,
-      meetingStatus: meeting.status });
-    const bucket = await ctx.db.query("operationsMeetingStatsV2").withIndex("by_tenantId_and_bucketKey", q => q.eq("tenantId", meeting.tenantId).eq("bucketKey", key)).unique();
-    if (!bucket || projection?.tenantId !== meeting.tenantId || projection.status !== "applied" || projection.bucketKey !== key) throw new Error("Meeting projection is missing or stale; drain and rerun assertion");
-  },
+  migrateOne: assertMeetingProjection,
 });
 export const assertMeetingProjectionBuckets = migrations.define({
   table: "operationsMeetingStatsV2", batchSize: 1,
-  migrateOne: async (ctx, bucket) => {
-    // Large buckets use pagination across separate migration rows in a future
-    // warehouse cutover; fail explicitly instead of accepting a partial count.
-    const contributions = await ctx.db.query("meetingProjections").withIndex("by_tenantId_and_bucketKey", q => q.eq("tenantId", bucket.tenantId).eq("bucketKey", bucket.bucketKey)).take(8193);
-    if (contributions.length > 8192) throw new Error("Bucket verification exceeds live limit");
-    if (bucket.count <= 0 || bucket.count !== contributions.length) throw new Error("Projection bucket count mismatch");
-  },
+  migrateOne: assertMeetingProjectionBucket,
 });
 export const assertMeetingProjectionSources = migrations.define({
   table: "meetingProjections", batchSize: 64,
-  migrateOne: async (ctx, projection) => {
-    const meeting = await ctx.db.get("meetings", projection.meetingId);
-    if (projection.status !== "applied") throw new Error("Projection work is unfinished");
-    if (meeting && meeting.tenantId !== projection.tenantId) throw new Error("Projection tenant mismatch");
-    if (!meeting && (projection.contribution || projection.bucketKey)) throw new Error("Deleted meeting still contributes to reports");
-    if (projection.contribution && projection.bucketKey !== bucketKey(projection.contribution)) throw new Error("Projection contribution key mismatch");
-  },
+  migrateOne: assertMeetingProjectionSource,
 });
 export const activateMeetingProjections = internalMutation({
   args: { tenantId: v.id("tenants") }, returns: v.null(),

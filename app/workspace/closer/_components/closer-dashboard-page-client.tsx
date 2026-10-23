@@ -129,12 +129,12 @@ export function CloserDashboardPageClient() {
       start = startOfDay(currentDate);
       end = endOfDay(currentDate);
     } else if (viewMode === "week") {
-      start = startOfWeek(currentDate); // Sunday
-      end = endOfWeek(currentDate); // Saturday 23:59:59
+      start = startOfWeek(currentDate, { weekStartsOn: 1 }); // Monday
+      end = endOfWeek(currentDate, { weekStartsOn: 1 }); // Sunday 23:59:59
     } else {
       // month — extend to fill calendar grid (prev/next month partials)
-      start = startOfWeek(startOfMonth(currentDate));
-      end = endOfWeek(endOfMonth(currentDate));
+      start = startOfWeek(startOfMonth(currentDate), { weekStartsOn: 1 });
+      end = endOfWeek(endOfMonth(currentDate), { weekStartsOn: 1 });
     }
 
     return {
@@ -148,8 +148,8 @@ export function CloserDashboardPageClient() {
       return format(currentDate, "EEEE, MMMM d, yyyy");
     }
     if (viewMode === "week") {
-      const ws = startOfWeek(currentDate);
-      const we = endOfWeek(currentDate);
+      const ws = startOfWeek(currentDate, { weekStartsOn: 1 });
+      const we = endOfWeek(currentDate, { weekStartsOn: 1 });
       return `${format(ws, "MMM d")} – ${format(we, "MMM d, yyyy")}`;
     }
     return format(currentDate, "MMMM yyyy");
@@ -202,6 +202,7 @@ export function CloserDashboardPageClient() {
           </div>
         </div>
         <DashboardDateRangeFilter
+          browser
           value={statsRange}
           onChange={(nextRange) => {
             setStatsRange(nextRange);

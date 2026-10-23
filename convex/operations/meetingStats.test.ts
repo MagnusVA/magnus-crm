@@ -135,8 +135,8 @@ it("re-keys a meeting projected under the old bucket key, and deletes the old bu
   const stats = () =>
     t.run((ctx) => meetingStatsTotals(ctx, {
       tenantId,
-      scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
-      scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
+      scheduledFrom: Date.parse("2026-10-01T07:00:00Z"),
+      scheduledTo: Date.parse("2026-10-02T07:00:00Z"),
     }));
 
   // The rebuild: nothing about the meeting changed but the key format.
@@ -253,8 +253,8 @@ it("counts a booked meeting once after recording a no-show", async () => {
   expect(
     await t.run((ctx) => meetingStatsTotals(ctx, {
       tenantId,
-      scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
-      scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
+      scheduledFrom: Date.parse("2026-10-01T07:00:00Z"),
+      scheduledTo: Date.parse("2026-10-02T07:00:00Z"),
     })),
   ).toMatchObject({ scheduled: 1, noShows: 1, canceled: 0 });
 });
@@ -317,8 +317,8 @@ it("projects every historical meeting when an opportunity with over 200 meetings
   expect(
     await t.run((ctx) => meetingStatsTotals(ctx, {
       tenantId,
-      scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
-      scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
+      scheduledFrom: Date.parse("2026-10-01T07:00:00Z"),
+      scheduledTo: Date.parse("2026-10-02T07:00:00Z"),
       soldProgramId: programId,
     })),
   ).toMatchObject({ scheduled: 205 });
@@ -409,8 +409,8 @@ it("keeps a paid meeting held and counted once when a late cancellation arrives"
   expect(
     await t.run((ctx) => meetingStatsTotals(ctx, {
       tenantId,
-      scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
-      scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
+      scheduledFrom: Date.parse("2026-10-01T07:00:00Z"),
+      scheduledTo: Date.parse("2026-10-02T07:00:00Z"),
       soldProgramId: programId,
     })),
   ).toMatchObject({ scheduled: 1, completed: 1, canceled: 0 });
@@ -481,8 +481,8 @@ it("keeps a closer outcome when reporting fails and repairs the report through a
   expect(
     await t.run((ctx) => meetingStatsTotals(ctx, {
       tenantId,
-      scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
-      scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
+      scheduledFrom: Date.parse("2026-10-01T07:00:00Z"),
+      scheduledTo: Date.parse("2026-10-02T07:00:00Z"),
     })),
   ).toMatchObject({ scheduled: 1, noShows: 1 });
 });

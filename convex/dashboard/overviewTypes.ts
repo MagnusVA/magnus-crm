@@ -12,6 +12,13 @@ export type SectionErrorCode =
 
 export type SectionResult<T> =
   | {
+      status: "rebuilding";
+      data: null;
+      truncated: false;
+      message: string;
+      errorCode: null;
+    }
+  | {
       status: "ready";
       data: T;
       truncated: boolean;
@@ -114,7 +121,7 @@ export type PublicOverviewRange = {
   endBusinessDateExclusive: string;
   dayCount: number;
   label: string;
-  operationsBoundary: "utc_day_key";
+  operationsBoundary: "tenant_business_day";
 };
 
 export type OverviewDashboard = {

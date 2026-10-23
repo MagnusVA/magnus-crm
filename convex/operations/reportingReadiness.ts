@@ -1,3 +1,4 @@
+import { assertBusinessDayReady } from "../lib/businessDayRebuildState";
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 
@@ -8,6 +9,7 @@ export async function requireReportingReady(
 ) {
   const tenant = await ctx.db.get("tenants", tenantId);
   if (!tenant) throw new Error("Tenant not found");
+  await assertBusinessDayReady(ctx, tenantId);
   if (tenant.meetingProjectionVersion === 2) return;
   // Empty tenants need no rebuild. Read the source so readiness never depends
   // on whether a projection happens to be populated.

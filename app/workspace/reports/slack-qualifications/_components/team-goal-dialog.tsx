@@ -1,5 +1,8 @@
 "use client";
 
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { businessDayDisclosure } from "@/lib/businessDay";
+
 import { useEffect, useState } from "react";
 import { useMutation } from "convex/react";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
@@ -58,6 +61,7 @@ export function TeamGoalDialog({
   open,
   onOpenChange,
 }: TeamGoalDialogProps) {
+  const { setting } = useBusinessDay();
   const setTeamDailyGoal = useMutation(
     api.reporting.slackQualifications.setTeamDailyGoal,
   );
@@ -108,8 +112,8 @@ export function TeamGoalDialog({
         <DialogHeader>
           <DialogTitle>Edit Team Daily Goal</DialogTitle>
           <DialogDescription>
-            Set one team-wide target for Slack-qualified leads in a Honduras
-            1am-to-1am business day.
+            Set one team-wide target for Slack-qualified leads per business day.
+            {" "}{businessDayDisclosure(setting)}.
           </DialogDescription>
         </DialogHeader>
 

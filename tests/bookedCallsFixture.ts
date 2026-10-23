@@ -66,6 +66,7 @@ export async function seedBookedCallsFixture(ctx: MutationCtx): Promise<BookedCa
   const day = "2026-08-14";
   const now = utc(day, 12);
   const tenantId = await ctx.db.insert("tenants", {
+      businessDayAppliedVersion: 0,
     companyName: "Booked calls",
     contactEmail: "booked-calls@example.invalid",
     workosOrgId: BOOKED_CALLS_ADMIN.org_id,

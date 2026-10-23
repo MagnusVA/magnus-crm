@@ -1,4 +1,5 @@
 "use client";
+import { DayDefinition } from "@/app/workspace/_components/day-definition";
 
 import { useState } from "react";
 import { useMutation } from "convex/react";
@@ -522,6 +523,7 @@ function ManualReminderForm({
                     disabled={isSubmitting}
                   />
                 </FormControl>
+ <DayDefinition browser />
                 <FormMessage />
               </FormItem>
             )}

@@ -1,4 +1,5 @@
 "use client";
+import { DayDefinition } from "@/app/workspace/_components/day-definition";
 
 import { useCallback, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -411,6 +412,7 @@ export function RedistributeWizardPageClient({
 						</>
 					)}
 				</p>
+				<DayDefinition browser />
 				<MemberIdentity
 					identity={unavailability.closer}
 					className="pt-2"

@@ -1,4 +1,6 @@
 "use client";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { DayDefinition } from "@/app/workspace/_components/day-definition";
 
 import { useState } from "react";
 import type { DateRange as CalendarDateRange } from "react-day-picker";
@@ -54,6 +56,7 @@ export function SetterQualificationControls({
   value,
   onChange,
 }: SetterQualificationControlsProps) {
+  const { setting } = useBusinessDay();
   const [isOpen, setIsOpen] = useState(false);
   const [pendingRange, setPendingRange] = useState<
     CalendarDateRange | undefined
@@ -97,7 +100,7 @@ export function SetterQualificationControls({
           type="button"
           variant="outline"
           size="sm"
-          onClick={() => onChange({ ...value, ...getQuickRange(pick.key) })}
+          onClick={() => onChange({ ...value, ...getQuickRange(pick.key, setting) })}
         >
           {pick.label}
         </Button>
@@ -189,6 +192,7 @@ export function SetterQualificationControls({
           </SelectGroup>
         </SelectContent>
       </Select>
+      <div className="basis-full"><DayDefinition /></div>
     </div>
   );
 }

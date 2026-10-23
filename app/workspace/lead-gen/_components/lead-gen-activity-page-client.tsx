@@ -1,5 +1,6 @@
 "use client";
 
+import { useBusinessDay } from "@/hooks/use-business-day";
 import { useState, type ComponentType, type SVGProps } from "react";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import {
@@ -53,6 +54,7 @@ const wholeNumberFormatter = new Intl.NumberFormat(undefined, {
 });
 
 export function LeadGenActivityPageClient() {
+  const { rebuilding, loaded } = useBusinessDay("lead-gen");
   const [range, setRange] = useState<DashboardRangeInput>({
     kind: "preset",
     preset: "today",
@@ -68,7 +70,7 @@ export function LeadGenActivityPageClient() {
           endBusinessDateInclusive: range.endBusinessDateInclusive,
         })
       : null;
-  const summary = useQuery(api.leadGen.activity.getMyActivitySummary, {
+  const summary = useQuery(api.leadGen.activity.getMyActivitySummary, rebuilding || !loaded ? "skip" : {
     range: queryRange,
   });
   const recent = usePaginatedQuery(
@@ -90,7 +92,7 @@ export function LeadGenActivityPageClient() {
             {summary?.range.label ?? "Loading activity range"}
           </p>
         </div>
-        <DashboardDateRangeFilter
+        <DashboardDateRangeFilter bucketKind="lead-gen"
           value={range}
           onChange={(nextRange) => {
             setRange(nextRange);

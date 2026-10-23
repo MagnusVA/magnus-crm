@@ -1,3 +1,4 @@
+import { BusinessDayRebuildingState } from "./day-definition";
 import { ClipboardListIcon } from "lucide-react";
 import {
 	Card,
@@ -56,7 +57,9 @@ export function LeadGenOverviewCard({
 				</CardDescription>
 			</CardHeader>
 			<CardContent className="flex flex-col gap-3">
-				{section.status === "capped" ? (
+				{section.status === "rebuilding" ? (
+					<BusinessDayRebuildingState />
+				) : section.status === "capped" ? (
 					<OverviewCappedState message={section.message} />
 				) : section.status === "error" ? (
 					<OverviewErrorState message={section.message} />

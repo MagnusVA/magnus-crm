@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -288,7 +289,7 @@ export const getBookedCallsDashboard = query({
       "tenant_admin",
     ]);
 
-    const range = deriveOverviewRange(args.range, Date.now());
+    const range = deriveOverviewRange(args.range, Date.now(), await getTenantBusinessDay(ctx, tenantId));
 
     // Same machinery as the Overview's Top DM Closers section: one bounded
     // meetings read (by_tenantId_and_createdAt over the business-day UTC

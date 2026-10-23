@@ -71,7 +71,7 @@ export function SetterQualificationTrend({
         <CardTitle>Qualification Event Trend</CardTitle>
         <CardDescription>
           {filteredToSetter
-            ? "Selected setter events bucketed by Honduras 1am business day."
+            ? "Selected setter events bucketed by business day."
             : "Team qualification events bucketed against the shared daily goal."}
         </CardDescription>
       </CardHeader>

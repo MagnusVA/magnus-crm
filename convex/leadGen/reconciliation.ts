@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, query } from "../_generated/server";
@@ -15,6 +16,9 @@ import {
 
 const DEFAULT_AUDIT_ROW_LIMIT = 1000;
 const MAX_AUDIT_ROW_LIMIT = 5000;
+// Each distinct prospect needs one index range. Leave room below Convex's
+// 4,096-range limit for auth, tenant settings, raw rows and aggregate rows.
+const MAX_AUDIT_PROSPECTS = 4000;
 const AGGREGATE_ROW_LIMIT = 1000;
 const TEAM_ORIGIN_AUDIT_ROW_LIMIT = 1000;
 const TEAM_ORIGIN_AUDIT_DIFF_LIMIT = 100;
@@ -159,18 +163,27 @@ export const auditAggregateRange = query({
     }
 
     const activeRows = rawRows.filter((row) => row.voidedAt === undefined);
-    const prospectIds = new Set(activeRows.map((row) => row.prospectId));
-    const duplicateRows = activeRows.filter((row) => {
-      const prospectAttempts = activeRows.filter(
-        (candidate) => candidate.prospectId === row.prospectId,
-      );
-      return prospectAttempts.length > 1;
-    });
+    const setting = await getTenantBusinessDay(ctx, tenantId);
+    const prospectIds = new Set(activeRows.map(row => `${timestampToBusinessDateKey(row.submittedAt, setting)}:${row.prospectId}`));
+    // One bounded lookup per prospect, including voided and out-of-range
+    // history. Equal timestamps remain first attempts, as in the strict < query.
+    const distinctProspects = new Set(activeRows.map(row => row.prospectId));
+    if (distinctProspects.size > MAX_AUDIT_PROSPECTS) {
+      throw new Error("Audit range has more than 4,000 distinct prospects. Narrow the timestamp range.");
+    }
+    const earliestByProspect = new Map<Id<"leadGenProspects">, number>();
+    for (const prospectId of distinctProspects) {
+      const earliest = await ctx.db.query("leadGenSubmissions")
+        .withIndex("by_tenantId_and_prospectId_and_submittedAt", q => q.eq("tenantId", tenantId).eq("prospectId", prospectId))
+        .first();
+      if (earliest) earliestByProspect.set(prospectId, earliest.submittedAt);
+    }
+    const activeDuplicateRows = activeRows.filter(row => row.submittedAt > earliestByProspect.get(row.prospectId)!).length;
 
-    const startDayKey = timestampToBusinessDateKey(args.startTimestamp);
-    const endDayKey = timestampToBusinessDateKey(args.endTimestamp);
-    businessDateToUtcStart(startDayKey);
-    businessDateToUtcStart(endDayKey);
+    const startDayKey = timestampToBusinessDateKey(args.startTimestamp, setting);
+    const endDayKey = timestampToBusinessDateKey(args.endTimestamp, setting);
+    businessDateToUtcStart(startDayKey, setting);
+    businessDateToUtcStart(endDayKey, setting);
 
     const aggregateRows = await ctx.db
       .query("leadGenDailyStats")
@@ -206,15 +219,15 @@ export const auditAggregateRange = query({
       rawRowsChecked: rawRows.length,
       activeSubmissions: activeRows.length,
       activeUniqueProspects: prospectIds.size,
-      activeDuplicateRows: duplicateRows.length,
+      activeDuplicateRows,
       aggregateRowsChecked: aggregateRows.length,
       aggregateSubmissions,
       aggregateUniqueProspects,
       aggregateDuplicates,
       submissionDelta: aggregateSubmissions - activeRows.length,
       uniqueProspectDelta: aggregateUniqueProspects - prospectIds.size,
-      duplicateDelta: aggregateDuplicates - duplicateRows.length,
-      note: "Phase 5 owns repair mutations. This Phase 3 query is read-only drift detection.",
+      duplicateDelta: aggregateDuplicates - activeDuplicateRows,
+      note: "Unique credit is per prospect/business day; duplicates are lifetime repeat attempts.",
     };
   },
 });
@@ -232,9 +245,9 @@ export const auditTeamOriginStatsRange = query({
 
     validateBusinessDayRange(args);
 
-    const startTimestamp = businessDateToUtcStart(args.startDayKey);
+    const startTimestamp = businessDateToUtcStart(args.startDayKey, await getTenantBusinessDay(ctx, tenantId));
     const endTimestamp =
-      businessDateToUtcStart(addBusinessDays(args.endDayKey, 1)) - 1;
+      businessDateToUtcStart(addBusinessDays(args.endDayKey, 1), await getTenantBusinessDay(ctx, tenantId)) - 1;
     const rawRows = await ctx.db
       .query("leadGenSubmissions")
       .withIndex("by_tenantId_and_submittedAt", (q) =>
@@ -280,7 +293,7 @@ export const auditTeamOriginStatsRange = query({
       });
       if (!origin.originKey || !origin.originValue) continue;
 
-      const dayKey = timestampToBusinessDateKey(row.submittedAt);
+      const dayKey = timestampToBusinessDateKey(row.submittedAt, await getTenantBusinessDay(ctx, tenantId));
       const statKey = teamOriginAuditKey({
         dayKey,
         teamId: row.teamId,

@@ -1,5 +1,6 @@
 "use client";
 
+import { BusinessDayRebuildingState } from "./day-definition";
 import { useQuery } from "convex/react";
 import type { FunctionReturnType } from "convex/server";
 import { ChevronDownIcon, ChevronUpIcon } from "lucide-react";
@@ -33,8 +34,9 @@ import {
 } from "./overview-section-state";
 
 type LeaderboardKind = "lead_gen" | "qualifiers" | "dm_closers";
-type ExpandedOverviewLeaderboard = FunctionReturnType<
-	typeof api.dashboard.overviewLeaderboards.listOverviewLeaderboardRows
+type ExpandedOverviewLeaderboard = Exclude<
+	FunctionReturnType<typeof api.dashboard.overviewLeaderboards.listOverviewLeaderboardRows>,
+	{ status: "rebuilding" }
 >;
 
 function ExpandedLeaderboardSkeleton() {
@@ -65,6 +67,10 @@ function ExpandedLeaderboardQuery({
 
 	if (data === undefined) {
 		return <ExpandedLeaderboardSkeleton />;
+	}
+
+	if ("status" in data) {
+		return <BusinessDayRebuildingState />;
 	}
 
 	if (data.cappedMessage) {
