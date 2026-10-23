@@ -1,6 +1,6 @@
 import { DirectAggregate } from "@convex-dev/aggregate";
 import { v } from "convex/values";
-import { components, internal } from "../_generated/api";
+import { components } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
   internalMutation,
@@ -217,33 +217,6 @@ export async function readActivityEventCounts(
     count: counts[index],
   }));
 }
-
-export const backfillActivityEventCounts = internalMutation({
-  args: { cursor: v.optional(v.string()) },
-  returns: v.object({
-    processed: v.number(),
-    isDone: v.boolean(),
-    cursor: v.string(),
-  }),
-  handler: async (ctx, { cursor }) => {
-    const result = await ctx.db
-      .query("domainEvents")
-      .paginate({ numItems: 200, cursor: cursor ?? null });
-    for (const event of result.page)
-      await insertActivityEventCounts(ctx, event);
-    if (!result.isDone)
-      await ctx.scheduler.runAfter(
-        0,
-        internal.reporting.activityEventCounts.backfillActivityEventCounts,
-        { cursor: result.continueCursor },
-      );
-    return {
-      processed: result.page.length,
-      isDone: result.isDone,
-      cursor: result.continueCursor,
-    };
-  },
-});
 
 const rangeArgs = {
   tenantId: v.id("tenants"),

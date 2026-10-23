@@ -935,7 +935,8 @@ export const backfillOpportunityByStage = migrations.define({
 
 export const backfillActivityEventCounts = migrations.define({
   table: "domainEvents",
-  batchSize: 200,
+  // 40 × 6 = 240 aggregate inserts, leaving headroom for tree reads below 4,096.
+  batchSize: 40,
   migrateOne: async (ctx, event) => {
     await insertActivityEventCounts(ctx, event);
   },
@@ -943,7 +944,8 @@ export const backfillActivityEventCounts = migrations.define({
 
 export const assertActivityEventCounts = migrations.define({
   table: "domainEvents",
-  batchSize: 200,
+  // 40 × 6 = 240 exact-entry counts, leaving headroom for tree reads below 4,096.
+  batchSize: 40,
   migrateOne: async (ctx, event) => {
     await assertActivityEventCountEntries(ctx, event);
   },

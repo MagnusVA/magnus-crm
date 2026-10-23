@@ -253,13 +253,7 @@ describe("activity event counts", () => {
         args,
       ),
     ).toMatchObject({ passed: false, enabled: false });
-    for (let run = 0; run < 2; run++)
-      expect(
-        await h.t.mutation(
-          internal.reporting.activityEventCounts.backfillActivityEventCounts,
-          {},
-        ),
-      ).toMatchObject({ processed: 1, isDone: true });
+    await completeBackfill(h);
     expect(
       await h.t.query(
         internal.reporting.activityEventCounts.verifyActivityEventCounts,
