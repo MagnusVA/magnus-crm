@@ -44,7 +44,7 @@ export type LeadGenFilters = {
 };
 
 export function LeadGenAdminPageClient() {
- const { setting } = useBusinessDay();
+ const { setting, rebuilding, loaded } = useBusinessDay("lead-gen");
  const now = useNow();
 	const { range, setRange, queryRange, rangeLabel, validationMessage } =
 		useDashboardRange({
@@ -65,7 +65,7 @@ export function LeadGenAdminPageClient() {
 
 	const overview = useQuery(
 		api.leadGen.reporting.getOverview,
-		requiresSnapshot ? "skip" : filters,
+		requiresSnapshot || rebuilding || !loaded ? "skip" : filters,
 	);
 	const needsSnapshot = requiresSnapshot || overview?.capped === true;
 	const teams = useQuery(api.leadGen.workers.listTeams, needsSnapshot ? "skip" : {
@@ -144,7 +144,7 @@ export function LeadGenAdminPageClient() {
 							sourceFilter={filters.source}
 						/>
 					</div>
-					<DashboardDateRangeFilter
+					<DashboardDateRangeFilter bucketKind="lead-gen"
 						validationOptions={OPERATIONS_DASHBOARD_RANGE_VALIDATION}
 						validationMessage={validationMessage}
 						value={range}

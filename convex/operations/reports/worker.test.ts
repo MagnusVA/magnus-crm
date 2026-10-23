@@ -17,6 +17,7 @@ it("scans a month of events across worker steps and preserves job idempotency", 
   const t = convexTest({ schema, modules: convexTestModules });
   const fixture = await t.run(async ctx => {
     const tenantId = await ctx.db.insert("tenants", {
+      businessDayAppliedVersion: 0,
       companyName: "Reporting test",
       contactEmail: "test@example.invalid",
       workosOrgId: "org_reporting",
@@ -147,6 +148,7 @@ it("pages 8501 materialized groups without gaps", async () => {
   const t = convexTest({ schema, modules: convexTestModules });
   const tenantId = await t.run(async ctx => {
     const id = await ctx.db.insert("tenants", {
+      businessDayAppliedVersion: 0,
       companyName: "Reporting pagination test",
       contactEmail: "pagination@example.invalid",
       workosOrgId: "org_reporting_pagination",
@@ -246,6 +248,7 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
   const recordedAt = Date.parse(`${dayKey}T12:00:00.000Z`);
   const fixture = await t.run(async (ctx) => {
     const tenantId = await ctx.db.insert("tenants", {
+      businessDayAppliedVersion: 0,
       companyName: "Sales parity test",
       contactEmail: "sales-parity@example.invalid",
       workosOrgId: "org_sales_parity",

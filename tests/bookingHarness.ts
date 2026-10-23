@@ -40,6 +40,7 @@ export async function bookingHarness(options: { transactionLimits?: boolean } = 
   registerComponents(t);
   const tenantId = await t.run(async (ctx) => {
     const tenantId = await ctx.db.insert("tenants", {
+      businessDayAppliedVersion: 0,
       companyName: "Test",
       contactEmail: "admin@example.com",
       workosOrgId: "org_test",

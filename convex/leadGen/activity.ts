@@ -1,3 +1,4 @@
+import { assertLeadGenBusinessDayReady } from "../lib/businessDayRebuildState";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
@@ -58,6 +59,7 @@ export const getMyActivitySummary = query({
   args: { range: overviewRangeValidator },
   handler: async (ctx, { range }) => {
     const auth = await requireTenantUser(ctx, LEAD_GEN_ACTIVITY_ROLES);
+    await assertLeadGenBusinessDayReady(ctx, auth.tenantId);
     const derivedRange = deriveOverviewRange(range, Date.now(), await getTenantBusinessDay(ctx, auth.tenantId));
     const publicRange = toPublicOverviewRange(derivedRange);
     const access = await resolveOwnLeadGenWorker(ctx, auth);
@@ -105,6 +107,7 @@ export const getMyDaySummary = query({
   args: { dayKey: v.string() },
   handler: async (ctx, { dayKey }) => {
     const auth = await requireTenantUser(ctx, LEAD_GEN_ACTIVITY_ROLES);
+    await assertLeadGenBusinessDayReady(ctx, auth.tenantId);
     const access = await resolveOwnLeadGenWorker(ctx, auth);
     if (!access) {
       return { submissions: 0, uniqueProspects: 0, duplicates: 0 };

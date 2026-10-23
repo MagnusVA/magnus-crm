@@ -24,29 +24,47 @@ export const updateBusinessDay = mutation({
     if (!tenant) throw new Error(`${tenantId}`);
     const version = (tenant.businessDayVersion ?? 0) + 1;
     await ctx.db.patch("tenants", tenantId, { businessDay: setting, businessDayVersion: version });
-    // Fence in-flight reports before changing any totals. Their next checkpoint
-    // cannot publish under a range definition that no longer matches the data.
-    for (const status of activeReportStatuses) {
-      const jobs = await ctx.db.query("operationsReportJobs").withIndex("by_tenantId_and_status", q => q.eq("tenantId", tenantId).eq("status", status)).take(3);
-      for (const job of jobs) {
-        const now = Date.now();
-        await releaseAdmission(ctx, job);
-        await ctx.db.patch("operationsReportJobs", job._id, {
-          status: "canceled", phase: "cleanup", canceledAt: now, completedAt: now, expiresAt: now,
-          purgeAt: now + REPORT_JOB_METADATA_RETENTION_MS, cleanupPending: true, cleanupNextAttemptAt: now,
-          leaseGeneration: job.leaseGeneration + 1, leaseOwner: undefined, leaseExpiresAt: undefined,
-        });
-      }
-    }
-    const rebuildId = await ctx.db.insert("businessDayRebuilds", {
-      tenantId, version, requestedByUserId: userId, requestedAt: Date.now(), state: "running", phase: "meetings", cursor: null,
-      pass: 1, sourceRevision: 0, computedRevision: 0, meetingsEnqueued: 0, leadGenRowsComputed: 0, leadGenRowsSwapped: 0,
-      leadGenAudited: 0, meetingsAsserted: 0, bucketsAsserted: 0, sourcesAsserted: 0, leadGenDone: false,
-    });
-    await ctx.scheduler.runAfter(0, internal.businessDays.runRebuild, { rebuildId });
-    return rebuildId;
+    return await startRebuild(ctx, tenantId, version, true, userId);
   },
 });
+
+/** Deploy-time cutover without changing the tenant's day definition. */
+export const beginBusinessDayCutover = internalMutation({
+  args: { tenantId: v.id("tenants"), rebuildLeadGen: v.boolean() },
+  returns: v.id("businessDayRebuilds"),
+  handler: async (ctx, { tenantId, rebuildLeadGen }) => {
+    if (await runningBusinessDayRebuild(ctx, tenantId)) throw new Error(BUSINESS_DAY_REBUILD_MESSAGE);
+    const tenant = await ctx.db.get("tenants", tenantId);
+    if (!tenant) throw new Error(`${tenantId}`);
+    const version = (tenant.businessDayVersion ?? 0) + 1;
+    await ctx.db.patch("tenants", tenantId, { businessDayVersion: version });
+    return await startRebuild(ctx, tenantId, version, rebuildLeadGen);
+  },
+});
+
+async function startRebuild(ctx: MutationCtx, tenantId: Id<"tenants">, version: number, rebuildLeadGen: boolean, userId?: Id<"users">) {
+  // Fence in-flight reports before changing any totals. Their next checkpoint
+  // cannot publish under a range definition that no longer matches the data.
+  for (const status of activeReportStatuses) {
+    const jobs = await ctx.db.query("operationsReportJobs").withIndex("by_tenantId_and_status", q => q.eq("tenantId", tenantId).eq("status", status)).take(3);
+    for (const job of jobs) {
+      const now = Date.now();
+      await releaseAdmission(ctx, job);
+      await ctx.db.patch("operationsReportJobs", job._id, {
+        status: "canceled", phase: "cleanup", canceledAt: now, completedAt: now, expiresAt: now,
+        purgeAt: now + REPORT_JOB_METADATA_RETENTION_MS, cleanupPending: true, cleanupNextAttemptAt: now,
+        leaseGeneration: job.leaseGeneration + 1, leaseOwner: undefined, leaseExpiresAt: undefined,
+      });
+    }
+  }
+  const rebuildId = await ctx.db.insert("businessDayRebuilds", {
+    tenantId, version, requestedByUserId: userId, rebuildLeadGen, requestedAt: Date.now(), state: "running", phase: "meetings", cursor: null,
+    pass: 1, sourceRevision: 0, computedRevision: 0, meetingsEnqueued: 0, leadGenRowsComputed: 0, leadGenRowsSwapped: 0,
+    leadGenAudited: 0, meetingsAsserted: 0, bucketsAsserted: 0, sourcesAsserted: 0, leadGenDone: !rebuildLeadGen,
+  });
+  await ctx.scheduler.runAfter(0, internal.businessDays.runRebuild, { rebuildId });
+  return rebuildId;
+}
 
 /** Restart a failed pass under the same day definition and report-cache version. */
 export const retryBusinessDayRebuild = mutation({
@@ -60,11 +78,12 @@ export const retryBusinessDayRebuild = mutation({
       .order("desc").first();
     if (!job || job.version !== tenant?.businessDayVersion) throw new Error("No failed business day rebuild to retry.");
     await ctx.db.patch("businessDayRebuilds", job._id, {
-      state: "running", phase: "meetings", cursor: null, pass: job.pass + 1,
+      state: "running", phase: "restart_cleanup", cursor: null, pass: job.pass + 1,
       computedRevision: job.sourceRevision, projectionWaitAttempts: 0,
       meetingsEnqueued: 0, leadGenRowsComputed: 0, leadGenRowsSwapped: 0,
       leadGenAudited: 0, meetingsAsserted: 0, bucketsAsserted: 0, sourcesAsserted: 0,
-      leadGenDone: false, error: undefined, finishedAt: undefined,
+      leadGenDone: job.rebuildLeadGen === false, error: undefined, finishedAt: undefined,
+      watermark: undefined, lowerWatermark: undefined, catchUpPasses: 0, computedCorrectionRevision: undefined,
     });
     await ctx.scheduler.runAfter(0, internal.businessDays.runRebuild, { rebuildId: job._id });
     return job._id;
@@ -104,10 +123,13 @@ export const rebuildStep = internalMutation({
     if (!job || job.state !== "running") return null;
     const tenant = await ctx.db.get("tenants", job.tenantId);
     if (!tenant || tenant.businessDayVersion !== job.version) throw new Error(`${job.tenantId}`);
-    if (job.phase === "meetings") {
+    if (job.phase === "restart_cleanup") {
+      if (!(await cleanStagingPage(ctx, rebuildId, job.pass - 1))) return 0;
+      await move(ctx, job, "meetings");
+    } else if (job.phase === "meetings") {
       const page = await enqueueTenantMeetingProjectionPage(ctx, job.tenantId, job.cursor);
       await ctx.db.patch("businessDayRebuilds", rebuildId, { meetingsEnqueued: job.meetingsEnqueued + page.page.length });
-      await move(ctx, job, page.isDone ? "seed_daily" : "meetings", page.isDone ? null : page.continueCursor);
+      await move(ctx, job, page.isDone ? (job.rebuildLeadGen === false ? "drain" : "seed_daily") : "meetings", page.isDone ? null : page.continueCursor);
     } else if (job.phase.startsWith("seed_") || ["compute", "swap", "audit_lead_gen"].includes(job.phase)) {
       await ctx.runMutation(internal.leadGen.businessDayRebuild.rebuildLeadGenDayStats, { tenantId: job.tenantId, rebuildId });
     } else if (job.phase === "drain") {
@@ -130,20 +152,10 @@ export const rebuildStep = internalMutation({
       await ctx.db.patch("businessDayRebuilds", rebuildId, { sourcesAsserted: job.sourcesAsserted + page.page.length });
       await move(ctx, job, page.isDone ? "cleanup" : job.phase, page.isDone ? null : page.continueCursor);
     } else {
-      // Recheck source changes after assertions too. No report can cache a stale pass.
-      if (job.sourceRevision !== job.computedRevision) {
-        await ctx.db.patch("businessDayRebuilds", rebuildId, { pass: job.pass + 1, leadGenDone: false });
-        await move(ctx, job, "seed_daily");
-        return 0;
-      }
       const delay = await waitForProjections(ctx, job);
       if (delay !== null) { await move(ctx, job, "drain"); return delay; }
-      const rows = await ctx.db.query("businessDayRebuildRows").withIndex("by_rebuildId_and_pass_and_key", q => q.eq("rebuildId", rebuildId)).take(200);
-      for (const row of rows) await ctx.db.delete("businessDayRebuildRows", row._id);
-      if (rows.length) return 0;
-      const seen = await ctx.db.query("businessDayRebuildSeen").withIndex("by_rebuildId_and_pass_and_key", q => q.eq("rebuildId", rebuildId)).take(200);
-      for (const row of seen) await ctx.db.delete("businessDayRebuildSeen", row._id);
-      if (seen.length) return 0;
+      if (!(await cleanStagingPage(ctx, rebuildId, job.pass))) return 0;
+      await ctx.db.patch("tenants", job.tenantId, { businessDayAppliedVersion: job.version });
       await ctx.db.patch("businessDayRebuilds", rebuildId, { state: "done", finishedAt: Date.now() });
       return null;
     }
@@ -151,11 +163,33 @@ export const rebuildStep = internalMutation({
   },
 });
 
+/** Bound cleanup and fence it to old passes so a concurrent retry is safe. */
+async function cleanStagingPage(ctx: MutationCtx, rebuildId: Id<"businessDayRebuilds">, throughPass: number) {
+  for (const table of ["businessDayRebuildRows", "businessDayRebuildSeen"] as const) {
+    const rows = await ctx.db.query(table).withIndex("by_rebuildId_and_pass_and_key", q => q.eq("rebuildId", rebuildId).lte("pass", throughPass)).take(200);
+    for (const row of rows) await ctx.db.delete(table, row._id);
+    if (rows.length) return false;
+  }
+  return true;
+}
+export const cleanupFailedStaging = internalMutation({
+  args: { rebuildId: v.id("businessDayRebuilds"), throughPass: v.number() }, returns: v.null(),
+  handler: async (ctx, args) => {
+    if (!(await cleanStagingPage(ctx, args.rebuildId, args.throughPass))) {
+      await ctx.scheduler.runAfter(0, internal.businessDays.cleanupFailedStaging, args);
+    }
+    return null;
+  },
+});
+
 export const failRebuild = internalMutation({
   args: { rebuildId: v.id("businessDayRebuilds"), error: v.string() }, returns: v.null(),
   handler: async (ctx, { rebuildId, error }) => {
     const job = await ctx.db.get("businessDayRebuilds", rebuildId);
-    if (job?.state === "running") await ctx.db.patch("businessDayRebuilds", rebuildId, { state: "failed", error, finishedAt: Date.now() });
+    if (job?.state === "running") {
+      await ctx.db.patch("businessDayRebuilds", rebuildId, { state: "failed", error, finishedAt: Date.now() });
+      await ctx.scheduler.runAfter(0, internal.businessDays.cleanupFailedStaging, { rebuildId, throughPass: job.pass });
+    }
     return null;
   },
 });
@@ -164,7 +198,7 @@ export const runRebuild = internalAction({
   handler: async (ctx, { rebuildId }): Promise<null> => {
     try {
       const delay: number | null = await ctx.runMutation(internal.businessDays.rebuildStep, { rebuildId });
-      if (delay !== null) await ctx.scheduler.runAfter(delay, internal.businessDays.runRebuild, { rebuildId });
+      if (delay !== null) await ctx.scheduler.runAfter(Math.max(delay, 1), internal.businessDays.runRebuild, { rebuildId });
     } catch (error) {
       reportError("business_day.rebuild.failed", error, { rebuildId });
       await ctx.runMutation(internal.businessDays.failRebuild, { rebuildId, error: error instanceof Error ? error.message : "Rebuild failed" });

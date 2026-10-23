@@ -51,6 +51,7 @@ export default defineSchema({
     meetingProjectionVersion: v.optional(v.literal(2)),
     businessDay: v.optional(v.object({ timeZone: v.string(), dayStartHour: v.number() })),
     businessDayVersion: v.optional(v.number()),
+    businessDayAppliedVersion: v.optional(v.number()),
     leadGenDealsAggregateVerifiedAt: v.optional(v.number()),
     pipelineHealthAggregatesVerifiedAt: v.optional(v.number()),
     // Identity

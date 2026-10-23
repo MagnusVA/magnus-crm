@@ -194,6 +194,7 @@ async function createFixture(options: { exportExpired?: boolean } = {}) {
   const ids = await t.run(async (ctx) => {
     const now = Date.now();
     const tenantAId = await ctx.db.insert("tenants", {
+      businessDayAppliedVersion: 0,
       companyName: "Tenant A",
       contactEmail: "a@example.invalid",
       workosOrgId: "org_a",
@@ -202,6 +203,7 @@ async function createFixture(options: { exportExpired?: boolean } = {}) {
       createdBy: "test",
     });
     const tenantBId = await ctx.db.insert("tenants", {
+      businessDayAppliedVersion: 0,
       companyName: "Tenant B",
       contactEmail: "b@example.invalid",
       workosOrgId: "org_b",
@@ -440,6 +442,7 @@ async function insertRevocationJobFixture(
   return await t.run(async (ctx) => {
     const now = Date.now();
     const tenantId = await ctx.db.insert("tenants", {
+      businessDayAppliedVersion: 0,
       companyName: "Fixture",
       contactEmail: "fixture@example.com",
       workosOrgId: "org_fixture",

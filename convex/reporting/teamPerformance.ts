@@ -1,3 +1,4 @@
+import { addBusinessDays } from "../../lib/businessDay";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import {
   attendanceDayBounds,
@@ -388,8 +389,9 @@ export const getTeamOperationsDimensions = query({
     ]);
     await requireReportingReady(ctx, tenantId);
 
-    const startDayKey = meetingDayKey(args.startDate, await getTenantBusinessDay(ctx, tenantId));
-    const endDayKeyExclusive = meetingDayKey(args.endDate, await getTenantBusinessDay(ctx, tenantId));
+    const setting = await getTenantBusinessDay(ctx, tenantId);
+    const startDayKey = meetingDayKey(args.startDate, setting);
+    const endDayKeyExclusive = addBusinessDays(meetingDayKey(args.endDate - 1, setting), 1);
     // A team or DM closer filter reads the credited meetings' rows
     // (dealAttributions); otherwise the buckets.
     const [closers, { counts, truncated }] = await Promise.all([

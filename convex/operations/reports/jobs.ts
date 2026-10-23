@@ -1,5 +1,5 @@
 import { getTenantBusinessDay } from "../../lib/tenantBusinessDay";
-import { assertBusinessDayReady } from "../../lib/businessDayRebuildState";
+import { assertBusinessDayReady, assertLeadGenBusinessDayReady } from "../../lib/businessDayRebuildState";
 import {
   paginationOptsValidator,
   paginationResultValidator,
@@ -1062,7 +1062,8 @@ async function requestReport(
     requestToken: string;
   },
 ) {
-  await assertBusinessDayReady(ctx, auth.tenantId);
+  if (args.reportKind === "lead-gen") await assertLeadGenBusinessDayReady(ctx, auth.tenantId);
+  else await assertBusinessDayReady(ctx, auth.tenantId);
   const tenant = await ctx.db.get("tenants", auth.tenantId);
   const requestToken = assertBoundedIdentifier(args.requestToken, "Request token");
   assertValidSourceFilter(args.reportKind, args.sourceFilter);

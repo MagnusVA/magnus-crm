@@ -89,7 +89,7 @@ export function useOperationsDashboardReport(args: {
   }>({ requestToken: "", jobId: null, error: null });
   const [attempt, setAttempt] = useState(0);
   const [mountId] = useState(() => crypto.randomUUID());
-  const { rebuilding, version, loaded } = useBusinessDay();
+  const { rebuilding, version, loaded } = useBusinessDay(args.reportKind === "lead-gen" ? "lead-gen" : "meetings");
   const { range, reportKind, sourceFilter } = args;
   const enabled = args.enabled && loaded && !rebuilding;
   const scopeKey = useMemo(
@@ -173,7 +173,7 @@ export function useOperationsDashboardReport(args: {
   ]);
 
   const jobId =
-    jobState.requestToken === requestToken ? jobState.jobId : null;
+    enabled && jobState.requestToken === requestToken ? jobState.jobId : null;
   const requestError =
     jobState.requestToken === requestToken ? jobState.error : null;
 

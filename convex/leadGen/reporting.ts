@@ -1,3 +1,4 @@
+import { assertLeadGenBusinessDayReady } from "../lib/businessDayRebuildState";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -696,6 +697,7 @@ export const getOverview = query({
       "tenant_admin",
     ]);
 
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
     const [dailyResult, originsCapped] = await Promise.all([
@@ -747,6 +749,7 @@ export const listWorkerPerformance = query({
       "tenant_admin",
     ]);
 
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
     const rows = await readDailyStatsRows(ctx, {
@@ -830,6 +833,7 @@ export const listTeamPerformance = query({
       "tenant_admin",
     ]);
 
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
     const rows = await readDailyStatsRows(ctx, {
@@ -919,6 +923,7 @@ export const listSourcePerformance = query({
       "tenant_admin",
     ]);
 
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
     const rows = await readDailyStatsRows(ctx, {
@@ -1000,6 +1005,7 @@ export const listTopOrigins = query({
     ]);
     const limit = normalizeLimit(args.limit, MAX_TOP_ORIGINS);
 
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
 
@@ -1160,6 +1166,7 @@ export const listTopOriginsByTeam = query({
       MAX_TOP_ORIGINS_PER_TEAM,
     );
 
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
 

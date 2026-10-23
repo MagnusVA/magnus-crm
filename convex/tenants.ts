@@ -1,5 +1,5 @@
 import { DEFAULT_BUSINESS_DAY } from "../lib/businessDay";
-import { runningBusinessDayRebuild } from "./lib/businessDayRebuildState";
+import { businessDayBucketsReady, leadGenBusinessDayBlocked, runningBusinessDayRebuild } from "./lib/businessDayRebuildState";
 import { v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { getIdentityOrgId } from "./lib/identity";
@@ -87,6 +87,8 @@ export const getCurrentTenant = query({
       billingOpsEnabled: tenant.billingOpsEnabled === true,
       businessDay: tenant.businessDay ?? DEFAULT_BUSINESS_DAY,
       businessDayVersion: tenant.businessDayVersion ?? 0,
+      businessDayReady: businessDayBucketsReady(tenant),
+      leadGenBusinessDayReady: !(await leadGenBusinessDayBlocked(ctx, tenant._id)),
       businessDayRebuild: runningRebuild ?? (failedRebuild?.version === tenant.businessDayVersion ? failedRebuild : null),
     };
   },

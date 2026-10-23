@@ -24,8 +24,8 @@ async function put(ctx: MutationCtx, job: Rebuild, value: Value, accumulate: boo
   if (old) {
     value = { ...value, submissions: old.value.submissions + value.submissions, uniqueProspectsSubmitted: old.value.uniqueProspectsSubmitted + value.uniqueProspectsSubmitted };
     if (value.kind === "daily" && old.value.kind === "daily") value.duplicateProspectSubmissions += old.value.duplicateProspectSubmissions;
-    await ctx.db.patch("businessDayRebuildRows", old._id, { value });
-  } else await ctx.db.insert("businessDayRebuildRows", { tenantId: job.tenantId, rebuildId: job._id, pass: job.pass, key: keyFor(value), value });
+    await ctx.db.patch("businessDayRebuildRows", old._id, { value, round: job.catchUpPasses ?? 0 });
+  } else await ctx.db.insert("businessDayRebuildRows", { tenantId: job.tenantId, rebuildId: job._id, pass: job.pass, key: keyFor(value), round: job.catchUpPasses ?? 0, value });
 }
 async function first(ctx: MutationCtx, job: Rebuild, key: string) {
   const seen = await ctx.db.query("businessDayRebuildSeen").withIndex("by_rebuildId_and_pass_and_key", q => q.eq("rebuildId", job._id).eq("pass", job.pass).eq("key", key)).unique();
@@ -50,7 +50,13 @@ export async function seedLeadGenDayPage(ctx: MutationCtx, job: Rebuild, kind: k
 /** Source order assigns prospect/day uniqueness to its first active submission. */
 export async function computeLeadGenDayPage(ctx: MutationCtx, job: Rebuild) {
   const setting = await getTenantBusinessDay(ctx, job.tenantId);
-  const page = await ctx.db.query("leadGenSubmissions").withIndex("by_tenantId_and_submittedAt", q => q.eq("tenantId", job.tenantId)).paginate({ cursor: job.cursor, numItems: 200 });
+  if (job.watermark === undefined) throw new Error("Missing lead gen watermark; retry the rebuild.");
+  const page = await ctx.db.query("leadGenSubmissions").withIndex("by_tenantId_and_submittedAt", q => {
+    const tenant = q.eq("tenantId", job.tenantId);
+    return job.lowerWatermark === undefined
+      ? tenant.lt("submittedAt", job.watermark!)
+      : tenant.gte("submittedAt", job.lowerWatermark).lt("submittedAt", job.watermark!);
+  }).paginate({ cursor: job.cursor, numItems: 200 });
   for (const row of page.page) {
     // Lifetime duplicates include voided prior attempts, matching capture and void hooks.
     const firstAttempt = await first(ctx, job, `attempt:${row.prospectId}`);
@@ -80,7 +86,7 @@ async function liveRow(ctx: MutationCtx, value: Value) {
   return ctx.db.query(LEAD_GEN_DAY_TABLES[value.kind]).withIndex("by_tenantId_and_statKey", q => q.eq("tenantId", value.tenantId).eq("statKey", value.statKey)).unique();
 }
 export async function swapLeadGenDayPage(ctx: MutationCtx, job: Rebuild, audit: boolean) {
-  const page = await ctx.db.query("businessDayRebuildRows").withIndex("by_rebuildId_and_pass_and_key", q => q.eq("rebuildId", job._id).eq("pass", job.pass)).paginate({ cursor: job.cursor, numItems: 200 });
+  const page = await ctx.db.query("businessDayRebuildRows").withIndex("by_rebuildId_and_pass_and_round_and_key", q => q.eq("rebuildId", job._id).eq("pass", job.pass).eq("round", job.catchUpPasses ?? 0)).paginate({ cursor: job.cursor, numItems: 200 });
   for (const row of page.page) {
     const old = await liveRow(ctx, row.value);
     const { kind, ...value } = row.value;
@@ -115,19 +121,31 @@ export const rebuildLeadGenDayStats = internalMutation({
       const page = await seedLeadGenDayPage(ctx, job, kind);
       const next = kind === "daily" ? "seed_origin" : kind === "origin" ? "seed_team_origin" : "compute";
       await moveLeadGen(ctx, job, page.isDone ? next : job.phase, page.isDone ? null : page.continueCursor);
-      if (page.isDone && next === "compute") await ctx.db.patch("businessDayRebuilds", rebuildId, { computedRevision: job.sourceRevision });
+      if (page.isDone && next === "compute") await ctx.db.patch("businessDayRebuilds", rebuildId, { computedRevision: job.sourceRevision, computedCorrectionRevision: job.correctionRevision ?? 0, watermark: Date.now(), catchUpPasses: 0 });
     } else if (["compute", "swap", "audit_lead_gen"].includes(job.phase)) {
-      if (job.sourceRevision !== job.computedRevision) {
-        await ctx.db.patch("businessDayRebuilds", rebuildId, { pass: job.pass + 1, computedRevision: job.sourceRevision, leadGenDone: false });
-        await moveLeadGen(ctx, job, "seed_daily");
-        return null;
+      if ((job.correctionRevision ?? 0) !== (job.computedCorrectionRevision ?? 0)) {
+        throw new Error("A lead gen submission was corrected during the rebuild. Retry to take a new snapshot.");
       }
       const page = job.phase === "compute" ? await computeLeadGenDayPage(ctx, job) : await swapLeadGenDayPage(ctx, job, job.phase === "audit_lead_gen");
       const counter = job.phase === "compute" ? "leadGenRowsComputed" : job.phase === "swap" ? "leadGenRowsSwapped" : "leadGenAudited";
       await ctx.db.patch("businessDayRebuilds", rebuildId, { [counter]: job[counter] + page.page.length });
       const next = job.phase === "compute" ? "swap" : job.phase === "swap" ? "audit_lead_gen" : "drain";
       await moveLeadGen(ctx, job, page.isDone ? next : job.phase, page.isDone ? null : page.continueCursor);
-      if (page.isDone && next === "drain") await ctx.db.patch("businessDayRebuilds", rebuildId, { leadGenDone: true });
+      if (page.isDone && next === "drain") {
+        // This read and the leadGenDone write form the final OCC fence. Captures
+        // after it resume normal live counters; earlier captures must be included.
+        const tail = await ctx.db.query("leadGenSubmissions").withIndex("by_tenantId_and_submittedAt", q => q.eq("tenantId", tenantId).gte("submittedAt", job.watermark!)).first();
+        if (tail || job.sourceRevision !== job.computedRevision) {
+          const catchUpPasses = job.catchUpPasses ?? 0;
+          if (catchUpPasses >= 5) throw new Error("Lead gen rebuild did not converge after 5 catch-up passes. Retry when capture traffic is lower.");
+          await ctx.db.patch("businessDayRebuilds", rebuildId, {
+            lowerWatermark: job.watermark, watermark: Date.now(), catchUpPasses: catchUpPasses + 1,
+            computedRevision: job.sourceRevision, phase: "compute", cursor: null,
+          });
+        } else {
+          await ctx.db.patch("businessDayRebuilds", rebuildId, { leadGenDone: true });
+        }
+      }
     }
     return null;
   },

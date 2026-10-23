@@ -649,7 +649,7 @@ export async function applyLeadGenAggregateDelta(
     reason: "voided" | "restored" | "edited";
   },
 ) {
-  if (await markLeadGenBusinessDayDirty(ctx, args.submission.tenantId)) return null;
+  if (await markLeadGenBusinessDayDirty(ctx, args.submission.tenantId, true)) return null;
   if (args.delta !== -1 || args.reason !== "voided") {
     throw new Error("Only void aggregate corrections are supported");
   }

@@ -30,6 +30,7 @@ export type DashboardRangeInput =
 
 type Props = {
  browser?: boolean;
+ bucketKind?: "meetings" | "lead-gen";
 	value: DashboardRangeInput;
 	onChange: (value: DashboardRangeInput) => void;
 	validationMessage: string | null;
@@ -38,6 +39,7 @@ type Props = {
 
 export function DashboardDateRangeFilter({
  browser = false,
+ bucketKind,
 	value,
 	onChange,
 	validationMessage,
@@ -149,7 +151,7 @@ export function DashboardDateRangeFilter({
 					</PopoverContent>
 				</Popover>
 			</div>
-			<DayDefinition browser={browser} />
+			<DayDefinition browser={browser} bucketKind={bucketKind} />
 			{validationMessage ? (
 				<p className="text-xs text-destructive">{validationMessage}</p>
 			) : null}

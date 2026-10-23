@@ -45,7 +45,7 @@ export function LeadGenExportMenu({
   endDayKey: string;
   source?: "instagram" | "meta_business";
 }) {
-  const { setting, rebuilding } = useBusinessDay();
+  const { setting, rebuilding } = useBusinessDay("lead-gen");
   const convex = useConvex();
   const [exportingKind, setExportingKind] = useState<ExportKind | null>(null);
   const exportFilters = useMemo(

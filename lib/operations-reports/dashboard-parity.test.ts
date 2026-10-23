@@ -29,6 +29,7 @@ it("keeps qualifications live dashboard and worker-backed snapshot view models a
   const t = convexTest({ schema, modules: convexTestModules });
   const fixture = await t.run(async (ctx) => {
     const tenantId = await ctx.db.insert("tenants", {
+      businessDayAppliedVersion: 0,
       companyName: "Qualification parity",
       contactEmail: "qualification-parity@example.invalid",
       workosOrgId: "org_qualification_parity",

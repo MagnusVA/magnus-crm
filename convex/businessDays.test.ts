@@ -4,7 +4,7 @@ import { businessDayFixture } from "../tests/businessDayFixtures";
 import { businessDayStart, BUSINESS_DAY_REBUILD_MESSAGE } from "../lib/businessDay";
 import { deriveOverviewRange } from "./dashboard/overviewRange";
 import { getPeriodKey, getPeriodsInRange } from "./reporting/lib/periodBucketing";
-import { markLeadGenBusinessDayDirty } from "./lib/businessDayRebuildState";
+import { assertBusinessDayReady, markLeadGenBusinessDayDirty } from "./lib/businessDayRebuildState";
 
 afterEach(() => vi.useRealTimers());
 const changed = { timeZone: "UTC", dayStartHour: 0 };
@@ -77,7 +77,7 @@ describe("tenant business days", () => {
     const after = await admin.mutation(api.operations.reports.jobs.requestDashboardReport, { reportKind: "lead-gen", range, requestToken: "after" });
     expect(after.requestKey).not.toBe(before.requestKey);
   });
-  it("restarts the lead gen compute pass when a capture or correction changes its source", async () => {
+  it("fails and cleans a corrected snapshot, then retries from the corrected source", async () => {
     const { t, admin, tenantId, submissionIds } = await businessDayFixture();
     const rebuildId = await admin.mutation(api.businessDays.updateBusinessDay, { setting: changed });
     // Pause between compute and swap, without letting the scheduled driver run.
@@ -88,8 +88,13 @@ describe("tenant business days", () => {
     }
     await t.run(async ctx => {
       await ctx.db.patch("leadGenSubmissions", submissionIds[1], { voidedAt: Date.now() });
-      expect(await markLeadGenBusinessDayDirty(ctx, tenantId)).toBe(true);
+      expect(await markLeadGenBusinessDayDirty(ctx, tenantId, true)).toBe(true);
     });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "failed", error: expect.stringContaining("corrected") });
+    expect(await t.run(ctx => ctx.db.query("businessDayRebuildRows").take(1))).toEqual([]);
+    expect(await t.run(ctx => ctx.db.query("businessDayRebuildSeen").take(1))).toEqual([]);
+    await admin.mutation(api.businessDays.retryBusinessDayRebuild, {});
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "done", pass: 2 });
     expect(await admin.query(api.leadGen.reconciliation.auditAggregateRange, { startTimestamp: Date.parse("2026-10-01T00:00Z"), endTimestamp: Date.parse("2026-10-03T00:00Z") - 1 })).toMatchObject({ submissionDelta: 0, uniqueProspectDelta: 0, duplicateDelta: 0, activeSubmissions: 2 });
@@ -148,6 +153,105 @@ describe("tenant business days", () => {
     const rebuildId = await admin.mutation(api.businessDays.updateBusinessDay, { setting: changed });
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "done", meetingsEnqueued: 0, leadGenRowsComputed: 0, leadGenDone: true });
+  });
+
+  it("blocks unapplied meeting buckets before cutover, skips lead gen, and reapplies after a setting change", async () => {
+    const { t, admin, tenantId } = await businessDayFixture();
+    const tenantState = () => admin.query(api.tenants.getCurrentTenant, {});
+    const readMeetings = () => admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
+      startDate: Date.parse("2026-09-30T06:00Z"), endDate: Date.parse("2026-10-03T06:00Z"),
+    });
+    expect(await tenantState()).toMatchObject({ businessDayReady: false, leadGenBusinessDayReady: true });
+    await expect(readMeetings()).rejects.toThrow(BUSINESS_DAY_REBUILD_MESSAGE);
+    for (const purpose of ["dashboard", "export"] as const) {
+      const args = { reportKind: "sales-calls" as const, range, requestToken: `cutover-${purpose}` };
+      await expect(purpose === "dashboard" ? admin.mutation(api.operations.reports.jobs.requestDashboardReport, args)
+        : admin.mutation(api.operations.reports.jobs.requestExport, { ...args, format: "summary_csv" })).rejects.toThrow(BUSINESS_DAY_REBUILD_MESSAGE);
+    }
+    expect(await t.run(ctx => ctx.db.query("operationsReportJobs").take(1))).toEqual([]);
+    const before = await t.run(ctx => ctx.db.query("leadGenDailyStats").take(10));
+    const rebuildId = await t.mutation(internal.businessDays.beginBusinessDayCutover, { tenantId, rebuildLeadGen: false });
+    await expect(t.mutation(internal.businessDays.beginBusinessDayCutover, { tenantId, rebuildLeadGen: false })).rejects.toThrow(BUSINESS_DAY_REBUILD_MESSAGE);
+    expect(await tenantState()).toMatchObject({ businessDayReady: false, leadGenBusinessDayReady: true });
+    await expect(admin.query(api.leadGen.reporting.getOverview, { startDayKey: "2026-09-30", endDayKey: "2026-10-02" })).resolves.toBeDefined();
+    await expect(admin.query(api.leadGen.activity.getMyDaySummary, { dayKey: "2026-10-01" })).resolves.toBeDefined();
+    await expect(admin.mutation(api.operations.reports.jobs.requestDashboardReport, { reportKind: "lead-gen", range, requestToken: "cutover-lead-gen" })).resolves.toBeDefined();
+    expect(await t.run(ctx => markLeadGenBusinessDayDirty(ctx, tenantId))).toBe(false);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "done", version: 1, rebuildLeadGen: false, leadGenRowsComputed: 0, leadGenRowsSwapped: 0, leadGenAudited: 0 });
+    expect(await t.run(ctx => ctx.db.query("leadGenDailyStats").take(10))).toEqual(before);
+    expect(await t.run(ctx => ctx.db.get("tenants", tenantId))).toMatchObject({ businessDayVersion: 1, businessDayAppliedVersion: 1 });
+    expect(await tenantState()).toMatchObject({ businessDayReady: true });
+    expect(await readMeetings()).toMatchObject({ totals: { completed: 1 } });
+    await expect(t.run(ctx => assertBusinessDayReady(ctx, tenantId))).resolves.toBeNull();
+    await admin.mutation(api.businessDays.updateBusinessDay, { setting: changed });
+    expect(await tenantState()).toMatchObject({ businessDayReady: false, leadGenBusinessDayReady: false });
+    await expect(admin.query(api.leadGen.activity.getMyDaySummary, { dayKey: "2026-10-01" })).rejects.toThrow(BUSINESS_DAY_REBUILD_MESSAGE);
+    await expect(admin.query(api.leadGen.reporting.getOverview, { startDayKey: "2026-09-30", endDayKey: "2026-10-02" })).rejects.toThrow(BUSINESS_DAY_REBUILD_MESSAGE);
+    await expect(readMeetings()).rejects.toThrow(BUSINESS_DAY_REBUILD_MESSAGE);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await tenantState()).toMatchObject({ businessDayReady: true, leadGenBusinessDayReady: true });
+    expect(await t.run(ctx => ctx.db.get("tenants", tenantId))).toMatchObject({ businessDayVersion: 2, businessDayAppliedVersion: 2 });
+  });
+
+  it("includes October 22 daytime meetings in an October 22 Honduras browser range", async () => {
+    const { t, admin, tenantId, meetingId } = await businessDayFixture();
+    await t.run(ctx => ctx.db.patch("meetings", meetingId, { scheduledAt: Date.parse("2026-10-22T18:00:00Z") }));
+    await t.mutation(internal.businessDays.beginBusinessDayCutover, { tenantId, rebuildLeadGen: false });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
+      startDate: Date.parse("2026-10-22T00:00:00-06:00"), endDate: Date.parse("2026-10-23T00:00:00-06:00"),
+    })).toMatchObject({ totals: { completed: 1 } });
+  });
+
+  it("catches up only newer submissions and resumes live counters after the final fence", async () => {
+    const { t, admin, tenantId } = await businessDayFixture();
+    const rebuildId = await admin.mutation(api.businessDays.updateBusinessDay, { setting: changed });
+    for (let step = 0; step < 10; step++) {
+      await t.mutation(internal.businessDays.rebuildStep, { rebuildId });
+      if ((await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId)))?.phase === "compute") break;
+    }
+    // Equal to the exclusive watermark: this capture belongs to the catch-up,
+    // including when it commits in the same millisecond the snapshot starts.
+    await admin.mutation(api.leadGen.capture.submit, { source: "instagram", rawHandleOrProfileUrl: "watermarkone", originKind: "reel", originUrlOrLabel: "https://instagram.com/reel/daytest/" });
+    await t.mutation(internal.businessDays.rebuildStep, { rebuildId });
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ phase: "swap", pass: 1, leadGenRowsComputed: 4 });
+    vi.setSystemTime(Date.now() + 10);
+    await admin.mutation(api.leadGen.capture.submit, { source: "instagram", rawHandleOrProfileUrl: "watermarktwo", originKind: "reel", originUrlOrLabel: "https://instagram.com/reel/daytest/" });
+    vi.setSystemTime(Date.now() + 10);
+    for (let step = 0; step < 20; step++) {
+      await t.mutation(internal.businessDays.rebuildStep, { rebuildId });
+      if ((await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId)))?.leadGenDone) break;
+    }
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "running", phase: "drain", pass: 1, catchUpPasses: 1, leadGenRowsComputed: 6, leadGenDone: true });
+    await admin.mutation(api.leadGen.capture.submit, { source: "instagram", rawHandleOrProfileUrl: "watermarkthree", originKind: "reel", originUrlOrLabel: "https://instagram.com/reel/daytest/" });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "done", pass: 1, leadGenRowsComputed: 6 });
+    expect(await admin.query(api.leadGen.reconciliation.auditAggregateRange, { startTimestamp: Date.parse("2026-09-30T00:00Z"), endTimestamp: Date.now() })).toMatchObject({ submissionDelta: 0, uniqueProspectDelta: 0, duplicateDelta: 0, activeSubmissions: 6 });
+    expect(await admin.query(api.leadGen.reconciliation.auditTeamOriginStatsRange, { startDayKey: "2026-09-30", endDayKey: "2026-10-04" })).toMatchObject({ diffCount: 0 });
+    expect(await t.run(ctx => ctx.db.get("tenants", tenantId))).toMatchObject({ businessDayAppliedVersion: 1 });
+  });
+
+  it("fails after five catch-up passes under continuous captures and cleans staging", async () => {
+    const { t, admin, tenantId } = await businessDayFixture();
+    const rebuildId = await admin.mutation(api.businessDays.updateBusinessDay, { setting: changed });
+    let captures = 0;
+    for (let step = 0; step < 40; step++) {
+      const job = await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId));
+      if (job?.state === "failed") break;
+      if (job?.phase === "audit_lead_gen") {
+        vi.setSystemTime(Date.now() + 10);
+        await admin.mutation(api.leadGen.capture.submit, { source: "instagram", rawHandleOrProfileUrl: `busywatermark${captures++}`, originKind: "reel", originUrlOrLabel: "https://instagram.com/reel/daytest/" });
+        vi.setSystemTime(Date.now() + 10);
+      }
+      await t.action(internal.businessDays.runRebuild, { rebuildId });
+    }
+    expect(captures).toBe(6);
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "failed", catchUpPasses: 5, pass: 1, leadGenRowsComputed: 9, error: expect.stringContaining("5 catch-up passes") });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await t.run(ctx => ctx.db.query("businessDayRebuildRows").take(1))).toEqual([]);
+    expect(await t.run(ctx => ctx.db.query("businessDayRebuildSeen").take(1))).toEqual([]);
+    await expect(t.run(ctx => assertBusinessDayReady(ctx, tenantId))).rejects.toThrow(BUSINESS_DAY_REBUILD_MESSAGE);
   });
 
 });

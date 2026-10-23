@@ -11,7 +11,7 @@ export async function businessDayFixture() {
   const h = await bookingHarness({ transactionLimits: true });
   const fixture = await h.t.run(async ctx => {
     const tenantId = h.tenantId;
-    await ctx.db.patch("tenants", tenantId, { meetingProjectionVersion: 2 });
+    await ctx.db.patch("tenants", tenantId, { meetingProjectionVersion: 2, businessDayAppliedVersion: undefined });
     const users = await ctx.db.query("users").withIndex("by_tenantId", q => q.eq("tenantId", tenantId)).take(10);
     const admin = users.find(user => user.role === "tenant_admin")!;
     const closer = users.find(user => user.role === "closer")!;

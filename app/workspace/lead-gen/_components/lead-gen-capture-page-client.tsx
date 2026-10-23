@@ -198,10 +198,10 @@ function rankableOriginFromDetection(
 
 export function LeadGenCapturePageClient() {
   const submit = useMutation(api.leadGen.capture.submit);
-  const { setting } = useBusinessDay();
+  const { setting, rebuilding, loaded } = useBusinessDay("lead-gen");
   const now = useNow();
   const todayKey = businessDateForInstant(now, setting);
-  const daySummary = useQuery(api.leadGen.activity.getMyDaySummary, {
+  const daySummary = useQuery(api.leadGen.activity.getMyDaySummary, rebuilding || !loaded ? "skip" : {
     dayKey: todayKey,
   });
   const [state, dispatch] = useReducer(
@@ -331,7 +331,7 @@ export function LeadGenCapturePageClient() {
 
   return (
     <div className="mx-auto flex w-full max-w-xl flex-col gap-5">
- <DayDefinition />
+ <DayDefinition bucketKind="lead-gen" />
       <div className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold tracking-normal text-pretty">
           Capture Prospect
