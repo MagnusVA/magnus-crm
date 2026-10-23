@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useSyncExternalStore } from "react";
+import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
 import {
   Card,
   CardContent,
@@ -147,7 +148,7 @@ export function TeamKpiSummaryCards({
         <Card size="sm">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardTitle className="text-sm font-medium text-muted-foreground" title={SHOW_RATE_HELP}>
                 Show-Up Rate
               </CardTitle>
               <PercentIcon className="size-4 text-muted-foreground" />
@@ -157,9 +158,10 @@ export function TeamKpiSummaryCards({
             <div className="text-2xl font-bold tabular-nums">
               {formatRate(totals.overallShowUpRate)}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {totalShowed} showed of {totals.overallConfirmedDenominator} eligible
-            </p>
+            <ResultsRecorded
+              resultsRecorded={totals.resultsRecorded}
+              pastCalls={totals.pastCalls}
+            />
           </CardContent>
         </Card>
 

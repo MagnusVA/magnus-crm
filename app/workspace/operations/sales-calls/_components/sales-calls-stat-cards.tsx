@@ -1,5 +1,7 @@
 "use client";
 
+import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
+
 import {
   BanknoteIcon,
   CalculatorIcon,
@@ -55,7 +57,7 @@ export function SalesCallsStatCards({
     {
       label: "Total Calls",
       description:
-        "Meetings scheduled in the selected range, across every status (scheduled, completed, canceled, no-show).",
+        "Meetings scheduled in the selected range, across every status (upcoming, held, canceled, no-show, and not recorded).",
       value:
         stats === undefined
           ? undefined
@@ -65,7 +67,7 @@ export function SalesCallsStatCards({
     {
       label: "Show-up Rate",
       description:
-        "Showed ÷ (total calls − canceled). Shows — when there are no non-canceled calls in the range.",
+        SHOW_RATE_HELP,
       value:
         stats === undefined ? undefined : formatRateOrDash(stats.showUpRate),
       icon: UserCheckIcon,
@@ -110,6 +112,7 @@ export function SalesCallsStatCards({
                   {value}
                 </p>
               )}
+              {label === "Show-up Rate" && stats ? <ResultsRecorded {...stats} /> : null}
             </CardContent>
           </Card>
         ))}

@@ -1,3 +1,4 @@
+import { isHeldStatus, withAttendanceCounts } from "../lib/meetingAttendance";
 import { requireReportingReady } from "./reportingReadiness";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -52,10 +53,13 @@ const moneyBucketValidator = v.object({
 });
 
 const closerTotalsFields = {
+  notRecorded: v.number(),
   booked: v.number(),
   canceled: v.number(),
   noShows: v.number(),
   showed: v.number(),
+  resultsRecorded: v.number(),
+  pastCalls: v.number(),
   showUpRate: v.union(v.number(), v.null()),
   moneyByCurrency: v.array(moneyBucketValidator),
 };
@@ -75,6 +79,7 @@ const salesCallsMeetingRowValidator = v.object({
   leadId: v.union(v.id("leads"), v.null()),
   leadName: v.string(),
   scheduledAt: v.number(),
+  durationMinutes: v.number(),
   meetingStatus: meetingStatusValidator,
   dealPosition: v.union(dealPositionValidator, v.null()),
   dealSystemLoss: v.union(systemLossReasonValidator, v.null()),
@@ -100,6 +105,7 @@ type MeetingTotals = {
   canceled: number;
   noShows: number;
   showed: number;
+  notRecorded: number;
 };
 
 type PaymentTotals = {
@@ -108,12 +114,13 @@ type PaymentTotals = {
 };
 
 function emptyMeetingTotals(): MeetingTotals {
-  return { booked: 0, canceled: 0, noShows: 0, showed: 0 };
+  return { booked: 0, canceled: 0, noShows: 0, showed: 0, notRecorded: 0 };
 }
 
-function addStatsRow(totals: MeetingTotals, row: Doc<"operationsMeetingStatsV2">) {
+function addStatsRow(totals: MeetingTotals, row: Doc<"operationsMeetingStatsV2"> & { notRecorded: number }) {
   totals.booked += row.count;
-  if (row.meetingStatus === "completed") totals.showed += row.count;
+  totals.notRecorded += row.notRecorded;
+  if (isHeldStatus(row.meetingStatus)) totals.showed += row.count;
   if (row.meetingStatus === "canceled") totals.canceled += row.count;
   if (row.meetingStatus === "no_show") totals.noShows += row.count;
 }
@@ -125,7 +132,9 @@ function toRate(numerator: number, denominator: number): number | null {
 function withMeetingRates(totals: MeetingTotals) {
   return {
     ...totals,
-    showUpRate: toRate(totals.showed, totals.booked - totals.canceled),
+    resultsRecorded: totals.showed + totals.noShows,
+    pastCalls: totals.showed + totals.noShows + totals.notRecorded,
+    showUpRate: toRate(totals.showed, totals.showed + totals.noShows),
   };
 }
 
@@ -185,6 +194,8 @@ function emptyDashboard(start: number, end: number) {
       showed: 0,
       canceled: 0,
       noShows: 0,
+      resultsRecorded: 0,
+      pastCalls: 0,
       showUpRate: null,
       moneyByCurrency: [],
     },
@@ -239,6 +250,8 @@ export const getSalesCallsDashboard = query({
       showed: v.number(),
       canceled: v.number(),
       noShows: v.number(),
+      resultsRecorded: v.number(),
+      pastCalls: v.number(),
       showUpRate: v.union(v.number(), v.null()),
       moneyByCurrency: v.array(v.object({
         currency: v.string(),
@@ -256,6 +269,8 @@ export const getSalesCallsDashboard = query({
         showed: v.number(),
         canceled: v.number(),
         noShows: v.number(),
+        resultsRecorded: v.number(),
+        pastCalls: v.number(),
         showUpRate: v.union(v.number(), v.null()),
         moneyByCurrency: v.array(moneyBucketValidator),
       }),
@@ -336,7 +351,7 @@ export const getSalesCallsDashboard = query({
       Id<"tenantPrograms"> | null,
       MeetingTotals
     >();
-    for (const row of statsRows) {
+    for (const row of await withAttendanceCounts(ctx, tenantId, statsRows)) {
       addStatsRow(overallMeetings, row);
 
       const closerTotals =
@@ -433,9 +448,11 @@ export const getSalesCallsDashboard = query({
           showed: meetingTotals.showed,
           canceled: meetingTotals.canceled,
           noShows: meetingTotals.noShows,
+          resultsRecorded: meetingTotals.showed + meetingTotals.noShows,
+          pastCalls: meetingTotals.showed + meetingTotals.noShows + meetingTotals.notRecorded,
           showUpRate: toRate(
             meetingTotals.showed,
-            meetingTotals.booked - meetingTotals.canceled,
+            meetingTotals.showed + meetingTotals.noShows,
           ),
           moneyByCurrency: moneyByCurrency(
             payments?.byCurrency,
@@ -517,6 +534,7 @@ export const getSalesCallsDashboard = query({
         canceled: acc.canceled + closer.canceled,
         noShows: acc.noShows + closer.noShows,
         showed: acc.showed + closer.showed,
+        notRecorded: acc.notRecorded + closer.notRecorded,
       }),
       emptyMeetingTotals(),
     );
@@ -533,9 +551,11 @@ export const getSalesCallsDashboard = query({
         showed,
         canceled: overallMeetings.canceled,
         noShows: overallMeetings.noShows,
+        resultsRecorded: showed + overallMeetings.noShows,
+        pastCalls: showed + overallMeetings.noShows + overallMeetings.notRecorded,
         showUpRate: toRate(
           showed,
-          overallMeetings.booked - overallMeetings.canceled,
+          showed + overallMeetings.noShows,
         ),
         moneyByCurrency: summaryMoneyByCurrency(
           allPaymentsByCurrency,

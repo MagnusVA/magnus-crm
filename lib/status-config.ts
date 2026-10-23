@@ -6,7 +6,7 @@
  * visual consistency.
  */
 
-import type { DealPosition } from "@/convex/opportunities/stages";
+import type { DealPosition } from "../convex/opportunities/stages";
 
 // ─── Meeting statuses ────────────────────────────────────────────────
 
@@ -83,32 +83,61 @@ export const dealPositionConfig: Record<DealPosition, DealPositionVisualConfig> 
 
 // ─── Meeting block config (calendar) ─────────────────────────────────
 
+export type MeetingAttendanceStatus = MeetingStatus | "not_recorded";
+
+export function meetingAttendanceDisplay(
+  meeting: { status: MeetingStatus; scheduledAt: number; durationMinutes: number },
+  now: number,
+): MeetingAttendanceStatus {
+  return meeting.status === "scheduled" &&
+    meeting.scheduledAt + meeting.durationMinutes * 60_000 <= now
+    ? "not_recorded"
+    : meeting.status;
+}
+
 type MeetingBlockConfig = {
   label: string;
   blockClass: string;
   textClass: string;
+  badgeClass: string;
+  dotClass: string;
 };
 
-export const meetingStatusConfig: Record<MeetingStatus, MeetingBlockConfig> = {
+export const meetingStatusConfig: Record<MeetingAttendanceStatus, MeetingBlockConfig> = {
   scheduled: {
     label: "Scheduled",
     blockClass: "bg-blue-500/10 border-l-blue-500",
     textClass: "text-blue-700 dark:text-blue-300",
+    badgeClass: "bg-blue-500/10 text-blue-700 border-blue-200 dark:text-blue-400 dark:border-blue-900",
+    dotClass: "bg-blue-500",
   },
   completed: {
     label: "Completed",
     blockClass: "bg-emerald-500/10 border-l-emerald-500",
     textClass: "text-emerald-700 dark:text-emerald-300",
+    badgeClass: "bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-900",
+    dotClass: "bg-emerald-500",
   },
   canceled: {
     label: "Canceled",
     blockClass: "bg-muted/60 border-l-muted-foreground",
     textClass: "text-muted-foreground line-through",
+    badgeClass: "bg-muted text-muted-foreground border-border",
+    dotClass: "bg-muted-foreground",
   },
   no_show: {
     label: "No Show",
     blockClass: "bg-orange-500/10 border-l-orange-500",
     textClass: "text-orange-700 dark:text-orange-300",
+    badgeClass: "bg-orange-500/10 text-orange-700 border-orange-200 dark:text-orange-400 dark:border-orange-900",
+    dotClass: "bg-orange-500",
+  },
+  not_recorded: {
+    label: "Not recorded",
+    blockClass: "bg-amber-500/10 border-l-amber-500/60",
+    textClass: "text-amber-700 dark:text-amber-300",
+    badgeClass: "bg-amber-500/10 text-amber-700 border-amber-200 dark:text-amber-400 dark:border-amber-900",
+    dotClass: "bg-amber-500/60",
   },
 };
 

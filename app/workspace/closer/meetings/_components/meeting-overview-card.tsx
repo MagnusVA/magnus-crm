@@ -1,5 +1,7 @@
 "use client";
 
+import { useNow } from "@/hooks/use-now";
+
 import { useCallback } from "react";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -32,22 +34,12 @@ import {
   VideoIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { meetingStatusConfig, type MeetingStatus } from "@/lib/status-config";
+import { meetingStatusConfig, meetingAttendanceDisplay } from "@/lib/status-config";
 import type { Doc } from "@/convex/_generated/dataModel";
 import type { DealAttributionDetail } from "@/convex/lib/attribution/detailPayload";
 import { DealCreditList } from "@/app/workspace/_components/deal-credit-list";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
-
-const MEETING_BADGE_CLASS: Record<string, string> = {
-  scheduled:
-    "bg-blue-500/10 text-blue-700 border-blue-200 dark:text-blue-400 dark:border-blue-900",
-  completed:
-    "bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-900",
-  canceled: "bg-muted text-muted-foreground border-border",
-  no_show:
-    "bg-orange-500/10 text-orange-700 border-orange-200 dark:text-orange-400 dark:border-orange-900",
-};
 
 type MeetingOverviewCardProps = {
   lead: Doc<"leads">;
@@ -81,7 +73,7 @@ export function MeetingOverviewCard({
   dmCloserIdentity,
   dealAttribution,
 }: MeetingOverviewCardProps) {
-  const statusKey = meeting.status as MeetingStatus;
+  const statusKey = meetingAttendanceDisplay(meeting, useNow());
   const statusCfg = meetingStatusConfig[statusKey];
   const meetingJoinUrl = meeting.meetingJoinUrl ?? meeting.zoomJoinUrl;
 
@@ -114,7 +106,7 @@ export function MeetingOverviewCard({
             </p>
             <Badge
               variant="secondary"
-              className={cn("mt-1 text-[10px]", MEETING_BADGE_CLASS[meeting.status])}
+              className={cn("mt-1 text-[10px]", statusCfg.badgeClass)}
             >
               {statusCfg?.label ?? meeting.status}
             </Badge>

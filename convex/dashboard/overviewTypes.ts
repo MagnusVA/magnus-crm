@@ -81,6 +81,8 @@ export type PhoneCloserOperations = {
     completed: number;
     noShows: number;
     reviewRequired: number;
+    resultsRecorded: number;
+    pastCalls: number;
     showRate: number | null;
     noShowRate: number | null;
   }>;
@@ -89,6 +91,8 @@ export type PhoneCloserOperations = {
     completed: number;
     noShows: number;
     reviewRequired: number;
+    resultsRecorded: number;
+    pastCalls: number;
     showRate: number | null;
     noShowRate: number | null;
   };

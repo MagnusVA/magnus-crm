@@ -16,11 +16,13 @@ describe("historical Sales Calls dashboard adapter", () => {
   it("joins money by currency without summing unlike currencies", () => {
     const dashboard = buildHistoricalSalesDashboard({
       summary: {
-        totalCalls: 4,
+        totalCalls: 7,
         showed: 3,
-        canceled: 0,
+        canceled: 1,
         noShows: 1,
-        showUpRate: 0.75,
+        showUpRate: 0.5,
+          resultsRecorded: 4,
+          pastCalls: 6,
         start: 100,
         end: 200,
       },
@@ -44,11 +46,13 @@ describe("historical Sales Calls dashboard adapter", () => {
         row("closer-1", {
           closerId: "closer-1",
           label: "Ana",
-          booked: 4,
+          booked: 7,
           showed: 3,
-          canceled: 0,
+          canceled: 1,
           noShows: 1,
-          showUpRate: 0.75,
+          showUpRate: 0.5,
+          resultsRecorded: 4,
+          pastCalls: 6,
           identityId: "user-1",
           identityName: "Ana",
           identitySource: "crm_user",
@@ -74,11 +78,13 @@ describe("historical Sales Calls dashboard adapter", () => {
         row("program-1", {
           programId: "program-1",
           label: "Program One",
-          calls: 4,
+          calls: 7,
           showed: 3,
-          canceled: 0,
+          canceled: 1,
           noShows: 1,
-          showUpRate: 0.75,
+          showUpRate: 0.5,
+          resultsRecorded: 4,
+          pastCalls: 6,
         }),
       ],
       programMoneyRows: [
@@ -109,7 +115,10 @@ describe("historical Sales Calls dashboard adapter", () => {
       expect.objectContaining({ currency: "EUR", paymentRevenueMinor: 80000 }),
       expect.objectContaining({ currency: "USD", paymentRevenueMinor: 50000 }),
     ]);
-    expect(dashboard.stats.totalCalls).toBe(4);
+    expect(dashboard.stats.totalCalls).toBe(7);
+    for (const result of [dashboard.stats, dashboard.closers[0], dashboard.perProgram[0], dashboard.teamTotal]) {
+      expect(result).toMatchObject({ showUpRate: 0.75, resultsRecorded: 4, pastCalls: 6 });
+    }
   });
 
   it("defaults to the only available non-USD currency", () => {

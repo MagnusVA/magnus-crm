@@ -1,3 +1,4 @@
+import { isHeldStatus } from "../../lib/meetingAttendance";
 import { timestampToBusinessDateKey } from "../../reporting/lib/hondurasBusinessTime";
 import { weekdayForBusinessDate, type Weekday } from "../../lib/workSchedule";
 import { normalizeLeadGenOrigin } from "../../leadGen/normalization";
@@ -351,6 +352,7 @@ function reduceBookedMeeting(
       bookedAt: row.bookedAt,
       scheduledAt: row.scheduledAt,
       meetingStatus: row.meetingStatus,
+      attendance: row.attendance,
       dealStage: row.dealStage,
       dealOutcome: row.dealOutcome,
       bookingProgramId: row.bookingProgramId,
@@ -373,9 +375,11 @@ function addMeetingStatusMetrics(
   rowKey: string,
   status: string,
   count: number,
+  notRecorded: number,
 ) {
+  addPageMetric(pageMetrics, section, rowKey, "notRecorded", notRecorded);
   addPageMetric(pageMetrics, section, rowKey, "booked", count);
-  if (status === "completed") addPageMetric(pageMetrics, section, rowKey, "showed", count);
+  if (isHeldStatus(status)) addPageMetric(pageMetrics, section, rowKey, "showed", count);
   if (status === "canceled") addPageMetric(pageMetrics, section, rowKey, "canceled", count);
   if (status === "no_show") addPageMetric(pageMetrics, section, rowKey, "noShows", count);
 }
@@ -390,6 +394,7 @@ function reduceSalesMeetingStats(rows: ReportSourceRow[]) {
       "main",
       row.meetingStatus,
       row.count,
+      row.notRecorded,
     );
     addMeetingStatusMetrics(
       pageMetrics,
@@ -397,6 +402,7 @@ function reduceSalesMeetingStats(rows: ReportSourceRow[]) {
       row.assignedCloserId,
       row.meetingStatus,
       row.count,
+      row.notRecorded,
     );
     addMeetingStatusMetrics(
       pageMetrics,
@@ -404,6 +410,7 @@ function reduceSalesMeetingStats(rows: ReportSourceRow[]) {
       row.bookingProgramId ?? "none",
       row.meetingStatus,
       row.count,
+      row.notRecorded,
     );
   }
   return flushPageMetrics(pageMetrics);
@@ -673,6 +680,7 @@ export function reduceReportSourcePage(args: {
             assignedCloserId: row.assignedCloserId,
             scheduledAt: row.scheduledAt,
             status: row.status,
+            attendance: row.attendance,
             bookingProgramId: row.bookingProgramId,
             bookingProgramName: row.bookingProgramName,
             soldProgramId: row.soldProgramId,
@@ -803,10 +811,11 @@ export function finalizeAggregateRecord(args: {
     }
     case "sales_calls_summary": {
       const booked = numberField(payload, "booked");
-      const canceled = numberField(payload, "canceled");
       const showed = numberField(payload, "showed");
       payload.totalCalls = booked;
-      payload.showUpRate = nullableRate(showed, booked - canceled);
+      payload.resultsRecorded = showed + numberField(payload, "noShows");
+      payload.pastCalls = payload.resultsRecorded + numberField(payload, "notRecorded");
+      payload.showUpRate = nullableRate(showed, showed + numberField(payload, "noShows"));
       payload.start = args.range.startTimestamp;
       payload.end = args.range.endTimestampExclusive;
       break;
@@ -829,7 +838,9 @@ export function finalizeAggregateRecord(args: {
       payload.canceled = canceled;
       payload.noShows = numberField(payload, "noShows");
       payload.showed = showed;
-      payload.showUpRate = nullableRate(showed, booked - canceled);
+      payload.resultsRecorded = showed + numberField(payload, "noShows");
+      payload.pastCalls = payload.resultsRecorded + numberField(payload, "notRecorded");
+      payload.showUpRate = nullableRate(showed, showed + numberField(payload, "noShows"));
       break;
     }
     case "sales_program": {
@@ -841,7 +852,9 @@ export function finalizeAggregateRecord(args: {
       payload.showed = showed;
       payload.canceled = canceled;
       payload.noShows = numberField(payload, "noShows");
-      payload.showUpRate = nullableRate(showed, booked - canceled);
+      payload.resultsRecorded = showed + numberField(payload, "noShows");
+      payload.pastCalls = payload.resultsRecorded + numberField(payload, "notRecorded");
+      payload.showUpRate = nullableRate(showed, showed + numberField(payload, "noShows"));
       break;
     }
     case "sales_closer_money":

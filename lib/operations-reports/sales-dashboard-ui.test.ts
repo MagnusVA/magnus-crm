@@ -41,6 +41,8 @@ vi.mock("@/app/workspace/operations/_components/use-operations-report-job", () =
         canceled: 0,
         noShows: 1,
         showUpRate: 0.75,
+        resultsRecorded: 4,
+        pastCalls: 6,
         start: 100,
         end: 200,
       },
@@ -76,6 +78,7 @@ describe("Sales Calls historical UI", () => {
       ),
     );
     expect(html).toContain("Total Calls");
+    expect(html).toContain("4 of 6 past calls have a result");
     expect(html).toContain("Cash Collected");
     expect(html).toContain("Per Program Statistic");
     expect(html).toContain("Phone Closers");

@@ -1,3 +1,4 @@
+import { ResultsRecorded } from "./results-recorded";
 import { cn } from "@/lib/utils";
 import {
 	Table,
@@ -102,7 +103,10 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 							<NumericCell value={formatWholeNumber(row.completed)} />
 							<NumericCell value={formatWholeNumber(row.noShows)} />
 							<NumericCell value={formatWholeNumber(row.reviewRequired)} />
-							<NumericCell value={formatRate(row.showRate)} />
+							<TableCell className="text-right tabular-nums">
+								{formatRate(row.showRate)}
+								<ResultsRecorded {...row} />
+							</TableCell>
 							<NumericCell value={formatRate(row.noShowRate)} />
 						</TableRow>
 					))}
@@ -115,7 +119,10 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 							strong
 							value={formatWholeNumber(data.totals.reviewRequired)}
 						/>
-						<NumericCell strong value={formatRate(data.totals.showRate)} />
+						<TableCell className="text-right font-semibold tabular-nums">
+							{formatRate(data.totals.showRate)}
+							<ResultsRecorded {...data.totals} />
+						</TableCell>
 						<NumericCell strong value={formatRate(data.totals.noShowRate)} />
 					</TableRow>
 				</TableBody>

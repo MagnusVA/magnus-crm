@@ -1,5 +1,7 @@
 "use client";
 
+import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
+
 import {
   Table,
   TableBody,
@@ -43,6 +45,8 @@ function getTeamFooterData(
       noShows: teamTotals.newNoShows,
       callsShowed: teamTotals.newShowed,
       showUpRate: teamTotals.newShowUpRate,
+      resultsRecorded: teamTotals.newShowed + teamTotals.newNoShows,
+      pastCalls: teamTotals.newPastCalls,
       confirmedAttendanceDenominator:
         teamTotals.newConfirmedAttendanceDenominator,
     };
@@ -53,6 +57,8 @@ function getTeamFooterData(
     noShows: teamTotals.followUpNoShows,
     callsShowed: teamTotals.followUpShowed,
     showUpRate: teamTotals.followUpShowUpRate,
+    resultsRecorded: teamTotals.followUpShowed + teamTotals.followUpNoShows,
+    pastCalls: teamTotals.followUpPastCalls,
     confirmedAttendanceDenominator:
       teamTotals.followUpConfirmedAttendanceDenominator,
   };
@@ -92,7 +98,12 @@ export function CloserPerformanceTable({
           <TableHead className="text-right">Canceled</TableHead>
           <TableHead className="text-right">No Shows</TableHead>
           <TableHead className="text-right">Showed</TableHead>
-          <TableHead className="text-right">Show-Up Rate</TableHead>
+          <TableHead className="text-right">
+            <Tooltip>
+              <TooltipTrigger>Show-Up Rate</TooltipTrigger>
+              <TooltipContent>{SHOW_RATE_HELP}</TooltipContent>
+            </Tooltip>
+          </TableHead>
           <TableHead className="border-l border-border/70 pl-4 text-right">
             Payment sales
           </TableHead>
@@ -144,6 +155,7 @@ export function CloserPerformanceTable({
               <TableCell className="text-right">
                 <div className="flex flex-col items-end gap-0.5">
                   <span className="tabular-nums">{formatRate(calls.showUpRate)}</span>
+                  <ResultsRecorded {...calls} />
                   <span className="text-[11px] text-muted-foreground">
                     {calls.callsShowed} / {calls.confirmedAttendanceDenominator}
                   </span>
@@ -187,6 +199,7 @@ export function CloserPerformanceTable({
           </TableCell>
           <TableCell className="text-right font-bold tabular-nums">
             {formatRate(footer.showUpRate)}
+            <ResultsRecorded {...footer} />
           </TableCell>
           <TableCell className="border-l border-border/70 pl-4 text-right font-bold tabular-nums">
             {commercialTotals.sales}

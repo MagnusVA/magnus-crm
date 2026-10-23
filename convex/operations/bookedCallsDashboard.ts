@@ -69,6 +69,7 @@ const bookedCallRowValidator = v.object({
   meetingId: v.id("meetings"),
   bookedAt: v.number(),
   scheduledAt: v.number(),
+  durationMinutes: v.number(),
   meetingStatus: v.union(
     v.literal("scheduled"),
     v.literal("completed"),
@@ -221,6 +222,7 @@ async function enrichBookedCallRows(
       meetingId: meeting._id,
       bookedAt: meeting.createdAt,
       scheduledAt: meeting.scheduledAt,
+      durationMinutes: meeting.durationMinutes,
       meetingStatus: meeting.status,
       programName:
         meeting.bookingProgramName ??

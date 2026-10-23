@@ -79,14 +79,19 @@ describe("report formats", () => {
     });
     expect(new TextDecoder().decode(pdf.slice(0, 5))).toBe("%PDF-");
   });
-  it("exports each booking's deal stage and outcome in place of its status", () => {
+  it("exports stored attendance, its display label, and deal stage and outcome", () => {
     const labels = exportSectionDefinition("raw_booking", "raw_csv").columns.map((column) => column.label);
-    expect(labels.slice(labels.indexOf("MeetingStatus"), labels.indexOf("MeetingStatus") + 3)).toEqual([
+    expect(labels.slice(labels.indexOf("MeetingStatus"), labels.indexOf("MeetingStatus") + 4)).toEqual([
       "MeetingStatus",
+      "Attendance",
       "DealStage",
       "DealOutcome",
     ]);
     expect(labels).not.toContain("OpportunityStatus");
+    const callColumns = exportSectionDefinition("raw_call", "raw_csv").columns;
+    const csv = new TextDecoder().decode(renderCsv(callColumns, [{ status: "scheduled", attendance: "Not recorded" }]));
+    expect(csv).toContain("Attendance");
+    expect(csv).toContain("scheduled,Not recorded");
   });
 
   it("preserves existing Lead Gen team workbook sections", () => {

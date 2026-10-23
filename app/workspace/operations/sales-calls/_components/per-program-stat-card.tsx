@@ -397,7 +397,7 @@ export function PerProgramStatCard({
                   </TableHead>
                   <TableHead className="text-right font-semibold text-foreground/80">
                     <OverviewHelpTooltip
-                      description="Calls marked completed for this program in the range."
+                      description="Held calls for this program in the range."
                       label="Showed"
                       triggerClassName="w-full justify-end"
                     >

@@ -1,4 +1,10 @@
 import {
+  attendanceDayBounds,
+  readScheduledAttendanceDay,
+  isHeldStatus,
+  withAttendanceCounts,
+} from "../lib/meetingAttendance";
+import {
   meetingDayKey,
   readMeetingStatsCounts,
 } from "../operations/meetingStats";
@@ -105,6 +111,44 @@ export const getTeamPerformanceMetrics = query({
         ? await meetingsByStatus.countBatch(ctx, countQueries)
         : [];
 
+    const now = Date.now();
+    const attendanceDay = attendanceDayBounds(now);
+    const pastEnd = Math.min(endDate, attendanceDay.start);
+    const pastMeta = countMeta.filter((meta) => meta.status === "scheduled");
+    const hasScheduled = counts.some(
+      (count, index) => count > 0 && countMeta[index].status === "scheduled",
+    );
+    const [pastScheduled, currentScheduled] = await Promise.all([
+      pastEnd > startDate
+        ? meetingsByStatus.countBatch(ctx, pastMeta.map((meta) => ({
+            namespace: tenantId,
+            bounds: makeTupleDateBounds(
+              [meta.closerId, meta.classification, meta.status],
+              startDate,
+              pastEnd,
+            ),
+          })))
+        : Promise.resolve(pastMeta.map(() => 0)),
+      hasScheduled && startDate < attendanceDay.end && endDate > attendanceDay.start
+        ? readScheduledAttendanceDay(ctx, tenantId, now)
+        : Promise.resolve([]),
+    ]);
+    const notRecordedByCloser = new Map<string, number>();
+    for (const [index, meta] of pastMeta.entries()) {
+      notRecordedByCloser.set(
+        `${meta.closerId}:${meta.classification}`,
+        pastScheduled[index],
+      );
+    }
+    for (const meeting of currentScheduled) {
+      if (
+        meeting.scheduledAt < startDate || meeting.scheduledAt >= endDate ||
+        meeting.scheduledAt + meeting.durationMinutes * 60_000 > now
+      ) continue;
+      const key = `${meeting.assignedCloserId}:${meeting.callClassification ?? "new"}`;
+      notRecordedByCloser.set(key, (notRecordedByCloser.get(key) ?? 0) + 1);
+    }
+
     const statusCountsByCloser = new Map<
       Id<"users">,
       Record<CallClassification, StatusCountMap>
@@ -174,8 +218,11 @@ export const getTeamPerformanceMetrics = query({
         );
         const canceledCalls = countsForClassification.canceled;
         const noShows = countsForClassification.no_show;
-        const callsShowed = countsForClassification.completed;
-        const confirmedAttendanceDenominator = bookedCalls - canceledCalls;
+        const callsShowed = MEETING_STATUSES.reduce(
+          (sum, status) => sum + (isHeldStatus(status) ? countsForClassification[status] : 0),
+          0,
+        );
+        const confirmedAttendanceDenominator = callsShowed + noShows;
 
         return {
           bookedCalls,
@@ -183,6 +230,9 @@ export const getTeamPerformanceMetrics = query({
           noShows,
           callsShowed,
           confirmedAttendanceDenominator,
+          resultsRecorded: confirmedAttendanceDenominator,
+          pastCalls: confirmedAttendanceDenominator +
+            (notRecordedByCloser.get(`${closer._id}:${classification}`) ?? 0),
           showUpRate: toRate(callsShowed, confirmedAttendanceDenominator),
         };
       };
@@ -215,12 +265,14 @@ export const getTeamPerformanceMetrics = query({
         newCanceled: acc.newCanceled + closer.newCalls.canceledCalls,
         newNoShows: acc.newNoShows + closer.newCalls.noShows,
         newShowed: acc.newShowed + closer.newCalls.callsShowed,
+        newPastCalls: acc.newPastCalls + closer.newCalls.pastCalls,
         followUpBookedCalls:
           acc.followUpBookedCalls + closer.followUpCalls.bookedCalls,
         followUpCanceled:
           acc.followUpCanceled + closer.followUpCalls.canceledCalls,
         followUpNoShows: acc.followUpNoShows + closer.followUpCalls.noShows,
         followUpShowed: acc.followUpShowed + closer.followUpCalls.callsShowed,
+        followUpPastCalls: acc.followUpPastCalls + closer.followUpCalls.pastCalls,
         totalSales: acc.totalSales + closer.sales,
         totalRevenue: acc.totalRevenue + closer.cashCollectedMinor,
         totalAdminLoggedRevenueMinor:
@@ -231,10 +283,12 @@ export const getTeamPerformanceMetrics = query({
         newCanceled: 0,
         newNoShows: 0,
         newShowed: 0,
+        newPastCalls: 0,
         followUpBookedCalls: 0,
         followUpCanceled: 0,
         followUpNoShows: 0,
         followUpShowed: 0,
+        followUpPastCalls: 0,
         totalSales: 0,
         totalRevenue: 0,
         totalAdminLoggedRevenueMinor: 0,
@@ -243,11 +297,8 @@ export const getTeamPerformanceMetrics = query({
 
     const visibleRevenueMinor = teamTotals.totalRevenue;
     const visibleDealCount = teamTotals.totalSales;
-    const totalBookedCalls =
-      teamTotals.newBookedCalls + teamTotals.followUpBookedCalls;
-    const totalCanceledCalls = teamTotals.newCanceled + teamTotals.followUpCanceled;
     const totalShowedCalls = teamTotals.newShowed + teamTotals.followUpShowed;
-    const overallConfirmedDenominator = totalBookedCalls - totalCanceledCalls;
+    const overallConfirmedDenominator = totalShowedCalls + teamTotals.newNoShows + teamTotals.followUpNoShows;
 
     return {
       closers: closerResults,
@@ -257,17 +308,19 @@ export const getTeamPerformanceMetrics = query({
         postConversionRevenueMinor:
           paymentSplit.nonCommissionable.finalRevenueMinor,
         newConfirmedAttendanceDenominator:
-          teamTotals.newBookedCalls - teamTotals.newCanceled,
+          teamTotals.newShowed + teamTotals.newNoShows,
         newShowUpRate: toRate(
           teamTotals.newShowed,
-          teamTotals.newBookedCalls - teamTotals.newCanceled,
+          teamTotals.newShowed + teamTotals.newNoShows,
         ),
         followUpConfirmedAttendanceDenominator:
-          teamTotals.followUpBookedCalls - teamTotals.followUpCanceled,
+          teamTotals.followUpShowed + teamTotals.followUpNoShows,
         followUpShowUpRate: toRate(
           teamTotals.followUpShowed,
-          teamTotals.followUpBookedCalls - teamTotals.followUpCanceled,
+          teamTotals.followUpShowed + teamTotals.followUpNoShows,
         ),
+        resultsRecorded: overallConfirmedDenominator,
+        pastCalls: teamTotals.newPastCalls + teamTotals.followUpPastCalls,
         overallConfirmedDenominator,
         overallShowUpRate: toRate(totalShowedCalls, overallConfirmedDenominator),
         overallCloseRate: toRate(teamTotals.totalSales, totalShowedCalls),
@@ -303,6 +356,9 @@ export const getTeamOperationsDimensions = query({
         completed: v.number(),
         canceled: v.number(),
         noShows: v.number(),
+        notRecorded: v.number(),
+        resultsRecorded: v.number(),
+        pastCalls: v.number(),
         showRate: v.union(v.number(), v.null()),
         noShowRate: v.union(v.number(), v.null()),
       }),
@@ -312,6 +368,9 @@ export const getTeamOperationsDimensions = query({
       completed: v.number(),
       canceled: v.number(),
       noShows: v.number(),
+      notRecorded: v.number(),
+      resultsRecorded: v.number(),
+      pastCalls: v.number(),
       showRate: v.union(v.number(), v.null()),
       noShowRate: v.union(v.number(), v.null()),
     }),
@@ -352,10 +411,11 @@ export const getTeamOperationsDimensions = query({
         completed: number;
         canceled: number;
         noShows: number;
+        notRecorded: number;
       }
     >();
 
-    for (const row of counts) {
+    for (const row of await withAttendanceCounts(ctx, tenantId, counts)) {
       if (
         args.bookingProgramId &&
         row.bookingProgramId !== args.bookingProgramId
@@ -368,9 +428,11 @@ export const getTeamOperationsDimensions = query({
         completed: 0,
         canceled: 0,
         noShows: 0,
+        notRecorded: 0,
       };
       current.scheduled += row.count;
-      if (row.meetingStatus === "completed") {
+      current.notRecorded += row.notRecorded;
+      if (isHeldStatus(row.meetingStatus)) {
         current.completed += row.count;
       }
       if (row.meetingStatus === "canceled") {
@@ -384,7 +446,7 @@ export const getTeamOperationsDimensions = query({
 
     const rows = (await Promise.all(
       [...byCloser.entries()].map(async ([closerId, totals]) => {
-        const denominator = totals.scheduled - totals.canceled;
+        const denominator = totals.completed + totals.noShows;
         return {
           closerId,
           closerName: closerNameById.get(closerId) ?? "Removed closer",
@@ -394,6 +456,8 @@ export const getTeamOperationsDimensions = query({
             "Removed closer",
           ),
           ...totals,
+          resultsRecorded: denominator,
+          pastCalls: denominator + totals.notRecorded,
           showRate: toRate(totals.completed, denominator),
           noShowRate: toRate(totals.noShows, denominator),
         };
@@ -411,15 +475,18 @@ export const getTeamOperationsDimensions = query({
         completed: acc.completed + row.completed,
         canceled: acc.canceled + row.canceled,
         noShows: acc.noShows + row.noShows,
+        notRecorded: acc.notRecorded + row.notRecorded,
       }),
-      { scheduled: 0, completed: 0, canceled: 0, noShows: 0 },
+      { scheduled: 0, completed: 0, canceled: 0, noShows: 0, notRecorded: 0 },
     );
-    const denominator = totals.scheduled - totals.canceled;
+    const denominator = totals.completed + totals.noShows;
 
     return {
       rows,
       totals: {
         ...totals,
+        resultsRecorded: denominator,
+        pastCalls: denominator + totals.notRecorded,
         showRate: toRate(totals.completed, denominator),
         noShowRate: toRate(totals.noShows, denominator),
       },
