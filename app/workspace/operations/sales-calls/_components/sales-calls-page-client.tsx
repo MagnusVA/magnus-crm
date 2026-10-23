@@ -49,7 +49,7 @@ export function SalesCallsPageClient() {
       validationOptions: OPERATIONS_DASHBOARD_RANGE_VALIDATION,
     });
   const requiresSnapshot = useMemo(
-    () => requiresOperationsReportSnapshot(queryRange, setting),
+    () => requiresOperationsReportSnapshot(queryRange, setting, now),
     [queryRange, now, setting],
   );
   const dashboard = useQuery(

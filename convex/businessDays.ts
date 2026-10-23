@@ -48,6 +48,29 @@ export const updateBusinessDay = mutation({
   },
 });
 
+/** Restart a failed pass under the same day definition and report-cache version. */
+export const retryBusinessDayRebuild = mutation({
+  args: {}, returns: v.id("businessDayRebuilds"),
+  handler: async (ctx) => {
+    const { tenantId } = await requireTenantUser(ctx, [...PERMISSIONS["settings:manage"]]);
+    if (await runningBusinessDayRebuild(ctx, tenantId)) throw new Error(BUSINESS_DAY_REBUILD_MESSAGE);
+    const tenant = await ctx.db.get("tenants", tenantId);
+    const job = await ctx.db.query("businessDayRebuilds")
+      .withIndex("by_tenantId_and_state", q => q.eq("tenantId", tenantId).eq("state", "failed"))
+      .order("desc").first();
+    if (!job || job.version !== tenant?.businessDayVersion) throw new Error("No failed business day rebuild to retry.");
+    await ctx.db.patch("businessDayRebuilds", job._id, {
+      state: "running", phase: "meetings", cursor: null, pass: job.pass + 1,
+      computedRevision: job.sourceRevision, projectionWaitAttempts: 0,
+      meetingsEnqueued: 0, leadGenRowsComputed: 0, leadGenRowsSwapped: 0,
+      leadGenAudited: 0, meetingsAsserted: 0, bucketsAsserted: 0, sourcesAsserted: 0,
+      leadGenDone: false, error: undefined, finishedAt: undefined,
+    });
+    await ctx.scheduler.runAfter(0, internal.businessDays.runRebuild, { rebuildId: job._id });
+    return job._id;
+  },
+});
+
 type Rebuild = Doc<"businessDayRebuilds">;
 type Phase = Rebuild["phase"];
 async function move(ctx: MutationCtx, job: Rebuild, phase: Phase, cursor: string | null = null) {
@@ -61,6 +84,16 @@ async function projectionsPending(ctx: MutationCtx, tenantId: Id<"tenants">) {
     if (queued) return true;
   }
   return false;
+}
+
+// Allow the roughly twenty-minute production replay to finish, but never poll
+// forever if a projection loses its worker. The budget spans all drain visits.
+async function waitForProjections(ctx: MutationCtx, job: Rebuild): Promise<number | null> {
+  if (!(await projectionsPending(ctx, job.tenantId))) return null;
+  const attempts = job.projectionWaitAttempts ?? 0;
+  if (attempts >= 120) throw new Error(`Meeting projections did not finish after 120 checks. Rebuild ${job._id}`);
+  await ctx.db.patch("businessDayRebuilds", job._id, { projectionWaitAttempts: attempts + 1 });
+  return Math.min(1000 * 2 ** Math.min(attempts, 5), 30_000);
 }
 
 /** One bounded transaction per step; the action records failures outside rollback. */
@@ -78,7 +111,8 @@ export const rebuildStep = internalMutation({
     } else if (job.phase.startsWith("seed_") || ["compute", "swap", "audit_lead_gen"].includes(job.phase)) {
       await ctx.runMutation(internal.leadGen.businessDayRebuild.rebuildLeadGenDayStats, { tenantId: job.tenantId, rebuildId });
     } else if (job.phase === "drain") {
-      if (await projectionsPending(ctx, job.tenantId)) return 1000;
+      const delay = await waitForProjections(ctx, job);
+      if (delay !== null) return delay;
       await move(ctx, job, "assert_meetings");
     } else if (job.phase === "assert_meetings") {
       const page = await ctx.db.query("meetings").withIndex("by_tenantId_and_scheduledAt", q => q.eq("tenantId", job.tenantId)).paginate({ cursor: job.cursor, numItems: 200 });
@@ -102,7 +136,8 @@ export const rebuildStep = internalMutation({
         await move(ctx, job, "seed_daily");
         return 0;
       }
-      if (await projectionsPending(ctx, job.tenantId)) { await move(ctx, job, "drain"); return 1000; }
+      const delay = await waitForProjections(ctx, job);
+      if (delay !== null) { await move(ctx, job, "drain"); return delay; }
       const rows = await ctx.db.query("businessDayRebuildRows").withIndex("by_rebuildId_and_pass_and_key", q => q.eq("rebuildId", rebuildId)).take(200);
       for (const row of rows) await ctx.db.delete("businessDayRebuildRows", row._id);
       if (rows.length) return 0;

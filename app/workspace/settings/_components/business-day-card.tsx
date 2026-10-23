@@ -12,17 +12,26 @@ import { getErrorMessage } from "@/lib/errors";
 
 export function BusinessDayCard() {
   const tenant = useQuery(api.tenants.getCurrentTenant, {});
+  const retry = useMutation(api.businessDays.retryBusinessDayRebuild);
   const update = useMutation(api.businessDays.updateBusinessDay);
   const [draft, setDraft] = useState<BusinessDaySetting | null>(null);
   const [saving, setSaving] = useState(false);
   const setting = draft ?? tenant?.businessDay ?? DEFAULT_BUSINESS_DAY;
   const zones = useMemo(() => [...new Set([...Intl.supportedValuesOf("timeZone"), setting.timeZone])].sort(), [setting.timeZone]);
-  const rebuilding = Boolean(tenant?.businessDayRebuild);
+  const rebuild = tenant?.businessDayRebuild;
+  const rebuilding = rebuild?.state === "running";
+  const failed = rebuild?.state === "failed";
   const disabled = saving || rebuilding || tenant === undefined;
   const save = async () => {
     setSaving(true);
     try { await update({ setting }); setDraft(null); toast.success("Business day saved. Day totals are being rebuilt."); }
     catch (error) { toast.error(getErrorMessage(error, "Could not save the business day.")); }
+    finally { setSaving(false); }
+  };
+  const retryFailed = async () => {
+    setSaving(true);
+    try { await retry({}); toast.success("Day totals rebuild restarted."); }
+    catch (error) { toast.error(getErrorMessage(error, "Could not retry the rebuild.")); }
     finally { setSaving(false); }
   };
   return <Card>
@@ -43,6 +52,10 @@ export function BusinessDayCard() {
         </Field>
       </FieldGroup>
       <p className="text-sm text-muted-foreground">{businessDayDisclosure(setting)}</p>
+      {failed && <div role="alert" className="flex flex-col items-start gap-2 text-sm">
+        <p className="text-destructive">Day totals rebuild failed: {rebuild.error ?? "Unknown error"}. Reports and exports remain unavailable.</p>
+        <Button variant="outline" disabled={disabled} onClick={() => void retryFailed()}>{saving ? "Retrying..." : "Retry rebuild"}</Button>
+      </div>}
       {rebuilding && <p role="status" className="text-sm text-muted-foreground">Day totals are being rebuilt after a business day change. Reports and exports will be available when it finishes.</p>}
     </CardContent>
     <CardFooter><Button disabled={disabled || !draft} onClick={() => void save()}>{saving ? "Saving..." : "Save business day"}</Button></CardFooter>

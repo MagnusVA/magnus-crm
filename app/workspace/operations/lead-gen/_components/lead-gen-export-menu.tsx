@@ -54,7 +54,7 @@ export function LeadGenExportMenu({
       endDayKey,
       ...(source ? { source } : {}),
     }),
-    [endDayKey, source, startDayKey, setting],
+    [endDayKey, source, startDayKey],
   );
   const rawRange = useMemo(
     () => ({

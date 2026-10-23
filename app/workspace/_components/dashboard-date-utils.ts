@@ -59,8 +59,8 @@ export function dashboardRangeToDayKeys(
  * range. Larger selections are materialized by the report-job flow so a
  * client subscription never asks an existing capped reader to scan history.
  */
-export function requiresOperationsReportSnapshot(range: DashboardRangeInput, setting?: BusinessDaySetting) {
-	const { startDayKey, endDayKey } = dashboardRangeToDayKeys(range, Date.now(), setting);
+export function requiresOperationsReportSnapshot(range: DashboardRangeInput, setting?: BusinessDaySetting, now = Date.now()) {
+	const { startDayKey, endDayKey } = dashboardRangeToDayKeys(range, now, setting);
 	const days = countCalendarDaysInclusive(startDayKey, endDayKey);
 	return days === null || days > 7;
 }

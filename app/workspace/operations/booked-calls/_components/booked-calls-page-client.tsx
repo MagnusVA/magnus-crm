@@ -70,7 +70,7 @@ export function BookedCallsPageClient() {
   const [goalsDialogOpen, setGoalsDialogOpen] = useState(false);
   const [schedulesOpen, setSchedulesOpen] = useState(false);
   const requiresSnapshot = useMemo(
-    () => requiresOperationsReportSnapshot(queryRange, setting),
+    () => requiresOperationsReportSnapshot(queryRange, setting, now),
     [queryRange, now, setting],
   );
 

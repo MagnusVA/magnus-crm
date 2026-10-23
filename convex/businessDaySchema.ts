@@ -50,6 +50,7 @@ export const businessDayTables = {
     cursor: v.union(v.string(), v.null()), pass: v.number(), sourceRevision: v.number(), computedRevision: v.number(),
     meetingsEnqueued: v.number(), leadGenRowsComputed: v.number(), leadGenRowsSwapped: v.number(),
     leadGenAudited: v.number(), meetingsAsserted: v.number(), bucketsAsserted: v.number(), sourcesAsserted: v.number(),
+    projectionWaitAttempts: v.optional(v.number()),
     leadGenDone: v.boolean(), finishedAt: v.optional(v.number()), error: v.optional(v.string()),
   }).index("by_tenantId_and_state", ["tenantId", "state"]),
   businessDayRebuildRows: defineTable({

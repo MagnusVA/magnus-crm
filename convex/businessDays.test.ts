@@ -47,7 +47,7 @@ describe("tenant business days", () => {
       await expect(purpose === "dashboard" ? admin.mutation(api.operations.reports.jobs.requestDashboardReport, request) : admin.mutation(api.operations.reports.jobs.requestExport, { ...request, format: "summary_csv" })).rejects.toThrow(BUSINESS_DAY_REBUILD_MESSAGE);
     }
     expect(await t.run(ctx => ctx.db.query("operationsReportJobs").take(5))).toEqual([]);
-    await t.finishAllScheduledFunctions(vi.runAllTimers, 100);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", id))).toMatchObject({ state: "done" });
   });
   it("rebuilds projections and all three lead gen tables, audits cleanly and is idempotent", async () => {
@@ -55,7 +55,7 @@ describe("tenant business days", () => {
     const before = await admin.mutation(api.operations.reports.jobs.requestDashboardReport, { reportKind: "lead-gen", range, requestToken: "before" });
     const id = await admin.mutation(api.businessDays.updateBusinessDay, { setting: changed });
     expect((await t.run(ctx => ctx.db.get("operationsReportJobs", before.jobId)))?.status).toBe("canceled");
-    await t.finishAllScheduledFunctions(vi.runAllTimers, 100);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
     const job = await t.run(ctx => ctx.db.get("businessDayRebuilds", id));
     expect(job).toMatchObject({ state: "done", meetingsEnqueued: 1, leadGenRowsComputed: 4, leadGenDone: true, meetingsAsserted: 1, sourcesAsserted: 1 });
     const projection = await t.run(ctx => ctx.db.query("meetingProjections").withIndex("by_meetingId", q => q.eq("meetingId", meetingId)).unique());
@@ -68,7 +68,7 @@ describe("tenant business days", () => {
     expect(first.daily.reduce((sum, row) => sum + row.submissions, 0)).toBe(3);
     expect(first.origin.reduce((sum, row) => sum + row.uniqueProspectsSubmitted, 0)).toBe(2);
     await admin.mutation(api.businessDays.updateBusinessDay, { setting: changed });
-    await t.finishAllScheduledFunctions(vi.runAllTimers, 100);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
     const second = await totals();
     const counters = (rows: typeof first.daily | typeof first.origin | typeof first.team) => rows.map(({ dayKey, submissions, uniqueProspectsSubmitted }) => ({ dayKey, submissions, uniqueProspectsSubmitted }));
     for (const key of ["daily", "origin", "team"] as const) expect(counters(second[key])).toEqual(counters(first[key]));
@@ -90,8 +90,64 @@ describe("tenant business days", () => {
       await ctx.db.patch("leadGenSubmissions", submissionIds[1], { voidedAt: Date.now() });
       expect(await markLeadGenBusinessDayDirty(ctx, tenantId)).toBe(true);
     });
-    await t.finishAllScheduledFunctions(vi.runAllTimers, 100);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "done", pass: 2 });
     expect(await admin.query(api.leadGen.reconciliation.auditAggregateRange, { startTimestamp: Date.parse("2026-10-01T00:00Z"), endTimestamp: Date.parse("2026-10-03T00:00Z") - 1 })).toMatchObject({ submissionDelta: 0, uniqueProspectDelta: 0, duplicateDelta: 0, activeSubmissions: 2 });
   });
+  it("fails a stalled projection wait within its retry budget and keeps reports blocked", async () => {
+    const { t, admin, closer, meetingId } = await businessDayFixture();
+    await expect(admin.mutation(api.businessDays.retryBusinessDayRebuild, {})).rejects.toThrow("No failed");
+    const rebuildId = await admin.mutation(api.businessDays.updateBusinessDay, { setting: changed });
+    await expect(admin.mutation(api.businessDays.retryBusinessDayRebuild, {})).rejects.toThrow(BUSINESS_DAY_REBUILD_MESSAGE);
+    // Model a queued obligation whose worker never runs, without modifying Workpool.
+    await t.run(async ctx => {
+      const projection = await ctx.db.query("meetingProjections").withIndex("by_meetingId", q => q.eq("meetingId", meetingId)).unique();
+      await ctx.db.patch("meetingProjections", projection!._id, { status: "queued" });
+      await ctx.db.patch("businessDayRebuilds", rebuildId, { phase: "drain" });
+    });
+    const delays = [];
+    for (let attempt = 0; attempt < 120; attempt++) {
+      delays.push(await t.mutation(internal.businessDays.rebuildStep, { rebuildId }));
+    }
+    expect(delays.slice(0, 7)).toEqual([1000, 2000, 4000, 8000, 16000, 30000, 30000]);
+    expect(delays.at(-1)).toBe(30000);
+    // The already scheduled action records the terminal error and schedules no retry.
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "failed", projectionWaitAttempts: 120 });
+    expect(await admin.query(api.tenants.getCurrentTenant, {})).toMatchObject({ businessDayRebuild: { state: "failed", error: expect.stringContaining("120 checks") } });
+    await expect(admin.mutation(api.operations.reports.jobs.requestExport, { reportKind: "lead-gen", range, requestToken: "failed", format: "summary_csv" })).rejects.toThrow(BUSINESS_DAY_REBUILD_MESSAGE);
+    await expect(closer.mutation(api.businessDays.retryBusinessDayRebuild, {})).rejects.toThrow("Insufficient permissions");
+    await expect(t.withIdentity({ subject: "user_admin", org_id: "org_other" }).mutation(api.businessDays.retryBusinessDayRebuild, {})).rejects.toThrow("Organization mismatch");
+  });
+  it("retries a failed partial swap, clears the error and reuses the version", async () => {
+    const { t, admin, tenantId } = await businessDayFixture();
+    const rebuildId = await admin.mutation(api.businessDays.updateBusinessDay, { setting: changed });
+    for (let step = 0; step < 8; step++) {
+      await t.mutation(internal.businessDays.rebuildStep, { rebuildId });
+      if ((await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId)))?.phase === "audit_lead_gen") break;
+    }
+    await t.mutation(internal.businessDays.failRebuild, { rebuildId, error: "Interrupted after swap" });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await admin.mutation(api.businessDays.retryBusinessDayRebuild, {})).toBe(rebuildId);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const job = await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId));
+    expect(job).toMatchObject({ state: "done", pass: 2, version: 1 });
+    expect(job?.error).toBeUndefined();
+    expect((await t.run(ctx => ctx.db.get("tenants", tenantId)))?.businessDayVersion).toBe(1);
+    expect(await admin.query(api.tenants.getCurrentTenant, {})).toMatchObject({ businessDayRebuild: null });
+    await expect(admin.mutation(api.businessDays.retryBusinessDayRebuild, {})).rejects.toThrow("No failed");
+    expect(await t.run(ctx => ctx.db.query("businessDayRebuildRows").take(1))).toEqual([]);
+    expect(await t.run(ctx => ctx.db.query("businessDayRebuildSeen").take(1))).toEqual([]);
+    await admin.mutation(api.leadGen.backfills.rebuildTeamOriginStatsRange, { startDayKey: "2026-10-01", endDayKey: "2026-10-02", dryRun: false });
+    expect(await admin.query(api.leadGen.reconciliation.auditTeamOriginStatsRange, { startDayKey: "2026-10-01", endDayKey: "2026-10-02" })).toMatchObject({ diffCount: 0 });
+  });
+  it("finishes every phase when its source tables are empty", async () => {
+    const { bookingHarness } = await import("../tests/bookingHarness");
+    vi.useFakeTimers();
+    const { t, admin } = await bookingHarness({ transactionLimits: true });
+    const rebuildId = await admin.mutation(api.businessDays.updateBusinessDay, { setting: changed });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "done", meetingsEnqueued: 0, leadGenRowsComputed: 0, leadGenDone: true });
+  });
+
 });

@@ -12,8 +12,8 @@ export type SlackQualificationFilters = {
   slackUserId: string | null;
 };
 
-export function getInitialSlackQualificationFilters(setting?: BusinessDaySetting): SlackQualificationFilters {
-  const today = getCurrentHondurasBusinessDate(Date.now(), setting);
+export function getInitialSlackQualificationFilters(setting?: BusinessDaySetting, now = Date.now()): SlackQualificationFilters {
+  const today = getCurrentHondurasBusinessDate(now, setting);
   return {
     startBusinessDate: today,
     endBusinessDateExclusive: addBusinessDays(today, 1),

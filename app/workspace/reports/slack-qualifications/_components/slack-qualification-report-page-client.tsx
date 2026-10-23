@@ -38,7 +38,7 @@ export function SlackQualificationReportPageClient() {
   const { setting } = useBusinessDay();
   const now = useNow();
   const [selectedFilters, setFilters] = useState<SlackQualificationFilters | null>(null);
-  const filters = useMemo(() => selectedFilters ?? getInitialSlackQualificationFilters(setting), [selectedFilters, setting, now]);
+  const filters = useMemo(() => selectedFilters ?? getInitialSlackQualificationFilters(setting, now), [selectedFilters, setting, now]);
   const [isTeamGoalDialogOpen, setIsTeamGoalDialogOpen] = useState(false);
   const rangeError = getRangeValidationMessage(filters);
 

@@ -48,7 +48,7 @@ export async function businessDayFixture() {
     await insertPayment(ctx, { tenantId, opportunityId, programId, recordedAt: Date.parse("2026-10-01T02:00Z") });
     return { meetingId, submissionIds, workerId: workers[0]._id, adminId: admin._id, opportunityId };
   });
+  // Keep time monotonic: Workpool persists scan cursors derived from the clock.
   await h.t.finishAllScheduledFunctions(vi.runAllTimers);
-  vi.setSystemTime(new Date("2026-10-03T12:00:00Z"));
   return { ...h, ...fixture };
 }

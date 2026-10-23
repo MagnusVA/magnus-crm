@@ -59,7 +59,7 @@ export function LeadGenAdminPageClient() {
 		return { ...dayKeys, ...(source ? { source } : {}) };
 	}, [queryRange, source, now, setting]);
 	const requiresSnapshot = useMemo(
-		() => requiresOperationsReportSnapshot(queryRange, setting),
+		() => requiresOperationsReportSnapshot(queryRange, setting, now),
 		[queryRange, now, setting],
 	);
 
