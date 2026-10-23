@@ -1,5 +1,4 @@
 import { paginationOptsValidator } from "convex/server";
-import { mergedStream, stream } from "convex-helpers/server/stream";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
@@ -15,12 +14,9 @@ import {
 } from "../lib/memberIdentity";
 import { dealLabelOf } from "../opportunities/stageLabels";
 import { requireTenantUser } from "../requireTenantUser";
-import { isHeldStatus } from "../lib/meetingAttendance";
-import schema from "../schema";
 
 const meetingStatusValidator = v.union(
   v.literal("scheduled"),
-  v.literal("completed"),
   v.literal("held"),
   v.literal("canceled"),
   v.literal("no_show"),
@@ -104,24 +100,6 @@ function phoneSalesMeetingsQuery(ctx: QueryCtx, args: PhoneSalesFilterArgs) {
   }
 
   if (args.meetingStatus) {
-    // The two disjoint status ranges represent one attendance filter until
-    // narrowing. Merge by call time so pagination keeps both without duplicates.
-    if (isHeldStatus(args.meetingStatus)) {
-      return mergedStream(
-        (["completed", "held"] as const).map((status) =>
-          stream(ctx.db, schema).query("meetings").withIndex(
-            "by_tenantId_and_status_and_scheduledAt",
-            (q) => {
-              const ranged = q.eq("tenantId", args.tenantId)
-                .eq("status", status).gte("scheduledAt", from);
-              return args.scheduledTo === undefined
-                ? ranged : ranged.lt("scheduledAt", args.scheduledTo);
-            },
-          ).order("desc"),
-        ),
-        ["scheduledAt", "_creationTime", "_id"],
-      );
-    }
     const meetingStatus = args.meetingStatus;
     return ctx.db
       .query("meetings")

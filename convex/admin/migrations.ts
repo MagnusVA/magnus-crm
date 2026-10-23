@@ -448,31 +448,6 @@ export const backfillMeetingFormResponsesForRawEvent = internalMutation({
   },
 });
 
-/** Removes the retired counters in a bounded batch; rerun until found is zero. */
-export const deleteTenantStatsRows = internalMutation({
-  args: { dryRun: v.optional(v.boolean()) },
-  returns: v.object({
-    dryRun: v.boolean(),
-    found: v.number(),
-    deleted: v.number(),
-    ids: v.array(v.id("tenantStats")),
-  }),
-  handler: async (ctx, { dryRun = false }) => {
-    const rows = await ctx.db.query("tenantStats").take(100);
-    if (!dryRun) {
-      for (const row of rows) {
-        await ctx.db.delete("tenantStats", row._id);
-      }
-    }
-    return {
-      dryRun,
-      found: rows.length,
-      deleted: dryRun ? 0 : rows.length,
-      ids: rows.map((row) => row._id),
-    };
-  },
-});
-
 export const deduplicateEventTypeConfigsInternal = internalMutation({
   args: { tenantId: v.id("tenants") },
   handler: async (

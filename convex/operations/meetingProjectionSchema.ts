@@ -8,7 +8,6 @@ export const meetingContribution = v.object({
   soldProgramId: v.optional(v.id("tenantPrograms")),
   meetingStatus: v.union(
     v.literal("scheduled"),
-    v.literal("completed"),
     v.literal("held"),
     v.literal("canceled"),
     v.literal("no_show"),

@@ -13,7 +13,6 @@ type MeetingPatch = Partial<
     | "tenantId"
     | "opportunityId"
     | "status"
-    | "completedAt"
     | "heldMarkedAt"
   >
 >;
@@ -24,7 +23,6 @@ const RESERVED_MEETING_OUTCOME_PATCH_KEYS = new Set([
   "tenantId",
   "opportunityId",
   "status",
-  "completedAt",
   "heldMarkedAt",
 ]);
 

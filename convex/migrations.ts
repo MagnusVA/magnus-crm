@@ -1,6 +1,6 @@
 import {
   assertActivityEventCountEntries,
-  insertActivityEventCounts,
+  backfillActivityEventCountEntries,
 } from "./reporting/activityEventCounts";
 import { Migrations } from "@convex-dev/migrations";
 import { v } from "convex/values";
@@ -25,7 +25,6 @@ import { deriveStoredEventLinks, storedLeadIdMatches } from "./lib/domainEventLi
 import { getPersonProgramEnrollment } from "./enrollments/read";
 import { derivePersonEnrollments, paymentCounts } from "./lib/enrollments";
 import { lifecycleProblems } from "./lib/leadLifecycle";
-import { patchMeetingLifecycle } from "./lib/meetingLifecycle";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import {
   ensureUserTeamMember,
@@ -84,38 +83,12 @@ export const backfillOpenDealAging = migrations.define({
   },
 });
 
-// Phase 6 PR 4. These copies are absent from aggregate keys and projections
-// (reporting/aggregates.ts, lib/opportunityActivity.ts), so clearing them needs
-// no lifecycle write, activity timestamp change, event, or projection rebuild.
-export const clearDealMeetingTimes = migrations.define({
-  table: "opportunities",
-  batchSize: 200,
-  migrateOne: async (ctx, deal) => {
-    if (deal.canceledAt !== undefined || deal.noShowAt !== undefined) {
-      await ctx.db.patch("opportunities", deal._id, {
-        canceledAt: undefined,
-        noShowAt: undefined,
-      });
-    }
-  },
-});
-
 export const backfillPersonLosses = migrations.define({
   table: "opportunities",
   batchSize: 200,
   migrateOne: async (ctx, deal) => {
     if (isPersonLossEligible(deal)) {
       await personLosses.insertIfDoesNotExist(ctx, deal);
-    }
-  },
-});
-
-export const assertDealMeetingTimesCleared = migrations.define({
-  table: "opportunities",
-  batchSize: 200,
-  migrateOne: async (_ctx, deal) => {
-    if (deal.canceledAt !== undefined || deal.noShowAt !== undefined) {
-      throw new Error(`Deal meeting times remain: ${deal._id}`);
     }
   },
 });
@@ -154,22 +127,6 @@ export const assertPipelineHealthAggregates = migrations.define({
         throw new Error(`personLosses mismatch: ${deal._id}`);
       }
     }
-  },
-});
-
-export const deleteLegacyMeetingDailyStats = migrations.define({
-  table: "operationsMeetingDailyStats",
-  batchSize: 200,
-  migrateOne: async (ctx, row) => {
-    await ctx.db.delete("operationsMeetingDailyStats", row._id);
-  },
-});
-
-export const assertLegacyMeetingDailyStatsEmpty = migrations.define({
-  table: "operationsMeetingDailyStats",
-  batchSize: 200,
-  migrateOne: async (_ctx, row) => {
-    throw new Error(`Legacy meeting daily stats remain: ${row._id}`);
   },
 });
 
@@ -243,40 +200,6 @@ export const assertOpportunitySearchProjectionBackfilled = migrations.define({
       throw new Error(
         `Opportunity ${opportunity._id} has a stale opportunitySearch projection`,
       );
-    }
-  },
-});
-
-// Phase 6 PR 2: clear deprecated search day keys before the final narrow.
-// Patch directly so no projection, event, or aggregate is rewritten.
-export const clearOpportunitySearchDayKeys = migrations.define({
-  table: "opportunitySearch",
-  batchSize: 200,
-  migrateOne: async (ctx, row) => {
-    if (
-      row.activityDayKey !== undefined ||
-      row.activityWeekKey !== undefined ||
-      row.activityMonthKey !== undefined
-    ) {
-      await ctx.db.patch("opportunitySearch", row._id, {
-        activityDayKey: undefined,
-        activityWeekKey: undefined,
-        activityMonthKey: undefined,
-      });
-    }
-  },
-});
-
-export const assertOpportunitySearchDayKeysCleared = migrations.define({
-  table: "opportunitySearch",
-  batchSize: 200,
-  migrateOne: async (_ctx, row) => {
-    if (
-      row.activityDayKey !== undefined ||
-      row.activityWeekKey !== undefined ||
-      row.activityMonthKey !== undefined
-    ) {
-      throw new Error(`OpportunitySearch ${row._id} still has day keys`);
     }
   },
 });
@@ -1082,7 +1005,7 @@ export const backfillActivityEventCounts = migrations.define({
   // 40 × 6 = 240 aggregate inserts, leaving headroom for tree reads below 4,096.
   batchSize: 40,
   migrateOne: async (ctx, event) => {
-    await insertActivityEventCounts(ctx, event);
+    await backfillActivityEventCountEntries(ctx, event);
   },
 });
 
@@ -1128,95 +1051,13 @@ export const assertLeadGenDealsByWorker = migrations.define({
   },
 });
 
-// Phase 6 PR 3: assert before clearing, then verify the clear. Only the four
-// origins present in the production snapshot may pass the preflight.
-export const assertPaymentsCommissionable = migrations.define({
-  table: "paymentRecords",
-  batchSize: 200,
-  migrateOne: async (_ctx, payment) => {
-    if (
-      payment.commissionable === false ||
-      // The retired origins left the validator; a row still holding one
-      // would also fail the schema push.
-      (payment.origin as string) === "customer_direct" ||
-      (payment.origin as string) === "bookkeeper_direct"
-    ) {
-      throw new Error(`Payment ${payment._id}`);
-    }
-  },
-});
-
-export const clearPaymentCommissionable = migrations.define({
-  table: "paymentRecords",
-  batchSize: 200,
-  migrateOne: async (ctx, payment) => {
-    if (payment.commissionable !== undefined) {
-      // No aggregate key, sum or enrollment derivation reads this field.
-      await ctx.db.patch("paymentRecords", payment._id, {
-        commissionable: undefined,
-      });
-    }
-  },
-});
-
-export const assertPaymentCommissionableCleared = migrations.define({
-  table: "paymentRecords",
-  batchSize: 200,
-  migrateOne: async (_ctx, payment) => {
-    if (payment.commissionable !== undefined) {
-      throw new Error(`Payment ${payment._id}`);
-    }
-  },
-});
-
-export const backfillMeetingAttendance = migrations.define({
-  table: "meetings",
-  // Neither patch changes scheduledAt or whether the meeting is scheduled,
-  // so current refs stay unchanged and their refresh skips search rebuilds.
-  // Budget 8 app reads per row (including
-  // pagination and ref checks), plus 128 for aggregate delete/insert tree walks
-  // and Workpool enqueue at the current 6,918-meeting scale. 16 * (8 + 128)
-  // = 2,176 reads, leaving nearly half the 4,096 limit for runner overhead.
-  // Confirm that budget in the dry run before starting the production run.
-  batchSize: 16,
-  migrateOne: async (ctx, meeting) => {
-    if (meeting.status === "completed") {
-      if (meeting.completedAt === undefined) throw new Error(meeting._id);
-      await patchMeetingLifecycle(ctx, meeting._id, {
-        status: "held",
-        heldMarkedAt: meeting.completedAt,
-      });
-    } else if (meeting.status !== "held" && meeting.completedAt !== undefined) {
-      // No-shows got it from the old writers; a Calendly reversal can leave it
-      // on a meeting it moved back to scheduled or to canceled.
-      await patchMeetingLifecycle(ctx, meeting._id, { completedAt: undefined });
-    }
-  },
-});
-
 export const assertMeetingAttendance = migrations.define({
   table: "meetings",
   batchSize: 200,
   migrateOne: async (_ctx, meeting) => {
     if (
-      meeting.status === "completed" ||
       (meeting.status === "held" && meeting.heldMarkedAt === undefined) ||
-      meeting.completedAt !== undefined ||
       (meeting.status !== "held" && meeting.heldMarkedAt !== undefined)
     ) throw new Error(meeting._id);
-  },
-});
-
-// Phase 6 PR 13a: stop the dual write before narrowing the meeting schema.
-export const clearHeldCompletedAt = migrations.define({
-  table: "meetings",
-  batchSize: 200,
-  migrateOne: async (ctx, meeting) => {
-    if (meeting.completedAt !== undefined) {
-      // No aggregate key, projection contribution or meeting ref reads it.
-      // heldMarkedAt already carries the attendance time, so no lifecycle
-      // refresh is needed for this field-only clear.
-      await ctx.db.patch("meetings", meeting._id, { completedAt: undefined });
-    }
   },
 });

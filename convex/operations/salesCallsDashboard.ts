@@ -39,7 +39,6 @@ const MEETINGS_PER_OPPORTUNITY_LIMIT = 25;
 const SEARCH_RESULT_LIMIT = 50;
 const meetingStatusValidator = v.union(
   v.literal("scheduled"),
-  v.literal("completed"),
   v.literal("held"),
   v.literal("canceled"),
   v.literal("no_show"),

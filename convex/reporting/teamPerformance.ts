@@ -29,7 +29,6 @@ import {
 const CALL_CLASSIFICATIONS = ["new", "follow_up"] as const;
 const MEETING_STATUSES = [
   "scheduled",
-  "completed",
   "held",
   "canceled",
   "no_show",
@@ -52,7 +51,6 @@ type StatusCountMap = Record<MeetingStatus, number>;
 function emptyStatusCountMap(): StatusCountMap {
   return {
     scheduled: 0,
-    completed: 0,
     held: 0,
     canceled: 0,
     no_show: 0,

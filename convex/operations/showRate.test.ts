@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import * as attendanceHelpers from "../lib/meetingAttendance";
 import { api, internal } from "../_generated/api";
-import { ATTENDANCE_NOW, attendanceStorageModes, heldAttendanceFixture, showRateFixture } from "../../tests/showRateFixtures";
+import { ATTENDANCE_NOW, showRateFixture } from "../../tests/showRateFixtures";
 import { getPhoneCloserOperationsOverviewSection } from "../dashboard/overviewOperations";
 import { deriveOverviewRange } from "../dashboard/overviewRange";
 import { readSourcePage } from "./reports/readers";
@@ -36,8 +36,8 @@ const timestampRange = {
 };
 const results = { resultsRecorded: 3, pastCalls: 5 };
 
-it.each(attendanceStorageModes)("uses %s attendance in every live report without counting held calls twice", async (storage) => {
-  const { admin, t, tenantId, teamId } = await heldAttendanceFixture(storage);
+it("uses held attendance in every live report without counting calls twice", async () => {
+  const { admin, t, tenantId, teamId } = await showRateFixture();
   const sales = await admin.query(
     api.operations.salesCallsDashboard.getSalesCallsDashboard,
     { range },
@@ -126,8 +126,8 @@ it.each(attendanceStorageModes)("uses %s attendance in every live report without
   }
 });
 
-it.each(attendanceStorageModes)("counts %s held attendance once in each aggregate call classification", async (storage) => {
-  const { t, admin } = await heldAttendanceFixture(storage);
+it("counts held attendance once in each aggregate call classification", async () => {
+  const { t, admin } = await showRateFixture();
   await t.run(async (ctx) => {
     const held = (await ctx.db.query("meetings").take(20))
       .filter((meeting) => isHeldStatus(meeting.status));
@@ -168,7 +168,7 @@ it("returns null rates when scheduled calls have no attendance result", async ()
     pastCalls: 0,
     totalCalls: 2,
   });
-  expect(isHeldStatus("completed")).toBe(true);
+  expect(isHeldStatus("completed")).toBe(false);
   expect(isHeldStatus("held")).toBe(true);
   expect(isHeldStatus("scheduled")).toBe(false);
   expect(isHeldStatus("no_show")).toBe(false);

@@ -267,7 +267,6 @@ export const getOpportunitySnapshot = internalQuery({
 					assignedCloserId: meeting.assignedCloserId,
 					noShowMarkedAt: meeting.noShowMarkedAt ?? null,
 					heldMarkedAt: meeting.heldMarkedAt ?? null,
-					completedAt: meeting.completedAt ?? null,
 					canceledAt: meeting.canceledAt ?? null,
 					rescheduledFromMeetingId:
 						meeting.rescheduledFromMeetingId ?? null,
@@ -327,7 +326,6 @@ export const getMeetingSnapshot = internalQuery({
 				calendlyInviteeUri: meeting.calendlyInviteeUri,
 				noShowMarkedAt: meeting.noShowMarkedAt ?? null,
 				heldMarkedAt: meeting.heldMarkedAt ?? null,
-				completedAt: meeting.completedAt ?? null,
 				canceledAt: meeting.canceledAt ?? null,
 				utmParams: meeting.utmParams ?? null,
 				callClassification: meeting.callClassification ?? null,

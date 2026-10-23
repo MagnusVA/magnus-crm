@@ -141,20 +141,21 @@ it("labels each sales call from its own booking's rows", async () => {
   ]);
 });
 
-it.each(["completed", "held"] as const)("paginates the %s filter across both held statuses in call-time order", async (meetingStatus) => {
-  const { heldAttendanceFixture } = await import("../../tests/showRateFixtures");
-  const { t, tenantId, admin } = await heldAttendanceFixture("mixed");
+it("paginates held meetings in call-time order", async () => {
+  const meetingStatus = "held" as const;
+  const { showRateFixture } = await import("../../tests/showRateFixtures");
+  const { t, tenantId, admin } = await showRateFixture();
   const expected = await t.run(async (ctx) => {
-    const legacy = (await ctx.db.query("meetings").take(20)).find((m) => m.status === "completed")!;
-    // Same call time and creation time exercise the stable merged cursor tie-break.
-    const { _id, _creationTime, ...fields } = legacy;
+    const held = (await ctx.db.query("meetings").take(20)).find((m) => m.status === "held")!;
+    // Same call time and creation time exercise the stable cursor tie-break.
+    const { _id, _creationTime, ...fields } = held;
     void _id;
     void _creationTime;
-    await ctx.db.insert("meetings", { ...fields, status: "held", heldMarkedAt: fields.completedAt, calendlyEventUri: "tie", calendlyInviteeUri: "tie/invitee" });
+    await ctx.db.insert("meetings", { ...fields, status: "held", heldMarkedAt: fields.heldMarkedAt, calendlyEventUri: "tie", calendlyInviteeUri: "tie/invitee" });
     const meetings = await ctx.db.query("meetings").withIndex("by_tenantId_and_scheduledAt", (q) =>
       q.eq("tenantId", tenantId).gte("scheduledAt", Date.parse("2026-10-21T00:00:00Z")).lt("scheduledAt", Date.parse("2026-10-23T00:00:00Z")),
     ).order("desc").take(20);
-    return meetings.filter((m) => m.status === "completed" || m.status === "held").map((m) => m._id);
+    return meetings.filter((m) => m.status === "held").map((m) => m._id);
   });
   const ids: Id<"meetings">[] = [];
   let cursor: string | null = null;

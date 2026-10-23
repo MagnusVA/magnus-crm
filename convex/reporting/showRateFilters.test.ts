@@ -5,7 +5,6 @@
  * filtered paths now read `dealAttributions` and must keep them.
  */
 import { afterEach, expect, it, vi } from "vitest";
-import { attendanceStorageModes, type AttendanceStorage } from "../../tests/showRateFixtures";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
@@ -15,7 +14,7 @@ import { requestMeetingProjection } from "../operations/meetingStats";
 
 afterEach(() => vi.useRealTimers());
 
-type Status = "scheduled" | "completed" | "canceled" | "no_show";
+type Status = "scheduled" | "held" | "canceled" | "no_show";
 
 async function insertUser(ctx: MutationCtx, tenantId: Id<"tenants">, key: string) {
   return await ctx.db.insert("users", {
@@ -69,7 +68,7 @@ async function insertDmCloser(
  * booked through a different DM closer and team. m12 has rows but was never
  * projected, so neither read counts it.
  */
-async function seed(storage: AttendanceStorage = "completed") {
+async function seed() {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-04T00:00:00Z"));
   const harness = await bookingHarness();
@@ -148,8 +147,8 @@ async function seed(storage: AttendanceStorage = "completed") {
         calendlyInviteeUri: `https://api.calendly.com/scheduled_events/${key}/invitees/person`,
         scheduledAt,
         durationMinutes: 30,
-        status: status === "completed" && (storage === "held" || (storage === "mixed" && Number(key.slice(1)) % 2 === 0)) ? "held" : status,
-        heldMarkedAt: status === "completed" && (storage === "held" || (storage === "mixed" && Number(key.slice(1)) % 2 === 0)) ? scheduledAt : undefined,
+        status,
+        heldMarkedAt: status === "held" ? scheduledAt : undefined,
         callClassification: options.deal ? "follow_up" : "new",
         createdAt: scheduledAt - 86_400_000,
         bookingProgramId: options.programId,
@@ -163,18 +162,18 @@ async function seed(storage: AttendanceStorage = "completed") {
       }
     };
 
-    await book("m1", "2026-10-01T12:00:00Z", closerA, "completed", { teamId: t1, dmCloserId: d1a }, { programId });
+    await book("m1", "2026-10-01T12:00:00Z", closerA, "held", { teamId: t1, dmCloserId: d1a }, { programId });
     await book("m2", "2026-10-01T13:00:00Z", closerA, "no_show", { teamId: t1, dmCloserId: d1a });
     await book("m3", "2026-10-01T14:00:00Z", closerB, "canceled", { teamId: t1, dmCloserId: d1a }, { programId });
-    await book("m4", "2026-10-02T12:00:00Z", closerB, "completed", { teamId: t2, dmCloserId: d1b }, { programId });
+    await book("m4", "2026-10-02T12:00:00Z", closerB, "held", { teamId: t2, dmCloserId: d1b }, { programId });
     await book("m5", "2026-10-02T13:00:00Z", closerA, "scheduled", { teamId: t2, dmCloserId: d2 });
-    await book("m6", "2026-10-02T14:00:00Z", closerA, "completed", { teamId: t2, dmCloserId: d2 }, { deal: "m1" });
-    await book("m7", "2026-10-02T15:00:00Z", closerB, "completed", { teamId: t1 }, { programId });
+    await book("m6", "2026-10-02T14:00:00Z", closerA, "held", { teamId: t2, dmCloserId: d2 }, { deal: "m1" });
+    await book("m7", "2026-10-02T15:00:00Z", closerB, "held", { teamId: t1 }, { programId });
     await book("m8", "2026-10-01T16:00:00Z", closerB, "scheduled", {});
-    await book("m9", "2026-09-30T12:00:00Z", closerA, "completed", { teamId: t1, dmCloserId: d1a });
-    await book("m10", "2026-10-03T00:00:00Z", closerA, "completed", { teamId: t1, dmCloserId: d1a });
+    await book("m9", "2026-09-30T12:00:00Z", closerA, "held", { teamId: t1, dmCloserId: d1a });
+    await book("m10", "2026-10-03T00:00:00Z", closerA, "held", { teamId: t1, dmCloserId: d1a });
     await book("m11", "2026-10-02T23:30:00Z", closerA, "no_show", { teamId: t1, dmCloserId: d1a }, { programId });
-    await book("m12", "2026-10-01T18:00:00Z", closerA, "completed", { teamId: t1, dmCloserId: d1a }, { project: false });
+    await book("m12", "2026-10-01T18:00:00Z", closerA, "held", { teamId: t1, dmCloserId: d1a }, { project: false });
 
     return { closerA, closerB, programId, t1, t2, d1a, d1b, d2, meetings: Object.fromEntries(meetings) };
   });
@@ -188,8 +187,8 @@ type Filters = {
   dmCloserId?: Id<"dmClosers">;
 };
 
-it.each(attendanceStorageModes)("keeps the pipeline show rate for every team, DM closer and program filter with %s rows", async (storage) => {
-  const { admin, programId, t1, t2, d1a, d1b, d2 } = await seed(storage);
+it("keeps the pipeline show rate for every team, DM closer and program filter with held rows", async () => {
+  const { admin, programId, t1, t2, d1a, d1b, d2 } = await seed();
   const showRate = (filters: Filters) =>
     admin.query(api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions, {
       startDayKey: "2026-10-01",
@@ -227,8 +226,8 @@ it.each(attendanceStorageModes)("keeps the pipeline show rate for every team, DM
   expect(await showRate({ bookingProgramId: programId, dmCloserId: d2 })).toEqual(counts(0, 0, 0, 0));
 });
 
-it.each(attendanceStorageModes)("keeps the team operations dimensions for every team, DM closer and program filter with %s rows", async (storage) => {
-  const { admin, closerA, closerB, programId, t1, t2, d1a, d1b, d2 } = await seed(storage);
+it("keeps the team operations dimensions for every team, DM closer and program filter with held rows", async () => {
+  const { admin, closerA, closerB, programId, t1, t2, d1a, d1b, d2 } = await seed();
   // Mid-day bounds: the report keys by the UTC day of each end, as the buckets do.
   const dimensions = async (filters: Filters) => {
     const result = await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {

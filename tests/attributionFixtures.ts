@@ -1,3 +1,4 @@
+import { activityEvent } from "./activityCountFixtures";
 import { insertPipelineHealthAggregates } from "../convex/reporting/pipelineHealthAggregates";
 import migrationsTest from "@convex-dev/migrations/test";
 import { vi } from "vitest";
@@ -193,10 +194,10 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
     leadId: Id<"leads">;
     metadata?: Record<string, unknown>;
   }) =>
-    ctx.db.insert("domainEvents", {
-      tenantId, source: "pipeline", ...fields,
+    activityEvent(ctx, tenantId, {
+      source: "pipeline", ...fields,
       metadata: fields.metadata ? JSON.stringify(fields.metadata) : undefined,
-    });
+    }).then((event) => event._id);
   const meeting = (fields: Partial<Doc<"meetings">> & Pick<Doc<"meetings">, "opportunityId" | "scheduledAt" | "createdAt">) =>
     ctx.db.insert("meetings", {
       tenantId, assignedCloserId: closer._id, calendlyEventUri: `e-${fields.createdAt}`,
@@ -220,7 +221,7 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
     createdAt: AT.QUALIFIED, updatedAt: AT.QUALIFIED,
   });
   const m1 = await meeting({
-    opportunityId: o1, scheduledAt: AT.CALL, createdAt: AT.BOOKED, status: "completed", callClassification: "new",
+    opportunityId: o1, scheduledAt: AT.CALL, createdAt: AT.BOOKED, status: "held", callClassification: "new",
     attributionResolution: "mapped",
   });
   const m2 = await meeting({

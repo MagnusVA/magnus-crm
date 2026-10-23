@@ -888,9 +888,6 @@ export default defineSchema({
     notes: v.optional(v.string()),
     lostReason: v.optional(v.string()),
     lostAt: v.optional(v.number()),
-    // Deprecated copies of meeting times. Cleared in Phase 6 PR 4; dropped in PR 13.
-    canceledAt: v.optional(v.number()),
-    noShowAt: v.optional(v.number()),
     paymentReceivedAt: v.optional(v.number()),
     lostByUserId: v.optional(v.id("users")),
     // Denormalized cross-source activity timestamp for entity-browse sorting.
@@ -1016,10 +1013,6 @@ export default defineSchema({
       v.literal("slack_qualified"),
     ),
     latestActivityAt: v.number(),
-    // Deprecated day keys stay optional until the Phase 6 narrow.
-    activityDayKey: v.optional(v.string()),
-    activityWeekKey: v.optional(v.string()),
-    activityMonthKey: v.optional(v.string()),
     searchText: v.string(),
     updatedAt: v.number(),
   })
@@ -1217,7 +1210,6 @@ export default defineSchema({
     durationMinutes: v.number(),
     status: v.union(
       v.literal("scheduled"),
-      v.literal("completed"),
       v.literal("held"),
       v.literal("canceled"),
       v.literal("no_show"),
@@ -1241,8 +1233,6 @@ export default defineSchema({
     notes: v.optional(v.string()),
     leadName: v.optional(v.string()), // Denormalized from lead for query efficiency
     createdAt: v.number(),
-    // Kept on held meetings for rollback until the attendance narrow.
-    completedAt: v.optional(v.number()),
     heldMarkedAt: v.optional(v.number()),
     canceledAt: v.optional(v.number()),
     // UTM attribution data extracted from Calendly's tracking object.
@@ -1339,29 +1329,6 @@ export default defineSchema({
       "tenantId",
       "soldProgramId",
       "scheduledAt",
-    ]),
-
-  operationsMeetingDailyStats: defineTable({
-    tenantId: v.id("tenants"),
-    dayKey: v.string(),
-    assignedCloserId: v.id("users"),
-    bookingProgramId: v.optional(v.id("tenantPrograms")),
-    soldProgramId: v.optional(v.id("tenantPrograms")),
-    meetingStatus: v.union(
-      v.literal("scheduled"),
-      v.literal("completed"),
-      v.literal("held"),
-      v.literal("canceled"),
-      v.literal("no_show"),
-    ),
-    count: v.number(),
-    updatedAt: v.number(),
-  })
-    .index("by_tenantId_and_dayKey", ["tenantId", "dayKey"])
-    .index("by_tenantId_and_assignedCloserId_and_dayKey", [
-      "tenantId",
-      "assignedCloserId",
-      "dayKey",
     ]),
 
   // Replaces the single-textarea meeting notes flow with a multi-user comment log.
@@ -1561,8 +1528,6 @@ export default defineSchema({
     amountMinor: v.number(),
     currency: v.string(),
     recordedByUserId: v.id("users"),
-    // Retained until clearPaymentCommissionable runs; no runtime reader or writer.
-    commissionable: v.optional(v.boolean()),
     programId: v.id("tenantPrograms"),
     programName: v.string(),
     paymentType: paymentTypeValidator,
@@ -1815,24 +1780,6 @@ export default defineSchema({
       "occurredAt",
     ]),
   // === End v0.5b: Domain Events ===
-
-  // === v0.5b: Tenant Stats (Finding 4) ===
-  tenantStats: defineTable({
-    tenantId: v.id("tenants"),
-    totalTeamMembers: v.number(),
-    totalClosers: v.number(),
-    totalOpportunities: v.number(),
-    totalRevenueMinor: v.number(),
-    totalCommissionableFinalRevenueMinor: v.optional(v.number()),
-    totalCommissionableDepositRevenueMinor: v.optional(v.number()),
-    totalNonCommissionableFinalRevenueMinor: v.optional(v.number()),
-    totalNonCommissionableDepositRevenueMinor: v.optional(v.number()),
-    totalPaymentRecords: v.number(),
-    totalLeads: v.number(),
-    totalCustomers: v.number(),
-    lastUpdatedAt: v.number(),
-  }).index("by_tenantId", ["tenantId"]),
-  // === End v0.5b: Tenant Stats ===
 
   // === v0.5b: Meeting Form Responses (Finding 2) ===
   meetingFormResponses: defineTable({

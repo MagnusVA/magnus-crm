@@ -171,7 +171,7 @@ describe("the meeting and reminder pages", () => {
       const won = await insertPersonDeal(ctx, { tenantId: h.tenantId, leadId, status: "payment_received", createdAt: 2_000 });
       return {
         current: await insertLatestMeeting(ctx, noShow, { status: "no_show", scheduledAt: 2_000 }),
-        earlier: await insertLatestMeeting(ctx, won, { status: "completed", scheduledAt: 1_000 }),
+        earlier: await insertLatestMeeting(ctx, won, { status: "held", scheduledAt: 1_000 }),
       };
     });
     const detail = await h.closer.query(api.closer.meetingDetail.getMeetingDetail, { meetingId: seeded.current });

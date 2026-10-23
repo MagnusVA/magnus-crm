@@ -157,8 +157,8 @@ describe("operations report reducers", () => {
     ).toMatchObject({ submissions: 2, uniqueProspects: 1, dayCount: 1 });
   });
 
-  it("combines legacy and held status buckets once in every exported show rate", () => {
-    const rows: ReportSourceRow[] = (["completed", "held", "no_show", "scheduled", "canceled"] as const).map((meetingStatus) => ({
+  it("counts held status buckets once in every exported show rate", () => {
+    const rows: ReportSourceRow[] = (["held", "held", "no_show", "scheduled", "canceled"] as const).map((meetingStatus) => ({
       kind: "sales_meeting_stat",
       meetingStatus,
       assignedCloserId: "closer",
