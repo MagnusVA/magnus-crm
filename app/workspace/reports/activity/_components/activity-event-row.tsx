@@ -86,9 +86,7 @@ interface PaymentMetadata {
   programId: string | null;
   programName: string | null;
   paymentType: string;
-  commissionable: boolean;
   attributedCloserId: string | null;
-  originCategory: string;
 }
 
 interface ActivityEventRowProps {
@@ -182,13 +180,6 @@ export function ActivityEventRow({ event }: ActivityEventRowProps) {
             {paymentTypeLabel ? (
               <Badge variant="outline">{paymentTypeLabel}</Badge>
             ) : null}
-            <Badge
-              variant={paymentMetadata.commissionable ? "default" : "muted"}
-            >
-              {paymentMetadata.commissionable
-                ? "Commissionable"
-                : "Post-Conversion"}
-            </Badge>
           </div>
         ) : null}
 

@@ -63,6 +63,48 @@ export const migrations = new Migrations<DataModel>(components.migrations);
 
 export const run = migrations.runner();
 
+// Phase 6 PR 4. These copies are absent from aggregate keys and projections
+// (reporting/aggregates.ts, lib/opportunityActivity.ts), so clearing them needs
+// no lifecycle write, activity timestamp change, event, or projection rebuild.
+export const clearDealMeetingTimes = migrations.define({
+  table: "opportunities",
+  batchSize: 200,
+  migrateOne: async (ctx, deal) => {
+    if (deal.canceledAt !== undefined || deal.noShowAt !== undefined) {
+      await ctx.db.patch("opportunities", deal._id, {
+        canceledAt: undefined,
+        noShowAt: undefined,
+      });
+    }
+  },
+});
+
+export const assertDealMeetingTimesCleared = migrations.define({
+  table: "opportunities",
+  batchSize: 200,
+  migrateOne: async (_ctx, deal) => {
+    if (deal.canceledAt !== undefined || deal.noShowAt !== undefined) {
+      throw new Error(`Deal meeting times remain: ${deal._id}`);
+    }
+  },
+});
+
+export const deleteLegacyMeetingDailyStats = migrations.define({
+  table: "operationsMeetingDailyStats",
+  batchSize: 200,
+  migrateOne: async (ctx, row) => {
+    await ctx.db.delete("operationsMeetingDailyStats", row._id);
+  },
+});
+
+export const assertLegacyMeetingDailyStatsEmpty = migrations.define({
+  table: "operationsMeetingDailyStats",
+  batchSize: 200,
+  migrateOne: async (_ctx, row) => {
+    throw new Error(`Legacy meeting daily stats remain: ${row._id}`);
+  },
+});
+
 export const backfillOpportunitySourceAndActivity = migrations.define({
   table: "opportunities",
   batchSize: 200,
@@ -133,6 +175,40 @@ export const assertOpportunitySearchProjectionBackfilled = migrations.define({
       throw new Error(
         `Opportunity ${opportunity._id} has a stale opportunitySearch projection`,
       );
+    }
+  },
+});
+
+// Phase 6 PR 2: clear deprecated search day keys before the final narrow.
+// Patch directly so no projection, event, or aggregate is rewritten.
+export const clearOpportunitySearchDayKeys = migrations.define({
+  table: "opportunitySearch",
+  batchSize: 200,
+  migrateOne: async (ctx, row) => {
+    if (
+      row.activityDayKey !== undefined ||
+      row.activityWeekKey !== undefined ||
+      row.activityMonthKey !== undefined
+    ) {
+      await ctx.db.patch("opportunitySearch", row._id, {
+        activityDayKey: undefined,
+        activityWeekKey: undefined,
+        activityMonthKey: undefined,
+      });
+    }
+  },
+});
+
+export const assertOpportunitySearchDayKeysCleared = migrations.define({
+  table: "opportunitySearch",
+  batchSize: 200,
+  migrateOne: async (_ctx, row) => {
+    if (
+      row.activityDayKey !== undefined ||
+      row.activityWeekKey !== undefined ||
+      row.activityMonthKey !== undefined
+    ) {
+      throw new Error(`OpportunitySearch ${row._id} still has day keys`);
     }
   },
 });
@@ -948,5 +1024,46 @@ export const assertActivityEventCounts = migrations.define({
   batchSize: 40,
   migrateOne: async (ctx, event) => {
     await assertActivityEventCountEntries(ctx, event);
+  },
+});
+
+// Phase 6 PR 3: assert before clearing, then verify the clear. Only the four
+// origins present in the production snapshot may pass the preflight.
+export const assertPaymentsCommissionable = migrations.define({
+  table: "paymentRecords",
+  batchSize: 200,
+  migrateOne: async (_ctx, payment) => {
+    if (
+      payment.commissionable === false ||
+      // The retired origins left the validator; a row still holding one
+      // would also fail the schema push.
+      (payment.origin as string) === "customer_direct" ||
+      (payment.origin as string) === "bookkeeper_direct"
+    ) {
+      throw new Error(`Payment ${payment._id}`);
+    }
+  },
+});
+
+export const clearPaymentCommissionable = migrations.define({
+  table: "paymentRecords",
+  batchSize: 200,
+  migrateOne: async (ctx, payment) => {
+    if (payment.commissionable !== undefined) {
+      // No aggregate key, sum or enrollment derivation reads this field.
+      await ctx.db.patch("paymentRecords", payment._id, {
+        commissionable: undefined,
+      });
+    }
+  },
+});
+
+export const assertPaymentCommissionableCleared = migrations.define({
+  table: "paymentRecords",
+  batchSize: 200,
+  migrateOne: async (_ctx, payment) => {
+    if (payment.commissionable !== undefined) {
+      throw new Error(`Payment ${payment._id}`);
+    }
   },
 });

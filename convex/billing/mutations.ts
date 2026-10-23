@@ -8,7 +8,6 @@ import { log } from "../lib/observability/log";
 import { toAmountMinor } from "../lib/formatMoney";
 import { requireActiveProgram } from "../lib/paymentHelpers";
 import { refreshSoldProgramCachesForPaymentContext } from "../lib/soldProgramCache";
-import { replaceTenantPaymentStatsForCorrection } from "../lib/tenantStatsHelper";
 import { replacePaymentAggregate } from "../reporting/writeHooks";
 import { countBillingPayments, replaceBillingPaymentAggregates } from "./aggregates";
 import {
@@ -33,11 +32,6 @@ const FINANCIAL_CORRECTION_KEYS = new Set<PaymentKey>([
   "paymentType",
   "programId",
   "programName",
-]);
-
-const TENANT_STATS_CORRECTION_KEYS = new Set<PaymentKey>([
-  "amountMinor",
-  "paymentType",
 ]);
 
 function addChangedKey(changedKeys: PaymentKey[], key: PaymentKey) {
@@ -86,13 +80,6 @@ async function refreshPaymentCorrectionSideEffects(
     args.before,
     args.paymentRecordId,
   );
-
-  if (hasChangedKey(args.changedKeys, TENANT_STATS_CORRECTION_KEYS)) {
-    await replaceTenantPaymentStatsForCorrection(ctx, args.tenantId, {
-      before: args.before,
-      after,
-    });
-  }
 
   if (args.changedKeys.includes("programId")) {
     await refreshSoldProgramCachesForPaymentContext(ctx, {

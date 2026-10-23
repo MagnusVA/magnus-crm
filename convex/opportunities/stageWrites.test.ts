@@ -301,7 +301,7 @@ describe("changeMissedMeetingLoss: Calendly's flip between no-show and canceled"
       changeMissedMeetingLoss(ctx, opportunityId, {
         reason: "canceled",
         at: NOW - 4_000,
-        fields: { canceledAt: NOW - 4_000, noShowAt: undefined, updatedAt: NOW },
+        fields: { updatedAt: NOW },
         source: "pipeline",
         occurredAt: NOW - 4_000,
       }),
@@ -312,7 +312,6 @@ describe("changeMissedMeetingLoss: Calendly's flip between no-show and canceled"
       outcome: "lost",
       lostReason: "canceled",
       lostAt: NOW - 4_000,
-      canceledAt: NOW - 4_000,
       updatedAt: NOW,
     });
     expect(await harness.t.run((ctx) => dealEvents(ctx, harness.tenantId, opportunityId))).toEqual([
@@ -460,7 +459,9 @@ describe("the public write paths", () => {
     });
     const missed = await readDeal(harness, opportunityId);
     expect(missed).toMatchObject({ stage: "closed", outcome: "lost", lostReason: "no_show" });
-    expect(missed.lostAt).toBe(missed.noShowAt);
+    expect(missed.lostAt).toBe(
+      (await harness.t.run((ctx) => ctx.db.get("meetings", meetingId)))?.noShowMarkedAt,
+    );
     expect(missed.lostByUserId).toBeUndefined();
 
     await harness.closer.mutation(api.closer.noShowActions.createNoShowRescheduleLink, {

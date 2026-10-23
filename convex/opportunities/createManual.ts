@@ -12,7 +12,6 @@ import {
   normalizeSocialHandle,
 } from "../lib/normalization";
 import { rejectRequest } from "../lib/observability/errors";
-import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { resolveLeadIdentity } from "../leads/identityResolution";
 import { requireTenantUser } from "../requireTenantUser";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
@@ -244,7 +243,6 @@ export const createManual = mutation({
     });
 
     await insertOpportunityAggregate(ctx, opportunityId);
-    await updateTenantStats(ctx, tenantId, { totalOpportunities: 1 });
     await recordOpportunity(ctx, opportunityId);
 
     if (leadWasCreated) {

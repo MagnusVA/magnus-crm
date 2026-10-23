@@ -3,25 +3,19 @@ import type { Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import {
   paymentTypeValidator,
-  resolveLegacyCompatiblePaymentCommissionable,
   resolvePaymentType,
 } from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   assertValidDateRange,
   attributePaymentsToClosers,
-  COMMISSIONABLE_ORIGINS,
+  PAYMENT_ORIGINS,
   getActiveClosers,
   getNonDisputedPaymentsInRange,
   getUserDisplayName,
   reportingUserIdentity,
-  splitPaymentsForRevenueReporting,
+  summarizePaymentsForRevenueReporting,
 } from "./lib/helpers";
-
-const REVENUE_SLICE_FILTER = v.union(
-  v.literal("commissionable"),
-  v.literal("non_commissionable"),
-);
 
 const DEAL_SIZE_BUCKETS = {
   over10k: { count: 0, label: "$10k+" },
@@ -32,7 +26,7 @@ const DEAL_SIZE_BUCKETS = {
 } as const;
 
 function makeProgramBreakdown(
-  payments: ReturnType<typeof splitPaymentsForRevenueReporting>["commissionable"]["allPayments"],
+  payments: ReturnType<typeof summarizePaymentsForRevenueReporting>["allPayments"],
 ) {
   const byProgram = new Map<
     string,
@@ -77,7 +71,6 @@ export const getRevenueMetrics = query({
     endDate: v.number(),
     programId: v.optional(v.id("tenantPrograms")),
     paymentType: v.optional(paymentTypeValidator),
-    revenueSlice: v.optional(REVENUE_SLICE_FILTER),
   },
   handler: async (ctx, args) => {
     assertValidDateRange(args.startDate, args.endDate);
@@ -102,27 +95,24 @@ export const getRevenueMetrics = query({
       (payment) =>
         (!args.programId || payment.programId === args.programId) &&
         (!args.paymentType ||
-          resolvePaymentType(payment.paymentType) === args.paymentType) &&
-        (!args.revenueSlice ||
-          (args.revenueSlice === "commissionable") ===
-            resolveLegacyCompatiblePaymentCommissionable(payment)),
+          resolvePaymentType(payment.paymentType) === args.paymentType),
     );
-    const split = splitPaymentsForRevenueReporting(filteredPayments);
+    const summary = summarizePaymentsForRevenueReporting(filteredPayments);
 
-    const commissionableByOrigin = Object.fromEntries(
-      COMMISSIONABLE_ORIGINS.map((origin) => [origin, 0]),
-    ) as Record<(typeof COMMISSIONABLE_ORIGINS)[number], number>;
-    for (const payment of split.commissionable.finalPayments) {
-      if (payment.origin && payment.origin in commissionableByOrigin) {
-        commissionableByOrigin[
-          payment.origin as keyof typeof commissionableByOrigin
+    const byOrigin = Object.fromEntries(
+      PAYMENT_ORIGINS.map((origin) => [origin, 0]),
+    ) as Record<(typeof PAYMENT_ORIGINS)[number], number>;
+    for (const payment of summary.finalPayments) {
+      if (payment.origin && payment.origin in byOrigin) {
+        byOrigin[
+          payment.origin as keyof typeof byOrigin
         ] += payment.amountMinor;
       }
     }
 
-    const commissionableByCloser = (await Promise.all(closers
+    const byCloser = (await Promise.all(closers
       .map(async (closer) => {
-        const closerPayments = split.commissionable.finalPayments.filter(
+        const closerPayments = summary.finalPayments.filter(
           (payment) => payment.effectiveCloserId === closer._id,
         );
         const revenueMinor = closerPayments.reduce(
@@ -151,29 +141,23 @@ export const getRevenueMetrics = query({
       pif: 0,
       deposit: 0,
     };
-    for (const payment of split.filteredPayments) {
+    for (const payment of summary.allPayments) {
       byPaymentType[resolvePaymentType(payment.paymentType)] += payment.amountMinor;
     }
 
     return {
-      commissionable: {
-        finalRevenueMinor: split.commissionable.finalRevenueMinor,
-        depositRevenueMinor: split.commissionable.depositRevenueMinor,
-        totalDeals: split.commissionable.finalPayments.length,
+      revenue: {
+        finalRevenueMinor: summary.finalRevenueMinor,
+        depositRevenueMinor: summary.depositRevenueMinor,
+        totalDeals: summary.finalPayments.length,
         avgDealMinor:
-          split.commissionable.finalPayments.length > 0
-            ? split.commissionable.finalRevenueMinor /
-              split.commissionable.finalPayments.length
+          summary.finalPayments.length > 0
+            ? summary.finalRevenueMinor /
+              summary.finalPayments.length
             : null,
-        byOrigin: commissionableByOrigin,
-        byCloser: commissionableByCloser,
-        byProgram: makeProgramBreakdown(split.commissionable.allPayments),
-      },
-      nonCommissionable: {
-        finalRevenueMinor: split.nonCommissionable.finalRevenueMinor,
-        depositRevenueMinor: split.nonCommissionable.depositRevenueMinor,
-        totalDeals: split.nonCommissionable.finalPayments.length,
-        byProgram: makeProgramBreakdown(split.nonCommissionable.allPayments),
+        byOrigin,
+        byCloser,
+        byProgram: makeProgramBreakdown(summary.allPayments),
       },
       byPaymentType,
       isPaymentDataTruncated: paymentScan.isTruncated,
@@ -187,7 +171,6 @@ export const getRevenueDetails = query({
     endDate: v.number(),
     programId: v.optional(v.id("tenantPrograms")),
     paymentType: v.optional(paymentTypeValidator),
-    revenueSlice: v.optional(REVENUE_SLICE_FILTER),
   },
   handler: async (ctx, args) => {
     assertValidDateRange(args.startDate, args.endDate);
@@ -211,13 +194,10 @@ export const getRevenueDetails = query({
       (payment) =>
         (!args.programId || payment.programId === args.programId) &&
         (!args.paymentType ||
-          resolvePaymentType(payment.paymentType) === args.paymentType) &&
-        (!args.revenueSlice ||
-          (args.revenueSlice === "commissionable") ===
-            resolveLegacyCompatiblePaymentCommissionable(payment)),
+          resolvePaymentType(payment.paymentType) === args.paymentType),
     );
-    const split = splitPaymentsForRevenueReporting(filteredPayments);
-    const topPayments = [...split.commissionable.finalPayments]
+    const summary = summarizePaymentsForRevenueReporting(filteredPayments);
+    const topPayments = [...summary.finalPayments]
       .sort(
         (left, right) =>
           right.amountMinor - left.amountMinor ||
@@ -245,7 +225,7 @@ export const getRevenueDetails = query({
       over10k: { ...DEAL_SIZE_BUCKETS.over10k },
     };
 
-    for (const payment of split.commissionable.finalPayments) {
+    for (const payment of summary.finalPayments) {
       const amountDollars = payment.amountMinor / 100;
       if (amountDollars < 500) {
         dealSizeDistribution.under500.count += 1;
@@ -281,7 +261,6 @@ export const getRevenueDetails = query({
           programId: payment.programId,
           programName: payment.programName,
           paymentType: payment.paymentType,
-          commissionable: payment.commissionable,
           origin: payment.origin,
           recordedAt: payment.recordedAt,
         };

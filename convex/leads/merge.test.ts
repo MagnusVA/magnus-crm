@@ -546,7 +546,6 @@ it("moves every row that names the source lead onto the target", async () => {
     "slackQualificationEvents",
     "webhookDeliveries",
   ]);
-  const statsBefore = await t.run((ctx) => ctx.db.query("tenantStats").first());
 
   await admin.mutation(api.leads.merge.mergeLead, { sourceLeadId, targetLeadId });
   await t.finishAllScheduledFunctions(vi.runAllTimers);
@@ -574,7 +573,6 @@ it("moves every row that names the source lead onto the target", async () => {
     matches: await ctx.db.query("leadGenAuditMatches").take(10),
     sharedProspect: await ctx.db.get("leadGenProspects", seeded.sharedProspectId),
     searchRows: await ctx.db.query("leadCustomerSearchRows").take(10),
-    stats: await ctx.db.query("tenantStats").first(),
     history: await ctx.db
       .query("leadMergeHistory")
       .withIndex("by_sourceLeadId", (q) => q.eq("sourceLeadId", sourceLeadId))
@@ -631,7 +629,6 @@ it("moves every row that names the source lead onto the target", async () => {
     isSearchVisible: true,
     opportunityCount: 2,
   });
-  expect(state.stats?.totalLeads).toBe((statsBefore?.totalLeads ?? 0) - 1);
   expect(state.history).toMatchObject([
     { targetLeadId, opportunitiesMoved: 1, meetingsMoved: 1 },
   ]);
@@ -1079,13 +1076,6 @@ async function insertProgram(ctx: MutationCtx, tenantId: Id<"tenants">, name: st
   });
 }
 
-async function seedStats(ctx: MutationCtx, tenantId: Id<"tenants">) {
-  await ctx.db.insert("tenantStats", {
-    tenantId, totalTeamMembers: 0, totalClosers: 0, totalOpportunities: 0,
-    totalRevenueMinor: 0, totalPaymentRecords: 0, totalLeads: 10, totalCustomers: 5, lastUpdatedAt: 0,
-  });
-}
-
 /** A won side deal with one payment, and the enrollment it made, for `leadId`. */
 async function paidDeal(
   ctx: MutationCtx,
@@ -1098,7 +1088,7 @@ async function paidDeal(
   const adminId = await userId(ctx, "user_admin");
   const opportunityId = await insertOpportunity(ctx, tenantId, leadId, { stage: "closed", outcome: "won", source: "side_deal" });
   await ctx.db.insert("paymentRecords", {
-    tenantId, opportunityId, attributedCloserId: adminId, recordedByUserId: adminId, commissionable: true,
+    tenantId, opportunityId, attributedCloserId: adminId, recordedByUserId: adminId,
     amountMinor: 50_000, currency: "USD", programId, programName: "Program", paymentType: "pif",
     status: "recorded", recordedAt: paidAt, origin: "admin_side_deal",
   });
@@ -1129,13 +1119,6 @@ async function personState({ t, tenantId }: Harness, leadId: Id<"leads">) {
   }));
 }
 
-async function counters({ t, tenantId }: Harness) {
-  return await t.run(async (ctx) => {
-    const stats = (await ctx.db.query("tenantStats").withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)).unique())!;
-    return { totalLeads: stats.totalLeads, totalCustomers: stats.totalCustomers };
-  });
-}
-
 async function enrollmentEvents({ t }: Harness) {
   return await t.run(async (ctx) =>
     (await ctx.db.query("domainEvents").take(200))
@@ -1150,7 +1133,6 @@ it("merges two customers in the same program into one enrollment, with the most 
   const h = await setup();
   const { t, tenantId, admin } = h;
   const ids = await t.run(async (ctx) => {
-    await seedStats(ctx, tenantId);
     const programA = await insertProgram(ctx, tenantId, "A");
     // An admin paused the source's enrollment; that user's row is gone since.
     const goneUserId = await ctx.db.insert("users", {
@@ -1197,8 +1179,6 @@ it("merges two customers in the same program into one enrollment, with the most 
       reason: "merge", leadId: ids.sourceLeadId, actorUserId: adminId,
     },
   ]);
-  // Two customers become one.
-  expect(await counters(h)).toEqual({ totalLeads: 10, totalCustomers: 4 });
   expect(await rowsNaming(h, ids.sourceLeadId)).toEqual([]);
 });
 
@@ -1206,7 +1186,6 @@ it("moves a customer's enrollment in another program, keeping its ID and status"
   const h = await setup();
   const { t, tenantId, admin } = h;
   const ids = await t.run(async (ctx) => {
-    await seedStats(ctx, tenantId);
     const programA = await insertProgram(ctx, tenantId, "A");
     const programB = await insertProgram(ctx, tenantId, "B");
     const sourceLeadId = await customer(ctx, tenantId, "Sam Source", PAID_EARLY);
@@ -1236,7 +1215,7 @@ it("moves a customer's enrollment in another program, keeping its ID and status"
   expect(target.enrollments).toHaveLength(2);
   // Nothing was created or removed, and the target already was a customer.
   expect(await enrollmentEvents(h)).toEqual([]);
-  expect(await counters(h)).toEqual({ totalLeads: 10, totalCustomers: 4 });
+  expect((await personState(h, ids.sourceLeadId)).lead.status).toBe("merged");
   expect(await rowsNaming(h, ids.sourceLeadId)).toEqual([]);
   const row = await t.run((ctx) =>
     ctx.db.query("leadCustomerSearchRows").withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", ids.targetLeadId)).unique(),
@@ -1244,14 +1223,13 @@ it("moves a customer's enrollment in another program, keeping its ID and status"
   expect(row).toMatchObject({ lifecycle: "customer", customerStatus: "active", totalPaidMinor: 100_000, convertedAt: PAID_EARLY });
 });
 
-it("makes a non-customer target a customer, and leaves totalCustomers as it was", async () => {
+it("makes a non-customer target a customer", async () => {
   const h = await setup();
   const { t, tenantId, admin } = h;
   const ids = await t.run(async (ctx) => {
-    await seedStats(ctx, tenantId);
     const programA = await insertProgram(ctx, tenantId, "A");
     const sourceLeadId = await customer(ctx, tenantId, "Sam Source", PAID_EARLY);
-    // An active person past Prospect, counted in totalLeads, with an open deal.
+    // An active person past Prospect with an open deal.
     const targetLeadId = await insertLead(ctx, tenantId, { fullName: "Sam Target" });
     await insertOpportunity(ctx, tenantId, targetLeadId);
     const source = await paidDeal(ctx, tenantId, sourceLeadId, programA, PAID_EARLY);
@@ -1268,17 +1246,14 @@ it("makes a non-customer target a customer, and leaves totalCustomers as it was"
   expect(await enrollmentEvents(h)).toEqual([
     expect.objectContaining({ eventType: "lead.status_changed", fromStatus: "active", toStatus: "converted", leadId: ids.targetLeadId }),
   ]);
-  // The source leaves the customers and the target joins them; the target
-  // leaves the leads.
-  expect(await counters(h)).toEqual({ totalLeads: 9, totalCustomers: 5 });
+  expect((await personState(h, ids.sourceLeadId)).lead.status).toBe("merged");
   expect(await rowsNaming(h, ids.sourceLeadId)).toEqual([]);
 });
 
-it("merges a non-customer into a customer, leaving the customer count alone", async () => {
+it("merges a non-customer into a customer, keeping its enrollment", async () => {
   const h = await setup();
   const { t, tenantId, admin } = h;
   const ids = await t.run(async (ctx) => {
-    await seedStats(ctx, tenantId);
     const programA = await insertProgram(ctx, tenantId, "A");
     const sourceLeadId = await insertLead(ctx, tenantId, { fullName: "Sam Source" });
     await insertOpportunity(ctx, tenantId, sourceLeadId);
@@ -1293,7 +1268,7 @@ it("merges a non-customer into a customer, leaving the customer count alone", as
   expect(target.lead.status).toBe("converted");
   expect(target.enrollments.map((enrollment) => enrollment._id)).toEqual([ids.target.enrollmentId]);
   expect(await enrollmentEvents(h)).toEqual([]);
-  expect(await counters(h)).toEqual({ totalLeads: 9, totalCustomers: 5 });
+  expect((await personState(h, ids.sourceLeadId)).lead.status).toBe("merged");
 });
 
 it("refuses a customer merge whose deals pass what the enrollments can be worked out from", async () => {

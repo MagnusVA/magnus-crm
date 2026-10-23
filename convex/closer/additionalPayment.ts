@@ -11,16 +11,15 @@ import { toAmountMinor, validateCurrency } from "../lib/formatMoney";
 import { recordPayment } from "../lib/leadLifecycle";
 import {
   assertPaymentRow,
-  type CommissionableOrigin,
+  type PaymentOrigin,
 } from "../lib/paymentHelpers";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
-import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import { describeDealState, isWonDeal } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { insertPaymentAggregate } from "../reporting/writeHooks";
 
 /**
- * Records an ADDITIONAL commissionable payment against an already-won
+ * Records an ADDITIONAL payment against an already-won
  * opportunity (Closed won), for the case where a customer
  * makes a further payment after the initial win. Unlike every other payment
  * path, this does NOT transition the opportunity status (the deal is already
@@ -29,7 +28,7 @@ import { insertPaymentAggregate } from "../reporting/writeHooks";
  *
  * Attribution follows the "any closer, self-credit" rule: a closer credits
  * themselves; an admin recording on behalf credits the opportunity's assigned
- * closer. The row is commissionable, so it flows into the Sales Calls / revenue
+ * closer. The row flows into the Sales Calls / revenue
  * dashboards and the admin billing review queue automatically.
  */
 export const recordAdditionalPayment = mutation({
@@ -71,10 +70,10 @@ export const recordAdditionalPayment = mutation({
     }
 
     // Attribution: closers self-credit; admins record on behalf of the
-    // opportunity's assigned closer. A commissionable row must have an
+    // opportunity's assigned closer. A payment row must have an
     // attributed closer, so an admin cannot record on an unassigned opportunity.
     let attributedCloserId: Id<"users">;
-    let origin: CommissionableOrigin;
+    let origin: PaymentOrigin;
     if (isAdmin) {
       if (!opportunity.assignedCloserId) {
         throw new Error(
@@ -139,7 +138,6 @@ export const recordAdditionalPayment = mutation({
 
     assertPaymentRow({
       tenantId,
-      commissionable: true,
       attributedCloserId,
       recordedByUserId: userId,
       origin,
@@ -154,7 +152,6 @@ export const recordAdditionalPayment = mutation({
       meetingId: undefined,
       attributedCloserId,
       recordedByUserId: userId,
-      commissionable: true,
       amountMinor,
       currency,
       programId: program._id,
@@ -184,13 +181,6 @@ export const recordAdditionalPayment = mutation({
       actorUserId: userId,
     });
 
-    // Revenue delta only — the deal was already counted as won, and the
-    // opportunity is already inactive, so no wonDeal / activeOpportunity change.
-    await applyPaymentStatsDelta(ctx, tenantId, {
-      commissionable: true,
-      paymentType,
-      amountMinorDelta: amountMinor,
-    });
 
     await emitDomainEvent(ctx, {
       tenantId,
@@ -209,7 +199,6 @@ export const recordAdditionalPayment = mutation({
         programName: program.name,
         paymentType,
         origin,
-        commissionable: true,
         attributedCloserId,
         recordedByUserId: userId,
         additionalPayment: true,

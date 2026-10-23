@@ -19,33 +19,6 @@ function computeSearchActivityAt(opportunity: ActivityShape): number {
   );
 }
 
-function pad2(value: number): string {
-  return value.toString().padStart(2, "0");
-}
-
-function dayKeyFromDate(date: Date): string {
-  return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
-}
-
-export function opportunityActivityKeys(timestamp: number): {
-  activityDayKey: string;
-  activityWeekKey: string;
-  activityMonthKey: string;
-} {
-  const date = new Date(timestamp);
-  const day = new Date(date);
-  day.setHours(0, 0, 0, 0);
-
-  const week = new Date(day);
-  week.setDate(week.getDate() - week.getDay());
-
-  return {
-    activityDayKey: dayKeyFromDate(day),
-    activityWeekKey: dayKeyFromDate(week),
-    activityMonthKey: `${date.getFullYear()}-${pad2(date.getMonth() + 1)}`,
-  };
-}
-
 function appendUnique(
   parts: string[],
   seen: Set<string>,
@@ -116,7 +89,6 @@ export async function upsertOpportunitySearchProjection(
     // No deal stage: the search row keeps no copy of it
     // (docs/plans/phase-5-deal-status.md §4.8).
     latestActivityAt,
-    ...opportunityActivityKeys(latestActivityAt),
     searchText,
     updatedAt: Date.now(),
   };

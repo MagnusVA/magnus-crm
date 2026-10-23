@@ -77,7 +77,6 @@ function parsePaymentMetadata(metadata: Record<string, unknown> | null) {
   const paymentType = metadata.paymentType;
   const programId = metadata.programId;
   const programName = metadata.programName;
-  const commissionable = metadata.commissionable;
   const attributedCloserId = metadata.attributedCloserId;
 
   if (
@@ -85,7 +84,6 @@ function parsePaymentMetadata(metadata: Record<string, unknown> | null) {
     !PAYMENT_TYPE_SET.has(paymentType) ||
     (programId !== undefined && typeof programId !== "string") ||
     (programName !== undefined && typeof programName !== "string") ||
-    (commissionable !== undefined && typeof commissionable !== "boolean") ||
     (attributedCloserId !== undefined &&
       attributedCloserId !== null &&
       typeof attributedCloserId !== "string")
@@ -97,11 +95,8 @@ function parsePaymentMetadata(metadata: Record<string, unknown> | null) {
     programId: typeof programId === "string" ? programId : null,
     programName: typeof programName === "string" ? programName : null,
     paymentType,
-    commissionable: commissionable === true,
     attributedCloserId:
       typeof attributedCloserId === "string" ? attributedCloserId : null,
-    originCategory:
-      commissionable === true ? "commissionable" : "non_commissionable",
   };
 }
 

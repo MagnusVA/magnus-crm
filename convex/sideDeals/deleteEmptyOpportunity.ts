@@ -4,7 +4,6 @@ import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { deleteDealAttributions } from "../lib/attribution/dealAttributions";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { isSideDeal } from "../lib/sideDeals";
-import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { describeDealState, isSideDealAtCallHeld } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { deleteOpportunityAggregate } from "../reporting/writeHooks";
@@ -129,7 +128,6 @@ export const deleteEmptyOpportunity = mutation({
       throw new Error("Too many attribution rows are attached to delete safely.");
     }
     await deleteOpportunityAggregate(ctx, opportunity);
-    await updateTenantStats(ctx, tenantId, { totalOpportunities: -1 });
     await ctx.db.delete("opportunities", opportunityId);
     await rebuildLeadCustomerSearchRow(ctx, tenantId, opportunity.leadId);
 

@@ -26,8 +26,8 @@ type ProgramSelectProps = {
 };
 
 /**
- * Shared tenant-program dropdown used by every commissionable and
- * customer-direct payment dialog. Owns three states so callers never
+ * Shared tenant-program dropdown used by payment dialogs.
+ * Owns three states so callers never
  * branch on loading / empty.
  *
  * - `programs === undefined` → loading pill with spinner.

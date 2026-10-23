@@ -6,7 +6,6 @@ import { correctLeadLifecycle } from "../lib/leadLifecycle";
 import { transitionOpportunity } from "../lib/opportunityActivity";
 import { isSideDeal, isSideDealOrigin } from "../lib/sideDeals";
 import { refreshSoldProgramCachesForOpportunity } from "../lib/soldProgramCache";
-import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import { describeDealState, isWonDeal } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { replacePaymentAggregate } from "../reporting/writeHooks";
@@ -89,11 +88,6 @@ export const voidPayment = mutation({
     });
 
     await replacePaymentAggregate(ctx, payment, paymentId);
-    await applyPaymentStatsDelta(ctx, tenantId, {
-      commissionable: payment.commissionable,
-      paymentType: payment.paymentType,
-      amountMinorDelta: -payment.amountMinor,
-    });
 
     // A disputed payment no longer counts: the enrollment it held moves to
     // the earliest payment left for its program, or goes, and a person left

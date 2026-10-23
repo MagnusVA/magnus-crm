@@ -16,6 +16,15 @@ export function FeaturedMeetingCardWrapper({
 }) {
   const nextMeeting = usePreloadedQuery(preloadedMeeting);
 
+  if (nextMeeting?.incomplete) {
+    return (
+      <CloserEmptyState
+        title="Upcoming meeting lookup incomplete"
+        description="Check your calendar for upcoming meetings."
+      />
+    );
+  }
+
   if (!nextMeeting) {
     return (
       <CloserEmptyState
