@@ -79,7 +79,16 @@ export const verifyLeadGenDealsByWorker = internalQuery({
         expected.set(row.source.workerId, (expected.get(row.source.workerId) ?? 0) + 1);
       }
     }
-    const workers = [...expected.keys()].sort();
+    // Every retained worker, not only those with rows in the range, so stale
+    // credit for a worker with no rows here still shows as a difference.
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- Offline parity; a tenant has a few dozen workers.
+    const retained = await ctx.db
+      .query("leadGenWorkers")
+      .withIndex("by_tenantId_and_isActive", (q) => q.eq("tenantId", tenantId))
+      .collect();
+    const workers = [
+      ...new Set([...retained.map((worker) => worker._id), ...expected.keys()]),
+    ].sort();
     const counts = await leadGenDealsByWorker.countBatch(
       ctx,
       workers.map((workerId) => ({
@@ -91,7 +100,7 @@ export const verifyLeadGenDealsByWorker = internalQuery({
       })),
     );
     return workers.flatMap((workerId, index) => {
-      const sourceCount = expected.get(workerId)!;
+      const sourceCount = expected.get(workerId) ?? 0;
       const aggregateCount = counts[index];
       return sourceCount === aggregateCount ? [] : [{ workerId, sourceCount, aggregateCount }];
     });

@@ -275,8 +275,9 @@ it.each(["time", "worker"] as const)("rejects a wrong %s key and refuses activat
     await leadGenDealsByWorker.replaceOrInsert(ctx, row, changed);
   });
   expect(await count(h)).toBe(1);
+  // A moved worker key also shows as stale credit on the other worker.
   expect(await h.t.query(functions.verifyLeadGenDealsByWorker, { tenantId: h.tenantId, ...range }))
-    .toEqual([{ workerId: h.ids.workerId, sourceCount: 1, aggregateCount: 0 }]);
+    .toContainEqual({ workerId: h.ids.workerId, sourceCount: 1, aggregateCount: 0 });
   const status = await h.run("assertLeadGenDealsByWorker");
   expect(status?.state).toBe("failed");
   expect(status?.error).toContain(row._id);
@@ -284,4 +285,21 @@ it.each(["time", "worker"] as const)("rejects a wrong %s key and refuses activat
     .rejects.toThrow("Complete backfillLeadGenDealsByWorker and assertLeadGenDealsByWorker");
   expect(await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId)))
     .not.toHaveProperty("leadGenDealsAggregateVerifiedAt");
+});
+
+it("reports stale credit for a worker with no rows in the range", async () => {
+  const h = await attributionHarness();
+  const row = (await attributionRows(h)).find(isLeadGenDealAggregateEligible)!;
+  const otherWorkerId = await h.t.run(async (ctx) => {
+    const { _id, _creationTime, ...worker } = (await ctx.db.get("leadGenWorkers", h.ids.workerId))!;
+    const id = await ctx.db.insert("leadGenWorkers", worker);
+    await leadGenDealsByWorker.insert(ctx, {
+      ...row,
+      _id: (await ctx.db.insert("dealAttributions", { ...row, _id: undefined, _creationTime: undefined } as never)),
+      source: { ...row.source, workerId: id },
+    } as never);
+    return id;
+  });
+  const differences = await h.t.query(functions.verifyLeadGenDealsByWorker, { tenantId: h.tenantId, ...range });
+  expect(differences).toContainEqual({ workerId: otherWorkerId, sourceCount: 0, aggregateCount: 1 });
 });
