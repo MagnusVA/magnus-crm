@@ -26,6 +26,12 @@ import {
   slackQualificationsByUser,
 } from "./aggregates";
 
+import {
+  deletePipelineHealthAggregates,
+  insertPipelineHealthAggregates,
+  replacePipelineHealthAggregates,
+} from "./pipelineHealthAggregates";
+
 function isPaymentAggregateEligible(payment: Doc<"paymentRecords">): boolean {
   return (
     resolveLegacyCompatiblePaymentCommissionable(payment) &&
@@ -99,6 +105,7 @@ export async function insertOpportunityAggregate(
 ): Promise<Doc<"opportunities">> {
   const opportunity = await getOpportunityOrThrow(ctx, opportunityId);
   await opportunityByStage.insert(ctx, opportunity);
+  await insertPipelineHealthAggregates(ctx, opportunity);
   if (isSlackQualificationAggregateEligible(opportunity)) {
     await slackQualificationsByUser.insert(ctx, opportunity);
     await slackQualificationsByTime.insert(ctx, opportunity);
@@ -119,6 +126,7 @@ export async function replaceOpportunityAggregate(
 ): Promise<Doc<"opportunities">> {
   const opportunity = await getOpportunityOrThrow(ctx, opportunityId);
   await opportunityByStage.replace(ctx, oldOpportunity, opportunity);
+  await replacePipelineHealthAggregates(ctx, oldOpportunity, opportunity);
 
   const oldEligible = isSlackQualificationAggregateEligible(oldOpportunity);
   const nextEligible = isSlackQualificationAggregateEligible(opportunity);
@@ -155,6 +163,7 @@ export async function deleteOpportunityAggregate(
   oldOpportunity: Doc<"opportunities">,
 ): Promise<void> {
   await opportunityByStage.delete(ctx, oldOpportunity);
+  await deletePipelineHealthAggregates(ctx, oldOpportunity);
   if (isSlackQualificationAggregateEligible(oldOpportunity)) {
     await slackQualificationsByUser.deleteIfExists(ctx, oldOpportunity);
     await slackQualificationsByTime.deleteIfExists(ctx, oldOpportunity);

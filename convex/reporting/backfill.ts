@@ -1,3 +1,9 @@
+import {
+  isOpenDealAgingEligible,
+  isPersonLossEligible,
+  openDealAging,
+  personLosses,
+} from "./pipelineHealthAggregates";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import { internalMutation, internalQuery } from "../_generated/server";
@@ -475,4 +481,50 @@ export const auditFollowUpOriginBackfill = internalQuery({
 			bySource,
 		};
 	},
+});
+
+export const backfillOpenDealAging = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  returns: v.object({ hasMore: v.boolean(), processed: v.number(), eligible: v.number() }),
+  handler: async (ctx, { cursor }) => {
+    const result = await ctx.db.query("opportunities").paginate({
+      numItems: 200,
+      cursor: cursor ?? null,
+    });
+    let eligible = 0;
+    for (const deal of result.page) {
+      if (isOpenDealAgingEligible(deal)) {
+        await openDealAging.insertIfDoesNotExist(ctx, deal);
+        eligible += 1;
+      }
+    }
+    logBackfillBatch("openDealAging", result.isDone, { processed: result.page.length, eligible });
+    if (!result.isDone) {
+      await ctx.scheduler.runAfter(0, internal.reporting.backfill.backfillOpenDealAging, { cursor: result.continueCursor });
+    }
+    return { hasMore: !result.isDone, processed: result.page.length, eligible };
+  },
+});
+
+export const backfillPersonLosses = internalMutation({
+  args: { cursor: v.optional(v.string()) },
+  returns: v.object({ hasMore: v.boolean(), processed: v.number(), eligible: v.number() }),
+  handler: async (ctx, { cursor }) => {
+    const result = await ctx.db.query("opportunities").paginate({
+      numItems: 200,
+      cursor: cursor ?? null,
+    });
+    let eligible = 0;
+    for (const deal of result.page) {
+      if (isPersonLossEligible(deal)) {
+        await personLosses.insertIfDoesNotExist(ctx, deal);
+        eligible += 1;
+      }
+    }
+    logBackfillBatch("personLosses", result.isDone, { processed: result.page.length, eligible });
+    if (!result.isDone) {
+      await ctx.scheduler.runAfter(0, internal.reporting.backfill.backfillPersonLosses, { cursor: result.continueCursor });
+    }
+    return { hasMore: !result.isDone, processed: result.page.length, eligible };
+  },
 });
