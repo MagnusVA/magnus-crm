@@ -60,6 +60,7 @@ app.use(aggregate, { name: "openDealAging" });
 app.use(aggregate, { name: "personLosses" });
 app.use(aggregate, { name: "leadStageEntries" });
 app.use(aggregate, { name: "prospectConversions" });
+app.use(aggregate, { name: "leadGenDealsByWorker" });
 app.use(aggregate, { name: "slackQualificationsByUser" });
 app.use(aggregate, { name: "slackQualificationsByTime" });
 app.use(aggregate, { name: "billingPaymentsByStatus" });
