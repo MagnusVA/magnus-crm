@@ -173,7 +173,6 @@ export default defineSchema({
     teamMemberId: v.optional(v.id("teamMembers")),
   })
     .index("by_tenantId_and_userId", ["tenantId", "userId"])
-    .index("by_tenantId_and_workosUserId", ["tenantId", "workosUserId"])
     .index("by_tenantId_and_isActive", ["tenantId", "isActive"])
     .index("by_tenantId_and_teamId", ["tenantId", "teamId"])
     .index("by_tenantId_and_teamMemberId", ["tenantId", "teamMemberId"]),
@@ -244,24 +243,7 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index("by_tenantId_and_dedupeKey", ["tenantId", "dedupeKey"])
-    .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
-    .index("by_tenantId_and_normalizedHandle", [
-      "tenantId",
-      "normalizedHandle",
-    ])
-    .index("by_tenantId_and_latestSource", ["tenantId", "latestSource"])
-    .index("by_tenantId_and_lastSubmittedAt", [
-      "tenantId",
-      "lastSubmittedAt",
-    ])
-    .index("by_tenantId_and_firstCapturedByWorkerId", [
-      "tenantId",
-      "firstCapturedByWorkerId",
-    ])
-    .index("by_tenantId_and_currentAuditMatchId", [
-      "tenantId",
-      "currentAuditMatchId",
-    ]),
+    .index("by_tenantId_and_leadId", ["tenantId", "leadId"]),
 
   leadGenSubmissions: defineTable({
     tenantId: v.id("tenants"),
@@ -419,7 +401,6 @@ export default defineSchema({
     .index("by_tenantId_and_prospectId", ["tenantId", "prospectId"])
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
     .index("by_tenantId_and_opportunityId", ["tenantId", "opportunityId"])
-    .index("by_tenantId_and_matchStatus", ["tenantId", "matchStatus"])
     .index("by_tenantId_and_prospectId_and_leadId", [
       "tenantId",
       "prospectId",
@@ -445,13 +426,7 @@ export default defineSchema({
     afterSnapshot: v.string(),
     correctedByUserId: v.id("users"),
     correctedAt: v.number(),
-  })
-    .index("by_tenantId_and_correctedAt", ["tenantId", "correctedAt"])
-    .index("by_tenantId_and_targetType_and_targetId", [
-      "tenantId",
-      "targetType",
-      "targetId",
-    ]),
+  }),
 
   rawWebhookEvents: defineTable({
     tenantId: v.id("tenants"),
@@ -466,7 +441,6 @@ export default defineSchema({
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: maintenance reads the newest event per scheduled event first
     .index("by_tenantId_and_eventType", ["tenantId", "eventType"])
     .index("by_tenantId_and_receivedAt", ["tenantId", "receivedAt"])
-    .index("by_calendlyEventUri", ["calendlyEventUri"])
     .index("by_processed_and_receivedAt", ["processed", "receivedAt"])
     .index("by_tenantId_and_eventType_and_calendlyEventUri", [
       "tenantId",
@@ -573,7 +547,6 @@ export default defineSchema({
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_email", ["tenantId", "email"])
     .index("by_tenantId_and_status", ["tenantId", "status"])
-    .index("by_tenantId_and_firstSeenAt", ["tenantId", "firstSeenAt"])
     .searchIndex("search_leads", {
       searchField: "searchText",
       filterFields: ["tenantId", "status"],
@@ -689,16 +662,6 @@ export default defineSchema({
       "lifecycle",
       "firstSeenAt",
     ])
-    .index("by_tenantId_and_leadStatus_and_latestActivityAt", [
-      "tenantId",
-      "leadStatus",
-      "latestActivityAt",
-    ])
-    .index("by_tenantId_and_customerStatus_and_latestActivityAt", [
-      "tenantId",
-      "customerStatus",
-      "latestActivityAt",
-    ])
     .searchIndex("search_lead_customer_entities", {
       searchField: "searchText",
       filterFields: [
@@ -727,7 +690,6 @@ export default defineSchema({
   })
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: team lists show teams in creation order
     .index("by_tenantId", ["tenantId"])
-    .index("by_tenantId_and_slug", ["tenantId", "slug"])
     .index("by_tenantId_and_normalizedUtmSource", [
       "tenantId",
       "normalizedUtmSource",
@@ -751,7 +713,6 @@ export default defineSchema({
     teamMemberId: v.optional(v.id("teamMembers")),
   })
     .index("by_tenantId_and_teamId", ["tenantId", "teamId"])
-    .index("by_tenantId_and_slug", ["tenantId", "slug"])
     .index("by_tenantId_and_normalizedUtmMedium", [
       "tenantId",
       "normalizedUtmMedium",
@@ -828,8 +789,7 @@ export default defineSchema({
     lockedUntil: v.optional(v.number()),
     updatedAt: v.number(),
   })
-    .index("by_tenantId_and_ipHash", ["tenantId", "ipHash"])
-    .index("by_publicSlug_and_ipHash", ["publicSlug", "ipHash"]),
+    .index("by_tenantId_and_ipHash", ["tenantId", "ipHash"]),
 
   linkPortalCopyEvents: defineTable({
     tenantId: v.id("tenants"),
@@ -849,16 +809,6 @@ export default defineSchema({
     .index("by_tenantId_and_leadId_and_copiedAt", [
       "tenantId",
       "leadId",
-      "copiedAt",
-    ])
-    .index("by_tenantId_and_dmCloserId_and_copiedAt", [
-      "tenantId",
-      "dmCloserId",
-      "copiedAt",
-    ])
-    .index("by_tenantId_and_eventTypeConfigId_and_copiedAt", [
-      "tenantId",
-      "eventTypeConfigId",
       "copiedAt",
     ]),
 
@@ -985,34 +935,9 @@ export default defineSchema({
       "source",
       "createdAt",
     ])
-    .index("by_tenantId_and_latestActivityAt", [
-      "tenantId",
-      "latestActivityAt",
-    ])
-    .index("by_tenantId_and_source_and_latestActivityAt", [
-      "tenantId",
-      "source",
-      "latestActivityAt",
-    ])
-    .index("by_tenantId_and_assignedCloserId_and_latestActivityAt", [
-      "tenantId",
-      "assignedCloserId",
-      "latestActivityAt",
-    ])
-    .index("by_tenantId_and_assignedCloserId_and_source_and_latestActivityAt", [
-      "tenantId",
-      "assignedCloserId",
-      "source",
-      "latestActivityAt",
-    ])
     .index("by_tenantId_and_source_and_qualifiedAt", [
       "tenantId",
       "source",
-      "qualifiedAt",
-    ])
-    .index("by_tenantId_and_firstBookingProgramId_and_qualifiedAt", [
-      "tenantId",
-      "firstBookingProgramId",
       "qualifiedAt",
     ])
     .index("by_tenantId_and_soldProgramId_and_qualifiedAt", [
@@ -1072,27 +997,21 @@ export default defineSchema({
       v.literal("slack_qualified"),
     ),
     latestActivityAt: v.number(),
-    activityDayKey: v.string(),
-    activityWeekKey: v.string(),
-    activityMonthKey: v.string(),
+    // Deprecated day keys stay optional until the Phase 6 narrow.
+    activityDayKey: v.optional(v.string()),
+    activityWeekKey: v.optional(v.string()),
+    activityMonthKey: v.optional(v.string()),
     searchText: v.string(),
     updatedAt: v.number(),
   })
     .index("by_opportunityId", ["opportunityId"])
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
-    .index("by_tenantId_and_latestActivityAt", [
-      "tenantId",
-      "latestActivityAt",
-    ])
     .searchIndex("search_opportunities", {
       searchField: "searchText",
       filterFields: [
         "tenantId",
         "source",
         "assignedCloserId",
-        "activityDayKey",
-        "activityWeekKey",
-        "activityMonthKey",
       ],
     }),
 
@@ -1485,8 +1404,6 @@ export default defineSchema({
     reassignedAt: v.number(),
   })
     .index("by_meetingId", ["meetingId"])
-    .index("by_toCloserId", ["toCloserId"])
-    .index("by_fromCloserId", ["fromCloserId"])
     .index("by_unavailabilityId", ["unavailabilityId"])
     .index("by_tenantId_and_reassignedAt", ["tenantId", "reassignedAt"]),
   // === End Feature H ===
@@ -1586,11 +1503,7 @@ export default defineSchema({
     .index(
       "by_tenantId_and_calendlyEventTypeUri",
       ["tenantId", "calendlyEventTypeUri"],
-    )
-    .index("by_tenantId_and_bookingProgramId", [
-      "tenantId",
-      "bookingProgramId",
-    ]),
+    ),
 
   tenantPrograms: defineTable({
     tenantId: v.id("tenants"),
@@ -1685,11 +1598,6 @@ export default defineSchema({
       "attributedCloserId",
       "recordedAt",
     ])
-    .index("by_tenantId_and_commissionable_and_recordedAt", [
-      "tenantId",
-      "commissionable",
-      "recordedAt",
-    ])
     .index("by_tenantId_and_origin_and_recordedAt", [
       "tenantId",
       "origin",
@@ -1698,11 +1606,6 @@ export default defineSchema({
     .index("by_tenantId_and_programId_and_recordedAt", [
       "tenantId",
       "programId",
-      "recordedAt",
-    ])
-    .index("by_tenantId_and_paymentType_and_recordedAt", [
-      "tenantId",
-      "paymentType",
       "recordedAt",
     ])
     .index("by_tenantId_and_status_and_programId_and_recordedAt", [
@@ -1734,12 +1637,7 @@ export default defineSchema({
     truncated: v.boolean(),
     createdAt: v.number(),
   })
-    .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
-    .index("by_tenantId_and_actorUserId_and_createdAt", [
-      "tenantId",
-      "actorUserId",
-      "createdAt",
-    ]),
+    .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"]),
 
   billingOpsReadinessChecks: defineTable({
     tenantId: v.id("tenants"),
@@ -1833,11 +1731,6 @@ export default defineSchema({
       "createdAt",
     ])
     .index("by_tenantId_and_createdAt", ["tenantId", "createdAt"])
-    .index("by_tenantId_and_createdSource_and_createdAt", [
-      "tenantId",
-      "createdSource",
-      "createdAt",
-    ])
     .index("by_opportunityId_and_status_and_reason", [
       "opportunityId",
       "status",
@@ -1879,7 +1772,6 @@ export default defineSchema({
     leadId: v.optional(v.id("leads")),
     teamMemberId: v.optional(v.id("teamMembers")),
   })
-    .index("by_entityId", ["entityId"])
     .index("by_tenantId_and_occurredAt", ["tenantId", "occurredAt"])
     .index("by_tenantId_and_entityType_and_entityId_and_occurredAt", [
       "tenantId",
@@ -2147,10 +2039,6 @@ export default defineSchema({
       "installationId",
       "slackUserId",
     ])
-    .index("by_slackTeamId_and_slackUserId", [
-      "slackTeamId",
-      "slackUserId",
-    ])
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: qualifier lists show users in creation order
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_teamMemberId", ["tenantId", "teamMemberId"]),
@@ -2172,8 +2060,6 @@ export default defineSchema({
     processed: v.boolean(),
     processingError: v.optional(v.string()),
   })
-    .index("by_tenantId_and_processed", ["tenantId", "processed"])
-    .index("by_teamId_and_apiAppId", ["teamId", "apiAppId"])
     .index("by_requestHash", ["requestHash"])
     .index("by_expiresAt", ["expiresAt"]),
   // === End Slack Bot v1 ===

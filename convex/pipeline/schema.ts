@@ -86,7 +86,7 @@ export const pipelineTables = {
     previousGeneration: v.number(),
     previousStatus: deliveryStatus,
     previousReason: v.optional(v.string()),
-  }).index("by_tenantId_and_deliveryId", ["tenantId", "deliveryId"]),
+  }),
   // Undo log for the one-off dismissal of the pre-PR #91 blocked backlog.
   webhookDeliveryDismissals: defineTable({
     tenantId: v.id("tenants"),

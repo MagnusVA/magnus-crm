@@ -44,12 +44,7 @@ export const meetingProjectionTables = {
     updatedAt: v.number(),
   })
     .index("by_tenantId_and_bucketKey", ["tenantId", "bucketKey"])
-    .index("by_tenantId_and_dayKey", ["tenantId", "dayKey"])
-    .index("by_tenantId_and_assignedCloserId_and_dayKey", [
-      "tenantId",
-      "assignedCloserId",
-      "dayKey",
-    ]),
+    .index("by_tenantId_and_dayKey", ["tenantId", "dayKey"]),
   meetingProjections: defineTable({
     tenantId: v.id("tenants"),
     meetingId: v.id("meetings"),
