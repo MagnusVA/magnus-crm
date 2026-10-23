@@ -166,7 +166,7 @@ export async function missedMeetingHarness() {
   }
 
   async function dealCount() {
-    return (await t.run((ctx) => ctx.db.query("opportunities").take(10))).length;
+    return (await t.run((ctx) => ctx.db.query("opportunities").collect())).length;
   }
 
   async function followUps(opportunityId: Id<"opportunities">) {
@@ -209,7 +209,7 @@ export async function missedMeetingHarness() {
         totalOpportunities: (await ctx.db
           .query("opportunities")
           .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-          .take(10)).length,
+          .collect()).length,
       };
     });
   }
