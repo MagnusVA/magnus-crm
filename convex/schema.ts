@@ -63,6 +63,7 @@ export default defineSchema({
       }),
     ),
     meetingProjectionVersion: v.optional(v.literal(2)),
+    pipelineHealthAggregatesVerifiedAt: v.optional(v.number()),
     // Identity
     companyName: v.string(),
     contactEmail: v.string(),

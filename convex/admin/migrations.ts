@@ -1,4 +1,5 @@
 import { deleteActivityEventCounts } from "../reporting/activityEventCounts";
+import { deletePipelineHealthAggregates } from "../reporting/pipelineHealthAggregates";
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { requestMeetingProjection } from "../operations/meetingStats";
@@ -2007,6 +2008,7 @@ export const purgePhase6BlockerRecords = mutation({
           // Each call deletes one page.
         }
       }
+      if (opportunity) await deletePipelineHealthAggregates(ctx, opportunity);
       await ctx.db.delete("opportunities", oppId);
       counts.opportunities++;
     }
