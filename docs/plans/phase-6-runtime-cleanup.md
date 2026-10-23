@@ -493,7 +493,7 @@ Accepted as recommended on 2026-10-22.
 
 ### 11.3 Questions for the tenant admin
 
-Answered on 2026-10-22: yes to each recommendation. For Q6, nothing outside the repo needs the dropped tables or fields, so the drops go ahead.
+Answered on 2026-10-22: yes to each recommendation. For Q6, the drops go ahead as recommended.
 
 - **Q1. Week start.** Report pages start "This week" on Sunday; the closer dashboard's stats start on Monday, while its calendar starts on Sunday. The recommendation is Monday everywhere (D9).
 - **Q2. Results recorded.** Should "X of Y past calls have a result" show beside the show rate? The recommendation is yes, on Sales Calls, the team report, Pipeline Health and the overview's closer table. It shows whether the show rate rests on enough calls (September: 387 of 771).
