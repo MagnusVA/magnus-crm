@@ -1,0 +1,597 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import migrationsTest from "@convex-dev/migrations/test";
+import { api, components, internal } from "../_generated/api";
+import { bookingHarness } from "../../tests/bookingHarness";
+import {
+  activityEvent,
+  legacyActivityHarness,
+} from "../../tests/activityCountFixtures";
+import { seedEnrolledCustomer } from "../../tests/enrollmentPageFixtures";
+import { insertMeeting } from "../../tests/enrollmentReadFixtures";
+import { SYSTEM_ADMIN_ORG_ID } from "../lib/constants";
+import { emitDomainEvent } from "../lib/domainEvents";
+import {
+  activityCountKeys,
+  activityEventCounts,
+  assertActivityEventCountEntries,
+  deleteActivityEventCounts,
+  insertActivityEventCounts,
+} from "./activityEventCounts";
+import {
+  readAggregateActivitySummary,
+  readScannedActivitySummary,
+} from "./activityFeed";
+import {
+  businessDateToUtcStart,
+  timestampToBusinessDateKey,
+} from "./lib/hondurasBusinessTime";
+
+const NOW = Date.parse("2026-10-22T12:00:00Z");
+const DAY = 86_400_000;
+const END = businessDateToUtcStart(timestampToBusinessDateKey(NOW));
+const RANGE = { startDate: END - DAY, endDate: END };
+afterEach(() => vi.useRealTimers());
+
+async function harness() {
+  vi.useFakeTimers();
+  vi.setSystemTime(NOW);
+  const h = await bookingHarness();
+  migrationsTest.register(h.t);
+  return h;
+}
+
+async function completeBackfill(h: Awaited<ReturnType<typeof harness>>) {
+  await h.t.mutation(internal.migrations.run, {
+    fn: "migrations:backfillActivityEventCounts",
+  });
+  await h.t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [status] = await h.t.run((ctx) =>
+    ctx.runQuery(components.migrations.lib.getStatus, {
+      names: ["migrations:backfillActivityEventCounts"],
+    }),
+  );
+  expect(status).toMatchObject({ isDone: true });
+  expect(status.error).toBeUndefined();
+}
+
+async function enable(h: Awaited<ReturnType<typeof harness>>) {
+  await completeBackfill(h);
+  for (let day = 30; day > 0; day--) {
+    const result = await h.t.mutation(
+      internal.reporting.activityEventCounts.markActivityEventCountsVerified,
+      {
+        tenantId: h.tenantId,
+        startDate: END - day * DAY,
+        endDate: END - (day - 1) * DAY,
+      },
+    );
+    expect(result).toMatchObject({
+      passed: true,
+      enabled: day === 1,
+      verifiedDays: 31 - day,
+    });
+  }
+}
+
+describe("activity event counts", () => {
+  it("refuses cutover before the backfill completes even with 29 passing days and daily parity", async () => {
+    const h = await harness();
+    await h.t.run(async (ctx) => {
+      await activityEvent(ctx, h.tenantId, { occurredAt: RANGE.startDate });
+      await activityEvent(ctx, h.tenantId, { occurredAt: RANGE.startDate + 1 });
+    });
+    const args = { ...RANGE, tenantId: h.tenantId };
+    expect(
+      await h.t.query(
+        internal.reporting.activityEventCounts.verifyActivityEventCounts,
+        args,
+      ),
+    ).toMatchObject({ passed: true });
+    for (const started of [false, true]) {
+      if (started)
+        await h.t.mutation(internal.migrations.run, {
+          fn: "migrations:backfillActivityEventCounts",
+          batchSize: 1,
+        });
+      await h.t.run(async (ctx) => {
+        await ctx.db.patch("tenants", h.tenantId, {
+          activityEventCountsVerification: {
+            endDate: END,
+            days: Array.from({ length: 29 }, (_, index) => END - (index + 2) * DAY),
+          },
+        });
+      });
+      expect(
+        await h.t.mutation(
+          internal.reporting.activityEventCounts.markActivityEventCountsVerified,
+          args,
+        ),
+      ).toMatchObject({ passed: false, enabled: false, verifiedDays: 0 });
+      const tenant = await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId));
+      expect(tenant?.activityEventCountsVerifiedAt).toBeUndefined();
+    }
+    await h.t.finishAllScheduledFunctions(vi.runAllTimers);
+    await enable(h);
+  });
+
+  it("refuses cutover when the oldest event's exact all entry is missing despite completed backfill and daily parity", async () => {
+    const h = await harness();
+    const oldest = await h.t.run(async (ctx) => {
+      // Insert the newer event first so the gate must use occurredAt ordering.
+      await activityEvent(ctx, h.tenantId, { occurredAt: RANGE.startDate });
+      return await activityEvent(ctx, h.tenantId, { occurredAt: END - 60 * DAY });
+    });
+    await enable(h);
+    await h.t.run(async (ctx) => {
+      await activityEventCounts.delete(ctx, {
+        namespace: h.tenantId,
+        key: ["all", "", oldest.occurredAt],
+        id: `${oldest._id}:all`,
+      });
+      // A different event at the same timestamp must not satisfy the gate.
+      await activityEvent(ctx, h.tenantId, { occurredAt: oldest.occurredAt });
+    });
+    const args = { ...RANGE, tenantId: h.tenantId };
+    expect(
+      await h.t.query(
+        internal.reporting.activityEventCounts.verifyActivityEventCounts,
+        args,
+      ),
+    ).toMatchObject({ passed: true });
+    expect(
+      await h.t.mutation(
+        internal.reporting.activityEventCounts.markActivityEventCountsVerified,
+        args,
+      ),
+    ).toMatchObject({ passed: false, enabled: false, verifiedDays: 0 });
+    const tenant = await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId));
+    expect(tenant?.activityEventCountsVerifiedAt).toBeUndefined();
+  });
+
+  it("scans when users exceed a small injected cap so real actors keep their identity", async () => {
+    const h = await harness();
+    const actorId = await h.t.run(async (ctx) => {
+      const users = await ctx.db
+        .query("users")
+        .withIndex("by_tenantId", (q) => q.eq("tenantId", h.tenantId))
+        .take(2);
+      await activityEvent(ctx, h.tenantId, {
+        occurredAt: RANGE.startDate,
+        actorUserId: users[1]._id,
+      });
+      return users[1]._id;
+    });
+    await enable(h);
+    await h.t.run(async (ctx) => {
+      const tenant = (await ctx.db.get("tenants", h.tenantId))!;
+      const scanned = await readScannedActivitySummary(
+        ctx, h.tenantId, RANGE.startDate, RANGE.endDate,
+      );
+      const capped = await readAggregateActivitySummary(
+        ctx, tenant, RANGE.startDate, RANGE.endDate, 1,
+      );
+      expect(capped).toEqual(scanned);
+      expect(capped.byActor).toEqual({ [actorId]: 1 });
+      expect(capped.actorBreakdown[0]).toMatchObject({
+        actorUserId: actorId, actorRole: "closer",
+      });
+      expect(capped.actorBreakdown[0].actorName).not.toBe("Removed user");
+      // Exactly the cap still uses the aggregate path with the same result.
+      expect(
+        await readAggregateActivitySummary(
+          ctx, tenant, RANGE.startDate, RANGE.endDate, 2,
+        ),
+      ).toEqual(scanned);
+    });
+  });
+
+  it("counts actor and historical keys against an injected aggregate range cap before reading", async () => {
+    const h = await harness();
+    await h.t.run(async (ctx) => {
+      const users = await ctx.db.query("users")
+        .withIndex("by_tenantId", (q) => q.eq("tenantId", h.tenantId))
+        .take(10);
+      await activityEvent(ctx, h.tenantId, {
+        occurredAt: RANGE.startDate,
+        actorUserId: users[1]._id,
+        eventType: "historical.custom",
+      });
+      const tenant = (await ctx.db.get("tenants", h.tenantId))!;
+      const keys = activityCountKeys(
+        users.map((user) => user._id),
+        tenant.activityEventCountsExtraValues?.values,
+      );
+      const scanned = await readScannedActivitySummary(
+        ctx, h.tenantId, RANGE.startDate, RANGE.endDate,
+      );
+      const countBatch = vi.spyOn(activityEventCounts, "countBatch");
+      try {
+        // The catalogs and actors fit; the historical value pushes it over.
+        expect(await readAggregateActivitySummary(
+          ctx, tenant, RANGE.startDate, RANGE.endDate, 500, keys.length - 1,
+        )).toEqual(scanned);
+        expect(countBatch).not.toHaveBeenCalled();
+        // An exact fit still uses the aggregate path.
+        expect(await readAggregateActivitySummary(
+          ctx, tenant, RANGE.startDate, RANGE.endDate, 500, keys.length,
+        )).toEqual(scanned);
+        expect(countBatch).toHaveBeenCalledOnce();
+        expect(countBatch.mock.calls[0][1]).toHaveLength(keys.length);
+      } finally {
+        countBatch.mockRestore();
+      }
+    });
+  });
+
+  it("emitDomainEvent writes every dimension, including reminder prefix and skipAnalytics events", async () => {
+    const h = await harness();
+    await h.t.run(async (ctx) => {
+      const id = await emitDomainEvent(ctx, {
+        tenantId: h.tenantId,
+        entityType: "followUp",
+        entityId: "missing",
+        eventType: "followUp.completed",
+        source: "system",
+        metadata: { outcome: "payment_received" },
+        occurredAt: RANGE.startDate,
+        skipAnalytics: true,
+      });
+      const event = await ctx.db.get("domainEvents", id);
+      expect(event).not.toBeNull();
+      await insertActivityEventCounts(ctx, event!);
+      await assertActivityEventCountEntries(ctx, event!);
+      expect(
+        await activityEventCounts.count(ctx, { namespace: h.tenantId }),
+      ).toBe(6);
+      expect(
+        await activityEventCounts.count(ctx, {
+          namespace: h.tenantId,
+          bounds: { prefix: ["reminderOutcome", "reminder_payment_received"] },
+        }),
+      ).toBe(1);
+      expect(
+        await activityEventCounts.count(ctx, {
+          namespace: h.tenantId,
+          bounds: { prefix: ["actor", ""] },
+        }),
+      ).toBe(1);
+      await deleteActivityEventCounts(ctx, event!);
+      await expect(
+        assertActivityEventCountEntries(ctx, event!),
+      ).rejects.toThrow(String(event!._id));
+      await deleteActivityEventCounts(ctx, event!);
+      expect(
+        await activityEventCounts.count(ctx, { namespace: h.tenantId }),
+      ).toBe(0);
+    });
+  });
+
+  it("backfills idempotently and keeps the summary on its scan until all 30 day checks pass", async () => {
+    const h = await harness();
+    await h.t.run(async (ctx) => {
+      await activityEvent(
+        ctx,
+        h.tenantId,
+        { occurredAt: RANGE.startDate },
+        false,
+      );
+    });
+    const args = { ...RANGE, tenantId: h.tenantId };
+    expect(
+      await h.admin.query(api.reporting.activityFeed.getActivitySummary, RANGE),
+    ).toMatchObject({ totalEvents: 1 });
+    expect(
+      await h.t.query(
+        internal.reporting.activityEventCounts.verifyActivityEventCounts,
+        args,
+      ),
+    ).toMatchObject({ passed: false });
+    expect(
+      await h.t.mutation(
+        internal.reporting.activityEventCounts.markActivityEventCountsVerified,
+        args,
+      ),
+    ).toMatchObject({ passed: false, enabled: false });
+    await completeBackfill(h);
+    expect(
+      await h.t.query(
+        internal.reporting.activityEventCounts.verifyActivityEventCounts,
+        args,
+      ),
+    ).toMatchObject({ passed: true, differences: [] });
+    await enable(h);
+    expect(
+      await h.admin.query(api.reporting.activityFeed.getActivitySummary, RANGE),
+    ).toMatchObject({ totalEvents: 1, isTruncated: false });
+    await expect(
+      h.t.mutation(
+        internal.reporting.activityEventCounts.markActivityEventCountsVerified,
+        { ...args, startDate: RANGE.startDate - 1 },
+      ),
+    ).rejects.toThrow("last 30 completed");
+  });
+
+  it("counts the old event beyond a small scan cap, excludes no-actor events from Removed user, and respects [start,end)", async () => {
+    const h = await harness();
+    const ids = await h.t.run(async (ctx) => {
+      const users = await ctx.db
+        .query("users")
+        .withIndex("by_tenantId", (q) => q.eq("tenantId", h.tenantId))
+        .take(10);
+      const removed = users.find((user) => user.role === "closer")!;
+      const known = users.find((user) => user.role === "tenant_admin")!;
+      await activityEvent(ctx, h.tenantId, {
+        occurredAt: RANGE.startDate,
+        entityType: "followUp",
+        eventType: "followUp.completed",
+        actorUserId: removed._id,
+        metadata: '{"outcome":"lost"}',
+      });
+      for (let index = 0; index < 5; index++)
+        await activityEvent(ctx, h.tenantId, {
+          occurredAt: RANGE.startDate + index + 1,
+          actorUserId: index < 2 ? known._id : undefined,
+        });
+      await activityEvent(ctx, h.tenantId, { occurredAt: RANGE.endDate });
+      await ctx.db.delete("users", removed._id);
+      const truncated = await readScannedActivitySummary(
+        ctx,
+        h.tenantId,
+        RANGE.startDate,
+        RANGE.endDate,
+        3,
+      );
+      expect(truncated).toMatchObject({
+        totalEvents: 3,
+        isTruncated: true,
+        byOutcome: {},
+      });
+      return { known: known._id };
+    });
+    await enable(h);
+    const summary = await h.admin.query(
+      api.reporting.activityFeed.getActivitySummary,
+      RANGE,
+    );
+    expect(summary).toMatchObject({
+      totalEvents: 6,
+      isTruncated: false,
+      byOutcome: { reminder_lost: 1 },
+      byActor: { [ids.known]: 2, removed: 1 },
+    });
+    expect(summary.actorBreakdown).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ actorName: "Removed user", count: 1 }),
+      ]),
+    );
+    expect(
+      summary.actorBreakdown.reduce((sum, actor) => sum + actor.count, 0),
+    ).toBe(3);
+  });
+
+  it("removes aggregate entries through testing cleanup and tenant teardown, including rows never backfilled", async () => {
+    for (const cleanup of ["reset", "tenant"] as const) {
+      const h = await harness();
+      await h.t.run(async (ctx) => {
+        await activityEvent(ctx, h.tenantId, { occurredAt: RANGE.startDate });
+        await activityEvent(
+          ctx,
+          h.tenantId,
+          { occurredAt: RANGE.startDate + 1 },
+          false,
+        );
+      });
+      if (cleanup === "reset")
+        await h.t.mutation(
+          internal.testing.operationalData.deleteOperationalDataBatch,
+          { tableName: "domainEvents" },
+        );
+      else
+        await h.t.mutation(
+          internal.admin.tenantsMutations.deleteTenantRuntimeDataBatch,
+          { tenantId: h.tenantId },
+        );
+      expect(
+        await h.t.run(async (ctx) =>
+          activityEventCounts.count(ctx, { namespace: h.tenantId }),
+        ),
+      ).toBe(0);
+    }
+  });
+
+  it("drains tenant event counts in 40-event batches and reports continuation", async () => {
+    const h = await harness();
+    await h.t.run(async (ctx) => {
+      for (let index = 0; index < 41; index++)
+        await activityEvent(ctx, h.tenantId, {
+          occurredAt: RANGE.startDate + index,
+          eventType: "followUp.completed",
+          metadata: '{"outcome":"lost"}',
+        });
+    });
+    const first = await h.t.mutation(
+      internal.admin.tenantsMutations.deleteTenantRuntimeDataBatch,
+      { tenantId: h.tenantId },
+    );
+    expect(first).toMatchObject({ deletedCounts: { domainEvents: 40 }, hasMore: true });
+    expect(await h.t.run((ctx) => activityEventCounts.count(ctx, {
+      namespace: h.tenantId,
+    }))).toBe(6);
+    const second = await h.t.mutation(
+      internal.admin.tenantsMutations.deleteTenantRuntimeDataBatch,
+      { tenantId: h.tenantId },
+    );
+    expect(second).toMatchObject({ deletedCounts: { domainEvents: 1 }, hasMore: false });
+    expect(await h.t.run((ctx) => activityEventCounts.count(ctx, {
+      namespace: h.tenantId,
+    }))).toBe(0);
+  });
+
+  it("preserves free-string historical event types and the old reminder prefix semantics", async () => {
+    const h = await harness();
+    await h.t.run(async (ctx) => {
+      await activityEvent(ctx, h.tenantId, {
+        occurredAt: RANGE.startDate,
+        eventType: "historical.custom",
+      });
+      await activityEvent(ctx, h.tenantId, {
+        occurredAt: RANGE.startDate,
+        eventType: "followUp.completed",
+        metadata: '{"outcome":"reminder_lost"}',
+      });
+      await activityEvent(ctx, h.tenantId, {
+        occurredAt: RANGE.startDate,
+        eventType: "followUp.completed",
+        metadata: "null",
+      });
+      await activityEvent(ctx, h.tenantId, {
+        occurredAt: RANGE.startDate,
+        eventType: "followUp.completed",
+        metadata: "malformed",
+      });
+    });
+    await enable(h);
+    expect(
+      await h.admin.query(api.reporting.activityFeed.getActivitySummary, RANGE),
+    ).toMatchObject({
+      totalEvents: 4,
+      isTruncated: false,
+      byEventType: { "historical.custom": 1, "followUp.completed": 3 },
+      byOutcome: { reminder_reminder_lost: 1 },
+    });
+  });
+  it("deletes opportunity and meeting entries through the blocker purge", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const h = await legacyActivityHarness();
+    await h.t.run(async (ctx) => {
+      const seeded = await seedEnrolledCustomer(ctx, h.tenantId);
+      const meetingId = await insertMeeting(ctx, {
+        tenantId: h.tenantId,
+        opportunityId: seeded.dealA,
+        closerId: seeded.closerId,
+        scheduledAt: RANGE.startDate,
+      });
+      await ctx.db.patch("meetings", meetingId, {
+        assignedCloserId: undefined,
+      });
+      await activityEvent(ctx, h.tenantId, {
+        entityType: "opportunity",
+        entityId: seeded.dealA,
+        eventType: "opportunity.created",
+        occurredAt: RANGE.startDate,
+      });
+      await activityEvent(ctx, h.tenantId, {
+        entityType: "meeting",
+        entityId: meetingId,
+        eventType: "meeting.created",
+        occurredAt: RANGE.startDate,
+      });
+    });
+    const system = h.t.withIdentity({
+      subject: "system",
+      org_id: SYSTEM_ADMIN_ORG_ID,
+    });
+    await system.mutation(api.admin.migrations.purgePhase6BlockerRecords, {});
+    expect(
+      await h.t.run(async (ctx) =>
+        activityEventCounts.count(ctx, { namespace: h.tenantId }),
+      ),
+    ).toBe(0);
+    await h.t.finishAllScheduledFunctions(vi.runAllTimers);
+  });
+
+  it("completes the blocker purge across event batches shared by opportunities and meetings", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const h = await legacyActivityHarness();
+    const seeded = await h.t.run(async (ctx) => {
+      const seeded = await seedEnrolledCustomer(ctx, h.tenantId, { secondProgram: true });
+      const targets = [];
+      for (const opportunityId of [seeded.dealA, seeded.second!.dealId]) {
+        const meetingId = await insertMeeting(ctx, {
+          tenantId: h.tenantId,
+          opportunityId,
+          closerId: seeded.closerId,
+          scheduledAt: RANGE.startDate,
+        });
+        await ctx.db.patch("meetings", meetingId, { assignedCloserId: undefined });
+        for (let index = 0; index < 25; index++) {
+          await activityEvent(ctx, h.tenantId, {
+            entityType: "opportunity", entityId: opportunityId,
+            eventType: "opportunity.created", occurredAt: RANGE.startDate + index,
+          });
+          await activityEvent(ctx, h.tenantId, {
+            entityType: "meeting", entityId: meetingId,
+            eventType: "meeting.created", occurredAt: RANGE.startDate + index,
+          });
+        }
+        targets.push({ opportunityId, meetingId });
+      }
+      await activityEvent(ctx, h.tenantId, { occurredAt: RANGE.startDate });
+      return { ...seeded, targets };
+    });
+    const system = h.t.withIdentity({ subject: "system", org_id: SYSTEM_ADMIN_ORG_ID });
+    for (const [index, deleted] of [40, 40, 20].entries()) {
+      const result = await system.mutation(api.admin.migrations.purgePhase6BlockerRecords, {});
+      expect(result).toMatchObject({
+        hasMore: index < 2,
+        blockerA: { domainEventsPurged: deleted },
+      });
+      if (index === 0) {
+        // Parent IDs remain available to find the rest of the event batch.
+        expect(await h.t.run((ctx) => ctx.db.get("meetings", seeded.targets[0].meetingId)))
+          .not.toBeNull();
+        expect(await h.t.run((ctx) => ctx.db.get("opportunities", seeded.dealA)))
+          .not.toBeNull();
+      }
+    }
+    await h.t.run(async (ctx) => {
+      for (const { opportunityId, meetingId } of seeded.targets) {
+        expect(await ctx.db.get("opportunities", opportunityId)).toBeNull();
+        expect(await ctx.db.get("meetings", meetingId)).toBeNull();
+      }
+      expect(await ctx.db.get("paymentRecords", seeded.paymentA)).toBeNull();
+      expect(await ctx.db.get("leads", seeded.leadId)).not.toBeNull();
+      expect(await ctx.db.query("domainEvents").take(10)).toHaveLength(1);
+      expect(await activityEventCounts.count(ctx, { namespace: h.tenantId })).toBe(5);
+    });
+    expect(await system.mutation(api.admin.migrations.purgePhase6BlockerRecords, {}))
+      .toMatchObject({ hasMore: false, blockerA: { domainEventsPurged: 0 } });
+    await h.t.finishAllScheduledFunctions(vi.runAllTimers);
+  });
+
+  it("keeps the scan path when historical value discovery overflows its bound", async () => {
+    const h = await harness();
+    await h.t.run(async (ctx) => {
+      await ctx.db.patch("tenants", h.tenantId, {
+        activityEventCountsVerifiedAt: NOW,
+        activityEventCountsExtraValues: {
+          overflow: false,
+          values: Array.from({ length: 128 }, (_, index) => ({
+            dimension: "eventType",
+            value: `legacy.${index}`,
+          })),
+        },
+      });
+      await activityEvent(ctx, h.tenantId, {
+        eventType: "legacy.overflow",
+        occurredAt: RANGE.startDate,
+      });
+    });
+    expect(
+      await h.admin.query(api.reporting.activityFeed.getActivitySummary, RANGE),
+    ).toMatchObject({ totalEvents: 1, byEventType: { "legacy.overflow": 1 } });
+    const tenant = await h.t.run(async (ctx) =>
+      ctx.db.get("tenants", h.tenantId),
+    );
+    expect(tenant?.activityEventCountsVerifiedAt).toBeUndefined();
+    expect(tenant?.activityEventCountsExtraValues?.overflow).toBe(true);
+    expect(
+      await h.t.mutation(
+        internal.reporting.activityEventCounts.markActivityEventCountsVerified,
+        { ...RANGE, tenantId: h.tenantId },
+      ),
+    ).toMatchObject({ enabled: false, passed: false });
+  });
+});
