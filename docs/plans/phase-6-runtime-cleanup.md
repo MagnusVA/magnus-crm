@@ -524,7 +524,7 @@ Fix forward, reviewed. Every repair is an internal migration with its own assert
 - **PR 4:** revert. A reviewed repair copies each deal's `canceledAt` and `noShowAt` back from its latest canceled or no-show meeting. The legacy table stays empty, since nothing reads it.
 - **PRs 5 to 9:** revert. The readers go back to their old reads; the aggregates stay written.
 - **PR 10:** revert to PR 9, which reads `completed` only. Before the revert deploys, a reviewed repair sets `held` back to `completed`, with `completedAt` from `heldMarkedAt`, through `patchMeetingLifecycle`. The 510 cleared no-show `completedAt` values come back from `noShowMarkedAt`, where the two were equal at the click.
-- **PR 11:** revert. The setting is ignored and the projections go back to UTC days through `rebuildMeetingProjections` (reset).
+- **PR 11:** never during an open `businessDayRebuilds` row. If a tenant changed its setting, first set it back to the default with `updateBusinessDay` and wait until its rebuild row is done, both `rebuildMeetingProjections` and `rebuildLeadGenDayStats` included. Then revert: the setting is ignored, and the projections go back to UTC days through `rebuildMeetingProjections` (reset).
 - **PR 13:** revert brings the fields and tables back as optional, then the PR before it is reverted and repaired as above.
 
 ## 13. Production log
