@@ -545,7 +545,7 @@ All runs are on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `-
 
 ### 13.1 Baseline, 2026-10-22
 
-§2. A read-only snapshot directory under the system temp directory (mode 700) holds the inventory notes. It held no export, and it was deleted when the phase ended (§13.3).
+§2. A read-only snapshot directory under the system temp directory (mode 700) held the inventory notes. It held no export, and it was deleted when the phase ended (§13.3).
 
 ### 13.2 Deploys
 
