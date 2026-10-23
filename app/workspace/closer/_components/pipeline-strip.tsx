@@ -176,7 +176,12 @@ export function PipelineStrip({
 
         {/* Condensed pipeline breakdown — a single stacked bar (100% = all
             scoped opportunities) plus a compact, clickable legend. */}
-        <PipelineBar counts={counts} total={total} periodNoun={scopedText} />
+        <PipelineBar
+          counts={counts}
+          total={total}
+          periodNoun={scopedText}
+          isMeetingDataTruncated={isMeetingDataTruncated}
+        />
       </section>
     </TooltipProvider>
   );
@@ -191,9 +196,15 @@ type PipelineBarProps = {
   counts: Record<DealPosition, number>;
   total: number;
   periodNoun: string;
+  isMeetingDataTruncated?: boolean;
 };
 
-function PipelineBar({ counts, total, periodNoun }: PipelineBarProps) {
+function PipelineBar({
+  counts,
+  total,
+  periodNoun,
+  isMeetingDataTruncated,
+}: PipelineBarProps) {
   const segments = CLOSER_PIPELINE_TABS.map((stage) => {
     const count = counts[stage];
     return {
@@ -224,7 +235,9 @@ function PipelineBar({ counts, total, periodNoun }: PipelineBarProps) {
       {total === 0 ? (
         <div className="flex h-3 w-full items-center overflow-hidden rounded-full bg-muted">
           <span className="w-full px-2 text-center text-[10px] text-muted-foreground">
-            No activity {periodNoun}
+            {isMeetingDataTruncated
+              ? `Partial data ${periodNoun}: narrow the range`
+              : `No activity ${periodNoun}`}
           </span>
         </div>
       ) : (
