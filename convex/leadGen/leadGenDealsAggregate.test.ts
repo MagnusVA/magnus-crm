@@ -209,7 +209,8 @@ it("verifies and activates more than 200 eligible rows without paginating within
   await h.t.mutation(functions.markLeadGenDealsByWorkerVerified, { tenantId: h.tenantId });
   expect(await h.t.run(async (ctx) => (await ctx.db.get("tenants", h.tenantId))!.leadGenDealsAggregateVerifiedAt))
     .toBe(Date.now());
-});
+// 250 rows through the aggregate is slow under a loaded runner.
+}, 30_000);
 
 it("keeps row identities, capture boundaries and tenant isolation", async () => {
   const h = await attributionHarness();

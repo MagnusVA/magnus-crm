@@ -1,6 +1,13 @@
+import { paginationOptsValidator } from "convex/server";
+import { stream } from "convex-helpers/server/stream";
+import schema from "../schema";
+import {
+  activityCountKeys,
+  readActivityEventCounts,
+} from "./activityEventCounts";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
-import { query } from "../_generated/server";
+import { query, type QueryCtx } from "../_generated/server";
 import { PAYMENT_TYPES } from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
 import {
@@ -9,13 +16,11 @@ import {
   reportingUserIdentity,
 } from "./lib/helpers";
 
-const MAX_ACTIVITY_FEED_LIMIT = 100;
-// The most events either query reads in one range. The feed filters entity
-// type, program and payment type in memory, so a rare match would otherwise
-// scan the whole range. Neither scans more than the range holds, so the feed
-// stops early only when the summary is truncated too, and the page then says
-// to narrow the range.
+const ACTIVITY_FEED_READ_BUDGET = 500;
 export const MAX_ACTIVITY_SCAN_EVENTS = 10000;
+// Budget ~10 index reads/range: 300 * 10 + 501 user rows = 3,501,
+// leaving 595 of the 4,096 reads for auth and actor identity lookups.
+const MAX_AGGREGATE_COUNT_RANGES = 300;
 
 const DOMAIN_EVENT_ENTITY_TYPES = [
   "customer",
@@ -125,7 +130,7 @@ export const getActivityFeed = query({
         v.literal("deposit"),
       ),
     ),
-    limit: v.optional(v.number()),
+    paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [
@@ -133,22 +138,9 @@ export const getActivityFeed = query({
       "tenant_admin",
     ]);
     assertValidDateRange(args.startDate, args.endDate);
-    if (args.limit !== undefined && !Number.isFinite(args.limit)) {
-      throw new Error("limit must be a finite number");
-    }
-
-    const limit = Math.min(
-      Math.max(Math.floor(args.limit ?? 50), 1),
-      MAX_ACTIVITY_FEED_LIMIT,
-    );
-    const events: Array<{
-      event: Doc<"domainEvents">;
-      parsedMetadata: Record<string, unknown> | null;
-      paymentMetadata: ReturnType<typeof parsePaymentMetadata>;
-    }> = [];
-
+    const database = stream(ctx.db, schema);
     const querySource = args.actorUserId
-      ? ctx.db
+      ? database
           .query("domainEvents")
           .withIndex("by_tenantId_and_actorUserId_and_occurredAt", (q) =>
             q
@@ -159,7 +151,7 @@ export const getActivityFeed = query({
           )
           .order("desc")
       : args.eventType
-        ? ctx.db
+        ? database
             .query("domainEvents")
             .withIndex("by_tenantId_and_eventType_and_occurredAt", (q) =>
               q
@@ -169,7 +161,7 @@ export const getActivityFeed = query({
                 .lt("occurredAt", args.endDate),
             )
             .order("desc")
-        : ctx.db
+        : database
             .query("domainEvents")
             .withIndex("by_tenantId_and_occurredAt", (q) =>
               q
@@ -179,52 +171,53 @@ export const getActivityFeed = query({
             )
             .order("desc");
 
-    let scanned = 0;
-    for await (const event of querySource) {
-      if (scanned >= MAX_ACTIVITY_SCAN_EVENTS) {
-        break;
-      }
-      scanned += 1;
-      if (!matchesFeedFilters(event, args)) {
-        continue;
-      }
-
-      const parsedMetadata = parseEventMetadata(event.metadata);
-      const paymentMetadata =
+    const page = await querySource
+      .filterWith(async (event) => {
+        if (!matchesFeedFilters(event, args)) return false;
+        if (!args.programId && !args.paymentType) return true;
+        const paymentMetadata =
+          event.entityType === "payment"
+            ? parsePaymentMetadata(parseEventMetadata(event.metadata))
+            : null;
+        return (
+          paymentMetadata !== null &&
+          (!args.programId || paymentMetadata.programId === args.programId) &&
+          (!args.paymentType ||
+            paymentMetadata.paymentType === args.paymentType)
+        );
+      })
+      .paginate({
+        ...args.paginationOpts,
+        maximumRowsRead: ACTIVITY_FEED_READ_BUDGET,
+      });
+    const events = page.page.map((event) => ({
+      event,
+      parsedMetadata: parseEventMetadata(event.metadata),
+      paymentMetadata:
         event.entityType === "payment"
-          ? parsePaymentMetadata(parsedMetadata)
-          : null;
-      if (args.programId || args.paymentType) {
-        if (!paymentMetadata) {
-          continue;
-        }
-        if (
-          (args.programId && paymentMetadata.programId !== args.programId) ||
-          (args.paymentType && paymentMetadata.paymentType !== args.paymentType)
-        ) {
-          continue;
-        }
-      }
-
-      events.push({ event, parsedMetadata, paymentMetadata });
-      if (events.length >= limit) {
-        break;
-      }
-    }
+          ? parsePaymentMetadata(parseEventMetadata(event.metadata))
+          : null,
+    }));
 
     const actorIds = [
       ...new Set(
         events
           .map(({ event }) => event.actorUserId)
-          .filter((actorUserId): actorUserId is Id<"users"> => actorUserId !== undefined),
+          .filter(
+            (actorUserId): actorUserId is Id<"users"> =>
+              actorUserId !== undefined,
+          ),
       ),
     ];
     const actorDocs = await Promise.all(
-      actorIds.map(async (actorId) => [actorId, await ctx.db.get("users", actorId)] as const),
+      actorIds.map(
+        async (actorId) =>
+          [actorId, await ctx.db.get("users", actorId)] as const,
+      ),
     );
     const actorById = new Map(actorDocs);
 
-    return await Promise.all(
+    const enrichedEvents = await Promise.all(
       events.map(async ({ event, parsedMetadata, paymentMetadata }) => ({
         ...event,
         actorName: event.actorUserId
@@ -241,6 +234,10 @@ export const getActivityFeed = query({
         paymentMetadata,
       })),
     );
+    return {
+      ...page,
+      page: enrichedEvents,
+    };
   },
 });
 
@@ -256,65 +253,94 @@ export const getActivitySummary = query({
     ]);
     assertValidDateRange(startDate, endDate);
 
-    const bySource = Object.fromEntries(
-      DOMAIN_EVENT_SOURCES.map((source) => [source, 0]),
-    ) as Record<Doc<"domainEvents">["source"], number>;
-    const byEntity = Object.fromEntries(
-      DOMAIN_EVENT_ENTITY_TYPES.map((entityType) => [entityType, 0]),
-    ) as Record<Doc<"domainEvents">["entityType"], number>;
-    const byEventType: Record<string, number> = {};
-    const byOutcome: Record<string, number> = {};
-    const actorCounts = new Map<Id<"users">, number>();
-    let totalEvents = 0;
-    let isTruncated = false;
+    const tenant = await ctx.db.get("tenants", tenantId);
+    if (
+      tenant?.activityEventCountsVerifiedAt !== undefined &&
+      !tenant.activityEventCountsExtraValues?.overflow
+    ) {
+      return await readAggregateActivitySummary(
+        ctx,
+        tenant,
+        startDate,
+        endDate,
+      );
+    }
+    return await readScannedActivitySummary(ctx, tenantId, startDate, endDate);
+  },
+});
 
-    for await (const event of ctx.db
-      .query("domainEvents")
-      .withIndex("by_tenantId_and_occurredAt", (q) =>
-        q.eq("tenantId", tenantId).gte("occurredAt", startDate).lt("occurredAt", endDate),
-      )
-      .order("desc")) {
-      if (totalEvents >= MAX_ACTIVITY_SCAN_EVENTS) {
-        isTruncated = true;
-        break;
-      }
+export async function readScannedActivitySummary(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  startDate: number,
+  endDate: number,
+  scanLimit = MAX_ACTIVITY_SCAN_EVENTS,
+) {
+  const bySource = Object.fromEntries(
+    DOMAIN_EVENT_SOURCES.map((source) => [source, 0]),
+  ) as Record<Doc<"domainEvents">["source"], number>;
+  const byEntity = Object.fromEntries(
+    DOMAIN_EVENT_ENTITY_TYPES.map((entityType) => [entityType, 0]),
+  ) as Record<Doc<"domainEvents">["entityType"], number>;
+  const byEventType: Record<string, number> = {};
+  const byOutcome: Record<string, number> = {};
+  const actorCounts = new Map<Id<"users">, number>();
+  let totalEvents = 0;
+  let isTruncated = false;
 
-      totalEvents += 1;
-      bySource[event.source] = (bySource[event.source] ?? 0) + 1;
-      byEntity[event.entityType] = (byEntity[event.entityType] ?? 0) + 1;
-      byEventType[event.eventType] = (byEventType[event.eventType] ?? 0) + 1;
+  for await (const event of ctx.db
+    .query("domainEvents")
+    .withIndex("by_tenantId_and_occurredAt", (q) =>
+      q
+        .eq("tenantId", tenantId)
+        .gte("occurredAt", startDate)
+        .lt("occurredAt", endDate),
+    )
+    .order("desc")) {
+    if (totalEvents >= scanLimit) {
+      isTruncated = true;
+      break;
+    }
 
-      const parsedMetadata = parseEventMetadata(event.metadata);
-      if (event.eventType === "followUp.completed") {
-        const outcome = parsedMetadata?.outcome;
-        if (typeof outcome === "string") {
-          const bucket = `reminder_${outcome}`;
-          byOutcome[bucket] = (byOutcome[bucket] ?? 0) + 1;
-        }
-      }
+    totalEvents += 1;
+    bySource[event.source] = (bySource[event.source] ?? 0) + 1;
+    byEntity[event.entityType] = (byEntity[event.entityType] ?? 0) + 1;
+    byEventType[event.eventType] = (byEventType[event.eventType] ?? 0) + 1;
 
-      if (event.actorUserId) {
-        actorCounts.set(
-          event.actorUserId,
-          (actorCounts.get(event.actorUserId) ?? 0) + 1,
-        );
+    const parsedMetadata = parseEventMetadata(event.metadata);
+    if (event.eventType === "followUp.completed") {
+      const outcome = parsedMetadata?.outcome;
+      if (typeof outcome === "string") {
+        const bucket = `reminder_${outcome}`;
+        byOutcome[bucket] = (byOutcome[bucket] ?? 0) + 1;
       }
     }
 
-    const actorIds = [...actorCounts.keys()];
-    const actorDocs = await Promise.all(
-      actorIds.map(async (actorId) => [actorId, await ctx.db.get("users", actorId)] as const),
-    );
-    const actorById = new Map(actorDocs);
+    if (event.actorUserId) {
+      actorCounts.set(
+        event.actorUserId,
+        (actorCounts.get(event.actorUserId) ?? 0) + 1,
+      );
+    }
+  }
 
-    return {
-      totalEvents,
-      isTruncated,
-      bySource,
-      byEntity,
-      byActor: Object.fromEntries(actorCounts.entries()),
-      actorBreakdown: (await Promise.all([...actorCounts.entries()]
-        .map(async ([actorUserId, count]) => {
+  const actorIds = [...actorCounts.keys()];
+  const actorDocs = await Promise.all(
+    actorIds.map(
+      async (actorId) => [actorId, await ctx.db.get("users", actorId)] as const,
+    ),
+  );
+  const actorById = new Map(actorDocs);
+
+  return {
+    totalEvents,
+    isTruncated,
+    bySource,
+    byEntity,
+    byActor: Object.fromEntries(actorCounts.entries()),
+    actorBreakdown: (
+      await Promise.all(
+        [...actorCounts.entries()].map(async ([actorUserId, count]) => {
           const actor = actorById.get(actorUserId) ?? null;
           return {
             actorUserId,
@@ -323,10 +349,99 @@ export const getActivitySummary = query({
             actorRole: actor?.role ?? "unknown",
             count,
           };
-        })))
-        .sort((left, right) => right.count - left.count),
-      byEventType,
-      byOutcome,
-    };
-  },
-});
+        }),
+      )
+    ).sort((left, right) => right.count - left.count),
+    byEventType,
+    byOutcome,
+  };
+}
+
+export async function readAggregateActivitySummary(
+  ctx: QueryCtx,
+  tenant: Doc<"tenants">,
+  startDate: number,
+  endDate: number,
+  userLimit = 500,
+  countRangeLimit = MAX_AGGREGATE_COUNT_RANGES,
+) {
+  const tenantId = tenant._id;
+  const users = await ctx.db
+    .query("users")
+    .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+    .take(userLimit + 1);
+  // A partial user catalog would mislabel real actors as removed users.
+  if (users.length > userLimit)
+    return await readScannedActivitySummary(ctx, tenantId, startDate, endDate);
+  const keys = activityCountKeys(
+    users.map((user) => user._id),
+    tenant.activityEventCountsExtraValues?.values,
+  );
+  if (keys.length > countRangeLimit)
+    return await readScannedActivitySummary(ctx, tenantId, startDate, endDate);
+  const rows = await readActivityEventCounts(
+    ctx,
+    tenantId,
+    startDate,
+    endDate,
+    keys,
+  );
+  const dimension = (name: string) =>
+    Object.fromEntries(
+      rows
+        .filter((row) => row.dimension === name)
+        .map((row) => [row.value, row.count]),
+    );
+  const totalEvents = dimension("all")[""];
+  const actorCounts = dimension("actor");
+  const bySource: Record<string, number> = {
+    ...Object.fromEntries(DOMAIN_EVENT_SOURCES.map((value) => [value, 0])),
+    ...dimension("source"),
+  };
+  const byEntity: Record<string, number> = Object.fromEntries(
+    DOMAIN_EVENT_ENTITY_TYPES.map((value) => [value, 0]),
+  );
+  for (const [value, count] of Object.entries(dimension("entityType")))
+    if (count > 0) byEntity[value] = count;
+  const nonzero = (name: string) =>
+    Object.fromEntries(
+      Object.entries(dimension(name)).filter(([, count]) => count > 0),
+    );
+  const knownActors = users.filter((user) => actorCounts[user._id] > 0);
+  const byActor: Record<string, number> = Object.fromEntries(
+    knownActors.map((user) => [user._id, actorCounts[user._id]]),
+  );
+  const actorBreakdown = await Promise.all(
+    knownActors.map(async (user) => ({
+      actorUserId: String(user._id),
+      actorName: getUserDisplayName(user),
+      actor: await reportingUserIdentity(ctx, user, "Removed user"),
+      actorRole: String(user.role),
+      count: actorCounts[user._id],
+    })),
+  );
+  const removedCount =
+    totalEvents -
+    actorCounts[""] -
+    knownActors.reduce((sum, user) => sum + actorCounts[user._id], 0);
+  if (removedCount > 0) {
+    byActor.removed = removedCount;
+    actorBreakdown.push({
+      actorUserId: "removed",
+      actorName: "Removed user",
+      actor: await reportingUserIdentity(ctx, null, "Removed user"),
+      actorRole: "unknown",
+      count: removedCount,
+    });
+  }
+  return {
+    totalEvents,
+    isTruncated: false,
+    bySource,
+    byEntity,
+    byActor,
+    actorBreakdown: actorBreakdown.sort((a, b) => b.count - a.count),
+    byEventType: nonzero("eventType"),
+    byOutcome: nonzero("reminderOutcome"),
+  };
+}

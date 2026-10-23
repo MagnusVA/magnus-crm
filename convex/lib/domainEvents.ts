@@ -1,5 +1,6 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
+import { insertActivityEventCounts } from "../reporting/activityEventCounts";
 import { deriveDomainEventLinks } from "./domainEventLinks";
 import { captureDomainEvent } from "./observability/posthog";
 import { recordPersonTouch } from "./touches";
@@ -61,6 +62,10 @@ export async function emitDomainEvent(
     leadId,
     teamMemberId,
   });
+
+  const event = await ctx.db.get("domainEvents", domainEventId);
+  if (!event) throw new Error(`Domain event not found: ${domainEventId}`);
+  await insertActivityEventCounts(ctx, event);
 
   await recordPersonTouch(ctx, {
     tenantId: params.tenantId,

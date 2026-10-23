@@ -195,7 +195,7 @@ export function ActivityFeedFilters({
           <SelectGroup>
             <SelectLabel>Actor</SelectLabel>
             <SelectItem value="__all__">All</SelectItem>
-            {actorBreakdown.map((actor) => (
+            {actorBreakdown.filter((actor) => actor.actorUserId !== "removed").map((actor) => (
               <SelectItem key={actor.actorUserId} value={actor.actorUserId}>
                 <div className="flex min-w-0 items-center justify-between gap-3">
                   <MemberIdentityOption identity={actor.actor} />
