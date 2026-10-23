@@ -13,8 +13,13 @@ import {
 } from "../opportunities/stages";
 import { opportunityByStage } from "../reporting/aggregates";
 import { isPersonLoss } from "../reporting/lib/outcomeDerivation";
+import { createLiveReadState, readLiveQueryRows } from "../lib/liveQueryBounds";
+import schema from "../schema";
 
 const MAX_CLOSER_PAYMENT_SCAN_ROWS = 2500;
+const MAX_CLOSER_MEETING_ROWS = 2000;
+const CLOSER_MEETING_BYTE_BUDGET = 4 * 1024 * 1024;
+const NEXT_MEETING_CANDIDATES = 25;
 
 function emptyPositionCounts(): Record<DealPosition, number> {
   return { qualified: 0, booked: 0, call_held: 0, follow_up: 0, won: 0, lost: 0 };
@@ -55,19 +60,24 @@ export async function readCloserMeetingDeals(
   closerId: Id<"users">,
   startDate: number,
   endDate: number,
-): Promise<Array<Doc<"opportunities">>> {
-  const opportunityIds = new Set<Id<"opportunities">>();
-  for await (const meeting of ctx.db
-    .query("meetings")
-    .withIndex("by_tenantId_and_assignedCloserId_and_scheduledAt", (q) =>
-      q
-        .eq("tenantId", tenantId)
-        .eq("assignedCloserId", closerId)
-        .gte("scheduledAt", startDate)
-        .lt("scheduledAt", endDate),
-    )) {
-    opportunityIds.add(meeting.opportunityId);
-  }
+  maxRows = MAX_CLOSER_MEETING_ROWS,
+  byteBudget = CLOSER_MEETING_BYTE_BUDGET,
+): Promise<{ deals: Array<Doc<"opportunities">>; isMeetingDataTruncated: boolean }> {
+  const read = await readLiveQueryRows(
+    ctx.db
+      .query("meetings")
+      .withIndex("by_tenantId_and_assignedCloserId_and_scheduledAt", (q) =>
+        q
+          .eq("tenantId", tenantId)
+          .eq("assignedCloserId", closerId)
+          .gte("scheduledAt", startDate)
+          .lt("scheduledAt", endDate),
+      ),
+    maxRows,
+    createLiveReadState(),
+    byteBudget,
+  );
+  const opportunityIds = new Set(read.rows.map((meeting) => meeting.opportunityId));
 
   const deals: Array<Doc<"opportunities">> = [];
   for (const opportunityId of opportunityIds) {
@@ -81,7 +91,7 @@ export async function readCloserMeetingDeals(
     }
     deals.push(opportunity);
   }
-  return deals;
+  return { deals, isMeetingDataTruncated: read.capped };
 }
 
 /**
@@ -156,26 +166,38 @@ async function getCashCollectedForCloserInRange(
  * that belongs to an opportunity assigned to this closer.
  *
  * Enriched with lead info and opportunity data.
- * Returns null if no upcoming meetings.
+ * Returns null if no upcoming meetings, or an incomplete result if the
+ * candidate limit prevents ruling out a later eligible meeting.
  */
 export const getNextMeeting = query({
   args: {},
+  returns: v.union(
+    v.null(),
+    v.object({ meeting: v.null(), incomplete: v.literal(true) }),
+    v.object({
+      meeting: schema.doc("meetings"),
+      opportunity: schema.doc("opportunities"),
+      lead: v.union(schema.doc("leads"), v.null()),
+      eventTypeName: v.union(v.string(), v.null()),
+    }),
+  ),
   handler: async (ctx) => {
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
     const now = Date.now();
 
-    for await (const meeting of ctx.db
+    const candidates = await ctx.db
       .query("meetings")
-      .withIndex("by_tenantId_and_assignedCloserId_and_scheduledAt", (q) =>
+      .withIndex("by_tenantId_and_assignedCloserId_and_status_and_scheduledAt", (q) =>
         q
           .eq("tenantId", tenantId)
           .eq("assignedCloserId", userId)
+          .eq("status", "scheduled")
           .gte("scheduledAt", now),
-      )) {
-      if (meeting.status !== "scheduled") {
-        continue;
-      }
+      )
+      .order("asc")
+      .take(NEXT_MEETING_CANDIDATES);
 
+    for (const meeting of candidates) {
       const opportunity = await ctx.db.get("opportunities", meeting.opportunityId);
       if (
         !opportunity ||
@@ -200,7 +222,9 @@ export const getNextMeeting = query({
       };
     }
 
-    return null;
+    return candidates.length === NEXT_MEETING_CANDIDATES
+      ? { meeting: null, incomplete: true as const }
+      : null;
   },
 });
 
@@ -221,21 +245,37 @@ export const getPipelineSummary = query({
     startDate: v.optional(v.number()),
     endDate: v.optional(v.number()),
   },
+  returns: v.object({
+    counts: v.object({
+      qualified: v.number(),
+      booked: v.number(),
+      call_held: v.number(),
+      follow_up: v.number(),
+      won: v.number(),
+      lost: v.number(),
+    }),
+    total: v.number(),
+    decided: v.union(v.object({ won: v.number(), lost: v.number() }), v.null()),
+    cashCollectedMinor: v.union(v.number(), v.null()),
+    cashPaymentCount: v.union(v.number(), v.null()),
+    isPaymentDataTruncated: v.boolean(),
+    isMeetingDataTruncated: v.optional(v.boolean()),
+  }),
   handler: async (ctx, { startDate, endDate }) => {
     const { userId, tenantId } = await requireTenantUser(ctx, ["closer"]);
 
     // ── Filtered mode ──────────────────────────────────────────────────────
     // Resolve the closer's meetings inside the requested range, then count
-    // their deals by position. Uses the same index the calendar does, so
-    // this is bounded by what's on screen there.
+    // their deals by position, within the live meeting row and byte bounds.
     if (startDate !== undefined && endDate !== undefined) {
       if (startDate >= endDate) {
         throw new Error("startDate must be earlier than endDate");
       }
 
-      const { counts, total, won, lost } = countStripByStage(
-        await readCloserMeetingDeals(ctx, tenantId, userId, startDate, endDate),
+      const { deals, isMeetingDataTruncated } = await readCloserMeetingDeals(
+        ctx, tenantId, userId, startDate, endDate,
       );
+      const { counts, total, won, lost } = countStripByStage(deals);
 
       const cash = await getCashCollectedForCloserInRange(ctx, {
         tenantId,
@@ -244,7 +284,7 @@ export const getPipelineSummary = query({
         endDate,
       });
 
-      return { counts, total, decided: { won, lost }, ...cash };
+      return { counts, total, decided: { won, lost }, isMeetingDataTruncated, ...cash };
     }
 
     // ── All-time mode (pipeline page tabs) ─────────────────────────────────

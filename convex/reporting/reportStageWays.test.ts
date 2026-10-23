@@ -142,7 +142,7 @@ describe("each report number by stage", () => {
     const { harness } = await seeded();
     const strips = await harness.t.run(async (ctx) => {
       const strip = async (closerId: Id<"users">) => {
-        const deals = await readCloserMeetingDeals(
+        const { deals } = await readCloserMeetingDeals(
           ctx,
           harness.tenantId,
           closerId,
