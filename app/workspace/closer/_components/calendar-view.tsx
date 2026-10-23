@@ -48,10 +48,11 @@ export function CalendarView({
   onViewModeChange,
   onCurrentDateChange,
 }: CalendarViewProps) {
-  const meetings = useQuery(api.closer.calendar.getMeetingsForRange, {
+  const calendar = useQuery(api.closer.calendar.getMeetingsForRange, {
     startDate,
     endDate,
   });
+  const meetings = calendar?.meetings;
 
   // ── Navigation callbacks (stable via useCallback) ───────────────────────
   const goToday = useCallback(
@@ -83,12 +84,20 @@ export function CalendarView({
         onViewModeChange={onViewModeChange}
       />
 
+      {calendar?.isPartial ? (
+        <p role="status" className="text-xs text-muted-foreground">
+          Showing the first {calendar.meetings.length.toLocaleString()} meetings. Narrow the range to see more.
+        </p>
+      ) : null}
+
       {meetings === undefined ? (
         <CalendarSkeleton viewMode={viewMode} />
       ) : meetings.length === 0 ? (
         <CloserEmptyState
-          title="No meetings this period"
-          description="There are no meetings scheduled in the selected date range. Navigate to a different period or check back later."
+          title={calendar?.isPartial ? "Meeting data is partial" : "No meetings this period"}
+          description={calendar?.isPartial
+            ? "Narrow the range to see meetings."
+            : "There are no meetings scheduled in the selected date range. Navigate to a different period or check back later."}
         />
       ) : viewMode === "day" ? (
         <DayView meetings={meetings} date={currentDate} />

@@ -1405,6 +1405,12 @@ export default defineSchema({
       "assignedCloserId",
       "scheduledAt",
     ])
+    .index("by_tenantId_and_assignedCloserId_and_status_and_scheduledAt", [
+      "tenantId",
+      "assignedCloserId",
+      "status",
+      "scheduledAt",
+    ])
     .index("by_tenantId_and_bookingProgramId_and_scheduledAt", [
       "tenantId",
       "bookingProgramId",

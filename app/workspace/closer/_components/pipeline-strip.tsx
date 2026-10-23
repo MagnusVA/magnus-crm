@@ -37,6 +37,7 @@ type PipelineStripProps = {
   cashCollectedMinor?: number | null;
   cashPaymentCount?: number | null;
   isPaymentDataTruncated?: boolean;
+  isMeetingDataTruncated?: boolean;
 };
 
 const CURRENCY_FORMATTER = new Intl.NumberFormat(undefined, {
@@ -79,6 +80,7 @@ export function PipelineStrip({
   cashCollectedMinor,
   cashPaymentCount,
   isPaymentDataTruncated,
+  isMeetingDataTruncated,
 }: PipelineStripProps) {
   const wonCount = counts.won;
   // Close rate = won ÷ decided (won + the deals a person lost). Open deals
@@ -121,6 +123,11 @@ export function PipelineStrip({
               </>
             ) : null}
           </div>
+          {isMeetingDataTruncated ? (
+            <Badge variant="outline" className="shrink-0" role="status">
+              Partial: narrow the range
+            </Badge>
+          ) : null}
           {isPaymentDataTruncated ? (
             <Tooltip>
               <TooltipTrigger asChild>
