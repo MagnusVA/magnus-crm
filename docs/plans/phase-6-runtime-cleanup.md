@@ -173,7 +173,7 @@ One helper, `meetingAttendanceDisplay(meeting, now)` in `lib/status-config.ts`, 
 
 - **Where it's used:** the calendar blocks, the day, week and month views and the popover; the meeting info panel and overview card; the reminder history panel; the deal's meetings list; the person page's meeting rows; and the Sales Calls and Booked Calls detail lists.
 - **Labels:** "Not recorded", with a muted amber style. The labels and palettes some of these components define for themselves go; they read the shared config.
-- **Reports:** counts that come from day buckets count the scheduled meetings of finished days as Not recorded. For the current day, a bounded read of that day's scheduled meetings by `by_tenantId_and_status_and_scheduledAt` (at most about 100 rows) splits them by end time, so the counts apply the same rule.
+- **Reports:** counts that come from day buckets apply the same end-time rule. One bounded read, of the scheduled meetings that started in the last 24 hours by `by_tenantId_and_status_and_scheduledAt` (at most about 200 rows), finds the ones still in progress or upcoming. A finished day's scheduled meetings count as Not recorded except those still in progress, and the current day's count only once they end.
 - **Exports:** the raw call and booking rows keep the stored status in `MeetingStatus` and add an `Attendance` column with the display value.
 
 ### 4.3 Show rate (U3)
@@ -189,9 +189,9 @@ One helper, `meetingAttendanceDisplay(meeting, now)` in `lib/status-config.ts`, 
 
 - **Setting:** `tenants.businessDay = { timeZone, dayStartHour }`, an IANA zone and a local hour from 0 to 23. When it's absent, it means `{ "America/Tegucigalpa", 1 }`, today's 07:00 UTC. One module, `lib/businessDay.ts`, is shared by the server and the client. It turns an instant into a business date and a business date into its `[start, end)` instants. It uses the zone's offset at that date, so a zone with daylight saving gets 23- and 25-hour days, and a start hour that doesn't exist on a change day moves to the first instant after it. `convex/reporting/lib/hondurasBusinessTime.ts` and `app/workspace/_components/dashboard-date-utils.ts` become thin callers of it.
 - **Where it applies:** every server-side day:
-  - the meeting projections' `dayKey` (UTC today), and so Sales Calls, Booked Calls, the team report's operations dimensions and the pipeline show rate;
+  - the meeting projections' `dayKey`, keyed today by the UTC date and from PR 11 by the business date `lib/businessDay.ts` gives, and so Sales Calls, the team report's operations dimensions and the pipeline show rate. Booked Calls doesn't read the projections: it counts first bookings by when they were made, in the Honduras business-day window, and moves only with the setting;
   - `revenueTrend`'s day, week and month buckets;
-  - the overview's operations window (UTC midnight today);
+  - the overview's operations window, which starts at UTC midnight today and from PR 11 at the business day's start from `lib/businessDay.ts`, like its Slack window;
   - the operations report reducers and their exports, whose "UTC days (00:00)" boundary text goes;
   - everything on the Honduras business day today: lead gen stats, Slack qualifications, booked calls, work schedules and the report contracts.
 - **Screens on the browser clock stay** (U4): the legacy report controls, the closer dashboard and calendar, the closer pipeline filter, billing filters and the unavailability dialog. `lib/opportunitySearch.ts`'s day keys aren't moved: they go (§3.2).
@@ -202,7 +202,7 @@ One helper, `meetingAttendanceDisplay(meeting, now)` in `lib/status-config.ts`, 
   2. `rebuildLeadGenDayStats` (new), which rebuilds `leadGenDailyStats`, `leadGenOriginStats` and `leadGenTeamOriginStats` from the unvoided submissions in 200-row pages;
   3. a check of the three projections' asserts, which marks the row done.
 
-  Report requests include `businessDayVersion` in their request key, so a report cached under the old day isn't returned. While the row is open, the dated screens show "Day totals are being rebuilt after a business day change." The meeting projection rebuild takes about 20 minutes at today's volume, and the lead gen rebuild runs over every submission (its count is taken at the PR 11 dry run on dev).
+  Report requests include `businessDayVersion` in their request key, so a report cached under the old day isn't returned. While the row is open, report and export requests are refused with "Day totals are being rebuilt" and write no cache entry, so no report caches half-rebuilt totals under the new version. Also while it's open, the dated screens show "Day totals are being rebuilt after a business day change." The meeting projection rebuild takes about 20 minutes at today's volume, and the lead gen rebuild runs over every submission (its count is taken at the PR 11 dry run on dev).
 - **Unavailability dates** keep their stored browser-local instants. The dialog's comment, which says "midnight UTC", is corrected.
 
 ### 4.5 Behaviour that stays
@@ -211,7 +211,7 @@ Apart from §4.2 to §4.4, every screen shows the same numbers:
 
 - **Bounded reads** return the same rows below their bound, and say so when they reach it.
 - **Aggregates replace reads one for one**, and the parity checks (§10.6) prove the old and new ways agree on today's data.
-- **Moving the meeting projections to the business day** moves the 961 evening meetings to the previous date (§7). It changes no total over a month.
+- **Moving the meeting projections to the business day** moves the 961 evening meetings to the previous date (§7). The total over all time doesn't change; a calendar month's total can, when a meeting moves across the month's first or last day (§7, §10.6).
 
 ## 5. Write paths
 
@@ -283,7 +283,7 @@ All three use `insertIfDoesNotExist`, `replaceOrInsert` and `deleteIfExists` unt
   - `actor` (the user ID, or "" when there's none);
   - `reminderOutcome`, only for `followUp.completed`.
 
-  The summary reads every count for the range in one `countBatch`. The value lists come from code: the event type, source and entity type catalogs, the reminder outcomes, and the tenant's users. An actor who has been deleted is counted as "Removed user": the total minus the sum of the known actors. The summary is exact, so it loses `isTruncated`, along with the truncation notice in `activity-feed-page-client.tsx` and `activity-summary-cards.tsx`.
+  The summary reads every count for the range in one `countBatch`. The value lists come from code: the event type, source and entity type catalogs, the reminder outcomes, and the tenant's users. Events with no actor are counted on their own, from the `""` value. An actor who has been deleted is counted as "Removed user": the total minus the no-actor count and the sum of the known actors. The summary is exact, so it loses `isTruncated`, along with the truncation notice in `activity-feed-page-client.tsx` and `activity-summary-cards.tsx`.
 - **The feed** paginates the index it already picks, 50 events a page with a 500-row read budget per page. It returns a cursor and `isDone`, and "Load more" continues from the cursor instead of rereading. Filtered pages can come back short and still have more.
 - **Tests:** `activityFeed.test.ts`'s truncation test becomes one that proves the summary counts an event behind 10,000 newer ones, and that the feed reaches it through its cursor.
 
@@ -322,9 +322,9 @@ The before and after values for September 2026 (UTC month, by meeting start time
 | Same screens | no-show rate 198 ÷ 771 = 25.7% (overview 18.7%) | 198 ÷ 387 = 51.2% |
 | Results recorded (Q2) | none | 387 of 771 past calls have a result |
 
-- **Day buckets:** the move to the business day takes the 961 meetings that start between 18:00 and 24:00 Honduras time off the next UTC date and onto their own date. Per-day counts on Sales Calls, Booked Calls and the team report's dimensions move. Monthly totals move only at the month's edges: a meeting at 20:00 Honduras time on the last day of a month is in that month from PR 11.
+- **Day buckets:** the move to the business day takes the 961 meetings that start between 18:00 and 24:00 Honduras time off the next UTC date and onto their own date. Per-day counts on Sales Calls and the team report's dimensions move; Booked Calls doesn't, since it already uses the Honduras business day. Monthly totals move only at the month's edges: a meeting at 20:00 Honduras time on the last day of a month is in that month from PR 11.
 - **The revenue trend's days:** a payment recorded between 00:00 and 07:00 UTC moves to the previous date.
-- **The overview's operations window:** it starts at 07:00 UTC instead of 00:00, as its Slack window already does.
+- **The overview's operations window:** it starts at the business day's start (07:00 UTC with the default setting) instead of 00:00 UTC, as its Slack window already does.
 - **Week start (D9):** from Monday on every screen, so "This week" on the report pages loses Sunday.
 - **Everything else** shows the same numbers. The parity checks in §10.6 prove that for the aggregates.
 
@@ -410,7 +410,7 @@ No export is taken for any of them (D10).
 
 - **The backfills** page their source table with `insertIfDoesNotExist`, as `reporting/backfill.ts` does.
 - **Each `verify*` is an internal query** that computes the report's numbers both ways for given ranges and returns the differences, IDs and counts only:
-  - Pipeline Health: aging per stage now, and losses by actor for each month from 2026-04;
+  - Pipeline Health: aging per stage now, and losses by actor for each month from 2026-04, where the old way is a complete paged read of the Closed lost deals (200 a page, kept when `lostAt` is in the month and `isPersonLoss` holds, as `personLosses` does), not the report's 4,000-row read;
   - activity: the summary for each of the last 30 business days, where the old way is exact under 10,000 events a day;
   - Deals: per worker for each month from 2026-04, where the old way is exact under 5,000 rows.
 - **The flag:** an internal mutation sets the PR's tenant flag only when every difference is zero, or is explained by rows written between the two reads. A rerun clears that.
@@ -524,7 +524,7 @@ Fix forward, reviewed. Every repair is an internal migration with its own assert
 - **PR 4:** revert. A reviewed repair copies each deal's `canceledAt` and `noShowAt` back from its latest canceled or no-show meeting. The legacy table stays empty, since nothing reads it.
 - **PRs 5 to 9:** revert. The readers go back to their old reads; the aggregates stay written.
 - **PR 10:** revert to PR 9, which reads `completed` only. Before the revert deploys, a reviewed repair sets `held` back to `completed`, with `completedAt` from `heldMarkedAt`, through `patchMeetingLifecycle`. The 510 cleared no-show `completedAt` values come back from `noShowMarkedAt`, where the two were equal at the click.
-- **PR 11:** revert. The setting is ignored and the projections go back to UTC days through `rebuildMeetingProjections` (reset).
+- **PR 11:** never during an open `businessDayRebuilds` row. If a tenant changed its setting, first set it back to the default with `updateBusinessDay` and wait until its rebuild row is done, both `rebuildMeetingProjections` and `rebuildLeadGenDayStats` included. Then revert: the setting is ignored, and the projections go back to UTC days through `rebuildMeetingProjections` (reset).
 - **PR 13:** revert brings the fields and tables back as optional, then the PR before it is reverted and repaired as above.
 
 ## 13. Production log
