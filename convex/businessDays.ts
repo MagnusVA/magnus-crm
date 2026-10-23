@@ -42,7 +42,7 @@ export const beginBusinessDayCutover = internalMutation({
   },
 });
 
-async function startRebuild(ctx: MutationCtx, tenantId: Id<"tenants">, version: number, rebuildLeadGen: boolean, userId?: Id<"users">) {
+async function cancelActiveReports(ctx: MutationCtx, tenantId: Id<"tenants">) {
   // Fence in-flight reports before changing any totals. Their next checkpoint
   // cannot publish under a range definition that no longer matches the data.
   for (const status of activeReportStatuses) {
@@ -57,6 +57,10 @@ async function startRebuild(ctx: MutationCtx, tenantId: Id<"tenants">, version: 
       });
     }
   }
+}
+
+async function startRebuild(ctx: MutationCtx, tenantId: Id<"tenants">, version: number, rebuildLeadGen: boolean, userId?: Id<"users">) {
+  await cancelActiveReports(ctx, tenantId);
   const rebuildId = await ctx.db.insert("businessDayRebuilds", {
     tenantId, version, requestedByUserId: userId, rebuildLeadGen, requestedAt: Date.now(), state: "running", phase: "meetings", cursor: null,
     pass: 1, sourceRevision: 0, computedRevision: 0, meetingsEnqueued: 0, leadGenRowsComputed: 0, leadGenRowsSwapped: 0,
@@ -77,6 +81,9 @@ export const retryBusinessDayRebuild = mutation({
       .withIndex("by_tenantId_and_state", q => q.eq("tenantId", tenantId).eq("state", "failed"))
       .order("desc").first();
     if (!job || job.version !== tenant?.businessDayVersion) throw new Error("No failed business day rebuild to retry.");
+    // Lead gen may have finished before meeting verification failed, allowing
+    // reports to be admitted. Fence them before this retry resets its counters.
+    await cancelActiveReports(ctx, tenantId);
     await ctx.db.patch("businessDayRebuilds", job._id, {
       state: "running", phase: "restart_cleanup", cursor: null, pass: job.pass + 1,
       computedRevision: job.sourceRevision, projectionWaitAttempts: 0,

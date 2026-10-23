@@ -1,3 +1,6 @@
+import { BUSINESS_DAY_REBUILD_MESSAGE } from "../../lib/businessDay";
+import { leadGenBusinessDayBlocked } from "../lib/businessDayRebuildState";
+import type { ExpandedOverviewLeaderboard, SectionResult } from "./overviewTypes";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import { query } from "../_generated/server";
@@ -31,11 +34,20 @@ export const listOverviewLeaderboardRows = query({
     range: overviewRangeValidator,
     filters: v.optional(leaderboardFilterValidator),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<ExpandedOverviewLeaderboard | Extract<SectionResult<never>, { status: "rebuilding" }>> => {
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
+    if (args.kind === "lead_gen" && await leadGenBusinessDayBlocked(ctx, tenantId)) {
+      return {
+        status: "rebuilding",
+        data: null,
+        truncated: false,
+        message: BUSINESS_DAY_REBUILD_MESSAGE,
+        errorCode: null,
+      };
+    }
     const range = deriveOverviewRange(args.range, Date.now(), await getTenantBusinessDay(ctx, tenantId));
 
     return await buildExpandedOverviewLeaderboard(ctx, {

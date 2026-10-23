@@ -67,6 +67,77 @@ describe("tenant business days", () => {
     expect(await overview()).toMatchObject({ phoneCloserOperations: { status: "ready" }, leadGen: { status: "ready", data: { totalSubmissions: 3 } }, topOrigins: { status: "ready" } });
   });
 
+  it.each(["running", "failed"] as const)("blocks expanded lead gen rankings during a %s lead gen rebuild", async (state) => {
+    const { t, admin, tenantId } = await businessDayFixture();
+    const leaderboard = () => admin.query(api.dashboard.overviewLeaderboards.listOverviewLeaderboardRows, { kind: "lead_gen", range });
+    const before = await leaderboard();
+    expect(before).toMatchObject({ kind: "lead_gen", totalRows: 2 });
+    // Meeting-only readiness must not hide the lead gen rankings.
+    await t.mutation(internal.businessDays.beginBusinessDayCutover, { tenantId, rebuildLeadGen: false });
+    expect(await leaderboard()).toEqual(before);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+    const rebuildId = await admin.mutation(api.businessDays.updateBusinessDay, { setting: changed });
+    if (state === "failed") {
+      await t.mutation(internal.businessDays.failRebuild, { rebuildId, error: "Interrupted lead gen rebuild" });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+    }
+    const overview = await admin.query(api.dashboard.overview.getOverviewDashboard, { range });
+    expect(overview.leadGen.status).toBe("rebuilding");
+    expect(await leaderboard()).toEqual(overview.leadGen);
+    for (const kind of ["qualifiers", "dm_closers"] as const) {
+      expect(await admin.query(api.dashboard.overviewLeaderboards.listOverviewLeaderboardRows, { kind, range })).toMatchObject({ kind });
+    }
+    if (state === "failed") await admin.mutation(api.businessDays.retryBusinessDayRebuild, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await leaderboard()).toMatchObject({ kind: "lead_gen", totalRows: 2 });
+  });
+
+  it("cancels and fences reports admitted after lead gen completes when meeting verification fails and retries", async () => {
+    const { t, admin, tenantId, meetingId } = await businessDayFixture();
+    const rebuildId = await admin.mutation(api.businessDays.updateBusinessDay, { setting: changed });
+    // Advance lead gen independently of the scheduled meeting projection worker.
+    for (let step = 0; step < 20; step++) {
+      await t.mutation(internal.businessDays.rebuildStep, { rebuildId });
+      if ((await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId)))?.leadGenDone) break;
+    }
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "running", phase: "drain", leadGenDone: true });
+    const dashboard = await admin.mutation(api.operations.reports.jobs.requestDashboardReport, { reportKind: "lead-gen", range, requestToken: "retry-dashboard" });
+    const report = await admin.mutation(api.operations.reports.jobs.requestExport, { reportKind: "lead-gen", range, requestToken: "retry-export", format: "summary_csv" });
+    const workerId = "before-retry";
+    const claim = await t.mutation(internal.operations.reports.jobs.claimJob, { jobId: report.jobId, workerId });
+    if (claim.kind !== "claimed") throw new Error("Expected report lease");
+    // Model a completed artifact manifest to test the final publication boundary.
+    await t.run(ctx => ctx.db.patch("operationsReportJobs", report.jobId, { status: "rendering", phase: "publishing", artifactCount: 1 }));
+    const projection = await t.run(ctx => ctx.db.query("meetingProjections").withIndex("by_meetingId", q => q.eq("meetingId", meetingId)).unique());
+    await t.mutation(internal.operations.meetingStats.project, { projectionId: projection!._id, generation: projection!.generation });
+    await t.mutation(internal.businessDays.rebuildStep, { rebuildId });
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ phase: "assert_meetings" });
+    // Corrupt a meeting bucket after the projection drained, so verification fails.
+    await t.run(async ctx => {
+      const applied = await ctx.db.get("meetingProjections", projection!._id);
+      const bucket = await ctx.db.query("operationsMeetingStatsV2").withIndex("by_tenantId_and_bucketKey", q => q.eq("tenantId", tenantId).eq("bucketKey", applied!.bucketKey!)).unique();
+      await ctx.db.delete("operationsMeetingStatsV2", bucket!._id);
+    });
+    await t.action(internal.businessDays.runRebuild, { rebuildId });
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "failed", leadGenDone: true, error: `${meetingId}` });
+    expect(await admin.mutation(api.businessDays.retryBusinessDayRebuild, {})).toBe(rebuildId);
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "running", leadGenDone: false, pass: 2 });
+    const canceled = await t.run(ctx => ctx.db.get("operationsReportJobs", report.jobId));
+    expect(canceled).toMatchObject({ status: "canceled", phase: "cleanup", cleanupPending: true, leaseGeneration: claim.leaseGeneration + 1 });
+    expect(canceled?.leaseOwner).toBeUndefined();
+    expect(canceled?.leaseExpiresAt).toBeUndefined();
+    expect(await t.run(ctx => ctx.db.get("operationsReportJobs", dashboard.jobId))).toMatchObject({ status: "canceled", leaseGeneration: 1 });
+    expect(await t.run(ctx => ctx.db.query("operationsReportAdmission").withIndex("by_tenantId", q => q.eq("tenantId", tenantId)).unique())).toMatchObject({ slots: [] });
+    expect(await t.mutation(internal.operations.reports.jobs.completeJob, {
+      jobId: report.jobId, workerId, leaseGeneration: claim.leaseGeneration,
+      expectedSequence: claim.checkpointSequence, commitKey: "stale-publish", expectedArtifactCount: 1,
+    })).toMatchObject({ kind: "stale" });
+    expect(await t.mutation(internal.operations.reports.jobs.claimJob, { jobId: report.jobId, workerId: "after-retry" })).toMatchObject({ kind: "skip" });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await t.run(ctx => ctx.db.get("operationsReportJobs", report.jobId))).toMatchObject({ status: "canceled" });
+  });
+
   it("keys evening meetings to their business date and aligns overview operations and Slack", async () => {
     const { t, meetingId } = await businessDayFixture();
     const projection = await t.run(ctx => ctx.db.query("meetingProjections").withIndex("by_meetingId", q => q.eq("meetingId", meetingId)).unique());
