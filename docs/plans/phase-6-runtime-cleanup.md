@@ -1,6 +1,6 @@
 # Phase 6: runtime cleanup
 
-Status: planned, 2026-10-22. Waiting for the tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) to answer the decision batch in §11. The answers they gave before planning started are recorded there as U1 to U7.
+Status: accepted, 2026-10-22. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) gave U1 to U7 before planning started, accepted every recommendation in §11.2, answered Q1 to Q7 as recommended (§11.3), and approved every production run in §9 and §10.
 
 Scope comes from the Phase 6 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md), as rescoped on 2026-10-22, and from the Phase 6 card in §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (finding F11, and "Meetings also get an honest status" in §6). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 5 is in [phase-5-deal-status.md](phase-5-deal-status.md). Phase 6 is the last phase of the roadmap.
 
@@ -183,7 +183,7 @@ One helper, `meetingAttendanceDisplay(meeting, now)` in `lib/status-config.ts`, 
 - **Where it applies:** all five reads in §2.6, the per-program and per-closer rows, and the exported operations reports (summary, closer and program sheets).
 - **No-show rate:** no-show ÷ (held + no-show), so the two add up to 100%.
 - **Copy:** every tooltip and help text says "Held calls ÷ (held + no-show). Canceled and not-recorded calls are left out." The overview's "Completed calls divided by booked calls", the Sales Calls "Showed ÷ (total calls − canceled)", and every "marked completed" become "held".
-- **Results recorded (if Q2 is yes):** beside each show rate, "X of Y past calls have a result". Y counts the past calls that weren't canceled, and X counts those that are held or no-show.
+- **Results recorded (Q2):** beside each show rate, "X of Y past calls have a result". Y counts the past calls that weren't canceled, and X counts those that are held or no-show.
 
 ### 4.4 The business day (U4)
 
@@ -307,7 +307,7 @@ The Deals column counts from `leadGenDealsByWorker`, a TableAggregate on `dealAt
   The label is "Held", and "Completed" leaves the meeting labels. The output field `completed` in `overviewTypes.ts` becomes `held`.
 - **`sideDeals/deleteEmptyOpportunity.ts`** reads follow-ups, not meetings, so it doesn't change.
 
-### 6.6 Booking Answers (PR 12, only if Q4 is yes)
+### 6.6 Booking Answers (PR 12, from Q4)
 
 `getMeetingDetail` reads that meeting's `meetingFormResponses` through `by_meetingId` (at most 100 rows). The card shows the meeting's own answers, each under its `questionLabelSnapshot`. A meeting with no stored responses shows "No answers stored for this booking"; it doesn't fall back to the person's latest answers.
 
@@ -320,7 +320,7 @@ The before and after values for September 2026 (UTC month, by meeting start time
 | Sales Calls, team report, Pipeline Health, exports | show rate 189 ÷ (1,057 − 286) = 24.5% | 189 ÷ (189 + 198) = 48.8% |
 | Overview | show rate 189 ÷ 1,057 = 17.9% | 48.8% |
 | Same screens | no-show rate 198 ÷ 771 = 25.7% (overview 18.7%) | 198 ÷ 387 = 51.2% |
-| Results recorded (if Q2 is yes) | none | 387 of 771 past calls have a result |
+| Results recorded (Q2) | none | 387 of 771 past calls have a result |
 
 - **Day buckets:** the move to the business day takes the 961 meetings that start between 18:00 and 24:00 Honduras time off the next UTC date and onto their own date. Per-day counts on Sales Calls, Booked Calls and the team report's dimensions move. Monthly totals move only at the month's edges: a meeting at 20:00 Honduras time on the last day of a month is in that month from PR 11.
 - **The revenue trend's days:** a payment recorded between 00:00 and 07:00 UTC moves to the previous date.
@@ -353,7 +353,7 @@ The exact before and after values for each screen are recorded in §13 as each P
 | 9 | Not recorded helper, the one show rate, copy, the results-recorded line | reads stored fields only |
 | 10 | Attendance: `held` and `heldMarkedAt` accepted and written, readers take both, no-shows lose `completedAt` from new writes; `backfillMeetingAttendance` and `assertMeetingAttendance` | readers accept both values, so rows before and after the backfill read the same |
 | 11 | The business day setting, `lib/businessDay.ts`, every server day on it, the day line on every screen, Monday weeks, the settings card, the rebuild on change, `rebuildLeadGenDayStats` | the default equals today's Honduras day; the meeting projections move to it through `rebuildMeetingProjections` straight after the deploy |
-| 12 | Booking Answers (only if Q4 is yes) | reads only |
+| 12 | Booking Answers (Q4) | reads only |
 | 13 | The narrow (§3.3); the new aggregates on strict methods; the parity code and flags removed; ADR, review, `CONTEXT.md`, `AGENTS.md`, the agent guides; this plan's status | after every clear, deletion and backfill has passed in production and on dev |
 
 - **Merge order:** PRs 1 to 4 merge in any order, but PR 3 rebases on PR 1, since both touch the payment paths. PRs 5 to 8 can go in any order. PR 9 goes before PR 10, and PR 10 before PR 11, because PR 11's projection rebuild follows PR 10's backfill: one rebuild, not two. PR 12 can go anywhere.
@@ -473,7 +473,9 @@ The health checks that stay, with `"reset":true`, are `assertMeetingAttendance` 
 - **U6. Convex dashboard leftovers stay:** the empty `customers` table, and the `customerConversions` and `opportunityByStatus` component data. The handoff lists them.
 - **U7. Dev is repaired.** Each backfill and clear runs on dev before its narrow merges (§9).
 
-### 11.2 Design decisions (recommended; accept or change)
+### 11.2 Design decisions
+
+Accepted as recommended on 2026-10-22.
 
 - **D1. Attendance** (§4.1). `held` replaces `completed`. The recorded time is `heldMarkedAt`, beside `noShowMarkedAt` and `canceledAt`, and the 715 take their `completedAt`, which is the click time. The 510 no-shows lose `completedAt` and keep `noShowMarkedAt`. Showed keeps its rule and its times.
 - **D2. Not recorded's moment.** The meeting's end time, start plus duration, so a call in progress isn't flagged.
@@ -490,6 +492,8 @@ The health checks that stay, with `"reset":true`, are `assertMeetingAttendance` 
 - **D13. Production runs.** §9's order: dry run first for each, each run as soon as the previous assert passes, with no approval stop in between.
 
 ### 11.3 Questions for the tenant admin
+
+Answered on 2026-10-22: yes to each recommendation. For Q6, nothing outside the repo needs the dropped tables or fields, so the drops go ahead.
 
 - **Q1. Week start.** Report pages start "This week" on Sunday; the closer dashboard's stats start on Monday, while its calendar starts on Sunday. The recommendation is Monday everywhere (D9).
 - **Q2. Results recorded.** Should "X of Y past calls have a result" show beside the show rate? The recommendation is yes, on Sales Calls, the team report, Pipeline Health and the overview's closer table. It shows whether the show rate rests on enough calls (September: 387 of 771).
