@@ -197,8 +197,7 @@ export function AdminMeetingDetailClient({
             assignedCloserIdentity={assignedCloserIdentity}
           />
           <BookingAnswersCard
-            customFields={lead.customFields}
-            customFieldLabels={lead.customFieldLabels}
+            answers={detail.bookingAnswers}
           />
 
           {/* Deal Won Card — only on a Closed won deal with payments */}
