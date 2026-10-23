@@ -61,6 +61,7 @@ export type SalesTeamTotal = Omit<
 >;
 
 export type SalesDashboardView = {
+  attendanceCountsPartial?: boolean;
   stats: SalesCallsStats;
   perProgram: SalesProgramRow[];
   closers: SalesCloserRow[];
@@ -221,6 +222,7 @@ export function buildHistoricalSalesDashboard(args: {
   });
 
   return {
+    attendanceCountsPartial: args.summary.attendanceCountsPartial === true,
     stats: {
       totalCalls: numberValue(args.summary, "totalCalls"),
       showed: numberValue(args.summary, "showed"),

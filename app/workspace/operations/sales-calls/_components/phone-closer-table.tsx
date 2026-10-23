@@ -161,10 +161,12 @@ function numericColumns(currency: string): Array<{
  * emphasized Team Total footer row computed server-side from the closer rows.
  */
 export function PhoneCloserTable({
+  attendanceCountsPartial,
   rows,
   teamTotal,
   currency,
 }: {
+  attendanceCountsPartial?: boolean;
   rows: SalesCloserRow[] | undefined;
   teamTotal: SalesTeamTotal | undefined;
   currency: string;
@@ -253,7 +255,7 @@ export function PhoneCloserTable({
                         }
                       >
                         {column.render(row)}
-                        {column.key === "showUpRate" ? <ResultsRecorded {...row} /> : null}
+                        {column.key === "showUpRate" ? <ResultsRecorded {...row} attendanceCountsPartial={attendanceCountsPartial} /> : null}
                       </TableCell>
                     ))}
                   </TableRow>
@@ -275,7 +277,7 @@ export function PhoneCloserTable({
                       className="text-right text-sm font-semibold tabular-nums"
                     >
                       {column.render(teamTotal)}
-                      {column.key === "showUpRate" ? <ResultsRecorded {...teamTotal} /> : null}
+                      {column.key === "showUpRate" ? <ResultsRecorded {...teamTotal} attendanceCountsPartial={attendanceCountsPartial} /> : null}
                     </TableCell>
                   ))}
                 </TableRow>

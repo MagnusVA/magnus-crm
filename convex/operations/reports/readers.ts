@@ -372,7 +372,7 @@ async function readSalesMeetingStats(ctx: QueryCtx, args: ReportSourcePageReques
   await requireReportingReady(ctx, args.tenantId);
   const result = await ctx.db.query("operationsMeetingStatsV2").withIndex("by_tenantId_and_dayKey", (q) => q.eq("tenantId", args.tenantId).gte("dayKey", args.startDayKey).lt("dayKey", args.endDayKeyExclusive)).paginate(pagination(args.cursor));
   const { counts, attendanceCountsPartial } = await withAttendanceCounts(ctx, args.tenantId, result.page);
-  return { ...projectedPage(result, counts.map((row): ReportSourceRow => ({ kind: "sales_meeting_stat", notRecorded: row.notRecorded, assignedCloserId: row.assignedCloserId, bookingProgramId: row.bookingProgramId ?? null, meetingStatus: row.meetingStatus, count: row.count }))), attendanceCountsPartial };
+  return { ...projectedPage(result, counts.map((row): ReportSourceRow => ({ kind: "sales_meeting_stat", attendanceCountsPartial, notRecorded: row.notRecorded, assignedCloserId: row.assignedCloserId, bookingProgramId: row.bookingProgramId ?? null, meetingStatus: row.meetingStatus, count: row.count }))), attendanceCountsPartial };
 }
 
 async function readSalesCalls(ctx: QueryCtx, args: ReportSourcePageRequest) {

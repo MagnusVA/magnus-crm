@@ -33,6 +33,7 @@ import {
 } from "./team-report-formatters";
 
 interface TeamKpiSummaryCardsProps {
+  attendanceCountsPartial: boolean;
   totals: TeamTotals;
   derivedOutcomes: DerivedOutcomes;
   actionsPerCloser: ActionsPerCloserMetrics;
@@ -75,6 +76,7 @@ function getDismissedServerSnapshot(): boolean {
 }
 
 export function TeamKpiSummaryCards({
+  attendanceCountsPartial,
   totals,
   derivedOutcomes,
   actionsPerCloser,
@@ -159,6 +161,7 @@ export function TeamKpiSummaryCards({
               {formatRate(totals.overallShowUpRate)}
             </div>
             <ResultsRecorded
+              attendanceCountsPartial={attendanceCountsPartial}
               resultsRecorded={totals.resultsRecorded}
               pastCalls={totals.pastCalls}
             />

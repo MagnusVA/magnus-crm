@@ -180,6 +180,26 @@ describe("operations report reducers", () => {
     },
   );
 
+  it("keeps partial attendance when later source pages are complete", () => {
+    const row: ReportSourceRow = {
+      kind: "sales_meeting_stat", assignedCloserId: "closer", bookingProgramId: "program",
+      meetingStatus: "scheduled", count: 2, notRecorded: 1,
+    };
+    const records = applyContributions([true, false].map((attendanceCountsPartial) =>
+      reduceReportSourcePage({
+        sourceKey: "sales_meeting_stats", range,
+        rows: [{ ...row, attendanceCountsPartial }],
+      }),
+    ));
+    for (const [section, rowKey] of [
+      ["sales_calls_summary", "main"], ["sales_closer", "closer"], ["sales_program", "program"],
+    ]) {
+      expect(finalizeAggregateRecord({
+        section, rowKey, fields: records.get(`${section}/${rowKey}`)!, range,
+      })?.payload).toMatchObject({ attendanceCountsPartial: true, notRecorded: 2, pastCalls: 2 });
+    }
+  });
+
   it("keeps sales money in separate normalized currency buckets", () => {
     const payment = (
       paymentId: string,

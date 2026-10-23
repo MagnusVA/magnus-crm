@@ -27,6 +27,7 @@ import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 interface CloserPerformanceTableProps {
   closers: CloserData[];
   callType: "new" | "follow_up";
+  attendanceCountsPartial: boolean;
   teamTotals: TeamTotals;
 }
 
@@ -65,6 +66,7 @@ function getTeamFooterData(
 }
 
 export function CloserPerformanceTable({
+  attendanceCountsPartial,
   closers,
   callType,
   teamTotals,
@@ -155,7 +157,7 @@ export function CloserPerformanceTable({
               <TableCell className="text-right">
                 <div className="flex flex-col items-end gap-0.5">
                   <span className="tabular-nums">{formatRate(calls.showUpRate)}</span>
-                  <ResultsRecorded {...calls} />
+                  <ResultsRecorded {...calls} attendanceCountsPartial={attendanceCountsPartial} />
                   <span className="text-[11px] text-muted-foreground">
                     {calls.callsShowed} / {calls.confirmedAttendanceDenominator}
                   </span>
@@ -199,7 +201,7 @@ export function CloserPerformanceTable({
           </TableCell>
           <TableCell className="text-right font-bold tabular-nums">
             {formatRate(footer.showUpRate)}
-            <ResultsRecorded {...footer} />
+            <ResultsRecorded {...footer} attendanceCountsPartial={attendanceCountsPartial} />
           </TableCell>
           <TableCell className="border-l border-border/70 pl-4 text-right font-bold tabular-nums">
             {commercialTotals.sales}

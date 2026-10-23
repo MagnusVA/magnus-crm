@@ -385,9 +385,19 @@ function addMeetingStatusMetrics(
 }
 
 function reduceSalesMeetingStats(rows: ReportSourceRow[]) {
+  const qualifiers: ReportContribution[] = [];
   const pageMetrics = new Map<string, number>();
   for (const row of rows) {
     if (row.kind !== "sales_meeting_stat") continue;
+    if (row.attendanceCountsPartial) {
+      for (const [section, rowKey] of [
+        ["sales_calls_summary", "main"],
+        ["sales_closer", row.assignedCloserId],
+        ["sales_program", row.bookingProgramId ?? "none"],
+      ]) {
+        qualifiers.push(set(section, rowKey, "attendanceCountsPartial", true));
+      }
+    }
     addMeetingStatusMetrics(
       pageMetrics,
       "sales_calls_summary",
@@ -413,7 +423,7 @@ function reduceSalesMeetingStats(rows: ReportSourceRow[]) {
       row.notRecorded,
     );
   }
-  return flushPageMetrics(pageMetrics);
+  return [...flushPageMetrics(pageMetrics), ...qualifiers];
 }
 
 function reduceSalesPayment(row: Extract<ReportSourceRow, { kind: "sales_payment" }>) {
@@ -815,6 +825,7 @@ export function finalizeAggregateRecord(args: {
       payload.totalCalls = booked;
       payload.resultsRecorded = showed + numberField(payload, "noShows");
       payload.pastCalls = payload.resultsRecorded + numberField(payload, "notRecorded");
+      payload.attendanceCountsPartial = payload.attendanceCountsPartial === true;
       payload.showUpRate = nullableRate(showed, showed + numberField(payload, "noShows"));
       payload.start = args.range.startTimestamp;
       payload.end = args.range.endTimestampExclusive;
@@ -840,6 +851,7 @@ export function finalizeAggregateRecord(args: {
       payload.showed = showed;
       payload.resultsRecorded = showed + numberField(payload, "noShows");
       payload.pastCalls = payload.resultsRecorded + numberField(payload, "notRecorded");
+      payload.attendanceCountsPartial = payload.attendanceCountsPartial === true;
       payload.showUpRate = nullableRate(showed, showed + numberField(payload, "noShows"));
       break;
     }
@@ -854,6 +866,7 @@ export function finalizeAggregateRecord(args: {
       payload.noShows = numberField(payload, "noShows");
       payload.resultsRecorded = showed + numberField(payload, "noShows");
       payload.pastCalls = payload.resultsRecorded + numberField(payload, "notRecorded");
+      payload.attendanceCountsPartial = payload.attendanceCountsPartial === true;
       payload.showUpRate = nullableRate(showed, showed + numberField(payload, "noShows"));
       break;
     }

@@ -44,9 +44,11 @@ function formatRateOrDash(value: number | null) {
  * getSalesCallsDashboard.stats; nulls render as an em-dash.
  */
 export function SalesCallsStatCards({
+  attendanceCountsPartial,
   stats,
   currency,
 }: {
+  attendanceCountsPartial?: boolean;
   stats: SalesCallsStats | undefined;
   currency: string;
 }) {
@@ -112,7 +114,7 @@ export function SalesCallsStatCards({
                   {value}
                 </p>
               )}
-              {label === "Show-up Rate" && stats ? <ResultsRecorded {...stats} /> : null}
+              {label === "Show-up Rate" && stats ? <ResultsRecorded {...stats} attendanceCountsPartial={attendanceCountsPartial} /> : null}
             </CardContent>
           </Card>
         ))}
