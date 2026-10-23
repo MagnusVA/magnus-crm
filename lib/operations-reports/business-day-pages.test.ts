@@ -3,9 +3,10 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { getFunctionName } from "convex/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { BUSINESS_DAY_REBUILD_MESSAGE } from "@/lib/businessDay";
+import { BUSINESS_DAY_REBUILD_MESSAGE, type BusinessDaySetting } from "@/lib/businessDay";
 
 const fixture = vi.hoisted(() => ({
+  businessDay: undefined as BusinessDaySetting | undefined,
   loaded: true,
   ready: false,
   queries: vi.fn(),
@@ -15,7 +16,7 @@ vi.mock("convex/react", () => ({
     const name = getFunctionName(reference);
     fixture.queries(name, args);
     if (name === "tenants:getCurrentTenant" && fixture.loaded) {
-      return { businessDayReady: fixture.ready, leadGenBusinessDayReady: true };
+      return { businessDay: fixture.businessDay, businessDayReady: fixture.ready, leadGenBusinessDayReady: true };
     }
     return undefined;
   },
@@ -30,7 +31,7 @@ import { TopOriginsOverviewSection } from "@/app/workspace/_components/top-origi
 import { PhoneCloserOperationsSection } from "@/app/workspace/_components/phone-closer-operations-section";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-beforeEach(() => { fixture.loaded = true; fixture.ready = false; fixture.queries.mockClear(); });
+beforeEach(() => { fixture.businessDay = undefined; fixture.loaded = true; fixture.ready = false; fixture.queries.mockClear(); });
 
 const pages = [
   { name: "Team Performance", component: TeamReportPageClient, query: "reporting/teamPerformance:getTeamOperationsDimensions" },
@@ -63,6 +64,47 @@ describe("meeting bucket page readiness", () => {
       fixture.ready = true;
       renderToStaticMarkup(createElement(component));
       expect(fixture.queries).toHaveBeenCalledWith(query, {
+        startDayKey: "2026-10-01",
+        endDayKeyExclusive: "2026-11-01",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    { loaded: false, ready: true },
+    { loaded: true, ready: false },
+  ])("skips every Team query with loaded=$loaded and ready=$ready", ({ loaded, ready }) => {
+    fixture.loaded = loaded;
+    fixture.ready = ready;
+    renderToStaticMarkup(createElement(TeamReportPageClient));
+    const reportQueries = fixture.queries.mock.calls.filter(([name]) => name.startsWith("reporting/"));
+    expect(reportQueries).toHaveLength(4);
+    for (const [, args] of reportQueries) expect(args).toBe("skip");
+  });
+
+  it.each([
+    { setting: undefined, start: "2026-10-01T07:00:00Z", end: "2026-11-01T07:00:00Z" },
+    { setting: { timeZone: "America/Tegucigalpa", dayStartHour: 4 }, start: "2026-10-01T10:00:00Z", end: "2026-11-01T10:00:00Z" },
+  ])("aligns all four Team queries with the tenant business days: $setting", ({ setting, start, end }) => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(2026, 9, 22, 12));
+      fixture.ready = true;
+      fixture.businessDay = setting;
+      renderToStaticMarkup(createElement(TeamReportPageClient));
+      for (const query of [
+        "reporting/teamPerformance:getTeamPerformanceMetrics",
+        "reporting/teamOutcomes:getTeamOutcomeMix",
+        "reporting/teamActions:getActionsPerCloserPerDay",
+      ]) {
+        expect(fixture.queries).toHaveBeenCalledWith(query, {
+          startDate: Date.parse(start),
+          endDate: Date.parse(end),
+        });
+      }
+      expect(fixture.queries).toHaveBeenCalledWith("reporting/teamPerformance:getTeamOperationsDimensions", {
         startDayKey: "2026-10-01",
         endDayKeyExclusive: "2026-11-01",
       });
