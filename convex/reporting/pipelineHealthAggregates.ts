@@ -31,8 +31,8 @@ export const isOpenDealAgingEligible = (doc: Doc<"opportunities">) =>
 export const isPersonLossEligible = (doc: Doc<"opportunities">) =>
   doc.outcome === "lost" && doc.lostAt !== undefined && isPersonLoss(doc);
 
-// Only eligible documents are inserted. These tolerate an empty component
-// during rollout and an idempotent backfill racing normal writes.
+// Backfilled and verified: missing or duplicate eligible entries must fail
+// instead of silently masking aggregate drift.
 const filteredAggregates = [
   { aggregate: openDealAging, eligible: isOpenDealAgingEligible },
   { aggregate: personLosses, eligible: isPersonLossEligible },
@@ -40,7 +40,7 @@ const filteredAggregates = [
 
 export async function insertPipelineHealthAggregates(ctx: MutationCtx, doc: Doc<"opportunities">) {
   for (const { aggregate, eligible } of filteredAggregates) {
-    if (eligible(doc)) await aggregate.insertIfDoesNotExist(ctx, doc);
+    if (eligible(doc)) await aggregate.insert(ctx, doc);
   }
 }
 
@@ -50,11 +50,11 @@ export async function replaceOpenDealAging(
   after: Doc<"opportunities">,
 ) {
   if (isOpenDealAgingEligible(before) && isOpenDealAgingEligible(after)) {
-    await openDealAging.replaceOrInsert(ctx, before, after);
+    await openDealAging.replace(ctx, before, after);
   } else if (isOpenDealAgingEligible(before)) {
-    await openDealAging.deleteIfExists(ctx, before);
+    await openDealAging.delete(ctx, before);
   } else if (isOpenDealAgingEligible(after)) {
-    await openDealAging.insertIfDoesNotExist(ctx, after);
+    await openDealAging.insert(ctx, after);
   }
 }
 
@@ -65,16 +65,16 @@ export async function replacePipelineHealthAggregates(
 ) {
   await replaceOpenDealAging(ctx, before, after);
   if (isPersonLossEligible(before) && isPersonLossEligible(after)) {
-    await personLosses.replaceOrInsert(ctx, before, after);
+    await personLosses.replace(ctx, before, after);
   } else if (isPersonLossEligible(before)) {
-    await personLosses.deleteIfExists(ctx, before);
+    await personLosses.delete(ctx, before);
   } else if (isPersonLossEligible(after)) {
-    await personLosses.insertIfDoesNotExist(ctx, after);
+    await personLosses.insert(ctx, after);
   }
 }
 
 export async function deletePipelineHealthAggregates(ctx: MutationCtx, doc: Doc<"opportunities">) {
   for (const { aggregate, eligible } of filteredAggregates) {
-    if (eligible(doc)) await aggregate.deleteIfExists(ctx, doc);
+    if (eligible(doc)) await aggregate.delete(ctx, doc);
   }
 }

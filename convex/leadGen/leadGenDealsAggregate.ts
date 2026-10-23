@@ -40,7 +40,7 @@ export async function insertLeadGenDealAggregate(
   row: Doc<"dealAttributions">,
 ) {
   if (isLeadGenDealAggregateEligible(row)) {
-    await leadGenDealsByWorker.insertIfDoesNotExist(ctx, row);
+    await leadGenDealsByWorker.insert(ctx, row);
   }
 }
 
@@ -49,7 +49,7 @@ export async function deleteLeadGenDealAggregate(
   row: Doc<"dealAttributions">,
 ) {
   if (isLeadGenDealAggregateEligible(row)) {
-    await leadGenDealsByWorker.deleteIfExists(ctx, row);
+    await leadGenDealsByWorker.delete(ctx, row);
   }
 }
 

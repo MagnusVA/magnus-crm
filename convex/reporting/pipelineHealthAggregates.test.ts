@@ -7,7 +7,7 @@ import { insertLatestMeeting } from "../../tests/dealStageFixtures";
 import { patchOpportunityLifecycle, transitionOpportunity } from "../lib/opportunityActivity";
 import { updateOpportunityMeetingRefs } from "../lib/opportunityMeetingRefs";
 import { deleteOpportunityAggregate } from "./writeHooks";
-import { openDealAging, personLosses } from "./pipelineHealthAggregates";
+import { deletePipelineHealthAggregates, insertPipelineHealthAggregates, openDealAging, personLosses, replacePipelineHealthAggregates } from "./pipelineHealthAggregates";
 
 const verification = internal.reporting.pipelineHealthVerification;
 const migrationNames = [
@@ -79,6 +79,28 @@ describe("Pipeline Health aggregates", () => {
       await ctx.db.delete("opportunities", openId);
     });
     expect(await counts()).toEqual({ open: 0, booked: 0, losses: 0 });
+  });
+
+  it.each(["openDealAging", "personLosses"] as const)("fails duplicate inserts and missing %s replacements/deletes", async (name) => {
+    const h = await pipelineHealthFixture();
+    const id = await h.deal(name === "openDealAging" ? "scheduled" : "lost", {
+      lostAt: NOW, lostByUserId: h.actorId,
+    });
+    await expect(h.t.run(async (ctx) => {
+      await insertPipelineHealthAggregates(ctx, (await ctx.db.get("opportunities", id))!);
+    })).rejects.toThrow("already exists");
+    await h.t.run(async (ctx) => {
+      await deletePipelineHealthAggregates(ctx, (await ctx.db.get("opportunities", id))!);
+    });
+    await expect(h.t.run(async (ctx) => {
+      const before = (await ctx.db.get("opportunities", id))!;
+      await replacePipelineHealthAggregates(ctx, before, {
+        ...before, createdAt: NOW, nextMeetingAt: NOW, lostAt: NOW + DAY,
+      });
+    })).rejects.toThrow("not found");
+    await expect(h.t.run(async (ctx) => {
+      await deletePipelineHealthAggregates(ctx, (await ctx.db.get("opportunities", id))!);
+    })).rejects.toThrow("not found");
   });
 
   it("rekeys only aging when meeting refs add, change, or remove nextMeetingAt", async () => {
