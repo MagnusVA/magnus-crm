@@ -545,7 +545,7 @@ All runs are on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `-
 
 ### 13.1 Baseline, 2026-10-22
 
-§2. A read-only snapshot directory under the system temp directory (mode 700) held the inventory notes. It held no export, and it was deleted when the phase ended (§13.3).
+§2. A read-only snapshot directory under the system temp directory (mode 700) held the inventory notes. It held no export, and it was deleted at 10-23 17:07.
 
 ### 13.2 Deploys
 
@@ -585,10 +585,18 @@ All runs are on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `-
 | 10-23 04:10 | read-only: attendance | held 718, all with `heldMarkedAt` and `completedAt`; no-show 536, scheduled 2,821, canceled 2,849, none with `completedAt`. `verifyBackfillCounts` no longer fits one transaction (§11.5) |
 | 10-23 04:12 to 04:55 | `assertLeadLifecycle` (reset), after the attendance change | passed, 91,426 people |
 | 10-23 04:18 to 10:49 | `backfillActivityEventCounts` dry run, run | dry run ok; done, 195,690 events |
-| 10-23 ~04:22 | dev (`cautious-donkey-511`): `npx convex dev --once` with main `cd07b04`, then every production run above | passed: `deleteTenantStatsRows` 1, `clearOpportunitySearchDayKeys` 33, `clearPaymentCommissionable` 9, `clearDealMeetingTimes` 33, `deleteLegacyMeetingDailyStats` 22, `backfillOpenDealAging` 33, `backfillPersonLosses` 33, `backfillLeadGenDealsByWorker` 88, `backfillActivityEventCounts` 175, `backfillMeetingAttendance` 30; every matching assert passed |
-| 10-23 04:36 to ~05:00 | `clearHeldCompletedAt` dry run, run; `assertMeetingAttendance` (reset); the same on dev | dry run ok; done; passed, no meeting has `completedAt` |
-| 10-23 05:50 to 06:11 | `beginBusinessDayCutover` (`rebuildLeadGen` false); the same on dev | `businessDayVersion` 1; meetings re-projected onto business days, queue drained, asserts passed; done 06:11, `businessDayAppliedVersion` 1; meeting bucket screens and reports read again |
+| 10-23 04:36 to ~05:00 | `clearHeldCompletedAt` dry run, run; `assertMeetingAttendance` (reset) | dry run ok; done; passed, no meeting has `completedAt` |
+| 10-23 05:50 to 06:11 | `beginBusinessDayCutover` (`rebuildLeadGen` false) | `businessDayVersion` 1; meetings re-projected onto business days, queue drained, asserts passed; done 06:11, `businessDayAppliedVersion` 1; meeting bucket screens and reports read again |
 | 10-23 15:49 to 15:51 | `markActivityEventCountsVerified` for each of the last 30 business days | passed every day; flag set on the 30th, the activity summary reads the aggregate |
 | 10-23 15:51 to 17:07 | `assertActivityEventCounts` | passed, 196,296 events (the backfill's 195,690 and those written since) |
 | 10-23 16:44 to 16:53 | after #195: the schema push; `assertDealStages`, `assertMeetingAttendance`, `assertMeetingProjections`, `assertMeetingProjectionBuckets`, `assertMeetingProjectionSources` (reset) | accepted, the one-off migrations gone; passed: 11,648 deals, 6,939 meetings, 6,939, 3,602 business day buckets, 6,939 |
-| 10-23 17:07 | the snapshot directory (§13.1) | deleted |
+
+### 13.4 Dev
+
+The same runs on the dev deployment (`cautious-donkey-511`), with `.env.local`, before or alongside production. Dev holds test data, so its counts are small.
+
+| Time | Step | Result |
+| --- | --- | --- |
+| 10-23 ~04:22 | `npx convex dev --once` with main `cd07b04`; `deleteTenantStatsRows`, `clearOpportunitySearchDayKeys`, `clearPaymentCommissionable`, `clearDealMeetingTimes`, `deleteLegacyMeetingDailyStats`, `backfillOpenDealAging`, `backfillPersonLosses`, `backfillLeadGenDealsByWorker`, `backfillActivityEventCounts`, `backfillMeetingAttendance`, each with its assert | push accepted; done: 1, 33, 9, 33, 22, 33, 33, 88, 175 and 30; every assert passed |
+| 10-23 after 04:36 | `npx convex dev --once` with main; `clearHeldCompletedAt`; `assertMeetingAttendance` (reset) | push accepted; done; passed |
+| 10-23 after 05:49 | `beginBusinessDayCutover` | done, `businessDayAppliedVersion` 1 |
