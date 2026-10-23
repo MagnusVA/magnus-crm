@@ -937,12 +937,10 @@ export const assertPaymentsCommissionable = migrations.define({
   migrateOne: async (_ctx, payment) => {
     if (
       payment.commissionable === false ||
-      ![
-        "closer_meeting",
-        "closer_side_deal",
-        "closer_additional",
-        "closer_reminder",
-      ].includes(payment.origin)
+      // The retired origins left the validator; a row still holding one
+      // would also fail the schema push.
+      (payment.origin as string) === "customer_direct" ||
+      (payment.origin as string) === "bookkeeper_direct"
     ) {
       throw new Error(`Payment ${payment._id}`);
     }

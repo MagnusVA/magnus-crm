@@ -30,7 +30,7 @@ describe("assertPaymentsCommissionable", () => {
     expect((await h.run("assertPaymentsCommissionable"))?.error).toBe(`Payment ${id}`);
   });
 
-  it.each(["customer_direct", "bookkeeper_direct", "customer_flow", "admin_meeting", "unexpected"])("rejects an origin outside the production set: %s", async (origin) => {
+  it.each(["customer_direct", "bookkeeper_direct"])("rejects a retired origin: %s", async (origin) => {
     const h = await paymentOriginHarness(true);
     const id = await h.t.run((ctx) => ctx.db.insert("paymentRecords", {
       ...h.payment, commissionable: true, origin: origin as Doc<"paymentRecords">["origin"],
