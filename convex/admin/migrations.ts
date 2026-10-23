@@ -25,7 +25,6 @@ import {
   deleteDealAttributions,
   deleteMeetingAttributions,
 } from "../lib/attribution/dealAttributions";
-import { countsAsLead } from "../lib/leadLifecycle";
 import { log } from "../lib/observability/log";
 import { getString, isRecord } from "../lib/payloadExtraction";
 import {
@@ -75,10 +74,6 @@ type RawEventBackfillResult = {
     | "skipped_missing_meeting"
     | "skipped_missing_opportunity"
     | "skipped_no_questions";
-};
-
-type SeedTenantStatsInternalResult = {
-  action: "created" | "updated";
 };
 
 type DeduplicateEventTypeConfigsInternalResult = {
@@ -453,115 +448,28 @@ export const backfillMeetingFormResponsesForRawEvent = internalMutation({
   },
 });
 
-const LEAD_COUNT_PAGE_SIZE = 2000;
-
-/** One page of `tenantStats.totalLeads`: the leads `countsAsLead` counts. */
-export const countTenantLeadsPage = internalQuery({
-  args: { tenantId: v.id("tenants"), cursor: v.union(v.string(), v.null()) },
-  handler: async (ctx, { tenantId, cursor }) => {
-    const page = await ctx.db
-      .query("leads")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .paginate({ cursor, numItems: LEAD_COUNT_PAGE_SIZE });
+/** Removes the retired counters in a bounded batch; rerun until found is zero. */
+export const deleteTenantStatsRows = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  returns: v.object({
+    dryRun: v.boolean(),
+    found: v.number(),
+    deleted: v.number(),
+    ids: v.array(v.id("tenantStats")),
+  }),
+  handler: async (ctx, { dryRun = false }) => {
+    const rows = await ctx.db.query("tenantStats").take(100);
+    if (!dryRun) {
+      for (const row of rows) {
+        await ctx.db.delete("tenantStats", row._id);
+      }
+    }
     return {
-      count: page.page.filter(countsAsLead).length,
-      continueCursor: page.continueCursor,
-      isDone: page.isDone,
+      dryRun,
+      found: rows.length,
+      deleted: dryRun ? 0 : rows.length,
+      ids: rows.map((row) => row._id),
     };
-  },
-});
-
-/**
- * Counts the tenant's leads in pages: prospects make the table far larger
- * than one transaction can read (docs/plans/phase-2-person-first.md §8).
- */
-async function countTenantLeads(
-  ctx: ActionCtx,
-  tenantId: Id<"tenants">,
-): Promise<number> {
-  let total = 0;
-  let cursor: string | null = null;
-  for (;;) {
-    const page: { count: number; continueCursor: string; isDone: boolean } =
-      await ctx.runQuery(internal.admin.migrations.countTenantLeadsPage, {
-        tenantId,
-        cursor,
-      });
-    total += page.count;
-    if (page.isDone) {
-      return total;
-    }
-    cursor = page.continueCursor;
-  }
-}
-
-export const seedTenantStatsInternal = internalMutation({
-  args: { tenantId: v.id("tenants"), totalLeads: v.number() },
-  handler: async (
-    ctx,
-    { tenantId, totalLeads },
-  ): Promise<SeedTenantStatsInternalResult> => {
-    const users = await ctx.db
-      .query("users")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .collect();
-    const activeUsers = users.filter((user) => user.isActive);
-    const closers = activeUsers.filter((user) => user.role === "closer");
-
-    const opportunities = await ctx.db
-      .query("opportunities")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .collect();
-
-    const payments = await ctx.db
-      .query("paymentRecords")
-      .withIndex("by_tenantId_and_recordedAt", (q) => q.eq("tenantId", tenantId))
-      .collect();
-    const nonDisputedPayments = payments.filter(
-      (payment) => payment.status !== "disputed",
-    );
-    const totalRevenueMinor = nonDisputedPayments.reduce(
-      (sum, payment) => sum + payment.amountMinor,
-      0,
-    );
-
-    // A customer is a converted person (docs/plans/phase-4-customers.md §8).
-    const customers = await ctx.db
-      .query("leads")
-      .withIndex("by_tenantId_and_status", (q) =>
-        q.eq("tenantId", tenantId).eq("status", "converted"),
-      )
-      .collect();
-
-    const payload = {
-      totalTeamMembers: activeUsers.length,
-      totalClosers: closers.length,
-      // No deal counters by status (docs/plans/phase-5-deal-status.md D13):
-      // opportunityByStage counts them.
-      totalOpportunities: opportunities.length,
-      totalRevenueMinor,
-      totalPaymentRecords: nonDisputedPayments.length,
-      totalLeads,
-      totalCustomers: customers.length,
-      lastUpdatedAt: Date.now(),
-    };
-
-    const existingStats = await ctx.db
-      .query("tenantStats")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .first();
-
-    if (existingStats) {
-      await ctx.db.patch("tenantStats", existingStats._id, payload);
-      return { action: "updated" };
-    }
-
-    await ctx.db.insert("tenantStats", {
-      tenantId,
-      ...payload,
-    });
-
-    return { action: "created" };
   },
 });
 
@@ -1482,69 +1390,6 @@ export const backfillPaymentProgramsAndTypes = mutation({
     return {
       paymentsPatched,
       tenantProgramsResolved: touchedProgramIds.size,
-    };
-  },
-});
-
-export const seedTenantStats = action({
-  args: { tenantId: v.id("tenants") },
-  handler: async (ctx, { tenantId }): Promise<SeedTenantStatsInternalResult> => {
-    await requireSystemAdmin(ctx);
-    log.info("admin.migration.started", { migration: "seed_tenant_stats", tenantId });
-
-    const result: SeedTenantStatsInternalResult = await ctx.runMutation(
-      internal.admin.migrations.seedTenantStatsInternal,
-      { tenantId, totalLeads: await countTenantLeads(ctx, tenantId) },
-    );
-
-    log.info("admin.migration.completed", {
-      migration: "seed_tenant_stats",
-      tenantId,
-      action: result.action,
-    });
-
-    return result;
-  },
-});
-
-export const seedAllTenantStats = action({
-  args: {},
-  handler: async (ctx) => {
-    await requireSystemAdmin(ctx);
-    const startedAt = Date.now();
-    log.info("admin.migration.started", { migration: "seed_all_tenant_stats" });
-
-    const tenantIds: Id<"tenants">[] = await ctx.runQuery(
-      internal.admin.migrations.getActiveTenantIds,
-      {},
-    );
-
-    let created = 0;
-    let updated = 0;
-    for (const tenantId of tenantIds) {
-      const result: SeedTenantStatsInternalResult = await ctx.runMutation(
-        internal.admin.migrations.seedTenantStatsInternal,
-        { tenantId, totalLeads: await countTenantLeads(ctx, tenantId) },
-      );
-      if (result.action === "created") {
-        created += 1;
-      } else {
-        updated += 1;
-      }
-    }
-
-    log.info("admin.migration.completed", {
-      migration: "seed_all_tenant_stats",
-      durationMs: Date.now() - startedAt,
-      created,
-      updated,
-      totalTenants: tenantIds.length,
-    });
-
-    return {
-      created,
-      updated,
-      totalTenants: tenantIds.length,
     };
   },
 });

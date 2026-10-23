@@ -20,7 +20,7 @@ import {
   mergePersonEnrollments,
   syncPersonEnrollments,
 } from "../lib/enrollments";
-import { countsAsLead, mergeLeadLifecycle } from "../lib/leadLifecycle";
+import { mergeLeadLifecycle } from "../lib/leadLifecycle";
 import { rejectRequest } from "../lib/observability/errors";
 import { log } from "../lib/observability/log";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
@@ -28,7 +28,6 @@ import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
 import { mergedTouches } from "../lib/touches";
 import { leadDisplayString } from "../lib/leadDisplay";
 import { validateLeadTransition } from "../lib/statusTransitions";
-import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { rebuildQualificationRow } from "../operations/projections";
 import { closeMergedReviews } from "../pipeline/bookingReviewRecords";
 
@@ -673,17 +672,6 @@ export async function executeMerge(
     mergedIntoLeadId: targetLeadId,
     updatedAt: now,
   });
-  // The source stops counting: `totalLeads` counts active leads past
-  // Prospect, and a customer source leaves `totalCustomers`. The target's
-  // conversion, if any, counted itself in the sync above.
-  const sourceWasCustomer = sourceLead.status === "converted";
-  if (countsAsLead(sourceLead) || sourceWasCustomer) {
-    await updateTenantStats(ctx, tenantId, {
-      totalLeads: countsAsLead(sourceLead) ? -1 : 0,
-      totalCustomers: sourceWasCustomer ? -1 : 0,
-    });
-  }
-
   // Leads merged into the source now point at the target, so merge chains
   // stay one hop deep. Identity resolution follows at most five.
   const earlierMerges = await ctx.db

@@ -201,16 +201,15 @@ export async function missedMeetingHarness() {
             .eq("role", "closer"),
         )
         .take(10);
-      const stats = await ctx.db
-        .query("tenantStats")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-        .unique();
       const opportunity = await ctx.db.get("opportunities", opportunityId);
       return {
         created: events.some((e) => e.eventType === "opportunity.created"),
         closerCredit: credit.length,
         firstTouch: opportunity?.firstTouch !== undefined,
-        totalOpportunities: stats?.totalOpportunities,
+        totalOpportunities: (await ctx.db
+          .query("opportunities")
+          .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+          .take(10)).length,
       };
     });
   }

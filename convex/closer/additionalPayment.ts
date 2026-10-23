@@ -14,7 +14,6 @@ import {
   type CommissionableOrigin,
 } from "../lib/paymentHelpers";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
-import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import { describeDealState, isWonDeal } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { insertPaymentAggregate } from "../reporting/writeHooks";
@@ -184,13 +183,6 @@ export const recordAdditionalPayment = mutation({
       actorUserId: userId,
     });
 
-    // Revenue delta only — the deal was already counted as won, and the
-    // opportunity is already inactive, so no wonDeal / activeOpportunity change.
-    await applyPaymentStatsDelta(ctx, tenantId, {
-      commissionable: true,
-      paymentType,
-      amountMinorDelta: amountMinor,
-    });
 
     await emitDomainEvent(ctx, {
       tenantId,

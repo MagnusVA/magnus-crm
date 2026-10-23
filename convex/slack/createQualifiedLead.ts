@@ -14,7 +14,6 @@ import { recordSlackQualification } from "../lib/leadLifecycle";
 import { type LeadType, leadTypeValidator } from "../lib/leadType";
 import { describeError, log, reportError } from "../lib/observability/log";
 import type { SocialPlatform } from "../lib/socialPlatform";
-import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { rebuildQualificationRow } from "../operations/projections";
 import { blocksNewQualification, isQualifiedDeal } from "../opportunities/dealGuards";
 import { newDealStageFields } from "../opportunities/dealState";
@@ -381,7 +380,6 @@ export const create = internalMutation({
     });
 
     await insertOpportunityAggregate(ctx, opportunityId);
-    await updateTenantStats(ctx, args.tenantId, { totalOpportunities: 1 });
     await emitDomainEvent(ctx, {
       tenantId: args.tenantId,
       entityType: "opportunity",

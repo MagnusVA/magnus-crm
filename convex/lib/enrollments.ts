@@ -4,15 +4,13 @@ import { listPersonEnrollments } from "../enrollments/read";
 import type { EnrollmentStatus } from "../enrollments/validators";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { emitDomainEvent, type DomainEventSource } from "./domainEvents";
-import { countsAsLead } from "./leadLifecycle";
 import { validateLeadTransition } from "./statusTransitions";
-import { updateTenantStats } from "./tenantStatsHelper";
 
 // A person's enrollments come from their payments, and this module is the one
 // place that derives and writes them (docs/plans/phase-4-customers.md §4.1).
 // Every payment write path and the assert call it. A person with an
-// enrollment is a customer: the sync also keeps `leads.status` and the
-// customer counters in step (§4.2, §4.3).
+// enrollment is a customer: the sync also keeps `leads.status` in step
+// (§4.2, §4.3).
 
 // The largest person in production has 19 deals. Past these limits the
 // derivation would read part of the payments, so it throws instead.
@@ -333,14 +331,6 @@ async function syncLeadConversion(
     throw new Error(`Person ${lead._id} can't move from ${lead.status} to ${to}`);
   }
   await ctx.db.patch("leads", lead._id, { status: to, updatedAt: args.now });
-  // `totalLeads` counts active people past Prospect (`countsAsLead`).
-  await updateTenantStats(
-    ctx,
-    args.tenantId,
-    args.hasEnrollments
-      ? { totalCustomers: 1, totalLeads: countsAsLead(lead) ? -1 : 0 }
-      : { totalCustomers: -1, totalLeads: countsAsLead({ ...lead, status: to }) ? 1 : 0 },
-  );
   await emitDomainEvent(ctx, {
     tenantId: args.tenantId,
     entityType: "lead",

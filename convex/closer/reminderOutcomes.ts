@@ -15,7 +15,6 @@ import {
 } from "../lib/paymentHelpers";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
-import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import {
   canMarkLost,
   canTakePayment,
@@ -220,11 +219,6 @@ export const logReminderPayment = mutation({
         at: now,
       });
     }
-    await applyPaymentStatsDelta(ctx, tenantId, {
-      commissionable: true,
-      paymentType,
-      amountMinorDelta: amountMinor,
-    });
 
     await ctx.db.patch("followUps", args.followUpId, {
       status: "completed",

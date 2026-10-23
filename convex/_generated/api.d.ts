@@ -183,7 +183,6 @@ import type * as lib_syncLeadMeetingNames from "../lib/syncLeadMeetingNames.js";
 import type * as lib_syncOpportunityMeetingsAssignedCloser from "../lib/syncOpportunityMeetingsAssignedCloser.js";
 import type * as lib_teamMembers from "../lib/teamMembers.js";
 import type * as lib_tenantCalendlyConnection from "../lib/tenantCalendlyConnection.js";
-import type * as lib_tenantStatsHelper from "../lib/tenantStatsHelper.js";
 import type * as lib_timeoutSignal from "../lib/timeoutSignal.js";
 import type * as lib_touchValidators from "../lib/touchValidators.js";
 import type * as lib_touches from "../lib/touches.js";
@@ -560,7 +559,6 @@ declare const fullApi: ApiFromModules<{
   "lib/syncOpportunityMeetingsAssignedCloser": typeof lib_syncOpportunityMeetingsAssignedCloser;
   "lib/teamMembers": typeof lib_teamMembers;
   "lib/tenantCalendlyConnection": typeof lib_tenantCalendlyConnection;
-  "lib/tenantStatsHelper": typeof lib_tenantStatsHelper;
   "lib/timeoutSignal": typeof lib_timeoutSignal;
   "lib/touchValidators": typeof lib_touchValidators;
   "lib/touches": typeof lib_touches;
