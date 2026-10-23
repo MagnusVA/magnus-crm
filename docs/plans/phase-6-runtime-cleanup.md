@@ -1,6 +1,6 @@
 # Phase 6: runtime cleanup
 
-Status: accepted, 2026-10-22. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) gave U1 to U7 before planning started, accepted every recommendation in §11.2, answered Q1 to Q7 as recommended (§11.3), and approved every production run in §9 and §10.
+Status: done, 2026-10-23, apart from the narrow's post-deploy checks, which the record PR after #195 logs. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) gave U1 to U7 before planning started, accepted every recommendation in §11.2, answered Q1 to Q7 as recommended (§11.3), and approved every production run in §9 and §10. PRs #181 to #195 are merged; §11.5 lists what changed while the phase ran, and §13 logs every deploy and run.
 
 Scope comes from the Phase 6 row of [ADR 0001](../adr/0001-lead-lifecycle-model.md), as rescoped on 2026-10-22, and from the Phase 6 card in §7 of the [lead lifecycle review](../reviews/lead-lifecycle-review.html#roadmap) (finding F11, and "Meetings also get an honest status" in §6). Terms follow [`CONTEXT.md`](../../CONTEXT.md). Phase 5 is in [phase-5-deal-status.md](phase-5-deal-status.md). Phase 6 is the last phase of the roadmap.
 
@@ -514,6 +514,18 @@ Answered on 2026-10-22: yes to each recommendation. For Q6, the drops go ahead a
   - `AGENTS.md` says leads, deals, meetings, customers and attribution follow the model;
   - `CONTEXT.md`'s Meeting says held.
 
+### 11.5 Changes made while the phase ran
+
+None needed the ADR amended or a new approval; each keeps a decision's intent.
+
+- **Index drops and the deploy.** Convex refuses a non-interactive push that deletes large indexes. #182's Vercel build stopped there with nothing deployed, so its Convex code was pushed from `main` with `pnpx convex@1.48.0 deploy --skip-large-indexes-check`, then Vercel was redeployed. #184 went the same way.
+- **PR order and numbers.** The plan's PRs 1 to 13 shipped as: #183 (PR 1), #182 (PR 2), #186 (PR 3), #184 (PR 4), #185 (PR 5), #191 (PR 6), #188 (PR 7), #190 (PR 8), #189 (PR 9), #192 (PR 10), #194 (PR 11), #187 (PR 12), and the narrow in two: #193 stops writing `completedAt` and clears it, and switches the verified aggregates to strict writes; #195 is the narrow.
+- **Verification flags stay** (D12). Each aggregate keeps its tenant flag and the gated read: if an aggregate is ever rebuilt, its backfill, assert and mark set the flag again, and the report reads the old way until then. The backfills and asserts stay as rebuild tools; the one-off clears and their asserts are deleted with their fields.
+- **Bounded verification.** The first verification queries read whole tables in one transaction, past Convex's limits. They became batched `migrations.define` asserts that check each row's exact aggregate entry, plus cheap totals checks; a mark mutation sets a flag only after the backfill and the assert succeeded, in that order.
+- **The business day cutover** (PR 11). Readers of the meeting buckets wait for `businessDayAppliedVersion` to match the setting's version, so a deploy never shows UTC-keyed buckets as business days. Right after #194 deployed, `beginBusinessDayCutover` (lead gen skipped, since the default day is unchanged) re-projected every meeting and marked the tenant ready.
+- **`verifyBackfillCounts`** reads meetings and deals in full and no longer fits one transaction at production volume (over 16 MB). The projection asserts and the reviewed aggregate replace path stood in for it after the attendance backfill.
+- **The activity backfill** runs at about 640 events a minute (40 events, 5 or 6 aggregate entries each, per batch), so the 30-day check and the flag followed it by about five hours; `assertActivityEventCounts` runs after it as a health check.
+
 ## 12. Rollback
 
 Fix forward, reviewed. Every repair is an internal migration with its own assert, run as §10.7 says.
@@ -524,7 +536,7 @@ Fix forward, reviewed. Every repair is an internal migration with its own assert
 - **PR 4:** revert. A reviewed repair copies each deal's `canceledAt` and `noShowAt` back from its latest canceled or no-show meeting. The legacy table stays empty, since nothing reads it.
 - **PRs 5 to 9:** revert. The readers go back to their old reads; the aggregates stay written.
 - **PR 10:** revert to PR 9, which reads `completed` only. Before the revert deploys, a reviewed repair sets `held` back to `completed`, with `completedAt` from `heldMarkedAt`, through `patchMeetingLifecycle`. The 510 cleared no-show `completedAt` values come back from `noShowMarkedAt`, where the two were equal at the click.
-- **PR 11:** never during an open `businessDayRebuilds` row. If a tenant changed its setting, first set it back to the default with `updateBusinessDay` and wait until its rebuild row is done, both `rebuildMeetingProjections` and `rebuildLeadGenDayStats` included. Then revert: the setting is ignored, and the projections go back to UTC days through `rebuildMeetingProjections` (reset).
+- **PR 11:** first wait for any open `businessDayRebuilds` row to finish. If a tenant changed its setting, then set it back to the default with `updateBusinessDay` and wait until that new rebuild row is done, both the meeting re-projection and the lead gen rebuild included. Then revert: the setting is ignored, and the projections go back to UTC days through `rebuildMeetingProjections` (reset).
 - **PR 13:** revert brings the fields and tables back as optional, then the PR before it is reverted and repaired as above.
 
 ## 13. Production log

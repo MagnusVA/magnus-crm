@@ -1,6 +1,6 @@
 # Magnus CRM
 
-The language for how one person moves from first contact to a paying customer and back for another program. The terms describe the target model in [ADR 0001](docs/adr/0001-lead-lifecycle-model.md). The code still uses older names, and the ADR maps each term to the tables that hold it today.
+The language for how one person moves from first contact to a paying customer and back for another program. The terms describe the model in [ADR 0001](docs/adr/0001-lead-lifecycle-model.md), which the code follows; the ADR maps each term to the table that holds it.
 
 ## People
 
@@ -49,8 +49,12 @@ Whether a deal is still alive: open, won, or lost. A lost deal carries a reason.
 _Avoid_: deal status, closed won, meeting outcome
 
 **Meeting**:
-One scheduled sales call. It records attendance only: scheduled, held, no-show, or canceled.
-_Avoid_: appointment
+One scheduled sales call. It records attendance only: scheduled, held, no-show, or canceled, each recorded with its own time. A call still scheduled after it ends shows as "Not recorded"; that is a display rule, not a fifth state.
+_Avoid_: appointment, completed (as a meeting state)
+
+**Business day**:
+The day a tenant's reports count by: from a start hour in the tenant's time zone, by default 1:00 am Honduras time, when the last qualifier's shift ends. Screens that use the viewer's browser clock say so.
+_Avoid_: calendar day, UTC day
 
 **Task**:
 A dated next step on a deal, such as sending a reschedule link after a no-show, sending a scheduling link, or a reminder to call back.
