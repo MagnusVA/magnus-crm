@@ -54,7 +54,11 @@ import {
   loadPendingRescheduleLink,
 } from "./opportunities/dealState";
 import { opportunityByStage } from "./reporting/aggregates";
-import { insertLeadGenDealAggregate } from "./leadGen/leadGenDealsAggregate";
+import {
+  insertLeadGenDealAggregate,
+  isLeadGenDealAggregateEligible,
+  leadGenDealsByWorker,
+} from "./leadGen/leadGenDealsAggregate";
 
 export const migrations = new Migrations<DataModel>(components.migrations);
 
@@ -937,5 +941,26 @@ export const backfillLeadGenDealsByWorker = migrations.define({
   batchSize: 200,
   migrateOne: async (ctx, row) => {
     await insertLeadGenDealAggregate(ctx, row);
+  },
+});
+
+export const assertLeadGenDealsByWorker = migrations.define({
+  table: "dealAttributions",
+  batchSize: 200,
+  migrateOne: async (ctx, row) => {
+    if (!isLeadGenDealAggregateEligible(row)) return;
+    // Equal inclusive bounds on both key and id prove this row's identity,
+    // even when other attribution rows share the same worker and time.
+    const entry = {
+      key: [row.source.workerId, row.attributedAt] as [Id<"leadGenWorkers">, number],
+      id: row._id,
+      inclusive: true,
+    };
+    if (await leadGenDealsByWorker.count(ctx, {
+      namespace: row.tenantId,
+      bounds: { lower: entry, upper: entry },
+    }) !== 1) {
+      throw new Error(`Attribution aggregate mismatch ${row._id}`);
+    }
   },
 });

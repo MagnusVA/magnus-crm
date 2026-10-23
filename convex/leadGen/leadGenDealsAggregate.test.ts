@@ -62,34 +62,94 @@ it.each(["deal", "meeting"] as const)("deletes eligible credit through the %s he
   expect(await count(h)).toBe(0);
 });
 
-it("backfills idempotently, catches missing and stale credit, and refuses to mark a mismatch", async () => {
+it("backfills idempotently, requires the assertion, and sets the flag only on success", async () => {
   const h = await attributionHarness();
   const row = (await attributionRows(h)).find(isLeadGenDealAggregateEligible)!;
   await h.t.run((ctx) => leadGenDealsByWorker.deleteIfExists(ctx, row));
   expect(await h.t.query(functions.verifyLeadGenDealsByWorker, { tenantId: h.tenantId, ...range }))
     .toEqual([{ workerId: h.ids.workerId, sourceCount: 1, aggregateCount: 0 }]);
-  await expect(h.t.mutation(functions.markLeadGenDealsByWorkerVerified, { tenantId: h.tenantId }))
-    .rejects.toThrow("Attribution aggregate mismatch");
-  expect(await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId)))
-    .not.toHaveProperty("leadGenDealsAggregateVerifiedAt");
   expect((await h.run("backfillLeadGenDealsByWorker"))?.state).toBe("success");
   expect((await h.rerun("backfillLeadGenDealsByWorker"))?.state).toBe("success");
   expect(await count(h)).toBe(1);
-  expect(await h.t.query(functions.verifyLeadGenDealsByWorker, { tenantId: h.tenantId, ...range })).toEqual([]);
+  await expect(h.t.mutation(functions.markLeadGenDealsByWorkerVerified, { tenantId: h.tenantId }))
+    .rejects.toThrow("Complete backfillLeadGenDealsByWorker and assertLeadGenDealsByWorker");
+  expect(await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId)))
+    .not.toHaveProperty("leadGenDealsAggregateVerifiedAt");
+  expect((await h.run("assertLeadGenDealsByWorker"))?.state).toBe("success");
+  expect((await h.rerun("assertLeadGenDealsByWorker"))?.state).toBe("success");
   await h.t.mutation(functions.markLeadGenDealsByWorkerVerified, { tenantId: h.tenantId });
+  const markedAt = Date.now();
   expect(await h.t.run(async (ctx) => (await ctx.db.get("tenants", h.tenantId))!.leadGenDealsAggregateVerifiedAt))
-    .toBe(Date.now());
+    .toBe(markedAt);
 
   // Deliberately bypass the delete hook, leaving aggregate-only credit.
   await h.t.run((ctx) => ctx.db.delete("dealAttributions", row._id));
-  expect(await h.t.query(functions.verifyLeadGenDealsByWorker, { tenantId: h.tenantId, ...range }))
-    .toEqual([{ workerId: h.ids.workerId, sourceCount: 0, aggregateCount: 1 }]);
-  const markedAt = Date.now();
   vi.setSystemTime(markedAt + 1000);
   await expect(h.t.mutation(functions.markLeadGenDealsByWorkerVerified, { tenantId: h.tenantId }))
-    .rejects.toThrow("Attribution aggregate mismatch");
+    .rejects.toThrow("Attribution aggregate total mismatch");
   expect(await h.t.run(async (ctx) => (await ctx.db.get("tenants", h.tenantId))!.leadGenDealsAggregateVerifiedAt))
     .toBe(markedAt);
+});
+
+it("refuses activation before the backfill, even after a successful assertion", async () => {
+  const h = await attributionHarness();
+  expect((await h.run("assertLeadGenDealsByWorker"))?.state).toBe("success");
+  await expect(h.t.mutation(functions.markLeadGenDealsByWorkerVerified, { tenantId: h.tenantId }))
+    .rejects.toThrow("Complete backfillLeadGenDealsByWorker and assertLeadGenDealsByWorker");
+  expect(await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId)))
+    .not.toHaveProperty("leadGenDealsAggregateVerifiedAt");
+});
+
+it("asserts the row id, even when another entry has the expected key", async () => {
+  const h = await attributionHarness();
+  const row = (await attributionRows(h)).find(isLeadGenDealAggregateEligible)!;
+  await h.t.run(async (ctx) => {
+    const { _id, _creationTime, ...fields } = row;
+    const id = await ctx.db.insert("dealAttributions", fields);
+    await insertLeadGenDealAggregate(ctx, (await ctx.db.get("dealAttributions", id))!);
+    await leadGenDealsByWorker.deleteIfExists(ctx, row);
+  });
+  expect(await count(h)).toBe(1);
+  const status = await h.run("assertLeadGenDealsByWorker");
+  expect(status?.state).toBe("failed");
+  expect(status?.error).toContain(row._id);
+});
+
+it("refuses activation when an extra aggregate entry survives a successful assertion", async () => {
+  const h = await attributionHarness();
+  const row = (await attributionRows(h)).find(isLeadGenDealAggregateEligible)!;
+  await h.t.run((ctx) => leadGenDealsByWorker.insert(ctx, { ...row, attributedAt: AT.QUALIFIED }));
+  expect((await h.run("backfillLeadGenDealsByWorker"))?.state).toBe("success");
+  expect((await h.run("assertLeadGenDealsByWorker"))?.state).toBe("success");
+  expect(await count(h)).toBe(2);
+  await expect(h.t.mutation(functions.markLeadGenDealsByWorkerVerified, { tenantId: h.tenantId }))
+    .rejects.toThrow("Attribution aggregate total mismatch");
+  expect(await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId)))
+    .not.toHaveProperty("leadGenDealsAggregateVerifiedAt");
+});
+
+it("verifies and activates more than 200 eligible rows without paginating within a function", async () => {
+  const h = await attributionHarness();
+  const row = (await attributionRows(h)).find(isLeadGenDealAggregateEligible)!;
+  await h.t.run(async (ctx) => {
+    const { _id, _creationTime, ...fields } = row;
+    for (let index = 1; index < 250; index++) {
+      const id = await ctx.db.insert("dealAttributions", fields);
+      await insertLeadGenDealAggregate(ctx, (await ctx.db.get("dealAttributions", id))!);
+    }
+  });
+  expect(await count(h)).toBe(250);
+  expect(await h.t.query(functions.verifyLeadGenDealsByWorker, { tenantId: h.tenantId, ...range })).toEqual([]);
+  await h.t.run((ctx) => leadGenDealsByWorker.deleteIfExists(ctx, row));
+  expect(await h.t.query(functions.verifyLeadGenDealsByWorker, { tenantId: h.tenantId, ...range }))
+    .toEqual([{ workerId: h.ids.workerId, sourceCount: 250, aggregateCount: 249 }]);
+  expect((await h.run("backfillLeadGenDealsByWorker"))?.state).toBe("success");
+  const status = await h.run("assertLeadGenDealsByWorker");
+  expect(status?.state).toBe("success");
+  expect(status?.processed).toBeGreaterThanOrEqual(250);
+  await h.t.mutation(functions.markLeadGenDealsByWorkerVerified, { tenantId: h.tenantId });
+  expect(await h.t.run(async (ctx) => (await ctx.db.get("tenants", h.tenantId))!.leadGenDealsAggregateVerifiedAt))
+    .toBe(Date.now());
 });
 
 it("keeps row identities, capture boundaries and tenant isolation", async () => {
@@ -153,17 +213,27 @@ it.each(["tenant", "testing"] as const)("removes aggregate credit in %s cleanup"
   expect(await count(h)).toBe(0);
 });
 
-it("refuses to enable the reader when an entry has the wrong capture time but the same all-time count", async () => {
+it.each(["time", "worker"] as const)("rejects a wrong %s key and refuses activation after the assertion fails", async (kind) => {
   const h = await attributionHarness();
   const row = (await attributionRows(h)).find(isLeadGenDealAggregateEligible)!;
+  expect((await h.run("backfillLeadGenDealsByWorker"))?.state).toBe("success");
   await h.t.run(async (ctx) => {
-    await leadGenDealsByWorker.replaceOrInsert(ctx, row, { ...row, attributedAt: AT.QUALIFIED });
+    const { _id, _creationTime, ...worker } = (await ctx.db.get("leadGenWorkers", h.ids.workerId))!;
+    const changed = kind === "time"
+      ? { ...row, attributedAt: AT.QUALIFIED }
+      : { ...row, source: { ...row.source, workerId: await ctx.db.insert("leadGenWorkers", {
+        ...worker, displayName: "Other worker",
+      }) } };
+    await leadGenDealsByWorker.replaceOrInsert(ctx, row, changed);
   });
   expect(await count(h)).toBe(1);
   expect(await h.t.query(functions.verifyLeadGenDealsByWorker, { tenantId: h.tenantId, ...range }))
     .toEqual([{ workerId: h.ids.workerId, sourceCount: 1, aggregateCount: 0 }]);
+  const status = await h.run("assertLeadGenDealsByWorker");
+  expect(status?.state).toBe("failed");
+  expect(status?.error).toContain(row._id);
   await expect(h.t.mutation(functions.markLeadGenDealsByWorkerVerified, { tenantId: h.tenantId }))
-    .rejects.toThrow("Attribution aggregate mismatch");
+    .rejects.toThrow("Complete backfillLeadGenDealsByWorker and assertLeadGenDealsByWorker");
   expect(await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId)))
     .not.toHaveProperty("leadGenDealsAggregateVerifiedAt");
 });

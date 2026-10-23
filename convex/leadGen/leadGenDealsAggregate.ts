@@ -6,7 +6,6 @@ import {
   internalMutation,
   internalQuery,
   type MutationCtx,
-  type QueryCtx,
 } from "../_generated/server";
 
 type CaptureAttribution = Doc<"dealAttributions"> & {
@@ -54,78 +53,36 @@ export async function deleteLeadGenDealAggregate(
   }
 }
 
-const PAGE_SIZE = 200;
 const differenceValidator = v.object({
   workerId: v.id("leadGenWorkers"),
   sourceCount: v.number(),
   aggregateCount: v.number(),
 });
 
-/** Complete offline comparison, including aggregate-only worker credit. */
-async function differences(
-  ctx: QueryCtx | MutationCtx,
-  tenantId: Id<"tenants">,
-  startAt: number,
-  endAt: number,
-  checkEntryKeys = false,
-) {
-  if (!(startAt < endAt)) throw new Error("Invalid attribution range");
-  const expected = new Map<Id<"leadGenWorkers">, number>();
-  const expectedKeys = new Map<Id<"dealAttributions">, [Id<"leadGenWorkers">, number]>();
-  let cursor: string | null = null;
-  while (true) {
-    const result = await ctx.db
+// Offline comparison for a bounded reporting range, normally one month.
+export const verifyLeadGenDealsByWorker = internalQuery({
+  args: { tenantId: v.id("tenants"), startAt: v.number(), endAt: v.number() },
+  returns: v.array(differenceValidator),
+  handler: async (ctx, { tenantId, startAt, endAt }) => {
+    if (!(startAt < endAt)) throw new Error("Invalid attribution range");
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- Offline parity for one indexed month, normally a few hundred small rows.
+    const rows = await ctx.db
       .query("dealAttributions")
       .withIndex("by_tenantId_and_role_and_attributedAt", (q) =>
         q.eq("tenantId", tenantId).eq("role", "lead_gen")
           .gte("attributedAt", startAt).lt("attributedAt", endAt),
       )
-      .paginate({ cursor, numItems: PAGE_SIZE });
-    for (const row of result.page) {
+      .collect();
+    const expected = new Map<Id<"leadGenWorkers">, number>();
+    for (const row of rows) {
       if (isLeadGenDealAggregateEligible(row)) {
         expected.set(row.source.workerId, (expected.get(row.source.workerId) ?? 0) + 1);
-        if (checkEntryKeys) expectedKeys.set(row._id, [row.source.workerId, row.attributedAt]);
       }
     }
-    if (result.isDone) break;
-    cursor = result.continueCursor;
-  }
-
-  // Include stale entries even if both the source row and worker were deleted.
-  let aggregateCursor: string | undefined;
-  while (true) {
-    const result = await leadGenDealsByWorker.paginate(ctx, {
-      namespace: tenantId,
-      cursor: aggregateCursor,
-      pageSize: PAGE_SIZE,
-    });
-    for (const { id, key: [workerId, attributedAt] } of result.page) {
-      if (attributedAt < startAt || attributedAt >= endAt) continue;
-      if (checkEntryKeys) {
-        const key = expectedKeys.get(id);
-        if (!key || key[0] !== workerId || key[1] !== attributedAt) {
-          throw new Error(`Attribution aggregate mismatch ${workerId}`);
-        }
-        expectedKeys.delete(id);
-      }
-      if (!expected.has(workerId)) expected.set(workerId, 0);
-    }
-    if (result.isDone) break;
-    aggregateCursor = result.cursor;
-  }
-
-  if (checkEntryKeys && expectedKeys.size > 0) {
-    const [workerId] = expectedKeys.values().next().value!;
-    throw new Error(`Attribution aggregate mismatch ${workerId}`);
-  }
-
-  const workers = [...expected.keys()].sort();
-  const result = [];
-  for (let offset = 0; offset < workers.length; offset += PAGE_SIZE) {
-    const page = workers.slice(offset, offset + PAGE_SIZE);
+    const workers = [...expected.keys()].sort();
     const counts = await leadGenDealsByWorker.countBatch(
       ctx,
-      page.map((workerId) => ({
+      workers.map((workerId) => ({
         namespace: tenantId,
         bounds: {
           lower: { key: [workerId, startAt], inclusive: true },
@@ -133,26 +90,14 @@ async function differences(
         },
       })),
     );
-    for (const [index, workerId] of page.entries()) {
+    return workers.flatMap((workerId, index) => {
       const sourceCount = expected.get(workerId)!;
       const aggregateCount = counts[index];
-      if (sourceCount !== aggregateCount) result.push({ workerId, sourceCount, aggregateCount });
-    }
-  }
-  return result;
-}
-
-export const verifyLeadGenDealsByWorker = internalQuery({
-  args: { tenantId: v.id("tenants"), startAt: v.number(), endAt: v.number() },
-  returns: v.array(differenceValidator),
-  handler: async (ctx, { tenantId, startAt, endAt }) =>
-    await differences(ctx, tenantId, startAt, endAt),
+      return sourceCount === aggregateCount ? [] : [{ workerId, sourceCount, aggregateCount }];
+    });
+  },
 });
 
-// Recheck the complete history in the mutation that enables the reader. A
-// caller cannot enable every date range by supplying a clean empty interval.
-// Compare row identities and keys too, so offsetting errors across capture
-// dates cannot pass just because a worker's all-time total is unchanged.
 export const markLeadGenDealsByWorkerVerified = internalMutation({
   args: { tenantId: v.id("tenants") },
   returns: v.null(),
@@ -160,9 +105,30 @@ export const markLeadGenDealsByWorkerVerified = internalMutation({
     if (!await ctx.db.get("tenants", tenantId)) {
       throw new Error(`Missing tenant ${tenantId}`);
     }
-    const mismatches = await differences(ctx, tenantId, -Infinity, Infinity, true);
-    if (mismatches.length > 0) {
-      throw new Error(`Attribution aggregate mismatch ${mismatches[0].workerId}`);
+    const names = [
+      "migrations:backfillLeadGenDealsByWorker",
+      "migrations:assertLeadGenDealsByWorker",
+    ];
+    const statuses = await ctx.runQuery(components.migrations.lib.getStatus, { names });
+    if (statuses.length !== names.length || statuses.some((status) =>
+      !status.isDone || status.error !== undefined || status.state !== "success",
+    )) {
+      throw new Error("Complete backfillLeadGenDealsByWorker and assertLeadGenDealsByWorker before activating reports");
+    }
+    // A few thousand small tenant rows fit in one read. Rethink this check
+    // past ~25,000 rows. The per-row assertion proves every expected entry;
+    // matching the total here also rules out extra aggregate entries.
+    // eslint-disable-next-line @convex-dev/no-collect-in-query -- One-time activation over a few thousand small tenant rows; revisit past ~25,000.
+    const rows = await ctx.db
+      .query("dealAttributions")
+      .withIndex("by_tenantId_and_role_and_attributedAt", (q) =>
+        q.eq("tenantId", tenantId).eq("role", "lead_gen"),
+      )
+      .collect();
+    const sourceCount = rows.filter(isLeadGenDealAggregateEligible).length;
+    const aggregateCount = await leadGenDealsByWorker.count(ctx, { namespace: tenantId });
+    if (sourceCount !== aggregateCount) {
+      throw new Error(`Attribution aggregate total mismatch ${tenantId}`);
     }
     await ctx.db.patch("tenants", tenantId, { leadGenDealsAggregateVerifiedAt: Date.now() });
     return null;
