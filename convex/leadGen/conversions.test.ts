@@ -2,12 +2,14 @@
  * Prospect conversion by lead gen worker (docs/plans/phase-2-person-first.md
  * §7), and its Deals column (docs/plans/phase-3-attribution.md §6.6).
  */
+import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { bookingHarness } from "../../tests/bookingHarness";
 import { recordDealCreation } from "../lib/attribution/dealAttributions";
 import { CONVERSION_DEALS_READ_LIMIT } from "./conversions";
+import { deleteLeadGenDealAggregate } from "./leadGenDealsAggregate";
 
 afterEach(() => vi.useRealTimers());
 
@@ -206,9 +208,21 @@ it("counts each worker's deals from the lead gen rows whose capture falls in the
     deals: 1,
   });
 
+  migrationsTest.register(h.t);
+  for (const name of ["backfillLeadGenDealsByWorker", "assertLeadGenDealsByWorker"]) {
+    await h.t.mutation(internal.migrations.run, { fn: `migrations:${name}` });
+    await h.t.finishAllScheduledFunctions(vi.runAllTimers);
+  }
+  await h.t.mutation(internal.leadGen.leadGenDealsAggregate.markLeadGenDealsByWorkerVerified, {
+    tenantId: h.tenantId,
+  });
+  expect(await listConversions(h, OCTOBER)).toEqual(october);
+  expect(await listConversions(h, SEPTEMBER)).toEqual(september);
+
   // The person counts don't read the rows: without them, only Deals changes.
   await h.t.run(async (ctx) => {
     for (const row of await ctx.db.query("dealAttributions").take(100)) {
+      await deleteLeadGenDealAggregate(ctx, row);
       await ctx.db.delete("dealAttributions", row._id);
     }
   });

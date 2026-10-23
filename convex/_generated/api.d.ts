@@ -108,6 +108,7 @@ import type * as leadGen_capture from "../leadGen/capture.js";
 import type * as leadGen_conversions from "../leadGen/conversions.js";
 import type * as leadGen_corrections from "../leadGen/corrections.js";
 import type * as leadGen_exports from "../leadGen/exports.js";
+import type * as leadGen_leadGenDealsAggregate from "../leadGen/leadGenDealsAggregate.js";
 import type * as leadGen_normalization from "../leadGen/normalization.js";
 import type * as leadGen_prospectPeople from "../leadGen/prospectPeople.js";
 import type * as leadGen_reconciliation from "../leadGen/reconciliation.js";
@@ -493,6 +494,7 @@ declare const fullApi: ApiFromModules<{
   "leadGen/conversions": typeof leadGen_conversions;
   "leadGen/corrections": typeof leadGen_corrections;
   "leadGen/exports": typeof leadGen_exports;
+  "leadGen/leadGenDealsAggregate": typeof leadGen_leadGenDealsAggregate;
   "leadGen/normalization": typeof leadGen_normalization;
   "leadGen/prospectPeople": typeof leadGen_prospectPeople;
   "leadGen/reconciliation": typeof leadGen_reconciliation;
@@ -811,6 +813,7 @@ export declare const components: {
   personLosses: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"personLosses">;
   leadStageEntries: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"leadStageEntries">;
   prospectConversions: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"prospectConversions">;
+  leadGenDealsByWorker: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"leadGenDealsByWorker">;
   slackQualificationsByUser: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"slackQualificationsByUser">;
   slackQualificationsByTime: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"slackQualificationsByTime">;
   billingPaymentsByStatus: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"billingPaymentsByStatus">;
