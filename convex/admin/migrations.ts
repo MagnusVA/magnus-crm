@@ -35,7 +35,6 @@ import {
   normalizePaymentOrigin,
   paymentTypeValidator,
   resolveLegacyCompatibleAttributedCloserId,
-  resolveLegacyCompatiblePaymentCommissionable,
   resolveLegacyCompatiblePaymentProgramName,
   resolveLegacyCompatibleRecordedByUserId,
   resolvePaymentType,
@@ -99,7 +98,6 @@ type TenantCurrencyAudit = {
 };
 
 type PaymentProgramsCutoverAudit = {
-  paymentsMissingCommissionable: number;
   paymentsMissingPaymentType: number;
   paymentsMissingProgramId: number;
   paymentsMissingProgramName: number;
@@ -1146,7 +1144,6 @@ export const auditPaymentProgramsAndTypesCutover = query({
     ]);
 
     const audit: PaymentProgramsCutoverAudit = {
-      paymentsMissingCommissionable: 0,
       paymentsMissingPaymentType: 0,
       paymentsMissingProgramId: 0,
       paymentsMissingProgramName: 0,
@@ -1173,9 +1170,6 @@ export const auditPaymentProgramsAndTypesCutover = query({
       if (payment.recordedByUserId === undefined) {
         audit.paymentsMissingRecordedByUserId += 1;
       }
-      if (payment.commissionable === undefined) {
-        audit.paymentsMissingCommissionable += 1;
-      }
       if (legacyOrigin === "customer_flow") {
         audit.paymentsUsingLegacyOrigin += 1;
       }
@@ -1193,7 +1187,6 @@ export const auditPaymentProgramsAndTypesCutover = query({
           payment.programName === undefined ||
           payment.paymentType === undefined ||
           payment.recordedByUserId === undefined ||
-          payment.commissionable === undefined ||
           legacyPayment.closerId !== undefined ||
           legacyPayment.provider !== undefined ||
           legacyPayment.loggedByAdminUserId !== undefined ||
@@ -1289,8 +1282,6 @@ export const backfillPaymentProgramsAndTypes = mutation({
     for (const payment of payments) {
       const legacyPayment = payment as LegacyPaymentMigrationRow;
       const resolvedOrigin = normalizePaymentOrigin(legacyPayment.origin);
-      const resolvedCommissionable =
-        resolveLegacyCompatiblePaymentCommissionable(legacyPayment);
       const resolvedAttributedCloserId =
         resolveLegacyCompatibleAttributedCloserId(legacyPayment);
       const resolvedRecordedByUserId =
@@ -1329,7 +1320,7 @@ export const backfillPaymentProgramsAndTypes = mutation({
         unresolvedPayments.push(`${payment._id}:missing_recordedByUserId`);
         continue;
       }
-      if (resolvedCommissionable && resolvedAttributedCloserId === undefined) {
+      if (resolvedAttributedCloserId === undefined) {
         unresolvedPayments.push(`${payment._id}:missing_attributedCloserId`);
         continue;
       }
@@ -1354,9 +1345,6 @@ export const backfillPaymentProgramsAndTypes = mutation({
       }
       if (payment.recordedByUserId !== resolvedRecordedByUserId) {
         patch.recordedByUserId = resolvedRecordedByUserId;
-      }
-      if (payment.commissionable !== resolvedCommissionable) {
-        patch.commissionable = resolvedCommissionable;
       }
       if (payment.attributedCloserId !== resolvedAttributedCloserId) {
         patch.attributedCloserId = resolvedAttributedCloserId;

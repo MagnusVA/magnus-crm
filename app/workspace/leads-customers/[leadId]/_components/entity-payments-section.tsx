@@ -69,11 +69,6 @@ export function EntityPaymentsSection() {
 								<SimpleTooltip content="Whether this payment is active, voided, or disputed">
 									<Badge variant="secondary">{formatToken(payment.status)}</Badge>
 								</SimpleTooltip>
-								{payment.commissionable ? (
-									<SimpleTooltip content={leadsCustomersTooltips.commissionable}>
-										<Badge variant="muted">Commissionable</Badge>
-									</SimpleTooltip>
-								) : null}
 							</div>
 						</div>
 						<div className="flex shrink-0 flex-col items-end gap-1">

@@ -22,10 +22,8 @@ interface RevenueTrendPoint {
   periodKey: string;
   revenueMinor: number;
   dealCount: number;
-  commissionableFinalMinor: number;
-  commissionableDepositMinor: number;
-  nonCommissionableFinalMinor: number;
-  nonCommissionableDepositMinor: number;
+  finalRevenueMinor: number;
+  depositRevenueMinor: number;
 }
 
 interface RevenueTrendChartProps {
@@ -33,21 +31,13 @@ interface RevenueTrendChartProps {
 }
 
 const chartConfig = {
-  commissionableFinal: {
-    label: "Commissionable Final",
+  finalRevenue: {
+    label: "Final revenue",
     color: "var(--chart-1)",
   },
-  commissionableDeposit: {
-    label: "Commissionable Deposit",
+  deposits: {
+    label: "Deposits",
     color: "var(--chart-2)",
-  },
-  nonCommissionableFinal: {
-    label: "Post-Conversion Final",
-    color: "var(--chart-3)",
-  },
-  nonCommissionableDeposit: {
-    label: "Post-Conversion Deposit",
-    color: "var(--chart-4)",
   },
 } satisfies ChartConfig;
 
@@ -61,19 +51,12 @@ function formatYAxis(value: number): string {
 export function RevenueTrendChart({ data }: RevenueTrendChartProps) {
   const chartData = data.map((point) => ({
     periodKey: point.periodKey,
-    commissionableFinal: point.commissionableFinalMinor / 100,
-    commissionableDeposit: point.commissionableDepositMinor / 100,
-    nonCommissionableFinal: point.nonCommissionableFinalMinor / 100,
-    nonCommissionableDeposit: point.nonCommissionableDepositMinor / 100,
+    finalRevenue: point.finalRevenueMinor / 100,
+    deposits: point.depositRevenueMinor / 100,
   }));
 
   const totalPoints = chartData.reduce(
-    (sum, point) =>
-      sum +
-      point.commissionableFinal +
-      point.commissionableDeposit +
-      point.nonCommissionableFinal +
-      point.nonCommissionableDeposit,
+    (sum, point) => sum + point.finalRevenue + point.deposits,
     0,
   );
 
@@ -82,8 +65,7 @@ export function RevenueTrendChart({ data }: RevenueTrendChartProps) {
       <CardHeader>
         <CardTitle>Revenue Trend</CardTitle>
         <CardDescription>
-          Commissionable and post-conversion revenue plotted separately across
-          the selected range.
+          Final revenue and deposits across the selected range.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -136,38 +118,19 @@ export function RevenueTrendChart({ data }: RevenueTrendChartProps) {
               />
               <ChartLegend content={<ChartLegendContent />} />
               <Line
-                name="commissionableFinal"
+                name="finalRevenue"
                 type="monotone"
-                dataKey="commissionableFinal"
-                stroke="var(--color-commissionableFinal)"
+                dataKey="finalRevenue"
+                stroke="var(--color-finalRevenue)"
                 strokeWidth={2.5}
                 dot={false}
               />
               <Line
-                name="commissionableDeposit"
+                name="deposits"
                 type="monotone"
-                dataKey="commissionableDeposit"
-                stroke="var(--color-commissionableDeposit)"
+                dataKey="deposits"
+                stroke="var(--color-deposits)"
                 strokeWidth={2}
-                strokeOpacity={0.85}
-                dot={false}
-              />
-              <Line
-                name="nonCommissionableFinal"
-                type="monotone"
-                dataKey="nonCommissionableFinal"
-                stroke="var(--color-nonCommissionableFinal)"
-                strokeWidth={2}
-                strokeDasharray="6 4"
-                dot={false}
-              />
-              <Line
-                name="nonCommissionableDeposit"
-                type="monotone"
-                dataKey="nonCommissionableDeposit"
-                stroke="var(--color-nonCommissionableDeposit)"
-                strokeWidth={1.75}
-                strokeDasharray="3 3"
                 strokeOpacity={0.85}
                 dot={false}
               />

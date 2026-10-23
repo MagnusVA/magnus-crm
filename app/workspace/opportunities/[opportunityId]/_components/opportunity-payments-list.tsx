@@ -72,8 +72,6 @@ const ORIGIN_LABELS: Record<string, string> = {
   admin_side_deal: "Admin side deal",
   closer_additional: "Additional (closer)",
   admin_additional: "Additional (admin)",
-  customer_direct: "Customer direct",
-  bookkeeper_direct: "Bookkeeper direct",
 };
 
 function formatOrigin(origin: string) {
@@ -199,7 +197,7 @@ export function OpportunityPaymentsList({
       <CardHeader>
         <CardTitle>Payments</CardTitle>
         <CardDescription>
-          Commissionable payments recorded against this opportunity.
+          Payments recorded against this opportunity.
         </CardDescription>
       </CardHeader>
       <CardContent>{content}</CardContent>

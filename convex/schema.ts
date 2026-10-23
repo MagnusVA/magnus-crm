@@ -1533,7 +1533,8 @@ export default defineSchema({
     amountMinor: v.number(),
     currency: v.string(),
     recordedByUserId: v.id("users"),
-    commissionable: v.boolean(),
+    // Retained until clearPaymentCommissionable runs; no runtime reader or writer.
+    commissionable: v.optional(v.boolean()),
     programId: v.id("tenantPrograms"),
     programName: v.string(),
     paymentType: paymentTypeValidator,
@@ -1545,7 +1546,7 @@ export default defineSchema({
     // can still carry a recording link. Stored as a validated http/https URL.
     fathomLink: v.optional(v.string()),
     // Optional free-form note captured by the admin at the time of logging.
-    // Used for audit context on post-conversion payments
+    // Used for audit context on additional payments
     // (e.g. "re-enrollment after 6-month gap", "partial chargeback resolved").
     note: v.optional(v.string()),
     status: v.union(

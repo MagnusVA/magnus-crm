@@ -295,7 +295,7 @@ export const getOpportunitySnapshot = internalQuery({
 					currency: payment.currency,
 					status: payment.status,
 					paymentType: payment.paymentType,
-					commissionable: payment.commissionable,
+
 					attributedCloserId: payment.attributedCloserId ?? null,
 					recordedAt: payment.recordedAt,
 				})),

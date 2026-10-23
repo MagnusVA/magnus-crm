@@ -23,7 +23,6 @@ async function sideDealPayment(harness: GuardHarness, opportunityId: Id<"opportu
       opportunityId,
       attributedCloserId: harness.closerId,
       recordedByUserId: harness.closerId,
-      commissionable: true,
       amountMinor: 50_000,
       currency: "USD",
       programId: harness.programId,
