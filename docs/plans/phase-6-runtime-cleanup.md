@@ -541,7 +541,7 @@ Fix forward, reviewed. Every repair is an internal migration with its own assert
 
 ## 13. Production log
 
-All runs are on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `--env-file .env.vercel.production`.
+All production runs are on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, with `--env-file .env.vercel.production`; §13.4 logs the dev runs. Times are in UTC.
 
 ### 13.1 Baseline, 2026-10-22
 
