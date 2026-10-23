@@ -56,10 +56,26 @@ import {
   loadPendingRescheduleLink,
 } from "./opportunities/dealState";
 import { opportunityByStage } from "./reporting/aggregates";
+import {
+  isOpenDealAgingEligible,
+  isPersonLossEligible,
+  openDealAging,
+  personLosses,
+} from "./reporting/pipelineHealthAggregates";
 
 export const migrations = new Migrations<DataModel>(components.migrations);
 
 export const run = migrations.runner();
+
+export const backfillOpenDealAging = migrations.define({
+  table: "opportunities",
+  batchSize: 200,
+  migrateOne: async (ctx, deal) => {
+    if (isOpenDealAgingEligible(deal)) {
+      await openDealAging.insertIfDoesNotExist(ctx, deal);
+    }
+  },
+});
 
 // Phase 6 PR 4. These copies are absent from aggregate keys and projections
 // (reporting/aggregates.ts, lib/opportunityActivity.ts), so clearing them needs
@@ -77,12 +93,59 @@ export const clearDealMeetingTimes = migrations.define({
   },
 });
 
+export const backfillPersonLosses = migrations.define({
+  table: "opportunities",
+  batchSize: 200,
+  migrateOne: async (ctx, deal) => {
+    if (isPersonLossEligible(deal)) {
+      await personLosses.insertIfDoesNotExist(ctx, deal);
+    }
+  },
+});
+
 export const assertDealMeetingTimesCleared = migrations.define({
   table: "opportunities",
   batchSize: 200,
   migrateOne: async (_ctx, deal) => {
     if (deal.canceledAt !== undefined || deal.noShowAt !== undefined) {
       throw new Error(`Deal meeting times remain: ${deal._id}`);
+    }
+  },
+});
+
+/** Prove membership at the expected key for THIS deal, not another deal
+ * sharing its key. The component records progress only after a batch passes. */
+export const assertPipelineHealthAggregates = migrations.define({
+  table: "opportunities",
+  // Up to four aggregate lookups (count and sum, two aggregates) per open
+  // deal, each a few index reads: 100 deals stay well under 4,096 reads.
+  batchSize: 100,
+  migrateOne: async (ctx, deal) => {
+    if (isOpenDealAgingEligible(deal)) {
+      const key: [typeof deal.stage, number] = [deal.stage, deal.nextMeetingAt ?? 0];
+      const bound = { key, id: deal._id, inclusive: true };
+      if (await openDealAging.count(ctx, {
+        namespace: deal.tenantId,
+        bounds: { lower: bound, upper: bound },
+      }) !== 1) {
+        throw new Error(`openDealAging mismatch: ${deal._id}`);
+      }
+      if (await openDealAging.sum(ctx, {
+        namespace: deal.tenantId,
+        bounds: { lower: bound, upper: bound },
+      }) !== deal.createdAt) {
+        throw new Error(`openDealAging sum mismatch: ${deal._id}`);
+      }
+    }
+    if (isPersonLossEligible(deal)) {
+      const key: [number, Id<"users"> | ""] = [deal.lostAt!, deal.lostByUserId ?? ""];
+      const bound = { key, id: deal._id, inclusive: true };
+      if (await personLosses.count(ctx, {
+        namespace: deal.tenantId,
+        bounds: { lower: bound, upper: bound },
+      }) !== 1) {
+        throw new Error(`personLosses mismatch: ${deal._id}`);
+      }
     }
   },
 });
@@ -1043,7 +1106,9 @@ export const backfillMeetingAttendance = migrations.define({
         status: "held",
         heldMarkedAt: meeting.completedAt,
       });
-    } else if (meeting.status === "no_show" && meeting.completedAt !== undefined) {
+    } else if (meeting.status !== "held" && meeting.completedAt !== undefined) {
+      // No-shows got it from the old writers; a Calendly reversal can leave it
+      // on a meeting it moved back to scheduled or to canceled.
       await patchMeetingLifecycle(ctx, meeting._id, { completedAt: undefined });
     }
   },

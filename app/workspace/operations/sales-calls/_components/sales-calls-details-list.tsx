@@ -5,7 +5,10 @@ import { meetingStatusConfig, meetingAttendanceDisplay } from "@/lib/status-conf
 
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { usePaginatedQuery, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
+// The held filter pages a merged stream of `completed` and `held`, so it needs
+// the helper's hook, which pins each loaded page's end cursor.
+import { usePaginatedQuery } from "convex-helpers/react";
 import type { FunctionReturnType } from "convex/server";
 import { ArrowUpRightIcon, LoaderCircleIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";

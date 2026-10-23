@@ -14,6 +14,7 @@ import {
 } from "../opportunities/stages";
 import { requireTenantUser } from "../requireTenantUser";
 import { opportunityByStage } from "./aggregates";
+import { openDealAging, personLosses } from "./pipelineHealthAggregates";
 import {
   assertValidDateRange,
   getUserDisplayName,
@@ -157,9 +158,9 @@ export type StaleCandidate = {
 export type PipelineAgingScan<Key extends string> = {
   groups: Record<Key, PipelineAgingGroup>;
   staleCount: number;
-  /** Every stale deal, in the order read. */
+  /** Stale candidates in the order read; the aggregate path keeps a sample. */
   staleCandidates: StaleCandidate[];
-  /** Stopped at `maxDocs`: the numbers cover only the deals read. */
+  /** The scan/sample hit its row budget. Aggregate totals remain exact. */
   capped: boolean;
 };
 
@@ -232,6 +233,10 @@ export async function scanPipelineAgingByStage(
   now: number,
   options: PipelineAgingScanOptions = {},
 ): Promise<PipelineAgingScan<OpenPipelineStage>> {
+  const tenant = await ctx.db.get("tenants", tenantId);
+  if (tenant?.pipelineHealthAggregatesVerifiedAt !== undefined && !options.createdAt && options.maxDocs === undefined) {
+    return readAggregateAging(ctx, tenantId, now);
+  }
   const window = options.createdAt;
   return await scanPipelineAging(
     OPEN_PIPELINE_STAGES.map((stage) => ({
@@ -253,6 +258,66 @@ export async function scanPipelineAgingByStage(
     now,
     options,
   );
+}
+
+// Merge the four creation indexes so the sample is globally oldest first.
+// Keep the first rows for oldestAgeDays; they also seed the merge.
+async function readAggregateAging(
+  ctx: QueryCtx,
+  tenantId: Id<"tenants">,
+  now: number,
+): Promise<PipelineAgingScan<OpenPipelineStage>> {
+  const groups = {} as Record<OpenPipelineStage, PipelineAgingGroup>;
+  let staleCount = 0;
+  let rowsRead = 0;
+  const heads = [];
+  for (const stage of OPEN_PIPELINE_STAGES) {
+    const opts = { namespace: tenantId, bounds: { prefix: [stage] as [typeof stage] } };
+    const [count, sum, stale] = await Promise.all([
+      openDealAging.count(ctx, opts),
+      openDealAging.sum(ctx, opts),
+      openDealAging.count(ctx, {
+        namespace: tenantId,
+        bounds: { lower: { key: [stage, Number.NEGATIVE_INFINITY], inclusive: true }, upper: { key: [stage, now - STALE_THRESHOLD_MS], inclusive: false } },
+      }),
+    ]);
+    staleCount += stale;
+    const iterator = ctx.db.query("opportunities")
+      .withIndex("by_tenantId_and_stage_and_outcome_and_createdAt", (q) =>
+        q.eq("tenantId", tenantId).eq("stage", stage).eq("outcome", "open"))
+      .order("asc")[Symbol.asyncIterator]();
+    const first = await iterator.next();
+    if (!first.done) {
+      rowsRead += 1;
+      heads.push({ iterator, doc: first.value });
+    }
+    groups[stage] = {
+      count,
+      totalAgeDays: (now * count - sum) / DAY_MS,
+      oldestAgeDays: first.done ? 0 : Math.max(0, (now - first.value.createdAt) / DAY_MS),
+    };
+  }
+  const staleCandidates: StaleCandidate[] = [];
+  let capped = false;
+  while (heads.length > 0) {
+    heads.sort((a, b) => a.doc.createdAt - b.doc.createdAt || a.doc._creationTime - b.doc._creationTime || a.doc._id.localeCompare(b.doc._id));
+    const head = heads[0];
+    if (isStale(head.doc, now)) {
+      staleCandidates.push({ opportunity: head.doc, ageDays: (now - head.doc.createdAt) / DAY_MS, nextMeetingAt: head.doc.nextMeetingAt ?? null });
+    }
+    if (staleCandidates.length >= MAX_STALE_OPPORTUNITIES || staleCandidates.length >= staleCount) break;
+    if (rowsRead >= 500) {
+      capped = true;
+      break;
+    }
+    const next = await head.iterator.next();
+    if (next.done) heads.shift();
+    else {
+      rowsRead += 1;
+      head.doc = next.value;
+    }
+  }
+  return { groups, staleCount, staleCandidates, capped };
 }
 
 // ── Velocity ────────────────────────────────────────────────────────────
@@ -329,6 +394,23 @@ export async function readLossesByStage(
   startDate: number,
   endDate: number,
 ): Promise<PipelineLosses> {
+  const tenant = await ctx.db.get("tenants", tenantId);
+  if (tenant?.pipelineHealthAggregatesVerifiedAt !== undefined) {
+    const losses: Array<Doc<"opportunities">> = [];
+    let scanned = 0;
+    for await (const entry of personLosses.iter(ctx, {
+      namespace: tenantId,
+      bounds: { lower: { key: [startDate, ""], inclusive: true }, upper: { key: [endDate, ""], inclusive: false } },
+      pageSize: 200,
+    })) {
+      if (scanned >= REPORT_ROW_CAP) return { losses, truncated: true, scanned };
+      scanned += 1;
+      const deal = await ctx.db.get("opportunities", entry.id);
+      if (!deal || deal.tenantId !== tenantId) throw new Error(`Invalid personLosses entry ${entry.id}`);
+      losses.push(deal);
+    }
+    return { losses, truncated: false, scanned };
+  }
   const losses: Array<Doc<"opportunities">> = [];
   let scanned = 0;
   let truncated = false;

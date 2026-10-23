@@ -12,7 +12,6 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
-import type { Doc } from "@/convex/_generated/dataModel";
 import { api } from "@/convex/_generated/api";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { usePollingQuery } from "@/hooks/use-polling-query";
@@ -34,15 +33,6 @@ import { PipelineStrip } from "./pipeline-strip";
 import { CloserEmptyState } from "./closer-empty-state";
 import { CalendarSection } from "./calendar-section";
 import type { ViewMode } from "./calendar-utils";
-
-type NextMeetingData =
-  | {
-      meeting: Doc<"meetings">;
-      opportunity: Doc<"opportunities"> | null | undefined;
-      lead: Doc<"leads"> | null | undefined;
-      eventTypeName: string | null;
-    }
-  | null;
 
 type DerivedStatsRange = {
   startDate: number;
@@ -180,7 +170,7 @@ export function CloserDashboardPageClient() {
     api.closer.dashboard.getNextMeeting,
     isAdmin ? "skip" : {},
     { intervalMs: 60_000 },
-  ) as NextMeetingData | undefined;
+  );
 
   useEffect(() => {
     if (isAdmin) {
@@ -237,12 +227,19 @@ export function CloserDashboardPageClient() {
           reminders the meeting card reflows to fill the full width instead of
           leaving a gap, and the pair stacks cleanly in split-view widths. */}
       <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,340px),1fr))] gap-3">
-        {nextMeeting ? (
+        {nextMeeting?.meeting ? (
           <FeaturedMeetingCard
             meeting={nextMeeting.meeting}
             lead={nextMeeting.lead ?? null}
             eventTypeName={nextMeeting.eventTypeName}
           />
+        ) : nextMeeting?.incomplete ? (
+          <div role="status" aria-live="polite">
+            <CloserEmptyState
+              title="Upcoming meeting lookup incomplete"
+              description="Check your calendar for upcoming meetings."
+            />
+          </div>
         ) : (
           <CloserEmptyState
             title="No upcoming meetings"
@@ -262,6 +259,9 @@ export function CloserDashboardPageClient() {
         cashCollectedMinor={pipelineSummary.cashCollectedMinor}
         cashPaymentCount={pipelineSummary.cashPaymentCount}
         isPaymentDataTruncated={pipelineSummary.isPaymentDataTruncated}
+        isMeetingDataTruncated={
+          "isMeetingDataTruncated" in pipelineSummary && pipelineSummary.isMeetingDataTruncated
+        }
       />
 
       <CalendarSection

@@ -304,6 +304,8 @@ import type * as reporting_lib_periodBucketing from "../reporting/lib/periodBuck
 import type * as reporting_lib_slackQualificationBreakdown from "../reporting/lib/slackQualificationBreakdown.js";
 import type * as reporting_lib_slackQualificationLedger from "../reporting/lib/slackQualificationLedger.js";
 import type * as reporting_pipelineHealth from "../reporting/pipelineHealth.js";
+import type * as reporting_pipelineHealthAggregates from "../reporting/pipelineHealthAggregates.js";
+import type * as reporting_pipelineHealthVerification from "../reporting/pipelineHealthVerification.js";
 import type * as reporting_remindersReporting from "../reporting/remindersReporting.js";
 import type * as reporting_revenue from "../reporting/revenue.js";
 import type * as reporting_revenueTrend from "../reporting/revenueTrend.js";
@@ -687,6 +689,8 @@ declare const fullApi: ApiFromModules<{
   "reporting/lib/slackQualificationBreakdown": typeof reporting_lib_slackQualificationBreakdown;
   "reporting/lib/slackQualificationLedger": typeof reporting_lib_slackQualificationLedger;
   "reporting/pipelineHealth": typeof reporting_pipelineHealth;
+  "reporting/pipelineHealthAggregates": typeof reporting_pipelineHealthAggregates;
+  "reporting/pipelineHealthVerification": typeof reporting_pipelineHealthVerification;
   "reporting/remindersReporting": typeof reporting_remindersReporting;
   "reporting/revenue": typeof reporting_revenue;
   "reporting/revenueTrend": typeof reporting_revenueTrend;
@@ -803,6 +807,8 @@ export declare const components: {
   meetingsByStatus: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"meetingsByStatus">;
   paymentSums: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"paymentSums">;
   opportunityByStage: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"opportunityByStage">;
+  openDealAging: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"openDealAging">;
+  personLosses: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"personLosses">;
   leadStageEntries: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"leadStageEntries">;
   prospectConversions: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"prospectConversions">;
   slackQualificationsByUser: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"slackQualificationsByUser">;

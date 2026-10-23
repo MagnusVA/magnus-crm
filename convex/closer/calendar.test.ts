@@ -1,8 +1,13 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { getConvexSize } from "convex/values";
 import { api } from "../_generated/api";
+import { readCloserCalendarMeetings } from "./calendar";
+import { closerBoundedReadFixture } from "../../tests/closerBoundedReadFixtures";
 import {
+  DAY,
   MEETING_RANGE,
   seededCloserPipeline,
+  T0,
 } from "../../tests/closerPipelineFixtures";
 
 // The closer's calendar shows canceled meetings and each meeting's deal
@@ -13,7 +18,9 @@ describe("getMeetingsForRange", () => {
     const { harness, seed } = await seededCloserPipeline();
     const { meetings } = seed;
 
-    const calendar = await harness.closer.query(api.closer.calendar.getMeetingsForRange, MEETING_RANGE);
+    const { meetings: calendar, isPartial } = await harness.closer.query(api.closer.calendar.getMeetingsForRange, MEETING_RANGE);
+
+    expect(isPartial).toBe(false);
 
     // The reminder deal's meeting is before the range; the other closer's
     // meeting isn't the closer's.
@@ -34,7 +41,7 @@ describe("getMeetingsForRange", () => {
     const { harness, seed } = await seededCloserPipeline();
     const { meetings } = seed;
 
-    const calendar = await harness.closer.query(api.closer.calendar.getMeetingsForRange, MEETING_RANGE);
+    const { meetings: calendar } = await harness.closer.query(api.closer.calendar.getMeetingsForRange, MEETING_RANGE);
     const byId = new Map(calendar.map((entry) => [entry.meeting._id, entry]));
 
     // A Calendly reschedule: the old slot canceled beside the new one, the
@@ -72,7 +79,7 @@ describe("getMeetingsForRange", () => {
   it("returns what the calendar draws, with the deal's stage", async () => {
     const { harness, seed } = await seededCloserPipeline();
 
-    const calendar = await harness.closer.query(api.closer.calendar.getMeetingsForRange, MEETING_RANGE);
+    const { meetings: calendar } = await harness.closer.query(api.closer.calendar.getMeetingsForRange, MEETING_RANGE);
     const booked = calendar.find(({ meeting }) => meeting._id === seed.meetings.booked)!;
 
     expect(Object.keys(booked).sort()).toEqual(
@@ -95,5 +102,76 @@ describe("getMeetingsForRange", () => {
         endDate: MEETING_RANGE.startDate,
       }),
     ).rejects.toThrow("startDate must be earlier than endDate");
+  });
+
+  it("rejects more than 45 days but allows the full 45-day boundary", async () => {
+    const { harness } = await closerBoundedReadFixture();
+    await expect(harness.closer.query(api.closer.calendar.getMeetingsForRange, {
+      startDate: T0, endDate: T0 + 45 * DAY + 1,
+    })).rejects.toThrow("Calendar range cannot exceed 45 days");
+    const result = await harness.closer.query(api.closer.calendar.getMeetingsForRange, {
+      startDate: T0, endDate: T0 + 45 * DAY,
+    });
+    expect(result.meetings).toHaveLength(3);
+    expect(result.isPartial).toBe(false);
+  });
+
+  it("caps the meeting rows while keeping canceled meetings", async () => {
+    const { harness, seed } = await closerBoundedReadFixture();
+    const result = await harness.t.run((ctx) =>
+      readCloserCalendarMeetings(ctx, harness.tenantId, harness.closerId, T0, T0 + 10, 2),
+    );
+    expect(result.isPartial).toBe(true);
+    expect(result.meetings.map(({ meeting }) => meeting._id)).toEqual(seed.meetings.slice(0, 2));
+    expect(result.meetings[0].meeting.status).toBe("canceled");
+  });
+
+  it("deduplicates deal and event type joins and keeps reassigned deals' labels", async () => {
+    const { harness, seed } = await closerBoundedReadFixture();
+    await harness.t.run(async (ctx) => {
+      const get = vi.spyOn(ctx.db, "get");
+      const result = await readCloserCalendarMeetings(ctx, harness.tenantId, harness.closerId, T0, T0 + 10, 3);
+      expect(result.isPartial).toBe(false);
+      expect(result.meetings.map((meeting) => meeting.eventTypeName)).toEqual(["Bounded call", "Bounded call", "Bounded call"]);
+      expect(result.meetings[2].dealPosition).toBe("booked");
+      expect(get.mock.calls).toEqual([
+        ["opportunities", seed.ownDeal], ["opportunities", seed.reassignedDeal],
+        ["eventTypeConfigs", seed.eventTypeConfigId],
+      ]);
+    });
+  });
+
+  it("reports partial at the byte budget below the row cap", async () => {
+    const { harness, seed } = await closerBoundedReadFixture();
+    await harness.t.run(async (ctx) => {
+      const first = (await ctx.db.get("meetings", seed.meetings[0]))!;
+      const result = await readCloserCalendarMeetings(ctx, harness.tenantId, harness.closerId, T0, T0 + 10, 10, getConvexSize(first));
+      expect(result.isPartial).toBe(true);
+      expect(result.meetings).toHaveLength(1);
+    });
+  });
+
+  it("keeps missing-deal labels and the meeting's name fallback", async () => {
+    const { harness, seed } = await closerBoundedReadFixture();
+    await harness.t.run(async (ctx) => {
+      await ctx.db.delete("opportunities", seed.ownDeal);
+      await ctx.db.patch("meetings", seed.meetings[0], { leadName: undefined });
+    });
+    const result = await harness.closer.query(api.closer.calendar.getMeetingsForRange, {
+      startDate: T0, endDate: T0 + 10,
+    });
+    expect(result.isPartial).toBe(false);
+    expect(result.meetings[0]).toMatchObject({
+      meeting: { _id: seed.meetings[0], status: "canceled" },
+      leadName: "Unknown", eventTypeName: null,
+      dealStage: null, dealOutcome: null, dealPosition: null, dealSystemLoss: null,
+    });
+  });
+
+  it("returns a complete empty result when the range has no meetings", async () => {
+    const { harness } = await closerBoundedReadFixture();
+    await expect(harness.closer.query(api.closer.calendar.getMeetingsForRange, {
+      startDate: T0 + DAY, endDate: T0 + 2 * DAY,
+    })).resolves.toEqual({ meetings: [], isPartial: false });
   });
 });

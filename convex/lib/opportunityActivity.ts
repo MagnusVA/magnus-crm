@@ -44,7 +44,7 @@ export type OpportunityFieldsPatch = Partial<
 const TRANSITION_ONLY_FIELDS = ["stage", "outcome"] as const;
 
 // Inputs to the sort keys and eligibility of the stage aggregate and the
-// Slack qualification aggregates (reporting/aggregates.ts). The aggregate
+// Slack qualification and Pipeline Health aggregates. The aggregate
 // rewrites its entry on every replace, so replace only when one changes.
 const AGGREGATE_KEY_FIELDS = [
   "stage",
@@ -53,6 +53,10 @@ const AGGREGATE_KEY_FIELDS = [
   "createdAt",
   "source",
   "qualifiedBy",
+  "nextMeetingAt",
+  "lostAt",
+  "lostByUserId",
+  "lostReason",
 ] as const;
 
 // Fields copied into operationsQualificationRows (operations/projections.ts).

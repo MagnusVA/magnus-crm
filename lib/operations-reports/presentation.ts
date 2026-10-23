@@ -16,7 +16,7 @@ const storedMoney = (key: string, label: string) =>
   col(key, `${label} (stored hundredths)`, "number", "currency");
 const hours = col("scheduledHours", "Scheduled Hours", "decimal");
 const leads = [col("submissions", "Submissions", "number"), hours, col("leadsPerHour", "Leads/Hr", "decimal")];
-const callPerformance = [col("booked", "Calls", "number"), col("showed", "Showed", "number"), col("canceled", "Canceled", "number"), col("noShows", "No Shows", "number"), col("showUpRate", "Show-up Rate", "percent")];
+const callPerformance = [col("booked", "Calls", "number"), col("showed", "Showed", "number"), col("canceled", "Canceled", "number"), col("noShows", "No Shows", "number"), col("showUpRate", "Show-up Rate", "percent"), col("resultsRecorded", "Results recorded", "number"), col("pastCalls", "Past calls", "number")];
 const paymentPerformance = [col("currency", "Currency"), col("paymentSales", "Sales", "number"), storedMoney("paymentRevenueMinor", "Revenue"), col("paymentCloseRate", "Close Rate", "percent"), storedMoney("avgPaymentDealMinor", "Avg Sale")];
 
 export const reportTitles: Record<ReportKind, string> = {
@@ -37,7 +37,7 @@ export const sectionDefinitions: Record<string, { title: string; columns: Report
   booked_closer: { title: "DM Closer Performance", columns: [col("label", "DM Closer"), col("teamLabel", "Team"), col("booked", "Bookings", "number"), hours, col("bookedPerHour", "Bookings/Hr", "decimal")] },
   booking_team: { title: "Team Goals", columns: [col("label", "Team"), col("progress", "Bookings", "number"), col("dailyQuota", "Daily Quota", "number"), col("target", "Team Goal", "number")] },
   booked_calls_summary: { title: "Overall", columns: [col("totalBooked", "Bookings", "number"), col("totalTarget", "Team Goals", "number"), col("businessDayCount", "Days", "number")] },
-  sales_calls_summary: { title: "Overall calls", columns: [col("totalCalls", "Calls", "number"), col("showed", "Showed", "number"), col("canceled", "Canceled", "number"), col("noShows", "No Shows", "number"), col("showUpRate", "Show-up Rate", "percent")] },
+  sales_calls_summary: { title: "Overall calls", columns: [col("totalCalls", "Calls", "number"), col("showed", "Showed", "number"), col("canceled", "Canceled", "number"), col("noShows", "No Shows", "number"), col("showUpRate", "Show-up Rate", "percent"), col("resultsRecorded", "Results recorded", "number"), col("pastCalls", "Past calls", "number")] },
   sales_summary_money: { title: "Overall payments by currency", columns: [col("currency", "Currency"), col("paymentSalesCount", "Sales", "number"), storedMoney("cashCollectedMinor", "Cash Collected"), col("closeRate", "Close Rate", "percent"), storedMoney("avgCashPerSaleMinor", "Avg Sale")] },
   sales_closer: { title: "Closer call performance", columns: [col("label", "Closer"), ...callPerformance] },
   sales_closer_money: { title: "Closer payment performance by currency", columns: [col("label", "Closer"), ...paymentPerformance] },

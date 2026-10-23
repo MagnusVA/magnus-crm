@@ -1,3 +1,4 @@
+import { replaceOpenDealAging } from "../reporting/pipelineHealthAggregates";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
@@ -65,6 +66,11 @@ export async function updateOpportunityMeetingRefs(
     nextMeetingAt: nextMeeting?.scheduledAt,
     latestActivityAt: computeLatestActivityAt(nextOpportunity),
   });
+  const after = await ctx.db.get("opportunities", opportunityId);
+  if (!after) {
+    throw new Error(`Opportunity ${opportunityId} missing after meeting refs patch`);
+  }
+  await replaceOpenDealAging(ctx, opportunity, after);
   await upsertOpportunitySearchProjection(ctx, opportunityId);
   await rebuildLeadCustomerSearchRow(
     ctx,
