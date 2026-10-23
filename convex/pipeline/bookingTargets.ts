@@ -94,7 +94,7 @@ export function calendlyRescheduleTarget(deal: DealStateFields): "move" | "ended
 }
 
 /** The meeting statuses a Calendly fact can leave the deal's current booking at. */
-export type BookingFactMeetingStatus = Exclude<MeetingStatus, "completed">;
+export type BookingFactMeetingStatus = Exclude<MeetingStatus, "completed" | "held">;
 
 /**
  * What the deal says of its current booking while Calendly's facts still

@@ -1,3 +1,4 @@
+import { isHeldStatus } from "./meetingAttendance";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
@@ -271,12 +272,12 @@ export function meetingEvidence(meeting: Doc<"meetings">): LifecycleEvidence[] {
   const evidence: LifecycleEvidence[] = [
     { stage: "booked", at: meeting.createdAt },
   ];
-  if (meeting.status === "completed") {
+  if (isHeldStatus(meeting.status)) {
     // The call time, not the time a closer recorded the outcome. An admin can
-    // record one early, so it never goes past `completedAt`.
+    // record one early, so it never goes past the recorded time.
     const at = Math.min(
       meeting.scheduledAt,
-      meeting.completedAt ?? meeting.scheduledAt,
+      meeting.heldMarkedAt ?? meeting.completedAt ?? meeting.scheduledAt,
     );
     evidence.push({ stage: "showed", at });
   }

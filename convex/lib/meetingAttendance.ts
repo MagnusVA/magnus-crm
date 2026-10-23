@@ -7,9 +7,8 @@ import {
   timestampToBusinessDateKey,
 } from "../reporting/lib/hondurasBusinessTime";
 
-/** PR 10 adds the stored `held` value here. */
-export function isHeldStatus(status: string): boolean {
-  return status === "completed";
+export function isHeldStatus(status: string): status is "completed" | "held" {
+  return status === "completed" || status === "held";
 }
 
 type AttendanceCount = Pick<

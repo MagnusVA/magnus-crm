@@ -69,7 +69,7 @@ export const markNoShow = mutation({
       meetingId: meeting._id,
         opportunityId: opportunity._id,
       toMeetingStatus: "no_show",
-      completedAt: now,
+      recordedAt: now,
       extraMeetingPatch: {
         noShowMarkedAt: now,
         noShowReason: reason,

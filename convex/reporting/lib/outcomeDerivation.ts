@@ -1,3 +1,4 @@
+import { isHeldStatus } from "../../lib/meetingAttendance";
 import type { Doc } from "../../_generated/dataModel";
 import { dealStageOf, isSystemLossReason } from "../../opportunities/stages";
 
@@ -41,7 +42,7 @@ export function needsRescheduleLinkCheck(
   meeting: Doc<"meetings">,
   opportunity: DealLossFields,
 ): boolean {
-  return meeting.status === "completed" && dealStageOf(opportunity).stage === "follow_up";
+  return isHeldStatus(meeting.status) && dealStageOf(opportunity).stage === "follow_up";
 }
 
 /**

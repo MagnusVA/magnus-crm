@@ -1,3 +1,4 @@
+import { meetingEventStatusLabel } from "@/lib/status-config";
 import { ActivityIcon } from "lucide-react";
 import {
   Card,
@@ -70,7 +71,7 @@ function statusLabel(
   }
   return event.eventType.startsWith("opportunity.")
     ? dealEventStateLabel(value, outcome)
-    : value.replaceAll("_", " ");
+    : meetingEventStatusLabel(event.eventType, value)?.replaceAll("_", " ");
 }
 
 function formatStatusChange(event: ActivityEvent) {

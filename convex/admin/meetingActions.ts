@@ -95,8 +95,8 @@ export const adminMarkAsLost = mutation({
       await completeMeetingForOutcome(ctx, {
         meetingId: meeting._id,
         opportunityId: opportunity._id,
-        toMeetingStatus: "completed",
-        completedAt: now,
+        toMeetingStatus: "held",
+        recordedAt: now,
       });
     }
   },
@@ -252,8 +252,8 @@ export const adminConfirmFollowUp = mutation({
       await completeMeetingForOutcome(ctx, {
         meetingId: meeting._id,
         opportunityId: opportunity._id,
-        toMeetingStatus: "completed",
-        completedAt: now,
+        toMeetingStatus: "held",
+        recordedAt: now,
       });
     }
   },
@@ -345,8 +345,8 @@ export const adminCreateManualReminder = mutation({
       await completeMeetingForOutcome(ctx, {
         meetingId: meeting._id,
         opportunityId: opportunity._id,
-        toMeetingStatus: "completed",
-        completedAt: now,
+        toMeetingStatus: "held",
+        recordedAt: now,
       });
     }
 
@@ -419,7 +419,7 @@ export const adminMarkNoShow = mutation({
       meetingId: meeting._id,
         opportunityId: opportunity._id,
       toMeetingStatus: "no_show",
-      completedAt: now,
+      recordedAt: now,
       extraMeetingPatch: {
         noShowMarkedAt: now,
         noShowReason: args.reason,

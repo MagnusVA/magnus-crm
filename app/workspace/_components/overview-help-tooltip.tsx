@@ -99,7 +99,7 @@ export const overviewTooltips = {
 			"CRM user assigned to take the sales call.",
 		bookedCalls:
 			"All meetings scheduled in the range for this closer, across every status.",
-		completed:
+		held:
 			"Held meetings for this closer in the selected range.",
 		noShows:
 			"Meetings marked no-show for this closer in the selected range.",

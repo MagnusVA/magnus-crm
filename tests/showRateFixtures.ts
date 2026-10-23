@@ -6,7 +6,10 @@ import { recordBookingAttribution } from "../convex/lib/attribution/dealAttribut
 export const ATTENDANCE_NOW = Date.parse("2026-10-22T18:00:00Z");
 
 /** Mixed attendance across finished, current and upcoming business days. */
-export async function showRateFixture(now = ATTENDANCE_NOW) {
+export async function showRateFixture(
+  now = ATTENDANCE_NOW,
+  storage: "completed" | "held" | "mixed" = "completed",
+) {
   vi.useFakeTimers();
   vi.setSystemTime(now);
   const harness = await bookingHarness({ transactionLimits: true });
@@ -56,7 +59,11 @@ export async function showRateFixture(now = ATTENDANCE_NOW) {
       ["next-utc-day-finished", "scheduled", "2026-10-23T01:00:00Z"],
       ["next-business-day", "scheduled", "2026-10-23T07:00:00Z"],
     ] as const;
-    for (const [key, status, at] of specs) {
+    for (const [index, [key, legacyStatus, at]] of specs.entries()) {
+      const status = legacyStatus === "completed" &&
+        (storage === "held" || (storage === "mixed" && index === 0))
+        ? "held" : legacyStatus;
+      const completedAt = legacyStatus === "completed" ? Date.parse(at) + 60_000 : undefined;
       const meetingId = await ctx.db.insert("meetings", {
         tenantId,
         opportunityId,
@@ -66,6 +73,8 @@ export async function showRateFixture(now = ATTENDANCE_NOW) {
         scheduledAt: Date.parse(at),
         durationMinutes: 30,
         status,
+        completedAt,
+        heldMarkedAt: status === "held" ? completedAt : undefined,
         callClassification: "new",
         createdAt: 0,
       });

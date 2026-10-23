@@ -295,7 +295,7 @@ function PhoneCloserOperationsTable({
                 <TableRow>
                   <TableHead>Phone closer</TableHead>
                   <TableHead className="text-right">Booked calls</TableHead>
-                  <TableHead className="text-right">Completed</TableHead>
+                  <TableHead className="text-right">Held</TableHead>
                   <TableHead className="text-right">Canceled</TableHead>
                   <TableHead className="text-right">No shows</TableHead>
                   <TableHead className="text-right">Show rate</TableHead>

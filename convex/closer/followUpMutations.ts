@@ -280,8 +280,8 @@ export const confirmFollowUpScheduled = mutation({
       await completeMeetingForOutcome(ctx, {
         meetingId: meeting._id,
         opportunityId: opportunity._id,
-        toMeetingStatus: "completed",
-        completedAt: now,
+        toMeetingStatus: "held",
+        recordedAt: now,
       });
     }
   },
@@ -379,8 +379,8 @@ export const createManualReminderFollowUpPublic = mutation({
       await completeMeetingForOutcome(ctx, {
         meetingId: meeting._id,
         opportunityId: opportunity._id,
-        toMeetingStatus: "completed",
-        completedAt: now,
+        toMeetingStatus: "held",
+        recordedAt: now,
       });
     }
 

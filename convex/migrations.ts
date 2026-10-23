@@ -21,6 +21,7 @@ import { deriveStoredEventLinks, storedLeadIdMatches } from "./lib/domainEventLi
 import { getPersonProgramEnrollment } from "./enrollments/read";
 import { derivePersonEnrollments, paymentCounts } from "./lib/enrollments";
 import { lifecycleProblems } from "./lib/leadLifecycle";
+import { patchMeetingLifecycle } from "./lib/meetingLifecycle";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import {
   ensureUserTeamMember,
@@ -58,6 +59,37 @@ import { opportunityByStage } from "./reporting/aggregates";
 export const migrations = new Migrations<DataModel>(components.migrations);
 
 export const run = migrations.runner();
+
+export const backfillMeetingAttendance = migrations.define({
+  table: "meetings",
+  // Each patch replaces the aggregate, queues a projection, and refreshes deal
+  // refs and search rows. Keep headroom for those reads and component writes.
+  batchSize: 50,
+  migrateOne: async (ctx, meeting) => {
+    if (meeting.status === "completed") {
+      if (meeting.completedAt === undefined) throw new Error(meeting._id);
+      await patchMeetingLifecycle(ctx, meeting._id, {
+        status: "held",
+        heldMarkedAt: meeting.completedAt,
+      });
+    } else if (meeting.status === "no_show" && meeting.completedAt !== undefined) {
+      await patchMeetingLifecycle(ctx, meeting._id, { completedAt: undefined });
+    }
+  },
+});
+
+export const assertMeetingAttendance = migrations.define({
+  table: "meetings",
+  batchSize: 200,
+  migrateOne: async (_ctx, meeting) => {
+    if (
+      meeting.status === "completed" ||
+      (meeting.status === "held" && meeting.heldMarkedAt === undefined) ||
+      (meeting.status !== "held" && meeting.completedAt !== undefined) ||
+      (meeting.status !== "held" && meeting.heldMarkedAt !== undefined)
+    ) throw new Error(meeting._id);
+  },
+});
 
 export const backfillOpportunitySourceAndActivity = migrations.define({
   table: "opportunities",

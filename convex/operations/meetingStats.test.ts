@@ -380,7 +380,7 @@ it("includes a production-sized month with more than 1000 stats rows", async () 
   ).toMatchObject({ scheduled: 1300, truncated: false });
 });
 
-it("keeps a paid meeting completed and counted once when a late cancellation arrives", async () => {
+it("keeps a paid meeting held and counted once when a late cancellation arrives", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-02T00:00:00Z"));
   const { t, tenantId, admin, closer } = await bookingHarness();
@@ -432,7 +432,7 @@ it("keeps a paid meeting completed and counted once when a late cancellation arr
   const detail = await admin.query(api.closer.meetingDetail.getMeetingDetail, {
     meetingId: delivery.meetingId,
   });
-  expect(detail.meeting.status).toBe("completed");
+  expect(detail.meeting.status).toBe("held");
   expect(detail.opportunity).toMatchObject({ stage: "closed", outcome: "won" });
   expect(detail.payments).toHaveLength(1);
   expect(

@@ -1,5 +1,6 @@
 "use client";
 
+import { meetingEventStatusLabel } from "@/lib/status-config";
 import { formatDistanceToNow } from "date-fns";
 import {
   Activity,
@@ -128,10 +129,10 @@ export function ActivityEventRow({ event }: ActivityEventRowProps) {
     event.entityType === "opportunity" ? dealEventOutcomes(event.metadata) : null;
   const fromStatus = dealOutcomes
     ? dealEventStateLabel(rawFromStatus, dealOutcomes.fromOutcome)
-    : rawFromStatus;
+    : meetingEventStatusLabel(event.eventType, rawFromStatus);
   const toStatus = dealOutcomes
     ? dealEventStateLabel(rawToStatus, dealOutcomes.toOutcome)
-    : rawToStatus;
+    : meetingEventStatusLabel(event.eventType, rawToStatus);
 
   const paymentMetadata =
     event.entityType === "payment" ? event.paymentMetadata ?? null : null;

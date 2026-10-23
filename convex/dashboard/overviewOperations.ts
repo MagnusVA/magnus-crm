@@ -15,7 +15,7 @@ export const OPERATIONS_STATS_ROW_LIMIT = 8192;
 type OperationsStatsRow = Doc<"operationsMeetingStatsV2">;
 type OperationsTotals = {
   scheduled: number;
-  completed: number;
+  held: number;
   noShows: number;
   reviewRequired: number;
   notRecorded: number;
@@ -24,7 +24,7 @@ type OperationsTotals = {
 function emptyOperationsTotals(): OperationsTotals {
   return {
     scheduled: 0,
-    completed: 0,
+    held: 0,
     noShows: 0,
     reviewRequired: 0,
     notRecorded: 0,
@@ -37,7 +37,7 @@ function addOperationRow(
 ) {
   totals.scheduled += row.count;
   totals.notRecorded += row.notRecorded;
-  if (isHeldStatus(row.meetingStatus)) totals.completed += row.count;
+  if (isHeldStatus(row.meetingStatus)) totals.held += row.count;
   if (row.meetingStatus === "no_show") totals.noShows += row.count;
 }
 
@@ -122,10 +122,10 @@ export async function getPhoneCloserOperationsOverviewSection(
       closerId,
       closer: closerIdentity,
       ...totals,
-      resultsRecorded: totals.completed + totals.noShows,
-      pastCalls: totals.completed + totals.noShows + totals.notRecorded,
-      showRate: toRate(totals.completed, totals.completed + totals.noShows),
-      noShowRate: toRate(totals.noShows, totals.completed + totals.noShows),
+      resultsRecorded: totals.held + totals.noShows,
+      pastCalls: totals.held + totals.noShows + totals.notRecorded,
+      showRate: toRate(totals.held, totals.held + totals.noShows),
+      noShowRate: toRate(totals.noShows, totals.held + totals.noShows),
     });
   }
 
@@ -139,7 +139,7 @@ export async function getPhoneCloserOperationsOverviewSection(
   const operationTotals = [...byCloser.values()].reduce(
     (acc, totals) => ({
       scheduled: acc.scheduled + totals.scheduled,
-      completed: acc.completed + totals.completed,
+      held: acc.held + totals.held,
       noShows: acc.noShows + totals.noShows,
       reviewRequired: acc.reviewRequired + totals.reviewRequired,
       notRecorded: acc.notRecorded + totals.notRecorded,
@@ -153,13 +153,13 @@ export async function getPhoneCloserOperationsOverviewSection(
       rows: sortedRows,
       totals: {
         scheduled: operationTotals.scheduled,
-        completed: operationTotals.completed,
+        held: operationTotals.held,
         noShows: operationTotals.noShows,
         reviewRequired: operationTotals.reviewRequired,
-        resultsRecorded: operationTotals.completed + operationTotals.noShows,
-        pastCalls: operationTotals.completed + operationTotals.noShows + operationTotals.notRecorded,
-        showRate: toRate(operationTotals.completed, operationTotals.completed + operationTotals.noShows),
-        noShowRate: toRate(operationTotals.noShows, operationTotals.completed + operationTotals.noShows),
+        resultsRecorded: operationTotals.held + operationTotals.noShows,
+        pastCalls: operationTotals.held + operationTotals.noShows + operationTotals.notRecorded,
+        showRate: toRate(operationTotals.held, operationTotals.held + operationTotals.noShows),
+        noShowRate: toRate(operationTotals.noShows, operationTotals.held + operationTotals.noShows),
       },
     },
     isEmpty: sortedRows.length === 0,

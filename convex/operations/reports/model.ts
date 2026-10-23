@@ -1,4 +1,4 @@
-import type { Id } from "../../_generated/dataModel";
+import type { Doc, Id } from "../../_generated/dataModel";
 import type {
   ReportContribution,
   ReportKind,
@@ -170,7 +170,7 @@ export type ReportSourceRow =
       leadId: string | null;
       bookedAt: number;
       scheduledAt: number;
-      meetingStatus: string;
+      meetingStatus: Doc<"meetings">["status"];
       attendance: string;
       // The deal's stage and outcome (docs/plans/phase-5-deal-status.md §6.6).
       dealStage: string | null;
@@ -208,7 +208,7 @@ export type ReportSourceRow =
       notRecorded: number;
       assignedCloserId: string;
       bookingProgramId: string | null;
-      meetingStatus: string;
+      meetingStatus: Doc<"meetings">["status"];
       count: number;
     }
   | {
@@ -217,7 +217,7 @@ export type ReportSourceRow =
       opportunityId: string;
       assignedCloserId: string;
       scheduledAt: number;
-      status: string;
+      status: Doc<"meetings">["status"];
       attendance: string;
       bookingProgramId: string | null;
       bookingProgramName: string | null;

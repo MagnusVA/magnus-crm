@@ -1,4 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { attendanceStorageModes, heldAttendanceFixture } from "../../tests/heldAttendanceFixtures";
 import { api, internal } from "../_generated/api";
 import { ATTENDANCE_NOW, showRateFixture } from "../../tests/showRateFixtures";
 import { getPhoneCloserOperationsOverviewSection } from "../dashboard/overviewOperations";
@@ -31,8 +32,8 @@ const timestampRange = {
 };
 const results = { resultsRecorded: 3, pastCalls: 5 };
 
-it("uses recorded attendance in every live report and excludes in-progress/upcoming calls from past calls", async () => {
-  const { admin, t, tenantId, teamId } = await showRateFixture();
+it.each(attendanceStorageModes)("uses %s attendance in every live report without counting held calls twice", async (storage) => {
+  const { admin, t, tenantId, teamId } = await heldAttendanceFixture(storage);
   const sales = await admin.query(
     api.operations.salesCallsDashboard.getSalesCallsDashboard,
     { range },
@@ -110,7 +111,9 @@ it("uses recorded attendance in every live report and excludes in-progress/upcom
   );
   expect(overview.data.attendanceCountsPartial).toBe(false);
   for (const row of [overview.data.rows[0], overview.data.totals]) {
+    expect(row).not.toHaveProperty("completed");
     expect(row).toMatchObject({
+      held: 2,
       ...results,
       scheduled: 8,
       showRate: 2 / 3,
@@ -138,6 +141,7 @@ it("returns null rates when scheduled calls have no attendance result", async ()
     totalCalls: 2,
   });
   expect(isHeldStatus("completed")).toBe(true);
+  expect(isHeldStatus("held")).toBe(true);
   expect(isHeldStatus("scheduled")).toBe(false);
   expect(isHeldStatus("no_show")).toBe(false);
 });

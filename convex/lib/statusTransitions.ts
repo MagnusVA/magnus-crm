@@ -6,6 +6,7 @@
 export const MEETING_STATUSES = [
   "scheduled",
   "completed",
+  "held",
   "canceled",
   "no_show",
 ] as const;
@@ -18,8 +19,9 @@ export const MEETING_VALID_TRANSITIONS: Record<
   MeetingStatus,
   MeetingStatus[]
 > = {
-  scheduled: ["completed", "canceled", "no_show"],
+  scheduled: ["completed", "held", "canceled", "no_show"],
   completed: [],
+  held: [],
   canceled: [],
   no_show: ["scheduled"], // Webhook reversal (Calendly no-show deletion)
 };

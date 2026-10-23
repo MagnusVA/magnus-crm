@@ -5,6 +5,7 @@
  * filtered paths now read `dealAttributions` and must keep them.
  */
 import { afterEach, expect, it, vi } from "vitest";
+import { attendanceStorageModes, type AttendanceStorage } from "../../tests/heldAttendanceFixtures";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
@@ -68,7 +69,7 @@ async function insertDmCloser(
  * booked through a different DM closer and team. m12 has rows but was never
  * projected, so neither read counts it.
  */
-async function seed() {
+async function seed(storage: AttendanceStorage = "completed") {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-04T00:00:00Z"));
   const harness = await bookingHarness();
@@ -146,7 +147,8 @@ async function seed() {
         calendlyInviteeUri: `https://api.calendly.com/scheduled_events/${key}/invitees/person`,
         scheduledAt,
         durationMinutes: 30,
-        status,
+        status: status === "completed" && (storage === "held" || (storage === "mixed" && Number(key.slice(1)) % 2 === 0)) ? "held" : status,
+        heldMarkedAt: status === "completed" && (storage === "held" || (storage === "mixed" && Number(key.slice(1)) % 2 === 0)) ? scheduledAt : undefined,
         callClassification: options.deal ? "follow_up" : "new",
         createdAt: scheduledAt - 86_400_000,
         bookingProgramId: options.programId,
@@ -185,8 +187,8 @@ type Filters = {
   dmCloserId?: Id<"dmClosers">;
 };
 
-it("keeps the pipeline show rate for every team, DM closer and program filter", async () => {
-  const { admin, programId, t1, t2, d1a, d1b, d2 } = await seed();
+it.each(attendanceStorageModes)("keeps the pipeline show rate for every team, DM closer and program filter with %s rows", async (storage) => {
+  const { admin, programId, t1, t2, d1a, d1b, d2 } = await seed(storage);
   const showRate = (filters: Filters) =>
     admin.query(api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions, {
       startDayKey: "2026-10-01",
@@ -224,8 +226,8 @@ it("keeps the pipeline show rate for every team, DM closer and program filter", 
   expect(await showRate({ bookingProgramId: programId, dmCloserId: d2 })).toEqual(counts(0, 0, 0, 0));
 });
 
-it("keeps the team operations dimensions for every team, DM closer and program filter", async () => {
-  const { admin, closerA, closerB, programId, t1, t2, d1a, d1b, d2 } = await seed();
+it.each(attendanceStorageModes)("keeps the team operations dimensions for every team, DM closer and program filter with %s rows", async (storage) => {
+  const { admin, closerA, closerB, programId, t1, t2, d1a, d1b, d2 } = await seed(storage);
   // Mid-day bounds: the report keys by the UTC day of each end, as the buckets do.
   const dimensions = async (filters: Filters) => {
     const result = await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
