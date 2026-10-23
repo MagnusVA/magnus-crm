@@ -1,5 +1,8 @@
 "use client";
 
+import { useNow } from "@/hooks/use-now";
+import { meetingStatusConfig, meetingAttendanceDisplay } from "@/lib/status-config";
+
 import { useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePaginatedQuery, useQuery } from "convex/react";
@@ -63,16 +66,6 @@ function formatDate(value?: number | null) {
   return value ? dateTimeFormatter.format(new Date(value)) : "—";
 }
 
-const MEETING_STATUS_META: Record<
-  SalesCallRow["meetingStatus"],
-  { label: string; variant: "outline" | "secondary" | "muted" | "destructive" }
-> = {
-  scheduled: { label: "Scheduled", variant: "outline" },
-  completed: { label: "Completed", variant: "secondary" },
-  canceled: { label: "Canceled", variant: "muted" },
-  no_show: { label: "No Show", variant: "destructive" },
-};
-
 function DetailField({
   label,
   children,
@@ -89,7 +82,9 @@ function DetailField({
 }
 
 function MeetingSummary({ row }: { row: SalesCallRow }) {
-  const status = MEETING_STATUS_META[row.meetingStatus];
+  const status = meetingStatusConfig[
+    meetingAttendanceDisplay({ ...row, status: row.meetingStatus }, useNow())
+  ];
   return (
     <div className="flex min-w-0 items-center gap-3">
       <span className="min-w-0 flex-1 truncate font-medium">{row.leadName}</span>
@@ -109,7 +104,7 @@ function MeetingSummary({ row }: { row: SalesCallRow }) {
         </TooltipTrigger>
         <TooltipContent>Scheduled {formatDate(row.scheduledAt)}</TooltipContent>
       </Tooltip>
-      <Badge className="shrink-0" variant={status.variant}>
+      <Badge className={status.badgeClass} variant="outline">
         {status.label}
       </Badge>
     </div>

@@ -1,5 +1,7 @@
 "use client";
 
+import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
+
 import { useCallback, useEffect, useState } from "react";
 import { AlertTriangleIcon } from "lucide-react";
 import { useQuery } from "convex/react";
@@ -188,6 +190,7 @@ export function TeamReportPageClient() {
       ) : null}
 
       <TeamKpiSummaryCards
+        attendanceCountsPartial={metrics.attendanceCountsPartial}
         totals={metrics.teamTotals}
         derivedOutcomes={outcomeMix.derived}
         actionsPerCloser={actionsPerCloser}
@@ -206,6 +209,7 @@ export function TeamReportPageClient() {
           <CloserPerformanceTable
             closers={metrics.closers}
             callType="new"
+            attendanceCountsPartial={metrics.attendanceCountsPartial}
             teamTotals={metrics.teamTotals}
           />
         </section>
@@ -221,6 +225,7 @@ export function TeamReportPageClient() {
           <CloserPerformanceTable
             closers={metrics.closers}
             callType="follow_up"
+            attendanceCountsPartial={metrics.attendanceCountsPartial}
             teamTotals={metrics.teamTotals}
           />
         </section>
@@ -228,7 +233,7 @@ export function TeamReportPageClient() {
         <Separator />
 
         <section className="flex flex-col gap-6">
-          <MeetingOutcomeDistributionChart outcomeMix={outcomeMix.teamOutcome} />
+          <MeetingOutcomeDistributionChart outcomeMix={outcomeMix.displayOutcome} />
         </section>
       </div>
     </div>
@@ -247,6 +252,8 @@ function PhoneCloserOperationsTable({
       completed: number;
       canceled: number;
       noShows: number;
+      resultsRecorded: number;
+      pastCalls: number;
       showRate: number | null;
       noShowRate: number | null;
     }>;
@@ -255,9 +262,12 @@ function PhoneCloserOperationsTable({
       completed: number;
       canceled: number;
       noShows: number;
+      resultsRecorded: number;
+      pastCalls: number;
       showRate: number | null;
       noShowRate: number | null;
     };
+    attendanceCountsPartial: boolean;
     truncated: boolean;
   };
 }) {
@@ -269,7 +279,7 @@ function PhoneCloserOperationsTable({
             <CardTitle>Phone Closer Operations</CardTitle>
             <CardDescription>
               Booked-call outcomes by phone closer, filterable by booked
-              program, DM team, and DM closer attribution.
+              program, DM team, and DM closer attribution. {SHOW_RATE_HELP}
             </CardDescription>
           </div>
           {data.truncated ? (
@@ -316,6 +326,7 @@ function PhoneCloserOperationsTable({
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatRate(row.showRate)}
+                      <ResultsRecorded {...row} attendanceCountsPartial={data.attendanceCountsPartial} />
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatRate(row.noShowRate)}
@@ -338,6 +349,7 @@ function PhoneCloserOperationsTable({
                   </TableCell>
                   <TableCell className="text-right font-semibold tabular-nums">
                     {formatRate(data.totals.showRate)}
+                    <ResultsRecorded {...data.totals} attendanceCountsPartial={data.attendanceCountsPartial} />
                   </TableCell>
                   <TableCell className="text-right font-semibold tabular-nums">
                     {formatRate(data.totals.noShowRate)}

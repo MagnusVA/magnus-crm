@@ -1,5 +1,8 @@
 "use client";
 
+import { useNow } from "@/hooks/use-now";
+import { meetingAttendanceDisplay, meetingStatusConfig, type MeetingStatus } from "@/lib/status-config";
+
 import { useRouter } from "next/navigation";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -10,7 +13,8 @@ type RescheduleChainBannerProps = {
   rescheduledFromMeeting: {
     _id: string;
     scheduledAt: number;
-    status: string;
+    status: MeetingStatus;
+    durationMinutes: number;
   };
 };
 
@@ -18,6 +22,9 @@ export function RescheduleChainBanner({
   rescheduledFromMeeting,
 }: RescheduleChainBannerProps) {
   const router = useRouter();
+  const status = meetingStatusConfig[
+    meetingAttendanceDisplay(rescheduledFromMeeting, useNow())
+  ];
 
   return (
     <Alert className="mb-0">
@@ -29,7 +36,7 @@ export function RescheduleChainBanner({
             new Date(rescheduledFromMeeting.scheduledAt),
             "MMM d, h:mm a",
           )}{" "}
-          meeting ({rescheduledFromMeeting.status.replace("_", " ")})
+          meeting ({status.label})
         </span>
         <Button
           variant="link"

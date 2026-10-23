@@ -220,13 +220,14 @@ export function SalesCallsPageClient() {
         />
       ) : null}
 
-      <SalesCallsStatCards stats={dashboardData?.stats} currency={currency} />
+      <SalesCallsStatCards attendanceCountsPartial={dashboardData?.attendanceCountsPartial} stats={dashboardData?.stats} currency={currency} />
       <PerProgramStatCard
         data={dashboardData?.perProgram}
         rangeLabel={rangeLabel}
         currency={currency}
       />
       <PhoneCloserTable
+        attendanceCountsPartial={dashboardData?.attendanceCountsPartial}
         rows={dashboardData?.closers}
         teamTotal={dashboardData?.teamTotal}
         currency={currency}

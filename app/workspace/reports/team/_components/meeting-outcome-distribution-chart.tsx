@@ -34,7 +34,9 @@ const OUTCOME_META: Record<OutcomeKey, { label: string; color: string }> = {
   rescheduled: { label: "Rescheduled", color: "var(--chart-3)" },
   dq: { label: "Disqualified", color: "var(--chart-5)" },
   follow_up: { label: "Follow-Up", color: "var(--chart-4)" },
-  scheduled: { label: "Scheduled", color: "var(--chart-5)" },
+  not_recorded: { label: "Not recorded", color: "var(--color-amber-500)" },
+  upcoming: { label: "Upcoming", color: "var(--chart-5)" },
+  scheduled: { label: "Awaiting outcome", color: "var(--chart-5)" },
 };
 
 interface MeetingOutcomeDistributionChartProps {
@@ -81,7 +83,7 @@ export function MeetingOutcomeDistributionChart({
       <CardHeader>
         <CardTitle>Meeting Outcome Distribution</CardTitle>
         <CardDescription>
-          Outcome mix across completed, canceled, no-show, and rescheduled
+          Outcome mix across held, canceled, no-show, and rescheduled
           meetings in the selected range.
         </CardDescription>
       </CardHeader>

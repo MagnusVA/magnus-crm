@@ -1,3 +1,4 @@
+import { isHeldStatus, withAttendanceCounts } from "../lib/meetingAttendance";
 import { requireReportingReady } from "../operations/reportingReadiness";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
@@ -17,6 +18,7 @@ type OperationsTotals = {
   completed: number;
   noShows: number;
   reviewRequired: number;
+  notRecorded: number;
 };
 
 function emptyOperationsTotals(): OperationsTotals {
@@ -25,15 +27,17 @@ function emptyOperationsTotals(): OperationsTotals {
     completed: 0,
     noShows: 0,
     reviewRequired: 0,
+    notRecorded: 0,
   };
 }
 
 function addOperationRow(
   totals: OperationsTotals,
-  row: OperationsStatsRow,
+  row: OperationsStatsRow & { notRecorded: number },
 ) {
   totals.scheduled += row.count;
-  if (row.meetingStatus === "completed") totals.completed += row.count;
+  totals.notRecorded += row.notRecorded;
+  if (isHeldStatus(row.meetingStatus)) totals.completed += row.count;
   if (row.meetingStatus === "no_show") totals.noShows += row.count;
 }
 
@@ -99,7 +103,8 @@ export async function getPhoneCloserOperationsOverviewSection(
   const rows = await readOperationsStatsRows(ctx, tenantId, range);
   const byCloser = new Map<Id<"users">, OperationsTotals>();
 
-  for (const row of rows) {
+  const attendance = await withAttendanceCounts(ctx, tenantId, rows);
+  for (const row of attendance.counts) {
     const current = byCloser.get(row.assignedCloserId) ?? emptyOperationsTotals();
     addOperationRow(current, row);
     byCloser.set(row.assignedCloserId, current);
@@ -117,8 +122,10 @@ export async function getPhoneCloserOperationsOverviewSection(
       closerId,
       closer: closerIdentity,
       ...totals,
-      showRate: toRate(totals.completed, totals.scheduled),
-      noShowRate: toRate(totals.noShows, totals.scheduled),
+      resultsRecorded: totals.completed + totals.noShows,
+      pastCalls: totals.completed + totals.noShows + totals.notRecorded,
+      showRate: toRate(totals.completed, totals.completed + totals.noShows),
+      noShowRate: toRate(totals.noShows, totals.completed + totals.noShows),
     });
   }
 
@@ -135,20 +142,24 @@ export async function getPhoneCloserOperationsOverviewSection(
       completed: acc.completed + totals.completed,
       noShows: acc.noShows + totals.noShows,
       reviewRequired: acc.reviewRequired + totals.reviewRequired,
+      notRecorded: acc.notRecorded + totals.notRecorded,
     }),
     emptyOperationsTotals(),
   );
 
   return {
     data: {
+      attendanceCountsPartial: attendance.attendanceCountsPartial,
       rows: sortedRows,
       totals: {
         scheduled: operationTotals.scheduled,
         completed: operationTotals.completed,
         noShows: operationTotals.noShows,
         reviewRequired: operationTotals.reviewRequired,
-        showRate: toRate(operationTotals.completed, operationTotals.scheduled),
-        noShowRate: toRate(operationTotals.noShows, operationTotals.scheduled),
+        resultsRecorded: operationTotals.completed + operationTotals.noShows,
+        pastCalls: operationTotals.completed + operationTotals.noShows + operationTotals.notRecorded,
+        showRate: toRate(operationTotals.completed, operationTotals.completed + operationTotals.noShows),
+        noShowRate: toRate(operationTotals.noShows, operationTotals.completed + operationTotals.noShows),
       },
     },
     isEmpty: sortedRows.length === 0,

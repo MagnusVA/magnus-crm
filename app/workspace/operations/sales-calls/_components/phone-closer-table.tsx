@@ -1,5 +1,6 @@
 "use client";
 
+import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
 import { useMemo } from "react";
 import {
   Card,
@@ -67,8 +68,8 @@ const tooltips = {
   booked: "Meetings scheduled for this closer in the range, across every status.",
   canceled: "Meetings marked canceled for this closer in the range.",
   noShows: "Meetings marked no-show for this closer in the range.",
-  showed: "Meetings marked completed for this closer in the range.",
-  showUpRate: "Showed ÷ (booked − canceled). Shows — with no non-canceled calls.",
+  showed: "Held meetings for this closer in the range.",
+  showUpRate: SHOW_RATE_HELP,
   paymentSales:
     "Final payments attributed to this closer in the range.",
   paymentRevenue: "Sum of those payments' amounts.",
@@ -160,10 +161,12 @@ function numericColumns(currency: string): Array<{
  * emphasized Team Total footer row computed server-side from the closer rows.
  */
 export function PhoneCloserTable({
+  attendanceCountsPartial,
   rows,
   teamTotal,
   currency,
 }: {
+  attendanceCountsPartial?: boolean;
   rows: SalesCloserRow[] | undefined;
   teamTotal: SalesTeamTotal | undefined;
   currency: string;
@@ -252,6 +255,7 @@ export function PhoneCloserTable({
                         }
                       >
                         {column.render(row)}
+                        {column.key === "showUpRate" ? <ResultsRecorded {...row} attendanceCountsPartial={attendanceCountsPartial} /> : null}
                       </TableCell>
                     ))}
                   </TableRow>
@@ -273,6 +277,7 @@ export function PhoneCloserTable({
                       className="text-right text-sm font-semibold tabular-nums"
                     >
                       {column.render(teamTotal)}
+                      {column.key === "showUpRate" ? <ResultsRecorded {...teamTotal} attendanceCountsPartial={attendanceCountsPartial} /> : null}
                     </TableCell>
                   ))}
                 </TableRow>

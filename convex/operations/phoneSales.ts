@@ -234,6 +234,7 @@ export async function enrichPhoneSalesRows(
       leadId: lead?._id ?? null,
       leadName,
       scheduledAt: meeting.scheduledAt,
+      durationMinutes: meeting.durationMinutes,
       meetingStatus: meeting.status,
       // The deal's position and the loss the system wrote on it, from the
       // deal (docs/plans/phase-5-deal-status.md §6.6).

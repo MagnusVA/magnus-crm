@@ -355,8 +355,8 @@ const CREDITED_ROW_BYTE_BUDGET = 4 * 1024 * 1024;
 /** Meetings counted by closer, booked program and status: a bucket, or one meeting. */
 export type MeetingStatsCount = Pick<
   Contribution,
-  "assignedCloserId" | "bookingProgramId" | "meetingStatus"
-> & { count: number };
+  "dayKey" | "assignedCloserId" | "bookingProgramId" | "soldProgramId" | "meetingStatus"
+> & { count: number; meetingId?: Id<"meetings"> };
 
 type MeetingStatsRange = {
   tenantId: Id<"tenants">;
@@ -507,6 +507,9 @@ export async function readMeetingStatsCounts(
       continue;
     }
     counts.push({
+      dayKey: contribution.dayKey,
+      meetingId: projection.meetingId,
+      soldProgramId: contribution.soldProgramId,
       assignedCloserId: contribution.assignedCloserId,
       bookingProgramId: contribution.bookingProgramId,
       meetingStatus: contribution.meetingStatus,

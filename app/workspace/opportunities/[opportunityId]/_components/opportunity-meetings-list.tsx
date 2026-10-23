@@ -1,3 +1,6 @@
+"use client";
+
+import { useNow } from "@/hooks/use-now";
 import Link from "next/link";
 import { ExternalLinkIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -16,12 +19,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { meetingStatusConfig } from "@/lib/status-config";
+import { meetingStatusConfig, meetingAttendanceDisplay, type MeetingStatus } from "@/lib/status-config";
 import type { Id } from "@/convex/_generated/dataModel";
 
 type Meeting = {
   _id: Id<"meetings">;
-  status: keyof typeof meetingStatusConfig;
+  status: MeetingStatus;
   scheduledAt: number;
   durationMinutes: number;
   callClassification?: "new" | "follow_up";
@@ -51,6 +54,7 @@ export function OpportunityMeetingsList({
   meetingBasePath: string;
   compact?: boolean;
 }) {
+  const now = useNow();
   if (meetings.length === 0) {
     return (
       <Empty>
@@ -85,7 +89,7 @@ export function OpportunityMeetingsList({
             <TableCell>
               {dateTimeFormatter.format(new Date(meeting.scheduledAt))}
             </TableCell>
-            <TableCell>{meetingStatusConfig[meeting.status].label}</TableCell>
+            <TableCell>{meetingStatusConfig[meetingAttendanceDisplay(meeting, now)].label}</TableCell>
             {compact ? null : (
               <TableCell>{formatMeetingType(meeting.callClassification)}</TableCell>
             )}

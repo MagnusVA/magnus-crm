@@ -1,3 +1,4 @@
+import { isHeldStatus, withAttendanceCounts } from "../lib/meetingAttendance";
 import { readMeetingStatsCounts } from "../operations/meetingStats";
 import { requireReportingReady } from "../operations/reportingReadiness";
 import { v } from "convex/values";
@@ -673,8 +674,11 @@ export const getSchedulingShowRateByOperationsDimensions = query({
     shown: v.number(),
     canceled: v.number(),
     noShows: v.number(),
+    resultsRecorded: v.number(),
+    pastCalls: v.number(),
     showRate: v.union(v.number(), v.null()),
     noShowRate: v.union(v.number(), v.null()),
+    attendanceCountsPartial: v.boolean(),
     truncated: v.boolean(),
   }),
   handler: async (ctx, args) => {
@@ -708,9 +712,12 @@ export const getSchedulingShowRateByOperationsDimensions = query({
     let shown = 0;
     let canceled = 0;
     let noShows = 0;
-    for (const row of filtered) {
+    let notRecorded = 0;
+    const attendance = await withAttendanceCounts(ctx, tenantId, filtered);
+    for (const row of attendance.counts) {
       scheduled += row.count;
-      if (row.meetingStatus === "completed") {
+      notRecorded += row.notRecorded;
+      if (isHeldStatus(row.meetingStatus)) {
         shown += row.count;
       }
       if (row.meetingStatus === "canceled") {
@@ -720,15 +727,18 @@ export const getSchedulingShowRateByOperationsDimensions = query({
         noShows += row.count;
       }
     }
-    const denominator = scheduled - canceled;
+    const denominator = shown + noShows;
 
     return {
       scheduled,
       shown,
       canceled,
       noShows,
+      resultsRecorded: denominator,
+      pastCalls: denominator + notRecorded,
       showRate: toRate(shown, denominator),
       noShowRate: toRate(noShows, denominator),
+      attendanceCountsPartial: attendance.attendanceCountsPartial,
       truncated,
     };
   },

@@ -13,6 +13,7 @@ import {
   businessDateToUtcStart,
 } from "../reporting/lib/hondurasBusinessTime";
 import { requireTenantUser } from "../requireTenantUser";
+import { leadGenDealsByWorker } from "./leadGenDealsAggregate";
 
 // Prospect-to-customer conversion by lead gen worker
 // (docs/plans/phase-2-person-first.md §7). Credit goes to the worker who
@@ -51,7 +52,25 @@ async function countLeadGenDeals(
   tenantId: Id<"tenants">,
   startAt: number,
   endAt: number,
+  workerIds: Id<"leadGenWorkers">[],
 ): Promise<{ byWorker: Map<Id<"leadGenWorkers">, number>; capped: boolean }> {
+  const tenant = await ctx.db.get("tenants", tenantId);
+  if (tenant?.leadGenDealsAggregateVerifiedAt !== undefined) {
+    const counts = await leadGenDealsByWorker.countBatch(
+      ctx,
+      workerIds.map((workerId) => ({
+        namespace: tenantId,
+        bounds: {
+          lower: { key: [workerId, startAt], inclusive: true },
+          upper: { key: [workerId, endAt], inclusive: false },
+        },
+      })),
+    );
+    return {
+      byWorker: new Map(workerIds.map((id, index) => [id, counts[index]])),
+      capped: false,
+    };
+  }
   const read = await readLiveQueryRows(
     ctx.db
       .query("dealAttributions")
@@ -107,9 +126,12 @@ export const listProspectConversions = query({
       .withIndex("by_tenantId_and_isActive", (q) => q.eq("tenantId", tenantId))
       .take(WORKER_LIMIT + 1);
     const capped = workers.length > WORKER_LIMIT;
-    const deals = await countLeadGenDeals(ctx, tenantId, startAt, endAt);
+    const workerPage = workers.slice(0, WORKER_LIMIT);
+    const deals = await countLeadGenDeals(
+      ctx, tenantId, startAt, endAt, workerPage.map((worker) => worker._id),
+    );
     const rows = [];
-    for (const worker of workers.slice(0, WORKER_LIMIT)) {
+    for (const worker of workerPage) {
       const counts = {} as Record<(typeof LIFECYCLE_STAGES)[number], number>;
       for (const stage of LIFECYCLE_STAGES) {
         counts[stage] = await countProspectConversions(ctx, tenantId, worker._id, stage, startAt, endAt);

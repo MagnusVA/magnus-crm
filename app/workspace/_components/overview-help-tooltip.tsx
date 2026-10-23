@@ -100,15 +100,15 @@ export const overviewTooltips = {
 		bookedCalls:
 			"All meetings scheduled in the range for this closer, across every status.",
 		completed:
-			"Meetings marked completed for this closer in the selected range.",
+			"Held meetings for this closer in the selected range.",
 		noShows:
 			"Meetings marked no-show for this closer in the selected range.",
 		reviewRequired:
 			"Meetings requiring operations review in the selected range.",
 		showRate:
-			"Completed calls divided by booked calls.",
+			"Held calls ÷ (held + no-show). Canceled and not-recorded calls are left out.",
 		noShowRate:
-			"No-show calls divided by booked calls.",
+			"No-show calls ÷ (held + no-show). Canceled and not-recorded calls are left out.",
 	},
 	topOrigins: {
 		section:

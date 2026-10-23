@@ -157,21 +157,47 @@ describe("operations report reducers", () => {
     ).toMatchObject({ submissions: 2, uniqueProspects: 1, dayCount: 1 });
   });
 
-  it("derives null-safe show-up rates and keeps legitimate rates above one", () => {
-    const result = finalizeAggregateRecord({
-      section: "sales_calls_summary",
-      rowKey: "main",
-      fields: {
-        booked: 5,
-        showed: 2,
-        canceled: 4,
-      },
-      range: { ...range, boundary: "utc_day" },
-    });
-    expect(result?.payload).toMatchObject({
-      totalCalls: 5,
-      showUpRate: 2,
-    });
+  it.each(["sales_calls_summary", "sales_closer", "sales_program"])(
+    "%s uses held / (held + no-show) and counts missing results",
+    (section) => {
+      const result = finalizeAggregateRecord({
+        section,
+        rowKey: "main",
+        fields: { booked: 7, showed: 2, noShows: 1, canceled: 1, notRecorded: 2 },
+        range: { ...range, boundary: "utc_day" },
+      });
+      expect(result?.payload).toMatchObject({
+        showUpRate: 2 / 3,
+        resultsRecorded: 3,
+        pastCalls: 5,
+      });
+      expect(finalizeAggregateRecord({
+        section,
+        rowKey: "main",
+        fields: { booked: 3, showed: 0, noShows: 0, canceled: 1, notRecorded: 2 },
+        range: { ...range, boundary: "utc_day" },
+      })?.payload).toMatchObject({ showUpRate: null, resultsRecorded: 0, pastCalls: 2 });
+    },
+  );
+
+  it("keeps partial attendance when later source pages are complete", () => {
+    const row: ReportSourceRow = {
+      kind: "sales_meeting_stat", assignedCloserId: "closer", bookingProgramId: "program",
+      meetingStatus: "scheduled", count: 2, notRecorded: 1,
+    };
+    const records = applyContributions([true, false].map((attendanceCountsPartial) =>
+      reduceReportSourcePage({
+        sourceKey: "sales_meeting_stats", range,
+        rows: [{ ...row, attendanceCountsPartial }],
+      }),
+    ));
+    for (const [section, rowKey] of [
+      ["sales_calls_summary", "main"], ["sales_closer", "closer"], ["sales_program", "program"],
+    ]) {
+      expect(finalizeAggregateRecord({
+        section, rowKey, fields: records.get(`${section}/${rowKey}`)!, range,
+      })?.payload).toMatchObject({ attendanceCountsPartial: true, notRecorded: 2, pastCalls: 2 });
+    }
   });
 
   it("keeps sales money in separate normalized currency buckets", () => {
@@ -300,6 +326,7 @@ describe("operations report reducers", () => {
         bookedAt: range.startTimestamp,
         scheduledAt: range.startTimestamp,
         meetingStatus: "scheduled",
+        attendance: "Not recorded",
         dealStage: "booked",
         dealOutcome: "open",
         bookingProgramId: null,

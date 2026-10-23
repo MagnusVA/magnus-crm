@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useNow } from "@/hooks/use-now";
+import type { MeetingStatus } from "@/lib/status-config";
 import type { DealPosition, SystemLossReason } from "@/convex/opportunities/stages";
 
 /**
@@ -23,7 +24,7 @@ export type EnrichedMeeting = {
     _id: string;
     scheduledAt: number;
     durationMinutes: number;
-    status: string;
+    status: MeetingStatus;
     meetingJoinUrl?: string;
     zoomJoinUrl?: string;
   };
@@ -244,12 +245,5 @@ export function formatHour(hour: number): string {
  * // Re-renders every 60 seconds
  */
 export function useCurrentTime(intervalMs = 60_000): Date {
-  const [now, setNow] = useState(() => new Date());
-
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
-
-  return now;
+  return new Date(useNow(intervalMs));
 }

@@ -11,7 +11,7 @@ type TeamOutcomeMixMetrics = FunctionReturnType<
   typeof api.reporting.teamOutcomes.getTeamOutcomeMix
 >;
 
-export type OutcomeKey = keyof TeamOutcomeMixMetrics["teamOutcome"];
+export type OutcomeKey = keyof TeamOutcomeMixMetrics["displayOutcome"];
 export type CallMetrics = TeamPerformanceMetrics["closers"][number]["newCalls"];
 export type CloserData = TeamPerformanceMetrics["closers"][number];
 export type TeamTotals = TeamPerformanceMetrics["teamTotals"];

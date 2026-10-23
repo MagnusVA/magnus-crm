@@ -1,3 +1,4 @@
+import { ResultsRecorded } from "./results-recorded";
 import { cn } from "@/lib/utils";
 import {
 	Table,
@@ -13,6 +14,12 @@ import {
 	overviewTooltips,
 } from "./overview-help-tooltip";
 import { formatRate, formatWholeNumber } from "./overview-formatters";
+
+// Show and no-show rates use "—" when no call was held or missed, as every
+// other show-rate screen does.
+function formatShowRate(value: number | null) {
+	return value === null ? "—" : formatRate(value);
+}
 import { MemberIdentity } from "./member-identity";
 
 type ReadyData = Extract<
@@ -102,8 +109,11 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 							<NumericCell value={formatWholeNumber(row.completed)} />
 							<NumericCell value={formatWholeNumber(row.noShows)} />
 							<NumericCell value={formatWholeNumber(row.reviewRequired)} />
-							<NumericCell value={formatRate(row.showRate)} />
-							<NumericCell value={formatRate(row.noShowRate)} />
+							<TableCell className="text-right tabular-nums">
+								{formatShowRate(row.showRate)}
+								<ResultsRecorded {...row} attendanceCountsPartial={data.attendanceCountsPartial} />
+							</TableCell>
+							<NumericCell value={formatShowRate(row.noShowRate)} />
 						</TableRow>
 					))}
 					<TableRow className="border-t-2 bg-muted/30 hover:bg-muted/30">
@@ -115,8 +125,11 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 							strong
 							value={formatWholeNumber(data.totals.reviewRequired)}
 						/>
-						<NumericCell strong value={formatRate(data.totals.showRate)} />
-						<NumericCell strong value={formatRate(data.totals.noShowRate)} />
+						<TableCell className="text-right font-semibold tabular-nums">
+							{formatShowRate(data.totals.showRate)}
+							<ResultsRecorded {...data.totals} attendanceCountsPartial={data.attendanceCountsPartial} />
+						</TableCell>
+						<NumericCell strong value={formatShowRate(data.totals.noShowRate)} />
 					</TableRow>
 				</TableBody>
 			</Table>

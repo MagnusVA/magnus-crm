@@ -72,7 +72,7 @@ export function EntityResultRow({ row }: { row: LeadCustomerSearchRowDto }) {
 						<span className="tabular-nums">{formatDate(row.latestActivityAt)}</span>
 					</SimpleTooltip>
 					{row.latestMeetingAt ? (
-						<SimpleTooltip content="Most recent scheduled or completed meeting">
+						<SimpleTooltip content="Most recent scheduled or held meeting">
 							<span className="text-xs tabular-nums">
 								Meeting {formatDate(row.latestMeetingAt)}
 							</span>

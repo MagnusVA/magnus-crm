@@ -1,3 +1,5 @@
+import { meetingAttendanceDisplay, meetingStatusConfig } from "../../../lib/status-config";
+import { withAttendanceCounts } from "../../lib/meetingAttendance";
 import { requireReportingReady } from "../reportingReadiness";
 import type { PaginationOptions, PaginationResult } from "convex/server";
 import { v } from "convex/values";
@@ -31,6 +33,7 @@ import {
 } from "./model";
 
 const pageResultValidator = v.object({
+  attendanceCountsPartial: v.optional(v.boolean()),
   page: v.array(v.record(v.string(), scalarValueValidator)),
   isDone: v.boolean(),
   continueCursor: v.string(),
@@ -352,7 +355,7 @@ async function readBookedMeetings(ctx: QueryCtx, args: ReportSourcePageRequest) 
     return {
       kind: "booked_meeting", meetingId: meeting._id, opportunityId: meeting.opportunityId,
       leadId: lead?._id ?? tenantOpportunity?.leadId ?? null, bookedAt: meeting.createdAt, scheduledAt: meeting.scheduledAt,
-      meetingStatus: meeting.status, dealStage: deal?.stage ?? null, dealOutcome: deal?.outcome ?? null,
+      meetingStatus: meeting.status, attendance: meetingStatusConfig[meetingAttendanceDisplay(meeting, Date.now())].label, dealStage: deal?.stage ?? null, dealOutcome: deal?.outcome ?? null,
       bookingProgramId: meeting.bookingProgramId ?? null, bookingProgramName: meeting.bookingProgramName ?? tenantOpportunity?.firstBookingProgramName ?? null,
       leadLabel: lead ? leadDisplayFromShape({ fullName: lead.fullName, email: lead.email, leadId: lead._id }) : meeting.leadName?.trim() || "Unknown lead",
       leadHandle: lead?.socialHandles?.[0]?.handle ?? lead?.email ?? lead?.phone ?? null,
@@ -367,7 +370,8 @@ async function readBookedMeetings(ctx: QueryCtx, args: ReportSourcePageRequest) 
 async function readSalesMeetingStats(ctx: QueryCtx, args: ReportSourcePageRequest) {
   await requireReportingReady(ctx, args.tenantId);
   const result = await ctx.db.query("operationsMeetingStatsV2").withIndex("by_tenantId_and_dayKey", (q) => q.eq("tenantId", args.tenantId).gte("dayKey", args.startDayKey).lt("dayKey", args.endDayKeyExclusive)).paginate(pagination(args.cursor));
-  return projectedPage(result, result.page.map((row): ReportSourceRow => ({ kind: "sales_meeting_stat", assignedCloserId: row.assignedCloserId, bookingProgramId: row.bookingProgramId ?? null, meetingStatus: row.meetingStatus, count: row.count })));
+  const { counts, attendanceCountsPartial } = await withAttendanceCounts(ctx, args.tenantId, result.page);
+  return { ...projectedPage(result, counts.map((row): ReportSourceRow => ({ kind: "sales_meeting_stat", attendanceCountsPartial, notRecorded: row.notRecorded, assignedCloserId: row.assignedCloserId, bookingProgramId: row.bookingProgramId ?? null, meetingStatus: row.meetingStatus, count: row.count }))), attendanceCountsPartial };
 }
 
 async function readSalesCalls(ctx: QueryCtx, args: ReportSourcePageRequest) {
@@ -377,7 +381,7 @@ async function readSalesCalls(ctx: QueryCtx, args: ReportSourcePageRequest) {
     const tenantOpportunity = opportunity?.tenantId === args.tenantId ? opportunity : null;
     const leadCandidate = tenantOpportunity ? await ctx.db.get("leads", tenantOpportunity.leadId) : null;
     const lead = leadCandidate?.tenantId === args.tenantId ? leadCandidate : null;
-    return { kind: "sales_call", meetingId: meeting._id, opportunityId: meeting.opportunityId, assignedCloserId: meeting.assignedCloserId, scheduledAt: meeting.scheduledAt, status: meeting.status, bookingProgramId: meeting.bookingProgramId ?? null, bookingProgramName: meeting.bookingProgramName ?? tenantOpportunity?.firstBookingProgramName ?? null, soldProgramId: meeting.soldProgramId ?? null, soldProgramName: meeting.soldProgramName ?? tenantOpportunity?.soldProgramName ?? null, leadId: lead?._id ?? tenantOpportunity?.leadId ?? null, leadLabel: lead ? leadDisplayFromShape({ fullName: lead.fullName, email: lead.email, leadId: lead._id }) : meeting.leadName?.trim() || "Unknown lead" };
+    return { kind: "sales_call", meetingId: meeting._id, opportunityId: meeting.opportunityId, assignedCloserId: meeting.assignedCloserId, scheduledAt: meeting.scheduledAt, status: meeting.status, attendance: meetingStatusConfig[meetingAttendanceDisplay(meeting, Date.now())].label, bookingProgramId: meeting.bookingProgramId ?? null, bookingProgramName: meeting.bookingProgramName ?? tenantOpportunity?.firstBookingProgramName ?? null, soldProgramId: meeting.soldProgramId ?? null, soldProgramName: meeting.soldProgramName ?? tenantOpportunity?.soldProgramName ?? null, leadId: lead?._id ?? tenantOpportunity?.leadId ?? null, leadLabel: lead ? leadDisplayFromShape({ fullName: lead.fullName, email: lead.email, leadId: lead._id }) : meeting.leadName?.trim() || "Unknown lead" };
   }));
   return projectedPage(result, page);
 }

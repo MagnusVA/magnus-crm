@@ -1,5 +1,6 @@
 "use client";
 
+import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
 import {
   Card,
   CardContent,
@@ -26,12 +27,14 @@ import {
 } from "./team-report-formatters";
 
 interface TeamKpiSummaryCardsProps {
+  attendanceCountsPartial: boolean;
   totals: TeamTotals;
   derivedOutcomes: DerivedOutcomes;
   actionsPerCloser: ActionsPerCloserMetrics;
 }
 
 export function TeamKpiSummaryCards({
+  attendanceCountsPartial,
   totals,
   derivedOutcomes,
   actionsPerCloser,
@@ -62,7 +65,7 @@ export function TeamKpiSummaryCards({
         <Card size="sm">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
+              <CardTitle className="text-sm font-medium text-muted-foreground" title={SHOW_RATE_HELP}>
                 Show-Up Rate
               </CardTitle>
               <PercentIcon className="size-4 text-muted-foreground" />
@@ -72,9 +75,11 @@ export function TeamKpiSummaryCards({
             <div className="text-2xl font-bold tabular-nums">
               {formatRate(totals.overallShowUpRate)}
             </div>
-            <p className="text-xs text-muted-foreground">
-              {totalShowed} showed of {totals.overallConfirmedDenominator} eligible
-            </p>
+            <ResultsRecorded
+              attendanceCountsPartial={attendanceCountsPartial}
+              resultsRecorded={totals.resultsRecorded}
+              pastCalls={totals.pastCalls}
+            />
           </CardContent>
         </Card>
 
