@@ -5,6 +5,7 @@ import { FeaturedMeetingCardWrapper } from "./featured-meeting-card-wrapper";
 /**
  * Async server component for the featured/next meeting card.
  *
+ * The wrapper handles an incomplete candidate lookup without claiming no meetings.
  * Streams independently in its own `<Suspense>` boundary.
  * Requires the session `token` for authenticated `preloadQuery` calls
  * (the closer's Convex queries check identity via `requireTenantUser`).

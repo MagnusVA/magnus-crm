@@ -48,6 +48,7 @@ export default defineSchema({
   tenants: defineTable({
     meetingProjectionVersion: v.optional(v.literal(2)),
     leadGenDealsAggregateVerifiedAt: v.optional(v.number()),
+    pipelineHealthAggregatesVerifiedAt: v.optional(v.number()),
     // Identity
     companyName: v.string(),
     contactEmail: v.string(),
@@ -1302,6 +1303,12 @@ export default defineSchema({
     .index("by_tenantId_and_assignedCloserId_and_scheduledAt", [
       "tenantId",
       "assignedCloserId",
+      "scheduledAt",
+    ])
+    .index("by_tenantId_and_assignedCloserId_and_status_and_scheduledAt", [
+      "tenantId",
+      "assignedCloserId",
+      "status",
       "scheduledAt",
     ])
     .index("by_tenantId_and_bookingProgramId_and_scheduledAt", [

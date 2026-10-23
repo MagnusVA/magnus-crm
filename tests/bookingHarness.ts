@@ -13,6 +13,8 @@ export function registerComponents(t: ReturnType<typeof convexTest>) {
   for (const name of [
     "meetingsByStatus",
     "opportunityByStage",
+    "openDealAging",
+    "personLosses",
     "leadStageEntries",
     "slackQualificationsByUser",
     "slackQualificationsByTime",

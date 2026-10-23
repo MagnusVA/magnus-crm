@@ -1,3 +1,4 @@
+import { deletePipelineHealthAggregates } from "../reporting/pipelineHealthAggregates";
 import { v } from "convex/values";
 import type { DataModel, Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
@@ -77,6 +78,11 @@ async function deleteByTenantIdBatch<TableName extends TenantScopedTable>(
     .take(CLEANUP_BATCH_SIZE);
 
   for (const row of rows) {
+    if (tableName === "opportunities") {
+      const id = ctx.db.normalizeId("opportunities", row._id);
+      const deal = id && await ctx.db.get("opportunities", id);
+      if (deal) await deletePipelineHealthAggregates(ctx, deal);
+    }
     await ctx.db.delete(tableName, row._id);
   }
 
