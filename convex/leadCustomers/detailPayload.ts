@@ -69,6 +69,7 @@ function compactMeeting(
     durationMinutes: meeting.durationMinutes,
     status: meeting.status,
     callClassification: meeting.callClassification,
+    heldMarkedAt: meeting.heldMarkedAt,
     completedAt: meeting.completedAt,
     canceledAt: meeting.canceledAt,
     bookingProgramName: meeting.bookingProgramName,

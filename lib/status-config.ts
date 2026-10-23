@@ -13,6 +13,7 @@ import type { DealPosition } from "../convex/opportunities/stages";
 export const MEETING_STATUSES = [
   "scheduled",
   "completed",
+  "held",
   "canceled",
   "no_show",
 ] as const;
@@ -112,7 +113,14 @@ export const meetingStatusConfig: Record<MeetingAttendanceStatus, MeetingBlockCo
     dotClass: "bg-blue-500",
   },
   completed: {
-    label: "Completed",
+    label: "Held",
+    blockClass: "bg-emerald-500/10 border-l-emerald-500",
+    textClass: "text-emerald-700 dark:text-emerald-300",
+    badgeClass: "bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-900",
+    dotClass: "bg-emerald-500",
+  },
+  held: {
+    label: "Held",
     blockClass: "bg-emerald-500/10 border-l-emerald-500",
     textClass: "text-emerald-700 dark:text-emerald-300",
     badgeClass: "bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-900",
@@ -140,6 +148,14 @@ export const meetingStatusConfig: Record<MeetingAttendanceStatus, MeetingBlockCo
     dotClass: "bg-amber-500/60",
   },
 };
+
+/** Meeting event history keeps its stored status but uses today's attendance label. */
+export function meetingEventStatusLabel(eventType: string, status: string | null | undefined) {
+  return eventType.startsWith("meeting.") &&
+    (status === "completed" || status === "held")
+    ? meetingStatusConfig.held.label
+    : status;
+}
 
 // ─── Tenant status config ────────────────────────────────────────────
 

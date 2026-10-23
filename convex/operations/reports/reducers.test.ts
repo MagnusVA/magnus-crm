@@ -157,6 +157,27 @@ describe("operations report reducers", () => {
     ).toMatchObject({ submissions: 2, uniqueProspects: 1, dayCount: 1 });
   });
 
+  it("combines legacy and held status buckets once in every exported show rate", () => {
+    const rows: ReportSourceRow[] = (["completed", "held", "no_show", "scheduled", "canceled"] as const).map((meetingStatus) => ({
+      kind: "sales_meeting_stat",
+      meetingStatus,
+      assignedCloserId: "closer",
+      bookingProgramId: "program",
+      count: 1,
+      notRecorded: meetingStatus === "scheduled" ? 1 : 0,
+    }));
+    const records = applyContributions(rows.map((row) =>
+      reduceReportSourcePage({ sourceKey: "sales_meeting_stats", range, rows: [row] }),
+    ));
+    for (const [section, rowKey] of [["sales_calls_summary", "main"], ["sales_closer", "closer"], ["sales_program", "program"]]) {
+      const fields = records.get(`${section}/${rowKey}`)!;
+      expect(fields).toMatchObject({ booked: 5, showed: 2, noShows: 1 });
+      expect(finalizeAggregateRecord({ section, rowKey, fields, range })?.payload).toMatchObject({
+        showUpRate: 2 / 3, resultsRecorded: 3, pastCalls: 4,
+      });
+    }
+  });
+
   it.each(["sales_calls_summary", "sales_closer", "sales_program"])(
     "%s uses held / (held + no-show) and counts missing results",
     (section) => {

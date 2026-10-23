@@ -79,7 +79,7 @@ export type PhoneCloserOperations = {
     closerId: Id<"users">;
     closer: MemberAvatarIdentity;
     scheduled: number;
-    completed: number;
+    held: number;
     noShows: number;
     reviewRequired: number;
     resultsRecorded: number;
@@ -89,7 +89,7 @@ export type PhoneCloserOperations = {
   }>;
   totals: {
     scheduled: number;
-    completed: number;
+    held: number;
     noShows: number;
     reviewRequired: number;
     resultsRecorded: number;

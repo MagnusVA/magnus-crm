@@ -21,6 +21,7 @@ import { deriveStoredEventLinks, storedLeadIdMatches } from "./lib/domainEventLi
 import { getPersonProgramEnrollment } from "./enrollments/read";
 import { derivePersonEnrollments, paymentCounts } from "./lib/enrollments";
 import { lifecycleProblems } from "./lib/leadLifecycle";
+import { patchMeetingLifecycle } from "./lib/meetingLifecycle";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import {
   ensureUserTeamMember,
@@ -1142,5 +1143,43 @@ export const assertPaymentCommissionableCleared = migrations.define({
     if (payment.commissionable !== undefined) {
       throw new Error(`Payment ${payment._id}`);
     }
+  },
+});
+
+export const backfillMeetingAttendance = migrations.define({
+  table: "meetings",
+  // Neither patch changes scheduledAt or whether the meeting is scheduled,
+  // so current refs stay unchanged and their refresh skips search rebuilds.
+  // Budget 8 app reads per row (including
+  // pagination and ref checks), plus 128 for aggregate delete/insert tree walks
+  // and Workpool enqueue at the current 6,918-meeting scale. 16 * (8 + 128)
+  // = 2,176 reads, leaving nearly half the 4,096 limit for runner overhead.
+  // Confirm that budget in the dry run before starting the production run.
+  batchSize: 16,
+  migrateOne: async (ctx, meeting) => {
+    if (meeting.status === "completed") {
+      if (meeting.completedAt === undefined) throw new Error(meeting._id);
+      await patchMeetingLifecycle(ctx, meeting._id, {
+        status: "held",
+        heldMarkedAt: meeting.completedAt,
+      });
+    } else if (meeting.status !== "held" && meeting.completedAt !== undefined) {
+      // No-shows got it from the old writers; a Calendly reversal can leave it
+      // on a meeting it moved back to scheduled or to canceled.
+      await patchMeetingLifecycle(ctx, meeting._id, { completedAt: undefined });
+    }
+  },
+});
+
+export const assertMeetingAttendance = migrations.define({
+  table: "meetings",
+  batchSize: 200,
+  migrateOne: async (_ctx, meeting) => {
+    if (
+      meeting.status === "completed" ||
+      (meeting.status === "held" && meeting.heldMarkedAt === undefined) ||
+      (meeting.status !== "held" && meeting.completedAt !== undefined) ||
+      (meeting.status !== "held" && meeting.heldMarkedAt !== undefined)
+    ) throw new Error(meeting._id);
   },
 });

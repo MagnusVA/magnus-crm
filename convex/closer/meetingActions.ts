@@ -104,8 +104,8 @@ export const markAsLost = mutation({
       await completeMeetingForOutcome(ctx, {
         meetingId: meeting._id,
         opportunityId: opportunity._id,
-        toMeetingStatus: "completed",
-        completedAt: now,
+        toMeetingStatus: "held",
+        recordedAt: now,
       });
     }
   },

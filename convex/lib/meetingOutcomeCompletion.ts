@@ -4,7 +4,7 @@ import { recordMeeting } from "./leadLifecycle";
 import { patchMeetingLifecycle } from "./meetingLifecycle";
 import { validateMeetingTransition } from "./statusTransitions";
 
-type TerminalMeetingStatus = "completed" | "no_show" | "canceled";
+type TerminalMeetingStatus = "held" | "no_show" | "canceled";
 type MeetingPatch = Partial<
   Omit<
     Doc<"meetings">,
@@ -14,6 +14,7 @@ type MeetingPatch = Partial<
     | "opportunityId"
     | "status"
     | "completedAt"
+    | "heldMarkedAt"
   >
 >;
 
@@ -24,6 +25,7 @@ const RESERVED_MEETING_OUTCOME_PATCH_KEYS = new Set([
   "opportunityId",
   "status",
   "completedAt",
+  "heldMarkedAt",
 ]);
 
 function assertTimingFreePatch(patch: MeetingPatch | undefined): void {
@@ -44,11 +46,11 @@ export async function completeMeetingForOutcome(
     meetingId: Id<"meetings">;
     opportunityId: Id<"opportunities">;
     toMeetingStatus: TerminalMeetingStatus;
-    completedAt: number;
+    recordedAt: number;
     extraMeetingPatch?: MeetingPatch;
   },
 ): Promise<Doc<"meetings">> {
-  const { toMeetingStatus, completedAt } = args;
+  const { toMeetingStatus, recordedAt } = args;
   const meeting = await ctx.db.get("meetings", args.meetingId);
   const opportunity = await ctx.db.get("opportunities", args.opportunityId);
   if (!meeting || !opportunity)
@@ -68,13 +70,14 @@ export async function completeMeetingForOutcome(
 
   assertTimingFreePatch(args.extraMeetingPatch);
 
-  const completed = await patchMeetingLifecycle(ctx, meeting._id, {
+  const updated = await patchMeetingLifecycle(ctx, meeting._id, {
     status: toMeetingStatus,
-    completedAt,
+    heldMarkedAt: toMeetingStatus === "held" ? recordedAt : undefined,
+    completedAt: toMeetingStatus === "held" ? recordedAt : undefined,
     ...args.extraMeetingPatch,
   });
-  if (toMeetingStatus === "completed") {
+  if (toMeetingStatus === "held") {
     await recordMeeting(ctx, meeting._id);
   }
-  return completed;
+  return updated;
 }

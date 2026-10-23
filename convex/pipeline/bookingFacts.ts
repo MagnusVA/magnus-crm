@@ -1,3 +1,4 @@
+import { isHeldStatus } from "../lib/meetingAttendance";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
@@ -128,7 +129,7 @@ export async function reconcileBookingFact(
   }
   if (
     status === meeting.status ||
-    status === "completed" ||
+    isHeldStatus(status) ||
     occurredAt === undefined
   )
     return;

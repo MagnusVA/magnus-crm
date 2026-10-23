@@ -6,7 +6,10 @@ import { recordBookingAttribution } from "../convex/lib/attribution/dealAttribut
 export const ATTENDANCE_NOW = Date.parse("2026-10-22T18:00:00Z");
 
 /** Mixed attendance across finished, current and upcoming business days. */
-export async function showRateFixture(now = ATTENDANCE_NOW) {
+export async function showRateFixture(
+  now = ATTENDANCE_NOW,
+  storage: "completed" | "held" | "mixed" = "completed",
+) {
   vi.useFakeTimers();
   vi.setSystemTime(now);
   const harness = await bookingHarness({ transactionLimits: true });
@@ -58,7 +61,11 @@ export async function showRateFixture(now = ATTENDANCE_NOW) {
       ["next-utc-day-finished", "scheduled", "2026-10-23T01:00:00Z"],
       ["next-business-day", "scheduled", "2026-10-23T07:00:00Z"],
     ] as const;
-    for (const [key, status, at] of specs) {
+    for (const [index, [key, legacyStatus, at]] of specs.entries()) {
+      const status = legacyStatus === "completed" &&
+        (storage === "held" || (storage === "mixed" && index === 0))
+        ? "held" : legacyStatus;
+      const completedAt = legacyStatus === "completed" ? Date.parse(at) + 60_000 : undefined;
       const meetingId = await ctx.db.insert("meetings", {
         tenantId,
         opportunityId,
@@ -68,6 +75,8 @@ export async function showRateFixture(now = ATTENDANCE_NOW) {
         scheduledAt: Date.parse(at),
         durationMinutes: 30,
         status,
+        completedAt,
+        heldMarkedAt: status === "held" ? completedAt : undefined,
         callClassification: "new",
         createdAt: 0,
       });
@@ -79,4 +88,33 @@ export async function showRateFixture(now = ATTENDANCE_NOW) {
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   vi.setSystemTime(now);
   return { ...harness, ...fixture };
+}
+
+export type AttendanceStorage = "completed" | "held" | "mixed";
+export const attendanceStorageModes = ["completed", "held", "mixed"] as const;
+
+/** Exercise readers before, during and after the attendance backfill. */
+export async function heldAttendanceFixture(storage: AttendanceStorage) {
+  return showRateFixture(ATTENDANCE_NOW, storage);
+}
+
+/** A real booking with its lifecycle, aggregates, projections and refs. */
+export async function attendanceActionFixture() {
+  const { bookingHarness, bookingPayload } = await import("./bookingHarness");
+  const { internal } = await import("../convex/_generated/api");
+  vi.useFakeTimers();
+  vi.setSystemTime(ATTENDANCE_NOW);
+  const harness = await bookingHarness({ transactionLimits: true });
+  const payload = bookingPayload("attendance-action");
+  await harness.t.mutation(internal.webhooks.calendlyMutations.persistRawEvent, {
+    tenantId: harness.tenantId,
+    calendlyEventUri: payload.uri,
+    eventType: "invitee.created",
+    payload: JSON.stringify({ created_at: "2026-10-01T09:00:00Z", payload }),
+  });
+  await harness.t.finishAllScheduledFunctions(vi.runAllTimers);
+  vi.setSystemTime(ATTENDANCE_NOW);
+  const meeting = await harness.t.run((ctx) => ctx.db.query("meetings").unique());
+  if (!meeting) throw new Error("Missing attendance booking");
+  return { ...harness, meeting };
 }

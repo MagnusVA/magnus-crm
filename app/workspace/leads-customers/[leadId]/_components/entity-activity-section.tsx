@@ -1,5 +1,6 @@
 "use client";
 
+import { meetingEventStatusLabel } from "@/lib/status-config";
 import { useState } from "react";
 import { useQuery } from "convex/react";
 import { ActivityIcon } from "lucide-react";
@@ -99,8 +100,8 @@ export function EntityActivitySection() {
 										{entry.fromStatus || entry.toStatus ? (
 											<span className="font-normal text-muted-foreground">
 												{" "}
-												{entry.fromStatus ? `${entry.fromStatus} → ` : ""}
-												{entry.toStatus}
+												{entry.fromStatus ? `${meetingEventStatusLabel(entry.eventType, entry.fromStatus)} → ` : ""}
+												{meetingEventStatusLabel(entry.eventType, entry.toStatus)}
 											</span>
 										) : null}
 									</span>

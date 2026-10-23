@@ -5,6 +5,7 @@ export const unstable_instant = false;
 const PHONE_SALES_STATUSES = new Set([
   "scheduled",
   "completed",
+  "held",
   "no_show",
 ]);
 
@@ -23,7 +24,7 @@ export default async function LegacyPipelinePage({
   const period = firstString(params.period);
 
   if (status && PHONE_SALES_STATUSES.has(status)) {
-    const next = new URLSearchParams({ status });
+    const next = new URLSearchParams({ status: status === "completed" ? "held" : status });
     if (closer) next.set("closerId", closer);
     if (period) next.set("period", period);
     redirect(`/workspace/operations/sales-calls?${next.toString()}`);

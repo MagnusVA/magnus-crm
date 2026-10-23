@@ -52,11 +52,11 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 						</TableHead>
 						<TableHead className="text-right font-semibold text-foreground/80">
 							<OverviewHelpTooltip
-								label="Completed"
-								description={overviewTooltips.phoneCloserOperations.completed}
+								label="Held"
+								description={overviewTooltips.phoneCloserOperations.held}
 								triggerClassName="justify-end w-full"
 							>
-								Completed
+								Held
 							</OverviewHelpTooltip>
 						</TableHead>
 						<TableHead className="text-right font-semibold text-foreground/80">
@@ -106,7 +106,7 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 								<MemberIdentity identity={row.closer} />
 							</TableCell>
 							<NumericCell value={formatWholeNumber(row.scheduled)} />
-							<NumericCell value={formatWholeNumber(row.completed)} />
+							<NumericCell value={formatWholeNumber(row.held)} />
 							<NumericCell value={formatWholeNumber(row.noShows)} />
 							<NumericCell value={formatWholeNumber(row.reviewRequired)} />
 							<TableCell className="text-right tabular-nums">
@@ -119,7 +119,7 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 					<TableRow className="border-t-2 bg-muted/30 hover:bg-muted/30">
 						<TableCell className="font-semibold">Total</TableCell>
 						<NumericCell strong value={formatWholeNumber(data.totals.scheduled)} />
-						<NumericCell strong value={formatWholeNumber(data.totals.completed)} />
+						<NumericCell strong value={formatWholeNumber(data.totals.held)} />
 						<NumericCell strong value={formatWholeNumber(data.totals.noShows)} />
 						<NumericCell
 							strong

@@ -7,6 +7,13 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 const fixture = vi.hoisted(() => ({ partial: false }));
 
+vi.mock("convex-helpers/react", () => ({
+  usePaginatedQuery: () => ({
+    results: [],
+    status: "Exhausted",
+    loadMore: () => undefined,
+  }),
+}));
 vi.mock("convex/react", () => ({
   useQuery: () => undefined,
   usePaginatedQuery: () => ({

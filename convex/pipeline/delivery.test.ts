@@ -429,7 +429,7 @@ it("holds historical bookings instead of reopening a lead's newer lost opportuni
     meetingId: delivery.meetingId,
   });
   expect(detail.opportunity).toMatchObject({ stage: "closed", outcome: "lost" });
-  expect(detail.meeting.status).toBe("completed");
+  expect(detail.meeting.status).toBe("held");
 });
 
 it("records a malformed delivery as failed instead of losing the job", async () => {

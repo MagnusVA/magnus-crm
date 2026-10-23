@@ -1,3 +1,4 @@
+import { isHeldStatus } from "../convex/lib/meetingAttendance";
 import { vi } from "vitest";
 import type { Doc, Id } from "../convex/_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../convex/_generated/server";
@@ -45,7 +46,7 @@ export async function meetingStatsTotals(
   for (const row of rows) {
     if (args.soldProgramId && row.soldProgramId !== args.soldProgramId) continue;
     totals.scheduled += row.count;
-    if (row.meetingStatus === "completed") totals.completed += row.count;
+    if (isHeldStatus(row.meetingStatus)) totals.completed += row.count;
     if (row.meetingStatus === "canceled") totals.canceled += row.count;
     if (row.meetingStatus === "no_show") totals.noShows += row.count;
   }
@@ -661,7 +662,8 @@ export async function insertMeeting(
     durationMinutes: 30,
     createdAt: args.scheduledAt - DAY,
     status: args.status,
-    completedAt: args.status === "completed" ? args.scheduledAt + 30 * 60_000 : undefined,
+    completedAt: isHeldStatus(args.status) ? args.scheduledAt + 30 * 60_000 : undefined,
+    heldMarkedAt: args.status === "held" ? args.scheduledAt + 30 * 60_000 : undefined,
     rescheduledFromMeetingId: args.rescheduledFromMeetingId,
   });
   await ctx.db.patch("opportunities", args.opportunityId, {

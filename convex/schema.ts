@@ -1202,6 +1202,7 @@ export default defineSchema({
     status: v.union(
       v.literal("scheduled"),
       v.literal("completed"),
+      v.literal("held"),
       v.literal("canceled"),
       v.literal("no_show"),
     ),
@@ -1224,7 +1225,9 @@ export default defineSchema({
     notes: v.optional(v.string()),
     leadName: v.optional(v.string()), // Denormalized from lead for query efficiency
     createdAt: v.number(),
+    // Kept on held meetings for rollback until the attendance narrow.
     completedAt: v.optional(v.number()),
+    heldMarkedAt: v.optional(v.number()),
     canceledAt: v.optional(v.number()),
     // UTM attribution data extracted from Calendly's tracking object.
     // Populated from the invitee.created webhook payload.
@@ -1331,6 +1334,7 @@ export default defineSchema({
     meetingStatus: v.union(
       v.literal("scheduled"),
       v.literal("completed"),
+      v.literal("held"),
       v.literal("canceled"),
       v.literal("no_show"),
     ),
