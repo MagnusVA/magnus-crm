@@ -386,7 +386,32 @@ export const markActivityEventCountsVerified = internalMutation({
     }
     // Recompute inside this transaction; never trust caller-supplied parity.
     const result = await verifyCounts(ctx, args);
-    if (!result.passed) {
+    const [backfill] = await ctx.runQuery(components.migrations.lib.getStatus, {
+      names: ["migrations:backfillActivityEventCounts"],
+    });
+    const oldest = await ctx.db
+      .query("domainEvents")
+      .withIndex("by_tenantId_and_occurredAt", (q) =>
+        q.eq("tenantId", tenant._id),
+      )
+      .first();
+    let oldestCovered = true;
+    if (oldest) {
+      const key: [string, string, number] = ["all", "", oldest.occurredAt];
+      const entry = { key, id: `${oldest._id}:all`, inclusive: true };
+      oldestCovered =
+        (await activityEventCounts.count(ctx, {
+          namespace: tenant._id,
+          bounds: { lower: entry, upper: entry },
+        })) === 1;
+    }
+    // Recent daily parity cannot prove that historical ranges were backfilled.
+    if (
+      !result.passed ||
+      !backfill?.isDone ||
+      backfill.error !== undefined ||
+      !oldestCovered
+    ) {
       await ctx.db.patch("tenants", tenant._id, {
         activityEventCountsVerifiedAt: undefined,
         activityEventCountsVerification: undefined,

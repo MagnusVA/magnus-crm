@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { api, internal } from "../_generated/api";
+import migrationsTest from "@convex-dev/migrations/test";
+import { api, components, internal } from "../_generated/api";
 import { bookingHarness } from "../../tests/bookingHarness";
 import {
   activityEvent,
@@ -15,7 +16,10 @@ import {
   deleteActivityEventCounts,
   insertActivityEventCounts,
 } from "./activityEventCounts";
-import { readScannedActivitySummary } from "./activityFeed";
+import {
+  readAggregateActivitySummary,
+  readScannedActivitySummary,
+} from "./activityFeed";
 import {
   businessDateToUtcStart,
   timestampToBusinessDateKey,
@@ -30,10 +34,27 @@ afterEach(() => vi.useRealTimers());
 async function harness() {
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
-  return await bookingHarness();
+  const h = await bookingHarness();
+  migrationsTest.register(h.t);
+  return h;
+}
+
+async function completeBackfill(h: Awaited<ReturnType<typeof harness>>) {
+  await h.t.mutation(internal.migrations.run, {
+    fn: "migrations:backfillActivityEventCounts",
+  });
+  await h.t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [status] = await h.t.run((ctx) =>
+    ctx.runQuery(components.migrations.lib.getStatus, {
+      names: ["migrations:backfillActivityEventCounts"],
+    }),
+  );
+  expect(status).toMatchObject({ isDone: true });
+  expect(status.error).toBeUndefined();
 }
 
 async function enable(h: Awaited<ReturnType<typeof harness>>) {
+  await completeBackfill(h);
   for (let day = 30; day > 0; day--) {
     const result = await h.t.mutation(
       internal.reporting.activityEventCounts.markActivityEventCountsVerified,
@@ -52,6 +73,117 @@ async function enable(h: Awaited<ReturnType<typeof harness>>) {
 }
 
 describe("activity event counts", () => {
+  it("refuses cutover before the backfill completes even with 29 passing days and daily parity", async () => {
+    const h = await harness();
+    await h.t.run(async (ctx) => {
+      await activityEvent(ctx, h.tenantId, { occurredAt: RANGE.startDate });
+      await activityEvent(ctx, h.tenantId, { occurredAt: RANGE.startDate + 1 });
+    });
+    const args = { ...RANGE, tenantId: h.tenantId };
+    expect(
+      await h.t.query(
+        internal.reporting.activityEventCounts.verifyActivityEventCounts,
+        args,
+      ),
+    ).toMatchObject({ passed: true });
+    for (const started of [false, true]) {
+      if (started)
+        await h.t.mutation(internal.migrations.run, {
+          fn: "migrations:backfillActivityEventCounts",
+          batchSize: 1,
+        });
+      await h.t.run(async (ctx) => {
+        await ctx.db.patch("tenants", h.tenantId, {
+          activityEventCountsVerification: {
+            endDate: END,
+            days: Array.from({ length: 29 }, (_, index) => END - (index + 2) * DAY),
+          },
+        });
+      });
+      expect(
+        await h.t.mutation(
+          internal.reporting.activityEventCounts.markActivityEventCountsVerified,
+          args,
+        ),
+      ).toMatchObject({ passed: false, enabled: false, verifiedDays: 0 });
+      const tenant = await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId));
+      expect(tenant?.activityEventCountsVerifiedAt).toBeUndefined();
+    }
+    await h.t.finishAllScheduledFunctions(vi.runAllTimers);
+    await enable(h);
+  });
+
+  it("refuses cutover when the oldest event's exact all entry is missing despite completed backfill and daily parity", async () => {
+    const h = await harness();
+    const oldest = await h.t.run(async (ctx) => {
+      // Insert the newer event first so the gate must use occurredAt ordering.
+      await activityEvent(ctx, h.tenantId, { occurredAt: RANGE.startDate });
+      return await activityEvent(ctx, h.tenantId, { occurredAt: END - 60 * DAY });
+    });
+    await enable(h);
+    await h.t.run(async (ctx) => {
+      await activityEventCounts.delete(ctx, {
+        namespace: h.tenantId,
+        key: ["all", "", oldest.occurredAt],
+        id: `${oldest._id}:all`,
+      });
+      // A different event at the same timestamp must not satisfy the gate.
+      await activityEvent(ctx, h.tenantId, { occurredAt: oldest.occurredAt });
+    });
+    const args = { ...RANGE, tenantId: h.tenantId };
+    expect(
+      await h.t.query(
+        internal.reporting.activityEventCounts.verifyActivityEventCounts,
+        args,
+      ),
+    ).toMatchObject({ passed: true });
+    expect(
+      await h.t.mutation(
+        internal.reporting.activityEventCounts.markActivityEventCountsVerified,
+        args,
+      ),
+    ).toMatchObject({ passed: false, enabled: false, verifiedDays: 0 });
+    const tenant = await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId));
+    expect(tenant?.activityEventCountsVerifiedAt).toBeUndefined();
+  });
+
+  it("scans when users exceed a small injected cap so real actors keep their identity", async () => {
+    const h = await harness();
+    const actorId = await h.t.run(async (ctx) => {
+      const users = await ctx.db
+        .query("users")
+        .withIndex("by_tenantId", (q) => q.eq("tenantId", h.tenantId))
+        .take(2);
+      await activityEvent(ctx, h.tenantId, {
+        occurredAt: RANGE.startDate,
+        actorUserId: users[1]._id,
+      });
+      return users[1]._id;
+    });
+    await enable(h);
+    await h.t.run(async (ctx) => {
+      const tenant = (await ctx.db.get("tenants", h.tenantId))!;
+      const scanned = await readScannedActivitySummary(
+        ctx, h.tenantId, RANGE.startDate, RANGE.endDate,
+      );
+      const capped = await readAggregateActivitySummary(
+        ctx, tenant, RANGE.startDate, RANGE.endDate, 1,
+      );
+      expect(capped).toEqual(scanned);
+      expect(capped.byActor).toEqual({ [actorId]: 1 });
+      expect(capped.actorBreakdown[0]).toMatchObject({
+        actorUserId: actorId, actorRole: "closer",
+      });
+      expect(capped.actorBreakdown[0].actorName).not.toBe("Removed user");
+      // Exactly the cap still uses the aggregate path with the same result.
+      expect(
+        await readAggregateActivitySummary(
+          ctx, tenant, RANGE.startDate, RANGE.endDate, 2,
+        ),
+      ).toEqual(scanned);
+    });
+  });
+
   it("emitDomainEvent writes every dimension, including reminder prefix and skipAnalytics events", async () => {
     const h = await harness();
     await h.t.run(async (ctx) => {

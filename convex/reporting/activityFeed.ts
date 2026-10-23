@@ -361,17 +361,21 @@ export async function readScannedActivitySummary(
   };
 }
 
-async function readAggregateActivitySummary(
+export async function readAggregateActivitySummary(
   ctx: QueryCtx,
   tenant: Doc<"tenants">,
   startDate: number,
   endDate: number,
+  userLimit = 500,
 ) {
   const tenantId = tenant._id;
   const users = await ctx.db
     .query("users")
     .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-    .take(500);
+    .take(userLimit + 1);
+  // A partial user catalog would mislabel real actors as removed users.
+  if (users.length > userLimit)
+    return await readScannedActivitySummary(ctx, tenantId, startDate, endDate);
   const rows = await readActivityEventCounts(
     ctx,
     tenantId,
