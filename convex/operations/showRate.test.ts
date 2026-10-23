@@ -1,8 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { attendanceStorageModes, heldAttendanceFixture } from "../../tests/heldAttendanceFixtures";
 import * as attendanceHelpers from "../lib/meetingAttendance";
 import { api, internal } from "../_generated/api";
-import { ATTENDANCE_NOW, showRateFixture } from "../../tests/showRateFixtures";
+import { ATTENDANCE_NOW, attendanceStorageModes, heldAttendanceFixture, showRateFixture } from "../../tests/showRateFixtures";
 import { getPhoneCloserOperationsOverviewSection } from "../dashboard/overviewOperations";
 import { deriveOverviewRange } from "../dashboard/overviewRange";
 import { readSourcePage } from "./reports/readers";
@@ -13,6 +12,7 @@ import {
   readScheduledAttendanceDay,
   withAttendanceCounts,
 } from "../lib/meetingAttendance";
+import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
 import { insertMeetingAggregate } from "../reporting/writeHooks";
 import { recordBookingAttribution } from "../lib/attribution/dealAttributions";
 import { readMeetingStatsCounts } from "./meetingStats";
@@ -124,6 +124,30 @@ it.each(attendanceStorageModes)("uses %s attendance in every live report without
       noShowRate: 1 / 3,
     });
   }
+});
+
+it.each(attendanceStorageModes)("counts %s held attendance once in each aggregate call classification", async (storage) => {
+  const { t, admin } = await heldAttendanceFixture(storage);
+  await t.run(async (ctx) => {
+    const held = (await ctx.db.query("meetings").take(20))
+      .filter((meeting) => isHeldStatus(meeting.status));
+    expect(held).toHaveLength(2);
+    await patchMeetingLifecycle(ctx, held[0]._id, { callClassification: "follow_up" });
+  });
+  const performance = await admin.query(
+    api.reporting.teamPerformance.getTeamPerformanceMetrics,
+    timestampRange,
+  );
+  const closer = performance.closers[0];
+  expect(closer.newCalls).toMatchObject({ bookedCalls: 7, callsShowed: 1, showUpRate: 1 / 2 });
+  expect(closer.followUpCalls).toMatchObject({ bookedCalls: 1, callsShowed: 1, showUpRate: 1 });
+  expect(performance.teamTotals).toMatchObject({
+    newBookedCalls: 7,
+    newShowed: 1,
+    followUpBookedCalls: 1,
+    followUpShowed: 1,
+    overallShowUpRate: 2 / 3,
+  });
 });
 
 it("returns null rates when scheduled calls have no attendance result", async () => {

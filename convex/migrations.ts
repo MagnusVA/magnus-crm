@@ -1049,9 +1049,14 @@ export const assertPaymentCommissionableCleared = migrations.define({
 
 export const backfillMeetingAttendance = migrations.define({
   table: "meetings",
-  // Each patch replaces the aggregate, queues a projection, and refreshes deal
-  // refs and search rows. Keep headroom for those reads and component writes.
-  batchSize: 50,
+  // Neither patch changes scheduledAt or whether the meeting is scheduled,
+  // so current refs stay unchanged and their refresh skips search rebuilds.
+  // Budget 8 app reads per row (including
+  // pagination and ref checks), plus 128 for aggregate delete/insert tree walks
+  // and Workpool enqueue at the current 6,918-meeting scale. 16 * (8 + 128)
+  // = 2,176 reads, leaving nearly half the 4,096 limit for runner overhead.
+  // Confirm that budget in the dry run before starting the production run.
+  batchSize: 16,
   migrateOne: async (ctx, meeting) => {
     if (meeting.status === "completed") {
       if (meeting.completedAt === undefined) throw new Error(meeting._id);
@@ -1077,4 +1082,3 @@ export const assertMeetingAttendance = migrations.define({
     ) throw new Error(meeting._id);
   },
 });
-

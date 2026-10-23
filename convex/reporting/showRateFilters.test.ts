@@ -5,7 +5,7 @@
  * filtered paths now read `dealAttributions` and must keep them.
  */
 import { afterEach, expect, it, vi } from "vitest";
-import { attendanceStorageModes, type AttendanceStorage } from "../../tests/heldAttendanceFixtures";
+import { attendanceStorageModes, type AttendanceStorage } from "../../tests/showRateFixtures";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";

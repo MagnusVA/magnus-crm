@@ -1,8 +1,7 @@
 import migrationsTest from "@convex-dev/migrations/test";
 import { afterEach, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
-import { attendanceActionFixture, heldAttendanceFixture } from "../../tests/heldAttendanceFixtures";
-import { ATTENDANCE_NOW } from "../../tests/showRateFixtures";
+import { ATTENDANCE_NOW, attendanceActionFixture, attendanceStorageModes, heldAttendanceFixture } from "../../tests/showRateFixtures";
 import { meetingEvidence } from "./leadLifecycle";
 import { meetingsByStatus } from "../reporting/aggregates";
 import { patchMeetingLifecycle } from "./meetingLifecycle";
@@ -20,6 +19,37 @@ it("keeps held and completed terminal while accepting scheduled attendance", () 
       expect(validateMeetingTransition(status, target)).toBe(false);
     }
   }
+});
+
+it.each(attendanceStorageModes)("asserts projections with stored %s attendance during the rollout", async (storage) => {
+  const { t } = await heldAttendanceFixture(storage);
+  migrationsTest.register(t);
+  for (const fn of [
+    internal.migrations.assertMeetingProjections,
+    internal.migrations.assertMeetingProjectionBuckets,
+    internal.migrations.assertMeetingProjectionSources,
+  ]) {
+    await t.mutation(fn, { ...batch, batchSize: 50 });
+  }
+  const state = await t.run(async (ctx) => ({
+    meetings: await ctx.db.query("meetings").take(20),
+    projections: await ctx.db.query("meetingProjections").take(20),
+  }));
+  for (const meeting of state.meetings) {
+    const projection = state.projections.find((row) => row.meetingId === meeting._id)!;
+    expect(projection.contribution?.meetingStatus).toBe(meeting.status);
+    expect(JSON.parse(projection.bucketKey!)[4]).toBe(meeting.status);
+  }
+});
+
+it("refuses to invent a held timestamp when a legacy completed meeting has none", async () => {
+  const { t, meeting } = await attendanceActionFixture();
+  migrationsTest.register(t);
+  await t.run((ctx) => patchMeetingLifecycle(ctx, meeting._id, { status: "completed" }));
+  const before = await t.run((ctx) => ctx.db.get("meetings", meeting._id));
+  await expect(t.mutation(internal.migrations.backfillMeetingAttendance, batch))
+    .rejects.toThrow(meeting._id);
+  expect(await t.run((ctx) => ctx.db.get("meetings", meeting._id))).toEqual(before);
 });
 
 it("backfills attendance through aggregate replacement and projection enqueue, then reruns without writes", async () => {

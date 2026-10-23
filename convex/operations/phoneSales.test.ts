@@ -142,7 +142,7 @@ it("labels each sales call from its own booking's rows", async () => {
 });
 
 it.each(["completed", "held"] as const)("paginates the %s filter across both held statuses in call-time order", async (meetingStatus) => {
-  const { heldAttendanceFixture } = await import("../../tests/heldAttendanceFixtures");
+  const { heldAttendanceFixture } = await import("../../tests/showRateFixtures");
   const { t, tenantId, admin } = await heldAttendanceFixture("mixed");
   const expected = await t.run(async (ctx) => {
     const legacy = (await ctx.db.query("meetings").take(20)).find((m) => m.status === "completed")!;
