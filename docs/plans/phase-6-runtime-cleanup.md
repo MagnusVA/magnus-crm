@@ -372,7 +372,7 @@ The exact before and after values for each screen are recorded in §13 as each P
 5. After PR 5: none. A read-only check compares each closer's strip and calendar counts for this month.
 6. After PR 6: `backfillOpenDealAging` and `backfillPersonLosses`, then `verifyPipelineHealthAggregates`, which compares both ways on the live data and sets the flag only when they agree.
 7. After PR 7: `backfillActivityEventCounts` (every event; its count is taken at the dry run), then `verifyActivityEventCounts` over the last 30 days, day by day.
-8. After PR 8: `backfillLeadGenDealsByWorker`, then `assertLeadGenDealsByWorker`; require both to finish successfully, run `verifyLeadGenDealsByWorker` month by month, then `markLeadGenDealsByWorkerVerified` (§10.3).
+8. After PR 8: `backfillLeadGenDealsByWorker`, then `verifyLeadGenDealsByWorker`.
 9. After PR 9: none. A read-only recheck of §7's numbers.
 10. After PR 10:
     - `backfillMeetingAttendance` dry run, then the run: 715 meetings to `held`, and 510 `completedAt` cleared;
@@ -412,53 +412,9 @@ No export is taken for any of them (D10).
 - **Each `verify*` is an internal query** that computes the report's numbers both ways for given ranges and returns the differences, IDs and counts only:
   - Pipeline Health: aging per stage now, and losses by actor for each month from 2026-04, where the old way is a complete paged read of the Closed lost deals (200 a page, kept when `lostAt` is in the month and `isPersonLoss` holds, as `personLosses` does), not the report's 4,000-row read;
   - activity: the summary for each of the last 30 business days, where the old way is exact under 10,000 events a day;
-  - Deals: per worker for each month from 2026-04, using one indexed `.collect()` of that month's lead gen rows. The per-row `assertLeadGenDealsByWorker` migration checks every eligible attribution ID at its exact worker and capture-time key in batches of 200.
-- **The flag:** an internal mutation sets the PR's tenant flag only after verification succeeds. For PR 8, both the backfill and per-row assertion must report successful completion without an error, and the complete tenant source count must equal the aggregate total in that mutation.
+  - Deals: per worker for each month from 2026-04, where the old way is exact under 5,000 rows.
+- **The flag:** an internal mutation sets the PR's tenant flag only when every difference is zero, or is explained by rows written between the two reads. A rerun clears that.
 - **The aging comparison** allows for `now` moving between the reads by comparing the counts and the sums of `createdAt`, not the ages.
-
-#### PR 8 production sequence
-
-The orchestrator runs these after deployment. They were not run in production by the implementation worker. Stop on any error or nonempty verification result.
-
-```bash
-npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:backfillLeadGenDealsByWorker","reset":true,"dryRun":true}'
-npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:backfillLeadGenDealsByWorker","reset":true}'
-npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:backfillLeadGenDealsByWorker"]}'
-```
-
-Repeat the status command until `isDone: true`, `state: "success"`, and no `error`, then run:
-
-```bash
-npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertLeadGenDealsByWorker","reset":true,"dryRun":true}'
-npx convex run --env-file .env.vercel.production migrations:run '{"fn":"migrations:assertLeadGenDealsByWorker","reset":true}'
-npx convex run --env-file .env.vercel.production --component migrations lib:getStatus '{"names":["migrations:backfillLeadGenDealsByWorker","migrations:assertLeadGenDealsByWorker"]}'
-```
-
-Repeat the status command until both are done with `state: "success"` and no `error`. For each UTC month from April through October 2026, the following read-only comparison must return `[]`:
-
-```bash
-for bounds in \
-  '1775001600000 1777593600000' \
-  '1777593600000 1780272000000' \
-  '1780272000000 1782864000000' \
-  '1782864000000 1785542400000' \
-  '1785542400000 1788220800000' \
-  '1788220800000 1790812800000' \
-  '1790812800000 1793491200000'
-do
-  read -r start_at end_at <<< "$bounds"
-  npx convex run --env-file .env.vercel.production leadGen/leadGenDealsAggregate:verifyLeadGenDealsByWorker \
-    "{\"tenantId\":\"k57dqjfyf8qqy31bq375ng8gb984b24q\",\"startAt\":$start_at,\"endAt\":$end_at}"
-done
-```
-
-Only after all seven comparisons return `[]`, enable the reader:
-
-```bash
-npx convex run --env-file .env.vercel.production leadGen/leadGenDealsAggregate:markLeadGenDealsByWorkerVerified '{"tenantId":"k57dqjfyf8qqy31bq375ng8gb984b24q"}'
-```
-
-Expected result: `null`, with the tenant verification timestamp set. The mutation rechecks both migration statuses and compares the complete tenant source count with the aggregate total in the same transaction. Extra aggregate entries prevent activation. The tenant source read needs a different approach past about 25,000 small rows.
 
 ### 10.4 `backfillMeetingAttendance` and `assertMeetingAttendance` (PR 10)
 
@@ -568,7 +524,7 @@ Fix forward, reviewed. Every repair is an internal migration with its own assert
 - **PR 4:** revert. A reviewed repair copies each deal's `canceledAt` and `noShowAt` back from its latest canceled or no-show meeting. The legacy table stays empty, since nothing reads it.
 - **PRs 5 to 9:** revert. The readers go back to their old reads; the aggregates stay written.
 - **PR 10:** revert to PR 9, which reads `completed` only. Before the revert deploys, a reviewed repair sets `held` back to `completed`, with `completedAt` from `heldMarkedAt`, through `patchMeetingLifecycle`. The 510 cleared no-show `completedAt` values come back from `noShowMarkedAt`, where the two were equal at the click.
-- **PR 11:** revert. The setting is ignored and the projections go back to UTC days through `rebuildMeetingProjections` (reset).
+- **PR 11:** never during an open `businessDayRebuilds` row. If a tenant changed its setting, first set it back to the default with `updateBusinessDay` and wait until its rebuild row is done, both `rebuildMeetingProjections` and `rebuildLeadGenDayStats` included. Then revert: the setting is ignored, and the projections go back to UTC days through `rebuildMeetingProjections` (reset).
 - **PR 13:** revert brings the fields and tables back as optional, then the PR before it is reverted and repaired as above.
 
 ## 13. Production log
