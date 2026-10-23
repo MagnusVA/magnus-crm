@@ -23,7 +23,6 @@ const TENANT_INDEX_BY_TABLE = {
   paymentRecords: "by_tenantId_and_recordedAt",
   rawWebhookEvents: "by_tenantId_and_receivedAt",
   tenantCalendlyConnections: "by_tenantId",
-  tenantStats: "by_tenantId",
   teamMembers: "by_tenantId",
   users: "by_tenantId",
 } as const satisfies {

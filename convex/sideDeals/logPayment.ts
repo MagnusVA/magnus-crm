@@ -14,7 +14,6 @@ import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { isSideDeal } from "../lib/sideDeals";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { expirePendingStaleOpportunityNudges } from "../lib/staleOpportunityNudges";
-import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import { canTakePayment, describeDealState, loadDealTasks } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { insertPaymentAggregate } from "../reporting/writeHooks";
@@ -115,11 +114,6 @@ export const logPayment = mutation({
       metadata: { source: "side_deal", paymentId },
     });
     await expirePendingStaleOpportunityNudges(ctx, args.opportunityId);
-    await applyPaymentStatsDelta(ctx, tenantId, {
-      commissionable: true,
-      paymentType,
-      amountMinorDelta: amountMinor,
-    });
 
     // The person's enrollments follow their payments, and their first one
     // makes them a customer, with or without an email

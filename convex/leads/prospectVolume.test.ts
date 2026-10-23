@@ -3,7 +3,7 @@
  * far outnumber leads, are persons (docs/plans/phase-2-person-first.md §8).
  */
 import { afterEach, expect, it, vi } from "vitest";
-import { api, internal } from "../_generated/api";
+import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
@@ -114,23 +114,6 @@ it("leaves prospects out of the merge picker's search", async () => {
   const results = await admin.query(api.leads.queries.searchLeads, { searchTerm: "samfit" });
 
   expect(results.map((lead) => lead._id)).toEqual([leadId]);
-});
-
-it("counts tenantStats.totalLeads in pages, leaving out prospects", async () => {
-  const { t, tenantId } = await setup();
-  await t.run(async (ctx) => {
-    await insertPerson(ctx, tenantId, { fullName: "Lead" });
-    await insertPerson(ctx, tenantId, { handle: "someprospect", prospect: true });
-    const converted = await insertPerson(ctx, tenantId, { fullName: "Customer" });
-    await ctx.db.patch("leads", converted, { status: "converted" });
-  });
-
-  const page = await t.query(internal.admin.migrations.countTenantLeadsPage, {
-    tenantId,
-    cursor: null,
-  });
-
-  expect(page).toMatchObject({ count: 1, isDone: true });
 });
 
 it("counts closer actions past 5,000 pipeline events, including a closer since made an admin", async () => {
