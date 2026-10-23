@@ -16,10 +16,6 @@ import {
   ReportPaymentTypeFilter,
   type PaymentType,
 } from "../../_components/report-payment-type-filter";
-import {
-  ReportRevenueSliceFilter,
-  type RevenueSlice,
-} from "../../_components/report-revenue-slice-filter";
 import { useReportAnalytics } from "../../_components/use-report-analytics";
 import { RevenueReportSkeleton } from "./revenue-report-skeleton";
 import { RevenueByOriginChart } from "./revenue-by-origin-chart";
@@ -50,7 +46,6 @@ export function RevenueReportPageClient() {
   const [granularity, setGranularity] = useState<Granularity>("month");
   const [programId, setProgramId] = useState<Id<"tenantPrograms"> | undefined>();
   const [paymentType, setPaymentType] = useState<PaymentType | undefined>();
-  const [revenueSlice, setRevenueSlice] = useState<RevenueSlice | undefined>();
 
   useEffect(() => {
     captureViewed();
@@ -60,29 +55,24 @@ export function RevenueReportPageClient() {
     (next?: {
       programId?: Id<"tenantPrograms">;
       paymentType?: PaymentType;
-      revenueSlice?: RevenueSlice;
     }) => {
       const nextProgramId =
         next && "programId" in next ? next.programId : programId;
       const nextPaymentType =
         next && "paymentType" in next ? next.paymentType : paymentType;
-      const nextRevenueSlice =
-        next && "revenueSlice" in next ? next.revenueSlice : revenueSlice;
       captureFiltersChanged({
         date_range_preset: "custom",
         has_payment_program_filter: Boolean(nextProgramId),
         has_payment_type_filter: Boolean(nextPaymentType),
-        has_revenue_slice_filter: Boolean(nextRevenueSlice),
       });
     },
-    [captureFiltersChanged, paymentType, programId, revenueSlice],
+    [captureFiltersChanged, paymentType, programId],
   );
 
   const queryFilters = {
     ...dateRange,
     ...(programId ? { programId } : {}),
     ...(paymentType ? { paymentType } : {}),
-    ...(revenueSlice ? { revenueSlice } : {}),
   };
 
   const metrics = useQuery(
@@ -103,7 +93,6 @@ export function RevenueReportPageClient() {
       ...dateRange,
       ...(programId ? { paymentProgramId: programId } : {}),
       ...(paymentType ? { paymentType } : {}),
-      ...(revenueSlice ? { revenueSlice } : {}),
     },
   );
 
@@ -117,12 +106,12 @@ export function RevenueReportPageClient() {
     return <RevenueReportSkeleton />;
   }
 
-  const commissionableByCloser =
-    metrics?.commissionable.byCloser.map((closer) => ({
+  const byCloser =
+    metrics?.revenue.byCloser.map((closer) => ({
       ...closer,
       revenuePercent:
-        metrics.commissionable.finalRevenueMinor > 0
-          ? (closer.revenueMinor / metrics.commissionable.finalRevenueMinor) *
+        metrics.revenue.finalRevenueMinor > 0
+          ? (closer.revenueMinor / metrics.revenue.finalRevenueMinor) *
             100
           : 0,
     })) ?? [];
@@ -132,8 +121,7 @@ export function RevenueReportPageClient() {
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Revenue</h1>
         <p className="text-sm text-muted-foreground">
-          Commissionable vs post-conversion revenue with payment-program and
-          payment-type breakdowns.
+          Revenue with payment-program and payment-type breakdowns.
         </p>
       </div>
 
@@ -164,13 +152,6 @@ export function RevenueReportPageClient() {
             captureFilterChange({ paymentType: next });
           }}
         />
-        <ReportRevenueSliceFilter
-          value={revenueSlice}
-          onChange={(next) => {
-            setRevenueSlice(next);
-            captureFilterChange({ revenueSlice: next });
-          }}
-        />
       </div>
 
       <RevenueKpiCards metrics={metrics} />
@@ -183,17 +164,17 @@ export function RevenueReportPageClient() {
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(20rem,1fr)]">
         {metrics !== undefined ? (
-          <RevenueByOriginChart byOrigin={metrics.commissionable.byOrigin} />
+          <RevenueByOriginChart byOrigin={metrics.revenue.byOrigin} />
         ) : (
           <Skeleton className="h-[260px] rounded-lg" />
         )}
 
         {metrics !== undefined ? (
           <CloserRevenueTable
-            byCloser={commissionableByCloser}
-            totalRevenueMinor={metrics.commissionable.finalRevenueMinor}
-            totalDeals={metrics.commissionable.totalDeals}
-            avgDealMinor={metrics.commissionable.avgDealMinor}
+            byCloser={byCloser}
+            totalRevenueMinor={metrics.revenue.finalRevenueMinor}
+            totalDeals={metrics.revenue.totalDeals}
+            avgDealMinor={metrics.revenue.avgDealMinor}
           />
         ) : (
           <Skeleton className="h-64 rounded-lg" />
@@ -201,15 +182,9 @@ export function RevenueReportPageClient() {
       </div>
 
       {metrics !== undefined ? (
-        <RevenueByProgramSection
-          commissionable={metrics.commissionable.byProgram}
-          nonCommissionable={metrics.nonCommissionable.byProgram}
-        />
+        <RevenueByProgramSection rows={metrics.revenue.byProgram} />
       ) : (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <Skeleton className="h-64 rounded-lg" />
-          <Skeleton className="h-64 rounded-lg" />
-        </div>
+        <Skeleton className="h-64 rounded-lg" />
       )}
 
       {bookedVsSold !== undefined ? (

@@ -7,9 +7,8 @@ import {
   userMemberIdentity,
 } from "../../lib/memberIdentity";
 import {
-  COMMISSIONABLE_ORIGINS,
+  PAYMENT_ORIGINS,
   resolveLegacyCompatibleAttributedCloserId,
-  resolveLegacyCompatiblePaymentCommissionable,
   resolvePaymentType,
 } from "../../lib/paymentTypes";
 
@@ -25,12 +24,6 @@ export type RevenueBucket = {
   depositPayments: Array<AttributedPayment>;
   finalRevenueMinor: number;
   depositRevenueMinor: number;
-};
-
-export type RevenueSplit = {
-  filteredPayments: Array<AttributedPayment>;
-  commissionable: RevenueBucket;
-  nonCommissionable: RevenueBucket;
 };
 
 export function getUserDisplayName(
@@ -119,10 +112,6 @@ function getEffectiveCloserId(
   return resolveLegacyCompatibleAttributedCloserId(payment) ?? null;
 }
 
-function isCommissionablePayment(payment: Doc<"paymentRecords">): boolean {
-  return resolveLegacyCompatiblePaymentCommissionable(payment);
-}
-
 function emptyRevenueBucket(): RevenueBucket {
   return {
     allPayments: [],
@@ -143,9 +132,9 @@ export async function attributePaymentsToClosers(
   }));
 }
 
-export function splitPaymentsForRevenueReporting(
+export function summarizePaymentsForRevenueReporting(
   payments: Array<Doc<"paymentRecords"> | AttributedPayment>,
-): RevenueSplit {
+): RevenueBucket {
   const attributedPayments = payments.map((payment) => ({
     ...payment,
     effectiveCloserId:
@@ -154,21 +143,13 @@ export function splitPaymentsForRevenueReporting(
         : getEffectiveCloserId(payment),
   }));
 
-  const split: RevenueSplit = {
-    filteredPayments: [],
-    commissionable: emptyRevenueBucket(),
-    nonCommissionable: emptyRevenueBucket(),
-  };
+  const bucket = emptyRevenueBucket();
 
   for (const payment of attributedPayments) {
     if (payment.status === "disputed") {
       continue;
     }
 
-    split.filteredPayments.push(payment);
-    const bucket = isCommissionablePayment(payment)
-      ? split.commissionable
-      : split.nonCommissionable;
     bucket.allPayments.push(payment);
 
     const paymentType = resolvePaymentType(payment.paymentType);
@@ -181,7 +162,7 @@ export function splitPaymentsForRevenueReporting(
     }
   }
 
-  return split;
+  return bucket;
 }
 
 export async function getNonDisputedPaymentsInRange(
@@ -249,4 +230,4 @@ export function summarizeAttributedPayments(
   };
 }
 
-export { COMMISSIONABLE_ORIGINS };
+export { PAYMENT_ORIGINS };

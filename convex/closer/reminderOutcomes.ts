@@ -11,7 +11,7 @@ import { transitionOpportunity } from "../lib/opportunityActivity";
 import {
   assertPaymentRow,
   resolveProgramForWrite,
-  type CommissionableOrigin,
+  type PaymentOrigin,
 } from "../lib/paymentHelpers";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
@@ -152,12 +152,11 @@ export const logReminderPayment = mutation({
     const meetingId = opportunity.latestMeetingId ?? undefined;
     const attributedCloserId =
       role === "closer" ? userId : followUp.closerId;
-    const origin: CommissionableOrigin =
+    const origin: PaymentOrigin =
       role === "closer" ? "closer_reminder" : "admin_reminder";
 
     assertPaymentRow({
       tenantId,
-      commissionable: true,
       attributedCloserId,
       recordedByUserId: userId,
       origin,
@@ -172,7 +171,6 @@ export const logReminderPayment = mutation({
       meetingId,
       attributedCloserId,
       recordedByUserId: userId,
-      commissionable: true,
       amountMinor,
       currency,
       programId: program._id,
@@ -243,7 +241,6 @@ export const logReminderPayment = mutation({
         programId: program._id,
         programName: program.name,
         paymentType,
-        commissionable: true,
         attributedCloserId,
         recordedByUserId: userId,
         origin,

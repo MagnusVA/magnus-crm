@@ -44,8 +44,6 @@ const ORIGIN_LABELS: Record<string, string> = {
 	admin_side_deal: "Admin side deal",
 	closer_additional: "Additional (closer)",
 	admin_additional: "Additional (admin)",
-	customer_direct: "Customer direct",
-	bookkeeper_direct: "Bookkeeper direct",
 };
 
 function formatOrigin(origin: string) {
@@ -231,12 +229,6 @@ export function BillingPaymentSummary({
 					<div className="flex items-baseline gap-1.5">
 						<dt className="text-muted-foreground">Paid</dt>
 						<dd className="font-medium tabular-nums">{paidAt ?? "—"}</dd>
-					</div>
-					<div className="flex items-baseline gap-1.5">
-						<dt className="text-muted-foreground">Commission</dt>
-						<dd className="font-medium">
-							{detail.payment.commissionable ? "Eligible" : "Not eligible"}
-						</dd>
 					</div>
 					<div className="flex items-baseline gap-1.5">
 						<dt className="text-muted-foreground">Ref</dt>

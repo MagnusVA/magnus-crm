@@ -8,7 +8,7 @@ import { transitionOpportunity } from "../lib/opportunityActivity";
 import {
   assertPaymentRow,
   resolveProgramForWrite,
-  type CommissionableOrigin,
+  type PaymentOrigin,
 } from "../lib/paymentHelpers";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { isSideDeal } from "../lib/sideDeals";
@@ -63,13 +63,12 @@ export const logPayment = mutation({
     const amountMinor = toAmountMinor(args.amount);
     const program = await resolveProgramForWrite(ctx, tenantId, args.programId);
     const paymentType = resolvePaymentType(args.paymentType);
-    const origin: CommissionableOrigin = isAdmin
+    const origin: PaymentOrigin = isAdmin
       ? "admin_side_deal"
       : "closer_side_deal";
 
     assertPaymentRow({
       tenantId,
-      commissionable: true,
       attributedCloserId: opportunity.assignedCloserId,
       recordedByUserId: userId,
       origin,
@@ -84,7 +83,6 @@ export const logPayment = mutation({
       meetingId: undefined,
       attributedCloserId: opportunity.assignedCloserId,
       recordedByUserId: userId,
-      commissionable: true,
       amountMinor,
       currency,
       programId: program._id,

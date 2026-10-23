@@ -6,7 +6,7 @@ import { requireTenantUser } from "../requireTenantUser";
 import { isSideDealOrigin } from "../lib/sideDeals";
 import {
   getNonDisputedPaymentsInRange,
-  splitPaymentsForRevenueReporting,
+  summarizePaymentsForRevenueReporting,
 } from "../reporting/lib/helpers";
 
 // New customers the dashboard reads in one period at most; past it the count
@@ -86,20 +86,20 @@ export const getTimePeriodStats = query({
       periodStart,
       periodEnd,
     );
-    const paymentSplit = splitPaymentsForRevenueReporting(paymentScan.payments);
+    const paymentSummary = summarizePaymentsForRevenueReporting(paymentScan.payments);
     const closedWonOpportunityIds = new Set(
-      paymentSplit.commissionable.finalPayments
+      paymentSummary.finalPayments
         .map((payment) => payment.opportunityId)
         .filter(
           (opportunityId): opportunityId is NonNullable<typeof opportunityId> =>
             opportunityId !== undefined,
         ),
     );
-    const sideDealPayments = paymentSplit.commissionable.allPayments.filter(
+    const sideDealPayments = paymentSummary.allPayments.filter(
       (payment) => isSideDealOrigin(payment.origin),
     );
     const sideDealFinalOpportunityIds = new Set(
-      paymentSplit.commissionable.finalPayments
+      paymentSummary.finalPayments
         .filter((payment) => isSideDealOrigin(payment.origin))
         .map((payment) => payment.opportunityId)
         .filter(
@@ -107,22 +107,14 @@ export const getTimePeriodStats = query({
             opportunityId !== undefined,
         ),
     );
-    const paymentCountInPeriod = paymentSplit.filteredPayments.length;
-    const closedWonInPeriod = paymentSplit.commissionable.finalRevenueMinor / 100;
+    const paymentCountInPeriod = paymentSummary.allPayments.length;
+    const closedWonInPeriod = paymentSummary.finalRevenueMinor / 100;
     const depositsInPeriod =
-      paymentSplit.commissionable.depositRevenueMinor / 100;
+      paymentSummary.depositRevenueMinor / 100;
     const sideDealRevenueInPeriod =
       sideDealPayments.reduce((sum, payment) => sum + payment.amountMinor, 0) /
       100;
-    const postConversionInPeriod =
-      paymentSplit.nonCommissionable.finalRevenueMinor / 100;
-    const postConversionDepositsInPeriod =
-      paymentSplit.nonCommissionable.depositRevenueMinor / 100;
-    const revenueInPeriod =
-      closedWonInPeriod +
-      depositsInPeriod +
-      postConversionInPeriod +
-      postConversionDepositsInPeriod;
+    const revenueInPeriod = closedWonInPeriod + depositsInPeriod;
 
     // 4. People whose first enrollment falls in the period
     const { count: newCustomers } = await countNewCustomersFromEnrollments(
@@ -138,8 +130,6 @@ export const getTimePeriodStats = query({
       wonDealsInPeriod: closedWonOpportunityIds.size,
       closedWonInPeriod,
       depositsInPeriod,
-      postConversionInPeriod,
-      postConversionDepositsInPeriod,
       sideDealRevenueInPeriod,
       sideDealCountInPeriod: sideDealFinalOpportunityIds.size,
       revenueInPeriod,

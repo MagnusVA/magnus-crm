@@ -319,7 +319,6 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
         amountMinor: payment.amountMinor,
         currency: payment.currency,
         recordedByUserId: adminId,
-        commissionable: true,
         programId: payment.programId,
         programName: payment.programName,
         paymentType: "pif",

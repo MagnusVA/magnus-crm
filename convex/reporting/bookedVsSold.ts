@@ -3,7 +3,6 @@ import type { Id } from "../_generated/dataModel";
 import { query } from "../_generated/server";
 import {
   paymentTypeValidator,
-  resolveLegacyCompatiblePaymentCommissionable,
   resolvePaymentType,
 } from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
@@ -12,10 +11,6 @@ import {
   getNonDisputedPaymentsInRange,
 } from "./lib/helpers";
 
-const REVENUE_SLICE_FILTER = v.union(
-  v.literal("commissionable"),
-  v.literal("non_commissionable"),
-);
 const MAX_MATRIX_PAYMENTS = 500;
 
 type ProgramBucket = Id<"tenantPrograms"> | "unknown";
@@ -27,7 +22,6 @@ export const getBookedVsSoldMatrix = query({
     endDate: v.number(),
     paymentProgramId: v.optional(v.id("tenantPrograms")),
     paymentType: v.optional(paymentTypeValidator),
-    revenueSlice: v.optional(REVENUE_SLICE_FILTER),
   },
   handler: async (ctx, args) => {
     assertValidDateRange(args.startDate, args.endDate);
@@ -48,10 +42,7 @@ export const getBookedVsSoldMatrix = query({
         (!args.paymentProgramId ||
           payment.programId === args.paymentProgramId) &&
         (!args.paymentType ||
-          resolvePaymentType(payment.paymentType) === args.paymentType) &&
-        (!args.revenueSlice ||
-          (args.revenueSlice === "commissionable") ===
-            resolveLegacyCompatiblePaymentCommissionable(payment)),
+          resolvePaymentType(payment.paymentType) === args.paymentType),
     );
 
     const matrixPayments = filteredPayments.slice(0, MAX_MATRIX_PAYMENTS);

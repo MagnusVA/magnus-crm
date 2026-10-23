@@ -147,9 +147,9 @@ describe("person page enrollments", () => {
       // since PR 4 (§2.2).
       await ctx.db.insert("paymentRecords", {
         tenantId: h.tenantId, amountMinor: 10_000, currency: "USD",
-        recordedByUserId: seeded.adminId, commissionable: false, programId: seeded.programA,
+        recordedByUserId: seeded.adminId, programId: seeded.programA,
         programName: "Program A", paymentType: "monthly", status: "recorded",
-        recordedAt: ENROLLED_AT + DAY, origin: "customer_direct",
+        recordedAt: ENROLLED_AT + DAY, origin: "closer_additional",
       });
       return seeded;
     });

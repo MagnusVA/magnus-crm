@@ -928,3 +928,46 @@ export const backfillOpportunityByStage = migrations.define({
     await opportunityByStage.insertIfDoesNotExist(ctx, deal);
   },
 });
+
+// Phase 6 PR 3: assert before clearing, then verify the clear. Only the four
+// origins present in the production snapshot may pass the preflight.
+export const assertPaymentsCommissionable = migrations.define({
+  table: "paymentRecords",
+  batchSize: 200,
+  migrateOne: async (_ctx, payment) => {
+    if (
+      payment.commissionable === false ||
+      ![
+        "closer_meeting",
+        "closer_side_deal",
+        "closer_additional",
+        "closer_reminder",
+      ].includes(payment.origin)
+    ) {
+      throw new Error(`Payment ${payment._id}`);
+    }
+  },
+});
+
+export const clearPaymentCommissionable = migrations.define({
+  table: "paymentRecords",
+  batchSize: 200,
+  migrateOne: async (ctx, payment) => {
+    if (payment.commissionable !== undefined) {
+      // No aggregate key, sum or enrollment derivation reads this field.
+      await ctx.db.patch("paymentRecords", payment._id, {
+        commissionable: undefined,
+      });
+    }
+  },
+});
+
+export const assertPaymentCommissionableCleared = migrations.define({
+  table: "paymentRecords",
+  batchSize: 200,
+  migrateOne: async (_ctx, payment) => {
+    if (payment.commissionable !== undefined) {
+      throw new Error(`Payment ${payment._id}`);
+    }
+  },
+});

@@ -1088,7 +1088,7 @@ async function paidDeal(
   const adminId = await userId(ctx, "user_admin");
   const opportunityId = await insertOpportunity(ctx, tenantId, leadId, { stage: "closed", outcome: "won", source: "side_deal" });
   await ctx.db.insert("paymentRecords", {
-    tenantId, opportunityId, attributedCloserId: adminId, recordedByUserId: adminId, commissionable: true,
+    tenantId, opportunityId, attributedCloserId: adminId, recordedByUserId: adminId,
     amountMinor: 50_000, currency: "USD", programId, programName: "Program", paymentType: "pif",
     status: "recorded", recordedAt: paidAt, origin: "admin_side_deal",
   });

@@ -7,7 +7,7 @@ import { recordPayment } from "../lib/leadLifecycle";
 import {
   assertPaymentRow,
   resolveProgramForWrite,
-  type CommissionableOrigin,
+  type PaymentOrigin,
 } from "../lib/paymentHelpers";
 import { completeMeetingForOutcome } from "../lib/meetingOutcomeCompletion";
 import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
@@ -79,16 +79,15 @@ export const logPayment = mutation({
     const paymentType = resolvePaymentType(args.paymentType);
 
     if (role !== "closer" && !opportunity.assignedCloserId) {
-      throw new Error("Assign a closer before logging a commissionable payment");
+      throw new Error("Assign a closer before logging a payment");
     }
     const attributedCloserId =
       role === "closer" ? userId : opportunity.assignedCloserId!;
-    const origin: CommissionableOrigin =
+    const origin: PaymentOrigin =
       role === "closer" ? "closer_meeting" : "admin_meeting";
 
     assertPaymentRow({
       tenantId,
-      commissionable: true,
       attributedCloserId,
       recordedByUserId: userId,
       origin,
@@ -103,7 +102,6 @@ export const logPayment = mutation({
       meetingId: args.meetingId,
       attributedCloserId,
       recordedByUserId: userId,
-      commissionable: true,
       amountMinor,
       currency,
       programId: program._id,
@@ -156,7 +154,6 @@ export const logPayment = mutation({
         programId: program._id,
         programName: program.name,
         paymentType,
-        commissionable: true,
         attributedCloserId,
         recordedByUserId: userId,
         origin,

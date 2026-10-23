@@ -133,7 +133,6 @@ async function getCashCollectedForCloserInRange(
   for (const payment of payments.slice(0, MAX_CLOSER_PAYMENT_SCAN_ROWS)) {
     if (
       payment.status === "disputed" ||
-      !payment.commissionable ||
       resolvePaymentType(payment.paymentType) === "deposit"
     ) {
       continue;
