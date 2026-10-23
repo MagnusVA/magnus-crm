@@ -166,7 +166,14 @@ export async function missedMeetingHarness() {
   }
 
   async function dealCount() {
-    return (await t.run((ctx) => ctx.db.query("opportunities").collect())).length;
+    return (
+      await t.run((ctx) =>
+        ctx.db
+          .query("opportunities")
+          .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+          .collect(),
+      )
+    ).length;
   }
 
   async function followUps(opportunityId: Id<"opportunities">) {
