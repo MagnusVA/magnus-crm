@@ -89,7 +89,9 @@ export const backfillPersonLosses = migrations.define({
  * sharing its key. The component records progress only after a batch passes. */
 export const assertPipelineHealthAggregates = migrations.define({
   table: "opportunities",
-  batchSize: 200,
+  // Up to four aggregate lookups (count and sum, two aggregates) per open
+  // deal, each a few index reads: 100 deals stay well under 4,096 reads.
+  batchSize: 100,
   migrateOne: async (ctx, deal) => {
     if (isOpenDealAgingEligible(deal)) {
       const key: [typeof deal.stage, number] = [deal.stage, deal.nextMeetingAt ?? 0];
