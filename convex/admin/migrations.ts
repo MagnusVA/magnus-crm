@@ -1,3 +1,4 @@
+import { deleteActivityEventCounts } from "../reporting/activityEventCounts";
 import { deletePipelineHealthAggregates } from "../reporting/pipelineHealthAggregates";
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
@@ -1814,7 +1815,7 @@ export const auditPaymentCurrencies = query({
 });
 
 // ============================================================================
-// Phase 6 Blocker Purge — ONE-SHOT DESTRUCTIVE CLEANUP
+// Phase 6 Blocker Purge — BATCHED DESTRUCTIVE CLEANUP
 // ============================================================================
 //
 // Removes the two categories of records blocking the Phase 6 schema narrowing
@@ -1833,6 +1834,9 @@ export const auditPaymentCurrencies = query({
 // Leaves alone: leads, users, calendlyOrgMembers, tenantCalendlyConnections,
 // eventTypeConfigs, eventTypeFieldCatalog, rawWebhookEvents.
 // ============================================================================
+
+// Aggregate deletion does 5-6 entries per event, each with several index reads.
+const BLOCKER_EVENT_BATCH_SIZE = 40;
 
 export const purgePhase6BlockerRecords = mutation({
   args: {},
@@ -1865,13 +1869,65 @@ export const purgePhase6BlockerRecords = mutation({
       ...new Set(blockerMeetings.map((m) => m.opportunityId)),
     ];
 
-    for (const oppId of opportunityIds) {
+    // Counts describe this call. Repeat while hasMore to finish the purge.
+    let hasMore = false;
+    opportunities: for (const oppId of opportunityIds) {
       // 1. All meetings for this opportunity (not just blocker ones — delete the
       //    whole opportunity tree to avoid orphaned siblings).
       const oppMeetings = await ctx.db
         .query("meetings")
         .withIndex("by_opportunityId", (q) => q.eq("opportunityId", oppId))
         .collect();
+
+      // Drain domain events before deleting parents, so a continuation can find them.
+      // Use the tenantId from the first meeting of this opportunity.
+      const tenantIdForOpp = oppMeetings[0]?.tenantId;
+      if (tenantIdForOpp) {
+        const oppEvents = await ctx.db
+          .query("domainEvents")
+          .withIndex(
+            "by_tenantId_and_entityType_and_entityId_and_occurredAt",
+            (q) =>
+              q
+                .eq("tenantId", tenantIdForOpp)
+                .eq("entityType", "opportunity")
+                .eq("entityId", oppId),
+          )
+          .take(BLOCKER_EVENT_BATCH_SIZE - counts.domainEvents);
+        for (const evt of oppEvents) {
+          await deleteActivityEventCounts(ctx, evt);
+          await ctx.db.delete("domainEvents", evt._id);
+          counts.domainEvents++;
+        }
+        if (counts.domainEvents === BLOCKER_EVENT_BATCH_SIZE) {
+          hasMore = true;
+          break opportunities;
+        }
+      }
+
+      // The same event budget covers every meeting and opportunity in this call.
+      for (const meeting of oppMeetings) {
+        const meetingEvents = await ctx.db
+          .query("domainEvents")
+          .withIndex(
+            "by_tenantId_and_entityType_and_entityId_and_occurredAt",
+            (q) =>
+              q
+                .eq("tenantId", meeting.tenantId)
+                .eq("entityType", "meeting")
+                .eq("entityId", meeting._id),
+          )
+          .take(BLOCKER_EVENT_BATCH_SIZE - counts.domainEvents);
+        for (const evt of meetingEvents) {
+          await deleteActivityEventCounts(ctx, evt);
+          await ctx.db.delete("domainEvents", evt._id);
+          counts.domainEvents++;
+        }
+        if (counts.domainEvents === BLOCKER_EVENT_BATCH_SIZE) {
+          hasMore = true;
+          break opportunities;
+        }
+      }
 
       const meetingIdSet = new Set(oppMeetings.map((m) => m._id));
 
@@ -1923,49 +1979,9 @@ export const purgePhase6BlockerRecords = mutation({
         counts.paymentRecords++;
       }
 
-      // 6. domainEvents for the opportunity
-      //    (use the tenantId from the first meeting of this opportunity)
-      const tenantIdForOpp = oppMeetings[0]?.tenantId;
-      if (tenantIdForOpp) {
-        const oppEvents = await ctx.db
-          .query("domainEvents")
-          .withIndex(
-            "by_tenantId_and_entityType_and_entityId_and_occurredAt",
-            (q) =>
-              q
-                .eq("tenantId", tenantIdForOpp)
-                .eq("entityType", "opportunity")
-                .eq("entityId", oppId),
-          )
-          .collect();
-        for (const evt of oppEvents) {
-          await ctx.db.delete("domainEvents", evt._id);
-          counts.domainEvents++;
-        }
-      }
-
-      // 7. domainEvents for each meeting
-      for (const meeting of oppMeetings) {
-        const meetingEvents = await ctx.db
-          .query("domainEvents")
-          .withIndex(
-            "by_tenantId_and_entityType_and_entityId_and_occurredAt",
-            (q) =>
-              q
-                .eq("tenantId", meeting.tenantId)
-                .eq("entityType", "meeting")
-                .eq("entityId", meeting._id),
-          )
-          .collect();
-        for (const evt of meetingEvents) {
-          await ctx.db.delete("domainEvents", evt._id);
-          counts.domainEvents++;
-        }
-      }
-
       const opportunity = await ctx.db.get("opportunities", oppId);
 
-      // 9. Clear rescheduledFromMeetingId on OTHER meetings that chain from
+      // 6. Clear rescheduledFromMeetingId on OTHER meetings that chain from
       //    any meeting we are about to delete (so we don't leave dangling refs).
       for (const meeting of oppMeetings) {
         const chainedMeetings = allMeetings.filter(
@@ -1978,7 +1994,7 @@ export const purgePhase6BlockerRecords = mutation({
         }
       }
 
-      // 10. Delete meetings, with their attribution rows
+      // 7. Delete meetings, with their attribution rows
       for (const meeting of oppMeetings) {
         await deleteMeetingAttributions(ctx, meeting.tenantId, meeting._id);
         await requestMeetingProjection(ctx, meeting.tenantId, meeting._id);
@@ -1986,7 +2002,7 @@ export const purgePhase6BlockerRecords = mutation({
         counts.meetings++;
       }
 
-      // 11. Delete the opportunity, with the rest of its attribution rows
+      // 8. Delete the opportunity, with the rest of its attribution rows
       if (opportunity) {
         while (!(await deleteDealAttributions(ctx, opportunity.tenantId, oppId))) {
           // Each call deletes one page.
@@ -2018,10 +2034,12 @@ export const purgePhase6BlockerRecords = mutation({
       blockerMeetingsFound: blockerMeetings.length,
       blockerOpportunitiesFound: opportunityIds.length,
       legacyPaymentsFound: legacyPayments.length,
+      hasMore,
       ...counts,
     });
 
     return {
+      hasMore,
       blockerA: {
         blockerMeetingsFound: blockerMeetings.length,
         opportunitiesPurged: counts.opportunities,

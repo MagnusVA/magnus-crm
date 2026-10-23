@@ -291,6 +291,7 @@ import type * as pipeline_reminderDetail from "../pipeline/reminderDetail.js";
 import type * as pipeline_slackJoinLookup from "../pipeline/slackJoinLookup.js";
 import type * as pipeline_storedBookingFact from "../pipeline/storedBookingFact.js";
 import type * as pipeline_workpools from "../pipeline/workpools.js";
+import type * as reporting_activityEventCounts from "../reporting/activityEventCounts.js";
 import type * as reporting_activityFeed from "../reporting/activityFeed.js";
 import type * as reporting_aggregates from "../reporting/aggregates.js";
 import type * as reporting_backfill from "../reporting/backfill.js";
@@ -677,6 +678,7 @@ declare const fullApi: ApiFromModules<{
   "pipeline/slackJoinLookup": typeof pipeline_slackJoinLookup;
   "pipeline/storedBookingFact": typeof pipeline_storedBookingFact;
   "pipeline/workpools": typeof pipeline_workpools;
+  "reporting/activityEventCounts": typeof reporting_activityEventCounts;
   "reporting/activityFeed": typeof reporting_activityFeed;
   "reporting/aggregates": typeof reporting_aggregates;
   "reporting/backfill": typeof reporting_backfill;
@@ -812,6 +814,7 @@ export declare const components: {
   openDealAging: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"openDealAging">;
   personLosses: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"personLosses">;
   leadStageEntries: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"leadStageEntries">;
+  activityEventCounts: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"activityEventCounts">;
   prospectConversions: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"prospectConversions">;
   leadGenDealsByWorker: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"leadGenDealsByWorker">;
   slackQualificationsByUser: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"slackQualificationsByUser">;

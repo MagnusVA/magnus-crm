@@ -1,4 +1,8 @@
 import { assertMeetingProjection, assertMeetingProjectionBucket, assertMeetingProjectionSource } from "./operations/meetingProjectionChecks";
+import {
+  assertActivityEventCountEntries,
+  insertActivityEventCounts,
+} from "./reporting/activityEventCounts";
 import { Migrations } from "@convex-dev/migrations";
 import { v } from "convex/values";
 import { internalMutation, type MutationCtx } from "./_generated/server";
@@ -57,7 +61,6 @@ import {
 } from "./opportunities/dealState";
 import { opportunityByStage } from "./reporting/aggregates";
 import {
-  insertLeadGenDealAggregate,
   isLeadGenDealAggregateEligible,
   leadGenDealsByWorker,
 } from "./leadGen/leadGenDealsAggregate";
@@ -1053,13 +1056,33 @@ export const backfillOpportunityByStage = migrations.define({
   },
 });
 
+export const backfillActivityEventCounts = migrations.define({
+  table: "domainEvents",
+  // 40 × 6 = 240 aggregate inserts, leaving headroom for tree reads below 4,096.
+  batchSize: 40,
+  migrateOne: async (ctx, event) => {
+    await insertActivityEventCounts(ctx, event);
+  },
+});
+
+export const assertActivityEventCounts = migrations.define({
+  table: "domainEvents",
+  // 40 × 6 = 240 exact-entry counts, leaving headroom for tree reads below 4,096.
+  batchSize: 40,
+  migrateOne: async (ctx, event) => {
+    await assertActivityEventCountEntries(ctx, event);
+  },
+});
+
 // Dual writes are live before this runs. Repeating the migration leaves the
 // row identities unchanged, including rows inserted during the backfill.
 export const backfillLeadGenDealsByWorker = migrations.define({
   table: "dealAttributions",
   batchSize: 200,
   migrateOne: async (ctx, row) => {
-    await insertLeadGenDealAggregate(ctx, row);
+    if (isLeadGenDealAggregateEligible(row)) {
+      await leadGenDealsByWorker.insertIfDoesNotExist(ctx, row);
+    }
   },
 });
 
@@ -1157,8 +1180,22 @@ export const assertMeetingAttendance = migrations.define({
     if (
       meeting.status === "completed" ||
       (meeting.status === "held" && meeting.heldMarkedAt === undefined) ||
-      (meeting.status !== "held" && meeting.completedAt !== undefined) ||
+      meeting.completedAt !== undefined ||
       (meeting.status !== "held" && meeting.heldMarkedAt !== undefined)
     ) throw new Error(meeting._id);
+  },
+});
+
+// Phase 6 PR 13a: stop the dual write before narrowing the meeting schema.
+export const clearHeldCompletedAt = migrations.define({
+  table: "meetings",
+  batchSize: 200,
+  migrateOne: async (ctx, meeting) => {
+    if (meeting.completedAt !== undefined) {
+      // No aggregate key, projection contribution or meeting ref reads it.
+      // heldMarkedAt already carries the attendance time, so no lifecycle
+      // refresh is needed for this field-only clear.
+      await ctx.db.patch("meetings", meeting._id, { completedAt: undefined });
+    }
   },
 });

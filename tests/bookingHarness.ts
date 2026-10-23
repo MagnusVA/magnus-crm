@@ -16,6 +16,7 @@ export function registerComponents(t: ReturnType<typeof convexTest>) {
     "openDealAging",
     "personLosses",
     "leadStageEntries",
+    "activityEventCounts",
     "slackQualificationsByUser",
     "slackQualificationsByTime",
     "paymentSums",

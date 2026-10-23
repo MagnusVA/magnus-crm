@@ -9,6 +9,7 @@ import {
   repointDealAttributionTeamMember,
 } from "../lib/attribution/dealAttributions";
 import {
+  deleteLeadGenDealAggregate,
   insertLeadGenDealAggregate,
   isLeadGenDealAggregateEligible,
   leadGenDealsByWorker,
@@ -44,6 +45,16 @@ it("inserts once through deal creation and ignores both kinds of ineligible row"
   });
   expect(await count(h)).toBe(1);
   expect(await h.t.query(functions.verifyLeadGenDealsByWorker, { tenantId: h.tenantId, ...range })).toEqual([]);
+});
+
+it("fails duplicate inserts and missing eligible deletes", async () => {
+  const h = await attributionHarness();
+  const row = (await attributionRows(h)).find(isLeadGenDealAggregateEligible)!;
+  await expect(h.t.run((ctx) => insertLeadGenDealAggregate(ctx, row)))
+    .rejects.toThrow("already exists");
+  await h.t.run((ctx) => deleteLeadGenDealAggregate(ctx, row));
+  await expect(h.t.run((ctx) => deleteLeadGenDealAggregate(ctx, row)))
+    .rejects.toThrow("not found");
 });
 
 it.each(["deal", "meeting"] as const)("deletes eligible credit through the %s helper", async (kind) => {
@@ -198,7 +209,8 @@ it("verifies and activates more than 200 eligible rows without paginating within
   await h.t.mutation(functions.markLeadGenDealsByWorkerVerified, { tenantId: h.tenantId });
   expect(await h.t.run(async (ctx) => (await ctx.db.get("tenants", h.tenantId))!.leadGenDealsAggregateVerifiedAt))
     .toBe(Date.now());
-});
+// 250 rows through the aggregate is slow under a loaded runner.
+}, 30_000);
 
 it("keeps row identities, capture boundaries and tenant isolation", async () => {
   const h = await attributionHarness();

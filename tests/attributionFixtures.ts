@@ -1,3 +1,4 @@
+import { insertPipelineHealthAggregates } from "../convex/reporting/pipelineHealthAggregates";
 import migrationsTest from "@convex-dev/migrations/test";
 import { vi } from "vitest";
 import { internal } from "../convex/_generated/api";
@@ -49,6 +50,9 @@ export async function attributionHarness() {
   migrationsTest.register(harness.t);
   const ids = await harness.t.run(async (ctx) => {
     const seeded = await seed(ctx, harness.tenantId);
+    for (const id of Object.values(seeded.opportunities)) {
+      await insertPipelineHealthAggregates(ctx, (await ctx.db.get("opportunities", id))!);
+    }
     await writeAttribution(ctx, seeded);
     return seeded;
   });
