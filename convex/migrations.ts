@@ -1127,7 +1127,9 @@ export const backfillMeetingAttendance = migrations.define({
         status: "held",
         heldMarkedAt: meeting.completedAt,
       });
-    } else if (meeting.status === "no_show" && meeting.completedAt !== undefined) {
+    } else if (meeting.status !== "held" && meeting.completedAt !== undefined) {
+      // No-shows got it from the old writers; a Calendly reversal can leave it
+      // on a meeting it moved back to scheduled or to canceled.
       await patchMeetingLifecycle(ctx, meeting._id, { completedAt: undefined });
     }
   },
