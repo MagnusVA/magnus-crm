@@ -2,7 +2,10 @@
 
 import type { FunctionArgs } from "convex/server";
 import { useState } from "react";
-import { usePaginatedQuery, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
+// The feed pages a stream, so it needs the helper's hook, which pins each
+// loaded page's end cursor; Convex's own hook doesn't for stream pagination.
+import { usePaginatedQuery } from "convex-helpers/react";
 import { startOfMonth, endOfMonth } from "date-fns";
 import { AlertTriangleIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
