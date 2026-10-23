@@ -189,7 +189,7 @@ One helper, `meetingAttendanceDisplay(meeting, now)` in `lib/status-config.ts`, 
 
 - **Setting:** `tenants.businessDay = { timeZone, dayStartHour }`, an IANA zone and a local hour from 0 to 23. When it's absent, it means `{ "America/Tegucigalpa", 1 }`, today's 07:00 UTC. One module, `lib/businessDay.ts`, is shared by the server and the client. It turns an instant into a business date and a business date into its `[start, end)` instants. It uses the zone's offset at that date, so a zone with daylight saving gets 23- and 25-hour days, and a start hour that doesn't exist on a change day moves to the first instant after it. `convex/reporting/lib/hondurasBusinessTime.ts` and `app/workspace/_components/dashboard-date-utils.ts` become thin callers of it.
 - **Where it applies:** every server-side day:
-  - the meeting projections' `dayKey` (UTC today), and so Sales Calls, the team report's operations dimensions and the pipeline show rate. Booked Calls doesn't read the projections: it counts first bookings by when they were made, in the Honduras business-day window, and moves only with the setting;
+  - the meeting projections' `dayKey`, keyed today by the UTC date and from PR 11 by the business date `lib/businessDay.ts` gives, and so Sales Calls, the team report's operations dimensions and the pipeline show rate. Booked Calls doesn't read the projections: it counts first bookings by when they were made, in the Honduras business-day window, and moves only with the setting;
   - `revenueTrend`'s day, week and month buckets;
   - the overview's operations window (UTC midnight today);
   - the operations report reducers and their exports, whose "UTC days (00:00)" boundary text goes;
@@ -410,7 +410,7 @@ No export is taken for any of them (D10).
 
 - **The backfills** page their source table with `insertIfDoesNotExist`, as `reporting/backfill.ts` does.
 - **Each `verify*` is an internal query** that computes the report's numbers both ways for given ranges and returns the differences, IDs and counts only:
-  - Pipeline Health: aging per stage now, and losses by actor for each month from 2026-04, where the old way is a complete paged read of the Closed lost deals (200 a page, filtered by `lostAt` in the month), not the report's 4,000-row read;
+  - Pipeline Health: aging per stage now, and losses by actor for each month from 2026-04, where the old way is a complete paged read of the Closed lost deals (200 a page, kept when `lostAt` is in the month and `isPersonLoss` holds, as `personLosses` does), not the report's 4,000-row read;
   - activity: the summary for each of the last 30 business days, where the old way is exact under 10,000 events a day;
   - Deals: per worker for each month from 2026-04, where the old way is exact under 5,000 rows.
 - **The flag:** an internal mutation sets the PR's tenant flag only when every difference is zero, or is explained by rows written between the two reads. A rerun clears that.
