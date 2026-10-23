@@ -233,10 +233,12 @@ export function CloserDashboardPageClient() {
             eventTypeName={nextMeeting.eventTypeName}
           />
         ) : nextMeeting?.incomplete ? (
-          <CloserEmptyState
-            title="Upcoming meeting lookup incomplete"
-            description="Check your calendar for upcoming meetings."
-          />
+          <div role="status" aria-live="polite">
+            <CloserEmptyState
+              title="Upcoming meeting lookup incomplete"
+              description="Check your calendar for upcoming meetings."
+            />
+          </div>
         ) : (
           <CloserEmptyState
             title="No upcoming meetings"
