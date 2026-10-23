@@ -191,7 +191,7 @@ One helper, `meetingAttendanceDisplay(meeting, now)` in `lib/status-config.ts`, 
 - **Where it applies:** every server-side day:
   - the meeting projections' `dayKey`, keyed today by the UTC date and from PR 11 by the business date `lib/businessDay.ts` gives, and so Sales Calls, the team report's operations dimensions and the pipeline show rate. Booked Calls doesn't read the projections: it counts first bookings by when they were made, in the Honduras business-day window, and moves only with the setting;
   - `revenueTrend`'s day, week and month buckets;
-  - the overview's operations window (UTC midnight today);
+  - the overview's operations window, which starts at UTC midnight today and from PR 11 at the business day's start from `lib/businessDay.ts`, like its Slack window;
   - the operations report reducers and their exports, whose "UTC days (00:00)" boundary text goes;
   - everything on the Honduras business day today: lead gen stats, Slack qualifications, booked calls, work schedules and the report contracts.
 - **Screens on the browser clock stay** (U4): the legacy report controls, the closer dashboard and calendar, the closer pipeline filter, billing filters and the unavailability dialog. `lib/opportunitySearch.ts`'s day keys aren't moved: they go (§3.2).
@@ -324,7 +324,7 @@ The before and after values for September 2026 (UTC month, by meeting start time
 
 - **Day buckets:** the move to the business day takes the 961 meetings that start between 18:00 and 24:00 Honduras time off the next UTC date and onto their own date. Per-day counts on Sales Calls and the team report's dimensions move; Booked Calls doesn't, since it already uses the Honduras business day. Monthly totals move only at the month's edges: a meeting at 20:00 Honduras time on the last day of a month is in that month from PR 11.
 - **The revenue trend's days:** a payment recorded between 00:00 and 07:00 UTC moves to the previous date.
-- **The overview's operations window:** it starts at 07:00 UTC instead of 00:00, as its Slack window already does.
+- **The overview's operations window:** it starts at the business day's start (07:00 UTC with the default setting) instead of 00:00 UTC, as its Slack window already does.
 - **Week start (D9):** from Monday on every screen, so "This week" on the report pages loses Sunday.
 - **Everything else** shows the same numbers. The parity checks in §10.6 prove that for the aggregates.
 
