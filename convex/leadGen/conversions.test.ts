@@ -8,6 +8,7 @@ import type { Id } from "../_generated/dataModel";
 import { bookingHarness } from "../../tests/bookingHarness";
 import { recordDealCreation } from "../lib/attribution/dealAttributions";
 import { CONVERSION_DEALS_READ_LIMIT } from "./conversions";
+import { deleteLeadGenDealAggregate } from "./leadGenDealsAggregate";
 
 afterEach(() => vi.useRealTimers());
 
@@ -206,9 +207,16 @@ it("counts each worker's deals from the lead gen rows whose capture falls in the
     deals: 1,
   });
 
+  await h.t.mutation(internal.leadGen.leadGenDealsAggregate.markLeadGenDealsByWorkerVerified, {
+    tenantId: h.tenantId,
+  });
+  expect(await listConversions(h, OCTOBER)).toEqual(october);
+  expect(await listConversions(h, SEPTEMBER)).toEqual(september);
+
   // The person counts don't read the rows: without them, only Deals changes.
   await h.t.run(async (ctx) => {
     for (const row of await ctx.db.query("dealAttributions").take(100)) {
+      await deleteLeadGenDealAggregate(ctx, row);
       await ctx.db.delete("dealAttributions", row._id);
     }
   });

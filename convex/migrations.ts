@@ -54,6 +54,7 @@ import {
   loadPendingRescheduleLink,
 } from "./opportunities/dealState";
 import { opportunityByStage } from "./reporting/aggregates";
+import { insertLeadGenDealAggregate } from "./leadGen/leadGenDealsAggregate";
 
 export const migrations = new Migrations<DataModel>(components.migrations);
 
@@ -926,5 +927,15 @@ export const backfillOpportunityByStage = migrations.define({
   batchSize: 200,
   migrateOne: async (ctx, deal) => {
     await opportunityByStage.insertIfDoesNotExist(ctx, deal);
+  },
+});
+
+// Dual writes are live before this runs. Repeating the migration leaves the
+// row identities unchanged, including rows inserted during the backfill.
+export const backfillLeadGenDealsByWorker = migrations.define({
+  table: "dealAttributions",
+  batchSize: 200,
+  migrateOne: async (ctx, row) => {
+    await insertLeadGenDealAggregate(ctx, row);
   },
 });

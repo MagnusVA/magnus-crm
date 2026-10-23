@@ -2,6 +2,8 @@ import { v } from "convex/values";
 import type { DataModel, Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 
+import { deleteLeadGenDealAggregate } from "../leadGen/leadGenDealsAggregate";
+
 const CLEANUP_BATCH_SIZE = 128;
 
 // Each tenant-scoped table, with an index whose first field is tenantId.
@@ -56,6 +58,17 @@ async function deleteByTenantIdBatch<TableName extends TenantScopedTable>(
   tableName: TableName,
   tenantId: Id<"tenants">,
 ) {
+  if (tableName === "dealAttributions") {
+    const rows = await ctx.db
+      .query("dealAttributions")
+      .withIndex("by_tenantId_and_meetingId", (q) => q.eq("tenantId", tenantId))
+      .take(CLEANUP_BATCH_SIZE);
+    for (const row of rows) {
+      await deleteLeadGenDealAggregate(ctx, row);
+      await ctx.db.delete("dealAttributions", row._id);
+    }
+    return rows.length;
+  }
   const rows = await ctx.db
     .query(tableName)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

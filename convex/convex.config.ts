@@ -58,6 +58,7 @@ app.use(aggregate, { name: "paymentSums" });
 app.use(aggregate, { name: "opportunityByStage" });
 app.use(aggregate, { name: "leadStageEntries" });
 app.use(aggregate, { name: "prospectConversions" });
+app.use(aggregate, { name: "leadGenDealsByWorker" });
 app.use(aggregate, { name: "slackQualificationsByUser" });
 app.use(aggregate, { name: "slackQualificationsByTime" });
 app.use(aggregate, { name: "billingPaymentsByStatus" });

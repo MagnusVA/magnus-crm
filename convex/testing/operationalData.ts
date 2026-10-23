@@ -8,6 +8,8 @@ import {
   type QueryCtx,
 } from "../_generated/server";
 
+import { deleteLeadGenDealAggregate } from "../leadGen/leadGenDealsAggregate";
+
 const DESTRUCTIVE_CONFIRMATION = "DELETE_OPERATIONAL_DATA";
 const BATCH_SIZE = 64;
 
@@ -119,6 +121,14 @@ async function deleteSimpleBatch(
   ctx: MutationCtx,
   tableName: Exclude<OperationalTableName, "meetings" | "paymentRecords">,
 ) {
+  if (tableName === "dealAttributions") {
+    const rows = await ctx.db.query("dealAttributions").take(BATCH_SIZE);
+    for (const row of rows) {
+      await deleteLeadGenDealAggregate(ctx, row);
+      await ctx.db.delete("dealAttributions", row._id);
+    }
+    return rows.length;
+  }
   const rows = await ctx.db.query(tableName).take(BATCH_SIZE);
   for (const row of rows) {
     await ctx.db.delete(tableName, row._id);

@@ -1,4 +1,8 @@
 import type { Infer } from "convex/values";
+import {
+  deleteLeadGenDealAggregate,
+  insertLeadGenDealAggregate,
+} from "../../leadGen/leadGenDealsAggregate";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { readLiveQueryRows } from "../liveQueryBounds";
@@ -200,7 +204,10 @@ async function insertRow(
   ctx: MutationCtx,
   row: Omit<DealAttribution, "_id" | "_creationTime" | "createdAt">,
 ) {
-  return await ctx.db.insert("dealAttributions", { ...row, createdAt: Date.now() });
+  const id = await ctx.db.insert("dealAttributions", { ...row, createdAt: Date.now() });
+  const inserted = (await ctx.db.get("dealAttributions", id))!;
+  await insertLeadGenDealAggregate(ctx, inserted);
+  return id;
 }
 
 /**
@@ -421,7 +428,10 @@ export async function deleteDealAttributions(
   opportunityId: Id<"opportunities">,
 ): Promise<boolean> {
   const rows = await attributionsForDeal(ctx, tenantId, opportunityId);
-  for (const row of rows) await ctx.db.delete("dealAttributions", row._id);
+  for (const row of rows) {
+    await deleteLeadGenDealAggregate(ctx, row);
+    await ctx.db.delete("dealAttributions", row._id);
+  }
   return rows.length < ROWS_PER_DEAL_LIMIT;
 }
 
@@ -432,6 +442,7 @@ export async function deleteMeetingAttributions(
   meetingId: Id<"meetings">,
 ): Promise<void> {
   for (const row of await attributionsForMeeting(ctx, tenantId, meetingId)) {
+    await deleteLeadGenDealAggregate(ctx, row);
     await ctx.db.delete("dealAttributions", row._id);
   }
 }
