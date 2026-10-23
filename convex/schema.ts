@@ -870,6 +870,7 @@ export default defineSchema({
     notes: v.optional(v.string()),
     lostReason: v.optional(v.string()),
     lostAt: v.optional(v.number()),
+    // Deprecated copies of meeting times. Cleared in Phase 6 PR 4; dropped in PR 13.
     canceledAt: v.optional(v.number()),
     noShowAt: v.optional(v.number()),
     paymentReceivedAt: v.optional(v.number()),
@@ -1240,21 +1241,6 @@ export default defineSchema({
     attributionResolutionVersion: v.optional(v.number()),
     utmTruncated: v.optional(v.boolean()),
 
-    // DEAD FIELD (as of meeting-comments feature).
-    // All read and write code paths are deleted — no production code references
-    // this field. Existing data is preserved but orphaned. Full removal requires
-    // a widen-migrate-narrow migration; schedule via the `convex-migration-helper`
-    // skill. The `by_tenantId_and_meetingOutcome_and_scheduledAt` index below
-    // must stay until the field is removed.
-    meetingOutcome: v.optional(
-      v.union(
-        v.literal("interested"),
-        v.literal("needs_more_info"),
-        v.literal("price_objection"),
-        v.literal("not_qualified"),
-        v.literal("ready_to_buy"),
-      ),
-    ),
     // Optional Fathom recording link retained as a passive meeting artifact.
     fathomLink: v.optional(v.string()),
     fathomLinkSavedAt: v.optional(v.number()),
@@ -1305,13 +1291,6 @@ export default defineSchema({
     .index("by_tenantId_and_status_and_scheduledAt", [
       "tenantId",
       "status",
-      "scheduledAt",
-    ])
-    // DEAD INDEX — see DEAD FIELD comment on meetingOutcome above. Cannot remove
-    // independently of the field. Remove together in the follow-up migration.
-    .index("by_tenantId_and_meetingOutcome_and_scheduledAt", [
-      "tenantId",
-      "meetingOutcome",
       "scheduledAt",
     ])
     .index("by_opportunityId_and_status_and_scheduledAt", ["opportunityId", "status", "scheduledAt"])

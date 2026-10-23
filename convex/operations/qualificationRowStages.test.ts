@@ -79,7 +79,7 @@ describe("the qualification row's stage and outcome", () => {
     await harness.t.run((ctx) =>
       transitionOpportunity(ctx, opportunityId, {
         to: { stage: "closed", outcome: "lost" },
-        fields: { noShowAt: 1, lostReason: "no_show", lostAt: 1 },
+        fields: { lostReason: "no_show", lostAt: 1 },
         source: "system",
       }),
     );

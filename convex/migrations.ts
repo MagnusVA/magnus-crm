@@ -59,6 +59,48 @@ export const migrations = new Migrations<DataModel>(components.migrations);
 
 export const run = migrations.runner();
 
+// Phase 6 PR 4. These copies are absent from aggregate keys and projections
+// (reporting/aggregates.ts, lib/opportunityActivity.ts), so clearing them needs
+// no lifecycle write, activity timestamp change, event, or projection rebuild.
+export const clearDealMeetingTimes = migrations.define({
+  table: "opportunities",
+  batchSize: 200,
+  migrateOne: async (ctx, deal) => {
+    if (deal.canceledAt !== undefined || deal.noShowAt !== undefined) {
+      await ctx.db.patch("opportunities", deal._id, {
+        canceledAt: undefined,
+        noShowAt: undefined,
+      });
+    }
+  },
+});
+
+export const assertDealMeetingTimesCleared = migrations.define({
+  table: "opportunities",
+  batchSize: 200,
+  migrateOne: async (_ctx, deal) => {
+    if (deal.canceledAt !== undefined || deal.noShowAt !== undefined) {
+      throw new Error(`Deal meeting times remain: ${deal._id}`);
+    }
+  },
+});
+
+export const deleteLegacyMeetingDailyStats = migrations.define({
+  table: "operationsMeetingDailyStats",
+  batchSize: 200,
+  migrateOne: async (ctx, row) => {
+    await ctx.db.delete("operationsMeetingDailyStats", row._id);
+  },
+});
+
+export const assertLegacyMeetingDailyStatsEmpty = migrations.define({
+  table: "operationsMeetingDailyStats",
+  batchSize: 200,
+  migrateOne: async (_ctx, row) => {
+    throw new Error(`Legacy meeting daily stats remain: ${row._id}`);
+  },
+});
+
 export const backfillOpportunitySourceAndActivity = migrations.define({
   table: "opportunities",
   batchSize: 200,
