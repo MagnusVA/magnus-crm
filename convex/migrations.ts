@@ -54,10 +54,65 @@ import {
   loadPendingRescheduleLink,
 } from "./opportunities/dealState";
 import { opportunityByStage } from "./reporting/aggregates";
+import {
+  isOpenDealAgingEligible,
+  isPersonLossEligible,
+  openDealAging,
+  personLosses,
+} from "./reporting/pipelineHealthAggregates";
 
 export const migrations = new Migrations<DataModel>(components.migrations);
 
 export const run = migrations.runner();
+
+export const backfillOpenDealAging = migrations.define({
+  table: "opportunities",
+  batchSize: 200,
+  migrateOne: async (ctx, deal) => {
+    if (isOpenDealAgingEligible(deal)) {
+      await openDealAging.insertIfDoesNotExist(ctx, deal);
+    }
+  },
+});
+
+export const backfillPersonLosses = migrations.define({
+  table: "opportunities",
+  batchSize: 200,
+  migrateOne: async (ctx, deal) => {
+    if (isPersonLossEligible(deal)) {
+      await personLosses.insertIfDoesNotExist(ctx, deal);
+    }
+  },
+});
+
+/** Prove membership at the expected key for THIS deal, not another deal
+ * sharing its key. The component records progress only after a batch passes. */
+export const assertPipelineHealthAggregates = migrations.define({
+  table: "opportunities",
+  batchSize: 200,
+  migrateOne: async (ctx, deal) => {
+    if (isOpenDealAgingEligible(deal)) {
+      const key: [typeof deal.stage, number] = [deal.stage, deal.nextMeetingAt ?? 0];
+      const bound = { key, id: deal._id, inclusive: true };
+      if (await openDealAging.count(ctx, {
+        namespace: deal.tenantId,
+        bounds: { lower: bound, upper: bound },
+      }) !== 1) {
+        throw new Error(`openDealAging mismatch: ${deal._id}`);
+      }
+    }
+    if (isPersonLossEligible(deal)) {
+      const key: [number, Id<"users"> | ""] = [deal.lostAt!, deal.lostByUserId ?? ""];
+      const bound = { key, id: deal._id, inclusive: true };
+      if (await personLosses.count(ctx, {
+        namespace: deal.tenantId,
+        bounds: { lower: bound, upper: bound },
+      }) !== 1) {
+        throw new Error(`personLosses mismatch: ${deal._id}`);
+      }
+    }
+  },
+});
 
 export const backfillOpportunitySourceAndActivity = migrations.define({
   table: "opportunities",
