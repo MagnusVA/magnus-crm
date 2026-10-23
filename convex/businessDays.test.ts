@@ -11,6 +11,62 @@ const changed = { timeZone: "UTC", dayStartHour: 0 };
 const range = { kind: "custom" as const, startBusinessDate: "2026-09-30", endBusinessDateInclusive: "2026-10-02" };
 
 describe("tenant business days", () => {
+  it("starts newly invited tenants ready without unlocking existing tenants", async () => {
+    const { t, admin } = await businessDayFixture();
+    const tenantId = await t.mutation(internal.admin.tenantsMutations.insertTenant, {
+      companyName: "New tenant", contactEmail: "new@example.com", workosOrgId: "org_new",
+      createdBy: "system-admin", inviteTokenHash: "new-invite", inviteExpiresAt: Date.now() + 10000,
+    });
+    await t.run(ctx => ctx.db.insert("users", {
+      tenantId, workosUserId: "user_new", email: "new@example.com", role: "tenant_admin", isActive: true,
+    }));
+    const newAdmin = t.withIdentity({ subject: "user_new", org_id: "org_new" });
+    expect(await t.run(ctx => ctx.db.get("tenants", tenantId))).toMatchObject({ businessDayAppliedVersion: 0 });
+    expect(await newAdmin.query(api.tenants.getCurrentTenant, {})).toMatchObject({ businessDayReady: true, leadGenBusinessDayReady: true });
+    await expect(newAdmin.query(api.operations.salesCallsDashboard.getSalesCallsDashboard, { range })).resolves.toBeDefined();
+    expect(await admin.query(api.tenants.getCurrentTenant, {})).toMatchObject({ businessDayReady: false });
+  });
+
+  it.each(["booked-calls", "qualifications"] as const)("allows %s dashboard and export requests without meeting readiness", async (reportKind) => {
+    const { t, admin } = await businessDayFixture();
+    // Both before cutover and during a settings rebuild, these readers use source records.
+    for (const rebuilding of [false, true]) {
+      if (rebuilding) await admin.mutation(api.businessDays.updateBusinessDay, { setting: changed });
+      for (const purpose of ["dashboard", "export"] as const) {
+        const args = { reportKind, range, requestToken: `${reportKind}-${purpose}-${rebuilding}` };
+        const result = purpose === "dashboard"
+          ? await admin.mutation(api.operations.reports.jobs.requestDashboardReport, args)
+          : await admin.mutation(api.operations.reports.jobs.requestExport, { ...args, format: "summary_csv" });
+        expect(await t.run(ctx => ctx.db.get("operationsReportJobs", result.jobId))).toMatchObject({ reportKind, purpose, status: "queued" });
+        await admin.mutation(api.operations.reports.jobs.cancelReport, { jobId: result.jobId });
+      }
+    }
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  });
+
+  it("shows rebuilding Overview sections only for the buckets that are unavailable", async () => {
+    const { t, admin, tenantId } = await businessDayFixture();
+    const overview = () => admin.query(api.dashboard.overview.getOverviewDashboard, { range });
+    const rebuilding = { status: "rebuilding", data: null, message: BUSINESS_DAY_REBUILD_MESSAGE, errorCode: null };
+    expect(await overview()).toMatchObject({
+      phoneCloserOperations: rebuilding,
+      leadGen: { status: "ready", data: { totalSubmissions: 3 } },
+      topOrigins: { status: "ready" },
+    });
+    await t.mutation(internal.businessDays.beginBusinessDayCutover, { tenantId, rebuildLeadGen: false });
+    expect(await overview()).toMatchObject({ phoneCloserOperations: rebuilding, leadGen: { status: "ready" }, topOrigins: { status: "ready" } });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await overview()).toMatchObject({ phoneCloserOperations: { status: "ready" } });
+    const rebuildId = await admin.mutation(api.businessDays.updateBusinessDay, { setting: changed });
+    expect(await overview()).toMatchObject({ phoneCloserOperations: rebuilding, leadGen: rebuilding, topOrigins: rebuilding });
+    await t.mutation(internal.businessDays.failRebuild, { rebuildId, error: "Interrupted settings rebuild" });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await overview()).toMatchObject({ phoneCloserOperations: rebuilding, leadGen: rebuilding, topOrigins: rebuilding });
+    await admin.mutation(api.businessDays.retryBusinessDayRebuild, {});
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await overview()).toMatchObject({ phoneCloserOperations: { status: "ready" }, leadGen: { status: "ready", data: { totalSubmissions: 3 } }, topOrigins: { status: "ready" } });
+  });
+
   it("keys evening meetings to their business date and aligns overview operations and Slack", async () => {
     const { t, meetingId } = await businessDayFixture();
     const projection = await t.run(ctx => ctx.db.query("meetingProjections").withIndex("by_meetingId", q => q.eq("meetingId", meetingId)).unique());

@@ -1,5 +1,6 @@
 "use client";
-import { DayDefinition } from "@/app/workspace/_components/day-definition";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { DayDefinition, BusinessDayRebuildingState } from "@/app/workspace/_components/day-definition";
 
 import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
 
@@ -50,6 +51,7 @@ import { formatRate } from "./team-report-formatters";
 
 export function TeamReportPageClient() {
   usePageTitle("Team Performance — Reports");
+  const { loaded, rebuilding } = useBusinessDay();
   const { captureViewed, captureFiltersChanged } =
     useReportAnalytics("team_performance");
 
@@ -92,11 +94,13 @@ export function TeamReportPageClient() {
   );
   const operationsDimensions = useQuery(
     api.reporting.teamPerformance.getTeamOperationsDimensions,
-    {
+    !loaded || rebuilding ? "skip" : {
       ...dateRange,
       ...operationsFilters,
     },
   );
+
+  if (rebuilding) return <BusinessDayRebuildingState />;
 
   if (
     metrics === undefined ||

@@ -1,4 +1,5 @@
 "use client";
+import { BusinessDayRebuildingState } from "@/app/workspace/_components/day-definition";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useNow } from "@/hooks/use-now";
 
@@ -38,8 +39,8 @@ import { SalesCallsDetailsList } from "./sales-calls-details-list";
 import { SalesCallsStatCards } from "./sales-calls-stat-cards";
 
 export function SalesCallsPageClient() {
- const { setting } = useBusinessDay();
- const now = useNow();
+  const { setting, rebuilding, loaded } = useBusinessDay();
+  const now = useNow();
   usePageTitle("Phone Sales Ops");
 
   const { range, setRange, queryRange, rangeLabel, validationMessage } =
@@ -54,7 +55,7 @@ export function SalesCallsPageClient() {
   );
   const dashboard = useQuery(
     api.operations.salesCallsDashboard.getSalesCallsDashboard,
-    requiresSnapshot ? "skip" : { range: queryRange },
+    requiresSnapshot || rebuilding || !loaded ? "skip" : { range: queryRange },
   );
   const needsSnapshot = requiresSnapshot || dashboard?.capped === true;
   const snapshot = useOperationsDashboardReport({
@@ -203,43 +204,49 @@ export function SalesCallsPageClient() {
 
       <OperationsHealthBanner />
 
-      {needsSnapshot ? (
-        <OperationsReportJobStatus
-          state={
-            sectionError
-              ? "failed"
-              : (snapshot.job?.status ??
-                (snapshot.requestError ? "failed" : "queued"))
-          }
-          generatedAt={snapshot.summary?.generatedAt ?? null}
-          errorMessage={
-            sectionError ??
-            snapshot.requestError ??
-            snapshot.job?.failure?.message ??
-            null
-          }
-          onCancel={() => void snapshot.cancel()}
-          onRefresh={snapshot.refresh}
-          onRetry={snapshot.retry}
-        />
-      ) : null}
+      {rebuilding ? (
+        <BusinessDayRebuildingState />
+      ) : (
+        <>
+          {needsSnapshot ? (
+            <OperationsReportJobStatus
+              state={
+                sectionError
+                  ? "failed"
+                  : (snapshot.job?.status ??
+                    (snapshot.requestError ? "failed" : "queued"))
+              }
+              generatedAt={snapshot.summary?.generatedAt ?? null}
+              errorMessage={
+                sectionError ??
+                snapshot.requestError ??
+                snapshot.job?.failure?.message ??
+                null
+              }
+              onCancel={() => void snapshot.cancel()}
+              onRefresh={snapshot.refresh}
+              onRetry={snapshot.retry}
+            />
+          ) : null}
 
-      <SalesCallsStatCards attendanceCountsPartial={dashboardData?.attendanceCountsPartial} stats={dashboardData?.stats} currency={currency} />
-      <PerProgramStatCard
-        data={dashboardData?.perProgram}
-        rangeLabel={rangeLabel}
-        currency={currency}
-      />
-      <PhoneCloserTable
-        attendanceCountsPartial={dashboardData?.attendanceCountsPartial}
-        rows={dashboardData?.closers}
-        teamTotal={dashboardData?.teamTotal}
-        currency={currency}
-      />
-      <SalesCallsDetailsList
-        window={dashboardData?.window}
-        closerOptions={closerOptions}
-      />
+          <SalesCallsStatCards attendanceCountsPartial={dashboardData?.attendanceCountsPartial} stats={dashboardData?.stats} currency={currency} />
+          <PerProgramStatCard
+            data={dashboardData?.perProgram}
+            rangeLabel={rangeLabel}
+            currency={currency}
+          />
+          <PhoneCloserTable
+            attendanceCountsPartial={dashboardData?.attendanceCountsPartial}
+            rows={dashboardData?.closers}
+            teamTotal={dashboardData?.teamTotal}
+            currency={currency}
+          />
+          <SalesCallsDetailsList
+            window={dashboardData?.window}
+            closerOptions={closerOptions}
+          />
+        </>
+      )}
     </div>
   );
 }

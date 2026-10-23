@@ -65,4 +65,3 @@ export function buildBusinessPeriods(args: {
 
   return periods;
 }
-

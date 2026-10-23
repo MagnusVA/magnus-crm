@@ -9,3 +9,9 @@ export function DayDefinition({ browser = false, bucketKind = "meetings" }: { br
     {rebuilding && <p role="status">{BUSINESS_DAY_REBUILD_MESSAGE}</p>}
   </div>;
 }
+
+export function BusinessDayRebuildingState() {
+  return <p role="status" className="rounded-md border p-4 text-sm text-muted-foreground">
+    {BUSINESS_DAY_REBUILD_MESSAGE}
+  </p>;
+}

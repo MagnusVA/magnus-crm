@@ -103,6 +103,7 @@ export const insertTenant = internalMutation({
     return await ctx.db.insert("tenants", {
       ...args,
       status: "pending_signup",
+      businessDayAppliedVersion: 0,
     });
   },
 });

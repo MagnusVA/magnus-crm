@@ -12,6 +12,13 @@ export type SectionErrorCode =
 
 export type SectionResult<T> =
   | {
+      status: "rebuilding";
+      data: null;
+      truncated: false;
+      message: string;
+      errorCode: null;
+    }
+  | {
       status: "ready";
       data: T;
       truncated: boolean;

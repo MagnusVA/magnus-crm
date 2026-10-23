@@ -91,7 +91,8 @@ export function useOperationsDashboardReport(args: {
   const [mountId] = useState(() => crypto.randomUUID());
   const { rebuilding, version, loaded } = useBusinessDay(args.reportKind === "lead-gen" ? "lead-gen" : "meetings");
   const { range, reportKind, sourceFilter } = args;
-  const enabled = args.enabled && loaded && !rebuilding;
+  const usesDayBuckets = args.reportKind === "lead-gen" || args.reportKind === "sales-calls";
+  const enabled = args.enabled && loaded && !(usesDayBuckets && rebuilding);
   const scopeKey = useMemo(
     () => reportScopeKey({ reportKind, range, sourceFilter, version }),
     [range, reportKind, sourceFilter, version],

@@ -3,7 +3,7 @@ import { v } from "convex/values";
 import { leadGenSourceValidator, leadGenOriginKindValidator } from "./leadGen/validators";
 export const businessDayValidator = v.object({ timeZone: v.string(), dayStartHour: v.number() });
 export const rebuildStageValue = v.union(
-  v.object({ kind: v.literal("daily"), 
+  v.object({ kind: v.literal("daily"),
     tenantId: v.id("tenants"),
     statKey: v.string(),
     dayKey: v.string(),
@@ -17,7 +17,7 @@ export const rebuildStageValue = v.union(
     scheduledHours: v.number(),
     updatedAt: v.number(),
   }),
-  v.object({ kind: v.literal("origin"), 
+  v.object({ kind: v.literal("origin"),
     tenantId: v.id("tenants"),
     originKey: v.string(),
     dayKey: v.string(),
@@ -28,7 +28,7 @@ export const rebuildStageValue = v.union(
     uniqueProspectsSubmitted: v.number(),
     updatedAt: v.number(),
   }),
-  v.object({ kind: v.literal("team_origin"), 
+  v.object({ kind: v.literal("team_origin"),
     tenantId: v.id("tenants"),
     statKey: v.string(),
     dayKey: v.string(),
