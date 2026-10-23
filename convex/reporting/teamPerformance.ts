@@ -1,4 +1,3 @@
-import { addBusinessDays } from "../../lib/businessDay";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import {
   attendanceDayBounds,
@@ -7,7 +6,6 @@ import {
   withAttendanceCounts,
 } from "../lib/meetingAttendance";
 import {
-  meetingDayKey,
   readMeetingStatsCounts,
 } from "../operations/meetingStats";
 import { requireReportingReady } from "../operations/reportingReadiness";
@@ -343,8 +341,8 @@ export const getTeamPerformanceMetrics = query({
 
 export const getTeamOperationsDimensions = query({
   args: {
-    startDate: v.number(),
-    endDate: v.number(),
+    startDayKey: v.string(),
+    endDayKeyExclusive: v.string(),
     bookingProgramId: v.optional(v.id("tenantPrograms")),
     attributionTeamId: v.optional(v.id("attributionTeams")),
     dmCloserId: v.optional(v.id("dmClosers")),
@@ -381,25 +379,23 @@ export const getTeamOperationsDimensions = query({
     truncated: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    assertValidDateRange(args.startDate, args.endDate);
-
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
     await requireReportingReady(ctx, tenantId);
 
-    const setting = await getTenantBusinessDay(ctx, tenantId);
-    const startDayKey = meetingDayKey(args.startDate, setting);
-    const endDayKeyExclusive = addBusinessDays(meetingDayKey(args.endDate - 1, setting), 1);
+    if (args.startDayKey >= args.endDayKeyExclusive) {
+      throw new Error("startDayKey must be before endDayKeyExclusive");
+    }
     // A team or DM closer filter reads the credited meetings' rows
     // (dealAttributions); otherwise the buckets.
     const [closers, { counts, truncated }] = await Promise.all([
       getActiveClosers(ctx, tenantId),
       readMeetingStatsCounts(ctx, {
         tenantId,
-        startDayKey,
-        endDayKeyExclusive,
+        startDayKey: args.startDayKey,
+        endDayKeyExclusive: args.endDayKeyExclusive,
         attributionTeamId: args.attributionTeamId,
         dmCloserId: args.dmCloserId,
       }),

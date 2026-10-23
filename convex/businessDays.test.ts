@@ -290,7 +290,7 @@ describe("tenant business days", () => {
     const { t, admin, tenantId } = await businessDayFixture();
     const tenantState = () => admin.query(api.tenants.getCurrentTenant, {});
     const readMeetings = () => admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
-      startDate: Date.parse("2026-09-30T06:00Z"), endDate: Date.parse("2026-10-03T06:00Z"),
+      startDayKey: "2026-09-30", endDayKeyExclusive: "2026-10-03",
     });
     expect(await tenantState()).toMatchObject({ businessDayReady: false, leadGenBusinessDayReady: true });
     await expect(readMeetings()).rejects.toThrow(BUSINESS_DAY_REBUILD_MESSAGE);
@@ -331,7 +331,7 @@ describe("tenant business days", () => {
     await t.mutation(internal.businessDays.beginBusinessDayCutover, { tenantId, rebuildLeadGen: false });
     await t.finishAllScheduledFunctions(vi.runAllTimers);
     expect(await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
-      startDate: Date.parse("2026-10-22T00:00:00-06:00"), endDate: Date.parse("2026-10-23T00:00:00-06:00"),
+      startDayKey: "2026-10-22", endDayKeyExclusive: "2026-10-23",
     })).toMatchObject({ totals: { completed: 1 } });
   });
 

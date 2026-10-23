@@ -56,6 +56,21 @@ describe("meeting bucket page readiness", () => {
     expect(fixture.queries).toHaveBeenCalledWith(query, expect.any(Object));
   });
 
+  it.each(pages)("passes browser calendar keys to $name buckets", ({ component, query }) => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(2026, 9, 22, 12));
+      fixture.ready = true;
+      renderToStaticMarkup(createElement(component));
+      expect(fixture.queries).toHaveBeenCalledWith(query, {
+        startDayKey: "2026-10-01",
+        endDayKeyExclusive: "2026-11-01",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("renders rebuilding Overview sections without totals or generic errors", () => {
     const section = { status: "rebuilding" as const, data: null, truncated: false as const, message: BUSINESS_DAY_REBUILD_MESSAGE, errorCode: null };
     const sections = [

@@ -71,7 +71,7 @@ it.each(attendanceStorageModes)("uses %s attendance in every live report without
     });
     const team = await admin.query(
       api.reporting.teamPerformance.getTeamOperationsDimensions,
-      { ...timestampRange, ...filters },
+      { ...dayRange, ...filters },
     );
     expect(team.attendanceCountsPartial).toBe(false);
     for (const row of [team.rows[0], team.totals]) {
@@ -182,8 +182,8 @@ it("splits the business-day buckets intersecting today's attendance window witho
     const team = await admin.query(
       api.reporting.teamPerformance.getTeamOperationsDimensions,
       {
-        startDate: Date.parse("2026-10-22T07:00:00Z"),
-        endDate: Date.parse("2026-10-24T07:00:00Z"),
+        startDayKey: "2026-10-22",
+        endDayKeyExclusive: "2026-10-24",
         ...filters,
       },
     );
@@ -311,7 +311,7 @@ it("keeps pre-business-day calls in progress and splits business-day buckets in 
       }
     }
     const team = await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
-      ...timestampRange, startDate: Date.parse("2026-10-20T07:00:00Z"), ...filters,
+      ...dayRange, startDayKey: "2026-10-20", ...filters,
     });
     expect(team.totals.notRecorded).toBe(4);
     const pipeline = await admin.query(api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions, {
@@ -323,8 +323,8 @@ it("keeps pre-business-day calls in progress and splits business-day buckets in 
   expect(performance.teamTotals.newPastCalls).toBe(7);
 
   const upcoming = await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
-    startDate: Date.parse("2026-10-23T07:00:00Z"),
-    endDate: Date.parse("2026-10-24T07:00:00Z"),
+    startDayKey: "2026-10-23",
+    endDayKeyExclusive: "2026-10-24",
   });
   expect(upcoming.totals).toMatchObject({ scheduled: 1, notRecorded: 0, pastCalls: 0 });
 });

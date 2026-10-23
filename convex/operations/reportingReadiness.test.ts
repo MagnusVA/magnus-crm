@@ -27,7 +27,7 @@ it.each(["empty", "unverified", "version2"] as const)(
       () => h.admin.query(api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions, {
         startDayKey: "2026-10-01", endDayKeyExclusive: "2026-10-02",
       }),
-      () => h.admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, { startDate, endDate }),
+      () => h.admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, { startDayKey: "2026-10-01", endDayKeyExclusive: "2026-10-02" }),
       () => h.admin.query(api.operations.salesCallsDashboard.getSalesCallsDashboard, { range }),
       () => h.t.run((ctx) => getPhoneCloserOperationsOverviewSection(
         ctx, h.tenantId, deriveOverviewRange(range, Date.now()),

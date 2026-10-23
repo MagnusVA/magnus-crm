@@ -4,6 +4,7 @@
  * numbers were pinned against the bucket read on the copied columns; the
  * filtered paths now read `dealAttributions` and must keep them.
  */
+import { reportRangeDayKeys } from "../../lib/reportDateRange";
 import { afterEach, expect, it, vi } from "vitest";
 import { attendanceStorageModes, type AttendanceStorage } from "../../tests/showRateFixtures";
 import { api } from "../_generated/api";
@@ -69,9 +70,9 @@ async function insertDmCloser(
  * booked through a different DM closer and team. m12 has rows but was never
  * projected, so neither read counts it.
  */
-async function seed(storage: AttendanceStorage = "completed") {
+async function seed(storage: AttendanceStorage = "completed", dayOffset = 0) {
   vi.useFakeTimers();
-  vi.setSystemTime(new Date("2026-10-04T00:00:00Z"));
+  vi.setSystemTime(new Date(Date.parse("2026-10-04T00:00:00Z") + dayOffset * 86_400_000));
   const harness = await bookingHarness();
   const { t, tenantId } = harness;
   const fixture = await t.run(async (ctx) => {
@@ -139,7 +140,7 @@ async function seed(storage: AttendanceStorage = "completed") {
         });
         opportunities.set(deal, opportunityId);
       }
-      const scheduledAt = Date.parse(at);
+      const scheduledAt = Date.parse(at) + dayOffset * 86_400_000;
       const meetingId = await ctx.db.insert("meetings", {
         tenantId,
         opportunityId,
@@ -232,8 +233,8 @@ it.each(attendanceStorageModes)("keeps the team operations dimensions for every 
   // Business-day bounds match the projected meeting dates.
   const dimensions = async (filters: Filters) => {
     const result = await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
-      startDate: Date.parse("2026-10-01T07:00:00Z"),
-      endDate: Date.parse("2026-10-03T07:00:00Z"),
+      startDayKey: "2026-10-01",
+      endDayKeyExclusive: "2026-10-03",
       ...filters,
     });
     return {
@@ -353,4 +354,20 @@ it("reports a filtered range past 2,000 credited meetings as truncated", async (
       )
     ).truncated,
   ).toBe(false);
+});
+
+it("counts only October 22 for a Honduras browser range in buckets and attribution filters", async () => {
+  const { admin, t1, d1a } = await seed("completed", 21);
+  for (const filters of [{}, { attributionTeamId: t1 }, { dmCloserId: d1a }]) {
+    const result = await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
+      ...reportRangeDayKeys({
+        startDate: new Date(2026, 9, 22).getTime(),
+        endDate: new Date(2026, 9, 23).getTime(),
+      }),
+      ...filters,
+    });
+    expect(result.totals.scheduled).toBe("attributionTeamId" in filters || "dmCloserId" in filters ? 3 : 4);
+    expect(result.totals.completed).toBe(1);
+    expect(result.truncated).toBe(false);
+  }
 });

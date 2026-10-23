@@ -1,4 +1,5 @@
 "use client";
+import { reportRangeDayKeys } from "@/lib/reportDateRange";
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { BusinessDayRebuildingState } from "@/app/workspace/_components/day-definition";
 
@@ -95,7 +96,7 @@ export function TeamReportPageClient() {
   const operationsDimensions = useQuery(
     api.reporting.teamPerformance.getTeamOperationsDimensions,
     !loaded || rebuilding ? "skip" : {
-      ...dateRange,
+      ...reportRangeDayKeys(dateRange),
       ...operationsFilters,
     },
   );
