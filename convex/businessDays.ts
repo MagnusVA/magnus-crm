@@ -1,4 +1,6 @@
 import { v } from "convex/values";
+import { getPage } from "convex-helpers/server/pagination";
+import schema from "./schema";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import { internalAction, internalMutation, mutation, type MutationCtx } from "./_generated/server";
@@ -38,7 +40,14 @@ export const beginBusinessDayCutover = internalMutation({
     if (!tenant) throw new Error(`${tenantId}`);
     const version = (tenant.businessDayVersion ?? 0) + 1;
     await ctx.db.patch("tenants", tenantId, { businessDayVersion: version });
-    return await startRebuild(ctx, tenantId, version, rebuildLeadGen);
+    const failed = await ctx.db.query("businessDayRebuilds")
+      .withIndex("by_tenantId_and_state", q => q.eq("tenantId", tenantId).eq("state", "failed"))
+      .order("desc").first();
+    // A failed swap may have published only part of the lead-gen totals.
+    // Preserve its read fence until a new lead-gen rebuild repairs them.
+    const repairLeadGen = !!failed && failed.version === tenant.businessDayVersion &&
+      failed.rebuildLeadGen !== false && !failed.leadGenDone;
+    return await startRebuild(ctx, tenantId, version, rebuildLeadGen || repairLeadGen);
   },
 });
 
@@ -87,6 +96,7 @@ export const retryBusinessDayRebuild = mutation({
     await ctx.db.patch("businessDayRebuilds", job._id, {
       state: "running", phase: "restart_cleanup", cursor: null, pass: job.pass + 1,
       computedRevision: job.sourceRevision, projectionWaitAttempts: 0,
+      assertionDrainRounds: 0, bucketAssertionAfter: undefined,
       meetingsEnqueued: 0, leadGenRowsComputed: 0, leadGenRowsSwapped: 0,
       leadGenAudited: 0, meetingsAsserted: 0, bucketsAsserted: 0, sourcesAsserted: 0,
       leadGenDone: job.rebuildLeadGen === false, error: undefined, finishedAt: undefined,
@@ -122,6 +132,17 @@ async function waitForProjections(ctx: MutationCtx, job: Rebuild): Promise<numbe
   return Math.min(1000 * 2 ** Math.min(attempts, 5), 30_000);
 }
 
+/** Restart all assertions after live writes, including buckets already visited. */
+async function redrainForAssertions(ctx: MutationCtx, job: Rebuild) {
+  const rounds = job.assertionDrainRounds ?? 0;
+  if (rounds >= 5) throw new Error(`Meeting projections kept changing during verification after 5 re-drain rounds. Rebuild ${job._id}`);
+  await ctx.db.patch("businessDayRebuilds", job._id, {
+    phase: "drain", cursor: null, assertionDrainRounds: rounds + 1,
+    meetingsAsserted: 0, bucketsAsserted: 0, sourcesAsserted: 0,
+    bucketAssertionAfter: undefined,
+  });
+}
+
 /** One bounded transaction per step; the action records failures outside rollback. */
 export const rebuildStep = internalMutation({
   args: { rebuildId: v.id("businessDayRebuilds") }, returns: v.union(v.number(), v.null()),
@@ -130,6 +151,15 @@ export const rebuildStep = internalMutation({
     if (!job || job.state !== "running") return null;
     const tenant = await ctx.db.get("tenants", job.tenantId);
     if (!tenant || tenant.businessDayVersion !== job.version) throw new Error(`${job.tenantId}`);
+    // This read and the assertions share a transaction. A concurrent enqueue
+    // conflicts and retries here instead of turning an in-flight write into a failure.
+    if (job.phase.startsWith("assert_") || job.phase === "cleanup") {
+      const delay = await waitForProjections(ctx, job);
+      if (delay !== null) {
+        await redrainForAssertions(ctx, job);
+        return delay;
+      }
+    }
     if (job.phase === "restart_cleanup") {
       if (!(await cleanStagingPage(ctx, rebuildId, job.pass - 1))) return 0;
       await move(ctx, job, "meetings");
@@ -149,18 +179,37 @@ export const rebuildStep = internalMutation({
       await ctx.db.patch("businessDayRebuilds", rebuildId, { meetingsAsserted: job.meetingsAsserted + page.page.length });
       await move(ctx, job, page.isDone ? "assert_buckets" : job.phase, page.isDone ? null : page.continueCursor);
     } else if (job.phase === "assert_buckets") {
-      const page = await ctx.db.query("operationsMeetingStatsV2").withIndex("by_tenantId_and_dayKey", q => q.eq("tenantId", job.tenantId)).paginate({ cursor: job.cursor, numItems: 1 });
-      for (const row of page.page) await assertMeetingProjectionBucket(ctx, row);
-      await ctx.db.patch("businessDayRebuilds", rebuildId, { bucketsAsserted: job.bucketsAsserted + page.page.length });
-      await move(ctx, job, page.isDone ? "assert_sources" : job.phase, page.isDone ? null : page.continueCursor);
+      const after = job.bucketAssertionAfter;
+      const page = await getPage(ctx, {
+        table: "operationsMeetingStatsV2", index: "by_tenantId_and_dayKey", schema,
+        startIndexKey: after ? [job.tenantId, after.dayKey, after.creationTime, after.id] : [job.tenantId],
+        startInclusive: !after, endIndexKey: [job.tenantId], endInclusive: true,
+        targetMaxRows: 64, absoluteMaxRows: 64,
+      });
+      let checked = 0;
+      let contributionReads = 0;
+      for (const row of page.page) {
+        // Include the extra read used to detect a count mismatch. A single
+        // bucket can still use the existing 8,193-row overflow check.
+        const reads = Math.min(8193, Math.max(1, row.count + 1));
+        if (checked > 0 && contributionReads + reads > 8192) break;
+        await assertMeetingProjectionBucket(ctx, row);
+        contributionReads += reads;
+        checked += 1;
+      }
+      const last = page.page[checked - 1];
+      const done = !page.hasMore && checked === page.page.length;
+      await ctx.db.patch("businessDayRebuilds", rebuildId, {
+        bucketsAsserted: job.bucketsAsserted + checked,
+        bucketAssertionAfter: !done && last ? { dayKey: last.dayKey, creationTime: last._creationTime, id: last._id } : undefined,
+      });
+      await move(ctx, job, done ? "assert_sources" : job.phase);
     } else if (job.phase === "assert_sources") {
       const page = await ctx.db.query("meetingProjections").withIndex("by_tenantId_and_status_and_requestedAt", q => q.eq("tenantId", job.tenantId)).paginate({ cursor: job.cursor, numItems: 200 });
       for (const row of page.page) await assertMeetingProjectionSource(ctx, row);
       await ctx.db.patch("businessDayRebuilds", rebuildId, { sourcesAsserted: job.sourcesAsserted + page.page.length });
       await move(ctx, job, page.isDone ? "cleanup" : job.phase, page.isDone ? null : page.continueCursor);
     } else {
-      const delay = await waitForProjections(ctx, job);
-      if (delay !== null) { await move(ctx, job, "drain"); return delay; }
       if (!(await cleanStagingPage(ctx, rebuildId, job.pass))) return 0;
       await ctx.db.patch("tenants", job.tenantId, { businessDayAppliedVersion: job.version });
       await ctx.db.patch("businessDayRebuilds", rebuildId, { state: "done", finishedAt: Date.now() });

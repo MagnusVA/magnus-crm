@@ -1,6 +1,6 @@
 "use client";
 import { useBusinessDay } from "@/hooks/use-business-day";
-import { DayDefinition, BusinessDayRebuildingState } from "@/app/workspace/_components/day-definition";
+import { BusinessDayRebuildingState } from "@/app/workspace/_components/day-definition";
 
 import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
 
@@ -167,13 +167,13 @@ export function TeamReportPageClient() {
 
       <div className="flex flex-col gap-3">
         <ReportDateControls
+          dayDefinition="tenant"
           value={dateRange}
           onChange={(next) => {
             setDateRange(next);
             captureOperationsFilterChange();
           }}
         />
-          <DayDefinition />
         <ReportAttributionFilters
           value={operationsFilters}
           onChange={(next) => {

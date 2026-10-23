@@ -51,6 +51,9 @@ export const businessDayTables = {
     meetingsEnqueued: v.number(), leadGenRowsComputed: v.number(), leadGenRowsSwapped: v.number(),
     leadGenAudited: v.number(), meetingsAsserted: v.number(), bucketsAsserted: v.number(), sourcesAsserted: v.number(),
     projectionWaitAttempts: v.optional(v.number()),
+    // Optional checkpoints keep pre-existing rebuild jobs valid; absent means a fresh assertion pass.
+    assertionDrainRounds: v.optional(v.number()),
+    bucketAssertionAfter: v.optional(v.object({ dayKey: v.string(), creationTime: v.number(), id: v.id("operationsMeetingStatsV2") })),
     rebuildLeadGen: v.optional(v.boolean()),
     watermark: v.optional(v.number()), lowerWatermark: v.optional(v.number()),
     catchUpPasses: v.optional(v.number()),

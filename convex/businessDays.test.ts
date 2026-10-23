@@ -1,12 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "./_generated/api";
 import { businessDayFixture } from "../tests/businessDayFixtures";
-import { businessDayStart, BUSINESS_DAY_REBUILD_MESSAGE } from "../lib/businessDay";
+import { addBusinessDays, businessDayStart, BUSINESS_DAY_REBUILD_MESSAGE } from "../lib/businessDay";
 import { deriveOverviewRange } from "./dashboard/overviewRange";
 import { getPeriodKey, getPeriodsInRange } from "./reporting/lib/periodBucketing";
 import { assertBusinessDayReady, markLeadGenBusinessDayDirty } from "./lib/businessDayRebuildState";
 
-afterEach(() => vi.useRealTimers());
+import { bucketKey, requestMeetingProjection } from "./operations/meetingStats";
+import { auditAggregateRange } from "./leadGen/reconciliation";
+import * as projectionChecks from "./operations/meetingProjectionChecks";
+
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 const changed = { timeZone: "UTC", dayStartHour: 0 };
 const range = { kind: "custom" as const, startBusinessDate: "2026-09-30", endBusinessDateInclusive: "2026-10-02" };
 
@@ -379,6 +383,161 @@ describe("tenant business days", () => {
     expect(await t.run(ctx => ctx.db.query("businessDayRebuildRows").take(1))).toEqual([]);
     expect(await t.run(ctx => ctx.db.query("businessDayRebuildSeen").take(1))).toEqual([]);
     await expect(t.run(ctx => assertBusinessDayReady(ctx, tenantId))).rejects.toThrow(BUSINESS_DAY_REBUILD_MESSAGE);
+  });
+
+  it.each(["assert_meetings", "assert_sources", "cleanup"] as const)("re-drains a meeting edited during %s and verifies the new contribution", async (phase) => {
+    const { t, tenantId, meetingId } = await businessDayFixture();
+    const rebuildId = await t.mutation(internal.businessDays.beginBusinessDayCutover, { tenantId, rebuildLeadGen: false });
+    // The fixture already has applied projections; advance from drain without
+    // running scheduled work so the edit lands precisely before verification.
+    await t.run(ctx => ctx.db.patch("businessDayRebuilds", rebuildId, { phase: "drain" }));
+    for (let i = 0; i < 5; i++) {
+      await t.mutation(internal.businessDays.rebuildStep, { rebuildId });
+      if ((await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId)))?.phase === phase) break;
+    }
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ phase });
+    await t.run(async ctx => {
+      await ctx.db.patch("meetings", meetingId, { scheduledAt: Date.parse("2026-10-02T18:00Z") });
+      await requestMeetingProjection(ctx, tenantId, meetingId);
+    });
+    expect(await t.mutation(internal.businessDays.rebuildStep, { rebuildId })).toBe(1000);
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "running", phase: "drain", assertionDrainRounds: 1, meetingsAsserted: 0, bucketsAsserted: 0, sourcesAsserted: 0 });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "done", meetingsAsserted: 1, bucketsAsserted: 1, sourcesAsserted: 1 });
+    expect(await t.run(ctx => ctx.db.get("tenants", tenantId))).toMatchObject({ businessDayAppliedVersion: 1 });
+    const projection = await t.run(ctx => ctx.db.query("meetingProjections").withIndex("by_meetingId", q => q.eq("meetingId", meetingId)).unique());
+    expect(projection?.contribution?.dayKey).toBe("2026-10-02");
+  });
+
+  it("bounds repeated assertion re-drains even when each worker finishes", async () => {
+    const { t, tenantId, meetingId } = await businessDayFixture();
+    const rebuildId = await t.mutation(internal.businessDays.beginBusinessDayCutover, { tenantId, rebuildLeadGen: false });
+    await t.run(ctx => ctx.db.patch("businessDayRebuilds", rebuildId, { phase: "drain" }));
+    for (let round = 0; round < 6; round++) {
+      await t.mutation(internal.businessDays.rebuildStep, { rebuildId });
+      await t.run(async ctx => {
+        await ctx.db.patch("meetings", meetingId, { scheduledAt: Date.parse("2026-10-02T18:00Z") + round * 86400000 });
+        await requestMeetingProjection(ctx, tenantId, meetingId);
+      });
+      await t.action(internal.businessDays.runRebuild, { rebuildId });
+      const projection = await t.run(ctx => ctx.db.query("meetingProjections").withIndex("by_meetingId", q => q.eq("meetingId", meetingId)).unique());
+      await t.mutation(internal.operations.meetingStats.project, { projectionId: projection!._id, generation: projection!.generation });
+    }
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "failed", assertionDrainRounds: 5, error: expect.stringContaining("5 re-drain rounds") });
+    await expect(t.run(ctx => assertBusinessDayReady(ctx, tenantId))).rejects.toThrow(BUSINESS_DAY_REBUILD_MESSAGE);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  });
+
+  it("still fails verification for a mismatched applied projection", async () => {
+    const { t, tenantId, meetingId } = await businessDayFixture();
+    const rebuildId = await t.mutation(internal.businessDays.beginBusinessDayCutover, { tenantId, rebuildLeadGen: false });
+    await t.run(async ctx => {
+      await ctx.db.patch("businessDayRebuilds", rebuildId, { phase: "assert_meetings" });
+      const projection = await ctx.db.query("meetingProjections").withIndex("by_meetingId", q => q.eq("meetingId", meetingId)).unique();
+      await ctx.db.patch("meetingProjections", projection!._id, { bucketKey: "incorrect" });
+    });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "failed", error: meetingId });
+  });
+
+  it("forces lead-gen repair when a meetings-only cutover follows an unfinished failed swap", async () => {
+    const { t, admin, tenantId } = await businessDayFixture();
+    const failedId = await admin.mutation(api.businessDays.updateBusinessDay, { setting: changed });
+    for (let step = 0; step < 10; step++) {
+      await t.mutation(internal.businessDays.rebuildStep, { rebuildId: failedId });
+      if ((await t.run(ctx => ctx.db.get("businessDayRebuilds", failedId)))?.phase === "audit_lead_gen") break;
+    }
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", failedId))).toMatchObject({ phase: "audit_lead_gen", leadGenDone: false });
+    await t.mutation(internal.businessDays.failRebuild, { rebuildId: failedId, error: "Swap interrupted" });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    const rebuildId = await t.mutation(internal.businessDays.beginBusinessDayCutover, { tenantId, rebuildLeadGen: false });
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ rebuildLeadGen: true, leadGenDone: false, version: 2 });
+    expect(await admin.query(api.tenants.getCurrentTenant, {})).toMatchObject({ leadGenBusinessDayReady: false });
+    await expect(admin.query(api.leadGen.reporting.getOverview, { startDayKey: "2026-09-30", endDayKey: "2026-10-02" })).rejects.toThrow(BUSINESS_DAY_REBUILD_MESSAGE);
+    await expect(admin.mutation(api.operations.reports.jobs.requestExport, { reportKind: "lead-gen", range, requestToken: "repair-fence", format: "summary_csv" })).rejects.toThrow(BUSINESS_DAY_REBUILD_MESSAGE);
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "done", leadGenDone: true });
+    expect(await admin.query(api.leadGen.reconciliation.auditAggregateRange, { startTimestamp: Date.parse("2026-09-30T00:00Z"), endTimestamp: Date.parse("2026-10-03T00:00Z") })).toMatchObject({ submissionDelta: 0, uniqueProspectDelta: 0, duplicateDelta: 0 });
+  });
+
+  it("checks 64 small buckets per step and resumes without skipping the remainder", async () => {
+    const { t, tenantId, meetingId } = await businessDayFixture();
+    await t.run(async ctx => {
+      const meeting = (await ctx.db.get("meetings", meetingId))!;
+      for (let day = 0; day < 64; day++) {
+        const dayKey = addBusinessDays("2026-10-01", day);
+        const newMeetingId = await ctx.db.insert("meetings", {
+          tenantId, opportunityId: meeting.opportunityId, assignedCloserId: meeting.assignedCloserId,
+          scheduledAt: businessDayStart(dayKey), durationMinutes: 30, status: "held", createdAt: 0,
+          calendlyEventUri: `bucket-${day}`, calendlyInviteeUri: `bucket-invitee-${day}`,
+        });
+        const contribution = { dayKey, assignedCloserId: meeting.assignedCloserId, meetingStatus: "held" as const };
+        const key = bucketKey(contribution);
+        await ctx.db.insert("operationsMeetingStatsV2", { tenantId, ...contribution, bucketKey: key, count: 1, updatedAt: 0 });
+        await ctx.db.insert("meetingProjections", { tenantId, meetingId: newMeetingId, contribution, bucketKey: key, status: "applied", generation: 1, requestedAt: 0 });
+      }
+    });
+    const rebuildId = await t.mutation(internal.businessDays.beginBusinessDayCutover, { tenantId, rebuildLeadGen: false });
+    await t.run(ctx => ctx.db.patch("businessDayRebuilds", rebuildId, { phase: "assert_buckets" }));
+    await t.mutation(internal.businessDays.rebuildStep, { rebuildId });
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ phase: "assert_buckets", bucketsAsserted: 64 });
+    await t.mutation(internal.businessDays.rebuildStep, { rebuildId });
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ phase: "assert_sources", bucketsAsserted: 65 });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ state: "done" });
+  });
+
+  it("stops bucket verification at the contribution-read budget and resumes at the unchecked bucket", async () => {
+    const { t, tenantId } = await businessDayFixture();
+    await t.run(async ctx => {
+      const bucket = (await ctx.db.query("operationsMeetingStatsV2").first())!;
+      await ctx.db.patch("operationsMeetingStatsV2", bucket._id, { count: 5000 });
+      await ctx.db.insert("operationsMeetingStatsV2", { tenantId, assignedCloserId: bucket.assignedCloserId, meetingStatus: "held", dayKey: "2026-10-01", bucketKey: "large-second", count: 5000, updatedAt: 0 });
+    });
+    // Keep the fixture small: exercise scheduling with large declared counts,
+    // replacing only the individual contribution scan.
+    const check = vi.spyOn(projectionChecks, "assertMeetingProjectionBucket").mockResolvedValue(undefined);
+    const rebuildId = await t.mutation(internal.businessDays.beginBusinessDayCutover, { tenantId, rebuildLeadGen: false });
+    await t.run(ctx => ctx.db.patch("businessDayRebuilds", rebuildId, { phase: "assert_buckets" }));
+    await t.mutation(internal.businessDays.rebuildStep, { rebuildId });
+    expect(check).toHaveBeenCalledTimes(1);
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ phase: "assert_buckets", bucketsAsserted: 1 });
+    await t.mutation(internal.businessDays.rebuildStep, { rebuildId });
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(check.mock.calls[1][1].bucketKey).toBe("large-second");
+    expect(await t.run(ctx => ctx.db.get("businessDayRebuilds", rebuildId))).toMatchObject({ phase: "assert_sources", bucketsAsserted: 2 });
+    await t.finishAllScheduledFunctions(vi.runAllTimers);
+  });
+
+  it("counts lifetime repeats once per row using each prospect's earliest timestamp", async () => {
+    const { t, admin, submissionIds } = await businessDayFixture();
+    await t.run(async ctx => {
+      const first = (await ctx.db.get("leadGenSubmissions", submissionIds[0]))!;
+      // Voiding history must not erase lifetime-repeat classification.
+      await ctx.db.patch("leadGenSubmissions", first._id, { voidedAt: first.submittedAt + 1 });
+      for (const submittedAt of [first.submittedAt, first.submittedAt + 1, first.submittedAt + 2]) {
+        await ctx.db.insert("leadGenSubmissions", {
+          tenantId: first.tenantId, workerId: first.workerId, userId: first.userId,
+          prospectId: first.prospectId, source: first.source, originKind: first.originKind,
+          originRankable: first.originRankable, submittedAt, createdAt: submittedAt,
+        });
+      }
+    });
+    const audit = (startTimestamp: number) => admin.query(api.leadGen.reconciliation.auditAggregateRange, {
+      startTimestamp, endTimestamp: Date.parse("2026-10-03T00:00Z"), maxRows: 5000,
+    });
+    expect(await audit(Date.parse("2026-09-30T00:00Z"))).toMatchObject({ activeSubmissions: 5, activeDuplicateRows: 3 });
+    await admin.run(async ctx => {
+      const query = vi.spyOn(ctx.db, "query");
+      if (!("_handler" in auditAggregateRange) || typeof auditAggregateRange._handler !== "function") {
+        throw new Error("Missing Convex test handler");
+      }
+      await auditAggregateRange._handler(ctx, { startTimestamp: Date.parse("2026-09-30T00:00Z"), endTimestamp: Date.parse("2026-10-03T00:00Z"), maxRows: 5000 });
+      // One range scan plus two distinct prospects, despite five active rows.
+      expect(query.mock.calls.filter(([table]) => table === "leadGenSubmissions")).toHaveLength(3);
+    });
+    // The earliest submission can be outside the audit range.
+    expect(await audit(Date.parse("2026-10-01T07:00Z"))).toMatchObject({ activeSubmissions: 2, activeDuplicateRows: 1 });
   });
 
 });

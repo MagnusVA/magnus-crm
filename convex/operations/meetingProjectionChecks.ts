@@ -12,7 +12,8 @@ export async function assertMeetingProjection(ctx: QueryCtx, meeting: Doc<"meeti
   if (!bucket || projection?.tenantId !== meeting.tenantId || projection.status !== "applied" || projection.bucketKey !== key) throw new Error(`${meeting._id}`);
 }
 export async function assertMeetingProjectionBucket(ctx: QueryCtx, bucket: Doc<"operationsMeetingStatsV2">) {
-  const contributions = await ctx.db.query("meetingProjections").withIndex("by_tenantId_and_bucketKey", q => q.eq("tenantId", bucket.tenantId).eq("bucketKey", bucket.bucketKey)).take(8193);
+  if (!Number.isInteger(bucket.count) || bucket.count <= 0 || bucket.count > 8192) throw new Error(`${bucket._id}`);
+  const contributions = await ctx.db.query("meetingProjections").withIndex("by_tenantId_and_bucketKey", q => q.eq("tenantId", bucket.tenantId).eq("bucketKey", bucket.bucketKey)).take(bucket.count + 1);
   if (contributions.length > 8192 || bucket.count <= 0 || bucket.count !== contributions.length) throw new Error(`${bucket._id}`);
 }
 export async function assertMeetingProjectionSource(ctx: QueryCtx, projection: Doc<"meetingProjections">) {

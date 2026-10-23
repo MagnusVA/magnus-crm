@@ -1,7 +1,7 @@
 "use client";
 import { useBusinessDay } from "@/hooks/use-business-day";
-import { businessDateForInstant, addBusinessDays } from "@/lib/businessDay";
-import { DayDefinition, BusinessDayRebuildingState } from "@/app/workspace/_components/day-definition";
+import { reportRangeDayKeys } from "@/lib/reportDateRange";
+import { BusinessDayRebuildingState } from "@/app/workspace/_components/day-definition";
 
 import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
 
@@ -47,7 +47,7 @@ function getDefaultDateRange(): DateRange {
 
 export function PipelineReportPageClient() {
   usePageTitle("Pipeline Health");
-  const { setting, loaded, rebuilding } = useBusinessDay();
+  const { loaded, rebuilding } = useBusinessDay();
   const { captureViewed, captureFiltersChanged } =
     useReportAnalytics("pipeline_health");
 
@@ -86,8 +86,7 @@ export function PipelineReportPageClient() {
   const operationsShowRate = useQuery(
     api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions,
     !loaded || rebuilding ? "skip" : {
-      startDayKey: businessDateForInstant(dateRange.startDate, setting),
-      endDayKeyExclusive: addBusinessDays(businessDateForInstant(dateRange.endDate - 1, setting), 1),
+      ...reportRangeDayKeys(dateRange),
       ...attributionFilters,
     },
   );
@@ -172,13 +171,13 @@ export function PipelineReportPageClient() {
 
           <div className="flex flex-col gap-3">
             <ReportDateControls
+              dayDefinition="tenant"
               value={dateRange}
               onChange={(next) => {
                 setDateRange(next);
                 captureOperationsFilterChange();
               }}
             />
-          <DayDefinition />
             <ReportAttributionFilters
               value={attributionFilters}
               onChange={(next) => {

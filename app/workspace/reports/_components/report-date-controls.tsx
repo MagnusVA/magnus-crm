@@ -1,5 +1,6 @@
 "use client";
 import { DayDefinition } from "@/app/workspace/_components/day-definition";
+import { reportDisplayEndDate } from "@/lib/reportDateRange";
 
 import { useState } from "react";
 import type { DateRange as CalendarDateRange } from "react-day-picker";
@@ -41,6 +42,7 @@ interface ReportDateControlsProps {
   granularity?: Granularity;
   onGranularityChange?: (g: Granularity) => void;
   showGranularity?: boolean;
+  dayDefinition?: "browser" | "tenant";
 }
 
 function getStartOfDayTimestamp(date: Date): number {
@@ -49,21 +51,6 @@ function getStartOfDayTimestamp(date: Date): number {
 
 function getExclusiveUpperTimestamp(date: Date): number {
   return startOfDay(addDays(date, 1)).getTime();
-}
-
-function getDisplayEndDate(endDate: number): Date {
-  const end = new Date(endDate);
-  const isExactMidnight =
-    end.getHours() === 0 &&
-    end.getMinutes() === 0 &&
-    end.getSeconds() === 0 &&
-    end.getMilliseconds() === 0;
-
-  if (isExactMidnight) {
-    end.setDate(end.getDate() - 1);
-  }
-
-  return end;
 }
 
 const QUICK_PICKS = [
@@ -126,8 +113,9 @@ export function ReportDateControls({
   granularity,
   onGranularityChange,
   showGranularity = false,
+  dayDefinition = "browser",
 }: ReportDateControlsProps) {
-  const displayEndDate = getDisplayEndDate(value.endDate);
+  const displayEndDate = reportDisplayEndDate(value.endDate);
   const [isOpen, setIsOpen] = useState(false);
   // Pending range for the calendar while the popover is open. This prevents the
   // filter from being applied on the first click (which in react-day-picker's
@@ -222,7 +210,7 @@ export function ReportDateControls({
           </SelectContent>
         </Select>
       )}
-      <div className="basis-full"><DayDefinition browser /></div>
+      <div className="basis-full"><DayDefinition browser={dayDefinition === "browser"} /></div>
     </div>
   );
 }

@@ -403,7 +403,6 @@ export function RedistributeWizardPageClient({
 							<span className="capitalize">
 								{unavailability.reason}
 							</span>
- <DayDefinition browser />
 						</>
 					)}
 					{unavailability.note && (
@@ -413,6 +412,7 @@ export function RedistributeWizardPageClient({
 						</>
 					)}
 				</p>
+				<DayDefinition browser />
 				<MemberIdentity
 					identity={unavailability.closer}
 					className="pt-2"

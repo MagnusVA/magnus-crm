@@ -16,6 +16,9 @@ import {
 
 const DEFAULT_AUDIT_ROW_LIMIT = 1000;
 const MAX_AUDIT_ROW_LIMIT = 5000;
+// Each distinct prospect needs one index range. Leave room below Convex's
+// 4,096-range limit for auth, tenant settings, raw rows and aggregate rows.
+const MAX_AUDIT_PROSPECTS = 4000;
 const AGGREGATE_ROW_LIMIT = 1000;
 const TEAM_ORIGIN_AUDIT_ROW_LIMIT = 1000;
 const TEAM_ORIGIN_AUDIT_DIFF_LIMIT = 100;
@@ -162,16 +165,25 @@ export const auditAggregateRange = query({
     const activeRows = rawRows.filter((row) => row.voidedAt === undefined);
     const setting = await getTenantBusinessDay(ctx, tenantId);
     const prospectIds = new Set(activeRows.map(row => `${timestampToBusinessDateKey(row.submittedAt, setting)}:${row.prospectId}`));
-    let activeDuplicateRows = 0;
-    for (const row of activeRows) {
-      const prior = await ctx.db.query("leadGenSubmissions").withIndex("by_tenantId_and_prospectId_and_submittedAt", q => q.eq("tenantId", tenantId).eq("prospectId", row.prospectId).lt("submittedAt", row.submittedAt)).first();
-      if (prior) activeDuplicateRows += 1;
+    // One bounded lookup per prospect, including voided and out-of-range
+    // history. Equal timestamps remain first attempts, as in the strict < query.
+    const distinctProspects = new Set(activeRows.map(row => row.prospectId));
+    if (distinctProspects.size > MAX_AUDIT_PROSPECTS) {
+      throw new Error("Audit range has more than 4,000 distinct prospects. Narrow the timestamp range.");
     }
+    const earliestByProspect = new Map<Id<"leadGenProspects">, number>();
+    for (const prospectId of distinctProspects) {
+      const earliest = await ctx.db.query("leadGenSubmissions")
+        .withIndex("by_tenantId_and_prospectId_and_submittedAt", q => q.eq("tenantId", tenantId).eq("prospectId", prospectId))
+        .first();
+      if (earliest) earliestByProspect.set(prospectId, earliest.submittedAt);
+    }
+    const activeDuplicateRows = activeRows.filter(row => row.submittedAt > earliestByProspect.get(row.prospectId)!).length;
 
-    const startDayKey = timestampToBusinessDateKey(args.startTimestamp, await getTenantBusinessDay(ctx, tenantId));
-    const endDayKey = timestampToBusinessDateKey(args.endTimestamp, await getTenantBusinessDay(ctx, tenantId));
-    businessDateToUtcStart(startDayKey, await getTenantBusinessDay(ctx, tenantId));
-    businessDateToUtcStart(endDayKey, await getTenantBusinessDay(ctx, tenantId));
+    const startDayKey = timestampToBusinessDateKey(args.startTimestamp, setting);
+    const endDayKey = timestampToBusinessDateKey(args.endTimestamp, setting);
+    businessDateToUtcStart(startDayKey, setting);
+    businessDateToUtcStart(endDayKey, setting);
 
     const aggregateRows = await ctx.db
       .query("leadGenDailyStats")
