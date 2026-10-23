@@ -57,10 +57,6 @@ async function leads(harness: Harness) {
   return await harness.t.run((ctx) => ctx.db.query("leads").take(100));
 }
 
-async function totalLeads(harness: Harness) {
-  return await harness.t.run(async (ctx) => (await ctx.db.query("tenantStats").first())?.totalLeads ?? 0);
-}
-
 async function stageCount(harness: Harness, stage: LifecycleStage) {
   return await harness.t.run((ctx) =>
     countLeadStageEntries(ctx, harness.tenantId, stage, ...ALL_TIME),
@@ -107,7 +103,6 @@ describe("lead gen capture", () => {
       socialHandles: [{ type: "instagram", handle: "ana.lead" }],
       status: "active",
     });
-    expect(await totalLeads(harness)).toBe(0);
     expect(await stageCount(harness, "prospect")).toBe(1);
     expect(await stageCount(harness, "qualified")).toBe(0);
     expect(await conversions(harness, prospect.firstCapturedByWorkerId)).toEqual({
@@ -198,7 +193,6 @@ describe("lead gen capture", () => {
     expect(await leads(harness)).toHaveLength(1);
     expect(lead.lifecycleStage).toBe("qualified");
     expect(lead.lifecycleStageEnteredAt.prospect).toBe(NOW);
-    expect(await totalLeads(harness)).toBe(1);
     expect(await stageCount(harness, "qualified")).toBe(1);
 
     await harness.t.run(async (ctx) => {
@@ -221,7 +215,6 @@ describe("lead gen capture", () => {
     [lead] = await leads(harness);
     expect(await leads(harness)).toHaveLength(1);
     expect(lead.lifecycleStage).toBe("booked");
-    expect(await totalLeads(harness)).toBe(1);
     expect(await stageCount(harness, "qualified")).toBe(1);
     expect(await stageCount(harness, "booked")).toBe(1);
     expect(await conversions(harness, prospect.firstCapturedByWorkerId)).toEqual({

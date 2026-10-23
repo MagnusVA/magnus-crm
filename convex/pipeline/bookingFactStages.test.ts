@@ -55,9 +55,10 @@ describe("a Calendly fact on the deal's current booking", () => {
       outcome: "lost",
       lostReason: "no_show",
       lostAt: Date.parse(NO_SHOW_AT),
-      noShowAt: Date.parse(NO_SHOW_AT),
     });
+    expect(await h.meeting("original")).toMatchObject({ noShowMarkedAt: Date.parse(NO_SHOW_AT) });
     expect(deal?.lostByUserId).toBeUndefined();
+    expect(deal).not.toHaveProperty("noShowAt");
     expect(await moves(h, opportunityId)).toEqual([
       {
         eventType: "opportunity.marked_lost",
@@ -81,9 +82,10 @@ describe("a Calendly fact on the deal's current booking", () => {
       outcome: "lost",
       lostReason: "canceled",
       lostAt: Date.parse("2026-10-04T09:00:00Z"),
-      canceledAt: Date.parse("2026-10-04T09:00:00Z"),
       cancellationReason: "Schedule conflict",
     });
+    expect(await h.deal(opportunityId)).not.toHaveProperty("canceledAt");
+    expect(await h.meeting("original")).toMatchObject({ canceledAt: Date.parse("2026-10-04T09:00:00Z") });
     expect((await moves(h, opportunityId)).map((event) => [event.eventType, event.reason])).toEqual([
       ["opportunity.marked_lost", "canceled"],
     ]);
@@ -99,7 +101,8 @@ describe("a Calendly fact on the deal's current booking", () => {
 
     const deal = await h.deal(opportunityId);
     expect(deal).toMatchObject({ stage: "booked", outcome: "open" });
-    expect([deal?.lostReason, deal?.lostAt, deal?.noShowAt]).toEqual([undefined, undefined, undefined]);
+    expect([deal?.lostReason, deal?.lostAt]).toEqual([undefined, undefined]);
+    expect((await h.meeting("original"))?.noShowMarkedAt).toBeUndefined();
     expect((await moves(h, opportunityId)).at(-1)).toEqual({
       eventType: "opportunity.stage_changed",
       fromStatus: "closed",
@@ -123,11 +126,13 @@ describe("a Calendly fact on the deal's current booking", () => {
       outcome: "lost",
       lostReason: "canceled",
       lostAt: Date.parse(CANCELED_AT),
-      canceledAt: Date.parse(CANCELED_AT),
       cancellationReason: "Schedule conflict",
     });
-    // As PR 7 wrote them: the no-show time goes, and updatedAt moves.
-    expect(deal?.noShowAt).toBeUndefined();
+    // The meeting clears its no-show time, and the deal activity moves.
+    expect(await h.meeting("original")).toMatchObject({
+      canceledAt: Date.parse(CANCELED_AT),
+    });
+    expect((await h.meeting("original"))?.noShowMarkedAt).toBeUndefined();
     expect(deal?.updatedAt).toBeGreaterThanOrEqual(Date.parse(CANCELED_AT));
     expect((await moves(h, opportunityId)).at(-1)).toEqual({
       eventType: "opportunity.stage_changed",

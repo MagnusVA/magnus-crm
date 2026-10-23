@@ -7,7 +7,6 @@ import {
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import {
   resolveLegacyCompatibleAttributedCloserId,
-  resolveLegacyCompatiblePaymentCommissionable,
 } from "../lib/paymentTypes";
 import {
   deleteOpportunitySearchProjection,
@@ -33,10 +32,7 @@ import {
 } from "./pipelineHealthAggregates";
 
 function isPaymentAggregateEligible(payment: Doc<"paymentRecords">): boolean {
-  return (
-    resolveLegacyCompatiblePaymentCommissionable(payment) &&
-    resolveLegacyCompatibleAttributedCloserId(payment) !== undefined
-  );
+  return resolveLegacyCompatibleAttributedCloserId(payment) !== undefined;
 }
 
 async function getMeetingOrThrow(

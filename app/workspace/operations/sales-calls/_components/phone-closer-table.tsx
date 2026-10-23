@@ -70,7 +70,7 @@ const tooltips = {
   showed: "Meetings marked completed for this closer in the range.",
   showUpRate: "Showed ÷ (booked − canceled). Shows — with no non-canceled calls.",
   paymentSales:
-    "Commissionable final payments attributed to this closer in the range.",
+    "Final payments attributed to this closer in the range.",
   paymentRevenue: "Sum of those payments' amounts.",
   paymentCloseRate: "Payment sales ÷ showed. Shows — with no showed calls.",
   avgPaymentDeal:

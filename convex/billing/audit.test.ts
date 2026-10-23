@@ -102,7 +102,6 @@ async function seed(harness: Harness) {
         amountMinor: 100_00,
         currency: "USD",
         recordedByUserId: closer!._id,
-        commissionable: true,
         programId,
         programName: "Program",
         paymentType: "pif",

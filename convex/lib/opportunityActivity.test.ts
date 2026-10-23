@@ -13,7 +13,6 @@ import {
   patchOpportunityLifecycle,
   transitionOpportunity,
 } from "./opportunityActivity";
-import { countsAsLead } from "./leadLifecycle";
 import {
   dealStageOf,
   stageForStatus,
@@ -21,14 +20,13 @@ import {
   type DealStage,
   type OpportunityStatus,
 } from "../opportunities/stages";
-import { updateTenantStats } from "./tenantStatsHelper";
 
 afterEach(() => vi.useRealTimers());
 
 type Harness = Awaited<ReturnType<typeof bookingHarness>>;
 
 // A Slack-qualified opportunity at the stage `status` names, with its
-// qualification row, counted in the aggregates and tenant stats the way the
+// qualification row, counted in the aggregates the way the
 // real create paths count it.
 async function slackOpportunity(
   harness: Harness,
@@ -62,7 +60,6 @@ async function slackOpportunity(
       ...fields,
     });
     await insertOpportunityAggregate(ctx, opportunityId);
-    await updateTenantStats(ctx, tenantId, { totalOpportunities: 1 });
     const installationId = await ctx.db.insert("slackInstallations", {
       tenantId, teamId: "T1", teamName: "Team", isEnterpriseInstall: false, appId: "A1",
       botUserId: "B1", botAccessToken: "xoxb", scopes: [], notifyChannelId: "C1",
@@ -114,10 +111,6 @@ async function readState(
           .eq("entityId", opportunityId),
       )
       .take(20);
-    const stats = await ctx.db
-      .query("tenantStats")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .unique();
     const countAt = async (stage: DealStage, outcome: DealOutcome) =>
       await opportunityByStage.count(ctx, {
         namespace: tenantId,
@@ -127,35 +120,10 @@ async function readState(
       opportunity,
       qualificationRow,
       events,
-      stats,
       bookedCount: await countAt("booked", "open"),
       lostCount: await countAt("closed", "lost"),
       wonCount: await countAt("closed", "won"),
     };
-  });
-}
-
-// totalCustomers and totalLeads must equal a recount from the people, as
-// seedTenantStatsInternal and countTenantLeadsPage compute them: a customer
-// is a converted person (docs/plans/phase-4-customers.md §4.2, §4.3, §8).
-async function expectPersonCountersMatchRecount(harness: Harness) {
-  const { t, tenantId } = harness;
-  const { stats, leads } = await t.run(async (ctx) => ({
-    stats: await ctx.db
-      .query("tenantStats")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .unique(),
-    leads: await ctx.db
-      .query("leads")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-      .take(100),
-  }));
-  expect({
-    totalCustomers: stats?.totalCustomers ?? 0,
-    totalLeads: stats?.totalLeads ?? 0,
-  }).toEqual({
-    totalCustomers: leads.filter((lead) => lead.status === "converted").length,
-    totalLeads: leads.filter(countsAsLead).length,
   });
 }
 
@@ -247,7 +215,6 @@ describe("transitionOpportunity", () => {
       const after = await readState(harness, opportunityId);
       expect(after.opportunity).toEqual(before.opportunity);
       expect(after.events).toHaveLength(0);
-      expect(after.stats).toEqual(before.stats);
     },
   );
 
@@ -394,7 +361,16 @@ describe("stage changes through the public mutations", () => {
       paymentType: "pif",
     });
     expect((await readState(harness, opportunityId)).wonCount).toBe(1);
-    await expectPersonCountersMatchRecount(harness);
+    const paymentState = () => t.run(async (ctx) => {
+      const payment = await ctx.db.get("paymentRecords", paymentId);
+      const opportunity = await ctx.db.get("opportunities", opportunityId);
+      const lead = await ctx.db.get("leads", opportunity!.leadId);
+      return { payment, lead };
+    });
+    expect(await paymentState()).toMatchObject({
+      payment: { amountMinor: 10_000, status: "recorded", opportunityId },
+      lead: { status: "converted" },
+    });
 
     await admin.mutation(api.sideDeals.voidPayment.voidPayment, {
       paymentId,
@@ -415,7 +391,10 @@ describe("stage changes through the public mutations", () => {
       ["opportunity.marked_lost", "closed/won", "closed/lost"],
     ]);
     expect(state.opportunity).toMatchObject({ stage: "closed", outcome: "lost" });
-    await expectPersonCountersMatchRecount(harness);
+    expect(await paymentState()).toMatchObject({
+      payment: { status: "disputed" },
+      lead: { status: "active" },
+    });
   });
 });
 
@@ -448,30 +427,5 @@ describe("rebuildQualificationRows migration", () => {
     expect(assertion?.error).toBeUndefined();
     const state = await readState(harness, opportunityId, eventId);
     expect(state.qualificationRow).toMatchObject({ dealStage: "closed", dealOutcome: "lost" });
-  });
-});
-
-describe("seedTenantStatsInternal", () => {
-  it("counts converted people as customers, whatever customer rows exist", async () => {
-    const harness = await bookingHarness();
-    const { tenantId } = harness;
-    await harness.t.run(async (ctx) => {
-      const person = (status: "active" | "converted" | "merged") =>
-        ctx.db.insert("leads", {
-          ...qualifiedLifecycle(0), tenantId, status, firstSeenAt: 0, updatedAt: 0,
-        });
-      await person("converted");
-      await person("converted");
-      await person("active");
-      await person("merged");
-    });
-
-    await harness.t.mutation(internal.admin.migrations.seedTenantStatsInternal, { tenantId, totalLeads: 1 });
-
-    const stats = await harness.t.run((ctx) =>
-      ctx.db.query("tenantStats").withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)).unique(),
-    );
-    expect(stats).toMatchObject({ totalCustomers: 2, totalLeads: 1 });
-    await expectPersonCountersMatchRecount(harness);
   });
 });

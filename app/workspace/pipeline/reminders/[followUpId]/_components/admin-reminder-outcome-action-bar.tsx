@@ -52,7 +52,7 @@ type Props = {
  * payment but everything else stays in the closer's queue.
  *
  * The bar always shows an "Acting on behalf of {closer}" callout so
- * admins understand the commissionable credit goes to the closer.
+ * admins understand the credit goes to the closer.
  */
 export function AdminReminderOutcomeActionBar({
   followUp,

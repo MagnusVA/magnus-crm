@@ -14,7 +14,6 @@ import {
 import { getIdentityOrgId } from "../lib/identity";
 import { emitDomainEvent } from "../lib/domainEvents";
 import { log } from "../lib/observability/log";
-import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { ensureUserTeamMember } from "../lib/teamMembers";
 import { hasDealBlockingUserRemoval } from "../opportunities/dealGuards";
 
@@ -131,10 +130,6 @@ export const createUserWithCalendlyLink = internalMutation({
       });
 
       if (wasInactive) {
-        await updateTenantStats(ctx, tenantId, {
-          totalTeamMembers: 1,
-          totalClosers: role === "closer" ? 1 : 0,
-        });
         await emitDomainEvent(ctx, {
           tenantId,
           entityType: "user",
@@ -187,10 +182,6 @@ export const createUserWithCalendlyLink = internalMutation({
         ? undefined
         : resolvedCalendlyMemberName,
       isActive: true,
-    });
-    await updateTenantStats(ctx, tenantId, {
-      totalTeamMembers: 1,
-      totalClosers: role === "closer" ? 1 : 0,
     });
     await emitDomainEvent(ctx, {
       tenantId,
@@ -296,10 +287,6 @@ export const createInvitedUser = internalMutation({
       });
 
       if (wasInactive) {
-        await updateTenantStats(ctx, tenantId, {
-          totalTeamMembers: 1,
-          totalClosers: role === "closer" ? 1 : 0,
-        });
         await emitDomainEvent(ctx, {
           tenantId,
           entityType: "user",
@@ -353,10 +340,6 @@ export const createInvitedUser = internalMutation({
       invitationStatus,
       workosInvitationId,
       isActive: true,
-    });
-    await updateTenantStats(ctx, tenantId, {
-      totalTeamMembers: 1,
-      totalClosers: role === "closer" ? 1 : 0,
     });
     await emitDomainEvent(ctx, {
       tenantId,
@@ -593,10 +576,6 @@ export const updateRole = internalMutation({
         role !== "closer" ? undefined : existing.personalEventTypeUri,
     });
     if (existing.role !== role) {
-      await updateTenantStats(ctx, existing.tenantId, {
-        totalClosers:
-          (role === "closer" ? 1 : 0) - (existing.role === "closer" ? 1 : 0),
-      });
       await emitDomainEvent(ctx, {
         tenantId: existing.tenantId,
         entityType: "user",
@@ -639,10 +618,6 @@ export const updateRoleAndInvitation = internalMutation({
         role !== "closer" ? undefined : existing.personalEventTypeUri,
     });
     if (existing.role !== role) {
-      await updateTenantStats(ctx, existing.tenantId, {
-        totalClosers:
-          (role === "closer" ? 1 : 0) - (existing.role === "closer" ? 1 : 0),
-      });
       await emitDomainEvent(ctx, {
         tenantId: existing.tenantId,
         entityType: "user",
@@ -709,10 +684,6 @@ export const removeUser = internalMutation({
     await ctx.db.patch("users", userId, {
       deletedAt: now,
       isActive: false,
-    });
-    await updateTenantStats(ctx, user.tenantId, {
-      totalTeamMembers: -1,
-      totalClosers: user.role === "closer" ? -1 : 0,
     });
     await emitDomainEvent(ctx, {
       tenantId: user.tenantId,

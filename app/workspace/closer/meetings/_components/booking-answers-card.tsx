@@ -20,25 +20,24 @@ const LONG_ANSWER_THRESHOLD = 120;
 const answerTextClasses = "text-sm leading-relaxed break-words";
 
 type BookingAnswersCardProps = {
-  customFields: unknown;
-  customFieldLabels: Record<string, string> | undefined;
+  answers: Array<{
+    fieldKey: string;
+    question: string;
+    answer: string;
+    capturedAt: number;
+  }>;
 };
 
 /**
  * Displays Calendly booking-form answers as a definition list.
  *
  * - Uses <dl>/<dt>/<dd> for semantic correctness (question → answer pairs).
- * - Hides entirely when customFields is absent / empty / malformed.
+ * - Hides blank answers and shows an empty state when none remain.
  * - Long answers (>120 chars) collapse behind a Collapsible toggle.
  * - Uses a responsive 2-column grid to stay compact in wide containers.
  */
-export function BookingAnswersCard({ customFields, customFieldLabels }: BookingAnswersCardProps) {
-  if (!isStringRecord(customFields)) return null;
-
-  const entries = Object.entries(customFields).filter(
-    ([, v]) => v.length > 0,
-  );
-  if (entries.length === 0) return null;
+export function BookingAnswersCard({ answers }: BookingAnswersCardProps) {
+  const entries = answers.filter(({ answer }) => answer.trim().length > 0);
 
   return (
     <Card>
@@ -46,22 +45,28 @@ export function BookingAnswersCard({ customFields, customFieldLabels }: BookingA
         <CardTitle className="text-base">Booking Answers</CardTitle>
       </CardHeader>
       <CardContent>
-        <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
-          {entries.map(([question, answer]) => (
-            <div key={question} className="min-w-0">
-              <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {customFieldLabels?.[question] ?? question}
-              </dt>
-              {answer.length > LONG_ANSWER_THRESHOLD ? (
-                <CollapsibleAnswer answer={answer} />
-              ) : (
-                <dd className={cn("mt-1", answerTextClasses)}>
-                  {answer}
-                </dd>
-              )}
-            </div>
-          ))}
-        </dl>
+        {entries.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No answers stored for this booking
+          </p>
+        ) : (
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
+            {entries.map(({ fieldKey, question, answer, capturedAt }) => (
+              <div key={`${capturedAt}:${fieldKey}`} className="min-w-0">
+                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  {question}
+                </dt>
+                {answer.length > LONG_ANSWER_THRESHOLD ? (
+                  <CollapsibleAnswer answer={answer} />
+                ) : (
+                  <dd className={cn("mt-1", answerTextClasses)}>
+                    {answer}
+                  </dd>
+                )}
+              </div>
+            ))}
+          </dl>
+        )}
       </CardContent>
     </Card>
   );
@@ -100,21 +105,4 @@ function CollapsibleAnswer({ answer }: { answer: string }) {
       </dd>
     </Collapsible>
   );
-}
-
-/**
- * Runtime guard: true when value is a non-empty Record<string, string>.
- *
- * Rejects: null, undefined, arrays, objects with non-string values,
- * empty objects.
- */
-function isStringRecord(
-  value: unknown,
-): value is Record<string, string> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return false;
-  }
-  const entries = Object.entries(value);
-  if (entries.length === 0) return false;
-  return entries.every(([, v]) => typeof v === "string");
 }

@@ -15,9 +15,6 @@ type PaymentAggregateCloserKey = Id<"users"> | "";
 function paymentAggregateCloserKey(
   doc: Doc<"paymentRecords">,
 ): PaymentAggregateCloserKey {
-  if (doc.commissionable === false) {
-    return "";
-  }
   return doc.attributedCloserId ?? "";
 }
 

@@ -99,7 +99,7 @@ async function legacyCustomer(harness: Harness) {
     });
     await ctx.db.insert("paymentRecords", {
       tenantId, opportunityId, meetingId, attributedCloserId: closerId, amountMinor: 100000, currency: "USD",
-      recordedByUserId: closerId, commissionable: true, programId, programName: "Program", paymentType: "pif",
+      recordedByUserId: closerId, programId, programName: "Program", paymentType: "pif",
       status: "recorded", recordedAt: PAID, origin: "closer_meeting",
     });
     const workerId = await ctx.db.insert("leadGenWorkers", {

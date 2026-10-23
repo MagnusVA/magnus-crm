@@ -53,7 +53,6 @@ import {
 } from "../lib/normalization";
 import type { IdentifierType, SocialPlatformType } from "../lib/normalization";
 import { syncOpportunityMeetingsAssignedCloser } from "../lib/syncOpportunityMeetingsAssignedCloser";
-import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { buildLeadSearchText } from "../leads/searchTextBuilder";
 import {
 	resolveLeadIdentity,
@@ -1694,7 +1693,6 @@ export const process = internalMutation({
 			});
 			createdOpportunityId = opportunityId;
 			await insertOpportunityAggregate(ctx, opportunityId);
-			await updateTenantStats(ctx, tenantId, { totalOpportunities: 1 });
 			await emitDomainEvent(ctx, {
 				tenantId,
 				entityType: "opportunity",

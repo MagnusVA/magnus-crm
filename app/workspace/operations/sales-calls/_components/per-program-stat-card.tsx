@@ -406,7 +406,7 @@ export function PerProgramStatCard({
                   </TableHead>
                   <TableHead className="text-right font-semibold text-foreground/80">
                     <OverviewHelpTooltip
-                      description={`Commissionable final payments in ${currency} recorded against this program in the range.`}
+                      description={`Final payments in ${currency} recorded against this program in the range.`}
                       label="Payment Sales"
                       triggerClassName="w-full justify-end"
                     >

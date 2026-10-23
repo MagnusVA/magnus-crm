@@ -59,30 +59,16 @@ export const operationsReportTables = {
       "requestedByUserId",
       "requestToken",
     ])
-    .index("by_tenantId_and_requestedByUserId_and_requestKey_and_status", [
-      "tenantId",
-      "requestedByUserId",
-      "requestKey",
-      "status",
-    ])
-    .index("by_tenantId_and_requestedByUserId_and_purpose_and_status", [
-      "tenantId",
-      "requestedByUserId",
-      "purpose",
-      "status",
-    ])
     .index("by_tenantId_and_status", ["tenantId", "status"])
     .index("by_status_and_leaseExpiresAt", ["status", "leaseExpiresAt"])
     .index("by_status_and_expiresAt", ["status", "expiresAt"])
     .index("by_status_and_queuedAt", ["status", "queuedAt"])
     .index("by_expiresAt", ["expiresAt"])
-    .index("by_cleanupPending_and_expiresAt", ["cleanupPending", "expiresAt"])
     .index("by_cleanupPending_and_cleanupNextAttemptAt", [
       "cleanupPending",
       "cleanupNextAttemptAt",
     ])
-    .index("by_cleanupPending_and_purgeAt", ["cleanupPending", "purgeAt"])
-    .index("by_purgeAt", ["purgeAt"]),
+    .index("by_cleanupPending_and_purgeAt", ["cleanupPending", "purgeAt"]),
 
   operationsReportCheckpoints: defineTable({
     tenantId: v.id("tenants"),
@@ -119,11 +105,6 @@ export const operationsReportTables = {
       "section",
       "rowKey",
     ])
-    .index("by_jobId_and_section_and_sortValue", [
-      "jobId",
-      "section",
-      "sortValue",
-    ])
     .index("by_jobId_and_section_and_rowType_and_rowKey", [
       "jobId",
       "section",
@@ -141,8 +122,7 @@ export const operationsReportTables = {
       "section",
       "groupKey",
       "sortValue",
-    ])
-    .index("by_jobId_and_rowType", ["jobId", "rowType"]),
+    ]),
 
   operationsReportArtifacts: defineTable({
     tenantId: v.id("tenants"),
@@ -176,10 +156,6 @@ export const operationsReportTables = {
       "reservationExpiresAt",
     ])
     .index("by_ownershipToken", ["ownershipToken"])
-    .index("by_state_and_reservationExpiresAt", [
-      "state",
-      "reservationExpiresAt",
-    ])
     .index("by_reconciliationComplete_and_reservationExpiresAt", [
       "reconciliationComplete",
       "reservationExpiresAt",

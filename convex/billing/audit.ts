@@ -9,7 +9,6 @@ import {
 } from "../lib/attribution/dealAttributions";
 import {
   resolveLegacyCompatibleAttributedCloserId,
-  resolveLegacyCompatiblePaymentCommissionable,
 } from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
 import type { BillingAuditMetric } from "./types";
@@ -104,7 +103,7 @@ export async function buildPaymentAuditSnapshot(
   const metrics: Record<BillingAuditMetric, number> = {
     missingEnrollment: 0,
     missingMeetingId: 0,
-    missingAttributedCloserOnCommissionable: 0,
+    missingAttributedCloser: 0,
     missingRecordedByUser: 0,
     missingProgram: 0,
     missingAttributionContext: 0,
@@ -195,11 +194,8 @@ export async function buildPaymentAuditSnapshot(
       if (payment.proofFileId !== undefined) {
         metrics.proofFileRows += 1;
       }
-      if (
-        resolveLegacyCompatiblePaymentCommissionable(payment) &&
-        resolveLegacyCompatibleAttributedCloserId(payment) === undefined
-      ) {
-        metrics.missingAttributedCloserOnCommissionable += 1;
+      if (resolveLegacyCompatibleAttributedCloserId(payment) === undefined) {
+        metrics.missingAttributedCloser += 1;
       }
 
       const [recordedBy, program, meetingById] = await Promise.all([

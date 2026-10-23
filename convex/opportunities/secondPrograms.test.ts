@@ -65,7 +65,6 @@ async function customerWithWonDeal(harness: Harness) {
       opportunityId,
       attributedCloserId: adminId,
       recordedByUserId: adminId,
-      commissionable: true,
       amountMinor: 50000,
       currency: "USD",
       programId,

@@ -29,7 +29,7 @@ export const BILLING_PAYMENT_STATUSES = [
 export type BillingAuditMetric =
   | "missingEnrollment"
   | "missingMeetingId"
-  | "missingAttributedCloserOnCommissionable"
+  | "missingAttributedCloser"
   | "missingRecordedByUser"
   | "missingProgram"
   | "missingAttributionContext"
@@ -87,7 +87,6 @@ export type BillingPaymentRow = {
     note: string | null;
     hasProofFile: boolean;
     fathomLink: string | null;
-    commissionable: boolean;
   };
   // The person the payment's deal belongs to.
   customer: {

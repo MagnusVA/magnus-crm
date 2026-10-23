@@ -19,10 +19,9 @@ import type { DealStateFields } from "../opportunities/dealState";
 import { leadStageEntries } from "../reporting/aggregates";
 import { emitDomainEvent, type DomainEventSource } from "./domainEvents";
 import { personProspects, syncPersonProspectConversions } from "./prospectConversions";
-import { updateTenantStats } from "./tenantStatsHelper";
 
 // Writes a person's lifecycle stage and disposition, with the aggregate
-// entries, counters, search row and domain events that follow them
+// entries, search row and domain events that follow them
 // (docs/plans/phase-1-foundations.md §4-§5). Every stage write goes through
 // here; the pure rules are in `convex/leads/lifecycle.ts`.
 
@@ -37,11 +36,6 @@ export type LifecycleCause =
 
 export function readLifecycle(lead: Doc<"leads">): LifecycleState {
   return { stage: lead.lifecycleStage, enteredAt: lead.lifecycleStageEnteredAt };
-}
-
-/** Whether `tenantStats.totalLeads` counts this lead. */
-export function countsAsLead(lead: Doc<"leads">): boolean {
-  return lead.status === "active" && !isProspectStage(lead.lifecycleStage);
 }
 
 /** The lifecycle and disposition fields of a person created by `evidence`. */
@@ -125,7 +119,7 @@ type LifecycleWrite = {
 
 /**
  * Stores `after` on the lead with everything that follows a stage write: the
- * aggregate entries, `totalLeads` and the search row when the person crosses
+ * aggregate entries and the search row when the person crosses
  * Qualified, and a domain event when the stage itself changes.
  */
 async function writeLifecycle(
@@ -150,9 +144,6 @@ async function writeLifecycle(
 
   const wasProspect = isProspectStage(before.stage);
   const isProspect = isProspectStage(after.stage);
-  if (wasProspect !== isProspect && lead.status === "active") {
-    await updateTenantStats(ctx, lead.tenantId, { totalLeads: isProspect ? -1 : 1 });
-  }
   if (wasProspect !== isProspect) {
     await rebuildLeadCustomerSearchRow(ctx, lead.tenantId, lead._id);
   }

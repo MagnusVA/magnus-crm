@@ -142,7 +142,6 @@ export async function insertPayment(
     amountMinor: args.amountMinor ?? 100_000,
     currency: args.currency ?? "USD",
     recordedByUserId: args.recordedByUserId,
-    commissionable: true,
     programId: args.programId,
     programName: program?.name ?? "Program",
     paymentType: "pif",

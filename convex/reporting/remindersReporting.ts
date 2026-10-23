@@ -7,7 +7,7 @@ import {
   assertValidDateRange,
   getUserDisplayName,
   reportingUserIdentity,
-  splitPaymentsForRevenueReporting,
+  summarizePaymentsForRevenueReporting,
 } from "./lib/helpers";
 
 const MAX_FOLLOWUP_SCAN_ROWS = 2000;
@@ -139,14 +139,14 @@ export const getReminderOutcomeFunnel = query({
         (!paymentType ||
           resolvePaymentType(payment.paymentType) === paymentType),
     );
-    const reminderRevenueSplit = splitPaymentsForRevenueReporting(
+    const reminderRevenueSummary = summarizePaymentsForRevenueReporting(
       filteredReminderRevenue,
     );
 
     const reminderDrivenFinalRevenueMinor =
-      reminderRevenueSplit.commissionable.finalRevenueMinor;
+      reminderRevenueSummary.finalRevenueMinor;
     const reminderDrivenDepositRevenueMinor =
-      reminderRevenueSplit.commissionable.depositRevenueMinor;
+      reminderRevenueSummary.depositRevenueMinor;
     const reminderDrivenRevenueMinor =
       reminderDrivenFinalRevenueMinor + reminderDrivenDepositRevenueMinor;
 
