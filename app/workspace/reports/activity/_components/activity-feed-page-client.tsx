@@ -1,7 +1,7 @@
 "use client";
 
 import type { FunctionArgs } from "convex/server";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "convex/react";
 // The feed pages a stream, so it needs the helper's hook, which pins each
 // loaded page's end cursor; Convex's own hook doesn't for stream pagination.
@@ -143,6 +143,24 @@ function ActivityFeedResults({
     args,
     { initialNumItems: 50 },
   );
+  // A filter the index can't apply (entity type, program, payment type) can
+  // leave a page empty within its read budget. Keep reading, up to ten pages,
+  // until a screenful of matches is in, so nobody clicks through empty pages.
+  const argsKey = JSON.stringify(args);
+  const autoLoads = useRef({ argsKey, count: 0 });
+  useEffect(() => {
+    if (autoLoads.current.argsKey !== argsKey) {
+      autoLoads.current = { argsKey, count: 0 };
+    }
+    if (
+      status === "CanLoadMore" &&
+      results.length < 50 &&
+      autoLoads.current.count < 10
+    ) {
+      autoLoads.current.count += 1;
+      loadMore(50);
+    }
+  }, [argsKey, status, results.length, loadMore]);
   return (
     <ActivityFeedList
       events={results}
