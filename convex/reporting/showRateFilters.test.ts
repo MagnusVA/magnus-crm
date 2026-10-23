@@ -4,6 +4,7 @@
  * numbers were pinned against the bucket read on the copied columns; the
  * filtered paths now read `dealAttributions` and must keep them.
  */
+import { reportRangeDayKeys } from "../../lib/reportDateRange";
 import { afterEach, expect, it, vi } from "vitest";
 import { attendanceStorageModes, type AttendanceStorage } from "../../tests/showRateFixtures";
 import { api } from "../_generated/api";
@@ -69,9 +70,9 @@ async function insertDmCloser(
  * booked through a different DM closer and team. m12 has rows but was never
  * projected, so neither read counts it.
  */
-async function seed(storage: AttendanceStorage = "completed") {
+async function seed(storage: AttendanceStorage = "completed", dayOffset = 0) {
   vi.useFakeTimers();
-  vi.setSystemTime(new Date("2026-10-04T00:00:00Z"));
+  vi.setSystemTime(new Date(Date.parse("2026-10-04T00:00:00Z") + dayOffset * 86_400_000));
   const harness = await bookingHarness();
   const { t, tenantId } = harness;
   const fixture = await t.run(async (ctx) => {
@@ -139,7 +140,7 @@ async function seed(storage: AttendanceStorage = "completed") {
         });
         opportunities.set(deal, opportunityId);
       }
-      const scheduledAt = Date.parse(at);
+      const scheduledAt = Date.parse(at) + dayOffset * 86_400_000;
       const meetingId = await ctx.db.insert("meetings", {
         tenantId,
         opportunityId,
@@ -172,7 +173,7 @@ async function seed(storage: AttendanceStorage = "completed") {
     await book("m7", "2026-10-02T15:00:00Z", closerB, "completed", { teamId: t1 }, { programId });
     await book("m8", "2026-10-01T16:00:00Z", closerB, "scheduled", {});
     await book("m9", "2026-09-30T12:00:00Z", closerA, "completed", { teamId: t1, dmCloserId: d1a });
-    await book("m10", "2026-10-03T00:00:00Z", closerA, "completed", { teamId: t1, dmCloserId: d1a });
+    await book("m10", "2026-10-03T07:00:00Z", closerA, "completed", { teamId: t1, dmCloserId: d1a });
     await book("m11", "2026-10-02T23:30:00Z", closerA, "no_show", { teamId: t1, dmCloserId: d1a }, { programId });
     await book("m12", "2026-10-01T18:00:00Z", closerA, "completed", { teamId: t1, dmCloserId: d1a }, { project: false });
 
@@ -229,11 +230,11 @@ it.each(attendanceStorageModes)("keeps the pipeline show rate for every team, DM
 
 it.each(attendanceStorageModes)("keeps the team operations dimensions for every team, DM closer and program filter with %s rows", async (storage) => {
   const { admin, closerA, closerB, programId, t1, t2, d1a, d1b, d2 } = await seed(storage);
-  // Mid-day bounds: the report keys by the UTC day of each end, as the buckets do.
+  // Business-day bounds match the projected meeting dates.
   const dimensions = async (filters: Filters) => {
     const result = await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
-      startDate: Date.parse("2026-10-01T06:00:00Z"),
-      endDate: Date.parse("2026-10-03T06:00:00Z"),
+      startDayKey: "2026-10-01",
+      endDayKeyExclusive: "2026-10-03",
       ...filters,
     });
     return {
@@ -332,7 +333,7 @@ it("reports a filtered range past 2,000 credited meetings as truncated", async (
         teamId: t1,
         source: { kind: "booking_utm" },
         meetingId: meeting._id,
-        meetingScheduledAt: Date.parse("2026-10-01T00:00:00Z"),
+        meetingScheduledAt: Date.parse("2026-10-01T07:00:00Z"),
         attributedAt: 0,
         createdAt: 0,
       });
@@ -353,4 +354,20 @@ it("reports a filtered range past 2,000 credited meetings as truncated", async (
       )
     ).truncated,
   ).toBe(false);
+});
+
+it("counts only October 22 for a Honduras browser range in buckets and attribution filters", async () => {
+  const { admin, t1, d1a } = await seed("completed", 21);
+  for (const filters of [{}, { attributionTeamId: t1 }, { dmCloserId: d1a }]) {
+    const result = await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
+      ...reportRangeDayKeys({
+        startDate: new Date(2026, 9, 22).getTime(),
+        endDate: new Date(2026, 9, 23).getTime(),
+      }),
+      ...filters,
+    });
+    expect(result.totals.scheduled).toBe("attributionTeamId" in filters || "dmCloserId" in filters ? 3 : 4);
+    expect(result.totals.completed).toBe(1);
+    expect(result.truncated).toBe(false);
+  }
 });

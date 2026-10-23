@@ -1,4 +1,5 @@
 "use client";
+import { DayDefinition } from "../../_components/day-definition";
 
 import { useCallback } from "react";
 import {
@@ -84,6 +85,7 @@ export function CalendarView({
         onViewModeChange={onViewModeChange}
       />
 
+      <DayDefinition browser />
       {calendar?.isPartial ? (
         <p role="status" className="text-xs text-muted-foreground">
           Showing the first {calendar.meetings.length.toLocaleString()} meetings. Narrow the range to see more.

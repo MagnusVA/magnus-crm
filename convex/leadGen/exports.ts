@@ -1,3 +1,4 @@
+import { assertLeadGenBusinessDayReady } from "../lib/businessDayRebuildState";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -504,6 +505,7 @@ export const getSummaryExportRows = query({
       "tenant_master",
       "tenant_admin",
     ]);
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
 
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
@@ -520,6 +522,7 @@ export const getExcelReportData = query({
       "tenant_master",
       "tenant_admin",
     ]);
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
 
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
@@ -544,6 +547,7 @@ export const getWorkerExportRows = query({
       "tenant_master",
       "tenant_admin",
     ]);
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
 
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
@@ -625,6 +629,7 @@ export const getRawSubmissionExportRows = query({
       "tenant_master",
       "tenant_admin",
     ]);
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
 
     validateTimestampRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
@@ -657,6 +662,7 @@ export const listRawSubmissionExportPage = query({
       "tenant_master",
       "tenant_admin",
     ]);
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
 
     validateTimestampRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });

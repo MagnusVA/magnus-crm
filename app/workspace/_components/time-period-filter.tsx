@@ -1,4 +1,5 @@
 "use client";
+import { DayDefinition } from "./day-definition";
 
 import { useCallback, useMemo } from "react";
 import { startOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from "date-fns";
@@ -76,6 +77,7 @@ export function TimePeriodFilter({ value, onValueChange }: TimePeriodFilterProps
   );
 
   return (
+    <div className="flex flex-col gap-2">
     <ToggleGroup
       type="single"
       value={value}
@@ -90,6 +92,8 @@ export function TimePeriodFilter({ value, onValueChange }: TimePeriodFilterProps
         </ToggleGroupItem>
       ))}
     </ToggleGroup>
+    <DayDefinition browser />
+    </div>
   );
 }
 

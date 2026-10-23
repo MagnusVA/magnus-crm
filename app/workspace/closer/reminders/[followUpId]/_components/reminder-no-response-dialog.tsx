@@ -1,4 +1,5 @@
 "use client";
+import { DayDefinition } from "@/app/workspace/_components/day-definition";
 
 import { useState } from "react";
 import { useMutation } from "convex/react";
@@ -382,6 +383,7 @@ export function ReminderNoResponseDialog({ followUpId, onSuccess }: Props) {
 														{...field}
 													/>
 												</FormControl>
+ <DayDefinition browser />
 												<FormMessage />
 											</FormItem>
 										)}

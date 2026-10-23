@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import { query } from "../_generated/server";
 import {
@@ -34,12 +35,14 @@ export const getRevenueTrend = query({
       "tenant_master",
       "tenant_admin",
     ]);
+    const setting = await getTenantBusinessDay(ctx, tenantId);
     assertValidDateRange(args.startDate, args.endDate);
 
     const periods = getPeriodsInRange(
       args.startDate,
       args.endDate,
       args.granularity,
+      setting,
     );
     const trend = periods.map((period) => ({
       periodKey: period.key,
@@ -80,6 +83,7 @@ export const getRevenueTrend = query({
       const periodKey = getPeriodKey(
         payment.recordedAt,
         args.granularity as Granularity,
+        setting,
       );
       const index = indexByPeriodKey.get(periodKey);
       if (index === undefined) {
@@ -94,6 +98,7 @@ export const getRevenueTrend = query({
       const periodKey = getPeriodKey(
         payment.recordedAt,
         args.granularity as Granularity,
+        setting,
       );
       const index = indexByPeriodKey.get(periodKey);
       if (index !== undefined) {

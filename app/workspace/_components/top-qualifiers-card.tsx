@@ -1,3 +1,4 @@
+import { BusinessDayRebuildingState } from "./day-definition";
 import { MessageSquareCheckIcon } from "lucide-react";
 import {
 	Avatar,
@@ -77,7 +78,9 @@ export function TopQualifiersCard({
 				</div>
 			</CardHeader>
 			<CardContent className="flex flex-col gap-3">
-				{section.status === "capped" ? (
+				{section.status === "rebuilding" ? (
+					<BusinessDayRebuildingState />
+				) : section.status === "capped" ? (
 					<OverviewCappedState message={section.message} />
 				) : section.status === "error" ? (
 					<OverviewErrorState message={section.message} />

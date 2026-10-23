@@ -1,3 +1,5 @@
+import type { BusinessDaySetting } from "../../lib/businessDay";
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
@@ -91,9 +93,9 @@ async function readRankableSubmissionsForTeamOriginRange(
     endDayKey: string;
   },
 ) {
-  const startTimestamp = businessDateToUtcStart(args.startDayKey);
+  const startTimestamp = businessDateToUtcStart(args.startDayKey, await getTenantBusinessDay(ctx, args.tenantId));
   const endTimestamp =
-    businessDateToUtcStart(addBusinessDays(args.endDayKey, 1)) - 1;
+    businessDateToUtcStart(addBusinessDays(args.endDayKey, 1), await getTenantBusinessDay(ctx, args.tenantId)) - 1;
   const rows = await ctx.db
     .query("leadGenSubmissions")
     .withIndex("by_tenantId_and_submittedAt", (q) =>
@@ -120,6 +122,7 @@ async function readRankableSubmissionsForTeamOriginRange(
 function groupSubmissionsIntoTeamOriginStats(
   rows: Doc<"leadGenSubmissions">[],
   updatedAt: number,
+  setting: BusinessDaySetting,
 ) {
   const byStatKey = new Map<
     string,
@@ -139,7 +142,7 @@ function groupSubmissionsIntoTeamOriginStats(
     });
     if (!origin.originKey || !origin.originValue) continue;
 
-    const dayKey = timestampToBusinessDateKey(row.submittedAt);
+    const dayKey = timestampToBusinessDateKey(row.submittedAt, setting);
     const statKey = teamOriginStatKey({
       dayKey,
       teamId: row.teamId,
@@ -359,6 +362,7 @@ export const rebuildTeamOriginStatsRange = mutation({
     const rebuiltRows = groupSubmissionsIntoTeamOriginStats(
       submissions,
       Date.now(),
+      await getTenantBusinessDay(ctx, tenantId),
     );
 
     if (!args.dryRun) {

@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import {
@@ -413,9 +414,9 @@ async function readTopOriginSubmissionRows(
     source?: LeadGenSource;
   },
 ) {
-  const startTimestamp = businessDateToUtcStart(args.startDayKey);
+  const startTimestamp = businessDateToUtcStart(args.startDayKey, await getTenantBusinessDay(ctx, args.tenantId));
   const endTimestamp =
-    businessDateToUtcStart(addBusinessDays(args.endDayKey, 1)) - 1;
+    businessDateToUtcStart(addBusinessDays(args.endDayKey, 1), await getTenantBusinessDay(ctx, args.tenantId)) - 1;
   const readLimit = ORIGIN_SUBMISSIONS_READ_LIMIT + 1;
   let rows: SubmissionRow[];
 
@@ -639,7 +640,7 @@ async function listTopOriginsFromBoundedSubmissions(
         uniqueProspectDayKeys: new Set<string>(),
         dayKeys: new Set<string>(),
       };
-    const dayKey = timestampToBusinessDateKey(row.submittedAt);
+    const dayKey = timestampToBusinessDateKey(row.submittedAt, await getTenantBusinessDay(ctx, args.tenantId));
 
     current.submissions += 1;
     current.uniqueProspectDayKeys.add(`${row.prospectId}:${dayKey}`);

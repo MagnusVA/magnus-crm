@@ -125,8 +125,8 @@ it("retains an early cancellation and applies it when the booking arrives", asyn
   expect(
     await t.run((ctx) => meetingStatsTotals(ctx, {
       tenantId,
-      scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
-      scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
+      scheduledFrom: Date.parse("2026-10-01T07:00:00Z"),
+      scheduledTo: Date.parse("2026-10-02T07:00:00Z"),
     })),
   ).toMatchObject({ scheduled: 1, canceled: 1 });
   const receipts = (
@@ -334,8 +334,8 @@ it("keeps no-show reversal ordered by provider time rather than delivery time", 
   expect(
     await t.run((ctx) => meetingStatsTotals(ctx, {
       tenantId,
-      scheduledFrom: Date.parse("2026-10-01T00:00:00Z"),
-      scheduledTo: Date.parse("2026-10-02T00:00:00Z"),
+      scheduledFrom: Date.parse("2026-10-01T07:00:00Z"),
+      scheduledTo: Date.parse("2026-10-02T07:00:00Z"),
     })),
   ).toMatchObject({ scheduled: 1, noShows: 0 });
 });

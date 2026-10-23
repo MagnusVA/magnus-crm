@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { isHeldStatus, withAttendanceCounts } from "../lib/meetingAttendance";
 import { requireReportingReady } from "./reportingReadiness";
 import { v } from "convex/values";
@@ -293,7 +294,7 @@ export const getSalesCallsDashboard = query({
     ]);
     await requireReportingReady(ctx, tenantId);
 
-    const range = deriveOverviewRange(args.range, Date.now());
+    const range = deriveOverviewRange(args.range, Date.now(), await getTenantBusinessDay(ctx, tenantId));
 
     const [statsScan, activeUserScan, paymentScan] = await Promise.all([
       readLiveQueryRows(

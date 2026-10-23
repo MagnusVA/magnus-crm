@@ -1,3 +1,4 @@
+import type { BusinessDaySetting } from "../../lib/businessDay";
 import { v } from "convex/values";
 import {
   addBusinessDays,
@@ -59,8 +60,9 @@ export type DerivedOverviewRange = PublicOverviewRange & {
 export function deriveOverviewRange(
   input: OverviewRangeInput,
   now: number,
+  setting?: BusinessDaySetting,
 ): DerivedOverviewRange {
-  const today = timestampToBusinessDateKey(now);
+  const today = timestampToBusinessDateKey(now, setting);
   const tomorrow = addBusinessDays(today, 1);
   const startBusinessDate =
     input.kind === "custom"
@@ -77,8 +79,8 @@ export function deriveOverviewRange(
       ? addBusinessDays(endBusinessDateInclusive, 1)
       : tomorrow;
 
-  businessDateToUtcStart(startBusinessDate);
-  businessDateToUtcStart(endBusinessDateInclusive);
+  businessDateToUtcStart(startBusinessDate, setting);
+  businessDateToUtcStart(endBusinessDateInclusive, setting);
 
   if (startBusinessDate > endBusinessDateInclusive) {
     throw new Error("Start date must be on or before end date.");
@@ -94,8 +96,8 @@ export function deriveOverviewRange(
     );
   }
 
-  const slackWindowStart = businessDateToUtcStart(startBusinessDate);
-  const slackWindowEnd = businessDateToUtcStart(endBusinessDateExclusive);
+  const slackWindowStart = businessDateToUtcStart(startBusinessDate, setting);
+  const slackWindowEnd = businessDateToUtcStart(endBusinessDateExclusive, setting);
 
   return {
     input,
@@ -104,8 +106,8 @@ export function deriveOverviewRange(
     endBusinessDateExclusive,
     slackWindowStart,
     slackWindowEnd,
-    operationsStartDate: Date.parse(`${startBusinessDate}T00:00:00.000Z`),
-    operationsEndDate: Date.parse(`${endBusinessDateExclusive}T00:00:00.000Z`),
+    operationsStartDate: slackWindowStart,
+    operationsEndDate: slackWindowEnd,
     operationsStartDayKey: startBusinessDate,
     operationsEndDayKeyExclusive: endBusinessDateExclusive,
     dayCount,
@@ -113,7 +115,7 @@ export function deriveOverviewRange(
       startBusinessDate === endBusinessDateInclusive
         ? startBusinessDate
         : `${startBusinessDate} to ${endBusinessDateInclusive}`,
-    operationsBoundary: "utc_day_key",
+    operationsBoundary: "tenant_business_day",
   };
 }
 

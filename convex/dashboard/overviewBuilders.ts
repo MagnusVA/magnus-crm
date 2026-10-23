@@ -1,3 +1,6 @@
+import { BUSINESS_DAY_REBUILD_MESSAGE } from "../../lib/businessDay";
+import { businessDayBucketsReady, leadGenBusinessDayBlocked } from "../lib/businessDayRebuildState";
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { getLeadGenOverviewSection } from "./overviewLeadGen";
@@ -27,7 +30,17 @@ type SectionBuildResult<T> = {
 
 async function resolveSection<T>(
   build: () => Promise<SectionBuildResult<T>>,
+  rebuilding = false,
 ): Promise<SectionResult<T>> {
+  if (rebuilding) {
+    return {
+      status: "rebuilding",
+      data: null,
+      truncated: false,
+      message: BUSINESS_DAY_REBUILD_MESSAGE,
+      errorCode: null,
+    };
+  }
   try {
     const result = await build();
     if (result.isEmpty) {
@@ -85,7 +98,12 @@ export async function getOverviewDashboardData(
     now: number;
   },
 ): Promise<OverviewDashboard> {
-  const range = deriveOverviewRange(args.range, args.now);
+  const range = deriveOverviewRange(args.range, args.now, await getTenantBusinessDay(ctx, args.tenantId));
+  const [tenant, leadGenRebuilding] = await Promise.all([
+    ctx.db.get("tenants", args.tenantId),
+    leadGenBusinessDayBlocked(ctx, args.tenantId),
+  ]);
+  const meetingsRebuilding = !tenant || !businessDayBucketsReady(tenant);
 
   const [
     leadGen,
@@ -96,6 +114,7 @@ export async function getOverviewDashboardData(
   ] = await Promise.all([
     resolveSection(() =>
       getLeadGenOverviewSection(ctx, args.tenantId, range),
+      leadGenRebuilding,
     ),
     resolveSection(() =>
       getTopQualifiersOverviewSection(ctx, args.tenantId, range),
@@ -105,9 +124,11 @@ export async function getOverviewDashboardData(
     ),
     resolveSection(() =>
       getPhoneCloserOperationsOverviewSection(ctx, args.tenantId, range),
+      meetingsRebuilding,
     ),
     resolveSection(() =>
       getTopOriginsOverviewSection(ctx, args.tenantId, range),
+      leadGenRebuilding,
     ),
   ]);
 

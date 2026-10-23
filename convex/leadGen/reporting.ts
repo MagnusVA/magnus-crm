@@ -1,3 +1,5 @@
+import { assertLeadGenBusinessDayReady } from "../lib/businessDayRebuildState";
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
@@ -255,9 +257,9 @@ async function isTopOriginsReadCapped(
   },
 ) {
   if (args.workerId) {
-    const startTimestamp = businessDateToUtcStart(args.startDayKey);
+    const startTimestamp = businessDateToUtcStart(args.startDayKey, await getTenantBusinessDay(ctx, args.tenantId));
     const endTimestamp =
-      businessDateToUtcStart(addBusinessDays(args.endDayKey, 1)) - 1;
+      businessDateToUtcStart(addBusinessDays(args.endDayKey, 1), await getTenantBusinessDay(ctx, args.tenantId)) - 1;
     const result = await readLiveQueryRows(
       ctx.db
         .query("leadGenSubmissions")
@@ -291,9 +293,9 @@ async function readTopOriginSubmissionRows(
     source?: LeadGenSource;
   },
 ) {
-  const startTimestamp = businessDateToUtcStart(args.startDayKey);
+  const startTimestamp = businessDateToUtcStart(args.startDayKey, await getTenantBusinessDay(ctx, args.tenantId));
   const endTimestamp =
-    businessDateToUtcStart(addBusinessDays(args.endDayKey, 1)) - 1;
+    businessDateToUtcStart(addBusinessDays(args.endDayKey, 1), await getTenantBusinessDay(ctx, args.tenantId)) - 1;
   const readLimit = ORIGIN_SUBMISSIONS_READ_LIMIT + 1;
   let rows: SubmissionRow[];
 
@@ -632,7 +634,7 @@ async function listTopOriginsByTeamFromBoundedSubmissions(
         uniqueProspectDayKeys: new Set<string>(),
         dayKeys: new Set<string>(),
       };
-    const dayKey = timestampToBusinessDateKey(row.submittedAt);
+    const dayKey = timestampToBusinessDateKey(row.submittedAt, await getTenantBusinessDay(ctx, args.tenantId));
 
     currentOrigin.submissions += 1;
     currentOrigin.uniqueProspectDayKeys.add(`${row.prospectId}:${dayKey}`);
@@ -695,6 +697,7 @@ export const getOverview = query({
       "tenant_admin",
     ]);
 
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
     const [dailyResult, originsCapped] = await Promise.all([
@@ -746,6 +749,7 @@ export const listWorkerPerformance = query({
       "tenant_admin",
     ]);
 
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
     const rows = await readDailyStatsRows(ctx, {
@@ -829,6 +833,7 @@ export const listTeamPerformance = query({
       "tenant_admin",
     ]);
 
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
     const rows = await readDailyStatsRows(ctx, {
@@ -918,6 +923,7 @@ export const listSourcePerformance = query({
       "tenant_admin",
     ]);
 
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
     const rows = await readDailyStatsRows(ctx, {
@@ -999,6 +1005,7 @@ export const listTopOrigins = query({
     ]);
     const limit = normalizeLimit(args.limit, MAX_TOP_ORIGINS);
 
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
 
@@ -1036,7 +1043,7 @@ export const listTopOrigins = query({
             uniqueProspectDayKeys: new Set<string>(),
             dayKeys: new Set<string>(),
           };
-        const dayKey = timestampToBusinessDateKey(row.submittedAt);
+        const dayKey = timestampToBusinessDateKey(row.submittedAt, await getTenantBusinessDay(ctx, tenantId));
 
         current.submissions += 1;
         current.uniqueProspectDayKeys.add(`${row.prospectId}:${dayKey}`);
@@ -1159,6 +1166,7 @@ export const listTopOriginsByTeam = query({
       MAX_TOP_ORIGINS_PER_TEAM,
     );
 
+    await assertLeadGenBusinessDayReady(ctx, tenantId);
     validateDayRange(args);
     await validateFilterIds(ctx, { tenantId, ...args });
 

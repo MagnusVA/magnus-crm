@@ -1,4 +1,8 @@
 "use client";
+import { businessDayStart } from "@/lib/businessDay";
+import { reportRangeDayKeys } from "@/lib/reportDateRange";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { BusinessDayRebuildingState } from "@/app/workspace/_components/day-definition";
 
 import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
 
@@ -49,6 +53,7 @@ import { formatRate } from "./team-report-formatters";
 
 export function TeamReportPageClient() {
   usePageTitle("Team Performance — Reports");
+  const { setting, loaded, rebuilding } = useBusinessDay();
   const { captureViewed, captureFiltersChanged } =
     useReportAnalytics("team_performance");
 
@@ -77,25 +82,33 @@ export function TeamReportPageClient() {
     [captureFiltersChanged, operationsFilters],
   );
 
+  const dayKeys = reportRangeDayKeys(dateRange);
+  const queryRange = !loaded || rebuilding ? "skip" : {
+    startDate: businessDayStart(dayKeys.startDayKey, setting),
+    endDate: businessDayStart(dayKeys.endDayKeyExclusive, setting),
+  };
+
   const metrics = useQuery(
     api.reporting.teamPerformance.getTeamPerformanceMetrics,
-    dateRange,
+    queryRange,
   );
   const outcomeMix = useQuery(
     api.reporting.teamOutcomes.getTeamOutcomeMix,
-    dateRange,
+    queryRange,
   );
   const actionsPerCloser = useQuery(
     api.reporting.teamActions.getActionsPerCloserPerDay,
-    dateRange,
+    queryRange,
   );
   const operationsDimensions = useQuery(
     api.reporting.teamPerformance.getTeamOperationsDimensions,
-    {
-      ...dateRange,
+    !loaded || rebuilding ? "skip" : {
+      ...dayKeys,
       ...operationsFilters,
     },
   );
+
+  if (rebuilding) return <BusinessDayRebuildingState />;
 
   if (
     metrics === undefined ||
@@ -162,6 +175,7 @@ export function TeamReportPageClient() {
 
       <div className="flex flex-col gap-3">
         <ReportDateControls
+          dayDefinition="tenant"
           value={dateRange}
           onChange={(next) => {
             setDateRange(next);

@@ -1,4 +1,6 @@
 "use client";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -42,6 +44,8 @@ export type LeadGenFilters = {
 };
 
 export function LeadGenAdminPageClient() {
+ const { setting, rebuilding, loaded } = useBusinessDay("lead-gen");
+ const now = useNow();
 	const { range, setRange, queryRange, rangeLabel, validationMessage } =
 		useDashboardRange({
 			urlSync: true,
@@ -51,17 +55,17 @@ export function LeadGenAdminPageClient() {
 	const [source, setSource] = useState<LeadGenSource | undefined>(undefined);
 
 	const filters = useMemo<LeadGenFilters>(() => {
-		const dayKeys = dashboardRangeToDayKeys(queryRange);
+		const dayKeys = dashboardRangeToDayKeys(queryRange, now, setting);
 		return { ...dayKeys, ...(source ? { source } : {}) };
-	}, [queryRange, source]);
+	}, [queryRange, source, now, setting]);
 	const requiresSnapshot = useMemo(
-		() => requiresOperationsReportSnapshot(queryRange),
-		[queryRange],
+		() => requiresOperationsReportSnapshot(queryRange, setting, now),
+		[queryRange, now, setting],
 	);
 
 	const overview = useQuery(
 		api.leadGen.reporting.getOverview,
-		requiresSnapshot ? "skip" : filters,
+		requiresSnapshot || rebuilding || !loaded ? "skip" : filters,
 	);
 	const needsSnapshot = requiresSnapshot || overview?.capped === true;
 	const teams = useQuery(api.leadGen.workers.listTeams, needsSnapshot ? "skip" : {
@@ -140,7 +144,7 @@ export function LeadGenAdminPageClient() {
 							sourceFilter={filters.source}
 						/>
 					</div>
-					<DashboardDateRangeFilter
+					<DashboardDateRangeFilter bucketKind="lead-gen"
 						validationOptions={OPERATIONS_DASHBOARD_RANGE_VALIDATION}
 						validationMessage={validationMessage}
 						value={range}

@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import {
   attendanceDayBounds,
   readScheduledAttendanceDay,
@@ -5,7 +6,6 @@ import {
   withAttendanceCounts,
 } from "../lib/meetingAttendance";
 import {
-  meetingDayKey,
   readMeetingStatsCounts,
 } from "../operations/meetingStats";
 import { requireReportingReady } from "../operations/reportingReadiness";
@@ -114,7 +114,7 @@ export const getTeamPerformanceMetrics = query({
         : [];
 
     const now = Date.now();
-    const attendanceDay = attendanceDayBounds(now);
+    const attendanceDay = attendanceDayBounds(now, await getTenantBusinessDay(ctx, tenantId));
     const pastEnd = Math.min(endDate, attendanceDay.start);
     const pastMeta = countMeta.filter((meta) => meta.status === "scheduled");
     const hasScheduled = counts.some(
@@ -341,8 +341,8 @@ export const getTeamPerformanceMetrics = query({
 
 export const getTeamOperationsDimensions = query({
   args: {
-    startDate: v.number(),
-    endDate: v.number(),
+    startDayKey: v.string(),
+    endDayKeyExclusive: v.string(),
     bookingProgramId: v.optional(v.id("tenantPrograms")),
     attributionTeamId: v.optional(v.id("attributionTeams")),
     dmCloserId: v.optional(v.id("dmClosers")),
@@ -379,24 +379,23 @@ export const getTeamOperationsDimensions = query({
     truncated: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    assertValidDateRange(args.startDate, args.endDate);
-
     const { tenantId } = await requireTenantUser(ctx, [
       "tenant_master",
       "tenant_admin",
     ]);
     await requireReportingReady(ctx, tenantId);
 
-    const startDayKey = meetingDayKey(args.startDate);
-    const endDayKeyExclusive = meetingDayKey(args.endDate);
+    if (args.startDayKey >= args.endDayKeyExclusive) {
+      throw new Error("startDayKey must be before endDayKeyExclusive");
+    }
     // A team or DM closer filter reads the credited meetings' rows
     // (dealAttributions); otherwise the buckets.
     const [closers, { counts, truncated }] = await Promise.all([
       getActiveClosers(ctx, tenantId),
       readMeetingStatsCounts(ctx, {
         tenantId,
-        startDayKey,
-        endDayKeyExclusive,
+        startDayKey: args.startDayKey,
+        endDayKeyExclusive: args.endDayKeyExclusive,
         attributionTeamId: args.attributionTeamId,
         dmCloserId: args.dmCloserId,
       }),

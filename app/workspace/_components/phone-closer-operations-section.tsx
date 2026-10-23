@@ -1,3 +1,4 @@
+import { BusinessDayRebuildingState } from "./day-definition";
 import {
 	Card,
 	CardContent,
@@ -38,7 +39,9 @@ export function PhoneCloserOperationsSection({
 				</CardDescription>
 			</CardHeader>
 			<CardContent>
-				{section.status === "capped" ? (
+				{section.status === "rebuilding" ? (
+					<BusinessDayRebuildingState />
+				) : section.status === "capped" ? (
 					<OverviewCappedState message={section.message} />
 				) : section.status === "error" ? (
 					<OverviewErrorState message={section.message} />

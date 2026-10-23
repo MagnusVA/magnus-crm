@@ -16,8 +16,8 @@ it.each(["empty", "unverified", "version2"] as const)(
     if (state === "version2") {
       await h.t.run((ctx) => ctx.db.patch("tenants", h.tenantId, { meetingProjectionVersion: 2 }));
     }
-    const startDate = Date.parse("2026-10-01T00:00:00Z");
-    const endDate = Date.parse("2026-10-02T00:00:00Z");
+    const startDate = Date.parse("2026-10-01T07:00:00Z");
+    const endDate = Date.parse("2026-10-02T07:00:00Z");
     const range = {
       kind: "custom" as const,
       startBusinessDate: "2026-10-01",
@@ -27,7 +27,7 @@ it.each(["empty", "unverified", "version2"] as const)(
       () => h.admin.query(api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions, {
         startDayKey: "2026-10-01", endDayKeyExclusive: "2026-10-02",
       }),
-      () => h.admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, { startDate, endDate }),
+      () => h.admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, { startDayKey: "2026-10-01", endDayKeyExclusive: "2026-10-02" }),
       () => h.admin.query(api.operations.salesCallsDashboard.getSalesCallsDashboard, { range }),
       () => h.t.run((ctx) => getPhoneCloserOperationsOverviewSection(
         ctx, h.tenantId, deriveOverviewRange(range, Date.now()),
