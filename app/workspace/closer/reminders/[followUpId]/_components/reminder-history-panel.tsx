@@ -1,5 +1,7 @@
 "use client";
 
+import { useNow } from "@/hooks/use-now";
+
 import type { ReactNode } from "react";
 import { format } from "date-fns";
 import type { Doc } from "@/convex/_generated/dataModel";
@@ -14,28 +16,12 @@ import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import {
 	meetingStatusConfig,
-	type MeetingStatus,
+	meetingAttendanceDisplay,
 } from "@/lib/status-config";
 
 type Props = {
 	latestMeeting: Doc<"meetings"> | null;
 	payments: Doc<"paymentRecords">[];
-};
-
-/**
- * Per-meeting-status badge classes, mirroring the subtle palette the
- * meeting-info-panel uses so the two surfaces read the same. Kept local
- * to this panel because the shared config exposes the bolder calendar
- * `blockClass` tokens which don't suit inline history rows.
- */
-const MEETING_BADGE_CLASS: Partial<Record<MeetingStatus, string>> = {
-	scheduled:
-		"bg-blue-500/10 text-blue-700 border-blue-200 dark:text-blue-400 dark:border-blue-900",
-	completed:
-		"bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-900",
-	canceled: "bg-muted text-muted-foreground border-border",
-	no_show:
-		"bg-orange-500/10 text-orange-700 border-orange-200 dark:text-orange-400 dark:border-orange-900",
 };
 
 /**
@@ -111,7 +97,7 @@ export function ReminderHistoryPanel({ latestMeeting, payments }: Props) {
 // ─── Internal ────────────────────────────────────────────────────────────────
 
 function LatestMeetingRow({ meeting }: { meeting: Doc<"meetings"> }) {
-	const statusKey = meeting.status as MeetingStatus;
+	const statusKey = meetingAttendanceDisplay(meeting, useNow());
 	const statusCfg = meetingStatusConfig[statusKey];
 	const when = format(new Date(meeting.scheduledAt), "MMM d · h:mm a");
 
@@ -126,8 +112,7 @@ function LatestMeetingRow({ meeting }: { meeting: Doc<"meetings"> }) {
 			<Badge
 				variant="outline"
 				className={cn(
-					MEETING_BADGE_CLASS[statusKey] ??
-						"bg-muted text-muted-foreground border-border",
+					statusCfg.badgeClass,
 				)}
 			>
 				{statusCfg?.label ?? meeting.status.replace(/_/g, " ")}

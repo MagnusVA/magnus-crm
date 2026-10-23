@@ -1,5 +1,7 @@
 "use client";
 
+import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
+
 import { useCallback, useEffect, useState } from "react";
 import { endOfMonth, startOfMonth } from "date-fns";
 import { useQuery } from "convex/react";
@@ -220,8 +222,11 @@ function SchedulingShowRateCard({
     shown: number;
     canceled: number;
     noShows: number;
+    resultsRecorded: number;
+    pastCalls: number;
     showRate: number | null;
     noShowRate: number | null;
+    attendanceCountsPartial: boolean;
     truncated: boolean;
   };
 }) {
@@ -233,7 +238,7 @@ function SchedulingShowRateCard({
             <CardTitle>Scheduling Show Rate</CardTitle>
             <CardDescription>
               Booked-call metrics grouped by booked program, DM team, and DM
-              closer.
+              closer. {SHOW_RATE_HELP}
             </CardDescription>
           </div>
           {stats.truncated ? (
@@ -247,10 +252,13 @@ function SchedulingShowRateCard({
           <PipelineMetric label="Shown" value={stats.shown} />
           <PipelineMetric label="Canceled" value={stats.canceled} />
           <PipelineMetric label="No shows" value={stats.noShows} />
-          <PipelineMetric
-            label="Show rate"
-            value={formatPercent(stats.showRate)}
-          />
+          <div>
+            <PipelineMetric
+              label="Show rate"
+              value={formatPercent(stats.showRate)}
+            />
+            <ResultsRecorded {...stats} />
+          </div>
           <PipelineMetric
             label="No-show rate"
             value={formatPercent(stats.noShowRate)}
@@ -280,7 +288,7 @@ function PipelineMetric({
 
 function formatPercent(value: number | null): string {
   return value === null
-    ? "-"
+    ? "—"
     : `${(value * 100).toLocaleString(undefined, {
         maximumFractionDigits: 1,
       })}%`;

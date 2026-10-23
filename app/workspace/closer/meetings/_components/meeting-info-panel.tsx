@@ -1,5 +1,7 @@
 "use client";
 
+import { useNow } from "@/hooks/use-now";
+
 import {
   Card,
   CardContent,
@@ -22,25 +24,11 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import {
   meetingStatusConfig,
-  type MeetingStatus,
+  meetingAttendanceDisplay,
 } from "@/lib/status-config";
 import type { Doc } from "@/convex/_generated/dataModel";
 import { MemberIdentity } from "@/app/workspace/_components/member-identity";
 import type { MemberAvatarIdentity } from "@/app/workspace/_components/member-avatar";
-
-/**
- * Badge styling per meeting status — mirrors the centralised colour palette
- * used across the closer dashboard surfaces.
- */
-const MEETING_BADGE_CLASS: Record<string, string> = {
-  scheduled:
-    "bg-blue-500/10 text-blue-700 border-blue-200 dark:text-blue-400 dark:border-blue-900",
-  completed:
-    "bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-900",
-  canceled: "bg-muted text-muted-foreground border-border",
-  no_show:
-    "bg-orange-500/10 text-orange-700 border-orange-200 dark:text-orange-400 dark:border-orange-900",
-};
 
 type MeetingInfoPanelProps = {
   meeting: Doc<"meetings">;
@@ -62,7 +50,7 @@ export function MeetingInfoPanel({
   assignedCloser,
   assignedCloserIdentity,
 }: MeetingInfoPanelProps) {
-  const statusKey = meeting.status as MeetingStatus;
+  const statusKey = meetingAttendanceDisplay(meeting, useNow());
   const statusCfg = meetingStatusConfig[statusKey];
 
   const meetingJoinUrl = meeting.meetingJoinUrl ?? meeting.zoomJoinUrl;
@@ -82,7 +70,7 @@ export function MeetingInfoPanel({
           <div className="flex items-center gap-2">
             <Badge
               variant="secondary"
-              className={cn(MEETING_BADGE_CLASS[meeting.status])}
+              className={cn(statusCfg.badgeClass)}
             >
               {statusCfg?.label ?? meeting.status}
             </Badge>

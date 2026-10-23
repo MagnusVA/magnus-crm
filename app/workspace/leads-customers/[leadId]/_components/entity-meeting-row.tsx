@@ -1,5 +1,7 @@
 "use client";
 
+import { useNow } from "@/hooks/use-now";
+import { meetingStatusConfig, meetingAttendanceDisplay } from "@/lib/status-config";
 import Link from "next/link";
 import { ExternalLinkIcon } from "lucide-react";
 import { useRole } from "@/components/auth/role-context";
@@ -19,13 +21,6 @@ import { formatDateTime, formatToken } from "./entity-detail-formatters";
 import { MetaDot, MetaRow } from "./entity-detail-ui";
 import { meetingDetailHref } from "./meeting-link-utils";
 
-const MEETING_DOT_CLASS: Record<string, string> = {
-	scheduled: "bg-blue-500",
-	completed: "bg-emerald-500",
-	no_show: "bg-orange-500",
-	canceled: "bg-muted-foreground",
-};
-
 export function EntityMeetingRow({
 	meeting,
 	comments,
@@ -33,6 +28,8 @@ export function EntityMeetingRow({
 	meeting: EntityDetailMeeting;
 	comments: EntityDetailComment[];
 }) {
+	const status =
+		meetingStatusConfig[meetingAttendanceDisplay(meeting, useNow())];
 	const { role } = useRole();
 	const href = meetingDetailHref({ meetingId: meeting._id, viewerRole: role });
 
@@ -40,19 +37,19 @@ export function EntityMeetingRow({
 		<div className="py-3 pr-3 pl-4 transition-colors hover:bg-muted/30">
 			<div className="flex items-start justify-between gap-3">
 				<div className="flex min-w-0 gap-3">
-					<SimpleTooltip content={`Meeting ${formatToken(meeting.status)}`}>
+					<SimpleTooltip content={`Meeting ${status.label}`}>
 						<span
 							aria-hidden="true"
 							className={cn(
 								"mt-1.5 size-2 shrink-0 rounded-full",
-								MEETING_DOT_CLASS[meeting.status] ?? "bg-muted-foreground",
+								status.dotClass,
 							)}
 						/>
 					</SimpleTooltip>
 					<div className="flex min-w-0 flex-col gap-1.5">
 						<div className="flex flex-wrap items-center gap-1.5">
 							<SimpleTooltip content="Meeting lifecycle status">
-								<Badge variant="secondary">{formatToken(meeting.status)}</Badge>
+								<Badge variant="secondary" className={status.badgeClass}>{status.label}</Badge>
 							</SimpleTooltip>
 							{meeting.callClassification ? (
 								<SimpleTooltip content={leadsCustomersTooltips.meetingClassification}>

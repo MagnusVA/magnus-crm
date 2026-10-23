@@ -328,6 +328,7 @@ export const getMeetingDetail = query({
       _id: typeof meeting._id;
       scheduledAt: number;
       status: Doc<"meetings">["status"];
+      durationMinutes: number;
     } | null = null;
 
     if (originalMeeting && originalMeeting.tenantId === tenantId) {
@@ -335,6 +336,7 @@ export const getMeetingDetail = query({
           _id: originalMeeting._id,
           scheduledAt: originalMeeting.scheduledAt,
           status: originalMeeting.status,
+          durationMinutes: originalMeeting.durationMinutes,
         };
     }
     // === End Feature B ===

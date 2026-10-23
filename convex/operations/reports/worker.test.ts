@@ -309,6 +309,13 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
       count: 1,
       updatedAt: recordedAt,
     });
+    for (const [meetingStatus, count] of [["no_show", 1], ["scheduled", 2]] as const) {
+      await ctx.db.insert("operationsMeetingStatsV2", {
+        tenantId, dayKey, assignedCloserId: historicalCloserId,
+        bookingProgramId: callsProgramId, meetingStatus,
+        bucketKey: `fixture-${meetingStatus}`, count, updatedAt: recordedAt,
+      });
+    }
     for (const payment of [
       { programId: callsProgramId, programName: "Calls Program", currency: "usd", amountMinor: 10_000 },
       { programId: paymentOnlyProgramId, programName: "Payment-only Program", currency: "EUR", amountMinor: 20_000 },
@@ -346,9 +353,13 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
   );
   expect(live.capped).toBe(false);
   expect(live.stats).toMatchObject({
-    totalCalls: 3,
+    totalCalls: 6,
     showed: 2,
     canceled: 1,
+    noShows: 1,
+    showUpRate: 2 / 3,
+    resultsRecorded: 3,
+    pastCalls: 5,
     moneyByCurrency: [
       { currency: "EUR", paymentSalesCount: 1, cashCollectedMinor: 20_000, closeRate: 0.5 },
       { currency: "USD", paymentSalesCount: 1, cashCollectedMinor: 10_000, closeRate: 0.5 },
@@ -358,7 +369,7 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
     expect.objectContaining({
       closerId: fixture.historicalCloserId,
       label: "Historical Closer",
-      booked: 3,
+      booked: 6,
       showed: 2,
       moneyByCurrency: [
         expect.objectContaining({ currency: "EUR", paymentRevenueMinor: 20_000 }),
@@ -408,7 +419,7 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
 
   expect(summary).not.toBeNull();
   if (!summary) throw new Error("Expected the current report summary.");
-  expect(summary.payload).toMatchObject({ totalCalls: 3, showed: 2, canceled: 1 });
+  expect(summary.payload).toMatchObject({ totalCalls: 6, showed: 2, canceled: 1, showUpRate: 2 / 3, resultsRecorded: 3, pastCalls: 5 });
   expect(summaryMoney.map((row) => row.payload)).toEqual(
     expect.arrayContaining([
       expect.objectContaining({ currency: "EUR", paymentSalesCount: 1, cashCollectedMinor: 20_000, closeRate: 0.5 }),
@@ -417,7 +428,7 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
   );
   expect(closerRows).toContainEqual(expect.objectContaining({
     rowKey: fixture.historicalCloserId,
-    payload: expect.objectContaining({ label: "Historical Closer", booked: 3, identityName: "Historical Closer" }),
+    payload: expect.objectContaining({ label: "Historical Closer", booked: 6, identityName: "Historical Closer" }),
   }));
   expect(closerMoney).toHaveLength(2);
   expect(closerMoney.every((row) => row.groupKey === fixture.historicalCloserId)).toBe(true);

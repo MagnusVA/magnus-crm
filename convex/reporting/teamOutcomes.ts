@@ -1,3 +1,4 @@
+import { meetingAttendanceDisplay } from "../../lib/status-config";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
@@ -209,7 +210,8 @@ export const getTeamOutcomeMix = query({
     ]);
     // Each meeting's outcome from its deal's stage, outcome and loss
     // (docs/plans/phase-5-deal-status.md §6.6).
-    const perCloser = tallyOutcomesByCloser(await meetingOutcomesByStage(ctx, inputs));
+    const outcomes = await meetingOutcomesByStage(ctx, inputs);
+    const perCloser = tallyOutcomesByCloser(outcomes);
 
     const teamOutcome = Array.from(perCloser.values()).reduce<OutcomeCounts>(
       (accumulator, counts) => {
@@ -221,12 +223,26 @@ export const getTeamOutcomeMix = query({
       emptyOutcomeCounts(),
     );
 
+    // Keep deal-outcome counts intact; only split the chart's scheduled slice.
+    const displayOutcome = { ...teamOutcome, not_recorded: 0, upcoming: 0 };
+    const now = Date.now();
+    for (const { meeting, outcome } of outcomes) {
+      if (outcome !== "scheduled" || meeting.status !== "scheduled") continue;
+      displayOutcome.scheduled -= 1;
+      if (meetingAttendanceDisplay(meeting, now) === "not_recorded") {
+        displayOutcome.not_recorded += 1;
+      } else {
+        displayOutcome.upcoming += 1;
+      }
+    }
+
     const rebookDenominator = teamOutcome.canceled + teamOutcome.no_show;
     const rebookRate =
       rebookDenominator > 0 ? teamOutcome.rescheduled / rebookDenominator : null;
 
     return {
       teamOutcome,
+      displayOutcome,
       closerOutcomes: await Promise.all(closers.map(async (closer) => ({
         closerId: closer._id,
         closerName: getUserDisplayName(closer),

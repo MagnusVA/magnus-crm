@@ -151,6 +151,7 @@ import type * as lib_leadLifecycle from "../lib/leadLifecycle.js";
 import type * as lib_leadType from "../lib/leadType.js";
 import type * as lib_linkPortal_validators from "../lib/linkPortal/validators.js";
 import type * as lib_liveQueryBounds from "../lib/liveQueryBounds.js";
+import type * as lib_meetingAttendance from "../lib/meetingAttendance.js";
 import type * as lib_meetingFormResponses from "../lib/meetingFormResponses.js";
 import type * as lib_meetingLifecycle from "../lib/meetingLifecycle.js";
 import type * as lib_meetingLocation from "../lib/meetingLocation.js";
@@ -529,6 +530,7 @@ declare const fullApi: ApiFromModules<{
   "lib/leadType": typeof lib_leadType;
   "lib/linkPortal/validators": typeof lib_linkPortal_validators;
   "lib/liveQueryBounds": typeof lib_liveQueryBounds;
+  "lib/meetingAttendance": typeof lib_meetingAttendance;
   "lib/meetingFormResponses": typeof lib_meetingFormResponses;
   "lib/meetingLifecycle": typeof lib_meetingLifecycle;
   "lib/meetingLocation": typeof lib_meetingLocation;

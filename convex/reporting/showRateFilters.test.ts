@@ -199,8 +199,11 @@ it("keeps the pipeline show rate for every team, DM closer and program filter", 
     shown,
     canceled,
     noShows,
-    showRate: scheduled - canceled > 0 ? shown / (scheduled - canceled) : null,
-    noShowRate: scheduled - canceled > 0 ? noShows / (scheduled - canceled) : null,
+    resultsRecorded: shown + noShows,
+    pastCalls: scheduled - canceled,
+    showRate: shown + noShows > 0 ? shown / (shown + noShows) : null,
+    noShowRate: shown + noShows > 0 ? noShows / (shown + noShows) : null,
+    attendanceCountsPartial: false,
     truncated: false,
   });
 
@@ -255,8 +258,11 @@ it("keeps the team operations dimensions for every team, DM closer and program f
     completed,
     canceled,
     noShows,
-    showRate: scheduled - canceled > 0 ? completed / (scheduled - canceled) : null,
-    noShowRate: scheduled - canceled > 0 ? noShows / (scheduled - canceled) : null,
+    notRecorded: scheduled - canceled - completed - noShows,
+    resultsRecorded: completed + noShows,
+    pastCalls: scheduled - canceled,
+    showRate: completed + noShows > 0 ? completed / (completed + noShows) : null,
+    noShowRate: completed + noShows > 0 ? noShows / (completed + noShows) : null,
   });
 
   expect(await dimensions({})).toEqual({

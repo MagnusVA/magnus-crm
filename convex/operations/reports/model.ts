@@ -171,6 +171,7 @@ export type ReportSourceRow =
       bookedAt: number;
       scheduledAt: number;
       meetingStatus: string;
+      attendance: string;
       // The deal's stage and outcome (docs/plans/phase-5-deal-status.md §6.6).
       dealStage: string | null;
       dealOutcome: string | null;
@@ -204,6 +205,8 @@ export type ReportSourceRow =
     }
   | {
       kind: "sales_meeting_stat";
+      attendanceCountsPartial?: boolean;
+      notRecorded: number;
       assignedCloserId: string;
       bookingProgramId: string | null;
       meetingStatus: string;
@@ -216,6 +219,7 @@ export type ReportSourceRow =
       assignedCloserId: string;
       scheduledAt: number;
       status: string;
+      attendance: string;
       bookingProgramId: string | null;
       bookingProgramName: string | null;
       soldProgramId: string | null;
@@ -249,6 +253,7 @@ export type ReportSourceRow =
     };
 
 export type ReportSourcePage = {
+  attendanceCountsPartial?: boolean;
   page: ReportSourceRow[];
   isDone: boolean;
   continueCursor: string;

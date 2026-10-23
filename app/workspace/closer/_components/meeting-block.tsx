@@ -1,3 +1,7 @@
+"use client";
+
+import { useNow } from "@/hooks/use-now";
+
 import Link from "next/link";
 import type { CSSProperties, ReactNode } from "react";
 import { format } from "date-fns";
@@ -24,6 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   meetingStatusConfig,
+  meetingAttendanceDisplay,
   type MeetingStatus,
 } from "@/lib/status-config";
 import { dealPositionLabel } from "@/convex/opportunities/stageLabels";
@@ -33,7 +38,7 @@ type MeetingDisplayProps = {
   meetingId: string;
   scheduledAt: number;
   durationMinutes: number;
-  status: string;
+  status: MeetingStatus;
   leadName: string;
   eventTypeName?: string | null;
   /** Where the meeting's deal is now; null when the deal is gone. */
@@ -49,19 +54,13 @@ type MeetingBlockProps = MeetingDisplayProps & {
   style?: CSSProperties;
 };
 
-const MEETING_DOT_CLASS: Record<MeetingStatus, string> = {
-  scheduled: "bg-blue-500",
-  completed: "bg-emerald-500",
-  canceled: "bg-muted-foreground",
-  no_show: "bg-orange-500",
-};
-
 export function MeetingBlock({
   className,
   style,
   ...meeting
 }: MeetingBlockProps) {
-  const config = getMeetingConfig(meeting.status);
+  const config =
+    meetingStatusConfig[meetingAttendanceDisplay(meeting, useNow())];
   const startTime = format(meeting.scheduledAt, "h:mm a");
   const endTime = getEndTime(meeting.scheduledAt, meeting.durationMinutes);
   const isShort = meeting.durationMinutes < 30;
@@ -102,7 +101,8 @@ export function MeetingPill({
   className,
   ...meeting
 }: MeetingDisplayProps & { className?: string }) {
-  const config = getMeetingConfig(meeting.status);
+  const config =
+    meetingStatusConfig[meetingAttendanceDisplay(meeting, useNow())];
 
   return (
     <MeetingDetailsDialog {...meeting}>
@@ -138,8 +138,10 @@ function MeetingDetailsDialog({
   meetingJoinUrl,
   zoomJoinUrl,
 }: MeetingDisplayProps & { children: ReactNode }) {
-  const config = getMeetingConfig(status);
-  const dotClass = getMeetingDotClass(status);
+  const config = meetingStatusConfig[
+    meetingAttendanceDisplay({ status, scheduledAt, durationMinutes }, useNow())
+  ];
+  const dotClass = config.dotClass;
   const startTime = format(scheduledAt, "EEEE, MMM d · h:mm a");
   const endTime = getEndTime(scheduledAt, durationMinutes);
   // A canceled meeting shows on the calendar, but there's nothing to join.
@@ -233,16 +235,6 @@ function DetailRow({
       </div>
     </div>
   );
-}
-
-function getMeetingConfig(status: string) {
-  return (
-    meetingStatusConfig[status as MeetingStatus] ?? meetingStatusConfig.scheduled
-  );
-}
-
-function getMeetingDotClass(status: string) {
-  return MEETING_DOT_CLASS[status as MeetingStatus] ?? MEETING_DOT_CLASS.scheduled;
 }
 
 function getEndTime(scheduledAt: number, durationMinutes: number): string {

@@ -22,6 +22,8 @@ export type SalesCallsStats = {
   showed: number;
   canceled: number;
   noShows: number;
+  resultsRecorded: number;
+  pastCalls: number;
   showUpRate: number | null;
   moneyByCurrency: SalesSummaryMoney[];
 };
@@ -33,6 +35,8 @@ export type SalesProgramRow = {
   showed: number;
   canceled: number;
   noShows: number;
+  resultsRecorded: number;
+  pastCalls: number;
   showUpRate: number | null;
   moneyByCurrency: SalesPerformanceMoney[];
 };
@@ -45,6 +49,8 @@ export type SalesCloserRow = {
   canceled: number;
   noShows: number;
   showed: number;
+  resultsRecorded: number;
+  pastCalls: number;
   showUpRate: number | null;
   moneyByCurrency: SalesPerformanceMoney[];
 };
@@ -55,6 +61,7 @@ export type SalesTeamTotal = Omit<
 >;
 
 export type SalesDashboardView = {
+  attendanceCountsPartial?: boolean;
   stats: SalesCallsStats;
   perProgram: SalesProgramRow[];
   closers: SalesCloserRow[];
@@ -131,8 +138,10 @@ function teamTotal(closers: SalesCloserRow[]): SalesTeamTotal {
       canceled: result.canceled + closer.canceled,
       noShows: result.noShows + closer.noShows,
       showed: result.showed + closer.showed,
+      resultsRecorded: result.resultsRecorded + closer.resultsRecorded,
+      pastCalls: result.pastCalls + closer.pastCalls,
     }),
-    { booked: 0, canceled: 0, noShows: 0, showed: 0 },
+    { booked: 0, canceled: 0, noShows: 0, showed: 0, resultsRecorded: 0, pastCalls: 0 },
   );
   const byCurrency = new Map<
     string,
@@ -152,7 +161,7 @@ function teamTotal(closers: SalesCloserRow[]): SalesTeamTotal {
   }
   return {
     ...totals,
-    showUpRate: rate(totals.showed, totals.booked - totals.canceled),
+    showUpRate: rate(totals.showed, totals.showed + totals.noShows),
     moneyByCurrency: [...byCurrency.entries()]
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([currency, money]) => ({
@@ -188,7 +197,9 @@ export function buildHistoricalSalesDashboard(args: {
       canceled: numberValue(row.payload, "canceled"),
       noShows: numberValue(row.payload, "noShows"),
       showed: numberValue(row.payload, "showed"),
-      showUpRate: nullableNumber(row.payload, "showUpRate"),
+      resultsRecorded: numberValue(row.payload, "resultsRecorded"),
+      pastCalls: numberValue(row.payload, "pastCalls"),
+      showUpRate: rate(numberValue(row.payload, "showed"), numberValue(row.payload, "showed") + numberValue(row.payload, "noShows")),
       moneyByCurrency: closerMoney.get(closerId) ?? [],
     };
   });
@@ -203,18 +214,23 @@ export function buildHistoricalSalesDashboard(args: {
       showed: numberValue(row.payload, "showed"),
       canceled: numberValue(row.payload, "canceled"),
       noShows: numberValue(row.payload, "noShows"),
-      showUpRate: nullableNumber(row.payload, "showUpRate"),
+      resultsRecorded: numberValue(row.payload, "resultsRecorded"),
+      pastCalls: numberValue(row.payload, "pastCalls"),
+      showUpRate: rate(numberValue(row.payload, "showed"), numberValue(row.payload, "showed") + numberValue(row.payload, "noShows")),
       moneyByCurrency: programMoney.get(programId ?? "none") ?? [],
     };
   });
 
   return {
+    attendanceCountsPartial: args.summary.attendanceCountsPartial === true,
     stats: {
       totalCalls: numberValue(args.summary, "totalCalls"),
       showed: numberValue(args.summary, "showed"),
       canceled: numberValue(args.summary, "canceled"),
       noShows: numberValue(args.summary, "noShows"),
-      showUpRate: nullableNumber(args.summary, "showUpRate"),
+      resultsRecorded: numberValue(args.summary, "resultsRecorded"),
+      pastCalls: numberValue(args.summary, "pastCalls"),
+      showUpRate: rate(numberValue(args.summary, "showed"), numberValue(args.summary, "showed") + numberValue(args.summary, "noShows")),
       moneyByCurrency: args.summaryMoneyRows
         .map((row) => ({
           currency: currencyValue(row.payload),

@@ -70,6 +70,19 @@ Page clients are `*-page-client.tsx`, loading states `*-skeleton.tsx`, modals `*
 - `next-themes` defaults to light with system theme off and stores the choice under `theme-preference`.
 - Dialogs load lazily through `next/dynamic`. Reserve `ssr: false` for browser-only code such as the command palette and calendar.
 
+## Meeting attendance
+
+Use `meetingAttendanceDisplay(meeting, now)` and `meetingStatusConfig` from
+`lib/status-config.ts` for meeting labels, badges, dots, and calendar colors.
+A stored `scheduled` meeting displays as "Not recorded" once
+`scheduledAt + durationMinutes * 60_000 <= now`. Use `useNow()` from
+`hooks/use-now.ts` for a clock that updates at most once a minute. Keep action
+eligibility based on the stored status.
+
+Show rate is held calls divided by held plus no-show calls, or "—" when neither
+exists. Use `ResultsRecorded` from the shared workspace components beside the
+rate to show how many past, non-canceled calls have a result.
+
 ## Analytics
 
 PostHog runs only in production with a token set (`lib/posthog-config.ts`). The client initializes in `instrumentation-client.ts` and sends through the `/ingest` proxy rewrites in `next.config.ts`. Only `usePostHogIdentify` and sign-out call `identify`. Server events use `getPostHogClient()` from `lib/posthog-server.ts`. `instrumentation.ts` reports server errors, and route error boundaries and `SectionErrorBoundary` report what they catch; `docs/agents/observability.md` covers error tracking and logs. For Convex and server-rendering patterns with Next.js, see `.docs/convex/nextjs.md`.
