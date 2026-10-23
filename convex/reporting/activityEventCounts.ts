@@ -257,10 +257,11 @@ async function verifyCounts(
         .lt("occurredAt", endDate),
     )
     .take(10000);
-  if (events.length === 10000)
-    throw new Error(
-      `Activity verification range exceeds scan limit: ${tenantId}`,
-    );
+  // A day past the old scan's cap can't be compared; fail it, so the mark
+  // mutation clears the flag instead of leaving an earlier pass in place.
+  if (events.length === 10000) {
+    return { tenantId, startDate, endDate, passed: false, scanned: events.length, differences: [] };
+  }
   const expected = new Map<
     string,
     { dimension: string; value: string; count: number }
