@@ -100,6 +100,12 @@ export const assertPipelineHealthAggregates = migrations.define({
       }) !== 1) {
         throw new Error(`openDealAging mismatch: ${deal._id}`);
       }
+      if (await openDealAging.sum(ctx, {
+        namespace: deal.tenantId,
+        bounds: { lower: bound, upper: bound },
+      }) !== deal.createdAt) {
+        throw new Error(`openDealAging sum mismatch: ${deal._id}`);
+      }
     }
     if (isPersonLossEligible(deal)) {
       const key: [number, Id<"users"> | ""] = [deal.lostAt!, deal.lostByUserId ?? ""];

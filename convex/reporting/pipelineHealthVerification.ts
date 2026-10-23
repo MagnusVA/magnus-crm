@@ -20,7 +20,8 @@ async function verifyTotals(ctx: QueryCtx, tenantId: Id<"tenants">): Promise<Dif
   const differences: Difference[] = [];
   // The batched assert proves every eligible deal is present at its key.
   // Counts from the already verified, strictly maintained aggregate then
-  // prove there are no extra entries under any open stage.
+  // prove there are no extra entries, including under non-open stages.
+  let openCount = 0;
   for (const stage of OPEN_PIPELINE_STAGES) {
     const source = await opportunityByStage.count(ctx, {
       namespace: tenantId, bounds: { prefix: [stage, "open"] },
@@ -28,7 +29,12 @@ async function verifyTotals(ctx: QueryCtx, tenantId: Id<"tenants">): Promise<Dif
     const aggregate = await openDealAging.count(ctx, {
       namespace: tenantId, bounds: { prefix: [stage] },
     });
+    openCount += source;
     if (source !== aggregate) differences.push({ scope: stage, metric: "count", source, aggregate });
+  }
+  const agingCount = await openDealAging.count(ctx, { namespace: tenantId });
+  if (openCount !== agingCount) {
+    differences.push({ scope: "openDealAging", metric: "count", source: openCount, aggregate: agingCount });
   }
 
   // Reject before fetching deals if the reverse membership check would
@@ -72,6 +78,17 @@ export const markPipelineHealthAggregatesVerified = internalMutation({
       const status = statuses.find((status) => status.name === name);
       if (!status?.isDone || status.state !== "success" || status.error !== undefined) {
         throw new Error(`Pipeline health migration incomplete: ${name}`);
+      }
+    }
+    const assertion = statuses.find((status) => status.name === names[2]);
+    // In @convex-dev/migrations 0.3.6, completed `next` migrations are skipped
+    // unless reset. Rerunning the sequence needs `reset: true` on the assert
+    // so it starts only after both backfills have finished their latest runs.
+    for (const name of names.slice(0, 2)) {
+      const backfill = statuses.find((status) => status.name === name);
+      if (backfill?.latestEnd === undefined || assertion?.latestStart === undefined
+        || assertion.latestStart < backfill.latestEnd) {
+        throw new Error(`Pipeline health assert predates backfill: ${name}`);
       }
     }
     const differences = await verifyTotals(ctx, tenantId);

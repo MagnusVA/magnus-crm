@@ -159,6 +159,36 @@ describe("Pipeline Health aggregates", () => {
     expect(result.error).toContain(`${name} mismatch: ${id}`);
   });
 
+  it("assert catches an aging entry with the correct key and ID but wrong sumValue", async () => {
+    const h = await pipelineHealthFixture();
+    migrationsTest.register(h.t);
+    const id = await h.deal();
+    await h.t.run(async (ctx) => {
+      const deal = (await ctx.db.get("opportunities", id))!;
+      await openDealAging.replace(ctx, deal, { ...deal, createdAt: deal.createdAt + DAY });
+    });
+    const result = await runMigration(h, "assertPipelineHealthAggregates");
+    expect(result).toMatchObject({ isDone: false, state: "failed" });
+    expect(result.error).toContain(`openDealAging sum mismatch: ${id}`);
+  });
+
+  it("totals catches an extra aging entry under a closed stage", async () => {
+    const h = await pipelineHealthFixture();
+    migrationsTest.register(h.t);
+    const id = await h.deal();
+    await completeMigrations(h);
+    await h.t.run(async (ctx) => {
+      const deal = (await ctx.db.get("opportunities", id))!;
+      await openDealAging.insert(ctx, { ...deal, stage: "closed", outcome: "lost" });
+    });
+    const args = { tenantId: h.tenantId };
+    expect(await h.t.query(verification.verifyPipelineHealthAggregateTotals, args)).toEqual([
+      { scope: "openDealAging", metric: "count", source: 1, aggregate: 2 },
+    ]);
+    await expect(h.t.mutation(verification.markPipelineHealthAggregatesVerified, args)).rejects.toThrow("mismatch");
+    expect((await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId)))!.pipelineHealthAggregatesVerifiedAt).toBeUndefined();
+  });
+
   it("totals catches an extra open entry and mark rechecks it after the assert passes", async () => {
     const h = await pipelineHealthFixture();
     migrationsTest.register(h.t);
@@ -171,6 +201,7 @@ describe("Pipeline Health aggregates", () => {
     const args = { tenantId: h.tenantId };
     expect(await h.t.query(verification.verifyPipelineHealthAggregateTotals, args)).toEqual([
       { scope: "booked", metric: "count", source: 1, aggregate: 2 },
+      { scope: "openDealAging", metric: "count", source: 1, aggregate: 2 },
     ]);
     await expect(h.t.mutation(verification.markPipelineHealthAggregatesVerified, args)).rejects.toThrow("mismatch");
     expect((await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId)))!.pipelineHealthAggregatesVerifiedAt).toBeUndefined();
@@ -241,6 +272,59 @@ describe("Pipeline Health aggregates", () => {
     expect(await h.t.query(verification.verifyPipelineHealthAggregateTotals, args)).toEqual([]);
     await expect(h.t.mutation(verification.markPipelineHealthAggregatesVerified, args))
       .rejects.toThrow(`migration incomplete: migrations:${missing}`);
+    expect((await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId)))!.pipelineHealthAggregatesVerifiedAt).toBeUndefined();
+  });
+
+  it.each(["backfillOpenDealAging", "backfillPersonLosses"] as const)("mark refuses a stale assert after resetting %s until the assert is reset too", async (name) => {
+    const h = await pipelineHealthFixture();
+    migrationsTest.register(h.t);
+    await h.deal();
+    await completeMigrations(h);
+    vi.setSystemTime(NOW + 1_000);
+    const backfill = await runMigration(h, name, true);
+    expect(backfill).toMatchObject({ isDone: true, state: "success" });
+    const args = { tenantId: h.tenantId };
+    expect(await h.t.query(verification.verifyPipelineHealthAggregateTotals, args)).toEqual([]);
+    await expect(h.t.mutation(verification.markPipelineHealthAggregatesVerified, args))
+      .rejects.toThrow("assert predates backfill");
+    // A completed assert is skipped unless reset is explicit.
+    const skipped = await runMigration(h, "assertPipelineHealthAggregates");
+    expect(skipped.latestStart).toBeLessThan(backfill.latestEnd!);
+    await expect(h.t.mutation(verification.markPipelineHealthAggregatesVerified, args))
+      .rejects.toThrow("assert predates backfill");
+    expect((await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId)))!.pipelineHealthAggregatesVerifiedAt).toBeUndefined();
+    const rerun = await runMigration(h, "assertPipelineHealthAggregates", true);
+    expect(rerun).toMatchObject({ isDone: true, state: "success" });
+    expect(rerun.latestStart).toBeGreaterThanOrEqual(backfill.latestEnd!);
+    await h.t.mutation(verification.markPipelineHealthAggregatesVerified, args);
+    expect((await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId)))!.pipelineHealthAggregatesVerifiedAt).toBe(NOW + 1_000);
+  });
+
+  it.each(["backfillOpenDealAging", "backfillPersonLosses"] as const)("mark refuses an assert that starts before %s finishes", async (name) => {
+    const h = await pipelineHealthFixture();
+    migrationsTest.register(h.t);
+    await h.deal();
+    await h.deal("lost", { lostAt: NOW, lostByUserId: h.actorId });
+    const other = name === "backfillOpenDealAging" ? "backfillPersonLosses" : "backfillOpenDealAging";
+    await runMigration(h, other);
+    await h.t.mutation(internal.migrations.run, { fn: `migrations:${name}`, batchSize: 1 });
+    vi.setSystemTime(NOW + 1_000);
+    await h.t.mutation(internal.migrations.run, { fn: "migrations:assertPipelineHealthAggregates", batchSize: 1 });
+    vi.setSystemTime(NOW + 2_000);
+    await h.t.finishAllScheduledFunctions(vi.runAllTimers);
+    const statuses = await h.t.run((ctx) => ctx.runQuery(components.migrations.lib.getStatus, {
+      names: [`migrations:${name}`, "migrations:assertPipelineHealthAggregates"],
+    }));
+    const backfill = statuses.find((status) => status.name === `migrations:${name}`)!;
+    const assertion = statuses.find((status) => status.name === "migrations:assertPipelineHealthAggregates")!;
+    expect(backfill).toMatchObject({ isDone: true, state: "success" });
+    expect(assertion).toMatchObject({ isDone: true, state: "success" });
+    expect(assertion.latestStart).toBeLessThan(backfill.latestEnd!);
+    expect(assertion.latestEnd).toBeGreaterThanOrEqual(backfill.latestEnd!);
+    const args = { tenantId: h.tenantId };
+    expect(await h.t.query(verification.verifyPipelineHealthAggregateTotals, args)).toEqual([]);
+    await expect(h.t.mutation(verification.markPipelineHealthAggregatesVerified, args))
+      .rejects.toThrow("assert predates backfill");
     expect((await h.t.run((ctx) => ctx.db.get("tenants", h.tenantId)))!.pipelineHealthAggregatesVerifiedAt).toBeUndefined();
   });
 
