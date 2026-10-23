@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import {
   attendanceDayBounds,
   readScheduledAttendanceDay,
@@ -114,7 +115,7 @@ export const getTeamPerformanceMetrics = query({
         : [];
 
     const now = Date.now();
-    const attendanceDay = attendanceDayBounds(now);
+    const attendanceDay = attendanceDayBounds(now, await getTenantBusinessDay(ctx, tenantId));
     const pastEnd = Math.min(endDate, attendanceDay.start);
     const pastMeta = countMeta.filter((meta) => meta.status === "scheduled");
     const hasScheduled = counts.some(
@@ -387,8 +388,8 @@ export const getTeamOperationsDimensions = query({
     ]);
     await requireReportingReady(ctx, tenantId);
 
-    const startDayKey = meetingDayKey(args.startDate);
-    const endDayKeyExclusive = meetingDayKey(args.endDate);
+    const startDayKey = meetingDayKey(args.startDate, await getTenantBusinessDay(ctx, tenantId));
+    const endDayKeyExclusive = meetingDayKey(args.endDate, await getTenantBusinessDay(ctx, tenantId));
     // A team or DM closer filter reads the credited meetings' rows
     // (dealAttributions); otherwise the buckets.
     const [closers, { counts, truncated }] = await Promise.all([

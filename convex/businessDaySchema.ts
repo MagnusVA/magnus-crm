@@ -1,0 +1,61 @@
+import { defineTable } from "convex/server";
+import { v } from "convex/values";
+import { leadGenSourceValidator, leadGenOriginKindValidator } from "./leadGen/validators";
+export const businessDayValidator = v.object({ timeZone: v.string(), dayStartHour: v.number() });
+export const rebuildStageValue = v.union(
+  v.object({ kind: v.literal("daily"), 
+    tenantId: v.id("tenants"),
+    statKey: v.string(),
+    dayKey: v.string(),
+    workerId: v.id("leadGenWorkers"),
+    userId: v.id("users"),
+    teamId: v.optional(v.id("attributionTeams")),
+    source: leadGenSourceValidator,
+    submissions: v.number(),
+    uniqueProspectsSubmitted: v.number(),
+    duplicateProspectSubmissions: v.number(),
+    scheduledHours: v.number(),
+    updatedAt: v.number(),
+  }),
+  v.object({ kind: v.literal("origin"), 
+    tenantId: v.id("tenants"),
+    originKey: v.string(),
+    dayKey: v.string(),
+    source: leadGenSourceValidator,
+    originKind: leadGenOriginKindValidator,
+    originValue: v.string(),
+    submissions: v.number(),
+    uniqueProspectsSubmitted: v.number(),
+    updatedAt: v.number(),
+  }),
+  v.object({ kind: v.literal("team_origin"), 
+    tenantId: v.id("tenants"),
+    statKey: v.string(),
+    dayKey: v.string(),
+    teamId: v.optional(v.id("attributionTeams")),
+    source: leadGenSourceValidator,
+    originKind: leadGenOriginKindValidator,
+    originKey: v.string(),
+    originValue: v.string(),
+    submissions: v.number(),
+    uniqueProspectsSubmitted: v.number(),
+    updatedAt: v.number(),
+  }),
+ );
+export const businessDayTables = {
+  businessDayRebuilds: defineTable({
+    tenantId: v.id("tenants"), version: v.number(), requestedByUserId: v.id("users"), requestedAt: v.number(),
+    state: v.union(v.literal("running"), v.literal("done"), v.literal("failed")),
+    phase: v.union(v.literal("meetings"), v.literal("seed_daily"), v.literal("seed_origin"), v.literal("seed_team_origin"), v.literal("compute"), v.literal("swap"), v.literal("audit_lead_gen"), v.literal("drain"), v.literal("assert_meetings"), v.literal("assert_buckets"), v.literal("assert_sources"), v.literal("cleanup")),
+    cursor: v.union(v.string(), v.null()), pass: v.number(), sourceRevision: v.number(), computedRevision: v.number(),
+    meetingsEnqueued: v.number(), leadGenRowsComputed: v.number(), leadGenRowsSwapped: v.number(),
+    leadGenAudited: v.number(), meetingsAsserted: v.number(), bucketsAsserted: v.number(), sourcesAsserted: v.number(),
+    leadGenDone: v.boolean(), finishedAt: v.optional(v.number()), error: v.optional(v.string()),
+  }).index("by_tenantId_and_state", ["tenantId", "state"]),
+  businessDayRebuildRows: defineTable({
+    tenantId: v.id("tenants"), rebuildId: v.id("businessDayRebuilds"), pass: v.number(), key: v.string(), value: rebuildStageValue,
+  }).index("by_rebuildId_and_pass_and_key", ["rebuildId", "pass", "key"]),
+  businessDayRebuildSeen: defineTable({
+    tenantId: v.id("tenants"), rebuildId: v.id("businessDayRebuilds"), pass: v.number(), key: v.string(),
+  }).index("by_rebuildId_and_pass_and_key", ["rebuildId", "pass", "key"]),
+};

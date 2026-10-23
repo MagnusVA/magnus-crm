@@ -1,4 +1,5 @@
 "use client";
+import { DayDefinition } from "@/app/workspace/_components/day-definition";
 
 import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
 
@@ -168,6 +169,7 @@ export function TeamReportPageClient() {
             captureOperationsFilterChange();
           }}
         />
+          <DayDefinition />
         <ReportAttributionFilters
           value={operationsFilters}
           onChange={(next) => {

@@ -114,7 +114,7 @@ export type PublicOverviewRange = {
   endBusinessDateExclusive: string;
   dayCount: number;
   label: string;
-  operationsBoundary: "utc_day_key";
+  operationsBoundary: "tenant_business_day";
 };
 
 export type OverviewDashboard = {

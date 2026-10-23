@@ -1,4 +1,7 @@
 "use client";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { businessDateForInstant, addBusinessDays } from "@/lib/businessDay";
+import { DayDefinition } from "@/app/workspace/_components/day-definition";
 
 import { ResultsRecorded, SHOW_RATE_HELP } from "@/app/workspace/_components/results-recorded";
 
@@ -42,12 +45,9 @@ function getDefaultDateRange(): DateRange {
   };
 }
 
-function toDayKey(timestamp: number): string {
-  return new Date(timestamp).toISOString().slice(0, 10);
-}
-
 export function PipelineReportPageClient() {
   usePageTitle("Pipeline Health");
+  const { setting } = useBusinessDay();
   const { captureViewed, captureFiltersChanged } =
     useReportAnalytics("pipeline_health");
 
@@ -86,8 +86,8 @@ export function PipelineReportPageClient() {
   const operationsShowRate = useQuery(
     api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions,
     {
-      startDayKey: toDayKey(dateRange.startDate),
-      endDayKeyExclusive: toDayKey(dateRange.endDate),
+      startDayKey: businessDateForInstant(dateRange.startDate, setting),
+      endDayKeyExclusive: addBusinessDays(businessDateForInstant(dateRange.endDate - 1, setting), 1),
       ...attributionFilters,
     },
   );
@@ -177,6 +177,7 @@ export function PipelineReportPageClient() {
                 captureOperationsFilterChange();
               }}
             />
+          <DayDefinition />
             <ReportAttributionFilters
               value={attributionFilters}
               onChange={(next) => {

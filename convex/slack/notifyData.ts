@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import { internalMutation, internalQuery } from "../_generated/server";
 import { readLiveQueryRows } from "../lib/liveQueryBounds";
@@ -144,9 +145,9 @@ export const getQualificationGoalProgress = internalQuery({
       return null;
     }
 
-    const businessDate = timestampToBusinessDateKey(args.now);
-    const start = businessDateToUtcStart(businessDate);
-    const end = businessDateToUtcStart(addBusinessDays(businessDate, 1));
+    const businessDate = timestampToBusinessDateKey(args.now, await getTenantBusinessDay(ctx, args.tenantId));
+    const start = businessDateToUtcStart(businessDate, await getTenantBusinessDay(ctx, args.tenantId));
+    const end = businessDateToUtcStart(addBusinessDays(businessDate, 1), await getTenantBusinessDay(ctx, args.tenantId));
     const { count: qualifiedCount, truncated } =
       await countGoalEligibleQualificationEvents(ctx, {
         tenantId: args.tenantId,

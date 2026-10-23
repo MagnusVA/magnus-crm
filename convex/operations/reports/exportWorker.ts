@@ -1,6 +1,7 @@
 "use node";
 
 import { createHash, randomUUID } from "node:crypto";
+import { businessDayBoundaryText } from "../../../lib/businessDay";
 import { v } from "convex/values";
 import { internal } from "../../_generated/api";
 import type { Doc } from "../../_generated/dataModel";
@@ -218,9 +219,7 @@ export const run = internalAction({
         period: job.range.label,
         generatedAt,
         boundary:
-          job.range.boundary === "utc_day"
-            ? "UTC days (00:00)"
-            : "Honduras business days (01:00)",
+          businessDayBoundaryText(job.range.businessDay),
         filters:
           job.sourceFilter === "all"
             ? "All sources"

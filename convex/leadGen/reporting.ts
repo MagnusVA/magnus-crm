@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
@@ -255,9 +256,9 @@ async function isTopOriginsReadCapped(
   },
 ) {
   if (args.workerId) {
-    const startTimestamp = businessDateToUtcStart(args.startDayKey);
+    const startTimestamp = businessDateToUtcStart(args.startDayKey, await getTenantBusinessDay(ctx, args.tenantId));
     const endTimestamp =
-      businessDateToUtcStart(addBusinessDays(args.endDayKey, 1)) - 1;
+      businessDateToUtcStart(addBusinessDays(args.endDayKey, 1), await getTenantBusinessDay(ctx, args.tenantId)) - 1;
     const result = await readLiveQueryRows(
       ctx.db
         .query("leadGenSubmissions")
@@ -291,9 +292,9 @@ async function readTopOriginSubmissionRows(
     source?: LeadGenSource;
   },
 ) {
-  const startTimestamp = businessDateToUtcStart(args.startDayKey);
+  const startTimestamp = businessDateToUtcStart(args.startDayKey, await getTenantBusinessDay(ctx, args.tenantId));
   const endTimestamp =
-    businessDateToUtcStart(addBusinessDays(args.endDayKey, 1)) - 1;
+    businessDateToUtcStart(addBusinessDays(args.endDayKey, 1), await getTenantBusinessDay(ctx, args.tenantId)) - 1;
   const readLimit = ORIGIN_SUBMISSIONS_READ_LIMIT + 1;
   let rows: SubmissionRow[];
 
@@ -632,7 +633,7 @@ async function listTopOriginsByTeamFromBoundedSubmissions(
         uniqueProspectDayKeys: new Set<string>(),
         dayKeys: new Set<string>(),
       };
-    const dayKey = timestampToBusinessDateKey(row.submittedAt);
+    const dayKey = timestampToBusinessDateKey(row.submittedAt, await getTenantBusinessDay(ctx, args.tenantId));
 
     currentOrigin.submissions += 1;
     currentOrigin.uniqueProspectDayKeys.add(`${row.prospectId}:${dayKey}`);
@@ -1036,7 +1037,7 @@ export const listTopOrigins = query({
             uniqueProspectDayKeys: new Set<string>(),
             dayKeys: new Set<string>(),
           };
-        const dayKey = timestampToBusinessDateKey(row.submittedAt);
+        const dayKey = timestampToBusinessDateKey(row.submittedAt, await getTenantBusinessDay(ctx, tenantId));
 
         current.submissions += 1;
         current.uniqueProspectDayKeys.add(`${row.prospectId}:${dayKey}`);

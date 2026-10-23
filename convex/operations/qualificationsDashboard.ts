@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
 import { query } from "../_generated/server";
@@ -84,7 +85,7 @@ export const getQualificationsDashboard = query({
       "tenant_admin",
     ]);
 
-    const range = deriveOverviewRange(args.range, Date.now());
+    const range = deriveOverviewRange(args.range, Date.now(), await getTenantBusinessDay(ctx, tenantId));
 
     const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant) {

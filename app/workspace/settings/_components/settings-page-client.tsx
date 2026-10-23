@@ -10,6 +10,7 @@ import { usePageTitle } from "@/hooks/use-page-title";
 import SettingsLoading from "../loading";
 import { EventTypesTab } from "./event-types-tab";
 import { IntegrationsTab } from "./integrations/integrations-tab";
+import { BusinessDayCard } from "./business-day-card";
 import { ProgramsTab } from "./programs-tab";
 
 type SettingsPageClientProps = {
@@ -18,7 +19,7 @@ type SettingsPageClientProps = {
   >;
 };
 
-const TAB_VALUES = ["event-types", "programs", "integrations"] as const;
+const TAB_VALUES = ["event-types", "programs", "integrations", "business-day"] as const;
 type TabValue = (typeof TAB_VALUES)[number];
 
 // Legacy deep links: Calendly merged into Integrations, Field Mappings into
@@ -72,6 +73,7 @@ function SettingsContent({ preloadedSlackStatus }: SettingsPageClientProps) {
           <TabsTrigger value="event-types">Event Types</TabsTrigger>
           <TabsTrigger value="programs">Programs</TabsTrigger>
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
+          <TabsTrigger value="business-day">Business day</TabsTrigger>
         </TabsList>
 
         <TabsContent value="event-types" className="mt-6">
@@ -85,6 +87,7 @@ function SettingsContent({ preloadedSlackStatus }: SettingsPageClientProps) {
         <TabsContent value="integrations" className="mt-6">
           <IntegrationsTab preloadedSlackStatus={preloadedSlackStatus} />
         </TabsContent>
+        <TabsContent value="business-day" className="mt-6"><BusinessDayCard /></TabsContent>
       </Tabs>
     </div>
   );

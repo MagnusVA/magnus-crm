@@ -1,6 +1,6 @@
+import { businessDateForInstant, businessDayStart, addBusinessDays as addDateDays, type BusinessDaySetting } from "@/lib/businessDay";
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
-const BUSINESS_DAY_UTC_START_HOUR = 7;
 const MAX_PERIODS = 120;
 
 export type SlackQualificationGranularity = "day" | "week" | "month";
@@ -12,8 +12,8 @@ export type SlackQualificationFilters = {
   slackUserId: string | null;
 };
 
-export function getInitialSlackQualificationFilters(): SlackQualificationFilters {
-  const today = getCurrentHondurasBusinessDate();
+export function getInitialSlackQualificationFilters(setting?: BusinessDaySetting): SlackQualificationFilters {
+  const today = getCurrentHondurasBusinessDate(Date.now(), setting);
   return {
     startBusinessDate: today,
     endBusinessDateExclusive: addBusinessDays(today, 1),
@@ -22,22 +22,12 @@ export function getInitialSlackQualificationFilters(): SlackQualificationFilters
   };
 }
 
-export function getCurrentHondurasBusinessDate(now = Date.now()): string {
-  return timestampToBusinessDateKey(now);
+export function getCurrentHondurasBusinessDate(now = Date.now(), setting?: BusinessDaySetting): string {
+  return timestampToBusinessDateKey(now, setting);
 }
 
-export function timestampToBusinessDateKey(timestamp: number): string {
-  const shifted = new Date(timestamp - BUSINESS_DAY_UTC_START_HOUR * HOUR_MS);
-  return formatDateKey(
-    shifted.getUTCFullYear(),
-    shifted.getUTCMonth() + 1,
-    shifted.getUTCDate(),
-  );
-}
-
-export function addBusinessDays(dateKey: string, days: number): string {
-  return timestampToBusinessDateKey(businessDateToUtcStart(dateKey) + days * DAY_MS);
-}
+export function timestampToBusinessDateKey(timestamp: number, setting?: BusinessDaySetting): string { return businessDateForInstant(timestamp, setting); }
+export function addBusinessDays(dateKey: string, days: number): string { return addDateDays(dateKey, days); }
 
 export function businessDateToCalendarDate(dateKey: string): Date {
   const { year, month, day } = parseBusinessDateKey(dateKey);
@@ -84,8 +74,9 @@ export function getRangeValidationMessage(
 
 export function getQuickRange(
   key: "today" | "yesterday" | "this_week" | "this_month" | "last_30",
+  setting?: BusinessDaySetting,
 ): Pick<SlackQualificationFilters, "startBusinessDate" | "endBusinessDateExclusive"> {
-  const today = getCurrentHondurasBusinessDate();
+  const today = getCurrentHondurasBusinessDate(Date.now(), setting);
   const tomorrow = addBusinessDays(today, 1);
 
   switch (key) {
@@ -138,8 +129,7 @@ function estimatePeriodCount(filters: SlackQualificationFilters): number {
 }
 
 export function businessDateToUtcStart(dateKey: string): number {
-  const { year, month, day } = parseBusinessDateKey(dateKey);
-  return Date.UTC(year, month - 1, day, BUSINESS_DAY_UTC_START_HOUR);
+  return businessDayStart(dateKey);
 }
 
 function getPeriodStartBusinessDate(

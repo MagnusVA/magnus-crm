@@ -1,4 +1,5 @@
 "use client";
+import { DayDefinition } from "../../_components/day-definition";
 
 import { useCallback } from "react";
 import {
@@ -83,6 +84,7 @@ export function CalendarView({
         onViewModeChange={onViewModeChange}
       />
 
+      <DayDefinition browser />
       {meetings === undefined ? (
         <CalendarSkeleton viewMode={viewMode} />
       ) : meetings.length === 0 ? (

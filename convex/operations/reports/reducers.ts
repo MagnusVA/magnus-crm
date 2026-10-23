@@ -1,3 +1,4 @@
+import type { BusinessDaySetting } from "../../../lib/businessDay";
 import { isHeldStatus } from "../../lib/meetingAttendance";
 import { timestampToBusinessDateKey } from "../../reporting/lib/hondurasBusinessTime";
 import { weekdayForBusinessDate, type Weekday } from "../../lib/workSchedule";
@@ -253,6 +254,7 @@ function reduceLeadGenSubmission(row: Extract<ReportSourceRow, { kind: "lead_gen
 
 function reduceFilteredOriginSubmission(
   row: Extract<ReportSourceRow, { kind: "lead_gen_submission" }>,
+  setting?: BusinessDaySetting,
 ) {
   if (row.voidedAt !== null || !row.originRankable || !row.originValue) return [];
   let normalized: ReturnType<typeof normalizeLeadGenOrigin>;
@@ -265,7 +267,7 @@ function reduceFilteredOriginSubmission(
     return [];
   }
   if (!normalized.originKey || !normalized.originValue) return [];
-  const dayKey = timestampToBusinessDateKey(row.submittedAt);
+  const dayKey = timestampToBusinessDateKey(row.submittedAt, setting);
   const sections = [
     {
       section: "lead_gen_origin",
@@ -519,7 +521,7 @@ export function reduceReportSourcePage(args: {
     case "lead_gen_filtered_origin_submissions":
       return args.rows.flatMap((row) =>
         row.kind === "lead_gen_submission"
-          ? reduceFilteredOriginSubmission(row)
+          ? reduceFilteredOriginSubmission(row, args.range.businessDay)
           : [],
       );
     case "sales_meeting_stats":
@@ -921,6 +923,6 @@ export function finalizeAggregateRecord(args: {
   };
 }
 
-export function businessDayKeyForRawSubmission(submittedAt: number) {
-  return timestampToBusinessDateKey(submittedAt);
+export function businessDayKeyForRawSubmission(submittedAt: number, setting?: BusinessDaySetting) {
+  return timestampToBusinessDateKey(submittedAt, setting);
 }

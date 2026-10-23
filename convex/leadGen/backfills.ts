@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import {
@@ -91,9 +92,9 @@ async function readRankableSubmissionsForTeamOriginRange(
     endDayKey: string;
   },
 ) {
-  const startTimestamp = businessDateToUtcStart(args.startDayKey);
+  const startTimestamp = businessDateToUtcStart(args.startDayKey, await getTenantBusinessDay(ctx, args.tenantId));
   const endTimestamp =
-    businessDateToUtcStart(addBusinessDays(args.endDayKey, 1)) - 1;
+    businessDateToUtcStart(addBusinessDays(args.endDayKey, 1), await getTenantBusinessDay(ctx, args.tenantId)) - 1;
   const rows = await ctx.db
     .query("leadGenSubmissions")
     .withIndex("by_tenantId_and_submittedAt", (q) =>

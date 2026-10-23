@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, query, type QueryCtx } from "../_generated/server";
@@ -10,7 +11,6 @@ import {
   buildBusinessPeriods,
   businessDateToUtcStart,
   countBusinessDays,
-  HONDURAS_TIME_ZONE,
   reportGranularityValidator,
   type BusinessPeriod,
 } from "./lib/hondurasBusinessTime";
@@ -79,9 +79,10 @@ export const getQualificationReport = query({
       startBusinessDate: args.startBusinessDate,
       endBusinessDateExclusive: args.endBusinessDateExclusive,
       granularity: args.granularity,
+      setting: await getTenantBusinessDay(ctx, tenantId),
     });
-    const rangeStart = businessDateToUtcStart(args.startBusinessDate);
-    const rangeEnd = businessDateToUtcStart(args.endBusinessDateExclusive);
+    const rangeStart = businessDateToUtcStart(args.startBusinessDate, await getTenantBusinessDay(ctx, tenantId));
+    const rangeEnd = businessDateToUtcStart(args.endBusinessDateExclusive, await getTenantBusinessDay(ctx, tenantId));
     const businessDayCount = countBusinessDays(
       args.startBusinessDate,
       args.endBusinessDateExclusive,
@@ -141,11 +142,12 @@ export const getQualificationReport = query({
       });
 
     return {
-      timezone: HONDURAS_TIME_ZONE,
-      businessDayStartsAtHour: 1,
+      timezone: (await getTenantBusinessDay(ctx, tenantId)).timeZone,
+      businessDayStartsAtHour: (await getTenantBusinessDay(ctx, tenantId)).dayStartHour,
       startBusinessDate: args.startBusinessDate,
       endBusinessDateExclusive: args.endBusinessDateExclusive,
       granularity: args.granularity,
+      setting: await getTenantBusinessDay(ctx, tenantId),
       selectedSlackUserId: selectedSlackUserId ?? null,
       teamGoal: {
         dailyTeamQualificationGoal: teamDailyGoal,

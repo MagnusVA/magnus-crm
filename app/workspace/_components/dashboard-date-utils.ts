@@ -1,7 +1,7 @@
+import { businessDateForInstant, businessPeriodDate, calendarDate, type BusinessDaySetting } from "@/lib/businessDay";
 import type { DashboardRangeInput } from "./dashboard-date-range-filter";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const HOUR_MS = 60 * 60 * 1000;
 const BUSINESS_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 export const MAX_DASHBOARD_CUSTOM_DAYS = 120;
 
@@ -18,30 +18,10 @@ export type DashboardRangeValidationOptions = {
 export const OPERATIONS_DASHBOARD_RANGE_VALIDATION: DashboardRangeValidationOptions =
 	{ maxDays: null };
 
-// Honduras business days start at 01:00 local time (UTC-6, no DST), i.e.
-// 07:00 UTC. Mirrors BUSINESS_DAY_UTC_START_HOUR in
-// convex/reporting/lib/hondurasBusinessTime.ts so preset conversions below
-// yield the same business days the server derives in
-// convex/dashboard/overviewRange.ts.
-const BUSINESS_DAY_UTC_START_HOUR = 7;
-
-/** Current Honduras business-day key (YYYY-MM-DD) for a timestamp. */
-export function timestampToBusinessDate(timestamp: number) {
-	const shifted = new Date(timestamp - BUSINESS_DAY_UTC_START_HOUR * HOUR_MS);
-	return [
-		shifted.getUTCFullYear(),
-		String(shifted.getUTCMonth() + 1).padStart(2, "0"),
-		String(shifted.getUTCDate()).padStart(2, "0"),
-	].join("-");
+export function timestampToBusinessDate(timestamp: number, setting?: BusinessDaySetting) {
+  return businessDateForInstant(timestamp, setting);
 }
-
-function startOfBusinessIsoWeek(dateKey: string) {
-	const [year, month, day] = dateKey.split("-").map(Number);
-	const date = new Date(Date.UTC(year, month - 1, day));
-	const utcDay = date.getUTCDay() || 7;
-	date.setUTCDate(date.getUTCDate() - (utcDay - 1));
-	return date.toISOString().slice(0, 10);
-}
+function startOfBusinessIsoWeek(dateKey: string) { return businessPeriodDate(dateKey, "week"); }
 
 /**
  * Converts a dashboard range selection into the inclusive
@@ -54,6 +34,7 @@ function startOfBusinessIsoWeek(dateKey: string) {
 export function dashboardRangeToDayKeys(
 	range: DashboardRangeInput,
 	now: number = Date.now(),
+ setting?: BusinessDaySetting,
 ): { startDayKey: string; endDayKey: string } {
 	if (range.kind === "custom") {
 		return {
@@ -62,7 +43,7 @@ export function dashboardRangeToDayKeys(
 		};
 	}
 
-	const today = timestampToBusinessDate(now);
+	const today = timestampToBusinessDate(now, setting);
 	switch (range.preset) {
 		case "today":
 			return { startDayKey: today, endDayKey: today };
@@ -78,8 +59,8 @@ export function dashboardRangeToDayKeys(
  * range. Larger selections are materialized by the report-job flow so a
  * client subscription never asks an existing capped reader to scan history.
  */
-export function requiresOperationsReportSnapshot(range: DashboardRangeInput) {
-	const { startDayKey, endDayKey } = dashboardRangeToDayKeys(range);
+export function requiresOperationsReportSnapshot(range: DashboardRangeInput, setting?: BusinessDaySetting) {
+	const { startDayKey, endDayKey } = dashboardRangeToDayKeys(range, Date.now(), setting);
 	const days = countCalendarDaysInclusive(startDayKey, endDayKey);
 	return days === null || days > 7;
 }
@@ -102,8 +83,9 @@ export function countCalendarDaysInclusive(start: string, end: string) {
 		return null;
 	}
 
-	const startDate = businessDateToCalendarDate(start).getTime();
-	const endDate = businessDateToCalendarDate(end).getTime();
+	let startDate: number;
+ let endDate: number;
+ try { startDate = calendarDate(start).getTime(); endDate = calendarDate(end).getTime(); } catch { return null; }
 	return Math.floor((endDate - startDate) / DAY_MS) + 1;
 }
 

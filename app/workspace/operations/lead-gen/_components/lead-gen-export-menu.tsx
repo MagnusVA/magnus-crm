@@ -1,4 +1,6 @@
 "use client";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { businessDayStart, addBusinessDays as addDays } from "@/lib/businessDay";
 
 import { useCallback, useMemo, useState } from "react";
 import { useConvex } from "convex/react";
@@ -19,19 +21,6 @@ import { downloadLeadGenExcelReport } from "./lead-gen-excel-report";
 import { getErrorMessage } from "@/lib/errors";
 
 type ExportKind = "summary" | "raw" | "excel";
-
-const DAY_MS = 24 * 60 * 60 * 1000;
-
-function dayKeyToBusinessStartUtc(dayKey: string) {
-  const [year, month, day] = dayKey.split("-").map(Number);
-  return Date.UTC(year, month - 1, day, 7);
-}
-
-function addDays(dayKey: string, days: number) {
-  const [year, month, day] = dayKey.split("-").map(Number);
-  const timestamp = Date.UTC(year, month - 1, day) + days * DAY_MS;
-  return new Date(timestamp).toISOString().slice(0, 10);
-}
 
 function downloadCsv(filename: string, rows: unknown[][]) {
   const blob = new Blob([serializeCsv(rows)], {
@@ -56,6 +45,7 @@ export function LeadGenExportMenu({
   endDayKey: string;
   source?: "instagram" | "meta_business";
 }) {
+  const { setting, rebuilding } = useBusinessDay();
   const convex = useConvex();
   const [exportingKind, setExportingKind] = useState<ExportKind | null>(null);
   const exportFilters = useMemo(
@@ -64,21 +54,21 @@ export function LeadGenExportMenu({
       endDayKey,
       ...(source ? { source } : {}),
     }),
-    [endDayKey, source, startDayKey],
+    [endDayKey, source, startDayKey, setting],
   );
   const rawRange = useMemo(
     () => ({
-      startTimestamp: dayKeyToBusinessStartUtc(startDayKey),
-      endTimestamp: dayKeyToBusinessStartUtc(addDays(endDayKey, 1)) - 1,
+      startTimestamp: businessDayStart(startDayKey, setting),
+      endTimestamp: businessDayStart(addDays(endDayKey, 1), setting) - 1,
       maxRows: 5000,
       ...(source ? { source } : {}),
     }),
-    [endDayKey, source, startDayKey],
+    [endDayKey, source, startDayKey, setting],
   );
 
   const handleExport = useCallback(
     async (kind: ExportKind) => {
-      if (exportingKind) return;
+      if (exportingKind || rebuilding) return;
 
       setExportingKind(kind);
       try {
@@ -166,6 +156,7 @@ export function LeadGenExportMenu({
       endDayKey,
       exportFilters,
       exportingKind,
+      rebuilding,
       rawRange,
       startDayKey,
     ],
@@ -178,7 +169,7 @@ export function LeadGenExportMenu({
       <DropdownMenuTrigger asChild>
         <Button
           aria-busy={isExporting}
-          disabled={isExporting}
+          disabled={isExporting || rebuilding}
           size="sm"
           variant="outline"
         >
@@ -189,19 +180,19 @@ export function LeadGenExportMenu({
       <DropdownMenuContent align="end">
         <DropdownMenuGroup>
           <DropdownMenuItem
-            disabled={isExporting}
+            disabled={isExporting || rebuilding}
             onSelect={() => void handleExport("summary")}
           >
             Summary CSV
           </DropdownMenuItem>
           <DropdownMenuItem
-            disabled={isExporting}
+            disabled={isExporting || rebuilding}
             onSelect={() => void handleExport("raw")}
           >
             Raw Submissions CSV
           </DropdownMenuItem>
           <DropdownMenuItem
-            disabled={isExporting}
+            disabled={isExporting || rebuilding}
             onSelect={() => void handleExport("excel")}
           >
             Performance Excel

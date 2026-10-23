@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import { query } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
@@ -35,7 +36,7 @@ export const listOverviewLeaderboardRows = query({
       "tenant_master",
       "tenant_admin",
     ]);
-    const range = deriveOverviewRange(args.range, Date.now());
+    const range = deriveOverviewRange(args.range, Date.now(), await getTenantBusinessDay(ctx, tenantId));
 
     return await buildExpandedOverviewLeaderboard(ctx, {
       tenantId,

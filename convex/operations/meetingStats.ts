@@ -1,3 +1,5 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
+import { businessDateForInstant, businessDayStart, type BusinessDaySetting } from "../../lib/businessDay";
 import { v, type Infer } from "convex/values";
 import { vOnCompleteArgs } from "@convex-dev/workpool";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -12,8 +14,8 @@ import { reportingPool } from "../pipeline/workpools";
 import { meetingContribution } from "./meetingProjectionSchema";
 
 type Contribution = Infer<typeof meetingContribution>;
-export function meetingDayKey(timestamp: number) {
-  return new Date(timestamp).toISOString().slice(0, 10);
+export function meetingDayKey(timestamp: number, setting?: BusinessDaySetting) {
+  return businessDateForInstant(timestamp, setting);
 }
 /**
  * The bucket a contribution counts in. Attribution is not part of it: the
@@ -123,6 +125,13 @@ export async function requestMeetingProjection(
   );
 }
 
+/** Same source enqueue path used by rebuildMeetingProjections, scoped to one tenant. */
+export async function enqueueTenantMeetingProjectionPage(ctx: MutationCtx, tenantId: Id<"tenants">, cursor: string | null) {
+  const page = await ctx.db.query("meetings").withIndex("by_tenantId_and_scheduledAt", q => q.eq("tenantId", tenantId)).paginate({ cursor, numItems: 200 });
+  for (const meeting of page.page) await requestMeetingProjection(ctx, tenantId, meeting._id);
+  return page;
+}
+
 export const project = internalMutation({
   args: { projectionId: v.id("meetingProjections"), generation: v.number() },
   returns: v.null(),
@@ -148,7 +157,7 @@ export const project = internalMutation({
       )
         throw new Error("Invalid meeting relationship");
       next = {
-        dayKey: meetingDayKey(meeting.scheduledAt),
+        dayKey: meetingDayKey(meeting.scheduledAt, await getTenantBusinessDay(ctx, meeting.tenantId)),
         assignedCloserId: meeting.assignedCloserId,
         bookingProgramId: meeting.bookingProgramId,
         soldProgramId: opportunity.soldProgramId,
@@ -360,18 +369,12 @@ export type MeetingStatsCount = Pick<
 
 type MeetingStatsRange = {
   tenantId: Id<"tenants">;
-  /** UTC day keys of `scheduledAt`, as the buckets key them. */
+  /** Business date keys of `scheduledAt`, as the buckets key them. */
   startDayKey: string;
   endDayKeyExclusive: string;
   attributionTeamId?: Id<"attributionTeams">;
   dmCloserId?: Id<"dmClosers">;
 };
-
-function dayStart(dayKey: string) {
-  const at = Date.parse(`${dayKey}T00:00:00Z`);
-  if (!Number.isFinite(at)) throw new Error("Invalid day key");
-  return at;
-}
 
 /**
  * The meetings scheduled in the range whose booking credited the team or DM
@@ -384,8 +387,9 @@ async function creditedMeetingIds(
   ctx: QueryCtx,
   args: MeetingStatsRange,
 ): Promise<{ meetingIds: Id<"meetings">[]; truncated: boolean }> {
-  const start = dayStart(args.startDayKey);
-  const end = dayStart(args.endDayKeyExclusive);
+  const setting = await getTenantBusinessDay(ctx, args.tenantId);
+  const start = businessDayStart(args.startDayKey, setting);
+  const end = businessDayStart(args.endDayKeyExclusive, setting);
   const { tenantId, attributionTeamId, dmCloserId } = args;
 
   // The team's bookings in range, by meeting.
@@ -461,7 +465,7 @@ async function creditedMeetingIds(
 }
 
 /**
- * Meeting counts for a range of UTC days. With no team or DM closer, the
+ * Meeting counts for a range of business days. With no team or DM closer, the
  * buckets. With one, each credited meeting counted from its applied
  * projection contribution, the values its bucket holds, so the totals match
  * the bucket read; a meeting not yet projected counts nowhere.

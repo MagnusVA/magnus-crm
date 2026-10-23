@@ -1,3 +1,5 @@
+import { markLeadGenBusinessDayDirty } from "../lib/businessDayRebuildState";
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { reportError } from "../lib/observability/log";
@@ -92,7 +94,7 @@ async function patchDailyStatCounters(
     duplicateProspectsDelta?: number;
   },
 ) {
-  const dayKey = timestampToBusinessDateKey(args.submission.submittedAt);
+  const dayKey = timestampToBusinessDateKey(args.submission.submittedAt, await getTenantBusinessDay(ctx, args.submission.tenantId));
   const statKey = dailyStatKey({
     dayKey,
     workerId: args.submission.workerId,
@@ -139,7 +141,7 @@ async function patchOriginStatCounters(
     uniqueProspectsDelta?: number;
   },
 ) {
-  const dayKey = timestampToBusinessDateKey(args.submission.submittedAt);
+  const dayKey = timestampToBusinessDateKey(args.submission.submittedAt, await getTenantBusinessDay(ctx, args.submission.tenantId));
   const stat = await ctx.db
     .query("leadGenOriginStats")
     .withIndex("by_tenantId_and_originKey_and_dayKey", (q) =>
@@ -178,7 +180,7 @@ async function patchTeamOriginStatCounters(
     uniqueProspectsDelta?: number;
   },
 ) {
-  const dayKey = timestampToBusinessDateKey(args.submission.submittedAt);
+  const dayKey = timestampToBusinessDateKey(args.submission.submittedAt, await getTenantBusinessDay(ctx, args.submission.tenantId));
   const statKey = teamOriginStatKey({
     dayKey,
     teamId: args.submission.teamId,
@@ -314,9 +316,9 @@ async function getActiveProspectSubmissionsForDay(
     maxRows: number;
   },
 ) {
-  const dayKey = timestampToBusinessDateKey(args.submittedAt);
-  const dayStart = businessDateToUtcStart(dayKey);
-  const dayEnd = businessDateToUtcStart(addBusinessDays(dayKey, 1));
+  const dayKey = timestampToBusinessDateKey(args.submittedAt, await getTenantBusinessDay(ctx, args.tenantId));
+  const dayStart = businessDateToUtcStart(dayKey, await getTenantBusinessDay(ctx, args.tenantId));
+  const dayEnd = businessDateToUtcStart(addBusinessDays(dayKey, 1), await getTenantBusinessDay(ctx, args.tenantId));
 
   const rows = await ctx.db
     .query("leadGenSubmissions")
@@ -453,11 +455,12 @@ export async function updateLeadGenDailyStats(
     prospectId: Id<"leadGenProspects">;
   },
 ) {
+  if (await markLeadGenBusinessDayDirty(ctx, args.tenantId)) return null;
   if (args.worker.tenantId !== args.tenantId) {
     throw new Error("Worker does not belong to tenant");
   }
 
-  const dayKey = timestampToBusinessDateKey(args.submittedAt);
+  const dayKey = timestampToBusinessDateKey(args.submittedAt, await getTenantBusinessDay(ctx, args.tenantId));
   const statKey = dailyStatKey({
     dayKey,
     workerId: args.worker._id,
@@ -525,7 +528,8 @@ export async function updateLeadGenOriginStats(
     submittedAt: number;
   },
 ) {
-  const dayKey = timestampToBusinessDateKey(args.submittedAt);
+  if (await markLeadGenBusinessDayDirty(ctx, args.tenantId)) return null;
+  const dayKey = timestampToBusinessDateKey(args.submittedAt, await getTenantBusinessDay(ctx, args.tenantId));
   const now = Date.now();
   const existing = await ctx.db
     .query("leadGenOriginStats")
@@ -584,7 +588,8 @@ export async function updateLeadGenTeamOriginStats(
     submittedAt: number;
   },
 ) {
-  const dayKey = timestampToBusinessDateKey(args.submittedAt);
+  if (await markLeadGenBusinessDayDirty(ctx, args.tenantId)) return null;
+  const dayKey = timestampToBusinessDateKey(args.submittedAt, await getTenantBusinessDay(ctx, args.tenantId));
   const statKey = teamOriginStatKey({
     dayKey,
     teamId: args.teamId,
@@ -644,6 +649,7 @@ export async function applyLeadGenAggregateDelta(
     reason: "voided" | "restored" | "edited";
   },
 ) {
+  if (await markLeadGenBusinessDayDirty(ctx, args.submission.tenantId)) return null;
   if (args.delta !== -1 || args.reason !== "voided") {
     throw new Error("Only void aggregate corrections are supported");
   }

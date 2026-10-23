@@ -12,7 +12,7 @@ export function validateBusinessDay(setting: BusinessDaySetting) {
     throw new Error("Start hour must be an integer from 0 to 23.");
   }
   try {
-    new Intl.DateTimeFormat("en", { timeZone: setting.timeZone }).format(0);
+    formatter(setting.timeZone).format(0);
   } catch {
     throw new Error("Choose a valid IANA time zone.");
   }
@@ -41,11 +41,18 @@ export function countBusinessDays(start: string, endExclusive: string): number {
   return count;
 }
 
-function formatter(timeZone: string) {
-  return new Intl.DateTimeFormat("en-CA", {
+const formatters = new Map<string, Intl.DateTimeFormat>();
+const starts = new Map<string, number>();
+function formatter(timeZone: string): Intl.DateTimeFormat {
+  const cached = formatters.get(timeZone);
+  if (cached) return cached;
+  const result = new Intl.DateTimeFormat("en-CA", {
     timeZone, year: "numeric", month: "2-digit", day: "2-digit",
     hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
   });
+  if (formatters.size >= 32) formatters.clear();
+  formatters.set(timeZone, result);
+  return result;
 }
 
 function wallTime(ms: number, format: Intl.DateTimeFormat): number {
@@ -62,6 +69,10 @@ function wallTime(ms: number, format: Intl.DateTimeFormat): number {
 /** Overlaps use the first occurrence. Gaps use the first instant after the gap. */
 export function businessDayStart(dateKey: string, setting: BusinessDaySetting = DEFAULT_BUSINESS_DAY): number {
   validateBusinessDay(setting);
+  const cacheKey = `${setting.timeZone}:${setting.dayStartHour}:${dateKey}`;
+  const cached = starts.get(cacheKey);
+  if (cached !== undefined) return cached;
+  const remember = (at: number) => { if (starts.size >= 2048) starts.clear(); starts.set(cacheKey, at); return at; };
   const target = calendarDate(dateKey).getTime() + setting.dayStartHour * HOUR;
   const format = formatter(setting.timeZone);
   const offsets = new Set<number>();
@@ -72,7 +83,7 @@ export function businessDayStart(dateKey: string, setting: BusinessDaySetting = 
   }
   const candidates = [...offsets].map(offset => target - offset).sort((a, b) => a - b);
   const exact = candidates.find(at => wallTime(at, format) === target);
-  if (exact !== undefined) return exact;
+  if (exact !== undefined) return remember(exact);
   let low = candidates[0];
   let high = candidates[candidates.length - 1];
   // The target lies in a forward clock jump. Find the transition itself rather
@@ -82,7 +93,7 @@ export function businessDayStart(dateKey: string, setting: BusinessDaySetting = 
     if (wallTime(mid, format) >= target) high = mid;
     else low = mid;
   }
-  return high;
+  return remember(high);
 }
 
 export function businessDateForInstant(ms: number, setting: BusinessDaySetting = DEFAULT_BUSINESS_DAY): string {

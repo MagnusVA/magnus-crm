@@ -1,4 +1,5 @@
 "use client";
+import { DayDefinition } from "../../_components/day-definition";
 
 import { useMemo, useState } from "react";
 import { usePaginatedQuery, useQuery } from "convex/react";
@@ -209,6 +210,7 @@ export function BillingPageClient() {
           />
         </Field>
       </FieldGroup>
+      <DayDefinition browser />
 
       <BillingQueueTable
         canLoadMore={queue.status === "CanLoadMore"}

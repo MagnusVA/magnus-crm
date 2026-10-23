@@ -1,4 +1,6 @@
 "use client";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
@@ -33,9 +35,10 @@ export function SlackQualificationReportPageClient() {
     "slack_qualifications",
   );
 
-  const [filters, setFilters] = useState<SlackQualificationFilters>(() =>
-    getInitialSlackQualificationFilters(),
-  );
+  const { setting } = useBusinessDay();
+  const now = useNow();
+  const [selectedFilters, setFilters] = useState<SlackQualificationFilters | null>(null);
+  const filters = useMemo(() => selectedFilters ?? getInitialSlackQualificationFilters(setting), [selectedFilters, setting, now]);
   const [isTeamGoalDialogOpen, setIsTeamGoalDialogOpen] = useState(false);
   const rangeError = getRangeValidationMessage(filters);
 
@@ -88,7 +91,7 @@ export function SlackQualificationReportPageClient() {
           </h1>
           <p className="text-sm text-muted-foreground">
             Qualification events, unique Slack-sourced opportunities, and setter
-            contribution by Honduras 1am-to-1am business day.
+            contribution by business day.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -181,8 +184,7 @@ export function SlackQualificationReportPageClient() {
           <Separator />
 
           <p className="text-xs text-muted-foreground">
-            Business timezone: {report.timezone}. Daily cutoff:{" "}
-            {report.businessDayStartsAtHour}:00am local time.
+            Business time zone: {report.timezone}.
           </p>
         </>
       ) : null}

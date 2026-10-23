@@ -1,3 +1,4 @@
+import { rememberTenantBusinessDay } from "./lib/tenantBusinessDay";
 import type { Id } from "./_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "./_generated/server";
 import type { CrmRole } from "./lib/roleMapping";
@@ -101,6 +102,7 @@ export async function requireTenantUser(
     });
   }
 
+  rememberTenantBusinessDay(ctx, tenant);
   logRequestContext(context);
 
   if (!allowedRoles.includes(user.role)) {

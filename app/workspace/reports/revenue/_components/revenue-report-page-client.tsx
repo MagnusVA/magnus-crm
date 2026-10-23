@@ -1,4 +1,5 @@
 "use client";
+import { DayDefinition } from "@/app/workspace/_components/day-definition";
 
 import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "convex/react";
@@ -135,6 +136,7 @@ export function RevenueReportPageClient() {
         granularity={granularity}
         onGranularityChange={setGranularity}
       />
+          <DayDefinition />
 
       <div className="flex flex-wrap items-center gap-3">
         <ReportProgramDimensionFilter

@@ -172,7 +172,7 @@ async function seed(storage: AttendanceStorage = "completed") {
     await book("m7", "2026-10-02T15:00:00Z", closerB, "completed", { teamId: t1 }, { programId });
     await book("m8", "2026-10-01T16:00:00Z", closerB, "scheduled", {});
     await book("m9", "2026-09-30T12:00:00Z", closerA, "completed", { teamId: t1, dmCloserId: d1a });
-    await book("m10", "2026-10-03T00:00:00Z", closerA, "completed", { teamId: t1, dmCloserId: d1a });
+    await book("m10", "2026-10-03T07:00:00Z", closerA, "completed", { teamId: t1, dmCloserId: d1a });
     await book("m11", "2026-10-02T23:30:00Z", closerA, "no_show", { teamId: t1, dmCloserId: d1a }, { programId });
     await book("m12", "2026-10-01T18:00:00Z", closerA, "completed", { teamId: t1, dmCloserId: d1a }, { project: false });
 
@@ -229,11 +229,11 @@ it.each(attendanceStorageModes)("keeps the pipeline show rate for every team, DM
 
 it.each(attendanceStorageModes)("keeps the team operations dimensions for every team, DM closer and program filter with %s rows", async (storage) => {
   const { admin, closerA, closerB, programId, t1, t2, d1a, d1b, d2 } = await seed(storage);
-  // Mid-day bounds: the report keys by the UTC day of each end, as the buckets do.
+  // Business-day bounds match the projected meeting dates.
   const dimensions = async (filters: Filters) => {
     const result = await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
-      startDate: Date.parse("2026-10-01T06:00:00Z"),
-      endDate: Date.parse("2026-10-03T06:00:00Z"),
+      startDate: Date.parse("2026-10-01T07:00:00Z"),
+      endDate: Date.parse("2026-10-03T07:00:00Z"),
       ...filters,
     });
     return {
@@ -332,7 +332,7 @@ it("reports a filtered range past 2,000 credited meetings as truncated", async (
         teamId: t1,
         source: { kind: "booking_utm" },
         meetingId: meeting._id,
-        meetingScheduledAt: Date.parse("2026-10-01T00:00:00Z"),
+        meetingScheduledAt: Date.parse("2026-10-01T07:00:00Z"),
         attributedAt: 0,
         createdAt: 0,
       });

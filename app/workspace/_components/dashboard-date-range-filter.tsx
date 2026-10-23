@@ -1,4 +1,5 @@
 "use client";
+import { DayDefinition } from "@/app/workspace/_components/day-definition";
 
 import { useMemo, useState } from "react";
 import type { DateRange } from "react-day-picker";
@@ -28,6 +29,7 @@ export type DashboardRangeInput =
 	  };
 
 type Props = {
+ browser?: boolean;
 	value: DashboardRangeInput;
 	onChange: (value: DashboardRangeInput) => void;
 	validationMessage: string | null;
@@ -35,6 +37,7 @@ type Props = {
 };
 
 export function DashboardDateRangeFilter({
+ browser = false,
 	value,
 	onChange,
 	validationMessage,
@@ -146,6 +149,7 @@ export function DashboardDateRangeFilter({
 					</PopoverContent>
 				</Popover>
 			</div>
+			<DayDefinition browser={browser} />
 			{validationMessage ? (
 				<p className="text-xs text-destructive">{validationMessage}</p>
 			) : null}

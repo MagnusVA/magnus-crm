@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -30,7 +31,7 @@ export const listMyRecentSubmissions = query({
     if (!access) {
       return { page: [], isDone: true, continueCursor: "" };
     }
-    const range = args.range ? deriveOverviewRange(args.range, Date.now()) : null;
+    const range = args.range ? deriveOverviewRange(args.range, Date.now(), await getTenantBusinessDay(ctx, auth.tenantId)) : null;
 
     const page = await ctx.db
       .query("leadGenSubmissions")
@@ -56,9 +57,9 @@ export const listMyRecentSubmissions = query({
 export const getMyActivitySummary = query({
   args: { range: overviewRangeValidator },
   handler: async (ctx, { range }) => {
-    const derivedRange = deriveOverviewRange(range, Date.now());
-    const publicRange = toPublicOverviewRange(derivedRange);
     const auth = await requireTenantUser(ctx, LEAD_GEN_ACTIVITY_ROLES);
+    const derivedRange = deriveOverviewRange(range, Date.now(), await getTenantBusinessDay(ctx, auth.tenantId));
+    const publicRange = toPublicOverviewRange(derivedRange);
     const access = await resolveOwnLeadGenWorker(ctx, auth);
     if (!access) {
       return {

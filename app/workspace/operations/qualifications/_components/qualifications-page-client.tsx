@@ -1,4 +1,6 @@
 "use client";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
 
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
@@ -49,6 +51,8 @@ function GoalRingSkeleton() {
 }
 
 export function QualificationsPageClient() {
+ const { setting } = useBusinessDay();
+ const now = useNow();
   usePageTitle("Qualified Leads");
 
   const { range, setRange, queryRange, rangeLabel, validationMessage } =
@@ -60,8 +64,8 @@ export function QualificationsPageClient() {
   const [goalDialogOpen, setGoalDialogOpen] = useState(false);
   const [schedulesOpen, setSchedulesOpen] = useState(false);
   const requiresSnapshot = useMemo(
-    () => requiresOperationsReportSnapshot(queryRange),
-    [queryRange],
+    () => requiresOperationsReportSnapshot(queryRange, setting),
+    [queryRange, now, setting],
   );
 
   const dashboard = useQuery(

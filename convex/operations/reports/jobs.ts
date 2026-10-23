@@ -1,3 +1,5 @@
+import { getTenantBusinessDay } from "../../lib/tenantBusinessDay";
+import { assertBusinessDayReady } from "../../lib/businessDayRebuildState";
 import {
   paginationOptsValidator,
   paginationResultValidator,
@@ -1060,6 +1062,8 @@ async function requestReport(
     requestToken: string;
   },
 ) {
+  await assertBusinessDayReady(ctx, auth.tenantId);
+  const tenant = await ctx.db.get("tenants", auth.tenantId);
   const requestToken = assertBoundedIdentifier(args.requestToken, "Request token");
   assertValidSourceFilter(args.reportKind, args.sourceFilter);
   if (args.format) {
@@ -1069,6 +1073,8 @@ async function requestReport(
   const range = normalizeReportRange({
     reportKind: args.reportKind,
     input: args.range,
+    setting: await getTenantBusinessDay(ctx, auth.tenantId),
+    businessDayVersion: tenant?.businessDayVersion ?? 0,
     now,
   });
   const requestKey = buildReportRequestKey({

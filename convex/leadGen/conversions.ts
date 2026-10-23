@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
@@ -99,8 +100,8 @@ export const listProspectConversions = query({
     if (args.startDayKey > args.endDayKey) {
       throw new Error("Start date must be on or before end date");
     }
-    const startAt = businessDateToUtcStart(args.startDayKey);
-    const endAt = businessDateToUtcStart(addBusinessDays(args.endDayKey, 1));
+    const startAt = businessDateToUtcStart(args.startDayKey, await getTenantBusinessDay(ctx, tenantId));
+    const endAt = businessDateToUtcStart(addBusinessDays(args.endDayKey, 1), await getTenantBusinessDay(ctx, tenantId));
 
     const workers = await ctx.db
       .query("leadGenWorkers")

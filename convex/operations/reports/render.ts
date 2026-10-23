@@ -1,6 +1,7 @@
 "use node";
 
 import { createHash, randomUUID } from "node:crypto";
+import { businessDayBoundaryText } from "../../../lib/businessDay";
 import { v } from "convex/values";
 import { internal } from "../../_generated/api";
 import { internalAction, type ActionCtx } from "../../_generated/server";
@@ -88,7 +89,7 @@ export const run = internalAction({
     const summary = await summaryForReport(ctx, job.jobId, job.reportKind);
     const document: ReportDocument = {
       title: reportTitles[job.reportKind], period: job.range.label, generatedAt: job.startedAt ?? job.createdAt,
-      boundary: job.range.boundary === "utc_day" ? "UTC days (00:00)" : "Honduras business days (01:00)",
+      boundary: businessDayBoundaryText(job.range.businessDay),
       filters: job.sourceFilter === "all" ? "All sources" : `Source: ${job.sourceFilter}`,
       part: partNumber, summary: summaryCards(job.reportKind, summary), tables,
     };

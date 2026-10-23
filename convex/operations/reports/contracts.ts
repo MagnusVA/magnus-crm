@@ -1,3 +1,5 @@
+import { businessDayValidator } from "../../businessDaySchema";
+import { DEFAULT_BUSINESS_DAY, type BusinessDaySetting } from "../../../lib/businessDay";
 import { v } from "convex/values";
 import { leadGenSourceValidator } from "../../leadGen/validators";
 import {
@@ -7,7 +9,7 @@ import {
   timestampToBusinessDateKey,
 } from "../../reporting/lib/hondurasBusinessTime";
 
-export const REPORT_DEFINITION_VERSION = "operations-reports-v4";
+export const REPORT_DEFINITION_VERSION = "operations-reports-v5";
 
 export const REPORT_LEASE_MS = 11 * 60_000;
 // Assumes the ten-minute Node action limit, plus one minute for upload settlement.
@@ -130,6 +132,7 @@ export type ReportRangeInput =
 export const reportBoundaryValidator = v.union(
   v.literal("honduras_business_day"),
   v.literal("utc_day"),
+  v.literal("tenant_business_day"),
 );
 
 export const normalizedReportRangeValidator = v.object({
@@ -144,6 +147,8 @@ export const normalizedReportRangeValidator = v.object({
   dayCount: v.number(),
   label: v.string(),
   boundary: reportBoundaryValidator,
+  businessDay: v.optional(businessDayValidator),
+  businessDayVersion: v.optional(v.number()),
 });
 
 export type NormalizedReportRange = {
@@ -157,7 +162,9 @@ export type NormalizedReportRange = {
   endDayKeyExclusive: string;
   dayCount: number;
   label: string;
-  boundary: "honduras_business_day" | "utc_day";
+  boundary: "honduras_business_day" | "utc_day" | "tenant_business_day";
+  businessDay?: BusinessDaySetting;
+  businessDayVersion?: number;
 };
 
 export const reportSourceFilterValidator = v.union(
@@ -248,8 +255,10 @@ export function normalizeReportRange(args: {
   reportKind: ReportKind;
   input: ReportRangeInput;
   now: number;
+  setting?: BusinessDaySetting;
+  businessDayVersion?: number;
 }): NormalizedReportRange {
-  const today = timestampToBusinessDateKey(args.now);
+  const today = timestampToBusinessDateKey(args.now, args.setting);
   const startBusinessDate =
     args.input.kind === "custom"
       ? args.input.startBusinessDate
@@ -276,18 +285,9 @@ export function normalizeReportRange(args: {
     startBusinessDate,
     endBusinessDateExclusive,
   );
-  const boundary =
-    args.reportKind === "sales-calls"
-      ? ("utc_day" as const)
-      : ("honduras_business_day" as const);
-  const startTimestamp =
-    boundary === "utc_day"
-      ? Date.parse(`${startBusinessDate}T00:00:00.000Z`)
-      : businessDateToUtcStart(startBusinessDate);
-  const endTimestampExclusive =
-    boundary === "utc_day"
-      ? Date.parse(`${endBusinessDateExclusive}T00:00:00.000Z`)
-      : businessDateToUtcStart(endBusinessDateExclusive);
+  const boundary = "tenant_business_day" as const;
+  const startTimestamp = businessDateToUtcStart(startBusinessDate, args.setting);
+  const endTimestampExclusive = businessDateToUtcStart(endBusinessDateExclusive, args.setting);
 
   if (
     !Number.isFinite(startTimestamp) ||
@@ -300,6 +300,8 @@ export function normalizeReportRange(args: {
 
   return {
     input: args.input,
+    businessDay: args.setting ?? DEFAULT_BUSINESS_DAY,
+    businessDayVersion: args.businessDayVersion ?? 0,
     startBusinessDate,
     endBusinessDateInclusive,
     endBusinessDateExclusive,
@@ -325,6 +327,7 @@ export function buildReportRequestKey(args: {
 }) {
   return [
     REPORT_DEFINITION_VERSION,
+    String(args.range.businessDayVersion ?? 0),
     args.purpose,
     args.reportKind,
     args.format ?? "dashboard",

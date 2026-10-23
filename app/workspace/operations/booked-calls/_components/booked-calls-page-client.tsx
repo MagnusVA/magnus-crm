@@ -1,4 +1,6 @@
 "use client";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -55,6 +57,8 @@ function GoalRingSkeleton() {
 }
 
 export function BookedCallsPageClient() {
+ const { setting } = useBusinessDay();
+ const now = useNow();
   usePageTitle("Booked Calls");
 
   const { range, setRange, queryRange, rangeLabel, validationMessage } =
@@ -66,8 +70,8 @@ export function BookedCallsPageClient() {
   const [goalsDialogOpen, setGoalsDialogOpen] = useState(false);
   const [schedulesOpen, setSchedulesOpen] = useState(false);
   const requiresSnapshot = useMemo(
-    () => requiresOperationsReportSnapshot(queryRange),
-    [queryRange],
+    () => requiresOperationsReportSnapshot(queryRange, setting),
+    [queryRange, now, setting],
   );
 
   const dashboard = useQuery(

@@ -1,4 +1,6 @@
 "use client";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
@@ -42,6 +44,8 @@ export type LeadGenFilters = {
 };
 
 export function LeadGenAdminPageClient() {
+ const { setting } = useBusinessDay();
+ const now = useNow();
 	const { range, setRange, queryRange, rangeLabel, validationMessage } =
 		useDashboardRange({
 			urlSync: true,
@@ -51,12 +55,12 @@ export function LeadGenAdminPageClient() {
 	const [source, setSource] = useState<LeadGenSource | undefined>(undefined);
 
 	const filters = useMemo<LeadGenFilters>(() => {
-		const dayKeys = dashboardRangeToDayKeys(queryRange);
+		const dayKeys = dashboardRangeToDayKeys(queryRange, now, setting);
 		return { ...dayKeys, ...(source ? { source } : {}) };
-	}, [queryRange, source]);
+	}, [queryRange, source, now, setting]);
 	const requiresSnapshot = useMemo(
-		() => requiresOperationsReportSnapshot(queryRange),
-		[queryRange],
+		() => requiresOperationsReportSnapshot(queryRange, setting),
+		[queryRange, now, setting],
 	);
 
 	const overview = useQuery(

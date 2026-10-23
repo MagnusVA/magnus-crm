@@ -1,3 +1,4 @@
+import { businessDayTables } from "./businessDaySchema";
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 import {
@@ -43,10 +44,13 @@ import { pipelineTables } from "./pipeline/schema";
 
 export default defineSchema({
   ...pipelineTables,
+  ...businessDayTables,
   ...meetingProjectionTables,
   ...operationsReportTables,
   tenants: defineTable({
     meetingProjectionVersion: v.optional(v.literal(2)),
+    businessDay: v.optional(v.object({ timeZone: v.string(), dayStartHour: v.number() })),
+    businessDayVersion: v.optional(v.number()),
     // Identity
     companyName: v.string(),
     contactEmail: v.string(),

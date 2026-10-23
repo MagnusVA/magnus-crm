@@ -23,7 +23,7 @@ type MonthViewProps = {
 
 // ─── Hoisted constants ───────────────────────────────────────────────────────
 
-const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 
 /** Maximum meeting dots shown per cell before collapsing to a "+N" badge. */
 const MAX_DOTS = 3;
@@ -41,8 +41,8 @@ export function MonthView({ meetings, month }: MonthViewProps) {
     const monthStart = startOfMonth(month);
     const monthEnd = endOfMonth(month);
     return eachDayOfInterval({
-      start: startOfWeek(monthStart),
-      end: endOfWeek(monthEnd),
+      start: startOfWeek(monthStart, { weekStartsOn: 1 }),
+      end: endOfWeek(monthEnd, { weekStartsOn: 1 }),
     });
   }, [month]);
 

@@ -109,7 +109,7 @@ export function TeamGoalDialog({
           <DialogTitle>Edit Team Daily Goal</DialogTitle>
           <DialogDescription>
             Set one team-wide target for Slack-qualified leads in a Honduras
-            1am-to-1am business day.
+            business day.
           </DialogDescription>
         </DialogHeader>
 

@@ -1,4 +1,6 @@
 "use client";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { businessDayStart, addBusinessDays as addDays, type BusinessDaySetting } from "@/lib/businessDay";
 
 import { useMemo, useState } from "react";
 import { usePaginatedQuery } from "convex/react";
@@ -47,8 +49,6 @@ import type { LeadGenFilters } from "./lead-gen-admin-page-client";
 import { VoidSubmissionDialog } from "./void-submission-dialog";
 
 const PAGE_SIZE = 25;
-const DAY_MS = 24 * 60 * 60 * 1000;
-const BUSINESS_DAY_START_UTC_HOUR = 7;
 
 type RawSubmissionRow = {
   submissionId: Id<"leadGenSubmissions">;
@@ -88,47 +88,11 @@ const submittedTimeFormatter = new Intl.DateTimeFormat(undefined, {
   minute: "2-digit",
 });
 
-function parseDayKey(dayKey: string) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) return null;
-
-  const [year, month, day] = dayKey.split("-").map(Number);
-  if (
-    !Number.isInteger(year) ||
-    !Number.isInteger(month) ||
-    !Number.isInteger(day)
-  ) {
-    return null;
-  }
-
-  return { day, month, year };
-}
-
-function addDays(dayKey: string, days: number) {
-  const parsed = parseDayKey(dayKey);
-  if (!parsed) return null;
-
-  const timestamp =
-    Date.UTC(parsed.year, parsed.month - 1, parsed.day) + days * DAY_MS;
-  return new Date(timestamp).toISOString().slice(0, 10);
-}
-
-function dayKeyToBusinessStartUtc(dayKey: string) {
-  const parsed = parseDayKey(dayKey);
-  if (!parsed) return null;
-
-  return Date.UTC(
-    parsed.year,
-    parsed.month - 1,
-    parsed.day,
-    BUSINESS_DAY_START_UTC_HOUR,
-  );
-}
-
-function buildRawQueryArgs(filters: LeadGenFilters) {
-  const startTimestamp = dayKeyToBusinessStartUtc(filters.startDayKey);
+function buildRawQueryArgs(filters: LeadGenFilters, setting: BusinessDaySetting) {
+  const startTimestamp = businessDayStart(filters.startDayKey, setting);
   const nextEndDayKey = addDays(filters.endDayKey, 1);
   const nextEndTimestamp = nextEndDayKey
-    ? dayKeyToBusinessStartUtc(nextEndDayKey)
+    ? businessDayStart(nextEndDayKey, setting)
     : null;
 
   if (
@@ -147,8 +111,9 @@ function buildRawQueryArgs(filters: LeadGenFilters) {
 }
 
 export function RawSubmissionsTable({ filters }: { filters: LeadGenFilters }) {
+  const { setting } = useBusinessDay();
   const [isOpen, setIsOpen] = useState(false);
-  const queryArgs = useMemo(() => buildRawQueryArgs(filters), [filters]);
+  const queryArgs = useMemo(() => buildRawQueryArgs(filters, setting), [filters, setting]);
   const isValidRange = queryArgs !== "skip";
   const paginatedQueryArgs = isOpen ? queryArgs : "skip";
   const {

@@ -1,4 +1,5 @@
 "use client";
+import { useBusinessDay } from "@/hooks/use-business-day";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useConvex, useMutation, useQuery } from "convex/react";
@@ -44,9 +45,11 @@ function reportScopeKey(args: {
   reportKind: OperationsReportKind;
   range: DashboardRangeInput;
   sourceFilter?: OperationsReportSource;
+  version?: number;
 }) {
   return JSON.stringify({
     reportKind: args.reportKind,
+    businessDayVersion: args.version ?? 0,
     range: args.range,
     sourceFilter: args.sourceFilter ?? "all",
   });
@@ -86,10 +89,12 @@ export function useOperationsDashboardReport(args: {
   }>({ requestToken: "", jobId: null, error: null });
   const [attempt, setAttempt] = useState(0);
   const [mountId] = useState(() => crypto.randomUUID());
-  const { enabled, range, reportKind, sourceFilter } = args;
+  const { rebuilding, version, loaded } = useBusinessDay();
+  const { range, reportKind, sourceFilter } = args;
+  const enabled = args.enabled && loaded && !rebuilding;
   const scopeKey = useMemo(
-    () => reportScopeKey({ reportKind, range, sourceFilter }),
-    [range, reportKind, sourceFilter],
+    () => reportScopeKey({ reportKind, range, sourceFilter, version }),
+    [range, reportKind, sourceFilter, version],
   );
   const requestToken = useMemo(
     () =>
@@ -323,6 +328,7 @@ export function useOperationsReportExport(args: {
   range: DashboardRangeInput;
   sourceFilter?: OperationsReportSource;
 }) {
+  const { version } = useBusinessDay();
   const requestExport = useMutation(api.operations.reports.jobs.requestExport);
   const cancelReport = useMutation(api.operations.reports.jobs.cancelReport);
   const requestReportDownload = useMutation(
@@ -338,8 +344,8 @@ export function useOperationsReportExport(args: {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const { reportKind, range, sourceFilter } = args;
   const scopeKey = useMemo(
-    () => reportScopeKey({ reportKind, range, sourceFilter }),
-    [range, reportKind, sourceFilter],
+    () => reportScopeKey({ reportKind, range, sourceFilter, version }),
+    [range, reportKind, sourceFilter, version],
   );
   const activeRequestRef = useRef<string | null>(null);
   const downloadedArtifactsRef = useRef(new Set<string>());

@@ -1,4 +1,6 @@
 "use client";
+import { useBusinessDay } from "@/hooks/use-business-day";
+import { useNow } from "@/hooks/use-now";
 
 import { useMemo, useState } from "react";
 import { useQuery } from "convex/react";
@@ -36,6 +38,8 @@ import { SalesCallsDetailsList } from "./sales-calls-details-list";
 import { SalesCallsStatCards } from "./sales-calls-stat-cards";
 
 export function SalesCallsPageClient() {
+ const { setting } = useBusinessDay();
+ const now = useNow();
   usePageTitle("Phone Sales Ops");
 
   const { range, setRange, queryRange, rangeLabel, validationMessage } =
@@ -45,8 +49,8 @@ export function SalesCallsPageClient() {
       validationOptions: OPERATIONS_DASHBOARD_RANGE_VALIDATION,
     });
   const requiresSnapshot = useMemo(
-    () => requiresOperationsReportSnapshot(queryRange),
-    [queryRange],
+    () => requiresOperationsReportSnapshot(queryRange, setting),
+    [queryRange, now, setting],
   );
   const dashboard = useQuery(
     api.operations.salesCallsDashboard.getSalesCallsDashboard,

@@ -1,4 +1,5 @@
 "use client";
+import { DayDefinition } from "@/app/workspace/_components/day-definition";
 
 import { useState } from "react";
 import type { DateRange as CalendarDateRange } from "react-day-picker";
@@ -81,7 +82,7 @@ const QUICK_PICKS = [
     getRange: () => {
       const now = new Date();
       return {
-        startDate: startOfWeek(now).getTime(),
+        startDate: startOfWeek(now, { weekStartsOn: 1 }).getTime(),
         endDate: getExclusiveUpperTimestamp(now),
       };
     },
@@ -221,6 +222,7 @@ export function ReportDateControls({
           </SelectContent>
         </Select>
       )}
+      <div className="basis-full"><DayDefinition browser /></div>
     </div>
   );
 }

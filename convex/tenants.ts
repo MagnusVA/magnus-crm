@@ -1,3 +1,5 @@
+import { DEFAULT_BUSINESS_DAY } from "../lib/businessDay";
+import { runningBusinessDayRebuild } from "./lib/businessDayRebuildState";
 import { v } from "convex/values";
 import { internalMutation, internalQuery, query } from "./_generated/server";
 import { getIdentityOrgId } from "./lib/identity";
@@ -73,6 +75,8 @@ export const getCurrentTenant = query({
     }
 
     const connection = await getTenantCalendlyConnectionState(ctx, tenant._id);
+    const runningRebuild = await runningBusinessDayRebuild(ctx, tenant._id);
+    const failedRebuild = runningRebuild ? null : await ctx.db.query("businessDayRebuilds").withIndex("by_tenantId_and_state", q => q.eq("tenantId", tenant._id).eq("state", "failed")).order("desc").first();
     return {
       tenantId: tenant._id,
       companyName: tenant.companyName,
@@ -81,6 +85,9 @@ export const getCurrentTenant = query({
       calendlyWebhookUri: connection?.webhookUri,
       onboardingCompletedAt: tenant.onboardingCompletedAt,
       billingOpsEnabled: tenant.billingOpsEnabled === true,
+      businessDay: tenant.businessDay ?? DEFAULT_BUSINESS_DAY,
+      businessDayVersion: tenant.businessDayVersion ?? 0,
+      businessDayRebuild: runningRebuild ?? (failedRebuild?.version === tenant.businessDayVersion ? failedRebuild : null),
     };
   },
 });

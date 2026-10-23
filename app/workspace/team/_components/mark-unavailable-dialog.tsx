@@ -1,4 +1,5 @@
 "use client";
+import { DayDefinition } from "../../_components/day-definition";
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
@@ -78,7 +79,7 @@ function timestampToTimeString(
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
 
-/** Get start-of-day (midnight UTC) timestamp for today. */
+/** Get start-of-day (browser midnight) timestamp for today. */
 function getTodayTimestamp(): number {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -306,6 +307,7 @@ export function MarkUnavailableDialog({
                         }}
                       />
                     </FormControl>
+ <DayDefinition browser />
                     <FormMessage />
                   </FormItem>
                 )}

@@ -1,3 +1,4 @@
+import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import type { Id } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import { getLeadGenOverviewSection } from "./overviewLeadGen";
@@ -85,7 +86,7 @@ export async function getOverviewDashboardData(
     now: number;
   },
 ): Promise<OverviewDashboard> {
-  const range = deriveOverviewRange(args.range, args.now);
+  const range = deriveOverviewRange(args.range, args.now, await getTenantBusinessDay(ctx, args.tenantId));
 
   const [
     leadGen,
