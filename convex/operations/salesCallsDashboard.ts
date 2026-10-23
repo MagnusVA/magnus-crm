@@ -24,7 +24,7 @@ import {
   getNonDisputedPaymentsInRange,
   getUserDisplayName,
   reportingUserIdentity,
-  splitPaymentsForRevenueReporting,
+  summarizePaymentsForRevenueReporting,
 } from "../reporting/lib/helpers";
 import { requireTenantUser } from "../requireTenantUser";
 import { enrichPhoneSalesRows } from "./phoneSales";
@@ -234,7 +234,7 @@ function validateWindow(start: number, end: number) {
  * Population: the operationsMeetingStatsV2 rollup keyed by the UTC day of
  * `scheduledAt` (dayKey), all four meeting statuses counted. Payments follow the
  * teamPerformance/revenue definition of cash collected: non-disputed,
- * commissionable, non-deposit (final) payments by `recordedAt`.
+ * non-deposit (final) payments by `recordedAt`.
  *
  * The view list stays on listPhoneSalesMeetings — pass `window.start/end`
  * into its scheduledFrom/scheduledTo args so both surfaces share one time
@@ -339,10 +339,10 @@ export const getSalesCallsDashboard = query({
     const activeClosers = activeUserRows.filter(
       (user) => user.role === "closer",
     );
-    const paymentSplit = splitPaymentsForRevenueReporting(
+    const paymentSummary = summarizePaymentsForRevenueReporting(
       paymentScan.payments,
     );
-    const finalPayments = paymentSplit.commissionable.finalPayments;
+    const finalPayments = paymentSummary.finalPayments;
 
     // One rollup read powers the stat cards, the per-program meeting counts,
     // and the per-closer meeting counts, so the three sections can never
@@ -543,7 +543,7 @@ export const getSalesCallsDashboard = query({
     );
 
     // Stat cards: meeting counts are the tenant-wide rollup totals;
-    // cash collected / sales count are ALL commissionable final payments in
+    // cash collected / sales count are ALL final payments in
     // the window (including closer-unattributed ones), matching the Revenue
     // report. The team-total row can therefore be lower than the cards when
     // unattributed payments exist.

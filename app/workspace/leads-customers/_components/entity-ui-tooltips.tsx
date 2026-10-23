@@ -130,13 +130,11 @@ export const leadsCustomersTooltips = {
 		"Open this person with the selected opportunity pre-focused in the detail view.",
 	relatedCounts: (opportunityCount: number, meetingCount: number) =>
 		`${opportunityCount} opportunit${opportunityCount === 1 ? "y" : "ies"} and ${meetingCount} meeting${meetingCount === 1 ? "" : "s"} linked to this record.`,
-	totalPaid: "Lifetime commissionable payments recorded for this customer.",
+	totalPaid: "Lifetime payments recorded for this customer.",
 	identityChain:
 		"How this person moved from lead to customer and which opportunity won the conversion.",
 	listCap: (entity: string) =>
 		`Only the ${entity} most recent items are loaded. Older history may exist in Convex.`,
-	commissionable:
-		"This payment counts toward closer commission and revenue reporting.",
 	summaryOnly:
 		"You can see opportunity summary here but cannot open the full opportunity workspace.",
 	opportunityDetails:

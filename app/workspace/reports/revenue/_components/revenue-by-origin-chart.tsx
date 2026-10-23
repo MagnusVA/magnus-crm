@@ -27,11 +27,11 @@ import {
 type RevenueMetrics = FunctionReturnType<
   typeof api.reporting.revenue.getRevenueMetrics
 >;
-type RevenueByOrigin = RevenueMetrics["commissionable"]["byOrigin"];
+type RevenueByOrigin = RevenueMetrics["revenue"]["byOrigin"];
 type RevenueOrigin = keyof RevenueByOrigin;
 
 // Labels are prefixed with "-Logged" to distinguish *who clicked Record* from
-// *who is credited*. All five origins land in the commissionable bucket and
+// *who is credited*. All origins land in the revenue total and
 // are attributed to the assigned closer for commission — the prefix lets the
 // team spot when admins are logging on behalf (Admin-Logged) vs when the
 // closer themselves logged (Closer-Logged). Side-deal origins use the same
@@ -124,7 +124,7 @@ export function RevenueByOriginChart({
             </PopoverTrigger>
             <PopoverContent className="w-80 text-sm" align="start">
               <p>
-                Every bar here counts as commissionable revenue and is
+                Every bar here counts as revenue and is
                 attributed to the <strong>assigned closer</strong> for
                 commission — that does not change based on who logged the
                 payment.
@@ -148,7 +148,7 @@ export function RevenueByOriginChart({
           </Popover>
         </div>
         <CardDescription>
-          Split commissionable final revenue by the workflow that created the payment.
+          Split final revenue by the workflow that created the payment.
         </CardDescription>
       </CardHeader>
       <CardContent>

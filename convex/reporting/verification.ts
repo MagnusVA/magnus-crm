@@ -5,7 +5,6 @@ import type { Doc } from "../_generated/dataModel";
 import type { QueryCtx } from "../_generated/server";
 import {
   resolveLegacyCompatibleAttributedCloserId,
-  resolveLegacyCompatiblePaymentCommissionable,
 } from "../lib/paymentTypes";
 import {
   isSlackQualificationAggregateEligible,
@@ -40,10 +39,7 @@ async function countTableRows<
 }
 
 function isPaymentAggregateEligible(payment: Doc<"paymentRecords">): boolean {
-  return (
-    resolveLegacyCompatiblePaymentCommissionable(payment) &&
-    resolveLegacyCompatibleAttributedCloserId(payment) !== undefined
-  );
+  return resolveLegacyCompatibleAttributedCloserId(payment) !== undefined;
 }
 
 async function countAggregateRows(
@@ -76,7 +72,7 @@ export const verifyBackfillCounts = internalQuery({
       slackQualificationTimeAggregateCount,
       slackQualificationUserAggregateCount,
       paymentTableCount,
-      commissionablePaymentTableCount,
+      eligiblePaymentTableCount,
       slackQualificationEligibleTableCount,
       tenantCount,
       unclassifiedMeetings,
@@ -134,8 +130,8 @@ export const verifyBackfillCounts = internalQuery({
       },
       paymentRecords: {
         aggregate: paymentAggregateCount,
-        match: paymentAggregateCount === commissionablePaymentTableCount,
-        aggregateEligibleTable: commissionablePaymentTableCount,
+        match: paymentAggregateCount === eligiblePaymentTableCount,
+        aggregateEligibleTable: eligiblePaymentTableCount,
         table: paymentTableCount,
       },
       slackQualifications: {

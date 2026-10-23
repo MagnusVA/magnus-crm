@@ -2,7 +2,6 @@ import { v } from "convex/values";
 import { query } from "../_generated/server";
 import {
   paymentTypeValidator,
-  resolveLegacyCompatiblePaymentCommissionable,
   resolvePaymentType,
 } from "../lib/paymentTypes";
 import { requireTenantUser } from "../requireTenantUser";
@@ -10,18 +9,13 @@ import {
   assertValidDateRange,
   attributePaymentsToClosers,
   getNonDisputedPaymentsInRange,
-  splitPaymentsForRevenueReporting,
+  summarizePaymentsForRevenueReporting,
 } from "./lib/helpers";
 import {
   getPeriodKey,
   getPeriodsInRange,
   type Granularity,
 } from "./lib/periodBucketing";
-
-const REVENUE_SLICE_FILTER = v.union(
-  v.literal("commissionable"),
-  v.literal("non_commissionable"),
-);
 
 export const getRevenueTrend = query({
   args: {
@@ -34,7 +28,6 @@ export const getRevenueTrend = query({
     ),
     programId: v.optional(v.id("tenantPrograms")),
     paymentType: v.optional(paymentTypeValidator),
-    revenueSlice: v.optional(REVENUE_SLICE_FILTER),
   },
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [
@@ -52,10 +45,8 @@ export const getRevenueTrend = query({
       periodKey: period.key,
       revenueMinor: 0,
       dealCount: 0,
-      commissionableFinalMinor: 0,
-      commissionableDepositMinor: 0,
-      nonCommissionableFinalMinor: 0,
-      nonCommissionableDepositMinor: 0,
+      finalRevenueMinor: 0,
+      depositRevenueMinor: 0,
       start: period.start,
       end: period.end,
     }));
@@ -81,14 +72,11 @@ export const getRevenueTrend = query({
       (payment) =>
         (!args.programId || payment.programId === args.programId) &&
         (!args.paymentType ||
-          resolvePaymentType(payment.paymentType) === args.paymentType) &&
-        (!args.revenueSlice ||
-          (args.revenueSlice === "commissionable") ===
-            resolveLegacyCompatiblePaymentCommissionable(payment)),
+          resolvePaymentType(payment.paymentType) === args.paymentType),
     );
-    const split = splitPaymentsForRevenueReporting(filteredPayments);
+    const summary = summarizePaymentsForRevenueReporting(filteredPayments);
 
-    for (const payment of split.commissionable.finalPayments) {
+    for (const payment of summary.finalPayments) {
       const periodKey = getPeriodKey(
         payment.recordedAt,
         args.granularity as Granularity,
@@ -99,39 +87,17 @@ export const getRevenueTrend = query({
       }
       trend[index].revenueMinor += payment.amountMinor;
       trend[index].dealCount += 1;
-      trend[index].commissionableFinalMinor += payment.amountMinor;
+      trend[index].finalRevenueMinor += payment.amountMinor;
     }
 
-    for (const payment of split.commissionable.depositPayments) {
+    for (const payment of summary.depositPayments) {
       const periodKey = getPeriodKey(
         payment.recordedAt,
         args.granularity as Granularity,
       );
       const index = indexByPeriodKey.get(periodKey);
       if (index !== undefined) {
-        trend[index].commissionableDepositMinor += payment.amountMinor;
-      }
-    }
-
-    for (const payment of split.nonCommissionable.finalPayments) {
-      const periodKey = getPeriodKey(
-        payment.recordedAt,
-        args.granularity as Granularity,
-      );
-      const index = indexByPeriodKey.get(periodKey);
-      if (index !== undefined) {
-        trend[index].nonCommissionableFinalMinor += payment.amountMinor;
-      }
-    }
-
-    for (const payment of split.nonCommissionable.depositPayments) {
-      const periodKey = getPeriodKey(
-        payment.recordedAt,
-        args.granularity as Granularity,
-      );
-      const index = indexByPeriodKey.get(periodKey);
-      if (index !== undefined) {
-        trend[index].nonCommissionableDepositMinor += payment.amountMinor;
+        trend[index].depositRevenueMinor += payment.amountMinor;
       }
     }
 

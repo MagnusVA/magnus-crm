@@ -15,9 +15,7 @@ interface PaymentMetadata {
   programId: string | null;
   programName: string | null;
   paymentType: string;
-  commissionable: boolean;
   attributedCloserId: string | null;
-  originCategory: string;
 }
 
 interface ActivityFeedListProps {

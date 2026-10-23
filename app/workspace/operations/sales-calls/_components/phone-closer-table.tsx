@@ -71,7 +71,7 @@ const tooltips = {
   showed: "Held meetings for this closer in the range.",
   showUpRate: SHOW_RATE_HELP,
   paymentSales:
-    "Commissionable final payments attributed to this closer in the range.",
+    "Final payments attributed to this closer in the range.",
   paymentRevenue: "Sum of those payments' amounts.",
   paymentCloseRate: "Payment sales ÷ showed. Shows — with no showed calls.",
   avgPaymentDeal:
