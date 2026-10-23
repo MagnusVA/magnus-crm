@@ -14,6 +14,12 @@ import {
 	overviewTooltips,
 } from "./overview-help-tooltip";
 import { formatRate, formatWholeNumber } from "./overview-formatters";
+
+// Show and no-show rates use "—" when no call was held or missed, as every
+// other show-rate screen does.
+function formatShowRate(value: number | null) {
+	return value === null ? "—" : formatRate(value);
+}
 import { MemberIdentity } from "./member-identity";
 
 type ReadyData = Extract<
@@ -104,10 +110,10 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 							<NumericCell value={formatWholeNumber(row.noShows)} />
 							<NumericCell value={formatWholeNumber(row.reviewRequired)} />
 							<TableCell className="text-right tabular-nums">
-								{formatRate(row.showRate)}
+								{formatShowRate(row.showRate)}
 								<ResultsRecorded {...row} attendanceCountsPartial={data.attendanceCountsPartial} />
 							</TableCell>
-							<NumericCell value={formatRate(row.noShowRate)} />
+							<NumericCell value={formatShowRate(row.noShowRate)} />
 						</TableRow>
 					))}
 					<TableRow className="border-t-2 bg-muted/30 hover:bg-muted/30">
@@ -120,10 +126,10 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 							value={formatWholeNumber(data.totals.reviewRequired)}
 						/>
 						<TableCell className="text-right font-semibold tabular-nums">
-							{formatRate(data.totals.showRate)}
+							{formatShowRate(data.totals.showRate)}
 							<ResultsRecorded {...data.totals} attendanceCountsPartial={data.attendanceCountsPartial} />
 						</TableCell>
-						<NumericCell strong value={formatRate(data.totals.noShowRate)} />
+						<NumericCell strong value={formatShowRate(data.totals.noShowRate)} />
 					</TableRow>
 				</TableBody>
 			</Table>
