@@ -133,6 +133,40 @@ export const assertOpportunitySearchProjectionBackfilled = migrations.define({
   },
 });
 
+// Phase 6 PR 2: clear deprecated search day keys before the final narrow.
+// Patch directly so no projection, event, or aggregate is rewritten.
+export const clearOpportunitySearchDayKeys = migrations.define({
+  table: "opportunitySearch",
+  batchSize: 200,
+  migrateOne: async (ctx, row) => {
+    if (
+      row.activityDayKey !== undefined ||
+      row.activityWeekKey !== undefined ||
+      row.activityMonthKey !== undefined
+    ) {
+      await ctx.db.patch("opportunitySearch", row._id, {
+        activityDayKey: undefined,
+        activityWeekKey: undefined,
+        activityMonthKey: undefined,
+      });
+    }
+  },
+});
+
+export const assertOpportunitySearchDayKeysCleared = migrations.define({
+  table: "opportunitySearch",
+  batchSize: 200,
+  migrateOne: async (_ctx, row) => {
+    if (
+      row.activityDayKey !== undefined ||
+      row.activityWeekKey !== undefined ||
+      row.activityMonthKey !== undefined
+    ) {
+      throw new Error(`OpportunitySearch ${row._id} still has day keys`);
+    }
+  },
+});
+
 export const backfillLeadCustomerSearchRows = migrations.define({
   table: "leads",
   batchSize: 100,

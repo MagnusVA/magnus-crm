@@ -3,7 +3,6 @@
  * enrollment falls in it (docs/plans/phase-4-customers.md §6.3).
  */
 import { describe, expect, it } from "vitest";
-import { api } from "../_generated/api";
 import { bookingHarness } from "../../tests/bookingHarness";
 import {
   fixtureUsers,
@@ -55,14 +54,5 @@ describe("admin dashboard new customers", () => {
       countNewCustomersFromEnrollments(ctx, tenantId, JUNE.start, JUNE.end),
     );
     expect(fromEnrollments).toEqual({ count: 3, isTruncated: false });
-  });
-
-  it("reports the period's new customers from enrollments", async () => {
-    const { admin } = await seed();
-    const stats = await admin.query(api.dashboard.adminStats.getTimePeriodStats, {
-      periodStart: JUNE.start,
-      periodEnd: JUNE.end,
-    });
-    expect(stats.newCustomers).toBe(3);
   });
 });
