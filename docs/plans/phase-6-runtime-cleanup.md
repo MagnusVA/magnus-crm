@@ -521,7 +521,7 @@ None needed the ADR amended or a new approval; each keeps a decision's intent.
 - **Index drops and the deploy.** Convex refuses a non-interactive push that deletes large indexes. #182's Vercel build stopped there with nothing deployed, so its Convex code was pushed from `main` with `pnpx convex@1.48.0 deploy --skip-large-indexes-check`, then Vercel was redeployed. #184 went the same way.
 - **PR order and numbers.** The plan's PRs 1 to 13 shipped as: #183 (PR 1), #182 (PR 2), #186 (PR 3), #184 (PR 4), #185 (PR 5), #191 (PR 6), #188 (PR 7), #190 (PR 8), #189 (PR 9), #192 (PR 10), #194 (PR 11), #187 (PR 12), and the narrow in two: #193 stops writing `completedAt` and clears it, and switches the verified aggregates to strict writes; #195 is the narrow.
 - **Verification flags stay** (D12). Each aggregate keeps its tenant flag and the gated read: if an aggregate is ever rebuilt, its backfill, assert and mark set the flag again, and the report reads the old way until then. The backfills and asserts stay as rebuild tools; the one-off clears and their asserts are deleted with their fields.
-- **Bounded verification.** The first verification queries read whole tables in one transaction, past Convex's limits. They became batched `migrations.define` asserts that check each row's exact aggregate entry, plus cheap totals checks; a mark mutation sets a flag only after the backfill and the assert succeeded, in that order.
+- **Bounded verification.** The first verification queries read whole tables in one transaction, past Convex's limits. They became batched `migrations.define` asserts that check each row's exact aggregate entry, plus cheap totals checks. For Pipeline Health and the lead gen Deals column, a mark mutation sets the flag only after the backfill and the assert succeeded, in that order. The activity counts are the exception: their assert takes over an hour, so `markActivityEventCountsVerified` sets the flag once the backfill has succeeded, the oldest event has its entry, and its own day-by-day parity check passes for each of the last 30 business days. `assertActivityEventCounts` ran after that as a health check.
 - **The business day cutover** (PR 11). Readers of the meeting buckets wait for `businessDayAppliedVersion` to match the setting's version, so a deploy never shows UTC-keyed buckets as business days. Right after #194 deployed, `beginBusinessDayCutover` (lead gen skipped, since the default day is unchanged) re-projected every meeting and marked the tenant ready.
 - **`verifyBackfillCounts`** reads meetings and deals in full and no longer fits one transaction at production volume (over 16 MB). The projection asserts and the reviewed aggregate replace path stood in for it after the attendance backfill.
 - **The activity backfill** ran at about 500 events a minute (40 events, 5 or 6 aggregate entries each, per batch): 195,690 events from 04:18 to 10:49. The 30-day check and the flag followed it, then `assertActivityEventCounts` as a health check. #195 merged while that assert was still running, because the strict delete only runs when tenant deletion or an admin purge removes events, and the backfill and the 30-day check had already passed.
@@ -553,18 +553,18 @@ All runs are on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `-
 | --- | --- | --- |
 | #181 | the plan | docs, merged 10-23 01:45 |
 | #182 | PR 2: drop 44 unused indexes, `getTimePeriodStats` and the search row day keys | 10-23 02:14, Convex pushed by hand with `--skip-large-indexes-check` after the Vercel build stopped at the index check; Vercel redeployed 02:19 |
-| #183 | PR 1: stop reading and writing `tenantStats` | 10-23 02:24 |
-| #184 | PR 4: drop `meetingOutcome`, stop writing the deal's meeting times, retire the legacy daily stats | 10-23 02:27, Convex pushed by hand as for #182 |
-| #186 | PR 3: drop `paymentRecords.commissionable` and the retired origins | 10-23 02:38 |
-| #185 | PR 5: bound the closer dashboard, next meeting and calendar reads | 10-23 02:46 |
+| #183 | PR 1: stop reading and writing `tenantStats` | 10-23 02:20 |
+| #184 | PR 4: drop `meetingOutcome`, stop writing the deal's meeting times, retire the legacy daily stats | 10-23 02:23, Convex pushed by hand as for #182 |
+| #186 | PR 3: drop `paymentRecords.commissionable` and the retired origins | 10-23 02:40 |
+| #185 | PR 5: bound the closer dashboard, next meeting and calendar reads | 10-23 02:44 |
 | #187 | PR 12: Booking Answers show the meeting's own answers | 10-23 02:47 |
-| #191 | PR 6: Pipeline Health's aging and loss reads come from aggregates | 10-23 03:22 |
-| #189 | PR 9: Not recorded, one show rate, and results recorded | 10-23 03:50 |
-| #190 | PR 8: the lead gen Deals column counts from an aggregate | 10-23 04:00 |
-| #192 | PR 10: the meeting records attendance as held, with `heldMarkedAt` | 10-23 04:00 |
+| #191 | PR 6: Pipeline Health's aging and loss reads come from aggregates | 10-23 03:29 |
+| #189 | PR 9: Not recorded, one show rate, and results recorded | 10-23 03:47 |
+| #190 | PR 8: the lead gen Deals column counts from an aggregate | 10-23 03:51 |
+| #192 | PR 10: the meeting records attendance as held, with `heldMarkedAt` | 10-23 04:01 |
 | #188 | PR 7: the activity summary counts from an aggregate, and the feed paginates | 10-23 04:18 |
-| #193 | PR 13a: stop writing `completedAt`, and strict writes for the verified aggregates | 10-23 ~05:00 |
-| #194 | PR 11: the business day is a tenant setting, used by every server-side day | 10-23 05:50 |
+| #193 | PR 13a: stop writing `completedAt`, and strict writes for the verified aggregates | 10-23 04:36 |
+| #194 | PR 11: the business day is a tenant setting, used by every server-side day | 10-23 05:49 |
 | #195 | PR 13: the narrow | 10-23 16:44 |
 
 ### 13.3 Runs
@@ -576,17 +576,17 @@ All runs are on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, times in UTC, with `-
 | 10-23 02:29 to 02:35 | `clearDealMeetingTimes` dry run, run; `assertDealMeetingTimesCleared` | dry run ok; done, 11,604; passed, 11,604 |
 | 10-23 02:29 to 02:35 | `deleteLegacyMeetingDailyStats` dry run, run; `assertLegacyMeetingDailyStatsEmpty` | dry run ok; 5,761 deleted; passed |
 | 10-23 02:35 | `assertBookingAttributions`, `assertDealAttributions` (reset), after PR 4's booking fact change | passed: 6,921 meetings; deals passed |
-| 10-23 02:38 to 02:41 | `assertPaymentsCommissionable`; `clearPaymentCommissionable` dry run, run; `assertPaymentCommissionableCleared`; `assertEnrollments`, `assertPaymentEnrollments` (reset) | passed, 292; dry run ok, done 292; passed, 292; both passed |
+| 10-23 02:40 to 02:41 | `assertPaymentsCommissionable`; `clearPaymentCommissionable` dry run, run; `assertPaymentCommissionableCleared`; `assertEnrollments`, `assertPaymentEnrollments` (reset) | passed, 292; dry run ok, done 292; passed, 292; both passed |
 | 10-23 02:46 | read-only: the busiest closer month | 278 meetings, under the 2,000 cap |
-| 10-23 03:22 to 03:33 | `backfillOpenDealAging`, `backfillPersonLosses` dry run, run; `assertPipelineHealthAggregates`; `verifyPipelineHealthAggregateTotals`; `markPipelineHealthAggregatesVerified` | dry runs ok; done, 11,610 each; passed, 11,610; `[]`; flag set, Pipeline Health reads the aggregates |
+| 10-23 03:29 to 03:33 | `backfillOpenDealAging`, `backfillPersonLosses` dry run, run; `assertPipelineHealthAggregates`; `verifyPipelineHealthAggregateTotals`; `markPipelineHealthAggregatesVerified` | dry runs ok; done, 11,610 each; passed, 11,610; `[]`; flag set, Pipeline Health reads the aggregates |
 | 10-23 03:50 | read-only: the show rate after PR 9 | September by UTC month: 189 ÷ 387 = 48.8%; 387 of 771 past calls have a result |
 | 10-23 04:00 | `backfillLeadGenDealsByWorker` dry run, run; `assertLeadGenDealsByWorker`; `verifyLeadGenDealsByWorker` per month; `markLeadGenDealsByWorkerVerified` | dry run ok; done, 30,690 attribution rows; passed, 30,690; `[]` for every month 2026-01 to 2026-11; flag set, the Deals column reads the aggregate |
-| 10-23 04:00 to 04:10 | `backfillMeetingAttendance` dry run, run; `assertMeetingAttendance`; projection queue; `assertMeetingProjections`, `assertMeetingProjectionBuckets`, `assertMeetingProjectionSources` | dry run ok; done, 6,923; passed; drained 202 to 0; passed: 6,924, 3,673 and 6,924 |
+| 10-23 04:01 to 04:10 | `backfillMeetingAttendance` dry run, run; `assertMeetingAttendance`; projection queue; `assertMeetingProjections`, `assertMeetingProjectionBuckets`, `assertMeetingProjectionSources` | dry run ok; done, 6,923; passed; drained 202 to 0; passed: 6,924, 3,673 and 6,924 |
 | 10-23 04:10 | read-only: attendance | held 718, all with `heldMarkedAt` and `completedAt`; no-show 536, scheduled 2,821, canceled 2,849, none with `completedAt`. `verifyBackfillCounts` no longer fits one transaction (§11.5) |
 | 10-23 04:12 to 04:55 | `assertLeadLifecycle` (reset), after the attendance change | passed, 91,426 people |
 | 10-23 04:18 to 10:49 | `backfillActivityEventCounts` dry run, run | dry run ok; done, 195,690 events |
 | 10-23 ~04:22 | dev (`cautious-donkey-511`): `npx convex dev --once` with main `cd07b04`, then every production run above | passed: `deleteTenantStatsRows` 1, `clearOpportunitySearchDayKeys` 33, `clearPaymentCommissionable` 9, `clearDealMeetingTimes` 33, `deleteLegacyMeetingDailyStats` 22, `backfillOpenDealAging` 33, `backfillPersonLosses` 33, `backfillLeadGenDealsByWorker` 88, `backfillActivityEventCounts` 175, `backfillMeetingAttendance` 30; every matching assert passed |
-| 10-23 ~05:00 | `clearHeldCompletedAt` dry run, run; `assertMeetingAttendance` (reset); the same on dev | dry run ok; done; passed, no meeting has `completedAt` |
+| 10-23 04:36 to ~05:00 | `clearHeldCompletedAt` dry run, run; `assertMeetingAttendance` (reset); the same on dev | dry run ok; done; passed, no meeting has `completedAt` |
 | 10-23 05:50 to 06:11 | `beginBusinessDayCutover` (`rebuildLeadGen` false); the same on dev | `businessDayVersion` 1; meetings re-projected onto business days, queue drained, asserts passed; done 06:11, `businessDayAppliedVersion` 1; meeting bucket screens and reports read again |
 | 10-23 15:49 to 15:51 | `markActivityEventCountsVerified` for each of the last 30 business days | passed every day; flag set on the 30th, the activity summary reads the aggregate |
 | 10-23 15:51 to 17:07 | `assertActivityEventCounts` | passed, 196,296 events (the backfill's 195,690 and those written since) |
