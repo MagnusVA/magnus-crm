@@ -59,7 +59,7 @@ export const markNoShow = mutation({
     // Booked (or Call held) -> Closed lost: a missed meeting's loss names no person.
     await transitionOpportunity(ctx, opportunity._id, {
       to: { stage: "closed", outcome: "lost" },
-      fields: { noShowAt: now, updatedAt: now, ...missedMeetingLoss("no_show", now) },
+      fields: { updatedAt: now, ...missedMeetingLoss("no_show", now) },
       source: "closer",
       actorUserId: userId,
       reason,

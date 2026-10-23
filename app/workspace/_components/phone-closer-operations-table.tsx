@@ -105,7 +105,7 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 							<NumericCell value={formatWholeNumber(row.reviewRequired)} />
 							<TableCell className="text-right tabular-nums">
 								{formatRate(row.showRate)}
-								<ResultsRecorded {...row} />
+								<ResultsRecorded {...row} attendanceCountsPartial={data.attendanceCountsPartial} />
 							</TableCell>
 							<NumericCell value={formatRate(row.noShowRate)} />
 						</TableRow>
@@ -121,7 +121,7 @@ export function PhoneCloserOperationsTable({ data }: { data: ReadyData }) {
 						/>
 						<TableCell className="text-right font-semibold tabular-nums">
 							{formatRate(data.totals.showRate)}
-							<ResultsRecorded {...data.totals} />
+							<ResultsRecorded {...data.totals} attendanceCountsPartial={data.attendanceCountsPartial} />
 						</TableCell>
 						<NumericCell strong value={formatRate(data.totals.noShowRate)} />
 					</TableRow>

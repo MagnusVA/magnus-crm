@@ -18,13 +18,11 @@ import {
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { refreshOpportunitySearchForLead } from "../lib/opportunitySearch";
 import {
-  countsAsLead,
   initialLifecycleFields,
   readLifecycle,
   syncLeadStageEntries,
 } from "../lib/leadLifecycle";
 import { reportError } from "../lib/observability/log";
-import { updateTenantStats } from "../lib/tenantStatsHelper";
 import type { LifecycleEvidence } from "./lifecycle";
 import { buildLeadSearchText } from "./searchTextBuilder";
 
@@ -606,11 +604,6 @@ export async function resolveLeadIdentity(
   }
 
   await syncLeadStageEntries(ctx, args.tenantId, leadId, null, readLifecycle(newLead));
-  if (countsAsLead(newLead)) {
-    await updateTenantStats(ctx, args.tenantId, {
-      totalLeads: 1,
-    });
-  }
   await rebuildLeadCustomerSearchRow(ctx, args.tenantId, leadId);
 
   const potentialDuplicateLeadId = identityEmail

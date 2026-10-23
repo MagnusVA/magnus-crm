@@ -16,12 +16,10 @@ import { cn } from "@/lib/utils";
 type RevenueMetrics = FunctionReturnType<
   typeof api.reporting.revenue.getRevenueMetrics
 >;
-type ProgramRow =
-  RevenueMetrics["commissionable"]["byProgram"][number];
+type ProgramRow = RevenueMetrics["revenue"]["byProgram"][number];
 
 interface RevenueByProgramSectionProps {
-  commissionable: ReadonlyArray<ProgramRow>;
-  nonCommissionable: ReadonlyArray<ProgramRow>;
+  rows: ReadonlyArray<ProgramRow>;
 }
 
 function combinedTotal(row: ProgramRow): number {
@@ -113,24 +111,16 @@ function ProgramList({
 }
 
 export function RevenueByProgramSection({
-  commissionable,
-  nonCommissionable,
+  rows,
 }: RevenueByProgramSectionProps) {
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-6">
       <ProgramList
-        title="Commissionable by Payment Program"
+        title="Revenue by Payment Program"
         description="Meeting, reminder, and legacy admin-outcome revenue per payment program"
-        emptyMessage="No commissionable payment-program revenue in this period"
-        rows={commissionable}
+        emptyMessage="No payment-program revenue in this period"
+        rows={rows}
         accentClassName="bg-primary"
-      />
-      <ProgramList
-        title="Post-Conversion by Payment Program"
-        description="Customer-direct / bookkeeper revenue per payment program"
-        emptyMessage="No post-conversion payment-program revenue in this period"
-        rows={nonCommissionable}
-        accentClassName="bg-muted-foreground/60"
       />
     </div>
   );

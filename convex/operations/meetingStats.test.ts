@@ -259,35 +259,6 @@ it("counts a booked meeting once after recording a no-show", async () => {
   ).toMatchObject({ scheduled: 1, noShows: 1, canceled: 0 });
 });
 
-it("does not report an empty replacement table as zero during migration", async () => {
-  const { t, tenantId, admin } = await bookingHarness();
-  await t.run(async (ctx) => {
-    const closer = await ctx.db
-      .query("users")
-      .withIndex("by_tenantId_and_calendlyUserUri", (q) =>
-        q
-          .eq("tenantId", tenantId)
-          .eq("calendlyUserUri", "https://api.calendly.com/users/closer"),
-      )
-      .unique();
-    if (!closer) throw new Error("Missing fixture closer");
-    await ctx.db.insert("operationsMeetingDailyStats", {
-      tenantId,
-      assignedCloserId: closer._id,
-      dayKey: "2026-10-01",
-      meetingStatus: "scheduled",
-      count: 5,
-      updatedAt: 0,
-    });
-  });
-  await expect(
-    admin.query(api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions, {
-      startDayKey: "2026-10-01",
-      endDayKeyExclusive: "2026-10-02",
-    }),
-  ).rejects.toThrow("Reporting rebuild has not been verified");
-});
-
 it("projects every historical meeting when an opportunity with over 200 meetings changes", async () => {
   vi.useFakeTimers();
   const { t, tenantId, admin } = await bookingHarness();

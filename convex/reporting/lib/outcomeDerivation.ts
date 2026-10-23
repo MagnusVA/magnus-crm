@@ -53,8 +53,8 @@ export function needsRescheduleLinkCheck(
  * a no-show or a cancellation; a follow-up is a held meeting on a deal at
  * Follow-up with no pending reschedule link (§4.6).
  *
- * No code path produces "dq" yet: its old trigger, `meetingOutcome ===
- * "not_qualified"`, went with the meeting comments feature. When Team
+ * No code path produces "dq" yet: its old trigger went with the meeting
+ * comments feature. When Team
  * Performance needs it, add an explicit disqualify action, a structured loss
  * reason, or a tagged comment.
  */

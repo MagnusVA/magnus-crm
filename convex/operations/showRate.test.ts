@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { attendanceStorageModes, heldAttendanceFixture } from "../../tests/heldAttendanceFixtures";
+import * as attendanceHelpers from "../lib/meetingAttendance";
 import { api, internal } from "../_generated/api";
 import { ATTENDANCE_NOW, showRateFixture } from "../../tests/showRateFixtures";
 import { getPhoneCloserOperationsOverviewSection } from "../dashboard/overviewOperations";
@@ -16,7 +17,10 @@ import { insertMeetingAggregate } from "../reporting/writeHooks";
 import { recordBookingAttribution } from "../lib/attribution/dealAttributions";
 import { readMeetingStatsCounts } from "./meetingStats";
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.useRealTimers();
+});
 const range = {
   kind: "custom" as const,
   startBusinessDate: "2026-10-21",
@@ -324,5 +328,40 @@ it("returns partial attendance at a small cap, keeping unread earlier calls fini
       .reduce((sum, row) => sum + row.notRecorded, 0)).toBe(1);
     expect(partial.counts.filter((row) => row.dayKey === "2026-10-22")
       .reduce((sum, row) => sum + row.notRecorded, 0)).toBe(1);
+  }
+});
+
+
+it("persists a capped attendance scan in every snapshot attendance result", async () => {
+  const { t, admin } = await showRateFixture();
+  const original = attendanceHelpers.withAttendanceCounts;
+  // Keep the fixture small while exercising the real bounded scan and worker.
+  vi.spyOn(attendanceHelpers, "withAttendanceCounts").mockImplementation(
+    (ctx, tenantId, rows, now) => original(ctx, tenantId, rows, now, 2),
+  );
+  const { jobId } = await admin.mutation(
+    api.operations.reports.jobs.requestDashboardReport,
+    { reportKind: "sales-calls", range, requestToken: "partial-attendance" },
+  );
+  for (let step = 0; step < 20; step += 1) {
+    await t.action(internal.operations.reports.worker.run, { jobId });
+    const job = await t.run((ctx) => ctx.db.get("operationsReportJobs", jobId));
+    if (job?.status === "ready") break;
+    expect(job?.status).toBe("queued");
+  }
+  const summary = await admin.query(
+    api.operations.reports.jobs.getDashboardReportSummary, { jobId },
+  );
+  expect(summary?.payload).toMatchObject({
+    attendanceCountsPartial: true, ...results,
+  });
+  for (const section of ["sales_closer", "sales_program"]) {
+    const rows = await admin.query(api.operations.reports.jobs.listDashboardReportRows, {
+      jobId, section, paginationOpts: { cursor: null, numItems: 100 },
+    });
+    expect(rows.page.length).toBeGreaterThan(0);
+    for (const row of rows.page) {
+      expect(row.payload).toMatchObject({ attendanceCountsPartial: true, ...results });
+    }
   }
 });

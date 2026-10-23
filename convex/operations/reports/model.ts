@@ -205,6 +205,7 @@ export type ReportSourceRow =
     }
   | {
       kind: "sales_meeting_stat";
+      attendanceCountsPartial?: boolean;
       notRecorded: number;
       assignedCloserId: string;
       bookingProgramId: string | null;

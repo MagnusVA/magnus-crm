@@ -91,7 +91,6 @@ function compactPayment(
     attributedCloserId: payment.attributedCloserId,
     amountMinor: payment.amountMinor,
     currency: payment.currency,
-    commissionable: payment.commissionable,
     programId: payment.programId,
     programName: payment.programName,
     paymentType: payment.paymentType,

@@ -165,12 +165,10 @@ export async function reconcileBookingFact(
   const move = currentBooking ? bookingFactMove(opportunity, status) : null;
   if (!move) return;
   const fields = {
-    canceledAt: status === "canceled" ? occurredAt : opportunity.canceledAt,
     cancellationReason:
       status === "canceled"
         ? fact.cancellationReason
         : opportunity.cancellationReason,
-    noShowAt: status === "no_show" ? occurredAt : undefined,
     // Decides which late bookings are held for review.
     updatedAt: Math.max(opportunity.updatedAt, occurredAt),
   };

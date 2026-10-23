@@ -49,7 +49,6 @@ async function insertPayment(
     amountMinor: 100_000,
     currency: "USD",
     recordedByUserId: args.closerId,
-    commissionable: true,
     programId,
     programName: "Program",
     paymentType: "pif",

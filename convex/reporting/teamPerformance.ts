@@ -22,7 +22,7 @@ import {
   getUserDisplayName,
   makeTupleDateBounds,
   reportingUserIdentity,
-  splitPaymentsForRevenueReporting,
+  summarizePaymentsForRevenueReporting,
   summarizeAttributedPayments,
 } from "./lib/helpers";
 
@@ -179,15 +179,15 @@ export const getTeamPerformanceMetrics = query({
       startDate,
       endDate,
     );
-    const paymentSplit = splitPaymentsForRevenueReporting(paymentScan.payments);
-    const commissionableFinalPayments = paymentSplit.commissionable.finalPayments;
+    const revenueSummary = summarizePaymentsForRevenueReporting(paymentScan.payments);
+    const finalPayments = revenueSummary.finalPayments;
     const paymentSummary = summarizeAttributedPayments(
-      commissionableFinalPayments,
+      finalPayments,
     );
     const activeCloserIds = new Set(closers.map((closer) => closer._id));
     const adminLoggedRevenueByCloser = new Map<Id<"users">, number>();
 
-    for (const payment of commissionableFinalPayments) {
+    for (const payment of finalPayments) {
       if (
         payment.effectiveCloserId === null ||
         payment.recordedByUserId === payment.effectiveCloserId ||
@@ -307,8 +307,6 @@ export const getTeamPerformanceMetrics = query({
       teamTotals: {
         ...teamTotals,
         totalRevenueMinor: teamTotals.totalRevenue,
-        postConversionRevenueMinor:
-          paymentSplit.nonCommissionable.finalRevenueMinor,
         newConfirmedAttendanceDenominator:
           teamTotals.newShowed + teamTotals.newNoShows,
         newShowUpRate: toRate(

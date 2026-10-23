@@ -116,7 +116,6 @@ export async function insertPayment(
     opportunityId: args.opportunityId,
     attributedCloserId: admin._id,
     recordedByUserId: admin._id,
-    commissionable: true,
     amountMinor: 10000,
     currency: "USD",
     programId: args.programId,

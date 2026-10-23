@@ -44,9 +44,11 @@ function formatRateOrDash(value: number | null) {
  * getSalesCallsDashboard.stats; nulls render as an em-dash.
  */
 export function SalesCallsStatCards({
+  attendanceCountsPartial,
   stats,
   currency,
 }: {
+  attendanceCountsPartial?: boolean;
   stats: SalesCallsStats | undefined;
   currency: string;
 }) {
@@ -75,7 +77,7 @@ export function SalesCallsStatCards({
     {
       label: "Cash Collected",
       description:
-        `Commissionable final payments recorded in ${currency} — deposits and disputed payments excluded, matching the Revenue report.`,
+        `Final payments recorded in ${currency} — deposits and disputed payments excluded, matching the Revenue report.`,
       value:
         money === undefined
           ? undefined
@@ -112,7 +114,7 @@ export function SalesCallsStatCards({
                   {value}
                 </p>
               )}
-              {label === "Show-up Rate" && stats ? <ResultsRecorded {...stats} /> : null}
+              {label === "Show-up Rate" && stats ? <ResultsRecorded {...stats} attendanceCountsPartial={attendanceCountsPartial} /> : null}
             </CardContent>
           </Card>
         ))}
@@ -121,7 +123,7 @@ export function SalesCallsStatCards({
         <CardHeader className="flex flex-row items-center justify-between gap-2 pb-0">
           <CardTitle className="min-w-0 truncate text-xs font-medium text-muted-foreground">
             <OverviewHelpTooltip
-              description={`Cash collected in ${currency} divided by the number of commissionable final payments in ${currency}. Shows — when there are no payment sales.`}
+              description={`Cash collected in ${currency} divided by the number of final payments in ${currency}. Shows — when there are no payment sales.`}
               label="AVG Cash Collected"
             >
               AVG Cash Collected

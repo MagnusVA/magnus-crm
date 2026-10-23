@@ -37,7 +37,6 @@ type EnrichedPayment = {
   currency: string;
   programName?: string | null;
   paymentType?: string | null;
-  commissionable?: boolean;
   referenceCode?: string;
   status: "recorded" | "verified" | "disputed";
   recordedAt: number;
@@ -78,7 +77,7 @@ const PAYMENT_STATUS_CONFIG = {
 /**
  * Deal Won Card — displays payment details when opportunity is payment_received.
  *
- * Shows: amount, program, payment type, commissionability, attribution,
+ * Shows: amount, program, payment type, attribution,
  * reference code, recorded timestamp, and proof file.
  */
 export function DealWonCard({ payments }: DealWonCardProps) {
@@ -128,17 +127,6 @@ export function DealWonCard({ payments }: DealWonCardProps) {
                   </dt>
                   <dd className="text-sm font-medium">
                     {formatPaymentTypeLabel(payment.paymentType)}
-                  </dd>
-                </div>
-
-                <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Revenue
-                  </dt>
-                  <dd className="text-sm font-medium">
-                    {payment.commissionable === false
-                      ? "Non-commissionable"
-                      : "Commissionable"}
                   </dd>
                 </div>
 

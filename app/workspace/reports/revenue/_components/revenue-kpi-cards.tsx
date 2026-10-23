@@ -1,12 +1,7 @@
 "use client";
 
 import type { FunctionReturnType } from "convex/server";
-import {
-  CoinsIcon,
-  DollarSignIcon,
-  HandCoinsIcon,
-  WalletIcon,
-} from "lucide-react";
+import { DollarSignIcon, HandCoinsIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { StatsCard } from "@/app/workspace/_components/stats-card";
 import { formatAmountMinor } from "@/lib/format-currency";
@@ -41,62 +36,42 @@ function KpiCardSkeleton() {
 export function RevenueKpiCards({ metrics }: RevenueKpiCardsProps) {
   if (metrics === undefined) {
     return (
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, index) => (
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {Array.from({ length: 2 }).map((_, index) => (
           <KpiCardSkeleton key={index} />
         ))}
       </div>
     );
   }
 
-  const { commissionable, nonCommissionable } = metrics;
-  const commissionableFinalSubtext = (() => {
-    if (commissionable.totalDeals === 0) {
+  const { revenue } = metrics;
+  const finalSubtext = (() => {
+    if (revenue.totalDeals === 0) {
       return "No closed-won deals yet";
     }
     const avg =
-      commissionable.avgDealMinor !== null
-        ? formatAmountMinor(commissionable.avgDealMinor, "USD")
+      revenue.avgDealMinor !== null
+        ? formatAmountMinor(revenue.avgDealMinor, "USD")
         : "\u2014";
-    return `${commissionable.totalDeals} deal${
-      commissionable.totalDeals === 1 ? "" : "s"
+    return `${revenue.totalDeals} deal${
+      revenue.totalDeals === 1 ? "" : "s"
     } · avg ${avg}`;
   })();
 
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
       <StatsCard
         icon={DollarSignIcon}
-        label="Commissionable Final"
-        value={formatAmountMinor(commissionable.finalRevenueMinor, "USD")}
-        subtext={commissionableFinalSubtext}
+        label="Final revenue"
+        value={formatAmountMinor(revenue.finalRevenueMinor, "USD")}
+        subtext={finalSubtext}
         variant="primary"
       />
       <StatsCard
         icon={HandCoinsIcon}
-        label="Commissionable Deposits"
-        value={formatAmountMinor(commissionable.depositRevenueMinor, "USD")}
+        label="Deposits"
+        value={formatAmountMinor(revenue.depositRevenueMinor, "USD")}
         subtext="Deposits logged from meetings, reminders, and side deals"
-      />
-      <StatsCard
-        icon={CoinsIcon}
-        label="Post-Conversion Final"
-        value={formatAmountMinor(nonCommissionable.finalRevenueMinor, "USD")}
-        subtext={
-          nonCommissionable.totalDeals === 0
-            ? "No post-conversion payments in range"
-            : `${nonCommissionable.totalDeals} post-conv. payment${
-                nonCommissionable.totalDeals === 1 ? "" : "s"
-              }`
-        }
-        variant="muted"
-      />
-      <StatsCard
-        icon={WalletIcon}
-        label="Post-Conversion Deposits"
-        value={formatAmountMinor(nonCommissionable.depositRevenueMinor, "USD")}
-        subtext="Customer-direct deposits recorded by admins"
-        variant="muted"
       />
     </div>
   );

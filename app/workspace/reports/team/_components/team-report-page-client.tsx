@@ -190,6 +190,7 @@ export function TeamReportPageClient() {
       ) : null}
 
       <TeamKpiSummaryCards
+        attendanceCountsPartial={metrics.attendanceCountsPartial}
         totals={metrics.teamTotals}
         derivedOutcomes={outcomeMix.derived}
         actionsPerCloser={actionsPerCloser}
@@ -208,6 +209,7 @@ export function TeamReportPageClient() {
           <CloserPerformanceTable
             closers={metrics.closers}
             callType="new"
+            attendanceCountsPartial={metrics.attendanceCountsPartial}
             teamTotals={metrics.teamTotals}
           />
         </section>
@@ -223,6 +225,7 @@ export function TeamReportPageClient() {
           <CloserPerformanceTable
             closers={metrics.closers}
             callType="follow_up"
+            attendanceCountsPartial={metrics.attendanceCountsPartial}
             teamTotals={metrics.teamTotals}
           />
         </section>
@@ -264,6 +267,7 @@ function PhoneCloserOperationsTable({
       showRate: number | null;
       noShowRate: number | null;
     };
+    attendanceCountsPartial: boolean;
     truncated: boolean;
   };
 }) {
@@ -322,7 +326,7 @@ function PhoneCloserOperationsTable({
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatRate(row.showRate)}
-                      <ResultsRecorded {...row} />
+                      <ResultsRecorded {...row} attendanceCountsPartial={data.attendanceCountsPartial} />
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatRate(row.noShowRate)}
@@ -345,7 +349,7 @@ function PhoneCloserOperationsTable({
                   </TableCell>
                   <TableCell className="text-right font-semibold tabular-nums">
                     {formatRate(data.totals.showRate)}
-                    <ResultsRecorded {...data.totals} />
+                    <ResultsRecorded {...data.totals} attendanceCountsPartial={data.attendanceCountsPartial} />
                   </TableCell>
                   <TableCell className="text-right font-semibold tabular-nums">
                     {formatRate(data.totals.noShowRate)}

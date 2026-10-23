@@ -226,6 +226,7 @@ function SchedulingShowRateCard({
     pastCalls: number;
     showRate: number | null;
     noShowRate: number | null;
+    attendanceCountsPartial: boolean;
     truncated: boolean;
   };
 }) {

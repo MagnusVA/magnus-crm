@@ -9,9 +9,11 @@ export async function requireReportingReady(
   const tenant = await ctx.db.get("tenants", tenantId);
   if (!tenant) throw new Error("Tenant not found");
   if (tenant.meetingProjectionVersion === 2) return;
-  const legacy = await ctx.db
-    .query("operationsMeetingDailyStats")
-    .withIndex("by_tenantId_and_dayKey", (q) => q.eq("tenantId", tenantId))
+  // Empty tenants need no rebuild. Read the source so readiness never depends
+  // on whether a projection happens to be populated.
+  const meeting = await ctx.db
+    .query("meetings")
+    .withIndex("by_tenantId_and_scheduledAt", (q) => q.eq("tenantId", tenantId))
     .first();
-  if (legacy) throw new Error("Reporting rebuild has not been verified");
+  if (meeting) throw new Error("Reporting rebuild has not been verified");
 }

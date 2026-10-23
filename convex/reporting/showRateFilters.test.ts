@@ -75,6 +75,7 @@ async function seed(storage: AttendanceStorage = "completed") {
   const harness = await bookingHarness();
   const { t, tenantId } = harness;
   const fixture = await t.run(async (ctx) => {
+    await ctx.db.patch("tenants", tenantId, { meetingProjectionVersion: 2 });
     const closerA = (await ctx.db
       .query("users")
       .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_closer"))

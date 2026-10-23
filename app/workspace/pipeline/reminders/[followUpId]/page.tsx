@@ -17,7 +17,7 @@ export const unstable_instant = false;
  *   - Uses `getAdminReminderDetail` (any reminder within the tenant)
  *   - Action bar shows an "Acting on behalf of {closer}" callout
  *
- * Commissionable payments logged here flow through the same
+ * Payments logged here flow through the same
  * `logReminderPayment` mutation as the closer path; the backend detects
  * the admin role and stamps `origin: "admin_reminder"` +
  * `attributedCloserId: followUp.closerId` on the payment row.
