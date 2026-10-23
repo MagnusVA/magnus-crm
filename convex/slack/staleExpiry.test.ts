@@ -6,7 +6,6 @@ import { migrations } from "../migrations";
 import { rebuildQualificationRow } from "../operations/projections";
 import { slackQualificationsByUser } from "../reporting/aggregates";
 import { insertOpportunityAggregate } from "../reporting/writeHooks";
-import { updateTenantStats } from "../lib/tenantStatsHelper";
 import { bookingHarness, bookingPayload, qualifiedLifecycle } from "../../tests/bookingHarness";
 import { stageFields } from "../../tests/dealStageFixtures";
 import type { OpportunityStatus } from "../opportunities/stages";
@@ -52,7 +51,6 @@ async function slackOpportunity(
     if (options.inAggregate !== false) {
       await insertOpportunityAggregate(ctx, opportunityId);
     }
-    await updateTenantStats(ctx, tenantId, { totalOpportunities: 1 });
     const installation = await ctx.db.query("slackInstallations").first();
     const installationId =
       installation?._id ??

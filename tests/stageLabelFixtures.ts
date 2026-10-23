@@ -115,7 +115,6 @@ export async function insertSideDealPayment(
     opportunityId,
     attributedCloserId: closerId,
     recordedByUserId: closerId,
-    commissionable: true,
     amountMinor: 10_000,
     currency: "USD",
     programId,

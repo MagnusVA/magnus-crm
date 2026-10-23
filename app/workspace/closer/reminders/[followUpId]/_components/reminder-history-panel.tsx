@@ -162,18 +162,8 @@ function PaymentRow({ payment }: { payment: Doc<"paymentRecords"> }) {
 			payment.paymentType as keyof typeof PAYMENT_TYPE_LABELS
 		] ?? undefined;
 	const programName = payment.programName;
-	const isCommissionable = payment.commissionable !== false;
-
-	// Second-line context. Non-commissionable rows should not normally appear
-	// in a reminder panel (reminders are always commissionable per §5.4 of the
-	// design) — if one slips through, surface a muted "post-conversion" chip
-	// instead of crashing.
 	let contextLine: ReactNode = null;
-	if (!isCommissionable) {
-		contextLine = (
-			<span className="italic text-muted-foreground">post-conversion</span>
-		);
-	} else if (programName && typeLabel) {
+	if (programName && typeLabel) {
 		contextLine = (
 			<span className="text-muted-foreground">
 				{programName} · {typeLabel}

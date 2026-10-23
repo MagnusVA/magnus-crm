@@ -143,7 +143,7 @@ export function PipelineStrip({
             label="Cash collected"
             value={cashValue}
             detail={cashDetail}
-            help="Commissionable, non-disputed, non-deposit payments attributed to you in the selected period."
+            help="Non-disputed, non-deposit payments attributed to you in the selected period."
             tone="emerald"
             className="col-span-2 sm:col-span-1"
           />

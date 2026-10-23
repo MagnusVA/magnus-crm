@@ -166,7 +166,14 @@ export async function missedMeetingHarness() {
   }
 
   async function dealCount() {
-    return (await t.run((ctx) => ctx.db.query("opportunities").take(10))).length;
+    return (
+      await t.run((ctx) =>
+        ctx.db
+          .query("opportunities")
+          .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+          .collect(),
+      )
+    ).length;
   }
 
   async function followUps(opportunityId: Id<"opportunities">) {
@@ -201,16 +208,15 @@ export async function missedMeetingHarness() {
             .eq("role", "closer"),
         )
         .take(10);
-      const stats = await ctx.db
-        .query("tenantStats")
-        .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
-        .unique();
       const opportunity = await ctx.db.get("opportunities", opportunityId);
       return {
         created: events.some((e) => e.eventType === "opportunity.created"),
         closerCredit: credit.length,
         firstTouch: opportunity?.firstTouch !== undefined,
-        totalOpportunities: stats?.totalOpportunities,
+        totalOpportunities: (await ctx.db
+          .query("opportunities")
+          .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId))
+          .collect()).length,
       };
     });
   }

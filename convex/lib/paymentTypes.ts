@@ -1,7 +1,7 @@
 import type { Id } from "../_generated/dataModel";
 import { v } from "convex/values";
 
-export const COMMISSIONABLE_ORIGINS = [
+export const PAYMENT_ORIGINS = [
   "closer_meeting",
   "closer_reminder",
   "admin_meeting",
@@ -9,19 +9,10 @@ export const COMMISSIONABLE_ORIGINS = [
   "admin_review_resolution",
   "closer_side_deal",
   "admin_side_deal",
-  // Additional commissionable payments recorded against an already-won
+  // Additional payments recorded against an already-won
   // opportunity (a customer making a further/installment payment).
   "closer_additional",
   "admin_additional",
-] as const;
-
-export const NON_COMMISSIONABLE_ORIGINS = [
-  "customer_direct",
-  "bookkeeper_direct",
-] as const;
-
-export const LEGACY_NON_COMMISSIONABLE_ORIGINS = [
-  "customer_flow",
 ] as const;
 
 export const PAYMENT_TYPES = [
@@ -31,41 +22,16 @@ export const PAYMENT_TYPES = [
   "deposit",
 ] as const;
 
-export type CommissionableOrigin = (typeof COMMISSIONABLE_ORIGINS)[number];
-export type NonCommissionableOrigin = (typeof NON_COMMISSIONABLE_ORIGINS)[number];
-export type LegacyNonCommissionableOrigin =
-  (typeof LEGACY_NON_COMMISSIONABLE_ORIGINS)[number];
-export type PaymentOrigin = CommissionableOrigin | NonCommissionableOrigin;
-export type LegacyCompatiblePaymentOrigin =
-  | PaymentOrigin
-  | LegacyNonCommissionableOrigin;
+export type PaymentOrigin = (typeof PAYMENT_ORIGINS)[number];
 export type PaymentType = (typeof PAYMENT_TYPES)[number];
 export type LegacyCompatiblePaymentFields = {
   attributedCloserId?: Id<"users">;
   closerId?: Id<"users">;
-  commissionable?: boolean;
   origin?: string | null;
   recordedByUserId?: Id<"users">;
   loggedByAdminUserId?: Id<"users">;
   programName?: string;
 };
-
-export const commissionableOriginValidator = v.union(
-  v.literal("closer_meeting"),
-  v.literal("closer_reminder"),
-  v.literal("admin_meeting"),
-  v.literal("admin_reminder"),
-  v.literal("admin_review_resolution"),
-  v.literal("closer_side_deal"),
-  v.literal("admin_side_deal"),
-  v.literal("closer_additional"),
-  v.literal("admin_additional"),
-);
-
-export const nonCommissionableOriginValidator = v.union(
-  v.literal("customer_direct"),
-  v.literal("bookkeeper_direct"),
-);
 
 export const paymentOriginValidator = v.union(
   v.literal("closer_meeting"),
@@ -77,8 +43,6 @@ export const paymentOriginValidator = v.union(
   v.literal("admin_side_deal"),
   v.literal("closer_additional"),
   v.literal("admin_additional"),
-  v.literal("customer_direct"),
-  v.literal("bookkeeper_direct"),
 );
 
 export const paymentTypeValidator = v.union(
@@ -88,50 +52,15 @@ export const paymentTypeValidator = v.union(
   v.literal("deposit"),
 );
 
-const commissionableOriginSet = new Set<string>(COMMISSIONABLE_ORIGINS);
-const nonCommissionableOriginSet = new Set<string>(NON_COMMISSIONABLE_ORIGINS);
-const legacyNonCommissionableOriginSet = new Set<string>([
-  ...NON_COMMISSIONABLE_ORIGINS,
-  ...LEGACY_NON_COMMISSIONABLE_ORIGINS,
-]);
+const paymentOriginSet = new Set<string>(PAYMENT_ORIGINS);
 
-export function isCommissionableOrigin(
-  origin: string | undefined | null,
-): origin is CommissionableOrigin {
-  return origin !== undefined && origin !== null && commissionableOriginSet.has(origin);
-}
-
-export function isNonCommissionableOrigin(
-  origin: string | undefined | null,
-): origin is NonCommissionableOrigin {
-  return (
-    origin !== undefined &&
-    origin !== null &&
-    nonCommissionableOriginSet.has(origin)
-  );
-}
-
-export function isLegacyCompatibleNonCommissionableOrigin(
-  origin: string | undefined | null,
-): origin is NonCommissionableOrigin | LegacyNonCommissionableOrigin {
-  return (
-    origin !== undefined &&
-    origin !== null &&
-    legacyNonCommissionableOriginSet.has(origin)
-  );
-}
-
-/** A stored origin as one of today's; a missing one is a deal payment's (D12). */
+/** A stored origin as one of today's; every legacy workflow is a deal payment. */
 export function normalizePaymentOrigin(
   origin: string | undefined | null,
 ): PaymentOrigin {
-  if (origin === "customer_flow") {
-    return "customer_direct";
-  }
-  if (isCommissionableOrigin(origin) || isNonCommissionableOrigin(origin)) {
-    return origin;
-  }
-  return "closer_meeting";
+  return origin && paymentOriginSet.has(origin)
+    ? (origin as PaymentOrigin)
+    : "closer_meeting";
 }
 
 export function resolvePaymentType(
@@ -141,32 +70,16 @@ export function resolvePaymentType(
   return paymentType ?? fallback;
 }
 
-export function resolveLegacyCompatiblePaymentCommissionable(
-  payment: Pick<
-    LegacyCompatiblePaymentFields,
-    "commissionable" | "origin"
-  >,
-): boolean {
-  if (payment.commissionable !== undefined) {
-    return payment.commissionable;
-  }
-  return !isLegacyCompatibleNonCommissionableOrigin(
-    normalizePaymentOrigin(payment.origin),
-  );
-}
-
 export function resolveLegacyCompatibleAttributedCloserId(
   payment: Pick<
     LegacyCompatiblePaymentFields,
-    "attributedCloserId" | "closerId" | "commissionable" | "origin"
+    "attributedCloserId" | "closerId"
   >,
 ): Id<"users"> | undefined {
   if (payment.attributedCloserId !== undefined) {
     return payment.attributedCloserId;
   }
-  return resolveLegacyCompatiblePaymentCommissionable(payment)
-    ? payment.closerId
-    : undefined;
+  return payment.closerId;
 }
 
 export function resolveLegacyCompatibleRecordedByUserId(
@@ -175,8 +88,6 @@ export function resolveLegacyCompatibleRecordedByUserId(
     | "recordedByUserId"
     | "loggedByAdminUserId"
     | "closerId"
-    | "commissionable"
-    | "origin"
   >,
 ): Id<"users"> | undefined {
   if (payment.recordedByUserId !== undefined) {
@@ -185,9 +96,7 @@ export function resolveLegacyCompatibleRecordedByUserId(
   if (payment.loggedByAdminUserId !== undefined) {
     return payment.loggedByAdminUserId;
   }
-  return resolveLegacyCompatiblePaymentCommissionable(payment)
-    ? payment.closerId
-    : payment.closerId;
+  return payment.closerId;
 }
 
 export function resolveLegacyCompatiblePaymentProgramName(
@@ -204,7 +113,6 @@ export function resolveLegacyCompatiblePaymentProgramName(
 
 export type AssertablePaymentShape = {
   tenantId: Id<"tenants">;
-  commissionable: boolean;
   attributedCloserId: Id<"users"> | undefined;
   recordedByUserId: Id<"users">;
   origin: PaymentOrigin;

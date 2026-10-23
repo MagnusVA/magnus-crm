@@ -52,7 +52,7 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
   const pay = (opportunityId: Id<"opportunities">, meetingId: Id<"meetings">, programId: Id<"tenantPrograms">, amountMinor: number) =>
     ctx.db.insert("paymentRecords", {
       tenantId, opportunityId, meetingId, attributedCloserId: closerId, recordedByUserId: closerId,
-      commissionable: true, amountMinor, currency: "USD", programId, programName: "Program",
+      amountMinor, currency: "USD", programId, programName: "Program",
       paymentType: "pif", status: "recorded", recordedAt: CALL + 60_000, origin: "closer_meeting",
     });
   await pay(wonA.opportunityId, wonA.meetingId, programA, 100_000);

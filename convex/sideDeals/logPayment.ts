@@ -8,13 +8,12 @@ import { transitionOpportunity } from "../lib/opportunityActivity";
 import {
   assertPaymentRow,
   resolveProgramForWrite,
-  type CommissionableOrigin,
+  type PaymentOrigin,
 } from "../lib/paymentHelpers";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { isSideDeal } from "../lib/sideDeals";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
 import { expirePendingStaleOpportunityNudges } from "../lib/staleOpportunityNudges";
-import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import { canTakePayment, describeDealState, loadDealTasks } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
 import { insertPaymentAggregate } from "../reporting/writeHooks";
@@ -64,13 +63,12 @@ export const logPayment = mutation({
     const amountMinor = toAmountMinor(args.amount);
     const program = await resolveProgramForWrite(ctx, tenantId, args.programId);
     const paymentType = resolvePaymentType(args.paymentType);
-    const origin: CommissionableOrigin = isAdmin
+    const origin: PaymentOrigin = isAdmin
       ? "admin_side_deal"
       : "closer_side_deal";
 
     assertPaymentRow({
       tenantId,
-      commissionable: true,
       attributedCloserId: opportunity.assignedCloserId,
       recordedByUserId: userId,
       origin,
@@ -85,7 +83,6 @@ export const logPayment = mutation({
       meetingId: undefined,
       attributedCloserId: opportunity.assignedCloserId,
       recordedByUserId: userId,
-      commissionable: true,
       amountMinor,
       currency,
       programId: program._id,
@@ -115,11 +112,6 @@ export const logPayment = mutation({
       metadata: { source: "side_deal", paymentId },
     });
     await expirePendingStaleOpportunityNudges(ctx, args.opportunityId);
-    await applyPaymentStatsDelta(ctx, tenantId, {
-      commissionable: true,
-      paymentType,
-      amountMinorDelta: amountMinor,
-    });
 
     // The person's enrollments follow their payments, and their first one
     // makes them a customer, with or without an email
