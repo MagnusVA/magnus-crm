@@ -100,6 +100,7 @@ export const getMeetingDetail = query({
       dmAttribution,
       dealAttribution,
       rescheduleLink,
+      meetingFormResponses,
     ] = await Promise.all([
       ctx.db
         .query("opportunities")
@@ -141,6 +142,10 @@ export const getMeetingDetail = query({
       resolveBookingDmAttribution(ctx, { tenantId, opportunity, meeting }),
       buildDealAttributionDetail(ctx, opportunity),
       loadPendingRescheduleLink(ctx, opportunity._id),
+      ctx.db
+        .query("meetingFormResponses")
+        .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId))
+        .take(100),
     ]);
 
     const opportunityById = new Map<Id<"opportunities">, Doc<"opportunities">>(
@@ -348,6 +353,17 @@ export const getMeetingDetail = query({
         rescheduleLinkPending: rescheduleLink.count > 0,
       },
       lead,
+      bookingAnswers: meetingFormResponses
+        .filter((response) => response.tenantId === tenantId)
+        .sort((a, b) =>
+          a.capturedAt - b.capturedAt || a.fieldKey.localeCompare(b.fieldKey),
+        )
+        .map(({ fieldKey, questionLabelSnapshot, answerText, capturedAt }) => ({
+          fieldKey,
+          question: questionLabelSnapshot,
+          answer: answerText,
+          capturedAt,
+        })),
       assignedCloser: assignedCloserSummary,
       meetingHistory,
       eventTypeName,

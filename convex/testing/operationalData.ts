@@ -1,3 +1,4 @@
+import { deletePipelineHealthAggregates } from "../reporting/pipelineHealthAggregates";
 import { v } from "convex/values";
 import { internal } from "../_generated/api";
 import {
@@ -119,6 +120,9 @@ async function deleteSimpleBatch(
 ) {
   const rows = await ctx.db.query(tableName).take(BATCH_SIZE);
   for (const row of rows) {
+    if (tableName === "opportunities" && "stage" in row) {
+      await deletePipelineHealthAggregates(ctx, row);
+    }
     await ctx.db.delete(tableName, row._id);
   }
   return rows.length;
