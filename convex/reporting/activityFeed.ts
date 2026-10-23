@@ -1,3 +1,4 @@
+import { paginationOptsValidator } from "convex/server";
 import { stream } from "convex-helpers/server/stream";
 import schema from "../schema";
 import {
@@ -15,7 +16,6 @@ import {
   reportingUserIdentity,
 } from "./lib/helpers";
 
-const ACTIVITY_FEED_PAGE_SIZE = 50;
 const ACTIVITY_FEED_READ_BUDGET = 500;
 export const MAX_ACTIVITY_SCAN_EVENTS = 10000;
 
@@ -132,7 +132,7 @@ export const getActivityFeed = query({
         v.literal("deposit"),
       ),
     ),
-    cursor: v.optional(v.string()),
+    paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, args) => {
     const { tenantId } = await requireTenantUser(ctx, [
@@ -189,9 +189,8 @@ export const getActivityFeed = query({
         );
       })
       .paginate({
-        numItems: ACTIVITY_FEED_PAGE_SIZE,
+        ...args.paginationOpts,
         maximumRowsRead: ACTIVITY_FEED_READ_BUDGET,
-        cursor: args.cursor ?? null,
       });
     const events = page.page.map((event) => ({
       event,
@@ -238,9 +237,8 @@ export const getActivityFeed = query({
       })),
     );
     return {
-      events: enrichedEvents,
-      cursor: page.continueCursor,
-      isDone: page.isDone,
+      ...page,
+      page: enrichedEvents,
     };
   },
 });

@@ -10,6 +10,7 @@ import { seedEnrolledCustomer } from "../../tests/enrollmentPageFixtures";
 afterEach(() => vi.useRealTimers());
 
 const NOW = Date.parse("2026-10-10T12:00:00Z");
+const PAGINATION = { numItems: 50, cursor: null };
 const RANGE = { startDate: NOW - 60_000, endDate: NOW + 60_000 };
 
 describe("activity feed enrollment events", () => {
@@ -42,6 +43,7 @@ describe("activity feed enrollment events", () => {
       api.reporting.activityFeed.getActivityFeed,
       {
         ...RANGE,
+        paginationOpts: PAGINATION,
         entityType: "enrollment",
       },
     );
@@ -49,6 +51,7 @@ describe("activity feed enrollment events", () => {
       api.reporting.activityFeed.getActivityFeed,
       {
         ...RANGE,
+        paginationOpts: PAGINATION,
         entityType: "customer",
       },
     );
@@ -57,21 +60,21 @@ describe("activity feed enrollment events", () => {
       RANGE,
     );
 
-    expect(enrollmentFeed.events).toHaveLength(1);
-    expect(enrollmentFeed.events[0]).toMatchObject({
+    expect(enrollmentFeed.page).toHaveLength(1);
+    expect(enrollmentFeed.page[0]).toMatchObject({
       eventType: "enrollment.status_changed",
       fromStatus: "active",
       toStatus: "churned",
       reason: "Stopped paying",
     });
-    expect(customerFeed.events.map((event) => event.eventType)).toEqual([
+    expect(customerFeed.page.map((event) => event.eventType)).toEqual([
       "customer.converted",
     ]);
     expect(summary.byEntity).toMatchObject({ enrollment: 1, customer: 1 });
   });
 });
 
-it("continues past 50 events with a cursor, including events sharing a timestamp", async () => {
+it("reaches an old event after 50 events sharing a timestamp", async () => {
   const h = await bookingHarness();
   const ids = await h.t.run(async (ctx) => {
     const ids = [];
@@ -82,7 +85,7 @@ it("continues past 50 events with a cursor, including events sharing a timestamp
           entityType: "user",
           entityId: "historical",
           eventType: "user.created",
-          occurredAt: NOW,
+          occurredAt: index === 50 ? RANGE.startDate : NOW,
           source: "admin",
         }),
       );
@@ -91,18 +94,21 @@ it("continues past 50 events with a cursor, including events sharing a timestamp
   });
   const first = await h.admin.query(
     api.reporting.activityFeed.getActivityFeed,
-    RANGE,
+    { ...RANGE, paginationOpts: PAGINATION },
   );
-  expect(first.events).toHaveLength(50);
+  expect(first.page).toHaveLength(50);
   expect(first.isDone).toBe(false);
   const second = await h.admin.query(
     api.reporting.activityFeed.getActivityFeed,
-    { ...RANGE, cursor: first.cursor },
+    {
+      ...RANGE,
+      paginationOpts: { ...PAGINATION, cursor: first.continueCursor },
+    },
   );
-  expect(second.events).toHaveLength(1);
+  expect(second.page.map((event) => event._id)).toEqual([ids[50]]);
   expect(second.isDone).toBe(true);
   expect(
-    new Set([...first.events, ...second.events].map((event) => event._id)),
+    new Set([...first.page, ...second.page].map((event) => event._id)),
   ).toEqual(new Set(ids));
 });
 
@@ -131,14 +137,66 @@ it("returns a continuation after a filter consumes the 500-row budget without ma
   const args = { ...RANGE, entityType: "enrollment" as const };
   const first = await h.admin.query(
     api.reporting.activityFeed.getActivityFeed,
-    args,
+    { ...args, paginationOpts: PAGINATION },
   );
-  expect(first.events).toEqual([]);
+  expect(first.page).toEqual([]);
   expect(first.isDone).toBe(false);
   const second = await h.admin.query(
     api.reporting.activityFeed.getActivityFeed,
-    { ...args, cursor: first.cursor },
+    {
+      ...args,
+      paginationOpts: { ...PAGINATION, cursor: first.continueCursor },
+    },
   );
-  expect(second.events.map((event) => event._id)).toEqual([oldId]);
+  expect(second.page.map((event) => event._id)).toEqual([oldId]);
   expect(second.isDone).toBe(true);
+});
+
+it("keeps a loaded page's end cursor when new events arrive or old events are deleted", async () => {
+  const h = await bookingHarness();
+  const ids = await h.t.run(async (ctx) => {
+    const ids = [];
+    for (let index = 0; index < 3; index++) {
+      ids.push(await ctx.db.insert("domainEvents", {
+        tenantId: h.tenantId,
+        entityType: "user",
+        entityId: "historical",
+        eventType: "user.created",
+        occurredAt: NOW + index,
+        source: "admin",
+      }));
+    }
+    return ids;
+  });
+  const first = await h.admin.query(api.reporting.activityFeed.getActivityFeed, {
+    ...RANGE,
+    paginationOpts: { numItems: 2, cursor: null },
+  });
+  const newId = await h.t.run(async (ctx) => {
+    await ctx.db.delete("domainEvents", ids[2]);
+    return await ctx.db.insert("domainEvents", {
+      tenantId: h.tenantId,
+      entityType: "user",
+      entityId: "new",
+      eventType: "user.created",
+      occurredAt: NOW + 3,
+      source: "admin",
+    });
+  });
+  const refreshed = await h.admin.query(api.reporting.activityFeed.getActivityFeed, {
+    ...RANGE,
+    paginationOpts: {
+      numItems: 1,
+      cursor: null,
+      endCursor: first.continueCursor,
+    },
+  });
+  expect(refreshed.page.map((event) => event._id)).toEqual([newId, ids[1]]);
+  expect(refreshed.continueCursor).toBe(first.continueCursor);
+  const next = await h.admin.query(api.reporting.activityFeed.getActivityFeed, {
+    ...RANGE,
+    paginationOpts: { numItems: 2, cursor: refreshed.continueCursor },
+  });
+  expect(next.page.map((event) => event._id)).toEqual([ids[0]]);
+  expect(next.isDone).toBe(true);
 });

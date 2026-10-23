@@ -1,8 +1,8 @@
 "use client";
 
-import type { FunctionArgs, FunctionReturnType } from "convex/server";
+import type { FunctionArgs } from "convex/server";
 import { useState } from "react";
-import { useQuery } from "convex/react";
+import { usePaginatedQuery, useQuery } from "convex/react";
 import { startOfMonth, endOfMonth } from "date-fns";
 import { AlertTriangleIcon } from "lucide-react";
 import { api } from "@/convex/_generated/api";
@@ -130,36 +130,22 @@ export function ActivityFeedPageClient() {
 function ActivityFeedResults({
   args,
 }: {
-  args: FunctionArgs<typeof api.reporting.activityFeed.getActivityFeed>;
+  args: Omit<
+    FunctionArgs<typeof api.reporting.activityFeed.getActivityFeed>,
+    "paginationOpts"
+  >;
 }) {
-  const [cursor, setCursor] = useState<string>();
-  const [previousEvents, setPreviousEvents] = useState<
-    FunctionReturnType<
-      typeof api.reporting.activityFeed.getActivityFeed
-    >["events"]
-  >([]);
-  const feed = useQuery(api.reporting.activityFeed.getActivityFeed, {
-    ...args,
-    ...(cursor ? { cursor } : {}),
-  });
-  const seen = new Set<string>();
-  const events = [...previousEvents, ...(feed?.events ?? [])].filter(
-    (event) => {
-      if (seen.has(event._id)) return false;
-      seen.add(event._id);
-      return true;
-    },
+  const { results, status, loadMore, isLoading } = usePaginatedQuery(
+    api.reporting.activityFeed.getActivityFeed,
+    args,
+    { initialNumItems: 50 },
   );
   return (
     <ActivityFeedList
-      events={events}
-      onLoadMore={() => {
-        if (!feed || feed.isDone) return;
-        setPreviousEvents(events);
-        setCursor(feed.cursor);
-      }}
-      hasMore={feed !== undefined && !feed.isDone}
-      isLoading={feed === undefined}
+      events={results}
+      onLoadMore={() => loadMore(50)}
+      hasMore={status === "CanLoadMore" || status === "LoadingMore"}
+      isLoading={isLoading}
     />
   );
 }
