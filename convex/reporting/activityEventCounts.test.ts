@@ -11,6 +11,7 @@ import { insertMeeting } from "../../tests/enrollmentReadFixtures";
 import { SYSTEM_ADMIN_ORG_ID } from "../lib/constants";
 import { emitDomainEvent } from "../lib/domainEvents";
 import {
+  activityCountKeys,
   activityEventCounts,
   assertActivityEventCountEntries,
   deleteActivityEventCounts,
@@ -181,6 +182,44 @@ describe("activity event counts", () => {
           ctx, tenant, RANGE.startDate, RANGE.endDate, 2,
         ),
       ).toEqual(scanned);
+    });
+  });
+
+  it("counts actor and historical keys against an injected aggregate range cap before reading", async () => {
+    const h = await harness();
+    await h.t.run(async (ctx) => {
+      const users = await ctx.db.query("users")
+        .withIndex("by_tenantId", (q) => q.eq("tenantId", h.tenantId))
+        .take(10);
+      await activityEvent(ctx, h.tenantId, {
+        occurredAt: RANGE.startDate,
+        actorUserId: users[1]._id,
+        eventType: "historical.custom",
+      });
+      const tenant = (await ctx.db.get("tenants", h.tenantId))!;
+      const keys = activityCountKeys(
+        users.map((user) => user._id),
+        tenant.activityEventCountsExtraValues?.values,
+      );
+      const scanned = await readScannedActivitySummary(
+        ctx, h.tenantId, RANGE.startDate, RANGE.endDate,
+      );
+      const countBatch = vi.spyOn(activityEventCounts, "countBatch");
+      try {
+        // The catalogs and actors fit; the historical value pushes it over.
+        expect(await readAggregateActivitySummary(
+          ctx, tenant, RANGE.startDate, RANGE.endDate, 500, keys.length - 1,
+        )).toEqual(scanned);
+        expect(countBatch).not.toHaveBeenCalled();
+        // An exact fit still uses the aggregate path.
+        expect(await readAggregateActivitySummary(
+          ctx, tenant, RANGE.startDate, RANGE.endDate, 500, keys.length,
+        )).toEqual(scanned);
+        expect(countBatch).toHaveBeenCalledOnce();
+        expect(countBatch.mock.calls[0][1]).toHaveLength(keys.length);
+      } finally {
+        countBatch.mockRestore();
+      }
     });
   });
 
@@ -360,6 +399,34 @@ describe("activity event counts", () => {
     }
   });
 
+  it("drains tenant event counts in 40-event batches and reports continuation", async () => {
+    const h = await harness();
+    await h.t.run(async (ctx) => {
+      for (let index = 0; index < 41; index++)
+        await activityEvent(ctx, h.tenantId, {
+          occurredAt: RANGE.startDate + index,
+          eventType: "followUp.completed",
+          metadata: '{"outcome":"lost"}',
+        });
+    });
+    const first = await h.t.mutation(
+      internal.admin.tenantsMutations.deleteTenantRuntimeDataBatch,
+      { tenantId: h.tenantId },
+    );
+    expect(first).toMatchObject({ deletedCounts: { domainEvents: 40 }, hasMore: true });
+    expect(await h.t.run((ctx) => activityEventCounts.count(ctx, {
+      namespace: h.tenantId,
+    }))).toBe(6);
+    const second = await h.t.mutation(
+      internal.admin.tenantsMutations.deleteTenantRuntimeDataBatch,
+      { tenantId: h.tenantId },
+    );
+    expect(second).toMatchObject({ deletedCounts: { domainEvents: 1 }, hasMore: false });
+    expect(await h.t.run((ctx) => activityEventCounts.count(ctx, {
+      namespace: h.tenantId,
+    }))).toBe(0);
+  });
+
   it("preserves free-string historical event types and the old reminder prefix semantics", async () => {
     const h = await harness();
     await h.t.run(async (ctx) => {
@@ -431,6 +498,66 @@ describe("activity event counts", () => {
         activityEventCounts.count(ctx, { namespace: h.tenantId }),
       ),
     ).toBe(0);
+    await h.t.finishAllScheduledFunctions(vi.runAllTimers);
+  });
+
+  it("completes the blocker purge across event batches shared by opportunities and meetings", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+    const h = await legacyActivityHarness();
+    const seeded = await h.t.run(async (ctx) => {
+      const seeded = await seedEnrolledCustomer(ctx, h.tenantId, { secondProgram: true });
+      const targets = [];
+      for (const opportunityId of [seeded.dealA, seeded.second!.dealId]) {
+        const meetingId = await insertMeeting(ctx, {
+          tenantId: h.tenantId,
+          opportunityId,
+          closerId: seeded.closerId,
+          scheduledAt: RANGE.startDate,
+        });
+        await ctx.db.patch("meetings", meetingId, { assignedCloserId: undefined });
+        for (let index = 0; index < 25; index++) {
+          await activityEvent(ctx, h.tenantId, {
+            entityType: "opportunity", entityId: opportunityId,
+            eventType: "opportunity.created", occurredAt: RANGE.startDate + index,
+          });
+          await activityEvent(ctx, h.tenantId, {
+            entityType: "meeting", entityId: meetingId,
+            eventType: "meeting.created", occurredAt: RANGE.startDate + index,
+          });
+        }
+        targets.push({ opportunityId, meetingId });
+      }
+      await activityEvent(ctx, h.tenantId, { occurredAt: RANGE.startDate });
+      return { ...seeded, targets };
+    });
+    const system = h.t.withIdentity({ subject: "system", org_id: SYSTEM_ADMIN_ORG_ID });
+    for (const [index, deleted] of [40, 40, 20].entries()) {
+      const result = await system.mutation(api.admin.migrations.purgePhase6BlockerRecords, {});
+      expect(result).toMatchObject({
+        hasMore: index < 2,
+        blockerA: { domainEventsPurged: deleted },
+      });
+      if (index === 0) {
+        // Parent IDs remain available to find the rest of the event batch.
+        expect(await h.t.run((ctx) => ctx.db.get("meetings", seeded.targets[0].meetingId)))
+          .not.toBeNull();
+        expect(await h.t.run((ctx) => ctx.db.get("opportunities", seeded.dealA)))
+          .not.toBeNull();
+      }
+    }
+    await h.t.run(async (ctx) => {
+      for (const { opportunityId, meetingId } of seeded.targets) {
+        expect(await ctx.db.get("opportunities", opportunityId)).toBeNull();
+        expect(await ctx.db.get("meetings", meetingId)).toBeNull();
+      }
+      expect(await ctx.db.get("paymentRecords", seeded.paymentA)).toBeNull();
+      expect(await ctx.db.get("leads", seeded.leadId)).not.toBeNull();
+      expect(await ctx.db.query("domainEvents").take(10)).toHaveLength(1);
+      expect(await activityEventCounts.count(ctx, { namespace: h.tenantId })).toBe(5);
+    });
+    expect(await system.mutation(api.admin.migrations.purgePhase6BlockerRecords, {}))
+      .toMatchObject({ hasMore: false, blockerA: { domainEventsPurged: 0 } });
     await h.t.finishAllScheduledFunctions(vi.runAllTimers);
   });
 

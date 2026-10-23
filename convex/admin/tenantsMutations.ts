@@ -4,6 +4,8 @@ import type { DataModel, Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 
 const CLEANUP_BATCH_SIZE = 128;
+// Each event deletes 5-6 aggregate entries, each requiring several index reads.
+const DOMAIN_EVENT_CLEANUP_BATCH_SIZE = 40;
 
 // Each tenant-scoped table, with an index whose first field is tenantId.
 const TENANT_INDEX_BY_TABLE = {
@@ -139,7 +141,7 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
     const domainEvents = await ctx.db
       .query("domainEvents")
       .withIndex("by_tenantId_and_occurredAt", (q) => q.eq("tenantId", tenantId))
-      .take(CLEANUP_BATCH_SIZE);
+      .take(DOMAIN_EVENT_CLEANUP_BATCH_SIZE);
     for (const row of domainEvents) {
       await deleteActivityEventCounts(ctx, row);
       await ctx.db.delete("domainEvents", row._id);
@@ -164,8 +166,11 @@ export const deleteTenantRuntimeDataBatch = internalMutation({
     }
     deletedCounts.eventTypeFieldCatalog = eventTypeFieldCatalog.length;
 
-    const hasMore = Object.values(deletedCounts).some(
-      (count) => count === CLEANUP_BATCH_SIZE,
+    const hasMore = Object.entries(deletedCounts).some(
+      ([table, count]) =>
+        count === (table === "domainEvents"
+          ? DOMAIN_EVENT_CLEANUP_BATCH_SIZE
+          : CLEANUP_BATCH_SIZE),
     );
 
     return {

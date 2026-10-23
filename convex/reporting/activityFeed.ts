@@ -18,6 +18,9 @@ import {
 
 const ACTIVITY_FEED_READ_BUDGET = 500;
 export const MAX_ACTIVITY_SCAN_EVENTS = 10000;
+// Budget ~10 index reads/range: 300 * 10 + 501 user rows = 3,501,
+// leaving 595 of the 4,096 reads for auth and actor identity lookups.
+const MAX_AGGREGATE_COUNT_RANGES = 300;
 
 const DOMAIN_EVENT_ENTITY_TYPES = [
   "customer",
@@ -360,6 +363,7 @@ export async function readAggregateActivitySummary(
   startDate: number,
   endDate: number,
   userLimit = 500,
+  countRangeLimit = MAX_AGGREGATE_COUNT_RANGES,
 ) {
   const tenantId = tenant._id;
   const users = await ctx.db
@@ -369,15 +373,18 @@ export async function readAggregateActivitySummary(
   // A partial user catalog would mislabel real actors as removed users.
   if (users.length > userLimit)
     return await readScannedActivitySummary(ctx, tenantId, startDate, endDate);
+  const keys = activityCountKeys(
+    users.map((user) => user._id),
+    tenant.activityEventCountsExtraValues?.values,
+  );
+  if (keys.length > countRangeLimit)
+    return await readScannedActivitySummary(ctx, tenantId, startDate, endDate);
   const rows = await readActivityEventCounts(
     ctx,
     tenantId,
     startDate,
     endDate,
-    activityCountKeys(
-      users.map((user) => user._id),
-      tenant.activityEventCountsExtraValues?.values,
-    ),
+    keys,
   );
   const dimension = (name: string) =>
     Object.fromEntries(
