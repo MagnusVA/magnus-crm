@@ -12,6 +12,8 @@ export async function showRateFixture(now = ATTENDANCE_NOW) {
   const harness = await bookingHarness({ transactionLimits: true });
   const { t, tenantId } = harness;
   const fixture = await t.run(async (ctx) => {
+    // Reports read the meeting projections only once a tenant is on version 2.
+    await ctx.db.patch("tenants", tenantId, { meetingProjectionVersion: 2 });
     const closer = await ctx.db
       .query("users")
       .withIndex("by_workosUserId", (q) => q.eq("workosUserId", "user_closer"))
