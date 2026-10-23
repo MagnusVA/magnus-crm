@@ -33,18 +33,25 @@ function countKey(
   ]);
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+const ATTENDANCE_READ_LIMIT = 500;
+
 /**
- * Finished days use rollups. Only today's scheduled calls need end times.
- * Buckets still use UTC until PR 11: today's business day intersects two UTC
- * buckets. The unread part of the first bucket has finished, and the unread
- * part of the second is upcoming. This keeps the read to one business day.
+ * Meetings older than 24 hours have ended. Read recent scheduled calls through
+ * the business day's end once, then split the UTC buckets by end time.
+ * Unread calls before the window have finished; unread calls after it are
+ * upcoming. At the cap, only buckets before the last read call are covered.
  */
 export async function withAttendanceCounts<T extends AttendanceCount>(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   rows: T[],
   now = Date.now(),
-): Promise<Array<T & { notRecorded: number }>> {
+  limit = ATTENDANCE_READ_LIMIT,
+): Promise<{
+  counts: Array<T & { notRecorded: number }>;
+  attendanceCountsPartial: boolean;
+}> {
   const { start, end } = attendanceDayBounds(now);
   const firstDay = new Date(start).toISOString().slice(0, 10);
   const lastDay = new Date(end - 1).toISOString().slice(0, 10);
@@ -58,8 +65,16 @@ export async function withAttendanceCounts<T extends AttendanceCount>(
   const unfinishedByKey = new Map<string, number>();
   const finishedIds = new Set<Id<"meetings">>();
   const unfinishedIds = new Set<Id<"meetings">>();
+  let attendanceCountsPartial = false;
+  let coveredEnd = end;
   if (needsEndTimes) {
-    const meetings = await readScheduledAttendanceDay(ctx, tenantId, now);
+    const result = await readScheduledAttendanceDay(ctx, tenantId, now, limit);
+    const { meetings } = result;
+    attendanceCountsPartial = result.attendanceCountsPartial;
+    if (attendanceCountsPartial) {
+      // Calls sharing the last timestamp can also be unread.
+      coveredEnd = meetings[meetings.length - 1].scheduledAt;
+    }
     for (const meeting of meetings) {
       const finished =
         meetingAttendanceDisplay(meeting, now) === "not_recorded";
@@ -72,16 +87,16 @@ export async function withAttendanceCounts<T extends AttendanceCount>(
       counts.set(key, (counts.get(key) ?? 0) + 1);
     }
   }
-  return rows.map((row) => {
+  const counts = rows.map((row) => {
     let notRecorded = 0;
     if (row.meetingStatus === "scheduled") {
       if (row.dayKey < firstDay) {
         notRecorded = row.count;
-      } else if (row.dayKey === firstDay) {
+      } else if (Date.parse(`${row.dayKey}T00:00:00Z`) + DAY_MS <= coveredEnd) {
         notRecorded = row.meetingId
           ? Number(!unfinishedIds.has(row.meetingId))
           : Math.max(0, row.count - (unfinishedByKey.get(countKey(row)) ?? 0));
-      } else if (row.dayKey === lastDay) {
+      } else if (Date.parse(`${row.dayKey}T00:00:00Z`) <= coveredEnd) {
         notRecorded = row.meetingId
           ? Number(finishedIds.has(row.meetingId))
           : Math.min(row.count, finishedByKey.get(countKey(row)) ?? 0);
@@ -89,12 +104,13 @@ export async function withAttendanceCounts<T extends AttendanceCount>(
     }
     return { ...row, notRecorded };
   });
+  return { counts, attendanceCountsPartial };
 }
 
 export function attendanceDayBounds(now: number) {
   const today = timestampToBusinessDateKey(now);
   return {
-    start: businessDateToUtcStart(today),
+    start: Math.min(businessDateToUtcStart(today), now - DAY_MS),
     end: businessDateToUtcStart(addBusinessDays(today, 1)),
   };
 }
@@ -103,6 +119,7 @@ export async function readScheduledAttendanceDay(
   ctx: QueryCtx,
   tenantId: Id<"tenants">,
   now: number,
+  limit = ATTENDANCE_READ_LIMIT,
 ) {
   const { start, end } = attendanceDayBounds(now);
   const meetings = await ctx.db
@@ -114,9 +131,6 @@ export async function readScheduledAttendanceDay(
         .gte("scheduledAt", start)
         .lt("scheduledAt", end),
     )
-    .take(200);
-  if (meetings.length === 200) {
-    throw new Error("Attendance range is too large. Narrow the date range.");
-  }
-  return meetings;
+    .take(limit);
+  return { meetings, attendanceCountsPartial: meetings.length === limit };
 }

@@ -74,6 +74,7 @@ export type TopDmCloserRow = {
 };
 
 export type PhoneCloserOperations = {
+  attendanceCountsPartial: boolean;
   rows: Array<{
     closerId: Id<"users">;
     closer: MemberAvatarIdentity;

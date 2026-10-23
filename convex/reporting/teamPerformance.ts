@@ -131,7 +131,7 @@ export const getTeamPerformanceMetrics = query({
         : Promise.resolve(pastMeta.map(() => 0)),
       hasScheduled && startDate < attendanceDay.end && endDate > attendanceDay.start
         ? readScheduledAttendanceDay(ctx, tenantId, now)
-        : Promise.resolve([]),
+        : Promise.resolve({ meetings: [], attendanceCountsPartial: false }),
     ]);
     const notRecordedByCloser = new Map<string, number>();
     for (const [index, meta] of pastMeta.entries()) {
@@ -140,7 +140,7 @@ export const getTeamPerformanceMetrics = query({
         pastScheduled[index],
       );
     }
-    for (const meeting of currentScheduled) {
+    for (const meeting of currentScheduled.meetings) {
       if (
         meeting.scheduledAt < startDate || meeting.scheduledAt >= endDate ||
         meeting.scheduledAt + meeting.durationMinutes * 60_000 > now
@@ -333,6 +333,7 @@ export const getTeamPerformanceMetrics = query({
           paymentSummary.totalRevenueMinor - visibleRevenueMinor,
         excludedSales: paymentSummary.totalDealCount - visibleDealCount,
       },
+      attendanceCountsPartial: currentScheduled.attendanceCountsPartial,
       isPaymentDataTruncated: paymentScan.isTruncated,
     };
   },
@@ -374,6 +375,7 @@ export const getTeamOperationsDimensions = query({
       showRate: v.union(v.number(), v.null()),
       noShowRate: v.union(v.number(), v.null()),
     }),
+    attendanceCountsPartial: v.boolean(),
     truncated: v.boolean(),
   }),
   handler: async (ctx, args) => {
@@ -415,7 +417,8 @@ export const getTeamOperationsDimensions = query({
       }
     >();
 
-    for (const row of await withAttendanceCounts(ctx, tenantId, counts)) {
+    const attendance = await withAttendanceCounts(ctx, tenantId, counts);
+    for (const row of attendance.counts) {
       if (
         args.bookingProgramId &&
         row.bookingProgramId !== args.bookingProgramId
@@ -490,6 +493,7 @@ export const getTeamOperationsDimensions = query({
         showRate: toRate(totals.completed, denominator),
         noShowRate: toRate(totals.noShows, denominator),
       },
+      attendanceCountsPartial: attendance.attendanceCountsPartial,
       truncated,
     };
   },

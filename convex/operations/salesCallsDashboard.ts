@@ -203,6 +203,7 @@ function emptyDashboard(start: number, end: number) {
     closers: [],
     teamTotal: { ...withMeetingRates(emptyMeetingTotals()), moneyByCurrency: [] },
     window: { start, end },
+    attendanceCountsPartial: false,
     capped: true,
   };
 }
@@ -281,6 +282,7 @@ export const getSalesCallsDashboard = query({
       start: v.number(),
       end: v.number(),
     }),
+    attendanceCountsPartial: v.boolean(),
     capped: v.boolean(),
   }),
   handler: async (ctx, args) => {
@@ -351,7 +353,8 @@ export const getSalesCallsDashboard = query({
       Id<"tenantPrograms"> | null,
       MeetingTotals
     >();
-    for (const row of await withAttendanceCounts(ctx, tenantId, statsRows)) {
+    const attendance = await withAttendanceCounts(ctx, tenantId, statsRows);
+    for (const row of attendance.counts) {
       addStatsRow(overallMeetings, row);
 
       const closerTotals =
@@ -575,6 +578,7 @@ export const getSalesCallsDashboard = query({
         start: range.operationsStartDate,
         end: range.operationsEndDate,
       },
+      attendanceCountsPartial: attendance.attendanceCountsPartial,
       capped: false,
     };
   },

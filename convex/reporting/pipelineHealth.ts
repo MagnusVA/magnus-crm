@@ -596,6 +596,7 @@ export const getSchedulingShowRateByOperationsDimensions = query({
     pastCalls: v.number(),
     showRate: v.union(v.number(), v.null()),
     noShowRate: v.union(v.number(), v.null()),
+    attendanceCountsPartial: v.boolean(),
     truncated: v.boolean(),
   }),
   handler: async (ctx, args) => {
@@ -630,7 +631,8 @@ export const getSchedulingShowRateByOperationsDimensions = query({
     let canceled = 0;
     let noShows = 0;
     let notRecorded = 0;
-    for (const row of await withAttendanceCounts(ctx, tenantId, filtered)) {
+    const attendance = await withAttendanceCounts(ctx, tenantId, filtered);
+    for (const row of attendance.counts) {
       scheduled += row.count;
       notRecorded += row.notRecorded;
       if (isHeldStatus(row.meetingStatus)) {
@@ -654,6 +656,7 @@ export const getSchedulingShowRateByOperationsDimensions = query({
       pastCalls: denominator + notRecorded,
       showRate: toRate(shown, denominator),
       noShowRate: toRate(noShows, denominator),
+      attendanceCountsPartial: attendance.attendanceCountsPartial,
       truncated,
     };
   },

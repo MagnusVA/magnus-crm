@@ -202,6 +202,7 @@ it("keeps the pipeline show rate for every team, DM closer and program filter", 
     pastCalls: scheduled - canceled,
     showRate: shown + noShows > 0 ? shown / (shown + noShows) : null,
     noShowRate: shown + noShows > 0 ? noShows / (shown + noShows) : null,
+    attendanceCountsPartial: false,
     truncated: false,
   });
 

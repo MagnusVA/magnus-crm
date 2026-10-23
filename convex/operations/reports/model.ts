@@ -252,6 +252,7 @@ export type ReportSourceRow =
     };
 
 export type ReportSourcePage = {
+  attendanceCountsPartial?: boolean;
   page: ReportSourceRow[];
   isDone: boolean;
   continueCursor: string;

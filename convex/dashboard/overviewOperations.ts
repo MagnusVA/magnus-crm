@@ -103,7 +103,8 @@ export async function getPhoneCloserOperationsOverviewSection(
   const rows = await readOperationsStatsRows(ctx, tenantId, range);
   const byCloser = new Map<Id<"users">, OperationsTotals>();
 
-  for (const row of await withAttendanceCounts(ctx, tenantId, rows)) {
+  const attendance = await withAttendanceCounts(ctx, tenantId, rows);
+  for (const row of attendance.counts) {
     const current = byCloser.get(row.assignedCloserId) ?? emptyOperationsTotals();
     addOperationRow(current, row);
     byCloser.set(row.assignedCloserId, current);
@@ -148,6 +149,7 @@ export async function getPhoneCloserOperationsOverviewSection(
 
   return {
     data: {
+      attendanceCountsPartial: attendance.attendanceCountsPartial,
       rows: sortedRows,
       totals: {
         scheduled: operationTotals.scheduled,

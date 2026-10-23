@@ -1,11 +1,19 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { api } from "../_generated/api";
+import { api, internal } from "../_generated/api";
 import { ATTENDANCE_NOW, showRateFixture } from "../../tests/showRateFixtures";
 import { getPhoneCloserOperationsOverviewSection } from "../dashboard/overviewOperations";
 import { deriveOverviewRange } from "../dashboard/overviewRange";
 import { readSourcePage } from "./reports/readers";
 import type { ReportSourceRow } from "./reports/model";
-import { isHeldStatus } from "../lib/meetingAttendance";
+import {
+  attendanceDayBounds,
+  isHeldStatus,
+  readScheduledAttendanceDay,
+  withAttendanceCounts,
+} from "../lib/meetingAttendance";
+import { insertMeetingAggregate } from "../reporting/writeHooks";
+import { recordBookingAttribution } from "../lib/attribution/dealAttributions";
+import { readMeetingStatsCounts } from "./meetingStats";
 
 afterEach(() => vi.useRealTimers());
 const range = {
@@ -37,6 +45,7 @@ it("uses recorded attendance in every live report and excludes in-progress/upcom
   ]) {
     expect(row).toMatchObject({ ...results, showUpRate: 2 / 3 });
   }
+  expect(sales.attendanceCountsPartial).toBe(false);
   expect(sales.stats).toMatchObject({
     totalCalls: 8,
     showed: 2,
@@ -48,6 +57,7 @@ it("uses recorded attendance in every live report and excludes in-progress/upcom
       api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions,
       { ...dayRange, ...filters },
     );
+    expect(pipeline.attendanceCountsPartial).toBe(false);
     expect(pipeline).toMatchObject({
       ...results,
       scheduled: 8,
@@ -58,6 +68,7 @@ it("uses recorded attendance in every live report and excludes in-progress/upcom
       api.reporting.teamPerformance.getTeamOperationsDimensions,
       { ...timestampRange, ...filters },
     );
+    expect(team.attendanceCountsPartial).toBe(false);
     for (const row of [team.rows[0], team.totals]) {
       expect(row).toMatchObject({
         ...results,
@@ -71,6 +82,7 @@ it("uses recorded attendance in every live report and excludes in-progress/upcom
     api.reporting.teamPerformance.getTeamPerformanceMetrics,
     timestampRange,
   );
+  expect(performance.attendanceCountsPartial).toBe(false);
   expect(performance.closers[0].newCalls).toMatchObject({
     ...results,
     showUpRate: 2 / 3,
@@ -96,6 +108,7 @@ it("uses recorded attendance in every live report and excludes in-progress/upcom
       deriveOverviewRange(range, ATTENDANCE_NOW),
     ),
   );
+  expect(overview.data.attendanceCountsPartial).toBe(false);
   for (const row of [overview.data.rows[0], overview.data.totals]) {
     expect(row).toMatchObject({
       ...results,
@@ -190,5 +203,122 @@ it("exports the stored status and Not recorded attendance separately", async () 
         attendance: "Not recorded",
       }),
     );
+  }
+});
+
+it("keeps pre-business-day calls in progress and splits every UTC bucket in the 24-hour window", async () => {
+  const now = Date.parse("2026-10-22T07:05:00Z");
+  const { t, admin, tenantId, closerId, teamId } = await showRateFixture(now);
+  expect(attendanceDayBounds(now)).toEqual({
+    start: Date.parse("2026-10-21T07:05:00Z"),
+    end: Date.parse("2026-10-23T07:00:00Z"),
+  });
+  const added = await t.run(async (ctx) => {
+    const template = await ctx.db.query("meetings")
+      .withIndex("by_tenantId_and_status_and_scheduledAt", (q) =>
+        q.eq("tenantId", tenantId).eq("status", "scheduled"))
+      .first();
+    if (!template) throw new Error("Missing fixture meeting");
+    const specs = [
+      ["older-than-24h", "2026-10-21T01:00:00Z", 30, 1],
+      ["middle-bucket-finished", "2026-10-22T00:00:00Z", 30, 1],
+      ["before-business-day-in-progress", "2026-10-22T06:30:00Z", 60, 0],
+      ["ended-two-minutes-ago", "2026-10-22T06:33:00Z", 30, 1],
+    ] as const;
+    const added = [];
+    for (const [key, at, durationMinutes, notRecorded] of specs) {
+      const meetingId = await ctx.db.insert("meetings", {
+        tenantId,
+        opportunityId: template.opportunityId,
+        assignedCloserId: closerId,
+        calendlyEventUri: `https://api.calendly.com/scheduled_events/${key}`,
+        calendlyInviteeUri: `https://api.calendly.com/scheduled_events/${key}/invitees/test`,
+        scheduledAt: Date.parse(at),
+        durationMinutes,
+        status: "scheduled",
+        callClassification: "new",
+        createdAt: 0,
+      });
+      const meeting = await insertMeetingAggregate(ctx, meetingId);
+      await recordBookingAttribution(ctx, { meeting, credit: { teamId } });
+      added.push({ meetingId, notRecorded });
+    }
+    return added;
+  });
+  // The fixture drains Workpool and rewinds its clock. Apply these projections
+  // directly so the report test reads buckets containing every added meeting.
+  for (const { meetingId } of added) {
+    const projection = await t.run((ctx) => ctx.db.query("meetingProjections")
+      .withIndex("by_meetingId", (q) => q.eq("meetingId", meetingId)).unique());
+    if (!projection) throw new Error("Missing fixture projection");
+    await t.mutation(internal.operations.meetingStats.project, {
+      projectionId: projection._id,
+      generation: projection.generation,
+    });
+    expect(await t.run((ctx) => ctx.db.get("meetingProjections", projection._id)))
+      .toMatchObject({ status: "applied" });
+  }
+  for (const filters of [{}, { attributionTeamId: teamId }]) {
+    const result = await t.run(async (ctx) => {
+      const { counts } = await readMeetingStatsCounts(ctx, { tenantId, ...dayRange, ...filters });
+      // Attendance reads raw meetings, so all four additions must also be in
+      // the applied buckets before comparing the two sources.
+      expect(counts.reduce((sum, row) => sum + row.count, 0)).toBe(12);
+      expect(counts.filter((row) => row.dayKey === "2026-10-22" && row.meetingStatus === "scheduled")
+        .reduce((sum, row) => sum + row.count, 0)).toBe(6);
+      return await withAttendanceCounts(ctx, tenantId, counts, now);
+    });
+    expect(result.attendanceCountsPartial).toBe(false);
+    // Three additions have ended, plus the fixture's yesterday-unrecorded call.
+    expect(result.counts.reduce((sum, row) => sum + row.notRecorded, 0)).toBe(4);
+    expect(result.counts.filter((row) => row.dayKey === "2026-10-22")
+      .reduce((sum, row) => sum + row.notRecorded, 0)).toBe(2);
+    if ("attributionTeamId" in filters) {
+      for (const expected of added) {
+        expect(result.counts).toContainEqual(expect.objectContaining(expected));
+      }
+    }
+    const team = await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
+      ...timestampRange, ...filters,
+    });
+    expect(team.totals.notRecorded).toBe(4);
+    const pipeline = await admin.query(api.reporting.pipelineHealth.getSchedulingShowRateByOperationsDimensions, {
+      ...dayRange, ...filters,
+    });
+    expect(pipeline.pastCalls).toBe(7);
+  }
+  const performance = await admin.query(api.reporting.teamPerformance.getTeamPerformanceMetrics, timestampRange);
+  expect(performance.teamTotals.newPastCalls).toBe(7);
+
+  const upcoming = await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
+    startDate: Date.parse("2026-10-23T00:00:00Z"),
+    endDate: Date.parse("2026-10-24T00:00:00Z"),
+  });
+  expect(upcoming.totals).toMatchObject({ scheduled: 2, notRecorded: 0, pastCalls: 0 });
+});
+
+it("returns partial attendance at a small cap, keeping unread earlier calls finished and later calls upcoming", async () => {
+  const { t, tenantId, teamId } = await showRateFixture();
+  const scan = await t.run((ctx) => readScheduledAttendanceDay(ctx, tenantId, ATTENDANCE_NOW, 2));
+  expect(scan.attendanceCountsPartial).toBe(true);
+  expect(scan.meetings.map((meeting) => meeting.scheduledAt)).toEqual([
+    Date.parse("2026-10-22T17:30:00Z"),
+    Date.parse("2026-10-22T17:45:00Z"),
+  ]);
+  for (const filters of [{}, { attributionTeamId: teamId }]) {
+    const { partial, complete } = await t.run(async (ctx) => {
+      const { counts } = await readMeetingStatsCounts(ctx, { tenantId, ...dayRange, ...filters });
+      return {
+        partial: await withAttendanceCounts(ctx, tenantId, counts, ATTENDANCE_NOW, 2),
+        complete: await withAttendanceCounts(ctx, tenantId, counts, ATTENDANCE_NOW),
+      };
+    });
+    expect(partial.attendanceCountsPartial).toBe(true);
+    expect(complete.attendanceCountsPartial).toBe(false);
+    expect(partial.counts).toEqual(complete.counts);
+    expect(partial.counts.filter((row) => row.dayKey === "2026-10-21")
+      .reduce((sum, row) => sum + row.notRecorded, 0)).toBe(1);
+    expect(partial.counts.filter((row) => row.dayKey === "2026-10-22")
+      .reduce((sum, row) => sum + row.notRecorded, 0)).toBe(1);
   }
 });
