@@ -54,7 +54,6 @@ it.each(["cancel first", "new booking first"] as const)(
         stage: "booked",
         calendlyEventUri: "https://api.calendly.com/scheduled_events/original",
       });
-      expect(deal?.canceledAt).toBeUndefined();
       await h.deliver("invitee.created", MOVED, "2026-10-03T09:00:03Z");
     } else {
       await h.deliver("invitee.created", MOVED, "2026-10-03T09:00:03Z");
@@ -80,7 +79,6 @@ it.each(["cancel first", "new booking first"] as const)(
       stage: "booked",
       calendlyEventUri: "https://api.calendly.com/scheduled_events/moved",
     });
-    expect(deal?.canceledAt).toBeUndefined();
     expect(await h.dealCount()).toBe(1);
     expect(
       await h.t.run((ctx) => ctx.db.query("calendlyBookingFacts").take(5)),
@@ -94,12 +92,14 @@ it("a cancel without the reschedule flag still cancels the deal", async () => {
 
   await h.deliver("invitee.canceled", { ...ORIGINAL, canceled: {} }, "2026-10-04T09:00:00Z");
 
-  expect(await h.meeting("original")).toMatchObject({ status: "canceled" });
+  expect(await h.meeting("original")).toMatchObject({
+    status: "canceled",
+    canceledAt: Date.parse("2026-10-04T09:00:00Z"),
+  });
   expect(await h.deal(opportunityId)).toMatchObject({
     stage: "closed",
     outcome: "lost",
     lostReason: "canceled",
-    canceledAt: Date.parse("2026-10-04T09:00:00Z"),
     cancellationReason: "Schedule conflict",
   });
 });
