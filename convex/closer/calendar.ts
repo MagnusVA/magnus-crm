@@ -24,7 +24,7 @@ const calendarMeetingValidator = v.object({
     _id: v.id("meetings"),
     scheduledAt: v.number(),
     durationMinutes: v.number(),
-    status: literals("scheduled", "completed", "held", "canceled", "no_show"),
+    status: literals("scheduled", "held", "canceled", "no_show"),
     meetingJoinUrl: v.optional(v.string()),
     zoomJoinUrl: v.optional(v.string()),
   }),

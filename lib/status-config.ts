@@ -12,7 +12,6 @@ import type { DealPosition } from "../convex/opportunities/stages";
 
 export const MEETING_STATUSES = [
   "scheduled",
-  "completed",
   "held",
   "canceled",
   "no_show",
@@ -111,13 +110,6 @@ export const meetingStatusConfig: Record<MeetingAttendanceStatus, MeetingBlockCo
     textClass: "text-blue-700 dark:text-blue-300",
     badgeClass: "bg-blue-500/10 text-blue-700 border-blue-200 dark:text-blue-400 dark:border-blue-900",
     dotClass: "bg-blue-500",
-  },
-  completed: {
-    label: "Held",
-    blockClass: "bg-emerald-500/10 border-l-emerald-500",
-    textClass: "text-emerald-700 dark:text-emerald-300",
-    badgeClass: "bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:text-emerald-400 dark:border-emerald-900",
-    dotClass: "bg-emerald-500",
   },
   held: {
     label: "Held",

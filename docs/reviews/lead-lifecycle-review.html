@@ -725,10 +725,10 @@
   </div>
 </div>
 <div class="phase">
-  <div class="tag">Phase 6<span>runtime cleanup, next</span></div>
+  <div class="tag">Phase 6<span>runtime cleanup, done</span></div>
   <div>
     <h3>The runtime fixes from F11</h3>
-    <div class="meta"><span class="pill med">Medium risk</span><span class="pill low">Widen, migrate, narrow</span></div>
+    <div class="meta"><span class="pill good">Done, #181 to #195</span><span class="pill low">Widen, migrate, narrow</span></div>
     <ul>
       <li>Drop <code>tenantStats</code>. A code audit after Phase 5 found no screen, report or query that reads it (its helper reads it only to write it: to insert the row when there is none, or to add to the current counter values), while 15 modules write it, three on the booking path; every reference to it goes before the table (the helper and its callers, the seed migration, the tenant deletion's table list, the test-data inventory and the tests), so bookings conflict over a document nobody reads. A total a screen needs later comes from an aggregate. Phase 5 already dropped the deal counters by status.</li>
       <li>Bound the open loops: the closer dashboard's meetings in range and next meeting, the closer calendar, and Pipeline Health's aging scan (every open deal) and loss read (it stops at 4,000 rows, so a month more than about two months old comes back cut off). Delete <code>adminStats.getTimePeriodStats</code>, which only its own test calls, with that test.</li>
@@ -737,7 +737,7 @@
       <li>Pick one definition of "day" per screen and say which one in the UI. The code has four today: the Honduras business day, the UTC day of the meeting stats, UTC midnight in the overview's operations window, and browser midnight in the report date controls and the closer dashboard. The business day becomes a tenant setting (a time zone and a start hour, by default America/Tegucigalpa 01:00), used by every server-side day and changed by an admin, which rebuilds the day totals; screens on the browser clock may stay and say so.</li>
       <li>Count the activity report's summary from an aggregate instead of reading up to 10,000 events (Phase 2's touch events, about 2,300 to 2,800 a day in October 2026, cut it off for ranges longer than about four days), and the lead gen conversion report's Deals column from an aggregate keyed by worker and capture time instead of a read capped at 5,000 rows.</li>
       <li>F11's merge scan is already fixed: duplicate flags are read by index, in pages.</li>
-      <li><strong>Ends with:</strong> no item from F11 open, no <code>tenantStats</code> table, the activity summary and the Deals column count every row in their range, and a meeting is scheduled, held, no-show or canceled, with its recorded-at time. The roadmap is done.</li>
+      <li><strong>Ended with:</strong> no <code>tenantStats</code> table, 44 unused indexes and the dead fields gone, the legacy daily stats table dropped after its 5,761 rows were deleted, the closer reads and Pipeline Health bounded, the activity summary, Pipeline Health and the lead gen Deals column on aggregates that count every row in their range, a meeting that is scheduled, held, no-show or canceled with <code>heldMarkedAt</code> (the 715 completed meetings of the snapshot, 718 by the time the backfill ran, moved to held), one show rate on every screen (held ÷ (held + no-show), "—" when there is neither), a past meeting still scheduled shown as "Not recorded" by a display rule, the business day as a tenant setting used by every server-side day, and Booking Answers per meeting. The roadmap is done (<a href="../plans/phase-6-runtime-cleanup.md">plan</a>).</li>
     </ul>
   </div>
 </div>

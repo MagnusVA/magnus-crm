@@ -9,7 +9,6 @@ export const ATTENDANCE_NOW = Date.parse("2026-10-22T18:00:00Z");
 /** Mixed attendance across finished, current and upcoming business days. */
 export async function showRateFixture(
   now = ATTENDANCE_NOW,
-  storage: "completed" | "held" | "mixed" = "completed",
 ) {
   vi.useFakeTimers();
   vi.setSystemTime(now);
@@ -52,8 +51,8 @@ export async function showRateFixture(
     });
     await insertPipelineHealthAggregates(ctx, (await ctx.db.get("opportunities", opportunityId))!);
     const specs = [
-      ["held-one", "completed", "2026-10-21T12:00:00Z"],
-      ["held-two", "completed", "2026-10-22T12:00:00Z"],
+      ["held-one", "held", "2026-10-21T12:00:00Z"],
+      ["held-two", "held", "2026-10-22T12:00:00Z"],
       ["missed", "no_show", "2026-10-22T13:00:00Z"],
       ["canceled", "canceled", "2026-10-22T14:00:00Z"],
       ["yesterday-unrecorded", "scheduled", "2026-10-21T14:00:00Z"],
@@ -63,11 +62,7 @@ export async function showRateFixture(
       ["next-utc-day-finished", "scheduled", "2026-10-23T01:00:00Z"],
       ["next-business-day", "scheduled", "2026-10-23T07:00:00Z"],
     ] as const;
-    for (const [index, [key, legacyStatus, at]] of specs.entries()) {
-      const status = legacyStatus === "completed" &&
-        (storage === "held" || (storage === "mixed" && index === 0))
-        ? "held" : legacyStatus;
-      const completedAt = legacyStatus === "completed" ? Date.parse(at) + 60_000 : undefined;
+    for (const [key, status, at] of specs) {
       const meetingId = await ctx.db.insert("meetings", {
         tenantId,
         opportunityId,
@@ -77,8 +72,7 @@ export async function showRateFixture(
         scheduledAt: Date.parse(at),
         durationMinutes: 30,
         status,
-        completedAt,
-        heldMarkedAt: status === "held" ? completedAt : undefined,
+        heldMarkedAt: status === "held" ? Date.parse(at) + 60_000 : undefined,
         callClassification: "new",
         createdAt: 0,
       });
@@ -90,14 +84,6 @@ export async function showRateFixture(
   await t.finishAllScheduledFunctions(vi.runAllTimers);
   vi.setSystemTime(now);
   return { ...harness, ...fixture };
-}
-
-export type AttendanceStorage = "completed" | "held" | "mixed";
-export const attendanceStorageModes = ["completed", "held", "mixed"] as const;
-
-/** Exercise readers before, during and after the attendance backfill. */
-export async function heldAttendanceFixture(storage: AttendanceStorage) {
-  return showRateFixture(ATTENDANCE_NOW, storage);
 }
 
 /** A real booking with its lifecycle, aggregates, projections and refs. */

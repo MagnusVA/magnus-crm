@@ -88,9 +88,25 @@ export async function insertActivityEventCounts(
   ctx: MutationCtx,
   event: Doc<"domainEvents">,
 ) {
+  await writeActivityEventCountEntries(ctx, event, "insert");
+}
+
+/** Recovery can be rerun while normal event writes remain strict. */
+export async function backfillActivityEventCountEntries(
+  ctx: MutationCtx,
+  event: Doc<"domainEvents">,
+) {
+  await writeActivityEventCountEntries(ctx, event, "insertIfDoesNotExist");
+}
+
+async function writeActivityEventCountEntries(
+  ctx: MutationCtx,
+  event: Doc<"domainEvents">,
+  method: "insert" | "insertIfDoesNotExist",
+) {
   const dimensions = activityEventDimensions(event);
   for (const [dimension, value] of dimensions) {
-    await activityEventCounts.insertIfDoesNotExist(ctx, {
+    await activityEventCounts[method](ctx, {
       namespace: event.tenantId,
       key: [dimension, value, event.occurredAt],
       id: `${event._id}:${dimension}`,
@@ -135,7 +151,7 @@ export async function deleteActivityEventCounts(
   event: Doc<"domainEvents">,
 ) {
   for (const [dimension, value] of activityEventDimensions(event)) {
-    await activityEventCounts.deleteIfExists(ctx, {
+    await activityEventCounts.delete(ctx, {
       namespace: event.tenantId,
       key: [dimension, value, event.occurredAt],
       id: `${event._id}:${dimension}`,

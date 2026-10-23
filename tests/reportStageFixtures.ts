@@ -330,7 +330,7 @@ export async function seedMissedMeetings(ctx: MutationCtx, tenantId: Id<"tenants
     status: "lost",
     createdAt: daysBefore(4),
     lostAt: daysBefore(3),
-    meeting: { status: "completed", scheduledAt: daysBefore(3), closerId },
+    meeting: { status: "held", scheduledAt: daysBefore(3), closerId },
     fields: { lostReason: "no_show", lostByUserId: closerId },
   });
   await insertMissedDeal(ctx, tenantId, left, {
@@ -539,18 +539,18 @@ export type DealName = keyof typeof DEALS;
 
 // In time order per deal; the last one on a deal is its latest.
 const MEETINGS = {
-  lostEarlier: { deal: "lostEarlier", closer: "A", status: "completed", scheduledAt: daysAgo(41) },
-  followUp: { deal: "followUp", closer: "A", status: "completed", scheduledAt: daysAgo(29) },
-  linkSentHeld: { deal: "linkSent", closer: "B", status: "completed", scheduledAt: daysAgo(26) },
+  lostEarlier: { deal: "lostEarlier", closer: "A", status: "held", scheduledAt: daysAgo(41) },
+  followUp: { deal: "followUp", closer: "A", status: "held", scheduledAt: daysAgo(29) },
+  linkSentHeld: { deal: "linkSent", closer: "B", status: "held", scheduledAt: daysAgo(26) },
   linkSent: { deal: "linkSent", closer: "B", status: "no_show", scheduledAt: daysAgo(24) },
   bookedStale: { deal: "bookedStale", closer: "A", status: "scheduled", scheduledAt: daysAgo(20) },
-  won: { deal: "won", closer: "A", status: "completed", scheduledAt: daysAgo(18) },
-  lostByCloserEarly: { deal: "lostByCloser", closer: "A", status: "completed", scheduledAt: daysAgo(10) },
-  lostUnknown: { deal: "lostUnknown", closer: "B", status: "completed", scheduledAt: daysAgo(7) },
+  won: { deal: "won", closer: "A", status: "held", scheduledAt: daysAgo(18) },
+  lostByCloserEarly: { deal: "lostByCloser", closer: "A", status: "held", scheduledAt: daysAgo(10) },
+  lostUnknown: { deal: "lostUnknown", closer: "B", status: "held", scheduledAt: daysAgo(7) },
   noShow: { deal: "noShow", closer: "B", status: "no_show", scheduledAt: daysAgo(6) },
-  lostByCloser: { deal: "lostByCloser", closer: "A", status: "completed", scheduledAt: daysAgo(5) },
+  lostByCloser: { deal: "lostByCloser", closer: "A", status: "held", scheduledAt: daysAgo(5) },
   bookedUpcomingOld: { deal: "bookedUpcoming", closer: "B", status: "canceled", scheduledAt: daysAgo(4) },
-  lostByAdmin: { deal: "lostByAdmin", closer: "B", status: "completed", scheduledAt: daysAgo(3) },
+  lostByAdmin: { deal: "lostByAdmin", closer: "B", status: "held", scheduledAt: daysAgo(3) },
   canceled: { deal: "canceled", closer: "A", status: "canceled", scheduledAt: daysAgo(2) },
   bookedUpcoming: {
     deal: "bookedUpcoming",
@@ -662,7 +662,6 @@ export async function insertMeeting(
     durationMinutes: 30,
     createdAt: args.scheduledAt - DAY,
     status: args.status,
-    completedAt: isHeldStatus(args.status) ? args.scheduledAt + 30 * 60_000 : undefined,
     heldMarkedAt: args.status === "held" ? args.scheduledAt + 30 * 60_000 : undefined,
     rescheduledFromMeetingId: args.rescheduledFromMeetingId,
   });

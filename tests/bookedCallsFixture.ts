@@ -198,9 +198,6 @@ export async function seedBookedCallsFixture(ctx: MutationCtx): Promise<BookedCa
         assignedCloserId: hostId,
         source: "calendly",
         latestActivityAt: booking.createdAt,
-        activityDayKey: day,
-        activityWeekKey: "2026-W33",
-        activityMonthKey: "2026-08",
         searchText: booking.leadName.toLowerCase(),
         updatedAt: booking.createdAt,
       });

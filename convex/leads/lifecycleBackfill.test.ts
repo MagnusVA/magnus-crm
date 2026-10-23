@@ -92,7 +92,7 @@ async function legacyCustomer(harness: Harness) {
     });
     const meetingId = await ctx.db.insert("meetings", {
       tenantId, opportunityId, assignedCloserId: closerId, calendlyEventUri: "e1", calendlyInviteeUri: "i1",
-      scheduledAt: CALL, durationMinutes: 30, status: "completed", createdAt: BOOKED, completedAt: PAID,
+      scheduledAt: CALL, durationMinutes: 30, status: "held", createdAt: BOOKED, heldMarkedAt: PAID,
     });
     const programId = await ctx.db.insert("tenantPrograms", {
       tenantId, name: "Program", normalizedName: "program", createdAt: 0, createdByUserId: adminId, updatedAt: 0,

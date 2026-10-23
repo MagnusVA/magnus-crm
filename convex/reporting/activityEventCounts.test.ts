@@ -238,7 +238,7 @@ describe("activity event counts", () => {
       });
       const event = await ctx.db.get("domainEvents", id);
       expect(event).not.toBeNull();
-      await insertActivityEventCounts(ctx, event!);
+      await expect(insertActivityEventCounts(ctx, event!)).rejects.toThrow();
       await assertActivityEventCountEntries(ctx, event!);
       expect(
         await activityEventCounts.count(ctx, { namespace: h.tenantId }),
@@ -259,7 +259,7 @@ describe("activity event counts", () => {
       await expect(
         assertActivityEventCountEntries(ctx, event!),
       ).rejects.toThrow(String(event!._id));
-      await deleteActivityEventCounts(ctx, event!);
+      await expect(deleteActivityEventCounts(ctx, event!)).rejects.toThrow();
       expect(
         await activityEventCounts.count(ctx, { namespace: h.tenantId }),
       ).toBe(0);
@@ -369,7 +369,7 @@ describe("activity event counts", () => {
     ).toBe(3);
   });
 
-  it("removes aggregate entries through testing cleanup and tenant teardown, including rows never backfilled", async () => {
+  it("removes aggregate entries through testing cleanup and tenant teardown", async () => {
     for (const cleanup of ["reset", "tenant"] as const) {
       const h = await harness();
       await h.t.run(async (ctx) => {
@@ -378,7 +378,6 @@ describe("activity event counts", () => {
           ctx,
           h.tenantId,
           { occurredAt: RANGE.startDate + 1 },
-          false,
         );
       });
       if (cleanup === "reset")

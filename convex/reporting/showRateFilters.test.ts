@@ -6,7 +6,10 @@
  */
 import { reportRangeDayKeys } from "../../lib/reportDateRange";
 import { afterEach, expect, it, vi } from "vitest";
-import { attendanceStorageModes, type AttendanceStorage } from "../../tests/showRateFixtures";
+// Meetings record attendance as held only since the narrow; "completed" below
+// is the test's own label for a held call.
+const attendanceStorageModes = ["held"] as const;
+type AttendanceStorage = (typeof attendanceStorageModes)[number];
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
@@ -70,7 +73,7 @@ async function insertDmCloser(
  * booked through a different DM closer and team. m12 has rows but was never
  * projected, so neither read counts it.
  */
-async function seed(storage: AttendanceStorage = "completed", dayOffset = 0) {
+async function seed(_storage: AttendanceStorage = "held", dayOffset = 0) {
   vi.useFakeTimers();
   vi.setSystemTime(new Date(Date.parse("2026-10-04T00:00:00Z") + dayOffset * 86_400_000));
   const harness = await bookingHarness();
@@ -149,8 +152,8 @@ async function seed(storage: AttendanceStorage = "completed", dayOffset = 0) {
         calendlyInviteeUri: `https://api.calendly.com/scheduled_events/${key}/invitees/person`,
         scheduledAt,
         durationMinutes: 30,
-        status: status === "completed" && (storage === "held" || (storage === "mixed" && Number(key.slice(1)) % 2 === 0)) ? "held" : status,
-        heldMarkedAt: status === "completed" && (storage === "held" || (storage === "mixed" && Number(key.slice(1)) % 2 === 0)) ? scheduledAt : undefined,
+        status: status === "completed" ? "held" : status,
+        heldMarkedAt: status === "completed" ? scheduledAt : undefined,
         callClassification: options.deal ? "follow_up" : "new",
         createdAt: scheduledAt - 86_400_000,
         bookingProgramId: options.programId,
@@ -357,7 +360,7 @@ it("reports a filtered range past 2,000 credited meetings as truncated", async (
 });
 
 it("counts only October 22 for a Honduras browser range in buckets and attribution filters", async () => {
-  const { admin, t1, d1a } = await seed("completed", 21);
+  const { admin, t1, d1a } = await seed("held", 21);
   for (const filters of [{}, { attributionTeamId: t1 }, { dmCloserId: d1a }]) {
     const result = await admin.query(api.reporting.teamPerformance.getTeamOperationsDimensions, {
       ...reportRangeDayKeys({

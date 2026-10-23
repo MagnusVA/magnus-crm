@@ -40,7 +40,7 @@ async function seed(ctx: MutationCtx, tenantId: Id<"tenants">) {
     });
     const meetingId = await ctx.db.insert("meetings", {
       tenantId, opportunityId, assignedCloserId: closerId, calendlyEventUri: `e-${key}`,
-      calendlyInviteeUri: `i-${key}`, scheduledAt: CALL, durationMinutes: 30, status: "completed", createdAt: 0,
+      calendlyInviteeUri: `i-${key}`, scheduledAt: CALL, durationMinutes: 30, status: "held", createdAt: 0,
     });
     await ctx.db.patch("opportunities", opportunityId, { latestMeetingId: meetingId });
     return { opportunityId, meetingId };

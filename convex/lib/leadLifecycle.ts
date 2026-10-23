@@ -268,7 +268,7 @@ export function meetingEvidence(meeting: Doc<"meetings">): LifecycleEvidence[] {
     // record one early, so it never goes past the recorded time.
     const at = Math.min(
       meeting.scheduledAt,
-      meeting.heldMarkedAt ?? meeting.completedAt ?? meeting.scheduledAt,
+      meeting.heldMarkedAt ?? meeting.scheduledAt,
     );
     evidence.push({ stage: "showed", at });
   }

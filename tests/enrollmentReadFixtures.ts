@@ -104,7 +104,7 @@ export async function insertMeeting(
     calendlyInviteeUri: `https://api.calendly.com/scheduled_events/${args.scheduledAt}/invitees/person`,
     scheduledAt: args.scheduledAt,
     durationMinutes: 30,
-    status: "completed",
+    status: "held",
     createdAt: args.scheduledAt - DAY,
   });
   const deal = await ctx.db.get("opportunities", args.opportunityId);

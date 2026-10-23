@@ -21,7 +21,7 @@ describe("meetingAttendanceDisplay", () => {
       expect(meetingStatusConfig.not_recorded.label).toBe("Not recorded");
     },
   );
-  it.each(["completed", "held", "no_show", "canceled"] as const)(
+  it.each(["held", "no_show", "canceled"] as const)(
     "keeps the recorded %s status",
     (status) =>
       expect(meetingAttendanceDisplay({ ...meeting, status }, end + 1)).toBe(
@@ -41,12 +41,11 @@ describe("meetingAttendanceDisplay", () => {
   });
 });
 
-it.each(["completed", "held"])("labels %s meeting rows and events as Held", (status) => {
+it.each(["completed", "held"])("labels %s meeting events as Held", (status) => {
   expect(meetingEventStatusLabel("meeting.status_changed", status)).toBe("Held");
   expect(meetingEventStatusLabel("followUp.completed", status)).toBe(status);
 });
 
-it("uses the same held palette for both stored forms", () => {
-  expect(meetingStatusConfig.held).toEqual(meetingStatusConfig.completed);
+it("labels held attendance", () => {
   expect(meetingStatusConfig.held.label).toBe("Held");
 });

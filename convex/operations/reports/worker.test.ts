@@ -297,8 +297,8 @@ it("keeps live and materialized sales metrics aligned across currencies", async 
       dayKey,
       assignedCloserId: historicalCloserId,
       bookingProgramId: callsProgramId,
-      meetingStatus: "completed",
-      bucketKey: "fixture-completed",
+      meetingStatus: "held",
+      bucketKey: "fixture-held",
       count: 2,
       updatedAt: recordedAt,
     });

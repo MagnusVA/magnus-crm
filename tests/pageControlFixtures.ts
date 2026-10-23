@@ -129,10 +129,10 @@ export type MeetingPageTask = "reschedule_link" | "expired_reschedule_link" | "s
 const MEETING_STATUS_FOR: Record<OpportunityStatus, MeetingStatus> = {
   qualified_pending: "scheduled",
   scheduled: "scheduled",
-  follow_up_scheduled: "completed",
+  follow_up_scheduled: "held",
   reschedule_link_sent: "no_show",
-  payment_received: "completed",
-  lost: "completed",
+  payment_received: "held",
+  lost: "held",
   canceled: "canceled",
   no_show: "no_show",
 };

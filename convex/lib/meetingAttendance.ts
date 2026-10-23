@@ -9,8 +9,8 @@ import {
   timestampToBusinessDateKey,
 } from "../reporting/lib/hondurasBusinessTime";
 
-export function isHeldStatus(status: string): status is "completed" | "held" {
-  return status === "completed" || status === "held";
+export function isHeldStatus(status: string): status is "held" {
+  return status === "held";
 }
 
 type AttendanceCount = Pick<

@@ -22,9 +22,9 @@ Most folders under `convex/` are named for their table or feature. The ones whos
 
 ## Lead lifecycle model
 
-The lead and opportunity tables are migrating to the model in `docs/adr/0001-lead-lifecycle-model.md`: one person record for life, deals with a stage and an outcome, meetings that hold attendance only, and attribution as its own record. `CONTEXT.md` defines the terms. Until each phase lands, the old fields stay live, so follow the ADR's "Rules for code written now":
+The lead and opportunity tables follow the model in `docs/adr/0001-lead-lifecycle-model.md`: one person record for life, deals with a stage and an outcome, meetings that hold attendance only, and attribution as its own record. `CONTEXT.md` defines the terms. Follow the ADR's "Rules for code":
 
-- Don't add an opportunity status literal, a person, staff, or schedule table, an attribution column, or a copy of a person field.
+- Don't add a deal stage, a meeting status, a person, staff, or schedule table, an attribution column, or a copy of a person field.
 - Change a deal's stage only through `transitionOpportunity` (`convex/lib/opportunityActivity.ts`), never with a raw `ctx.db.patch`. "Write side effects" below covers it.
 - Create or find the person through `resolveLeadIdentity`, and never let a placeholder value or a time window decide identity.
 - A won deal doesn't block a new deal for the same person.
@@ -33,8 +33,9 @@ The lead and opportunity tables are migrating to the model in `docs/adr/0001-lea
 
 The repo has no triggers. A mutation that inserts, updates, or deletes a meeting, opportunity, payment, lead, or enrollment also updates:
 
-- reporting aggregates through `convex/reporting/writeHooks.ts` (`insert*`, `replace*`, and `delete*Aggregate`), which also update billing aggregates and enqueue operations meeting projections
-- the domain event log through `emitDomainEvent` (`convex/lib/domainEvents.ts`), which also keeps the person's first and latest touch current (`recordPersonTouch` in `convex/lib/touches.ts`)
+- reporting aggregates through `convex/reporting/writeHooks.ts` (`insert*`, `replace*`, and `delete*Aggregate`), which also update billing aggregates, Pipeline Health's `openDealAging` and `personLosses`, and enqueue operations meeting projections. `updateOpportunityMeetingRefs` replaces `openDealAging` itself, since it patches `nextMeetingAt` directly. Two more aggregates have their own hooks: `activityEventCounts` in `emitDomainEvent` (and wherever events are deleted), and `leadGenDealsByWorker` in the `dealAttributions` insert and delete helpers. All of them use the strict `insert` / `replace` / `delete`; a report reads an aggregate only while its tenant verification flag is set. To rebuild one, run its backfill, then its assert, then its mark mutation (`markPipelineHealthAggregatesVerified`, `markLeadGenDealsByWorkerVerified`, or `markActivityEventCountsVerified` for each of the last 30 business days); the mark sets the flag only when both succeeded, in that order
+- the domain event log through `emitDomainEvent` (`convex/lib/domainEvents.ts`), which also keeps the person's first and latest touch current (`recordPersonTouch` in `convex/lib/touches.ts`) and writes the event's `activityEventCounts` entries
+- a meeting's attendance through `completeMeetingForOutcome` (`convex/lib/meetingOutcomeCompletion.ts`): a recorded result sets `status: "held"` and `heldMarkedAt`; a no-show sets `noShowMarkedAt`. A meeting is `scheduled`, `held`, `no_show` or `canceled`. "Not recorded" is a display rule (`meetingAttendanceDisplay` in `lib/status-config.ts`), never a stored status
 - credit rows in `dealAttributions` through `convex/lib/attribution/dealAttributions.ts`: `recordBookingAttribution` after every meeting a booking inserts, `recordDealCreation` once after the event that creates a deal (it also snapshots the person's touches onto the deal), `recordSetterAttribution` when a Slack qualification creates or joins a deal, `recordCloserReassignment` when a reassignment changes the closer, and `deleteDealAttributions`, `deleteMeetingAttributions` or `moveMeetingAttributions` when a deal or meeting is deleted or moved. A reassignment or a new host adds a row and never rewrites an earlier one; `assignedCloserId` is the working owner, not credit
 - opportunity meeting refs through `updateOpportunityMeetingRefs` (`convex/lib/opportunityMeetingRefs.ts`), which also rebuilds the opportunity and lead/customer search rows
 - qualification rows through `rebuildQualificationRowsForOpportunity` (`convex/operations/projections.ts`)
@@ -61,8 +62,8 @@ Find an existing mutation that writes the same table and match its side-effect c
 
 ## Dates
 
-- Business days use Honduras time (`America/Tegucigalpa`, UTC−6) and start at 01:00 local. Use `convex/reporting/lib/hondurasBusinessTime.ts`, and accept dashboard ranges with `overviewRangeValidator` (`convex/dashboard/overviewRange.ts`).
-- Operations meeting stats are the exception: they key by UTC day (`convex/operations/meetingStats.ts`).
+- The business day is a tenant setting, `tenants.businessDay` (a time zone and a start hour; when it's absent, America/Tegucigalpa from 01:00). Every server-side day uses it through `lib/businessDay.ts`, the meeting projections and Sales Calls included; `convex/reporting/lib/hondurasBusinessTime.ts` calls it. Accept dashboard ranges with `overviewRangeValidator` (`convex/dashboard/overviewRange.ts`).
+- Changing the setting (`updateBusinessDay`) bumps `businessDayVersion` and runs a tracked rebuild (`businessDayRebuilds`). Meeting-bucket readers and reports wait until `businessDayAppliedVersion` matches; lead gen has its own readiness.
 - Convex runs in UTC, so `setHours(0, 0, 0, 0)` returns UTC midnight, not a business-day boundary.
 
 ## Migrations

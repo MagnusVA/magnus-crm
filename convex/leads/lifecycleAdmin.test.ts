@@ -29,7 +29,7 @@ async function heldPerson(harness: Harness): Promise<Id<"leads">> {
   return await harness.t.run(async (ctx) => {
     const lead = (await ctx.db.query("leads").first())!;
     const meeting = (await ctx.db.query("meetings").first())!;
-    await ctx.db.patch("meetings", meeting._id, { status: "completed", completedAt: Date.parse("2026-10-01T12:40:00Z") });
+    await ctx.db.patch("meetings", meeting._id, { status: "held", heldMarkedAt: Date.parse("2026-10-01T12:40:00Z") });
     await recordMeeting(ctx, meeting._id);
     return lead._id;
   });

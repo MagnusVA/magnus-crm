@@ -221,14 +221,14 @@ export async function seedCloserPipeline(harness: CloserPipelineHarness) {
       bookedOld: await meeting(deals.booked, "canceled", T0 + 1 * DAY),
       booked: await meeting(deals.booked, "scheduled", T0 + 1 * DAY + HOUR),
       linkSent: await meeting(deals.linkSent, "no_show", T0 + 1 * DAY + 2 * HOUR),
-      won: await meeting(deals.won, "completed", T0 + 2 * DAY),
-      lostByCloser: await meeting(deals.lostByCloser, "completed", T0 + 2 * DAY + HOUR),
+      won: await meeting(deals.won, "held", T0 + 2 * DAY),
+      lostByCloser: await meeting(deals.lostByCloser, "held", T0 + 2 * DAY + HOUR),
       noShow: await meeting(deals.noShow, "no_show", T0 + 2 * DAY + 2 * HOUR),
       canceled: await meeting(deals.canceled, "canceled", T0 + 3 * DAY),
       // Outside the week.
-      reminder: await meeting(deals.reminder, "completed", T0 - DAY),
+      reminder: await meeting(deals.reminder, "held", T0 - DAY),
       // The other closer's.
-      otherClosers: await meeting(deals.otherClosers, "completed", T0 + 2 * DAY, otherCloserId),
+      otherClosers: await meeting(deals.otherClosers, "held", T0 + 2 * DAY, otherCloserId),
     };
     return { deals, meetings };
   });
