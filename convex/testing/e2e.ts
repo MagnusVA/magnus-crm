@@ -214,6 +214,10 @@ export const getOpportunitySnapshot = internalQuery({
 		const opportunity = await ctx.db.get("opportunities", opportunityId);
 		if (!opportunity) return null;
 
+		const latestMeeting = opportunity.latestMeetingId
+			? await ctx.db.get("meetings", opportunity.latestMeetingId)
+			: null;
+
 		const meetings = await ctx.db
 			.query("meetings")
 			.withIndex("by_opportunityId", (q) =>
@@ -244,8 +248,8 @@ export const getOpportunitySnapshot = internalQuery({
 				assignedCloserId: opportunity.assignedCloserId ?? null,
 				lostReason: opportunity.lostReason ?? null,
 				lostAt: opportunity.lostAt ?? null,
-				canceledAt: opportunity.canceledAt ?? null,
-				noShowAt: opportunity.noShowAt ?? null,
+				canceledAt: latestMeeting?.canceledAt ?? null,
+				noShowAt: latestMeeting?.noShowMarkedAt ?? null,
 				paymentReceivedAt: opportunity.paymentReceivedAt ?? null,
 				latestMeetingId: opportunity.latestMeetingId ?? null,
 				latestMeetingAt: opportunity.latestMeetingAt ?? null,

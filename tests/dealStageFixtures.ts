@@ -8,7 +8,6 @@ import {
   type DealStage,
 } from "../convex/opportunities/stages";
 import type { OpportunityStatus } from "../convex/opportunities/stages";
-import { updateTenantStats } from "../convex/lib/tenantStatsHelper";
 import { opportunityByStage } from "../convex/reporting/aggregates";
 import { insertOpportunityAggregate } from "../convex/reporting/writeHooks";
 import { qualifiedLifecycle } from "./bookingHarness";
@@ -60,7 +59,6 @@ export async function insertDeal(
     updatedAt: 0,
   });
   const base = { tenantId, leadId, createdAt: 1_000, updatedAt: 1_000, ...args.fields };
-  await updateTenantStats(ctx, tenantId, { totalOpportunities: 1 });
   const opportunityId = await ctx.db.insert("opportunities", { ...base, ...stageFields(status, source) });
   await insertOpportunityAggregate(ctx, opportunityId);
   return opportunityId;

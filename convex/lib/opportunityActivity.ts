@@ -30,13 +30,13 @@ export function computeLatestActivityAt(opportunity: ActivityShape): number {
 }
 
 /**
- * Every opportunity field except identity and the stage and outcome, which
- * only the stage machine moves (docs/plans/phase-5-deal-status.md §4.4).
+ * Every active opportunity field except identity and the stage and outcome,
+ * which only the stage machine moves (docs/plans/phase-5-deal-status.md §4.4).
  */
 export type OpportunityFieldsPatch = Partial<
   Omit<
     Doc<"opportunities">,
-    "_id" | "_creationTime" | "tenantId" | "stage" | "outcome"
+    "_id" | "_creationTime" | "tenantId" | "stage" | "outcome" | "canceledAt" | "noShowAt"
   >
 >;
 
@@ -153,8 +153,8 @@ export type OpportunityTransition = {
   /** The stage the deal moves to, with its outcome when it closes. */
   to: DealTarget;
   /**
-   * Fields that change with the stage, such as `lostReason`, `lostAt` or
-   * `noShowAt`. A loss the system writes (a missed meeting, the Slack
+   * Fields that change with the stage, such as `lostReason` and `lostAt`.
+   * A loss the system writes (a missed meeting, the Slack
    * expiry) names no `lostByUserId`.
    */
   fields?: OpportunityFieldsPatch;

@@ -14,7 +14,6 @@ import { assertCanRecordMeetingOutcome } from "../lib/outcomeEligibility";
 import { transitionOpportunity } from "../lib/opportunityActivity";
 import { paymentTypeValidator, resolvePaymentType } from "../lib/paymentTypes";
 import { setSoldProgramCaches } from "../lib/soldProgramCache";
-import { applyPaymentStatsDelta } from "../lib/tenantStatsHelper";
 import { requireTenantUser } from "../requireTenantUser";
 import {
   insertPaymentAggregate,
@@ -139,11 +138,6 @@ export const logPayment = mutation({
         opportunityId: opportunity._id,
       toMeetingStatus: "completed",
       completedAt: now,
-    });
-    await applyPaymentStatsDelta(ctx, tenantId, {
-      commissionable: true,
-      paymentType,
-      amountMinorDelta: amountMinor,
     });
 
     await emitDomainEvent(ctx, {

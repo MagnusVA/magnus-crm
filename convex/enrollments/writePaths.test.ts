@@ -40,13 +40,6 @@ async function leadOf(harness: EnrollmentHarness, leadId: Id<"leads">) {
   return (await harness.t.run((ctx) => ctx.db.get("leads", leadId)))!;
 }
 
-async function counters(harness: EnrollmentHarness) {
-  return await harness.t.run(async (ctx) => {
-    const stats = await ctx.db.query("tenantStats").first();
-    return { totalLeads: stats?.totalLeads, totalCustomers: stats?.totalCustomers };
-  });
-}
-
 describe("enrollments beside each payment", () => {
   it("a closer's payment on a meeting enrolls the person in its program", async () => {
     const harness = await enrollmentHarness();
@@ -158,11 +151,6 @@ describe("enrollments beside each payment", () => {
         lifecycleStageEnteredAt: { qualified: 0 },
         disposition: "open",
       });
-      await ctx.db.insert("tenantStats", {
-        tenantId: harness.tenantId,
-        totalTeamMembers: 0, totalClosers: 0, totalOpportunities: 0,
-        totalRevenueMinor: 0, totalPaymentRecords: 0, totalLeads: 3, totalCustomers: 1, lastUpdatedAt: 0,
-      });
       return leadId;
     });
     const created = await sideDeal(harness, "no-email", leadId);
@@ -174,7 +162,6 @@ describe("enrollments beside each payment", () => {
     expect(await enrollmentsOf(harness, leadId)).toMatchObject([
       { programId: programA, opportunityId: created.opportunityId, enrolledAt: paidAt, status: "active" },
     ]);
-    expect(await counters(harness)).toMatchObject({ totalCustomers: 2 });
   });
 });
 
@@ -218,8 +205,6 @@ describe("voided side deal payments", () => {
     const paymentId = await paySideDeal(harness, created.opportunityId, programA, Date.now());
     expect(await enrollmentsOf(harness, created.leadId)).toHaveLength(1);
 
-    const before = await counters(harness);
-
     await harness.admin.mutation(api.sideDeals.voidPayment.voidPayment, { paymentId, reason: "Wrong person" });
 
     expect(await enrollmentsOf(harness, created.leadId)).toEqual([]);
@@ -227,10 +212,7 @@ describe("voided side deal payments", () => {
     expect(lead.status).toBe("active");
     // The stage follows what is left: the side deal's Showed (§4.3).
     expect(lead.lifecycleStage).toBe("showed");
-    expect(await counters(harness)).toEqual({
-      totalLeads: before.totalLeads! + 1,
-      totalCustomers: before.totalCustomers! - 1,
-    });
+    expect(await harness.t.run((ctx) => ctx.db.get("paymentRecords", paymentId))).toMatchObject({ status: "disputed" });
     expect((await events(harness)).slice(-2).map(({ eventType, reason, toStatus }) => [eventType, reason, toStatus])).toEqual([
       ["enrollment.removed", "no_payment", undefined],
       ["lead.status_changed", "no_enrollment", "active"],
