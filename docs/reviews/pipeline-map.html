@@ -1,0 +1,1093 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How a person moves through Magnus CRM</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@600;700;800;900&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light;
+  --paper: #edf0f3;
+  --surface: #fbfcfd;
+  --ink: #0e1621;
+  --ink-2: #465264;
+  --ink-3: #7b8594;
+  --rule: #d7dde4;
+  --rule-2: #bfc8d2;
+  --station: #ffffff;
+  --c-lead_gen: #eb6834;
+  --c-dm_portal: #6250d6;
+  --c-slack: #1baf7a;
+  --c-calendly: #2a78d6;
+  --c-side_deal: #eda100;
+  --good: #0ca30c;
+  --good-text: #006300;
+  --critical: #d03b3b;
+  --warning: #fab219;
+  --neutral: #8f99a6;
+  --open-1: #86b6ef;
+  --open-2: #5598e7;
+  --open-3: #2a78d6;
+  --open-4: #1c5cab;
+  --hatch: rgba(14, 22, 33, .28);
+  --display: "Overpass", "Arial Narrow", system-ui, sans-serif;
+  --body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --paper: #0f1114;
+    --surface: #17191c;
+    --ink: #eef0f2;
+    --ink-2: #b9c0c8;
+    --ink-3: #848d99;
+    --rule: #2a2e33;
+    --rule-2: #3b4046;
+    --station: #17191c;
+    --c-lead_gen: #d95926;
+    --c-dm_portal: #9085e9;
+    --c-slack: #199e70;
+    --c-calendly: #3987e5;
+    --c-side_deal: #c98500;
+    --good-text: #0ca30c;
+    --neutral: #6f7884;
+    --open-1: #184f95;
+    --open-2: #1c5cab;
+    --open-3: #3987e5;
+    --open-4: #86b6ef;
+    --hatch: rgba(238, 240, 242, .3);
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0;
+  background: var(--paper);
+  background-image: radial-gradient(var(--rule) 1px, transparent 1px);
+  background-size: 22px 22px;
+  color: var(--ink);
+  font: 400 17px/1.6 var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; }
+:focus-visible { outline: 3px solid var(--c-calendly); outline-offset: 3px; border-radius: 4px; }
+code, .mono { font-family: var(--mono); font-size: .84em; }
+code { background: color-mix(in srgb, var(--ink) 7%, transparent); padding: .08em .35em; border-radius: 4px; }
+
+/* ── Shell: the rail is the table of contents, drawn as one line ── */
+.shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); max-width: 1400px; margin: 0 auto; }
+.rail { position: sticky; top: 0; height: 100vh; padding: 48px 0 48px 36px; }
+.rail ol { list-style: none; margin: 0; padding: 0 0 0 0; position: relative; }
+.rail ol::before { content: ""; position: absolute; left: 8px; top: 10px; bottom: 10px; width: 4px; border-radius: 2px; background: var(--ink); }
+.rail li { position: relative; }
+.rail a { display: flex; align-items: center; gap: 14px; padding: 7px 0; text-decoration: none; font: 700 13px/1.2 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.rail a .dot { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--station); border: 4px solid var(--ink); position: relative; z-index: 1; transition: transform .2s; }
+.rail a:hover { color: var(--ink); }
+.rail a[aria-current="true"] { color: var(--ink); }
+.rail a[aria-current="true"] .dot { background: var(--ink); transform: scale(1.15); }
+.rail .rail-title { font: 900 15px/1.1 var(--display); letter-spacing: .02em; margin: 0 0 22px; color: var(--ink); text-transform: uppercase; }
+.rail .rail-title span { display: block; font: 500 12px/1.4 var(--mono); letter-spacing: 0; text-transform: none; color: var(--ink-3); margin-top: 6px; }
+
+main { padding: 40px 48px 120px 32px; min-width: 0; }
+section, header.hero { scroll-margin-top: 24px; }
+section { margin-top: 112px; }
+
+/* ── Type ── */
+.eyebrow { font: 700 12px/1 var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 16px; display: flex; gap: 14px; flex-wrap: wrap; }
+.eyebrow b { color: var(--ink); font-weight: 800; }
+h1 { font: 900 clamp(46px, 6.4vw, 92px)/.92 var(--display); letter-spacing: -.025em; margin: 0 0 26px; max-width: 13ch; }
+h2 { font: 900 clamp(32px, 3.6vw, 48px)/1 var(--display); letter-spacing: -.02em; margin: 0 0 18px; max-width: 22ch; }
+h3 { font: 800 21px/1.2 var(--display); letter-spacing: -.005em; margin: 40px 0 10px; }
+.lede { font-size: 21px; line-height: 1.5; color: var(--ink-2); max-width: 60ch; margin: 0 0 18px; }
+p { max-width: 70ch; margin: 0 0 14px; }
+.muted { color: var(--ink-3); }
+.kicker { font: 800 13px/1 var(--display); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); display: inline-flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.kicker::before { content: ""; width: 16px; height: 16px; border-radius: 50%; border: 4px solid var(--ink); background: var(--station); }
+.num { font-variant-numeric: tabular-nums; }
+
+.facts { display: flex; flex-wrap: wrap; gap: 6px 26px; margin: 26px 0 0; padding: 0; list-style: none; font-size: 15px; color: var(--ink-2); }
+.facts b { font: 800 22px/1 var(--display); color: var(--ink); margin-right: 6px; letter-spacing: -.01em; }
+
+/* ── Figures ── */
+figure { margin: 30px 0 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 22px 22px 18px; }
+figure .scroll { overflow-x: auto; }
+figure svg { display: block; width: 100%; height: auto; }
+figcaption { font-size: 14px; color: var(--ink-2); margin-top: 12px; max-width: 80ch; }
+figcaption b { color: var(--ink); }
+.fig-title { font: 800 15px/1.3 var(--display); margin: 0 0 4px; letter-spacing: .01em; }
+.fig-sub { font-size: 13.5px; color: var(--ink-3); margin: 0 0 14px; }
+.svg-label { font-family: var(--body); fill: var(--ink-2); }
+.svg-ink { fill: var(--ink); }
+.svg-display { font-family: var(--display); }
+.svg-mono { font-family: var(--mono); }
+
+details.numbers { margin-top: 14px; border-top: 1px solid var(--rule); padding-top: 10px; }
+details.numbers summary { cursor: pointer; font: 700 13px/1.4 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+details.numbers summary:hover { color: var(--ink); }
+table { border-collapse: collapse; font-size: 14px; margin-top: 10px; width: 100%; }
+th, td { text-align: left; padding: 7px 12px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font: 700 12px/1.3 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
+
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 28px; }
+
+/* ── Record cards ── */
+.record { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 18px 18px 14px; display: flex; flex-direction: column; }
+.record h4 { font: 900 22px/1 var(--display); margin: 0; letter-spacing: -.01em; }
+.record .tbl { font: 500 12px/1.4 var(--mono); color: var(--ink-3); margin: 6px 0 4px; }
+.record .what { font-size: 14px; color: var(--ink-2); margin: 0 0 14px; }
+.record .axis { font: 700 11px/1 var(--display); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); margin: 10px 0 8px; }
+.states { list-style: none; margin: 0; padding: 0; }
+.states li { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 14px; padding: 4px 0; }
+.states .bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--ink) 8%, transparent); overflow: hidden; }
+.states .bar i { display: block; height: 100%; border-radius: 3px; background: var(--ink-2); min-width: 3px; }
+.states .n { font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 13px; }
+.record .rule-note { margin-top: auto; padding-top: 12px; font-size: 13px; color: var(--ink-3); border-top: 1px dashed var(--rule-2); }
+
+/* ── Channel matrix ── */
+.matrix td:first-child { white-space: nowrap; }
+.chip { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; }
+.chip i { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.pill { display: inline-block; font: 700 11.5px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; padding: 5px 8px 4px; border-radius: 999px; border: 1.5px solid var(--rule-2); color: var(--ink-2); white-space: nowrap; }
+
+/* ── Bars (HTML) ── */
+.hbars { list-style: none; padding: 0; margin: 6px 0 0; }
+.hbars li { display: grid; grid-template-columns: minmax(150px, 280px) 1fr 70px; gap: 12px; align-items: center; padding: 5px 0; font-size: 14px; }
+.hbars .track { height: 14px; display: flex; gap: 2px; }
+.hbars .track i { display: block; height: 100%; border-radius: 0 4px 4px 0; }
+.hbars .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13.5px; color: var(--ink-2); margin: 0 0 12px; padding: 0; list-style: none; }
+.legend li { display: inline-flex; align-items: center; gap: 7px; }
+.legend i { width: 14px; height: 10px; border-radius: 2px; display: inline-block; }
+
+.callout { border-left: 4px solid var(--ink); padding: 4px 0 4px 16px; margin: 22px 0; max-width: 72ch; color: var(--ink-2); }
+.callout b { color: var(--ink); }
+
+.steps { list-style: none; counter-reset: s; padding: 0; margin: 18px 0 0; max-width: 76ch; }
+.steps li { counter-increment: s; position: relative; padding: 0 0 18px 46px; }
+.steps li::before { content: counter(s); position: absolute; left: 0; top: -2px; width: 30px; height: 30px; border-radius: 50%; border: 3px solid var(--ink); display: grid; place-items: center; font: 800 14px/1 var(--display); background: var(--station); }
+.steps li::after { content: ""; position: absolute; left: 14px; top: 30px; bottom: 2px; width: 3px; background: var(--rule-2); }
+.steps li:last-child::after { display: none; }
+.steps time { font: 500 12.5px/1 var(--mono); color: var(--ink-3); display: block; margin-bottom: 3px; }
+
+footer { margin-top: 120px; padding-top: 22px; border-top: 3px solid var(--ink); font-size: 14px; color: var(--ink-2); }
+footer ul { padding-left: 18px; }
+
+/* ── Tooltip ── */
+#tip { position: fixed; z-index: 50; pointer-events: none; max-width: 300px; background: var(--ink); color: var(--paper); font: 500 13px/1.45 var(--body); padding: 9px 11px; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s; }
+#tip.on { opacity: 1; transform: none; }
+#tip b { font-weight: 700; }
+[data-tip] { cursor: default; }
+svg [data-tip]:hover, svg [data-tip]:focus { filter: brightness(1.06); }
+svg [data-tip]:focus { outline: none; }
+#sankey text { paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+
+/* ── Hero line drawing ── */
+.route-line { transition: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .route-line.draw { stroke-dasharray: var(--len); stroke-dashoffset: var(--len); animation: draw 1.6s cubic-bezier(.6,.1,.2,1) forwards; animation-delay: var(--delay, 0s); }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+}
+
+@media (max-width: 1080px) {
+  .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .shell { grid-template-columns: 1fr; }
+  .rail { position: sticky; top: 0; z-index: 10; height: auto; padding: 10px 16px; background: var(--paper); border-bottom: 1px solid var(--rule); overflow-x: auto; }
+  .rail .rail-title { display: none; }
+  .rail ol { display: flex; gap: 18px; }
+  .rail ol::before { left: 10px; right: 10px; top: 16px; bottom: auto; height: 4px; width: auto; }
+  .rail a { white-space: nowrap; font-size: 11px; }
+  main { padding: 28px 18px 80px; }
+  .grid-2 { grid-template-columns: 1fr; }
+  .hbars li { grid-template-columns: 130px 1fr 56px; }
+  figure .scroll > svg { min-width: 760px; }
+}
+@media (max-width: 560px) { .grid-4 { grid-template-columns: 1fr; } }
+@media (forced-colors: active) { .rail ol::before { background: CanvasText; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="rail" aria-label="Sections">
+    <p class="rail-title">Pipeline map<span id="rail-asof"></span></p>
+    <ol>
+      <li><a href="#map"><span class="dot"></span>The map</a></li>
+      <li><a href="#records"><span class="dot"></span>Four records</a></li>
+      <li><a href="#entry"><span class="dot"></span>Ways in</a></li>
+      <li><a href="#identity"><span class="dot"></span>Who is this?</a></li>
+      <li><a href="#booking"><span class="dot"></span>A booking arrives</a></li>
+      <li><a href="#landing"><span class="dot"></span>Which deal</a></li>
+      <li><a href="#deals"><span class="dot"></span>Deal stages</a></li>
+      <li><a href="#meetings"><span class="dot"></span>Meetings</a></li>
+      <li><a href="#money"><span class="dot"></span>Payment</a></li>
+      <li><a href="#credit"><span class="dot"></span>Credit</a></li>
+      <li><a href="#clocks"><span class="dot"></span>Clocks</a></li>
+      <li><a href="#reviews"><span class="dot"></span>Reviews</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="hero" id="map">
+      <p class="eyebrow"><b>Magnus CRM</b><span>PT Domination tenant</span><span id="asof"></span></p>
+      <h1>How a person moves through the pipeline</h1>
+      <p class="lede">Five channels find or create the same person record. Deals, meetings and payments then push that person along six lifecycle stages, which only move forward on their own. The map below shows where each channel's people get on and how far they get.</p>
+      <ul class="facts" id="facts"></ul>
+      <figure>
+        <p class="fig-title">Where each channel's people enter, and how far they get</p>
+        <p class="fig-sub">Each line is the channel of a person's first touch. Line width is the number of that channel's people who reached a station or went further (square-root scale). Hover a line segment or a station for counts.</p>
+        <div class="scroll"><svg id="route" viewBox="0 0 1100 460" role="img" aria-labelledby="route-desc"><desc id="route-desc">Route map of people by first-touch channel across the six lifecycle stages.</desc></svg></div>
+        <figcaption id="route-cap"></figcaption>
+        <details class="numbers"><summary>Numbers behind the map</summary><div id="route-table"></div></details>
+      </figure>
+    </header>
+
+    <section id="records">
+      <p class="kicker">The cast</p>
+      <h2>Four records, each with its own state</h2>
+      <p class="lede">Most confusion about the pipeline comes from mixing these up. A person has a lifecycle stage. A deal has a stage and an outcome. A meeting has attendance. A booking delivery has a processing result. None of them copies another's state.</p>
+      <div class="grid-4" id="record-cards"></div>
+      <figure>
+        <p class="fig-title">How the records connect</p>
+        <p class="fig-sub">Counts are rows in production. The labels on the links say how many children a parent usually has.</p>
+        <div class="scroll"><svg id="er" viewBox="0 0 1100 400" role="img" aria-label="Relationship diagram: person, deal, meeting, payment, enrollment, credit rows and booking deliveries."></svg></div>
+      </figure>
+    </section>
+
+    <section id="entry">
+      <p class="kicker">Getting on the line</p>
+      <h2>Five ways a person comes in</h2>
+      <p class="lede">Every channel goes through the same identity function, <code>resolveLeadIdentity</code>, before any deal exists. What differs is the stage the person enters at and what else gets written.</p>
+      <figure>
+        <div class="scroll"><table class="matrix" id="matrix"></table></div>
+        <figcaption>The DM portal works people who already exist: copying a booking link from the portal names no one, and the booking finds its person by the Instagram handle on the Calendly form.</figcaption>
+      </figure>
+    </section>
+
+    <section id="identity">
+      <p class="kicker">Identity</p>
+      <h2>Who is this? The rule every booking passes through</h2>
+      <p class="lede">Only strong identifiers decide who someone is: an email, a phone or a social handle the person really uses. Placeholder values never count, and nothing joins people by time window. On a Calendly booking the Instagram handle wins, because setters and DM closers often fill the form for the person they talk to.</p>
+      <figure>
+        <div class="scroll"><svg id="idflow" viewBox="0 0 1100 820" role="img" aria-label="Flowchart of identity resolution for a booking."></svg></div>
+        <figcaption>Writes for a held booking roll back: a held booking leaves no person, identifier or deal behind until it is retried.</figcaption>
+      </figure>
+    </section>
+
+    <section id="booking">
+      <p class="kicker">The booking pipeline</p>
+      <h2>A booking, from Calendly to the deal</h2>
+      <p class="lede">Calendly calls a webhook. The CRM stores the payload, files a delivery receipt, and processes it on a queue in one transaction. Every delivery ends in exactly one of four results, and only a blocked or failed one needs a person.</p>
+      <figure>
+        <p class="fig-title">Sequence of an <code>invitee.created</code> delivery</p>
+        <div class="scroll"><svg id="seq" viewBox="0 0 1100 760" role="img" aria-label="Sequence diagram of a Calendly booking through the pipeline."></svg></div>
+      </figure>
+      <div class="grid-2">
+        <figure>
+          <p class="fig-title">The other Calendly events</p>
+          <table id="other-events"></table>
+        </figure>
+        <figure>
+          <p class="fig-title">Delivery results in the ledger</p>
+          <p class="fig-sub" id="dl-sub"></p>
+          <ul class="legend" id="dl-legend"></ul>
+          <ul class="hbars" id="dl-bars"></ul>
+          <figcaption>"Dismissed backlog" are deliveries held before 14 October under the old identity rules, closed in bulk. No delivery is blocked or failed today.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="landing">
+      <p class="kicker">Deal targeting</p>
+      <h2>Which deal a booking joins</h2>
+      <p class="lede">Once the person is known, the booking needs a deal. The handler asks these questions in order and stops at the first that answers. A booking never joins a deal that a missed meeting closed: the next booking after a no-show is a new deal, unless the closer set a next step.</p>
+      <figure>
+        <div class="scroll"><svg id="landflow" viewBox="0 0 1100 700" role="img" aria-label="Decision flow for choosing a booking's deal."></svg></div>
+        <figcaption id="land-cap"></figcaption>
+      </figure>
+    </section>
+
+    <section id="deals">
+      <p class="kicker">The deal</p>
+      <h2>The deal stage machine</h2>
+      <p class="lede">A deal is one attempt to sell one program to one person. It sits at one of five stages, and its outcome is open until it reaches Closed, where it is won or lost with a reason. Every move goes through <code>transitionOpportunity</code> and the stage machine in <code>convex/opportunities/stages.ts</code>.</p>
+      <figure>
+        <p class="fig-title">Allowed moves, with the deals at each position now</p>
+        <p class="fig-sub">Arrows are the moves the stage machine allows. A closed deal moves again only through one of the four named exceptions listed below the diagram.</p>
+        <div class="scroll"><svg id="machine" viewBox="0 0 1100 560" role="img" aria-label="State diagram of deal stages and outcomes."></svg></div><div id="exceptions"></div>
+      </figure>
+      <figure>
+        <p class="fig-title">Where every deal stands, by how it started</p>
+        <p class="fig-sub">All deals in production. Left: how the deal was created. Middle: whether a call was ever booked on it. Right: its stage and outcome now.</p>
+        <div class="scroll"><svg id="sankey" viewBox="0 0 1100 560" role="img" aria-label="Sankey diagram from deal source to current outcome."></svg></div>
+        <figcaption id="sankey-cap"></figcaption>
+        <details class="numbers"><summary>Numbers behind the flow</summary><div id="sankey-table"></div></details>
+      </figure>
+    </section>
+
+    <section id="meetings">
+      <p class="kicker">The meeting</p>
+      <h2>Meetings record attendance, nothing else</h2>
+      <p class="lede">A meeting is scheduled, held, no-show or canceled, each with its own recorded time. A no-show or a cancellation also closes the deal as lost with that reason, while the attendance stays on the meeting. A call still scheduled after it ends shows as <b>Not recorded</b>: a display rule, not a fifth state.</p>
+      <div class="grid-2">
+        <figure>
+          <p class="fig-title">Attendance states</p>
+          <svg id="mstates" viewBox="0 0 520 360" role="img" aria-label="Meeting attendance states."></svg>
+        </figure>
+        <figure>
+          <p class="fig-title">Show rate, one formula everywhere</p>
+          <p class="fig-sub">held ÷ (held + no-show), counted by the call's scheduled time</p>
+          <div id="showrate-hero"></div>
+        </figure>
+      </div>
+      <figure>
+        <p class="fig-title">Meetings by month of the call</p>
+        <p class="fig-sub">UTC month of the scheduled time. Hover a bar for the month's numbers.</p>
+        <ul class="legend" id="mm-legend"></ul>
+        <div class="scroll"><svg id="months" viewBox="0 0 1100 340" role="img" aria-label="Stacked bars of meetings by month and attendance."></svg></div>
+        <p class="fig-title" style="margin-top:18px">Show rate and results recorded, by month</p>
+        <p class="fig-sub">Results recorded: share of past calls with held or no-show marked. Canceled calls are left out of both.</p>
+        <ul class="legend" id="rate-legend"></ul>
+        <div class="scroll"><svg id="rates" viewBox="0 0 1100 230" role="img" aria-label="Line chart of show rate and results recorded by month."></svg></div>
+        <details class="numbers"><summary>Numbers behind the charts</summary><div id="months-table"></div></details>
+      </figure>
+    </section>
+
+    <section id="money">
+      <p class="kicker">The money</p>
+      <h2>Payment makes a customer</h2>
+      <p class="lede">Customer is a lifecycle stage, not a separate record. Recording a payment closes the deal as won, moves the person to Customer, and creates or updates an enrollment: one per person and program, derived from the payments.</p>
+      <figure>
+        <div class="scroll"><svg id="moneyflow" viewBox="0 0 1100 230" role="img" aria-label="Payment to enrollment chain."></svg></div>
+        <figcaption id="money-cap"></figcaption>
+      </figure>
+    </section>
+
+    <section id="credit">
+      <p class="kicker">Credit</p>
+      <h2>Who gets credit on a deal</h2>
+      <p class="lede">Credit is a row: one team member, one role, one deal, with where the fact came from. Rows are only ever added; reassigning a meeting adds a row instead of replacing one. There are no commission shares.</p>
+      <figure>
+        <p class="fig-title">Which roles a deal carries</p>
+        <p class="fig-sub">Each column is a combination of roles; the bar is how many deals carry exactly that combination. The ten most common are shown.</p>
+        <div class="scroll"><svg id="upset" viewBox="0 0 1100 430" role="img" aria-label="Combinations of credited roles per deal."></svg></div>
+        <figcaption id="credit-cap"></figcaption>
+      </figure>
+    </section>
+
+    <section id="clocks">
+      <p class="kicker">Time</p>
+      <h2>What runs on a clock</h2>
+      <p class="lede">Most of the pipeline reacts to events. These rules run on time instead, and they explain most surprises: a Slack deal that closed by itself, a webhook alert, a report that counts by the business day.</p>
+      <figure>
+        <div class="scroll"><svg id="clockruler" viewBox="0 0 1100 330" role="img" aria-label="Timed rules on a logarithmic time axis."></svg></div>
+        <figcaption>The business day starts at 1:00 am Honduras time, when the last qualifier's shift ends. It is a tenant setting; every server-side day uses it, and screens on the browser clock say so.</figcaption>
+      </figure>
+    </section>
+
+    <section id="reviews">
+      <p class="kicker">When the rules can't decide</p>
+      <h2>Booking reviews and the recovery panel</h2>
+      <p class="lede">A booking that names more than one person opens a booking review, posted to Slack. A decision covers the people, not the one booking: a merge closes every review it leaves with one person, and keeping people separate closes every review about the same pair. Anything else that holds a booking waits in the recovery panel under Operations, where an admin retries it after fixing the cause.</p>
+      <div class="grid-2">
+        <figure>
+          <p class="fig-title">Reviews so far</p>
+          <div id="review-bars"></div>
+          <figcaption>Booking reviews started on 21 October 2026.</figcaption>
+        </figure>
+        <figure>
+          <p class="fig-title">Why held bookings are blocked</p>
+          <table id="hold-reasons"></table>
+        </figure>
+      </div>
+      <h3>A worked case: one booking, two people</h3>
+      <p>The first booking held under the new rules shows every piece of this page at once. Names are left out.</p>
+      <ol class="steps">
+        <li><time>9 Oct</time>Lead gen captures an Instagram account from a reel. It becomes a person at Prospect, holding only the handle.</li>
+        <li><time>17 Oct</time>A second person books through an event type that doesn't map the Instagram question. Their record gets only their email, though the form carried the same handle.</li>
+        <li><time>19 Oct, 23:06 UTC</time>A DM closer copies a booking link for the Instagram account. Five minutes later a booking arrives with the second person's name and email and the first person's handle.</li>
+        <li><time>19 Oct, 23:11 UTC</time>The email names one person and the handle another. The rule at the time holds any such booking, so its writes roll back and it waits in the recovery panel. Its cancellation the next morning is held too, because the booking it cancels was never recorded.</li>
+        <li><time>21–22 Oct</time>Booking reviews ship. Reviews open only when a delivery is processed, and this one isn't retried, so it never gets one.</li>
+        <li><time>23 Oct</time>An admin merges the two records on the Leads page and retries both deliveries. The booking applies, its meeting is canceled, and its deal closes as lost with reason <code>canceled</code>.</li>
+      </ol>
+      <p class="callout"><b>Two lessons.</b> Every Calendly event type that books sales calls needs its Instagram and phone questions mapped, or the person's handle is dropped. And a rule change that opens reviews needs a one-off retry of bookings already held.</p>
+    </section>
+
+    <footer>
+      <p><b>Sources.</b> Rules: <code>docs/adr/0001-lead-lifecycle-model.md</code>, <code>CONTEXT.md</code>, <code>convex/opportunities/stages.ts</code>, <code>convex/leads/lifecycle.ts</code>, <code>convex/leads/identityResolution.ts</code>, <code>convex/pipeline/inviteeCreated.ts</code>, <code>convex/pipeline/bookingReviewRecords.ts</code>, <code>convex/crons.ts</code>.</p>
+      <p><b>Data.</b> Read-only queries against production for tenant <code>k57dqjfyf8qqy31bq375ng8gb984b24q</code>, <span id="foot-asof"></span>. Counts only; no personal data. Merged person records are left out of person counts. The delivery ledger holds deliveries since it was introduced, mostly from September 2026, so its totals are smaller than the meeting count.</p>
+    </footer>
+  </main>
+</div>
+<div id="tip" role="tooltip"></div>
+
+<script>
+const DATA = {"asOf":"24 October 2026, 02:58 UTC","totals":{"people":92106,"merged":5,"deals":11688,"meetings":6968,"payments":293,"enrollments":288,"captures":87095,"deliveries":2667,"credit":30910},"stages":["prospect","in_conversation","qualified","booked","showed","customer"],"lines":[{"id":"lead_gen","label":"Lead gen capture","entry":"prospect","total":85787,"reached":[85787,4696,4696,1713,243,89],"at":[81091,0,2983,1470,154,89]},{"id":"dm_portal","label":"DM portal","entry":"in_conversation","total":3,"reached":[null,3,1,1,0,0],"at":[0,2,0,1,0,0]},{"id":"slack","label":"Slack /qualify-lead","entry":"qualified","total":4110,"reached":[null,null,4110,1570,221,84],"at":[0,0,2540,1349,137,84]},{"id":"calendly","label":"Calendly booking","entry":"booked","total":2205,"reached":[null,null,null,2205,257,114],"at":[0,0,0,1948,143,114]},{"id":"side_deal","label":"Side deal","entry":"showed","total":1,"reached":[null,null,null,null,1,1],"at":[0,0,0,0,0,1]}],"lifecycle":{"prospect":81091,"in_conversation":2,"qualified":5523,"booked":4768,"showed":434,"customer":288},"disposition":{"open":87815,"unresponsive":4291},"positions":{"booked":2845,"lost":7161,"won":288,"follow_up":168,"qualified":1225,"call_held":1},"srcPos":[{"src":"calendly","pos":"booked","n":1569},{"src":"calendly","pos":"lost","n":1274},{"src":"calendly","pos":"won","n":146},{"src":"slack_qualified","pos":"lost","n":5887},{"src":"slack_qualified","pos":"booked","n":1276},{"src":"slack_qualified","pos":"won","n":133},{"src":"slack_qualified","pos":"follow_up","n":96},{"src":"calendly","pos":"follow_up","n":72},{"src":"side_deal","pos":"won","n":9},{"src":"slack_qualified","pos":"qualified","n":1225},{"src":"side_deal","pos":"call_held","n":1}],"lost":[{"src":"calendly","reason":"canceled","n":959},{"src":"calendly","reason":"person_blank","n":24},{"src":"calendly","reason":"no_show","n":218},{"src":"calendly","reason":"person","n":73},{"src":"slack_qualified","reason":"canceled","n":1075},{"src":"slack_qualified","reason":"stale","n":4383},{"src":"slack_qualified","reason":"no_show","n":280},{"src":"slack_qualified","reason":"person","n":114},{"src":"slack_qualified","reason":"person_blank","n":35}],"slack":{"total":8617,"booked":3009},"dealsPerPerson":{"1":10442,"2":510,"3":51,"4":6,"5":1,"9":1,"16":1,"19":1},"meetingsPerDeal":{"1":5314,"2":642,"3":94,"4":15,"5":2,"6":3},"sankey":[{"s":"Calendly booked","t":"Had a call booked","v":3061},{"s":"Had a call booked","t":"Open: Booked","v":2845},{"s":"Had a call booked","t":"Lost: canceled","v":2034},{"s":"Had a call booked","t":"Won","v":279},{"s":"Had a call booked","t":"Lost: closer's call","v":246},{"s":"Had a call booked","t":"Lost: no-show","v":498},{"s":"Slack qualified","t":"Had a call booked","v":3009},{"s":"Slack qualified","t":"No call booked","v":5608},{"s":"No call booked","t":"Lost: Slack expiry","v":4383},{"s":"Had a call booked","t":"Open: Follow-up","v":168},{"s":"Side deal","t":"Call logged by hand","v":10},{"s":"Call logged by hand","t":"Won","v":9},{"s":"No call booked","t":"Open: Qualified","v":1225},{"s":"Call logged by hand","t":"Open: Call held","v":1}],"months":[{"month":"2026-04","held":12,"no_show":10,"canceled":191,"not_recorded":148,"upcoming":0},{"month":"2026-05","held":34,"no_show":17,"canceled":530,"not_recorded":453,"upcoming":0},{"month":"2026-06","held":137,"no_show":75,"canceled":553,"not_recorded":374,"upcoming":0},{"month":"2026-07","held":160,"no_show":80,"canceled":600,"not_recorded":397,"upcoming":0},{"month":"2026-08","held":42,"no_show":35,"canceled":417,"not_recorded":663,"upcoming":0},{"month":"2026-09","held":189,"no_show":198,"canceled":286,"not_recorded":384,"upcoming":0},{"month":"2026-10","held":144,"no_show":121,"canceled":292,"not_recorded":368,"upcoming":55},{"month":"2026-11","held":0,"no_show":0,"canceled":0,"not_recorded":0,"upcoming":3}],"meetingStatus":{"not_recorded":2787,"canceled":2869,"held":718,"no_show":536,"upcoming":58},"deliveries":[{"event":"invitee.created","status":"applied","reason":"","n":1741},{"event":"invitee.canceled","status":"applied","reason":"","n":524},{"event":"invitee.created","status":"ignored","reason":"dismissed_backlog","n":313},{"event":"invitee.canceled","status":"ignored","reason":"dismissed_backlog","n":27},{"event":"invitee.created","status":"ignored","reason":"group_event","n":27},{"event":"invitee.created","status":"ignored","reason":"unlinked_host_unmapped_event_type","n":23},{"event":"invitee.canceled","status":"ignored","reason":"group_event","n":7},{"event":"invitee_no_show.created","status":"applied","reason":"","n":3},{"event":"invitee.canceled","status":"ignored","reason":"unlinked_host_unmapped_event_type","n":2}],"deliveryMonths":{"2026-04":20,"2026-05":4,"2026-06":18,"2026-07":8,"2026-08":22,"2026-09":1225,"2026-10":1370},"roles":{"dm_team":5418,"dm_closer":4922,"closer":6978,"setter":8710,"lead_gen":4882},"combos":[{"roles":["lead_gen","setter"],"n":3020},{"roles":["setter"],"n":2588},{"roles":["closer","dm_closer","dm_team","setter"],"n":1462},{"roles":["closer","dm_closer","dm_team","lead_gen","setter"],"n":1452},{"roles":["closer"],"n":1169},{"roles":["closer","dm_closer","dm_team"],"n":1144},{"roles":["closer","dm_team"],"n":356},{"roles":["closer","dm_closer","dm_team","lead_gen"],"n":315},{"roles":["closer","setter"],"n":79},{"roles":["closer","lead_gen"],"n":44}],"dealsWithoutCredit":0,"payments":{"closer_meeting":275,"closer_side_deal":9,"closer_reminder":4,"closer_additional":5},"enrollmentStatus":{"active":288},"reviews":{"kept_separate":1,"merged":4},"prospectSources":{"instagram":48945,"meta_business":38150}};
+const NS = "http://www.w3.org/2000/svg";
+const fmt = n => n.toLocaleString("en-US");
+const pct = (a, b) => b ? (100 * a / b).toFixed(1) + "%" : "–";
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+function el(tag, attrs = {}, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v === undefined || v === null) continue;
+    if (k === "text") e.textContent = v; else e.setAttribute(k, v);
+  }
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function h(tag, attrs = {}, html) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (html !== undefined) e.innerHTML = html;
+  return e;
+}
+function tipOn(node, html) { node.setAttribute("data-tip", html); if (node.namespaceURI === NS && !node.hasAttribute("tabindex")) node.setAttribute("tabindex", "0"); }
+function multiline(parent, x, y, lines, attrs = {}, lh = 17) {
+  const t = el("text", { x, y, ...attrs }, parent);
+  const n = lines.length;
+  lines.forEach((ln, i) => el("tspan", { x, dy: i === 0 ? -(n - 1) * lh / 2 + "" : lh + "", text: ln }, t));
+  return t;
+}
+function arrowDefs(svg) {
+  const defs = el("defs", {}, svg);
+  for (const [id, color] of [["arr", "var(--ink-2)"], ["arr-dim", "var(--ink-3)"], ["arr-crit", "var(--critical)"]]) {
+    const m = el("marker", { id: svg.id + "-" + id, viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" }, defs);
+    el("path", { d: "M0,0 L10,5 L0,10 z", fill: color }, m);
+  }
+  const p = el("pattern", { id: svg.id + "-hatch", width: "6", height: "6", patternUnits: "userSpaceOnUse", patternTransform: "rotate(45)" }, defs);
+  el("rect", { width: "6", height: "6", fill: "var(--warning)" }, p);
+  el("line", { x1: "0", y1: "0", x2: "0", y2: "6", stroke: "var(--hatch)", "stroke-width": "2.5" }, p);
+  return defs;
+}
+
+/* ───── header facts ───── */
+const T = DATA.totals;
+document.getElementById("asof").textContent = "Production, " + DATA.asOf;
+document.getElementById("rail-asof").textContent = DATA.asOf;
+document.getElementById("foot-asof").textContent = DATA.asOf;
+document.getElementById("facts").innerHTML = [
+  [T.people, "people"], [T.deals, "deals"], [T.meetings, "meetings"], [T.payments, "payments"], [T.enrollments, "enrollments"], [T.credit, "credit rows"]
+].map(([n, l]) => `<li><b class="num">${fmt(n)}</b>${l}</li>`).join("");
+
+/* ───── 1. Route map ───── */
+(function route() {
+  const svg = document.getElementById("route");
+  const S = DATA.stages, labels = ["Prospect", "In conversation", "Qualified", "Booked", "Showed", "Customer"];
+  const x0 = 340, x1 = 1050, sx = i => x0 + i * (x1 - x0) / 5;
+  const maxN = Math.max(...DATA.lines.map(l => l.total));
+  const w = n => n ? Math.max(3, 46 * Math.sqrt(n / maxN)) : 0;
+  const ys = [140, 214, 270, 326, 382];
+  const lines = DATA.lines;
+  const g = el("g", {}, svg);
+  // station capsules first measured
+  const stationSpan = S.map((_, i) => {
+    const on = lines.map((l, k) => l.reached[i] ? k : -1).filter(k => k >= 0);
+    return on.length ? [ys[Math.min(...on)], ys[Math.max(...on)]] : null;
+  });
+  // lines
+  lines.forEach((l, k) => {
+    const color = `var(--c-${l.id})`, y = ys[k];
+    const ei = S.indexOf(l.entry);
+    // label column
+    const lab = el("g", {}, g);
+    el("circle", { cx: 26, cy: y, r: 7, fill: color }, lab);
+    el("text", { x: 42, y: y - 3, class: "svg-display svg-ink", "font-size": 17, "font-weight": 800, text: l.label }, lab);
+    el("text", { x: 42, y: y + 15, class: "svg-label", "font-size": 13, text: `${fmt(l.total)} ${l.total === 1 ? "person" : "people"} · enter at ${labels[ei]}` }, lab);
+    // dotted leader to the line start
+    const startX = sx(ei) - 46;
+    el("line", { x1: 238, y1: y, x2: startX, y2: y, stroke: color, "stroke-width": 2, "stroke-dasharray": "2 6", "stroke-linecap": "round", opacity: .7 }, g);
+    // lead-in
+    const segs = [[startX, sx(ei), l.reached[ei], `<b>${l.label}</b><br>${fmt(l.reached[ei])} people entered at ${labels[ei]}`]];
+    for (let i = ei; i < 5; i++) {
+      const n = l.reached[i + 1];
+      if (!n) break;
+      segs.push([sx(i), sx(i + 1), n, `<b>${l.label}</b> → ${labels[i + 1]}<br>${fmt(n)} reached ${labels[i + 1]} or further (${pct(n, l.reached[ei])} of the channel)`]);
+    }
+    segs.forEach(([a, b, n, tip], j) => {
+      const len = b - a;
+      const line = el("line", { x1: a, y1: y, x2: b, y2: y, stroke: color, "stroke-width": w(n), "stroke-linecap": "butt", class: "route-line draw", style: `--len:${len};--delay:${(k * .12 + j * .22).toFixed(2)}s` }, g);
+      tipOn(line, tip);
+      // wide invisible hit target
+      const hit = el("line", { x1: a, y1: y, x2: b, y2: y, stroke: "transparent", "stroke-width": Math.max(18, w(n) + 8) }, g);
+      tipOn(hit, tip);
+    });
+    // terminus
+    const last = segs[segs.length - 1][1];
+    const lastN = segs[segs.length - 1][2];
+    el("line", { x1: last, y1: y - w(lastN) / 2 - 5, x2: last, y2: y + w(lastN) / 2 + 5, stroke: color, "stroke-width": 4, "stroke-linecap": "round" }, g);
+  });
+  // stations
+  S.forEach((s, i) => {
+    const x = sx(i), span = stationSpan[i];
+    const total = lines.reduce((a, l) => a + (l.reached[i] || 0), 0);
+    const here = DATA.lifecycle[s];
+    const st = el("g", {}, svg);
+    el("text", { x, y: 46, "text-anchor": "middle", class: "svg-display svg-ink", "font-size": 15, "font-weight": 800, "letter-spacing": ".06em", text: labels[i].toUpperCase() }, st);
+    el("text", { x, y: 68, "text-anchor": "middle", class: "svg-mono svg-label", "font-size": 12.5, text: `${fmt(total)} reached` }, st);
+    el("text", { x, y: 86, "text-anchor": "middle", class: "svg-mono", fill: "var(--ink-3)", "font-size": 12, text: `${fmt(here)} here now` }, st);
+    if (!span) return;
+    const top = span[0] - 22, bot = span[1] + 22;
+    const cap = el("rect", { x: x - 11, y: top, width: 22, height: bot - top, rx: 11, fill: "var(--station)", stroke: "var(--ink)", "stroke-width": 3.5 }, st);
+    el("line", { x1: x, y1: 96, x2: x, y2: top - 2, stroke: "var(--ink)", "stroke-width": 1.5, "stroke-dasharray": "1 4" }, st);
+    const rows = lines.filter(l => l.reached[i]).map(l => `${l.label}: ${fmt(l.reached[i])} reached, ${fmt(l.at[i])} here now`).join("<br>");
+    tipOn(cap, `<b>${labels[i]}</b><br>${rows}`);
+  });
+  // annotation: In conversation is nearly empty
+  const a = el("g", {}, svg);
+  el("text", { x: sx(1), y: 252, "text-anchor": "middle", class: "svg-label", "font-size": 12.5, "font-style": "italic", text: "Lead gen passes through here" }, a);
+  const lg = DATA.lines.find(l => l.id === "lead_gen"), sl = DATA.lines.find(l => l.id === "slack"), ca = DATA.lines.find(l => l.id === "calendly");
+  document.getElementById("route-cap").innerHTML = `<b>${pct(lg.at[0], lg.total)}</b> of people captured by lead gen are still Prospects: ${fmt(lg.at[0])} of ${fmt(lg.total)}. Of everyone who reached Booked (${fmt(lg.reached[3] + sl.reached[3] + ca.reached[3] + 1)}), ${fmt(DATA.lifecycle.showed + DATA.lifecycle.customer)} reached Showed or Customer. Showed depends on closers recording a held call, so it undercounts: see Meetings.`;
+  const rows = DATA.lines.map(l => `<tr><td><span class="chip"><i style="background:var(--c-${l.id})"></i>${l.label}</span></td>${l.reached.map((n, i) => `<td class="r">${n == null ? "–" : fmt(n)}${n != null && l.at[i] ? `<br><span class="muted">${fmt(l.at[i])} here</span>` : ""}</td>`).join("")}</tr>`).join("");
+  document.getElementById("route-table").innerHTML = `<table><thead><tr><th>First touch</th>${labels.map(l => `<th class="r">${l}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table><p class="muted" style="font-size:13px;margin-top:8px">Each cell: people who reached the stage or went further; below it, people at that stage now.</p>`;
+})();
+
+/* ───── 2. Record cards ───── */
+(function records() {
+  const L = DATA.lifecycle, P = DATA.positions, M = DATA.meetingStatus;
+  const dl = { applied: 0, ignored: 0, blocked: 0, failed: 0, queued: 0 };
+  DATA.deliveries.forEach(d => dl[d.status] = (dl[d.status] || 0) + d.n);
+  const cards = [
+    { name: "Person", tbl: "leads", what: "One human, recorded once for life.", axis: "Lifecycle stage", rows: [["Prospect", L.prospect], ["In conversation", L.in_conversation], ["Qualified", L.qualified], ["Booked", L.booked], ["Showed", L.showed], ["Customer", L.customer]], note: `Moves forward on its own; only an admin moves it back, with a reason. Disposition sits beside it: ${fmt(DATA.disposition.open || 0)} open, ${fmt(DATA.disposition.unresponsive || 0)} unresponsive.` },
+    { name: "Deal", tbl: "opportunities", what: "One attempt to sell one program to one person.", axis: "Stage · outcome", rows: [["Qualified · open", P.qualified || 0], ["Booked · open", P.booked || 0], ["Call held · open", P.call_held || 0], ["Follow-up · open", P.follow_up || 0], ["Closed · won", P.won || 0], ["Closed · lost", P.lost || 0]], note: "Closed allows won or lost; every other stage is open. No-show and canceled are loss reasons, never stages." },
+    { name: "Meeting", tbl: "meetings", what: "One scheduled sales call.", axis: "Attendance", rows: [["Scheduled, upcoming", M.upcoming || 0], ["Scheduled, past: Not recorded", M.not_recorded || 0], ["Held", M.held || 0], ["No-show", M.no_show || 0], ["Canceled", M.canceled || 0]], note: "Held, no-show and canceled each carry the time someone recorded them." },
+    { name: "Booking delivery", tbl: "webhookDeliveries", what: "One Calendly webhook, as received and processed.", axis: "Result", rows: [["Applied", dl.applied], ["Ignored", dl.ignored], ["Blocked (held)", dl.blocked], ["Failed", dl.failed], ["Queued", dl.queued]], note: "Blocked and failed wait in the recovery panel; a retry runs the delivery again under today's rules." },
+  ];
+  const wrap = document.getElementById("record-cards");
+  cards.forEach(c => {
+    const max = Math.max(...c.rows.map(r => r[1]), 1);
+    const card = h("article", { class: "record" });
+    card.innerHTML = `<h4>${c.name}</h4><div class="tbl">${c.tbl}</div><p class="what">${c.what}</p><div class="axis">${c.axis}</div><ul class="states">${c.rows.map(([l, n]) => `<li><span>${l}</span><span class="n">${fmt(n)}</span><span class="bar"><i style="width:${(100 * n / max).toFixed(2)}%"></i></span></li>`).join("")}</ul><p class="rule-note">${c.note}</p>`;
+    wrap.appendChild(card);
+  });
+})();
+
+/* ───── 3. ER diagram ───── */
+(function er() {
+  const svg = document.getElementById("er"); arrowDefs(svg);
+  const T = DATA.totals;
+  const dpp = DATA.dealsPerPerson, mpd = DATA.meetingsPerDeal;
+  const peopleWithDeals = Object.values(dpp).reduce((a, b) => a + b, 0);
+  const multiDeal = peopleWithDeals - (dpp["1"] || 0);
+  const dealsWithMeetings = Object.values(mpd).reduce((a, b) => a + b, 0);
+  const multiMeet = dealsWithMeetings - (mpd["1"] || 0);
+  const box = (x, y, w, title, tbl, n, strong) => {
+    const g = el("g", {}, svg);
+    el("rect", { x, y, width: w, height: 74, rx: 12, fill: "var(--surface)", stroke: strong ? "var(--ink)" : "var(--rule-2)", "stroke-width": strong ? 3 : 1.5 }, g);
+    el("text", { x: x + 16, y: y + 30, class: "svg-display svg-ink", "font-size": 19, "font-weight": 900, text: title }, g);
+    el("text", { x: x + 16, y: y + 52, class: "svg-mono svg-label", "font-size": 12, text: `${tbl} · ${fmt(n)}` }, g);
+    return { x, y, w, cx: x + w / 2, cy: y + 37, r: x + w, b: y + 74 };
+  };
+  const person = box(40, 150, 210, "Person", "leads", T.people, true);
+  const deal = box(420, 150, 210, "Deal", "opportunities", T.deals, true);
+  const meeting = box(820, 150, 230, "Meeting", "meetings", T.meetings, true);
+  const enrol = box(40, 300, 210, "Enrollment", "enrollments", T.enrollments);
+  const pay = box(420, 300, 210, "Payment", "paymentRecords", T.payments);
+  const credit = box(420, 10, 210, "Credit row", "dealAttributions", T.credit);
+  const deliv = box(820, 300, 230, "Booking delivery", "webhookDeliveries", T.deliveries);
+  const edge = (x1, y1, x2, y2, label, sub, ly) => {
+    el("line", { x1, y1, x2, y2, stroke: "var(--ink-2)", "stroke-width": 2, "marker-end": `url(#er-arr)` }, svg);
+    const mx = (x1 + x2) / 2, my = ly ?? (y1 + y2) / 2 - 10;
+    el("text", { x: mx, y: my, "text-anchor": "middle", class: "svg-display svg-ink", "font-size": 13, "font-weight": 800, text: label }, svg);
+    if (sub) el("text", { x: mx, y: my + 34, "text-anchor": "middle", class: "svg-label", "font-size": 12, text: sub }, svg);
+  };
+  edge(person.r, person.cy, deal.x - 4, deal.cy, "has many", `${fmt(multiDeal)} people have 2+`);
+  edge(deal.r, deal.cy, meeting.x - 4, meeting.cy, "has many", `${fmt(multiMeet)} deals have 2+`);
+  edge(deal.cx, deal.b, pay.cx, pay.y - 4, "", "", 0);
+  el("text", { x: deal.cx + 12, y: 270, class: "svg-label", "font-size": 12, text: "payments on a deal" }, svg);
+  edge(deal.cx, deal.y, credit.cx, credit.b + 4, "", "", 0);
+  el("text", { x: deal.cx + 12, y: 120, class: "svg-label", "font-size": 12, text: "one per role and person" }, svg);
+  edge(person.cx, person.b, enrol.cx, enrol.y - 4, "", "", 0);
+  el("text", { x: person.cx + 12, y: 270, class: "svg-label", "font-size": 12, text: "one per program bought" }, svg);
+  edge(deliv.cx, deliv.y, meeting.cx, meeting.b + 4, "", "", 0);
+  el("text", { x: meeting.cx + 12, y: 270, class: "svg-label", "font-size": 12, text: "creates or updates" }, svg);
+  // timeline note
+  el("text", { x: 40, y: 400 - 8, class: "svg-label", "font-size": 12.5, text: "Every change above also writes a touch to the person's timeline (domainEvents): one timeline, no second log." }, svg);
+})();
+
+/* ───── 4. Channel matrix ───── */
+(function matrix() {
+  const rows = [
+    ["lead_gen", "Lead gen capture", "A worker submits an Instagram or Meta Business handle", "Prospect", "–", "–", "Lead gen"],
+    ["dm_portal", "DM portal", "A setter adds a note, edits the profile or copies a booking link", "In conversation", "–", "–", "DM team, DM closer (from the link's UTMs, at booking)"],
+    ["slack", "Slack /qualify-lead", "A setter qualifies the person in Slack", "Qualified", "New deal at Qualified", "–", "Setter"],
+    ["calendly", "Calendly booking", "The person, or someone for them, books a call", "Booked", "Joins a deal or starts one at Booked", "Scheduled", "Closer (the Calendly host)"],
+    ["side_deal", "Side deal", "A closer or admin logs a call that happened outside Calendly", "Showed", "New deal at Call held", "–", "Closer"],
+  ];
+  const t = document.getElementById("matrix");
+  const byId = Object.fromEntries(DATA.lines.map(l => [l.id, l.total]));
+  t.innerHTML = `<thead><tr><th>Channel</th><th>What happens</th><th>Person enters at</th><th>Deal</th><th>Meeting</th><th>Credit written</th><th class="r">First touch for</th></tr></thead><tbody>${rows.map(r => `<tr><td><span class="chip"><i style="background:var(--c-${r[0]})"></i>${r[1]}</span></td><td>${r[2]}</td><td><span class="pill">${r[3]}</span></td><td>${r[4]}</td><td>${r[5]}</td><td>${r[6]}</td><td class="r">${fmt(byId[r[0]] || 0)}</td></tr>`).join("")}</tbody>`;
+})();
+
+/* ───── shared flowchart helpers ───── */
+function flowKit(svg) {
+  arrowDefs(svg);
+  const kinds = {
+    step: { fill: "var(--surface)", stroke: "var(--ink)", sw: 2, text: "var(--ink)" },
+    ask: { fill: "var(--surface)", stroke: "var(--ink)", sw: 2.5, text: "var(--ink)" },
+    good: { fill: "color-mix(in srgb, var(--good) 14%, var(--surface))", stroke: "var(--good)", sw: 2, text: "var(--ink)" },
+    review: { fill: "color-mix(in srgb, var(--warning) 22%, var(--surface))", stroke: "#b07a00", sw: 2, text: "var(--ink)" },
+    hold: { fill: "color-mix(in srgb, var(--critical) 12%, var(--surface))", stroke: "var(--critical)", sw: 2, text: "var(--ink)" },
+    skip: { fill: "color-mix(in srgb, var(--neutral) 16%, var(--surface))", stroke: "var(--neutral)", sw: 2, text: "var(--ink)" },
+  };
+  const tags = { good: "✓ ", review: "◆ ", hold: "■ ", skip: "○ " };
+  function node(cx, cy, w, hgt, kind, lines, tip) {
+    const k = kinds[kind], g = el("g", {}, svg);
+    if (kind === "ask") {
+      const p = 18;
+      el("path", { d: `M${cx - w / 2},${cy} L${cx - w / 2 + p},${cy - hgt / 2} L${cx + w / 2 - p},${cy - hgt / 2} L${cx + w / 2},${cy} L${cx + w / 2 - p},${cy + hgt / 2} L${cx - w / 2 + p},${cy + hgt / 2} Z`, fill: k.fill, stroke: k.stroke, "stroke-width": k.sw, "stroke-linejoin": "round" }, g);
+    } else {
+      el("rect", { x: cx - w / 2, y: cy - hgt / 2, width: w, height: hgt, rx: kind === "step" ? 8 : hgt / 2 > 26 ? 14 : hgt / 2, fill: k.fill, stroke: k.stroke, "stroke-width": k.sw }, g);
+    }
+    const ls = lines.map((l, i) => i === 0 && tags[kind] ? tags[kind] + l : l);
+    multiline(g, cx, cy + 5, ls, { "text-anchor": "middle", "font-size": 14, fill: k.text, class: kind === "ask" ? "svg-display" : "", "font-weight": kind === "ask" ? 700 : 500 }, 17);
+    if (tip) tipOn(g, tip);
+    return { cx, cy, w, h: hgt, l: cx - w / 2, r: cx + w / 2, t: cy - hgt / 2, b: cy + hgt / 2 };
+  }
+  function edge(pts, label, opts = {}) {
+    const d = pts.map((p, i) => (i ? "L" : "M") + p[0] + "," + p[1]).join(" ");
+    el("path", { d, fill: "none", stroke: opts.color || "var(--ink-2)", "stroke-width": opts.w || 2, "stroke-dasharray": opts.dash ? "6 5" : null, "marker-end": `url(#${svg.id}-${opts.marker || "arr"})`, "stroke-linejoin": "round" }, svg);
+    if (label) {
+      const [lx, ly] = opts.at || [(pts[0][0] + pts[1][0]) / 2, (pts[0][1] + pts[1][1]) / 2];
+      const tw = label.length * 7.4 + 14;
+      el("rect", { x: lx - tw / 2, y: ly - 11, width: tw, height: 21, rx: 10, fill: "var(--surface)", stroke: "var(--rule-2)" }, svg);
+      el("text", { x: lx, y: ly + 4.5, "text-anchor": "middle", class: "svg-display", "font-size": 12.5, "font-weight": 800, fill: "var(--ink-2)", text: label }, svg);
+    }
+  }
+  return { node, edge };
+}
+
+/* ───── 5. Identity flowchart ───── */
+(function identity() {
+  const svg = document.getElementById("idflow");
+  const { node, edge } = flowKit(svg);
+  const A = node(550, 42, 470, 50, "step", ["A booking arrives: name, email, phone, Instagram handle"]);
+  const B = node(550, 122, 470, 50, "step", ["Drop placeholder values (a sample phone, email@gmail.com)"]);
+  const C = node(550, 202, 470, 50, "step", ["Look each identifier up among people, following merges"]);
+  const D = node(550, 300, 360, 62, "ask", ["How many people", "do the identifiers name?"]);
+  const N0 = node(150, 300, 220, 56, "good", ["Nobody: create", "a new person"]);
+  const F = node(300, 440, 340, 62, "ask", ["Is the booking's email", "new to that person?"]);
+  const K = node(820, 440, 340, 62, "ask", ["Does the Instagram handle", "name one of them?"]);
+  const G = node(110, 580, 190, 56, "good", ["Use that", "person"]);
+  const H = node(390, 580, 320, 62, "ask", ["Did the handle or a", "known email also match?"]);
+  const I = node(250, 720, 300, 62, "good", ["Use that person; keep the", "new email as an extra one"]);
+  const J = node(560, 720, 270, 62, "hold", ["Held: a phone alone", "can't vouch for a new email"]);
+  const L = node(760, 600, 250, 76, "review", ["Goes to the handle's person.", "Opens an attached review;", "the others keep their details."]);
+  const M = node(990, 600, 200, 76, "hold", ["Held until", "the review", "is decided"]);
+  const R = node(885, 760, 330, 62, "step", ["Admin decides on the review:", "Merge or Keep separate"]);
+  edge([[A.cx, A.b], [B.cx, B.t]]); edge([[B.cx, B.b], [C.cx, C.t]]); edge([[C.cx, C.b], [D.cx, D.t]]);
+  edge([[D.l, D.cy], [N0.r, N0.cy]], "0");
+  edge([[D.cx - 60, D.b], [D.cx - 60, 380], [F.cx, 380], [F.cx, F.t]], "1", { at: [420, 380] });
+  edge([[D.cx + 60, D.b], [D.cx + 60, 380], [K.cx, 380], [K.cx, K.t]], "2 or more", { at: [700, 380] });
+  edge([[F.l + 10, F.cy], [G.cx, F.cy], [G.cx, G.t]], "No", { at: [G.cx, 470] });
+  edge([[F.cx + 90, F.b], [H.cx, H.t]], "Yes", { at: [H.cx - 20, 510] });
+  edge([[H.cx - 60, H.b], [I.cx, I.t]], "Yes", { at: [300, 650] });
+  edge([[H.cx + 60, H.b], [J.cx, J.t]], "No", { at: [500, 650] });
+  edge([[K.cx - 60, K.b], [L.cx, L.t]], "Yes", { at: [775, 515] });
+  edge([[K.cx + 90, K.b], [M.cx, M.t]], "No", { at: [950, 515] });
+  edge([[L.cx, L.b], [L.cx, R.t]], null, { color: "#b07a00", marker: "arr" });
+  edge([[M.cx, M.b], [M.cx, M.b + 14], [R.r - 30, M.b + 14], [R.r - 30, R.t]], null, { color: "var(--critical)", marker: "arr-crit" });
+  const rv = DATA.reviews;
+  el("text", { x: R.cx, y: R.b + 26, "text-anchor": "middle", class: "svg-label", "font-size": 13, text: `So far: ${rv.merged || 0} merged, ${rv.kept_separate || 0} kept separate` }, svg);
+  // legend
+  const lg = [["good", "Booking applies"], ["review", "Applies, with a review"], ["hold", "Held"]];
+  lg.forEach(([k, t], i) => {
+    const x = 40 + i * 0;
+    const y = 30 + i * 26;
+    el("rect", { x: 20, y: y - 10, width: 18, height: 14, rx: 4, fill: k === "good" ? "color-mix(in srgb, var(--good) 14%, var(--surface))" : k === "review" ? "color-mix(in srgb, var(--warning) 22%, var(--surface))" : "color-mix(in srgb, var(--critical) 12%, var(--surface))", stroke: k === "good" ? "var(--good)" : k === "review" ? "#b07a00" : "var(--critical)", "stroke-width": 2 }, svg);
+    el("text", { x: 46, y: y + 2, class: "svg-label", "font-size": 13, text: t }, svg);
+  });
+})();
+
+/* ───── 6. Sequence diagram ───── */
+(function sequence() {
+  const svg = document.getElementById("seq"); arrowDefs(svg);
+  const actors = [["Calendly", "the invitee books"], ["Webhook", "/webhooks/calendly"], ["Delivery ledger", "raw event + receipt"], ["Queue", "Workpool"], ["Booking handler", "invitee.created"], ["Records", "person · deal · meeting"], ["Admin", "panel · Slack"]];
+  const X = actors.map((_, i) => 80 + i * 157);
+  const top = 30, bottom = 735;
+  actors.forEach(([a, s], i) => {
+    el("line", { x1: X[i], y1: top + 52, x2: X[i], y2: bottom, stroke: "var(--rule-2)", "stroke-width": 2, "stroke-dasharray": "3 5" }, svg);
+    el("rect", { x: X[i] - 70, y: top, width: 140, height: 52, rx: 10, fill: i === 4 ? "var(--ink)" : "var(--surface)", stroke: "var(--ink)", "stroke-width": 2 }, svg);
+    el("text", { x: X[i], y: top + 23, "text-anchor": "middle", class: "svg-display", "font-size": 14.5, "font-weight": 800, fill: i === 4 ? "var(--surface)" : "var(--ink)", text: a }, svg);
+    el("text", { x: X[i], y: top + 41, "text-anchor": "middle", class: "svg-mono", "font-size": 10.5, fill: i === 4 ? "var(--rule-2)" : "var(--ink-3)", text: s }, svg);
+  });
+  // transaction band
+  el("rect", { x: X[4] - 82, y: 312, width: X[5] - X[4] + 164, height: 262, rx: 10, fill: "color-mix(in srgb, var(--c-calendly) 7%, transparent)", stroke: "var(--c-calendly)", "stroke-dasharray": "5 5" }, svg);
+  el("text", { x: X[5] + 76, y: 330, "text-anchor": "end", class: "svg-display", "font-size": 11.5, "font-weight": 800, "letter-spacing": ".08em", fill: "var(--c-calendly)", text: "ONE TRANSACTION" }, svg);
+  const msgs = [
+    [0, 1, "POST invitee.created, signed", 110],
+    [1, 1, "Check the signature", 150, "self"],
+    [1, 2, "Store payload; file a receipt keyed by the event", 196],
+    [2, 2, "Same key seen before → ignored (duplicate)", 236, "self", true],
+    [2, 3, "Enqueue the delivery", 280],
+    [3, 4, "Process it", 344],
+    [4, 5, "Resolve the person (identity rule)", 384],
+    [4, 5, "Pick the deal (see below)", 424],
+    [4, 5, "Write meeting, deal, credit", 464],
+    [4, 5, "Touches, stage, reports", 504],
+    [4, 2, "Result: applied, ignored, blocked or failed", 552, null, false, true],
+    [2, 6, "Blocked or failed → recovery panel", 616],
+    [2, 6, "Names 2+ people → booking review, posted to Slack", 656],
+    [6, 2, "Retry after the fix: runs again under today's rules", 700, null, true],
+  ];
+  msgs.forEach(([a, b, label, y, kind, dashed, ret]) => {
+    if (kind === "self") {
+      const x = X[a];
+      el("path", { d: `M${x},${y - 8} h34 v16 h-30`, fill: "none", stroke: "var(--ink-2)", "stroke-width": 2, "stroke-dasharray": dashed ? "5 4" : null, "marker-end": `url(#seq-arr)` }, svg);
+      el("text", { x: x + 44, y: y + 4, class: "svg-label", "font-size": 13, text: label }, svg);
+      return;
+    }
+    const x1 = X[a], x2 = X[b], dir = x2 > x1 ? 1 : -1;
+    el("line", { x1: x1 + dir * 6, y1: y, x2: x2 - dir * 8, y2: y, stroke: ret ? "var(--ink-3)" : "var(--ink-2)", "stroke-width": 2, "stroke-dasharray": dashed || ret ? "6 5" : null, "marker-end": `url(#seq-arr${ret ? "-dim" : ""})` }, svg);
+    const mx = (x1 + x2) / 2;
+    el("text", { x: Math.abs(x2 - x1) < 170 ? Math.min(x1, x2) + 8 : mx, y: y - 8, "text-anchor": Math.abs(x2 - x1) < 170 ? "start" : "middle", class: "svg-label", "font-size": 13, text: label }, svg);
+  });
+  // cron note
+  el("rect", { x: X[2] - 70, y: 744 - 30, width: 0, height: 0 }, svg);
+})();
+
+/* ───── 7. Other events + delivery bars ───── */
+(function events() {
+  document.getElementById("other-events").innerHTML = `<thead><tr><th>Calendly event</th><th>Meeting</th><th>Deal</th></tr></thead><tbody>
+  <tr><td><code>invitee.canceled</code></td><td>Canceled, with <code>canceledAt</code></td><td>Closed, lost, reason <code>canceled</code>. A Calendly reschedule's cancel leaves the deal alone: the new booking moves it.</td></tr>
+  <tr><td><code>invitee_no_show.created</code></td><td>No-show, with <code>noShowMarkedAt</code></td><td>Closed, lost, reason <code>no_show</code>. The person shows on the No-shows &amp; Cancellations page.</td></tr>
+  <tr><td><code>invitee_no_show.deleted</code></td><td>Back to scheduled</td><td>Reopens at Booked (the named exception <code>no_show_withdrawn</code>).</td></tr>
+  <tr><td>Closer marks the call</td><td>Held with <code>heldMarkedAt</code>, or no-show</td><td>Held moves no stage on its own; the closer's next action does: payment, follow-up or lost.</td></tr></tbody>`;
+  const colors = { applied: "var(--good)", ignored: "var(--neutral)", blocked: "var(--critical)", failed: "var(--serious)" };
+  const names = { "invitee.created": "Booked", "invitee.canceled": "Canceled", "invitee_no_show.created": "No-show reported" };
+  const reasons = { "": "", dismissed_backlog: "dismissed backlog", group_event: "group event", unlinked_host_unmapped_event_type: "host not a closer, event not a sales call" };
+  const rows = DATA.deliveries;
+  const max = Math.max(...rows.map(r => r.n));
+  document.getElementById("dl-sub").textContent = `${fmt(DATA.totals.deliveries)} deliveries, by Calendly event and result`;
+  document.getElementById("dl-legend").innerHTML = [["applied", "Applied"], ["ignored", "Ignored"], ["blocked", "Blocked"]].map(([k, l]) => `<li><i style="background:${colors[k]}"></i>${l}</li>`).join("");
+  document.getElementById("dl-bars").innerHTML = rows.map(r => `<li data-tip="<b>${names[r.event] || r.event}: ${r.status}</b>${reasons[r.reason] ? "<br>" + reasons[r.reason] : ""}<br>${fmt(r.n)} deliveries" tabindex="0"><span>${names[r.event] || r.event} · ${r.status}${r.reason ? `<br><span class="muted" style="font-size:12.5px">${reasons[r.reason] || r.reason}</span>` : ""}</span><span class="track"><i style="width:${Math.max(.6, 100 * r.n / max)}%;background:${colors[r.status]}"></i></span><span class="v">${fmt(r.n)}</span></li>`).join("");
+})();
+
+/* ───── 8. Landing flow ───── */
+(function landing() {
+  const svg = document.getElementById("landflow");
+  const { node, edge } = flowKit(svg);
+  const qx = 300, ox = 800;
+  const Q = [
+    [70, ["Is it a group event, or a host who", "isn't a closer on a non-sales event?"], "skip", ["Ignored: not a", "tracked sales call"]],
+    [190, ["Does Calendly say it replaces", "an earlier booking (reschedule)?"], "good", ["Move that deal to the new", "meeting if still Booked"]],
+    [310, ["Is there an open Follow-up deal", "with no reschedule link waiting?"], "good", ["Join it: the deal", "goes back to Booked"]],
+    [430, ["Is there an open Slack deal", "qualified in the last 30 days?"], "good", ["Join it: Qualified", "moves to Booked"]],
+    [550, ["Is the Calendly host a", "linked, active closer?"], null, null],
+  ];
+  const nodes = Q.map(([y, ask, kind, out]) => {
+    const a = node(qx, y, 420, 64, "ask", ask);
+    let o = null;
+    if (kind) { o = node(ox, y, 330, 58, kind, out); edge([[a.r, y], [o.l, y]], "Yes", { at: [(a.r + o.l) / 2, y] }); }
+    return a;
+  });
+  for (let i = 0; i < nodes.length - 1; i++) edge([[qx, nodes[i].b], [qx, nodes[i + 1].t]], "No", { at: [qx + 30, (nodes[i].b + nodes[i + 1].t) / 2] });
+  const yes = node(ox, 550, 330, 58, "good", ["New deal at Booked,", "with the closer credited"]);
+  edge([[nodes[4].r, 550], [yes.l, 550]], "Yes", { at: [(nodes[4].r + yes.l) / 2, 550] });
+  const hold = node(qx, 660, 330, 54, "hold", ["Held: host not linked"]);
+  edge([[qx, nodes[4].b], [qx, hold.t]], "No", { at: [qx + 30, 612] });
+  // ambiguity note
+  const amb = node(ox, 660, 330, 54, "hold", ["Held: two targets at once,", "or a deal changed since"]);
+  edge([[ox, 459], [ox, 490]], null, { dash: true, color: "var(--critical)", marker: "arr-crit" });
+  el("text", { x: ox + 12, y: 486, class: "svg-label", "font-size": 12, text: "both a Follow-up and a Slack deal" }, svg);
+  el("line", { x1: ox, y1: 490, x2: ox, y2: 520, stroke: "transparent" }, svg);
+  const mpd = DATA.meetingsPerDeal;
+  document.getElementById("land-cap").innerHTML = `In production, <b>${fmt(DATA.slack.booked)}</b> of ${fmt(DATA.slack.total)} Slack-qualified deals were later joined by a booking, and <b>${fmt(DATA.sankey.find(s => s.s === "Calendly booked").v)}</b> deals started from a booking with no earlier deal. A held booking's writes roll back, so a retry starts from scratch.`;
+})();
+
+/* ───── 9. Stage machine ───── */
+(function machine() {
+  const svg = document.getElementById("machine");
+  const { node, edge } = flowKit(svg);
+  const P = DATA.positions;
+  const box = (cx, cy, title, n, color, kind = "open") => {
+    const g = el("g", {}, svg);
+    el("rect", { x: cx - 92, y: cy - 40, width: 184, height: 80, rx: 14, fill: "var(--surface)", stroke: color, "stroke-width": 3 }, g);
+    el("rect", { x: cx - 92, y: cy - 40, width: 10, height: 80, rx: 5, fill: color }, g);
+    el("text", { x: cx - 70, y: cy - 8, class: "svg-display svg-ink", "font-size": 19, "font-weight": 900, text: title }, g);
+    el("text", { x: cx - 70, y: cy + 18, class: "svg-mono svg-label", "font-size": 13, text: `${fmt(n)} deals` }, g);
+    el("text", { x: cx + 84, y: cy - 20, "text-anchor": "end", class: "svg-display", "font-size": 10.5, "font-weight": 800, "letter-spacing": ".08em", fill: "var(--ink-3)", text: kind.toUpperCase() }, g);
+    tipOn(g, `<b>${title}</b><br>${fmt(n)} deals now (${pct(n, DATA.totals.deals)} of all deals)`);
+    return { cx, cy, l: cx - 92, r: cx + 92, t: cy - 40, b: cy + 40 };
+  };
+  const q = box(170, 250, "Qualified", P.qualified || 0, "var(--open-1)");
+  const b = box(500, 250, "Booked", P.booked || 0, "var(--open-2)");
+  const f = box(500, 80, "Follow-up", P.follow_up || 0, "var(--open-4)");
+  const ch = box(500, 430, "Call held", P.call_held || 0, "var(--open-3)");
+  const w = box(900, 120, "Won", P.won || 0, "var(--good)", "closed");
+  const l = box(900, 360, "Lost", P.lost || 0, "var(--critical)", "closed");
+  const entry = (x1, y1, x2, y2, label, lx = x1, ly = y1 - 10, anchor = "start") => { edge([[x1, y1], [x2, y2]], null, { color: "var(--ink-3)", marker: "arr-dim" }); el("text", { x: lx, y: ly, "text-anchor": anchor, class: "svg-label", "font-size": 12.5, text: label }, svg); };
+  entry(24, 160, q.l + 10, q.t + 8, "Slack qualifies");
+  entry(320, 340, b.l + 6, b.b - 12, "Calendly books", 312, 345, "end");
+  entry(260, 446, ch.l + 2, 446, "Side deal logged");
+  edge([[q.r, q.cy], [b.l, b.cy]], "a booking joins");
+  edge([[q.cx, q.b], [q.cx, 530], [l.cx, 530], [l.cx, l.b]], "no booking in 31 days (Slack expiry)", { at: [560, 530] });
+  edge([[470, b.t], [470, f.b]], "closer sets a next step", { at: [360, 165] });
+  edge([[530, f.b], [530, b.t]], "next booking joins", { at: [625, 148] });
+  edge([[b.r, b.cy - 20], [w.l, w.cy + 15]], "payment recorded", { at: [700, 186] });
+  edge([[b.r, b.cy + 20], [l.l, l.cy - 15]], "no-show, canceled or marked lost", { at: [700, 306] });
+  edge([[f.r, f.cy], [w.l, w.cy - 15]], "payment", { at: [700, 92] });
+  edge([[f.cx, f.t], [f.cx, 20], [1050, 20], [1050, l.cy], [l.r, l.cy]], "lost", { at: [1050, 240] });
+  edge([[ch.r, ch.cy], [l.l, l.cy + 20]], "lost", { at: [700, 405] });
+  el("text", { x: 610, y: 478, class: "svg-label", "font-size": 12.5, text: "Call held also moves to Won or Follow-up, as Booked does" }, svg);
+  const ex = [["payment_voided", "Won", "Lost", "Voiding a side deal's payment"], ["no_show_withdrawn", "Lost", "Booked", "Calendly withdraws the no-show it reported"], ["slack_stale_rejoin", "Lost", "Booked", "A retried booking from inside the Slack window reopens an expired deal"], ["missed_meeting_next_step", "Lost", "Follow-up", "The closer sends a reschedule link or sets a follow-up after a no-show or cancellation"]];
+  document.getElementById("exceptions").innerHTML = `<table><thead><tr><th>Named exception</th><th>Move</th><th>When</th></tr></thead><tbody>${ex.map(([n, a, z, w]) => `<tr><td><code>${n}</code></td><td style="white-space:nowrap"><span class="pill">${a}</span> → <span class="pill">${z}</span></td><td>${w}</td></tr>`).join("")}</tbody></table><p class="muted" style="font-size:13px;margin-top:8px">The loss-reason exceptions only apply to a deal the system closed with that code. A loss a person recorded never reopens.</p>`;
+})();
+
+/* ───── 10. Sankey ───── */
+(function sankey() {
+  const svg = document.getElementById("sankey");
+  const links = DATA.sankey;
+  const cols = [
+    ["Slack qualified", "Calendly booked", "Side deal"],
+    ["No call booked", "Had a call booked", "Call logged by hand"],
+    ["Open: Qualified", "Lost: Slack expiry", "Open: Booked", "Open: Follow-up", "Won", "Lost: canceled", "Lost: no-show", "Lost: closer's call", "Open: Call held"],
+  ];
+  const color = n => n === "Slack qualified" ? "var(--c-slack)" : n === "Calendly booked" ? "var(--c-calendly)" : n === "Side deal" ? "var(--c-side_deal)"
+    : n === "Won" ? "var(--good)" : n.startsWith("Lost") ? "var(--critical)" : n.startsWith("Open") ? "var(--open-2)" : "var(--ink-2)";
+  const val = {};
+  links.forEach(k => { val[k.s] = (val[k.s] || 0); val[k.t] = (val[k.t] || 0); });
+  cols.forEach((c, i) => c.forEach(n => {
+    const out = links.filter(k => k.s === n).reduce((a, k) => a + k.v, 0), inn = links.filter(k => k.t === n).reduce((a, k) => a + k.v, 0);
+    val[n] = Math.max(out, inn);
+  }));
+  const H = 520, top = 20, gap = 14, nodeW = 16, X = [180, 540, 860];
+  const maxTotal = Math.max(...cols.map(c => c.reduce((a, n) => a + val[n], 0) + 0));
+  const scale = Math.min(...cols.map(c => (H - top - gap * (c.length - 1)) / c.reduce((a, n) => a + val[n], 0)));
+  const pos = {};
+  cols.forEach((c, i) => {
+    let y = top;
+    c.forEach(n => { const hh = Math.max(2, val[n] * scale); pos[n] = { x: X[i], y, h: hh, so: 0, to: 0 }; y += hh + gap; });
+  });
+  const lg = el("g", {}, svg);
+  // links ordered by target position for outgoing and by source for incoming
+  const order = n => cols.flat().indexOf(n);
+  const sorted = [...links].sort((a, b) => order(a.s) - order(b.s) || order(a.t) - order(b.t));
+  // outgoing offsets in target order
+  const outOff = {}, inOff = {};
+  [...links].sort((a, b) => order(a.t) - order(b.t)).forEach(k => { const p = pos[k.s]; k.y0 = p.y + (outOff[k.s] || 0); outOff[k.s] = (outOff[k.s] || 0) + Math.max(1, k.v * scale); });
+  [...links].sort((a, b) => order(a.s) - order(b.s)).forEach(k => { const p = pos[k.t]; k.y1 = p.y + (inOff[k.t] || 0); inOff[k.t] = (inOff[k.t] || 0) + Math.max(1, k.v * scale); });
+  sorted.forEach(k => {
+    const t = Math.max(1, k.v * scale), xa = pos[k.s].x + nodeW, xb = pos[k.t].x, mx = (xa + xb) / 2;
+    const d = `M${xa},${k.y0} C${mx},${k.y0} ${mx},${k.y1} ${xb},${k.y1} L${xb},${k.y1 + t} C${mx},${k.y1 + t} ${mx},${k.y0 + t} ${xa},${k.y0 + t} Z`;
+    const p = el("path", { d, fill: color(k.s === "No call booked" || k.s === "Had a call booked" || k.s === "Call logged by hand" ? k.t : k.s), opacity: .34 }, lg);
+    tipOn(p, `<b>${k.s} → ${k.t}</b><br>${fmt(k.v)} deals`);
+    p.addEventListener("mouseenter", () => p.setAttribute("opacity", ".6")); p.addEventListener("mouseleave", () => p.setAttribute("opacity", ".34"));
+  });
+  cols.forEach((c, i) => c.forEach(n => {
+    const p = pos[n];
+    const r = el("rect", { x: p.x, y: p.y, width: nodeW, height: p.h, rx: 3, fill: color(n) }, svg);
+    tipOn(r, `<b>${n}</b><br>${fmt(val[n])} deals`);
+    const right = i === 2, left = i === 0;
+    const tx = right ? p.x + nodeW + 10 : left ? p.x - 10 : p.x + nodeW + 10;
+    const anchor = left ? "end" : "start";
+    const yMid = p.y + p.h / 2;
+    el("text", { x: tx, y: yMid - (p.h > 26 ? 3 : -4), "text-anchor": anchor, class: "svg-display svg-ink", "font-size": 14, "font-weight": 800, text: n }, svg);
+    if (p.h > 26) el("text", { x: tx, y: yMid + 14, "text-anchor": anchor, class: "svg-mono svg-label", "font-size": 12, text: `${fmt(val[n])} · ${pct(val[n], DATA.totals.deals)}` }, svg);
+    else el("text", { x: tx + (left ? -1 : 1) * (n.length * 8.2 + 8), y: yMid + 4, "text-anchor": anchor, class: "svg-mono svg-label", "font-size": 12, text: fmt(val[n]) }, svg);
+  }));
+  const exp = links.find(k => k.t === "Lost: Slack expiry").v;
+  document.getElementById("sankey-cap").innerHTML = `The biggest single outcome is a Slack-qualified deal that never got a booking and expired: <b>${fmt(exp)}</b> deals, ${pct(exp, DATA.slack.total)} of Slack deals. Among deals that had a call booked, cancellations (${fmt(links.find(k => k.t === "Lost: canceled").v)}) outnumber no-shows four to one.`;
+  document.getElementById("sankey-table").innerHTML = `<table><thead><tr><th>From</th><th>To</th><th class="r">Deals</th></tr></thead><tbody>${sorted.map(k => `<tr><td>${k.s}</td><td>${k.t}</td><td class="r">${fmt(k.v)}</td></tr>`).join("")}</tbody></table>`;
+})();
+
+/* ───── 11. Meeting states + charts ───── */
+(function meetings() {
+  const svg = document.getElementById("mstates");
+  const { node, edge } = flowKit(svg);
+  const M = DATA.meetingStatus;
+  const sc = node(130, 150, 190, 64, "step", ["Scheduled", `${fmt((M.upcoming || 0) + (M.not_recorded || 0))} now`]);
+  const he = node(410, 50, 170, 56, "good", ["Held", fmt(M.held || 0)]);
+  const ns = node(410, 160, 170, 56, "hold", ["No-show", fmt(M.no_show || 0)]);
+  const ca = node(410, 280, 170, 56, "skip", ["Canceled", fmt(M.canceled || 0)]);
+  edge([[sc.r, 132], [he.l, he.cy]]);
+  edge([[sc.r, 150], [ns.l, 152]]);
+  el("text", { x: 250, y: 92, class: "svg-label", "font-size": 12, text: "closer marks the call" }, svg);
+  edge([[ns.l, 174], [sc.r + 2, 174]], null, { dash: true, color: "var(--critical)", marker: "arr-crit" });
+  el("text", { x: 236, y: 214, class: "svg-label", "font-size": 11.5, fill: "var(--critical)", text: "Calendly withdraws a no-show" }, svg);
+  edge([[180, sc.b], [180, 280], [ca.l, 280]]);
+  el("text", { x: 192, y: 270, class: "svg-label", "font-size": 12, text: "Calendly cancel" }, svg);
+  el("rect", { x: 20, y: 296, width: 150, height: 54, rx: 12, fill: `url(#mstates-hatch)`, stroke: "#b07a00", "stroke-width": 2, "stroke-dasharray": "5 4" }, svg);
+  el("rect", { x: 30, y: 307, width: 130, height: 32, rx: 8, fill: "var(--surface)" }, svg);
+  multiline(svg, 95, 327, ["Not recorded", fmt(M.not_recorded || 0)], { "text-anchor": "middle", class: "svg-display svg-ink", "font-size": 12.5, "font-weight": 800 }, 14);
+  edge([[80, sc.b], [80, 294]], null, { dash: true, color: "#b07a00" });
+  el("text", { x: 88, y: 240, class: "svg-label", "font-size": 11.5, text: "past its end:" }, svg);
+  el("text", { x: 88, y: 255, class: "svg-label", "font-size": 11.5, text: "display only" }, svg);
+
+  const months = DATA.months.filter(m => m.month >= "2026-04");
+  const sum = k => months.reduce((a, m) => a + m[k], 0);
+  const H = sum("held"), N = sum("no_show");
+  document.getElementById("showrate-hero").innerHTML = `<p style="margin:6px 0 0"><span style="font:900 64px/1 var(--display);letter-spacing:-.02em">${pct(H, H + N)}</span></p><p class="muted" style="margin:6px 0 16px">${fmt(H)} held ÷ (${fmt(H)} held + ${fmt(N)} no-shows), all time</p><p style="font-size:15px">Only <b>${pct(H + N, H + N + sum("not_recorded"))}</b> of past calls have a result. ${fmt(sum("not_recorded"))} past calls are still Not recorded, so the show rate describes the calls closers recorded, not every call.</p>`;
+
+  const keys = [["held", "Held", "var(--good)"], ["no_show", "No-show", "var(--critical)"], ["not_recorded", "Not recorded", "url(#months-hatch)"], ["canceled", "Canceled", "var(--neutral)"], ["upcoming", "Upcoming", "var(--open-1)"]];
+  document.getElementById("mm-legend").innerHTML = keys.map(([k, l, c]) => `<li><i style="background:${k === "not_recorded" ? "repeating-linear-gradient(45deg,var(--warning) 0 3px,color-mix(in srgb,var(--warning) 60%,var(--ink)) 3px 5px)" : c}"></i>${l}</li>`).join("");
+  const s2 = document.getElementById("months"); arrowDefs(s2);
+  const mx = Math.max(...months.map(m => keys.reduce((a, [k]) => a + m[k], 0)));
+  const L = 70, R = 1080, B = 300, Tp = 20, bw = (R - L) / months.length;
+  const yv = v => B - (B - Tp) * v / mx;
+  for (let t = 0; t <= mx; t += 250) {
+    el("line", { x1: L, y1: yv(t), x2: R, y2: yv(t), stroke: "var(--rule)", "stroke-width": 1 }, s2);
+    el("text", { x: L - 10, y: yv(t) + 4, "text-anchor": "end", class: "svg-mono", fill: "var(--ink-3)", "font-size": 11.5, text: fmt(t) }, s2);
+  }
+  const mname = m => new Date(m + "-01T00:00:00Z").toLocaleString("en-US", { month: "short", timeZone: "UTC" });
+  months.forEach((m, i) => {
+    let y = B; const x = L + i * bw + bw * .2, w = bw * .6;
+    const g = el("g", {}, s2);
+    keys.forEach(([k, , c], j) => {
+      if (!m[k]) return;
+      const hgt = (B - Tp) * m[k] / mx;
+      el("rect", { x, y: y - hgt + (j ? 1 : 0), width: w, height: Math.max(0, hgt - (j ? 2 : 0)), rx: 2, fill: c }, g);
+      y -= hgt;
+    });
+    el("text", { x: x + w / 2, y: B + 20, "text-anchor": "middle", class: "svg-display", fill: "var(--ink-2)", "font-size": 13, "font-weight": 700, text: mname(m.month) }, s2);
+    const total = keys.reduce((a, [k]) => a + m[k], 0);
+    el("text", { x: x + w / 2, y: y - 6, "text-anchor": "middle", class: "svg-mono", fill: "var(--ink-3)", "font-size": 11, text: fmt(total) }, s2);
+    const hit = el("rect", { x: L + i * bw, y: Tp, width: bw, height: B - Tp, fill: "transparent" }, s2);
+    tipOn(hit, `<b>${mname(m.month)} 2026</b><br>${keys.filter(([k]) => m[k]).map(([k, l]) => `${l}: ${fmt(m[k])}`).join("<br>")}<br>Show rate: ${pct(m.held, m.held + m.no_show)}`);
+  });
+  el("line", { x1: L, y1: B, x2: R, y2: B, stroke: "var(--rule-2)", "stroke-width": 1.5 }, s2);
+
+  // rates chart
+  const s3 = document.getElementById("rates");
+  const rm = months.filter(m => m.held + m.no_show + m.not_recorded > 0);
+  const series = [
+    ["Show rate", "var(--good)", m => m.held / (m.held + m.no_show)],
+    ["Results recorded", "#b07a00", m => (m.held + m.no_show) / (m.held + m.no_show + m.not_recorded)],
+  ];
+  document.getElementById("rate-legend").innerHTML = series.map(([l, c]) => `<li><i style="background:${c};height:3px"></i>${l}</li>`).join("");
+  const L3 = 70, R3 = 1080, B3 = 200, T3 = 16, bw3 = (R3 - L3) / months.length;
+  const y3 = v => B3 - (B3 - T3) * v;
+  [0, .25, .5, .75, 1].forEach(t => { el("line", { x1: L3, y1: y3(t), x2: R3, y2: y3(t), stroke: "var(--rule)" }, s3); el("text", { x: L3 - 10, y: y3(t) + 4, "text-anchor": "end", class: "svg-mono", fill: "var(--ink-3)", "font-size": 11.5, text: (t * 100) + "%" }, s3); });
+  const xm = m => L3 + months.indexOf(m) * bw3 + bw3 / 2;
+  series.forEach(([l, c, f]) => {
+    el("path", { d: rm.map((m, i) => (i ? "L" : "M") + xm(m) + "," + y3(f(m))).join(" "), fill: "none", stroke: c, "stroke-width": 2.5, "stroke-linejoin": "round" }, s3);
+    rm.forEach(m => { const dot = el("circle", { cx: xm(m), cy: y3(f(m)), r: 5, fill: c, stroke: "var(--surface)", "stroke-width": 2 }, s3); tipOn(dot, `<b>${l}, ${mname(m.month)}</b><br>${(f(m) * 100).toFixed(1)}%`); });
+    const last = rm[rm.length - 1];
+    el("text", { x: xm(last) + 10, y: y3(f(last)) + 4, class: "svg-display", "font-size": 12.5, "font-weight": 800, fill: "var(--ink-2)", text: l }, s3);
+  });
+  months.forEach(m => el("text", { x: xm(m), y: B3 + 20, "text-anchor": "middle", class: "svg-display", fill: "var(--ink-2)", "font-size": 13, "font-weight": 700, text: mname(m.month) }, s3));
+  document.getElementById("months-table").innerHTML = `<table><thead><tr><th>Month</th>${keys.map(([, l]) => `<th class="r">${l}</th>`).join("")}<th class="r">Show rate</th><th class="r">Recorded</th></tr></thead><tbody>${months.map(m => `<tr><td>${mname(m.month)}</td>${keys.map(([k]) => `<td class="r">${fmt(m[k])}</td>`).join("")}<td class="r">${pct(m.held, m.held + m.no_show)}</td><td class="r">${pct(m.held + m.no_show, m.held + m.no_show + m.not_recorded)}</td></tr>`).join("")}</tbody></table>`;
+})();
+
+/* ───── 12. Money ───── */
+(function money() {
+  const svg = document.getElementById("moneyflow"); arrowDefs(svg);
+  const T = DATA.totals, P = DATA.positions;
+  const steps = [["Payment recorded", fmt(T.payments), "paymentRecords"], ["Deal closed · won", fmt(P.won || 0), "transitionOpportunity"], ["Person reaches Customer", fmt(DATA.lifecycle.customer), "lifecycle stage"], ["Enrollment, active", fmt(DATA.enrollmentStatus.active || 0), "syncPersonEnrollments"]];
+  steps.forEach(([t, n, s], i) => {
+    const x = 30 + i * 270;
+    el("rect", { x, y: 40, width: 220, height: 120, rx: 14, fill: "var(--surface)", stroke: i === 2 ? "var(--good)" : "var(--ink)", "stroke-width": i === 2 ? 3.5 : 2 }, svg);
+    el("text", { x: x + 18, y: 96, class: "svg-display svg-ink", "font-size": 38, "font-weight": 900, text: n }, svg);
+    el("text", { x: x + 18, y: 124, class: "svg-display svg-ink", "font-size": 15, "font-weight": 800, text: t }, svg);
+    el("text", { x: x + 18, y: 145, class: "svg-mono svg-label", "font-size": 11.5, text: s }, svg);
+    if (i < 3) el("line", { x1: x + 224, y1: 100, x2: x + 266, y2: 100, stroke: "var(--ink-2)", "stroke-width": 2.5, "marker-end": "url(#moneyflow-arr)" }, svg);
+  });
+  el("text", { x: 30, y: 200, class: "svg-label", "font-size": 13, text: "A second program is a new deal and a second enrollment; a won deal never blocks a new one. A lost deal never moves a customer back." }, svg);
+  const p = DATA.payments;
+  document.getElementById("money-cap").innerHTML = `Payments by where they were recorded: ${fmt(p.closer_meeting || 0)} from a meeting, ${fmt(p.closer_side_deal || 0)} on side deals, ${fmt(p.closer_additional || 0)} additional payments, ${fmt(p.closer_reminder || 0)} from a reminder. Every won deal has a customer and an enrollment: the three counts match.`;
+})();
+
+/* ───── 13. Credit upset ───── */
+(function upset() {
+  const svg = document.getElementById("upset");
+  const roleOrder = [["lead_gen", "Lead gen"], ["setter", "Setter"], ["dm_team", "DM team"], ["dm_closer", "DM closer"], ["closer", "Closer"]];
+  const combos = DATA.combos;
+  const L = 200, colW = (1080 - L) / combos.length, barTop = 20, barB = 220, rowY = i => 260 + i * 32;
+  const max = Math.max(...combos.map(c => c.n));
+  combos.forEach((c, i) => {
+    const x = L + i * colW + colW / 2, hgt = (barB - barTop) * c.n / max;
+    const bar = el("rect", { x: x - 14, y: barB - hgt, width: 28, height: hgt, rx: 4, fill: "var(--ink-2)" }, svg);
+    tipOn(bar, `<b>${c.roles.map(r => roleOrder.find(o => o[0] === r)[1]).join(" + ")}</b><br>${fmt(c.n)} deals`);
+    el("text", { x, y: barB - hgt - 7, "text-anchor": "middle", class: "svg-mono", "font-size": 11.5, fill: "var(--ink-2)", text: fmt(c.n) }, svg);
+    const on = roleOrder.map(([r]) => c.roles.includes(r));
+    const ys = on.map((v, j) => v ? rowY(j) : null).filter(v => v != null);
+    if (ys.length > 1) el("line", { x1: x, y1: Math.min(...ys), x2: x, y2: Math.max(...ys), stroke: "var(--ink)", "stroke-width": 3 }, svg);
+    on.forEach((v, j) => el("circle", { cx: x, cy: rowY(j), r: 8, fill: v ? "var(--ink)" : "color-mix(in srgb, var(--ink) 12%, transparent)" }, svg));
+  });
+  roleOrder.forEach(([r, l], j) => {
+    el("text", { x: L - 24, y: rowY(j) + 5, "text-anchor": "end", class: "svg-display svg-ink", "font-size": 14, "font-weight": 800, text: l }, svg);
+    el("text", { x: 20, y: rowY(j) + 5, class: "svg-mono svg-label", "font-size": 11.5, text: fmt(DATA.roles[r] || 0) }, svg);
+  });
+  el("text", { x: 20, y: 236, class: "svg-display", "font-size": 11, "font-weight": 800, "letter-spacing": ".08em", fill: "var(--ink-3)", text: "ROWS" }, svg);
+  el("line", { x1: L - 10, y1: barB, x2: 1080, y2: barB, stroke: "var(--rule-2)" }, svg);
+  const top = combos[0];
+  document.getElementById("credit-cap").innerHTML = `Every deal carries at least one credit row (${fmt(DATA.dealsWithoutCredit)} without). The most common shapes are a Slack deal with lead gen and setter credit and no call yet (${fmt(top.n)}), and the full chain from lead gen through the closer. "DM team" credits the team behind a booking link, with no single person.`;
+})();
+
+/* ───── 14. Clock ruler ───── */
+(function clocks() {
+  const svg = document.getElementById("clockruler");
+  const MIN = 60, HOUR = 3600, DAY = 86400;
+  const L = 40, R = 1070, y = 150;
+  const lx = s => L + (R - L) * (Math.log10(s) - Math.log10(5 * MIN)) / (Math.log10(40 * DAY) - Math.log10(5 * MIN));
+  el("line", { x1: L, y1: y, x2: R, y2: y, stroke: "var(--ink)", "stroke-width": 4, "stroke-linecap": "round" }, svg);
+  [[10 * MIN, "10 min"], [HOUR, "1 hour"], [6 * HOUR, "6 hours"], [DAY, "1 day"], [7 * DAY, "1 week"], [30 * DAY, "30 days"]].forEach(([s, l]) => {
+    el("line", { x1: lx(s), y1: y - 8, x2: lx(s), y2: y + 8, stroke: "var(--ink)", "stroke-width": 2 }, svg);
+    el("text", { x: lx(s), y: y + 26, "text-anchor": "middle", class: "svg-mono svg-label", "font-size": 11.5, text: l }, svg);
+  });
+  const items = [
+    [10 * MIN, "Report projections maintained", "every 10 min", -1, 0],
+    [15 * MIN, "Alert: a webhook unprocessed for 15+ min", "checked every 15 min", 1, 1],
+    [HOUR, "Slack deals past their window close as lost (stale)", "hourly, at :23", -1, 1],
+    [HOUR * 1.25, "Reminder about Slack deals going stale", "hourly, at :07", 1, 0],
+    [6 * HOUR, "Nudge on side deals left open", "every 6 hours", -1, 0],
+    [DAY, "Expired raw webhook payloads deleted", "daily", 1, 0],
+    [30 * DAY, "A booking joins a Slack deal from the last 30 days", "join window", -1, 0],
+    [31 * DAY, "Slack deal with no booking expires (window + 1 day)", "31 days", 1, 1],
+  ];
+  items.forEach(([s, t, sub, side, lvl]) => {
+    const x = lx(s), yy = side < 0 ? y - 38 - lvl * 42 : y + 58 + lvl * 42;
+    el("circle", { cx: x, cy: y, r: 7, fill: "var(--station)", stroke: "var(--ink)", "stroke-width": 3 }, svg);
+    el("line", { x1: x, y1: side < 0 ? y - 8 : y + 8, x2: x, y2: side < 0 ? yy + 6 : yy - 16, stroke: "var(--rule-2)", "stroke-width": 1.5 }, svg);
+    const anchor = x > 900 ? "end" : "start";
+    const tx = anchor === "end" ? x + 4 : x - 4;
+    el("text", { x: tx, y: yy - (side < 0 ? 14 : 0), "text-anchor": anchor, class: "svg-display svg-ink", "font-size": 13.5, "font-weight": 800, text: t }, svg);
+    el("text", { x: tx, y: yy + (side < 0 ? 2 : 16), "text-anchor": anchor, class: "svg-mono svg-label", "font-size": 11.5, text: sub }, svg);
+  });
+})();
+
+/* ───── 15. Reviews ───── */
+(function reviews() {
+  const r = DATA.reviews, tot = Object.values(r).reduce((a, b) => a + b, 0);
+  document.getElementById("review-bars").innerHTML = `<ul class="hbars"><li><span>Merged</span><span class="track"><i style="width:${100 * (r.merged || 0) / tot}%;background:var(--ink-2)"></i></span><span class="v">${r.merged || 0}</span></li><li><span>Kept separate</span><span class="track"><i style="width:${100 * (r.kept_separate || 0) / tot}%;background:var(--ink-2)"></i></span><span class="v">${r.kept_separate || 0}</span></li><li><span>Open</span><span class="track"><i style="width:0.6%;background:var(--ink-2)"></i></span><span class="v">${r.open || 0}</span></li></ul>`;
+  document.getElementById("hold-reasons").innerHTML = `<thead><tr><th>Reason</th><th>What fixes it</th></tr></thead><tbody>
+  <tr><td><code>identity_conflict</code></td><td>The booking review: merge or keep separate</td></tr>
+  <tr><td><code>host_not_linked</code>, <code>host_inactive</code></td><td>Link the Calendly host to an active closer, then retry</td></tr>
+  <tr><td><code>ambiguous_booking_target</code></td><td>Close one of the two open deals, then retry</td></tr>
+  <tr><td><code>historical_booking_requires_review</code></td><td>A deal changed after the booking happened; check it by hand</td></tr>
+  <tr><td><code>previous_booking_missing</code></td><td>Retry the original booking first</td></tr>
+  <tr><td><code>booking_not_tracked</code> (cancel, no-show)</td><td>Apply the booking it refers to, then retry</td></tr></tbody>`;
+})();
+
+/* ───── tooltip ───── */
+(function tooltip() {
+  const tip = document.getElementById("tip");
+  let cur = null;
+  const show = (t, x, y) => { tip.innerHTML = t.getAttribute("data-tip"); tip.classList.add("on"); place(x, y); };
+  const place = (x, y) => { const r = tip.getBoundingClientRect(); let L = x + 14, T = y + 14; if (L + r.width > innerWidth - 8) L = x - r.width - 14; if (T + r.height > innerHeight - 8) T = y - r.height - 14; tip.style.left = L + "px"; tip.style.top = T + "px"; };
+  document.addEventListener("mousemove", e => { const t = e.target.closest && e.target.closest("[data-tip]"); if (t) { if (t !== cur) { cur = t; show(t, e.clientX, e.clientY); } else place(e.clientX, e.clientY); } else if (cur) { cur = null; tip.classList.remove("on"); } });
+  document.addEventListener("focusin", e => { const t = e.target.closest && e.target.closest("[data-tip]"); if (t) { const r = t.getBoundingClientRect(); cur = t; show(t, r.left + r.width / 2, r.top + r.height / 2); } });
+  document.addEventListener("focusout", () => { cur = null; tip.classList.remove("on"); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") { cur = null; tip.classList.remove("on"); } });
+})();
+
+/* ───── rail: mark the current section ───── */
+(function rail() {
+  const links = [...document.querySelectorAll(".rail a")];
+  const ids = links.map(a => a.getAttribute("href").slice(1));
+  const obs = new IntersectionObserver(es => {
+    es.forEach(e => { if (e.isIntersecting) links.forEach(a => a.setAttribute("aria-current", a.getAttribute("href") === "#" + e.target.id ? "true" : "false")); });
+  }, { rootMargin: "-40% 0px -55% 0px" });
+  ids.forEach(id => { const s = document.getElementById(id); if (s) obs.observe(s); });
+})();
+</script>
+</body>
+</html>
