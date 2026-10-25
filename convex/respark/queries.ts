@@ -1,8 +1,9 @@
 import { v } from "convex/values";
 import { businessDateForInstant, businessDayRange } from "../../lib/businessDay";
 import type { Doc } from "../_generated/dataModel";
-import { query } from "../_generated/server";
-import { requireTenantUser } from "../requireTenantUser";
+import { query, type QueryCtx } from "../_generated/server";
+import { requireTenantUser, type TenantUserResult } from "../requireTenantUser";
+import { expectedError } from "../lib/observability/errors";
 import { PERMISSIONS } from "../lib/permissions";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { bucketRange, leftPoolReason, personResparkItems, resparkResultsByWorker } from "../lib/respark/items";
@@ -17,11 +18,28 @@ import {
 } from "../lib/respark/people";
 import { batchValidator, panelValidator } from "../lib/respark/queryValidators";
 
+/**
+ * A lead generator whose lead gen access was turned off can't read their
+ * batch, as the actions can't work it. Admins work through a worker profile
+ * the claim creates, so only lead generators are checked. Read only.
+ */
+async function requireActiveLeadGenWorker(ctx: QueryCtx, access: TenantUserResult): Promise<void> {
+  if (access.role !== "lead_generator") return;
+  const worker = await ctx.db.query("leadGenWorkers")
+    .withIndex("by_tenantId_and_userId", (q) => q.eq("tenantId", access.tenantId).eq("userId", access.userId))
+    .unique();
+  if (!worker?.isActive) {
+    throw expectedError("lead_gen.inactive_worker", "Lead Gen Ops access is not active for this user");
+  }
+}
+
 export const getMyResparkBatch = query({
   args: {},
   returns: v.union(v.null(), batchValidator),
   handler: async (ctx) => {
-    const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:respark"]]);
+    const access = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:respark"]]);
+    await requireActiveLeadGenWorker(ctx, access);
+    const { tenantId, userId } = access;
     const now = Date.now();
     const batch = await ctx.db.query("resparkBatches")
       .withIndex("by_tenantId_and_userId_and_createdAt", (q) => q.eq("tenantId", tenantId).eq("userId", userId))
@@ -50,7 +68,9 @@ export const getResparkPoolCounts = query({
   returns: v.object({ buckets: v.array(v.object({ bucket: v.number(), count: v.number() })),
     batchSize: v.number(), heldUntil: v.number() }),
   handler: async (ctx) => {
-    const { tenantId } = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:respark"]]);
+    const access = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:respark"]]);
+    await requireActiveLeadGenWorker(ctx, access);
+    const { tenantId } = access;
     const now = Date.now();
     const tenant = await ctx.db.get("tenants", tenantId);
     if (!tenant) throw new Error(`Missing tenant ${tenantId}`);
@@ -75,7 +95,9 @@ export const getMyResparkToday = query({
   returns: v.object({ batchesDone: v.number(), resparks: v.number(), notAFits: v.number(),
     start: v.number(), end: v.number() }),
   handler: async (ctx) => {
-    const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:respark"]]);
+    const access = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:respark"]]);
+    await requireActiveLeadGenWorker(ctx, access);
+    const { tenantId, userId } = access;
     const businessDay = await getTenantBusinessDay(ctx, tenantId);
     const { start, end } = businessDayRange(businessDateForInstant(Date.now(), businessDay), businessDay);
     const batches = await ctx.db.query("resparkBatches")
@@ -101,7 +123,9 @@ export const getResparkPersonPanel = query({
   args: { itemId: v.id("resparkBatchItems") },
   returns: v.union(v.null(), panelValidator),
   handler: async (ctx, { itemId }) => {
-    const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:respark"]]);
+    const access = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:respark"]]);
+    await requireActiveLeadGenWorker(ctx, access);
+    const { tenantId, userId } = access;
     const item = await ctx.db.get("resparkBatchItems", itemId);
     if (!item || item.tenantId !== tenantId || item.userId !== userId) return null;
     const batch = await ctx.db.get("resparkBatches", item.batchId);

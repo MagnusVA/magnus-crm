@@ -47,6 +47,7 @@ import {
   MegaphoneIcon,
   MessageSquareTextIcon,
   PhoneCallIcon,
+  RefreshCwIcon,
   SettingsIcon,
   TargetIcon,
   TrendingUpIcon,
@@ -154,6 +155,7 @@ const closerNavItems: NavItem[] = [
 const leadGeneratorNavItems: NavItem[] = [
   { href: "/workspace/lead-gen/capture", label: "Capture", icon: TargetIcon, exact: true },
   { href: "/workspace/lead-gen/my-activity", label: "My Activity", icon: ActivityIcon },
+  { href: "/workspace/lead-gen/respark", label: "Respark", icon: RefreshCwIcon },
 ];
 
 const reportNavItems: NavItem[] = [
