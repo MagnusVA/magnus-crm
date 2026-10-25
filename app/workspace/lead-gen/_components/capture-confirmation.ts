@@ -21,13 +21,10 @@ export function captureConfirmation(
   timeZone: string,
 ): CaptureConfirmation {
   const person = result.person;
-  if (!person) {
-    // A keyed retry: the original capture already counted.
-    return {
-      title: result.duplicateProspect
-        ? "Duplicate prospect attempt captured"
-        : "New prospect captured",
-    };
+  if (result.duplicateRetry || !person) {
+    // A keyed retry: the original capture already counted, and where the
+    // person stood before it is gone.
+    return { title: "Capture already recorded" };
   }
   if (person.isNew) {
     return { title: "New prospect captured", detail: "In conversation from now." };
@@ -35,6 +32,10 @@ export function captureConfirmation(
 
   const formatDate = (ms: number) =>
     new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone }).format(ms);
+
+  if (person.disposition === "do_not_contact") {
+    return { title: "Already in the CRM · do not contact", detail: "Don't message them." };
+  }
 
   if (person.disposition === "not_a_fit") {
     return {

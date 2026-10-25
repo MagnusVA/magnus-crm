@@ -322,7 +322,12 @@ async function capturedPersonBefore(
   };
 }
 
-/** The soonest future scheduled call on the person's open deals. */
+/**
+ * The soonest scheduled call after `now` on the person's open deals. A deal's
+ * `nextMeetingAt` can be a past call nobody recorded, so the meetings are
+ * read by status and time. Past the deal bound it gives no date rather than
+ * a wrong one.
+ */
 async function nextMeetingAt(
   ctx: MutationCtx,
   lead: Doc<"leads">,
@@ -333,12 +338,20 @@ async function nextMeetingAt(
     .withIndex("by_tenantId_and_leadId_and_outcome", (q) =>
       q.eq("tenantId", lead.tenantId).eq("leadId", lead._id).eq("outcome", "open"),
     )
-    .take(MAX_OPEN_DEALS_READ);
+    .take(MAX_OPEN_DEALS_READ + 1);
+  if (openDeals.length > MAX_OPEN_DEALS_READ) {
+    return undefined;
+  }
   let soonest: number | undefined;
   for (const deal of openDeals) {
-    const at = deal.nextMeetingAt;
-    if (at !== undefined && at > now && (soonest === undefined || at < soonest)) {
-      soonest = at;
+    const meeting = await ctx.db
+      .query("meetings")
+      .withIndex("by_opportunityId_and_status_and_scheduledAt", (q) =>
+        q.eq("opportunityId", deal._id).eq("status", "scheduled").gt("scheduledAt", now),
+      )
+      .first();
+    if (meeting && (soonest === undefined || meeting.scheduledAt < soonest)) {
+      soonest = meeting.scheduledAt;
     }
   }
   return soonest;

@@ -704,9 +704,11 @@ function LastCaptureResult({ result }: { result: LastResult }) {
   return (
     <div className="flex min-w-0 flex-col gap-2 rounded-lg border bg-muted/30 p-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge variant={result.duplicateProspect ? "outline" : "secondary"}>
-          {result.duplicateProspect ? "Duplicate" : "Unique"}
-        </Badge>
+        {result.duplicateRetry ? null : (
+          <Badge variant={result.duplicateProspect ? "outline" : "secondary"}>
+            {result.duplicateProspect ? "Duplicate" : "Unique"}
+          </Badge>
+        )}
         {result.duplicateRetry ? (
           <Badge variant="outline">Retry Ignored</Badge>
         ) : null}
