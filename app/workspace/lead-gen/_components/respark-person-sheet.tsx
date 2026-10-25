@@ -21,6 +21,7 @@ import { instagramProfileUrl, resparkBucketLabel } from "@/lib/respark/display";
 import { meetingAttendanceDisplay, meetingStatusConfig } from "@/lib/status-config";
 import { SectionErrorBoundary } from "../../_components/section-error-boundary";
 import { cn } from "@/lib/utils";
+import { CopyHandleButton } from "./copy-handle-button";
 import { bucketSwatchClass, dealText, displayHandle, formatDay } from "./respark-format";
 
 type Panel = NonNullable<FunctionReturnType<typeof api.respark.queries.getResparkPersonPanel>>;
@@ -94,14 +95,17 @@ function PanelContent({ panel, bucket, timeZone }: { panel: Panel; bucket: numbe
       <SheetHeader className="gap-3 border-b pr-12">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <SheetTitle className="text-lg">{handle ?? panel.identity.name ?? "No Instagram handle"}</SheetTitle>
-          {profileUrl ? (
-            <Button variant="outline" size="sm" asChild>
-              <a href={profileUrl} target="_blank" rel="noopener noreferrer">
-                Open Instagram
-                <ExternalLinkIcon data-icon="inline-end" />
-              </a>
-            </Button>
-          ) : null}
+          <div className="flex items-center gap-2">
+            <CopyHandleButton handle={panel.handle} />
+            {profileUrl ? (
+              <Button variant="outline" size="sm" asChild>
+                <a href={profileUrl} target="_blank" rel="noopener noreferrer">
+                  Open Instagram
+                  <ExternalLinkIcon data-icon="inline-end" />
+                </a>
+              </Button>
+            ) : null}
+          </div>
         </div>
         <SheetDescription className="sr-only">Read-only details for a person in your batch.</SheetDescription>
         <div className="flex flex-wrap gap-1.5">
