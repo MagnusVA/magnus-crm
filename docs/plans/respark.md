@@ -465,7 +465,7 @@ The proposal was approved as written:
 2. **Credit: both.** The capturer keeps their row, and a resparked person who gets a deal adds a `respark` row for the resparker (§4.6).
 3. **No region or shift routing.**
 4. **Batch size** is a tenant setting, default 45, held until the business day ends; unworked people go back to the pool.
-5. **Not a fit reopens on its own** when the person is resparked, or qualifies or books after the not a fit was set. As built (§4.7, ADR rule 11), any evidence at Qualified or later newer than the not a fit reopens it, a held call or a payment included, whoever set it.
+5. **Not a fit reopens on its own** when the person is resparked, or qualifies or books after the not a fit was set. As built (§4.7, ADR rule 11), the rule is wider: a qualification, a booking, a held call or a payment that is newer than the not a fit reopens it, whoever set it.
 6. **`unresponsive` stays** and doesn't change the bucket.
 7. **Prospect stays, unused.** It's retired later, once reports read In conversation as the entry stage.
 
