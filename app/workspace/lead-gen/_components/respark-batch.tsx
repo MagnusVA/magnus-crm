@@ -18,13 +18,14 @@ import { Spinner } from "@/components/ui/spinner";
 import { getErrorMessage } from "@/lib/errors";
 import {
   instagramProfileUrl,
+  isOverlayActive,
   isTypingTarget,
   resparkBucketLabel,
   summarizeBatch,
 } from "@/lib/respark/display";
 import { cn } from "@/lib/utils";
 import { bucketSwatchClass, dealText, displayHandle, formatClock, formatDay } from "./respark-format";
-import { useNotAFitUndo } from "./use-respark-undo";
+import { BATCH_ENDED_MESSAGE, useNotAFitUndo } from "./use-respark-undo";
 
 const ResparkPersonSheet = dynamic(
   () => import("./respark-person-sheet").then((module) => module.ResparkPersonSheet),
@@ -52,7 +53,7 @@ function handleOf(item: Item) {
 export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: string }) {
   const markResparked = useMutation(api.respark.batches.markResparked);
   const skip = useMutation(api.respark.batches.skipResparkItem);
-  const undo = useNotAFitUndo();
+  const undo = useNotAFitUndo(batch.heldUntil);
   const [sending, setSending] = useState<ReadonlySet<ItemId>>(() => new Set());
   const [focusedId, setFocusedId] = useState<ItemId | null>(null);
   const [panelItem, setPanelItem] = useState<{ itemId: ItemId; bucket: number } | null>(null);
@@ -61,8 +62,10 @@ export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: stri
   // State lags a fast double press; this set stops a second send at once.
   const inFlightRef = useRef(new Set<ItemId>());
 
+  // A Not a fit that is held, on its way, or accepted but not yet in the query.
+  const notAFitTaken = (itemId: ItemId) => undo.isPending(itemId) || undo.isSending(itemId) || undo.isSent(itemId);
   // Cards still to decide on, in batch order.
-  const open = batch.items.filter((item) => item.result === null && !undo.isPending(item.itemId));
+  const open = batch.items.filter((item) => item.result === null && !notAFitTaken(item.itemId));
   const focused = open.find((item) => item.itemId === focusedId) ?? open[0] ?? null;
   const summary = summarizeBatch(batch);
 
@@ -74,9 +77,11 @@ export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: stri
     element?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, [focused]);
 
-  const focusAfter = (itemId: ItemId, step: 1 | -1 = 1) => {
+  // J and K stop at the ends. Only a card that leaves the list falls back to
+  // the one before it, when it was the last.
+  const focusAfter = (itemId: ItemId, step: 1 | -1 = 1, leaving = false) => {
     const index = open.findIndex((item) => item.itemId === itemId);
-    const next = open[index + step] ?? (step === 1 ? open[index - 1] : undefined);
+    const next = open[index + step] ?? (leaving ? open[index - 1] : undefined);
     if (next) {
       moveFocusRef.current = true;
       setFocusedId(next.itemId);
@@ -84,11 +89,15 @@ export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: stri
   };
 
   const act = async (item: Item, action: Action) => {
-    if (inFlightRef.current.has(item.itemId) || undo.isPending(item.itemId) || item.result !== null) return;
+    if (inFlightRef.current.has(item.itemId) || notAFitTaken(item.itemId) || item.result !== null) return;
     if (item.blockedReason && action !== "skipped") return;
+    if (Date.now() >= batch.heldUntil) {
+      toast.error(BATCH_ENDED_MESSAGE);
+      return;
+    }
     // Acting on a card sends any Not a fit still waiting on another one.
     undo.flush(item.itemId);
-    focusAfter(item.itemId);
+    focusAfter(item.itemId, 1, true);
     if (action === "not_a_fit") {
       undo.hold(item.itemId, handleOf(item));
       return;
@@ -118,8 +127,9 @@ export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: stri
   const keyHandlerRef = useRef<(event: KeyboardEvent) => void>(() => {});
   useEffect(() => {
     keyHandlerRef.current = (event) => {
-      if (event.defaultPrevented || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (panelItem !== null || isTypingTarget(event.target)) return;
+      if (event.defaultPrevented || event.repeat) return;
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      if (panelItem !== null || isTypingTarget(event.target) || isOverlayActive(event.target, document)) return;
       const key = typeof event.key === "string" ? event.key.toLowerCase() : "";
       if (!focused || !["o", "r", "n", "s", "j", "k"].includes(key)) return;
       event.preventDefault();
@@ -176,6 +186,10 @@ export function ResparkBatch({ batch, timeZone }: { batch: Batch; timeZone: stri
           <li key={item.itemId}>
             {item.result !== null ? (
               <WorkedLine handle={handleOf(item)} result={item.result} />
+            ) : undo.isSent(item.itemId) ? (
+              <WorkedLine handle={handleOf(item)} result="not_a_fit" />
+            ) : undo.isSending(item.itemId) ? (
+              <SendingLine handle={handleOf(item)} />
             ) : undo.isPending(item.itemId) ? (
               <PendingLine
                 handle={handleOf(item)}
@@ -396,6 +410,24 @@ function PendingLine({ handle, dueAt, onUndo }: { handle: string; dueAt: number 
       <Button variant="link" size="sm" className="h-auto px-0" onClick={onUndo}>
         Undo · {seconds}s
       </Button>
+    </div>
+  );
+}
+
+function SendingLine({ handle }: { handle: string }) {
+  return (
+    <div
+      className="flex items-center justify-between gap-3 rounded-lg border border-dashed px-4 py-2 text-sm"
+      role="status"
+    >
+      <span className="min-w-0 truncate">
+        <span className="mr-2 font-medium">{handle}</span>
+        <span className="text-muted-foreground">Not a fit · back of the pool</span>
+      </span>
+      <span className="inline-flex items-center gap-1.5 text-muted-foreground">
+        <Spinner />
+        Saving
+      </span>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatBatchDuration,
   instagramProfileUrl,
+  isOverlayActive,
   isTypingTarget,
   resparkBucketLabel,
   summarizeBatch,
@@ -60,5 +61,17 @@ describe("isTypingTarget", () => {
     expect(isTypingTarget({ tagName: "DIV", isContentEditable: true } as unknown as EventTarget)).toBe(true);
     expect(isTypingTarget({ tagName: "ARTICLE", isContentEditable: false } as unknown as EventTarget)).toBe(false);
     expect(isTypingTarget(null)).toBe(false);
+  });
+});
+
+describe("isOverlayActive", () => {
+  const none = { querySelector: () => null };
+  it("is true inside an overlay or while one is open", () => {
+    const inside = { closest: () => ({}) } as unknown as EventTarget;
+    const outside = { closest: () => null } as unknown as EventTarget;
+    expect(isOverlayActive(inside, none)).toBe(true);
+    expect(isOverlayActive(outside, { querySelector: () => ({}) })).toBe(true);
+    expect(isOverlayActive(outside, none)).toBe(false);
+    expect(isOverlayActive(null, null)).toBe(false);
   });
 });

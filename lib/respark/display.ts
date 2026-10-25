@@ -73,3 +73,22 @@ export function isTypingTarget(target: EventTarget | null) {
   const tag = element.tagName.toLowerCase();
   return tag === "input" || tag === "textarea" || tag === "select" || element.isContentEditable === true;
 }
+
+// Dialogs, sheets, popovers, menus and listboxes. Radix unmounts closed ones,
+// so any match in the document is open.
+const OVERLAY_SELECTOR = [
+  '[role="dialog"]',
+  '[role="alertdialog"]',
+  '[role="menu"]',
+  '[role="listbox"]',
+  "[data-radix-popper-content-wrapper]",
+].join(", ");
+
+type OverlayRoot = { querySelector: (selectors: string) => unknown };
+
+/** Whether a key press came from, or happened behind, an open overlay. */
+export function isOverlayActive(target: EventTarget | null, root: OverlayRoot | null) {
+  const element = target as { closest?: (selectors: string) => unknown } | null;
+  if (typeof element?.closest === "function" && element.closest(OVERLAY_SELECTOR)) return true;
+  return root?.querySelector(OVERLAY_SELECTOR) != null;
+}

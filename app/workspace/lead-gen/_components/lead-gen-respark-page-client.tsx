@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useMutation, useQuery } from "convex/react";
 import { toast } from "sonner";
@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { useBusinessDay } from "@/hooks/use-business-day";
-import { useNow } from "@/hooks/use-now";
 import { usePageTitle } from "@/hooks/use-page-title";
 import { getErrorMessage } from "@/lib/errors";
 import {
@@ -18,10 +17,27 @@ import {
   summarizeBatch,
 } from "@/lib/respark/display";
 import { cn } from "@/lib/utils";
+import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
 import { ResparkBatch } from "./respark-batch";
 import { bucketSwatchClass, formatClock } from "./respark-format";
 
 const countFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+
+// setTimeout's longest delay. A later moment re-arms when the timer fires.
+const MAX_TIMER_MS = 2 ** 31 - 1;
+
+/** Whether `at` has passed, re-rendering at that moment. */
+function useHasPassed(at: number | null) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (at === null) return;
+    const delay = at - Date.now();
+    if (delay <= 0 && now >= at) return;
+    const timer = setTimeout(() => setNow(Date.now()), Math.min(Math.max(delay, 0), MAX_TIMER_MS));
+    return () => clearTimeout(timer);
+  }, [at, now]);
+  return at !== null && now >= at;
+}
 
 // The Respark screen (docs/plans/respark.md §6.1): ask for a batch, work it
 // card by card, then a summary. The batch and the pool order come from the
@@ -29,7 +45,8 @@ const countFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits:
 export function LeadGenResparkPageClient() {
   usePageTitle("Respark");
   const batch = useQuery(api.respark.queries.getMyResparkBatch, {});
-  const now = useNow();
+  // The query only re-runs on writes, so the hold's end is timed here.
+  const ended = useHasPassed(batch ? batch.heldUntil : null);
   const { setting } = useBusinessDay("lead-gen");
   const claim = useMutation(api.respark.batches.claimResparkBatch);
   const [claiming, setClaiming] = useState(false);
@@ -55,8 +72,7 @@ export function LeadGenResparkPageClient() {
     );
   }
 
-  // The query only re-runs on writes, so the hold's end is checked here too.
-  const live = batch !== null && batch.heldUntil > now && batch.items.length > 0 ? batch : null;
+  const live = batch !== null && !ended && batch.items.length > 0 ? batch : null;
   const summary = live ? summarizeBatch(live) : null;
 
   if (live && summary && summary.worked < summary.total) {
@@ -101,27 +117,39 @@ function StartCard({
   onGetBatch: () => void;
   timeZone: string;
 }) {
-  const pool = useQuery(api.respark.queries.getResparkPoolCounts, {});
-  const today = useQuery(api.respark.queries.getMyResparkToday, {});
-
   return (
     <section className="flex flex-col gap-4 rounded-lg border bg-card p-4" aria-labelledby="respark-next-batch">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <h2 id="respark-next-batch" className="text-base font-semibold">Your next batch</h2>
-          {pool ? (
-            <p className="text-sm text-muted-foreground">
-              {pool.batchSize} people, held for you until {formatClock(pool.heldUntil, timeZone)} ({timeZone}), the end of the business day
-            </p>
-          ) : (
-            <Skeleton className="h-4 w-80 max-w-full" />
-          )}
-        </div>
+        <h2 id="respark-next-batch" className="text-base font-semibold">Your next batch</h2>
         <Button onClick={onGetBatch} disabled={claiming} className="self-start sm:self-auto">
           {claiming ? <Spinner data-icon="inline-start" /> : null}
           Get my batch
         </Button>
       </div>
+
+      <SectionErrorBoundary sectionName="the respark pool">
+        <PoolCounts timeZone={timeZone} />
+      </SectionErrorBoundary>
+
+      <SectionErrorBoundary sectionName="today's resparks">
+        <TodaySummary />
+      </SectionErrorBoundary>
+    </section>
+  );
+}
+
+function PoolCounts({ timeZone }: { timeZone: string }) {
+  const pool = useQuery(api.respark.queries.getResparkPoolCounts, {});
+
+  return (
+    <div className="flex flex-col gap-4">
+      {pool ? (
+        <p className="text-sm text-muted-foreground">
+          {pool.batchSize} people, held for you until {formatClock(pool.heldUntil, timeZone)} ({timeZone}), the end of the business day
+        </p>
+      ) : (
+        <Skeleton className="h-4 w-80 max-w-full" />
+      )}
 
       <div className="flex flex-col gap-2">
         <p className="text-xs font-medium text-muted-foreground">Your batch fills in this order</p>
@@ -149,16 +177,20 @@ function StartCard({
           )}
         </ol>
       </div>
+    </div>
+  );
+}
 
-      {today ? (
-        <p className="text-xs text-muted-foreground">
-          Today: {today.batchesStarted} {today.batchesStarted === 1 ? "batch" : "batches"} started ·{" "}
-          {today.resparks} {today.resparks === 1 ? "entry" : "entries"} · {today.notAFits} not a fit
-        </p>
-      ) : (
-        <Skeleton className="h-4 w-64" />
-      )}
-    </section>
+function TodaySummary() {
+  const today = useQuery(api.respark.queries.getMyResparkToday, {});
+
+  return today ? (
+    <p className="text-xs text-muted-foreground">
+      Today: {today.batchesStarted} {today.batchesStarted === 1 ? "batch" : "batches"} started ·{" "}
+      {today.resparks} {today.resparks === 1 ? "entry" : "entries"} · {today.notAFits} not a fit
+    </p>
+  ) : (
+    <Skeleton className="h-4 w-64" />
   );
 }
 

@@ -92,6 +92,50 @@ describe("createUndoQueue", () => {
     expect(queue.isPending("a")).toBe(false);
   });
 
+  it("an id can't be held or sent again while its send is in flight", () => {
+    const { queue, send } = setup(() => new Promise(() => {}));
+    queue.hold("a");
+    queue.flush();
+    expect(queue.isSending("a")).toBe(true);
+    queue.hold("a");
+    queue.flush();
+    vi.advanceTimersByTime(10_000);
+    expect(queue.isPending("a")).toBe(false);
+    expect(queue.undo("a")).toBe(false);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it("a rejected send frees the id so it can be acted on again", async () => {
+    let reject: (error: unknown) => void = () => {};
+    const { queue, send, onError } = setup(() => new Promise((_, r) => (reject = r)));
+    queue.hold("a");
+    queue.flush();
+    const error = new Error("offline");
+    reject(error);
+    await vi.runAllTimersAsync();
+    expect(onError).toHaveBeenCalledExactlyOnceWith("a", error);
+    expect(queue.isSending("a")).toBe(false);
+    expect(queue.isSent("a")).toBe(false);
+    queue.hold("a");
+    expect(queue.isPending("a")).toBe(true);
+    queue.flush();
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it("a successful send leaves the id sent, and it can't be held again", async () => {
+    const { queue, send, onError } = setup();
+    queue.hold("a");
+    queue.flush();
+    await vi.runAllTimersAsync();
+    expect(queue.isSending("a")).toBe(false);
+    expect(queue.isSent("a")).toBe(true);
+    queue.hold("a");
+    expect(queue.isPending("a")).toBe(false);
+    queue.flush();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
   it("a send that throws synchronously reports the error", () => {
     const error = new Error("offline");
     const { queue, onError } = setup(() => {
@@ -102,12 +146,14 @@ describe("createUndoQueue", () => {
     expect(onError).toHaveBeenCalledExactlyOnceWith("a", error);
   });
 
-  it("calls onChange on hold, undo and send", () => {
+  it("calls onChange on hold, undo, send and the server's answer", async () => {
     const { queue, onChange } = setup();
     queue.hold("a");
     queue.undo("a");
     queue.hold("b");
     queue.flush();
     expect(onChange).toHaveBeenCalledTimes(4);
+    await vi.runAllTimersAsync();
+    expect(onChange).toHaveBeenCalledTimes(5);
   });
 });
