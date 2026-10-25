@@ -22,7 +22,7 @@ async function held(h: Harness) {
   const leadId = await capture(h, "respark.panel");
   const { batchId } = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
   const [item] = await h.t.run((ctx) => ctx.db.query("resparkBatchItems")
-    .withIndex("by_batchId_and_position", (q) => q.eq("batchId", batchId)).take(1));
+    .withIndex("by_batchId_and_position", (q) => q.eq("batchId", batchId!)).take(1));
   return { leadId, item, batchId };
 }
 async function otherUser(h: Harness, foreignTenant = false) {
@@ -91,7 +91,7 @@ describe("Respark queries", () => {
     const other = await otherUser(h, true);
     expect(await other.caller.query(api.respark.queries.getMyResparkBatch, {})).toBeNull();
     expect((await other.caller.query(api.respark.queries.getResparkPoolCounts, {})).buckets.map((b) => b.count)).toEqual([0, 0, 0, 0, 0]);
-    expect(await other.caller.query(api.respark.queries.getMyResparkToday, {})).toMatchObject({ batchesStarted: 0, resparks: 0, notAFits: 0 });
+    expect(await other.caller.query(api.respark.queries.getMyResparkToday, {})).toMatchObject({ batchesDone: 0, resparks: 0, notAFits: 0 });
     expect(await other.caller.query(api.respark.queries.getResparkPersonPanel, { itemId: item._id })).toBeNull();
   });
 
@@ -106,7 +106,7 @@ describe("Respark queries", () => {
     expect(await h.admin.query(api.respark.queries.getResparkPersonPanel, { itemId: item._id })).not.toBeNull();
     expect((await h.admin.query(api.respark.queries.getMyResparkBatch, {}))?.items[0].result).toBe("resparked");
     // The batch itself is authoritative, even if an item's copied expiry differs.
-    await h.t.run((ctx) => ctx.db.patch("resparkBatches", batchId, { heldUntil: NOW }));
+    await h.t.run((ctx) => ctx.db.patch("resparkBatches", batchId!, { heldUntil: NOW }));
     expect(await h.admin.query(api.respark.queries.getResparkPersonPanel, { itemId: item._id })).toBeNull();
     expect(await h.admin.query(api.respark.queries.getMyResparkBatch, {})).toBeNull();
   });
@@ -216,7 +216,7 @@ describe("Respark queries", () => {
     const batch = (await caller.query(api.respark.queries.getMyResparkBatch, {}))!;
     expect(batch.batchId).toBe(batchId);
     expect((await caller.query(api.respark.queries.getResparkPoolCounts, {})).buckets[1].count).toBe(1);
-    expect((await caller.query(api.respark.queries.getMyResparkToday, {})).batchesStarted).toBe(1);
+    expect((await caller.query(api.respark.queries.getMyResparkToday, {})).batchesDone).toBe(0);
     expect(await caller.query(api.respark.queries.getResparkPersonPanel, { itemId: batch.items[0].itemId })).not.toBeNull();
   });
 
@@ -246,14 +246,14 @@ describe("Respark queries", () => {
     await capture(h, "today.2");
     const { batchId } = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
     const items = await h.t.run((ctx) => ctx.db.query("resparkBatchItems")
-      .withIndex("by_batchId_and_position", (q) => q.eq("batchId", batchId)).take(100));
+      .withIndex("by_batchId_and_position", (q) => q.eq("batchId", batchId!)).take(100));
     await h.admin.mutation(api.respark.batches.markResparked, { itemId: items[0]._id });
     await h.admin.mutation(api.respark.batches.markNotAFit, { itemId: items[1]._id });
     expect(await h.admin.query(api.respark.queries.getMyResparkToday, {})).toEqual({
-      batchesStarted: 1, resparks: 1, notAFits: 1,
+      batchesDone: 1, resparks: 1, notAFits: 1,
       start: Date.parse("2026-10-20T06:00:00Z"), end: Date.parse("2026-10-21T06:00:00Z"),
     });
     vi.setSystemTime(Date.parse("2026-10-21T06:00:00Z"));
-    expect(await h.admin.query(api.respark.queries.getMyResparkToday, {})).toMatchObject({ batchesStarted: 0, resparks: 0, notAFits: 0 });
+    expect(await h.admin.query(api.respark.queries.getMyResparkToday, {})).toMatchObject({ batchesDone: 0, resparks: 0, notAFits: 0 });
   });
 });

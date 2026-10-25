@@ -27,12 +27,15 @@ import { requireTenantUser, type TenantUserResult } from "../requireTenantUser";
 // Every function takes the tenant, user and worker from the identity.
 
 // A claim reads at most this many people across the buckets, held ones
-// included, and returns a shorter batch rather than read more (D9). Each
-// candidate costs its lead document and three index reads (its merges, an
-// unworked item, today's skips of at most 21 items), so 1,000 stays under
-// Convex's 4,096 reads and 32,000 documents per transaction, with lead
-// documents of a few KB well under 16 MiB.
+// included, and stops at this many index reads, whichever comes first, and
+// returns a shorter batch rather than read more (D9). A candidate costs its
+// lead document and, per person merged into them as well, three index reads
+// (the merge walk, an unworked item, today's skips of at most 21 items). The
+// read budget leaves about 1,000 of Convex's 4,096 reads per transaction for
+// the batch's writes, and 1,000 people stay well under 32,000 documents and
+// 16 MiB.
 export const CLAIM_READ_LIMIT = 1000;
+export const CLAIM_INDEX_READ_BUDGET = 3000;
 
 const RESPARK_ROLES = [...PERMISSIONS["lead-gen:respark"]];
 
@@ -67,7 +70,8 @@ async function openBatch(
  */
 export const claimResparkBatch = mutation({
   args: {},
-  returns: v.object({ batchId: v.id("resparkBatches"), resumed: v.boolean(), size: v.number() }),
+  // An empty pool creates no batch: `batchId` is null and `size` 0.
+  returns: v.object({ batchId: v.union(v.id("resparkBatches"), v.null()), resumed: v.boolean(), size: v.number() }),
   handler: async (ctx) => {
     const access = await requireTenantUser(ctx, RESPARK_ROLES);
     const now = Date.now();
@@ -83,8 +87,12 @@ export const claimResparkBatch = mutation({
 
     const picked: { lead: Doc<"leads">; bucket: number }[] = [];
     let read = 0;
+    let indexReads = 0;
+    const full = () =>
+      picked.length >= settings.batchSize || read >= CLAIM_READ_LIMIT || indexReads >= CLAIM_INDEX_READ_BUDGET;
     for (const bucket of RESPARK_BUCKETS) {
-      if (picked.length >= settings.batchSize || read >= CLAIM_READ_LIMIT) break;
+      if (full()) break;
+      indexReads += 1;
       const range = bucketRange(bucket, now, settings.inactiveAfterDays);
       const candidates = ctx.db
         .query("leads")
@@ -105,12 +113,14 @@ export const claimResparkBatch = mutation({
             userId: access.userId,
             now,
           });
+          indexReads += hold.reads;
           if (!hold.held && !hold.skippedByUser) picked.push({ lead, bucket });
         }
-        if (picked.length >= settings.batchSize || read >= CLAIM_READ_LIMIT) break;
+        if (full()) break;
       }
     }
 
+    if (picked.length === 0) return { batchId: null, resumed: false, size: 0 };
     const batchId = await ctx.db.insert("resparkBatches", {
       tenantId: access.tenantId,
       userId: access.userId,
@@ -213,6 +223,8 @@ export const markResparked = mutation({
   handler: async (ctx, { itemId }) => {
     const access = await requireTenantUser(ctx, RESPARK_ROLES);
     const now = Date.now();
+    // A lead generator whose lead gen access was turned off can't work on.
+    await requireOperationalLeadGenWorker(ctx, access, now);
     const item = await workableItem(ctx, access, itemId, now);
     await requirePersonInPool(ctx, item);
     const eventId = await emitResparkTouch(ctx, access, item, LEAD_RESPARKED, now);
@@ -235,6 +247,8 @@ export const markNotAFit = mutation({
   handler: async (ctx, { itemId }) => {
     const access = await requireTenantUser(ctx, RESPARK_ROLES);
     const now = Date.now();
+    // A lead generator whose lead gen access was turned off can't work on.
+    await requireOperationalLeadGenWorker(ctx, access, now);
     const item = await workableItem(ctx, access, itemId, now);
     await requirePersonInPool(ctx, item);
     const eventId = await emitResparkTouch(ctx, access, item, LEAD_MARKED_NOT_A_FIT, now);
@@ -255,6 +269,8 @@ export const skipResparkItem = mutation({
   handler: async (ctx, { itemId }) => {
     const access = await requireTenantUser(ctx, RESPARK_ROLES);
     const now = Date.now();
+    // A lead generator whose lead gen access was turned off can't work on.
+    await requireOperationalLeadGenWorker(ctx, access, now);
     const item = await workableItem(ctx, access, itemId, now);
     await workResparkItem(ctx, item, { result: "skipped", workedAt: now });
     return null;

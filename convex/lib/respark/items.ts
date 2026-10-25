@@ -88,15 +88,20 @@ const SKIPS_PER_PERSON_DAY_LIMIT = 20;
 export async function holdState(
   ctx: ReadCtx,
   args: { tenantId: Id<"tenants">; leadId: Id<"leads">; userId: Id<"users">; now: number },
-): Promise<{ held: boolean; skippedByUser: boolean }> {
-  for (const leadId of await mergedLeadIds(ctx, args.tenantId, args.leadId)) {
+): Promise<{ held: boolean; skippedByUser: boolean; reads: number }> {
+  const leadIds = await mergedLeadIds(ctx, args.tenantId, args.leadId);
+  // The merge walk reads once per person; each person then costs two reads.
+  let reads = leadIds.length;
+  for (const leadId of leadIds) {
+    reads += 1;
     const unworked = await ctx.db
       .query("resparkBatchItems")
       .withIndex("by_tenantId_and_leadId_and_result_and_heldUntil", (q) =>
         q.eq("tenantId", args.tenantId).eq("leadId", leadId).eq("result", undefined).gt("heldUntil", args.now),
       )
       .first();
-    if (unworked) return { held: true, skippedByUser: false };
+    if (unworked) return { held: true, skippedByUser: false, reads };
+    reads += 1;
     const skips = await ctx.db
       .query("resparkBatchItems")
       .withIndex("by_tenantId_and_leadId_and_result_and_heldUntil", (q) =>
@@ -104,10 +109,10 @@ export async function holdState(
       )
       .take(SKIPS_PER_PERSON_DAY_LIMIT + 1);
     if (skips.length > SKIPS_PER_PERSON_DAY_LIMIT || skips.some((item) => item.userId === args.userId)) {
-      return { held: false, skippedByUser: true };
+      return { held: false, skippedByUser: true, reads };
     }
   }
-  return { held: false, skippedByUser: false };
+  return { held: false, skippedByUser: false, reads };
 }
 
 /**

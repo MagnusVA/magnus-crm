@@ -57,7 +57,8 @@ async function setBatchSize(h: Harness, batchSize: number, tenantId = h.tenantId
   await h.t.run((ctx) => ctx.db.patch("tenants", tenantId, { respark: { inactiveAfterDays: 90, batchSize } }));
 }
 
-async function batchItems(h: Harness, batchId: Id<"resparkBatches">) {
+async function batchItems(h: Harness, batchId: Id<"resparkBatches"> | null) {
+  if (!batchId) return [];
   return await h.t.run((ctx) =>
     ctx.db.query("resparkBatchItems").withIndex("by_batchId_and_position", (q) => q.eq("batchId", batchId)).take(100),
   );
@@ -134,7 +135,8 @@ describe("claimResparkBatch", () => {
     const second = await addUser(h, "user_lg", "lead_generator");
     await pool(h, [40]);
     const a = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
-    expect((await second.mutation(api.respark.batches.claimResparkBatch, {})).size).toBe(0);
+    // An empty pool creates no batch.
+    expect(await second.mutation(api.respark.batches.claimResparkBatch, {})).toEqual({ batchId: null, resumed: false, size: 0 });
 
     const [item] = await batchItems(h, a.batchId);
     vi.setSystemTime(new Date(item.heldUntil));
@@ -155,6 +157,8 @@ describe("claimResparkBatch", () => {
     await h.admin.mutation(api.respark.batches.skipResparkItem, { itemId: item._id });
 
     expect((await h.admin.mutation(api.respark.batches.claimResparkBatch, {})).size).toBe(0);
+    // The worked batch counts as done, and the empty claim added none.
+    expect((await h.admin.query(api.respark.queries.getMyResparkToday, {})).batchesDone).toBe(1);
     const b = await second.mutation(api.respark.batches.claimResparkBatch, {});
     expect((await batchItems(h, b.batchId)).map((row) => row.leadId)).toEqual([item.leadId]);
     // Skip writes nothing on the person.
@@ -206,7 +210,24 @@ describe("claimResparkBatch", () => {
     }
   });
 
-  it("is only for roles with lead-gen:respark", async () => {
+  it("stops a lead generator whose lead gen access was turned off during the day", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness();
+    const lg = await addUser(h, "user_lg", "lead_generator");
+    await pool(h, [40]);
+    const { batchId } = await lg.mutation(api.respark.batches.claimResparkBatch, {});
+    const [item] = await batchItems(h, batchId);
+    await h.t.run((ctx) => ctx.db.patch("leadGenWorkers", item.workerId, { isActive: false }));
+    for (const action of [
+      api.respark.batches.markResparked,
+      api.respark.batches.markNotAFit,
+      api.respark.batches.skipResparkItem,
+    ]) {
+      await expect(lg.mutation(action, { itemId: item._id })).rejects.toThrow("not active");
+    }
+  });
+
+    it("is only for roles with lead-gen:respark", async () => {
     vi.useFakeTimers();
     const h = await bookingHarness();
     await expect(h.closer.mutation(api.respark.batches.claimResparkBatch, {})).rejects.toThrow();

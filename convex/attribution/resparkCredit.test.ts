@@ -32,7 +32,7 @@ async function seed(work = true) {
   vi.setSystemTime(NOW);
   const { batchId } = await caller.mutation(api.respark.batches.claimResparkBatch, {});
   const [item] = await h.t.run((ctx) => ctx.db.query("resparkBatchItems")
-    .withIndex("by_batchId_and_position", (q) => q.eq("batchId", batchId)).take(1));
+    .withIndex("by_batchId_and_position", (q) => q.eq("batchId", batchId!)).take(1));
   if (work) await caller.mutation(api.respark.batches.markResparked, { itemId: item._id });
   return { ...h, caller, leadId: capture.leadId!, item };
 }

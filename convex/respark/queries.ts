@@ -72,7 +72,7 @@ export const getResparkPoolCounts = query({
 
 export const getMyResparkToday = query({
   args: {},
-  returns: v.object({ batchesStarted: v.number(), resparks: v.number(), notAFits: v.number(),
+  returns: v.object({ batchesDone: v.number(), resparks: v.number(), notAFits: v.number(),
     start: v.number(), end: v.number() }),
   handler: async (ctx) => {
     const { tenantId, userId } = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:respark"]]);
@@ -90,7 +90,14 @@ export const getMyResparkToday = query({
         lower: { key: [worker._id, result, start], inclusive: true },
         upper: { key: [worker._id, result, end], inclusive: false },
       } }))) : [0, 0];
-    return { batchesStarted: batches.length, resparks: counts[0], notAFits: counts[1], start, end };
+    // A batch is done when every person in it was worked (plan §6.1).
+    let batchesDone = 0;
+    for (const batch of batches.slice(-50)) {
+      const items = await ctx.db.query("resparkBatchItems")
+        .withIndex("by_batchId_and_position", (q) => q.eq("batchId", batch._id)).take(batch.size);
+      if (batch.size > 0 && items.every((item) => item.result !== undefined)) batchesDone += 1;
+    }
+    return { batchesDone, resparks: counts[0], notAFits: counts[1], start, end };
   },
 });
 
