@@ -15,7 +15,9 @@ type ReadCtx = QueryCtx | MutationCtx;
 
 // One entry per non-merged person with a `lastTouch`, keyed by group and the
 // time of that touch, so a bucket or an inactive count is one range count.
-// Tolerant writes until its backfill and assert pass (plan §3.5).
+// Live writes are strict since its backfill and assert passed (plan §3.5):
+// a missing or duplicate entry throws instead of drifting. The rebuild and
+// the reset stay tolerant.
 export const resparkPool = new DirectAggregate<{
   Namespace: Id<"tenants">;
   Key: [ResparkGroup, number];
@@ -171,6 +173,7 @@ async function writeResparkState(
   ctx: MutationCtx,
   lead: Doc<"leads">,
   next: ResparkState,
+  writes: "strict" | "tolerant" = "strict",
 ): Promise<void> {
   const sameTouch = (lead.lastTouch?.eventId ?? null) === (next.lastTouch?.eventId ?? null);
   if (sameTouch && lead.resparkGroup === next.resparkGroup) return;
@@ -181,16 +184,19 @@ async function writeResparkState(
   const before = storedPoolKey(lead);
   const after = storedPoolKey(next);
   const namespace = lead.tenantId;
+  const strict = writes === "strict";
   if (before && after) {
-    await resparkPool.replaceOrInsert(
-      ctx,
-      { namespace, key: before, id: lead._id },
-      { namespace, key: after },
-    );
+    const current = { namespace, key: before, id: lead._id };
+    if (strict) await resparkPool.replace(ctx, current, { namespace, key: after });
+    else await resparkPool.replaceOrInsert(ctx, current, { namespace, key: after });
   } else if (after) {
-    await resparkPool.insertIfDoesNotExist(ctx, { namespace, key: after, id: lead._id });
+    const entry = { namespace, key: after, id: lead._id };
+    if (strict) await resparkPool.insert(ctx, entry);
+    else await resparkPool.insertIfDoesNotExist(ctx, entry);
   } else if (before) {
-    await resparkPool.deleteIfExists(ctx, { namespace, key: before, id: lead._id });
+    const entry = { namespace, key: before, id: lead._id };
+    if (strict) await resparkPool.delete(ctx, entry);
+    else await resparkPool.deleteIfExists(ctx, entry);
   }
 }
 
@@ -345,7 +351,7 @@ export async function recomputeResparkState(
   ctx: MutationCtx,
   lead: Doc<"leads">,
 ): Promise<void> {
-  await writeResparkState(ctx, lead, await computeResparkState(ctx, lead));
+  await writeResparkState(ctx, lead, await computeResparkState(ctx, lead), "tolerant");
   // A first write with the values already stored (a rerun) leaves the
   // entry alone above; make sure it exists.
   const fresh = await ctx.db.get("leads", lead._id);

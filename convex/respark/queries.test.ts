@@ -3,7 +3,7 @@ import { bookingHarness } from "../../tests/bookingHarness";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import { DAY_MS } from "../lib/respark/settings";
-import { resparkPool } from "../lib/respark/state";
+import { recomputeResparkState, resparkPool } from "../lib/respark/state";
 import type { ResparkGroup } from "../lib/respark/validators";
 
 const NOW = Date.parse("2026-10-20T15:00:00Z");
@@ -64,8 +64,11 @@ async function panelFacts(h: Harness, leadId: Id<"leads">, userId: Id<"users">) 
       await ctx.db.insert("domainEvents", { tenantId: h.tenantId, leadId, entityType: eventType.startsWith("payment") ? "payment" : "lead",
         entityId: leadId, eventType, occurredAt: NOW - (4 - index) * 1000, source: "pipeline" });
     }
-    await ctx.db.patch("leads", leadId, { lifecycleStage: "booked", resparkGroup: "had_call",
+    await ctx.db.patch("leads", leadId, { lifecycleStage: "booked",
       lifecycleStageEnteredAt: { ...person.lifecycleStageEnteredAt, qualified: NOW - 11 * DAY_MS } });
+    // The raw writes above skip the write paths; rebuild the respark state
+    // and pool entry from them, as the backfill would.
+    await recomputeResparkState(ctx, (await ctx.db.get("leads", leadId))!);
     return { dealId, meetingId };
   });
 }
