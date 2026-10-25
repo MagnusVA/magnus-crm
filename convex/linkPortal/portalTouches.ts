@@ -1,12 +1,12 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { emitDomainEvent } from "../lib/domainEvents";
-import { advanceLeadLifecycle } from "../lib/leadLifecycle";
 
-// DM portal activity is a touch on the person's timeline and moves them to
-// In conversation (docs/plans/phase-2-person-first.md §4.3). DM closers act
-// through a shared password, not as CRM users, so the event names the DM
-// closer's team member and no actor.
+// DM portal activity is a touch on the person's timeline
+// (docs/plans/phase-2-person-first.md §4.3). Since Respark it doesn't move the
+// stage: a capture or a respark means in conversation (docs/plans/respark.md
+// §4.2). DM closers act through a shared password, not as CRM users, so the
+// event names the DM closer's team member and no actor.
 
 export const PORTAL_LINK_COPIED = "lead.portal_link_copied";
 export const PORTAL_NOTE_ADDED = "lead.portal_note_added";
@@ -42,15 +42,10 @@ export async function emitPortalTouch(
   });
 }
 
-/** Moves the person to In conversation and records the touch. */
+/** Records the touch. */
 export async function recordPortalTouch(
   ctx: MutationCtx,
   args: Parameters<typeof emitPortalTouch>[1],
 ): Promise<void> {
-  await advanceLeadLifecycle(ctx, args.leadId, {
-    stage: "in_conversation",
-    at: args.at,
-    cause: "dm_portal",
-  });
   await emitPortalTouch(ctx, args);
 }

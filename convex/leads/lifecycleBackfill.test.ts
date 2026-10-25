@@ -4,6 +4,8 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { leadStageTotals, syncLeadStageEntries } from "../lib/leadLifecycle";
+import { syncProspectConversions } from "../lib/prospectConversions";
+import { prospectConversions } from "../reporting/aggregates";
 import { migrations } from "../migrations";
 import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
 
@@ -16,20 +18,17 @@ const QUALIFIED = Date.parse("2026-08-03T10:00:00Z");
 const BOOKED = Date.parse("2026-08-04T10:00:00Z");
 const CALL = Date.parse("2026-08-06T15:00:00Z");
 const PAID = Date.parse("2026-08-06T16:00:00Z");
+// A capture means in conversation (docs/plans/respark.md §4.1).
 const CUSTOMER_LIFECYCLE_STATE = {
   stage: "customer" as const,
   enteredAt: {
     prospect: CAPTURED,
-    in_conversation: QUALIFIED,
+    in_conversation: CAPTURED,
     qualified: QUALIFIED,
     booked: BOOKED,
     showed: CALL,
     customer: PAID,
   },
-};
-const CUSTOMER_LIFECYCLE = {
-  lifecycleStage: CUSTOMER_LIFECYCLE_STATE.stage,
-  lifecycleStageEnteredAt: CUSTOMER_LIFECYCLE_STATE.enteredAt,
 };
 
 async function harnessWithMigrations() {
@@ -64,17 +63,18 @@ async function userId(ctx: MutationCtx, workosUserId: string): Promise<Id<"users
 }
 
 // A person captured by lead gen, qualified in Slack, booked, held and paid,
-// with the lifecycle their records support.
-async function legacyCustomer(harness: Harness) {
+// with the lifecycle their records support, or `state` (one stored under
+// older rules).
+async function legacyCustomer(harness: Harness, state = CUSTOMER_LIFECYCLE_STATE) {
   return await harness.t.run(async (ctx) => {
     const { tenantId } = harness;
     const adminId = await userId(ctx, "user_admin");
     const closerId = await userId(ctx, "user_closer");
     const leadId = await ctx.db.insert("leads", {
       tenantId, email: "buyer@example.com", status: "converted", firstSeenAt: QUALIFIED, updatedAt: PAID,
-      ...CUSTOMER_LIFECYCLE, disposition: "open",
+      lifecycleStage: state.stage, lifecycleStageEnteredAt: state.enteredAt, disposition: "open",
     });
-    await syncLeadStageEntries(ctx, tenantId, leadId, null, CUSTOMER_LIFECYCLE_STATE);
+    await syncLeadStageEntries(ctx, tenantId, leadId, null, state);
     const qualifiedBy = { slackUserId: "U1", slackTeamId: "T1", submittedAt: QUALIFIED };
     const opportunityId = await ctx.db.insert("opportunities", {
       tenantId, leadId, assignedCloserId: closerId, stage: "closed", outcome: "won", source: "slack_qualified",
@@ -113,6 +113,7 @@ async function legacyCustomer(harness: Harness) {
       lastSubmittedAt: CAPTURED, latestOriginKind: "follower", contactAttemptCount: 1, distinctWorkerCount: 1,
       createdAt: CAPTURED, updatedAt: CAPTURED,
     });
+    await syncProspectConversions(ctx, (await ctx.db.get("leadGenProspects", prospectId))!, await ctx.db.get("leads", leadId));
     await ctx.db.insert("leadGenAuditMatches", {
       tenantId, prospectId, leadId, opportunityId, matchSource: "slack_qualification", matchStatus: "accepted",
       matchedVia: "social_handle", normalizedHandle: "buyer", createdAt: QUALIFIED, updatedAt: QUALIFIED,
@@ -160,6 +161,131 @@ describe("lifecycle assert", () => {
       await ctx.db.patch("paymentRecords", payment._id, { status: "disputed" });
     });
     expect((await rerun(harness, "assertLeadLifecycle"))?.error).toContain("differ from its records");
+  });
+});
+
+describe("capture lifecycle backfill (respark plan §10.2)", () => {
+  // A captured person at Prospect, stored as the old rules had it.
+  async function oldProspect(harness: Harness, handle: string) {
+    return await harness.t.run(async (ctx) => {
+      const { tenantId } = harness;
+      const adminId = await userId(ctx, "user_admin");
+      const state = { stage: "prospect" as const, enteredAt: { prospect: CAPTURED } };
+      const leadId = await ctx.db.insert("leads", {
+        tenantId, status: "active", firstSeenAt: CAPTURED, updatedAt: CAPTURED,
+        lifecycleStage: state.stage, lifecycleStageEnteredAt: state.enteredAt, disposition: "open",
+      });
+      await syncLeadStageEntries(ctx, tenantId, leadId, null, state);
+      const workerId = (await ctx.db.query("leadGenWorkers").first())?._id ?? await ctx.db.insert("leadGenWorkers", {
+        tenantId, userId: adminId, workosUserId: "user_admin", email: "admin@example.com", isActive: true,
+        createdAt: 0, updatedAt: 0,
+      });
+      const prospectId = await ctx.db.insert("leadGenProspects", {
+        tenantId, leadId, firstSource: "instagram", latestSource: "instagram", dedupeKey: `instagram:${handle}`,
+        normalizedHandle: handle, rawHandle: handle, profileUrl: `https://instagram.com/${handle}`,
+        firstCapturedByWorkerId: workerId, firstCapturedAt: CAPTURED, lastSubmittedByWorkerId: workerId,
+        lastSubmittedAt: CAPTURED, latestOriginKind: "follower", contactAttemptCount: 1, distinctWorkerCount: 1,
+        createdAt: CAPTURED, updatedAt: CAPTURED,
+      });
+      await syncProspectConversions(ctx, (await ctx.db.get("leadGenProspects", prospectId))!, await ctx.db.get("leads", leadId));
+      return leadId;
+    });
+  }
+
+  it("previews the whole table without writing, and the assert checks conversion entries", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));
+    const harness = await harnessWithMigrations();
+    await legacyCustomer(harness, {
+      ...CUSTOMER_LIFECYCLE_STATE,
+      enteredAt: { ...CUSTOMER_LIFECYCLE_STATE.enteredAt, in_conversation: QUALIFIED },
+    });
+    const prospectLead = await oldProspect(harness, "old.prospect");
+
+    const totals: Record<string, number> = {};
+    let cursor: string | null = null;
+    for (;;) {
+      const page: { counts: Record<string, number>; lower: string[]; isDone: boolean; continueCursor: string } =
+        await harness.t.query(internal.migrations.previewCaptureLifecycle, { cursor, numItems: 1 });
+      for (const [key, value] of Object.entries(page.counts)) totals[key] = (totals[key] ?? 0) + value;
+      expect(page.lower).toEqual([]);
+      if (page.isDone) break;
+      cursor = page.continueCursor;
+    }
+    expect(totals).toEqual({ "times at customer": 1, "stage prospect->in_conversation": 1 });
+    expect((await harness.t.run((ctx) => ctx.db.get("leads", prospectLead)))?.lifecycleStage).toBe("prospect");
+
+    expect((await run(harness, "backfillCaptureLifecycle"))?.isDone).toBe(true);
+    expect((await run(harness, "assertLeadLifecycle"))?.error).toBeUndefined();
+
+    // A missing conversion entry fails the assert, and the backfill puts it back.
+    await harness.t.run(async (ctx) => {
+      const prospect = (await ctx.db.query("leadGenProspects").withIndex("by_tenantId_and_leadId", (q) =>
+        q.eq("tenantId", harness.tenantId).eq("leadId", prospectLead)).first())!;
+      await prospectConversions.delete(ctx, {
+        namespace: harness.tenantId,
+        key: [prospect.firstCapturedByWorkerId, "in_conversation", prospect.firstCapturedAt],
+        id: `${prospect._id}:in_conversation`,
+      });
+    });
+    expect((await rerun(harness, "assertLeadLifecycle"))?.error).toContain("missing in_conversation conversion entry");
+    expect((await rerun(harness, "backfillCaptureLifecycle"))?.isDone).toBe(true);
+    expect((await rerun(harness, "assertLeadLifecycle"))?.error).toBeUndefined();
+  });
+
+  it("moves old Prospects and old In conversation times to the capture, with no events, then the assert passes", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));
+    const harness = await harnessWithMigrations();
+    const { leadId: customerId } = await legacyCustomer(harness, {
+      ...CUSTOMER_LIFECYCLE_STATE,
+      enteredAt: { ...CUSTOMER_LIFECYCLE_STATE.enteredAt, in_conversation: QUALIFIED },
+    });
+    const prospectId = await oldProspect(harness, "old.prospect");
+    expect((await run(harness, "assertLeadLifecycle"))?.error).toContain("differ from its records");
+
+    expect((await run(harness, "backfillCaptureLifecycle"))?.isDone).toBe(true);
+    // Rerunning changes nothing.
+    expect((await rerun(harness, "backfillCaptureLifecycle"))?.isDone).toBe(true);
+    expect((await rerun(harness, "assertLeadLifecycle"))?.error).toBeUndefined();
+
+    const after = await harness.t.run(async (ctx) => ({
+      customer: (await ctx.db.get("leads", customerId))!,
+      prospect: (await ctx.db.get("leads", prospectId))!,
+      stageEvents: await ctx.db.query("domainEvents").take(20),
+    }));
+    expect(after.customer.lifecycleStageEnteredAt).toEqual(CUSTOMER_LIFECYCLE_STATE.enteredAt);
+    expect(after.prospect).toMatchObject({
+      lifecycleStage: "in_conversation",
+      lifecycleStageEnteredAt: { prospect: CAPTURED, in_conversation: CAPTURED },
+    });
+    expect(after.stageEvents.filter((event) => event.eventType === "lead.lifecycle_stage_changed")).toEqual([]);
+    expect(await harness.t.run((ctx) => leadStageTotals(ctx, harness.tenantId))).toEqual({
+      prospect: 2, in_conversation: 2, qualified: 1, booked: 1, showed: 1, customer: 1,
+    });
+  });
+
+  it("skips merged people and people an admin moved back, and stops on a stage it would lower", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));
+    const harness = await harnessWithMigrations();
+    const movedBack = await oldProspect(harness, "moved.back");
+    await harness.t.run((ctx) => ctx.db.patch("leads", movedBack, { lifecycleStageMovedBackAt: CAPTURED + 1 }));
+    expect((await run(harness, "backfillCaptureLifecycle"))?.error).toBeUndefined();
+    expect((await harness.t.run((ctx) => ctx.db.get("leads", movedBack)))?.lifecycleStage).toBe("prospect");
+
+    // In conversation from a portal note only: the new rules support no stage.
+    const fromNote = await harness.t.run(async (ctx) => {
+      const state = { stage: "in_conversation" as const, enteredAt: { prospect: CAPTURED, in_conversation: CAPTURED } };
+      const id = await ctx.db.insert("leads", {
+        tenantId: harness.tenantId, status: "active", firstSeenAt: CAPTURED, updatedAt: CAPTURED,
+        lifecycleStage: state.stage, lifecycleStageEnteredAt: state.enteredAt, disposition: "open",
+      });
+      await syncLeadStageEntries(ctx, harness.tenantId, id, null, state);
+      return id;
+    });
+    const result = await rerun(harness, "backfillCaptureLifecycle");
+    expect(result?.error).toContain(`Lead ${fromNote}`);
   });
 });
 

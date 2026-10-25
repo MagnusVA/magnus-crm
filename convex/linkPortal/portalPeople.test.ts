@@ -133,7 +133,7 @@ describe("DM portal copy", () => {
     await expect(copy(h)).resolves.toBeDefined();
   });
 
-  it("dates In conversation from the first portal note, however many notes follow", async () => {
+  it("takes no stage evidence from portal notes, however many there are", async () => {
     const h = await setup();
     const leadId = await existingPerson(h, { handle: "ana.lead" });
     await h.t.run(async (ctx) => {
@@ -151,10 +151,11 @@ describe("DM portal copy", () => {
       return (await collectLifecycleEvidence(ctx, lead!)).evidence;
     });
 
-    expect(evidence).toContainEqual({ stage: "in_conversation", at: NOW - 10_000 });
+    // A note is a touch, not evidence (docs/plans/respark.md §4.2).
+    expect(evidence.filter((item) => item.stage === "in_conversation")).toEqual([]);
   });
 
-  it("a portal note moves a prospect to In conversation", async () => {
+  it("a portal note is a touch and leaves a prospect's stage alone", async () => {
     const h = await setup();
     const leadId = await h.t.run(async (ctx) => {
       const state = { stage: "prospect" as const, enteredAt: { prospect: NOW - 1_000 } };
@@ -171,7 +172,9 @@ describe("DM portal copy", () => {
     });
 
     const lead = await h.t.run((ctx) => ctx.db.get("leads", leadId));
-    expect(lead).toMatchObject({ lifecycleStage: "in_conversation", lifecycleStageEnteredAt: { in_conversation: NOW } });
+    expect(lead).toMatchObject({ lifecycleStage: "prospect", lifecycleStageEnteredAt: { prospect: NOW - 1_000 } });
+    expect(lead?.lifecycleStageEnteredAt.in_conversation).toBeUndefined();
+    expect(lead?.lastTouch).toMatchObject({ eventType: "lead.portal_note_added", occurredAt: NOW });
     expect(await events(h, "lead.portal_note_added")).toMatchObject([{ leadId, teamMemberId: h.teamMemberId }]);
   });
 });
