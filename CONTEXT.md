@@ -21,15 +21,26 @@ How far a person has ever got: Prospect, In conversation, Qualified, Booked, Sho
 _Avoid_: lead status
 
 **Prospect**:
-A person at the Prospect lifecycle stage. Lead gen captured their handle and nobody has talked to them yet. A prospect is a person, not a separate record.
+A person lead gen captured. A capture enters them at In conversation, so the Prospect stage is kept in the list but no longer used; it keeps the date of the first capture. A prospect is a person, not a separate record.
 _Avoid_: lead gen lead
+
+**In conversation**:
+The lifecycle stage a person reaches when lead gen captures them or a lead generator resparks them. A DM portal note or profile edit is a touch but doesn't move the stage.
 
 **Customer**:
 A person at the Customer lifecycle stage, reached at their first payment. It is a stage, not a separate record.
 _Avoid_: client, customer record
 
 **Disposition**:
-Whether the team should keep working a person, separate from their stage: open, nurture, not a fit, unresponsive, do not contact.
+Whether the team should keep working a person, separate from their stage: open, nurture, not a fit, unresponsive, do not contact. The system, an admin, or a lead generator in a respark sets it. A respark, a qualification or a booking reopens a not a fit; a capture doesn't.
+
+**Inactive**:
+A person with no touch for the tenant's N days (90 by default), worked out from their last touch whenever it's shown. Nothing stores it, and changing N rewrites nothing.
+_Avoid_: stale (a deal loss reason), dormant
+
+**Respark**:
+A lead generator messaging a stalled person again from the respark pool, then marking them resparked, not a fit, or skipped. The pool is five buckets in a fixed order: qualified and never booked, never qualified, inactive, had a call and the deal was lost, not a fit. A batch is held for its lead generator until the business day ends. Resparked counts as an entry for them and as lead gen credit if the person's next deal comes from it.
+_Avoid_: reactivation, re-engagement
 
 ## Deals
 
@@ -84,18 +95,21 @@ A record that one team member played one role on one deal, with where that fact 
 _Avoid_: credit column, owner
 
 **Touch**:
-One thing that happened to a person, recorded once: captured, messaged, qualified, booked, attended, no-show, follow-up, paid, or a note. A touch names the person and, where they apply, the deal, the team member, and the channel. A person's touches in order are their timeline.
+One thing that happened to a person, recorded once: captured, messaged, qualified, booked, attended, no-show, follow-up, paid, resparked, or a note. A touch names the person and, where they apply, the deal, the team member, and the channel. A person's touches in order are their timeline.
 _Avoid_: activity
 
 **First touch**:
 The touch that first brought a person in. Once set, nothing overwrites it. Each deal keeps a copy of the person's first and latest touch from the moment the deal was created.
 _Avoid_: original source
 
+**Last touch**:
+The newest touch of any kind that someone did with the person: a channel touch, a meeting result, a deal move by a person, a payment, or a respark. System events, such as the Slack expiry, aren't one. Inactive and the respark pool read it; attribution reads the latest touch instead.
+
 **Channel**:
-Where a touch came from: lead gen, the DM portal, Slack, Calendly, or a side deal.
+Where a touch came from: lead gen (a capture or a respark), the DM portal, Slack, Calendly, or a side deal.
 
 ## Flagged ambiguities
 
 - "Lead" means three things in today's code: the person (the `leads` table), the active lifecycle (`leads.status = active`), and, in reports, a new lead. Say person, lifecycle stage, or new person. In the leads report, a new lead is a person who first reached Qualified in the period, not a newly created row.
-- "Prospect" also names the `leadGenProspects` table, which records captures and is not yet linked to a person.
+- "Prospect" also names the `leadGenProspects` table, which records a handle's captures and is linked to its person.
 - "Status" on an opportunity, in old deal events and old links, mixed deal stage, outcome, meeting attendance, and task state. The field is gone; name the one you mean.
