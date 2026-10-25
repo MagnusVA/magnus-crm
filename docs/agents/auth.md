@@ -13,7 +13,7 @@ One WorkOS organization is one tenant, linked by `tenants.workosOrgId`. A tenant
 | `tenant_master` | `owner` | Tenant owner |
 | `tenant_admin` | `tenant-admin` | Admin |
 | `closer` | `closer` | Sales closer |
-| `lead_generator` | `lead-generator` | Lead gen worker; can capture leads, respark their own batch, and view their own |
+| `lead_generator` | `lead-generator` | Lead gen worker; can capture leads, respark their own batch, and view their own capture and respark activity (My Activity) |
 
 - `convex/lib/roleMapping.ts` maps WorkOS slugs to CRM roles, and an unknown slug maps to `closer`.
 - `convex/lib/permissions.ts` defines the permission slugs (`reports:view`, `billing:*`, `lead-gen:capture`, and others) and which roles hold them. Gate new features on a permission slug when one fits.
