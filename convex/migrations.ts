@@ -25,7 +25,7 @@ import {
 import { deriveStoredEventLinks, storedLeadIdMatches } from "./lib/domainEventLinks";
 import { getPersonProgramEnrollment } from "./enrollments/read";
 import { derivePersonEnrollments, paymentCounts } from "./lib/enrollments";
-import { lifecycleProblems } from "./lib/leadLifecycle";
+import { lifecycleProblems, rederiveLeadLifecycle } from "./lib/leadLifecycle";
 import { recomputeResparkState, resparkPool, resparkStateProblems } from "./lib/respark/state";
 import { RESPARK_GROUPS, type ResparkGroup } from "./lib/respark/validators";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
@@ -628,6 +628,17 @@ export const backfillResparkState = migrations.define({
   table: "leads", batchSize: 50,
   migrateOne: async (ctx, lead) => {
     await recomputeResparkState(ctx, lead);
+  },
+});
+// A capture means in conversation, and DM portal notes and edits stop being
+// evidence (docs/plans/respark.md §4.1, §4.2, §10.2): every person's
+// lifecycle is re-derived under the new rules, with no events. Small batches,
+// like assertLeadLifecycle, since deriving reads a person's deals, meetings,
+// payments, Slack events and captures.
+export const backfillCaptureLifecycle = migrations.define({
+  table: "leads", batchSize: 25,
+  migrateOne: async (ctx, lead) => {
+    await rederiveLeadLifecycle(ctx, lead);
   },
 });
 export const assertResparkState = migrations.define({

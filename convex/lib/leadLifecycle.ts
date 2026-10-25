@@ -19,6 +19,7 @@ import { isOpenDeal } from "../opportunities/dealGuards";
 import type { DealStateFields } from "../opportunities/dealState";
 import { leadStageEntries } from "../reporting/aggregates";
 import { emitDomainEvent, type DomainEventSource } from "./domainEvents";
+import { refreshResparkState } from "./respark/state";
 import { personProspects, syncPersonProspectConversions } from "./prospectConversions";
 
 // Writes a person's lifecycle stage and disposition, with the aggregate
@@ -110,6 +111,8 @@ export async function countLeadStageEntries(
 }
 
 type LifecycleWrite = {
+  /** A backfill that rewrites history writes no event (respark plan §10.2). */
+  silent?: boolean;
   source: DomainEventSource;
   actorUserId?: Id<"users">;
   reason: string;
@@ -148,7 +151,7 @@ async function writeLifecycle(
   if (wasProspect !== isProspect) {
     await rebuildLeadCustomerSearchRow(ctx, lead.tenantId, lead._id);
   }
-  if (before.stage !== after.stage) {
+  if (before.stage !== after.stage && !write.silent) {
     await emitDomainEvent(ctx, {
       tenantId: lead.tenantId,
       entityType: "lead",
@@ -283,34 +286,27 @@ export function paymentEvidence(
     : [{ stage: "customer", at: payment.recordedAt }];
 }
 
-/** Lead gen captured the person (docs/plans/phase-2-person-first.md §4.2). */
+/**
+ * Lead gen captured the person: a capture means in conversation
+ * (docs/plans/respark.md §4.1). Prospect takes the same time, since every
+ * stage below the one reached does.
+ */
 export function prospectEvidence(
   prospect: Doc<"leadGenProspects">,
 ): LifecycleEvidence[] {
-  return [{ stage: "prospect", at: prospect.firstCapturedAt }];
+  return [{ stage: "in_conversation", at: prospect.firstCapturedAt }];
 }
 
 /**
- * A DM closer worked the person in the portal: copied a booking link for
- * them, wrote a note, or edited their profile
- * (docs/plans/phase-2-person-first.md §4.2).
+ * A DM closer copied a booking link for the person
+ * (docs/plans/phase-2-person-first.md §4.2). The live copy path records no
+ * person since Phase 2, so only old copies are evidence. A DM portal note or
+ * profile edit is a touch but no evidence (docs/plans/respark.md §4.2).
  */
 export function portalCopyEvidence(
   copy: Doc<"linkPortalCopyEvents">,
 ): LifecycleEvidence[] {
   return [{ stage: "in_conversation", at: copy.copiedAt }];
-}
-
-export function portalNoteEvidence(note: Doc<"leadNotes">): LifecycleEvidence[] {
-  return note.authorKind === "dm_closer"
-    ? [{ stage: "in_conversation", at: note.createdAt }]
-    : [];
-}
-
-export function portalEditEvidence(
-  edit: Doc<"linkPortalLeadEdits">,
-): LifecycleEvidence[] {
-  return [{ stage: "in_conversation", at: edit.createdAt }];
 }
 
 // --- Hooks: each write path calls the one for the record it wrote. ---
@@ -474,26 +470,6 @@ export async function collectLifecycleEvidence(
   if (firstCopy) {
     evidence.push(...portalCopyEvidence(firstCopy));
   }
-  const firstEdit = await ctx.db
-    .query("linkPortalLeadEdits")
-    .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
-    .first();
-  if (firstEdit) {
-    evidence.push(...portalEditEvidence(firstEdit));
-  }
-  // Notes come in creation order, so the first DM closer note is the
-  // earliest; other notes before it don't count, and only a read that ends
-  // without one is partial.
-  const notes = await ctx.db
-    .query("leadNotes")
-    .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", tenantId).eq("leadId", leadId))
-    .take(DERIVE_READ_LIMIT + 1);
-  const firstPortalNote = notes.find((note) => portalNoteEvidence(note).length > 0);
-  if (firstPortalNote) {
-    evidence.push(...portalNoteEvidence(firstPortalNote));
-  } else {
-    bounded(notes, "notes", leadId);
-  }
   return { evidence, opportunities };
 }
 
@@ -545,6 +521,43 @@ export async function correctLeadLifecycle(
     reason: correction,
     metadata: { enteredAtBefore: before.enteredAt },
   });
+}
+
+/**
+ * Rewrites the person's lifecycle to what their records support under the
+ * current evidence rules, with every projection a stage write keeps and no
+ * event (docs/plans/respark.md §10.2). Skips merged people and people an
+ * admin moved back. The stage never moves back here: a person whose records
+ * now support a lower stage throws, naming them, since no rule change in
+ * the plan should do that.
+ */
+export async function rederiveLeadLifecycle(
+  ctx: MutationCtx,
+  lead: Doc<"leads">,
+): Promise<"skipped" | "unchanged" | "times" | "stage"> {
+  if (lead.status === "merged" || lead.lifecycleStageMovedBackAt !== undefined) {
+    return "skipped";
+  }
+  const before = readLifecycle(lead);
+  const after = await deriveLeadLifecycle(ctx, lead);
+  if (!after) {
+    throw new Error(`Lead ${lead._id}: records support no stage, below its stage ${before.stage}`);
+  }
+  if (sameLifecycle(before, after)) {
+    return "unchanged";
+  }
+  if (stageIndex(after.stage) < stageIndex(before.stage)) {
+    throw new Error(`Lead ${lead._id}: records support ${after.stage}, below its stage ${before.stage}`);
+  }
+  await writeLifecycle(ctx, lead, before, after, {
+    silent: true,
+    source: "system",
+    reason: "respark_capture_lifecycle",
+  });
+  // The pool group follows the stage; a move within the stages below
+  // Qualified leaves it alone, so this is a no-op for nearly everyone.
+  await refreshResparkState(ctx, lead.tenantId, lead._id);
+  return before.stage === after.stage ? "times" : "stage";
 }
 
 /**

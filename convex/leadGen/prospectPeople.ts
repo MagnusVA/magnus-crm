@@ -1,7 +1,7 @@
 import type { Doc, Id } from "../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { emitDomainEvent, eventsForRecord } from "../lib/domainEvents";
-import { advanceLeadLifecycle } from "../lib/leadLifecycle";
+import { advanceLeadLifecycle, prospectEvidence } from "../lib/leadLifecycle";
 import { syncProspectConversions } from "../lib/prospectConversions";
 import { resolveLeadIdentity } from "../leads/identityResolution";
 
@@ -9,8 +9,8 @@ import { resolveLeadIdentity } from "../leads/identityResolution";
 // §4.1): the capture finds or creates them before it inserts the prospect.
 
 /**
- * The person who holds this Instagram handle, or a new person at Prospect,
- * first seen at `capturedAt`.
+ * The person who holds this Instagram handle, or a new person in
+ * conversation, first seen at `capturedAt` (docs/plans/respark.md §4.1).
  */
 export async function findOrCreateHandlePerson(
   ctx: MutationCtx,
@@ -22,26 +22,25 @@ export async function findOrCreateHandlePerson(
     identifierSource: "lead_gen",
     createdAt: args.capturedAt,
     createIdentifiers: true,
-    initialLifecycle: { stage: "prospect", at: args.capturedAt },
+    initialLifecycle: { stage: "in_conversation", at: args.capturedAt },
   });
   return { lead: resolution.lead, created: resolution.isNewLead };
 }
 
 /**
- * The person's Prospect entry time and the prospect's conversion entries,
- * after the prospect is inserted.
+ * The person's stage after a capture, and the prospect's conversion
+ * entries, after the prospect is inserted.
  */
 export async function settleProspectPerson(
   ctx: MutationCtx,
   prospect: Doc<"leadGenProspects">,
 ): Promise<void> {
-  // Moves the Prospect entry time earlier when the capture came first; never
-  // changes a later stage.
-  await advanceLeadLifecycle(ctx, prospect.leadId, {
-    stage: "prospect",
-    at: prospect.firstCapturedAt,
-    cause: "lead_gen_capture",
-  });
+  // Moves a person behind In conversation to it, and its entry time (and
+  // Prospect's) earlier when the capture came first; never changes a later
+  // stage, and never reopens a disposition (respark plan §4.1, Q1).
+  for (const evidence of prospectEvidence(prospect)) {
+    await advanceLeadLifecycle(ctx, prospect.leadId, { ...evidence, cause: "lead_gen_capture" });
+  }
   await syncProspectConversions(ctx, prospect, await ctx.db.get("leads", prospect.leadId));
 }
 

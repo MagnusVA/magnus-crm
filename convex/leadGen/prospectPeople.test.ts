@@ -88,7 +88,7 @@ async function onlyProspect(harness: Harness) {
 }
 
 describe("lead gen capture", () => {
-  it("creates the person at Prospect, outside the lead counts", async () => {
+  it("creates the person in conversation, outside the lead counts", async () => {
     const harness = await setup();
 
     const result = await capture(harness, "ana.lead");
@@ -97,16 +97,18 @@ describe("lead gen capture", () => {
     const prospect = await onlyProspect(harness);
     expect(result.leadId).toBe(lead._id);
     expect(prospect.leadId).toBe(lead._id);
+    // A capture means in conversation; Prospect takes the same time
+    // (docs/plans/respark.md §4.1).
     expect(lead).toMatchObject({
-      lifecycleStage: "prospect",
-      lifecycleStageEnteredAt: { prospect: NOW },
+      lifecycleStage: "in_conversation",
+      lifecycleStageEnteredAt: { prospect: NOW, in_conversation: NOW },
       socialHandles: [{ type: "instagram", handle: "ana.lead" }],
       status: "active",
     });
     expect(await stageCount(harness, "prospect")).toBe(1);
     expect(await stageCount(harness, "qualified")).toBe(0);
     expect(await conversions(harness, prospect.firstCapturedByWorkerId)).toEqual({
-      prospect: 1, in_conversation: 0, qualified: 0, booked: 0,
+      prospect: 1, in_conversation: 1, qualified: 0, booked: 0,
     });
     const searchRow = await harness.t.run((ctx) => ctx.db.query("leadCustomerSearchRows").first());
     expect(searchRow).toMatchObject({ lifecycle: "prospect", isSearchVisible: false });

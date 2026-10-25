@@ -71,7 +71,7 @@ describe("person timeline", () => {
     expect(capture).toMatchObject({ label: "Captured by lead gen", detail: "instagram · follower" });
     expect(capture?.actorName).toBe("admin@example.com");
     const stage = entries.find((entry) => entry.eventType === "lead.lifecycle_stage_changed");
-    expect(stage).toMatchObject({ fromStatus: "Prospect", toStatus: "Qualified" });
+    expect(stage).toMatchObject({ fromStatus: "In conversation", toStatus: "Qualified" });
   });
 
   it("includes the events of a lead merged into the person", async () => {

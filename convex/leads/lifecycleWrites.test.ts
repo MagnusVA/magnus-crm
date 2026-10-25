@@ -288,7 +288,7 @@ describe("lifecycle write paths", () => {
     expect(reopened.lifecycleStageEnteredAt?.qualified).toBe(qualifiedAt);
   });
 
-  it("a lead gen capture before the qualification sets an earlier Prospect time", async () => {
+  it("a lead gen capture before the qualification sets earlier Prospect and In conversation times", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(NOW));
     const harness = await bookingHarness();
@@ -306,7 +306,7 @@ describe("lifecycle write paths", () => {
     expect(lead.lifecycleStage).toBe("qualified");
     expect(lead.lifecycleStageEnteredAt).toEqual({
       prospect: capturedAt,
-      in_conversation: NOW - 2_000,
+      in_conversation: capturedAt,
       qualified: NOW - 2_000,
     });
   });

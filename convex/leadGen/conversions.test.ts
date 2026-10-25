@@ -123,7 +123,9 @@ it("credits each worker's prospects, and only the stages reached after the captu
   expect(rows.capped).toBe(false);
   expect(rows.rows).toHaveLength(1);
   expect(rows.rows[0].counts).toEqual({
-    prospect: 3, in_conversation: 1, qualified: 1, booked: 0, showed: 0, customer: 0,
+    // A capture means in conversation (respark plan §4.1), except for the
+    // person already past it before the capture.
+    prospect: 3, in_conversation: 2, qualified: 1, booked: 0, showed: 0, customer: 0,
   });
   const outside = await listConversions(h, SEPTEMBER);
   expect(outside).toEqual({ rows: [], capped: false, dealsCapped: false });
@@ -189,7 +191,7 @@ it("counts each worker's deals from the lead gen rows whose capture falls in the
   const octoberRows = byWorker(october);
   expect(octoberRows.size).toBe(2);
   expect(octoberRows.get(firstWorker)).toMatchObject({
-    counts: { prospect: 2, in_conversation: 1, qualified: 1, booked: 0, showed: 0, customer: 0 },
+    counts: { prospect: 2, in_conversation: 2, qualified: 1, booked: 0, showed: 0, customer: 0 },
     deals: 1,
   });
   // The Slack-first person counts as the second worker's prospect, but
