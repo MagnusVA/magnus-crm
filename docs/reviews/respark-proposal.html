@@ -1,0 +1,991 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Respark: a second pass on everyone who stalled</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Overpass:wght@600;700;800;900&family=Public+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  color-scheme: light;
+  --paper: #edf0f3;
+  --surface: #fbfcfd;
+  --ink: #0e1621;
+  --ink-2: #465264;
+  --ink-3: #7b8594;
+  --rule: #d7dde4;
+  --rule-2: #bfc8d2;
+  --station: #ffffff;
+  --c-lead_gen: #eb6834;
+  --c-dm_portal: #6250d6;
+  --c-slack: #1baf7a;
+  --c-calendly: #2a78d6;
+  --c-side_deal: #eda100;
+  --good: #0ca30c;
+  --good-text: #006300;
+  --critical: #d03b3b;
+  --warning: #fab219;
+  --neutral: #8f99a6;
+  --open-1: #86b6ef;
+  --open-2: #5598e7;
+  --open-3: #2a78d6;
+  --open-4: #1c5cab;
+  --hatch: rgba(14, 22, 33, .28);
+  --display: "Overpass", "Arial Narrow", system-ui, sans-serif;
+  --body: "Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media screen and (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --paper: #0f1114;
+    --surface: #17191c;
+    --ink: #eef0f2;
+    --ink-2: #b9c0c8;
+    --ink-3: #848d99;
+    --rule: #2a2e33;
+    --rule-2: #3b4046;
+    --station: #17191c;
+    --c-lead_gen: #d95926;
+    --c-dm_portal: #9085e9;
+    --c-slack: #199e70;
+    --c-calendly: #3987e5;
+    --c-side_deal: #c98500;
+    --good-text: #0ca30c;
+    --neutral: #6f7884;
+    --open-1: #184f95;
+    --open-2: #1c5cab;
+    --open-3: #3987e5;
+    --open-4: #86b6ef;
+    --hatch: rgba(238, 240, 242, .3);
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  margin: 0;
+  background: var(--paper);
+  background-image: radial-gradient(var(--rule) 1px, transparent 1px);
+  background-size: 22px 22px;
+  color: var(--ink);
+  font: 400 17px/1.6 var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+a { color: inherit; }
+:focus-visible { outline: 3px solid var(--c-calendly); outline-offset: 3px; border-radius: 4px; }
+code, .mono { font-family: var(--mono); font-size: .84em; }
+code { background: color-mix(in srgb, var(--ink) 7%, transparent); padding: .08em .35em; border-radius: 4px; }
+
+/* ── Shell: the rail is the table of contents, drawn as one line ── */
+.shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); max-width: 1400px; margin: 0 auto; }
+.rail { position: sticky; top: 0; height: 100vh; padding: 48px 0 48px 36px; }
+.rail ol { list-style: none; margin: 0; padding: 0 0 0 0; position: relative; }
+.rail ol::before { content: ""; position: absolute; left: 8px; top: 10px; bottom: 10px; width: 4px; border-radius: 2px; background: var(--ink); }
+.rail li { position: relative; }
+.rail a { display: flex; align-items: center; gap: 14px; padding: 7px 0; text-decoration: none; font: 700 13px/1.2 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+.rail a .dot { flex: none; width: 20px; height: 20px; border-radius: 50%; background: var(--station); border: 4px solid var(--ink); position: relative; z-index: 1; transition: transform .2s; }
+.rail a:hover { color: var(--ink); }
+.rail a[aria-current="true"] { color: var(--ink); }
+.rail a[aria-current="true"] .dot { background: var(--ink); transform: scale(1.15); }
+.rail .rail-title { font: 900 15px/1.1 var(--display); letter-spacing: .02em; margin: 0 0 22px; color: var(--ink); text-transform: uppercase; }
+.rail .rail-title span { display: block; font: 500 12px/1.4 var(--mono); letter-spacing: 0; text-transform: none; color: var(--ink-3); margin-top: 6px; }
+
+main { padding: 40px 48px 120px 32px; min-width: 0; }
+section, header.hero { scroll-margin-top: 24px; }
+section { margin-top: 112px; }
+
+/* ── Type ── */
+.eyebrow { font: 700 12px/1 var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); margin: 0 0 16px; display: flex; gap: 14px; flex-wrap: wrap; }
+.eyebrow b { color: var(--ink); font-weight: 800; }
+h1 { font: 900 clamp(46px, 6.4vw, 92px)/.92 var(--display); letter-spacing: -.025em; margin: 0 0 26px; max-width: 13ch; }
+h2 { font: 900 clamp(32px, 3.6vw, 48px)/1 var(--display); letter-spacing: -.02em; margin: 0 0 18px; max-width: 22ch; }
+h3 { font: 800 21px/1.2 var(--display); letter-spacing: -.005em; margin: 40px 0 10px; }
+.lede { font-size: 21px; line-height: 1.5; color: var(--ink-2); max-width: 60ch; margin: 0 0 18px; }
+p { max-width: 70ch; margin: 0 0 14px; }
+.muted { color: var(--ink-3); }
+.kicker { font: 800 13px/1 var(--display); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); display: inline-flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.kicker::before { content: ""; width: 16px; height: 16px; border-radius: 50%; border: 4px solid var(--ink); background: var(--station); }
+.num { font-variant-numeric: tabular-nums; }
+
+.facts { display: flex; flex-wrap: wrap; gap: 6px 26px; margin: 26px 0 0; padding: 0; list-style: none; font-size: 15px; color: var(--ink-2); }
+.facts b { font: 800 22px/1 var(--display); color: var(--ink); margin-right: 6px; letter-spacing: -.01em; }
+
+/* ── Figures ── */
+figure { margin: 30px 0 0; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 22px 22px 18px; }
+figure .scroll { overflow-x: auto; }
+figure svg { display: block; width: 100%; height: auto; }
+figcaption { font-size: 14px; color: var(--ink-2); margin-top: 12px; max-width: 80ch; }
+figcaption b { color: var(--ink); }
+.fig-title { font: 800 15px/1.3 var(--display); margin: 0 0 4px; letter-spacing: .01em; }
+.fig-sub { font-size: 13.5px; color: var(--ink-3); margin: 0 0 14px; }
+.svg-label { font-family: var(--body); fill: var(--ink-2); }
+.svg-ink { fill: var(--ink); }
+.svg-display { font-family: var(--display); }
+.svg-mono { font-family: var(--mono); }
+
+details.numbers { margin-top: 14px; border-top: 1px solid var(--rule); padding-top: 10px; }
+details.numbers summary { cursor: pointer; font: 700 13px/1.4 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+details.numbers summary:hover { color: var(--ink); }
+table { border-collapse: collapse; font-size: 14px; margin-top: 10px; width: 100%; }
+th, td { text-align: left; padding: 7px 12px 7px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th { font: 700 12px/1.3 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); }
+td.r, th.r { text-align: right; font-variant-numeric: tabular-nums; }
+
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+.grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 28px; }
+
+/* ── Record cards ── */
+.record { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 18px 18px 14px; display: flex; flex-direction: column; }
+.record h4 { font: 900 22px/1 var(--display); margin: 0; letter-spacing: -.01em; }
+.record .tbl { font: 500 12px/1.4 var(--mono); color: var(--ink-3); margin: 6px 0 4px; }
+.record .what { font-size: 14px; color: var(--ink-2); margin: 0 0 14px; }
+.record .axis { font: 700 11px/1 var(--display); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); margin: 10px 0 8px; }
+.states { list-style: none; margin: 0; padding: 0; }
+.states li { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 14px; padding: 4px 0; }
+.states .bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: color-mix(in srgb, var(--ink) 8%, transparent); overflow: hidden; }
+.states .bar i { display: block; height: 100%; border-radius: 3px; background: var(--ink-2); min-width: 3px; }
+.states .n { font-variant-numeric: tabular-nums; color: var(--ink-2); font-size: 13px; }
+.record .rule-note { margin-top: auto; padding-top: 12px; font-size: 13px; color: var(--ink-3); border-top: 1px dashed var(--rule-2); }
+
+/* ── Channel matrix ── */
+.matrix td:first-child { white-space: nowrap; }
+.chip { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; }
+.chip i { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.pill { display: inline-block; font: 700 11.5px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; padding: 5px 8px 4px; border-radius: 999px; border: 1.5px solid var(--rule-2); color: var(--ink-2); white-space: nowrap; }
+
+/* ── Bars (HTML) ── */
+.hbars { list-style: none; padding: 0; margin: 6px 0 0; }
+.hbars li { display: grid; grid-template-columns: minmax(150px, 280px) 1fr 70px; gap: 12px; align-items: center; padding: 5px 0; font-size: 14px; }
+.hbars .track { height: 14px; display: flex; gap: 2px; }
+.hbars .track i { display: block; height: 100%; border-radius: 0 4px 4px 0; }
+.hbars .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13.5px; color: var(--ink-2); margin: 0 0 12px; padding: 0; list-style: none; }
+.legend li { display: inline-flex; align-items: center; gap: 7px; }
+.legend i { width: 14px; height: 10px; border-radius: 2px; display: inline-block; }
+
+.callout { border-left: 4px solid var(--ink); padding: 4px 0 4px 16px; margin: 22px 0; max-width: 72ch; color: var(--ink-2); }
+.callout b { color: var(--ink); }
+
+.steps { list-style: none; counter-reset: s; padding: 0; margin: 18px 0 0; max-width: 76ch; }
+.steps li { counter-increment: s; position: relative; padding: 0 0 18px 46px; }
+.steps li::before { content: counter(s); position: absolute; left: 0; top: -2px; width: 30px; height: 30px; border-radius: 50%; border: 3px solid var(--ink); display: grid; place-items: center; font: 800 14px/1 var(--display); background: var(--station); }
+.steps li::after { content: ""; position: absolute; left: 14px; top: 30px; bottom: 2px; width: 3px; background: var(--rule-2); }
+.steps li:last-child::after { display: none; }
+.steps time { font: 500 12.5px/1 var(--mono); color: var(--ink-3); display: block; margin-bottom: 3px; }
+
+footer { margin-top: 120px; padding-top: 22px; border-top: 3px solid var(--ink); font-size: 14px; color: var(--ink-2); }
+footer ul { padding-left: 18px; }
+
+/* ── Tooltip ── */
+#tip { position: fixed; z-index: 50; pointer-events: none; max-width: 300px; background: var(--ink); color: var(--paper); font: 500 13px/1.45 var(--body); padding: 9px 11px; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); opacity: 0; transform: translateY(4px); transition: opacity .12s, transform .12s; }
+#tip.on { opacity: 1; transform: none; }
+#tip b { font-weight: 700; }
+[data-tip] { cursor: default; }
+svg [data-tip]:hover, svg [data-tip]:focus { filter: brightness(1.06); }
+svg [data-tip]:focus { outline: none; }
+#sankey text { paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+
+/* ── Hero line drawing ── */
+.route-line { transition: none; }
+@media (prefers-reduced-motion: no-preference) {
+  .route-line.draw { stroke-dasharray: var(--len); stroke-dashoffset: var(--len); animation: draw 1.6s cubic-bezier(.6,.1,.2,1) forwards; animation-delay: var(--delay, 0s); }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+}
+
+@media screen and (max-width: 1080px) {
+  .grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media screen and (max-width: 900px) {
+  .shell { grid-template-columns: 1fr; }
+  .rail { position: sticky; top: 0; z-index: 10; height: auto; padding: 10px 16px; background: var(--paper); border-bottom: 1px solid var(--rule); overflow-x: auto; }
+  .rail .rail-title { display: none; }
+  .rail ol { display: flex; gap: 18px; }
+  .rail ol::before { left: 10px; right: 10px; top: 16px; bottom: auto; height: 4px; width: auto; }
+  .rail a { white-space: nowrap; font-size: 11px; }
+  main { padding: 28px 18px 80px; }
+  .grid-2 { grid-template-columns: 1fr; }
+  .hbars li { grid-template-columns: 130px 1fr 56px; }
+  figure .scroll > svg { min-width: 760px; }
+}
+@media screen and (max-width: 560px) { .grid-4 { grid-template-columns: 1fr; } }
+@media (forced-colors: active) { .rail ol::before { background: CanvasText; } }
+:root { --b1: #1baf7a; --b2: #eb6834; --b3: #2a78d6; --b4: #eda100; --b5: var(--neutral); }
+@media screen and (prefers-color-scheme: dark) { :root { --b1: #199e70; --b2: #d95926; --b3: #3987e5; --b4: #c98500; } }
+
+.quotes { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px; }
+.quotes li { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 14px 16px; }
+.quotes q { display: block; font-size: 16px; line-height: 1.5; quotes: '"' '"'; }
+.quotes .who { display: block; margin-top: 8px; font: 700 11.5px/1 var(--display); letter-spacing: .1em; text-transform: uppercase; color: var(--ink-3); }
+.quotes li.you { border-style: dashed; }
+.means { list-style: none; padding: 0; margin: 0; }
+.means li { position: relative; padding: 0 0 16px 30px; }
+.means li::before { content: ""; position: absolute; left: 4px; top: 7px; width: 12px; height: 12px; border-radius: 50%; border: 3px solid var(--ink); background: var(--station); }
+.means li::after { content: ""; position: absolute; left: 10px; top: 22px; bottom: 0; width: 2px; background: var(--rule-2); }
+.means li:last-child::after { display: none; }
+.means b { display: block; font: 800 16px/1.3 var(--display); margin-bottom: 2px; }
+
+.axes { display: grid; gap: 14px; margin-top: 26px; }
+.axis-row { display: grid; grid-template-columns: 210px 1fr; gap: 18px; align-items: center; background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 16px 18px; }
+.axis-row h4 { margin: 0; font: 900 19px/1.1 var(--display); }
+.axis-row .sub { font-size: 13px; color: var(--ink-3); margin-top: 4px; }
+.track { display: flex; align-items: center; flex-wrap: wrap; gap: 0; }
+.stop { display: inline-flex; align-items: center; gap: 8px; font: 700 13px/1 var(--display); letter-spacing: .04em; text-transform: uppercase; color: var(--ink-2); padding: 6px 0; }
+.stop i { width: 16px; height: 16px; border-radius: 50%; border: 3.5px solid var(--ink); background: var(--station); flex: none; }
+.stop.hot i { background: var(--ink); }
+.stop.warn i { border-color: #b07a00; background: var(--warning); }
+.stop.crit i { border-color: var(--critical); }
+.track .seg { width: 18px; height: 4px; background: var(--ink); margin: 0 7px; border-radius: 2px; }
+.stop.dim { color: var(--ink-3); } .stop.dim i { border-color: var(--rule-2); }
+.track .gap { width: 22px; }
+.axis-row .note { grid-column: 2; font-size: 13.5px; color: var(--ink-2); margin-top: 2px; }
+.tag { display: inline-block; font: 800 11px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; padding: 5px 8px 4px; border-radius: 999px; background: var(--ink); color: var(--surface); margin-left: 8px; vertical-align: 2px; }
+.tag.keep { background: transparent; color: var(--ink-3); border: 1.5px solid var(--rule-2); }
+
+.examples { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 22px; }
+.ex { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 16px; font-size: 14px; }
+.ex dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0 0 12px; }
+.ex dt { font: 700 11px/1.6 var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+.ex dd { margin: 0; }
+.ex .lands { border-top: 1px dashed var(--rule-2); padding-top: 10px; font-weight: 600; display: flex; gap: 8px; align-items: center; }
+.ex .lands i { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+
+.bucketlist { list-style: none; padding: 0; margin: 8px 0 0; counter-reset: b; }
+.bucketlist li { display: grid; grid-template-columns: 44px minmax(220px, 330px) 1fr 84px; gap: 14px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--rule); }
+.bucketlist .rank { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font: 900 15px/1 var(--display); color: #fff; }
+.bucketlist .rank.dark { color: #0b0b0b; }
+.bucketlist .name { font: 800 15.5px/1.25 var(--display); }
+.bucketlist .name small { display: block; font: 400 13px/1.4 var(--body); color: var(--ink-3); margin-top: 3px; }
+.bucketlist .name em { font-style: normal; font: 800 10.5px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); border: 1.5px solid var(--rule-2); border-radius: 999px; padding: 3px 6px 2px; margin-left: 6px; vertical-align: 1px; }
+.bucketlist .bar { height: 16px; border-radius: 0 4px 4px 0; min-width: 3px; }
+.bucketlist .v { text-align: right; font: 800 18px/1 var(--display); font-variant-numeric: tabular-nums; }
+.bucketlist li.out .v { color: var(--ink-3); font-weight: 700; font-size: 15px; }
+
+.agebar { display: flex; height: 34px; gap: 2px; margin: 10px 0 8px; }
+.agebar div { height: 100%; display: flex; align-items: center; padding: 0 10px; font: 700 12.5px/1 var(--display); color: #fff; white-space: nowrap; overflow: hidden; }
+.agebar div:first-child { border-radius: 6px 0 0 6px; } .agebar div:last-child { border-radius: 0 6px 6px 0; }
+
+/* ── Mockup ── */
+.mock { background: var(--paper); border: 1px solid var(--rule-2); border-radius: 16px; padding: 18px; }
+.mock-head { display: flex; justify-content: space-between; align-items: end; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.mock-head h4 { margin: 0; font: 900 22px/1 var(--display); }
+.mock-head .meta { font: 500 12.5px/1.4 var(--mono); color: var(--ink-3); }
+.progress { display: flex; gap: 3px; margin-top: 8px; }
+.progress span { width: 10px; height: 6px; border-radius: 2px; background: var(--rule-2); }
+.progress span.ok { background: var(--good); } .progress span.nf { background: var(--neutral); }
+.cards { display: grid; gap: 12px; }
+.pcard { background: var(--surface); border: 1px solid var(--rule); border-radius: 12px; padding: 14px 16px; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) auto; gap: 18px; align-items: start; }
+.pcard .handle { font: 900 18px/1.1 var(--display); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pcard .why { display: inline-flex; align-items: center; gap: 6px; font: 700 11.5px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-2); }
+.pcard .why i { width: 10px; height: 10px; border-radius: 3px; }
+.pcard .facts2 { font-size: 13.5px; color: var(--ink-2); margin-top: 8px; display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; }
+.pcard .facts2 dt { color: var(--ink-3); font: 700 11px/1.7 var(--display); letter-spacing: .06em; text-transform: uppercase; }
+.pcard .facts2 dd { margin: 0; }
+.pcard .tl { list-style: none; margin: 0; padding: 0 0 0 14px; border-left: 2px solid var(--rule-2); font-size: 13px; color: var(--ink-2); }
+.pcard .tl li { position: relative; padding: 0 0 7px; }
+.pcard .tl li::before { content: ""; position: absolute; left: -19px; top: 5px; width: 8px; height: 8px; border-radius: 50%; background: var(--ink-3); }
+.pcard .tl time { font: 500 11.5px/1 var(--mono); color: var(--ink-3); margin-right: 6px; }
+.pcard .acts { display: grid; gap: 7px; min-width: 150px; }
+.btn { font: 700 13.5px/1 var(--body); border-radius: 9px; padding: 10px 12px; border: 1.5px solid var(--rule-2); background: var(--surface); color: var(--ink); text-align: left; cursor: pointer; }
+.btn.primary { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+.btn.link { color: var(--c-calendly); }
+.btn small { display: block; font-weight: 500; font-size: 11.5px; color: inherit; opacity: .75; margin-top: 3px; }
+.sample-note { font: 500 12px/1.4 var(--mono); color: var(--ink-3); margin-top: 12px; }
+
+.writes td:first-child { white-space: nowrap; font-weight: 700; }
+.yes { color: var(--good-text); font-weight: 700; } .no { color: var(--ink-3); }
+
+.decisions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 24px; }
+.dec { background: var(--surface); border: 1px solid var(--rule); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; }
+.dec .q { font: 800 17px/1.3 var(--display); margin: 0 0 10px; }
+.dec .q span { display: inline-grid; place-items: center; width: 26px; height: 26px; border-radius: 50%; border: 3px solid var(--ink); font: 900 12px/1 var(--display); margin-right: 8px; vertical-align: 1px; }
+.dec ul { margin: 0 0 12px; padding-left: 18px; font-size: 14.5px; color: var(--ink-2); }
+.dec .rec { margin-top: auto; font-size: 14px; border-top: 1px dashed var(--rule-2); padding-top: 10px; }
+.dec .rec b { font: 800 11.5px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; margin-right: 6px; }
+
+/* ── Screen mockups ── */
+:root { --new: #6250d6; }
+@media screen and (prefers-color-scheme: dark) { :root { --new: #8f82f2; } }
+.shot { padding: 20px; }
+.shot .fig-sub { max-width: 80ch; }
+.frame { border: 1px solid var(--rule-2); border-radius: 12px; overflow: hidden; background: var(--surface); box-shadow: 0 1px 0 var(--rule), 0 14px 32px -22px rgba(14, 22, 33, .45); }
+.frame-bar { display: flex; align-items: center; gap: 6px; padding: 8px 12px; background: var(--paper); border-bottom: 1px solid var(--rule); font: 500 12px/1 var(--mono); color: var(--ink-3); }
+.frame-bar i { width: 9px; height: 9px; border-radius: 50%; background: var(--rule-2); }
+.frame-bar span { margin-left: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.app { display: grid; grid-template-columns: 172px minmax(0, 1fr); }
+.app-nav { border-right: 1px solid var(--rule); padding: 14px 10px; display: grid; align-content: start; gap: 2px; font: 600 13px/1 var(--body); color: var(--ink-2); }
+.app-nav .brand { font: 900 14px/1 var(--display); color: var(--ink); padding: 2px 9px 14px; letter-spacing: .02em; }
+.app-nav span { display: flex; align-items: center; gap: 8px; padding: 8px 9px; border-radius: 7px; }
+.app-nav span.on { background: var(--paper); color: var(--ink); font-weight: 700; }
+.app-nav kbd { margin-left: auto; font: 500 10.5px/1 var(--mono); color: var(--ink-3); }
+.app-main { padding: 18px 20px 20px; min-width: 0; }
+.app-main h5 { margin: 0; font: 650 21px/1.2 var(--body); letter-spacing: -.01em; }
+.app-main h6 { margin: 0; font: 650 15.5px/1.25 var(--body); }
+.muted { font-size: 13px; color: var(--ink-3); margin-top: 3px; }
+.newtag { display: inline-block; font: 800 9.5px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; color: #fff; background: var(--new); padding: 4px 5px 3px; border-radius: 4px; vertical-align: 1px; margin-left: 6px; }
+.is-new { outline: 2px dashed var(--new); outline-offset: 3px; border-radius: 8px; }
+.pin { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--new); color: #fff; font: 800 11px/1 var(--display); flex: none; vertical-align: 1px; }
+.callouts { list-style: none; margin: 16px 0 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 26px; font-size: 14px; color: var(--ink-2); }
+.callouts li { display: flex; gap: 10px; align-items: start; }
+.callouts b { color: var(--ink); }
+.metrics { display: grid; grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr)); gap: 10px; margin: 14px 0; }
+.metric { border: 1px solid var(--rule); border-radius: 10px; padding: 10px 12px; }
+.metric small { display: block; font: 600 12px/1 var(--body); color: var(--ink-3); }
+.metric b { display: block; font: 700 22px/1.1 var(--body); margin-top: 7px; font-variant-numeric: tabular-nums; }
+.field { display: grid; gap: 6px; margin: 14px 0 0; }
+.field > label { font: 600 13px/1 var(--body); }
+.input { border: 1px solid var(--rule-2); border-radius: 8px; padding: 9px 11px; font: 400 14px/1.1 var(--body); color: var(--ink); background: var(--surface); display: flex; align-items: center; gap: 8px; }
+.input.ph { color: var(--ink-3); }
+.input.num { width: 78px; font-variant-numeric: tabular-nums; }
+.inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.hint { font-size: 12.5px; color: var(--ink-3); }
+.toasts { display: grid; gap: 10px; align-content: start; }
+.toast { display: flex; gap: 10px; align-items: start; border: 1px solid var(--rule-2); border-radius: 10px; padding: 11px 13px; background: var(--surface); box-shadow: 0 10px 22px -16px rgba(14, 22, 33, .55); font-size: 13.5px; color: var(--ink-2); }
+.toast b { display: block; font-weight: 700; color: var(--ink); margin-bottom: 2px; }
+.toast .ic { width: 16px; height: 16px; border-radius: 50%; flex: none; margin-top: 2px; }
+.toast .undo { margin-left: auto; font-weight: 700; color: var(--c-calendly); white-space: nowrap; }
+.badges { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.badge { display: inline-flex; align-items: center; gap: 6px; font: 600 12px/1 var(--body); border: 1px solid var(--rule-2); border-radius: 999px; padding: 5px 9px; color: var(--ink-2); background: var(--surface); white-space: nowrap; }
+.badge.solid { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.badge.warn { border-color: #d9a400; background: color-mix(in srgb, var(--warning) 22%, var(--surface)); color: var(--ink); }
+.badge.nf { border-style: dashed; }
+.badge i { width: 8px; height: 8px; border-radius: 50%; }
+.tabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: 9px; background: var(--paper); font: 600 13px/1 var(--body); color: var(--ink-3); }
+.tabs span { padding: 7px 11px; border-radius: 7px; white-space: nowrap; }
+.tabs span.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .1); }
+.mcard { border: 1px solid var(--rule); border-radius: 12px; padding: 16px 18px; margin-top: 14px; background: var(--surface); }
+.mcard .muted { margin-bottom: 2px; }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 12px 0 0; font-size: 13px; }
+.kv dt { font: 600 10.5px/1.7 var(--body); letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); }
+.kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.btnrow { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.sbtn { font: 600 13px/1 var(--body); border: 1px solid var(--rule-2); border-radius: 8px; padding: 9px 12px; background: var(--surface); color: var(--ink); white-space: nowrap; }
+.sbtn.primary { background: var(--ink); border-color: var(--ink); color: var(--surface); }
+.split { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.mtable { margin-top: 12px; font-size: 13px; }
+.mtable th { font: 600 11.5px/1.3 var(--body); letter-spacing: .02em; text-transform: none; }
+.mtable td, .mtable th { padding: 8px 12px 8px 0; }
+.mtable .who { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.mtable .who i { width: 22px; height: 22px; border-radius: 50%; background: var(--rule-2); flex: none; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font: 600 12.5px/1 var(--body); border: 1px dashed var(--rule-2); border-radius: 8px; padding: 7px 10px; color: var(--ink-2); }
+.flowsteps { display: grid; gap: 0; }
+.fstep { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 16px; position: relative; padding-bottom: 30px; }
+.fstep::after { content: ""; position: absolute; left: 15px; top: 34px; bottom: 6px; width: 3px; background: var(--rule-2); }
+.fstep:last-child { padding-bottom: 0; } .fstep:last-child::after { display: none; }
+.fstep > .n { width: 34px; height: 34px; border-radius: 50%; border: 4px solid var(--ink); background: var(--station); display: grid; place-items: center; font: 900 14px/1 var(--display); }
+.fstep > div > .fig-title { margin-top: 6px; }
+.poolpick { list-style: none; margin: 12px 0 0; padding: 0; display: grid; gap: 6px; }
+.poolpick li { cursor: default;  display: grid; grid-template-columns: 12px 1fr auto; gap: 10px; align-items: center; font-size: 13.5px; padding: 8px 10px; border: 1px solid var(--rule); border-radius: 8px; }
+.poolpick li i { width: 12px; height: 12px; border-radius: 3px; }
+.poolpick li b { font-variant-numeric: tabular-nums; }
+.poolpick li.dim { color: var(--ink-3); }
+.drawer { border-left: 1px solid var(--rule); padding: 16px 18px; background: var(--surface); }
+.drawer-wrap { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
+.ghostlist { padding: 16px 18px; display: grid; gap: 10px; align-content: start; opacity: .55; }
+.ghost { border: 1px solid var(--rule); border-radius: 10px; padding: 12px; font-size: 13px; }
+.ghost.sel { opacity: 1; border: 2px solid var(--ink); }
+.ghost b { display: block; font: 800 14px/1.2 var(--display); margin-bottom: 4px; }
+.dsec { border-top: 1px solid var(--rule); padding-top: 12px; margin-top: 12px; }
+.dsec h6 { font: 600 10.5px/1 var(--body) !important; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 8px !important; }
+.dlist { list-style: none; margin: 0; padding: 0; font-size: 13px; display: grid; gap: 6px; }
+.dlist li { display: flex; justify-content: space-between; gap: 12px; }
+.dlist li span:last-child { color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.done { text-align: center; padding: 26px 20px 22px; }
+.done .big { font: 900 44px/1 var(--display); font-variant-numeric: tabular-nums; }
+.done .metrics { max-width: 520px; margin: 18px auto; text-align: left; }
+.pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+@media screen and (max-width: 900px) {
+  .app { grid-template-columns: 1fr; } .app-nav { display: none; }
+  .split, .pair, .drawer-wrap, .callouts { grid-template-columns: 1fr; }
+  .ghostlist { display: none; } .drawer { border-left: 0; }
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media screen and (max-width: 900px) {
+  .axis-row { grid-template-columns: 1fr; } .axis-row .note { grid-column: 1; }
+  .examples, .decisions { grid-template-columns: 1fr; }
+  .bucketlist li { grid-template-columns: 40px 1fr 70px; } .bucketlist .bar { grid-column: 2 / 4; }
+  .pcard { grid-template-columns: 1fr; }
+}
+
+/* ── Print and PDF: A4, light colors, the desktop layout scaled to the page ── */
+@page { size: A4; margin: 14mm 12mm 16mm; }
+@media print {
+  html { scroll-behavior: auto; }
+  body { background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .shell { display: block; max-width: none; }
+  .rail, #tip { display: none !important; }
+  main { padding: 0; zoom: .76; }
+  section { margin-top: 0; padding-top: 4px; break-before: page; }
+  h1 { font-size: 80px; }
+  h2 { font-size: 46px; }
+  .route-line.draw { animation: none !important; stroke-dasharray: none !important; stroke-dashoffset: 0 !important; }
+  figure .scroll { overflow: visible; }
+  figure .scroll > svg { min-width: 0; width: 100%; }
+  figure, .frame, .fstep, .dec, .axis-row, .ex, .quotes li, .means li, .steps li, .bucketlist li, tr, .mcard, .callouts li, .toast, .pcard, .agebar { break-inside: avoid; }
+  h2, h3, .kicker, .fig-title, .fig-sub { break-after: avoid; }
+  .frame, .toast { box-shadow: none; }
+  a { text-decoration: none; }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="rail" aria-label="Sections">
+    <p class="rail-title">Respark proposal<span>Draft for decision · 24 Oct 2026</span></p>
+    <ol>
+      <li><a href="#top"><span class="dot"></span>The idea</a></li>
+      <li><a href="#ask"><span class="dot"></span>The ask</a></li>
+      <li><a href="#states"><span class="dot"></span>Three states</a></li>
+      <li><a href="#capture"><span class="dot"></span>Capture</a></li>
+      <li><a href="#pool"><span class="dot"></span>The pool</a></li>
+      <li><a href="#screen"><span class="dot"></span>The screen</a></li>
+      <li><a href="#writes"><span class="dot"></span>What it writes</a></li>
+      <li><a href="#reports"><span class="dot"></span>Reports</a></li>
+      <li><a href="#decisions"><span class="dot"></span>Decisions</a></li>
+      <li><a href="#ship"><span class="dot"></span>Shipping</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <header class="hero" id="top">
+      <p class="eyebrow"><b>Magnus CRM</b><span>Proposal, not built</span><span>Production counts, 24 October 2026</span></p>
+      <h1>Respark: a second pass on everyone who stalled</h1>
+      <p class="lede">Lead gen captures thousands of people a week, and most of them stall before they book. Respark hands each lead generator a batch of those people in a fixed order. For each one, they look at what the CRM knows and decide whether to try again or mark them not a fit.</p>
+      <ul class="facts">
+        <li><b class="num">57,013</b>people in the pool today</li>
+        <li><b class="num">4</b>buckets, plus not a fit</li>
+        <li><b class="num">40–50</b>per batch</li>
+        <li><b class="num">90</b>days to inactive, a setting</li>
+      </ul>
+      <figure>
+        <p class="fig-title">Where people stall, and the loop that brings them back</p>
+        <p class="fig-sub">The main line is the lifecycle. Each branch drops the people who stalled at that point into the respark pool. Branch width follows the count on a square-root scale. A respark sends a person back into conversation. Not a fit parks them in the pool's last bay.</p>
+        <div class="scroll"><svg id="yard" viewBox="0 0 1100 470" role="img" aria-label="Diagram of the lifecycle line, the branches into the respark pool, and the respark loop back."></svg></div>
+        <figcaption>Each person sits in one bucket, the highest-priority one they match. The numbers on the pool's bays are that priority.</figcaption>
+      </figure>
+    </header>
+
+    <section id="ask">
+      <p class="kicker">The ask</p>
+      <h2>What operations asked for</h2>
+      <p class="lede">From a conversation with the operations lead on 23 October, translated from Spanish. One quote is yours.</p>
+      <div class="grid-2" style="margin-top:22px">
+        <ul class="quotes">
+          <li><q>In the CRM where they upload their leads, a list of 40–50 leads that weren't booked but were qualified, shown to each lead generator by time of day. For the night shift, the leads from Europe.</q><span class="who">Operations lead</span></li>
+          <li class="you"><q>Lead gen's job is volume. The opener's job is quality.</q><span class="who">You</span></li>
+          <li><q>Imagine doing that with 3,000 leads a week. I need them focused on the conversations more than filling in data.</q><span class="who">Operations lead, on openers marking no fit</span></li>
+          <li><q>We give them the list of 40. Thirty are good: they mark them resparked, and in the backend they count as an entry. Ten are bad: they mark them no fit, and those don't count as an entry.</q><span class="who">Operations lead</span></li>
+          <li><q>In theory, in conversation is automatic until a resparker marks it no fit.</q><span class="who">Operations lead</span></li>
+          <li><q>Closers have a third of the conversations openers handle. Lead generators don't leave notes either: they have 66% more volume than openers.</q><span class="who">Operations lead</span></li>
+        </ul>
+        <ul class="means">
+          <li><b>Notes stay, but don't set the stage</b>Openers keep writing notes. Whether a note exists no longer decides if someone is in conversation; the capture does. Lead generators aren't asked for notes, and the Slack form idea is dropped.</li>
+          <li><b>In conversation from the first touch</b>A capture puts the person in conversation, whether they're new or already known.</li>
+          <li><b>The lead generator decides not a fit</b>During a respark, after looking at the chat, not during the first conversation.</li>
+          <li><b>A respark counts as an entry</b>Toward the lead generator's volume, like a capture. Not a fit doesn't count.</li>
+          <li><b>Batches by shift</b>The night shift gets people in Europe. The CRM doesn't know where most people are yet (decision 3).</li>
+          <li><b>Not a fit isn't the end</b>Those people stay in the pool, last in line, because they may be a fit later.</li>
+        </ul>
+      </div>
+    </section>
+
+    <section id="states">
+      <p class="kicker">The model</p>
+      <h2>Three states, each in its own place</h2>
+      <p class="lede">"In conversation", "not a fit" and "inactive" sound like one status, but they answer three different questions. Kept apart, a person who had a call months ago can come back into conversation, and the CRM still knows they once showed.</p>
+      <div class="axes">
+        <div class="axis-row">
+          <div><h4>Lifecycle stage <span class="tag keep">exists</span></h4><div class="sub">How far has this person ever got?</div></div>
+          <div class="track"><span class="stop dim"><i></i>Prospect</span><span class="seg"></span><span class="stop hot"><i></i>In conversation</span><span class="seg"></span><span class="stop"><i></i>Qualified</span><span class="seg"></span><span class="stop"><i></i>Booked</span><span class="seg"></span><span class="stop"><i></i>Showed</span><span class="seg"></span><span class="stop"><i></i>Customer</span></div>
+          <div class="note">Moves forward only. A capture now enters at In conversation, so nobody new lands at Prospect.</div>
+        </div>
+        <div class="axis-row">
+          <div><h4>Disposition <span class="tag keep">exists</span></h4><div class="sub">Should the team keep working them?</div></div>
+          <div class="track"><span class="stop hot"><i></i>Open</span><span class="gap"></span><span class="stop crit"><i></i>Not a fit</span><span class="gap"></span><span class="stop"><i></i>Unresponsive</span><span class="gap"></span><span class="stop"><i></i>Nurture</span><span class="gap"></span><span class="stop"><i></i>Do not contact</span></div>
+          <div class="note">Today 87,815 people are open and 4,291 unresponsive. An expired Slack deal sets unresponsive. New: lead generators can set not a fit from a respark.</div>
+        </div>
+        <div class="axis-row">
+          <div><h4>Activity <span class="tag">new rule</span></h4><div class="sub">Has anyone touched them lately?</div></div>
+          <div class="track"><span class="stop hot"><i></i>Active</span><span class="seg"></span><span class="stop warn"><i></i>Inactive after 90 days</span></div>
+          <div class="note">The CRM works it out from the last touch, the way it does "Not recorded" for meetings. Nothing is stored. The 90 days is a tenant setting.</div>
+        </div>
+      </div>
+      <h3>Three people, three answers</h3>
+      <div class="examples">
+        <div class="ex"><dl><dt>Stage</dt><dd>In conversation</dd><dt>Disposition</dt><dd>Open</dd><dt>Last touch</dt><dd>41 days ago, a capture</dd></dl><div class="lands"><i style="background:var(--b2)"></i>Bucket 2: never qualified</div></div>
+        <div class="ex"><dl><dt>Stage</dt><dd>Showed</dd><dt>Disposition</dt><dd>Open</dd><dt>Last touch</dt><dd>126 days ago, a lost deal</dd></dl><div class="lands"><i style="background:var(--b3)"></i>Bucket 3: inactive, which ranks above "had a call"</div></div>
+        <div class="ex"><dl><dt>Stage</dt><dd>Qualified</dd><dt>Disposition</dt><dd>Not a fit</dd><dt>Last touch</dt><dd>12 days ago, a respark</dd></dl><div class="lands"><i style="background:var(--b5)"></i>Bucket 5: not a fit, last in line</div></div>
+      </div>
+      <p class="sample-note">Sample people, not records.</p>
+      <h3>Where the three states show up</h3>
+      <figure class="shot">
+        <p class="fig-title">Person page: the Lifecycle card, before and after a respark</p>
+        <p class="fig-sub">The card already shows the stage badge, the disposition badge, the date each stage was reached, and the two admin buttons. Purple dashes mark what's new.</p>
+        <div class="pair">
+          <div class="frame"><div class="frame-bar"><i></i><i></i><i></i><span>/workspace/leads-customers/… · today</span></div>
+            <div class="app-main">
+              <h6>Lifecycle</h6>
+              <div class="badges" style="margin-top:10px"><span class="badge solid">Showed</span><span class="badge">Open</span><span class="badge warn is-new"><i style="background:#b07a00"></i>Inactive · 127 days</span><span class="pin">1</span></div>
+              <dl class="kv"><dt>Prospect</dt><dd>2 Mar</dd><dt>In conversation</dt><dd>2 Mar <span class="pin">2</span></dd><dt>Qualified</dt><dd>9 Mar</dd><dt>Booked</dt><dd>11 Mar</dd><dt>Showed</dt><dd>18 Mar</dd><dt>Last touch</dt><dd><span class="is-new">19 Jun · deal lost</span> <span class="pin">3</span></dd></dl>
+              <div class="btnrow"><span class="sbtn">Move stage back</span><span class="sbtn">Set disposition</span></div>
+            </div>
+          </div>
+          <div class="frame"><div class="frame-bar"><i></i><i></i><i></i><span>/workspace/leads-customers/… · after a not a fit</span></div>
+            <div class="app-main">
+              <h6>Lifecycle</h6>
+              <div class="badges" style="margin-top:10px"><span class="badge solid">Showed</span><span class="badge nf is-new">Not a fit</span><span class="pin">4</span></div>
+              <div class="toast" style="margin-top:12px;max-width:330px"><div><b>Set in a respark</b>By a lead generator, 24 Oct. Reopens if they qualify, book or are resparked again.</div></div>
+              <dl class="kv"><dt>Showed</dt><dd>18 Mar</dd><dt>Last touch</dt><dd>24 Oct · marked not a fit</dd></dl>
+              <div class="btnrow"><span class="sbtn">Move stage back</span><span class="sbtn">Set disposition</span></div>
+            </div>
+          </div>
+        </div>
+        <ol class="callouts">
+          <li><span class="pin">1</span><span><b>The activity badge</b> is worked out from the last touch and the tenant's setting each time the page loads. Nothing stores it, and it disappears once the person is active.</span></li>
+          <li><span class="pin">2</span><span><b>In conversation</b> gets the capture time in the backfill. Prospect keeps its date (decision 7).</span></li>
+          <li><span class="pin">3</span><span><b>Last touch</b> is the newest touch of any kind: a capture, a qualification, a booking, a meeting result, a deal closing or a respark.</span></li>
+          <li><span class="pin">4</span><span><b>A third disposition source,</b> respark, beside system and admin. The tooltip can then say who set it and where, and reports can tell a lead generator's call from an admin's.</span></li>
+        </ol>
+        <figcaption>There's no inactive filter or tab anywhere. Inactive people are reached only through respark, in the pool's order. The rule isn't called "stale" because stale is already a deal loss reason (an expired Slack qualification).</figcaption>
+      </figure>
+    </section>
+
+    <section id="capture">
+      <p class="kicker">Lifecycle change</p>
+      <h2>A capture means in conversation</h2>
+      <p class="lede">Lead gen messages the person when it captures them, so the first touch is already a conversation. A capture, new person or not, moves them to In conversation if they're behind it, and counts as a touch either way.</p>
+      <figure>
+        <div class="scroll"><svg id="beforeafter" viewBox="0 0 1100 250" role="img" aria-label="Before and after: where a capture puts a person."></svg></div>
+        <figcaption>A one-time backfill moves the <b>81,091</b> people at Prospect to In conversation, entered at their capture time. Someone already further along, say at Booked, stays there. The lifecycle never moves back, so a re-capture only adds a touch. Openers still write notes in the DM portal. A note just stops being what moves someone into conversation. This changes ADR 0001 and the Prospect definition in <code>CONTEXT.md</code>.</figcaption>
+      </figure>
+      <figure class="shot">
+        <p class="fig-title">Capture Prospect: the confirmation says where the person stands</p>
+        <p class="fig-sub">The form doesn't change. Today the confirmation is "New prospect captured" or "Duplicate prospect attempt captured"; it would add what the CRM knows, so a lead generator sees that a re-capture still counted.</p>
+        <div class="split">
+          <div class="frame"><div class="frame-bar"><i></i><i></i><i></i><span>/workspace/lead-gen/capture</span></div>
+            <div class="app"><nav class="app-nav" aria-hidden="true"><div class="brand">MAGNUS</div><span class="on">Capture<kbd>1</kbd></span><span class="">My Activity<kbd>2</kbd></span><span class="is-new">Respark<kbd>3</kbd></span></nav>
+              <div class="app-main">
+                <h5>Capture Prospect</h5><div class="muted">High-volume social prospect capture for active lead-gen sessions.</div>
+                <div class="metrics"><div class="metric"><small>Today</small><b>212</b></div><div class="metric"><small>Unique</small><b>187</b></div><div class="metric"><small>Dupes</small><b>25</b></div></div>
+                <div class="field"><label>Source</label><div><span class="tabs"><span class="on">Instagram</span><span>Meta Business</span></span></div></div>
+                <div class="field"><label>Profile URL</label><div class="input ph">instagram.com/…</div></div>
+                <div class="btnrow"><span class="sbtn primary">Capture</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="toasts">
+            <p class="hint" style="margin:0">Four confirmations, by what the CRM already knew</p>
+            <div class="toast"><i class="ic" style="background:var(--good)"></i><div><b>New prospect captured</b>In conversation from now.</div></div>
+            <div class="toast is-new"><i class="ic" style="background:var(--good)"></i><div><b>Already in the CRM · in conversation</b>Inactive for 127 days; this capture makes them active again. Counts as a dupe.</div></div>
+            <div class="toast is-new"><i class="ic" style="background:var(--c-calendly)"></i><div><b>Already in the CRM · booked</b>Call on 28 Oct with a closer. Stays Booked; the touch is on their timeline.</div></div>
+            <div class="toast is-new"><i class="ic" style="background:var(--neutral)"></i><div><b>Already in the CRM · not a fit</b>Marked in a respark on 12 Oct. The capture is recorded; see decision 5 for whether it reopens them.</div></div>
+          </div>
+        </div>
+        <figcaption>The fourth case raises a question. Decision 5 says qualifying, booking or a respark reopens not a fit, and says nothing about a new capture. The <b>Respark</b> item in the side menu is the new screen below.</figcaption>
+      </figure>
+    </section>
+
+    <section id="pool">
+      <p class="kicker">The pool</p>
+      <h2>Who's in the pool, in priority order</h2>
+      <p class="lede">The pool is a query, not a list anyone maintains. It's worked out when a lead generator asks for a batch, from each person's stage, disposition, deals and last touch. Each person counts once, in the first bucket they match.</p>
+      <figure>
+        <p class="fig-title">People per bucket, production today</p>
+        <p class="fig-sub">Bucket 1 is the operations lead's list, added in front of your four. Bars share one scale.</p>
+        <ol class="bucketlist" id="buckets"></ol>
+        <figcaption>Bucket 2 alone fills about 1,100 batches of 45, so the pool won't run dry. What matters is the order inside a bucket (decision 1). People on an open Booked deal are left to the closers, including the many whose past call is still Not recorded.</figcaption>
+      </figure>
+      <figure>
+        <p class="fig-title">How long since anyone touched each person</p>
+        <p class="fig-sub">All 92,133 people with a touch, by the time since their last touch</p>
+        <div class="agebar" id="agebar"></div>
+        <figcaption>At the default 90 days, <b>25,038</b> people are inactive today; most are never-qualified captures, so bucket 2 claims them first.</figcaption>
+      </figure>
+      <figure class="shot">
+        <p class="fig-title">Settings: a Respark tab beside Business day</p>
+        <p class="fig-sub">Admins only. Both values are per tenant, like the business day.</p>
+        <div class="frame"><div class="frame-bar"><i></i><i></i><i></i><span>/workspace/settings</span></div>
+          <div class="app-main">
+            <h5>Settings</h5>
+            <div style="margin-top:14px" class="tabs"><span>Event Types</span><span>Programs</span><span>Integrations</span><span>Business day</span><span class="on is-new">Respark</span></div>
+            <div class="pair">
+              <div class="mcard">
+                <h6>Inactive people</h6><div class="muted">With no touch for this long, a person shows as inactive and can enter respark bucket 3.</div>
+                <div class="field"><label>Inactive after</label><div class="inline"><div class="input num">90</div><span class="hint">days without a touch</span></div></div>
+                <p class="hint" style="margin:12px 0 0"><span class="pin">1</span> At 90 days, <b>25,038</b> people are inactive today.</p>
+              </div>
+              <div class="mcard">
+                <h6>Batches</h6><div class="muted">What a lead generator gets when they ask for a batch.</div>
+                <div class="field"><label>Batch size</label><div class="inline"><div class="input num">45</div><span class="hint">people</span></div></div>
+                <div class="field"><label>Held until</label><div class="input" style="max-width:340px">End of the business day (01:00, Tegucigalpa) ▾</div></div>
+                <p class="hint" style="margin:12px 0 0"><span class="pin">2</span> When the hold ends, unworked people go back to the pool.</p>
+              </div>
+            </div>
+            <div class="btnrow"><span class="sbtn primary">Save</span></div>
+          </div>
+        </div>
+        <ol class="callouts">
+          <li><span class="pin">1</span><span><b>A live count</b> from the same query the pool uses, so an admin sees what a change would do before saving. Saving rewrites nothing, because the CRM applies the rule at the next read.</span></li>
+          <li><span class="pin">2</span><span><b>Batch size and hold</b> follow decision 4. They could sit in Lead Gen Settings → Rules instead; inactive days belong here because the person page uses them too.</span></li>
+        </ol>
+      </figure>
+    </section>
+
+    <section id="screen">
+      <p class="kicker">The respark screen</p>
+      <h2>One batch, one card per person</h2>
+      <p class="lede">It lives in the lead gen portal, beside capture. A lead generator asks for a batch and gets the top 40–50 people from the pool, held for them so no one else gets the same people. Each card has what's needed to decide in a few seconds, and the profile is one click away.</p>
+      <div class="flowsteps">
+        <div class="fstep"><span class="n">1</span><div>
+          <p class="fig-title">Ask for a batch</p>
+          <p class="fig-sub">There's no filter and no bucket picker. The batch follows the pool's order. If the lead generator already holds an unfinished batch, it opens that one instead.</p>
+          <div class="frame"><div class="frame-bar"><i></i><i></i><i></i><span>/workspace/lead-gen/respark</span></div>
+            <div class="app"><nav class="app-nav" aria-hidden="true"><div class="brand">MAGNUS</div><span class="">Capture<kbd>1</kbd></span><span class="">My Activity<kbd>2</kbd></span><span class="on is-new">Respark<kbd>3</kbd></span></nav>
+              <div class="app-main">
+                <h5>Respark</h5><div class="muted">A second pass on people who stalled. Your batch comes from the top of the pool.</div>
+                <div class="mcard">
+                  <div class="inline" style="justify-content:space-between"><div><h6>Your next batch</h6><div class="muted">45 people, held for you until 01:00, the end of the business day</div></div><span class="sbtn primary">Get my batch</span></div>
+                  <p class="hint" style="margin:14px 0 0">Your batch fills in this order</p>
+                  <ol class="poolpick">
+                    <li><i style="background:var(--b1)"></i><span>1 · Qualified, never booked</span><b>4,299</b></li>
+                    <li><i style="background:var(--b2)"></i><span>2 · Never qualified</span><b>50,291</b></li>
+                    <li><i style="background:var(--b3)"></i><span>3 · Inactive</span><b>1,133</b></li>
+                    <li><i style="background:var(--b4)"></i><span>4 · Had a call, deal lost</span><b>1,290</b></li>
+                    <li class="dim"><i style="background:var(--b5)"></i><span>5 · Not a fit</span><b>0</b></li>
+                  </ol>
+                  <p class="hint" style="margin:10px 0 0">Today: 1 batch done · 38 entries · 7 not a fit</p>
+                </div>
+              </div>
+            </div>
+          </div>
+          <figcaption>A batch fills from bucket 1 down, so today every batch would come from bucket 1: about 95 batches of 45 before bucket 2 starts. The counts are the whole tenant's pool, the same numbers as above.</figcaption>
+        </div></div>
+        <div class="fstep"><span class="n">2</span><div>
+          <p class="fig-title">Work the batch</p>
+          <p class="fig-sub">One card per person, in pool order, with a reason badge and the last few touches. At 40–50 people a shift, it should work from the keyboard.</p>
+          <div class="mock" aria-label="Mockup of the respark screen">
+        <div class="mock-head">
+          <div><h4>Your respark batch</h4><div class="meta">Night shift · 45 people · held for you until 01:00</div>
+            <div class="progress" id="progress"></div></div>
+          <div class="meta">31 resparked · 6 not a fit · 8 to go<br>Keys: O open · R resparked · N not a fit · S skip</div>
+        </div>
+        <div class="cards">
+          <article class="pcard">
+            <div>
+              <div class="handle">@sample.coach.one <span class="why"><i style="background:var(--b1)"></i>Qualified, never booked</span></div>
+              <dl class="facts2"><dt>Stage</dt><dd>Qualified</dd><dt>Captured</dt><dd>14 Jul, from a reel, by a lead generator</dd><dt>Qualified</dt><dd>2 Aug in Slack, by an opener</dd><dt>Deal</dt><dd>Lost: Slack qualification expired, 2 Sep</dd></dl>
+            </div>
+            <ul class="tl"><li><time>2 Sep</time>Deal expired with no booking</li><li><time>2 Aug</time>Qualified in Slack</li><li><time>14 Jul</time>Captured from Instagram</li></ul>
+            <div class="acts"><button class="btn link" type="button">Open Instagram ↗</button><button class="btn primary" type="button">Resparked<small>Counts as an entry</small></button><button class="btn" type="button">Not a fit<small>Stays in the pool, last</small></button><button class="btn" type="button">Skip</button></div>
+          </article>
+          <article class="pcard">
+            <div>
+              <div class="handle">@sample.mentor.two <span class="why"><i style="background:var(--b4)"></i>Had a call, deal lost</span></div>
+              <dl class="facts2"><dt>Stage</dt><dd>Booked</dd><dt>Last call</dt><dd>12 Sep, no-show</dd><dt>Deal</dt><dd>Lost: no-show, 12 Sep</dd><dt>Time zone</dt><dd>Europe/Madrid, from the booking</dd></dl>
+            </div>
+            <ul class="tl"><li><time>12 Sep</time>No-show</li><li><time>8 Sep</time>Booked a call</li><li><time>1 Sep</time>Qualified in Slack</li></ul>
+            <div class="acts"><button class="btn link" type="button">Open Instagram ↗</button><button class="btn primary" type="button">Resparked<small>Counts as an entry</small></button><button class="btn" type="button">Not a fit<small>Stays in the pool, last</small></button><button class="btn" type="button">Skip</button></div>
+          </article>
+        </div>
+        <p class="sample-note">Mockup with sample handles, mixed buckets to show the reason badges; today's batches would all be bucket 1. The real cards read from the person's record and timeline.</p>
+      </div>
+        </div></div>
+        <div class="fstep"><span class="n">3</span><div>
+          <p class="fig-title">Look closer without leaving the batch</p>
+          <p class="fig-sub">Clicking a handle opens a side panel with everything the CRM has on the person. It's read-only. The three buttons are still the only things a lead generator can do.</p>
+          <div class="frame"><div class="frame-bar"><i></i><i></i><i></i><span>/workspace/lead-gen/respark · @sample.mentor.two</span></div>
+            <div class="drawer-wrap">
+              <div class="ghostlist" aria-hidden="true">
+                <div class="ghost"><b>@sample.coach.one</b>Qualified, never booked</div>
+                <div class="ghost"><b>@sample.studio.four</b>Qualified, never booked</div>
+                <div class="ghost"><b>@sample.founder.three</b>Never qualified</div>
+                <div class="ghost sel"><b>@sample.mentor.two</b>Had a call, deal lost</div>
+              </div>
+              <div class="drawer">
+                <div class="inline" style="justify-content:space-between"><h6 style="font:900 19px/1.1 var(--display)">@sample.mentor.two <span class="pin">1</span></h6><span class="sbtn" style="color:var(--c-calendly)">Open Instagram ↗</span></div>
+                <div class="badges" style="margin-top:10px"><span class="badge solid">Booked</span><span class="badge">Open</span><span class="badge"><i style="background:var(--b4)"></i>Had a call, deal lost</span></div>
+                <div class="dsec"><h6>Identity <span class="pin" style="width:16px;height:16px;font-size:9.5px;letter-spacing:0">2</span></h6><ul class="dlist"><li><span>Instagram</span><span>@sample.mentor.two</span></li><li><span>Phone</span><span>+34 ••• ••• •12</span></li><li><span>Email</span><span>s•••@example.com</span></li><li><span>Time zone</span><span>Europe/Madrid, from the booking</span></li></ul></div>
+                <div class="dsec"><h6>Every touch</h6><ul class="dlist"><li><span>No-show, marked by the closer</span><span>12 Sep</span></li><li><span>Booked a call in Calendly</span><span>8 Sep</span></li><li><span>Qualified in Slack by an opener</span><span>1 Sep</span></li><li><span>Captured from a story poll</span><span>20 Aug</span></li></ul></div>
+                <div class="dsec"><h6>Deals and calls</h6><ul class="dlist"><li><span>1 deal · lost · no-show</span><span>12 Sep</span></li><li><span>Booking answers: 3 · "Revenue: under $5k a month"</span><span>8 Sep</span></li></ul></div>
+                <div class="dsec"><h6>Opener notes</h6><ul class="dlist"><li><span>"Asked about price, said they'd think about it after the call."</span><span>10 Sep</span></li><li><span>"Runs a small coaching studio, open to a call."</span><span>1 Sep</span></li></ul></div>
+                <div class="dsec"><h6>Respark history</h6><ul class="dlist"><li><span>Never resparked</span><span></span></li></ul></div>
+              </div>
+            </div>
+          </div>
+          <ol class="callouts">
+            <li><span class="pin">1</span><span><b>A new permission.</b> Lead generators can only capture and see their own activity today; they can't open a person page. The panel is a read-only slice of it, allowed only for people in their held batch.</span></li>
+            <li><span class="pin">2</span><span><b>Opener notes are in, payments and credit are out.</b> The notes are often the best clue for not a fit. Phone and email are masked, because the profile link is what a lead generator works from.</span></li>
+          </ol>
+        </div></div>
+        <div class="fstep"><span class="n">4</span><div>
+          <p class="fig-title">One click, then undo</p>
+          <p class="fig-sub">Lead generators aren't asked for a reason or a note. Their job is volume. A worked card shrinks to one line, and not a fit can be undone for a few seconds.</p>
+          <div class="frame"><div class="frame-bar"><i></i><i></i><i></i><span>/workspace/lead-gen/respark</span></div>
+            <div class="app-main">
+              <div class="cards">
+                <div class="ghost" style="opacity:1;display:flex;justify-content:space-between;gap:12px;align-items:center"><span><b style="display:inline;margin-right:8px">@sample.coach.one</b>Resparked · counts as an entry</span><span class="badge" style="color:var(--good-text);border-color:var(--good)">Entry</span></div>
+                <div class="ghost" style="opacity:1;display:flex;justify-content:space-between;gap:12px;align-items:center"><span><b style="display:inline;margin-right:8px">@sample.mentor.two</b>Not a fit · back of the pool</span><span class="badge nf">Not a fit</span></div>
+                <div class="toast" style="max-width:440px;justify-self:end"><i class="ic" style="background:var(--neutral)"></i><div><b>Marked @sample.mentor.two not a fit</b>They stay in the CRM, last in the pool.</div><span class="undo">Undo · 5s</span></div>
+              </div>
+            </div>
+          </div>
+          <figcaption>After the undo window, only a later respark, a qualification, a booking or an admin's Set disposition changes it (decision 5).</figcaption>
+        </div></div>
+        <div class="fstep"><span class="n">5</span><div>
+          <p class="fig-title">Batch done</p>
+          <p class="fig-sub">A summary, and the next batch if the shift isn't over.</p>
+          <div class="frame"><div class="frame-bar"><i></i><i></i><i></i><span>/workspace/lead-gen/respark</span></div>
+            <div class="done">
+              <div class="big">45 / 45</div><div class="muted">Batch done, 2 h 10 min</div>
+              <div class="metrics" style="--n:3"><div class="metric"><small>Entries</small><b>38</b></div><div class="metric"><small>Not a fit</small><b>7</b></div><div class="metric"><small>Skipped</small><b>0</b></div></div>
+              <div class="btnrow" style="justify-content:center"><span class="sbtn primary">Get another batch</span><span class="sbtn">See My Activity</span></div>
+            </div>
+          </div>
+        </div></div>
+      </div>
+    </section>
+
+    <section id="writes">
+      <p class="kicker">What it writes</p>
+      <h2>What each action records</h2>
+      <p class="lede">Every action is one transaction. Resparked and Not a fit each add one touch to the person's timeline, credited to the lead generator; Skip adds none. Nothing is deleted, and no deal moves.</p>
+      <figure>
+        <div class="scroll"><table class="writes">
+          <thead><tr><th></th><th>Timeline touch</th><th>Counts as an entry</th><th>Disposition</th><th>Lifecycle</th><th>Activity</th><th>Held for the worker</th></tr></thead>
+          <tbody>
+            <tr><td>Resparked</td><td class="yes">"Resparked"</td><td class="yes">Yes</td><td>Open (not a fit reopens)</td><td>To In conversation if behind it</td><td>Active again</td><td>Released</td></tr>
+            <tr><td>Not a fit</td><td class="yes">"Marked not a fit"</td><td class="no">No</td><td>Not a fit</td><td class="no">Unchanged</td><td>Active (counts as a touch)</td><td>Released</td></tr>
+            <tr><td>Skip</td><td class="no">None</td><td class="no">No</td><td class="no">Unchanged</td><td class="no">Unchanged</td><td class="no">Unchanged</td><td>Released; back in the pool</td></tr>
+            <tr><td>Batch expires</td><td class="no">None</td><td class="no">No</td><td class="no">Unchanged</td><td class="no">Unchanged</td><td class="no">Unchanged</td><td>Unworked people return to the pool</td></tr>
+          </tbody>
+        </table></div>
+        <figcaption>"Held for the worker" is the only new data. It records who has a person and until when, so two lead generators never work the same person.</figcaption>
+      </figure>
+    </section>
+
+
+    <section id="reports">
+      <p class="kicker">Reports</p>
+      <h2>Where resparks are counted</h2>
+      <p class="lede">A respark counts as an entry, like a capture, so it shows up where lead generators and operations already look at volume. Not a fit is counted too, but never as an entry.</p>
+      <figure class="shot">
+        <p class="fig-title">My Activity, for the lead generator</p>
+        <p class="fig-sub">The two existing tiles stay. Three are new, and the table gains a Type column.</p>
+        <div class="frame"><div class="frame-bar"><i></i><i></i><i></i><span>/workspace/lead-gen/my-activity</span></div>
+          <div class="app"><nav class="app-nav" aria-hidden="true"><div class="brand">MAGNUS</div><span class="">Capture<kbd>1</kbd></span><span class="on">My Activity<kbd>2</kbd></span><span class="is-new">Respark<kbd>3</kbd></span></nav>
+            <div class="app-main">
+              <div class="inline" style="justify-content:space-between"><div><h5>My Activity</h5><div class="muted">Today, business day from 01:00</div></div><span class="sbtn">Today ▾</span></div>
+              <div class="metrics" style="--n:5"><div class="metric"><small>Raw Leads</small><b>212</b></div><div class="metric is-new"><small>Resparks</small><b>38</b></div><div class="metric is-new"><small>Entries <span class="pin" style="width:15px;height:15px;font-size:9px">1</span></small><b>250</b></div><div class="metric is-new"><small>Not a fit</small><b>7</b></div><div class="metric"><small>Leads/hr <span class="pin" style="width:15px;height:15px;font-size:9px">2</span></small><b>26.5</b></div></div>
+              <table class="mtable">
+                <thead><tr><th>Submitted</th><th>Prospect</th><th><span class="is-new">Type</span></th><th>Source</th><th>Origin</th></tr></thead>
+                <tbody>
+                  <tr><td>06:41</td><td>@sample.coach.one</td><td>Respark · resparked</td><td>Respark pool</td><td>Bucket 1</td></tr>
+                  <tr><td>06:40</td><td>@sample.mentor.two</td><td>Respark · not a fit</td><td>Respark pool</td><td>Bucket 4</td></tr>
+                  <tr><td>06:12</td><td>@sample.founder.five</td><td>Capture</td><td>Instagram</td><td>Story Poll</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <ol class="callouts">
+          <li><span class="pin">1</span><span><b>Entries = Raw Leads + Resparks.</b> Raw Leads keeps meaning captures, so its history doesn't change meaning.</span></li>
+          <li><span class="pin">2</span><span><b>Leads/hr stays on captures.</b> A respark takes longer than a capture; mixing them would make a respark shift look slow.</span></li>
+        </ol>
+      </figure>
+      <figure class="shot">
+        <p class="fig-title">Lead Gen Ops, for operations</p>
+        <p class="fig-sub">A new table beside the existing per-stage conversion table, which keeps counting people by who first captured them.</p>
+        <div class="frame"><div class="frame-bar"><i></i><i></i><i></i><span>/workspace/operations/lead-gen</span></div>
+          <div class="app-main">
+            <div class="inline" style="justify-content:space-between"><div><h5>Lead Gen Ops</h5><div class="muted">Last 7 days</div></div><span class="sbtn">Last 7 days ▾</span></div>
+            <div class="mcard is-new">
+              <h6>Respark</h6><div class="muted">Per lead gen specialist. "Resparked, then booked" counts people who booked after this worker resparked them, through the respark credit source (decision 2).</div>
+              <div class="scroll"><table class="mtable">
+                <thead><tr><th>Lead Gen Specialist</th><th class="r">Raw Leads</th><th class="r">Resparks</th><th class="r">Entries</th><th class="r">Not a fit</th><th class="r">Not a fit share</th><th class="r">Resparked, then booked</th></tr></thead>
+                <tbody>
+                  <tr><td class="who"><i></i>Lead generator A</td><td class="r">1,204</td><td class="r">228</td><td class="r">1,432</td><td class="r">41</td><td class="r">15%</td><td class="r">9</td></tr>
+                  <tr><td class="who"><i></i>Lead generator B</td><td class="r">980</td><td class="r">266</td><td class="r">1,246</td><td class="r">63</td><td class="r">19%</td><td class="r">6</td></tr>
+                  <tr><td class="who"><i></i>Lead generator C</td><td class="r">1,315</td><td class="r">140</td><td class="r">1,455</td><td class="r">22</td><td class="r">14%</td><td class="r">4</td></tr>
+                </tbody>
+              </table></div>
+            </div>
+          </div>
+        </div>
+        <figcaption>Sample numbers. Not a fit share is not a fit ÷ (resparks + not a fit). A high share means the worker got a weak part of the pool or is clearing it too fast. Use it to start that conversation. It's a poor way to rank people.</figcaption>
+      </figure>
+    </section>
+
+    <section id="decisions">
+      <p class="kicker">Before a plan</p>
+      <h2>Seven decisions</h2>
+      <p class="lede">Each has a recommendation. Answer the ones you disagree with, and the rest go into the plan as written.</p>
+      <div class="decisions">
+        <div class="dec"><p class="q"><span>1</span>Bucket order, and order inside a bucket</p><ul><li>Order: qualified-never-booked, never qualified, inactive, had a call and lost, not a fit</li><li>Inside a bucket: most recently stalled first, or oldest first</li></ul><p class="rec"><b>Recommended</b>The order above, most recently stalled first: a person who stopped answering last month is warmer than one from April.</p></div>
+        <div class="dec"><p class="q"><span>2</span>Credit when a resparked person books</p><ul><li>The original capturer keeps lead gen credit</li><li>The resparker gets it instead</li><li>Both: a second lead gen credit row with source "respark"</li></ul><p class="rec"><b>Recommended</b>Both. Credit rows are only ever added, and a respark source keeps the two apart in reports.</p></div>
+        <div class="dec"><p class="q"><span>3</span>Batches by shift and region</p><ul><li>Skip region for now</li><li>Lead gen records a country at capture</li><li>Route only people whose time zone is known (from a booking)</li></ul><p class="rec"><b>Recommended</b>Skip it in the first version. Most people are only a handle; a country field at capture is a separate, small change if operations wants it.</p></div>
+        <div class="dec"><p class="q"><span>4</span>Batch size and how long it's held</p><ul><li>40, 50, or a setting</li><li>Held until the end of the shift, or for a fixed number of hours</li></ul><p class="rec"><b>Recommended</b>A tenant setting, default 45, held until the business day ends. Unworked people go back to the pool.</p></div>
+        <div class="dec"><p class="q"><span>5</span>Undoing not a fit</p><ul><li>Reopens on its own if the person qualifies, books or is resparked</li><li>Only an admin reopens it</li></ul><p class="rec"><b>Recommended</b>Reopens on its own, the way unresponsive already does. A booking from a not-a-fit person shouldn't be hidden.</p></div>
+        <div class="dec"><p class="q"><span>6</span>The existing "unresponsive"</p><ul><li>Keep it: an expired Slack deal sets it (4,291 people)</li><li>Fold it into inactive</li></ul><p class="rec"><b>Recommended</b>Keep it. It says something else, that they were qualified and went quiet. It doesn't change their bucket.</p></div>
+        <div class="dec"><p class="q"><span>7</span>The Prospect stage</p><ul><li>Keep it, unused</li><li>Retire it: touches the leads report, the stage counts and the Prospects view</li></ul><p class="rec"><b>Recommended</b>Keep it unused for now and retire it later, once reports read In conversation as the entry stage.</p></div>
+      </div>
+    </section>
+
+    <section id="ship">
+      <p class="kicker">Shipping</p>
+      <h2>How it would ship</h2>
+      <p class="lede">This is a feature, outside the migration phases. Each step can deploy on its own.</p>
+      <ol class="steps">
+        <li><time>Docs</time><b>The plan and the ADR amendment.</b> Capture enters In conversation; not a fit can come from a lead generator; inactive is a rule; respark is a touch and a lead gen credit source.</li>
+        <li><time>Lifecycle</time><b>Capture enters In conversation,</b> and the backfill of the 81,091 people at Prospect, with its assert.</li>
+        <li><time>Setting</time><b>Inactive after N days</b> on the tenant settings page, and the inactive badge on the person page.</li>
+        <li><time>Backend</time><b>The pool:</b> the bucket query and its indexes, batches, the held-for mark, and the three actions with their touches, credit and disposition.</li>
+        <li><time>Frontend</time><b>The respark screen</b> in the lead gen portal: the batch, the read-only person panel and its permission, and the clearer capture confirmations.</li>
+        <li><time>Reports</time><b>Entries and not a fit</b> in the lead gen reports, per worker, with resparks counted beside captures.</li>
+      </ol>
+    </section>
+
+    <footer>
+      <p><b>Data.</b> Read-only counts from production for tenant <code>k57dqjfyf8qqy31bq375ng8gb984b24q</code> on 24 October 2026. Buckets use each person's lifecycle stage, disposition, open deals and last touch; merged records are left out. "Never qualified" means a last touch 30 or more days ago and no qualification.</p>
+      <p><b>Related.</b> <code>docs/reviews/pipeline-map.html</code> (how the pipeline works today), <code>docs/adr/0001-lead-lifecycle-model.md</code>, <code>CONTEXT.md</code>.</p>
+    </footer>
+  </main>
+</div>
+<div id="tip" role="tooltip"></div>
+<script>
+const NS = "http://www.w3.org/2000/svg";
+const fmt = n => n.toLocaleString("en-US");
+function el(tag, attrs = {}, parent) { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) { if (v == null) continue; if (k === "text") e.textContent = v; else e.setAttribute(k, v); } if (parent) parent.appendChild(e); return e; }
+function tipOn(n, html) { n.setAttribute("data-tip", html); if (!n.hasAttribute("tabindex")) n.setAttribute("tabindex", "0"); }
+
+const B = [
+  { id: 1, name: "Qualified, never booked", sub: "An opener qualified them; the Slack deal closed with no booking", n: 4299, color: "var(--b1)", added: true, from: "qualified" },
+  { id: 2, name: "Never qualified", sub: "In conversation, no touch for 30+ days", n: 50291, color: "var(--b2)", from: "conv" },
+  { id: 3, name: "Inactive", sub: "No touch for 90+ days, any stage. The 90 is a setting", n: 1133, color: "var(--b3)", from: "any" },
+  { id: 4, name: "Had a call, deal lost", sub: "No-show, canceled, or marked lost by the closer", n: 1290, color: "var(--b4)", from: "booked" },
+  { id: 5, name: "Not a fit", sub: "Marked by a lead generator during a respark", n: 0, color: "var(--b5)", from: "nf" },
+];
+const OUT = [["On an open deal, booked or past", 2779], ["Open Slack deal, still in its window", 1226], ["Customers", 288], ["Touched recently", 30827]];
+
+/* bucket list */
+(function () {
+  const max = Math.max(...B.map(b => b.n), ...OUT.map(o => o[1]));
+  const ol = document.getElementById("buckets");
+  ol.innerHTML = B.map(b => `<li data-tip="<b>${b.name}</b><br>${fmt(b.n)} people" tabindex="0"><span class="rank${b.id === 4 ? " dark" : ""}" style="background:${b.color}">${b.id}</span><span class="name">${b.name}${b.added ? "<em>operations' list</em>" : ""}<small>${b.sub}</small></span><span><span class="bar" style="display:block;width:${Math.max(.4, 100 * b.n / max)}%;background:${b.color}"></span></span><span class="v">${fmt(b.n)}</span></li>`).join("")
+    + OUT.map(([l, n]) => `<li class="out" data-tip="<b>Not in the pool</b><br>${l}: ${fmt(n)}" tabindex="0"><span></span><span class="name" style="font-weight:600;color:var(--ink-3)">Not in the pool: ${l}</span><span><span class="bar" style="display:block;width:${100 * n / max}%;background:repeating-linear-gradient(45deg,var(--rule-2) 0 4px,transparent 4px 8px)"></span></span><span class="v">${fmt(n)}</span></li>`).join("");
+  const ages = [["Under 30 days", 34002, "var(--good)"], ["30–90 days", 33093, "#b07a00"], ["90+ days: inactive", 25038, "var(--critical)"]];
+  const tot = ages.reduce((a, x) => a + x[1], 0);
+  document.getElementById("agebar").innerHTML = ages.map(([l, n, c]) => `<div style="flex:${n};background:${c}" data-tip="<b>${l}</b><br>${fmt(n)} people (${(100 * n / tot).toFixed(1)}%)" tabindex="0">${l} · ${fmt(n)}</div>`).join("");
+  document.getElementById("progress").innerHTML = Array.from({ length: 45 }, (_, i) => `<span class="${i < 31 ? "ok" : i < 37 ? "nf" : ""}"></span>`).join("");
+})();
+
+/* hero yard */
+(function () {
+  const svg = document.getElementById("yard");
+  const defs = el("defs", {}, svg);
+  const m = el("marker", { id: "yard-arr", viewBox: "0 0 10 10", refX: "6", refY: "5", markerWidth: "4", markerHeight: "4", orient: "auto" }, defs);
+  el("path", { d: "M0,0 L10,5 L0,10 z", fill: "var(--ink)" }, m);
+  const Y = 120, st = [["Capture", 70], ["In conversation", 250], ["Qualified", 470], ["Booked", 680], ["Showed", 860], ["Customer", 1030]];
+  const sx = Object.fromEntries(st.map(([n, x]) => [n, x]));
+  // main line
+  el("line", { x1: 70, y1: Y, x2: 1030, y2: Y, stroke: "var(--ink)", "stroke-width": 8, "stroke-linecap": "round" }, svg);
+  // pool
+  const PY = 345, PH = 62, px0 = 170, px1 = 1076;
+  const bays = [ // x center for each bay, matching the source station
+    { b: B[1], x: 250 }, { b: B[0], x: 470 }, { b: B[3], x: 680 }, { b: B[2], x: 860 }, { b: B[4], x: 1008 },
+  ];
+  const maxN = 50291, w = n => n ? Math.max(4, 34 * Math.sqrt(n / maxN)) : 3;
+  // branches
+  bays.forEach(({ b, x }, i) => {
+    const sx0 = b.id === 5 ? 990 : x;
+    const d = b.id === 5 ? `M${sx0},${PY - 2} L${sx0},${PY - 2}` : `M${x},${Y + 6} C${x},${Y + 110} ${x},${PY - 110} ${x},${PY - 4}`;
+    if (b.id !== 5) {
+      const p = el("path", { d, fill: "none", stroke: b.color, "stroke-width": w(b.n), "stroke-linecap": "butt", opacity: .95 }, svg);
+      tipOn(p, `<b>${b.name}</b><br>${fmt(b.n)} people · bucket ${b.id}`);
+      el("path", { d, fill: "none", stroke: "transparent", "stroke-width": 22 }, svg).setAttribute("data-tip", `<b>${b.name}</b><br>${fmt(b.n)} people · bucket ${b.id}`);
+      const lx = x + w(b.n) / 2 + 12;
+      el("text", { x: lx, y: 216, class: "svg-display svg-ink", "font-size": 15, "font-weight": 900, text: fmt(b.n) }, svg);
+      el("text", { x: lx, y: 234, class: "svg-label", "font-size": 12.5, text: b.name.toLowerCase() }, svg);
+      if (b.id === 3) el("text", { x: lx, y: 250, class: "svg-label", "font-size": 12, "font-style": "italic", text: "from any stage" }, svg);
+    }
+  });
+  // pool body
+  el("rect", { x: px0, y: PY, width: px1 - px0, height: PH, rx: 14, fill: "var(--surface)", stroke: "var(--ink)", "stroke-width": 3 }, svg);
+  el("text", { x: px0 + 14, y: PY + PH + 26, class: "svg-display svg-ink", "font-size": 14, "font-weight": 900, "letter-spacing": ".08em", text: "RESPARK POOL · 57,013 PEOPLE" }, svg);
+  bays.forEach(({ b, x }) => {
+    const g = el("g", {}, svg);
+    el("rect", { x: x - 62, y: PY + 10, width: 124, height: PH - 20, rx: 8, fill: `color-mix(in srgb, ${b.color} 18%, var(--surface))`, stroke: b.color, "stroke-width": 2, "stroke-dasharray": b.id === 5 ? "5 4" : null }, g);
+    el("circle", { cx: x - 42, cy: PY + PH / 2, r: 12, fill: b.color }, g);
+    el("text", { x: x - 42, y: PY + PH / 2 + 5, "text-anchor": "middle", class: "svg-display", "font-size": 13, "font-weight": 900, fill: b.id === 4 ? "#0b0b0b" : "#fff", text: b.id }, g);
+    el("text", { x: x - 24, y: PY + PH / 2 - 2, class: "svg-display svg-ink", "font-size": 13.5, "font-weight": 900, text: fmt(b.n) }, g);
+    el("text", { x: x - 24, y: PY + PH / 2 + 13, class: "svg-label", "font-size": 10.5, text: b.id === 5 ? "parked" : `bucket ${b.id}` }, g);
+    tipOn(g, `<b>Bucket ${b.id}: ${b.name}</b><br>${b.sub}<br>${fmt(b.n)} people`);
+  });
+  // respark loop back to In conversation
+  const loop = `M${px0},${PY + PH / 2} C${px0 - 120},${PY + PH / 2} 40,${PY - 40} 40,${Y + 120} C40,${Y + 40} 120,${Y} 220,${Y - 2}`;
+  el("path", { d: loop, fill: "none", stroke: "var(--ink)", "stroke-width": 5, "stroke-dasharray": "14 8", "marker-end": "url(#yard-arr)" }, svg);
+  el("text", { x: 78, y: 268, class: "svg-display svg-ink", "font-size": 14, "font-weight": 900, text: "Resparked" }, svg);
+  el("text", { x: 78, y: 285, class: "svg-label", "font-size": 12, text: "a new touch, an entry" }, svg);
+  el("text", { x: 78, y: 300, class: "svg-label", "font-size": 12, text: "for the lead generator" }, svg);
+  // not a fit arrow into bay 5
+  el("path", { d: `M1088,${PY - 66} C1088,${PY - 30} 1060,${PY - 14} 1030,${PY + 6}`, fill: "none", stroke: "var(--ink-3)", "stroke-width": 2.5, "stroke-dasharray": "5 4", "marker-end": "url(#yard-arr)" }, svg);
+  el("text", { x: 1092, y: PY - 74, "text-anchor": "end", class: "svg-label", "font-size": 12, text: "Not a fit: parked, not removed" }, svg);
+  // stations
+  st.forEach(([n, x], i) => {
+    const g = el("g", {}, svg);
+    if (i === 0) { el("rect", { x: x - 9, y: Y - 22, width: 18, height: 44, rx: 9, fill: "var(--ink)" }, g); }
+    else el("circle", { cx: x, cy: Y, r: 14, fill: "var(--station)", stroke: "var(--ink)", "stroke-width": 5 }, g);
+    el("text", { x: i === 0 ? x - 8 : x, y: Y - 34, "text-anchor": i === 0 ? "start" : "middle", class: "svg-display svg-ink", "font-size": 14, "font-weight": 800, "letter-spacing": ".06em", text: n.toUpperCase() }, g);
+  });
+  el("text", { x: 1030, y: Y + 40, "text-anchor": "middle", class: "svg-label", "font-size": 12, text: "not in the pool" }, svg);
+})();
+
+/* before/after */
+(function () {
+  const svg = document.getElementById("beforeafter");
+  const row = (y, label, entryAt, n, note) => {
+    el("text", { x: 20, y: y + 5, class: "svg-display svg-ink", "font-size": 15, "font-weight": 900, text: label }, svg);
+    const xs = [280, 440, 600, 760, 920, 1070];
+    const names = ["Prospect", "In conversation", "Qualified", "Booked", "Showed", "Customer"];
+    el("line", { x1: 280, y1: y, x2: 1070, y2: y, stroke: "var(--rule-2)", "stroke-width": 6, "stroke-linecap": "round" }, svg);
+    el("line", { x1: 150, y1: y, x2: xs[entryAt], y2: y, stroke: "var(--c-lead_gen)", "stroke-width": 6, "stroke-linecap": "round" }, svg);
+    el("text", { x: 150, y: y - 14, class: "svg-label", "font-size": 12, text: "lead gen capture" }, svg);
+    names.forEach((nm, i) => {
+      const used = i === entryAt;
+      el("circle", { cx: xs[i], cy: y, r: used ? 13 : 9, fill: used ? "var(--ink)" : "var(--station)", stroke: i === 0 && entryAt === 1 ? "var(--rule-2)" : "var(--ink)", "stroke-width": 4 }, svg);
+      el("text", { x: xs[i], y: y + 32, "text-anchor": "middle", class: "svg-display", "font-size": 12.5, "font-weight": 800, fill: i === 0 && entryAt === 1 ? "var(--ink-3)" : "var(--ink)", text: nm }, svg);
+    });
+    el("text", { x: xs[entryAt], y: y - 22, "text-anchor": "middle", class: "svg-mono svg-label", "font-size": 12, text: n }, svg);
+    if (note) el("text", { x: 280, y: y + 52, class: "svg-label", "font-size": 12, "font-style": "italic", text: note }, svg);
+  };
+  row(60, "Today", 0, "81,091 here", "In conversation has 2 people, because only a DM portal note or edit sets it");
+  row(180, "Proposed", 1, "every capture lands here", "Prospect goes unused (decision 7). Opener notes stay, but no longer set the stage");
+})();
+
+/* ───── tooltip ───── */
+(function tooltip() {
+  const tip = document.getElementById("tip");
+  let cur = null;
+  const show = (t, x, y) => { tip.innerHTML = t.getAttribute("data-tip"); tip.classList.add("on"); place(x, y); };
+  const place = (x, y) => { const r = tip.getBoundingClientRect(); let L = x + 14, T = y + 14; if (L + r.width > innerWidth - 8) L = x - r.width - 14; if (T + r.height > innerHeight - 8) T = y - r.height - 14; tip.style.left = L + "px"; tip.style.top = T + "px"; };
+  document.addEventListener("mousemove", e => { const t = e.target.closest && e.target.closest("[data-tip]"); if (t) { if (t !== cur) { cur = t; show(t, e.clientX, e.clientY); } else place(e.clientX, e.clientY); } else if (cur) { cur = null; tip.classList.remove("on"); } });
+  document.addEventListener("focusin", e => { const t = e.target.closest && e.target.closest("[data-tip]"); if (t) { const r = t.getBoundingClientRect(); cur = t; show(t, r.left + r.width / 2, r.top + r.height / 2); } });
+  document.addEventListener("focusout", () => { cur = null; tip.classList.remove("on"); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") { cur = null; tip.classList.remove("on"); } });
+})();
+
+/* ───── rail: mark the current section ───── */
+(function rail() {
+  const links = [...document.querySelectorAll(".rail a")];
+  const ids = links.map(a => a.getAttribute("href").slice(1));
+  const obs = new IntersectionObserver(es => {
+    es.forEach(e => { if (e.isIntersecting) links.forEach(a => a.setAttribute("aria-current", a.getAttribute("href") === "#" + e.target.id ? "true" : "false")); });
+  }, { rootMargin: "-40% 0px -55% 0px" });
+  ids.forEach(id => { const s = document.getElementById(id); if (s) obs.observe(s); });
+})();
+</script>
+</body>
+</html>
