@@ -8,8 +8,8 @@ import { advanceLeadLifecycle, resparkSetDisposition } from "../lib/leadLifecycl
 import { rejectRequest } from "../lib/observability/errors";
 import { PERMISSIONS } from "../lib/permissions";
 import {
-  bucketRange,
   holdState,
+  poolOldestFirst,
   insertResparkItem,
   leftPoolReason,
   workResparkItem,
@@ -19,7 +19,6 @@ import {
   LEAD_MARKED_NOT_A_FIT,
   LEAD_RESPARKED,
 } from "../lib/respark/state";
-import { RESPARK_BUCKETS } from "../lib/respark/validators";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import { requireTenantUser, type TenantUserResult } from "../requireTenantUser";
 
@@ -62,9 +61,10 @@ async function openBatch(
 
 /**
  * Asking for a batch (plan §4.5). An unexpired batch with unworked people
- * comes back as it is. Otherwise the claim walks buckets 1 to 5, newest last
- * touch first, skipping people someone holds and people this user skipped
- * today, until the batch is full or it has read `CLAIM_READ_LIMIT` people.
+ * comes back as it is. Otherwise the claim takes the pool oldest last touch
+ * first, whatever the bucket (`poolOldestFirst`), skipping people someone
+ * holds and people this user skipped today, until the batch is full or it
+ * has read `CLAIM_READ_LIMIT` people.
  * Two claims at once read the same hold ranges and write into them, so one
  * of them retries and sees the other's items.
  */
@@ -90,34 +90,23 @@ export const claimResparkBatch = mutation({
     let indexReads = 0;
     const full = () =>
       picked.length >= settings.batchSize || read >= CLAIM_READ_LIMIT || indexReads >= CLAIM_INDEX_READ_BUDGET;
-    for (const bucket of RESPARK_BUCKETS) {
+    // One index read per pool group, then the hold checks per candidate.
+    indexReads += 4;
+    for await (const { lead, bucket } of poolOldestFirst(ctx, {
+      tenantId: access.tenantId,
+      now,
+      inactiveAfterDays: settings.inactiveAfterDays,
+    })) {
+      read += 1;
+      const hold = await holdState(ctx, {
+        tenantId: access.tenantId,
+        leadId: lead._id,
+        userId: access.userId,
+        now,
+      });
+      indexReads += hold.reads;
+      if (!hold.held && !hold.skippedByUser) picked.push({ lead, bucket });
       if (full()) break;
-      indexReads += 1;
-      const range = bucketRange(bucket, now, settings.inactiveAfterDays);
-      const candidates = ctx.db
-        .query("leads")
-        .withIndex("by_tenantId_and_resparkGroup_and_lastTouchAt", (q) => {
-          const group = q.eq("tenantId", access.tenantId).eq("resparkGroup", range.group);
-          return range.after === undefined
-            ? group.lte("lastTouch.occurredAt", range.atOrBefore)
-            : group.gt("lastTouch.occurredAt", range.after).lte("lastTouch.occurredAt", range.atOrBefore);
-        })
-        .order("desc");
-      for await (const lead of candidates) {
-        read += 1;
-        // A missing time sorts below every number; such a person is `out`.
-        if (lead.lastTouch) {
-          const hold = await holdState(ctx, {
-            tenantId: access.tenantId,
-            leadId: lead._id,
-            userId: access.userId,
-            now,
-          });
-          indexReads += hold.reads;
-          if (!hold.held && !hold.skippedByUser) picked.push({ lead, bucket });
-        }
-        if (full()) break;
-      }
     }
 
     if (picked.length === 0) return { batchId: null, resumed: false, size: 0 };

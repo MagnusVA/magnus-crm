@@ -84,6 +84,84 @@ export function bucketRange(
   }
 }
 
+// The groups that can be in the pool; `out` never is.
+const POOL_GROUPS = ["qualified", "never_qualified", "had_call", "not_a_fit"] as const;
+
+/**
+ * The bucket a pool person is in, for the card's reason label: their group,
+ * with `had_call` split at the inactive line (plan §4.4).
+ */
+export function bucketOf(
+  group: (typeof POOL_GROUPS)[number],
+  lastTouchAt: number,
+  now: number,
+  inactiveAfterDays: number,
+): ResparkBucket {
+  switch (group) {
+    case "qualified":
+      return 1;
+    case "never_qualified":
+      return 2;
+    case "had_call":
+      return lastTouchAt <= now - inactiveAfterDays * DAY_MS ? 3 : 4;
+    case "not_a_fit":
+      return 5;
+  }
+}
+
+/**
+ * The pool, oldest last touch first, whatever the bucket (changed by the
+ * tenant admin on 2026-10-25, replacing bucket order and newest first). Each
+ * group is read in index order from its oldest person, and the oldest of the
+ * four heads comes next, so a claim reads only as far as it needs. Everyone
+ * here was last touched at least 30 days ago.
+ */
+export async function* poolOldestFirst(
+  ctx: ReadCtx,
+  args: { tenantId: Id<"tenants">; now: number; inactiveAfterDays: number },
+): AsyncGenerator<{ lead: Doc<"leads">; bucket: ResparkBucket }> {
+  const atOrBefore = args.now - THIRTY_DAYS_MS;
+  const streams = POOL_GROUPS.map((group) => ({
+    group,
+    rows: ctx.db
+      .query("leads")
+      .withIndex("by_tenantId_and_resparkGroup_and_lastTouchAt", (q) =>
+        q
+          .eq("tenantId", args.tenantId)
+          .eq("resparkGroup", group)
+          // A missing time sorts below every number; such a person is `out`.
+          .gte("lastTouch.occurredAt", 0)
+          .lte("lastTouch.occurredAt", atOrBefore),
+      )
+      .order("asc")
+      [Symbol.asyncIterator](),
+  }));
+  const heads = await Promise.all(streams.map((stream) => stream.rows.next()));
+  for (;;) {
+    let next = -1;
+    for (const [index, head] of heads.entries()) {
+      if (head.done) continue;
+      const best = next === -1 ? null : heads[next];
+      if (
+        !best ||
+        best.done ||
+        head.value.lastTouch!.occurredAt < best.value.lastTouch!.occurredAt ||
+        (head.value.lastTouch!.occurredAt === best.value.lastTouch!.occurredAt &&
+          head.value._creationTime < best.value._creationTime)
+      ) {
+        next = index;
+      }
+    }
+    if (next === -1) return;
+    const lead = (heads[next] as IteratorResult<Doc<"leads">, undefined> & { done: false }).value;
+    yield {
+      lead,
+      bucket: bucketOf(streams[next].group, lead.lastTouch!.occurredAt, args.now, args.inactiveAfterDays),
+    };
+    heads[next] = await streams[next].rows.next();
+  }
+}
+
 // Skips of one person by different lead generators in one business day; past
 // it the check fails closed and leaves the person out of the batch.
 const SKIPS_PER_PERSON_DAY_LIMIT = 20;
