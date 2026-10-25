@@ -197,6 +197,9 @@ describe("refreshResparkState from live writes", () => {
     expect(await poolCount(harness, "out")).toBe(1);
     expect(await poolCount(harness, "not_a_fit")).toBe(0);
     expect(await problems(harness)).toEqual([]);
+    expect(await harness.t.query(internal.migrations.resparkPoolTotals, { tenantId: harness.tenantId })).toEqual({
+      qualified: 0, never_qualified: 0, had_call: 0, not_a_fit: 0, out: 1,
+    });
   });
 
   it("a merge takes the later last touch and drops the merged person's entry", async () => {
