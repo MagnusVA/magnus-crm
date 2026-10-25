@@ -28,7 +28,6 @@ import { getPersonProgramEnrollment } from "./enrollments/read";
 import { derivePersonEnrollments, paymentCounts } from "./lib/enrollments";
 import { lifecycleProblems, planLeadLifecycleRederive, rederiveLeadLifecycle } from "./lib/leadLifecycle";
 import { personProspects, prospectConversionProblems } from "./lib/prospectConversions";
-import { personResparkItems } from "./lib/respark/items";
 import { recomputeResparkState, resparkPool, resparkStateProblems } from "./lib/respark/state";
 import { RESPARK_GROUPS, type ResparkGroup } from "./lib/respark/validators";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
@@ -844,57 +843,6 @@ function captureCredit(row: Pick<DealAttribution, "source" | "teamMemberId">) {
   );
 }
 
-/**
- * A later merge or backdated import must not rewrite an earlier credit's
- * buying-attempt window. Creation events retain their original person; merge
- * history tells us which people were joined when the attribution was added.
- */
-async function resparkOutsideAttemptAtCreditTime(
-  ctx: MutationCtx, opportunity: Doc<"opportunities">, row: DealAttribution, itemLeadId: Id<"leads">,
-): Promise<boolean> {
-  const ids = await mergedLeadIds(ctx, opportunity.tenantId, opportunity.leadId);
-  const merges = new Map<Id<"leads">, Doc<"leadMergeHistory">>();
-  for (const leadId of ids) {
-    const merge = await ctx.db.query("leadMergeHistory")
-      .withIndex("by_sourceLeadId", (q) => q.eq("sourceLeadId", leadId)).first();
-    if (merge?.tenantId === opportunity.tenantId && merge.mergedAt <= row.createdAt &&
-      merge._creationTime <= row._creationTime) merges.set(leadId, merge);
-  }
-  const rootAtCredit = (id: Id<"leads">) => {
-    const seen = new Set<Id<"leads">>();
-    while (merges.has(id) && !seen.has(id)) {
-      seen.add(id);
-      id = merges.get(id)!.targetLeadId;
-    }
-    return id;
-  };
-  const originalPerson = async (deal: Doc<"opportunities">) => {
-    const events = await ctx.db.query("domainEvents")
-      .withIndex("by_tenantId_and_entityType_and_entityId_and_occurredAt", (q) => q
-        .eq("tenantId", deal.tenantId).eq("entityType", "opportunity").eq("entityId", deal._id))
-      .order("asc").take(50);
-    return events.find((event) => event.eventType === "opportunity.created")?.leadId ?? deal.leadId;
-  };
-  const person = rootAtCredit(await originalPerson(opportunity));
-  if (rootAtCredit(itemLeadId) !== person) return true;
-  // Only deals that could disqualify this item need reading. A newer deal
-  // created at exactly workedAt disqualifies it too (the lower bound is >=).
-  let read = 0;
-  for (const leadId of ids) {
-    const deals = await ctx.db.query("opportunities")
-      .withIndex("by_tenantId_and_leadId_and_createdAt", (q) => q
-        .eq("tenantId", opportunity.tenantId).eq("leadId", leadId)
-        .gte("createdAt", row.attributedAt).lt("createdAt", opportunity.createdAt))
-      .take(201 - read);
-    read += deals.length;
-    if (read > 200) throw new Error(`Opportunity ${opportunity._id}: more than 200 previous deals in the respark window`);
-    for (const deal of deals) {
-      if (deal._creationTime <= row._creationTime && rootAtCredit(await originalPerson(deal)) === person) return true;
-    }
-  }
-  return false;
-}
-
 // Checks every row on the deal (a team member on every person's role, and
 // references inside the tenant and on this deal), then recomputes its lead
 // gen, setter and side deal rows with one fact per identity (§4.9).
@@ -949,25 +897,41 @@ export const assertDealAttributions = migrations.define({
 
     const resparkRows = rows.filter((row) => row.source.kind === "respark");
     if (resparkRows.length > 1) throw fail(`${resparkRows.length} respark rows`);
-    // Check the stored evidence, not today's latest item: later resparks
-    // must never invalidate credit already earned by an earlier attempt.
+    // The row's own facts: an item of this person (or of someone merged into
+    // them) resparked before the deal, with the event, worker and time the
+    // row names. Which respark started the attempt was decided when the deal
+    // was created (§4.6); a later respark or merge doesn't undo that.
     for (const row of resparkRows) {
       if (row.source.kind !== "respark") continue;
       const { source } = row;
-      const item = (await personResparkItems(ctx, opportunity.tenantId, opportunity.leadId))
-        .find((candidate) => candidate._id === source.itemId);
+      const item = await ctx.db.get("resparkBatchItems", source.itemId);
+      const people = await mergedLeadIds(ctx, opportunity.tenantId, opportunity.leadId);
       const event = await ctx.db.get("domainEvents", source.eventId);
       const worker = await ctx.db.get("leadGenWorkers", source.workerId);
-      const outsideAttempt = item ? await resparkOutsideAttemptAtCreditTime(ctx, opportunity, row, item.leadId) : true;
-      if (!item || item.result !== "resparked" || item.eventId !== source.eventId ||
+      if (!item || item.tenantId !== opportunity.tenantId || !people.includes(item.leadId) ||
+        item.result !== "resparked" || item.eventId !== source.eventId ||
         item.workerId !== source.workerId || item.workedAt === undefined ||
         item.workedAt !== row.attributedAt || item.workedAt >= opportunity.createdAt ||
-        outsideAttempt ||
         worker?.tenantId !== opportunity.tenantId || worker.teamMemberId !== row.teamMemberId ||
         event?.tenantId !== opportunity.tenantId || event.eventType !== "lead.resparked" ||
-        event.leadId !== item.leadId || event.occurredAt !== item.workedAt ||
+        event.occurredAt !== item.workedAt ||
         row.meetingId !== undefined || row.teamId !== undefined) {
         throw fail(`invalid respark row ${row._id}`);
+      }
+      // And no other deal of theirs, written before the credit, began
+      // between the respark and this one. A deal written later with an
+      // earlier time (a late webhook) doesn't count. A merge after the credit
+      // can bring one in; the message names it.
+      for (const leadId of people) {
+        const earlier = await ctx.db
+          .query("opportunities")
+          .withIndex("by_tenantId_and_leadId_and_createdAt", (q) =>
+            q.eq("tenantId", opportunity.tenantId).eq("leadId", leadId)
+              .gte("createdAt", item.workedAt!).lt("createdAt", opportunity.createdAt),
+          )
+          .take(50);
+        const blocking = earlier.find((deal) => deal._id !== opportunity._id && deal._creationTime < row._creationTime);
+        if (blocking) throw fail(`respark row ${row._id} predates deal ${blocking._id}`);
       }
     }
 

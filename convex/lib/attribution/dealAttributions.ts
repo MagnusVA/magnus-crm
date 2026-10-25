@@ -14,7 +14,7 @@ import {
   linkSlackUserTeamMember,
 } from "../teamMembers";
 import { mergedLeadIds } from "../mergedLeads";
-import { personResparkItems } from "../respark/items";
+import { latestResparkedItemBetween } from "../respark/items";
 import { snapshotDealTouches } from "../touches";
 import type {
   dealAttributionRoleValidator,
@@ -375,15 +375,17 @@ export async function previousDealCreatedAt(ctx: ReadCtx, opportunity: Doc<"oppo
   return previous;
 }
 
-/** The latest respark before this deal, inside this attempt's window. */
+/**
+ * The respark that started this buying attempt (§4.6): the person's latest
+ * Resparked item worked before the deal and after their previous deal.
+ */
 export async function qualifyingResparkItem(ctx: ReadCtx, opportunity: Doc<"opportunities">) {
-  const items = await personResparkItems(ctx, opportunity.tenantId, opportunity.leadId);
-  const latest = items.filter((item) => item.result === "resparked" &&
-    item.workedAt !== undefined && item.workedAt < opportunity.createdAt)
-    .sort((a, b) => b.workedAt! - a.workedAt! || b._creationTime - a._creationTime)[0];
-  if (!latest) return null;
-  const previous = await previousDealCreatedAt(ctx, opportunity);
-  return previous === undefined || latest.workedAt! > previous ? latest : null;
+  return await latestResparkedItemBetween(ctx, {
+    tenantId: opportunity.tenantId,
+    leadId: opportunity.leadId,
+    after: await previousDealCreatedAt(ctx, opportunity),
+    before: opportunity.createdAt,
+  });
 }
 
 /**
