@@ -5,6 +5,7 @@ import type { DataModel, Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 
 import { deleteLeadGenDealAggregate } from "../leadGen/leadGenDealsAggregate";
+import { resparkResultsByWorker } from "../lib/respark/items";
 import { deleteResparkPoolEntry } from "../lib/respark/state";
 
 const CLEANUP_BATCH_SIZE = 128;
@@ -29,6 +30,8 @@ const TENANT_INDEX_BY_TABLE = {
   opportunities: "by_tenantId",
   paymentRecords: "by_tenantId_and_recordedAt",
   rawWebhookEvents: "by_tenantId_and_receivedAt",
+  resparkBatchItems: "by_tenantId_and_workedAt",
+  resparkBatches: "by_tenantId_and_userId_and_createdAt",
   tenantCalendlyConnections: "by_tenantId",
   teamMembers: "by_tenantId",
   users: "by_tenantId",
@@ -86,6 +89,11 @@ async function deleteByTenantIdBatch<TableName extends TenantScopedTable>(
       const id = ctx.db.normalizeId("opportunities", row._id);
       const deal = id && await ctx.db.get("opportunities", id);
       if (deal) await deletePipelineHealthAggregates(ctx, deal);
+    }
+    if (tableName === "resparkBatchItems") {
+      const id = ctx.db.normalizeId("resparkBatchItems", row._id);
+      const item = id && await ctx.db.get("resparkBatchItems", id);
+      if (item) await resparkResultsByWorker.delete(ctx, item);
     }
     if (tableName === "leads") {
       const id = ctx.db.normalizeId("leads", row._id);

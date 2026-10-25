@@ -24,6 +24,8 @@ const CHANNEL_BY_EVENT_TYPE: Record<string, TouchChannel> = {
   "lead.portal_link_copied": "dm_portal",
   "lead.slack_qualified": "slack",
   "meeting.created": "calendly",
+  // A respark brings the person back through lead gen (respark plan §4.3).
+  "lead.resparked": "lead_gen",
 };
 
 /**

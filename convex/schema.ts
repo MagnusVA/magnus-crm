@@ -15,7 +15,11 @@ import {
   dealAttributionSourceValidator,
 } from "./lib/attribution/validators";
 import { touchSnapshotValidator } from "./lib/touchValidators";
-import { lastTouchValidator, resparkGroupValidator } from "./lib/respark/validators";
+import {
+  lastTouchValidator,
+  resparkGroupValidator,
+  resparkResultValidator,
+} from "./lib/respark/validators";
 import { resparkSettingsValidator } from "./lib/respark/settings";
 import {
   leadCustomerCustomerStatusValidator,
@@ -593,6 +597,47 @@ export default defineSchema({
       filterFields: ["tenantId", "status"],
     }),
 
+  // Respark (docs/plans/respark.md §3.2). A batch a lead generator asked for,
+  // held until the business day it was created in ends.
+  resparkBatches: defineTable({
+    tenantId: v.id("tenants"),
+    userId: v.id("users"),
+    workerId: v.id("leadGenWorkers"),
+    createdAt: v.number(),
+    heldUntil: v.number(),
+    // The people it got, and the batch size setting when it was asked for.
+    size: v.number(),
+    requestedSize: v.number(),
+    // When the last person in it was worked.
+    completedAt: v.optional(v.number()),
+  }).index("by_tenantId_and_userId_and_createdAt", ["tenantId", "userId", "createdAt"]),
+
+  // One per person in a batch. An unworked item in an unexpired batch is the
+  // hold. Items stay on the person they were made for, through merges.
+  resparkBatchItems: defineTable({
+    tenantId: v.id("tenants"),
+    batchId: v.id("resparkBatches"),
+    leadId: v.id("leads"),
+    userId: v.id("users"),
+    workerId: v.id("leadGenWorkers"),
+    position: v.number(),
+    // 1 to 5, the bucket the person was in when held (plan §4.4).
+    bucket: v.number(),
+    heldUntil: v.number(),
+    result: v.optional(resparkResultValidator),
+    workedAt: v.optional(v.number()),
+    // The respark touch, for Resparked and Not a fit.
+    eventId: v.optional(v.id("domainEvents")),
+  })
+    .index("by_batchId_and_position", ["batchId", "position"])
+    .index("by_tenantId_and_leadId_and_heldUntil", ["tenantId", "leadId", "heldUntil"])
+    // The hold and skip checks, and the respark evidence and credit, read
+    // only the items with the result they need.
+    .index("by_tenantId_and_leadId_and_result_and_heldUntil", ["tenantId", "leadId", "result", "heldUntil"])
+    .index("by_tenantId_and_leadId_and_result_and_workedAt", ["tenantId", "leadId", "result", "workedAt"])
+    .index("by_tenantId_and_workerId_and_workedAt", ["tenantId", "workerId", "workedAt"])
+    .index("by_tenantId_and_workedAt", ["tenantId", "workedAt"]),
+
   // === Feature E: Multi-Identifier Lead Model ===
   leadIdentifiers: defineTable({
     tenantId: v.id("tenants"),
@@ -951,6 +996,7 @@ export default defineSchema({
     .index("by_tenantId", ["tenantId"])
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: lead views take the newest opportunities first
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
+    .index("by_tenantId_and_leadId_and_createdAt", ["tenantId", "leadId", "createdAt"])
     // Whether a person has an open deal, in one read (respark plan §3.1).
     .index("by_tenantId_and_leadId_and_outcome", ["tenantId", "leadId", "outcome"])
     .index("by_tenantId_and_potentialDuplicateLeadId", [
@@ -1079,6 +1125,9 @@ export default defineSchema({
       "role",
     ])
     .index("by_tenantId_and_meetingId", ["tenantId", "meetingId"])
+    .index("by_tenantId_and_source_kind_and_attributedAt", [
+      "tenantId", "source.kind", "attributedAt",
+    ])
     .index("by_tenantId_and_role_and_attributedAt", [
       "tenantId",
       "role",

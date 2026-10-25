@@ -22,13 +22,20 @@ export const dealAttributionRoleValidator = v.union(
   v.literal("closer"),
 );
 
-// Where each row's fact came from. Each role has one source; the closer has
-// three (the booking, a reassignment, or a side deal).
+// Where each row's fact came from. Lead gen credit distinguishes capture
+// from the respark that started a later buying attempt.
 export const dealAttributionSourceValidator = v.union(
   // lead gen: the capture that was the person's first touch
   v.object({
     kind: v.literal("capture"),
     prospectId: v.id("leadGenProspects"),
+    workerId: v.id("leadGenWorkers"),
+    eventId: v.id("domainEvents"),
+  }),
+  // lead gen: the respark that started this buying attempt
+  v.object({
+    kind: v.literal("respark"),
+    itemId: v.id("resparkBatchItems"),
     workerId: v.id("leadGenWorkers"),
     eventId: v.id("domainEvents"),
   }),

@@ -1,3 +1,4 @@
+import { mergedLeadIds } from "./lib/mergedLeads";
 import { assertMeetingProjection, assertMeetingProjectionBucket, assertMeetingProjectionSource } from "./operations/meetingProjectionChecks";
 import {
   assertActivityEventCountEntries,
@@ -817,7 +818,7 @@ async function dealSetters(ctx: MutationCtx, opportunity: Doc<"opportunities">) 
 }
 
 const SOURCE_KINDS_BY_ROLE: Record<DealAttribution["role"], readonly DealAttribution["source"]["kind"][]> = {
-  lead_gen: ["capture"],
+  lead_gen: ["capture", "respark"],
   setter: ["slack_qualification"],
   dm_team: ["booking_utm"],
   dm_closer: ["booking_utm"],
@@ -840,6 +841,29 @@ function captureCredit(row: Pick<DealAttribution, "source" | "teamMemberId">) {
       ? [row.source.prospectId, row.source.workerId, row.source.eventId, row.teamMemberId ?? null]
       : [row.source.kind, row.teamMemberId ?? null],
   );
+}
+
+/**
+ * Whether the deal belonged to someone merged into its person after `at`: its
+ * creation event names its first person, and the merge history says when that
+ * person was merged. Such a deal wasn't the person's when the credit was
+ * written, so it can't have ended that attempt.
+ */
+async function mergedInAfter(ctx: MutationCtx, deal: Doc<"opportunities">, at: number): Promise<boolean> {
+  const created = await ctx.db
+    .query("domainEvents")
+    .withIndex("by_tenantId_and_entityType_and_entityId_and_occurredAt", (q) =>
+      q.eq("tenantId", deal.tenantId).eq("entityType", "opportunity").eq("entityId", deal._id),
+    )
+    .take(50);
+  const firstPerson = created.find((event) => event.eventType === "opportunity.created")?.leadId;
+  if (!firstPerson || firstPerson === deal.leadId) return false;
+  const merge = await ctx.db
+    .query("leadMergeHistory")
+    .withIndex("by_sourceLeadId", (q) => q.eq("sourceLeadId", firstPerson))
+    .first();
+  // Both are insertion times, so they compare on one clock.
+  return merge !== null && merge.tenantId === deal.tenantId && merge._creationTime > at;
 }
 
 // Checks every row on the deal (a team member on every person's role, and
@@ -883,7 +907,7 @@ export const assertDealAttributions = migrations.define({
       }
     }
 
-    const leadGenRows = rows.filter((row) => row.role === "lead_gen");
+    const leadGenRows = rows.filter((row) => row.role === "lead_gen" && row.source.kind === "capture");
     if (leadGenRows.length > 1) throw fail(`${leadGenRows.length} lead_gen rows`);
     const [leadGen] = leadGenRows;
     const expectedLeadGen = await expectedLeadGenRow(ctx, opportunity);
@@ -892,6 +916,49 @@ export const assertDealAttributions = migrations.define({
     }
     if (leadGen && expectedLeadGen && captureCredit(leadGen) !== captureCredit(expectedLeadGen)) {
       throw fail(`lead_gen row ${leadGen._id} credits ${captureCredit(leadGen)}, expected ${captureCredit(expectedLeadGen)}`);
+    }
+
+    const resparkRows = rows.filter((row) => row.source.kind === "respark");
+    if (resparkRows.length > 1) throw fail(`${resparkRows.length} respark rows`);
+    // The row's own facts: an item of this person (or of someone merged into
+    // them) resparked before the deal, with the event, worker and time the
+    // row names. Which respark started the attempt was decided when the deal
+    // was created (§4.6); a later respark or merge doesn't undo that.
+    for (const row of resparkRows) {
+      if (row.source.kind !== "respark") continue;
+      const { source } = row;
+      const item = await ctx.db.get("resparkBatchItems", source.itemId);
+      const people = await mergedLeadIds(ctx, opportunity.tenantId, opportunity.leadId);
+      const event = await ctx.db.get("domainEvents", source.eventId);
+      const worker = await ctx.db.get("leadGenWorkers", source.workerId);
+      if (!item || item.tenantId !== opportunity.tenantId || !people.includes(item.leadId) ||
+        item.result !== "resparked" || item.eventId !== source.eventId ||
+        item.workerId !== source.workerId || item.workedAt === undefined ||
+        item.workedAt !== row.attributedAt || item.workedAt >= opportunity.createdAt ||
+        worker?.tenantId !== opportunity.tenantId || worker.teamMemberId !== row.teamMemberId ||
+        event?.tenantId !== opportunity.tenantId || event.eventType !== "lead.resparked" ||
+        event.occurredAt !== item.workedAt ||
+        row.meetingId !== undefined || row.teamId !== undefined) {
+        throw fail(`invalid respark row ${row._id}`);
+      }
+      // And no other deal of theirs, written before the credit, began
+      // between the respark and this one. A deal written later with an
+      // earlier time (a late webhook) doesn't count. A merge after the credit
+      // can bring one in; the message names it.
+      for (const leadId of people) {
+        const earlier = await ctx.db
+          .query("opportunities")
+          .withIndex("by_tenantId_and_leadId_and_createdAt", (q) =>
+            q.eq("tenantId", opportunity.tenantId).eq("leadId", leadId)
+              .gte("createdAt", item.workedAt!).lt("createdAt", opportunity.createdAt),
+          )
+          .take(50);
+        for (const deal of earlier) {
+          if (deal._id === opportunity._id || deal._creationTime >= row._creationTime) continue;
+          if (await mergedInAfter(ctx, deal, row._creationTime)) continue;
+          throw fail(`respark row ${row._id} predates deal ${deal._id}`);
+        }
+      }
     }
 
     const setters = rows.flatMap((row) =>

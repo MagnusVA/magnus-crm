@@ -34,6 +34,9 @@ export const PERMISSIONS = {
   // === Lead Gen Ops ===
   "lead-gen:capture": ["lead_generator", "tenant_master", "tenant_admin"],
   "lead-gen:view-own": ["lead_generator", "tenant_master", "tenant_admin"],
+  // Respark: claim and work a batch, and read the person panel for people in
+  // the caller's own unexpired batch (docs/plans/respark.md §6.2).
+  "lead-gen:respark": ["lead_generator", "tenant_master", "tenant_admin"],
   "lead-gen:view-all": ["tenant_master", "tenant_admin"],
   "lead-gen:manage-workers": ["tenant_master", "tenant_admin"],
   "lead-gen:manage-config": ["tenant_master", "tenant_admin"],

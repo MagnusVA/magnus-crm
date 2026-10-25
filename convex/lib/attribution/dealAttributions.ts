@@ -13,6 +13,8 @@ import {
   linkLeadGenWorkerTeamMember,
   linkSlackUserTeamMember,
 } from "../teamMembers";
+import { mergedLeadIds } from "../mergedLeads";
+import { latestResparkedItemBetween } from "../respark/items";
 import { snapshotDealTouches } from "../touches";
 import type {
   dealAttributionRoleValidator,
@@ -359,10 +361,37 @@ export async function expectedLeadGenRow(
   };
 }
 
+/** The newest other deal created strictly before this buying attempt. */
+export async function previousDealCreatedAt(ctx: ReadCtx, opportunity: Doc<"opportunities">) {
+  let previous: number | undefined;
+  for (const leadId of await mergedLeadIds(ctx, opportunity.tenantId, opportunity.leadId)) {
+    const deal = await ctx.db.query("opportunities")
+      .withIndex("by_tenantId_and_leadId_and_createdAt", (q) => q
+        .eq("tenantId", opportunity.tenantId).eq("leadId", leadId)
+        .lt("createdAt", opportunity.createdAt))
+      .order("desc").first();
+    if (deal && (previous === undefined || deal.createdAt > previous)) previous = deal.createdAt;
+  }
+  return previous;
+}
+
+/**
+ * The respark that started this buying attempt (§4.6): the person's latest
+ * Resparked item worked before the deal and after their previous deal.
+ */
+export async function qualifyingResparkItem(ctx: ReadCtx, opportunity: Doc<"opportunities">) {
+  return await latestResparkedItemBetween(ctx, {
+    tenantId: opportunity.tenantId,
+    leadId: opportunity.leadId,
+    after: await previousDealCreatedAt(ctx, opportunity),
+    before: opportunity.createdAt,
+  });
+}
+
 /**
  * The work a new deal does once (§4.2): snapshot the person's touches, then
- * credit the lead gen worker when the first touch is a capture, and a side
- * deal's closer. Setters come from `recordSetterAttribution`, which the
+ * credit the first capture and the respark that began this attempt, and a
+ * side deal's closer. Setters come from `recordSetterAttribution`, which the
  * qualification calls. Callers run it after the event that created the deal.
  */
 export async function recordDealCreation(
@@ -372,10 +401,27 @@ export async function recordDealCreation(
   const opportunity = await snapshotDealTouches(ctx, opportunityId);
   if (!opportunity) return;
 
-  const leadGen = await expectedLeadGenRow(ctx, opportunity);
-  if (leadGen) {
-    const existing = await attributionsForDeal(ctx, opportunity.tenantId, opportunity._id, "lead_gen");
-    if (existing.length === 0) await insertRow(ctx, leadGen);
+  const existing = await attributionsForDeal(ctx, opportunity.tenantId, opportunity._id, "lead_gen");
+  if (!existing.some((row) => row.source.kind === "capture")) {
+    const capture = await expectedLeadGenRow(ctx, opportunity);
+    if (capture) await insertRow(ctx, capture);
+  }
+  if (!existing.some((row) => row.source.kind === "respark")) {
+    const item = await qualifyingResparkItem(ctx, opportunity);
+    if (item?.eventId && item.workedAt !== undefined) {
+      const worker = await ctx.db.get("leadGenWorkers", item.workerId);
+      if (worker?.tenantId === opportunity.tenantId) {
+        const teamMemberId = await leadGenWorkerTeamMember(ctx, worker._id);
+        if (teamMemberId) await insertRow(ctx, {
+          tenantId: opportunity.tenantId,
+          opportunityId: opportunity._id,
+          role: "lead_gen",
+          teamMemberId,
+          source: { kind: "respark", itemId: item._id, workerId: worker._id, eventId: item.eventId },
+          attributedAt: item.workedAt,
+        });
+      }
+    }
   }
 
   if (opportunity.source === "side_deal" && opportunity.assignedCloserId) {

@@ -27,6 +27,7 @@ export function registerComponents(t: ReturnType<typeof convexTest>) {
     "billingPaymentsByStatusType",
     "billingPaymentsByStatusProgramType",
     "resparkPool",
+    "resparkResultsByWorker",
   ])
     aggregate.register(t, name);
 }

@@ -84,7 +84,7 @@ function CreditRow({ credit }: { credit: AttributionCredit }) {
   return (
     <li className="grid min-w-0 grid-cols-[5rem_minmax(0,1fr)_auto] items-center gap-2 text-sm">
       <span className="truncate text-xs text-muted-foreground">
-        {ROLE_LABELS[credit.role]}
+        {credit.sourceKind === "respark" ? "Respark" : ROLE_LABELS[credit.role]}
       </span>
       <span className="flex min-w-0 items-center gap-1.5">
         {credit.identity ? (
