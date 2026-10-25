@@ -843,6 +843,29 @@ function captureCredit(row: Pick<DealAttribution, "source" | "teamMemberId">) {
   );
 }
 
+/**
+ * Whether the deal belonged to someone merged into its person after `at`: its
+ * creation event names its first person, and the merge history says when that
+ * person was merged. Such a deal wasn't the person's when the credit was
+ * written, so it can't have ended that attempt.
+ */
+async function mergedInAfter(ctx: MutationCtx, deal: Doc<"opportunities">, at: number): Promise<boolean> {
+  const created = await ctx.db
+    .query("domainEvents")
+    .withIndex("by_tenantId_and_entityType_and_entityId_and_occurredAt", (q) =>
+      q.eq("tenantId", deal.tenantId).eq("entityType", "opportunity").eq("entityId", deal._id),
+    )
+    .take(50);
+  const firstPerson = created.find((event) => event.eventType === "opportunity.created")?.leadId;
+  if (!firstPerson || firstPerson === deal.leadId) return false;
+  const merge = await ctx.db
+    .query("leadMergeHistory")
+    .withIndex("by_sourceLeadId", (q) => q.eq("sourceLeadId", firstPerson))
+    .first();
+  // Both are insertion times, so they compare on one clock.
+  return merge !== null && merge.tenantId === deal.tenantId && merge._creationTime > at;
+}
+
 // Checks every row on the deal (a team member on every person's role, and
 // references inside the tenant and on this deal), then recomputes its lead
 // gen, setter and side deal rows with one fact per identity (§4.9).
@@ -930,8 +953,11 @@ export const assertDealAttributions = migrations.define({
               .gte("createdAt", item.workedAt!).lt("createdAt", opportunity.createdAt),
           )
           .take(50);
-        const blocking = earlier.find((deal) => deal._id !== opportunity._id && deal._creationTime < row._creationTime);
-        if (blocking) throw fail(`respark row ${row._id} predates deal ${blocking._id}`);
+        for (const deal of earlier) {
+          if (deal._id === opportunity._id || deal._creationTime >= row._creationTime) continue;
+          if (await mergedInAfter(ctx, deal, row._creationTime)) continue;
+          throw fail(`respark row ${row._id} predates deal ${deal._id}`);
+        }
       }
     }
 

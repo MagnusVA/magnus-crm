@@ -107,7 +107,7 @@ describe("Respark credit", () => {
     expect(await assertRows(h)).toBeUndefined();
   });
 
-  it("does not let a backdated import invalidate historical credit", async () => {
+  it("does not let a backdated import or a later merge invalidate historical credit", async () => {
     const h = await seed();
     vi.setSystemTime(NOW + 500);
     const other = await h.t.run(async (ctx) => {
@@ -130,9 +130,10 @@ describe("Respark credit", () => {
       await ctx.db.insert("domainEvents", { tenantId: h.tenantId, leadId: h.leadId, entityType: "opportunity",
         entityId: imported, eventType: "opportunity.created", source: "pipeline", occurredAt: NOW + 750 });
       await recordDealCreation(ctx, imported);
+      // And a person merged in after the credit brings an earlier deal.
+      await executeMerge(ctx, h.tenantId, h.item.userId, other, h.leadId);
     });
     expect(await assertRows(h)).toBeUndefined();
-    void other;
   });
 
   it("rejects a stored respark that belongs to the previous attempt", async () => {

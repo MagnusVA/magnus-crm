@@ -142,9 +142,18 @@ describe("Respark queries", () => {
     const batch = (await h.admin.query(api.respark.queries.getMyResparkBatch, {}))!;
     expect(batch.items[0]).toMatchObject({ itemId: item._id, position: 0, bucket: 2, result: null, workedAt: null,
       person: { handle: "respark.panel", capturedAt: NOW - 40 * DAY_MS, capturedBy: "admin@example.com",
-        qualifiedAt: NOW - 11 * DAY_MS, timeZone: "Europe/Madrid", newestDeal: { lostReason: "no_show" } },
+        qualifiedAt: NOW - 11 * DAY_MS, timeZone: null, newestDeal: { lostReason: "no_show" } },
       blockedReason: null });
     expect(batch.items[0].person!.lastTouches.map((event) => event.eventType)).toEqual(["payment.recorded", "meeting.created", "lead.slack_qualified"]);
+    // A hand-written loss reason can hold contact details; the card masks them.
+    await h.t.run(async (ctx) => {
+      const deal = (await ctx.db.query("opportunities").withIndex("by_tenantId_and_leadId", (q) =>
+        q.eq("tenantId", h.tenantId).eq("leadId", leadId)).first())!;
+      await ctx.db.patch("opportunities", deal._id, { lostReason: "Asked us to use alice@gmail.com or +50499999912" });
+    });
+    const masked = JSON.stringify(await h.admin.query(api.respark.queries.getMyResparkBatch, {}));
+    expect(masked).not.toContain("alice@gmail.com");
+    expect(masked).not.toContain("99999912");
     await h.admin.mutation(api.leads.lifecycleAdmin.setDisposition, { leadId, disposition: "do_not_contact", reason: "Stop" });
     const blocked = (await h.admin.query(api.respark.queries.getMyResparkBatch, {}))!.items[0].blockedReason;
     expect(blocked).toBe("This person is marked do not contact.");

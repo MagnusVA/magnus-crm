@@ -15,6 +15,8 @@ export const PERSON_CALL_LIMIT = 100;
 
 /** A row cap in one section must not prevent reading the other sections. */
 export async function readPersonRows<T>(rows: AsyncIterable<T>, limit: number, budget: LiveReadState) {
+  // An exhausted budget reads nothing more, not even one document.
+  if (budget.capped) return { rows: [] as T[], capped: true };
   const state = { bytesRead: budget.bytesRead, capped: budget.capped };
   const read = await readLiveQueryRows(rows, limit, state);
   budget.bytesRead = state.bytesRead;
@@ -83,50 +85,46 @@ export async function bookingTimeZone(
   return null;
 }
 
+// A card reads the person and at most this many people merged into them;
+// the panel reads them all. Keeps a 100-card batch inside the read limits.
+const CARD_MERGED_PEOPLE = 3;
+
+/**
+ * What a batch card shows (plan §6.1). The time zone needs the booking's
+ * stored payload, so only the panel reads it.
+ */
 export async function personCard(ctx: QueryCtx, lead: Doc<"leads">, state = createLiveReadState()) {
-  const ids = await mergedLeadIds(ctx, lead.tenantId, lead._id);
+  const allIds = await mergedLeadIds(ctx, lead.tenantId, lead._id);
+  const ids = allIds.slice(0, CARD_MERGED_PEOPLE);
   const captures: Doc<"leadGenProspects">[] = [];
   const deals: Doc<"opportunities">[] = [];
-  let capped = false;
+  let capped = allIds.length > ids.length;
   for (const leadId of ids) {
     const read = await readPersonRows(ctx.db.query("leadGenProspects")
-      .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", lead.tenantId).eq("leadId", leadId)), 20, state);
+      .withIndex("by_tenantId_and_leadId", (q) => q.eq("tenantId", lead.tenantId).eq("leadId", leadId)), 5, state);
     captures.push(...read.rows);
     capped ||= read.capped;
     const dealRead = await readPersonRows(ctx.db.query("opportunities")
       .withIndex("by_tenantId_and_leadId_and_createdAt", (q) =>
-        q.eq("tenantId", lead.tenantId).eq("leadId", leadId)).order("desc"), 10, state);
+        q.eq("tenantId", lead.tenantId).eq("leadId", leadId)).order("desc"), 1, state);
     deals.push(...dealRead.rows);
     capped ||= dealRead.capped;
-    if (state.capped) break;
   }
   const capture = captures.sort((a, b) => a.firstCapturedAt - b.firstCapturedAt)[0];
   const worker = capture ? await ctx.db.get("leadGenWorkers", capture.firstCapturedByWorkerId) : null;
   const newestDeal = deals.sort((a, b) => b.createdAt - a.createdAt)[0];
-  let timeZone: string | null = null;
-  // Older bookings may be the only ones that supplied a time zone.
-  for (const deal of deals) {
-    if (state.capped) break;
-    const calls = await readPersonRows(ctx.db.query("meetings")
-      .withIndex("by_opportunityId_and_scheduledAt", (q) => q.eq("opportunityId", deal._id))
-      .order("desc"), 10, state);
-    capped ||= calls.capped;
-    for (const call of calls.rows) {
-      if (call.tenantId === lead.tenantId) timeZone = await bookingTimeZone(ctx, call, state);
-      if (timeZone) break;
-    }
-    if (timeZone) break;
-  }
-  const history = await personEvents(ctx, lead.tenantId, ids, 40, state);
+  const history = await personEvents(ctx, lead.tenantId, ids, 20, state);
   return {
     handle: instagramHandle(lead), stage: lead.lifecycleStage, disposition: lead.disposition,
     capturedAt: capture?.firstCapturedAt ?? null,
     capturedBy: worker?.tenantId === lead.tenantId ? worker.displayName ?? "Lead generator" : null,
     qualifiedAt: lead.lifecycleStageEnteredAt.qualified ?? null,
     newestDeal: newestDeal ? { opportunityId: newestDeal._id, stage: newestDeal.stage,
-      outcome: newestDeal.outcome, lostReason: newestDeal.lostReason ?? null,
+      outcome: newestDeal.outcome,
+      // Closers write loss reasons by hand; they can hold contact details.
+      lostReason: newestDeal.lostReason ? maskContactText(newestDeal.lostReason, [lead]) : null,
       createdAt: newestDeal.createdAt } : null,
-    timeZone,
+    timeZone: null,
     lastTouches: history.events.filter(eventIsTouch).slice(0, 3).map(touchSummary),
     capped: capped || history.capped,
   };
