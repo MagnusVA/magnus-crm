@@ -544,8 +544,9 @@ document.getElementById("facts").innerHTML = [
   // annotation: In conversation is nearly empty
   const a = el("g", {}, svg);
   el("text", { x: sx(1), y: 252, "text-anchor": "middle", class: "svg-label", "font-size": 12.5, "font-style": "italic", text: "Lead gen passes through here" }, a);
-  const lg = DATA.lines.find(l => l.id === "lead_gen"), sl = DATA.lines.find(l => l.id === "slack"), ca = DATA.lines.find(l => l.id === "calendly");
-  document.getElementById("route-cap").innerHTML = `<b>${pct(lg.at[0], lg.total)}</b> of people captured by lead gen are still Prospects: ${fmt(lg.at[0])} of ${fmt(lg.total)}. Of everyone who reached Booked (${fmt(lg.reached[3] + sl.reached[3] + ca.reached[3] + 1)}), ${fmt(DATA.lifecycle.showed + DATA.lifecycle.customer)} reached Showed or Customer. Showed depends on closers recording a held call, so it undercounts: see Meetings.`;
+  const lg = DATA.lines.find(l => l.id === "lead_gen");
+  const reachedBooked = DATA.lines.reduce((a, l) => a + (l.reached[3] || 0), 0);
+  document.getElementById("route-cap").innerHTML = `<b>${pct(lg.at[0], lg.total)}</b> of people captured by lead gen are still Prospects: ${fmt(lg.at[0])} of ${fmt(lg.total)}. Of everyone who reached Booked (${fmt(reachedBooked)}), ${fmt(DATA.lifecycle.showed + DATA.lifecycle.customer)} reached Showed or Customer. Showed depends on closers recording a held call, so it undercounts: see Meetings.`;
   const rows = DATA.lines.map(l => `<tr><td><span class="chip"><i style="background:var(--c-${l.id})"></i>${l.label}</span></td>${l.reached.map((n, i) => `<td class="r">${n == null ? "–" : fmt(n)}${n != null && l.at[i] ? `<br><span class="muted">${fmt(l.at[i])} here</span>` : ""}</td>`).join("")}</tr>`).join("");
   document.getElementById("route-table").innerHTML = `<table><thead><tr><th>First touch</th>${labels.map(l => `<th class="r">${l}</th>`).join("")}</tr></thead><tbody>${rows}</tbody></table><p class="muted" style="font-size:13px;margin-top:8px">Each cell: people who reached the stage or went further; below it, people at that stage now.</p>`;
 })();
@@ -796,9 +797,9 @@ function flowKit(svg) {
   edge([[qx, nodes[4].b], [qx, hold.t]], "No", { at: [qx + 30, 612] });
   // ambiguity note
   const amb = node(ox, 660, 330, 54, "hold", ["Held: two targets at once,", "or a deal changed since"]);
-  edge([[ox, 459], [ox, 490]], null, { dash: true, color: "var(--critical)", marker: "arr-crit" });
+  // Around the "New deal" node and into the held node.
+  edge([[ox, 459], [ox, 490], [ox + 190, 490], [ox + 190, 610], [ox, 610], [ox, amb.t]], null, { dash: true, color: "var(--critical)", marker: "arr-crit" });
   el("text", { x: ox + 12, y: 486, class: "svg-label", "font-size": 12, text: "both a Follow-up and a Slack deal" }, svg);
-  el("line", { x1: ox, y1: 490, x2: ox, y2: 520, stroke: "transparent" }, svg);
   const mpd = DATA.meetingsPerDeal;
   document.getElementById("land-cap").innerHTML = `In production, <b>${fmt(DATA.slack.booked)}</b> of ${fmt(DATA.slack.total)} Slack-qualified deals were later joined by a booking, and <b>${fmt(DATA.sankey.find(s => s.s === "Calendly booked").v)}</b> deals started from a booking with no earlier deal. A held booking's writes roll back, so a retry starts from scratch.`;
 })();

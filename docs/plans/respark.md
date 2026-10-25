@@ -192,7 +192,8 @@ What's left out are events no one did with the person: the Slack expiry, other s
 
 | Person | `resparkGroup` |
 | --- | --- |
-| merged, at Customer (`lifecycleStage`, not `status`), on an open deal, do not contact, or no `lastTouch` | `out` |
+| merged | none: no group and no pool entry (§11.5) |
+| at Customer (`lifecycleStage`, not `status`), on an open deal, do not contact, or no `lastTouch` | `out` |
 | disposition `not_a_fit` (any stage) | `not_a_fit` |
 | Qualified | `qualified` |
 | Prospect or In conversation | `never_qualified` |
@@ -234,7 +235,7 @@ When a deal is created, `recordDealCreation` adds a `lead_gen` row with source `
 - it was worked before the deal was created;
 - it was worked after the person's previous deal was created, if they had one.
 
-That's "the respark that started this attempt". The original capture row is unchanged, and the respark row is added beside it, never in its place. The `teamMemberId` is the resparker's. A person with no qualifying respark gets no row.
+That's "the respark that started this attempt". The original capture row is unchanged, and the respark row is added beside it, never in its place. The `teamMemberId` is the resparker's, and the row's `attributedAt` is the item's `workedAt`, the time of the respark, so the report's range on `attributedAt` (§7.2) counts a respark in the range it happened. A person with no qualifying respark gets no row.
 
 - `recordDealCreation` checks each source on its own: a capture row when the deal has none, and a respark row when it has none. Today it skips lead gen credit when any lead gen row exists.
 - `teamMemberRepoint` (`convex/attribution/teamMemberRepoint.ts`) learns `respark → source.workerId`, so respark credit follows the worker when their team member changes, as capture credit does.
@@ -287,7 +288,7 @@ Each action is one mutation. It checks that the caller holds `lead-gen:respark`,
 | | Item | Event (touch) | Disposition | Lifecycle | Credit |
 | --- | --- | --- | --- | --- | --- |
 | Resparked | `result: "resparked"`, `workedAt`, `eventId` | `lead.resparked`, actor the lead generator | not a fit → Open, source `respark`, with `lead.disposition_changed` | In conversation if behind it (cause `respark`) | none now; §4.6 at the next deal |
-| Not a fit | `result: "not_a_fit"`, `workedAt`, `eventId` | `lead.marked_not_a_fit` | `not_a_fit`, source `respark`, `dispositionSetAt`, with `lead.disposition_changed` (unless it already was) | unchanged | none |
+| Not a fit | `result: "not_a_fit"`, `workedAt`, `eventId` | `lead.marked_not_a_fit` | `not_a_fit`, source `respark`, `dispositionSetAt`, with `lead.disposition_changed`, when the current source is `system` or `respark` and the value isn't already `not_a_fit`. When an admin set the disposition (source `admin`, any value), it stays: the item and the event are still written | unchanged | none |
 | Skip | `result: "skipped"`, `workedAt` | none | unchanged | unchanged | none |
 | Batch expires | unchanged | none | unchanged | unchanged | none |
 
@@ -411,7 +412,7 @@ A Respark table beside the conversion table, per lead gen specialist:
 1. After PR 1:
    - `backfillResparkState` dry run, then the run, over 92,221 people;
    - `assertResparkState`;
-   - a read-only check that `resparkPool` totals match §2.5 within the day's drift.
+   - a read-only check that the `resparkPool` count for each group equals a paged count of the stored `resparkGroup` values with a `lastTouch`, and a recount of the buckets and the inactive people under the §4.3 rule, logged in §13. §2.5 counted with `latestTouch`, so its numbers are a reference, not a target.
 2. After PR 2:
    - `backfillCaptureLifecycle` dry run, then the run. Every non-merged person is re-derived. About 81,196 stage moves and up to 6,007 In conversation times are expected, plus the people whose In conversation came from a note or an edit;
    - `assertLeadLifecycle` (reset, about an hour, in the background);
@@ -519,7 +520,13 @@ The phase table and "How a phase runs" stay. `CONTEXT.md` (Prospect, In conversa
 
 ### 11.5 Changes made while the phase ran
 
-None yet.
+- **Merged people have no group** (PR 1). Their `resparkGroup` is cleared, so "has a pool entry" is exactly "has a group and a `lastTouch`". The action recheck still treats a merged person as `out`.
+- **Last touch, as built** (PR 1). Marking a call held usually writes only the closer's deal move, not a meeting event. So "meeting results and deal closings by a person" is: `meeting.no_show`, `meeting.canceled`, `meeting.status_changed` to held, and every deal move or loss (`opportunity.stage_changed`, `opportunity.marked_lost`, `opportunity.status_changed`) whose source isn't `system`. Events at the same millisecond go to the newer one, as `latestTouch` does.
+- **A new person starts in group `out`** (PR 1), set at insert, so every person has a group from birth.
+- **Backfill batch sizes:** `backfillResparkState` and `assertResparkState` run at 50; `backfillCaptureLifecycle` at 25.
+- **`backfillCaptureLifecycle` stops on a stage it would lower** (PR 2): a person whose records now support a lower stage, or none, throws with their ID. §2.1 expects none. Its dry run runs one batch; the move counts come from read-only scans before and after (§13).
+- **The person page's respark not-a-fit line** (PR 3) reads `dispositionSource: "respark"` and `dispositionSetAt` from the person, not the item, so it ships before the items table.
+- **CodeRabbit on PR 0:** the Not a fit guard against an admin's disposition is explicit (§5.3); the PR 1 pool check compares the aggregate with the stored groups, not with §2.5; a respark credit row's `attributedAt` is the respark time (§4.6); rollback of PRs 4 to 6 turns the feature off rather than reverting the schema (§12).
 
 ## 12. Rollback
 
@@ -527,7 +534,8 @@ Fix forward, reviewed.
 
 - **PR 1:** revert. The new fields stay on the people, unread, and the aggregate stays, unread.
 - **PR 2:** revert brings back Prospect for new captures and notes as evidence. The data doesn't revert by rerunning the backfill, since the stage never moves back on its own. A reviewed repair moves each person whose stage no longer matches the old rules back through the correction path (`correctLeadLifecycle`, which may move a stage back and syncs the projections), skipping anyone an admin moved back, then `assertLeadLifecycle`.
-- **PR 3 to 6:** revert. The rows written by respark actions stay: the items, the events, the credit rows and the dispositions. The actions are real history.
+- **PR 3:** revert.
+- **PR 4 to 6:** once a respark has been worked in production, the rows it wrote stay: the items, the events, the credit rows and the dispositions. They are real history, and Convex refuses a schema that drops the tables or the `respark` source kind while rows use them. So a rollback keeps PR 4's schema, validators, `touchChannel` entry and attribution readers, and turns the feature off instead: it removes `lead-gen:respark` from the roles and the nav item, which hides the screen and rejects every respark mutation. A full revert needs a reviewed data repair first. Before any respark is worked, PR 4 reverts cleanly.
 - **PR 7:** revert to tolerant writes.
 
 ## 13. Production log

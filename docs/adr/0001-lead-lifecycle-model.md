@@ -45,7 +45,7 @@ These are settled. Reopen one only with the product owner, and record the change
 | --- | --- | --- |
 | Person | `leads`, plus a copy in `customers` | `leads` with lifecycle stage and disposition |
 | Identifier | `leadIdentifiers` | Unchanged, with placeholder rules |
-| Prospect | A `leadGenProspects` row with no lead | A person at the Prospect stage; the prospect row keeps a `leadId` |
+| Prospect | A `leadGenProspects` row with no lead | A captured person, entered at In conversation since Respark (rule 10); the prospect row keeps a `leadId`, and the Prospect stage stays in the enum, unused |
 | Deal | `opportunities` | `opportunities` with stage and outcome |
 | Deal stage and outcome | Both inside `opportunities.status` | Separate `stage` and `outcome` fields |
 | Meeting | `meetings`, with its status copied onto the opportunity | `meetings`, attendance only |
