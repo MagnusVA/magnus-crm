@@ -146,6 +146,27 @@ async function activity(
 }
 
 describe("respark reports", () => {
+  it("keeps a loaded page's rows when new activity arrives, with the page end pinned", async () => {
+    const { h, a } = await setup();
+    for (let i = 0; i < 4; i++) await capture(a.caller, `paged.${i}`, START + (i + 1) * 60_000);
+    vi.setSystemTime(NOW);
+    const first = await activity(a.caller, 2);
+    const second = await activity(a.caller, 2, first.continueCursor);
+    await capture(a.caller, "arrives.later", NOW + 1);
+    vi.setSystemTime(NOW);
+    // The client pins each loaded page to the cursor it ended at.
+    const firstAgain = await a.caller.query(api.leadGen.activity.listMyRecentSubmissions, {
+      range: RANGE,
+      paginationOpts: { numItems: 2, cursor: null, endCursor: first.continueCursor },
+    });
+    const ids = (page: { page: { _id: string }[] }) => page.page.map((row) => row._id);
+    expect([...ids(firstAgain), ...ids(second)]).toEqual(
+      expect.arrayContaining([...ids(first), ...ids(second)]),
+    );
+    expect(ids(firstAgain)).toHaveLength(3);
+    void h;
+  });
+
   it("counts captures and worked results in the business day, merges rows, and excludes skips", async () => {
     const { h, a } = await setup();
     await capture(a.caller, "outside.capture", START - 1);

@@ -3,7 +3,8 @@
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useState, type ComponentType, type SVGProps } from "react";
 import type { FunctionReturnType } from "convex/server";
-import { usePaginatedQuery, useQuery } from "convex/react";
+import { useQuery } from "convex/react";
+import { usePaginatedQuery } from "convex-helpers/react";
 import {
   ClipboardCheckIcon,
   GaugeIcon,
