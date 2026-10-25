@@ -16,6 +16,7 @@ const recordRoleValidator = v.union(
 function rowRecordKey(row: Doc<"dealAttributions">): string | undefined {
   switch (row.source.kind) {
     case "capture":
+    case "respark":
       return row.source.workerId;
     case "slack_qualification":
       return row.source.slackUserId;

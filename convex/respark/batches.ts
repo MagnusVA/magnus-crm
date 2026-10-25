@@ -11,14 +11,13 @@ import {
   bucketRange,
   holdState,
   insertResparkItem,
+  leftPoolReason,
   workResparkItem,
 } from "../lib/respark/items";
 import { readResparkSettings } from "../lib/respark/settings";
 import {
   LEAD_MARKED_NOT_A_FIT,
   LEAD_RESPARKED,
-  hasOpenDeal,
-  resparkGroupFor,
 } from "../lib/respark/state";
 import { RESPARK_BUCKETS } from "../lib/respark/validators";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
@@ -165,19 +164,6 @@ async function workableItem(
     });
   }
   return item;
-}
-
-/**
- * Why the person can no longer be resparked or marked not a fit, or null
- * (plan §4.5, D6): they left the pool during the hold.
- */
-async function leftPoolReason(ctx: MutationCtx, lead: Doc<"leads"> | null): Promise<string | null> {
-  if (!lead || lead.status === "merged") return "This person was merged into another record.";
-  if (lead.lifecycleStage === "customer") return "This person became a customer.";
-  if (lead.disposition === "do_not_contact") return "This person is marked do not contact.";
-  const openDeal = await hasOpenDeal(ctx, lead.tenantId, lead._id);
-  if (openDeal) return "This person has an open deal now.";
-  return resparkGroupFor(lead, openDeal) === "out" ? "This person left the respark pool." : null;
 }
 
 async function requirePersonInPool(

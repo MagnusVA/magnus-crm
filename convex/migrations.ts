@@ -1,3 +1,4 @@
+import { mergedLeadIds } from "./lib/mergedLeads";
 import { assertMeetingProjection, assertMeetingProjectionBucket, assertMeetingProjectionSource } from "./operations/meetingProjectionChecks";
 import {
   assertActivityEventCountEntries,
@@ -27,6 +28,7 @@ import { getPersonProgramEnrollment } from "./enrollments/read";
 import { derivePersonEnrollments, paymentCounts } from "./lib/enrollments";
 import { lifecycleProblems, planLeadLifecycleRederive, rederiveLeadLifecycle } from "./lib/leadLifecycle";
 import { personProspects, prospectConversionProblems } from "./lib/prospectConversions";
+import { personResparkItems } from "./lib/respark/items";
 import { recomputeResparkState, resparkPool, resparkStateProblems } from "./lib/respark/state";
 import { RESPARK_GROUPS, type ResparkGroup } from "./lib/respark/validators";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
@@ -817,7 +819,7 @@ async function dealSetters(ctx: MutationCtx, opportunity: Doc<"opportunities">) 
 }
 
 const SOURCE_KINDS_BY_ROLE: Record<DealAttribution["role"], readonly DealAttribution["source"]["kind"][]> = {
-  lead_gen: ["capture"],
+  lead_gen: ["capture", "respark"],
   setter: ["slack_qualification"],
   dm_team: ["booking_utm"],
   dm_closer: ["booking_utm"],
@@ -840,6 +842,57 @@ function captureCredit(row: Pick<DealAttribution, "source" | "teamMemberId">) {
       ? [row.source.prospectId, row.source.workerId, row.source.eventId, row.teamMemberId ?? null]
       : [row.source.kind, row.teamMemberId ?? null],
   );
+}
+
+/**
+ * A later merge or backdated import must not rewrite an earlier credit's
+ * buying-attempt window. Creation events retain their original person; merge
+ * history tells us which people were joined when the attribution was added.
+ */
+async function resparkOutsideAttemptAtCreditTime(
+  ctx: MutationCtx, opportunity: Doc<"opportunities">, row: DealAttribution, itemLeadId: Id<"leads">,
+): Promise<boolean> {
+  const ids = await mergedLeadIds(ctx, opportunity.tenantId, opportunity.leadId);
+  const merges = new Map<Id<"leads">, Doc<"leadMergeHistory">>();
+  for (const leadId of ids) {
+    const merge = await ctx.db.query("leadMergeHistory")
+      .withIndex("by_sourceLeadId", (q) => q.eq("sourceLeadId", leadId)).first();
+    if (merge?.tenantId === opportunity.tenantId && merge.mergedAt <= row.createdAt &&
+      merge._creationTime <= row._creationTime) merges.set(leadId, merge);
+  }
+  const rootAtCredit = (id: Id<"leads">) => {
+    const seen = new Set<Id<"leads">>();
+    while (merges.has(id) && !seen.has(id)) {
+      seen.add(id);
+      id = merges.get(id)!.targetLeadId;
+    }
+    return id;
+  };
+  const originalPerson = async (deal: Doc<"opportunities">) => {
+    const events = await ctx.db.query("domainEvents")
+      .withIndex("by_tenantId_and_entityType_and_entityId_and_occurredAt", (q) => q
+        .eq("tenantId", deal.tenantId).eq("entityType", "opportunity").eq("entityId", deal._id))
+      .order("asc").take(50);
+    return events.find((event) => event.eventType === "opportunity.created")?.leadId ?? deal.leadId;
+  };
+  const person = rootAtCredit(await originalPerson(opportunity));
+  if (rootAtCredit(itemLeadId) !== person) return true;
+  // Only deals that could disqualify this item need reading. A newer deal
+  // created at exactly workedAt disqualifies it too (the lower bound is >=).
+  let read = 0;
+  for (const leadId of ids) {
+    const deals = await ctx.db.query("opportunities")
+      .withIndex("by_tenantId_and_leadId_and_createdAt", (q) => q
+        .eq("tenantId", opportunity.tenantId).eq("leadId", leadId)
+        .gte("createdAt", row.attributedAt).lt("createdAt", opportunity.createdAt))
+      .take(201 - read);
+    read += deals.length;
+    if (read > 200) throw new Error(`Opportunity ${opportunity._id}: more than 200 previous deals in the respark window`);
+    for (const deal of deals) {
+      if (deal._creationTime <= row._creationTime && rootAtCredit(await originalPerson(deal)) === person) return true;
+    }
+  }
+  return false;
 }
 
 // Checks every row on the deal (a team member on every person's role, and
@@ -883,7 +936,7 @@ export const assertDealAttributions = migrations.define({
       }
     }
 
-    const leadGenRows = rows.filter((row) => row.role === "lead_gen");
+    const leadGenRows = rows.filter((row) => row.role === "lead_gen" && row.source.kind === "capture");
     if (leadGenRows.length > 1) throw fail(`${leadGenRows.length} lead_gen rows`);
     const [leadGen] = leadGenRows;
     const expectedLeadGen = await expectedLeadGenRow(ctx, opportunity);
@@ -892,6 +945,30 @@ export const assertDealAttributions = migrations.define({
     }
     if (leadGen && expectedLeadGen && captureCredit(leadGen) !== captureCredit(expectedLeadGen)) {
       throw fail(`lead_gen row ${leadGen._id} credits ${captureCredit(leadGen)}, expected ${captureCredit(expectedLeadGen)}`);
+    }
+
+    const resparkRows = rows.filter((row) => row.source.kind === "respark");
+    if (resparkRows.length > 1) throw fail(`${resparkRows.length} respark rows`);
+    // Check the stored evidence, not today's latest item: later resparks
+    // must never invalidate credit already earned by an earlier attempt.
+    for (const row of resparkRows) {
+      if (row.source.kind !== "respark") continue;
+      const { source } = row;
+      const item = (await personResparkItems(ctx, opportunity.tenantId, opportunity.leadId))
+        .find((candidate) => candidate._id === source.itemId);
+      const event = await ctx.db.get("domainEvents", source.eventId);
+      const worker = await ctx.db.get("leadGenWorkers", source.workerId);
+      const outsideAttempt = item ? await resparkOutsideAttemptAtCreditTime(ctx, opportunity, row, item.leadId) : true;
+      if (!item || item.result !== "resparked" || item.eventId !== source.eventId ||
+        item.workerId !== source.workerId || item.workedAt === undefined ||
+        item.workedAt !== row.attributedAt || item.workedAt >= opportunity.createdAt ||
+        outsideAttempt ||
+        worker?.tenantId !== opportunity.tenantId || worker.teamMemberId !== row.teamMemberId ||
+        event?.tenantId !== opportunity.tenantId || event.eventType !== "lead.resparked" ||
+        event.leadId !== item.leadId || event.occurredAt !== item.workedAt ||
+        row.meetingId !== undefined || row.teamId !== undefined) {
+        throw fail(`invalid respark row ${row._id}`);
+      }
     }
 
     const setters = rows.flatMap((row) =>

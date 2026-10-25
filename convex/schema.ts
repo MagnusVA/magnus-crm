@@ -994,6 +994,7 @@ export default defineSchema({
     .index("by_tenantId", ["tenantId"])
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: lead views take the newest opportunities first
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
+    .index("by_tenantId_and_leadId_and_createdAt", ["tenantId", "leadId", "createdAt"])
     // Whether a person has an open deal, in one read (respark plan §3.1).
     .index("by_tenantId_and_leadId_and_outcome", ["tenantId", "leadId", "outcome"])
     .index("by_tenantId_and_potentialDuplicateLeadId", [
@@ -1122,6 +1123,9 @@ export default defineSchema({
       "role",
     ])
     .index("by_tenantId_and_meetingId", ["tenantId", "meetingId"])
+    .index("by_tenantId_and_source_kind_and_attributedAt", [
+      "tenantId", "source.kind", "attributedAt",
+    ])
     .index("by_tenantId_and_role_and_attributedAt", [
       "tenantId",
       "role",

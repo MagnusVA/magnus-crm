@@ -3,6 +3,7 @@ import { components } from "../../_generated/api";
 import type { DataModel, Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
 import { mergedLeadIds } from "../mergedLeads";
+import { hasOpenDeal, resparkGroupFor } from "./state";
 import { DAY_MS } from "./settings";
 import type { ResparkBucket, ResparkGroup, ResparkResult } from "./validators";
 
@@ -181,4 +182,17 @@ export async function personResparkItems(
   return items
     .sort((a, b) => b.heldUntil - a.heldUntil || b._creationTime - a._creationTime)
     .slice(0, limit);
+}
+
+/**
+ * Why the person can no longer be resparked or marked not a fit, or null
+ * (plan §4.5, D6): they left the pool during the hold.
+ */
+export async function leftPoolReason(ctx: ReadCtx, lead: Doc<"leads"> | null): Promise<string | null> {
+  if (!lead || lead.status === "merged") return "This person was merged into another record.";
+  if (lead.lifecycleStage === "customer") return "This person became a customer.";
+  if (lead.disposition === "do_not_contact") return "This person is marked do not contact.";
+  const openDeal = await hasOpenDeal(ctx, lead.tenantId, lead._id);
+  if (openDeal) return "This person has an open deal now.";
+  return resparkGroupFor(lead, openDeal) === "out" ? "This person left the respark pool." : null;
 }
