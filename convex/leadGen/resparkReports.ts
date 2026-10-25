@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import type { Id } from "../_generated/dataModel";
 import { query, type QueryCtx } from "../_generated/server";
 import { requireTenantUser } from "../requireTenantUser";
+import { PERMISSIONS } from "../lib/permissions";
 import { assertLeadGenBusinessDayReady } from "../lib/businessDayRebuildState";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
 import {
@@ -92,10 +93,7 @@ export const listResparkPerformance = query({
     bookedCapped: v.boolean(),
   }),
   handler: async (ctx, args) => {
-    const { tenantId } = await requireTenantUser(ctx, [
-      "tenant_master",
-      "tenant_admin",
-    ]);
+    const { tenantId } = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:view-all"]]);
     await assertLeadGenBusinessDayReady(ctx, tenantId);
     if (args.startDayKey > args.endDayKey)
       throw new Error("Start date must be on or before end date");
