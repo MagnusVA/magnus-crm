@@ -161,6 +161,27 @@ describe("claimResparkBatch", () => {
     expect((await lead(h, item.leadId)).lastTouch?.eventType).toBe("lead.captured");
   });
 
+  it("keeps a hold on a person merged into another, for the survivor", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness();
+    const second = await addUser(h, "user_lg", "lead_generator");
+    await pool(h, [40, 45]);
+    await setBatchSize(h, 10);
+    const all = await h.t.run((ctx) => ctx.db.query("leads").take(2));
+    const held = all.find((row) => row.lastTouch!.occurredAt === NOW - 40 * DAY_MS)!;
+    const survivor = all.find((row) => row._id !== held._id)!;
+    // The admin holds both; skipping the survivor leaves its only hold on
+    // the person merged into it.
+    const first = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
+    const items = await batchItems(h, first.batchId);
+    const survivorItem = items.find((item) => item.leadId === survivor._id)!;
+    await h.admin.mutation(api.respark.batches.skipResparkItem, { itemId: survivorItem._id });
+
+    await h.admin.mutation(api.leads.merge.mergeLead, { sourceLeadId: held._id, targetLeadId: survivor._id });
+    // The survivor carries the merged person's hold.
+    expect((await second.mutation(api.respark.batches.claimResparkBatch, {})).size).toBe(0);
+  });
+
   it("stays inside the caller's tenant", async () => {
     vi.useFakeTimers();
     const h = await bookingHarness();
@@ -254,6 +275,34 @@ describe("the actions", () => {
     vi.setSystemTime(new Date(NOW + 31 * DAY_MS));
     const later = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
     expect((await batchItems(h, later.batchId)).map((row) => [row.leadId, row.bucket])).toEqual([[item.leadId, 5]]);
+  });
+
+  it("a second Not a fit moves the decision's time, so older evidence doesn't reopen it", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness();
+    const item = await heldPerson(h);
+    await h.admin.mutation(api.respark.batches.markNotAFit, { itemId: item._id });
+    const later = NOW + 31 * DAY_MS;
+    vi.setSystemTime(new Date(later));
+    const { batchId } = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
+    const [again] = await batchItems(h, batchId);
+    expect(again.leadId).toBe(item.leadId);
+    await h.admin.mutation(api.respark.batches.markNotAFit, { itemId: again._id });
+    expect(await lead(h, item.leadId)).toMatchObject({ disposition: "not_a_fit", dispositionSetAt: later });
+  });
+
+  it("derives the stage from Resparked items only, however many other items a person has", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness();
+    const item = await heldPerson(h);
+    await h.admin.mutation(api.respark.batches.markResparked, { itemId: item._id });
+    await h.t.run(async (ctx) => {
+      const { _id, _creationTime, ...fields } = (await ctx.db.get("resparkBatchItems", item._id))!;
+      for (let i = 0; i < 210; i += 1) {
+        await ctx.db.insert("resparkBatchItems", { ...fields, result: "skipped", eventId: undefined, heldUntil: fields.heldUntil - (i + 1) * DAY_MS });
+      }
+    });
+    expect(await checks(h, item.leadId)).toEqual([]);
   });
 
   it("Not a fit leaves a disposition an admin set", async () => {

@@ -71,60 +71,114 @@ export function bucketRange(
   }
 }
 
-// A person is in a few batches a day at most; one more than this means a
-// runaway, and the check fails closed.
-const ITEMS_PER_PERSON_DAY_LIMIT = 50;
+// Skips of one person by different lead generators in one business day; past
+// it the check fails closed and leaves the person out of the batch.
+const SKIPS_PER_PERSON_DAY_LIMIT = 20;
 
 /**
  * Whether the person is held now (an unworked item whose batch hasn't
  * expired), and whether `userId` skipped them in a batch still in its
- * business day. Reads the items whose `heldUntil` is still ahead, which are
- * exactly the items from the current business day. A claim reads this range
- * for each candidate and writes into it, so two claims at once conflict and
- * one retries (plan §4.5).
+ * business day. Reads only unworked and skipped items whose `heldUntil` is
+ * ahead, which are exactly the items from the current business day, on the
+ * person and on every lead merged into them (plan §4.5): items stay on the
+ * person they were made for. A claim reads these ranges for each candidate
+ * and writes into them, so two claims at once conflict and one retries.
  */
 export async function holdState(
   ctx: ReadCtx,
   args: { tenantId: Id<"tenants">; leadId: Id<"leads">; userId: Id<"users">; now: number },
 ): Promise<{ held: boolean; skippedByUser: boolean }> {
-  const items = await ctx.db
-    .query("resparkBatchItems")
-    .withIndex("by_tenantId_and_leadId_and_heldUntil", (q) =>
-      q.eq("tenantId", args.tenantId).eq("leadId", args.leadId).gt("heldUntil", args.now),
-    )
-    .take(ITEMS_PER_PERSON_DAY_LIMIT + 1);
-  if (items.length > ITEMS_PER_PERSON_DAY_LIMIT) return { held: true, skippedByUser: true };
-  return {
-    held: items.some((item) => item.result === undefined),
-    skippedByUser: items.some((item) => item.result === "skipped" && item.userId === args.userId),
-  };
+  for (const leadId of await mergedLeadIds(ctx, args.tenantId, args.leadId)) {
+    const unworked = await ctx.db
+      .query("resparkBatchItems")
+      .withIndex("by_tenantId_and_leadId_and_result_and_heldUntil", (q) =>
+        q.eq("tenantId", args.tenantId).eq("leadId", leadId).eq("result", undefined).gt("heldUntil", args.now),
+      )
+      .first();
+    if (unworked) return { held: true, skippedByUser: false };
+    const skips = await ctx.db
+      .query("resparkBatchItems")
+      .withIndex("by_tenantId_and_leadId_and_result_and_heldUntil", (q) =>
+        q.eq("tenantId", args.tenantId).eq("leadId", leadId).eq("result", "skipped").gt("heldUntil", args.now),
+      )
+      .take(SKIPS_PER_PERSON_DAY_LIMIT + 1);
+    if (skips.length > SKIPS_PER_PERSON_DAY_LIMIT || skips.some((item) => item.userId === args.userId)) {
+      return { held: false, skippedByUser: true };
+    }
+  }
+  return { held: false, skippedByUser: false };
 }
 
-// Far above the resparks one person can have (one per 30 days at most).
-const PERSON_ITEM_LIMIT = 200;
+/**
+ * The person's earliest Resparked item, across every lead merged into them:
+ * the only one that can set a stage time (plan §5.3).
+ */
+export async function firstResparkedItem(
+  ctx: ReadCtx,
+  tenantId: Id<"tenants">,
+  leadId: Id<"leads">,
+): Promise<Doc<"resparkBatchItems"> | null> {
+  let first: Doc<"resparkBatchItems"> | null = null;
+  for (const id of await mergedLeadIds(ctx, tenantId, leadId)) {
+    const item = await ctx.db
+      .query("resparkBatchItems")
+      .withIndex("by_tenantId_and_leadId_and_result_and_workedAt", (q) =>
+        q.eq("tenantId", tenantId).eq("leadId", id).eq("result", "resparked"),
+      )
+      .first();
+    if (item && (!first || (item.workedAt ?? 0) < (first.workedAt ?? 0))) first = item;
+  }
+  return first;
+}
 
 /**
- * The person's items, across every lead merged into them (plan §4.5): items
- * stay on the person they were made for. Newest hold first.
+ * The person's latest Resparked item worked in `(after, before)`, across
+ * every lead merged into them: the respark that started a deal (plan §4.6).
+ */
+export async function latestResparkedItemBetween(
+  ctx: ReadCtx,
+  args: { tenantId: Id<"tenants">; leadId: Id<"leads">; after?: number; before: number },
+): Promise<Doc<"resparkBatchItems"> | null> {
+  let latest: Doc<"resparkBatchItems"> | null = null;
+  for (const id of await mergedLeadIds(ctx, args.tenantId, args.leadId)) {
+    const item = await ctx.db
+      .query("resparkBatchItems")
+      .withIndex("by_tenantId_and_leadId_and_result_and_workedAt", (q) => {
+        const resparked = q.eq("tenantId", args.tenantId).eq("leadId", id).eq("result", "resparked");
+        return args.after === undefined
+          ? resparked.lt("workedAt", args.before)
+          : resparked.gt("workedAt", args.after).lt("workedAt", args.before);
+      })
+      .order("desc")
+      .first();
+    if (item && (!latest || (item.workedAt ?? 0) > (latest.workedAt ?? 0))) latest = item;
+  }
+  return latest;
+}
+
+/**
+ * The person's newest items, up to `limit`, across every lead merged into
+ * them, for respark history. Newest hold first.
  */
 export async function personResparkItems(
   ctx: ReadCtx,
   tenantId: Id<"tenants">,
   leadId: Id<"leads">,
+  limit = 50,
 ): Promise<Doc<"resparkBatchItems">[]> {
   const items: Doc<"resparkBatchItems">[] = [];
   for (const id of await mergedLeadIds(ctx, tenantId, leadId)) {
-    const page = await ctx.db
-      .query("resparkBatchItems")
-      .withIndex("by_tenantId_and_leadId_and_heldUntil", (q) =>
-        q.eq("tenantId", tenantId).eq("leadId", id),
-      )
-      .order("desc")
-      .take(PERSON_ITEM_LIMIT + 1);
-    items.push(...page);
-    if (items.length > PERSON_ITEM_LIMIT) {
-      throw new Error(`Lead ${leadId} has more than ${PERSON_ITEM_LIMIT} respark items`);
-    }
+    items.push(
+      ...(await ctx.db
+        .query("resparkBatchItems")
+        .withIndex("by_tenantId_and_leadId_and_heldUntil", (q) =>
+          q.eq("tenantId", tenantId).eq("leadId", id),
+        )
+        .order("desc")
+        .take(limit)),
+    );
   }
-  return items.sort((a, b) => b.heldUntil - a.heldUntil || b._creationTime - a._creationTime);
+  return items
+    .sort((a, b) => b.heldUntil - a.heldUntil || b._creationTime - a._creationTime)
+    .slice(0, limit);
 }

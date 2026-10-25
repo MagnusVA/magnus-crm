@@ -28,8 +28,12 @@ import { requireTenantUser, type TenantUserResult } from "../requireTenantUser";
 // Every function takes the tenant, user and worker from the identity.
 
 // A claim reads at most this many people across the buckets, held ones
-// included, and returns a shorter batch rather than read more (D9).
-export const CLAIM_READ_LIMIT = 1500;
+// included, and returns a shorter batch rather than read more (D9). Each
+// candidate costs its lead document and three index reads (its merges, an
+// unworked item, today's skips of at most 21 items), so 1,000 stays under
+// Convex's 4,096 reads and 32,000 documents per transaction, with lead
+// documents of a few KB well under 16 MiB.
+export const CLAIM_READ_LIMIT = 1000;
 
 const RESPARK_ROLES = [...PERMISSIONS["lead-gen:respark"]];
 

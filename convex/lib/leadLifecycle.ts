@@ -19,7 +19,7 @@ import { isOpenDeal } from "../opportunities/dealGuards";
 import type { DealStateFields } from "../opportunities/dealState";
 import { leadStageEntries } from "../reporting/aggregates";
 import { emitDomainEvent, type DomainEventSource } from "./domainEvents";
-import { personResparkItems } from "./respark/items";
+import { firstResparkedItem } from "./respark/items";
 import { refreshResparkState } from "./respark/state";
 import { personProspects, syncPersonProspectConversions } from "./prospectConversions";
 
@@ -487,9 +487,11 @@ export async function collectLifecycleEvidence(
   if (firstCopy) {
     evidence.push(...portalCopyEvidence(firstCopy));
   }
-  // Items stay on the person they were made for, so read across merges.
-  for (const item of await personResparkItems(ctx, tenantId, leadId)) {
-    evidence.push(...resparkEvidence(item));
+  // Only the earliest respark can set a time. Items stay on the person they
+  // were made for, so it's read across merges.
+  const firstRespark = await firstResparkedItem(ctx, tenantId, leadId);
+  if (firstRespark) {
+    evidence.push(...resparkEvidence(firstRespark));
   }
   return { evidence, opportunities };
 }
@@ -787,11 +789,17 @@ export async function resparkSetDisposition(
   to: "open" | "not_a_fit",
   write: { actorUserId: Id<"users">; at: number },
 ): Promise<boolean> {
-  const applies =
-    to === "open"
-      ? lead.disposition === "not_a_fit"
-      : lead.disposition !== "not_a_fit" && lead.dispositionSource !== "admin";
-  if (!applies) {
+  if (to === "not_a_fit" && lead.dispositionSource === "admin") {
+    return false;
+  }
+  if (to === "not_a_fit" && lead.disposition === "not_a_fit") {
+    // Confirmed again: the decision's time moves, so only evidence newer
+    // than this one reopens it (plan §4.7). The value didn't change, so no
+    // event.
+    await ctx.db.patch("leads", lead._id, { dispositionSetAt: write.at, dispositionSource: "respark" });
+    return false;
+  }
+  if (to === "open" && lead.disposition !== "not_a_fit") {
     return false;
   }
   const reason = to === "open" ? "resparked" : "respark_not_a_fit";

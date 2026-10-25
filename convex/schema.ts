@@ -629,6 +629,10 @@ export default defineSchema({
   })
     .index("by_batchId_and_position", ["batchId", "position"])
     .index("by_tenantId_and_leadId_and_heldUntil", ["tenantId", "leadId", "heldUntil"])
+    // The hold and skip checks, and the respark evidence and credit, read
+    // only the items with the result they need.
+    .index("by_tenantId_and_leadId_and_result_and_heldUntil", ["tenantId", "leadId", "result", "heldUntil"])
+    .index("by_tenantId_and_leadId_and_result_and_workedAt", ["tenantId", "leadId", "result", "workedAt"])
     .index("by_tenantId_and_workerId_and_workedAt", ["tenantId", "workerId", "workedAt"])
     .index("by_tenantId_and_workedAt", ["tenantId", "workedAt"]),
 
