@@ -30,6 +30,7 @@ import {
 } from "../../_components/use-operations-report-job";
 import { LeadGenFilterBar } from "./lead-gen-filter-bar";
 import { LeadGenSummaryCards } from "./lead-gen-summary-cards";
+import { ResparkPerformanceTable } from "./respark-performance-table";
 import { ProspectConversionTable } from "./prospect-conversion-table";
 import { RawSubmissionsTable } from "./raw-submissions-table";
 import { SpecialistPerformanceTable } from "./specialist-performance-table";
@@ -84,6 +85,8 @@ export function LeadGenAdminPageClient() {
 		startDayKey: filters.startDayKey,
 		endDayKey: filters.endDayKey,
 	});
+	const resparks = useQuery(api.leadGen.resparkReports.listResparkPerformance,
+    rebuilding || !loaded ? "skip" : filters);
 	const snapshot = useOperationsDashboardReport({
 		reportKind: "lead-gen",
 		range: queryRange,
@@ -173,6 +176,7 @@ export function LeadGenAdminPageClient() {
 			<LeadGenSummaryCards data={displayOverview} specialistCount={displayWorkers?.length} />
 			<SpecialistPerformanceTable rows={displayWorkers} teams={displayTeams} />
 			<ProspectConversionTable report={conversions} />
+			<ResparkPerformanceTable report={resparks} />
 			<TopOriginsTable groups={displayOrigins} />
 
 			<RawSubmissionsTable filters={filters} />
