@@ -52,6 +52,10 @@ import {
   type DetectedInstagramOrigin,
 } from "./instagram-origin-detection";
 import { getErrorMessage } from "@/lib/errors";
+import {
+  captureConfirmation,
+  type CaptureConfirmation,
+} from "./capture-confirmation";
 
 
 type CaptureSource = "instagram" | "meta_business";
@@ -117,6 +121,7 @@ const prospectSchema = z.object({
 type ProspectValues = z.infer<typeof prospectSchema>;
 
 type LastResult = {
+  confirmation: CaptureConfirmation;
   duplicateProspect: boolean;
   duplicateRetry: boolean;
   submittedAt: number;
@@ -306,22 +311,26 @@ export function LeadGenCapturePageClient() {
               clientSubmissionKey: makeClientSubmissionKey(),
             });
 
+      // eslint-disable-next-line react-hooks/purity -- runs on submit; the compiler can't see past form.handleSubmit
+      const submittedAt = Date.now();
+      const confirmation = captureConfirmation(result, submittedAt, setting.timeZone);
       setLastResult({
+        confirmation,
         duplicateProspect: result.duplicateProspect,
         duplicateRetry: result.duplicateRetry,
-        // eslint-disable-next-line react-hooks/purity -- runs on submit; the compiler can't see past form.handleSubmit
-        submittedAt: Date.now(),
+        submittedAt,
         prospectId: result.prospectId,
       });
 
       resetProspectInput();
       focusProspectInput();
 
-      toast.success(
-        result.duplicateProspect
-          ? "Duplicate prospect attempt captured"
-          : "New prospect captured",
-      );
+      // A known person's title doesn't say it was a duplicate, so the detail does.
+      const countsAsDupe = result.duplicateProspect && result.person !== undefined;
+      const description = [confirmation.detail, countsAsDupe ? "Counts as a dupe." : undefined]
+        .filter(Boolean)
+        .join(" ");
+      toast.success(confirmation.title, description ? { description } : undefined);
     } catch (error) {
       toast.error(getErrorMessage(error, "Capture failed"));
     } finally {
@@ -696,10 +705,18 @@ function LastCaptureResult({ result }: { result: LastResult }) {
     <div className="flex min-w-0 flex-col gap-2 rounded-lg border bg-muted/30 p-3">
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={result.duplicateProspect ? "outline" : "secondary"}>
-          {result.duplicateProspect ? "Duplicate Prospect" : "New Prospect"}
+          {result.duplicateProspect ? "Duplicate" : "Unique"}
         </Badge>
         {result.duplicateRetry ? (
           <Badge variant="outline">Retry Ignored</Badge>
+        ) : null}
+      </div>
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <p className="text-sm font-medium">{result.confirmation.title}</p>
+        {result.confirmation.detail ? (
+          <p className="text-sm text-muted-foreground">
+            {result.confirmation.detail}
+          </p>
         ) : null}
       </div>
       <p className="min-w-0 truncate text-sm text-muted-foreground">

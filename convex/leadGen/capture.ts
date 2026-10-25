@@ -1,4 +1,4 @@
-import { ConvexError } from "convex/values";
+import { ConvexError, v, type Infer } from "convex/values";
 import { internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
 import { mutation, type MutationCtx } from "../_generated/server";
@@ -11,6 +11,12 @@ import {
   normalizeLeadGenProspectInput,
 } from "./normalization";
 import { leadGenSubmitArgsValidator } from "./validators";
+import {
+  dispositionSourceValidator,
+  dispositionValidator,
+  lifecycleStageValidator,
+} from "../leads/lifecycle";
+import { inactiveAfterDays } from "../lib/respark/settings";
 import {
   updateLeadGenDailyStats,
   updateLeadGenOriginStats,
@@ -39,8 +45,34 @@ const INSTAGRAM_CAPTURE_ORIGINS = new Set<LeadGenOriginKind>([
   "application",
 ]);
 
+// Where the person stood before this capture, for the confirmation
+// (docs/plans/respark.md §5.4).
+const capturedPersonValidator = v.object({
+  isNew: v.boolean(),
+  stage: lifecycleStageValidator,
+  disposition: dispositionValidator,
+  dispositionSource: v.optional(dispositionSourceValidator),
+  dispositionSetAt: v.optional(v.number()),
+  lastTouchAt: v.optional(v.number()),
+  nextMeetingAt: v.optional(v.number()),
+});
+
+type CapturedPerson = Infer<typeof capturedPersonValidator>;
+
+const MAX_OPEN_DEALS_READ = 20;
+
 export const submit = mutation({
   args: leadGenSubmitArgsValidator,
+  returns: v.object({
+    submissionId: v.id("leadGenSubmissions"),
+    prospectId: v.id("leadGenProspects"),
+    leadId: v.optional(v.id("leads")),
+    duplicateRetry: v.boolean(),
+    duplicateProspect: v.boolean(),
+    // Absent on a keyed retry: the state before the original capture is gone.
+    person: v.optional(capturedPersonValidator),
+    inactiveAfterDays: v.number(),
+  }),
   handler: async (ctx, args) => {
     const access = await requireTenantUser(ctx, [
       "lead_generator",
@@ -78,6 +110,7 @@ export const submit = mutation({
           leadId: existingProspect?.leadId,
           duplicateRetry: true,
           duplicateProspect: false,
+          inactiveAfterDays: inactiveAfterDays(await ctx.db.get("tenants", access.tenantId)),
         };
       }
     }
@@ -104,13 +137,23 @@ export const submit = mutation({
     // The prospect is a person, found by handle or created at Prospect
     // (docs/plans/phase-2-person-first.md §4.1).
     let createdLeadId: Id<"leads"> | undefined;
-    if (!prospect) {
+    // Read before the capture's stage move and touch.
+    let personBefore: CapturedPerson | undefined;
+    if (prospect) {
+      personBefore = await capturedPersonBefore(
+        ctx,
+        await ctx.db.get("leads", prospect.leadId),
+        false,
+        now,
+      );
+    } else {
       const person = await findOrCreateCapturePerson(ctx, {
         tenantId: access.tenantId,
         normalizedHandle: normalized.normalizedHandle,
         capturedAt: now,
       });
       createdLeadId = person.created ? person.lead._id : undefined;
+      personBefore = await capturedPersonBefore(ctx, person.lead, person.created, now);
       const prospectId = await ctx.db.insert("leadGenProspects", {
         tenantId: access.tenantId,
         leadId: person.lead._id,
@@ -248,9 +291,58 @@ export const submit = mutation({
       leadId: prospect.leadId,
       duplicateRetry: false,
       duplicateProspect,
+      person: personBefore,
+      inactiveAfterDays: inactiveAfterDays(await ctx.db.get("tenants", access.tenantId)),
     };
   },
 });
+
+/**
+ * Where the person stood before this capture. A new person has no last
+ * touch, and the next call is read only for someone at Booked or Showed.
+ */
+async function capturedPersonBefore(
+  ctx: MutationCtx,
+  lead: Doc<"leads"> | null,
+  isNew: boolean,
+  now: number,
+): Promise<CapturedPerson | undefined> {
+  if (!lead) {
+    return undefined;
+  }
+  const hadCall = lead.lifecycleStage === "booked" || lead.lifecycleStage === "showed";
+  return {
+    isNew,
+    stage: lead.lifecycleStage,
+    disposition: lead.disposition,
+    dispositionSource: lead.dispositionSource,
+    dispositionSetAt: lead.dispositionSetAt,
+    lastTouchAt: isNew ? undefined : lead.lastTouch?.occurredAt,
+    nextMeetingAt: hadCall ? await nextMeetingAt(ctx, lead, now) : undefined,
+  };
+}
+
+/** The soonest future scheduled call on the person's open deals. */
+async function nextMeetingAt(
+  ctx: MutationCtx,
+  lead: Doc<"leads">,
+  now: number,
+): Promise<number | undefined> {
+  const openDeals = await ctx.db
+    .query("opportunities")
+    .withIndex("by_tenantId_and_leadId_and_outcome", (q) =>
+      q.eq("tenantId", lead.tenantId).eq("leadId", lead._id).eq("outcome", "open"),
+    )
+    .take(MAX_OPEN_DEALS_READ);
+  let soonest: number | undefined;
+  for (const deal of openDeals) {
+    const at = deal.nextMeetingAt;
+    if (at !== undefined && at > now && (soonest === undefined || at < soonest)) {
+      soonest = at;
+    }
+  }
+  return soonest;
+}
 
 /**
  * The capture's person. A handle that two persons hold, or whose identifier
