@@ -91,12 +91,7 @@ export const getMyResparkToday = query({
         upper: { key: [worker._id, result, end], inclusive: false },
       } }))) : [0, 0];
     // A batch is done when every person in it was worked (plan §6.1).
-    let batchesDone = 0;
-    for (const batch of batches.slice(-50)) {
-      const items = await ctx.db.query("resparkBatchItems")
-        .withIndex("by_batchId_and_position", (q) => q.eq("batchId", batch._id)).take(batch.size);
-      if (batch.size > 0 && items.every((item) => item.result !== undefined)) batchesDone += 1;
-    }
+    const batchesDone = batches.filter((batch) => batch.completedAt !== undefined).length;
     return { batchesDone, resparks: counts[0], notAFits: counts[1], start, end };
   },
 });

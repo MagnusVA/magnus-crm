@@ -41,6 +41,18 @@ export async function workResparkItem(
   await ctx.db.patch("resparkBatchItems", item._id, work);
   const after = (await ctx.db.get("resparkBatchItems", item._id))!;
   await resparkResultsByWorker.replace(ctx, item, after);
+  // The batch is done when this was its last unworked person (a batch holds
+  // at most 100).
+  const batch = await ctx.db.get("resparkBatches", item.batchId);
+  if (batch && batch.completedAt === undefined) {
+    const items = await ctx.db
+      .query("resparkBatchItems")
+      .withIndex("by_batchId_and_position", (q) => q.eq("batchId", item.batchId))
+      .take(batch.size);
+    if (items.every((row) => row.result !== undefined)) {
+      await ctx.db.patch("resparkBatches", batch._id, { completedAt: work.workedAt });
+    }
+  }
 }
 
 export const THIRTY_DAYS_MS = 30 * DAY_MS;

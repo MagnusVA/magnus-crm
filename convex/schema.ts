@@ -608,6 +608,8 @@ export default defineSchema({
     // The people it got, and the batch size setting when it was asked for.
     size: v.number(),
     requestedSize: v.number(),
+    // When the last person in it was worked.
+    completedAt: v.optional(v.number()),
   }).index("by_tenantId_and_userId_and_createdAt", ["tenantId", "userId", "createdAt"]),
 
   // One per person in a batch. An unworked item in an unexpired batch is the
