@@ -218,6 +218,21 @@ describe("Respark queries", () => {
     expect((await caller.query(api.respark.queries.getResparkPoolCounts, {})).buckets[1].count).toBe(1);
     expect((await caller.query(api.respark.queries.getMyResparkToday, {})).batchesDone).toBe(0);
     expect(await caller.query(api.respark.queries.getResparkPersonPanel, { itemId: batch.items[0].itemId })).not.toBeNull();
+
+    // Turning their lead gen access off closes every read, held batch included.
+    await h.t.run(async (ctx) => {
+      const worker = (await ctx.db.query("leadGenWorkers").withIndex("by_tenantId_and_isActive", (q) =>
+        q.eq("tenantId", h.tenantId)).take(10)).find((row) => row.email === "generator@example.com")!;
+      await ctx.db.patch("leadGenWorkers", worker._id, { isActive: false });
+    });
+    for (const read of [
+      () => caller.query(api.respark.queries.getMyResparkBatch, {}),
+      () => caller.query(api.respark.queries.getResparkPoolCounts, {}),
+      () => caller.query(api.respark.queries.getMyResparkToday, {}),
+      () => caller.query(api.respark.queries.getResparkPersonPanel, { itemId: batch.items[0].itemId }),
+    ]) {
+      await expect(read()).rejects.toThrow("not active");
+    }
   });
 
   it("marks a capped timeline explicitly and still returns notes and deals", async () => {

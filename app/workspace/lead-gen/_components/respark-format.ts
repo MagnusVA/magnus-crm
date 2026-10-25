@@ -20,18 +20,30 @@ export function bucketSwatchClass(bucket: number) {
   return BUCKET_SWATCHES[bucket] ?? "bg-muted-foreground";
 }
 
+// Formatters are costly to build; one per zone and variant, reused.
+const formatters = new Map<string, Intl.DateTimeFormat>();
+function formatter(key: string, options: Intl.DateTimeFormatOptions) {
+  let cached = formatters.get(key);
+  if (!cached) {
+    cached = new Intl.DateTimeFormat("en-GB", options);
+    formatters.set(key, cached);
+  }
+  return cached;
+}
+
 /** "01:00" in the zone. */
 export function formatClock(ms: number, timeZone: string) {
-  return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone }).format(ms);
+  return formatter(`clock:${timeZone}`, { hour: "2-digit", minute: "2-digit", timeZone }).format(ms);
 }
 
 /** "14 Jul", with the year when it isn't this year's. */
 export function formatDay(ms: number, timeZone: string, now = Date.now()) {
-  const year = (value: number) => new Intl.DateTimeFormat("en-GB", { year: "numeric", timeZone }).format(value);
-  return new Intl.DateTimeFormat("en-GB", {
+  const year = formatter(`year:${timeZone}`, { year: "numeric", timeZone });
+  const sameYear = year.format(ms) === year.format(now);
+  return formatter(`day:${sameYear}:${timeZone}`, {
     day: "numeric",
     month: "short",
-    year: year(ms) === year(now) ? undefined : "numeric",
+    year: sameYear ? undefined : "numeric",
     timeZone,
   }).format(ms);
 }
