@@ -1,6 +1,6 @@
 # Respark
 
-Status: live, 2026-10-25. PRs 1 to 7 (#198 to #204) are merged and deployed, and every production run in §9 and §10 has passed except the final health checks, which are running (§13.3). The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) approved the plan and every recommendation in §11.3 on 2026-10-24, with every production run in §9 and §10.
+Status: done, 2026-10-25. PRs 1 to 7 (#198 to #204) are merged and deployed, and every production run in §9 and §10 has passed, the final health checks included (§13.3). The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) approved the plan and every recommendation in §11.3 on 2026-10-24, with every production run in §9 and §10.
 
 The spec is the approved [Respark proposal](../reviews/respark-proposal.html), mockups included. [The pipeline map](../reviews/pipeline-map.html) describes how the pipeline works today. Terms follow [`CONTEXT.md`](../../CONTEXT.md), and the model is [ADR 0001](../adr/0001-lead-lifecycle-model.md). Respark is new work after the roadmap, which closed with Phase 6. It runs as one phase under the ADR's "How a phase runs".
 
@@ -338,7 +338,7 @@ The Lifecycle card (`entity-lifecycle-section.tsx`) gets:
 
 - **the inactive badge**, "Inactive · 127 days", from `lastTouch` and the setting. The detail query returns the setting with the person;
 - **"Last touch"**, the date and a label for its event type;
-- **the respark not a fit line:** "Set in a respark, by a lead generator, on 24 Oct". It reopens on its own (§4.7) and reads the latest `not_a_fit` item. It names the role, not the person.
+- **the respark not a fit line:** "Set in a respark, by a lead generator, on 24 Oct". It reopens on its own (§4.7) and reads the person's `dispositionSource` and `dispositionSetAt` (§5.3). It names the role, not the person.
 
 No list filter or tab for inactive people.
 
@@ -465,7 +465,7 @@ The proposal was approved as written:
 2. **Credit: both.** The capturer keeps their row, and a resparked person who gets a deal adds a `respark` row for the resparker (§4.6).
 3. **No region or shift routing.**
 4. **Batch size** is a tenant setting, default 45, held until the business day ends; unworked people go back to the pool.
-5. **Not a fit reopens on its own** when the person qualifies, books or is resparked.
+5. **Not a fit reopens on its own** when the person is resparked, or qualifies or books after the not a fit was set.
 6. **`unresponsive` stays** and doesn't change the bucket.
 7. **Prospect stays, unused.** It's retired later, once reports read In conversation as the entry stage.
 
@@ -505,14 +505,14 @@ Each was accepted as recommended.
 - **Q6. The panel's permission** is `lead-gen:respark`, for lead generators and admins, for people in their own batch until the batch ends.
 - **Q7. Production runs.** Approving the plan covers every run in §9 and §10.
 
-The two calls made without a question stand: a qualification or a booking reopens any not a fit (§4.7), and a skip keeps the person away from the same lead generator until the business day ends (§4.5).
+The two calls made without a question stand: a qualification or a booking newer than a not a fit reopens it, whoever set it (§4.7), and a skip keeps the person away from the same lead generator until the business day ends (§4.5).
 
 ### 11.4 Changes to ADR 0001
 
 **A1, in PR 0 (done).** A dated amendment to the status line, plus these rules in "Rules for code" and the Decision's Person bullet:
 
 1. A capture enters the person at In conversation. Prospect stays in the enum, unused, and a DM portal note or edit no longer moves the stage.
-2. A lead generator can set not a fit, from a respark, with disposition source `respark`. A respark, a qualification or a booking reopens it.
+2. A lead generator can set not a fit, from a respark, with disposition source `respark`. A respark reopens it, and so does a qualification or a booking newer than it.
 3. Inactive is a rule: no touch for the tenant's N days, from `lastTouch`, worked out at read time and never stored as a flag.
 4. A respark is a touch on the timeline (`lead.resparked`, a lead gen channel touch), and `respark` is a lead gen credit source in `dealAttributions`.
 
@@ -614,7 +614,7 @@ Each PR merged after CodeRabbit approved it, and Vercel deployed it to productio
 
 **After PR 7:**
 
-- **19:46:** `assertResparkState`, `assertLeadLifecycle` and `assertPersonTouches` (reset) started as the final health checks.
+- **19:46 to 21:24, the final health checks** (reset): `assertPersonTouches` passed on 93,275 people, `assertResparkState` on 93,283, and `assertLeadLifecycle` (with the conversion entries) on 93,318.
 
 **Temp files:** the crash cleared the temp directory, including the read-only scan exports from planning (IDs, enums and times; no names or contacts). The scans made during the phase were deleted after each check.
 
