@@ -62,7 +62,7 @@ export function captureConfirmation(
       ? undefined
       : Math.floor((now - person.lastTouchAt) / DAY_MS);
   return {
-    title: "Already in the CRM · in conversation",
+    title: `Already in the CRM · ${LIFECYCLE_STAGE_LABELS[person.stage].toLowerCase()}`,
     detail:
       inactiveDays !== undefined && inactiveDays >= result.inactiveAfterDays
         ? `Inactive for ${inactiveDays} days; this capture makes them active again.`

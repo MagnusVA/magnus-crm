@@ -2,8 +2,11 @@ import { v } from "convex/values";
 import { query } from "../_generated/server";
 import { listPersonEnrollments } from "../enrollments/read";
 import { ENROLLMENT_DEAL_LIMIT } from "../lib/enrollments";
+import { readResparkSettings } from "../lib/respark/settings";
+import { DEFAULT_BUSINESS_DAY } from "../../lib/businessDay";
 import { requireTenantUser } from "../requireTenantUser";
 import { buildEntityDetailPayload } from "./detailPayload";
+import { timelineEventLabel } from "./timeline";
 
 export const getEntityDetail = query({
   args: { leadId: v.id("leads") },
@@ -27,7 +30,8 @@ export const getEntityDetail = query({
       return { kind: "redirect" as const, leadId: targetLead._id };
     }
 
-    const [enrollments, opportunities, identifiers] = await Promise.all([
+    const [tenant, enrollments, opportunities, identifiers] = await Promise.all([
+      ctx.db.get("tenants", tenantId),
       listPersonEnrollments(ctx, tenantId, leadId),
       ctx.db
         .query("opportunities")
@@ -45,7 +49,9 @@ export const getEntityDetail = query({
         .take(100),
     ]);
 
-    return await buildEntityDetailPayload(ctx, {
+    if (!tenant) throw new Error(`Missing tenant ${tenantId}`);
+
+    const payload = await buildEntityDetailPayload(ctx, {
       tenantId,
       viewerUserId: userId,
       viewerRole: role,
@@ -54,5 +60,17 @@ export const getEntityDetail = query({
       identifiers,
       opportunities,
     });
+    // The Lifecycle card works out the inactive badge from these at render
+    // (docs/plans/respark.md §6.3).
+    return {
+      ...payload,
+      lastTouch: lead.lastTouch
+        ? { ...lead.lastTouch, label: timelineEventLabel(lead.lastTouch.eventType) }
+        : null,
+      inactiveAfterDays: readResparkSettings(tenant).inactiveAfterDays,
+      // Respark dates on the Lifecycle card show in the business day's zone,
+      // so the server and the browser render the same day.
+      businessTimeZone: (tenant.businessDay ?? DEFAULT_BUSINESS_DAY).timeZone,
+    };
   },
 });

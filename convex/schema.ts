@@ -16,6 +16,7 @@ import {
 } from "./lib/attribution/validators";
 import { touchSnapshotValidator } from "./lib/touchValidators";
 import { lastTouchValidator, resparkGroupValidator } from "./lib/respark/validators";
+import { resparkSettingsValidator } from "./lib/respark/settings";
 import {
   leadCustomerCustomerStatusValidator,
   leadCustomerLeadStatusValidator,
@@ -69,6 +70,8 @@ export default defineSchema({
     businessDay: v.optional(v.object({ timeZone: v.string(), dayStartHour: v.number() })),
     businessDayVersion: v.optional(v.number()),
     businessDayAppliedVersion: v.optional(v.number()),
+    // Respark (docs/plans/respark.md §3.3). Defaults in lib/respark/settings.ts.
+    respark: v.optional(resparkSettingsValidator),
     leadGenDealsAggregateVerifiedAt: v.optional(v.number()),
     pipelineHealthAggregatesVerifiedAt: v.optional(v.number()),
     // Identity
