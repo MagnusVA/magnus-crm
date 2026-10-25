@@ -121,7 +121,33 @@ describe("claimResparkBatch", () => {
     ]);
   });
 
-  it("never gives two workers the same person, even claiming at once (the hold race)", async () => {
+  it("breaks a tie on last touch by who was created first, across groups", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness();
+    // Two captures at one time; the second, created later, reached Qualified.
+    await pool(h, [45, 45, 60]);
+    const people = await h.t.run((ctx) => ctx.db.query("leads").take(3));
+    const oldest = people.find((row) => row.lastTouch!.occurredAt === NOW - 60 * DAY_MS)!;
+    const sameTime = people.filter((row) => row.lastTouch!.occurredAt === NOW - 45 * DAY_MS)
+      .sort((a, b) => a._creationTime - b._creationTime);
+    await h.t.run(async (ctx) => {
+      const later = sameTime[1];
+      await ctx.db.patch("leads", later._id, {
+        lifecycleStage: "qualified",
+        lifecycleStageEnteredAt: { ...later.lifecycleStageEnteredAt, qualified: later.lastTouch!.occurredAt },
+      });
+      await recomputeResparkState(ctx, (await ctx.db.get("leads", later._id))!);
+    });
+    const { batchId } = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
+    const items = await batchItems(h, batchId);
+    expect(items.map((item) => [item.leadId, item.bucket])).toEqual([
+      [oldest._id, 2],
+      [sameTime[0]._id, 2],
+      [sameTime[1]._id, 1],
+    ]);
+  });
+
+    it("never gives two workers the same person, even claiming at once (the hold race)", async () => {
     vi.useFakeTimers();
     const h = await bookingHarness();
     const second = await addUser(h, "user_lg", "lead_generator");
