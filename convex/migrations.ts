@@ -5,7 +5,7 @@ import {
 } from "./reporting/activityEventCounts";
 import { Migrations } from "@convex-dev/migrations";
 import { v } from "convex/values";
-import { internalMutation, type MutationCtx } from "./_generated/server";
+import { internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
 import { adoptRawDelivery, deliveryMetadata } from "./pipeline/receipts";
 import {
   DISMISSED_REASON,
@@ -26,6 +26,8 @@ import { deriveStoredEventLinks, storedLeadIdMatches } from "./lib/domainEventLi
 import { getPersonProgramEnrollment } from "./enrollments/read";
 import { derivePersonEnrollments, paymentCounts } from "./lib/enrollments";
 import { lifecycleProblems } from "./lib/leadLifecycle";
+import { recomputeResparkState, resparkPool, resparkStateProblems } from "./lib/respark/state";
+import { RESPARK_GROUPS, type ResparkGroup } from "./lib/respark/validators";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import {
   ensureUserTeamMember,
@@ -614,6 +616,37 @@ export const assertPersonTouches = migrations.define({
     if (field) {
       throw new Error(`Lead ${lead._id} has ${field} ${touchEventId(lead[field])}, expected ${touchEventId(computed[field])}`);
     }
+  },
+});
+
+// Respark (docs/plans/respark.md §10.1). The backfill sets each person's
+// `lastTouch` and `resparkGroup` from their records and writes their
+// `resparkPool` entry; the assert checks each person against the same
+// computation. Both stay as rebuild tools and health checks:
+// npx convex run migrations:run '{"fn":"migrations:assertResparkState","reset":true}'
+export const backfillResparkState = migrations.define({
+  table: "leads", batchSize: 50,
+  migrateOne: async (ctx, lead) => {
+    await recomputeResparkState(ctx, lead);
+  },
+});
+export const assertResparkState = migrations.define({
+  table: "leads", batchSize: 50,
+  migrateOne: async (ctx, lead) => {
+    const problems = await resparkStateProblems(ctx, lead);
+    if (problems.length > 0) throw new Error(`Lead ${lead._id}: ${problems.join("; ")}`);
+  },
+});
+// The pool aggregate's count per group, for the read-only check against a
+// paged count of the stored groups (respark plan §9).
+export const resparkPoolTotals = internalQuery({
+  args: { tenantId: v.id("tenants") },
+  handler: async (ctx, { tenantId }) => {
+    const counts = await resparkPool.countBatch(
+      ctx,
+      RESPARK_GROUPS.map((group) => ({ namespace: tenantId, bounds: { prefix: [group] as [ResparkGroup] } })),
+    );
+    return Object.fromEntries(RESPARK_GROUPS.map((group, index) => [group, counts[index]]));
   },
 });
 

@@ -3,6 +3,7 @@ import type { MutationCtx, QueryCtx } from "../_generated/server";
 import { insertActivityEventCounts } from "../reporting/activityEventCounts";
 import { deriveDomainEventLinks } from "./domainEventLinks";
 import { captureDomainEvent } from "./observability/posthog";
+import { isLastTouchEvent, refreshesResparkState, refreshResparkState } from "./respark/state";
 import { recordPersonTouch } from "./touches";
 
 export type DomainEventEntityType =
@@ -75,6 +76,25 @@ export async function emitDomainEvent(
     occurredAt,
     metadataSource: params.metadata?.source,
   });
+
+  // Respark state (docs/plans/respark.md §5.1): only events that are a last
+  // touch or can change the person's pool group, so bulk paths add no reads.
+  if (leadId) {
+    const lastTouch = isLastTouchEvent({
+      eventType: params.eventType,
+      source: params.source,
+      toStatus: params.toStatus,
+      metadataSource: params.metadata?.source,
+    });
+    if (refreshesResparkState(params.eventType, lastTouch)) {
+      await refreshResparkState(
+        ctx,
+        params.tenantId,
+        leadId,
+        lastTouch ? { eventId: domainEventId, eventType: params.eventType, occurredAt } : undefined,
+      );
+    }
+  }
 
   if (!params.skipAnalytics) {
     await captureDomainEvent(ctx, { ...params, leadId, teamMemberId }, domainEventId, occurredAt);

@@ -13,6 +13,7 @@ import { rebuildQualificationRowsForOpportunity } from "../operations/projection
 import { replaceOpportunityAggregate } from "../reporting/writeHooks";
 import { upsertOpportunitySearchProjection } from "./opportunitySearch";
 import { emitDomainEvent, type DomainEventSource } from "./domainEvents";
+import { refreshResparkState } from "./respark/state";
 
 type ActivityShape = Pick<
   Doc<"opportunities">,
@@ -127,6 +128,10 @@ async function writeOpportunity(
   }
   if (after.leadId !== before.leadId) {
     await rebuildLeadCustomerSearchRow(ctx, before.tenantId, before.leadId);
+    // Moving a deal emits no event, and an open deal takes a person out of
+    // the respark pool (docs/plans/respark.md §5.1).
+    await refreshResparkState(ctx, before.tenantId, before.leadId);
+    await refreshResparkState(ctx, after.tenantId, after.leadId);
   }
   if (changesAny(before, patch, QUALIFICATION_ROW_FIELDS)) {
     await rebuildQualificationRowsForOpportunity(ctx, before._id);
