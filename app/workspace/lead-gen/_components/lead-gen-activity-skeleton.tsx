@@ -11,9 +11,10 @@ export function LeadGenActivitySkeleton() {
         <Skeleton className="h-8 w-36" />
         <Skeleton className="h-4 w-80 max-w-full" />
       </div>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Skeleton className="h-20" />
-        <Skeleton className="h-20" />
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        {Array.from({ length: 5 }, (_, index) => (
+          <Skeleton key={index} className="h-20" />
+        ))}
       </div>
       <Skeleton className="h-[360px] w-full" />
     </div>

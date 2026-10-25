@@ -1,5 +1,14 @@
 import { assertLeadGenBusinessDayReady } from "../lib/businessDayRebuildState";
 import { getTenantBusinessDay } from "../lib/tenantBusinessDay";
+import {
+  mergedStream,
+  QueryStream,
+  stream,
+  type IndexBounds,
+} from "convex-helpers/server/stream";
+import schema from "../schema";
+import { LIVE_QUERY_BYTE_BUDGET } from "../lib/liveQueryBounds";
+import { countWorkerResparkResults } from "./resparkReports";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -32,9 +41,16 @@ export const listMyRecentSubmissions = query({
     if (!access) {
       return { page: [], isDone: true, continueCursor: "" };
     }
-    const range = args.range ? deriveOverviewRange(args.range, Date.now(), await getTenantBusinessDay(ctx, auth.tenantId)) : null;
+    const range = args.range
+      ? deriveOverviewRange(
+          args.range,
+          Date.now(),
+          await getTenantBusinessDay(ctx, auth.tenantId),
+        )
+      : null;
 
-    const page = await ctx.db
+    const database = stream(ctx.db, schema);
+    const captures = database
       .query("leadGenSubmissions")
       .withIndex("by_tenantId_and_workerId_and_submittedAt", (q) =>
         range
@@ -46,11 +62,81 @@ export const listMyRecentSubmissions = query({
           : q.eq("tenantId", access.tenantId).eq("workerId", access.workerId),
       )
       .order("desc")
-      .paginate(args.paginationOpts);
-
+      .map(
+        async (row): Promise<ActivityRow> => ({
+          _id: row._id,
+          submittedAt: row.submittedAt,
+          type: "Capture",
+          source: row.source,
+          originKind: row.originKind,
+          originValue: row.originValue,
+          prospectId: row.prospectId,
+        }),
+      );
+    const resparks = database
+      .query("resparkBatchItems")
+      .withIndex("by_tenantId_and_workerId_and_workedAt", (q) =>
+        range
+          ? q
+              .eq("tenantId", access.tenantId)
+              .eq("workerId", access.workerId)
+              .gte("workedAt", range.slackWindowStart)
+              .lt("workedAt", range.slackWindowEnd)
+          : q
+              .eq("tenantId", access.tenantId)
+              .eq("workerId", access.workerId)
+              .gt("workedAt", 0),
+      )
+      .order("desc")
+      .map(async (row): Promise<ActivityRow | null> => {
+        if (row.result !== "resparked" && row.result !== "not_a_fit")
+          return null;
+        return {
+          _id: row._id,
+          submittedAt: row.workedAt!,
+          type:
+            row.result === "resparked"
+              ? "Respark · resparked"
+              : "Respark · not a fit",
+          source: "respark",
+          originKind: "respark",
+          originValue: BUCKET_LABELS[row.bucket],
+          leadId: row.leadId,
+        };
+      });
+    const page = await mergedStream(
+      [new ActivityTimeStream(captures), new ActivityTimeStream(resparks)],
+      ["activityAt", "_creationTime"],
+    ).paginate({
+      ...args.paginationOpts,
+      maximumRowsRead: 1_000,
+      maximumBytesRead: LIVE_QUERY_BYTE_BUDGET,
+    });
     return {
       ...page,
-      page: await hydrateSubmissionProspects(ctx, access.tenantId, page.page),
+      page: await Promise.all(
+        page.page.map(async (row) => {
+          const person = row.leadId
+            ? await ctx.db.get("leads", row.leadId)
+            : row.prospectId
+              ? await ctx.db.get("leadGenProspects", row.prospectId)
+              : null;
+          return {
+            ...row,
+            prospect:
+              person?.tenantId === access.tenantId
+                ? {
+                    normalizedHandle:
+                      "normalizedHandle" in person
+                        ? person.normalizedHandle
+                        : person.socialHandles?.find(
+                            (handle) => handle.type === "instagram",
+                          )?.handle,
+                  }
+                : null,
+          };
+        }),
+      ),
     };
   },
 });
@@ -60,13 +146,20 @@ export const getMyActivitySummary = query({
   handler: async (ctx, { range }) => {
     const auth = await requireTenantUser(ctx, LEAD_GEN_ACTIVITY_ROLES);
     await assertLeadGenBusinessDayReady(ctx, auth.tenantId);
-    const derivedRange = deriveOverviewRange(range, Date.now(), await getTenantBusinessDay(ctx, auth.tenantId));
+    const derivedRange = deriveOverviewRange(
+      range,
+      Date.now(),
+      await getTenantBusinessDay(ctx, auth.tenantId),
+    );
     const publicRange = toPublicOverviewRange(derivedRange);
     const access = await resolveOwnLeadGenWorker(ctx, auth);
     if (!access) {
       return {
         range: publicRange,
         submissions: 0,
+        resparks: 0,
+        entries: 0,
+        notAFit: 0,
         scheduledHours: 0,
         leadsPerHour: null,
       };
@@ -84,7 +177,9 @@ export const getMyActivitySummary = query({
       .take(DAILY_STATS_READ_LIMIT + 1);
 
     if (rows.length > DAILY_STATS_READ_LIMIT) {
-      throw new Error("Lead Gen activity range is too large. Narrow the range.");
+      throw new Error(
+        "Lead Gen activity range is too large. Narrow the range.",
+      );
     }
 
     const currentScheduledHoursByWorkerDay =
@@ -94,9 +189,20 @@ export const getMyActivitySummary = query({
       });
     const summary = summarizeDailyRows(rows, currentScheduledHoursByWorkerDay);
 
+    const counts = await countWorkerResparkResults(
+      ctx,
+      access.tenantId,
+      [access.workerId],
+      derivedRange.slackWindowStart,
+      derivedRange.slackWindowEnd,
+    );
+    const { resparks, notAFit } = counts.get(access.workerId)!;
     return {
       range: publicRange,
       submissions: summary.submissions,
+      resparks,
+      notAFit,
+      entries: summary.submissions + resparks,
       scheduledHours: summary.scheduledHours,
       leadsPerHour: summary.leadsPerHour,
     };
@@ -165,22 +271,49 @@ async function resolveOwnLeadGenWorker(
   };
 }
 
-async function hydrateSubmissionProspects(
-  ctx: QueryCtx,
-  tenantId: Id<"tenants">,
-  rows: Doc<"leadGenSubmissions">[],
-) {
-  const prospects = new Map<Id<"leadGenProspects">, Doc<"leadGenProspects">>();
+const BUCKET_LABELS: Record<number, string> = {
+  1: "1 Qualified, never booked",
+  2: "2 Never qualified",
+  3: "3 Inactive",
+  4: "4 Had a call, deal lost",
+  5: "5 Not a fit",
+} as const;
 
-  for (const prospectId of new Set(rows.map((row) => row.prospectId))) {
-    const prospect = await ctx.db.get("leadGenProspects", prospectId);
-    if (prospect && prospect.tenantId === tenantId) {
-      prospects.set(prospect._id, prospect);
-    }
+type ActivityRow = {
+  _id: string;
+  submittedAt: number;
+  type: "Capture" | "Respark · resparked" | "Respark · not a fit";
+  source: Doc<"leadGenSubmissions">["source"] | "respark";
+  originKind: string;
+  originValue?: string;
+  prospectId?: Id<"leadGenProspects">;
+  leadId?: Id<"leads">;
+};
+
+/** The two indexes have the same key shape, with different timestamp names.
+ * Rename only that field for the merge; keys, bounds and cursors stay intact.
+ */
+class ActivityTimeStream extends QueryStream<ActivityRow> {
+  constructor(private readonly source: QueryStream<ActivityRow>) {
+    super();
   }
-
-  return rows.map((row) => ({
-    ...row,
-    prospect: prospects.get(row.prospectId) ?? null,
-  }));
+  getOrder() {
+    return this.source.getOrder();
+  }
+  getIndexFields() {
+    return this.source
+      .getIndexFields()
+      .map((field) =>
+        field === "workedAt" || field === "submittedAt" ? "activityAt" : field,
+      );
+  }
+  getEqualityIndexFilter() {
+    return this.source.getEqualityIndexFilter();
+  }
+  iterWithKeys(trackBandwidth = false) {
+    return this.source.iterWithKeys(trackBandwidth);
+  }
+  narrow(bounds: IndexBounds): QueryStream<ActivityRow> {
+    return new ActivityTimeStream(this.source.narrow(bounds));
+  }
 }

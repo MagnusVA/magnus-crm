@@ -2,10 +2,14 @@
 
 import { useBusinessDay } from "@/hooks/use-business-day";
 import { useState, type ComponentType, type SVGProps } from "react";
+import type { FunctionReturnType } from "convex/server";
 import { usePaginatedQuery, useQuery } from "convex/react";
 import {
   ClipboardCheckIcon,
   GaugeIcon,
+  FlameIcon,
+  ListChecksIcon,
+  UserXIcon,
 } from "lucide-react";
 import { api } from "@/convex/_generated/api";
 import { Badge } from "@/components/ui/badge";
@@ -32,18 +36,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-type ActivityRow = {
-  _id: string;
-  submittedAt: number;
-  source: "instagram" | "meta_business";
-  originKind: string;
-  originValue?: string;
-  originRankable?: boolean;
-  prospect?: {
-    normalizedHandle?: string;
-    profileUrl?: string;
-  } | null;
-};
+type ActivityRow = FunctionReturnType<
+  typeof api.leadGen.activity.listMyRecentSubmissions
+>["page"][number];
 
 const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: "medium",
@@ -70,15 +65,20 @@ export function LeadGenActivityPageClient() {
           endBusinessDateInclusive: range.endBusinessDateInclusive,
         })
       : null;
-  const summary = useQuery(api.leadGen.activity.getMyActivitySummary, rebuilding || !loaded ? "skip" : {
-    range: queryRange,
-  });
+  const summary = useQuery(
+    api.leadGen.activity.getMyActivitySummary,
+    rebuilding || !loaded
+      ? "skip"
+      : {
+          range: queryRange,
+        },
+  );
   const recent = usePaginatedQuery(
     api.leadGen.activity.listMyRecentSubmissions,
     { range: queryRange },
     { initialNumItems: 25 },
   );
-  const rows = recent.results as ActivityRow[];
+  const rows = recent.results;
   const isInitialLoading = recent.status === "LoadingFirstPage";
 
   return (
@@ -92,7 +92,8 @@ export function LeadGenActivityPageClient() {
             {summary?.range.label ?? "Loading activity range"}
           </p>
         </div>
-        <DashboardDateRangeFilter bucketKind="lead-gen"
+        <DashboardDateRangeFilter
+          bucketKind="lead-gen"
           value={range}
           onChange={(nextRange) => {
             setRange(nextRange);
@@ -110,11 +111,26 @@ export function LeadGenActivityPageClient() {
         />
       </header>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <ActivityMetric
           label="Raw Leads"
           value={formatWholeNumber(summary?.submissions)}
           icon={ClipboardCheckIcon}
+        />
+        <ActivityMetric
+          label="Resparks"
+          value={formatWholeNumber(summary?.resparks)}
+          icon={FlameIcon}
+        />
+        <ActivityMetric
+          label="Entries"
+          value={formatWholeNumber(summary?.entries)}
+          icon={ListChecksIcon}
+        />
+        <ActivityMetric
+          label="Not a fit"
+          value={formatWholeNumber(summary?.notAFit)}
+          icon={UserXIcon}
         />
         <ActivityMetric
           label="Leads/hr"
@@ -131,9 +147,17 @@ export function LeadGenActivityPageClient() {
             <EmptyMedia variant="icon">
               <ClipboardCheckIcon aria-hidden="true" />
             </EmptyMedia>
-            <EmptyTitle>No Submissions In This Range</EmptyTitle>
+            <EmptyTitle>
+              {recent.status === "Exhausted"
+                ? "No activity in this range"
+                : "No activity loaded yet"}
+            </EmptyTitle>
           </EmptyHeader>
-          <EmptyContent>Captured prospects will appear here.</EmptyContent>
+          <EmptyContent>
+            {recent.status === "Exhausted"
+              ? "Captures and worked resparks will appear here."
+              : "Load more to check earlier activity."}
+          </EmptyContent>
         </Empty>
       ) : (
         <div className="flex flex-col gap-3">
@@ -143,6 +167,7 @@ export function LeadGenActivityPageClient() {
                 <TableRow>
                   <TableHead>Submitted</TableHead>
                   <TableHead>Prospect</TableHead>
+                  <TableHead>Type</TableHead>
                   <TableHead>Source</TableHead>
                   <TableHead>Origin</TableHead>
                 </TableRow>
@@ -160,6 +185,9 @@ export function LeadGenActivityPageClient() {
                           : "Prospect"}
                       </span>
                     </TableCell>
+                    <TableCell className="whitespace-nowrap">
+                      {submission.type}
+                    </TableCell>
                     <TableCell>
                       <Badge variant="secondary">
                         {formatSource(submission.source)}
@@ -176,18 +204,17 @@ export function LeadGenActivityPageClient() {
               </TableBody>
             </Table>
           </div>
-
-          {recent.status === "CanLoadMore" ? (
-            <Button
-              className="self-start"
-              variant="outline"
-              onClick={() => recent.loadMore(25)}
-            >
-              Load More
-            </Button>
-          ) : null}
         </div>
       )}
+      {recent.status === "CanLoadMore" ? (
+        <Button
+          className="self-start"
+          variant="outline"
+          onClick={() => recent.loadMore(25)}
+        >
+          Load More
+        </Button>
+      ) : null}
     </div>
   );
 }
@@ -230,6 +257,7 @@ function formatLeadsPerHour(value: number | null | undefined) {
 }
 
 function formatSource(source: ActivityRow["source"]) {
+  if (source === "respark") return "Respark pool";
   return source === "meta_business" ? "Meta Business" : "Instagram";
 }
 

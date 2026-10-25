@@ -115,6 +115,7 @@ import type * as leadGen_reconciliation from "../leadGen/reconciliation.js";
 import type * as leadGen_reportBuilders from "../leadGen/reportBuilders.js";
 import type * as leadGen_reportLimits from "../leadGen/reportLimits.js";
 import type * as leadGen_reportReaders from "../leadGen/reportReaders.js";
+import type * as leadGen_resparkReports from "../leadGen/resparkReports.js";
 import type * as leadGen_reporting from "../leadGen/reporting.js";
 import type * as leadGen_schedules from "../leadGen/schedules.js";
 import type * as leadGen_settings from "../leadGen/settings.js";
@@ -512,6 +513,7 @@ declare const fullApi: ApiFromModules<{
   "leadGen/reportLimits": typeof leadGen_reportLimits;
   "leadGen/reportReaders": typeof leadGen_reportReaders;
   "leadGen/reporting": typeof leadGen_reporting;
+  "leadGen/resparkReports": typeof leadGen_resparkReports;
   "leadGen/schedules": typeof leadGen_schedules;
   "leadGen/settings": typeof leadGen_settings;
   "leadGen/sharedTeams": typeof leadGen_sharedTeams;
