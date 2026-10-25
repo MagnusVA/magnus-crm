@@ -5,7 +5,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import { bookingHarness, bookingPayload } from "../../tests/bookingHarness";
-import { DEFAULT_INACTIVE_AFTER_DAYS } from "../lib/respark/settings";
+import { DEFAULT_RESPARK_SETTINGS } from "../lib/respark/settings";
 
 afterEach(() => vi.useRealTimers());
 
@@ -42,7 +42,7 @@ describe("capture confirmation", () => {
     const result = await capture(harness, "ana.lead", NOW);
 
     expect(result.duplicateProspect).toBe(false);
-    expect(result.inactiveAfterDays).toBe(DEFAULT_INACTIVE_AFTER_DAYS);
+    expect(result.inactiveAfterDays).toBe(DEFAULT_RESPARK_SETTINGS.inactiveAfterDays);
     expect(result.person).toMatchObject({
       isNew: true,
       stage: "in_conversation",

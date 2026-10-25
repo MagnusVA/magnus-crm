@@ -72,7 +72,17 @@ const TOUCH_LABELS: Record<string, string> = {
   "lead.slack_qualified": "Qualified in Slack",
   "lead.lifecycle_stage_changed": "Stage changed",
   "lead.disposition_changed": "Disposition changed",
+  "lead.resparked": "Resparked",
+  "lead.marked_not_a_fit": "Marked not a fit in a respark",
 };
+
+/** The timeline's label for an event type. Unknown types show their name. */
+export function timelineEventLabel(eventType: string): string {
+  return (
+    TOUCH_LABELS[eventType] ??
+    (EVENT_LABELS[eventType] ? capitalize(EVENT_LABELS[eventType].verb) : eventType)
+  );
+}
 
 /**
  * What the timeline shows for one event. Unknown types show their name. An
@@ -84,11 +94,7 @@ function describe(
 ): Pick<TimelineEntry, "label" | "detail" | "fromStatus" | "toStatus"> {
   const metadata = parseMetadata(event.metadata);
   const isStage = event.eventType === "lead.lifecycle_stage_changed";
-  const label =
-    TOUCH_LABELS[event.eventType] ??
-    (EVENT_LABELS[event.eventType]
-      ? capitalize(EVENT_LABELS[event.eventType].verb)
-      : event.eventType);
+  const label = timelineEventLabel(event.eventType);
   let detail: string | null = null;
   if (event.eventType === "lead.captured" || event.eventType === "lead.capture_voided") {
     detail = [metadata.source, metadata.originKind].filter((part) => typeof part === "string").join(" · ") || null;

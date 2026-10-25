@@ -12,6 +12,8 @@ import {
 	LIFECYCLE_STAGE_LABELS,
 	LIFECYCLE_STAGES,
 } from "@/convex/leads/lifecycle";
+import { inactiveDays } from "@/convex/lib/respark/settings";
+import { useNow } from "@/hooks/use-now";
 import { SimpleTooltip } from "../../_components/entity-ui-tooltips";
 import { useEntityDetail } from "./entity-detail-context";
 import { formatDate } from "./entity-detail-formatters";
@@ -24,14 +26,19 @@ const LifecycleChangeDialog = dynamic(() =>
 
 // How far the person has ever got, with the date they reached each stage,
 // whether the team should keep working them, and their first and latest
-// touch (CONTEXT.md).
+// touch (CONTEXT.md). The inactive badge and last touch follow the respark
+// plan (docs/plans/respark.md §6.3); the badge is worked out at render.
 export function EntityLifecycleSection() {
-	const { lead, firstTouch, latestTouch } = useEntityDetail();
+	const { lead, firstTouch, latestTouch, lastTouch, inactiveAfterDays } = useEntityDetail();
 	const { isAdmin } = useRole();
+	const now = useNow();
 	const [mode, setMode] = useState<LifecycleChangeMode | null>(null);
 	if (lead.status === "merged") {
 		return null;
 	}
+	const inactiveFor = inactiveDays(lead, inactiveAfterDays, now);
+	const resparkNotAFit =
+		lead.disposition === "not_a_fit" && lead.dispositionSource === "respark";
 	const stage = lead.lifecycleStage;
 	const disposition = lead.disposition;
 	const reached = LIFECYCLE_STAGES.filter(
@@ -48,12 +55,25 @@ export function EntityLifecycleSection() {
 		>
 			<div className="flex flex-wrap items-center gap-2">
 				<Badge>{LIFECYCLE_STAGE_LABELS[stage]}</Badge>
-				<SimpleTooltip content={lead.dispositionReason ? `Reason: ${lead.dispositionReason}` : "Disposition"}>
+				<SimpleTooltip content={dispositionTooltip(lead.dispositionReason, lead.dispositionSource)}>
 					<Badge variant={disposition === "open" ? "secondary" : "outline"}>
 						{DISPOSITION_LABELS[disposition]}
 					</Badge>
 				</SimpleTooltip>
+				{inactiveFor !== null ? (
+					<SimpleTooltip content={`No touch for ${inactiveAfterDays} days or more`}>
+						<Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-400">
+							Inactive · {inactiveFor} {inactiveFor === 1 ? "day" : "days"}
+						</Badge>
+					</SimpleTooltip>
+				) : null}
 			</div>
+			{resparkNotAFit ? (
+				<p className="text-xs text-muted-foreground">
+					Set in a respark, by a lead generator
+					{lead.dispositionSetAt ? `, on ${formatDayMonth(lead.dispositionSetAt, now)}` : ""}
+				</p>
+			) : null}
 			<dl className="grid grid-cols-2 gap-x-3 gap-y-1.5">
 				{reached.map((option) => (
 					<div key={option} className="contents">
@@ -65,6 +85,14 @@ export function EntityLifecycleSection() {
 						</dd>
 					</div>
 				))}
+				<div className="contents">
+					<dt>
+						<MicroLabel>Last touch</MicroLabel>
+					</dt>
+					<dd className="text-right text-xs tabular-nums">
+						{lastTouch ? `${formatDate(lastTouch.occurredAt)} · ${lastTouch.label}` : "Not recorded"}
+					</dd>
+				</div>
 			</dl>
 			<TouchLines
 				className="border-t border-border/60 pt-3"
@@ -96,4 +124,34 @@ export function EntityLifecycleSection() {
 			) : null}
 		</SectionShell>
 	);
+}
+
+const DISPOSITION_SOURCE_LABELS = {
+	system: "Set by the CRM",
+	admin: "Set by an admin",
+	respark: "Set in a respark, by a lead generator",
+} as const;
+
+function dispositionTooltip(
+	reason: string | undefined,
+	source: keyof typeof DISPOSITION_SOURCE_LABELS | undefined,
+) {
+	const parts = [
+		source ? DISPOSITION_SOURCE_LABELS[source] : null,
+		reason ? `Reason: ${reason}` : null,
+	].filter((part): part is string => part !== null);
+	return parts.length > 0 ? parts.join(". ") : "Disposition";
+}
+
+const DAY_MONTH_FORMATTER = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
+const DAY_MONTH_YEAR_FORMATTER = new Intl.DateTimeFormat("en-GB", {
+	day: "numeric",
+	month: "short",
+	year: "numeric",
+});
+
+// "24 Oct", with the year when it isn't this year.
+function formatDayMonth(value: number, now: number) {
+	const sameYear = new Date(value).getFullYear() === new Date(now).getFullYear();
+	return (sameYear ? DAY_MONTH_FORMATTER : DAY_MONTH_YEAR_FORMATTER).format(value);
 }

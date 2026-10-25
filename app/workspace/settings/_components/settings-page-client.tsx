@@ -12,6 +12,7 @@ import { EventTypesTab } from "./event-types-tab";
 import { IntegrationsTab } from "./integrations/integrations-tab";
 import { BusinessDayCard } from "./business-day-card";
 import { ProgramsTab } from "./programs-tab";
+import { ResparkSettingsCard } from "./respark-settings-card";
 
 type SettingsPageClientProps = {
   preloadedSlackStatus: Preloaded<
@@ -19,7 +20,7 @@ type SettingsPageClientProps = {
   >;
 };
 
-const TAB_VALUES = ["event-types", "programs", "integrations", "business-day"] as const;
+const TAB_VALUES = ["event-types", "programs", "integrations", "business-day", "respark"] as const;
 type TabValue = (typeof TAB_VALUES)[number];
 
 // Legacy deep links: Calendly merged into Integrations, Field Mappings into
@@ -46,8 +47,10 @@ function SettingsContent({ preloadedSlackStatus }: SettingsPageClientProps) {
   usePageTitle("Settings");
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isAdmin } = useRole();
-  const defaultTab = tabFromParam(searchParams.get("tab"));
+  const { isAdmin, hasPermission } = useRole();
+  const canManageSettings = hasPermission("settings:manage");
+  const requestedTab = tabFromParam(searchParams.get("tab"));
+  const defaultTab = requestedTab === "respark" && !canManageSettings ? "event-types" : requestedTab;
 
   useEffect(() => {
     if (!isAdmin) {
@@ -74,6 +77,7 @@ function SettingsContent({ preloadedSlackStatus }: SettingsPageClientProps) {
           <TabsTrigger value="programs">Programs</TabsTrigger>
           <TabsTrigger value="integrations">Integrations</TabsTrigger>
           <TabsTrigger value="business-day">Business day</TabsTrigger>
+          {canManageSettings ? <TabsTrigger value="respark">Respark</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="event-types" className="mt-6">
@@ -88,6 +92,9 @@ function SettingsContent({ preloadedSlackStatus }: SettingsPageClientProps) {
           <IntegrationsTab preloadedSlackStatus={preloadedSlackStatus} />
         </TabsContent>
         <TabsContent value="business-day" className="mt-6"><BusinessDayCard /></TabsContent>
+        {canManageSettings ? (
+          <TabsContent value="respark" className="mt-6"><ResparkSettingsCard /></TabsContent>
+        ) : null}
       </Tabs>
     </div>
   );
