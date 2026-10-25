@@ -4,8 +4,9 @@ import type { Doc, Id } from "../../_generated/dataModel";
 import { bookingHarness } from "../../../tests/bookingHarness";
 import { SLACK_OPPORTUNITY_EXPIRY_MS } from "../../pipeline/slackJoinLookup";
 import { STALE_EXPIRY_CUTOVER_AT } from "../../slack/staleExpiry";
+import { emitDomainEvent } from "../domainEvents";
 import {
-  backfillResparkStateFor,
+  recomputeResparkState,
   isLastTouchEvent,
   refreshResparkState,
   resparkGroupFor,
@@ -246,6 +247,93 @@ describe("refreshResparkState from live writes", () => {
   });
 });
 
+describe("merged people and ties (review of PR 1)", () => {
+  async function mergedPair(harness: Harness, at: number) {
+    await capture(harness, "pair.target", at);
+    await capture(harness, "pair.source", at);
+    const all = await leads(harness);
+    const [target, source] = [all[0], all[1]];
+    vi.setSystemTime(new Date(at + DAY_MS));
+    await harness.admin.mutation(api.leads.merge.mergeLead, {
+      sourceLeadId: source._id, targetLeadId: target._id,
+    });
+    return { target, source };
+  }
+
+  async function emitTouch(harness: Harness, leadId: Id<"leads">, occurredAt: number) {
+    return await harness.t.run((ctx) =>
+      emitDomainEvent(ctx, {
+        tenantId: harness.tenantId, entityType: "lead", entityId: leadId,
+        eventType: "payment.recorded", source: "closer", occurredAt, leadId,
+      }),
+    );
+  }
+
+  it("gives a touch on a merged person to the survivor", async () => {
+    vi.useFakeTimers();
+    const harness = await bookingHarness();
+    const at = Date.parse("2026-09-01T08:00:00Z");
+    const { target, source } = await mergedPair(harness, at);
+    const eventId = await emitTouch(harness, source._id, at + 2 * DAY_MS);
+    const survivor = await harness.t.run((ctx) => ctx.db.get("leads", target._id));
+    expect(survivor?.lastTouch?.eventId).toBe(eventId);
+    expect(await problems(harness)).toEqual([]);
+  });
+
+  it("breaks a tie between people by the event written later, live and recomputed", async () => {
+    vi.useFakeTimers();
+    const harness = await bookingHarness();
+    const at = Date.parse("2026-09-01T08:00:00Z");
+    // Both captures at the same time; the source's was written later.
+    const { target, source } = await mergedPair(harness, at);
+    const merged = await harness.t.run((ctx) => ctx.db.get("leads", target._id));
+    expect(merged?.lastTouch).toEqual(source.lastTouch);
+    expect(await problems(harness)).toEqual([]);
+
+    // A back-dated touch on the survivor at that same time is written last.
+    const eventId = await emitTouch(harness, target._id, at);
+    expect((await harness.t.run((ctx) => ctx.db.get("leads", target._id)))?.lastTouch?.eventId).toBe(eventId);
+    expect(await problems(harness)).toEqual([]);
+  });
+
+  it("refuses to compute from a merge history the walk cuts off", async () => {
+    vi.useFakeTimers();
+    const harness = await bookingHarness();
+    await capture(harness, "many.merges", Date.parse("2026-09-01T08:00:00Z"));
+    const [person] = await leads(harness);
+    await harness.t.run(async (ctx) => {
+      for (let i = 0; i < 20; i += 1) {
+        const sourceLeadId = await ctx.db.insert("leads", {
+          tenantId: harness.tenantId, status: "merged", mergedIntoLeadId: person._id, firstSeenAt: 0,
+          updatedAt: 0, lifecycleStage: "prospect", lifecycleStageEnteredAt: { prospect: 0 }, disposition: "open",
+        });
+        await ctx.db.insert("leadMergeHistory", {
+          tenantId: harness.tenantId, sourceLeadId, targetLeadId: person._id,
+          mergedByUserId: (await ctx.db.query("users").first())!._id, mergedAt: 0,
+          identifiersMoved: 0, opportunitiesMoved: 0, meetingsMoved: 0,
+        });
+      }
+    });
+    await expect(problems(harness)).rejects.toThrow("20 or more merged records");
+  });
+
+  it("recomputes a person whose last touch event was deleted", async () => {
+    vi.useFakeTimers();
+    const harness = await bookingHarness();
+    const at = Date.parse("2026-09-01T08:00:00Z");
+    await capture(harness, "deleted.touch", at);
+    const [person] = await leads(harness);
+    const later = await emitTouch(harness, person._id, at + DAY_MS);
+    await harness.t.run(async (ctx) => {
+      await ctx.db.delete("domainEvents", later);
+      await recomputeResparkState(ctx, (await ctx.db.get("leads", person._id))!);
+    });
+    const [after] = await leads(harness);
+    expect(after.lastTouch).toEqual(person.lastTouch);
+    expect(await problems(harness)).toEqual([]);
+  });
+});
+
 describe("backfill and assert", () => {
   it("rebuilds cleared state from the records, idempotently, and the assert names a drift", async () => {
     vi.useFakeTimers();
@@ -263,7 +351,7 @@ describe("backfill and assert", () => {
 
     for (let run = 0; run < 2; run += 1) {
       await harness.t.run(async (ctx) => {
-        await backfillResparkStateFor(ctx, (await ctx.db.get("leads", live._id))!);
+        await recomputeResparkState(ctx, (await ctx.db.get("leads", live._id))!);
       });
     }
     const [rebuilt] = await leads(harness);

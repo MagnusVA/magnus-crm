@@ -26,7 +26,7 @@ import { deriveStoredEventLinks, storedLeadIdMatches } from "./lib/domainEventLi
 import { getPersonProgramEnrollment } from "./enrollments/read";
 import { derivePersonEnrollments, paymentCounts } from "./lib/enrollments";
 import { lifecycleProblems } from "./lib/leadLifecycle";
-import { backfillResparkStateFor, resparkStateProblems } from "./lib/respark/state";
+import { recomputeResparkState, resparkStateProblems } from "./lib/respark/state";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import {
   ensureUserTeamMember,
@@ -626,7 +626,7 @@ export const assertPersonTouches = migrations.define({
 export const backfillResparkState = migrations.define({
   table: "leads", batchSize: 50,
   migrateOne: async (ctx, lead) => {
-    await backfillResparkStateFor(ctx, lead);
+    await recomputeResparkState(ctx, lead);
   },
 });
 export const assertResparkState = migrations.define({

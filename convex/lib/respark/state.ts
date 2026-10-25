@@ -2,7 +2,7 @@ import { DirectAggregate } from "@convex-dev/aggregate";
 import { components } from "../../_generated/api";
 import type { Doc, Id } from "../../_generated/dataModel";
 import type { MutationCtx, QueryCtx } from "../../_generated/server";
-import { mergedLeadIds } from "../mergedLeads";
+import { MERGED_SOURCE_LIMIT, mergedLeadIds } from "../mergedLeads";
 import { touchChannel } from "../touches";
 import { RESPARK_GROUPS, type LastTouch, type ResparkGroup } from "./validators";
 
@@ -122,16 +122,25 @@ export async function hasOpenDeal(
 }
 
 /**
- * The later of two touches. A tie takes `b`, the newer write, as the event
- * index's descending order does for events at one time.
+ * The later of two touches: the later time, and at the same time the event
+ * written later, as the event index orders them. Every path picks with this,
+ * so the live writes and the recomputation agree.
  */
-export function laterLastTouch(
+export async function laterLastTouch(
+  ctx: ReadCtx,
   a: LastTouch | undefined,
   b: LastTouch | undefined,
-): LastTouch | undefined {
+): Promise<LastTouch | undefined> {
   if (!a) return b;
   if (!b) return a;
-  return b.occurredAt >= a.occurredAt ? b : a;
+  if (a.occurredAt !== b.occurredAt) return b.occurredAt > a.occurredAt ? b : a;
+  if (a.eventId === b.eventId) return a;
+  // A deleted event loses the tie.
+  const [eventA, eventB] = await Promise.all([
+    ctx.db.get("domainEvents", a.eventId),
+    ctx.db.get("domainEvents", b.eventId),
+  ]);
+  return (eventB?._creationTime ?? 0) > (eventA?._creationTime ?? 0) ? b : a;
 }
 
 function poolKey(group: ResparkGroup, lastTouch: LastTouch): [ResparkGroup, number] {
@@ -201,14 +210,38 @@ export async function refreshResparkState(
   if (!lead || lead.tenantId !== tenantId) return;
   if (lead.status === "merged") {
     await writeResparkState(ctx, lead, { lastTouch: lead.lastTouch, resparkGroup: undefined });
+    // A touch on a merged person, such as a capture of a prospect a merge
+    // hasn't moved yet, is the survivor's: their history includes it.
+    const survivor = touch && (await mergeSurvivor(ctx, lead));
+    if (survivor) await refreshResparkState(ctx, tenantId, survivor, touch);
     return;
   }
-  const lastTouch = laterLastTouch(lead.lastTouch, touch);
+  const lastTouch = await laterLastTouch(ctx, lead.lastTouch, touch);
   const resparkGroup = resparkGroupFor(
     { ...lead, lastTouch },
     await hasOpenDeal(ctx, lead.tenantId, lead._id),
   );
   await writeResparkState(ctx, lead, { lastTouch, resparkGroup });
+}
+
+// A merge repoints earlier merges at its target, so a chain is one hop
+// deep; a few more allow for a merge in progress.
+const MERGE_CHAIN_LIMIT = 5;
+
+/** The non-merged person a merged one ended up in, in the same tenant. */
+async function mergeSurvivor(
+  ctx: ReadCtx,
+  lead: Doc<"leads">,
+): Promise<Id<"leads"> | null> {
+  let current = lead;
+  for (let hop = 0; hop < MERGE_CHAIN_LIMIT; hop += 1) {
+    if (current.status !== "merged") return current._id;
+    if (!current.mergedIntoLeadId) return null;
+    const next = await ctx.db.get("leads", current.mergedIntoLeadId);
+    if (!next || next.tenantId !== lead.tenantId) return null;
+    current = next;
+  }
+  return null;
 }
 
 /** Drops the pool entry of a person who is about to be deleted. */
@@ -287,9 +320,14 @@ export async function computeResparkState(
   if (lead.status === "merged") {
     return { lastTouch: lead.lastTouch, resparkGroup: undefined };
   }
+  const leadIds = await mergedLeadIds(ctx, lead.tenantId, lead._id);
+  // The walk stops at the limit; past it the history would be partial.
+  if (leadIds.length >= MERGED_SOURCE_LIMIT) {
+    throw new Error(`Lead ${lead._id} has ${MERGED_SOURCE_LIMIT} or more merged records`);
+  }
   let lastTouch: LastTouch | undefined;
-  for (const leadId of await mergedLeadIds(ctx, lead.tenantId, lead._id)) {
-    lastTouch = laterLastTouch(lastTouch, await newestLastTouch(ctx, lead.tenantId, leadId));
+  for (const leadId of leadIds) {
+    lastTouch = await laterLastTouch(ctx, lastTouch, await newestLastTouch(ctx, lead.tenantId, leadId));
   }
   const resparkGroup = resparkGroupFor(
     { ...lead, lastTouch },
@@ -298,8 +336,12 @@ export async function computeResparkState(
   return { lastTouch, resparkGroup };
 }
 
-/** Sets the person's respark state from their records. */
-export async function backfillResparkStateFor(
+/**
+ * Sets the person's respark state from their records. The backfill uses it,
+ * and so does any write that deletes events, since the live refresh only
+ * moves forward.
+ */
+export async function recomputeResparkState(
   ctx: MutationCtx,
   lead: Doc<"leads">,
 ): Promise<void> {
