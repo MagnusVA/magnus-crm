@@ -524,9 +524,11 @@ The phase table and "How a phase runs" stay. `CONTEXT.md` (Prospect, In conversa
 - **Last touch, as built** (PR 1). Marking a call held usually writes only the closer's deal move, not a meeting event. So "meeting results and deal closings by a person" is: `meeting.no_show`, `meeting.canceled`, `meeting.status_changed` to held, and every deal move or loss (`opportunity.stage_changed`, `opportunity.marked_lost`, `opportunity.status_changed`) whose source isn't `system`. Events at the same millisecond go to the newer one, as `latestTouch` does.
 - **A new person starts in group `out`** (PR 1), set at insert, so every person has a group from birth.
 - **Backfill batch sizes:** `backfillResparkState` and `assertResparkState` run at 50; `backfillCaptureLifecycle` at 25.
-- **`backfillCaptureLifecycle` stops on a stage it would lower** (PR 2): a person whose records now support a lower stage, or none, throws with their ID. §2.1 expects none. Its dry run runs one batch; the move counts come from read-only scans before and after (§13).
+- **`backfillCaptureLifecycle` stops on a stage it would lower** (PR 2): a person whose records now support a lower stage, or none, throws with their ID. §2.1 expects none. Its population dry run is `previewCaptureLifecycle` (below).
 - **The person page's respark not-a-fit line** (PR 3) reads `dispositionSource: "respark"` and `dispositionSetAt` from the person, not the item, so it ships before the items table (§5.3).
-- **The claim reads at most 1,000 people, not 1,500 (D9)** (PR 4). Each candidate costs its lead and three index reads (its merges, an unworked item, today's skips), which keeps a claim under Convex's 4,096 reads and 32,000 documents.
+- **The claim reads at most 1,000 people, not 1,500 (D9), and at most 3,000 index reads** (PR 4). A candidate costs its lead and, per person merged into them, three index reads (the merge walk, an unworked item, today's skips). The read budget leaves about 1,000 of Convex's 4,096 reads for the batch's writes.
+- **An empty pool creates no batch** (PR 4, from the browser QA): the claim returns no batch ID and writes nothing. A batch records `completedAt` when its last person is worked, and the Respark screen's today line counts batches done, not started.
+- **Respark needs an active lead gen worker** (PR 4 and PR 5, from CodeRabbit): the actions and the queries reject a lead generator whose lead gen access was turned off, held batch included.
 - **Holds and skips follow merges** (PR 4): the hold check reads the items of everyone merged into the person. Items gain two indexes by result, for the hold check and for the respark evidence and credit.
 - **A second Not a fit moves `dispositionSetAt`** (PR 4), without an event, so only evidence newer than the latest decision reopens it.
 - **Respark evidence and credit read Resparked items only** (PR 4): the stage takes the earliest one; credit takes the latest one between the previous deal and this one (`latestResparkedItemBetween`).
@@ -536,6 +538,9 @@ The phase table and "How a phase runs" stay. `CONTEXT.md` (Prospect, In conversa
 - **The capture backfill's dry run** (PR 2) is `previewCaptureLifecycle`, a read-only paged count over the whole table, because the migration's dry run checks one batch. `assertLeadLifecycle` also checks each prospect's conversion entries, and the backfill syncs them for people whose lifecycle doesn't change.
 - **`resparkPoolTotals`** (PR 1), an internal query for the read-only pool check.
 - **The blocker purge** recomputes everyone it touched at the end of each call, partial calls included.
+- **Capture confirmations, as built** (PR 2): the next call comes from the person's scheduled meetings, a keyed retry says "Capture already recorded", do not contact gets its own line, and a known person's stage is named as stored.
+- **Dates in the business day's zone** (PR 3 and PR 7): the Settings count follows an hour-rounded browser clock, and the Lifecycle card's respark line, stage dates and last touch format in the business day's zone, so the server and the browser agree.
+- **My Activity pins loaded pages** (PR 6): the merged capture and respark table uses `convex-helpers`' paginated hook, which pins each loaded page, so new activity can't drop a row.
 - **CodeRabbit on PR 0:** the Not a fit guard against an admin's disposition is explicit (§5.3); the PR 1 pool check compares the aggregate with the stored groups, not with §2.5; a respark credit row's `attributedAt` is the respark time (§4.6); rollback of PRs 4 to 6 turns the feature off rather than reverting the schema (§12).
 
 ## 12. Rollback
@@ -558,14 +563,55 @@ All production runs are on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, with `--en
 
 ### 13.2 Deploys
 
-- **PR 1** (#198), merged 04:55 on 2026-10-25 as `2f81f93`; the Vercel production deploy succeeded at 04:57.
+Each PR merged after CodeRabbit approved it, and Vercel deployed it to production:
+
+| PR | Merged | Commit | Deployed |
+| --- | --- | --- | --- |
+| PR 1 (#198) | 04:55, 2026-10-25 | `2f81f93` | 04:57 |
+| PR 2 (#199) | 07:43 | `be56a26` | 07:45 |
+| PR 3 (#200) | 11:15 | `e3fb290` | 11:18 |
+| PR 4 (#201) | 14:27 | `62db7e7` | 14:29 |
+| PR 5 (#202) | 16:22 | `55323ec` | 16:24 |
+| PR 6 (#203) | 18:29 | `61acb91` | 18:33 |
 
 ### 13.3 Runs
 
+**After PR 1:**
+
 - **04:58, before the backfill:** `resparkPoolTotals` returned 0 in every group.
-- **04:58:** `backfillResparkState` dry run (50 processed, no error), then the run. It finished with state success at 06:11:17: 92,837 people processed (the table's count by then, merged people included). A machine crash at about 05:10 stopped the poller, not the migration; the status was read at 06:32.
-- **06:33:** `assertResparkState` started.
-- **Temp files:** the crash cleared the temp directory, including the read-only scan exports from planning (IDs, enums and times; no names or contacts). Nothing from them is left to delete.
+- **04:58 to 06:11:** `backfillResparkState` dry run (50 processed, no error), then the run: success, 92,837 people processed (the table's count by then, merged people included). A machine crash at about 05:10 stopped the poller, not the migration; the status was read at 06:32.
+- **06:33 to 07:05:** `assertResparkState` passed on 92,972 people.
+- **07:08, read-only pool check** (a paged scan of IDs, enums and times; deleted after):
+  - Every one of the 92,967 non-merged people has a group and a `lastTouch`; no merged person has a group.
+  - The aggregate equals the stored groups exactly: `out` 4,332, `had_call` 2,429, `qualified` 4,334, `never_qualified` 81,872, `not_a_fit` 0.
+  - Under §4.3 as built, the buckets are 3,650 / 50,758 / 1,113 / 774 / 0, a pool of 56,295; 25,535 people are inactive at 90 days.
+
+**After PR 2:**
+
+- **07:46 to 08:11:** `previewCaptureLifecycle`, read only, over 92,975 people:
+
+  | Outcome | People |
+  | --- | --- |
+  | Prospect → In conversation | 81,872 |
+  | Times only, at Customer | 89 |
+  | Times only, at Booked | 1,479 |
+  | Times only, at Qualified | 3,017 |
+  | Times only, at Showed | 154 |
+  | Unchanged | 6,359 |
+  | Skipped (merged or moved back) | 5 |
+  | Would lower a stage | 0 |
+  | Conversion entries out of step | 0 |
+
+- **08:10 to 09:59:** `backfillCaptureLifecycle` dry run (25, no error), then the run: success, 92,986 people, no person stopped it.
+- **10:00 to 10:32:** `assertResparkState` (reset) passed on 92,993 people.
+- **10:03, read-only stage count** (deleted after): 0 people at Prospect. In conversation 81,884, Qualified 5,576, Booked 4,800, Showed 434, Customer 288.
+- **10:00 to 11:23:** `assertLeadLifecycle` (reset), now with the conversion entries, passed on 92,998 people.
+
+**After PR 4:**
+
+- **14:30 to 14:40:** `assertDealAttributions` (reset) passed on 11,788 deals, `assertBookingAttributions` (reset) on 7,012 meetings, and `assertPersonTouches` (reset) on 93,071 people.
+
+**Temp files:** the crash cleared the temp directory, including the read-only scan exports from planning (IDs, enums and times; no names or contacts). The scans made during the phase were deleted after each check.
 
 ### 13.4 Dev
 
@@ -573,4 +619,4 @@ On the dev deployment (34 people), with `convex dev --once`:
 
 - PR 1: `backfillResparkState` dry run and run, 34 processed; `assertResparkState` passed.
 - PR 2: `backfillCaptureLifecycle` dry run and run, 34 processed; `assertLeadLifecycle` and `assertResparkState` (reset) passed.
-- PRs 3 to 6 pushed to dev for the browser check.
+- PRs 3 to 6 pushed to dev for the browser check. A Codex QA run drove the screens as the dev lead generator and owner: navigation, the Respark screen (claim, cards, undo, keys, panel, batch done), My Activity, capture confirmations, Settings, the person page and Lead Gen Ops all passed. Its one finding, the today line, was fixed in PR 4. It created one test capture and one batch of 8 dev people.
