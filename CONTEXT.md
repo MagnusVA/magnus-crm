@@ -111,5 +111,5 @@ Where a touch came from: lead gen (a capture or a respark), the DM portal, Slack
 ## Flagged ambiguities
 
 - "Lead" means three things in today's code: the person (the `leads` table), the active lifecycle (`leads.status = active`), and, in reports, a new lead. Say person, lifecycle stage, or new person. In the leads report, a new lead is a person who first reached Qualified in the period, not a newly created row.
-- "Prospect" also names the `leadGenProspects` table, which records captures and is not yet linked to a person.
+- "Prospect" also names the `leadGenProspects` table, which records a handle's captures and is linked to its person.
 - "Status" on an opportunity, in old deal events and old links, mixed deal stage, outcome, meeting attendance, and task state. The field is gone; name the one you mean.
