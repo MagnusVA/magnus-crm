@@ -19,6 +19,7 @@ import { isOpenDeal } from "../opportunities/dealGuards";
 import type { DealStateFields } from "../opportunities/dealState";
 import { leadStageEntries } from "../reporting/aggregates";
 import { emitDomainEvent, type DomainEventSource } from "./domainEvents";
+import { personResparkItems } from "./respark/items";
 import { refreshResparkState } from "./respark/state";
 import { personProspects, syncPersonProspectConversions } from "./prospectConversions";
 
@@ -34,7 +35,8 @@ export type LifecycleCause =
   | "booking"
   | "side_deal"
   | "meeting_held"
-  | "payment";
+  | "payment"
+  | "respark";
 
 export function readLifecycle(lead: Doc<"leads">): LifecycleState {
   return { stage: lead.lifecycleStage, enteredAt: lead.lifecycleStageEnteredAt };
@@ -191,11 +193,16 @@ export async function advanceLeadLifecycle(
   }
   const before = readLifecycle(lead);
   const after = advanceLifecycle(before, evidence.stage, evidence.at);
-  // Newer evidence of interest reopens a person the system set aside (D3).
+  // Newer evidence of interest, at Qualified or later, reopens a person the
+  // system set aside (D3), and a not a fit whoever set it: a booking from a
+  // not-a-fit person shouldn't be hidden (respark plan §4.7). A capture is
+  // below Qualified, so it reopens neither.
+  const setAside =
+    (lead.disposition === "unresponsive" && lead.dispositionSource === "system") ||
+    lead.disposition === "not_a_fit";
   const reopens =
     !isProspectStage(evidence.stage) &&
-    lead.disposition === "unresponsive" &&
-    lead.dispositionSource === "system" &&
+    setAside &&
     evidence.at > (lead.dispositionSetAt ?? 0);
   if (sameLifecycle(before, after) && !reopens) {
     return;
@@ -295,6 +302,16 @@ export function prospectEvidence(
   prospect: Doc<"leadGenProspects">,
 ): LifecycleEvidence[] {
   return [{ stage: "in_conversation", at: prospect.firstCapturedAt }];
+}
+
+/**
+ * A lead generator resparked the person: they are in conversation again
+ * (respark plan §5.3). Not a fit and Skip are no evidence.
+ */
+export function resparkEvidence(item: Doc<"resparkBatchItems">): LifecycleEvidence[] {
+  return item.result === "resparked" && item.workedAt !== undefined
+    ? [{ stage: "in_conversation", at: item.workedAt }]
+    : [];
 }
 
 /**
@@ -469,6 +486,10 @@ export async function collectLifecycleEvidence(
     .first();
   if (firstCopy) {
     evidence.push(...portalCopyEvidence(firstCopy));
+  }
+  // Items stay on the person they were made for, so read across merges.
+  for (const item of await personResparkItems(ctx, tenantId, leadId)) {
+    evidence.push(...resparkEvidence(item));
   }
   return { evidence, opportunities };
 }
@@ -755,7 +776,51 @@ export async function adminMoveLifecycleBack(
   });
 }
 
-/** An admin sets the disposition; only an admin changes it from then on. */
+/**
+ * A lead generator's respark sets the disposition (plan §5.3): Resparked
+ * reopens a not a fit to Open, and Not a fit sets it, unless an admin set the
+ * current one. Returns whether it wrote.
+ */
+export async function resparkSetDisposition(
+  ctx: MutationCtx,
+  lead: Doc<"leads">,
+  to: "open" | "not_a_fit",
+  write: { actorUserId: Id<"users">; at: number },
+): Promise<boolean> {
+  const applies =
+    to === "open"
+      ? lead.disposition === "not_a_fit"
+      : lead.disposition !== "not_a_fit" && lead.dispositionSource !== "admin";
+  if (!applies) {
+    return false;
+  }
+  const reason = to === "open" ? "resparked" : "respark_not_a_fit";
+  await ctx.db.patch("leads", lead._id, {
+    disposition: to,
+    dispositionSetAt: write.at,
+    dispositionSource: "respark",
+    dispositionReason: reason,
+  });
+  await emitDomainEvent(ctx, {
+    tenantId: lead.tenantId,
+    entityType: "lead",
+    entityId: lead._id,
+    eventType: "lead.disposition_changed",
+    source: "pipeline",
+    actorUserId: write.actorUserId,
+    fromStatus: lead.disposition,
+    toStatus: to,
+    reason,
+    occurredAt: write.at,
+  });
+  return true;
+}
+
+/**
+ * An admin sets the disposition; only an admin changes it from then on,
+ * except that newer evidence at Qualified or later reopens a not a fit
+ * (respark plan §4.7).
+ */
 export async function adminSetDisposition(
   ctx: MutationCtx,
   lead: Doc<"leads">,

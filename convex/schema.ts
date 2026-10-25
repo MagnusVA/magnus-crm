@@ -15,7 +15,11 @@ import {
   dealAttributionSourceValidator,
 } from "./lib/attribution/validators";
 import { touchSnapshotValidator } from "./lib/touchValidators";
-import { lastTouchValidator, resparkGroupValidator } from "./lib/respark/validators";
+import {
+  lastTouchValidator,
+  resparkGroupValidator,
+  resparkResultValidator,
+} from "./lib/respark/validators";
 import { resparkSettingsValidator } from "./lib/respark/settings";
 import {
   leadCustomerCustomerStatusValidator,
@@ -592,6 +596,41 @@ export default defineSchema({
       searchField: "searchText",
       filterFields: ["tenantId", "status"],
     }),
+
+  // Respark (docs/plans/respark.md §3.2). A batch a lead generator asked for,
+  // held until the business day it was created in ends.
+  resparkBatches: defineTable({
+    tenantId: v.id("tenants"),
+    userId: v.id("users"),
+    workerId: v.id("leadGenWorkers"),
+    createdAt: v.number(),
+    heldUntil: v.number(),
+    // The people it got, and the batch size setting when it was asked for.
+    size: v.number(),
+    requestedSize: v.number(),
+  }).index("by_tenantId_and_userId_and_createdAt", ["tenantId", "userId", "createdAt"]),
+
+  // One per person in a batch. An unworked item in an unexpired batch is the
+  // hold. Items stay on the person they were made for, through merges.
+  resparkBatchItems: defineTable({
+    tenantId: v.id("tenants"),
+    batchId: v.id("resparkBatches"),
+    leadId: v.id("leads"),
+    userId: v.id("users"),
+    workerId: v.id("leadGenWorkers"),
+    position: v.number(),
+    // 1 to 5, the bucket the person was in when held (plan §4.4).
+    bucket: v.number(),
+    heldUntil: v.number(),
+    result: v.optional(resparkResultValidator),
+    workedAt: v.optional(v.number()),
+    // The respark touch, for Resparked and Not a fit.
+    eventId: v.optional(v.id("domainEvents")),
+  })
+    .index("by_batchId_and_position", ["batchId", "position"])
+    .index("by_tenantId_and_leadId_and_heldUntil", ["tenantId", "leadId", "heldUntil"])
+    .index("by_tenantId_and_workerId_and_workedAt", ["tenantId", "workerId", "workedAt"])
+    .index("by_tenantId_and_workedAt", ["tenantId", "workedAt"]),
 
   // === Feature E: Multi-Identifier Lead Model ===
   leadIdentifiers: defineTable({

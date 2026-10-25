@@ -29,3 +29,17 @@ export const resparkGroupValidator = v.union(
   v.literal("not_a_fit"),
   v.literal("out"),
 );
+
+// What a lead generator did with a held person (plan §5.3). An item with no
+// result is unworked; while its batch is unexpired, it holds the person.
+export const resparkResultValidator = v.union(
+  v.literal("resparked"),
+  v.literal("not_a_fit"),
+  v.literal("skipped"),
+);
+
+export type ResparkResult = Infer<typeof resparkResultValidator>;
+
+// The pool's buckets, in claim order (plan §4.4).
+export const RESPARK_BUCKETS = [1, 2, 3, 4, 5] as const;
+export type ResparkBucket = (typeof RESPARK_BUCKETS)[number];

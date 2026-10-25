@@ -11,6 +11,7 @@ import {
 } from "../_generated/server";
 
 import { deleteLeadGenDealAggregate } from "../leadGen/leadGenDealsAggregate";
+import { resparkResultsByWorker } from "../lib/respark/items";
 import { deleteResparkPoolEntry } from "../lib/respark/state";
 
 const DESTRUCTIVE_CONFIRMATION = "DELETE_OPERATIONAL_DATA";
@@ -20,6 +21,8 @@ const BATCH_SIZE = 64;
 const DOMAIN_EVENT_BATCH_SIZE = 40;
 
 const OPERATIONAL_TABLES = [
+  "resparkBatchItems",
+  "resparkBatches",
   "webhookRecoveryAttempts",
   "webhookDeliveries",
   "calendlyBookingFacts",
@@ -140,6 +143,9 @@ async function deleteSimpleBatch(
     }
     if (tableName === "leads" && "lifecycleStage" in row) {
       await deleteResparkPoolEntry(ctx, row);
+    }
+    if (tableName === "resparkBatchItems" && "batchId" in row) {
+      await resparkResultsByWorker.delete(ctx, row);
     }
     await ctx.db.delete(tableName, row._id);
   }
@@ -268,6 +274,8 @@ export const getSnapshot = internalQuery({
       rawSlackEvents: await countTableDocuments(ctx, "rawSlackEvents"),
       slackOAuthStates: await countTableDocuments(ctx, "slackOAuthStates"),
       leads: await countTableDocuments(ctx, "leads"),
+      resparkBatchItems: await countTableDocuments(ctx, "resparkBatchItems"),
+      resparkBatches: await countTableDocuments(ctx, "resparkBatches"),
       supportTickets: await countTableDocuments(ctx, "supportTickets"),
     };
 
@@ -352,6 +360,8 @@ export const deleteOperationalDataBatch = internalMutation({
       v.literal("dmClosers"),
       v.literal("attributionTeams"),
       v.literal("leads"),
+      v.literal("resparkBatchItems"),
+      v.literal("resparkBatches"),
       v.literal("teamMembers"),
       v.literal("users"),
       v.literal("tenants"),
@@ -417,6 +427,8 @@ export const resetOperationalData = internalAction({
     }
 
     const deletedCounts: Record<OperationalTableName, number> = {
+      resparkBatchItems: 0,
+      resparkBatches: 0,
       meetingFormResponses: 0,
       meetingComments: 0,
       meetingReassignments: 0,

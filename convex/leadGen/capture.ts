@@ -470,7 +470,7 @@ function resolveCaptureOrigin(args: {
   };
 }
 
-async function requireOperationalLeadGenWorker(
+export async function requireOperationalLeadGenWorker(
   ctx: MutationCtx,
   access: {
     tenantId: Id<"tenants">;
