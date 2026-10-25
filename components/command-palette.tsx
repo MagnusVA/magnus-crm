@@ -24,9 +24,12 @@ import {
   SettingsIcon,
   CalendarIcon,
   PlusIcon,
+  RefreshCwIcon,
   TargetIcon,
 } from "lucide-react";
 import { useRole } from "@/components/auth/role-context";
+
+const RESPARK_HREF = "/workspace/lead-gen/respark";
 
 // Hoisted static page definitions (vercel-react-best-practices: rendering-hoist-jsx)
 const adminPages = [
@@ -35,6 +38,7 @@ const adminPages = [
   { label: "Leads & Customers", href: "/workspace/leads-customers", icon: ContactIcon, shortcut: "3" },
   { label: "Lead Gen Ops", href: "/workspace/operations/lead-gen", icon: ClipboardListIcon },
   { label: "Lead Gen Settings", href: "/workspace/lead-gen/settings", icon: SettingsIcon },
+  { label: "Respark", href: RESPARK_HREF, icon: RefreshCwIcon },
   { label: "Team", href: "/workspace/team", icon: UsersIcon },
   { label: "Settings", href: "/workspace/settings", icon: SettingsIcon },
   {
@@ -61,6 +65,7 @@ const closerPages = [
 const leadGenPages = [
   { label: "Capture", href: "/workspace/lead-gen/capture", icon: TargetIcon, shortcut: "1" },
   { label: "My Activity", href: "/workspace/lead-gen/my-activity", icon: ActivityIcon, shortcut: "2" },
+  { label: "Respark", href: RESPARK_HREF, icon: RefreshCwIcon, shortcut: "3" },
 ];
 
 export function CommandPalette({
@@ -69,7 +74,7 @@ export function CommandPalette({
   billingOpsEnabled?: boolean;
 }) {
   const router = useRouter();
-  const { isAdmin, role } = useRole();
+  const { isAdmin, role, hasPermission } = useRole();
   const [open, setOpen] = useState(false);
 
   // Global keyboard shortcut: Cmd+K or Ctrl+K
@@ -92,7 +97,7 @@ export function CommandPalette({
     [router],
   );
 
-  const pages = isAdmin
+  const rolePages = isAdmin
     ? billingOpsEnabled
       ? [
           ...adminPages.slice(0, 2),
@@ -107,6 +112,9 @@ export function CommandPalette({
     : role === "lead_generator"
       ? leadGenPages
       : closerPages;
+  const pages = rolePages.filter(
+    (page) => page.href !== RESPARK_HREF || hasPermission("lead-gen:respark"),
+  );
   const showCreateOpportunity = isAdmin || role === "closer";
   const showQuickActions = isAdmin || showCreateOpportunity;
 
