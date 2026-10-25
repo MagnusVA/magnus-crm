@@ -512,7 +512,7 @@ The two calls made without a question stand: a qualification or a booking newer 
 **A1, in PR 0 (done).** A dated amendment to the status line, plus these rules in "Rules for code" and the Decision's Person bullet:
 
 1. A capture enters the person at In conversation. Prospect stays in the enum, unused, and a DM portal note or edit no longer moves the stage.
-2. A lead generator can set not a fit, from a respark, with disposition source `respark`. A respark reopens it, and so does a qualification or a booking newer than it.
+2. A lead generator can set not a fit, from a respark, with disposition source `respark`. A respark reopens a not a fit, whoever set it, and so does any evidence at Qualified or later (a qualification, a booking, a held call, a payment) newer than it. A capture doesn't.
 3. Inactive is a rule: no touch for the tenant's N days, from `lastTouch`, worked out at read time and never stored as a flag.
 4. A respark is a touch on the timeline (`lead.resparked`, a lead gen channel touch), and `respark` is a lead gen credit source in `dealAttributions`.
 
