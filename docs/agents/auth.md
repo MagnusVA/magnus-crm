@@ -18,7 +18,7 @@ One WorkOS organization is one tenant, linked by `tenants.workosOrgId`. A tenant
 - `convex/lib/roleMapping.ts` maps WorkOS slugs to CRM roles, and an unknown slug maps to `closer`.
 - `convex/lib/permissions.ts` defines the permission slugs (`reports:view`, `billing:*`, `lead-gen:capture`, and others) and which roles hold them. Gate new features on a permission slug when one fits.
 - Closers see only records where they're the assigned or attributed closer; `convex/leadCustomers/permissions.ts` enforces this per record.
-- `lead-gen:respark` (lead generators and admins) covers the Respark screen and its actions. Lead generators can't open person pages; the respark person panel (`getResparkPersonPanel` in `convex/respark/queries.ts`) answers only for an item in the caller's own unexpired batch, returns null otherwise, and masks phone and email on the server.
+- `lead-gen:respark` (lead generators and admins) covers the Respark screen, its queries and its actions. A lead generator also needs an active lead gen worker: turning their lead gen access off stops every respark read and action, held batch included. Lead generators can't open person pages; the respark person panel (`getResparkPersonPanel` in `convex/respark/queries.ts`) answers only for an item in the caller's own unexpired batch, returns null otherwise, and masks phone and email on the server.
 - DM closers (`dmClosers` table) and Slack qualifiers (`slackUsers` table) aren't CRM users and have no role.
 
 ## Guards by surface
