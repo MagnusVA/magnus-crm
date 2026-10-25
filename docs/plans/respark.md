@@ -174,12 +174,12 @@ The source union gains `{ kind: "respark", itemId: Id<"resparkBatchItems">, work
 **Last touch** is the newest event about the person that is one of these:
 
 - a touch under today's `touchChannel`: a capture (a duplicate included), a portal note, edit or link copy, a Slack qualification, a booking, or a Slack or side deal's creation;
-- a meeting result: held (`meeting.status_changed` to held), `meeting.no_show`, or `meeting.canceled`;
-- a deal closing by a person: `opportunity.marked_lost` or a move to won, when the event's source isn't `system`;
+- a meeting result: `meeting.no_show`, `meeting.canceled`, or `meeting.status_changed` to held;
+- a deal move or loss someone made: `opportunity.stage_changed`, `opportunity.marked_lost` or `opportunity.status_changed` whose source isn't `system`. Marking a call held usually writes only the closer's deal move, so this is also how a held call counts (§11.5);
 - `payment.recorded`;
 - a respark: `lead.resparked` or `lead.marked_not_a_fit` (§5.3).
 
-What's left out are events no one did with the person: the Slack expiry, other system closings, stage and disposition changes, an admin's corrections, merges, and stats events (Q3).
+What's left out are events no one did with the person: the Slack expiry and other system deal moves, lifecycle stage and disposition changes, merges, and stats events (Q3). Two events at the same millisecond go to the one written later, on every path.
 
 - `emitDomainEvent` keeps `lastTouch` current, in the same call that keeps `latestTouch` current, and it moves only forward. A merge keeps the later of the two, as `mergedTouches` does for `latestTouch`.
 - `lead.resparked` is also a channel touch (`lead_gen`), so a deal created after a respark snapshots it as its latest touch. `lead.marked_not_a_fit` isn't: it brings no one back.
@@ -294,7 +294,7 @@ Each action is one mutation. It checks that the caller holds `lead-gen:respark`,
 
 - The events go through `emitDomainEvent`, so `lastTouch`, the group, the pool aggregate, the activity counts and PostHog follow on their own.
 - The lifecycle goes through `advanceLeadLifecycle`, and the disposition through a new `respark` branch beside `adminSetDisposition` in `convex/lib/leadLifecycle.ts`.
-- The person page reads who set a respark not a fit from the item, so no new field goes on the person.
+- The person page's Lifecycle card shows a respark not a fit from the person's `dispositionSource: "respark"` and `dispositionSetAt`, naming the role, not the lead generator. The person panel's respark history, which names no one either, comes from the items. No new field goes on the person.
 
 ### 5.4 The capture (PR 2)
 
@@ -525,7 +525,17 @@ The phase table and "How a phase runs" stay. `CONTEXT.md` (Prospect, In conversa
 - **A new person starts in group `out`** (PR 1), set at insert, so every person has a group from birth.
 - **Backfill batch sizes:** `backfillResparkState` and `assertResparkState` run at 50; `backfillCaptureLifecycle` at 25.
 - **`backfillCaptureLifecycle` stops on a stage it would lower** (PR 2): a person whose records now support a lower stage, or none, throws with their ID. §2.1 expects none. Its dry run runs one batch; the move counts come from read-only scans before and after (§13).
-- **The person page's respark not-a-fit line** (PR 3) reads `dispositionSource: "respark"` and `dispositionSetAt` from the person, not the item, so it ships before the items table.
+- **The person page's respark not-a-fit line** (PR 3) reads `dispositionSource: "respark"` and `dispositionSetAt` from the person, not the item, so it ships before the items table (§5.3).
+- **The claim reads at most 1,000 people, not 1,500 (D9)** (PR 4). Each candidate costs its lead and three index reads (its merges, an unworked item, today's skips), which keeps a claim under Convex's 4,096 reads and 32,000 documents.
+- **Holds and skips follow merges** (PR 4): the hold check reads the items of everyone merged into the person. Items gain two indexes by result, for the hold check and for the respark evidence and credit.
+- **A second Not a fit moves `dispositionSetAt`** (PR 4), without an event, so only evidence newer than the latest decision reopens it.
+- **Respark evidence and credit read Resparked items only** (PR 4): the stage takes the earliest one; credit takes the latest one between the previous deal and this one (`latestResparkedItemBetween`).
+- **Batch cards carry no time zone** (PR 4): it needs the booking's stored payload, so only the person panel reads it. A card reads at most three merged people. A card's loss reason is masked like the panel's text.
+- **The credit assert** (PR 4) checks the row's own facts, and that no deal written before the credit began between the respark and the deal, ignoring deals of people merged in after the credit.
+- **New indexes** (PR 4): `opportunities.by_tenantId_and_leadId_and_createdAt` (the previous deal) and `dealAttributions.by_tenantId_and_source_kind_and_attributedAt` (the report).
+- **The capture backfill's dry run** (PR 2) is `previewCaptureLifecycle`, a read-only paged count over the whole table, because the migration's dry run checks one batch. `assertLeadLifecycle` also checks each prospect's conversion entries, and the backfill syncs them for people whose lifecycle doesn't change.
+- **`resparkPoolTotals`** (PR 1), an internal query for the read-only pool check.
+- **The blocker purge** recomputes everyone it touched at the end of each call, partial calls included.
 - **CodeRabbit on PR 0:** the Not a fit guard against an admin's disposition is explicit (§5.3); the PR 1 pool check compares the aggregate with the stored groups, not with §2.5; a respark credit row's `attributedAt` is the respark time (§4.6); rollback of PRs 4 to 6 turns the feature off rather than reverting the schema (§12).
 
 ## 12. Rollback
@@ -548,12 +558,19 @@ All production runs are on tenant `k57dqjfyf8qqy31bq375ng8gb984b24q`, with `--en
 
 ### 13.2 Deploys
 
-None yet.
+- **PR 1** (#198), merged 04:55 on 2026-10-25 as `2f81f93`; the Vercel production deploy succeeded at 04:57.
 
 ### 13.3 Runs
 
-None yet.
+- **04:58, before the backfill:** `resparkPoolTotals` returned 0 in every group.
+- **04:58:** `backfillResparkState` dry run (50 processed, no error), then the run. It finished with state success at 06:11:17: 92,837 people processed (the table's count by then, merged people included). A machine crash at about 05:10 stopped the poller, not the migration; the status was read at 06:32.
+- **06:33:** `assertResparkState` started.
+- **Temp files:** the crash cleared the temp directory, including the read-only scan exports from planning (IDs, enums and times; no names or contacts). Nothing from them is left to delete.
 
 ### 13.4 Dev
 
-None yet.
+On the dev deployment (34 people), with `convex dev --once`:
+
+- PR 1: `backfillResparkState` dry run and run, 34 processed; `assertResparkState` passed.
+- PR 2: `backfillCaptureLifecycle` dry run and run, 34 processed; `assertLeadLifecycle` and `assertResparkState` (reset) passed.
+- PRs 3 to 6 pushed to dev for the browser check.

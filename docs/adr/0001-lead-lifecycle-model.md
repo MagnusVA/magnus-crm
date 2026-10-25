@@ -83,7 +83,7 @@ The migration finished on 23 October 2026, and these rules hold for all code fro
 8. **Lifecycle never moves backwards on its own.** A lost deal does not make a customer a lead again in reports.
 9. **One timeline.** A new kind of person event goes through `emitDomainEvent`, not into a new log table.
 10. **A capture means in conversation.** A lead gen capture enters the person at In conversation, entered at their first capture, and Prospect stays in the enum, unused. A DM portal note or profile edit is a touch but doesn't move the stage.
-11. **A lead generator can set not a fit,** from a respark, with disposition source `respark`, beside `system` and `admin`. A respark, a qualification or a booking reopens a not a fit, whoever set it. A capture doesn't.
+11. **A lead generator can set not a fit,** from a respark, with disposition source `respark`, beside `system` and `admin`. A respark reopens a not a fit, whoever set it, and so does any evidence at Qualified or later (a qualification, a booking, a held call, a payment) newer than the not a fit. A capture doesn't.
 12. **Inactive is a rule, not a stored flag.** A person is inactive when their `lastTouch` is at least the tenant's N days old (`tenants.respark.inactiveAfterDays`). Readers work it out at read time. `lastTouch` and `resparkGroup` are stored so the respark pool can be read by index, and no cron or field stores the badge.
 13. **A respark is a touch and a credit source.** `lead.resparked` is a lead gen channel touch on the timeline, and `respark` is a lead gen source kind in `dealAttributions`, added beside the capture row, never in its place.
 
