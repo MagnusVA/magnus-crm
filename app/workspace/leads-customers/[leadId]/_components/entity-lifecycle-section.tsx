@@ -81,7 +81,7 @@ export function EntityLifecycleSection() {
 							<MicroLabel>{LIFECYCLE_STAGE_LABELS[option]}</MicroLabel>
 						</dt>
 						<dd className="text-right text-xs tabular-nums">
-							{formatDate(lead.lifecycleStageEnteredAt[option])}
+							{formatDate(lead.lifecycleStageEnteredAt[option], businessTimeZone)}
 						</dd>
 					</div>
 				))}
@@ -90,7 +90,7 @@ export function EntityLifecycleSection() {
 						<MicroLabel>Last touch</MicroLabel>
 					</dt>
 					<dd className="text-right text-xs tabular-nums">
-						{lastTouch ? `${formatDate(lastTouch.occurredAt)} · ${lastTouch.label}` : "Not recorded"}
+						{lastTouch ? `${formatDate(lastTouch.occurredAt, businessTimeZone)} · ${lastTouch.label}` : "Not recorded"}
 					</dd>
 				</div>
 			</dl>

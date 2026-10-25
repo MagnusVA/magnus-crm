@@ -1,8 +1,9 @@
-const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", {
+const DATE_FORMAT_OPTIONS = {
 	month: "short",
 	day: "numeric",
 	year: "numeric",
-});
+} as const;
+const DATE_FORMATTER = new Intl.DateTimeFormat("en-US", DATE_FORMAT_OPTIONS);
 
 const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
 	dateStyle: "medium",
@@ -11,9 +12,14 @@ const DATE_TIME_FORMATTER = new Intl.DateTimeFormat("en-US", {
 
 const MONEY_FORMATTERS = new Map<string, Intl.NumberFormat>();
 
-export function formatDate(value: number | undefined | null) {
+/** `timeZone`, when given, picks the calendar day; the default is the browser's. */
+export function formatDate(value: number | undefined | null, timeZone?: string) {
 	if (!value) return "Not recorded";
-	return DATE_FORMATTER.format(new Date(value));
+	if (!timeZone) return DATE_FORMATTER.format(new Date(value));
+	return new Intl.DateTimeFormat("en-US", {
+		...DATE_FORMAT_OPTIONS,
+		timeZone,
+	}).format(new Date(value));
 }
 
 export function formatDateTime(value: number | undefined | null) {
