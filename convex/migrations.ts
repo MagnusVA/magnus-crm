@@ -26,6 +26,7 @@ import { deriveStoredEventLinks, storedLeadIdMatches } from "./lib/domainEventLi
 import { getPersonProgramEnrollment } from "./enrollments/read";
 import { derivePersonEnrollments, paymentCounts } from "./lib/enrollments";
 import { lifecycleProblems } from "./lib/leadLifecycle";
+import { backfillResparkStateFor, resparkStateProblems } from "./lib/respark/state";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import {
   ensureUserTeamMember,
@@ -614,6 +615,25 @@ export const assertPersonTouches = migrations.define({
     if (field) {
       throw new Error(`Lead ${lead._id} has ${field} ${touchEventId(lead[field])}, expected ${touchEventId(computed[field])}`);
     }
+  },
+});
+
+// Respark (docs/plans/respark.md §10.1). The backfill sets each person's
+// `lastTouch` and `resparkGroup` from their records and writes their
+// `resparkPool` entry; the assert checks each person against the same
+// computation. Both stay as rebuild tools and health checks:
+// npx convex run migrations:run '{"fn":"migrations:assertResparkState","reset":true}'
+export const backfillResparkState = migrations.define({
+  table: "leads", batchSize: 50,
+  migrateOne: async (ctx, lead) => {
+    await backfillResparkStateFor(ctx, lead);
+  },
+});
+export const assertResparkState = migrations.define({
+  table: "leads", batchSize: 50,
+  migrateOne: async (ctx, lead) => {
+    const problems = await resparkStateProblems(ctx, lead);
+    if (problems.length > 0) throw new Error(`Lead ${lead._id}: ${problems.join("; ")}`);
   },
 });
 

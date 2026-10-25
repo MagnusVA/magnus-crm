@@ -27,6 +27,7 @@ import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
 import { mergedTouches } from "../lib/touches";
 import { leadDisplayString } from "../lib/leadDisplay";
+import { refreshResparkState } from "../lib/respark/state";
 import { validateLeadTransition } from "../lib/statusTransitions";
 import { rebuildQualificationRow } from "../operations/projections";
 import { closeMergedReviews } from "../pipeline/bookingReviewRecords";
@@ -672,6 +673,10 @@ export async function executeMerge(
     mergedIntoLeadId: targetLeadId,
     updatedAt: now,
   });
+  // The target takes the later last touch of the two and a group from the
+  // deals it now has; the source leaves the pool with the `lead.merged`
+  // event below (docs/plans/respark.md §5.1).
+  await refreshResparkState(ctx, tenantId, targetLeadId, sourceLead.lastTouch);
   // Leads merged into the source now point at the target, so merge chains
   // stay one hop deep. Identity resolution follows at most five.
   const earlierMerges = await ctx.db

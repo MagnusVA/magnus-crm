@@ -3,6 +3,7 @@ import { mutation } from "../_generated/server";
 import { rebuildLeadCustomerSearchRow } from "../leadCustomers/projection";
 import { deleteDealAttributions } from "../lib/attribution/dealAttributions";
 import { emitDomainEvent } from "../lib/domainEvents";
+import { refreshResparkState } from "../lib/respark/state";
 import { isSideDeal } from "../lib/sideDeals";
 import { describeDealState, isSideDealAtCallHeld } from "../opportunities/dealGuards";
 import { requireTenantUser } from "../requireTenantUser";
@@ -130,6 +131,8 @@ export const deleteEmptyOpportunity = mutation({
     await deleteOpportunityAggregate(ctx, opportunity);
     await ctx.db.delete("opportunities", opportunityId);
     await rebuildLeadCustomerSearchRow(ctx, tenantId, opportunity.leadId);
+    // Its event went out before the delete, while the deal was still open.
+    await refreshResparkState(ctx, tenantId, opportunity.leadId);
 
     return null;
   },

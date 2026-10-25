@@ -68,5 +68,6 @@ app.use(aggregate, { name: "billingPaymentsByStatus" });
 app.use(aggregate, { name: "billingPaymentsByStatusProgram" });
 app.use(aggregate, { name: "billingPaymentsByStatusType" });
 app.use(aggregate, { name: "billingPaymentsByStatusProgramType" });
+app.use(aggregate, { name: "resparkPool" });
 
 export default app;

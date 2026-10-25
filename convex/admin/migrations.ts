@@ -2,6 +2,7 @@ import { deleteActivityEventCounts } from "../reporting/activityEventCounts";
 import { deletePipelineHealthAggregates } from "../reporting/pipelineHealthAggregates";
 import { patchMeetingLifecycle } from "../lib/meetingLifecycle";
 import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
+import { refreshResparkState } from "../lib/respark/state";
 import { requestMeetingProjection } from "../operations/meetingStats";
 import { paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
@@ -1985,6 +1986,7 @@ export const purgePhase6BlockerRecords = mutation({
       }
       if (opportunity) await deletePipelineHealthAggregates(ctx, opportunity);
       await ctx.db.delete("opportunities", oppId);
+      if (opportunity) await refreshResparkState(ctx, opportunity.tenantId, opportunity.leadId);
       counts.opportunities++;
     }
 

@@ -176,6 +176,8 @@ import type * as lib_paymentHelpers from "../lib/paymentHelpers.js";
 import type * as lib_paymentTypes from "../lib/paymentTypes.js";
 import type * as lib_permissions from "../lib/permissions.js";
 import type * as lib_prospectConversions from "../lib/prospectConversions.js";
+import type * as lib_respark_state from "../lib/respark/state.js";
+import type * as lib_respark_validators from "../lib/respark/validators.js";
 import type * as lib_roleMapping from "../lib/roleMapping.js";
 import type * as lib_sideDeals from "../lib/sideDeals.js";
 import type * as lib_slackBlockKit from "../lib/slackBlockKit.js";
@@ -563,6 +565,8 @@ declare const fullApi: ApiFromModules<{
   "lib/paymentTypes": typeof lib_paymentTypes;
   "lib/permissions": typeof lib_permissions;
   "lib/prospectConversions": typeof lib_prospectConversions;
+  "lib/respark/state": typeof lib_respark_state;
+  "lib/respark/validators": typeof lib_respark_validators;
   "lib/roleMapping": typeof lib_roleMapping;
   "lib/sideDeals": typeof lib_sideDeals;
   "lib/slackBlockKit": typeof lib_slackBlockKit;
@@ -823,4 +827,5 @@ export declare const components: {
   billingPaymentsByStatusProgram: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"billingPaymentsByStatusProgram">;
   billingPaymentsByStatusType: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"billingPaymentsByStatusType">;
   billingPaymentsByStatusProgramType: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"billingPaymentsByStatusProgramType">;
+  resparkPool: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"resparkPool">;
 };

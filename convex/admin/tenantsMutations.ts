@@ -5,6 +5,7 @@ import type { DataModel, Id } from "../_generated/dataModel";
 import { internalMutation, type MutationCtx } from "../_generated/server";
 
 import { deleteLeadGenDealAggregate } from "../leadGen/leadGenDealsAggregate";
+import { deleteResparkPoolEntry } from "../lib/respark/state";
 
 const CLEANUP_BATCH_SIZE = 128;
 // Each event deletes 5-6 aggregate entries, each requiring several index reads.
@@ -85,6 +86,11 @@ async function deleteByTenantIdBatch<TableName extends TenantScopedTable>(
       const id = ctx.db.normalizeId("opportunities", row._id);
       const deal = id && await ctx.db.get("opportunities", id);
       if (deal) await deletePipelineHealthAggregates(ctx, deal);
+    }
+    if (tableName === "leads") {
+      const id = ctx.db.normalizeId("leads", row._id);
+      const lead = id && await ctx.db.get("leads", id);
+      if (lead) await deleteResparkPoolEntry(ctx, lead);
     }
     await ctx.db.delete(tableName, row._id);
   }

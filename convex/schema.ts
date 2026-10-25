@@ -15,6 +15,7 @@ import {
   dealAttributionSourceValidator,
 } from "./lib/attribution/validators";
 import { touchSnapshotValidator } from "./lib/touchValidators";
+import { lastTouchValidator, resparkGroupValidator } from "./lib/respark/validators";
 import {
   leadCustomerCustomerStatusValidator,
   leadCustomerLeadStatusValidator,
@@ -565,11 +566,25 @@ export default defineSchema({
     // person is inserted before the event that touches them.
     firstTouch: v.optional(touchSnapshotValidator),
     latestTouch: v.optional(touchSnapshotValidator),
+
+    // Respark (docs/plans/respark.md §3.1, §4.3, §4.4). `lastTouch` is the
+    // newest touch of any kind; inactive is worked out from it at read time
+    // and never stored. `resparkGroup` is the pool part, before any time
+    // rule. Both are kept by `refreshResparkState`.
+    lastTouch: v.optional(lastTouchValidator),
+    resparkGroup: v.optional(resparkGroupValidator),
   })
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: identity resolution scans the 50 newest leads
     .index("by_tenantId", ["tenantId"])
     .index("by_tenantId_and_email", ["tenantId", "email"])
     .index("by_tenantId_and_status", ["tenantId", "status"])
+    // The respark pool, read one bucket at a time (plan §4.4). A missing
+    // `lastTouch` sorts below every time, and such a person is `out`.
+    .index("by_tenantId_and_resparkGroup_and_lastTouchAt", [
+      "tenantId",
+      "resparkGroup",
+      "lastTouch.occurredAt",
+    ])
     .searchIndex("search_leads", {
       searchField: "searchText",
       filterFields: ["tenantId", "status"],
@@ -933,6 +948,8 @@ export default defineSchema({
     .index("by_tenantId", ["tenantId"])
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: lead views take the newest opportunities first
     .index("by_tenantId_and_leadId", ["tenantId", "leadId"])
+    // Whether a person has an open deal, in one read (respark plan §3.1).
+    .index("by_tenantId_and_leadId_and_outcome", ["tenantId", "leadId", "outcome"])
     .index("by_tenantId_and_potentialDuplicateLeadId", [
       "tenantId",
       "potentialDuplicateLeadId",

@@ -66,10 +66,12 @@ export const DISPOSITION_LABELS: Record<Disposition, string> = {
   do_not_contact: "Do not contact",
 };
 
-// Who set the disposition. The system only ever changes a value it set.
+// Who set the disposition. The system only ever changes a value it set. A
+// lead generator sets one from a respark (docs/plans/respark.md §5.3).
 export const dispositionSourceValidator = v.union(
   v.literal("system"),
   v.literal("admin"),
+  v.literal("respark"),
 );
 
 export type LifecycleState = {

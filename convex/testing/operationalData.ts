@@ -11,6 +11,7 @@ import {
 } from "../_generated/server";
 
 import { deleteLeadGenDealAggregate } from "../leadGen/leadGenDealsAggregate";
+import { deleteResparkPoolEntry } from "../lib/respark/state";
 
 const DESTRUCTIVE_CONFIRMATION = "DELETE_OPERATIONAL_DATA";
 const BATCH_SIZE = 64;
@@ -136,6 +137,9 @@ async function deleteSimpleBatch(
   for (const row of rows) {
     if (tableName === "opportunities" && "stage" in row) {
       await deletePipelineHealthAggregates(ctx, row);
+    }
+    if (tableName === "leads" && "lifecycleStage" in row) {
+      await deleteResparkPoolEntry(ctx, row);
     }
     await ctx.db.delete(tableName, row._id);
   }
