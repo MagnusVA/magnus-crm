@@ -1847,6 +1847,9 @@ export const purgePhase6BlockerRecords = mutation({
 
     // Counts describe this call. Repeat while hasMore to finish the purge.
     let hasMore = false;
+    // People whose events or deals this call deletes; their respark state is
+    // recomputed at the end, a partial call included (respark plan §5.1).
+    const affectedLeads = new Set<Id<"leads">>();
     opportunities: for (const oppId of opportunityIds) {
       // 1. All meetings for this opportunity (not just blocker ones — delete the
       //    whole opportunity tree to avoid orphaned siblings).
@@ -1871,6 +1874,7 @@ export const purgePhase6BlockerRecords = mutation({
           )
           .take(BLOCKER_EVENT_BATCH_SIZE - counts.domainEvents);
         for (const evt of oppEvents) {
+          if (evt.leadId) affectedLeads.add(evt.leadId);
           await deleteActivityEventCounts(ctx, evt);
           await ctx.db.delete("domainEvents", evt._id);
           counts.domainEvents++;
@@ -1895,6 +1899,7 @@ export const purgePhase6BlockerRecords = mutation({
           )
           .take(BLOCKER_EVENT_BATCH_SIZE - counts.domainEvents);
         for (const evt of meetingEvents) {
+          if (evt.leadId) affectedLeads.add(evt.leadId);
           await deleteActivityEventCounts(ctx, evt);
           await ctx.db.delete("domainEvents", evt._id);
           counts.domainEvents++;
@@ -1986,11 +1991,15 @@ export const purgePhase6BlockerRecords = mutation({
       }
       if (opportunity) await deletePipelineHealthAggregates(ctx, opportunity);
       await ctx.db.delete("opportunities", oppId);
-      // The purge deleted this deal's events, which may hold the person's
-      // last touch; the live refresh only moves forward.
-      const purgedLead = opportunity && (await ctx.db.get("leads", opportunity.leadId));
-      if (purgedLead) await recomputeResparkState(ctx, purgedLead);
+      if (opportunity) affectedLeads.add(opportunity.leadId);
       counts.opportunities++;
+    }
+
+    // The deleted events may hold a person's last touch, and the live refresh
+    // only moves forward, so recompute from what is left.
+    for (const leadId of affectedLeads) {
+      const lead = await ctx.db.get("leads", leadId);
+      if (lead) await recomputeResparkState(ctx, lead);
     }
 
     // ─── BLOCKER B: payment records with legacy `amount` field ────
