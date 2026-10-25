@@ -549,6 +549,9 @@ export async function resolveLeadIdentity(
     phone,
     customFields: undefined,
     status: "active",
+    // No touch yet, so out of the respark pool until the event that
+    // touches them (docs/plans/respark.md §4.4).
+    resparkGroup: "out",
     firstSeenAt: args.createdAt,
     updatedAt: args.createdAt,
     searchText: buildLeadSearchText({
