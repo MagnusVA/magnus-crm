@@ -271,8 +271,15 @@ describe("capture lifecycle backfill (respark plan §10.2)", () => {
     const harness = await harnessWithMigrations();
     const movedBack = await oldProspect(harness, "moved.back");
     await harness.t.run((ctx) => ctx.db.patch("leads", movedBack, { lifecycleStageMovedBackAt: CAPTURED + 1 }));
+    // A merged person whose records support no stage of its own.
+    const merged = await harness.t.run((ctx) => ctx.db.insert("leads", {
+      tenantId: harness.tenantId, status: "merged", mergedIntoLeadId: movedBack, firstSeenAt: CAPTURED,
+      updatedAt: CAPTURED, lifecycleStage: "qualified", lifecycleStageEnteredAt: { qualified: CAPTURED },
+      disposition: "open",
+    }));
     expect((await run(harness, "backfillCaptureLifecycle"))?.error).toBeUndefined();
     expect((await harness.t.run((ctx) => ctx.db.get("leads", movedBack)))?.lifecycleStage).toBe("prospect");
+    expect((await harness.t.run((ctx) => ctx.db.get("leads", merged)))?.lifecycleStage).toBe("qualified");
 
     // In conversation from a portal note only: the new rules support no stage.
     const fromNote = await harness.t.run(async (ctx) => {
