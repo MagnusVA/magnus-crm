@@ -1,6 +1,6 @@
 # Respark
 
-Status: planned, 2026-10-24. Waiting for the tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) to answer §11.3. The seven recommendations in the proposal were accepted on 2026-10-23 and 24 (§11.1).
+Status: approved, 2026-10-24. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted the plan and every recommendation in §11.3, and the approval covers every production run in §9 and §10. PR 0 (this plan) is open; PRs 1 to 7 follow.
 
 The spec is the approved [Respark proposal](../reviews/respark-proposal.html), mockups included. [The pipeline map](../reviews/pipeline-map.html) describes how the pipeline works today. Terms follow [`CONTEXT.md`](../../CONTEXT.md), and the model is [ADR 0001](../adr/0001-lead-lifecycle-model.md). Respark is new work after the roadmap, which closed with Phase 6. It runs as one phase under the ADR's "How a phase runs".
 
@@ -489,22 +489,26 @@ Recommended; each is the design above.
 - **D8. Skip** keeps the person away from the same lead generator until the business day ends (§4.5).
 - **D9. Limits:** inactive after 30 to 365 days, batch size 10 to 100, and a claim reads at most 1,500 people.
 - **D10. `do_not_contact` is out of the pool**, and `nurture` is in it like `open`. Both are 0 today.
-- **D12. Buckets follow the stage** (§4.4), with the two edge cases stated. Both are 0 today.
 - **D11. No export.** No row is deleted. The lifecycle backfill is re-derived from the records, and a rerun under the old evidence rules reproduces today's values.
+- **D12. Buckets follow the stage** (§4.4), with the two edge cases stated. Both are 0 today.
 
-### 11.3 Questions for the tenant admin
+### 11.3 Answered by the tenant admin on 2026-10-24
 
-- **Q1. Does a new capture reopen not a fit?** Recommendation: no. The capture is recorded and counts as a touch, and the confirmation says the person is not a fit. A capture is volume work and can hit someone by accident, while a respark, a qualification or a booking is a deliberate step.
-- **Q2. DM portal edits.** Notes stop setting In conversation (your call). Recommendation: profile edits stop too, so In conversation has one live cause, a capture, plus a respark. The two people who reached it through an old link copy keep it, and the copy's evidence stays for them, since the stage never moves back.
-- **Q3. What counts as a touch for last touch, the 30-day line and inactive?** Recommendation: today's touches, plus meeting results, deal closings by a person, payments and the two respark actions. System events don't count, the Slack expiry included. Counting the expiry would empty bucket 1 today (3,644 to 0), and after that every qualified person would wait 61 days after qualifying (§2.5).
-- **Q4. The pool's storage** as D1 to D3, with a stored group and last touch time, indexed and counted by an aggregate, and no cron. Recommendation: yes.
-- **Q5. Undo in the browser** (§4.5). Recommendation: yes. The mutation is sent after 5 seconds or at the next action, and a closed tab leaves the person held and unworked. The other way, writing at once and reverting on undo, needs a revert path for the disposition, the touch and the stage, which the proposal ruled out ("nothing is deleted").
-- **Q6. The panel's permission** as D5. Recommendation: yes, for lead generators and admins, for people in their own batch until the batch ends.
-- **Q7. Production runs.** Every run in §9 and §10, including the lifecycle backfill that moves 81,196 people from Prospect to In conversation and rewrites In conversation times without events. There are no deletions. Does the approval of this plan cover them, as in Phase 6? Recommendation: yes.
+Each was accepted as recommended.
+
+- **Q1. A new capture doesn't reopen not a fit.** The capture is recorded and counts as a touch, and the confirmation says the person is not a fit.
+- **Q2. DM portal notes and profile edits stop setting In conversation.** In conversation has two live causes: a capture and a respark. The two people who reached it through an old link copy keep it.
+- **Q3. Last touch** is today's touches, plus meeting results, deal closings by a person, payments and the two respark actions. System events don't count, the Slack expiry included.
+- **Q4. The pool's storage** is D1 to D3: a stored group and last touch time, indexed and counted by an aggregate, with no cron. The tenant admin added: every read uses an index and a bounded or paginated read, never a scan or an unbounded `collect`.
+- **Q5. Undo in the browser.** The mutation is sent after 5 seconds or at the next action.
+- **Q6. The panel's permission** is `lead-gen:respark`, for lead generators and admins, for people in their own batch until the batch ends.
+- **Q7. Production runs.** Approving the plan covers every run in §9 and §10.
+
+The two calls made without a question stand: a qualification or a booking reopens any not a fit (§4.7), and a skip keeps the person away from the same lead generator until the business day ends (§4.5).
 
 ### 11.4 Changes to ADR 0001
 
-**A1, in this PR.** A dated amendment to the status line, plus these rules in "Rules for code" and the Decision's Person bullet:
+**A1, in PR 0 (done).** A dated amendment to the status line, plus these rules in "Rules for code" and the Decision's Person bullet:
 
 1. A capture enters the person at In conversation. Prospect stays in the enum, unused, and a DM portal note or edit no longer moves the stage.
 2. A lead generator can set not a fit, from a respark, with disposition source `respark`. A respark, a qualification or a booking reopens it.
