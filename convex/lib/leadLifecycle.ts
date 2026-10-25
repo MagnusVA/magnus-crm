@@ -531,33 +531,59 @@ export async function correctLeadLifecycle(
  * now support a lower stage throws, naming them, since no rule change in
  * the plan should do that.
  */
-export async function rederiveLeadLifecycle(
-  ctx: MutationCtx,
+export type LifecycleRederive =
+  | { kind: "skipped" | "unchanged" }
+  | { kind: "lower"; problem: string }
+  | { kind: "times" | "stage"; before: LifecycleState; after: LifecycleState };
+
+/** What `rederiveLeadLifecycle` would do for the person, without writing. */
+export async function planLeadLifecycleRederive(
+  ctx: QueryCtx | MutationCtx,
   lead: Doc<"leads">,
-): Promise<"skipped" | "unchanged" | "times" | "stage"> {
+): Promise<LifecycleRederive> {
   if (lead.status === "merged" || lead.lifecycleStageMovedBackAt !== undefined) {
-    return "skipped";
+    return { kind: "skipped" };
   }
   const before = readLifecycle(lead);
   const after = await deriveLeadLifecycle(ctx, lead);
   if (!after) {
-    throw new Error(`Lead ${lead._id}: records support no stage, below its stage ${before.stage}`);
+    return { kind: "lower", problem: `records support no stage, below its stage ${before.stage}` };
   }
   if (sameLifecycle(before, after)) {
-    return "unchanged";
+    return { kind: "unchanged" };
   }
   if (stageIndex(after.stage) < stageIndex(before.stage)) {
-    throw new Error(`Lead ${lead._id}: records support ${after.stage}, below its stage ${before.stage}`);
+    return { kind: "lower", problem: `records support ${after.stage}, below its stage ${before.stage}` };
   }
-  await writeLifecycle(ctx, lead, before, after, {
-    silent: true,
-    source: "system",
-    reason: "respark_capture_lifecycle",
-  });
-  // The pool group follows the stage; a move within the stages below
-  // Qualified leaves it alone, so this is a no-op for nearly everyone.
-  await refreshResparkState(ctx, lead.tenantId, lead._id);
-  return before.stage === after.stage ? "times" : "stage";
+  return { kind: before.stage === after.stage ? "times" : "stage", before, after };
+}
+
+export async function rederiveLeadLifecycle(
+  ctx: MutationCtx,
+  lead: Doc<"leads">,
+): Promise<LifecycleRederive["kind"]> {
+  const plan = await planLeadLifecycleRederive(ctx, lead);
+  switch (plan.kind) {
+    case "skipped":
+      return plan.kind;
+    case "lower":
+      throw new Error(`Lead ${lead._id}: ${plan.problem}`);
+    case "unchanged":
+      // The conversion entries follow the stage times; bring any drift in line.
+      await syncPersonProspectConversions(ctx, lead);
+      return plan.kind;
+    case "times":
+    case "stage":
+      await writeLifecycle(ctx, lead, plan.before, plan.after, {
+        silent: true,
+        source: "system",
+        reason: "respark_capture_lifecycle",
+      });
+      // The pool group follows the stage; a move within the stages below
+      // Qualified leaves it alone, so this is a no-op for nearly everyone.
+      await refreshResparkState(ctx, lead.tenantId, lead._id);
+      return plan.kind;
+  }
 }
 
 /**

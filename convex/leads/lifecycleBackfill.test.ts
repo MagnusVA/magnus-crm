@@ -4,6 +4,8 @@ import { internal } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
 import type { MutationCtx } from "../_generated/server";
 import { leadStageTotals, syncLeadStageEntries } from "../lib/leadLifecycle";
+import { syncProspectConversions } from "../lib/prospectConversions";
+import { prospectConversions } from "../reporting/aggregates";
 import { migrations } from "../migrations";
 import { bookingHarness, qualifiedLifecycle } from "../../tests/bookingHarness";
 
@@ -111,6 +113,7 @@ async function legacyCustomer(harness: Harness, state = CUSTOMER_LIFECYCLE_STATE
       lastSubmittedAt: CAPTURED, latestOriginKind: "follower", contactAttemptCount: 1, distinctWorkerCount: 1,
       createdAt: CAPTURED, updatedAt: CAPTURED,
     });
+    await syncProspectConversions(ctx, (await ctx.db.get("leadGenProspects", prospectId))!, await ctx.db.get("leads", leadId));
     await ctx.db.insert("leadGenAuditMatches", {
       tenantId, prospectId, leadId, opportunityId, matchSource: "slack_qualification", matchStatus: "accepted",
       matchedVia: "social_handle", normalizedHandle: "buyer", createdAt: QUALIFIED, updatedAt: QUALIFIED,
@@ -177,16 +180,58 @@ describe("capture lifecycle backfill (respark plan §10.2)", () => {
         tenantId, userId: adminId, workosUserId: "user_admin", email: "admin@example.com", isActive: true,
         createdAt: 0, updatedAt: 0,
       });
-      await ctx.db.insert("leadGenProspects", {
+      const prospectId = await ctx.db.insert("leadGenProspects", {
         tenantId, leadId, firstSource: "instagram", latestSource: "instagram", dedupeKey: `instagram:${handle}`,
         normalizedHandle: handle, rawHandle: handle, profileUrl: `https://instagram.com/${handle}`,
         firstCapturedByWorkerId: workerId, firstCapturedAt: CAPTURED, lastSubmittedByWorkerId: workerId,
         lastSubmittedAt: CAPTURED, latestOriginKind: "follower", contactAttemptCount: 1, distinctWorkerCount: 1,
         createdAt: CAPTURED, updatedAt: CAPTURED,
       });
+      await syncProspectConversions(ctx, (await ctx.db.get("leadGenProspects", prospectId))!, await ctx.db.get("leads", leadId));
       return leadId;
     });
   }
+
+  it("previews the whole table without writing, and the assert checks conversion entries", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-17T12:00:00Z"));
+    const harness = await harnessWithMigrations();
+    await legacyCustomer(harness, {
+      ...CUSTOMER_LIFECYCLE_STATE,
+      enteredAt: { ...CUSTOMER_LIFECYCLE_STATE.enteredAt, in_conversation: QUALIFIED },
+    });
+    const prospectLead = await oldProspect(harness, "old.prospect");
+
+    const totals: Record<string, number> = {};
+    let cursor: string | null = null;
+    for (;;) {
+      const page: { counts: Record<string, number>; lower: string[]; isDone: boolean; continueCursor: string } =
+        await harness.t.query(internal.migrations.previewCaptureLifecycle, { cursor, numItems: 1 });
+      for (const [key, value] of Object.entries(page.counts)) totals[key] = (totals[key] ?? 0) + value;
+      expect(page.lower).toEqual([]);
+      if (page.isDone) break;
+      cursor = page.continueCursor;
+    }
+    expect(totals).toEqual({ "times at customer": 1, "stage prospect->in_conversation": 1 });
+    expect((await harness.t.run((ctx) => ctx.db.get("leads", prospectLead)))?.lifecycleStage).toBe("prospect");
+
+    expect((await run(harness, "backfillCaptureLifecycle"))?.isDone).toBe(true);
+    expect((await run(harness, "assertLeadLifecycle"))?.error).toBeUndefined();
+
+    // A missing conversion entry fails the assert, and the backfill puts it back.
+    await harness.t.run(async (ctx) => {
+      const prospect = (await ctx.db.query("leadGenProspects").withIndex("by_tenantId_and_leadId", (q) =>
+        q.eq("tenantId", harness.tenantId).eq("leadId", prospectLead)).first())!;
+      await prospectConversions.delete(ctx, {
+        namespace: harness.tenantId,
+        key: [prospect.firstCapturedByWorkerId, "in_conversation", prospect.firstCapturedAt],
+        id: `${prospect._id}:in_conversation`,
+      });
+    });
+    expect((await rerun(harness, "assertLeadLifecycle"))?.error).toContain("missing in_conversation conversion entry");
+    expect((await rerun(harness, "backfillCaptureLifecycle"))?.isDone).toBe(true);
+    expect((await rerun(harness, "assertLeadLifecycle"))?.error).toBeUndefined();
+  });
 
   it("moves old Prospects and old In conversation times to the capture, with no events, then the assert passes", async () => {
     vi.useFakeTimers();

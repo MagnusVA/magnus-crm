@@ -25,7 +25,8 @@ import {
 import { deriveStoredEventLinks, storedLeadIdMatches } from "./lib/domainEventLinks";
 import { getPersonProgramEnrollment } from "./enrollments/read";
 import { derivePersonEnrollments, paymentCounts } from "./lib/enrollments";
-import { lifecycleProblems, rederiveLeadLifecycle } from "./lib/leadLifecycle";
+import { lifecycleProblems, planLeadLifecycleRederive, rederiveLeadLifecycle } from "./lib/leadLifecycle";
+import { personProspects, prospectConversionProblems } from "./lib/prospectConversions";
 import { recomputeResparkState, resparkPool, resparkStateProblems } from "./lib/respark/state";
 import { RESPARK_GROUPS, type ResparkGroup } from "./lib/respark/validators";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
@@ -552,10 +553,19 @@ export const assertTeamMembersHeld = migrations.define({
 
 // Small batches: deriving a lead reads its deals, meetings, payments, Slack
 // events and lead gen matches. A health check: rerun it with "reset".
+// It also checks each of the person's prospects' conversion entries
+// (docs/plans/respark.md §10.2), which follow the stage times.
 export const assertLeadLifecycle = migrations.define({
   table: "leads", batchSize: 25,
   migrateOne: async (ctx, lead) => {
     const problems = await lifecycleProblems(ctx, lead);
+    if (lead.status !== "merged") {
+      for (const prospect of await personProspects(ctx, lead.tenantId, lead._id)) {
+        for (const problem of await prospectConversionProblems(ctx, prospect, lead)) {
+          problems.push(`prospect ${prospect._id}: ${problem}`);
+        }
+      }
+    }
     if (problems.length > 0) throw new Error(`Lead ${lead._id}: ${problems.join("; ")}`);
   },
 });
@@ -641,6 +651,34 @@ export const backfillCaptureLifecycle = migrations.define({
     await rederiveLeadLifecycle(ctx, lead);
   },
 });
+// The capture backfill's dry run over the whole table (respark plan §10.2):
+// one page of people, with what the backfill would do to each, read only.
+// Page through it from a script and add up the pages.
+export const previewCaptureLifecycle = internalQuery({
+  args: { cursor: v.union(v.string(), v.null()), numItems: v.number() },
+  handler: async (ctx, { cursor, numItems }) => {
+    const page = await ctx.db.query("leads").paginate({ cursor, numItems });
+    const counts: Record<string, number> = {};
+    const add = (key: string) => {
+      counts[key] = (counts[key] ?? 0) + 1;
+    };
+    const lower: string[] = [];
+    for (const lead of page.page) {
+      const plan = await planLeadLifecycleRederive(ctx, lead);
+      if (plan.kind === "stage") add(`stage ${plan.before.stage}->${plan.after.stage}`);
+      else if (plan.kind === "times") add(`times at ${plan.after.stage}`);
+      else add(plan.kind);
+      if (plan.kind === "lower") lower.push(`${lead._id}: ${plan.problem}`);
+      if (plan.kind === "unchanged") {
+        for (const prospect of await personProspects(ctx, lead.tenantId, lead._id)) {
+          if ((await prospectConversionProblems(ctx, prospect, lead)).length > 0) add("conversion drift");
+        }
+      }
+    }
+    return { counts, lower, isDone: page.isDone, continueCursor: page.continueCursor };
+  },
+});
+
 export const assertResparkState = migrations.define({
   table: "leads", batchSize: 50,
   migrateOne: async (ctx, lead) => {
