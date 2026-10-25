@@ -186,7 +186,7 @@ function TodaySummary() {
 
   return today ? (
     <p className="text-xs text-muted-foreground">
-      Today: {today.batchesStarted} {today.batchesStarted === 1 ? "batch" : "batches"} started ·{" "}
+      Today: {today.batchesDone} {today.batchesDone === 1 ? "batch" : "batches"} done ·{" "}
       {today.resparks} {today.resparks === 1 ? "entry" : "entries"} · {today.notAFits} not a fit
     </p>
   ) : (
