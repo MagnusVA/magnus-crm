@@ -24,7 +24,9 @@ function inRange(value: number, range: { min: number; max: number }): boolean {
 export const getResparkSettings = query({
   // `inactiveAfterDays` previews the count for a value the admin is typing;
   // it defaults to the stored one.
-  args: { inactiveAfterDays: v.optional(v.number()) },
+  // `now` is the browser's clock, rounded to the hour, so the count moves on
+  // while the tab stays open; it only affects the count.
+  args: { inactiveAfterDays: v.optional(v.number()), now: v.optional(v.number()) },
   returns: v.object({
     settings: resparkSettingsValidator,
     businessDay: businessDayValidator,
@@ -42,7 +44,7 @@ export const getResparkSettings = query({
       return { settings, businessDay, inactive: null };
     }
     // Inactive in any group: one range count per group, up to the cutoff.
-    const cutoff = inactiveCutoff(Date.now(), days);
+    const cutoff = inactiveCutoff(args.now ?? Date.now(), days);
     const counts = await resparkPool.countBatch(
       ctx,
       RESPARK_GROUPS.map((group) => ({

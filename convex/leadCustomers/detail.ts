@@ -3,6 +3,7 @@ import { query } from "../_generated/server";
 import { listPersonEnrollments } from "../enrollments/read";
 import { ENROLLMENT_DEAL_LIMIT } from "../lib/enrollments";
 import { readResparkSettings } from "../lib/respark/settings";
+import { DEFAULT_BUSINESS_DAY } from "../../lib/businessDay";
 import { requireTenantUser } from "../requireTenantUser";
 import { buildEntityDetailPayload } from "./detailPayload";
 import { timelineEventLabel } from "./timeline";
@@ -67,6 +68,9 @@ export const getEntityDetail = query({
         ? { ...lead.lastTouch, label: timelineEventLabel(lead.lastTouch.eventType) }
         : null,
       inactiveAfterDays: readResparkSettings(tenant).inactiveAfterDays,
+      // Respark dates on the Lifecycle card show in the business day's zone,
+      // so the server and the browser render the same day.
+      businessTimeZone: (tenant.businessDay ?? DEFAULT_BUSINESS_DAY).timeZone,
     };
   },
 });

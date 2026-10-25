@@ -13,6 +13,7 @@ import { IntegrationsTab } from "./integrations/integrations-tab";
 import { BusinessDayCard } from "./business-day-card";
 import { ProgramsTab } from "./programs-tab";
 import { ResparkSettingsCard } from "./respark-settings-card";
+import { SectionErrorBoundary } from "@/app/workspace/_components/section-error-boundary";
 
 type SettingsPageClientProps = {
   preloadedSlackStatus: Preloaded<
@@ -93,7 +94,7 @@ function SettingsContent({ preloadedSlackStatus }: SettingsPageClientProps) {
         </TabsContent>
         <TabsContent value="business-day" className="mt-6"><BusinessDayCard /></TabsContent>
         {canManageSettings ? (
-          <TabsContent value="respark" className="mt-6"><ResparkSettingsCard /></TabsContent>
+          <TabsContent value="respark" className="mt-6"><SectionErrorBoundary sectionName="respark settings"><ResparkSettingsCard /></SectionErrorBoundary></TabsContent>
         ) : null}
       </Tabs>
     </div>

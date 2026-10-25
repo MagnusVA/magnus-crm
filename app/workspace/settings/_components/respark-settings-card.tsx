@@ -10,8 +10,10 @@ import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/
 import { Skeleton } from "@/components/ui/skeleton";
 import { BATCH_SIZE_RANGE, INACTIVE_AFTER_DAYS_RANGE } from "@/convex/lib/respark/settings";
 import { getErrorMessage } from "@/lib/errors";
+import { useNow } from "@/hooks/use-now";
 
 const COUNT_FORMATTER = new Intl.NumberFormat("en-US");
+const HOUR_MS = 60 * 60_000;
 
 type Draft = { inactiveAfterDays: string; batchSize: string };
 
@@ -32,7 +34,13 @@ export function ResparkSettingsCard() {
   const [saving, setSaving] = useState(false);
   const update = useMutation(api.respark.settings.updateResparkSettings);
   const previewDays = draft ? wholeNumberIn(draft.inactiveAfterDays, INACTIVE_AFTER_DAYS_RANGE) : null;
-  const result = useQuery(api.respark.settings.getResparkSettings, previewDays === null ? {} : { inactiveAfterDays: previewDays });
+  // An hour-rounded clock keeps "today" current without re-running the
+  // query every minute.
+  const hour = Math.floor(useNow(60 * 60_000) / HOUR_MS) * HOUR_MS;
+  const result = useQuery(
+    api.respark.settings.getResparkSettings,
+    previewDays === null ? { now: hour } : { inactiveAfterDays: previewDays, now: hour },
+  );
   // Keep the last answer on screen while the preview count for a new value loads.
   const [shown, setShown] = useState(result);
   if (result !== undefined && result !== shown) setShown(result);

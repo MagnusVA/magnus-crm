@@ -29,7 +29,7 @@ const LifecycleChangeDialog = dynamic(() =>
 // touch (CONTEXT.md). The inactive badge and last touch follow the respark
 // plan (docs/plans/respark.md §6.3); the badge is worked out at render.
 export function EntityLifecycleSection() {
-	const { lead, firstTouch, latestTouch, lastTouch, inactiveAfterDays } = useEntityDetail();
+	const { lead, firstTouch, latestTouch, lastTouch, inactiveAfterDays, businessTimeZone } = useEntityDetail();
 	const { isAdmin } = useRole();
 	const now = useNow();
 	const [mode, setMode] = useState<LifecycleChangeMode | null>(null);
@@ -71,7 +71,7 @@ export function EntityLifecycleSection() {
 			{resparkNotAFit ? (
 				<p className="text-xs text-muted-foreground">
 					Set in a respark, by a lead generator
-					{lead.dispositionSetAt ? `, on ${formatDayMonth(lead.dispositionSetAt, now)}` : ""}
+					{lead.dispositionSetAt ? `, on ${formatDayMonth(lead.dispositionSetAt, now, businessTimeZone)}` : ""}
 				</p>
 			) : null}
 			<dl className="grid grid-cols-2 gap-x-3 gap-y-1.5">
@@ -143,15 +143,14 @@ function dispositionTooltip(
 	return parts.length > 0 ? parts.join(". ") : "Disposition";
 }
 
-const DAY_MONTH_FORMATTER = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
-const DAY_MONTH_YEAR_FORMATTER = new Intl.DateTimeFormat("en-GB", {
-	day: "numeric",
-	month: "short",
-	year: "numeric",
-});
-
-// "24 Oct", with the year when it isn't this year.
-function formatDayMonth(value: number, now: number) {
-	const sameYear = new Date(value).getFullYear() === new Date(now).getFullYear();
-	return (sameYear ? DAY_MONTH_FORMATTER : DAY_MONTH_YEAR_FORMATTER).format(value);
+// "24 Oct", with the year when it isn't this year, in the business day's
+// zone so the server render and the browser agree.
+function formatDayMonth(value: number, now: number, timeZone: string) {
+	const year = (ms: number) => new Intl.DateTimeFormat("en-GB", { year: "numeric", timeZone }).format(ms);
+	return new Intl.DateTimeFormat("en-GB", {
+		day: "numeric",
+		month: "short",
+		...(year(value) === year(now) ? {} : { year: "numeric" as const }),
+		timeZone,
+	}).format(value);
 }
