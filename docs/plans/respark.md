@@ -1,6 +1,6 @@
 # Respark
 
-Status: approved, 2026-10-24. The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) accepted the plan and every recommendation in §11.3, and the approval covers every production run in §9 and §10. PR 0 (this plan) is open; PRs 1 to 7 follow.
+Status: live, 2026-10-25. PRs 1 to 7 (#198 to #204) are merged and deployed, and every production run in §9 and §10 has passed except the final health checks, which are running (§13.3). The tenant admin (`k97fgy2ckqhn8w2xynw3etwdf984dwb9`) approved the plan and every recommendation in §11.3 on 2026-10-24, with every production run in §9 and §10.
 
 The spec is the approved [Respark proposal](../reviews/respark-proposal.html), mockups included. [The pipeline map](../reviews/pipeline-map.html) describes how the pipeline works today. Terms follow [`CONTEXT.md`](../../CONTEXT.md), and the model is [ADR 0001](../adr/0001-lead-lifecycle-model.md). Respark is new work after the roadmap, which closed with Phase 6. It runs as one phase under the ADR's "How a phase runs".
 
@@ -573,6 +573,7 @@ Each PR merged after CodeRabbit approved it, and Vercel deployed it to productio
 | PR 4 (#201) | 14:27 | `62db7e7` | 14:29 |
 | PR 5 (#202) | 16:22 | `55323ec` | 16:24 |
 | PR 6 (#203) | 18:29 | `61acb91` | 18:33 |
+| PR 7 (#204) | 19:44 | `17527a1` | 19:46 |
 
 ### 13.3 Runs
 
@@ -610,6 +611,10 @@ Each PR merged after CodeRabbit approved it, and Vercel deployed it to productio
 **After PR 4:**
 
 - **14:30 to 14:40:** `assertDealAttributions` (reset) passed on 11,788 deals, `assertBookingAttributions` (reset) on 7,012 meetings, and `assertPersonTouches` (reset) on 93,071 people.
+
+**After PR 7:**
+
+- **19:46:** `assertResparkState`, `assertLeadLifecycle` and `assertPersonTouches` (reset) started as the final health checks.
 
 **Temp files:** the crash cleared the temp directory, including the read-only scan exports from planning (IDs, enums and times; no names or contacts). The scans made during the phase were deleted after each check.
 
