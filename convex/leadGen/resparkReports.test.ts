@@ -95,7 +95,7 @@ async function work(
       await ctx.db
         .query("resparkBatchItems")
         .withIndex("by_batchId_and_position", (q) =>
-          q.eq("batchId", batch.batchId),
+          q.eq("batchId", batch.batchId!),
         )
         .take(100)
     ).find((row) => !row.result),
