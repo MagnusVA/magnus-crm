@@ -8,6 +8,11 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { DashboardRangeInput } from "@/app/workspace/_components/dashboard-date-range-filter";
 import { collectDashboardPages } from "@/lib/operations-reports/dashboard-pages";
+import {
+  dashboardRequestToken,
+  exportRequestToken,
+  reportScopeKey,
+} from "@/lib/operations-reports/request-tokens";
 import { reportClientError } from "@/lib/observability/report-client-error";
 import { getErrorMessage as getDisplayErrorMessage } from "@/lib/errors";
 
@@ -39,31 +44,6 @@ function getErrorMessage(error: unknown) {
     error,
     "The report request could not be completed.",
   ).replace(/^Uncaught Error: /, "");
-}
-
-function reportScopeKey(args: {
-  reportKind: OperationsReportKind;
-  range: DashboardRangeInput;
-  sourceFilter?: OperationsReportSource;
-  version?: number;
-}) {
-  return JSON.stringify({
-    reportKind: args.reportKind,
-    businessDayVersion: args.version ?? 0,
-    range: args.range,
-    sourceFilter: args.sourceFilter ?? "all",
-  });
-}
-
-function compactScopeKey(scopeKey: string) {
-  let first = 0x811c9dc5;
-  let second = 0x9e3779b9;
-  for (let index = 0; index < scopeKey.length; index += 1) {
-    const code = scopeKey.charCodeAt(index);
-    first = Math.imul(first ^ code, 0x01000193);
-    second = Math.imul(second ^ code, 0x85ebca6b);
-  }
-  return `${(first >>> 0).toString(36)}${(second >>> 0).toString(36)}`;
 }
 
 /**
@@ -98,8 +78,7 @@ export function useOperationsDashboardReport(args: {
     [range, reportKind, sourceFilter, version],
   );
   const requestToken = useMemo(
-    () =>
-      `operations-dashboard:${mountId}:${compactScopeKey(scopeKey)}:${attempt}`,
+    () => dashboardRequestToken(mountId, scopeKey, attempt),
     [attempt, mountId, scopeKey],
   );
   const activeRequestRef = useRef(requestToken);
@@ -391,7 +370,7 @@ export function useOperationsReportExport(args: {
   const start = useCallback(
     async (format: OperationsReportFormat) => {
       if (isRequesting) return;
-      const requestToken = `operations-export:${scopeKey}:${format}:${Date.now()}`;
+      const requestToken = exportRequestToken(scopeKey, format, Date.now());
       activeRequestRef.current = requestToken;
       setIsRequesting(true);
       setDownloadError(null);
