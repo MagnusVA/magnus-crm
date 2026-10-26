@@ -26,7 +26,7 @@ export const resparkPool = new DirectAggregate<{
 
 // The same entries for people with a respark team, keyed by team first, so a
 // team's pool counts are range counts (2026-10-25: each lead gen team works
-// only its own people). Tolerant writes until its backfill and assert pass.
+// only its own people). Strict live writes since 2026-10-26, as above.
 export const resparkTeamPool = new DirectAggregate<{
   Namespace: Id<"tenants">;
   Key: [Id<"attributionTeams">, ResparkGroup, number];
@@ -257,11 +257,11 @@ async function writeResparkState(
     resparkGroup: next.resparkGroup,
     resparkTeamId: next.resparkTeamId,
   });
-  await moveTeamEntry(ctx, lead, storedTeamKey(lead), storedTeamKey(next));
+  const strict = writes === "strict";
+  await moveTeamEntry(ctx, lead, storedTeamKey(lead), storedTeamKey(next), strict);
   const before = storedPoolKey(lead);
   const after = storedPoolKey(next);
   const namespace = lead.tenantId;
-  const strict = writes === "strict";
   if (before && after) {
     const current = { namespace, key: before, id: lead._id };
     if (strict) await resparkPool.replace(ctx, current, { namespace, key: after });
@@ -341,20 +341,31 @@ export async function refreshResparkTeamOfProspect(
   if (prospect?.leadId) await refreshResparkTeam(ctx, prospect.tenantId, prospect.leadId);
 }
 
-/** Keeps the person's team pool entry in step. Tolerant until verified. */
+/**
+ * Keeps the person's team pool entry in step. Live writes are strict since
+ * the production backfill and assert passed on 2026-10-26, so a missing or
+ * duplicate entry throws; the backfill's recompute stays tolerant.
+ */
 async function moveTeamEntry(
   ctx: MutationCtx,
   lead: Doc<"leads">,
   before: [Id<"attributionTeams">, ResparkGroup, number] | null,
   after: [Id<"attributionTeams">, ResparkGroup, number] | null,
+  strict: boolean,
 ): Promise<void> {
   const namespace = lead.tenantId;
   if (before && after) {
-    await resparkTeamPool.replaceOrInsert(ctx, { namespace, key: before, id: lead._id }, { namespace, key: after });
+    const current = { namespace, key: before, id: lead._id };
+    if (strict) await resparkTeamPool.replace(ctx, current, { namespace, key: after });
+    else await resparkTeamPool.replaceOrInsert(ctx, current, { namespace, key: after });
   } else if (after) {
-    await resparkTeamPool.insertIfDoesNotExist(ctx, { namespace, key: after, id: lead._id });
+    const entry = { namespace, key: after, id: lead._id };
+    if (strict) await resparkTeamPool.insert(ctx, entry);
+    else await resparkTeamPool.insertIfDoesNotExist(ctx, entry);
   } else if (before) {
-    await resparkTeamPool.deleteIfExists(ctx, { namespace, key: before, id: lead._id });
+    const entry = { namespace, key: before, id: lead._id };
+    if (strict) await resparkTeamPool.delete(ctx, entry);
+    else await resparkTeamPool.deleteIfExists(ctx, entry);
   }
 }
 
