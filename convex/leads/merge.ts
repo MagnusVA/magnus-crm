@@ -27,7 +27,7 @@ import { patchOpportunityLifecycle } from "../lib/opportunityActivity";
 import { upsertOpportunitySearchProjection } from "../lib/opportunitySearch";
 import { mergedTouches } from "../lib/touches";
 import { leadDisplayString } from "../lib/leadDisplay";
-import { refreshResparkState } from "../lib/respark/state";
+import { refreshResparkState, refreshResparkTeam } from "../lib/respark/state";
 import { validateLeadTransition } from "../lib/statusTransitions";
 import { rebuildQualificationRow } from "../operations/projections";
 import { closeMergedReviews } from "../pipeline/bookingReviewRecords";
@@ -676,7 +676,7 @@ export async function executeMerge(
   // The target takes the later last touch of the two and a group from the
   // deals it now has; the source leaves the pool with the `lead.merged`
   // event below (docs/plans/respark.md §5.1).
-  await refreshResparkState(ctx, tenantId, targetLeadId, sourceLead.lastTouch, { recomputeTeam: true });
+  await refreshResparkState(ctx, tenantId, targetLeadId, sourceLead.lastTouch);
   // Leads merged into the source now point at the target, so merge chains
   // stay one hop deep. Identity resolution follows at most five.
   const earlierMerges = await ctx.db
@@ -759,6 +759,10 @@ export async function executeMerge(
     opportunitiesMoved: sourceOpportunities.length,
     meetingsMoved: moved.meetings,
   });
+  // The target's Respark team is the earliest capture by a team of the two.
+  // After the history row, so the source's captures still waiting for a
+  // continuation page count too.
+  await refreshResparkTeam(ctx, tenantId, targetLeadId);
 
   // A full read skipped any rows past its bound.
   if (boundsHit.length > 0) {

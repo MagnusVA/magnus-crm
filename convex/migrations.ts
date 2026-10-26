@@ -795,7 +795,8 @@ export const resparkTeamPoolTotals = internalQuery({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
     const teams = await ctx.db.query("attributionTeams")
-      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)).take(100);
+      .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)).take(101);
+    if (teams.length > 100) throw new Error("resparkTeamPoolTotals counts at most 100 teams");
     const pairs = teams.flatMap((team) => RESPARK_GROUPS.map((group) => [team._id, group] as const));
     const counts = await resparkTeamPool.countBatch(
       ctx,
