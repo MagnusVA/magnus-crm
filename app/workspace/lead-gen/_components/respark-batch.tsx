@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Progress } from "@/components/ui/progress";
+import { CopyHandleButton } from "./copy-handle-button";
 import { Spinner } from "@/components/ui/spinner";
 import { getErrorMessage } from "@/lib/errors";
 import {
@@ -289,6 +290,7 @@ function ResparkCard({
           >
             {handle}
           </button>
+          <CopyHandleButton handle={person?.handle} />
           <span className="inline-flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             <span aria-hidden="true" className={cn("size-2.5 rounded-[3px]", bucketSwatchClass(item.bucket))} />
             {resparkBucketLabel(item.bucket)}

@@ -8,12 +8,12 @@ This file holds IDs and counts only. It contains no personal data.
 
 ## 1. Summary
 
-Respark gives each lead generator a batch of people who stalled, in a fixed order, to message again on Instagram. For each one, they mark resparked or not a fit, or skip.
+Respark gives each lead generator a batch of people who stalled, oldest last touch first, to message again on Instagram. For each one, they mark resparked or not a fit, or skip.
 
 1. **A capture means in conversation** (§4.1). A lead gen capture moves the person to In conversation if they're behind it, and it always counts as a touch. A backfill moves the 81,196 people at Prospect to In conversation, entered at their first capture. Prospect stays in the enum, unused.
 2. **Notes don't set the stage** (§4.2). A DM portal note or profile edit stays a touch, but it no longer moves anyone to In conversation.
 3. **Last touch and inactive** (§4.3). The person gets a last touch: the newest touch of any kind, wider than today's `latestTouch`. "Inactive" means no touch for N days (a tenant setting, default 90). It's worked out at read time, so the badge itself is never stored.
-4. **The respark pool** (§4.4): five buckets in a fixed order, read from one index. No cron moves anyone between buckets.
+4. **The respark pool** (§4.4): five buckets read from one index, served oldest last touch first. No cron moves anyone between buckets.
 5. **Batches and holds** (§4.5). A batch is held for its lead generator until the business day ends. Three actions: Resparked, Not a fit (with a few seconds to undo) and Skip.
 6. **What each action writes** (§5.3): a touch, a disposition with the new source `respark`, In conversation, and credit when a resparked person later gets a deal.
 7. **Screens** (§6): the Respark screen in the lead gen portal with its read-only person panel and a new permission, the Respark tab in Settings, the Lifecycle card's inactive badge and last touch, and capture confirmations that say where a known person stands.
@@ -201,16 +201,16 @@ What's left out are events no one did with the person: the Slack expiry and othe
 
 At read time, with `now`, the 30-day rule and N:
 
-| Bucket | Index range on `[resparkGroup, lastTouch.occurredAt]` | Order |
+| Bucket | Index range on `[resparkGroup, lastTouch.occurredAt]` | Order (across all buckets) |
 | --- | --- | --- |
-| 1. Qualified, never booked | `qualified`, at or before `now − 30 days` | newest first |
-| 2. Never qualified | `never_qualified`, at or before `now − 30 days` | newest first |
-| 3. Inactive | `had_call`, at or before `now − N days` | newest first |
-| 4. Had a call, deal lost | `had_call`, after `now − N days` and at or before `now − 30 days` | newest first |
-| 5. Not a fit | `not_a_fit`, at or before `now − 30 days` | newest first |
+| 1. Qualified, never booked | `qualified`, at or before `now − 30 days` | oldest first |
+| 2. Never qualified | `never_qualified`, at or before `now − 30 days` | oldest first |
+| 3. Inactive | `had_call`, at or before `now − N days` | oldest first |
+| 4. Had a call, deal lost | `had_call`, after `now − N days` and at or before `now − 30 days` | oldest first |
+| 5. Not a fit | `not_a_fit`, at or before `now − 30 days` | oldest first |
 
 - Each person is in one bucket, the first they match. A never-qualified person who is also inactive is in bucket 2, as the proposal says. Bucket 3 holds the inactive people that buckets 1 and 2 don't claim.
-- "Most recently stalled first" (decision 1) means the newest last touch first.
+- **Order** (changed on 2026-10-25, §11.5): a batch takes the oldest last touch first across all five buckets. Each group is read from its index oldest first, and the oldest of the heads comes next (`poolOldestFirst`). The bucket is the reason on the card, not a priority. As approved, decision 1 put bucket 1 first and the most recently stalled first.
 - The buckets follow the stage, and a stage hides two edge cases. Both are 0 in production today:
   - **Bucket 1.** A Qualified person with no open deal normally had their Slack deal close with no booking. A person an admin moved back to Qualified after a booking also lands here, because the admin's stage decides.
   - **Bucket 4.** Booked or Showed with no open deal normally means every deal closed lost: a no-show, a cancellation or a closer's loss. A won deal with no undisputed payment leaves the person short of Customer and also lands here. Customer comes from payments, not from a won outcome.
@@ -220,7 +220,7 @@ At read time, with `now`, the 30-day rule and N:
 
 ### 4.5 Batches and the hold
 
-- **Asking for a batch** (`claimResparkBatch`). If the lead generator has an unexpired batch with unworked people, they get that one back. Otherwise the mutation walks buckets 1 to 5 in index order. It skips anyone with an unworked, unexpired item, and anyone this lead generator skipped earlier in the same business day. It stops at the batch size, at 1,000 people read or at 3,000 index reads, whichever comes first (changed from 1,500 people while the phase ran, §11.5), and returns a shorter batch if the pool runs dry. It inserts the batch and one item per person with `heldUntil` set to the end of the business day: `businessDayRange(businessDateForInstant(now)).end`.
+- **Asking for a batch** (`claimResparkBatch`). If the lead generator has an unexpired batch with unworked people, they get that one back. Otherwise the mutation takes the pool oldest last touch first, whatever the bucket (§4.4). It skips anyone with an unworked, unexpired item, and anyone this lead generator skipped earlier in the same business day. It stops at the batch size, at 1,000 people read or at 3,000 index reads, whichever comes first (changed from 1,500 people while the phase ran, §11.5), and returns a shorter batch if the pool runs dry. It inserts the batch and one item per person with `heldUntil` set to the end of the business day: `businessDayRange(businessDateForInstant(now)).end`.
 - **Concurrency.** The claim reads each candidate's hold through `by_tenantId_and_leadId_and_heldUntil` and writes the new items in the same transaction. Two lead generators who claim at once both read the same index ranges. Convex's serializable transactions make one of them retry, and the retry sees the other's items. No lock, counter or person field is needed. A test claims twice, for two workers and across two tenants, and checks the batches don't overlap.
 - **Each action rechecks the person** in its own transaction. Resparked and Not a fit are rejected when the person's group is now `out`: they booked, paid, were merged or were set to do not contact during the hold. The card says why and offers only Skip. Not a fit never overwrites a disposition an admin set; it records the touch and leaves the disposition alone.
 - **Merges.** Items stay on the person they were made for, so their IDs, which credit rows point at, never change. Every reader of items (the hold check, respark history, the credit rule) reads across the merged people, as `computePersonTouches` does. A held merged-away person is `out`, so the card rejects Resparked and Not a fit.
@@ -461,7 +461,7 @@ npx convex run --env-file .env.vercel.production --component migrations lib:getS
 
 The proposal was approved as written:
 
-1. **Bucket order** as §4.4, with the operations lead's bucket first. Inside a bucket, the most recently stalled first.
+1. **Bucket order** as §4.4, with the operations lead's bucket first. Inside a bucket, the most recently stalled first. Replaced on 2026-10-25 (§11.5): the oldest last touch first, whatever the bucket.
 2. **Credit: both.** The capturer keeps their row, and a resparked person who gets a deal adds a `respark` row for the resparker (§4.6).
 3. **No region or shift routing.**
 4. **Batch size** is a tenant setting, default 45, held until the business day ends; unworked people go back to the pool.
@@ -541,6 +541,7 @@ The phase table and "How a phase runs" stay. `CONTEXT.md` (Prospect, In conversa
 - **Capture confirmations, as built** (PR 2): the next call comes from the person's scheduled meetings, a keyed retry says "Capture already recorded", do not contact gets its own line, and a known person's stage is named as stored.
 - **Dates in the business day's zone** (PR 3 and PR 7): the Settings count follows an hour-rounded browser clock, and the Lifecycle card's respark line, stage dates and last touch format in the business day's zone, so the server and the browser agree.
 - **My Activity pins loaded pages** (PR 6): the merged capture and respark table uses `convex-helpers`' paginated hook, which pins each loaded page, so new activity can't drop a row.
+- **Oldest last touch first** (after the phase, 2026-10-25). The operator found the first batches too recent: bucket 1 came first and newest first, so the screen served people whose Slack deal had expired 0 to 3 days earlier. The tenant admin replaced decision 1: a batch takes the oldest last touch first across all buckets, with no upper age limit. On that day the first batches were people who had a call and went quiet about 6 months ago, then mostly captures from 4 to 6 months ago with a few qualified people among them. The pool, the 30-day line, the counts and the bucket labels are unchanged.
 - **CodeRabbit on PR 0:** the Not a fit guard against an admin's disposition is explicit (§5.3); the PR 1 pool check compares the aggregate with the stored groups, not with §2.5; a respark credit row's `attributedAt` is the respark time (§4.6); rollback of PRs 4 to 6 turns the feature off rather than reverting the schema (§12).
 
 ## 12. Rollback

@@ -5,7 +5,7 @@ import { bookingHarness } from "../../tests/bookingHarness";
 import { lifecycleProblems } from "../lib/leadLifecycle";
 import { resparkResultsByWorker } from "../lib/respark/items";
 import { DAY_MS } from "../lib/respark/settings";
-import { resparkStateProblems } from "../lib/respark/state";
+import { recomputeResparkState, resparkStateProblems } from "../lib/respark/state";
 
 // Respark batches, the hold and the actions (docs/plans/respark.md §4.5,
 // §5.3), with the hold race and the tenant boundary.
@@ -76,7 +76,7 @@ async function checks(h: Harness, leadId: Id<"leads">) {
 }
 
 describe("claimResparkBatch", () => {
-  it("takes the pool newest first, up to the batch size, and gives the same batch back", async () => {
+  it("takes the pool oldest last touch first, up to the batch size, and gives the same batch back", async () => {
     vi.useFakeTimers();
     const h = await bookingHarness();
     await pool(h, [100, 40, 60, 10]);
@@ -87,32 +87,67 @@ describe("claimResparkBatch", () => {
     const items = await batchItems(h, first.batchId);
     const times = await Promise.all(items.map(async (item) => (await lead(h, item.leadId)).lastTouch!.occurredAt));
     // The 10-day-old capture is under 30 days, so it isn't in the pool.
-    expect(times).toEqual([NOW - 40 * DAY_MS, NOW - 60 * DAY_MS, NOW - 100 * DAY_MS]);
+    expect(times).toEqual([NOW - 100 * DAY_MS, NOW - 60 * DAY_MS, NOW - 40 * DAY_MS]);
     expect(items.map((item) => item.bucket)).toEqual([2, 2, 2]);
 
     const again = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
     expect(again).toEqual({ ...first, resumed: true });
   });
 
-  it("walks the buckets in order", async () => {
+  it("orders by last touch whatever the bucket, and labels each person with theirs", async () => {
     vi.useFakeTimers();
     const h = await bookingHarness();
-    await pool(h, [40, 50]);
-    const [neverQualified, qualified] = await h.t.run((ctx) => ctx.db.query("leads").take(2));
-    // The second person reached Qualified, with no open deal.
+    await pool(h, [40, 50, 100]);
+    const people = await h.t.run((ctx) => ctx.db.query("leads").take(3));
+    const at = (days: number) => people.find((row) => row.lastTouch!.occurredAt === NOW - days * DAY_MS)!;
+    const [qualified, neverQualified, hadCall] = [at(40), at(50), at(100)];
+    // The newest reached Qualified and the oldest had a call, both with no
+    // open deal; their groups follow from the stage.
     await h.t.run(async (ctx) => {
-      await ctx.db.patch("leads", qualified._id, {
-        lifecycleStage: "qualified",
-        lifecycleStageEnteredAt: { ...qualified.lifecycleStageEnteredAt, qualified: NOW - 50 * DAY_MS },
-        resparkGroup: "qualified",
-      });
+      for (const [person, stage] of [[qualified, "qualified"], [hadCall, "booked"]] as const) {
+        await ctx.db.patch("leads", person._id, {
+          lifecycleStage: stage,
+          lifecycleStageEnteredAt: { ...person.lifecycleStageEnteredAt, qualified: person.lastTouch!.occurredAt, ...(stage === "booked" ? { booked: person.lastTouch!.occurredAt } : {}) },
+        });
+        await recomputeResparkState(ctx, (await ctx.db.get("leads", person._id))!);
+      }
     });
     const { batchId } = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
     const items = await batchItems(h, batchId);
-    expect(items.map((item) => [item.leadId, item.bucket])).toEqual([[qualified._id, 1], [neverQualified._id, 2]]);
+    expect(items.map((item) => [item.leadId, item.bucket])).toEqual([
+      [hadCall._id, 3],
+      [neverQualified._id, 2],
+      [qualified._id, 1],
+    ]);
   });
 
-  it("never gives two workers the same person, even claiming at once (the hold race)", async () => {
+  it("breaks a tie on last touch by who was created first, across groups", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness();
+    // Two captures at one time; the second, created later, reached Qualified.
+    await pool(h, [45, 45, 60]);
+    const people = await h.t.run((ctx) => ctx.db.query("leads").take(3));
+    const oldest = people.find((row) => row.lastTouch!.occurredAt === NOW - 60 * DAY_MS)!;
+    const sameTime = people.filter((row) => row.lastTouch!.occurredAt === NOW - 45 * DAY_MS)
+      .sort((a, b) => a._creationTime - b._creationTime);
+    await h.t.run(async (ctx) => {
+      const later = sameTime[1];
+      await ctx.db.patch("leads", later._id, {
+        lifecycleStage: "qualified",
+        lifecycleStageEnteredAt: { ...later.lifecycleStageEnteredAt, qualified: later.lastTouch!.occurredAt },
+      });
+      await recomputeResparkState(ctx, (await ctx.db.get("leads", later._id))!);
+    });
+    const { batchId } = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
+    const items = await batchItems(h, batchId);
+    expect(items.map((item) => [item.leadId, item.bucket])).toEqual([
+      [oldest._id, 2],
+      [sameTime[0]._id, 2],
+      [sameTime[1]._id, 1],
+    ]);
+  });
+
+    it("never gives two workers the same person, even claiming at once (the hold race)", async () => {
     vi.useFakeTimers();
     const h = await bookingHarness();
     const second = await addUser(h, "user_lg", "lead_generator");
