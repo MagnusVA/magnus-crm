@@ -188,6 +188,9 @@ export type ResparkState = {
 // Far above the captures one person has; past it the team throws rather
 // than guess.
 const PERSON_PROSPECT_LIMIT = 200;
+// `LEAD_CAPTURED` in leadGen/prospectPeople, which imports this module's
+// callers.
+const LEAD_CAPTURED_EVENT = "lead.captured";
 const PROSPECT_SUBMISSION_LIMIT = 500;
 
 /**
@@ -302,12 +305,14 @@ export async function refreshResparkState(
     { ...lead, lastTouch },
     await hasOpenDeal(ctx, lead.tenantId, lead._id),
   );
-  // The first capture's team never changes once set, except when a merge
-  // brings in an earlier capture.
+  // The first capture's team never changes once set, except when a merge,
+  // a void or a team fill asks for it again (`recomputeTeam`). Only a
+  // capture can give a person with no team one, so other touches don't read
+  // the capture history.
   const resparkTeamId =
-    lead.resparkTeamId && !options.recomputeTeam
-      ? lead.resparkTeamId
-      : await firstCaptureTeam(ctx, lead.tenantId, await mergedLeadIds(ctx, lead.tenantId, lead._id));
+    options.recomputeTeam || (!lead.resparkTeamId && touch?.eventType === LEAD_CAPTURED_EVENT)
+      ? await firstCaptureTeam(ctx, lead.tenantId, await mergedLeadIds(ctx, lead.tenantId, lead._id))
+      : lead.resparkTeamId;
   await writeResparkState(ctx, lead, { lastTouch, resparkGroup, resparkTeamId });
 }
 
