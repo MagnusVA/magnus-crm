@@ -27,7 +27,7 @@ const WEEKDAYS: LeadGenWeekday[] = [
   "saturday",
 ];
 
-function dailyStatKey(args: {
+export function dailyStatKey(args: {
   dayKey: string;
   workerId: Id<"leadGenWorkers">;
   teamId?: LeadGenTeamId;

@@ -29,6 +29,8 @@ import { derivePersonEnrollments, paymentCounts } from "./lib/enrollments";
 import { lifecycleProblems, planLeadLifecycleRederive, rederiveLeadLifecycle } from "./lib/leadLifecycle";
 import { personProspects, prospectConversionProblems } from "./lib/prospectConversions";
 import { recomputeResparkState, resparkPool, resparkStateProblems } from "./lib/respark/state";
+import { dailyStatKey } from "./leadGen/aggregates";
+import { runningBusinessDayRebuild } from "./lib/businessDayRebuildState";
 import { RESPARK_GROUPS, type ResparkGroup } from "./lib/respark/validators";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import {
@@ -689,6 +691,82 @@ export const assertResparkState = migrations.define({
 });
 // The pool aggregate's count per group, for the read-only check against a
 // paged count of the stored groups (respark plan §9).
+// Captures recorded with no team (2026-10-25): a capture whose specialist has
+// a team now takes it, and so does that specialist's daily stat row. A
+// specialist with no team keeps "none". The team-origin stats are rebuilt per
+// day by leadGen/backfills:rebuildTeamOriginStatsDay. Both stay safe to rerun.
+// The specialist's current team for a no-team capture or stat row, or null
+// when there's nothing to move. Refuses while a business-day rebuild runs,
+// since it stages these rows from the captures.
+async function captureTeamToFill(
+  ctx: MutationCtx,
+  row: { tenantId: Id<"tenants">; workerId: Id<"leadGenWorkers">; teamId?: Id<"attributionTeams"> },
+): Promise<Id<"attributionTeams"> | null> {
+  if (row.teamId !== undefined) return null;
+  const worker = await ctx.db.get("leadGenWorkers", row.workerId);
+  if (worker?.tenantId !== row.tenantId || !worker.teamId) return null;
+  if (await runningBusinessDayRebuild(ctx, row.tenantId)) {
+    throw new Error("A business-day rebuild is running; wait for it to finish");
+  }
+  return worker.teamId;
+}
+
+export const backfillCaptureTeams = migrations.define({
+  table: "leadGenSubmissions", batchSize: 200,
+  migrateOne: async (ctx, submission) => {
+    const teamId = await captureTeamToFill(ctx, submission);
+    if (teamId) await ctx.db.patch("leadGenSubmissions", submission._id, { teamId });
+  },
+});
+export const assertCaptureTeams = migrations.define({
+  table: "leadGenSubmissions", batchSize: 200,
+  migrateOne: async (ctx, submission) => {
+    if (submission.teamId !== undefined) return;
+    const worker = await ctx.db.get("leadGenWorkers", submission.workerId);
+    if (worker?.tenantId === submission.tenantId && worker.teamId) {
+      throw new Error(`Capture ${submission._id} has no team; its specialist has ${worker.teamId}`);
+    }
+  },
+});
+export const backfillDailyStatTeams = migrations.define({
+  table: "leadGenDailyStats", batchSize: 100,
+  migrateOne: async (ctx, stat) => {
+    const teamId = await captureTeamToFill(ctx, stat);
+    if (!teamId) return;
+    const statKey = dailyStatKey({ dayKey: stat.dayKey, workerId: stat.workerId, teamId, source: stat.source });
+    const existing = await ctx.db
+      .query("leadGenDailyStats")
+      .withIndex("by_tenantId_and_statKey", (q) => q.eq("tenantId", stat.tenantId).eq("statKey", statKey))
+      .unique();
+    if (existing && existing._id !== stat._id) {
+      // The same specialist, day and source under the team: add the counts
+      // to that row and drop this one.
+      await ctx.db.patch("leadGenDailyStats", existing._id, {
+        submissions: existing.submissions + stat.submissions,
+        uniqueProspectsSubmitted: existing.uniqueProspectsSubmitted + stat.uniqueProspectsSubmitted,
+        duplicateProspectSubmissions: existing.duplicateProspectSubmissions + stat.duplicateProspectSubmissions,
+        scheduledHours: Math.max(existing.scheduledHours, stat.scheduledHours),
+        updatedAt: Date.now(),
+      });
+      await ctx.db.delete("leadGenDailyStats", stat._id);
+      return;
+    }
+    await ctx.db.patch("leadGenDailyStats", stat._id, { teamId, statKey, updatedAt: Date.now() });
+  },
+});
+export const assertDailyStatTeams = migrations.define({
+  table: "leadGenDailyStats", batchSize: 200,
+  migrateOne: async (ctx, stat) => {
+    const key = dailyStatKey({ dayKey: stat.dayKey, workerId: stat.workerId, teamId: stat.teamId, source: stat.source });
+    if (stat.statKey !== key) throw new Error(`Daily stat ${stat._id} has key ${stat.statKey}, expected ${key}`);
+    if (stat.teamId !== undefined) return;
+    const worker = await ctx.db.get("leadGenWorkers", stat.workerId);
+    if (worker?.tenantId === stat.tenantId && worker.teamId) {
+      throw new Error(`Daily stat ${stat._id} has no team; its specialist has ${worker.teamId}`);
+    }
+  },
+});
+
 export const resparkPoolTotals = internalQuery({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
