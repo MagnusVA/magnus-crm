@@ -676,7 +676,7 @@ export async function executeMerge(
   // The target takes the later last touch of the two and a group from the
   // deals it now has; the source leaves the pool with the `lead.merged`
   // event below (docs/plans/respark.md §5.1).
-  await refreshResparkState(ctx, tenantId, targetLeadId, sourceLead.lastTouch);
+  await refreshResparkState(ctx, tenantId, targetLeadId, sourceLead.lastTouch, { recomputeTeam: true });
   // Leads merged into the source now point at the target, so merge chains
   // stay one hop deep. Identity resolution follows at most five.
   const earlierMerges = await ctx.db

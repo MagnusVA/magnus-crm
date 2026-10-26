@@ -844,5 +844,6 @@ export declare const components: {
   billingPaymentsByStatusType: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"billingPaymentsByStatusType">;
   billingPaymentsByStatusProgramType: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"billingPaymentsByStatusProgramType">;
   resparkPool: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"resparkPool">;
+  resparkTeamPool: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"resparkTeamPool">;
   resparkResultsByWorker: import("@convex-dev/aggregate/_generated/component.js").ComponentApi<"resparkResultsByWorker">;
 };

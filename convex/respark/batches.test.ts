@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api, internal } from "../_generated/api";
 import type { Doc, Id } from "../_generated/dataModel";
-import { bookingHarness } from "../../tests/bookingHarness";
+import { bookingHarness, testLeadGenTeam } from "../../tests/bookingHarness";
 import { lifecycleProblems } from "../lib/leadLifecycle";
 import { resparkResultsByWorker } from "../lib/respark/items";
 import { DAY_MS } from "../lib/respark/settings";
@@ -23,6 +23,8 @@ async function addUser(
   role: "tenant_admin" | "lead_generator" | "closer",
   tenantId: Id<"tenants"> = h.tenantId,
   orgId = "org_test",
+  // A lead generator's team; null for none.
+  teamSlug: string | null = "team-a",
 ): Promise<Caller> {
   await h.t.run(async (ctx) => {
     const userId = await ctx.db.insert("users", {
@@ -31,7 +33,7 @@ async function addUser(
     if (role === "lead_generator") {
       await ctx.db.insert("leadGenWorkers", {
         tenantId, userId, workosUserId, email: `${workosUserId}@example.com`, isActive: true,
-        createdAt: 0, updatedAt: 0,
+        teamId: teamSlug ? await testLeadGenTeam(ctx, tenantId, teamSlug) : undefined, createdAt: 0, updatedAt: 0,
       });
     }
   });
@@ -40,9 +42,10 @@ async function addUser(
 
 async function capture(caller: Caller, handle: string, at: number) {
   vi.setSystemTime(new Date(at));
-  await caller.mutation(api.leadGen.capture.submit, {
+  const result = await caller.mutation(api.leadGen.capture.submit, {
     source: "instagram", rawHandleOrProfileUrl: `@${handle}`, originKind: "follower",
   });
+  return result.leadId!;
 }
 
 /** People captured `daysAgo` days before NOW, oldest handle first. */
@@ -78,7 +81,7 @@ async function checks(h: Harness, leadId: Id<"leads">) {
 describe("claimResparkBatch", () => {
   it("takes the pool oldest last touch first, up to the batch size, and gives the same batch back", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     await pool(h, [100, 40, 60, 10]);
     await setBatchSize(h, 10);
 
@@ -96,7 +99,7 @@ describe("claimResparkBatch", () => {
 
   it("orders by last touch whatever the bucket, and labels each person with theirs", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     await pool(h, [40, 50, 100]);
     const people = await h.t.run((ctx) => ctx.db.query("leads").take(3));
     const at = (days: number) => people.find((row) => row.lastTouch!.occurredAt === NOW - days * DAY_MS)!;
@@ -123,7 +126,7 @@ describe("claimResparkBatch", () => {
 
   it("breaks a tie on last touch by who was created first, across groups", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     // Two captures at one time; the second, created later, reached Qualified.
     await pool(h, [45, 45, 60]);
     const people = await h.t.run((ctx) => ctx.db.query("leads").take(3));
@@ -149,7 +152,7 @@ describe("claimResparkBatch", () => {
 
     it("never gives two workers the same person, even claiming at once (the hold race)", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const second = await addUser(h, "user_lg", "lead_generator");
     await pool(h, [40, 41, 42, 43, 44]);
     await setBatchSize(h, 10);
@@ -166,7 +169,7 @@ describe("claimResparkBatch", () => {
 
   it("returns the unworked people to the pool when the business day ends", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const second = await addUser(h, "user_lg", "lead_generator");
     await pool(h, [40]);
     const a = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
@@ -184,7 +187,7 @@ describe("claimResparkBatch", () => {
 
   it("keeps a skipped person from the same worker for the day, not from others", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const second = await addUser(h, "user_lg", "lead_generator");
     await pool(h, [40]);
     const a = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
@@ -202,7 +205,7 @@ describe("claimResparkBatch", () => {
 
   it("keeps a hold on a person merged into another, for the survivor", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const second = await addUser(h, "user_lg", "lead_generator");
     await pool(h, [40, 45]);
     await setBatchSize(h, 10);
@@ -223,7 +226,7 @@ describe("claimResparkBatch", () => {
 
   it("stays inside the caller's tenant", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     await pool(h, [40]);
     const otherTenantId = await h.t.run((ctx) =>
       ctx.db.insert("tenants", {
@@ -247,7 +250,7 @@ describe("claimResparkBatch", () => {
 
   it("stops a lead generator whose lead gen access was turned off during the day", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const lg = await addUser(h, "user_lg", "lead_generator");
     await pool(h, [40]);
     const { batchId } = await lg.mutation(api.respark.batches.claimResparkBatch, {});
@@ -264,8 +267,81 @@ describe("claimResparkBatch", () => {
 
     it("is only for roles with lead-gen:respark", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     await expect(h.closer.mutation(api.respark.batches.claimResparkBatch, {})).rejects.toThrow();
+  });
+});
+
+describe("team pools", () => {
+  it("gives each lead generator only their team's people, a person shared by teams going to the first capture's", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness({ leadGenTeam: true });
+    const teamB = await addUser(h, "gen_b", "lead_generator", h.tenantId, "org_test", "team-b");
+    await setBatchSize(h, 10);
+    const teamAOnly = await capture(h.admin, "team.a.only", NOW - 40 * DAY_MS);
+    const teamBOnly = await capture(teamB, "team.b.only", NOW - 50 * DAY_MS);
+    // Team B captured them first, so they're Team B's after Team A's capture too.
+    const both = await capture(teamB, "both.teams", NOW - 70 * DAY_MS);
+    expect(await capture(h.admin, "both.teams", NOW - 45 * DAY_MS)).toBe(both);
+    vi.setSystemTime(new Date(NOW));
+
+    const mine = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
+    expect((await batchItems(h, mine.batchId)).map((item) => item.leadId)).toEqual([teamAOnly]);
+    const theirs = await teamB.mutation(api.respark.batches.claimResparkBatch, {});
+    expect((await batchItems(h, theirs.batchId)).map((item) => item.leadId)).toEqual([teamBOnly, both]);
+    for (const leadId of [teamAOnly, teamBOnly, both]) expect(await checks(h, leadId)).toEqual([]);
+
+    const counts = async (caller: Caller) =>
+      (await caller.query(api.respark.queries.getResparkPoolCounts, {})).buckets.map((bucket) => bucket.count);
+    expect(await counts(h.admin)).toEqual([0, 1, 0, 0, 0]);
+    expect(await counts(teamB)).toEqual([0, 2, 0, 0, 0]);
+  });
+
+  it("gives a lead generator with no team an empty pool, and says why", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness({ leadGenTeam: true });
+    await pool(h, [40]);
+    const noTeam = await addUser(h, "gen_none", "lead_generator", h.tenantId, "org_test", null);
+    expect(await noTeam.mutation(api.respark.batches.claimResparkBatch, {}))
+      .toEqual({ batchId: null, resumed: false, size: 0, noTeam: true });
+    const counts = await noTeam.query(api.respark.queries.getResparkPoolCounts, {});
+    expect(counts.noTeam).toBe(true);
+    expect(counts.buckets.map((bucket) => bucket.count)).toEqual([0, 0, 0, 0, 0]);
+    expect((await h.admin.query(api.respark.queries.getResparkPoolCounts, {})).noTeam).toBe(false);
+  });
+
+  it("skips a capture by a specialist with no team when it picks the team", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness({ leadGenTeam: true });
+    const noTeam = await addUser(h, "gen_none", "lead_generator", h.tenantId, "org_test", null);
+    const person = await capture(noTeam, "no.team.first", NOW - 70 * DAY_MS);
+    expect((await lead(h, person)).resparkTeamId).toBeUndefined();
+    await capture(h.admin, "no.team.first", NOW - 45 * DAY_MS);
+    vi.setSystemTime(new Date(NOW));
+    expect((await lead(h, person)).resparkTeamId).toBe(h.leadGenTeamId);
+    expect(await checks(h, person)).toEqual([]);
+    const mine = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
+    expect((await batchItems(h, mine.batchId)).map((item) => item.leadId)).toEqual([person]);
+  });
+
+  it("gives a merged person the team of the earliest capture of either", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness({ leadGenTeam: true });
+    const teamB = await addUser(h, "gen_b", "lead_generator", h.tenantId, "org_test", "team-b");
+    const target = await capture(h.admin, "merge.target", NOW - 40 * DAY_MS);
+    const source = await capture(teamB, "merge.source", NOW - 60 * DAY_MS);
+    vi.setSystemTime(new Date(NOW));
+    const teamBId = (await lead(h, source)).resparkTeamId;
+    expect(teamBId).toBeDefined();
+    expect((await lead(h, target)).resparkTeamId).toBe(h.leadGenTeamId);
+
+    await h.admin.mutation(api.leads.merge.mergeLead, { sourceLeadId: source, targetLeadId: target });
+    expect((await lead(h, target)).resparkTeamId).toBe(teamBId);
+    expect((await lead(h, source)).resparkTeamId).toBeUndefined();
+    expect(await checks(h, target)).toEqual([]);
+    const theirs = await teamB.mutation(api.respark.batches.claimResparkBatch, {});
+    expect((await batchItems(h, theirs.batchId)).map((item) => item.leadId)).toEqual([target]);
+    expect((await h.admin.mutation(api.respark.batches.claimResparkBatch, {})).size).toBe(0);
   });
 });
 
@@ -279,7 +355,7 @@ describe("the actions", () => {
 
   it("Resparked: a touch, In conversation kept, a not a fit reopened, the item worked", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const item = await heldPerson(h);
     // A respark reopens any not a fit, an admin's included (plan §4.7).
     await h.admin.mutation(api.leads.lifecycleAdmin.setDisposition, {
@@ -313,7 +389,7 @@ describe("the actions", () => {
 
   it("Not a fit: a touch and the disposition, and bucket 5 after 30 days", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const item = await heldPerson(h);
     await h.admin.mutation(api.respark.batches.markNotAFit, { itemId: item._id });
     const person = await lead(h, item.leadId);
@@ -335,7 +411,7 @@ describe("the actions", () => {
 
   it("a second Not a fit moves the decision's time, so older evidence doesn't reopen it", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const item = await heldPerson(h);
     await h.admin.mutation(api.respark.batches.markNotAFit, { itemId: item._id });
     const later = NOW + 31 * DAY_MS;
@@ -349,7 +425,7 @@ describe("the actions", () => {
 
   it("derives the stage from Resparked items only, however many other items a person has", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const item = await heldPerson(h);
     await h.admin.mutation(api.respark.batches.markResparked, { itemId: item._id });
     await h.t.run(async (ctx) => {
@@ -363,7 +439,7 @@ describe("the actions", () => {
 
   it("Not a fit leaves a disposition an admin set", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const item = await heldPerson(h);
     await h.admin.mutation(api.leads.lifecycleAdmin.setDisposition, {
       leadId: item.leadId, disposition: "nurture", reason: "Test",
@@ -377,7 +453,7 @@ describe("the actions", () => {
 
   it("rejects Resparked and Not a fit for someone who left the pool during the hold, and allows Skip", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const item = await heldPerson(h);
     await h.admin.mutation(api.leads.lifecycleAdmin.setDisposition, {
       leadId: item.leadId, disposition: "do_not_contact", reason: "Asked us to stop",
@@ -391,7 +467,7 @@ describe("the actions", () => {
 
   it("a qualification reopens a respark not a fit; a capture doesn't", async () => {
     vi.useFakeTimers();
-    const h = await bookingHarness();
+    const h = await bookingHarness({ leadGenTeam: true });
     const item = await heldPerson(h);
     await h.admin.mutation(api.respark.batches.markNotAFit, { itemId: item._id });
     const handle = (await lead(h, item.leadId)).socialHandles![0].handle;

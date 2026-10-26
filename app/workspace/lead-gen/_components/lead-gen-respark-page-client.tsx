@@ -39,6 +39,9 @@ function useHasPassed(at: number | null) {
   return at !== null && now >= at;
 }
 
+// The pool is the lead generator's team's (plan §11.5), so with no team it's empty.
+const NO_TEAM_MESSAGE = "You're not on a lead gen team yet, so you have no respark pool. Ask an admin to add you to a team.";
+
 // The Respark screen (docs/plans/respark.md §6.1): ask for a batch, work it
 // card by card, then a summary. The batch and the pool order come from the
 // server; there is no filter and no bucket picker.
@@ -55,7 +58,8 @@ export function LeadGenResparkPageClient() {
     setClaiming(true);
     try {
       const result = await claim({});
-      if (result.size === 0) toast.info("No one is in the respark pool right now.");
+      if (result.noTeam) toast.info(NO_TEAM_MESSAGE);
+      else if (result.size === 0) toast.info("No one is in your team's respark pool right now.");
     } catch (error) {
       toast.error(getErrorMessage(error, "Couldn't get a batch."));
     } finally {
@@ -143,7 +147,11 @@ function PoolCounts({ timeZone }: { timeZone: string }) {
 
   return (
     <div className="flex flex-col gap-4">
-      {pool ? (
+      {pool?.noTeam ? (
+        <p className="text-sm text-muted-foreground" role="status">
+          {NO_TEAM_MESSAGE}
+        </p>
+      ) : pool ? (
         <p className="text-sm text-muted-foreground">
           {pool.batchSize} people, held for you until {formatClock(pool.heldUntil, timeZone)} ({timeZone}), the end of the business day
         </p>

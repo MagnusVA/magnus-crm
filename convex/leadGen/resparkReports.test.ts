@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { api } from "../_generated/api";
 import type { Id } from "../_generated/dataModel";
-import { bookingHarness } from "../../tests/bookingHarness";
+import { bookingHarness, testLeadGenTeam } from "../../tests/bookingHarness";
 import { recordDealCreation } from "../lib/attribution/dealAttributions";
 
 const DAY = 86_400_000;
@@ -38,6 +38,7 @@ async function worker(
       email: `${name}@example.com`,
       displayName: name,
       isActive: true,
+      teamId: await testLeadGenTeam(ctx, tenantId),
       createdAt: 0,
       updatedAt: 0,
     });
@@ -66,7 +67,7 @@ async function capture(
 async function setup() {
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
-  const h = await bookingHarness({ transactionLimits: true });
+  const h = await bookingHarness({ transactionLimits: true, leadGenTeam: true });
   await h.t.run((ctx) =>
     ctx.db.patch("tenants", h.tenantId, {
       respark: { inactiveAfterDays: 90, batchSize: 10 },

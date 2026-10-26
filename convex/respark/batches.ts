@@ -61,8 +61,8 @@ async function openBatch(
 
 /**
  * Asking for a batch (plan §4.5). An unexpired batch with unworked people
- * comes back as it is. Otherwise the claim takes the pool oldest last touch
- * first, whatever the bucket (`poolOldestFirst`), skipping people someone
+ * comes back as it is. Otherwise the claim takes the lead generator's team's
+ * pool oldest last touch first, whatever the bucket (`poolOldestFirst`), skipping people someone
  * holds and people this user skipped today, until the batch is full or it
  * has read `CLAIM_READ_LIMIT` people.
  * Two claims at once read the same hold ranges and write into them, so one
@@ -70,14 +70,23 @@ async function openBatch(
  */
 export const claimResparkBatch = mutation({
   args: {},
-  // An empty pool creates no batch: `batchId` is null and `size` 0.
-  returns: v.object({ batchId: v.union(v.id("resparkBatches"), v.null()), resumed: v.boolean(), size: v.number() }),
+  // An empty pool creates no batch: `batchId` is null and `size` 0. A lead
+  // generator with no team has no pool (`noTeam`).
+  returns: v.object({
+    batchId: v.union(v.id("resparkBatches"), v.null()),
+    resumed: v.boolean(),
+    size: v.number(),
+    noTeam: v.optional(v.boolean()),
+  }),
   handler: async (ctx) => {
     const access = await requireTenantUser(ctx, RESPARK_ROLES);
     const now = Date.now();
     const worker = await requireOperationalLeadGenWorker(ctx, access, now);
     const existing = await openBatch(ctx, access, now);
     if (existing) return { batchId: existing._id, resumed: true, size: existing.size };
+    // The pool is the lead generator's team's (2026-10-25); no team, no pool.
+    const teamId = worker.teamId;
+    if (!teamId) return { batchId: null, resumed: false, size: 0, noTeam: true };
 
     const tenant = await ctx.db.get("tenants", access.tenantId);
     if (!tenant) throw new Error(`Missing tenant ${access.tenantId}`);
@@ -94,6 +103,7 @@ export const claimResparkBatch = mutation({
     indexReads += 4;
     for await (const { lead, bucket } of poolOldestFirst(ctx, {
       tenantId: access.tenantId,
+      teamId,
       now,
       inactiveAfterDays: settings.inactiveAfterDays,
     })) {

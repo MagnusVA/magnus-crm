@@ -27,6 +27,7 @@ export function registerComponents(t: ReturnType<typeof convexTest>) {
     "billingPaymentsByStatusType",
     "billingPaymentsByStatusProgramType",
     "resparkPool",
+    "resparkTeamPool",
     "resparkResultsByWorker",
   ])
     aggregate.register(t, name);
@@ -34,14 +35,29 @@ export function registerComponents(t: ReturnType<typeof convexTest>) {
 
 // `transactionLimits: true` makes every function fail the way a deployment
 // would when it exceeds Convex's per-transaction read and write limits.
-export async function bookingHarness(options: { transactionLimits?: boolean } = {}) {
+/** The tenant's test lead gen team ("team-a"), created on first use. */
+export async function testLeadGenTeam(ctx: MutationCtx, tenantId: Id<"tenants">, slug = "team-a") {
+  const existing = (await ctx.db.query("attributionTeams")
+    .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)).take(50))
+    .find((team) => team.slug === slug);
+  return existing?._id ?? await ctx.db.insert("attributionTeams", {
+    tenantId, slug, displayName: slug, utmSource: slug,
+    normalizedUtmSource: slug, isActive: true, createdAt: 0, updatedAt: 0,
+  });
+}
+
+/**
+ * `leadGenTeam` puts the admin's lead gen worker on a team from the start, so
+ * their captures, and the Respark pool, belong to that team.
+ */
+export async function bookingHarness(options: { transactionLimits?: boolean; leadGenTeam?: boolean } = {}) {
   const t = convexTest({
     schema,
     modules: convexTestModules,
     transactionLimits: options.transactionLimits ?? false,
   });
   registerComponents(t);
-  const tenantId = await t.run(async (ctx) => {
+  const { tenantId, leadGenTeamId } = await t.run(async (ctx) => {
     const tenantId = await ctx.db.insert("tenants", {
       businessDayAppliedVersion: 0,
       companyName: "Test",
@@ -51,7 +67,7 @@ export async function bookingHarness(options: { transactionLimits?: boolean } = 
       inviteExpiresAt: 0,
       createdBy: "test",
     });
-    await ctx.db.insert("users", {
+    const adminId = await ctx.db.insert("users", {
       tenantId,
       workosUserId: "user_admin",
       email: "admin@example.com",
@@ -66,11 +82,18 @@ export async function bookingHarness(options: { transactionLimits?: boolean } = 
       isActive: true,
       calendlyUserUri: "https://api.calendly.com/users/closer",
     });
-    return tenantId;
+    if (!options.leadGenTeam) return { tenantId, leadGenTeamId: undefined };
+    const leadGenTeamId = await testLeadGenTeam(ctx, tenantId);
+    await ctx.db.insert("leadGenWorkers", {
+      tenantId, userId: adminId, workosUserId: "user_admin", email: "admin@example.com",
+      displayName: "admin@example.com", isActive: true, teamId: leadGenTeamId, createdAt: 0, updatedAt: 0,
+    });
+    return { tenantId, leadGenTeamId };
   });
   return {
     t,
     tenantId,
+    leadGenTeamId,
     admin: t.withIdentity({ subject: "user_admin", org_id: "org_test" }),
     closer: t.withIdentity({ subject: "user_closer", org_id: "org_test" }),
   };

@@ -580,6 +580,9 @@ export default defineSchema({
     // rule. Both are kept by `refreshResparkState`.
     lastTouch: v.optional(lastTouchValidator),
     resparkGroup: v.optional(resparkGroupValidator),
+    // The team of the first capture (2026-10-25): each lead gen team works
+    // only its own people. None for people no team captured.
+    resparkTeamId: v.optional(v.id("attributionTeams")),
   })
     // eslint-disable-next-line @convex-dev/no-duplicate-indexes -- needs _creationTime order: identity resolution scans the 50 newest leads
     .index("by_tenantId", ["tenantId"])
@@ -589,6 +592,13 @@ export default defineSchema({
     // `lastTouch` sorts below every time, and such a person is `out`.
     .index("by_tenantId_and_resparkGroup_and_lastTouchAt", [
       "tenantId",
+      "resparkGroup",
+      "lastTouch.occurredAt",
+    ])
+    // A team's pool, read one group at a time, oldest first.
+    .index("by_tenantId_and_resparkTeamId_and_resparkGroup_and_lastTouchAt", [
+      "tenantId",
+      "resparkTeamId",
       "resparkGroup",
       "lastTouch.occurredAt",
     ])

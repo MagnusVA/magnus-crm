@@ -16,7 +16,7 @@ afterEach(() => vi.useRealTimers());
 
 async function seed(work = true) {
   vi.useFakeTimers();
-  const h = await bookingHarness();
+  const h = await bookingHarness({ leadGenTeam: true });
   migrationsTest.register(h.t);
   vi.setSystemTime(NOW - 40 * DAY_MS);
   const capture = await h.admin.mutation(api.leadGen.capture.submit, {
@@ -26,7 +26,7 @@ async function seed(work = true) {
     const userId = await ctx.db.insert("users", { tenantId: h.tenantId, workosUserId: "resparker",
       email: "resparker@example.com", role: "lead_generator", isActive: true });
     await ctx.db.insert("leadGenWorkers", { tenantId: h.tenantId, userId, workosUserId: "resparker",
-      email: "resparker@example.com", displayName: "Resparker", isActive: true, createdAt: NOW, updatedAt: NOW });
+      email: "resparker@example.com", displayName: "Resparker", isActive: true, teamId: h.leadGenTeamId, createdAt: NOW, updatedAt: NOW });
   });
   const caller = h.t.withIdentity({ subject: "resparker", org_id: "org_test" });
   vi.setSystemTime(NOW);
