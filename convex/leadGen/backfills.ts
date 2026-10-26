@@ -15,6 +15,7 @@ import {
 import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 import { teamOriginStatKey } from "./aggregates";
+import { runningBusinessDayRebuild } from "../lib/businessDayRebuildState";
 import {
   isRankableLeadGenOrigin,
   normalizeLeadGenOrigin,
@@ -409,6 +410,11 @@ export const rebuildTeamOriginStatsDay = internalMutation({
   },
   handler: async (ctx, args) => {
     validateTeamOriginRebuildRange({ startDayKey: args.dayKey, endDayKey: args.dayKey });
+    // A business-day rebuild stages these rows from the captures; this
+    // repair would race it.
+    if (await runningBusinessDayRebuild(ctx, args.tenantId)) {
+      throw new Error("A business-day rebuild is running; wait for it to finish");
+    }
     const setting = await getTenantBusinessDay(ctx, args.tenantId);
     const existing = await ctx.db
       .query("leadGenTeamOriginStats")
@@ -443,6 +449,13 @@ export const rebuildTeamOriginStatsDay = internalMutation({
       for (const row of existing) await ctx.db.delete("leadGenTeamOriginStats", row._id);
       for (const row of rebuilt) await ctx.db.insert("leadGenTeamOriginStats", row);
     }
+    // The rebuild counts a prospect once per normalized origin, as the
+    // business-day rebuild does; live writes compare the stored origin, so a
+    // day's unique count can drop slightly. Submissions must match exactly.
+    const sum = (list: { submissions: number; uniqueProspectsSubmitted: number }[]) => ({
+      submissions: list.reduce((total, row) => total + row.submissions, 0),
+      unique: list.reduce((total, row) => total + row.uniqueProspectsSubmitted, 0),
+    });
     return {
       dayKey: args.dayKey,
       existingRows: existing.length,
@@ -450,6 +463,8 @@ export const rebuildTeamOriginStatsDay = internalMutation({
       rebuiltRows: rebuilt.length,
       rebuiltWithoutTeam: rebuilt.filter((row) => row.teamId === undefined).length,
       submissions: rows.length,
+      before: sum(existing),
+      after: sum(rebuilt),
     };
   },
 });

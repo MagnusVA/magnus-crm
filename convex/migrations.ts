@@ -30,6 +30,7 @@ import { lifecycleProblems, planLeadLifecycleRederive, rederiveLeadLifecycle } f
 import { personProspects, prospectConversionProblems } from "./lib/prospectConversions";
 import { recomputeResparkState, resparkPool, resparkStateProblems } from "./lib/respark/state";
 import { dailyStatKey } from "./leadGen/backfills";
+import { runningBusinessDayRebuild } from "./lib/businessDayRebuildState";
 import { RESPARK_GROUPS, type ResparkGroup } from "./lib/respark/validators";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import {
@@ -694,22 +695,45 @@ export const assertResparkState = migrations.define({
 // a team now takes it, and so does that specialist's daily stat row. A
 // specialist with no team keeps "none". The team-origin stats are rebuilt per
 // day by leadGen/backfills:rebuildTeamOriginStatsDay. Both stay safe to rerun.
+// The specialist's current team for a no-team capture or stat row, or null
+// when there's nothing to move. Refuses while a business-day rebuild runs,
+// since it stages these rows from the captures.
+async function captureTeamToFill(
+  ctx: MutationCtx,
+  row: { tenantId: Id<"tenants">; workerId: Id<"leadGenWorkers">; teamId?: Id<"attributionTeams"> },
+): Promise<Id<"attributionTeams"> | null> {
+  if (row.teamId !== undefined) return null;
+  const worker = await ctx.db.get("leadGenWorkers", row.workerId);
+  if (worker?.tenantId !== row.tenantId || !worker.teamId) return null;
+  if (await runningBusinessDayRebuild(ctx, row.tenantId)) {
+    throw new Error("A business-day rebuild is running; wait for it to finish");
+  }
+  return worker.teamId;
+}
+
 export const backfillCaptureTeams = migrations.define({
+  table: "leadGenSubmissions", batchSize: 200,
+  migrateOne: async (ctx, submission) => {
+    const teamId = await captureTeamToFill(ctx, submission);
+    if (teamId) await ctx.db.patch("leadGenSubmissions", submission._id, { teamId });
+  },
+});
+export const assertCaptureTeams = migrations.define({
   table: "leadGenSubmissions", batchSize: 200,
   migrateOne: async (ctx, submission) => {
     if (submission.teamId !== undefined) return;
     const worker = await ctx.db.get("leadGenWorkers", submission.workerId);
-    if (worker?.tenantId !== submission.tenantId || !worker.teamId) return;
-    await ctx.db.patch("leadGenSubmissions", submission._id, { teamId: worker.teamId });
+    if (worker?.tenantId === submission.tenantId && worker.teamId) {
+      throw new Error(`Capture ${submission._id} has no team; its specialist has ${worker.teamId}`);
+    }
   },
 });
 export const backfillDailyStatTeams = migrations.define({
   table: "leadGenDailyStats", batchSize: 100,
   migrateOne: async (ctx, stat) => {
-    if (stat.teamId !== undefined) return;
-    const worker = await ctx.db.get("leadGenWorkers", stat.workerId);
-    if (worker?.tenantId !== stat.tenantId || !worker.teamId) return;
-    const statKey = dailyStatKey({ dayKey: stat.dayKey, workerId: stat.workerId, teamId: worker.teamId, source: stat.source });
+    const teamId = await captureTeamToFill(ctx, stat);
+    if (!teamId) return;
+    const statKey = dailyStatKey({ dayKey: stat.dayKey, workerId: stat.workerId, teamId, source: stat.source });
     const existing = await ctx.db
       .query("leadGenDailyStats")
       .withIndex("by_tenantId_and_statKey", (q) => q.eq("tenantId", stat.tenantId).eq("statKey", statKey))
@@ -727,7 +751,19 @@ export const backfillDailyStatTeams = migrations.define({
       await ctx.db.delete("leadGenDailyStats", stat._id);
       return;
     }
-    await ctx.db.patch("leadGenDailyStats", stat._id, { teamId: worker.teamId, statKey, updatedAt: Date.now() });
+    await ctx.db.patch("leadGenDailyStats", stat._id, { teamId, statKey, updatedAt: Date.now() });
+  },
+});
+export const assertDailyStatTeams = migrations.define({
+  table: "leadGenDailyStats", batchSize: 200,
+  migrateOne: async (ctx, stat) => {
+    const key = dailyStatKey({ dayKey: stat.dayKey, workerId: stat.workerId, teamId: stat.teamId, source: stat.source });
+    if (stat.statKey !== key) throw new Error(`Daily stat ${stat._id} has key ${stat.statKey}, expected ${key}`);
+    if (stat.teamId !== undefined) return;
+    const worker = await ctx.db.get("leadGenWorkers", stat.workerId);
+    if (worker?.tenantId === stat.tenantId && worker.teamId) {
+      throw new Error(`Daily stat ${stat._id} has no team; its specialist has ${worker.teamId}`);
+    }
   },
 });
 

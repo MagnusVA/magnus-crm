@@ -69,12 +69,22 @@ it("gives no-team captures, their daily stats and team-origin stats the speciali
   const mid = await state(h);
   expect(mid.daily.map((row) => row.teamId ?? null).sort()).toEqual([null, teamId].sort());
 
+  expect((await run(h, "assertCaptureTeams"))?.error).toContain("has no team");
   expect((await run(h, "backfillCaptureTeams"))?.isDone).toBe(true);
   expect((await run(h, "backfillDailyStatTeams"))?.isDone).toBe(true);
+  await h.t.mutation(internal.migrations.run, { fn: "migrations:assertCaptureTeams", reset: true });
+  await h.t.finishAllScheduledFunctions(vi.runAllTimers);
+  const [captureAssert] = await h.t.run((ctx) =>
+    migrations.getStatus(ctx, { migrations: ["migrations:assertCaptureTeams"] as never }),
+  );
+  expect(captureAssert?.error).toBeUndefined();
+  expect((await run(h, "assertDailyStatTeams"))?.error).toBeUndefined();
   const preview = await h.t.mutation(internal.leadGen.backfills.rebuildTeamOriginStatsDay, {
     tenantId: h.tenantId, dayKey: DAY_KEY, dryRun: true,
   });
   expect(preview).toMatchObject({ existingWithoutTeam: 1, rebuiltWithoutTeam: 0, submissions: 3 });
+  // Only the team moves: the day's totals are the same.
+  expect(preview.after).toEqual(preview.before);
   await h.t.mutation(internal.leadGen.backfills.rebuildTeamOriginStatsDay, {
     tenantId: h.tenantId, dayKey: DAY_KEY, dryRun: false,
   });
@@ -105,3 +115,21 @@ it("leaves the captures of a specialist with no team as they are", async () => {
   expect(after.submissions[0].teamId).toBeUndefined();
   expect(after.daily[0].teamId).toBeUndefined();
 });
+
+it("refuses to repair a day while a business-day rebuild runs", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(NOW);
+  const h = await bookingHarness();
+  await h.t.run((ctx) =>
+    ctx.db.insert("businessDayRebuilds", {
+      tenantId: h.tenantId, version: 1, rebuildLeadGen: true, requestedAt: NOW, state: "running",
+      phase: "meetings", cursor: null, pass: 1, sourceRevision: 0, computedRevision: 0,
+      meetingsEnqueued: 0, leadGenRowsComputed: 0, leadGenRowsSwapped: 0, leadGenAudited: 0,
+      meetingsAsserted: 0, bucketsAsserted: 0, sourcesAsserted: 0, leadGenDone: false,
+    } as never),
+  );
+  await expect(
+    h.t.mutation(internal.leadGen.backfills.rebuildTeamOriginStatsDay, { tenantId: h.tenantId, dayKey: DAY_KEY, dryRun: true }),
+  ).rejects.toThrow("business-day rebuild is running");
+});
+
