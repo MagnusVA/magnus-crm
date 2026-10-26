@@ -102,6 +102,10 @@ it("gives no-team captures, their daily stats and team-origin stats the speciali
 
   const after = await state(h);
   expect(after.submissions.map((row) => row.teamId)).toEqual([teamId, teamId, teamId]);
+  // Each person's Respark team follows their captures' new team.
+  const people = await h.t.run((ctx) => ctx.db.query("leads").take(10));
+  expect(people.filter((row) => row.status !== "merged").map((row) => row.resparkTeamId))
+    .toEqual(people.filter((row) => row.status !== "merged").map(() => teamId));
   // The no-team row merged into the team's row for the same day and source.
   expect(after.daily).toHaveLength(1);
   expect(after.daily[0]).toMatchObject({ teamId, submissions: 3, uniqueProspectsSubmitted: 3 });

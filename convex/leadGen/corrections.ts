@@ -4,6 +4,7 @@ import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 import { applyLeadGenAggregateDelta } from "./aggregates";
 import { emitCaptureVoidedEvent } from "./prospectPeople";
+import { refreshResparkTeam } from "../lib/respark/state";
 
 const MIN_CORRECTION_REASON_LENGTH = 3;
 const MAX_CORRECTION_REASON_LENGTH = 1000;
@@ -73,6 +74,8 @@ export const voidSubmission = mutation({
     const prospect = await ctx.db.get("leadGenProspects", submission.prospectId);
     if (prospect?.leadId) {
       await emitCaptureVoidedEvent(ctx, afterSnapshot, prospect.leadId);
+      // The voided capture may have decided their Respark team.
+      await refreshResparkTeam(ctx, tenantId, prospect.leadId);
     }
 
     await ctx.db.insert("leadGenCorrectionEvents", {

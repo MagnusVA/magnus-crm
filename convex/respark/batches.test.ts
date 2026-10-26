@@ -5,7 +5,7 @@ import { bookingHarness, testLeadGenTeam } from "../../tests/bookingHarness";
 import { lifecycleProblems } from "../lib/leadLifecycle";
 import { resparkResultsByWorker } from "../lib/respark/items";
 import { DAY_MS } from "../lib/respark/settings";
-import { recomputeResparkState, resparkStateProblems } from "../lib/respark/state";
+import { recomputeResparkState, refreshResparkTeam, resparkStateProblems } from "../lib/respark/state";
 
 // Respark batches, the hold and the actions (docs/plans/respark.md §4.5,
 // §5.3), with the hold race and the tenant boundary.
@@ -322,6 +322,99 @@ describe("team pools", () => {
     expect(await checks(h, person)).toEqual([]);
     const mine = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
     expect((await batchItems(h, mine.batchId)).map((item) => item.leadId)).toEqual([person]);
+  });
+
+  it("ends a held batch when its lead generator moves team, and serves the new team's pool", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness({ leadGenTeam: true });
+    const teamB = await addUser(h, "gen_b", "lead_generator", h.tenantId, "org_test", "team-b");
+    const teamA = await addUser(h, "gen_a", "lead_generator");
+    await setBatchSize(h, 10);
+    const aPerson = await capture(h.admin, "a.person", NOW - 40 * DAY_MS);
+    const bPerson = await capture(teamB, "b.person", NOW - 50 * DAY_MS);
+    vi.setSystemTime(new Date(NOW));
+    const first = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
+    const [held] = await batchItems(h, first.batchId);
+    expect(held.leadId).toBe(aPerson);
+
+    await h.t.run(async (ctx) => {
+      const worker = (await ctx.db.query("leadGenWorkers").withIndex("by_tenantId_and_userId", (q) =>
+        q.eq("tenantId", h.tenantId).eq("userId", held.userId)).unique())!;
+      await ctx.db.patch("leadGenWorkers", worker._id, { teamId: await testLeadGenTeam(ctx, h.tenantId, "team-b") });
+    });
+    // Team A's person is out of their reach before they ask again.
+    expect(await h.admin.query(api.respark.queries.getMyResparkBatch, {})).toBeNull();
+    expect(await h.admin.query(api.respark.queries.getResparkPersonPanel, { itemId: held._id })).toBeNull();
+    await expect(h.admin.mutation(api.respark.batches.markResparked, { itemId: held._id }))
+      .rejects.toThrow("another team's pool");
+    // Asking again ends the old batch and serves Team B's pool.
+    const second = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
+    expect(second.resumed).toBe(false);
+    expect((await batchItems(h, second.batchId)).map((item) => item.leadId)).toEqual([bPerson]);
+    await expect(h.admin.mutation(api.respark.batches.markNotAFit, { itemId: held._id }))
+      .rejects.toThrow("This batch ended with the business day.");
+    // Team A's person is back in Team A's pool, with nothing recorded.
+    const theirs = await teamA.mutation(api.respark.batches.claimResparkBatch, {});
+    expect((await batchItems(h, theirs.batchId)).map((item) => item.leadId)).toEqual([aPerson]);
+    expect((await h.t.run((ctx) => ctx.db.get("resparkBatchItems", held._id)))?.result).toBeUndefined();
+  });
+
+  it("rejects Resparked for a held person a merge moved to another team, and allows Skip", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness({ leadGenTeam: true });
+    const teamB = await addUser(h, "gen_b", "lead_generator", h.tenantId, "org_test", "team-b");
+    const target = await capture(h.admin, "held.target", NOW - 40 * DAY_MS);
+    const source = await capture(teamB, "held.source", NOW - 60 * DAY_MS);
+    vi.setSystemTime(new Date(NOW));
+    const mine = await h.admin.mutation(api.respark.batches.claimResparkBatch, {});
+    const [item] = await batchItems(h, mine.batchId);
+    expect(item.leadId).toBe(target);
+    await h.admin.mutation(api.leads.merge.mergeLead, { sourceLeadId: source, targetLeadId: target });
+
+    const batch = (await h.admin.query(api.respark.queries.getMyResparkBatch, {}))!;
+    expect(batch.items[0].blockedReason).toBe("This person is now in another team's pool.");
+    expect(await h.admin.query(api.respark.queries.getResparkPersonPanel, { itemId: item._id })).toBeNull();
+    for (const action of [api.respark.batches.markResparked, api.respark.batches.markNotAFit]) {
+      await expect(h.admin.mutation(action, { itemId: item._id })).rejects.toThrow("another team's pool");
+    }
+    await h.admin.mutation(api.respark.batches.skipResparkItem, { itemId: item._id });
+  });
+
+  it("moves a person to the next team's capture when the first one is voided", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness({ leadGenTeam: true });
+    const teamB = await addUser(h, "gen_b", "lead_generator", h.tenantId, "org_test", "team-b");
+    const person = await capture(teamB, "voided.first", NOW - 70 * DAY_MS);
+    await capture(h.admin, "voided.first", NOW - 45 * DAY_MS);
+    vi.setSystemTime(new Date(NOW));
+    expect((await lead(h, person)).resparkTeamId).not.toBe(h.leadGenTeamId);
+    const first = (await h.t.run((ctx) => ctx.db.query("leadGenSubmissions").take(5)))
+      .find((row) => row.submittedAt === NOW - 70 * DAY_MS)!;
+    await h.admin.mutation(api.leadGen.corrections.voidSubmission, { submissionId: first._id, reason: "Wrong team" });
+    expect((await lead(h, person)).resparkTeamId).toBe(h.leadGenTeamId);
+    expect(await checks(h, person)).toEqual([]);
+  });
+
+  it("reads past any number of no-team and voided captures to the first capture by a team", async () => {
+    vi.useFakeTimers();
+    const h = await bookingHarness({ leadGenTeam: true });
+    const person = await capture(h.admin, "many.captures", NOW - 40 * DAY_MS);
+    vi.setSystemTime(new Date(NOW));
+    const teamBId = await h.t.run(async (ctx) => {
+      const teamB = await testLeadGenTeam(ctx, h.tenantId, "team-b");
+      const { _id, _creationTime, ...capture } = (await ctx.db.query("leadGenSubmissions").first())!;
+      void _id; void _creationTime;
+      // 25 older captures with no team or voided, then an older one by Team B.
+      for (let index = 0; index < 25; index += 1) {
+        await ctx.db.insert("leadGenSubmissions", { ...capture, teamId: undefined,
+          ...(index % 2 ? { voidedAt: NOW } : {}), submittedAt: NOW - (100 - index) * DAY_MS });
+      }
+      await ctx.db.insert("leadGenSubmissions", { ...capture, teamId: teamB, submittedAt: NOW - 60 * DAY_MS });
+      await refreshResparkTeam(ctx, h.tenantId, person);
+      return teamB;
+    });
+    expect((await lead(h, person)).resparkTeamId).toBe(teamBId);
+    expect(await checks(h, person)).toEqual([]);
   });
 
   it("gives a merged person the team of the earliest capture of either", async () => {

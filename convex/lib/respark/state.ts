@@ -188,7 +188,7 @@ export type ResparkState = {
 // Far above the captures one person has; past it the team throws rather
 // than guess.
 const PERSON_PROSPECT_LIMIT = 200;
-const PROSPECT_SUBMISSION_SCAN = 20;
+const PROSPECT_SUBMISSION_LIMIT = 500;
 
 /**
  * The team of the person's first capture by a team that wasn't voided,
@@ -212,15 +212,23 @@ export async function firstCaptureTeam(
       throw new Error(`Lead ${leadId} has more than ${PERSON_PROSPECT_LIMIT} lead gen prospects`);
     }
     for (const prospect of prospects) {
-      const submissions = await ctx.db
+      // Oldest first, until the first capture by a team that wasn't voided.
+      let scanned = 0;
+      for await (const row of ctx.db
         .query("leadGenSubmissions")
         .withIndex("by_tenantId_and_prospectId_and_submittedAt", (q) =>
           q.eq("tenantId", tenantId).eq("prospectId", prospect._id),
         )
-        .take(PROSPECT_SUBMISSION_SCAN);
-      const capture = submissions.find((row) => row.voidedAt === undefined && row.teamId !== undefined);
-      if (capture?.teamId && (!first || capture.submittedAt < first.at)) {
-        first = { at: capture.submittedAt, teamId: capture.teamId };
+        .order("asc")) {
+        scanned += 1;
+        if (scanned > PROSPECT_SUBMISSION_LIMIT) {
+          throw new Error(`Prospect ${prospect._id} has more than ${PROSPECT_SUBMISSION_LIMIT} captures before one by a team`);
+        }
+        if (first && row.submittedAt >= first.at) break;
+        if (row.voidedAt === undefined && row.teamId !== undefined) {
+          first = { at: row.submittedAt, teamId: row.teamId };
+          break;
+        }
       }
     }
   }
@@ -301,6 +309,31 @@ export async function refreshResparkState(
       ? lead.resparkTeamId
       : await firstCaptureTeam(ctx, lead.tenantId, await mergedLeadIds(ctx, lead.tenantId, lead._id));
   await writeResparkState(ctx, lead, { lastTouch, resparkGroup, resparkTeamId });
+}
+
+/**
+ * Works the person's team out again from their captures, for the survivor
+ * when they were merged: after a capture is voided or a capture's team is
+ * filled in, since the live refresh keeps a team once set.
+ */
+export async function refreshResparkTeam(
+  ctx: MutationCtx,
+  tenantId: Id<"tenants">,
+  leadId: Id<"leads">,
+): Promise<void> {
+  const lead = await ctx.db.get("leads", leadId);
+  if (!lead || lead.tenantId !== tenantId) return;
+  const survivor = lead.status === "merged" ? await mergeSurvivor(ctx, lead) : lead._id;
+  if (survivor) await refreshResparkState(ctx, tenantId, survivor, undefined, { recomputeTeam: true });
+}
+
+/** `refreshResparkTeam` for the person a capture's prospect belongs to. */
+export async function refreshResparkTeamOfProspect(
+  ctx: MutationCtx,
+  prospectId: Id<"leadGenProspects">,
+): Promise<void> {
+  const prospect = await ctx.db.get("leadGenProspects", prospectId);
+  if (prospect?.leadId) await refreshResparkTeam(ctx, prospect.tenantId, prospect.leadId);
 }
 
 /** Keeps the person's team pool entry in step. Tolerant until verified. */

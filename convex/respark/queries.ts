@@ -38,13 +38,16 @@ export const getMyResparkBatch = query({
   returns: v.union(v.null(), batchValidator),
   handler: async (ctx) => {
     const access = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:respark"]]);
-    await requireActiveLeadGenWorker(ctx, access);
+    const worker = await requireActiveLeadGenWorker(ctx, access);
     const { tenantId, userId } = access;
     const now = Date.now();
     const batch = await ctx.db.query("resparkBatches")
       .withIndex("by_tenantId_and_userId_and_createdAt", (q) => q.eq("tenantId", tenantId).eq("userId", userId))
       .order("desc").first();
     if (!batch || batch.heldUntil <= now) return null;
+    // Only a batch from the caller's team's pool; asking for a batch ends any other.
+    const teamId = worker?.teamId;
+    if (!teamId || batch.teamId !== teamId) return null;
     const items = await ctx.db.query("resparkBatchItems")
       .withIndex("by_batchId_and_position", (q) => q.eq("batchId", batch._id)).take(100);
     const state = createLiveReadState();
@@ -56,7 +59,8 @@ export const getMyResparkBatch = query({
       cards.push({ itemId: item._id, position: item.position, bucket: item.bucket,
         result: item.result ?? null, workedAt: item.workedAt ?? null,
         person: person ? await personCard(ctx, person, state) : null,
-        blockedReason: await leftPoolReason(ctx, person) });
+        blockedReason: (await leftPoolReason(ctx, person)) ??
+          (person?.resparkTeamId === teamId ? null : "This person is now in another team's pool.") });
     }
     return { batchId: batch._id, heldUntil: batch.heldUntil, size: batch.size,
       createdAt: batch.createdAt, items: cards, capped: state.capped || cards.some((card) => card.person?.capped) };
@@ -128,14 +132,17 @@ export const getResparkPersonPanel = query({
   returns: v.union(v.null(), panelValidator),
   handler: async (ctx, { itemId }) => {
     const access = await requireTenantUser(ctx, [...PERMISSIONS["lead-gen:respark"]]);
-    await requireActiveLeadGenWorker(ctx, access);
+    const worker = await requireActiveLeadGenWorker(ctx, access);
     const { tenantId, userId } = access;
     const item = await ctx.db.get("resparkBatchItems", itemId);
     if (!item || item.tenantId !== tenantId || item.userId !== userId) return null;
     const batch = await ctx.db.get("resparkBatches", item.batchId);
     if (!batch || batch.tenantId !== tenantId || batch.userId !== userId || batch.heldUntil <= Date.now()) return null;
+    // Only people in the caller's team's pool, from a batch of that pool.
+    const teamId = worker?.teamId;
+    if (!teamId || batch.teamId !== teamId) return null;
     const lead = await ctx.db.get("leads", item.leadId);
-    if (!lead || lead.tenantId !== tenantId) return null;
+    if (!lead || lead.tenantId !== tenantId || lead.resparkTeamId !== teamId) return null;
     const ids = await mergedLeadIds(ctx, tenantId, lead._id);
     const people: Doc<"leads">[] = [lead];
     for (const id of ids.slice(1)) {

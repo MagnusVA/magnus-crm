@@ -28,7 +28,13 @@ import { getPersonProgramEnrollment } from "./enrollments/read";
 import { derivePersonEnrollments, paymentCounts } from "./lib/enrollments";
 import { lifecycleProblems, planLeadLifecycleRederive, rederiveLeadLifecycle } from "./lib/leadLifecycle";
 import { personProspects, prospectConversionProblems } from "./lib/prospectConversions";
-import { recomputeResparkState, resparkPool, resparkStateProblems, resparkTeamPool } from "./lib/respark/state";
+import {
+  recomputeResparkState,
+  refreshResparkTeamOfProspect,
+  resparkPool,
+  resparkStateProblems,
+  resparkTeamPool,
+} from "./lib/respark/state";
 import { dailyStatKey } from "./leadGen/aggregates";
 import { runningBusinessDayRebuild } from "./lib/businessDayRebuildState";
 import { RESPARK_GROUPS, type ResparkGroup } from "./lib/respark/validators";
@@ -715,7 +721,10 @@ export const backfillCaptureTeams = migrations.define({
   table: "leadGenSubmissions", batchSize: 200,
   migrateOne: async (ctx, submission) => {
     const teamId = await captureTeamToFill(ctx, submission);
-    if (teamId) await ctx.db.patch("leadGenSubmissions", submission._id, { teamId });
+    if (!teamId) return;
+    await ctx.db.patch("leadGenSubmissions", submission._id, { teamId });
+    // The capture may now decide the person's Respark team.
+    await refreshResparkTeamOfProspect(ctx, submission.prospectId);
   },
 });
 export const assertCaptureTeams = migrations.define({
@@ -778,18 +787,28 @@ export const resparkPoolTotals = internalQuery({
   },
 });
 
-// The team pool aggregate's count per team (2026-10-25), for the read-only
-// check against a paged count of the stored `resparkTeamId`.
+// The team pool aggregate's count per team and group, and in all
+// (2026-10-25), for the read-only check against a paged count of the stored
+// `resparkTeamId` and `resparkGroup`: an extra or stale entry shows as a
+// difference, which the per-person assert can't see.
 export const resparkTeamPoolTotals = internalQuery({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
     const teams = await ctx.db.query("attributionTeams")
       .withIndex("by_tenantId", (q) => q.eq("tenantId", tenantId)).take(100);
+    const pairs = teams.flatMap((team) => RESPARK_GROUPS.map((group) => [team._id, group] as const));
     const counts = await resparkTeamPool.countBatch(
       ctx,
-      teams.map((team) => ({ namespace: tenantId, bounds: { prefix: [team._id] as [Id<"attributionTeams">] } })),
+      pairs.map(([teamId, group]) => ({
+        namespace: tenantId,
+        bounds: { prefix: [teamId, group] as [Id<"attributionTeams">, ResparkGroup] },
+      })),
     );
-    return Object.fromEntries(teams.map((team, index) => [team._id, counts[index]]));
+    const byTeam: Record<string, Record<string, number>> = {};
+    pairs.forEach(([teamId, group], index) => {
+      byTeam[teamId] = { ...byTeam[teamId], [group]: counts[index] };
+    });
+    return { byTeam, total: await resparkTeamPool.count(ctx, { namespace: tenantId }) };
   },
 });
 

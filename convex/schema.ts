@@ -620,6 +620,9 @@ export default defineSchema({
     requestedSize: v.number(),
     // When the last person in it was worked.
     completedAt: v.optional(v.number()),
+    // The lead gen team whose pool it came from (2026-10-25); none on
+    // batches from before team pools.
+    teamId: v.optional(v.id("attributionTeams")),
   }).index("by_tenantId_and_userId_and_createdAt", ["tenantId", "userId", "createdAt"]),
 
   // One per person in a batch. An unworked item in an unexpired batch is the

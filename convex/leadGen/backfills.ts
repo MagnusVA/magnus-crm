@@ -15,6 +15,7 @@ import {
 import { log } from "../lib/observability/log";
 import { requireTenantUser } from "../requireTenantUser";
 import { dailyStatKey, teamOriginStatKey } from "./aggregates";
+import { refreshResparkTeamOfProspect } from "../lib/respark/state";
 import { runningBusinessDayRebuild } from "../lib/businessDayRebuildState";
 import {
   isRankableLeadGenOrigin,
@@ -216,6 +217,8 @@ export const backfillUnassignedWorkersToTeam = internalMutation({
         submissions.wouldUpdate += 1;
       } else {
         await ctx.db.patch("leadGenSubmissions", submission._id, { teamId });
+        // The capture may now decide the person's Respark team.
+        await refreshResparkTeamOfProspect(ctx, submission.prospectId);
         submissions.updated += 1;
       }
     }
