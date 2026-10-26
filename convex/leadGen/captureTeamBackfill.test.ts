@@ -132,10 +132,20 @@ it("leaves the captures of a specialist with no team as they are", async () => {
   expect(after.daily[0].teamId).toBeUndefined();
 });
 
-it("refuses to repair a day while a business-day rebuild runs", async () => {
+it("refuses to repair a day, or move captures or stats, while a business-day rebuild runs", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
   const h = await bookingHarness();
+  migrationsTest.register(h.t);
+  await capture(h, "during.rebuild");
+  await h.t.run(async (ctx) => {
+    const teamId = await ctx.db.insert("attributionTeams", {
+      tenantId: h.tenantId, slug: "team", displayName: "Team", utmSource: "team",
+      normalizedUtmSource: "team", isActive: true, createdAt: 0, updatedAt: 0,
+    } as never);
+    const worker = (await ctx.db.query("leadGenWorkers").first())!;
+    await ctx.db.patch("leadGenWorkers", worker._id, { teamId });
+  });
   await h.t.run((ctx) =>
     ctx.db.insert("businessDayRebuilds", {
       tenantId: h.tenantId, version: 1, rebuildLeadGen: true, requestedAt: NOW, state: "running",
@@ -147,5 +157,11 @@ it("refuses to repair a day while a business-day rebuild runs", async () => {
   await expect(
     h.t.mutation(internal.leadGen.backfills.rebuildTeamOriginStatsDay, { tenantId: h.tenantId, dayKey: DAY_KEY, dryRun: true }),
   ).rejects.toThrow("business-day rebuild is running");
+  for (const name of ["backfillCaptureTeams", "backfillDailyStatTeams"]) {
+    expect((await run(h, name))?.error).toContain("business-day rebuild is running");
+  }
+  const after = await state(h);
+  expect(after.submissions[0].teamId).toBeUndefined();
+  expect(after.daily[0].teamId).toBeUndefined();
 });
 
