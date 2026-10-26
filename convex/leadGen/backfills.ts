@@ -48,7 +48,7 @@ function clampLimit(value: number | undefined) {
   return Math.min(Math.floor(value), MAX_LIMIT);
 }
 
-function dailyStatKey(args: {
+export function dailyStatKey(args: {
   dayKey: string;
   workerId: Id<"leadGenWorkers">;
   teamId?: Id<"attributionTeams">;
@@ -391,3 +391,66 @@ export const rebuildTeamOriginStatsRange = mutation({
     return result;
   },
 });
+
+// A capture recorded with no team, by a specialist who has one now, takes
+// that team (2026-10-25: 12,132 captures from before their team was set).
+// Readers of the old rows: the captures, the daily stats keyed by team, and
+// the team-origin stats. The two migrations in convex/migrations.ts fix the
+// first two; this rebuilds the third for one day from the captures.
+
+// One day's captures, read in one go. The busiest day is well under this.
+const TEAM_ORIGIN_DAY_LIMIT = 6_000;
+
+export const rebuildTeamOriginStatsDay = internalMutation({
+  args: {
+    tenantId: v.id("tenants"),
+    dayKey: v.string(),
+    dryRun: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    validateTeamOriginRebuildRange({ startDayKey: args.dayKey, endDayKey: args.dayKey });
+    const setting = await getTenantBusinessDay(ctx, args.tenantId);
+    const existing = await ctx.db
+      .query("leadGenTeamOriginStats")
+      .withIndex("by_tenantId_and_dayKey", (q) =>
+        q.eq("tenantId", args.tenantId).eq("dayKey", args.dayKey),
+      )
+      .take(TEAM_ORIGIN_DAY_LIMIT + 1);
+    const rows = await ctx.db
+      .query("leadGenSubmissions")
+      .withIndex("by_tenantId_and_submittedAt", (q) =>
+        q
+          .eq("tenantId", args.tenantId)
+          .gte("submittedAt", businessDateToUtcStart(args.dayKey, setting))
+          .lt("submittedAt", businessDateToUtcStart(addBusinessDays(args.dayKey, 1), setting)),
+      )
+      .take(TEAM_ORIGIN_DAY_LIMIT + 1);
+    if (existing.length > TEAM_ORIGIN_DAY_LIMIT || rows.length > TEAM_ORIGIN_DAY_LIMIT) {
+      throw new Error(`Team-origin rebuild for ${args.dayKey} has too many rows`);
+    }
+    const rebuilt = groupSubmissionsIntoTeamOriginStats(
+      rows.filter(
+        (row) =>
+          row.voidedAt === undefined &&
+          row.originRankable &&
+          row.originValue !== undefined &&
+          isRankableLeadGenOrigin(row.originKind),
+      ),
+      Date.now(),
+      setting,
+    );
+    if (!args.dryRun) {
+      for (const row of existing) await ctx.db.delete("leadGenTeamOriginStats", row._id);
+      for (const row of rebuilt) await ctx.db.insert("leadGenTeamOriginStats", row);
+    }
+    return {
+      dayKey: args.dayKey,
+      existingRows: existing.length,
+      existingWithoutTeam: existing.filter((row) => row.teamId === undefined).length,
+      rebuiltRows: rebuilt.length,
+      rebuiltWithoutTeam: rebuilt.filter((row) => row.teamId === undefined).length,
+      submissions: rows.length,
+    };
+  },
+});
+

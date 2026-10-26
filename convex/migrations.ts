@@ -29,6 +29,7 @@ import { derivePersonEnrollments, paymentCounts } from "./lib/enrollments";
 import { lifecycleProblems, planLeadLifecycleRederive, rederiveLeadLifecycle } from "./lib/leadLifecycle";
 import { personProspects, prospectConversionProblems } from "./lib/prospectConversions";
 import { recomputeResparkState, resparkPool, resparkStateProblems } from "./lib/respark/state";
+import { dailyStatKey } from "./leadGen/backfills";
 import { RESPARK_GROUPS, type ResparkGroup } from "./lib/respark/validators";
 import { computeLatestActivityAt } from "./lib/opportunityActivity";
 import {
@@ -689,6 +690,47 @@ export const assertResparkState = migrations.define({
 });
 // The pool aggregate's count per group, for the read-only check against a
 // paged count of the stored groups (respark plan §9).
+// Captures recorded with no team (2026-10-25): a capture whose specialist has
+// a team now takes it, and so does that specialist's daily stat row. A
+// specialist with no team keeps "none". The team-origin stats are rebuilt per
+// day by leadGen/backfills:rebuildTeamOriginStatsDay. Both stay safe to rerun.
+export const backfillCaptureTeams = migrations.define({
+  table: "leadGenSubmissions", batchSize: 200,
+  migrateOne: async (ctx, submission) => {
+    if (submission.teamId !== undefined) return;
+    const worker = await ctx.db.get("leadGenWorkers", submission.workerId);
+    if (worker?.tenantId !== submission.tenantId || !worker.teamId) return;
+    await ctx.db.patch("leadGenSubmissions", submission._id, { teamId: worker.teamId });
+  },
+});
+export const backfillDailyStatTeams = migrations.define({
+  table: "leadGenDailyStats", batchSize: 100,
+  migrateOne: async (ctx, stat) => {
+    if (stat.teamId !== undefined) return;
+    const worker = await ctx.db.get("leadGenWorkers", stat.workerId);
+    if (worker?.tenantId !== stat.tenantId || !worker.teamId) return;
+    const statKey = dailyStatKey({ dayKey: stat.dayKey, workerId: stat.workerId, teamId: worker.teamId, source: stat.source });
+    const existing = await ctx.db
+      .query("leadGenDailyStats")
+      .withIndex("by_tenantId_and_statKey", (q) => q.eq("tenantId", stat.tenantId).eq("statKey", statKey))
+      .unique();
+    if (existing && existing._id !== stat._id) {
+      // The same specialist, day and source under the team: add the counts
+      // to that row and drop this one.
+      await ctx.db.patch("leadGenDailyStats", existing._id, {
+        submissions: existing.submissions + stat.submissions,
+        uniqueProspectsSubmitted: existing.uniqueProspectsSubmitted + stat.uniqueProspectsSubmitted,
+        duplicateProspectSubmissions: existing.duplicateProspectSubmissions + stat.duplicateProspectSubmissions,
+        scheduledHours: Math.max(existing.scheduledHours, stat.scheduledHours),
+        updatedAt: Date.now(),
+      });
+      await ctx.db.delete("leadGenDailyStats", stat._id);
+      return;
+    }
+    await ctx.db.patch("leadGenDailyStats", stat._id, { teamId: worker.teamId, statKey, updatedAt: Date.now() });
+  },
+});
+
 export const resparkPoolTotals = internalQuery({
   args: { tenantId: v.id("tenants") },
   handler: async (ctx, { tenantId }) => {
